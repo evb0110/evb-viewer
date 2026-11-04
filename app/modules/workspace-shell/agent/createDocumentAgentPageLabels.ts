@@ -177,6 +177,15 @@ function getPageNumberInput(input: Record<string, unknown>, totalPages: number, 
     );
 }
 
+/** The first style alias the input sets; an explicit null asks for literal labels. */
+function getStyleInput(input: Record<string, unknown>) {
+    return [
+        input.style,
+        input.numberStyle,
+        input.format,
+    ].find(value => value !== undefined);
+}
+
 function normalizeAgentPageLabelStyle(value: unknown): TPageLabelStyle {
     if (value === null) {
         return null;
@@ -231,7 +240,7 @@ function normalizePageLabelRangeInput(
     const hasExplicitPrefix = hasInputKey(input, 'prefix');
     const style = !hasExplicitStyle && !hasExplicitPrefix && literalLabel !== null
         ? null
-        : normalizeAgentPageLabelStyle(input.style ?? input.numberStyle ?? input.format);
+        : normalizeAgentPageLabelStyle(getStyleInput(input));
     return {
         startPage: getPageNumberInput(input, totalPages, actionId),
         style,
@@ -853,20 +862,6 @@ export function createDocumentAgentPageLabels(options: ICreateDocumentAgentPageL
         totalPages,
     } = options;
 
-    function normalizeAgentPageLabelRange(input: Record<string, unknown>, actionId: string): IPdfPageLabelRange {
-        const style = normalizeAgentPageLabelStyle(input.style ?? input.numberStyle ?? input.format);
-        return {
-            startPage: getAgentPageNumberInput(input, totalPages.value, actionId),
-            style,
-            prefix: getAgentRawStringInput(input, 'prefix') ?? '',
-            startNumber: admitPdfPageLabelStartNumber(style,
-                getAgentNumberInput(input, 'startNumber')
-                ?? getAgentNumberInput(input, 'number')
-                ?? 1,
-            ),
-        };
-    }
-
     function createAgentPageLabelSnapshot() {
         const viewerLabelsResolved = pageLabelsResolved?.value ?? true;
         const viewerModel = viewerLabelsResolved
@@ -942,7 +937,7 @@ export function createDocumentAgentPageLabels(options: ICreateDocumentAgentPageL
         }
         return rawRanges
             .filter(isAgentRecord)
-            .map(range => normalizeAgentPageLabelRange(range, actionId));
+            .map(range => normalizePageLabelRangeInput(range, totalPages.value, actionId));
     }
 
     function getAgentPageLabelApplyRangeOptions(input: Record<string, unknown>, actionId: string) {
@@ -959,7 +954,7 @@ export function createDocumentAgentPageLabels(options: ICreateDocumentAgentPageL
         if (endPage < startPage) {
             throw new Error(`${actionId} endPage must be greater than or equal to startPage.`);
         }
-        const style = normalizeAgentPageLabelStyle(input.style ?? input.numberStyle ?? input.format);
+        const style = normalizeAgentPageLabelStyle(getStyleInput(input));
         return {
             startPage,
             endPage,

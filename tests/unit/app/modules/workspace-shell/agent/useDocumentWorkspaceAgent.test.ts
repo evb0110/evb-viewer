@@ -387,6 +387,30 @@ describe('createDocumentWorkspaceAgent', () => {
         expect(options.pageLabelRanges.value).toEqual(applied);
     });
 
+    it.each([
+        'page_labels.apply_range',
+        'page_labels.apply_plan',
+        'page_labels.set_ranges',
+    ])('keeps an explicit null style as a literal label through %s', async (actionId) => {
+        const options = createAgentOptions();
+        const agent = createDocumentWorkspaceAgent(options);
+        const range = {
+            startPage: 1,
+            endPage: 1,
+            style: null,
+            prefix: 'Cover',
+        };
+        await agent.runAgentAction(actionId, actionId === 'page_labels.apply_range'
+            ? range
+            : actionId === 'page_labels.apply_plan' ? {segments: [range]} : {ranges: [range]});
+
+        expect(options.pageLabelRanges.value[0]).toMatchObject({
+            startPage: 1,
+            style: null,
+            prefix: 'Cover',
+        });
+    });
+
     it('keeps primary renderer action handlers aligned with advertised capabilities', () => {
         const advertisedRendererActionIds = AGENT_CAPABILITY_TEMPLATES
             .map(template => template.id)
