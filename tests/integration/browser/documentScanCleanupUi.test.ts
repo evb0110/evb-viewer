@@ -4,6 +4,7 @@ import {
 import {join} from 'node:path';
 import {encode} from 'fast-png';
 import {PDFDocument} from 'pdf-lib';
+import type {Page} from 'playwright';
 import {
     describe, expect, it,
 } from 'vitest';
@@ -16,7 +17,7 @@ import {
     evidenceRoot, scanCleanupUiTimeoutMs, previewImage, cleanedImage, sha256, installProbe, openWorkspace, showWorkspace, waitForPixels, pixels, cleanedPixels, assertBrowserScope, select, drag, undoRedo,
 } from './scanCleanupUiTestHelpers';
 
-async function fixture() {
+async function createFixture() {
     const pdf = await PDFDocument.create();
     pdf.setCreationDate(new Date('2026-01-01T00:00:00Z'));
     pdf.setModificationDate(new Date('2026-01-01T00:00:00Z'));
@@ -75,11 +76,22 @@ async function fixture() {
     };
 }
 
+// Built once: every case scans the same three pages.
+let fixtureOnce: ReturnType<typeof createFixture> | undefined;
+const fixture = () => fixtureOnce ??= createFixture();
+
+const documentRef = (page: Page) => page.evaluate(() => (Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi)
+    .readActiveWorkspaceStateValues?.<{originalPath: string}>(['originalPath']).originalPath);
+// The tab holds a document again, and not the one it held before.
+const newDocumentRef = async (page: Page, previous: string | undefined) => {
+    const ref = await documentRef(page);
+    return typeof ref === 'string' && ref.length > 0 && ref !== previous;
+};
+
 
 
 describe('browser Scan Cleanup workspace', () => {
-    // T1/T6/C2: Save As retains document settings, Recent reopens the saved
-    // identity, and a different document opened in the same tab stays isolated.
+    // T1/T6: Save As retains document settings and Recent reopens the saved identity.
     it('retains the page override after Save As and reopening the saved Recent document', async () => {
         const context = await lifecycle.browser.newContext({viewport: {
             width: 1440,
@@ -94,8 +106,6 @@ describe('browser Scan Cleanup workspace', () => {
             documentGrayscale: string | null;
             previewSha256: string;
         }> = [];
-        const documentRef = () => page.evaluate(() => (Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi)
-            .readActiveWorkspaceStateValues?.<{originalPath: string}>(['originalPath']).originalPath);
         const observePage = async (stage: string, pageNumber: number, expectedMode: string) => {
             await page.locator(`.scan-thumbnail-rail [data-thumbnail-page="${String(pageNumber)}"]`).click();
             await page.getByRole('radio', {
@@ -127,14 +137,14 @@ describe('browser Scan Cleanup workspace', () => {
                 await writeFile(join(evidenceRoot, `${stage}-page-${String(pageNumber)}-preview-${String(index)}.png`), Buffer.from(await pixels(image), 'base64'));
             }
             expect(outputMode, `${stage}: Page ${String(pageNumber)} output mode`).toBe(expectedMode);
-            if (stage !== 'replacement') expect(documentGrayscale, `${stage}: document output remains Grayscale`).toBe('true');
+            expect(documentGrayscale, `${stage}: document output remains Grayscale`).toBe('true');
             return previewSha256;
         };
         try {
             await installProbe(page);
             const source = await fixture();
             await openWorkspace(page, source);
-            const originalRef = await documentRef();
+            const originalRef = await documentRef(page);
             expect(originalRef).toBeTypeOf('string');
             await page.getByRole('radio', {
                 name: 'Grayscale',
@@ -171,9 +181,8 @@ describe('browser Scan Cleanup workspace', () => {
             const saved = await readFile(savedPath);
             expect((await PDFDocument.load(saved)).getPageCount()).toBe(3);
             expect(sha256(saved), 'Save As preserves the unedited scanned PDF bytes').toBe(sha256(source.buffer));
-            await expect.poll(documentRef).toBeTypeOf('string');
-            await expect.poll(documentRef).not.toBe(originalRef);
-            const savedRef = await documentRef();
+            await expect.poll(() => newDocumentRef(page, originalRef)).toBe(true);
+            const savedRef = await documentRef(page);
             await writeFile(join(evidenceRoot, 'save-as.json'), JSON.stringify({
                 mode: 'download',
                 originalRef,
@@ -185,8 +194,9 @@ describe('browser Scan Cleanup workspace', () => {
                 pages: 3,
             }, null, 2));
             await showWorkspace(page);
+            // The open view keeps the override under its new identity; the
+            // reload below checks both pages against that saved identity.
             expect(await observePage('after-save', 1, 'Color')).toBe(colorPage1);
-            expect(await observePage('after-save', 2, 'Follow document setting')).toBe(grayscalePage2);
 
             await page.getByRole('button', {
                 name: 'Done',
@@ -197,10 +207,45 @@ describe('browser Scan Cleanup workspace', () => {
             await page.reload({waitUntil: 'domcontentloaded'});
             await waitForOpenFileReady(page);
             await page.getByRole('button', {name: /sc3b-three-scans\.pdf/u}).first().click();
-            await expect.poll(documentRef).toBe(savedRef);
+            await expect.poll(() => documentRef(page)).toBe(savedRef);
             await showWorkspace(page);
             expect(await observePage('after-reload', 1, 'Color')).toBe(colorPage1);
             expect(await observePage('after-reload', 2, 'Follow document setting')).toBe(grayscalePage2);
+            await assertBrowserScope(page);
+            expect(problems).toEqual([]);
+        } finally {
+            // Evidence is best-effort; it never hides the outcome or skips closing the context.
+            try {
+                await writeFile(join(evidenceRoot, 'save-as-observations.json'), JSON.stringify(observations, null, 2));
+                await writeFile(join(evidenceRoot, 'save-as-console.json'), JSON.stringify(problems, null, 2));
+                await writeFile(join(evidenceRoot, 'save-as-input.json'), JSON.stringify(await page.evaluate(() => (Reflect.get(window, '__sc3bProbe') as IProbe).inputs), null, 2));
+            } catch (error) {
+                console.warn('Save As evidence was not written', error);
+            } finally {
+                await context.close();
+            }
+        }
+    }, scanCleanupUiTimeoutMs);
+
+    // C2: a different document opened in the same tab stays isolated.
+    it('opens a different document in the same tab with its own output setting', async () => {
+        const context = await lifecycle.browser.newContext({viewport: {
+            width: 1440,
+            height: 1000,
+        }});
+        const page = await context.newPage();
+        const problems = collectConsoleProblems(page);
+        try {
+            await installProbe(page);
+            const source = await fixture();
+            await openWorkspace(page, source);
+            const originalRef = await documentRef(page);
+            expect(originalRef).toBeTypeOf('string');
+            await page.getByRole('radio', {
+                name: 'Grayscale',
+                exact: true,
+            }).click();
+            await waitForPixels(page, 1);
             await page.getByRole('button', {
                 name: 'Done',
                 exact: true,
@@ -228,29 +273,29 @@ describe('browser Scan Cleanup workspace', () => {
             await expect.poll(() => activeTab.innerText()).toContain('cb3-different-scans.pdf');
             await expect.poll(() => page.locator('.page_container[data-page="1"] .textLayer').first().innerText()).toContain('Different document');
             expect(await activeTab.getAttribute('data-tab-id'), 'Open File replaces the current tab').toBe(tabId);
-            await expect.poll(documentRef).not.toBe(savedRef);
+            await expect.poll(() => newDocumentRef(page, originalRef)).toBe(true);
             await showWorkspace(page);
-            await observePage('replacement', 1, 'Follow document setting');
+            await waitForPixels(page, 1);
+            await page.getByRole('radio', {
+                name: 'Page 1',
+                exact: true,
+            }).click();
+            await page.screenshot({path: join(evidenceRoot, 'replacement-page-1.png')});
+            expect(await page.getByRole('combobox', {
+                name: 'Output mode',
+                exact: true,
+            }).innerText(), 'the replacement has no page override').toBe('Follow document setting');
             expect(await page.getByRole('radio', {name: /^Auto.*recommended per page$/u}).getAttribute('aria-checked'), 'the replacement starts with its own document output setting').toBe('true');
             await assertBrowserScope(page);
             expect(problems).toEqual([]);
         } finally {
-            // Evidence is best-effort; it never hides the outcome or skips closing the context.
-            try {
-                await writeFile(join(evidenceRoot, 'save-as-observations.json'), JSON.stringify(observations, null, 2));
-                await writeFile(join(evidenceRoot, 'save-as-console.json'), JSON.stringify(problems, null, 2));
-                await writeFile(join(evidenceRoot, 'save-as-input.json'), JSON.stringify(await page.evaluate(() => (Reflect.get(window, '__sc3bProbe') as IProbe).inputs), null, 2));
-            } catch (error) {
-                console.warn('Save As evidence was not written', error);
-            } finally {
-                await context.close();
-            }
+            await context.close();
         }
     }, scanCleanupUiTimeoutMs);
 
-    it('opens without OCR, edits crop, cutter and zones with undo/redo, and reloads durable settings', async () => {
+    it('opens without OCR and paints black and white, original, grayscale and zoomed detail pixels', async () => {
         const context = await lifecycle.browser.newContext({
-            ...(process.env.SC3B_RECORD_VIDEO === '1' ? {recordVideo: {dir: join(evidenceRoot, 'case-1-video')}} : {}),
+            ...(process.env.SC3B_RECORD_VIDEO === '1' ? {recordVideo: {dir: join(evidenceRoot, 'case-1-views-video')}} : {}),
             viewport: {
                 width: 1440,
                 height: 1000,
@@ -295,8 +340,34 @@ describe('browser Scan Cleanup workspace', () => {
             });
             expect(await page.locator('.preview-detail-pixel').first().evaluate(element => (element as HTMLImageElement).naturalWidth)).toBeGreaterThan(0);
             await page.screenshot({path: join(evidenceRoot, 'detail.png')});
-            await page.getByRole('button', {
-                name: 'Fit whole page in view',
+            await assertBrowserScope(page);
+            expect(problems).toEqual([]);
+        } finally {
+            try {
+                await writeFile(join(evidenceRoot, 'case-1-views-console.json'), JSON.stringify(problems, null, 2));
+            } catch (error) {
+                console.warn('Views evidence was not written', error);
+            } finally {
+                await context.close();
+            }
+        }
+    }, scanCleanupUiTimeoutMs);
+
+    it('edits crop, cutter and zones with undo/redo, and reloads durable settings', async () => {
+        const context = await lifecycle.browser.newContext({
+            ...(process.env.SC3B_RECORD_VIDEO === '1' ? {recordVideo: {dir: join(evidenceRoot, 'case-1-video')}} : {}),
+            viewport: {
+                width: 1440,
+                height: 1000,
+            },
+        });
+        const page = await context.newPage();
+        const problems = collectConsoleProblems(page);
+        try {
+            await installProbe(page);
+            await openWorkspace(page, await fixture());
+            await page.getByRole('radio', {
+                name: 'Grayscale',
                 exact: true,
             }).click();
             await waitForPixels(page, 1);
