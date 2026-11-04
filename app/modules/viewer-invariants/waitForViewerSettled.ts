@@ -1,5 +1,6 @@
-import { getAutomationEvents } from '@app/modules/workspace-shell/public';
+import { getAutomationEvents } from '@app/modules/workspace-shell/public/automationEvents';
 import { readLastViewerInputAt } from '@app/modules/viewer-invariants/viewerActionLog';
+import { findActiveWorkspaceHost } from '@app/modules/viewer-invariants/readViewerSurface';
 
 /** The quiet window that makes an interaction finished rather than paused. */
 const INPUT_QUIET_MS = 500;
@@ -51,9 +52,9 @@ function hasNavigationIdleSinceLastInput() {
  * painted skeleton inside a page that intersects the viewport means the viewer
  * is still resolving what the reader sees.
  */
-function findPageRenderPending() {
-    const track = document.querySelector<HTMLElement>(PAGE_TRACK_SELECTOR);
-    const viewport = document.querySelector<HTMLElement>(VIEWPORT_SELECTOR);
+function findPageRenderPending(host: HTMLElement) {
+    const track = host.querySelector<HTMLElement>(PAGE_TRACK_SELECTOR);
+    const viewport = host.querySelector<HTMLElement>(VIEWPORT_SELECTOR);
     if (!track || !viewport) {
         return 'the viewer has no page track';
     }
@@ -94,8 +95,8 @@ function findPageRenderPending() {
  * the layout has not finished choosing, and the next observation reads the
  * difference as a defect.
  */
-function sampleViewerGeometry() {
-    const viewport = document.querySelector<HTMLElement>(VIEWPORT_SELECTOR);
+function sampleViewerGeometry(host: HTMLElement) {
+    const viewport = host.querySelector<HTMLElement>(VIEWPORT_SELECTOR);
     if (!viewport) {
         return null;
     }
@@ -103,9 +104,11 @@ function sampleViewerGeometry() {
         const rect = element.getBoundingClientRect();
         return `${rect.left.toFixed(2)},${rect.top.toFixed(2)},${rect.width.toFixed(2)},${rect.height.toFixed(2)}`;
     };
+    // Named by its tab, so a switch to another pane starts a new sample.
     return [
+        host.dataset.workspaceTabId ?? '',
         describe(viewport),
-        ...[...document.querySelectorAll<HTMLElement>(VISIBLE_PAGE_SELECTOR)].map(describe),
+        ...[...host.querySelectorAll<HTMLElement>(VISIBLE_PAGE_SELECTOR)].map(describe),
     ].join('|');
 }
 
@@ -135,12 +138,18 @@ export async function waitForViewerSettled(
             lastPending = `input was still arriving ${String(quietForMs)}ms ago`;
             continue;
         }
-        const pageRenderPending = findPageRenderPending();
+        // The active document only: another pane may still be painting.
+        const host = findActiveWorkspaceHost(document);
+        if (!host) {
+            lastPending = 'no single painted workspace host was active';
+            continue;
+        }
+        const pageRenderPending = findPageRenderPending(host);
         if (pageRenderPending) {
             lastPending = pageRenderPending;
             continue;
         }
-        const geometry = sampleViewerGeometry();
+        const geometry = sampleViewerGeometry(host);
         if (geometry === null || geometry !== previousGeometry) {
             previousGeometry = geometry;
             lastPending = 'the document geometry was still moving between frames';
