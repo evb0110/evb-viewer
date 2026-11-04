@@ -1664,6 +1664,11 @@ describe('updates robustness', () => {
         await vi.advanceTimersByTimeAsync(0);
 
         expect(mocks.autoUpdater.quitAndInstall).not.toHaveBeenCalled();
+        expect(mocks.markUpdateInstallPending).toHaveBeenCalledWith('1.1.0');
+        expect(updates.getUpdateStatus()).toMatchObject({
+            phase: 'error',
+            reason: 'install-preparation-failed',
+        });
         expect(app.quit).toHaveBeenCalledOnce();
     });
 
