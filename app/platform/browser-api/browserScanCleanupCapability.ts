@@ -156,11 +156,11 @@ async function renderPreview(
     detailBase: IBrowserScanCleanupPreviewBase | null,
 ) {
     const {renderBrowserScanCleanupWorkspacePreview} = await import('@app/platform/browser-api/browserScanCleanupJob');
+    signal.throwIfAborted();
     const {
         sourcePdfPath: ref, documentRevision: revision,
     } = request;
-    // The window keeps the revision open between pages; each render borrows
-    // it too, so a newer preview never closes what a render still reads.
+    // The window keeps the revision open; each render borrows it as well.
     if (previewSource?.key !== scanCleanupSourceKey(ref, revision) || previewSource.stale) {
         previewSource?.release();
         previewSource = borrowBrowserScanCleanupSource(ref, revision);

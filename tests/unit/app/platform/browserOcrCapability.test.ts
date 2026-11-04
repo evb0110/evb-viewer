@@ -261,6 +261,21 @@ describe('browser scan cleanup preview admission', () => {
         return (await import('@app/platform/browser-api/browserScanCleanupCapability')).browserScanCleanupCapability;
     }
 
+    it('leaves no PDF source open when the working copy closes before a preview is admitted', async () => {
+        const capability = await loadCapability();
+        const {closeBrowserWorkingCopyWork} = await import('@app/platform/browser-api/browserWorkingCopyClose');
+        const loadPdf = vi.mocked((await import('@app/platform/browser-api/loadBrowserPdfjsDocument')).loadBrowserPdfjsDocument);
+
+        const preview = capability.preview(request());
+        const close = closeBrowserWorkingCopyWork(requireDocumentRef('/docs/scan.pdf'));
+        await expect(preview).resolves.toEqual({canceled: true});
+        await close;
+        await settleTurns();
+
+        expect(renders.pending).toHaveLength(0);
+        expect(destroyed.count).toBe(loadPdf.mock.calls.length);
+    });
+
     it('declines a speculative neighbour without retiring the visible page', async () => {
         const capability = await loadCapability();
         const visible = capability.preview(request());
