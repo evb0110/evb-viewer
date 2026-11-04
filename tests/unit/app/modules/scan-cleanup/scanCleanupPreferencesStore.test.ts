@@ -983,6 +983,94 @@ describe('scan cleanup renderer preference store', () => {
         }
     });
 
+    it('undoes Apply this page to All and an All-scope edit as one step each', async () => {
+        const {store} = await createDurableSettingsStore();
+        connectMainProcessSettings(store);
+        const sourceSha256 = 'c'.repeat(64);
+        const ledger = useWorkspaceCommandLedger();
+        let settings!: ReturnType<typeof useScanCleanupDocumentSettings>;
+        let selection!: ReturnType<typeof useScanCleanupSelection>;
+        const host = document.createElement('div');
+        const app = createApp(defineComponent({setup() {
+            settings = useScanCleanupDocumentSettings({
+                documentLifecycleKey: computed(() => sourceSha256),
+                sourceSha256: computed(() => sourceSha256),
+            });
+            selection = useScanCleanupSelection({
+                initialPage: 1,
+                previewResult: () => null,
+                previewTotalPages: () => 3,
+                marginsLinked: ref(true),
+                settings: settings.values,
+            });
+            return () => h('output', JSON.stringify({
+                defaults: settings.values.pageOverrideDefaults?.rotationDegrees ?? 0,
+                pages: Object.fromEntries(Object.entries(settings.values.pageOverrides).map(([
+                    page,
+                    override,
+                ]) => [
+                    page,
+                    override.rotationDegrees,
+                ])),
+            }));
+        }}));
+        app.provide(workspaceCommandSinkKey, {
+            register: ledger.registerCommand,
+            reset: ledger.resetSource,
+            forget: ledger.forgetSourceEntries,
+        });
+        app.mount(host);
+        const shown = async () => {
+            await nextTick();
+            return JSON.parse(host.textContent ?? '{}');
+        };
+        try {
+            await vi.waitFor(() => expect(settings.documentSettingsReady.value).toBe(true));
+            selection.updatePageOverride(2, createScanCleanupPageOverride({rotationDegrees: 90}));
+            selection.updatePageOverride(1, createScanCleanupPageOverride({rotationDegrees: 180}));
+            const pagesEdited = {
+                defaults: 0,
+                pages: {
+                    1: 180,
+                    2: 90,
+                },
+            };
+            expect(await shown()).toEqual(pagesEdited);
+
+            selection.applyLeaderOverrides('all');
+            const appliedToAll = {
+                defaults: 180,
+                pages: {},
+            };
+            expect(await shown()).toEqual(appliedToAll);
+            await ledger.undoTimeline();
+            expect(await shown(), 'undo restores the defaults and the page entries together').toEqual(pagesEdited);
+            await ledger.redoTimeline();
+            expect(await shown()).toEqual(appliedToAll);
+
+            // An All-scope rotation: the defaults and the pages that have their own entry.
+            selection.updatePageOverride(3, createScanCleanupPageOverride({rotationDegrees: 90}));
+            selection.updateOverrides([3], current => ({
+                ...current,
+                rotationDegrees: 270,
+            }), createScanCleanupPageOverride({rotationDegrees: 270}));
+            // Page 3 now matches the defaults, so it keeps no entry of its own.
+            expect(await shown()).toEqual({
+                defaults: 270,
+                pages: {},
+            });
+            await ledger.undoTimeline();
+            expect(await shown(), 'one undo restores the defaults and the page together').toEqual({
+                defaults: 180,
+                pages: {3: 90},
+            });
+        } finally {
+            app.unmount();
+            await flushScanCleanupDocumentPreferencesStore();
+            await store.get();
+        }
+    });
+
     it('takes the document-wide settings another view saved when it comes on screen, keeping its own edit', async () => {
         const {store} = await createDurableSettingsStore();
         connectMainProcessSettings(store);
