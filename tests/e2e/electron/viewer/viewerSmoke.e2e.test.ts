@@ -2295,7 +2295,13 @@ describe('Electron E2E - Viewer Smoke', () => {
         );
         expect(marginResetLabel).toBe('Reset to document');
         await clickAsUser(session.page, '[data-reset-override="margins"]');
-        await session.page.waitForSelector('[data-override-marker="margins"]', {hidden: true});
+        // The label can lose its marker before the controlled number field
+        // renders the inherited value. Wait for the value the user sees too.
+        await waitForFunctionInPage(session.page, (margin: number) => {
+            const input = document.querySelector<HTMLInputElement>('input[data-margin-side="topMm"]');
+            return !document.querySelector('[data-override-marker="margins"]')
+                && input !== null && Number(input.value) === margin;
+        }, {}, documentTopMargin);
         const resetTopMargin = await session.page.$eval(
             'input[data-margin-side="topMm"]',
             input => Number((input as HTMLInputElement).value),

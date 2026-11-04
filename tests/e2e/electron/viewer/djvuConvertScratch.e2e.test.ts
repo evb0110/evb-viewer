@@ -15,7 +15,6 @@ import {
     clickFoundAsUser,
 } from '@tests/e2e/electron/helpers/userInput';
 import {
-    basename,
     join,
     resolve,
 } from 'node:path';
@@ -47,13 +46,14 @@ const sourcePath = resolve('tests/fixtures/electron/djvu-fixtures/djvu-open-canc
 // Page 1 is encoded at 72 DPI and page 2 at 300 DPI.
 const mixedDpiPath = resolve('tests/fixtures/djvu/sources/mixed-dpi.djvu');
 
-// The scratch lives in the app's namespace below the state root the test gives it.
+// Export scratch is directly inside the app namespace. Do not descend into
+// unrelated scratch: annotation parsing can remove it during a recursive scan.
 function listExportScratch(tempRoot: string) {
-    return readdirSync(tempRoot, {
-        recursive: true,
-        encoding: 'utf8',
-    })
-        .filter(entry => basename(entry).startsWith('djvu-export-'));
+    return readdirSync(tempRoot, {withFileTypes: true})
+        .filter(entry => entry.isDirectory() && entry.name.startsWith('evb-viewer-'))
+        .flatMap(namespace => readdirSync(join(tempRoot, namespace.name))
+            .filter(entry => entry.startsWith('djvu-export-'))
+            .map(entry => join(namespace.name, entry)));
 }
 
 // The conversion dialog's source resolution, found by its rendered label.
