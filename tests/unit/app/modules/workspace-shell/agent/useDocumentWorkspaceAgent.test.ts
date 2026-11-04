@@ -20,6 +20,7 @@ import {
     requirePageIndex,
 } from '@contracts/pageNumbers';
 import { requireEpochMs } from '@contracts/timestamps';
+import { isRecord } from '@contracts/runtimeGuards';
 import { AGENT_CAPABILITY_TEMPLATES } from '@electron/features/agent/mcp/agentCapabilityTemplates';
 import { validateJsonObjectAgainstSchema } from '@electron/features/agent/mcp/mcpToolDefinitions';
 import type {
@@ -248,6 +249,97 @@ function createAgentOptions(
 }
 
 describe('createDocumentWorkspaceAgent', () => {
+    it('uses a nested bookmark read depth to style the same outline level', async () => {
+        const bookmarkItems = ref<IPdfBookmarkEntry[]>([
+            createBookmark('Parent', [createBookmark('Child', [createBookmark('Grandchild')])]),
+            createBookmark('Other root'),
+        ]);
+        const options = createAgentOptions({bookmarkItems});
+        options.handleBookmarksChange = ({bookmarks}) => {bookmarkItems.value = bookmarks;};
+        const agent = createDocumentWorkspaceAgent(options);
+        const read = await agent.runAgentAction('bookmarks.read');
+        const roots = read.bookmarks as Array<{depth: number}>;
+
+        await expect(agent.runAgentAction('bookmarks.set_style', {
+            depth: roots[0]?.depth,
+            bold: true,
+        })).resolves.toMatchObject({
+            ok: true,
+            targetCount: 2,
+            changedCount: 2,
+        });
+        expect(bookmarkItems.value.map(entry => entry.bold)).toEqual([
+            true,
+            true,
+        ]);
+        expect(bookmarkItems.value[0]?.items[0]?.bold).toBe(false);
+        expect(bookmarkItems.value[0]?.items[0]?.items[0]?.bold).toBe(false);
+    });
+
+    it('executes schema-validated query aliases and gives text precedence when both are supplied', async () => {
+        const template = AGENT_CAPABILITY_TEMPLATES.find(candidate => candidate.id === 'annotation.create_text_markup');
+        if (!template) throw new Error('annotation.create_text_markup template is missing');
+        const agent = createDocumentWorkspaceAgent(createAgentOptions({pdfViewerRef: ref(createAgentViewerPort({createTextMarkupFromText: async options => ({
+            created: true,
+            pageNumber: options.pageNumber,
+            requestedText: options.text,
+            matchedText: options.text,
+            occurrence: options.occurrence ?? 1,
+            subtype: 'Highlight',
+        })}))}));
+        for (const input of [
+            {query: 'Alias heading'},
+            {
+                text: 'Primary heading',
+                query: 'Ignored alias heading',
+            },
+        ]) {
+            const validated = validateJsonObjectAgainstSchema(template.id, input, template.inputSchema);
+            if (!isRecord(validated)) throw new Error('Expected validated text markup input to be an object');
+            await expect(agent.runAgentAction(template.id, validated)).resolves.toMatchObject({
+                ok: true,
+                created: true,
+                requestedText: input.text ?? input.query,
+                matchedText: input.text ?? input.query,
+            });
+        }
+    });
+
+    it('executes schema-validated tool aliases and gives shape precedence when both are supplied', async () => {
+        const template = AGENT_CAPABILITY_TEMPLATES.find(candidate => candidate.id === 'annotation.create_shape');
+        if (!template) throw new Error('annotation.create_shape template is missing');
+        const agent = createDocumentWorkspaceAgent(createAgentOptions({pdfViewerRef: ref(createAgentViewerPort({createShapeAnnotation: async options => ({
+            created: true,
+            pageNumber: options.pageNumber,
+            shape: createAnnotationComment({
+                subtype: options.tool,
+                kindLabel: options.tool,
+            }),
+        })}))}));
+        for (const selectors of [
+            {tool: 'rectangle'},
+            {
+                shape: 'circle',
+                tool: 'rectangle',
+            },
+        ]) {
+            const input = {
+                ...selectors,
+                x: 0.1,
+                y: 0.2,
+                width: 0.3,
+                height: 0.4,
+            };
+            const validated = validateJsonObjectAgainstSchema(template.id, input, template.inputSchema);
+            if (!isRecord(validated)) throw new Error('Expected validated shape input to be an object');
+            await expect(agent.runAgentAction(template.id, validated)).resolves.toMatchObject({
+                ok: true,
+                created: true,
+                shape: {subtype: selectors.shape ?? selectors.tool},
+            });
+        }
+    });
+
     it.each([
         [
             'annotation.open_note',

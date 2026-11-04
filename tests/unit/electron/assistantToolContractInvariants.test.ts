@@ -33,6 +33,56 @@ function generatedInputSchema(schema: Parameters<typeof toJsonSchema>[0]) {
 }
 
 describe('assistant tool contract invariants', () => {
+    it.each([
+        {
+            id: 'annotation.create_text_markup',
+            primary: 'text',
+            alias: 'query',
+            type: 'string',
+        },
+        {
+            id: 'annotation.create_shape',
+            primary: 'shape',
+            alias: 'tool',
+            type: 'string',
+        },
+    ])('exports strict $id JSON schemas requiring either the primary input or its alias', ({
+        id, primary, alias, type,
+    }) => {
+        for (const name of [
+            'evb_run_action',
+            'evb_read_action',
+        ]) {
+            const branches = MCP_TOOLS.find(tool => tool.name === name)?.inputSchema.oneOf as Array<{
+                required: string[];
+                properties: {
+                    id: {const: string};
+                    input: Record<string, unknown>
+                };
+            }>;
+            const branch = branches.find(candidate => candidate.properties.id.const === id);
+            expect(branch?.required).toContain('input');
+            expect(branch?.properties.input).toMatchObject({allOf: expect.arrayContaining([
+                expect.objectContaining({
+                    type: 'object',
+                    additionalProperties: false,
+                    properties: expect.objectContaining({
+                        [primary]: expect.objectContaining({type}),
+                        [alias]: expect.objectContaining({type}),
+                    }),
+                }),
+                {anyOf: [
+                    primary,
+                    alias,
+                ].map(key => ({
+                    type: 'object',
+                    properties: {[key]: {}},
+                    required: [key],
+                }))},
+            ])});
+        }
+    });
+
     it('maps every advertised tool to exactly one handler and keeps capability ids unique', () => {
         expect(new Set(MCP_TOOLS.map(tool => tool.name))).toEqual(new Set(ASSISTANT_MCP_TOOL_HANDLER_NAMES));
         const capabilityIds = AGENT_CAPABILITY_TEMPLATES.map(capability => capability.id);

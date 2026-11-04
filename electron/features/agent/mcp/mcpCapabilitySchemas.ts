@@ -112,30 +112,36 @@ export const ANNOTATION_COLOR_INPUT_SCHEMA = v.intersect([
     AGENT_ANNOTATION_REF_SCHEMA,
 ]);
 export const ANNOTATION_TOOL_INPUT_SCHEMA = v.strictObject({tool: v.picklist(ANNOTATION_TOOLS)});
-export const ANNOTATION_TEXT_MARKUP_INPUT_SCHEMA = v.strictObject({
-    page: v.optional(v.pipe(v.number(), v.description('One-based PDF page number containing the text. Defaults to the current page.'))),
-    pageNumber: v.optional(v.pipe(v.number(), v.description('Alias for page.'))),
-    text: v.pipe(v.string(), v.description('Exact visible page text to mark. Use document.search/read_pages first when uncertain.')),
-    query: v.optional(v.pipe(v.string(), v.description('Alias for text.'))),
-    occurrence: v.optional(v.pipe(v.number(), v.description('One-based occurrence of text on the page. Defaults to 1.'))),
-    markup: v.optional(v.pipe(v.picklist([
-        'highlight',
-        'underline',
-        'strikethrough',
-        'squiggly',
-    ]), v.description('Text markup to create. Defaults to highlight.'))),
-    tool: v.optional(v.pipe(v.picklist([
-        'highlight',
-        'underline',
-        'strikethrough',
-        'squiggly',
-    ]), v.description('Alias for markup.'))),
-    matchCase: v.optional(v.pipe(v.boolean(), v.description('Whether text matching must preserve case exactly.'))),
-    caseSensitive: v.optional(v.pipe(v.boolean(), v.description('Alias for matchCase.'))),
-    wholeWord: v.optional(v.pipe(v.boolean(), v.description('Only match text on word boundaries.'))),
-    withNote: v.optional(v.pipe(v.boolean(), v.description('Open a note on the created text markup, matching the user comment-selection workflow.'))),
-    openNote: v.optional(v.pipe(v.boolean(), v.description('Alias for withNote.'))),
-});
+export const ANNOTATION_TEXT_MARKUP_INPUT_SCHEMA = v.intersect([
+    v.strictObject({
+        page: v.optional(v.pipe(v.number(), v.description('One-based PDF page number containing the text. Defaults to the current page.'))),
+        pageNumber: v.optional(v.pipe(v.number(), v.description('Alias for page.'))),
+        text: v.optional(v.pipe(v.string(), v.description('Exact visible page text to mark. Use document.search/read_pages first when uncertain.'))),
+        query: v.optional(v.pipe(v.string(), v.description('Alias for text.'))),
+        occurrence: v.optional(v.pipe(v.number(), v.description('One-based occurrence of text on the page. Defaults to 1.'))),
+        markup: v.optional(v.pipe(v.picklist([
+            'highlight',
+            'underline',
+            'strikethrough',
+            'squiggly',
+        ]), v.description('Text markup to create. Defaults to highlight.'))),
+        tool: v.optional(v.pipe(v.picklist([
+            'highlight',
+            'underline',
+            'strikethrough',
+            'squiggly',
+        ]), v.description('Alias for markup.'))),
+        matchCase: v.optional(v.pipe(v.boolean(), v.description('Whether text matching must preserve case exactly.'))),
+        caseSensitive: v.optional(v.pipe(v.boolean(), v.description('Alias for matchCase.'))),
+        wholeWord: v.optional(v.pipe(v.boolean(), v.description('Only match text on word boundaries.'))),
+        withNote: v.optional(v.pipe(v.boolean(), v.description('Open a note on the created text markup, matching the user comment-selection workflow.'))),
+        openNote: v.optional(v.pipe(v.boolean(), v.description('Alias for withNote.'))),
+    }),
+    v.union([
+        v.object({text: v.unknown()}),
+        v.object({query: v.unknown()}),
+    ]),
+]);
 export const ANNOTATION_POINT_NOTE_INPUT_SCHEMA = v.strictObject({
     page: v.optional(v.pipe(v.number(), v.description('One-based PDF page number. Defaults to the current page.'))),
     pageNumber: v.optional(v.pipe(v.number(), v.description('Alias for page.'))),
@@ -145,24 +151,30 @@ export const ANNOTATION_POINT_NOTE_INPUT_SCHEMA = v.strictObject({
     y: v.optional(v.pipe(v.number(), v.description('Alias for pageY.'))),
     preferTextAnchor: v.optional(v.pipe(v.boolean(), v.description('Prefer anchoring the note to nearby text when possible. Defaults to true.'))),
 });
-export const ANNOTATION_SHAPE_INPUT_SCHEMA = v.strictObject({
-    page: v.optional(v.pipe(v.number(), v.description('One-based PDF page number. Defaults to the current page.'))),
-    pageNumber: v.optional(v.pipe(v.number(), v.description('Alias for page.'))),
-    shape: v.pipe(v.picklist(DRAWABLE_SHAPE_TOOLS), v.description('Shape type to create.')),
-    tool: v.optional(v.pipe(v.picklist(DRAWABLE_SHAPE_TOOLS), v.description('Alias for shape.'))),
-    x: v.optional(v.pipe(v.number(), v.description('Normalized start/left page coordinate from 0 to 1.'))),
-    y: v.optional(v.pipe(v.number(), v.description('Normalized start/top page coordinate from 0 to 1.'))),
-    width: v.optional(v.pipe(v.number(), v.description('Normalized width for rectangle/circle, or fallback line delta.'))),
-    height: v.optional(v.pipe(v.number(), v.description('Normalized height for rectangle/circle, or fallback line delta.'))),
-    x2: v.optional(v.pipe(v.number(), v.description('Normalized end/right page coordinate for line/arrow or box corner.'))),
-    y2: v.optional(v.pipe(v.number(), v.description('Normalized end/bottom page coordinate for line/arrow or box corner.'))),
-    points: v.optional(v.pipe(v.array(OBJECT_VALUE_SCHEMA), v.description('Freehand draw points as normalized {x,y} objects.'))),
-    strokes: v.optional(v.pipe(v.array(v.array(OBJECT_VALUE_SCHEMA)), v.description('Freehand draw strokes as arrays of normalized {x,y} objects.'))),
-    color: v.optional(v.pipe(v.string(), v.description('CSS stroke color override. Defaults to current viewer annotation settings.'))),
-    fillColor: v.optional(v.pipe(v.nullable(v.string()), v.description('CSS fill color override; null or transparent means no fill.'))),
-    opacity: v.optional(v.pipe(v.number(), v.description('Opacity from 0 to 1.'))),
-    strokeWidth: v.optional(v.pipe(v.number(), v.description('Stroke width in viewer annotation units.'))),
-});
+export const ANNOTATION_SHAPE_INPUT_SCHEMA = v.intersect([
+    v.strictObject({
+        page: v.optional(v.pipe(v.number(), v.description('One-based PDF page number. Defaults to the current page.'))),
+        pageNumber: v.optional(v.pipe(v.number(), v.description('Alias for page.'))),
+        shape: v.optional(v.pipe(v.picklist(DRAWABLE_SHAPE_TOOLS), v.description('Shape type to create.'))),
+        tool: v.optional(v.pipe(v.picklist(DRAWABLE_SHAPE_TOOLS), v.description('Alias for shape.'))),
+        x: v.optional(v.pipe(v.number(), v.description('Normalized start/left page coordinate from 0 to 1.'))),
+        y: v.optional(v.pipe(v.number(), v.description('Normalized start/top page coordinate from 0 to 1.'))),
+        width: v.optional(v.pipe(v.number(), v.description('Normalized width for rectangle/circle, or fallback line delta.'))),
+        height: v.optional(v.pipe(v.number(), v.description('Normalized height for rectangle/circle, or fallback line delta.'))),
+        x2: v.optional(v.pipe(v.number(), v.description('Normalized end/right page coordinate for line/arrow or box corner.'))),
+        y2: v.optional(v.pipe(v.number(), v.description('Normalized end/bottom page coordinate for line/arrow or box corner.'))),
+        points: v.optional(v.pipe(v.array(OBJECT_VALUE_SCHEMA), v.description('Freehand draw points as normalized {x,y} objects.'))),
+        strokes: v.optional(v.pipe(v.array(v.array(OBJECT_VALUE_SCHEMA)), v.description('Freehand draw strokes as arrays of normalized {x,y} objects.'))),
+        color: v.optional(v.pipe(v.string(), v.description('CSS stroke color override. Defaults to current viewer annotation settings.'))),
+        fillColor: v.optional(v.pipe(v.nullable(v.string()), v.description('CSS fill color override; null or transparent means no fill.'))),
+        opacity: v.optional(v.pipe(v.number(), v.description('Opacity from 0 to 1.'))),
+        strokeWidth: v.optional(v.pipe(v.number(), v.description('Stroke width in viewer annotation units.'))),
+    }),
+    v.union([
+        v.object({shape: v.unknown()}),
+        v.object({tool: v.unknown()}),
+    ]),
+]);
 
 const PAGE_LABEL_STYLE_SCHEMA = v.pipe(
     v.nullable(v.picklist([
@@ -306,11 +318,17 @@ export const BOOKMARK_ADD_BATCH_INPUT_SCHEMA = v.strictObject({
     bookmarks: v.optional(v.array(BOOKMARK_ENTRY_SCHEMA)),
     items: v.optional(v.array(BOOKMARK_ENTRY_SCHEMA)),
 });
+// An update edits a bookmark in place; placement fields would be ignored, so they are refused.
+const {
+    parentPath: _parentPath,
+    index: _index,
+    ...BOOKMARK_UPDATE_ENTRY_PROPERTIES
+} = BOOKMARK_ENTRY_PROPERTIES;
 export const BOOKMARK_UPDATE_INPUT_SCHEMA = v.strictObject({
     ...BOOKMARK_REVISION_PROPERTIES,
     path: BOOKMARK_PATH_SCHEMA,
-    ...BOOKMARK_ENTRY_PROPERTIES,
-    bookmark: v.optional(BOOKMARK_ENTRY_SCHEMA),
+    ...BOOKMARK_UPDATE_ENTRY_PROPERTIES,
+    bookmark: v.optional(v.strictObject(BOOKMARK_UPDATE_ENTRY_PROPERTIES)),
 });
 export const BOOKMARK_DELETE_INPUT_SCHEMA = v.strictObject({
     ...BOOKMARK_REVISION_PROPERTIES,
