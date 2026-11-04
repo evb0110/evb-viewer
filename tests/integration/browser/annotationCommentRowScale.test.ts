@@ -28,7 +28,10 @@ import {
 
 vi.mock('@app/composables/useTypedI18n', async (importOriginal) => ({
     ...(await importOriginal<typeof TViMockOriginalModule>()),
-    useTypedI18n: () => ({t: (key: string) => key === 'annotations.page' ? 'Стр.' : key}),
+    useTypedI18n: () => ({
+        t: (key: string) => key === 'annotations.page' ? 'Стр.' : key,
+        locale: {value: 'ru'},
+    }),
 }));
 
 const ACTIVE_COMMENT_INDEX = 2;
