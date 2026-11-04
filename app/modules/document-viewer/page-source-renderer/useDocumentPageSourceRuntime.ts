@@ -1,3 +1,4 @@
+import { useWindowDevicePixelRatio } from '@app/composables/useWindowDevicePixelRatio';
 import {useTypedI18n} from '@app/composables/useTypedI18n';
 import { useResizeObserver } from '@vueuse/core';
 import { clamp } from 'es-toolkit/math';
@@ -470,6 +471,7 @@ export const useDocumentPageSourceRuntime = (options: {
     const emit = options.emit;
     const props = computed(options.readProps);
     const viewerContainer = shallowRef<HTMLElement | null>(null);
+    const pixelRatio = useWindowDevicePixelRatio();
     const containerWidth = ref(0);
     const containerHeight = ref(0);
     const viewportScrollTop = ref(0);
@@ -603,8 +605,7 @@ export const useDocumentPageSourceRuntime = (options: {
         currentPage: navigationTargetPage.value ?? props.value.currentPage,
         estimatePagePixels: (pageNumber) => {
             const layout = pageLayouts.value[pageNumber - 1];
-            const pixelRatio = window.devicePixelRatio || 1;
-            return layout ? layout.width * layout.height * pixelRatio * pixelRatio : 1;
+            return layout ? layout.width * layout.height * pixelRatio.value ** 2 : 1;
         },
         maxBufferPixels: rasterBufferProfile.maxBufferCanvasPixels,
         maximumResidentPages: props.value.continuousScroll && effectiveZoom.value < 1
@@ -796,7 +797,7 @@ export const useDocumentPageSourceRuntime = (options: {
         readPageScale: pageNumber => (
             pageDisplayLayouts.value[pageNumber - 1]?.scale ?? effectiveZoom.value
         ),
-        readPixelRatio: () => window.devicePixelRatio || 1,
+        readPixelRatio: () => pixelRatio.value,
         readRenderDemand: () => renderDemand.value,
         readSource: () => source.value,
         readViewport: () => viewerContainer.value,
@@ -826,7 +827,7 @@ export const useDocumentPageSourceRuntime = (options: {
                 return !state?.lease || !state.ready || !metric || state.widthPx !== resolveDocumentPageSourceRenderWidthPx(
                     metric,
                     pageDisplayLayouts.value[pageNumber - 1]?.scale ?? effectiveZoom.value,
-                    window.devicePixelRatio || 1,
+                    pixelRatio.value,
                 );
             },
             preferredDirection: viewportScrollDirection.value,
@@ -1457,7 +1458,13 @@ export const useDocumentPageSourceRuntime = (options: {
         }
         scheduleRender.schedule();
     }
-    watch(() => renderDemand.value.residentPages, retainOnlyPageStates);
+    watch(
+        [
+            () => renderDemand.value.residentPages,
+            pixelRatio,
+        ],
+        ([pages]) => retainOnlyPageStates(pages),
+    );
     onMounted(() => {
         viewerContainer.value = chassisAuthority?.viewportElement.value ?? null;
         measureViewport();
