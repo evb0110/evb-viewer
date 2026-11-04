@@ -50,13 +50,256 @@ describe('message formatting', () => {
             layout: 'Single page',
             orientation: 'Portrait',
         }, 'en')).toBe('Printing 1 page with Single page and Portrait orientation.');
-        expect(formatTranslationLeaf(en.scanCleanup.pages.count, {count: 1}, 'en')).toBe('Source pages: 1');
+        expect(formatTranslationLeaf(en.scanCleanup.pages.count, {count: 1}, 'en')).toBe('1 source page');
         expect(formatTranslationLeaf(en.pageNumbering.targetAllPages, {count: 1}, 'en')).toBe('Target: all pages (1).');
         expect(formatTranslationLeaf(LOCALE_MESSAGES.de.print.summary, {
             count: 1,
             layout: 'Einzelseite',
             orientation: 'Hochformat',
         }, 'de')).toBe('1 Seite wird mit Einzelseite und Hochformat gedruckt.');
+    });
+
+    it.each([
+        [
+            'en',
+            0,
+            '0 source pages',
+            'Printing 0 pages with L and O orientation.',
+        ],
+        [
+            'en',
+            1,
+            '1 source page',
+            'Printing 1 page with L and O orientation.',
+        ],
+        [
+            'en',
+            2,
+            '2 source pages',
+            'Printing 2 pages with L and O orientation.',
+        ],
+        [
+            'de',
+            0,
+            '0 Quellseiten',
+            '0 Seiten werden mit L und O gedruckt.',
+        ],
+        [
+            'de',
+            1,
+            '1 Quellseite',
+            '1 Seite wird mit L und O gedruckt.',
+        ],
+        [
+            'de',
+            2,
+            '2 Quellseiten',
+            '2 Seiten werden mit L und O gedruckt.',
+        ],
+        [
+            'fr',
+            0,
+            '0 page source',
+            'Impression de 0 page avec L et l’orientation O.',
+        ],
+        [
+            'fr',
+            1,
+            '1 page source',
+            'Impression de 1 page avec L et l’orientation O.',
+        ],
+        [
+            'fr',
+            2,
+            '2 pages sources',
+            'Impression de 2 pages avec L et l’orientation O.',
+        ],
+        [
+            'es',
+            0,
+            '0 páginas de origen',
+            'Imprimiendo 0 páginas con diseño L y orientación O.',
+        ],
+        [
+            'es',
+            1,
+            '1 página de origen',
+            'Imprimiendo 1 página con diseño L y orientación O.',
+        ],
+        [
+            'es',
+            2,
+            '2 páginas de origen',
+            'Imprimiendo 2 páginas con diseño L y orientación O.',
+        ],
+        [
+            'it',
+            0,
+            '0 pagine di origine',
+            'Stampa di 0 pagine con layout L e orientamento O.',
+        ],
+        [
+            'it',
+            1,
+            '1 pagina di origine',
+            'Stampa di 1 pagina con layout L e orientamento O.',
+        ],
+        [
+            'it',
+            2,
+            '2 pagine di origine',
+            'Stampa di 2 pagine con layout L e orientamento O.',
+        ],
+        [
+            'nl',
+            0,
+            '0 bronpagina\'s',
+            '0 pagina\'s afdrukken met L en O oriëntatie.',
+        ],
+        [
+            'nl',
+            1,
+            '1 bronpagina',
+            '1 pagina afdrukken met L en O oriëntatie.',
+        ],
+        [
+            'nl',
+            2,
+            '2 bronpagina\'s',
+            '2 pagina\'s afdrukken met L en O oriëntatie.',
+        ],
+        [
+            'pt',
+            0,
+            '0 páginas de origem',
+            'A imprimir 0 página com L e orientação O.',
+        ],
+        [
+            'pt',
+            1,
+            '1 página de origem',
+            'A imprimir 1 página com L e orientação O.',
+        ],
+        [
+            'pt',
+            2,
+            '2 páginas de origem',
+            'A imprimir 2 páginas com L e orientação O.',
+        ],
+        [
+            'pt-BR',
+            0,
+            '0 páginas de origem',
+            'Imprimindo 0 página com layout L e orientação O.',
+        ],
+        [
+            'pt-BR',
+            1,
+            '1 página de origem',
+            'Imprimindo 1 página com layout L e orientação O.',
+        ],
+        [
+            'pt-BR',
+            2,
+            '2 páginas de origem',
+            'Imprimindo 2 páginas com layout L e orientação O.',
+        ],
+        [
+            'ru',
+            0,
+            '0 исходных страниц',
+            'Печать страниц: 0; макет: L; ориентация: O.',
+        ],
+        [
+            'ru',
+            1,
+            '1 исходная страница',
+            'Печать страниц: 1; макет: L; ориентация: O.',
+        ],
+        [
+            'ru',
+            2,
+            '2 исходные страницы',
+            'Печать страниц: 2; макет: L; ориентация: O.',
+        ],
+    ] as const)('renders source and print counts in %s at %s', (locale, count, rail, summary) => {
+        const messages = LOCALE_MESSAGES[locale];
+        expect(formatTranslationLeaf(messages.scanCleanup.pages.count, {count}, locale)).toBe(rail);
+        expect(formatTranslationLeaf(messages.print.summary, {
+            count,
+            layout: 'L',
+            orientation: 'O',
+        }, locale)).toBe(summary);
+    });
+
+    it.each([
+        [
+            5,
+            '5 исходных страниц',
+        ],
+        [
+            11,
+            '11 исходных страниц',
+        ],
+        [
+            21,
+            '21 исходная страница',
+        ],
+        [
+            22,
+            '22 исходные страницы',
+        ],
+        [
+            25,
+            '25 исходных страниц',
+        ],
+        [
+            1.5,
+            '1.5 исходной страницы',
+        ],
+    ] as const)('renders Russian source count %s', (count, expected) => {
+        expect(formatTranslationLeaf(LOCALE_MESSAGES.ru.scanCleanup.pages.count, {count}, 'ru')).toBe(expected);
+        expect(formatTranslationLeaf(LOCALE_MESSAGES.ru.print.summary, {
+            count,
+            layout: 'L',
+            orientation: 'O',
+        }, 'ru'))
+            .toBe(`Печать страниц: ${count}; макет: L; ориентация: O.`);
+    });
+
+    it.each([
+        [
+            'fr',
+            '1000000 pages sources',
+            'Impression de 1000000 pages avec L et l’orientation O.',
+        ],
+        [
+            'es',
+            '1000000 páginas de origen',
+            'Imprimiendo 1000000 páginas con diseño L y orientación O.',
+        ],
+        [
+            'it',
+            '1000000 pagine di origine',
+            'Stampa di 1000000 pagine con layout L e orientamento O.',
+        ],
+        [
+            'pt',
+            '1000000 páginas de origem',
+            'A imprimir 1000000 páginas com L e orientação O.',
+        ],
+        [
+            'pt-BR',
+            '1000000 páginas de origem',
+            'Imprimindo 1000000 páginas com layout L e orientação O.',
+        ],
+    ] as const)('falls back to the other Romance form in %s', (locale, rail, summary) => {
+        expect(formatTranslationLeaf(LOCALE_MESSAGES[locale].scanCleanup.pages.count, {count: 1_000_000}, locale)).toBe(rail);
+        expect(formatTranslationLeaf(LOCALE_MESSAGES[locale].print.summary, {
+            count: 1_000_000,
+            layout: 'L',
+            orientation: 'O',
+        }, locale)).toBe(summary);
     });
 
     it('continues to support legacy pipe-delimited messages', () => {

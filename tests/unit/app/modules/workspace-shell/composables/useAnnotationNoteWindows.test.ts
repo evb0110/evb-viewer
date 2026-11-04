@@ -8,8 +8,11 @@ import {
 } from 'vitest';
 import {
     effectScope,
+    computed,
+    ref,
     nextTick,
 } from 'vue';
+import {useWorkspaceAnnotationSession} from '@app/modules/workspace-shell/composables/useWorkspaceAnnotationSession';
 import { ANNOTATION_NOTE_SAVE_DEBOUNCE_MS } from '@app/constants/timeouts';
 import { requireEpochMs } from '@contracts/timestamps';
 import { asAnnotationId } from '@app/modules/pdf-viewer/public';
@@ -1718,5 +1721,77 @@ describe('useAnnotationNoteWindows', () => {
             expect(windows.annotationNoteWindows.value).toHaveLength(0);
             expect(vi.getTimerCount()).toBe(0);
         });
+    });
+});
+
+describe('document unsaved annotation state', () => {
+    beforeEach(() => vi.useFakeTimers());
+    afterEach(() => vi.useRealTimers());
+    it('derives draft dirtiness without retaining reverted keystrokes or clearing accepted edits', async () => {
+        const scope = effectScope();
+        const session = scope.run(() => useWorkspaceAnnotationSession({
+            views: {
+                commandView: computed(() => null),
+                commandTabId: computed(() => null),
+            },
+            pdfDocument: ref(null),
+            reportNoteFailure: vi.fn(),
+        }))!;
+        try {
+            const comment = createComment();
+            const id = comment.appAnnotationId!;
+            session.applyAnnotationComments([comment]);
+            session.openAnnotationNoteWindow(comment);
+            expect(session.hasUnsavedAnnotationChanges.value).toBe(false);
+            session.updateAnnotationNoteText(id, 'Initial noteX');
+            expect(session.hasUnsavedAnnotationChanges.value).toBe(true);
+            session.updateAnnotationNoteText(id, 'Initial note');
+            expect(session.hasUnsavedAnnotationChanges.value).toBe(false);
+            await vi.advanceTimersByTimeAsync(ANNOTATION_NOTE_SAVE_DEBOUNCE_MS);
+            await session.closeAnnotationNote(id);
+            expect(session.hasUnsavedAnnotationChanges.value).toBe(false);
+            expect(session.annotationNoteWindows.value).toHaveLength(0);
+            expect(session.captureAnnotationNoteDrafts(() => 0)).toEqual([]);
+
+            const draft = {
+                annotationId: asAnnotationId(id),
+                kind: 'note' as const,
+                canonicalRevision: 0,
+                text: 'Initial note',
+                generation: 1,
+            };
+            session.restoreAnnotationNoteDraft(draft);
+            expect(session.hasUnsavedAnnotationChanges.value).toBe(false);
+            session.restoreAnnotationNoteDraft({
+                ...draft,
+                text: 'Different note',
+                generation: 2,
+            });
+            expect(session.hasUnsavedAnnotationChanges.value).toBe(true);
+            session.updateAnnotationNoteText(id, 'Initial note');
+            expect(session.hasUnsavedAnnotationChanges.value).toBe(false);
+
+            const other = createComment({
+                appAnnotationId: 'ann:0:other:0',
+                stableKey: 'ann:0:other:0',
+                id: 'other',
+            });
+            session.applyAnnotationComments([
+                comment,
+                other,
+            ]);
+            session.openAnnotationNoteWindow(other);
+            session.updateAnnotationNoteText(other.appAnnotationId!, 'Another changed draft');
+            session.updateAnnotationNoteText(id, 'Initial noteX');
+            session.updateAnnotationNoteText(id, 'Initial note');
+            expect(session.hasUnsavedAnnotationChanges.value).toBe(true);
+            session.updateAnnotationNoteText(other.appAnnotationId!, 'Initial note');
+            expect(session.hasUnsavedAnnotationChanges.value).toBe(false);
+
+            session.handleAnnotationModified({forceDirty: true});
+            session.updateAnnotationNoteText(id, 'Initial noteX');
+            session.updateAnnotationNoteText(id, 'Initial note');
+            expect(session.hasUnsavedAnnotationChanges.value).toBe(true);
+        } finally { scope.stop(); }
     });
 });

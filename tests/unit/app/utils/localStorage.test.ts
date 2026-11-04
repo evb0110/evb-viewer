@@ -9,6 +9,7 @@ import {
     readLocalStorageItem,
     safeGetLocalStorageItem,
     safeSetLocalStorageItem,
+    setLocalStorageItemOrThrow,
 } from '@app/utils/localStorage';
 
 interface ITestGlobal {window?: unknown;}
@@ -101,5 +102,24 @@ describe('safeSetLocalStorageItem', () => {
         testGlobal.window = {localStorage: { setItem }};
 
         expect(safeSetLocalStorageItem('k', 'v')).toBe(false);
+    });
+});
+
+describe('required storage writes', () => {
+    it.each([
+        'QuotaExceededError',
+        'SecurityError',
+        'NotAllowedError',
+    ])('preserves the original %s from setItem and the storage getter', (name) => {
+        const error = new DOMException('RAW storage detail', name);
+        for (const storage of [
+            {localStorage: {setItem: () => { throw error; }}},
+            Object.defineProperty({}, 'localStorage', {get: () => { throw error; }}),
+        ]) {
+            testGlobal.window = storage;
+            expect(() => setLocalStorageItemOrThrow('key', 'value')).toThrow(error);
+            try { setLocalStorageItemOrThrow('key', 'value'); } catch (caught) { expect(caught).toBe(error); }
+            expect(safeSetLocalStorageItem('key', 'value')).toBe(false);
+        }
     });
 });

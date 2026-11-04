@@ -29,7 +29,9 @@ import { useClipboard } from '@vueuse/core';
 import AppFatalRuntimeDialog from '@app/components/AppFatalRuntimeDialog.vue';
 import { setRendererDiagnosticsPreference } from '@app/utils/failureReporter';
 import type {IRuntimeErrorReport} from '@app/composables/useRuntimeErrorReports';
-import {useFailureToast} from '@app/composables/useFailureToast';
+import {
+    useFailureToast, type FailurePresentation,
+} from '@app/composables/useFailureToast';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { getOrCaptureRendererBootstrapFailure } from '@app/utils/getOrCaptureRendererBootstrapFailure';
 import { waitForVisualFrames } from '@app/utils/asyncHelpers';
@@ -60,6 +62,9 @@ const {
     isLoaded,
     settings,
     save: saveSettings,
+    settingsSaveError,
+    settingsSaveFailure,
+    settingsSaveStatus,
     updateSetting,
 } = useSettings();
 const {
@@ -93,6 +98,48 @@ const {
 } = useRuntimeErrorReports();
 const diagnosticsConsentBusy = ref<string | null>(null);
 const {presentFailureToast} = useFailureToast();
+
+const settingsSaveFailurePresentation = computed<FailurePresentation | null>(() => {
+    const capture = settingsSaveFailure.value;
+    if (!capture) {
+        return null;
+    }
+    return {
+        ...capture,
+        title: t('status.saveFailed'),
+        description: settingsSaveError.value?.name === 'QuotaExceededError'
+            ? t('errors.settings.storageFull')
+            : settingsSaveError.value?.name === 'SecurityError'
+                || settingsSaveError.value?.name === 'NotAllowedError'
+                ? t('errors.settings.storageUnavailable')
+                : t('errors.settings.save'),
+        ...(settingsSaveError.value ? {technicalDetails: `${settingsSaveError.value.name}: ${settingsSaveError.value.message}`} : {}),
+    };
+});
+
+// Every save that ends failed is told, a retried one too; its receipt keeps
+// it one toast while it is still showing.
+watch([
+    settingsSaveFailurePresentation,
+    settingsSaveStatus,
+], ([
+    presentation,
+    status,
+]) => {
+    if (presentation && status === 'failed') {
+        presentFailureToast({
+            ...presentation,
+            actions: [{
+                label: t('common.retry'),
+                color: 'primary',
+                onClick: () => {
+                    void saveSettings();
+                },
+            }],
+        });
+    }
+}, {immediate: true});
+
 const route = useRoute();
 const colorMode = useColorMode();
 const localeHead = useLocaleHead({

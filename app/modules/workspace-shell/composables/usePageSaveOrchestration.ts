@@ -43,7 +43,7 @@ interface IPageSaveOrchestrationDeps {
     annotations: Pick<ReturnType<typeof useWorkspaceAnnotationSession>,
         'annotationDirty' | 'annotationNoteWindows' | 'pendingEmbeddedAnnotationDeleteCount'
         | 'hasAnnotationChanges' | 'markAnnotationSaved' | 'getAnnotationSaveStateToken'
-        | 'persistAllAnnotationNotes' | 'getAnnotationNoteFailurePresentation'>;
+        | 'persistAllAnnotationNotes' | 'getAnnotationNoteFailurePresentation' | 'hasUnsavedAnnotationChanges'>;
     markPageLabelsSaved: (written?: IPdfPageLabelRange[]) => void;
     getPageLabelsSaveStateToken?: () => unknown;
     markBookmarksSaved: (written?: IPdfBookmarkEntry[]) => void;
@@ -95,8 +95,7 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
             : {}),
         hasUnsavedChanges: () => (
             deps.isDirty.value
-            || deps.annotations.annotationDirty.value
-            || deps.annotations.hasAnnotationChanges()
+            || deps.annotations.hasUnsavedAnnotationChanges.value
             || deps.pageLabelsDirty.value
             || deps.bookmarksDirty.value
         ),

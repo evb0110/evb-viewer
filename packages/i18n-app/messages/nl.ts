@@ -208,7 +208,10 @@ export default {
         'pages': {
             'title': 'Bronpagina\'s',
             'resetAction': 'Opnieuw instellen',
-            'count': 'Bronpagina\'s: {count}',
+            'count': plural({
+                one: '{count} bronpagina',
+                other: '{count} bronpagina\'s',
+            }),
             'technicalDetails': 'Technische details',
             'detecting': 'Detecteren…',
             'includeInOutput': 'Opnemen in de uitvoer',
@@ -1868,6 +1871,9 @@ export default {
         },
         'settings': {
             'load': 'Instellingen konden niet worden geladen',
+            'save': 'De instellingen konden niet worden opgeslagen. Probeer het opnieuw.',
+            'storageFull': 'De opslag is vol. Maak ruimte vrij en probeer het opnieuw.',
+            'storageUnavailable': 'Toegang tot de opslag is geblokkeerd. Sta toegang toe en probeer het opnieuw.',
             'recovered': 'De opgeslagen instellingen konden niet worden gebruikt. De standaardinstellingen zijn hersteld. Het vorige bestand is indien mogelijk als herstelkopie bewaard.',
             'recoveredWithPath': 'De opgeslagen instellingen konden niet worden gebruikt. De standaardinstellingen zijn hersteld. Het vorige bestand is in quarantaine geplaatst op {path}.',
             'newerVersion': 'Deze instellingen zijn opgeslagen door een nieuwere versie van EVB Viewer. Ze blijven ongewijzigd; deze versie gebruikt haar standaardinstellingen en kan geen instellingen opslaan. Open de nieuwere versie om ze te wijzigen.',

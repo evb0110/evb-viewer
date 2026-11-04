@@ -1148,7 +1148,8 @@ describe('Settings changes reach every open window', () => {
         writeFileSync(`${marker}.arm`, 'arm');
         await typeAuthor(source, 'Chosen author');
         await vi.waitFor(async () => expect(await readFile(`${marker}.failed`, 'utf8')).toBe('ENOSPC'), {timeout: 15_000});
-        await source.waitForFunction(() => document.body.textContent?.includes('ENOSPC'));
+        const saveFailureMessage = LOCALE_MESSAGES.en.errors.settings.save;
+        await source.waitForFunction((message: string) => document.body.textContent?.includes(message), {}, saveFailureMessage);
         expect(await readAuthor(source)).toBe('Chosen author');
         expect(JSON.parse(await readFile(settingsPath, 'utf8')).authorName).toBe('Saved author');
 
@@ -1159,7 +1160,7 @@ describe('Settings changes reach every open window', () => {
             saved: JSON.parse(await readFile(settingsPath, 'utf8')),
             sourceAuthor: await readAuthor(source),
             destinationAuthor: await readAuthor(destination),
-            failureVisible: await source.evaluate(() => document.body.textContent?.includes('ENOSPC')),
+            failureVisible: await source.evaluate((message: string) => document.body.textContent?.includes(message), saveFailureMessage),
         };
         if (process.env.EVB_R3_EVIDENCE_DIR) {
             writeFileSync(join(process.env.EVB_R3_EVIDENCE_DIR, 'failed-save-remote.json'), JSON.stringify(result, null, 2));

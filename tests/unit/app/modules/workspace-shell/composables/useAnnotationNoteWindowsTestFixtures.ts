@@ -30,7 +30,6 @@ export function createHarness(comment = createComment(), options: Pick<Parameter
     const deps = {
         ...options,
         annotationComments: ref<IAnnotationCommentSummary[]>([comment]),
-        markAnnotationDirty: vi.fn(),
         updateAnnotationCommentInViewer: vi.fn<
             (annotationId: AnnotationId, text: string) => boolean
         >(() => true),
