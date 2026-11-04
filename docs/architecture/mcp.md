@@ -240,6 +240,8 @@ When agents reconstruct page labels from printed paper-page numbers, OCR/searcha
 
 ### Bookmark Capabilities
 
+Live `bookmarks.set_tree` and `bookmarks.apply_plan` calls, and `bookmarks.update` calls that supply an `items` or `children` array directly or inside `bookmark`, require explicit user confirmation. The current MCP transport has no confirmation grant, so these calls return the existing confirmation error. Use `bookmarks.preview_tree` to inspect replacements. Internal `dryRun` stays non-mutating and available; external write policy is unchanged. Scalar updates and incremental additions remain available internally.
+
 Bookmark tools work with a recursive tree and a flat agent-friendly view. Read `bookmarks.read` or `evb://document/{tabId}/bookmarks` first; returned bookmarks include zero-based `path` arrays such as `[0, 2]`, a flattened list, summary counts, and validation hints.
 
 - `bookmarks.preview_tree` normalizes a proposed nested tree (`items` or `children`) or flat `entries`/`outline` list with `level` or `depth` values, returning the nested tree, flat path list, issues, and diff without mutating the document.

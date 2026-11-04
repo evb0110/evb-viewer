@@ -1,3 +1,7 @@
+import { ref } from 'vue';
+import type { IPdfBookmarkEntry } from '@contracts/pdfBookmarkEntry';
+import { requirePageIndex } from '@contracts/pageNumbers';
+import { createDocumentAgentBookmarks } from '@app/modules/workspace-shell/agent/createDocumentAgentBookmarks';
 import {
     afterEach,
     describe,
@@ -1245,5 +1249,156 @@ describe('processMcpRequest', () => {
                 page: 8,
             },
         }, undefined);
+    });
+});
+
+describe('bookmark replacement confirmation', () => {
+    it('preserves the outline for equivalent removals and permits scalar edits and previews', async () => {
+        const bookmark = (title: string, items: IPdfBookmarkEntry[] = []): IPdfBookmarkEntry => ({
+            title,
+            items,
+            pageIndex: requirePageIndex(0),
+            namedDest: null,
+            bold: false,
+            italic: false,
+            color: null,
+        });
+        const before = [bookmark('Parent', [bookmark('Child')])];
+        const bookmarkItems = ref<IPdfBookmarkEntry[]>(before);
+        let bookmarksRevision = 0;
+        const owner = createDocumentAgentBookmarks({
+            bookmarkItems,
+            bookmarksDirty: ref(false),
+            getBookmarksRevision: () => bookmarksRevision,
+            totalPages: ref(3),
+            t: key => key,
+            handleBookmarksChange: ({bookmarks}) => {
+                bookmarkItems.value = [...bookmarks];
+                bookmarksRevision += 1;
+            },
+        });
+        const options = createOptions();
+        options.runCommand.mockImplementation(async (command) => {
+            if (command.name !== 'run_action') throw new Error('Unexpected command');
+            const {
+                id, input = {}, dryRun,
+            } = command.arguments;
+            if (dryRun) return {
+                id,
+                dryRun: true,
+            };
+            if (id === 'bookmarks.set_tree') return {...owner.setAgentBookmarkTree(input, id)};
+            if (id === 'bookmarks.apply_plan') return {...owner.applyAgentBookmarkPlan(input, id)};
+            if (id === 'bookmarks.update') return {...owner.updateAgentBookmark(input, id)};
+            if (id === 'bookmarks.preview_tree') return {...owner.previewAgentBookmarkPlan(input, id)};
+            if (id === 'bookmarks.delete') return {...owner.deleteAgentBookmark(input, id)};
+            throw new Error(`Unexpected action ${id}`);
+        });
+        for (const [
+            id,
+            input,
+        ] of [
+                [
+                    'bookmarks.delete',
+                    {path: [0]},
+                ],
+                [
+                    'bookmarks.set_tree',
+                    {bookmarks: []},
+                ],
+                [
+                    'bookmarks.apply_plan',
+                    {entries: []},
+                ],
+                [
+                    'bookmarks.set_tree',
+                    {bookmarks: [{
+                        title: 'Parent',
+                        page: 1,
+                    }]},
+                ],
+                [
+                    'bookmarks.update',
+                    {
+                        path: [0],
+                        children: [],
+                    },
+                ],
+                [
+                    'bookmarks.update',
+                    {
+                        path: [0],
+                        items: [],
+                    },
+                ],
+                [
+                    'bookmarks.update',
+                    {
+                        path: [0],
+                        bookmark: {children: []},
+                    },
+                ],
+                [
+                    'bookmarks.update',
+                    {
+                        path: [0],
+                        bookmark: {items: []},
+                    },
+                ],
+            ] as const) {
+            const response = await runAction(options, id, input);
+            expect(response?.result).toMatchObject({
+                isError: true,
+                structuredContent: {message: expect.stringContaining('requires explicit user confirmation')},
+            });
+            expect(bookmarkItems.value).toEqual(before);
+        }
+        const preview = await runAction(options, 'bookmarks.preview_tree', {bookmarks: []});
+        expect(preview?.result).toMatchObject({structuredContent: {diff: {removedCount: 2}}});
+        expect(bookmarkItems.value).toEqual(before);
+        for (const [
+            id,
+            input,
+        ] of [
+                [
+                    'bookmarks.set_tree',
+                    {bookmarks: []},
+                ],
+                [
+                    'bookmarks.apply_plan',
+                    {entries: []},
+                ],
+                [
+                    'bookmarks.update',
+                    {
+                        path: [0],
+                        children: [],
+                    },
+                ],
+            ] as const) {
+            const dryRun = await runAction(options, id, input, {dryRun: true});
+            expect(dryRun?.result).toMatchObject({structuredContent: {dryRun: true}});
+            expect(bookmarkItems.value).toEqual(before);
+        }
+        const rename = await runAction(options, 'bookmarks.update', {
+            path: [0],
+            title: 'Renamed',
+            bold: true,
+        });
+        expect(rename?.result).not.toHaveProperty('isError', true);
+        expect(bookmarkItems.value).toEqual([{
+            ...before[0],
+            title: 'Renamed',
+            bold: true,
+        }]);
+        const denied = await runAction({
+            ...options,
+            callerKind: 'external',
+        }, 'bookmarks.update', {
+            path: [0],
+            title: 'External',
+        });
+        expect(denied?.result).toMatchObject({isError: true});
+        expect(bookmarkItems.value[0]?.title).toBe('Renamed');
     });
 });
