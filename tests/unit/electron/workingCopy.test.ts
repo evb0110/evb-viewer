@@ -2281,6 +2281,43 @@ describe('workingCopy', () => {
         expect(existsSync(workingDir)).toBe(false);
     });
 
+    it('cancels a closed document reader while recovery still owns its working bytes', async () => {
+        const {
+            claimWorkingCopyRecovery,
+            hasWorkingCopyRecoveryClaim,
+            releaseWorkingCopyRecovery,
+            setWorkingCopyOriginalPath,
+        } = await import('@electron/file-access/workingCopyStore');
+        const {cleanupWorkingCopy} = await import('@electron/file-access/workingCopyCleanup');
+        const {registerMainOperation} = await import('@electron/operation-lifecycle/mainOperationLifecycle');
+        const originalPath = join(tempRoot, 'claimed-reader-original.pdf');
+        const workingDir = join(tempRoot, 'evb-viewer', 'pdf-work-claimed-reader');
+        const workingPath = join(workingDir, 'document.pdf');
+        mkdirSync(workingDir, {recursive: true});
+        writeFileSync(originalPath, 'original bytes');
+        writeFileSync(workingPath, 'accepted working bytes');
+        await setWorkingCopyOriginalPath(workingPath, originalPath, 7, {backingState: 'eager'});
+        const generation = await claimWorkingCopyRecovery(workingPath);
+        const reader = registerMainOperation({
+            kind: 'abortable-work',
+            ownerWebContentsId: 7,
+            workingCopyPath: workingPath,
+            cancel: () => reader.complete(),
+        });
+        try {
+            await expect(cleanupWorkingCopy(workingPath, 7)).resolves.toBe(false);
+            expect(reader.signal.aborted).toBe(true);
+            expect(hasWorkingCopyRecoveryClaim(workingPath)).toBe(true);
+            expect(readFileSync(workingPath, 'utf8')).toBe('accepted working bytes');
+            expect(readFileSync(originalPath, 'utf8')).toBe('original bytes');
+        } finally {
+            reader.complete();
+            releaseWorkingCopyRecovery(workingPath, generation);
+            await cleanupWorkingCopy(workingPath, 7);
+        }
+        expect(existsSync(workingDir)).toBe(false);
+    });
+
     it('waits for an in-flight mutation before retiring ownership and removing the working directory', async () => {
         const {createWorkingCopyFromPath} = await import('@electron/file-access/workingCopyCreation');
         const {allowOpenPath} = await import('@electron/file-access/openPathCapabilities');

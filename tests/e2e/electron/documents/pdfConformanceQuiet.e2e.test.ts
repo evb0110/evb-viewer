@@ -10,7 +10,11 @@ import {
 import {tmpdir} from 'node:os';
 import {randomBytes} from 'node:crypto';
 import {execFileSync} from 'node:child_process';
-import {resolve} from 'node:path';
+import {
+    basename, resolve,
+} from 'node:path';
+import {decodeWorkspaceCheckpoint} from '@contracts/workspaceCheckpoint';
+import {readWorkspaceRecoveryRecords} from '@scripts/electron-run/electronRunWorkspaceCheckpoint';
 import {PDFDocument} from 'pdf-lib';
 import {electronFileLogDir} from '@scripts/electron-run/electronRunSessionPaths';
 import {getPdfNativeToolPaths} from '@electron/pdf/nativeToolPaths';
@@ -170,6 +174,11 @@ describe('Electron E2E - PDF Conformance', () => {
             await triggerOpenPathInApp(session.page, largePdf, CONFORMANCE_WORKER_START_TIMEOUT_MS);
             await waitForPdfLoaded(session.page, CONFORMANCE_WORKER_START_TIMEOUT_MS);
             await expect.poll(() => existsSync(gate.ready), {timeout: CONFORMANCE_WORKER_START_TIMEOUT_MS}).toBe(true);
+            // Close must stop the reader even while the durable checkpoint still owns its bytes.
+            await expect.poll(() => readWorkspaceRecoveryRecords(session.name)
+                .some(record => decodeWorkspaceCheckpoint(record.checkpoint)?.tabs.some(tab => (
+                    tab.fileName === basename(largePdf) && tab.workingCopyRef !== null
+                ))), {timeout: CONFORMANCE_WORKER_START_TIMEOUT_MS}).toBe(true);
             await clickAsUser(session.page, '.tab-list .tab.is-active .tab-close');
             await waitForActiveDocumentSource(session.page, stablePdf, 15_000);
             await waitForPdfLoaded(session.page, 15_000);
