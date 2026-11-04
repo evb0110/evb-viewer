@@ -531,6 +531,62 @@ describe('metadata edited while a save is writing', () => {
         expect(service.canSave.value).toBe(true);
     });
 
+    it('keeps an outline changed back while saving unsaved against the saved one', async () => {
+        const owner = useBookmarkState({markDirty: () => undefined});
+        const bookmark = (title: string) => cast<Parameters<typeof owner.handleBookmarksChange>[0]['bookmarks']>([{
+            id: 'bookmark-1',
+            title,
+            pageIndex: 0,
+            items: [],
+        }]);
+        owner.handleBookmarksChange({
+            bookmarks: bookmark('A'),
+            dirty: false,
+        });
+        owner.handleBookmarksChange({
+            bookmarks: bookmark('B'),
+            dirty: true,
+        });
+        const entered = createDeferred<undefined>();
+        const finish = createDeferred<undefined>();
+        let saved: unknown;
+        const {deps} = createDeps({
+            originalPath: ref(requireDocumentRef('/tmp/source.pdf')),
+            workingCopyPath: ref(requireDocumentRef('/tmp/work.pdf')),
+            bookmarkItems: owner.bookmarkItems,
+            bookmarksDirty: owner.bookmarksDirty,
+            getBookmarksSaveStateToken: owner.getBookmarksRevision,
+            markBookmarksSaved: owner.markBookmarksSaved,
+            trySavePdfNativeMutations: vi.fn(async mutations => {
+                saved = structuredClone(mutations.bookmarks);
+                entered.resolve(undefined);
+                await finish.promise;
+                return {
+                    success: true,
+                    outPath: requireDocumentRef('/tmp/source.pdf'),
+                    saveMode: 'rewrite' as const,
+                    didSaveAs: false,
+                };
+            }),
+        });
+        const service = useWorkspaceSaveServiceForTest(deps);
+        const saving = service.handleSave();
+        await entered.promise;
+        // The reader changes it back to A, which equals the old clean outline,
+        // so the history reports it clean while B is being written.
+        owner.handleBookmarksChange({
+            bookmarks: bookmark('A'),
+            dirty: true,
+        });
+        owner.bookmarksDirty.value = false;
+        finish.resolve(undefined);
+
+        await expect(saving).resolves.toBe(true);
+        expect(JSON.stringify(saved)).toContain('"B"');
+        expect(owner.bookmarksDirty.value, 'the file now holds B, the reader shows A').toBe(true);
+        expect(service.canSave.value).toBe(true);
+    });
+
     it('keeps page labels added during a bookmark save unsaved', async () => {
         const working = ref(requireDocumentRef('/tmp/work.pdf'));
         const session = useMetadataSession({

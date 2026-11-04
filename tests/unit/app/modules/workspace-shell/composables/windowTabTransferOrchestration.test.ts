@@ -63,9 +63,14 @@ const transferMock = vi.hoisted(() => vi.fn(async (_request: {payload: unknown})
 // A clean document's split capture clones its working copy; the clone is the
 // only platform call a merge capture makes.
 const createWorkingCopyFromPathMock = vi.hoisted(() => vi.fn(async (path: string) => `${path}.snapshot.pdf`));
+// Where the clone fails, the capture stages the view's bytes instead.
+const createWorkingCopyFromDataMock = vi.hoisted(() => vi.fn(async (_fileName: string, _data: Uint8Array) => 'browser://documents/staged.pdf'));
 vi.mock('@app/utils/platformDocuments', async importOriginal => ({
     ...await importOriginal<typeof PlatformDocuments>(),
-    getDocumentWorkingCopyCapability: () => ({createWorkingCopyFromPath: createWorkingCopyFromPathMock}),
+    getDocumentWorkingCopyCapability: () => ({
+        createWorkingCopyFromPath: createWorkingCopyFromPathMock,
+        createWorkingCopyFromData: createWorkingCopyFromDataMock,
+    }),
 }));
 vi.mock('@app/utils/platformWindowTabs', () => ({
     canUseNativeWindowTabTransfers: () => true,
@@ -703,8 +708,6 @@ describe('window tab transfer orchestration helpers', () => {
         },
     );
 
-    // Sweep #845 item 9: Merge This Window Into captures every tab without
-    // activating it. Two linked views of one document each go at their own page.
     it.each([
         'browser://documents/work.pdf',
         '/tmp/work.pdf',
@@ -774,6 +777,69 @@ describe('window tab transfer orchestration helpers', () => {
         expect(application.store.hasChangesSinceSavedBaseline()).toBe(true);
     });
 
+    it.each([
+        'clean view without a native writer',
+        'dirty view without a mounted viewer',
+    ] as const)('moves the bytes of a %s only when it has no edits', async (scenario) => {
+        const dirty = scenario === 'dirty view without a mounted viewer';
+        const application = new AnnotationApplication('split-clean');
+        application.store.replaceFromDocument([], []);
+        const transaction = usePdfViewerSaveTransaction({annotationApplication: shallowRef(application)});
+        const original = new TextEncoder().encode('%PDF-original');
+        // A clean view's working copy cannot be cloned, so only its bytes remain.
+        if (!dirty) createWorkingCopyFromPathMock.mockRejectedValueOnce(new Error('clone failed'));
+        createWorkingCopyFromDataMock.mockClear();
+        const split = useWorkspaceSplitPayload(cast({
+            pdfSrc: shallowRef(new Blob([original])),
+            pdfData: shallowRef(original),
+            workingCopyPath: ref(requireDocumentRef('browser://documents/work.pdf')),
+            originalPath: ref(requireDocumentRef('/source.pdf')),
+            documentRevisionToken: ref('revision-1'),
+            hasPendingTabChanges: ref(dirty),
+            requiresSaveAsOnFirstSave: ref(false),
+            isDjvuMode: ref(false),
+            djvuSourcePath: ref(null),
+            currentPage: ref(1),
+            totalPages: ref(1),
+            fileName: ref('source.pdf'),
+            pdfViewerRef: shallowRef(dirty ? null : {runSaveTransaction: transaction.runSaveTransaction}),
+            documentViewerRef: ref(null),
+            getNativeSaveTransactionOptions: () => ({
+                nativeCapabilities: {
+                    hasNativePdfMutationCapability: false,
+                    canPersistNativeMetadataMutations: false,
+                },
+                dirtyState: {
+                    annotationDirty: false,
+                    hasAnnotationChanges: false,
+                    shapeStateDirty: false,
+                },
+                documentStructure: {
+                    pageLabelsDirty: false,
+                    pageLabelRanges: [],
+                    bookmarksDirty: false,
+                    bookmarkItems: [],
+                    untitledBookmarkLabel: 'Untitled',
+                    totalPages: 1,
+                },
+            }),
+        }));
+
+        if (dirty) {
+            // Nothing can stand for its edits: the old bytes do not move.
+            await expect(split.captureSplitPayload()).rejects.toMatchObject({name: 'NativePdfSaveRequiredError'});
+            expect(createWorkingCopyFromDataMock).not.toHaveBeenCalled();
+            return;
+        }
+        await expect(split.captureSplitPayload()).resolves.toMatchObject({
+            kind: 'pdfSnapshot',
+            isDirty: false,
+        });
+        expect(createWorkingCopyFromDataMock.mock.lastCall?.[1]).toEqual(original);
+    });
+
+    // Sweep #845 item 9: Merge This Window Into captures every tab without
+    // activating it. Two linked views of one document each go at their own page.
     it('merges two linked views of one document at each view page', async () => {
         vi.stubGlobal('useTypedI18n', () => ({t: (key: string) => key}));
         vi.stubGlobal('useToast', () => ({

@@ -1050,6 +1050,7 @@ export default {
         'unitKilobyte': 'KB',
         'unitMegabyte': 'MB',
         'unitGigabyte': 'GB',
+        'unitTerabyte': 'TB',
         'pdfPage': 'PDF-pagina {page}',
         'pageRenderFailed': 'Deze pagina kan niet worden weergegeven',
         'pageInteractionFailed': 'Links en interacties met annotaties op pagina {page} konden niet worden geladen.',

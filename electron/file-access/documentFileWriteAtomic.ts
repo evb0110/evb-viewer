@@ -1,5 +1,4 @@
 import {
-    copyFile,
     link,
     open as openFileHandle,
     rename,
@@ -7,7 +6,10 @@ import {
 } from 'fs/promises';
 import {dirname} from 'path';
 import { isNoHardLinkError } from '@electron/utils/isNoHardLinkError';
-import {attemptWorkingCopyClone} from '@electron/file-access/workingCopyDirectory';
+import {
+    attemptWorkingCopyClone,
+    copyFileFromStableSource,
+} from '@electron/file-access/workingCopyDirectory';
 import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
 import {fsyncFile} from '@electron/utils/fsyncPath';
@@ -125,9 +127,11 @@ export async function copyFileAtomic(
                     }
                 }
             }
+            // A plain copy reads a source that may be written meanwhile; this
+            // one refuses a source that changes while it is copied.
             if (!linked) {
                 await measureCopyPhase(options.onPhase, 'copy', () =>
-                    copyFile(resolvedSourcePath, temporaryPath));
+                    copyFileFromStableSource(resolvedSourcePath, temporaryPath, {preserveMode: true}));
             }
         }
         if (options.durable !== false) {

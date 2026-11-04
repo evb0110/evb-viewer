@@ -1,3 +1,4 @@
+import { realpathSync } from 'fs';
 import { resolve } from 'path';
 import { createLogger } from '@electron/utils/createLogger';
 
@@ -22,16 +23,22 @@ const quarantinedWorkingCopies = new Map<string, Set<string>>();
 // The path that records a quarantine and the path that asks about one arrive
 // from different callers: scan cleanup records the source path it was handed,
 // while the close path asks with the working-copy registration key. Two spellings
-// of the same file have to answer the same, so the key is the resolved path, and
-// on Windows — where the filesystem itself is case-insensitive — case-folded as
-// well. POSIX keeps its case, because there two spellings that differ in case are
-// two different files.
+// of the same file have to answer the same, so the key is the real path while the
+// file exists (a symlinked folder such as macOS's /var is another spelling), else
+// the resolved path, and on Windows, where the filesystem itself is
+// case-insensitive, case-folded as well. POSIX keeps its case, because there two
+// spellings that differ in case are two different files.
 function normalizeQuarantinePath(workingCopyPath: string) {
     const trimmedPath = typeof workingCopyPath === 'string' ? workingCopyPath.trim() : '';
     if (!trimmedPath) {
         return '';
     }
-    const resolvedPath = resolve(trimmedPath);
+    let resolvedPath = resolve(trimmedPath);
+    try {
+        resolvedPath = realpathSync.native(resolvedPath);
+    } catch {
+        // Gone already: the resolved spelling is the only one left.
+    }
     return process.platform === 'win32' ? resolvedPath.toLowerCase() : resolvedPath;
 }
 

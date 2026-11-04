@@ -1,5 +1,9 @@
 import type {Ref} from 'vue';
 import type {
+    IPdfBookmarkEntry,
+    IPdfPageLabelRange,
+} from '@app/types/pdfContracts';
+import type {
     IWorkspaceSaveBaseline,
     IWorkspaceSaveDirtyState,
 } from '@app/modules/workspace-shell/composables/file-operations/workspaceSaveExecutionSupport';
@@ -16,6 +20,8 @@ export interface IWorkspaceSaveStateDependencies {
         bookmarksDirty: Ref<boolean>;
         getPageLabelsSaveStateToken?: () => unknown;
         getBookmarksSaveStateToken?: () => unknown;
+        pageLabelRanges?: Ref<IPdfPageLabelRange[]>;
+        bookmarkItems?: Ref<IPdfBookmarkEntry[]>;
     };
     shapes: {hasChanges: () => boolean;};
 }
@@ -36,6 +42,8 @@ export function captureBaseline(deps: IWorkspaceSaveStateDependencies): IWorkspa
         annotations: deps.annotations.getSaveStateToken?.(),
         pageLabels: deps.metadata.getPageLabelsSaveStateToken?.(),
         bookmarks: deps.metadata.getBookmarksSaveStateToken?.(),
+        writtenPageLabelRanges: deps.metadata.pageLabelRanges?.value,
+        writtenBookmarkItems: deps.metadata.bookmarkItems?.value,
     };
 }
 

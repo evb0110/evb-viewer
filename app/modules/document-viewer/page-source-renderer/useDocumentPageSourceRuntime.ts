@@ -181,16 +181,27 @@ export function resolveDocumentPageDisplayLayoutsBounded(
             continuousScroll,
         });
     }
+    const sparseMetrics = isSparseDocumentPageMetrics(metrics) ? metrics : null;
     // Continuous fit-width fits the widest page, one scale for the document.
-    // Measured once per layout, not per scroll.
+    // Measured once per layout, not per scroll; sparse metrics hold their
+    // measured pages apart, and every other page is the fallback.
     let fitWidthPageWidth: number | undefined;
     if (continuousScroll && zoomMode === 'fit-width') {
-        fitWidthPageWidth = 0;
-        for (let index = 0; index < metrics.length; index += 1) {
-            fitWidthPageWidth = Math.max(fitWidthPageWidth, (metrics.get(index) ?? metrics.fallbackMetric).widthPoints);
+        let widest = 0;
+        if (sparseMetrics) {
+            let exactCount = 0;
+            sparseMetrics.forEachExact((_pageNumber, metric) => {
+                exactCount += 1;
+                widest = Math.max(widest, metric.widthPoints);
+            });
+            if (exactCount < metrics.length) widest = Math.max(widest, metrics.fallbackMetric.widthPoints);
+        } else {
+            for (let index = 0; index < metrics.length; index += 1) {
+                widest = Math.max(widest, (metrics.get(index) ?? metrics.fallbackMetric).widthPoints);
+            }
         }
+        fitWidthPageWidth = widest;
     }
-    const sparseMetrics = isSparseDocumentPageMetrics(metrics) ? metrics : null;
     const displayLayouts = createLazyIndexedCollection({
         cacheValues: false,
         chunkSize: DOCUMENT_SOURCE_LAYOUT_CHUNK_SIZE,

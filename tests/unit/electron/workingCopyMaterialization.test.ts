@@ -6,6 +6,9 @@ import {
     it,
     vi,
 } from 'vitest';
+import {writeFileHandleFully} from '@electron/file-access/writeFileHandleFully';
+import {cast} from '@tests/helpers/cast';
+import type {FileHandle} from 'node:fs/promises';
 import {
     closeSync,
     existsSync,
@@ -160,6 +163,53 @@ describe('workingCopyMaterialization', () => {
         expect(getWorkingCopyBackingEntry(fixture.workingPath, 7)?.backingState).toBe('materialized');
         expect(statuses).not.toContain('failed');
         expect(statuses.at(-1)).toBe('completed');
+    });
+
+    it('tells a document\'s window how far its copy has come, and starts a new registration at none', async () => {
+        const fixture = await registerLazyWorkingCopy(Buffer.alloc(MULTI_CHUNK_FIXTURE_BYTES, 43));
+        const {
+            getWorkingCopyBackingStatus,
+            onWorkingCopyBackingStatusChanged,
+        } = await import('@electron/features/documents/main/workingCopyBackingStatus');
+        const {ensureWorkingCopyMaterialized} = await import('@electron/file-access/workingCopyMaterialization');
+        const dispatched: Array<{
+            owner: number | undefined;
+            progress: number;
+        }> = [];
+        const stop = onWorkingCopyBackingStatusChanged(dispatch => dispatched.push({
+            owner: dispatch.ownerWebContentsId,
+            progress: dispatch.status.progress,
+        }));
+        try {
+            await ensureWorkingCopyMaterialized(fixture.workingPath, {
+                ownerWebContentsId: 7,
+                reason: 'save',
+            });
+        } finally {
+            stop();
+        }
+
+        expect(dispatched.length).toBeGreaterThan(1);
+        expect(dispatched.every(event => event.owner === 7)).toBe(true);
+        const progress = dispatched.map(event => event.progress);
+        expect(progress).toEqual([...progress].sort((left, right) => left - right));
+        expect(progress.at(-1)).toBe(1);
+        expect(getWorkingCopyBackingStatus(7, fixture.workingPath)).toMatchObject({
+            progress: 1,
+            state: 'materialized',
+        });
+
+        // The same path registered again is a new copy, with nothing copied yet.
+        const {setWorkingCopyOriginalPath} = await import('@electron/file-access/workingCopyStore');
+        await setWorkingCopyOriginalPath(fixture.workingPath, fixture.originalPath, 7, {
+            admissionSnapshot: fixture.admissionSnapshot,
+            backingState: 'lazy-original',
+            deferOriginalFileExpectation: true,
+        });
+        expect(getWorkingCopyBackingStatus(7, fixture.workingPath)).toMatchObject({
+            progress: 0,
+            state: 'lazy-original',
+        });
     });
 
     it('shares one flight across concurrent demand waiters', async () => {
@@ -859,3 +909,42 @@ function materializingArtifacts(workingPath: string) {
     const prefix = `${workingPath.split('/').at(-1)}.materializing-`;
     return readdirSync(dirname(workingPath)).filter(name => name.startsWith(prefix));
 }
+
+describe('writing a working copy in full', () => {
+    // A write may take fewer bytes than asked; the writer loops, and a
+    // cancellation stops it before its next write.
+    const shortWritingHandle = (onWrite?: (writes: number) => void) => {
+        const written: number[] = [];
+        let writes = 0;
+        const handle = cast<FileHandle>({write: vi.fn(async (bytes: Uint8Array, offset: number, length: number) => {
+            const taken = Math.min(4, length);
+            written.push(...bytes.subarray(offset, offset + taken));
+            writes += 1;
+            onWrite?.(writes);
+            return {bytesWritten: taken};
+        })});
+        return {
+            handle,
+            written,
+        };
+    };
+
+    it('writes every byte through short writes', async () => {
+        const {
+            handle, written,
+        } = shortWritingHandle();
+        const bytes = Uint8Array.from({length: 16}, (_, index) => index);
+        await writeFileHandleFully(handle, bytes, 100);
+        expect(written).toEqual([...bytes]);
+    });
+
+    it('stops at a cancellation between short writes', async () => {
+        const controller = new AbortController();
+        const {
+            handle, written,
+        } = shortWritingHandle(writes => writes === 1 && controller.abort());
+        await expect(writeFileHandleFully(handle, new Uint8Array(16), 0, controller.signal)).rejects.toMatchObject({name: 'AbortError'});
+        expect(written).toHaveLength(4);
+    });
+});
+

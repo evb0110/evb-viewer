@@ -1051,6 +1051,7 @@ export default {
         'unitKilobyte': 'Ko',
         'unitMegabyte': 'Mo',
         'unitGigabyte': 'Go',
+        'unitTerabyte': 'To',
         'pdfPage': 'Page PDF {page}',
         'pageRenderFailed': 'Impossible d’afficher cette page',
         'pageInteractionFailed': 'Les liens et les interactions avec les annotations de la page {page} n’ont pas pu être chargés.',

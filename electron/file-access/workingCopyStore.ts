@@ -52,6 +52,8 @@ export interface IWorkingCopyOriginalEntry {
     openingPageGeometry?: IPdfNativePageGeometry;
     admissionSnapshot?: IWorkingCopyAdmissionSnapshot;
     backingState: TWorkingCopyBackingState;
+    /** Materialization progress (0 to 1) reported for this registration; it never moves back. */
+    backingProgress?: number;
     originalPath: string;
     logicalPath: string;
     ownerWebContentsId?: number;

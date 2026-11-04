@@ -97,15 +97,16 @@ vi.mock('electron', () => {
                 mocks.focusedWindow = window;
             }),
             getBounds: vi.fn(() => bounds),
+            // The content area is the window less its title bar.
             getContentSize: vi.fn(() => [
                 bounds.width,
-                bounds.height,
+                bounds.height - TITLE_BAR_HEIGHT,
             ]),
             setContentSize: vi.fn((width: number, height: number) => {
                 bounds = {
                     ...bounds,
                     width,
-                    height,
+                    height: height + TITLE_BAR_HEIGHT,
                 };
             }),
             isDestroyed: vi.fn(() => false),
@@ -209,6 +210,9 @@ function getBeforeInputHandler(window: IHostZenEscapeTestWindow) {
         | ((event: IBeforeInputTestEvent, input: IBeforeInputTestInput) => void)
         | undefined;
 }
+
+// A window frame, so a content size and a window size differ.
+const TITLE_BAR_HEIGHT = 28;
 
 describe('host environment zen Escape handling', () => {
     beforeEach(() => {
@@ -345,7 +349,7 @@ describe('host environment startup argument', () => {
             supported: true,
             contentSize: {
                 width: 800,
-                height: 600,
+                height: 600 - TITLE_BAR_HEIGHT,
             },
             workAreaSize: {
                 width: 800,
@@ -365,6 +369,11 @@ describe('host environment startup argument', () => {
                 width: 640,
                 height: 480,
             },
+        });
+        // The window around it is the frame taller, not 480 high itself.
+        expect(window.getBounds()).toMatchObject({
+            width: 640,
+            height: 480 + TITLE_BAR_HEIGHT,
         });
         expect(window.focus).not.toHaveBeenCalled();
 
@@ -409,7 +418,7 @@ describe('host environment startup argument', () => {
                 supported: true,
                 contentSize: {
                     width: 1000,
-                    height: 700,
+                    height: 700 - TITLE_BAR_HEIGHT,
                 },
                 workAreaSize: {
                     width: 800,

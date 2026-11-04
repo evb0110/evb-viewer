@@ -1,3 +1,4 @@
+import {closeBrowserWorkingCopyWork} from '@app/platform/browser-api/browserWorkingCopyClose';
 import type {
     IDocumentMutationRevisionOptions,
     IDocumentsFileCapability,
@@ -717,6 +718,7 @@ export function createBrowserDocumentsFileCapability(
             return result;
         },
         async cleanupFile(path) {
+            await closeBrowserWorkingCopyWork(path);
             await retireBrowserDocumentWorkingCopy(path);
             const entry = await browserDocumentStore.ensureEntry(path);
             if (!entry) {

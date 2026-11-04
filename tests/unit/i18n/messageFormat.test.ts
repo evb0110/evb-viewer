@@ -126,6 +126,10 @@ describe('formatBytes', () => {
             t: translator('ru'),
             locale: 'ru',
         })).toBe('5,00 ГБ');
+        expect(formatBytes(1024 ** 4, {
+            t: translator('en'),
+            locale: 'en',
+        })).toBe('1.00 TB');
         expect(formatBytes(512, {
             t: translator('en'),
             locale: 'en',

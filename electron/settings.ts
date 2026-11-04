@@ -286,6 +286,14 @@ export async function updateSettings(
         const storagePath = getStoragePath();
         if (!settingsCache) await loadSettings();
         if (!settingsCache) {
+            // A grant this change carried never reached disk; a later save
+            // must not write it either, so the stored choice stands.
+            if (consentIntent.preference === 'granted' && options.diagnosticsConsentRevision === consentIntent.revision) {
+                consentIntent = {
+                    revision: consentIntent.revision + 1,
+                    preference: null,
+                };
+            }
             throw new Error('Settings could not be read, so the change was not saved over them');
         }
         const current = cloneSettings(settingsCache);

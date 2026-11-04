@@ -9,7 +9,6 @@ import {
     createJobId,
     type TRequestId,
 } from '@contracts/shared';
-import {parseDocumentRevisionToken} from '@contracts/documentRevision';
 import {
     createDefaultScanCleanupSettingsFile,
     isScanCleanupSourceSha256,
@@ -17,13 +16,15 @@ import {
     type IScanCleanupSettingsFile,
     type IScanCleanupSettingsReadRequest,
 } from '@contracts/scan-cleanup/scanCleanupSettings';
-import {BROWSER_PAGE_OPS_MAX_REQUEST_BYTES} from '@contracts/browserPageOpsLimits';
-import {isBrowserPageOpsWasmFailure} from '@contracts/browserPageOpsWorker';
-import {decodePdfPageSizeRecord} from '@evb/scan-cleanup/core/policy/scanCleanupRasterPolicy';
-import {browserDocumentStore} from '@app/platform/browserDocumentStore';
-import {loadBrowserPdfjsDocument} from '@app/platform/browser-api/loadBrowserPdfjsDocument';
-import {runBrowserPageOpsWorkerRequest} from '@app/platform/browser-api/browserPageOpsWorkerClient';
 import {canUseBrowserScanCleanupWorker} from '@app/platform/browser-api/browserScanCleanupWorkerClient';
+import {
+    awaitScanCleanupSource,
+    borrowBrowserScanCleanupSource,
+    scanCleanupSourceKey,
+    type TBrowserScanCleanupSourceBorrow,
+} from '@app/platform/browser-api/browserScanCleanupSources';
+import {createBrowserScanCleanupDetectionOwner} from '@app/platform/browser-api/createBrowserScanCleanupDetectionOwner';
+import {onBrowserWorkingCopyClose} from '@app/platform/browser-api/browserWorkingCopyClose';
 import {
     adoptScanCleanupDocumentKey,
     loadScanCleanupDocumentEntry,
@@ -35,7 +36,6 @@ import {
 import type {
     IBrowserScanCleanupPreviewBase,
     IBrowserScanCleanupPreviewRendering,
-    IBrowserScanCleanupSource,
 } from '@app/platform/browser-api/browserScanCleanupJob';
 
 const BROWSER_SCAN_CLEANUP_OPERATION_UNAVAILABLE = 'This Scan Cleanup operation is not available in the browser yet; use the desktop app.';
@@ -48,8 +48,8 @@ export function getBrowserScanCleanupSupport(): IScanCleanupSupport {
     const engine = canUseBrowserScanCleanupWorker();
     return {
         preview: engine,
-        detection: false,
-        calibration: false,
+        detection: engine,
+        calibration: engine,
         conversion: false,
     };
 }
@@ -73,11 +73,6 @@ interface IRetainedBase {
     value: IBrowserScanCleanupPreviewBase;
 }
 
-interface ISourceSnapshot {
-    key: string;
-    promise: Promise<IBrowserScanCleanupSource>;
-}
-
 const previewRawListeners = new Set<(event: IScanCleanupRawPreviewEvent) => void>();
 const settingsListeners = new Set<Parameters<IScanCleanupCapability['onSettingsChanged']>[0]>();
 
@@ -86,7 +81,41 @@ const settingsListeners = new Set<Parameters<IScanCleanupCapability['onSettingsC
 let base: IPreviewWork | null = null;
 let detail: IPreviewWork | null = null;
 let retainedBase: IRetainedBase | null = null;
-let source: ISourceSnapshot | null = null;
+// The source revision previews read, kept between pages until another
+// revision is previewed or the preview releases it.
+let previewSource: TBrowserScanCleanupSourceBorrow | null = null;
+
+// Preview requests and cancellations claim the preview slot in the order
+// they arrive, even when a request first reads its page plan from detection.
+// The chain covers only the claim, never the render.
+let previewAdmission: Promise<unknown> = Promise.resolve();
+function admitPreview<T>(claim: () => Promise<T> | T): Promise<T> {
+    const claimed = previewAdmission.then(claim);
+    previewAdmission = claimed.then(() => undefined, () => undefined);
+    return claimed;
+}
+
+const detection = createBrowserScanCleanupDetectionOwner();
+// A closed document ends its detection and releases what its previews hold:
+// their work, the base a detail would refine, and its source snapshot.
+onBrowserWorkingCopyClose(async ref => {
+    detection.closeSource(ref);
+    const retiring = await admitPreview(() => {
+        const claimed = [
+            base,
+            detail,
+        ].filter(work => work !== null && work.ref === ref);
+        if (base?.ref === ref) base = null;
+        if (detail?.ref === ref) detail = null;
+        if (retainedBase?.ref === ref) retainedBase = null;
+        if (previewSource?.ref === ref) {
+            previewSource.release();
+            previewSource = null;
+        }
+        return claimed;
+    });
+    await Promise.all(retiring.map(retire));
+});
 
 /** What makes two base previews the same picture; a detail adds only its viewport. */
 function baseIdentity(request: IScanCleanupPreviewRequest) {
@@ -110,67 +139,6 @@ async function retire(work: IPreviewWork | null) {
     await work.promise.catch(() => undefined);
 }
 
-function releaseSource(snapshot: ISourceSnapshot | null) {
-    if (snapshot === null) return;
-    void snapshot.promise.then(opened => opened.pdf.loadingTask.destroy()).catch(() => undefined);
-}
-
-/**
- * Opens one revision of a source: its page records, read once by the same
- * Rust reader desktop's page-size sidecar runs, and its PDF.js document. A
- * request for another revision replaces the snapshot.
- */
-function openSource(ref: string, revision: string, signal: AbortSignal): Promise<IBrowserScanCleanupSource> {
-    const key = `${ref}\u0000${revision}`;
-    if (source?.key === key) return source.promise;
-    const previous = source;
-    const promise = (async () => {
-        const token = parseDocumentRevisionToken(revision);
-        await browserDocumentStore.assertDocumentRevisionCurrent(ref, token);
-        const data = await browserDocumentStore.read(ref, {maxBytes: BROWSER_PAGE_OPS_MAX_REQUEST_BYTES});
-        // The request that opens the source can cancel it; a failed open is not kept.
-        const inspected = await runBrowserPageOpsWorkerRequest('inspectScanCleanupPdf', {
-            data,
-            pages: [],
-        }, {
-            dedicated: true,
-            signal,
-        });
-        if (isBrowserPageOpsWasmFailure(inspected)) {
-            throw new Error(`Scan cleanup could not read the page geometry: ${inspected.error.message}`);
-        }
-        const pageSizes = inspected.pages.map((page, index) => decodePdfPageSizeRecord(page, inspected.pageCount, `page ${String(index + 1)}`));
-        if (pageSizes.length !== inspected.pageCount || pageSizes.some((page, index) => page.pageNumber !== index + 1)) {
-            throw new Error('Scan cleanup page geometry does not cover the document in page order');
-        }
-        signal.throwIfAborted();
-        const pdf = await loadBrowserPdfjsDocument(ref);
-        try {
-            signal.throwIfAborted();
-            await browserDocumentStore.assertDocumentRevisionCurrent(ref, token);
-        } catch (error) {
-            await pdf.loadingTask.destroy();
-            throw error;
-        }
-        return {
-            ref,
-            revision,
-            pageSizes,
-            pdf,
-        };
-    })();
-    source = {
-        key,
-        promise,
-    };
-    // A failed open is not kept: the next request tries again.
-    promise.catch(() => {
-        if (source?.promise === promise) source = null;
-    });
-    releaseSource(previous);
-    return promise;
-}
-
 function startWork(request: IScanCleanupPreviewRequest, identity: string, run: (signal: AbortSignal) => Promise<IBrowserScanCleanupPreviewRendering>): IPreviewWork {
     const controller = new AbortController();
     return {
@@ -188,26 +156,29 @@ async function renderPreview(
     detailBase: IBrowserScanCleanupPreviewBase | null,
 ) {
     const {renderBrowserScanCleanupWorkspacePreview} = await import('@app/platform/browser-api/browserScanCleanupJob');
-    let opened: IBrowserScanCleanupSource;
-    try {
-        opened = await openSource(request.sourcePdfPath, request.documentRevision, signal);
-    } catch (error) {
-        // The request that opened this shared source was canceled, not this one;
-        // its failed open is no longer kept, so this one opens it again.
-        if (!isAbort(error) || signal.aborted) throw error;
-        opened = await openSource(request.sourcePdfPath, request.documentRevision, signal);
+    const {
+        sourcePdfPath: ref, documentRevision: revision,
+    } = request;
+    // The window keeps the revision open between pages; each render borrows
+    // it too, so a newer preview never closes what a render still reads.
+    if (previewSource?.key !== scanCleanupSourceKey(ref, revision) || previewSource.stale) {
+        previewSource?.release();
+        previewSource = borrowBrowserScanCleanupSource(ref, revision);
     }
-    signal.throwIfAborted();
-    return renderBrowserScanCleanupWorkspacePreview({
-        request,
-        source: opened,
-        signal,
-        base: detailBase,
-        emitRaw: event => {
-            if (signal.aborted) return;
-            for (const listener of [...previewRawListeners]) listener(event);
-        },
-    });
+    const borrow = borrowBrowserScanCleanupSource(ref, revision);
+    return awaitScanCleanupSource(borrow.opened, signal).then(opened => {
+        signal.throwIfAborted();
+        return renderBrowserScanCleanupWorkspacePreview({
+            request,
+            source: opened,
+            signal,
+            base: detailBase,
+            emitRaw: event => {
+                if (signal.aborted) return;
+                for (const listener of [...previewRawListeners]) listener(event);
+            },
+        });
+    }).finally(() => borrow.release());
 }
 
 function settled(work: IPreviewWork, requestId: TRequestId): Promise<TScanCleanupPreviewWireResult> {
@@ -317,45 +288,43 @@ export const browserScanCleanupCapability: IScanCleanupCapability = {
         if (request.visible !== true && request.detail === undefined) {
             return Promise.resolve({canceled: true});
         }
-        const identity = baseIdentity(request);
-        return request.detail === undefined
-            ? previewBase(request, identity)
-            : previewDetail(request, identity);
+        return admitPreview(async () => {
+            const planned = await detection.resolvePreviewPagePlan(request);
+            const identity = baseIdentity(planned);
+            return {settled: planned.detail === undefined
+                ? previewBase(planned, identity)
+                : previewDetail(planned, identity)};
+        }).then(({settled}) => settled);
     },
-    resolvePlacementAnchorCalibration() {
-        return Promise.reject(new Error(BROWSER_SCAN_CLEANUP_OPERATION_UNAVAILABLE));
-    },
+    resolvePlacementAnchorCalibration: request => detection.resolvePlacementAnchorCalibration(request),
     async cancelPreview(request) {
-        const owned = (work: IPreviewWork | null) => work !== null
-            && work.ownerId === request.ownerId
-            && work.ref === request.sourcePdfPath;
-        const retiring = [
-            base,
-            detail,
-        ].filter(owned);
-        if (owned(base)) base = null;
-        if (owned(detail)) detail = null;
-        if (retainedBase !== null && retainedBase.ownerId === request.ownerId && retainedBase.ref === request.sourcePdfPath
-            && (request.invalidateRawCache === true || !(request.retainPages ?? []).some(page => page === retainedBase?.pageNumber))) {
-            retainedBase = null;
-        }
+        const retiring = await admitPreview(() => {
+            const owned = (work: IPreviewWork | null) => work !== null
+                && work.ownerId === request.ownerId
+                && work.ref === request.sourcePdfPath;
+            const claimed = [
+                base,
+                detail,
+            ].filter(owned);
+            if (owned(base)) base = null;
+            if (owned(detail)) detail = null;
+            if (retainedBase !== null && retainedBase.ownerId === request.ownerId && retainedBase.ref === request.sourcePdfPath
+                && (request.invalidateRawCache === true || !(request.retainPages ?? []).some(page => page === retainedBase?.pageNumber))) {
+                retainedBase = null;
+            }
+            return claimed;
+        });
         await Promise.all(retiring.map(retire));
         if (request.invalidateRawCache === true && base === null && detail === null) {
-            releaseSource(source);
-            source = null;
+            previewSource?.release();
+            previewSource = null;
         }
         return retiring.length > 0;
     },
-    detectAll: unavailableStart,
-    cancelDetection() {
-        return Promise.resolve(false);
-    },
-    getDetectionJobState() {
-        return Promise.resolve(null);
-    },
-    subscribeDetectionJob() {
-        return Promise.resolve(null);
-    },
+    detectAll: request => detection.detectAll(request),
+    cancelDetection: (jobId, owner) => detection.cancelDetection(jobId, owner),
+    getDetectionJobState: (jobId, owner) => detection.getDetectionJobState(jobId, owner),
+    subscribeDetectionJob: (jobId, owner) => detection.subscribeDetectionJob(jobId, owner),
     start: unavailableStart,
     cancel() {
         return Promise.resolve(false);
@@ -426,9 +395,7 @@ export const browserScanCleanupCapability: IScanCleanupCapability = {
     onJobState() {
         return () => undefined;
     },
-    onDetectionJobState() {
-        return () => undefined;
-    },
+    onDetectionJobState: listener => detection.onDetectionJobState(listener),
     onSettingsChanged(listener) {
         settingsListeners.add(listener);
         return () => {

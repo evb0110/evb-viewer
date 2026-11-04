@@ -118,18 +118,18 @@ export function splitByQueryMatches(text: string, normalizedQuery: string): ICom
 
     // Lowercasing can change a character's length (İ becomes i̇), so matches
     // are found in the folded text and cut from the original at the
-    // original characters they cover.
-    let loweredText = '';
+    // original characters they cover. The text folds as a whole, as the
+    // filter folds it, so a final sigma stays final; context changes a
+    // character's folded value there, never its length.
+    const loweredText = text.toLowerCase();
     const originalStart: number[] = [];
     const originalEnd: number[] = [];
     for (let index = 0; index < text.length;) {
         const character = String.fromCodePoint(text.codePointAt(index)!);
-        const lowered = character.toLowerCase();
-        for (let unit = 0; unit < lowered.length; unit += 1) {
+        for (let unit = 0; unit < character.toLowerCase().length; unit += 1) {
             originalStart.push(index);
             originalEnd.push(index + character.length);
         }
-        loweredText += lowered;
         index += character.length;
     }
     const parts: ICommentQueryMatchPart[] = [];

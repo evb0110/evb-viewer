@@ -205,7 +205,7 @@ describe('native markup builders', () => {
             canonicalComments: [atLimit],
             changedComments: [atLimit],
             annotationWorkDirty: true,
-        })?.hints[0]?.markupGeometry).toHaveLength(limit);
+        })?.hints[0]?.markupGeometry).toEqual(lines(limit));
         const overLimit = comment(limit + 1);
         expect(() => buildNativeMarkupMutationForSave({
             canonicalComments: [overLimit],

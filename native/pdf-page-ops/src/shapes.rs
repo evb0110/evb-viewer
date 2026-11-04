@@ -118,7 +118,10 @@ pub(crate) fn set_shape_dates(dict: &mut Dictionary, shape: &ShapeAnnotation, mo
     }
     let created = shape_pdf_date(shape.created_at.or(shape.modified_at), modified_at);
     let modified = shape_pdf_date(shape.modified_at, &created);
-    dict.set("CreationDate", Object::string_literal(created.into_bytes()));
+    // A creation date the payload does not know stays as the PDF has it.
+    if shape.created_at.is_some_and(|value| value > 0) || !dict.has(b"CreationDate") {
+        dict.set("CreationDate", Object::string_literal(created.into_bytes()));
+    }
     dict.set("M", Object::string_literal(modified.into_bytes()));
 }
 

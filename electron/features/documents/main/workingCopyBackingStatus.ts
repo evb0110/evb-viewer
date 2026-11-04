@@ -6,7 +6,7 @@ import type {
 import {parseDocumentRef} from '@contracts/documentRef';
 import {
     getWorkingCopyBackingEntry,
-    normalizePathForLookup,
+    workingCopyMap,
     type TWorkingCopyBackingErrorCode,
     type TWorkingCopyBackingState,
 } from '@electron/file-access/workingCopyStore';
@@ -64,42 +64,6 @@ function toProgressStatus(progress: IWorkingCopyMaterializationProgress): IWorki
 }
 
 const listeners = new Set<(dispatch: IWorkingCopyBackingStatusDispatch) => void>();
-const latestBackingStatus = new Map<string, {
-    registrationId: number;
-    status: IWorkingCopyBackingStatus;
-}>();
-
-/** Progress within one registration never moves backwards. */
-function publishBackingStatus(dispatch: IWorkingCopyBackingStatusDispatch) {
-    const key = normalizePathForLookup(dispatch.status.documentRef) || dispatch.status.documentRef;
-    const previous = latestBackingStatus.get(key);
-    const status = previous?.registrationId === dispatch.registrationId
-        ? {
-            ...dispatch.status,
-            progress: Math.max(previous.status.progress, dispatch.status.progress),
-        }
-        : dispatch.status;
-    latestBackingStatus.set(key, {
-        registrationId: dispatch.registrationId,
-        status,
-    });
-    // A record lives as long as its registration; a closed document's goes
-    // with the next publish instead of staying for the life of the app.
-    for (const [
-        path,
-        record,
-    ] of latestBackingStatus) {
-        if (getWorkingCopyBackingEntry(record.status.documentRef)?.registrationId !== record.registrationId) {
-            latestBackingStatus.delete(path);
-        }
-    }
-    for (const listener of listeners) {
-        listener({
-            ...dispatch,
-            status,
-        });
-    }
-}
 
 let subscribedToMaterialization = false;
 
@@ -107,17 +71,28 @@ export function onWorkingCopyBackingStatusChanged(listener: (dispatch: IWorkingC
     if (!subscribedToMaterialization) {
         subscribedToMaterialization = true;
         onWorkingCopyMaterializationProgress((progress) => {
-            const entry = getWorkingCopyBackingEntry(progress.documentRef);
+            // Look up the registration regardless of owner; the dispatch
+            // names its owner, and only that window is told.
+            const entry = workingCopyMap.get(progress.documentRef);
             if (!entry) {
                 return;
             }
-            publishBackingStatus({
-                ...(entry.ownerWebContentsId === undefined
-                    ? {}
-                    : {ownerWebContentsId: entry.ownerWebContentsId}),
-                registrationId: entry.registrationId,
-                status: toProgressStatus(progress),
-            });
+            // Progress within one registration never moves backwards. It is
+            // kept on the registration, so it ends when the registration does.
+            const reported = toProgressStatus(progress);
+            entry.backingProgress = Math.max(entry.backingProgress ?? 0, reported.progress);
+            for (const notify of listeners) {
+                notify({
+                    ...(entry.ownerWebContentsId === undefined
+                        ? {}
+                        : {ownerWebContentsId: entry.ownerWebContentsId}),
+                    registrationId: entry.registrationId,
+                    status: {
+                        ...reported,
+                        progress: entry.backingProgress,
+                    },
+                });
+            }
         });
     }
     listeners.add(listener);
@@ -132,15 +107,10 @@ export function getWorkingCopyBackingStatus(senderId: number, filePath: string):
         return null;
     }
     const state = toRendererBackingState(entry.backingState);
-    const latestStatus = latestBackingStatus.get(normalizePathForLookup(filePath) || filePath);
     return {
         documentRef: requireDocumentRef(filePath),
         failure: toBackingFailure(entry.sourceBackingErrorCode),
-        progress: state === 'materialized'
-            ? 1
-            : latestStatus?.registrationId === entry.registrationId
-                ? latestStatus.status.progress
-                : 0,
+        progress: state === 'materialized' ? 1 : entry.backingProgress ?? 0,
         state,
     };
 }

@@ -106,14 +106,10 @@ function fingerprintPageSpec(pageSpec: string) {
 }
 
 function getTextSegments(value: string) {
-    if (typeof Intl.Segmenter === 'function') {
-        return Array.from(
-            new Intl.Segmenter(undefined, { granularity: 'grapheme' }).segment(value),
-            segment => segment.segment,
-        );
-    }
-
-    return Array.from(value);
+    return Array.from(
+        new Intl.Segmenter(undefined, { granularity: 'grapheme' }).segment(value),
+        segment => segment.segment,
+    );
 }
 
 function truncateTextToBudget(value: string, maxLength: number, maxBytes: number) {

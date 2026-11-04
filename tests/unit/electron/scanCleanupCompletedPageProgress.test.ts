@@ -4,7 +4,7 @@ import {
     it,
 } from 'vitest';
 import {SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES} from '@contracts/scan-cleanup/inputLimits';
-import {completedPageProgress} from '@evb/scan-cleanup/core/detection';
+import {completedPageProgress} from '@evb/scan-cleanup/core/policy/scanCleanupDetectionResultPolicy';
 import {SCAN_CLEANUP_PROGRESS_SCHEMA} from '@contracts/scan-cleanup/progress';
 import * as v from 'valibot';
 

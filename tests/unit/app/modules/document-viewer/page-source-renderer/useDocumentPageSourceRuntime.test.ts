@@ -141,6 +141,56 @@ describe('document page-source layout memory bounds', () => {
         });
     });
 
+    it('fits a sparse continuous document to its widest page without reading every page', () => {
+        const metrics = createProvisionalDocumentPageMetrics(1_000_000, {
+            widthPoints: 600,
+            heightPoints: 800,
+            rotation: 0,
+        });
+        if (!isSparseDocumentPageMetrics(metrics)) {
+            throw new Error('expected sparse metrics');
+        }
+        metrics.setExact(500_000, {
+            widthPoints: 1_200,
+            heightPoints: 800,
+            rotation: 0,
+        });
+        const getMetric = vi.spyOn(metrics, 'get');
+        for (const availableWidth of [
+            800,
+            1_000,
+        ]) {
+            const layouts = resolveDocumentPageDisplayLayoutsBounded(metrics, 800, availableWidth, 1, 'fit-width', true);
+            // One scale for the document: the widest page fits, the others are half its width.
+            expect(layouts[499_999]!.width).toBeLessThanOrEqual(availableWidth);
+            expect(layouts[0]!.width).toBeCloseTo(layouts[499_999]!.width / 2);
+        }
+        expect(getMetric.mock.calls.length).toBeLessThan(1_000);
+    });
+
+    it('fits a fully measured sparse document to its widest measured page, not the fallback', () => {
+        // Sparse only above 20,000 pages.
+        const pageCount = 20_001;
+        const metrics = createProvisionalDocumentPageMetrics(pageCount, {
+            widthPoints: 2_000,
+            heightPoints: 800,
+            rotation: 0,
+        });
+        if (!isSparseDocumentPageMetrics(metrics)) {
+            throw new Error('expected sparse metrics');
+        }
+        for (let pageNumber = 1; pageNumber <= pageCount; pageNumber += 1) {
+            metrics.setExact(pageNumber, {
+                widthPoints: 600,
+                heightPoints: 800,
+                rotation: 0,
+            });
+        }
+        const fitted = resolveDocumentPageDisplayLayoutsBounded(metrics, 800, 800, 1, 'fit-width', true);
+        const paged = resolveDocumentPageDisplayLayoutsBounded(metrics, 800, 800, 1, 'fit-width');
+        expect(fitted[0]!.width).toBeCloseTo(paged[0]!.width);
+    });
+
     it('estimates sparse page tops without scanning every page metric', () => {
         const metrics = createProvisionalDocumentPageMetrics(1_000_000, {
             widthPoints: 600,

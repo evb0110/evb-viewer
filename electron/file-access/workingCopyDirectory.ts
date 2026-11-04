@@ -262,6 +262,8 @@ export async function copyFileCopyOnWrite(sourcePath: string, targetPath: string
 /** `fingerprintSource` hashes the source bytes as they are read, for a registration of that source. */
 interface ICopyFromStableSourceOptions {
     fingerprintSource?: boolean;
+    /** Give the target the source's permission bits, as a plain file copy does. */
+    preserveMode?: boolean;
     signal?: AbortSignal;
 }
 
@@ -292,6 +294,7 @@ export async function copyFileFromStableSource(
             ? createOriginalFileContentFingerprintHash(Number(sourceStat.size))
             : null;
         targetHandle = await open(targetPath, 'wx');
+        if (options.preserveMode) await targetHandle.chmod(Number(sourceStat.mode & 0o7777n));
         const buffer = Buffer.allocUnsafe(1024 * 1024);
         let offset = 0n;
         while (offset < sourceStat.size) {

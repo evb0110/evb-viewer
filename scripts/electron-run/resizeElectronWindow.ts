@@ -7,12 +7,12 @@ import { delay } from 'es-toolkit/promise';
 
 // Viewport emulation changes the numbers the renderer reports and leaves the
 // native window alone, so it cannot reproduce a layout defect that only a real
-// window resize causes. This resize goes through the window's own resize API,
-// which Electron routes to the native window in the main process, so the
-// window manager, the frame, and the renderer all move together. It works for
-// a hidden window because nothing here needs the window on screen.
-// A fullscreen or maximized window keeps the size the window manager gives it,
-// so the window first leaves those states through its main process.
+// window resize causes. This resize asks the app's host to restore the window
+// to a normal placement with the requested content size, which the main process
+// applies to the native window, so the window manager, the frame, and the
+// renderer all move together. Leaving fullscreen or maximized first matters
+// because the window manager otherwise keeps the size it gives those states.
+// It works for a hidden window because nothing here needs the window on screen.
 
 export interface IElectronWindowSize {
     width: number;
@@ -67,8 +67,6 @@ export async function resizeElectronWindowContentArea(
     );
 
     const before = await readElectronWindowMetrics(page);
-    // The host sets the content area natively, so no frame size is guessed
-    // from the renderer's outer and inner measurements.
     const windowState = await page.evaluate((requested: IElectronWindowSize) => (
         (window as Window & {electronAPI: {host: IHostCapability;};}).electronAPI.host.restoreNormalWindow(requested)
     ), contentSize);
@@ -79,7 +77,6 @@ export async function resizeElectronWindowContentArea(
             + `maximized=${String(windowState.maximized)}), so the window manager would keep overriding its size.`,
         );
     }
-
 
     const deadline = Date.now() + settleTimeoutMs;
     let after = await readElectronWindowMetrics(page);

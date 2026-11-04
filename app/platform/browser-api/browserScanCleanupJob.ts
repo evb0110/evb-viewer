@@ -76,7 +76,7 @@ export interface IBrowserScanCleanupSource {
 }
 
 /** A page raster the engine reads: a binary PPM and its size and resolution. */
-interface IPageRaster {
+export interface IPageRaster {
     ppm: Uint8Array<ArrayBuffer>;
     width: number;
     height: number;
@@ -111,7 +111,7 @@ export class BrowserScanCleanupEngineError extends Error {
     }
 }
 
-function unwrap<TResult>(outcome: TScanCleanupWasmOutcome<TResult>): TResult {
+export function unwrapBrowserScanCleanupOutcome<TResult>(outcome: TScanCleanupWasmOutcome<TResult>): TResult {
     if (outcome.status === 'failed') {
         throw new BrowserScanCleanupEngineError(outcome.error.code, outcome.error.message);
     }
@@ -123,7 +123,7 @@ function unwrap<TResult>(outcome: TScanCleanupWasmOutcome<TResult>): TResult {
  * on white as Poppler renders a cleanup raster, and reads it back in the
  * cleanup worker. A region renders one tile of the full raster.
  */
-async function renderPageRaster(
+export async function renderPageRaster(
     page: IPdfPage,
     pageSize: IPdfPageSize,
     dpi: number,
@@ -431,7 +431,7 @@ async function renderBase(
         ? {}
         : {documentPrior: serializeScanCleanupManifestDocumentPrior(request.documentPrior)};
     if (plan.lossless) {
-        const analysis = unwrap(await runBrowserScanCleanupWorkerRequest('analyze-page', {
+        const analysis = unwrapBrowserScanCleanupOutcome(await runBrowserScanCleanupWorkerRequest('analyze-page', {
             input: copy(canonical.ppm),
             page: {
                 options,
@@ -440,7 +440,7 @@ async function renderBase(
                 ...documentPrior,
             },
         }, signal));
-        const finished = unwrap(await runBrowserScanCleanupWorkerRequest('finish-page-analysis', {
+        const finished = unwrapBrowserScanCleanupOutcome(await runBrowserScanCleanupWorkerRequest('finish-page-analysis', {
             pageMetadataJson: analysis.pageMetadataJson,
             pdfPlacement: {
                 pdfPage: {
@@ -497,7 +497,7 @@ async function renderBase(
             },
         planeEncoding: 'png',
     };
-    const rendered = unwrap(await runBrowserScanCleanupWorkerRequest('render-preview', engineRequest, signal));
+    const rendered = unwrapBrowserScanCleanupOutcome(await runBrowserScanCleanupWorkerRequest('render-preview', engineRequest, signal));
     const pageMetadata = decodeNativeScanCleanupPreviewPageMetadataJson(rendered.pageMetadataJson);
     const outputs: Extract<TScanCleanupPreviewWireResult, {pageMetadata: unknown}>['outputs'] = [];
     const nativeOutputs: TScanCleanupPreviewBaseOutputs = {};
@@ -627,7 +627,7 @@ async function renderDetail(
         if (baseMetadataJson === undefined || baseCleaned === undefined) {
             throw new Error(`Scan cleanup detail has no canonical ${half.half} base raster`);
         }
-        const rendered = unwrap(await runBrowserScanCleanupWorkerRequest('render-preview', {
+        const rendered = unwrapBrowserScanCleanupOutcome(await runBrowserScanCleanupWorkerRequest('render-preview', {
             input: tile.ppm,
             page: {
                 options,

@@ -1066,6 +1066,7 @@ export default {
         'unitKilobyte': 'КБ',
         'unitMegabyte': 'МБ',
         'unitGigabyte': 'ГБ',
+        'unitTerabyte': 'ТБ',
         'pdfPage': 'Страница PDF {page}',
         'pageRenderFailed': 'Не удалось отобразить эту страницу',
         'pageInteractionFailed': 'Не удалось загрузить ссылки и взаимодействие с аннотациями на странице {page}.',

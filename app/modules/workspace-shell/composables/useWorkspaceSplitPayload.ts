@@ -172,14 +172,16 @@ export const useWorkspaceSplitPayload = (options: IUseWorkspaceSplitPayloadOptio
                 return workingCopyPath ? readDocumentBytes(workingCopyPath) : null;
             }},
         });
-        // As printing does: unless the working copy is known to hold the
-        // edits already, only a complete projection may stand for them. Old
-        // bytes would move without the edits, and the source closes after.
-        if (viewerTransaction && !viewerTransaction.verifiedUnchangedWorkingCopy) {
-            if (viewerTransaction.nativeRequiredFailure) {
+        // As printing does: a view with edits moves only with them. Unless
+        // the working copy is known to hold them already, only a complete
+        // projection may stand for them; old bytes would move without them,
+        // and the source closes after. A view without edits moves its bytes.
+        const editsPending = options.hasPendingTabChanges.value && !viewerTransaction?.verifiedUnchangedWorkingCopy;
+        if (editsPending) {
+            if (viewerTransaction?.nativeRequiredFailure) {
                 throw new NativePdfSaveRequiredError(viewerTransaction.nativeRequiredFailure);
             }
-            if (!viewerTransaction.nativeMutationProjection) {
+            if (!viewerTransaction?.nativeMutationProjection) {
                 throw new NativePdfSaveRequiredError({
                     code: 'native-save-required',
                     phase: 'pre-write',
@@ -210,7 +212,7 @@ export const useWorkspaceSplitPayload = (options: IUseWorkspaceSplitPayloadOptio
                 return readDocumentBytes(snapshotPath);
             }
         }
-        if (viewerTransaction && !viewerTransaction.verifiedUnchangedWorkingCopy) {
+        if (editsPending) {
             throw new NativePdfSaveRequiredError({
                 code: 'native-save-required',
                 phase: 'pre-write',
