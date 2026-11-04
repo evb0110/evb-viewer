@@ -294,9 +294,9 @@ async function rasterSourceInspectionResult(args: readonly string[]) {
             stdout: '',
         };
     }
-    if (args[0] === 'parse-annotations') {
+    if (args[0] === 'annotation-index') {
         await writeFile(args[args.indexOf('--output') + 1]!, `${JSON.stringify({
-            format: 'evb-pdf-annotation-parse',
+            format: 'evb-pdf-annotation-name-index',
             schemaVersion: 1,
             pageCount: 200_000,
             chunkBytes: 4 * 1024 * 1024,
@@ -754,21 +754,22 @@ describe('scan cleanup pipeline', () => {
                 const selected = args[args.indexOf('--pages') + 2]!.split(',').map(value => Number(value) - 1);
                 for (const selectedPage of await subset.copyPages(original, selected)) subset.addPage(selectedPage);
                 await writeFile(args.at(-1)!, await subset.save());
-            } else if (args[0] === 'parse-annotations') {
+            } else if (args[0] === 'annotation-index') {
+                // The index lists every /Annots entry, links included.
                 const parsed = await PDFDocument.load(await readFile(args[args.indexOf('--input') + 1]!));
                 inspectedPageCounts.push(parsed.getPageCount());
                 const entries = parsed.getPages().flatMap((candidate, pageIndex) => candidate.node.Annots() === undefined ? [] : [{
-                    kind: 'foreign',
                     pageIndex,
                     objectNumber: 1,
                     generationNumber: 0,
-                    name: 'source-annotation',
-                    subtype: 'Text',
-                    reason: 'foreign note',
+                    subtype: 'Link',
+                    name: null,
+                    popupRef: null,
+                    parentRef: null,
                 }]);
                 await writeFile(args[args.indexOf('--output') + 1]!, [
                     {
-                        format: 'evb-pdf-annotation-parse',
+                        format: 'evb-pdf-annotation-name-index',
                         schemaVersion: 1,
                         pageCount: parsed.getPageCount(),
                         chunkBytes: 4 * 1024 * 1024,
@@ -805,6 +806,8 @@ describe('scan cleanup pipeline', () => {
     it.each([
         'Text',
         'Ink',
+        'Link',
+        'Widget',
     ])('refuses non-affine cleanup that would drop a %s annotation', async (subtype) => {
         const fixture = await setup();
         const raster = join(fixture.dir, 'rasterized.pdf');
@@ -819,7 +822,7 @@ describe('scan cleanup pipeline', () => {
             };
             await writeFile(args[args.indexOf('--output') + 1]!, [
                 {
-                    format: 'evb-pdf-annotation-parse',
+                    format: 'evb-pdf-annotation-name-index',
                     schemaVersion: 1,
                     pageCount: 2,
                     chunkBytes: 4 * 1024 * 1024,
@@ -827,13 +830,13 @@ describe('scan cleanup pipeline', () => {
                 {
                     chunkIndex: 0,
                     entries: [{
-                        kind: 'foreign',
                         pageIndex: 0,
                         objectNumber: 1,
                         generationNumber: 0,
-                        name: 'source-annotation',
                         subtype,
-                        reason: 'foreign markup',
+                        name: null,
+                        popupRef: null,
+                        parentRef: null,
                     }],
                 },
             ].map(value => JSON.stringify(value)).join('\n') + '\n');
