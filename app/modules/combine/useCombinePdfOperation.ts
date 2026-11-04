@@ -149,16 +149,16 @@ export const useCombinePdfOperation = <T extends {
         if (!pending || pending.kind !== 'pdf' || !pending.workingPath || isCombining.value) {
             return;
         }
-        // Discarded, replaced or being opened by Retry since: not this save's.
-        const superseded = () => pendingCombinedResult.value !== pending || isCombining.value;
+        // Discarded or replaced since: not this save's.
+        const replaced = () => pendingCombinedResult.value !== pending;
         try {
             const documentFiles = getDocumentFilesCapability();
             const {token} = await documentFiles.getDocumentRevision(pending.workingPath);
             const savedPath = await documentFiles.savePdfAs(pending.workingPath, undefined, {expectedDocumentRevisionToken: token});
-            if (superseded()) return;
+            if (replaced() || isCombining.value) return;
             if (savedPath) discardPendingResult();
         } catch (error) {
-            if (superseded()) return;
+            if (replaced()) return;
             combineError.value = options.translate('errors.file.save');
             combineErrorIsExpected.value = false;
             combineFailure.value = BrowserLogger.error(
