@@ -134,13 +134,15 @@ export function createBrowserScanCleanupDetectionOwner() {
     }>();
     async function readStoreLayouts(store: IScanCleanupDetectionResultStore) {
         const cached = layoutsByStore.get(store);
-        if (cached?.resultCount === store.resultCount) return cached.layoutByPage;
+        const resultCount = store.resultCount;
+        if (cached?.resultCount === resultCount) return cached.layoutByPage;
         const layoutByPage: NonNullable<IScanCleanupPreviewRequest['layoutByPage']> = {};
         await store.forEachChunk((results) => {
             for (const result of results) layoutByPage[String(result.pageNumber)] = result.classification;
         });
+        // Results appended during the scan leave it stale for the next read.
         layoutsByStore.set(store, {
-            resultCount: store.resultCount,
+            resultCount,
             layoutByPage,
         });
         return layoutByPage;
