@@ -172,6 +172,21 @@ export const useWorkspaceSplitPayload = (options: IUseWorkspaceSplitPayloadOptio
                 return workingCopyPath ? readDocumentBytes(workingCopyPath) : null;
             }},
         });
+        // As printing does: unless the working copy is known to hold the
+        // edits already, only a complete projection may stand for them. Old
+        // bytes would move without the edits, and the source closes after.
+        if (viewerTransaction && !viewerTransaction.verifiedUnchangedWorkingCopy) {
+            if (viewerTransaction.nativeRequiredFailure) {
+                throw new NativePdfSaveRequiredError(viewerTransaction.nativeRequiredFailure);
+            }
+            if (!viewerTransaction.nativeMutationProjection) {
+                throw new NativePdfSaveRequiredError({
+                    code: 'native-save-required',
+                    phase: 'pre-write',
+                    reason: 'missing-native-projection',
+                });
+            }
+        }
         if (
             viewerTransaction?.nativeMutationProjection
             && workingCopyPath
@@ -194,6 +209,14 @@ export const useWorkspaceSplitPayload = (options: IUseWorkspaceSplitPayloadOptio
             if (snapshotPath) {
                 return readDocumentBytes(snapshotPath);
             }
+        }
+        if (viewerTransaction && !viewerTransaction.verifiedUnchangedWorkingCopy) {
+            throw new NativePdfSaveRequiredError({
+                code: 'native-save-required',
+                phase: 'pre-write',
+                reason: 'native-error',
+                detail: 'The edits could not be staged for the moved view',
+            });
         }
         if (options.pdfData.value) {
             return options.pdfData.value;

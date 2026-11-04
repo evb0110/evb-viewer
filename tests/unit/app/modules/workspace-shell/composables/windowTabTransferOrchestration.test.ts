@@ -18,6 +18,10 @@ import type {
 } from '@contracts/editorPanes';
 import { requirePaneId } from '@contracts/editorPanes';
 import { requireDocumentRef } from '@contracts/documentRef';
+import {usePdfViewerSaveTransaction} from '@app/modules/pdf-viewer/runtime/save/usePdfViewerSaveTransaction';
+import {AnnotationApplication} from '@app/modules/pdf-viewer/annotations/annotationApplication';
+import {asAnnotationId} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
+import {requirePageIndex} from '@contracts/pageNumbers';
 import {requireDocumentRevisionToken} from '@contracts/documentRevision';
 import {requireEpochMs} from '@contracts/timestamps';
 import type {TOpenFileResult} from '@contracts/electronApiDocuments';
@@ -701,6 +705,75 @@ describe('window tab transfer orchestration helpers', () => {
 
     // Sweep #845 item 9: Merge This Window Into captures every tab without
     // activating it. Two linked views of one document each go at their own page.
+    it.each([
+        'browser://documents/work.pdf',
+        '/tmp/work.pdf',
+    ])('refuses to move a dirty view whose edits could not be staged (%s)', async (path) => {
+        const application = new AnnotationApplication('split-refusal');
+        application.store.replaceFromDocument([], []);
+        application.store.createNote(cast({
+            kind: 'note',
+            identity: {id: asAnnotationId('unsaved-note')},
+            pageIndex: requirePageIndex(0),
+            revision: 0,
+            persistedRevision: -1,
+            deleted: false,
+            createdAt: null,
+            modifiedAt: null,
+            author: null,
+            contents: 'Accepted unsaved note',
+            color: '#ffff00',
+            open: false,
+            position: {
+                left: 0.1,
+                top: 0.1,
+                width: 0.03,
+                height: 0.03,
+            },
+        }));
+        const transaction = usePdfViewerSaveTransaction({annotationApplication: shallowRef(application)});
+        const original = new TextEncoder().encode('%PDF-original-without-the-note');
+        const split = useWorkspaceSplitPayload(cast({
+            pdfSrc: shallowRef(new Blob([original])),
+            pdfData: shallowRef(original),
+            workingCopyPath: ref(requireDocumentRef(path)),
+            originalPath: ref(requireDocumentRef('/source.pdf')),
+            documentRevisionToken: ref('revision-1'),
+            hasPendingTabChanges: ref(true),
+            requiresSaveAsOnFirstSave: ref(false),
+            isDjvuMode: ref(false),
+            djvuSourcePath: ref(null),
+            currentPage: ref(1),
+            totalPages: ref(1),
+            fileName: ref('source.pdf'),
+            pdfViewerRef: shallowRef({runSaveTransaction: transaction.runSaveTransaction}),
+            documentViewerRef: ref(null),
+            // No native writer: the transaction refuses to materialize the note.
+            getNativeSaveTransactionOptions: () => ({
+                nativeCapabilities: {
+                    hasNativePdfMutationCapability: false,
+                    canPersistNativeMetadataMutations: false,
+                },
+                dirtyState: {
+                    annotationDirty: true,
+                    hasAnnotationChanges: true,
+                    shapeStateDirty: false,
+                },
+                documentStructure: {
+                    pageLabelsDirty: false,
+                    pageLabelRanges: [],
+                    bookmarksDirty: false,
+                    bookmarkItems: [],
+                    untitledBookmarkLabel: 'Untitled',
+                    totalPages: 1,
+                },
+            }),
+        }));
+
+        await expect(split.captureSplitPayload()).rejects.toMatchObject({name: 'NativePdfSaveRequiredError'});
+        expect(application.store.hasChangesSinceSavedBaseline()).toBe(true);
+    });
+
     it('merges two linked views of one document at each view page', async () => {
         vi.stubGlobal('useTypedI18n', () => ({t: (key: string) => key}));
         vi.stubGlobal('useToast', () => ({
