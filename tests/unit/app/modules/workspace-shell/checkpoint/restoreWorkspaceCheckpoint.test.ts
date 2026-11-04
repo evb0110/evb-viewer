@@ -210,7 +210,11 @@ describe('restoreWorkspaceCheckpoint', () => {
                     workingCopyRef: null,
                 },
                 {
-                    ...checkpointTab('tab-2', 'pane-1', place),
+                    ...checkpointTab('tab-2', 'pane-1', {
+                        currentPage: 4,
+                        zoom: 1.75,
+                        zoomMode: 'custom',
+                    }),
                     workingCopyRef: null,
                     linkedToTabId: requireTabId('tab-1'),
                 },
@@ -257,5 +261,13 @@ describe('restoreWorkspaceCheckpoint', () => {
 
         expect(documentSessions.getSession('tab-2')).toBe(document);
         expect(documentSessions.getSession('tab-3')).not.toBe(document);
+        // The hidden linked view first opens at its own checkpointed place.
+        const linked = documentSessions.getView('tab-2')!;
+        expect(linked.restored).toBe(true);
+        expect(linked.viewState.value).toMatchObject({
+            currentPage: 4,
+            zoom: 1.75,
+            zoomMode: 'custom',
+        });
     });
 });

@@ -138,10 +138,12 @@ async function restoreLinkedTab(
     options: Pick<IRestoreWorkspaceCheckpointOptions, 'documentSessions'>,
     shown: boolean,
 ) {
+    const view = options.documentSessions.getView(checkpointTab.tabId);
     if (!shown) {
+        view?.restoreView(createCheckpointViewSeed(checkpointTab, view.toolbarSnapshot.value));
         return true;
     }
-    const workspace = await options.documentSessions.getView(checkpointTab.tabId)?.whenMounted() ?? null;
+    const workspace = await view?.whenMounted() ?? null;
     if (!workspace) {
         return false;
     }
