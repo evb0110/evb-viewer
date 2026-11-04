@@ -7,6 +7,7 @@
             role="link"
             tabindex="0"
             :data-href="link.url ?? ''"
+            :aria-label="link.url ? t('annotations.externalLink', {url: link.url}) : t('annotations.internalLink')"
             :style="{
                 left: `${link.rect.left * 100}%`,
                 top: `${link.rect.top * 100}%`,
@@ -31,6 +32,7 @@ import { normalizeAllowedExternalUrl } from '@contracts/externalUrl';
 
 defineProps<{links: ILinkAnnotation[];}>();
 const emit = defineEmits<{'navigate-destination': [dest: NonNullable<ILinkAnnotation['dest']>];}>();
+const {t} = useTypedI18n();
 
 const DRAG_THRESHOLD_PX = 5;
 let pointerDownPos: {

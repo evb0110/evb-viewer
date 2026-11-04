@@ -737,6 +737,8 @@ export default {
         'resize': 'Zijbalk vergroten/verkleinen',
     },
     'annotations': {
+        'externalLink': 'Link naar {url}',
+        'internalLink': 'Link naar een andere plek in dit document',
         'clipboardImageReadBlocked': 'De browser heeft het lezen van het klembord geblokkeerd. Druk op Ctrl+V (⌘V op een Mac) om de afbeelding te plakken.',
         'toolDefaults': 'Gereedschapsinstellingen',
         'selectedProperties': 'Eigenschappen van geselecteerde annotaties',

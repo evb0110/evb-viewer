@@ -737,6 +737,8 @@ export default {
         'resize': 'Redimensionar painel lateral',
     },
     'annotations': {
+        'externalLink': 'Link para {url}',
+        'internalLink': 'Link para outro ponto deste documento',
         'clipboardImageReadBlocked': 'O navegador bloqueou a leitura da área de transferência. Pressione Ctrl+V (⌘V no Mac) para colar a imagem.',
         'toolDefaults': 'Padrões da ferramenta',
         'selectedProperties': 'Propriedades das anotações selecionadas',

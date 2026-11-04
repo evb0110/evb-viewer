@@ -215,6 +215,8 @@ export default {
         'resize': 'Изменить ширину боковой панели',
     },
     'annotations': {
+        'externalLink': 'Ссылка на {url}',
+        'internalLink': 'Ссылка на другое место в этом документе',
         'clipboardImageReadBlocked': 'Браузер запретил чтение буфера обмена. Нажмите Ctrl+V (⌘V на Mac), чтобы вставить изображение.',
         'toolDefaults': 'Параметры инструмента',
         'selectedProperties': 'Свойства выбранных аннотаций',

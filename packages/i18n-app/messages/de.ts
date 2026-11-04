@@ -737,6 +737,8 @@ export default {
         'resize': 'Seitenleiste anpassen',
     },
     'annotations': {
+        'externalLink': 'Link zu {url}',
+        'internalLink': 'Link zu einer anderen Stelle in diesem Dokument',
         'clipboardImageReadBlocked': 'Der Browser hat das Lesen der Zwischenablage blockiert. Drücken Sie Strg+V (⌘V auf dem Mac), um das Bild einzufügen.',
         'toolDefaults': 'Werkzeugvorgaben',
         'selectedProperties': 'Eigenschaften ausgewählter Anmerkungen',

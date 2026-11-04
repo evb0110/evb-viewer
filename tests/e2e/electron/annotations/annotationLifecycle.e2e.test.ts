@@ -2332,6 +2332,10 @@ describe('Electron E2E - Annotation Lifecycle', () => {
         await openAnnotationsTab(page);
         await waitForViewerInteractive(page);
         await waitForSidebarAnnotationCount(page, 0);
+        // The link a keyboard reaches says where it goes.
+        await page.waitForFunction(() => Array.from(document.querySelectorAll('.editor-pane.is-active .pdf-link-overlay'))
+            .some(link => link.getAttribute('aria-label') === 'Link to https://example.com/evb-viewer-link-fixture'
+                && link.getAttribute('tabindex') === '0'), {timeout: 30_000});
     });
 
     it.each([

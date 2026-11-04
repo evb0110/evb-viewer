@@ -737,6 +737,8 @@ export default {
         'resize': 'Redimensionner le panneau latéral',
     },
     'annotations': {
+        'externalLink': 'Lien vers {url}',
+        'internalLink': 'Lien vers un autre endroit de ce document',
         'clipboardImageReadBlocked': 'Le navigateur a bloqué la lecture du presse-papiers. Appuyez sur Ctrl+V (⌘V sur Mac) pour coller l’image.',
         'toolDefaults': 'Paramètres de l’outil',
         'selectedProperties': 'Propriétés des annotations sélectionnées',
