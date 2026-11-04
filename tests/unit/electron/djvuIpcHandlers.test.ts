@@ -43,6 +43,7 @@ const mocks = vi.hoisted(() => ({
     getDjvuPageCount: vi.fn(),
     getDjvuResolution: vi.fn(),
     getDjvuOutline: vi.fn(),
+    getDjvuPageComponentMap: vi.fn(),
     getDjvuHasText: vi.fn(),
     getDjvuMetadata: vi.fn(),
     parseDjvuOutline: vi.fn(),
@@ -83,6 +84,7 @@ vi.mock('@electron/features/djvu/main/metadata', () => ({
     getDjvuPageCount: mocks.getDjvuPageCount,
     getDjvuResolution: mocks.getDjvuResolution,
     getDjvuOutline: mocks.getDjvuOutline,
+    getDjvuPageComponentMap: mocks.getDjvuPageComponentMap,
     getDjvuHasText: mocks.getDjvuHasText,
     getDjvuMetadata: mocks.getDjvuMetadata,
 }));
@@ -203,6 +205,7 @@ describe('registerDjvuIpcAdapter', () => {
         mocks.getDjvuPageCount.mockResolvedValue(1);
         mocks.getDjvuResolution.mockResolvedValue(300);
         mocks.getDjvuOutline.mockResolvedValue('');
+        mocks.getDjvuPageComponentMap.mockResolvedValue(new Map());
         mocks.getDjvuHasText.mockResolvedValue(true);
         mocks.getDjvuMetadata.mockResolvedValue({});
         mocks.parseDjvuOutline.mockReturnValue([]);
@@ -410,6 +413,38 @@ describe('registerDjvuIpcAdapter', () => {
             rmSync(tempRoot, {
                 force: true,
                 recursive: true,
+            });
+        }
+    });
+
+    it('resolves component-ID outline destinations through the viewing IPC endpoint', async () => {
+        const directory = mkdtempSync(join(tmpdir(), 'djvu-component-outline-'));
+        try {
+            const path = join(directory, 'index.djvu');
+            writeFileSync(path, 'AT&TFORM');
+            const {allowOpenPath} = await import('@electron/file-access/openPathCapabilities');
+            const event = createIpcEvent(1);
+            allowOpenPath(path, event.sender as never);
+            const {parseDjvuOutline} = await vi.importActual<typeof TViMockOriginalModule>(
+                '@electron/features/djvu/main/parseDjvuOutline',
+            );
+            mocks.parseDjvuOutline.mockImplementationOnce(parseDjvuOutline);
+            mocks.getDjvuOutline.mockResolvedValue('(bookmarks ("Second" "#p0002.djvu"))');
+            mocks.getDjvuPageComponentMap.mockResolvedValue(new Map([[
+                'p0002.djvu',
+                1,
+            ]]));
+            registerDjvuIpcAdapter();
+
+            await expect(getHandler('djvu:getOutline')(event, path)).resolves.toEqual([{
+                title: 'Second',
+                pageNumber: 2,
+                children: [],
+            }]);
+        } finally {
+            rmSync(directory, {
+                recursive: true,
+                force: true,
             });
         }
     });
