@@ -161,8 +161,6 @@ describe('browser Scan Cleanup workspace', () => {
             const colorPage1 = await observePage('before-save', 1, 'Color');
             expect(colorPage1, 'the painted Color preview differs from Grayscale on the same scan').not.toBe(grayscalePage1);
             const grayscalePage2 = await observePage('before-save', 2, 'Follow document setting');
-            await page.locator('.scan-thumbnail-rail [data-thumbnail-page="1"]').click();
-            await waitForPixels(page, 1);
             // Finish editing as a person would, before using the reader's save controls.
             await page.getByRole('button', {
                 name: 'Done',
