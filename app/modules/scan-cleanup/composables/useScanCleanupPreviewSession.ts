@@ -1208,8 +1208,10 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
         detailAttemptCount += 1;
         try {
             const documentPrior = options.documentPriorByPage.get(requestPage);
-            const softAlphaForegroundRecommendation =
-                options.softAlphaForegroundRecommendationByPage.get(requestPage);
+            // The same recommendations its base was rendered with, so the
+            // detail refines that base rather than missing it.
+            const outputModeRecommendation = resolveOutputModeRecommendation(requestPage);
+            const softAlphaForegroundRecommendation = resolveSoftAlphaForegroundRecommendation(requestPage);
             const pagePlanEvidence = options.pagePlanEvidenceByPage.get(requestPage);
             const placementAnchors = placementAnchorsFor(requestPage);
             const requestId = nextRequestId();
@@ -1221,6 +1223,7 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
                 pageNumber: requirePageNumber(requestPage),
                 options: requestOptions,
                 ...(documentPrior === undefined ? {} : {documentPrior}),
+                ...(outputModeRecommendation === undefined ? {} : {outputModeRecommendation}),
                 ...(softAlphaForegroundRecommendation === undefined
                     ? {}
                     : {softAlphaForegroundRecommendation}),

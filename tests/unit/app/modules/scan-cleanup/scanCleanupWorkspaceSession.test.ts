@@ -1895,6 +1895,31 @@ describe('scan cleanup workspace session detection guidance', () => {
         mounted.unmount();
     });
 
+    it('asks for detail with the output recommendation its base was rendered with', async () => {
+        const harness = capabilityHarness();
+        vi.mocked(harness.value.preview).mockImplementation(async request => previewResult(request.pageNumber, 'single-uncut-page'));
+        capability.value = harness.value;
+        const mounted = mountSession(`detail-recommendation-${Date.now()}`);
+        mounted.session.settings.values.outputMode = 'auto';
+        await vi.waitFor(() => expect(mounted.session.preview.resultCurrent.value).toBe(true));
+        mounted.session.detection.recommendedOutputModeByPage.set(1, 'bw');
+        await vi.waitFor(() => expect(vi.mocked(harness.value.preview).mock.calls
+            .some(([request]) => request?.pageNumber === 1 && !request.detail && request.outputModeRecommendation === 'bw')).toBe(true));
+        await vi.waitFor(() => expect(mounted.session.preview.resultCurrent.value).toBe(true));
+
+        await mounted.session.preview.requestDetail({full: {
+            xNormalized: 0,
+            yNormalized: 0,
+            widthNormalized: 0.5,
+            heightNormalized: 0.5,
+            rotationDegrees: 0,
+        }});
+
+        const detailRequest = vi.mocked(harness.value.preview).mock.calls.find(([request]) => request?.detail)?.[0];
+        expect(detailRequest?.outputModeRecommendation).toBe('bw');
+        mounted.unmount();
+    });
+
     it('clears a displayed detail tile immediately when its viewport becomes stale', async () => {
         const harness = capabilityHarness();
         const detail = previewResult(1, 'single-uncut-page');
