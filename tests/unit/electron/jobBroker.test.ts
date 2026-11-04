@@ -725,4 +725,103 @@ describe('JobBroker', () => {
         const otherLease = await otherOwner;
         otherLease.release();
     });
+
+    it('reserves the whole supported conformance vector even on an unconfigured host', () => {
+        expect(MAIN_JOB_BROKER_MAX_SINGLE_JOB_RESOURCES).toEqual({
+            cpuTokens: 2,
+            estimatedResidentBytes: 512 * 1024 * 1024,
+            nativeProcesses: 2,
+            ioWeight: 4,
+        });
+        expect(resolveMainJobBrokerCapacity(createResourceProfile(1, 1, 'low'))).toMatchObject({
+            cpuTokens: 2,
+            estimatedResidentBytes: 512 * 1024 * 1024,
+            nativeProcesses: 2,
+        });
+    });
+
+    it.each([
+        'success',
+        'ordinary-failure',
+    ] as const)('holds the scoped vector until work settles: %s', async outcome => {
+        const broker = new JobBroker(CAPACITY);
+        const work = Promise.withResolvers<number>();
+        const request = createRequest({resources: CAPACITY});
+        const error = new Error('confirmed ordinary failure');
+        const scoped = broker.run(request, () => work.promise);
+        const observed = scoped.catch((failure: unknown) => failure);
+        const competitor = broker.acquire(createRequest({ownerId: 'competitor'}));
+        expect(broker.getSnapshot()).toMatchObject({
+            active: 1,
+            queued: 1,
+            used: CAPACITY,
+        });
+        if (outcome === 'success') work.resolve(42); else work.reject(error);
+        expect(await observed).toBe(outcome === 'success' ? 42 : error);
+        const lease = await competitor;
+        expect(broker.getSnapshot()).toMatchObject({
+            active: 1,
+            queued: 0,
+            used: lease.resources,
+        });
+        lease.release();
+        expect(broker.getSnapshot().active).toBe(0);
+    });
+
+    it('does not invoke queued scoped work after its caller aborts', async () => {
+        const broker = new JobBroker(CAPACITY);
+        const blocker = await broker.acquire(createRequest({resources: CAPACITY}));
+        const controller = new AbortController();
+        let entered = false;
+        const scoped = broker.run(createRequest({signal: controller.signal}), async () => { entered = true; });
+        controller.abort(new Error('queued operation closed'));
+        await expect(scoped).rejects.toThrow('queued operation closed');
+        blocker.release();
+        expect(entered).toBe(false);
+        expect(broker.getSnapshot()).toMatchObject({
+            active: 0,
+            queued: 0,
+        });
+    });
+
+    it('rechecks cancellation between a synchronous grant and the work callback', async () => {
+        const broker = new JobBroker(CAPACITY);
+        const controller = new AbortController();
+        let entered = false;
+        const scoped = broker.run(createRequest({
+            signal: controller.signal,
+            resources: CAPACITY,
+        }), async () => { entered = true; });
+        controller.abort(new Error('aborted just after grant'));
+        await expect(scoped).rejects.toThrow('aborted just after grant');
+        expect(entered).toBe(false);
+        const next = await broker.acquire(createRequest({resources: CAPACITY}));
+        expect(next.release()).toBe(true);
+    });
+
+    it('retains the exact paid vector after a marked failure without releasing it for cleanup', async () => {
+        const {markUnprovenNativeTermination} = await import('@electron/utils/nativeTerminationProof');
+        const broker = new JobBroker(CAPACITY);
+        const error = markUnprovenNativeTermination(new Error('native timeout'), 'native descendant still alive');
+        await expect(broker.run(createRequest({resources: CAPACITY}), async () => { throw error; })).rejects.toBe(error);
+        const controller = new AbortController();
+        const competitor = broker.acquire(createRequest({
+            ownerId: 'competitor',
+            signal: controller.signal,
+        }));
+        expect(broker.getSnapshot()).toMatchObject({
+            active: 1,
+            queued: 1,
+            used: CAPACITY,
+            usedBulk: CAPACITY,
+        });
+        controller.abort(new Error('remove test competitor'));
+        await expect(competitor).rejects.toThrow('remove test competitor');
+        expect(broker.getSnapshot()).toMatchObject({
+            active: 1,
+            queued: 0,
+            used: CAPACITY,
+        });
+    });
+
 });

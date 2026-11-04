@@ -1,5 +1,6 @@
 import { clamp } from 'es-toolkit/math';
 import type { IHostResourceProfileSnapshot } from '@contracts/hostResourceProfile';
+import {getUnprovenNativeTerminationDetail} from '@electron/utils/nativeTerminationProof';
 
 const MIB = 1024 * 1024;
 const GIB = 1024 * MIB;
@@ -9,8 +10,8 @@ const DEFAULT_JOB_BROKER_MAX_QUEUED_JOBS_PER_OWNER = 64;
 
 export const MAIN_JOB_BROKER_MAX_SINGLE_JOB_RESOURCES: Readonly<IJobResourceVector> = {
     cpuTokens: 2,
-    estimatedResidentBytes: 256 * MIB,
-    nativeProcesses: 1,
+    estimatedResidentBytes: 512 * MIB,
+    nativeProcesses: 2,
     ioWeight: 4,
 };
 
@@ -239,6 +240,19 @@ export class JobBroker {
             });
             this.dispatch();
         });
+    }
+
+    async run<T>(request: IJobBrokerRequest, work: () => Promise<T>): Promise<T> {
+        const lease = await this.acquire(request);
+        try {
+            request.signal?.throwIfAborted();
+            const result = await work();
+            lease.release();
+            return result;
+        } catch (error) {
+            if (getUnprovenNativeTerminationDetail(error) === undefined) lease.release();
+            throw error;
+        }
     }
 
     release(token: string) {

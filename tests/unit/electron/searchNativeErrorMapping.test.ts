@@ -1,3 +1,4 @@
+import type * as TJobBrokerModule from '@electron/resources/jobBroker';
 import {
     mkdtemp,
     readdir,
@@ -11,6 +12,7 @@ import {join} from 'node:path';
 import {toSearchIpcError} from '@electron/features/search/main/searchErrors';
 import {
     afterEach,
+    beforeEach,
     describe,
     expect,
     it,
@@ -24,6 +26,9 @@ import {requireRequestId} from '@contracts/shared';
 
 
 const fake = vi.hoisted(() => ({
+    broker: null as TJobBrokerModule.JobBroker | null,
+    workerStopped: null as Promise<void> | null,
+    workerActive: 0,
     pageTexts: new Map<number, string>(),
     evbOcrText: null as string | null,
     visibilityStarted: null as (() => void) | null,
@@ -38,6 +43,24 @@ const fake = vi.hoisted(() => ({
     indexFailure: null as Error | null,
 }));
 
+vi.mock('@electron/resources/jobBroker', async importOriginal => {
+    const actual = await importOriginal<typeof TJobBrokerModule>();
+    return {
+        ...actual,
+        mainJobBroker: {run: <T>(request: TJobBrokerModule.IJobBrokerRequest, work: () => Promise<T>) => fake.broker!.run(request, work)},
+    };
+});
+beforeEach(async () => {
+    const {JobBroker} = await vi.importActual<typeof TJobBrokerModule>('@electron/resources/jobBroker');
+    fake.broker = new JobBroker({
+        cpuTokens: 1,
+        nativeProcesses: 2,
+        estimatedResidentBytes: 512 * 1024 * 1024,
+        ioWeight: 1,
+    });
+    fake.workerStopped = null;
+    fake.workerActive = 0;
+});
 vi.mock('@electron/native-tools/runNativeToolCommand', () => ({async runNativeToolCommand(command: string, args: string[], options: {
     stdin?: AsyncIterable<string>;
     onStdout?: (chunk: string) => void;
@@ -141,19 +164,33 @@ vi.mock('@electron/utils/workerTask', async importOriginal => ({
             lastPage: number
         };
         onProgressMessage: (message: unknown) => boolean;
+        signal?: AbortSignal;
     }) {
-        for (let pageNumber = options.workerData.firstPage; pageNumber <= options.workerData.lastPage; pageNumber += 1) {
-            fake.pdfjsPages.push(pageNumber);
-            options.onProgressMessage({
-                type: 'page',
-                page: {
-                    pageNumber,
-                    text: `pdfjs page ${pageNumber}`,
-                },
-            });
-            await fake.pdfjsRelease;
+        fake.workerActive++;
+        try {
+            for (let pageNumber = options.workerData.firstPage; pageNumber <= options.workerData.lastPage; pageNumber += 1) {
+                fake.pdfjsPages.push(pageNumber);
+                options.onProgressMessage({
+                    type: 'page',
+                    page: {
+                        pageNumber,
+                        text: `pdfjs page ${pageNumber}`,
+                    },
+                });
+                if (fake.pdfjsRelease) await Promise.race([
+                    fake.pdfjsRelease,
+                    new Promise<void>(resolve => {
+                        if (options.signal?.aborted) resolve();
+                        else options.signal?.addEventListener('abort', () => resolve(), {once: true});
+                    }),
+                ]);
+                if (options.signal?.aborted) break;
+            }
+            return undefined;
+        } finally {
+            await fake.workerStopped;
+            fake.workerActive--;
         }
-        return undefined;
     },
 }));
 
@@ -605,5 +642,89 @@ describe('search service coverage', () => {
         } finally {
             await service.shutdown();
         }
+    });
+});
+
+
+describe('PDF.js admission and producer cancellation (native-seam test)', () => {
+    const request = (signal?: AbortSignal) => ({
+        ownerId: 'occupied-capacity',
+        kind: 'test-blocker',
+        priority: 'background' as const,
+        resources: {
+            cpuTokens: 1,
+            nativeProcesses: 0,
+            estimatedResidentBytes: 256 * 1024 * 1024,
+            ioWeight: 1,
+        },
+        ...(signal ? {signal} : {}),
+    });
+    const path = () => join(process.cwd(), 'tests/fixtures/electron/generated-text.pdf');
+    function useFallback() { fake.pageTexts.set(1, 'Poppler text'); fake.missingCjkDataPages.add(1); }
+
+    it('never constructs a queued fallback worker after the producer signal is canceled', async () => {
+        useFallback();
+        const broker = fake.broker!;
+        const blocker = await broker.acquire(request());
+        const controller = new AbortController();
+        const pages = streamPdfPageTexts(path(), {signal: controller.signal});
+        const pending = pages.next();
+        const observed = pending.catch((error: unknown) => error);
+        await vi.waitFor(() => expect(broker.getSnapshot().queued).toBe(1));
+        expect(fake.workerActive).toBe(0);
+        controller.abort(new Error('queued document closed'));
+        await observed;
+        await pages.return(undefined);
+        blocker.release();
+        expect(fake.pdfjsPages).toEqual([]);
+        expect(broker.getSnapshot()).toMatchObject({
+            active: 0,
+            queued: 0,
+        });
+    });
+
+    it('awaits an active fallback worker exit before returning its paid vector', async () => {
+        useFallback();
+        const broker = fake.broker!;
+        const producer = Promise.withResolvers<undefined>();
+        const terminated = Promise.withResolvers<undefined>();
+        fake.pdfjsRelease = producer.promise;
+        fake.workerStopped = terminated.promise;
+        const pages = streamPdfPageTexts(path());
+        expect((await pages.next()).value).toMatchObject({pageNumber: 1});
+        const leaving = pages.return(undefined);
+        const controller = new AbortController();
+        const competitor = broker.acquire(request(controller.signal));
+        await vi.waitFor(() => expect(broker.getSnapshot().queued).toBe(1));
+        expect(fake.workerActive).toBe(1);
+        expect(broker.getSnapshot().active).toBe(1);
+        terminated.resolve(undefined); producer.resolve(undefined);
+        await leaving;
+        const lease = await competitor;
+        expect(fake.workerActive).toBe(0);
+        lease.release();
+        expect(broker.getSnapshot()).toMatchObject({
+            active: 0,
+            queued: 0,
+        });
+    });
+
+    it('does not start a queued worker after a bare iterator return', async () => {
+        useFallback();
+        const broker = fake.broker!;
+        const blocker = await broker.acquire(request());
+        const pages = streamPdfPageTexts(path());
+        const first = pages.next();
+        await vi.waitFor(() => expect(broker.getSnapshot().queued).toBe(1));
+        const leaving = pages.return(undefined);
+        // Release the test blocker so even a broken implementation settles and can be reported.
+        // A pending async-generator next() otherwise prevents its return() finally from running.
+        blocker.release();
+        await first; await leaving;
+        expect(fake.pdfjsPages).toEqual([]);
+        expect(broker.getSnapshot()).toMatchObject({
+            active: 0,
+            queued: 0,
+        });
     });
 });

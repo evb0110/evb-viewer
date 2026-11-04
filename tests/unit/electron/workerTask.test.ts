@@ -1118,4 +1118,29 @@ describe('workerTask', () => {
         });
         await expect(task.promise).resolves.toBe('done');
     });
+
+    it.each([
+        'runtime-error',
+        'empty-clean-exit',
+    ] as const)('surfaces the native owner runtime hook on %s', async mode => {
+        mocks.throwConstructorError = false;
+        const {
+            markUnprovenNativeTermination, getUnprovenNativeTerminationDetail,
+        } = await import('@electron/utils/nativeTerminationProof');
+        const {runResultWorkerTask} = await import('@electron/utils/workerTask');
+        const marked = markUnprovenNativeTermination(new Error('native owner crashed'), 'native descendants unknown');
+        const task = runResultWorkerTask({
+            workerPath: '/tmp/worker.js',
+            workerData: {},
+            invalidPayloadMessage: 'invalid result',
+            createWorkerExitError: code => new Error(`exit ${code}`),
+            createWorkerError: () => marked,
+        });
+        const observed = task.catch((error: unknown) => error);
+        await Promise.resolve();
+        mocks.workerRecords[0]!.emit(mode === 'runtime-error' ? 'error' : 'exit', mode === 'runtime-error' ? new Error('runtime crash') : 0);
+        expect(await observed).toBe(marked);
+        expect(getUnprovenNativeTerminationDetail(await observed)).toBe('native descendants unknown');
+    });
+
 });

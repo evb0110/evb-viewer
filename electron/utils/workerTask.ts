@@ -64,6 +64,7 @@ interface IRunResultWorkerTaskBaseOptions {
     createStartupError?: (message: string) => Error;
     createStartupExitError?: (code: number) => Error;
     createWorkerExitError: (code: number) => Error;
+    createWorkerError?: (error: unknown) => Error;
     onProgressMessage?: (payload: unknown) => boolean;
     invalidResultMessage?: string;
     signal?: AbortSignal;
@@ -765,7 +766,7 @@ function attachWorkerHandlers<T>({
                 reject(markWorkerTaskErrorReported(createStartupError(getErrorMessage(error)), receipt));
                 return;
             }
-            reject(markWorkerTaskErrorReported(toError(error), receipt));
+            reject(markWorkerTaskErrorReported(options.createWorkerError?.(error) ?? toError(error), receipt));
         });
     });
 
@@ -796,7 +797,8 @@ function attachWorkerHandlers<T>({
             }
             if (code === 0) {
                 reject(markWorkerTaskErrorReported(
-                    new Error(invalidResultMessage ?? invalidPayloadMessage),
+                    options.createWorkerError?.(new Error(invalidResultMessage ?? invalidPayloadMessage))
+                        ?? new Error(invalidResultMessage ?? invalidPayloadMessage),
                     receipt,
                 ));
                 return;

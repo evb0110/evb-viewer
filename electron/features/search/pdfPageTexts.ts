@@ -25,6 +25,7 @@ import {
 } from '@electron/utils/workerTask';
 import { WORKER_BUNDLES_BY_ID } from '@electron-worker-bundles/electronWorkerBundles.js';
 import { streamItems } from '@electron/features/search/streamItems';
+import {mainJobBroker} from '@electron/resources/jobBroker';
 import type { IPageText } from '@electron/features/search/pageText';
 import { readOcrLayerLayout } from '@ocr-core/readOcrLayerLayout';
 import type { IPdfPageRange } from '@electron/features/search/pdfjsPageTexts';
@@ -264,7 +265,18 @@ async function readVisiblePopplerPageTexts(
  * pdftotext on OCR layers that embed a font per page.
  */
 function streamPdfjsPageTexts(pdfPath: string, range: IPdfPageRange, signal?: AbortSignal) {
-    return streamItems<IPageText>((emit, workerSignal) => runResultWorkerTask({
+    return streamItems<IPageText>((emit, workerSignal) => mainJobBroker.run({
+        ownerId: 'pdf-text',
+        kind: 'pdf-text',
+        priority: 'background',
+        resources: {
+            cpuTokens: 1,
+            estimatedResidentBytes: 256 * 1024 * 1024,
+            nativeProcesses: 0,
+            ioWeight: 1,
+        },
+        signal: workerSignal,
+    }, () => runResultWorkerTask({
         workerPath: resolveUnpackedWorkerPath(dirname(fileURLToPath(import.meta.url)), PDF_TEXT_WORKER_FILENAME),
         workerData: {
             pdfPath,
@@ -281,7 +293,7 @@ function streamPdfjsPageTexts(pdfPath: string, range: IPdfPageRange, signal?: Ab
             return parsed.success;
         },
         signal: workerSignal,
-    }), signal);
+    })), signal);
 }
 
 function resolvePageOpsBinary() {
@@ -425,7 +437,25 @@ export function streamPdfPageTexts(
         visiblePageOnly = false,
         ...range
     } = options;
-    return streamPdfPageTextRanges(pdfPath, [range], signal, onProgress, visiblePageOnly);
+    const cancellation = new AbortController();
+    const producerSignal = signal ? AbortSignal.any([
+        signal,
+        cancellation.signal,
+    ]) : cancellation.signal;
+    const iterator = (async function* () {
+        try {
+            yield* streamPdfPageTextRanges(pdfPath, [range], producerSignal, onProgress, visiblePageOnly);
+        } catch (error) {
+            // A consumer return ends its pending next; external cancellation still rejects.
+            if (!cancellation.signal.aborted || signal?.aborted) throw error;
+        }
+    })();
+    const finish = iterator.return.bind(iterator);
+    return Object.assign(iterator, {return(value: void | PromiseLike<void>) {
+        // Async generators queue return behind next, so abort admission before queuing it.
+        cancellation.abort();
+        return finish(value);
+    }});
 }
 
 async function* streamPdfPageTextRanges(
