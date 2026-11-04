@@ -227,6 +227,18 @@ describe('DocumentPageSourceFeaturePack concurrent open surfaces', () => {
         app.component('USkeleton', defineComponent({setup: () => () => h('span')}));
         app.mount(root);
         const image = () => root.querySelector<HTMLImageElement>('[data-testid="document-page-source-image"]:not([data-page-source-candidate])')!;
+        const readPageLayout = () => {
+            const page = image().closest<HTMLElement>('[data-testid="document-page-source-page"]')!;
+            const {
+                width, height, top, left,
+            } = page.style;
+            return {
+                width,
+                height,
+                top,
+                left,
+            };
+        };
         try {
             await vi.waitFor(() => expect(settle.documentOpenSettled.value).toBe(true));
             // The chassis retires its opening shell and mounts the final image.
@@ -235,7 +247,11 @@ describe('DocumentPageSourceFeaturePack concurrent open surfaces', () => {
             await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
             const lowImage = image();
             expect(lowImage.getAttribute('src')).toContain('base64,low');
-            const bounds = lowImage.getBoundingClientRect();
+            const layout = readPageLayout();
+            expect(layout).toMatchObject({
+                width: '860px',
+                height: '1147px',
+            });
             const scrollTop = root.firstElementChild!.scrollTop;
             setDpr(2);
             if (trigger === 'resize') window.dispatchEvent(new Event('resize'));
@@ -258,7 +274,7 @@ describe('DocumentPageSourceFeaturePack concurrent open surfaces', () => {
             decode.resolve(undefined);
             await vi.waitFor(() => expect(image().getAttribute('src')).toContain('base64,high'));
             await vi.waitFor(() => expect(oldRelease).toHaveBeenCalledOnce());
-            expect(image().getBoundingClientRect()).toEqual(bounds);
+            expect(readPageLayout()).toEqual(layout);
             expect(root.firstElementChild!.scrollTop).toBe(scrollTop);
             expect(errors.value).toEqual([]);
             const rendered = vi.mocked(source.renderPage).mock.calls.length;
