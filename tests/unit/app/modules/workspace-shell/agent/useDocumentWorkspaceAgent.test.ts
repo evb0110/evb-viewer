@@ -1426,6 +1426,61 @@ describe('createDocumentWorkspaceAgent', () => {
         expect(deleted.revision, 'the write returns the revision after it').toBeGreaterThan(reread.revision);
     });
 
+    it('refuses a stale preview plan and applies a plan after the reader reviews again', async () => {
+        const bookmarkState = useBookmarkState({markDirty: vi.fn()});
+        const entry = (title: string, pageIndex: number): IPdfBookmarkEntry => ({
+            title,
+            pageIndex: requirePageIndex(pageIndex),
+            pageYRatio: null,
+            namedDest: null,
+            bold: false,
+            italic: false,
+            color: null,
+            items: [],
+        });
+        bookmarkState.handleBookmarksChange({
+            bookmarks: [
+                entry('A', 0),
+                entry('B', 1),
+                entry('C', 2),
+            ],
+            dirty: false,
+        });
+        const agent = createDocumentWorkspaceAgent(createAgentOptions({
+            ...bookmarkState,
+            totalPages: ref(3),
+        }));
+        const plan = await agent.runAgentAction('bookmarks.preview_tree', {bookmarks: bookmarkState.bookmarkItems.value}) as {
+            revision: number;
+            bookmarks: IPdfBookmarkEntry[]
+        };
+        bookmarkState.handleBookmarksChange({
+            bookmarks: bookmarkState.bookmarkItems.value.slice(1),
+            dirty: true,
+        });
+        await expect(agent.runAgentAction('bookmarks.apply_plan', {
+            bookmarks: plan.bookmarks,
+            revision: plan.revision,
+        }))
+            .rejects.toThrow(/changed since revision/u);
+        expect(bookmarkState.bookmarkItems.value.map(bookmark => bookmark.title)).toEqual([
+            'B',
+            'C',
+        ]);
+        const current = await agent.runAgentAction('bookmarks.preview_tree', {bookmarks: bookmarkState.bookmarkItems.value}) as {
+            revision: number;
+            bookmarks: IPdfBookmarkEntry[]
+        };
+        await expect(agent.runAgentAction('bookmarks.apply_plan', {
+            bookmarks: current.bookmarks,
+            revision: current.revision,
+        })).resolves.toBeDefined();
+        expect(bookmarkState.bookmarkItems.value.map(bookmark => bookmark.title)).toEqual([
+            'B',
+            'C',
+        ]);
+    });
+
     it('lets file.save observe save readiness after an immediate bookmark action', async () => {
         const bookmarkItems = ref<IPdfBookmarkEntry[]>([]);
         const bookmarksDirty = ref(false);

@@ -939,14 +939,17 @@ export function createDocumentAgentBookmarks(options: ICreateDocumentAgentBookma
     }
 
     function previewAgentBookmarkPlan(input: Record<string, unknown>, actionId: string) {
-        return createAgentBookmarkPlan({
-            input,
-            currentBookmarks: bookmarkItems.value,
-            totalPages: totalPages.value,
-            dirty: bookmarksDirty.value,
-            untitledTitle: t('bookmarks.untitled'),
-            actionId,
-        });
+        return {
+            ...createAgentBookmarkPlan({
+                input,
+                currentBookmarks: bookmarkItems.value,
+                totalPages: totalPages.value,
+                dirty: bookmarksDirty.value,
+                untitledTitle: t('bookmarks.untitled'),
+                actionId,
+            }),
+            revision: getBookmarksRevision(),
+        };
     }
 
     function applyAgentBookmarkPlan(input: Record<string, unknown>, actionId: string) {
