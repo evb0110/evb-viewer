@@ -4,6 +4,7 @@ import {
     buildOcrTextLayerIndexText, assembleSearchablePageTextItems,
 } from '@pdf-core';
 import type { IOcrWord } from '@contracts/shared';
+import {pdfjsTextItemIntersectsBox} from '@pdf-core/pdfjsTextItems';
 import {hasRightToLeftSearchText} from '@pdf-core/pdfSearchAlgorithms';
 import {
     extractPdfjsWordBoxesFromOperatorList,
@@ -64,10 +65,11 @@ async function extractTextContentPageText(
         const chunk = content.items.slice(index, index + 128);
         for (const item of chunk) {
             if ('str' in item) {
-                // Text outside the CropBox is not on the page a reader sees.
-                const origin = Array.isArray(item.transform) ? item.transform : null;
-                if (visibleBox && origin && !isInsideBox(visibleBox, origin[4], origin[5])) {
+                if (visibleBox && !pdfjsTextItemIntersectsBox(visibleBox, item, content.styles[item.fontName ?? ''])) {
                     hiddenItems += 1;
+                    if (item.hasEOL && textItems.length > 0) {
+                        textItems[textItems.length - 1]!.separatorAfter = 'line';
+                    }
                     continue;
                 }
                 textItems.push({
@@ -87,11 +89,6 @@ async function extractTextContentPageText(
         text: assembleSearchablePageTextItems(textItems).text,
         hiddenItems,
     };
-}
-
-function isInsideBox(box: IPdfjsPageViewBox, x: unknown, y: unknown) {
-    return typeof x === 'number' && typeof y === 'number'
-        && x >= box.xMin && x <= box.xMax && y >= box.yMin && y <= box.yMax;
 }
 
 async function cleanupBrowserSearchPage(page: IBrowserSearchTextPageLike) {
@@ -136,13 +133,11 @@ export async function extractBrowserSearchPageData(
             await throwIfBrowserSearchCanceled(options.shouldContinue);
             const allWords = extractPdfjsWordBoxesFromOperatorList(operatorList, pageBox, pdfjsOps);
             // Word boxes are in CropBox space; a word centred outside it is cropped away.
-            const words = allWords.filter(word => isInsideBox({
-                ...pageBox,
-                xMin: 0,
-                yMin: 0,
-                xMax: pageBox.pageWidth,
-                yMax: pageBox.pageHeight,
-            }, word.x + word.width / 2, word.y + word.height / 2));
+            const words = allWords.filter(word => {
+                const x = word.x + word.width / 2;
+                const y = word.y + word.height / 2;
+                return x >= 0 && x <= pageBox.pageWidth && y >= 0 && y <= pageBox.pageHeight;
+            });
             const pageData: IBrowserSearchPageData = {
                 text: buildOcrTextLayerIndexText(words),
                 words,

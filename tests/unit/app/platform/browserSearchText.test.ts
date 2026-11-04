@@ -395,3 +395,238 @@ describe('word boxes from real PDF operators', () => {
     });
 });
 
+
+
+describe('fallback search CropBox intersections', () => {
+    const style = {
+        fontFamily: 'sans-serif',
+        vertical: false,
+        ascent: 0.8,
+        descent: -0.2,
+    };
+    const item = (str: string, transform: number[], width = 50, height = 10, hasEOL = false): IPdfTextItem => ({
+        str,
+        transform,
+        width,
+        height,
+        hasEOL,
+        dir: 'ltr',
+        fontName: 'f1',
+    });
+    function extract(items: IPdfTextItem[], fontStyle = style) {
+        return extractBrowserSearchPageData({
+            view: [
+                0,
+                0,
+                100,
+                100,
+            ],
+            getTextContent: async () => ({
+                items,
+                styles: {f1: fontStyle},
+                lang: null,
+            }),
+        }, {});
+    }
+    it.each([
+        {
+            name: 'horizontal',
+            transform: [
+                10,
+                0,
+                0,
+                10,
+                -5,
+                50,
+            ],
+            vertical: false,
+            width: 50,
+            height: 10,
+        },
+        {
+            name: 'rotated',
+            transform: [
+                0,
+                10,
+                -10,
+                0,
+                50,
+                -5,
+            ],
+            vertical: false,
+            width: 50,
+            height: 10,
+        },
+        {
+            name: 'reflected',
+            transform: [
+                -10,
+                0,
+                0,
+                10,
+                105,
+                50,
+            ],
+            vertical: false,
+            width: 50,
+            height: 10,
+        },
+        {
+            name: 'vertical',
+            transform: [
+                10,
+                0,
+                0,
+                10,
+                50,
+                105,
+            ],
+            vertical: true,
+            width: 10,
+            height: 50,
+        },
+        {
+            name: 'rotated vertical',
+            transform: [
+                0,
+                10,
+                -10,
+                0,
+                -5,
+                50,
+            ],
+            vertical: true,
+            width: 10,
+            height: 50,
+        },
+        {
+            name: 'above-baseline ink',
+            transform: [
+                10,
+                0,
+                0,
+                10,
+                50,
+                -5,
+            ],
+            vertical: false,
+            width: 20,
+            height: 10,
+        },
+        {
+            name: 'below-baseline ink',
+            transform: [
+                10,
+                0,
+                0,
+                10,
+                50,
+                101,
+            ],
+            vertical: false,
+            width: 20,
+            height: 10,
+        },
+    ])('keeps visible $name text whose baseline origin is outside', async ({
+        transform, vertical, width, height,
+    }) => {
+        await expect(extract([item('VISIBLE', transform, width, height)], {
+            ...style,
+            vertical,
+        }))
+            .resolves.toEqual({text: 'VISIBLE'});
+    });
+    it('omits disjoint text and keeps its line break for the visible prefix', async () => {
+        await expect(extract([
+            item('alpha', [
+                10,
+                0,
+                0,
+                10,
+                10,
+                70,
+            ], 20),
+            item('hidden', [
+                10,
+                0,
+                0,
+                10,
+                150,
+                70,
+            ], 20, 10, true),
+            item('beta', [
+                10,
+                0,
+                0,
+                10,
+                10,
+                50,
+            ], 20),
+        ])).resolves.toEqual({
+            text: 'alpha\nbeta',
+            croppedText: true,
+        });
+    });
+    it.each([
+        [],
+        [
+            0,
+            0,
+            0,
+            10,
+            150,
+            50,
+        ],
+        [
+            10,
+            0,
+            0,
+            0,
+            150,
+            50,
+        ],
+        [
+            10,
+            0,
+            0,
+            10,
+            Number.NaN,
+            50,
+        ],
+    ])('keeps text with unusable geometry (%j)', async (...transform) => {
+        await expect(extract([item('UNKNOWN', transform)])).resolves.toEqual({text: 'UNKNOWN'});
+    });
+    it('keeps a single glyph whose rendered width need not match its advance', async () => {
+        await expect(extract([item('W', [
+            10,
+            0,
+            0,
+            10,
+            -2,
+            50,
+        ], 0.1)]))
+            .resolves.toEqual({text: 'W'});
+    });
+    it('keeps text whose font geometry is unavailable', async () => {
+        await expect(extractBrowserSearchPageData({
+            view: [
+                0,
+                0,
+                100,
+                100,
+            ],
+            getTextContent: async () => ({
+                items: [item('UNKNOWN', [
+                    10,
+                    0,
+                    0,
+                    10,
+                    150,
+                    50,
+                ])],
+                styles: {},
+                lang: null,
+            }),
+        }, {})).resolves.toEqual({text: 'UNKNOWN'});
+    });
+});
