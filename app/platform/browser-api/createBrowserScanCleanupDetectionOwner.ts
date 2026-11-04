@@ -126,6 +126,25 @@ export function createBrowserScanCleanupDetectionOwner() {
     // its completed state has read the store's counts.
     const unkeptStoreByJob = new Map<string, string>();
     const ownerStore = new Map<string, string>();
+    // Every page's detected layout, read once per store state: the renderer
+    // keeps only a bounded window of them, and the matched canvas needs all.
+    const layoutsByStore = new WeakMap<IScanCleanupDetectionResultStore, {
+        resultCount: number;
+        layoutByPage: NonNullable<IScanCleanupPreviewRequest['layoutByPage']>;
+    }>();
+    async function readStoreLayouts(store: IScanCleanupDetectionResultStore) {
+        const cached = layoutsByStore.get(store);
+        if (cached?.resultCount === store.resultCount) return cached.layoutByPage;
+        const layoutByPage: NonNullable<IScanCleanupPreviewRequest['layoutByPage']> = {};
+        await store.forEachChunk((results) => {
+            for (const result of results) layoutByPage[String(result.pageNumber)] = result.classification;
+        });
+        layoutsByStore.set(store, {
+            resultCount: store.resultCount,
+            layoutByPage,
+        });
+        return layoutByPage;
+    }
     const closeIfIdle = (entry: IStoreEntry) => {
         if (entry.retired && entry.leases === 0) void entry.store.close().catch(() => undefined);
     };
@@ -334,11 +353,21 @@ export function createBrowserScanCleanupDetectionOwner() {
             if (lease === null) return request;
             try {
                 const result = await lease.store.getPage(request.pageNumber);
+                const layouts = request.options.matchPageSize
+                    ? {layoutByPage: {
+                        ...request.layoutByPage,
+                        ...await readStoreLayouts(lease.store),
+                    }}
+                    : {};
                 // The plan travels with the page view it was measured on.
                 return result?.pagePlanEvidence === undefined
-                    ? request
+                    ? {
+                        ...request,
+                        ...layouts,
+                    }
                     : {
                         ...request,
+                        ...layouts,
                         pagePlanEvidence: result.pagePlanEvidence,
                         ...(result.sourcePageMetadata?.renderBox === 'mediabox'
                             ? {sourcePageMetadata: result.sourcePageMetadata}
