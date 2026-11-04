@@ -29,6 +29,7 @@ import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronP
 const mocks = vi.hoisted(() => ({
     combinePdfFiles: vi.fn(),
     isCombineCancellationSupported: vi.fn(),
+    hasElectronAPI: vi.fn(() => false),
     savePdfAs: vi.fn(),
     getDocumentRevision: vi.fn(),
     cleanupFile: vi.fn(async () => {}),
@@ -66,7 +67,7 @@ const platformApi = createElectronPlatformApiFixture({
 });
 vi.mock('@app/utils/platform', () => ({
     getPlatformAPI: () => platformApi,
-    hasElectronAPI: () => false,
+    hasElectronAPI: mocks.hasElectronAPI,
 }));
 vi.stubGlobal('useToast', () => ({add: vi.fn()}));
 vi.mock('@app/utils/browserLogger', () => ({BrowserLogger: {error: mocks.logError}}));
@@ -411,9 +412,32 @@ describe('mounted Combine PDF page state machine', () => {
             },
             message: EN_MESSAGES.errors.browser.notEnoughMemory,
         },
-    ])('shows the browser engine refusal as "$message"', async ({
-        envelope, message,
+        {
+            envelope: {
+                code: 'browser-byte-limit',
+                message: 'No explicit byte ceiling',
+            },
+            message: 'errors.file.invalid',
+        },
+        {
+            envelope: {
+                code: 'corrupt-xref',
+                message: 'Invalid PDF',
+            },
+            message: 'errors.file.invalid',
+        },
+        {
+            envelope: {
+                code: 'too-large',
+                message: 'Desktop limit',
+            },
+            desktop: true,
+            message: 'errors.file.invalid',
+        },
+    ])('shows the engine refusal as "$message"', async ({
+        envelope, message, desktop = false,
     }) => {
+        mocks.hasElectronAPI.mockReturnValue(desktop);
         mocks.combinePdfFiles.mockRejectedValueOnce(new CombinePdfError('limit', {cause: new SerializableError(envelope)}));
         const page = await mountCombinePageStateMachine(vi.fn().mockResolvedValue(true));
         try {
@@ -421,6 +445,24 @@ describe('mounted Combine PDF page state machine', () => {
             await flushUpdates();
             expect(page.host.querySelector('.error')?.textContent).toBe(message);
             expect(page.host.querySelectorAll('.queue-row')).toHaveLength(2);
+        } finally {
+            page.unmount();
+            mocks.hasElectronAPI.mockReturnValue(false);
+        }
+    });
+
+    it.each([
+        'invalid-input',
+        'unsupported',
+    ] as const)('keeps %s refusals localized and preserves the queue', async (code) => {
+        mocks.combinePdfFiles.mockRejectedValueOnce(new CombinePdfError(code));
+        const page = await mountCombinePageStateMachine(vi.fn().mockResolvedValue(true));
+        try {
+            (page.host.querySelector('.combine') as HTMLButtonElement).click();
+            await flushUpdates();
+            expect(page.host.querySelector('.error')?.textContent).toBe('errors.file.invalid');
+            expect(page.host.querySelectorAll('.queue-row')).toHaveLength(2);
+            expect(page.host.querySelector('.combine')?.textContent).toBe('Combine');
         } finally {
             page.unmount();
         }
