@@ -80,6 +80,8 @@ describe('browser document lifecycle UI', () => {
                     ['isPageOperationInProgress'],
                 ).isPageOperationInProgress === false;
             }, undefined, {timeout: 60_000});
+            // Rotation can show its preview before the replacement page is interactive.
+            await page.locator('.page_container[data-page="1"][data-page-raster="current"] [data-pdf-annotation-editor-ready="true"]').first().waitFor();
             await addNote(page, 'Large PDF note survives Save', {
                 x: 120,
                 y: 120,
