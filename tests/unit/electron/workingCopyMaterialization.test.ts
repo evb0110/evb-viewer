@@ -165,6 +165,53 @@ describe('workingCopyMaterialization', () => {
         expect(statuses.at(-1)).toBe('completed');
     });
 
+    it('tells a document\'s window how far its copy has come, and starts a new registration at none', async () => {
+        const fixture = await registerLazyWorkingCopy(Buffer.alloc(MULTI_CHUNK_FIXTURE_BYTES, 43));
+        const {
+            getWorkingCopyBackingStatus,
+            onWorkingCopyBackingStatusChanged,
+        } = await import('@electron/features/documents/main/workingCopyBackingStatus');
+        const {ensureWorkingCopyMaterialized} = await import('@electron/file-access/workingCopyMaterialization');
+        const dispatched: Array<{
+            owner: number | undefined;
+            progress: number;
+        }> = [];
+        const stop = onWorkingCopyBackingStatusChanged(dispatch => dispatched.push({
+            owner: dispatch.ownerWebContentsId,
+            progress: dispatch.status.progress,
+        }));
+        try {
+            await ensureWorkingCopyMaterialized(fixture.workingPath, {
+                ownerWebContentsId: 7,
+                reason: 'save',
+            });
+        } finally {
+            stop();
+        }
+
+        expect(dispatched.length).toBeGreaterThan(1);
+        expect(dispatched.every(event => event.owner === 7)).toBe(true);
+        const progress = dispatched.map(event => event.progress);
+        expect(progress).toEqual([...progress].sort((left, right) => left - right));
+        expect(progress.at(-1)).toBe(1);
+        expect(getWorkingCopyBackingStatus(7, fixture.workingPath)).toMatchObject({
+            progress: 1,
+            state: 'materialized',
+        });
+
+        // The same path registered again is a new copy, with nothing copied yet.
+        const {setWorkingCopyOriginalPath} = await import('@electron/file-access/workingCopyStore');
+        await setWorkingCopyOriginalPath(fixture.workingPath, fixture.originalPath, 7, {
+            admissionSnapshot: fixture.admissionSnapshot,
+            backingState: 'lazy-original',
+            deferOriginalFileExpectation: true,
+        });
+        expect(getWorkingCopyBackingStatus(7, fixture.workingPath)).toMatchObject({
+            progress: 0,
+            state: 'lazy-original',
+        });
+    });
+
     it('shares one flight across concurrent demand waiters', async () => {
         const fixture = await registerLazyWorkingCopy(Buffer.alloc(MULTI_CHUNK_FIXTURE_BYTES, 19));
         const {
