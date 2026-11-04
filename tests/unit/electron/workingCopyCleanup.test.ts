@@ -3,6 +3,7 @@ import type * as TViMockOriginalModule from '@electron/file-access/workingCopySt
 import {
     existsSync,
     mkdirSync,
+    readFileSync,
     realpathSync,
     writeFileSync,
 } from 'node:fs';
@@ -34,6 +35,10 @@ import {
     clearWorkingCopyQuarantinesForTests,
     quarantineWorkingCopy,
 } from '@electron/file-access/workingCopyQuarantine';
+import {
+    claimWorkingCopyRecovery,
+    releaseWorkingCopyRecovery,
+} from '@electron/file-access/workingCopyStore';
 
 function createDeferred<T>() {
     let resolve!: (value: T | PromiseLike<T>) => void;
@@ -260,6 +265,29 @@ describe('working-copy cleanup materialization retirement', () => {
             force: true,
             recursive: true,
         });
+    });
+
+    it('stops closed-document work while preserving checkpoint-owned bytes', async () => {
+        const originalPath = join(state.tempRoot, 'recovery-original.pdf');
+        const workingPath = join(state.tempRoot, 'pdf-work-recovery', 'working.pdf');
+        mkdirSync(dirname(workingPath), {recursive: true});
+        writeFileSync(originalPath, 'original');
+        writeFileSync(workingPath, 'recoverable');
+        registerWorkingCopy(workingPath, originalPath, 'eager');
+        const generation = await claimWorkingCopyRecovery(workingPath);
+        let backgroundRunning = true;
+        state.cancelClosingOperations.mockImplementation(() => {
+            backgroundRunning = false;
+            return [];
+        });
+        try {
+            await expect(cleanupWorkingCopy(workingPath, 7)).resolves.toBe(false);
+            expect(backgroundRunning).toBe(false);
+            expect(readFileSync(workingPath, 'utf8')).toBe('recoverable');
+            expect(state.workingCopyMap.has(workingPath)).toBe(true);
+        } finally {
+            releaseWorkingCopyRecovery(workingPath, generation);
+        }
     });
 
     it('joins demanded materialization for the captured registration before retirement', async () => {
