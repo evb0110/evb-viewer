@@ -104,6 +104,19 @@ describe('useSidebarResize', () => {
         expect(resize.sidebarWrapperStyle.value.width).toBe(`${SIDEBAR.MAX_WIDTH + SIDEBAR.RESIZER_WIDTH}px`);
     });
 
+    it('steps the width from the keyboard within the bounds a drag has', async () => {
+        const {useSidebarResize} = await import('@app/modules/workspace-shell/composables/useSidebarResize');
+        const resize = useSidebarResize({showSidebar: ref(true)});
+        resize.setSidebarContainerWidth(SIDEBAR.MIN_VIEWER_WIDTH + 400);
+
+        resize.resizeSidebarBy(SIDEBAR.KEYBOARD_STEP);
+        expect(resize.sidebarContentWidth.value).toBe(SIDEBAR.DEFAULT_WIDTH + SIDEBAR.KEYBOARD_STEP);
+        resize.resizeSidebarBy(Number.POSITIVE_INFINITY);
+        expect(resize.sidebarContentWidth.value).toBe(400);
+        resize.resizeSidebarBy(Number.NEGATIVE_INFINITY);
+        expect(resize.sidebarContentWidth.value).toBe(SIDEBAR.MIN_WIDTH);
+    });
+
     it('preserves viewer space when possible without collapsing the sidebar below its readable minimum', async () => {
         const showSidebar = ref(true);
         const {
