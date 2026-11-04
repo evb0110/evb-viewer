@@ -18,6 +18,102 @@ fn crops_pages_using_inherited_media_box() {
 }
 
 #[test]
+fn reversed_and_inherited_crop_boxes_preserve_visible_geometry_and_saved_crop() {
+    for inherited in [false, true] {
+        for corners in [
+            [20.0_f32, 10.0, 180.0, 90.0],
+            [180.0, 90.0, 20.0, 10.0],
+            [180.0, 10.0, 20.0, 90.0],
+            [20.0, 90.0, 180.0, 10.0],
+        ] {
+            let (mut document, page_id) = create_test_document();
+            let parent_id = document
+                .get_dictionary(page_id)
+                .unwrap()
+                .get(b"Parent")
+                .unwrap()
+                .as_reference()
+                .unwrap();
+            document
+                .get_dictionary_mut(if inherited { parent_id } else { page_id })
+                .unwrap()
+                .set("CropBox", corners.map(Object::Real).to_vec());
+            let geometry = get_page_geometry(&document, 1).unwrap();
+            let visible = geometry.crop_box.expect("valid CropBox must remain visible");
+            assert_eq!([visible.x1, visible.y1, visible.x2, visible.y2], [20.0, 10.0, 180.0, 90.0]);
+
+            // The renderer selects the middle of the visible CropBox; the
+            // mutation protocol expresses that selection as MediaBox margins.
+            let margins = CropMargins {
+                top: geometry.media_box.y2 - (visible.y1 + visible.height() * 0.75),
+                bottom: visible.y1 + visible.height() * 0.25 - geometry.media_box.y1,
+                left: visible.x1 + visible.width() * 0.375 - geometry.media_box.x1,
+                right: geometry.media_box.x2 - (visible.x1 + visible.width() * 0.75),
+            };
+            let mut original_bytes = Vec::new();
+            document.save_to(&mut original_bytes).unwrap();
+            let mut incremental = IncrementalDocument::from_document(
+                Document::load_mem(&original_bytes).unwrap(),
+                original_bytes.len() as u64,
+                original_bytes.last().copied(),
+            );
+            crop_pages(&mut document, &[1], margins).unwrap();
+            crop_pages_incremental(&mut incremental, &[1], margins).unwrap();
+            assert_eq!(crop_box(&document, page_id), [80.0, 30.0, 140.0, 70.0]);
+            assert_eq!(crop_box(&incremental.new_document, page_id), [80.0, 30.0, 140.0, 70.0]);
+            let mut rewritten_bytes = Vec::new();
+            document.save_to(&mut rewritten_bytes).unwrap();
+            let revision = build_incremental_revision(&mut incremental).unwrap();
+            original_bytes.extend(revision);
+            for bytes in [rewritten_bytes, original_bytes] {
+                let saved = Document::load_mem(&bytes).unwrap();
+                assert_eq!(crop_box(&saved, page_id), [80.0, 30.0, 140.0, 70.0]);
+                let visible = get_page_geometry(&saved, 1).unwrap().crop_box.unwrap();
+                assert_eq!([visible.width(), visible.height()], [60.0, 40.0]);
+            }
+        }
+    }
+}
+
+#[test]
+fn page_boxes_still_reject_zero_area_and_nonfinite_corners() {
+    for corners in [
+        [20.0_f32, 10.0, 20.0, 90.0],
+        [20.0, 10.0, 180.0, 10.0],
+        [f32::NAN, 10.0, 180.0, 90.0],
+        [20.0, 10.0, f32::INFINITY, 90.0],
+        [20.0, f32::NEG_INFINITY, 180.0, 90.0],
+    ] {
+        let (mut document, page_id) = create_test_document();
+        document
+            .get_dictionary_mut(page_id)
+            .unwrap()
+            .set("CropBox", corners.map(Object::Real).to_vec());
+        assert!(resolve_inherited_box(&document, page_id, b"CropBox").is_err());
+        // Invalid optional CropBoxes retain the established MediaBox fallback.
+        assert!(get_page_geometry(&document, 1).unwrap().crop_box.is_none());
+    }
+}
+
+#[test]
+fn annotation_rectangles_keep_strict_corner_validation() {
+    let ascending = Object::Array([20.0_f32, 10.0, 180.0, 90.0].map(Object::Real).to_vec());
+    let rect = parse_rect(&ascending).unwrap();
+    assert_eq!([rect.x1, rect.y1, rect.x2, rect.y2], [20.0, 10.0, 180.0, 90.0]);
+    for corners in [
+        [180.0_f32, 90.0, 20.0, 10.0],
+        [180.0, 10.0, 20.0, 90.0],
+        [20.0, 90.0, 180.0, 10.0],
+        [20.0, 10.0, 20.0, 90.0],
+        [20.0, 10.0, 180.0, 10.0],
+        [f32::NAN, 10.0, 180.0, 90.0],
+        [20.0, 10.0, f32::INFINITY, 90.0],
+    ] {
+        assert!(parse_rect(&Object::Array(corners.map(Object::Real).to_vec())).is_err());
+    }
+}
+
+#[test]
 fn path_crop_and_remove_crop_append_page_dictionary_revisions() {
     let pdf = temp_pdf_path("path-crop");
     let pages_file = temp_pdf_path("path-crop-pages");

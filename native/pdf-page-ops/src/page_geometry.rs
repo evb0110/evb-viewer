@@ -719,21 +719,35 @@ pub(crate) fn resolve_inherited_box(
 ) -> Result<PdfRect> {
     let object = resolve_inherited_object(document, page_id, key)?
         .ok_or_else(|| format!("Missing inherited {}", String::from_utf8_lossy(key)))?;
-    parse_rect(document.resolved(object)?)
+    // A page box names two opposite corners in either order, as PDF.js and
+    // the print layout read it.
+    let corners = read_rect_corners(document.resolved(object)?)?;
+    validate_rect(PdfRect {
+        x1: corners.x1.min(corners.x2),
+        y1: corners.y1.min(corners.y2),
+        x2: corners.x1.max(corners.x2),
+        y2: corners.y1.max(corners.y2),
+    })
 }
 
 pub(crate) fn parse_rect(object: &Object) -> Result<PdfRect> {
+    validate_rect(read_rect_corners(object)?)
+}
+
+fn read_rect_corners(object: &Object) -> Result<PdfRect> {
     let values = object.as_array()?;
     if values.len() != 4 {
         return Err("PDF rectangle must contain 4 values".into());
     }
-
-    let rect = PdfRect {
+    Ok(PdfRect {
         x1: object_to_f64(&values[0])?,
         y1: object_to_f64(&values[1])?,
         x2: object_to_f64(&values[2])?,
         y2: object_to_f64(&values[3])?,
-    };
+    })
+}
+
+fn validate_rect(rect: PdfRect) -> Result<PdfRect> {
     if !rect.width().is_finite()
         || !rect.height().is_finite()
         || rect.width() <= 0.0
