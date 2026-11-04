@@ -1,4 +1,7 @@
 import { randomUUID } from 'node:crypto';
+import { discardWorkspaceCheckpoint } from '@electron/workspaceCheckpointStore';
+import { cleanupWorkingCopy } from '@electron/file-access/workingCopyCleanup';
+import { workingCopyMap } from '@electron/file-access/workingCopyStore';
 import type {
     BrowserWindow,
     IpcMain,
@@ -28,7 +31,10 @@ interface IWindowCloseHandshakeOptions {
     rawIpcRegistrationAudit?: IRawIpcRegistrationAudit;
 }
 
-interface IWindowCloseEvent {preventDefault(): void;}
+interface IWindowCloseEvent {
+    preventDefault(): void;
+    readonly defaultPrevented?: boolean;
+}
 
 export function attachNativeWindowCloseHandshake(
     window: BrowserWindow,
@@ -40,8 +46,12 @@ export function attachNativeWindowCloseHandshake(
     // Captured once: by 'closed' the BrowserWindow is destroyed and its
     // webContents getter is no longer safe to read.
     const webContents = window.webContents;
+    const ownerWebContentsId = webContents.id;
     let disposed = false;
-    let approvedClose = false;
+    let approvedClose: {
+        event: IWindowCloseEvent | null;
+        retirement?: Promise<string>
+    } | null = null;
     let pendingRequestId: string | null = null;
     let pendingTimeout: NodeJS.Timeout | null = null;
 
@@ -59,6 +69,7 @@ export function attachNativeWindowCloseHandshake(
     }
 
     function settleForRendererLoss(reason: string) {
+        approvedClose = null;
         if (pendingRequestId === null) {
             return;
         }
@@ -119,11 +130,11 @@ export function attachNativeWindowCloseHandshake(
             return;
         }
 
-        approvedClose = true;
+        approvedClose = {event: null};
         try {
             window.close();
         } catch (error) {
-            approvedClose = false;
+            approvedClose = null;
             options.logger.warn(
                 `[window-close] Approved close failed (windowId=${window.id}): ${String(error)}`,
             );
@@ -134,10 +145,12 @@ export function attachNativeWindowCloseHandshake(
         if (disposed) {
             return;
         }
-        if (approvedClose) {
-            approvedClose = false;
+        if (approvedClose && approvedClose.event === null) {
+            approvedClose.event = event;
             return;
         }
+        // A vetoed attempt never authorizes a later close.
+        approvedClose = null;
 
         let shouldBypass = false;
         try {
@@ -185,11 +198,48 @@ export function attachNativeWindowCloseHandshake(
         }
     }
 
+    function handleWebContentsDestroyed() {
+        const event = approvedClose?.event;
+        if (disposed || !event || event.defaultPrevented === true || !approvedClose) return;
+        // Registered before renderer startup can create a recovery owner:
+        // fence claims before that owner's destroyed listener makes it orphaned.
+        approvedClose.retirement = discardWorkspaceCheckpoint(ownerWebContentsId, webContents);
+        void approvedClose.retirement.catch(() => undefined);
+    }
+
+    function handleClosed() {
+        const approvedEvent = approvedClose?.event;
+        const retireOwner = !disposed && approvedEvent !== null
+            && approvedEvent !== undefined && approvedEvent.defaultPrevented !== true;
+        const retirement = approvedClose?.retirement;
+        cleanup();
+        if (!retireOwner) return;
+
+        // The fallback covers a window adapter without a destroyed event.
+        void (retirement ?? discardWorkspaceCheckpoint(ownerWebContentsId, webContents)).then(async () => {
+            // All synchronous 'closed' listeners have run, including transfer
+            // rollback. Work only on registrations this window still owns.
+            for (const [
+                path,
+                entry,
+            ] of [...workingCopyMap]) {
+                if (entry.ownerWebContentsId === ownerWebContentsId) {
+                    await cleanupWorkingCopy(path, ownerWebContentsId);
+                }
+            }
+        }).catch((error: unknown) => {
+            // Failed discard keeps its recovery evidence and forbids byte cleanup.
+            options.logger.warn(`[window-close] Could not retire window resources (windowId=${window.id}): ${String(error)}`);
+        });
+    }
+
     function cleanup() {
         disposed = true;
+        approvedClose = null;
         clearPendingRequest();
         options.ipcMain.removeListener(CORE_IPC_SEND_CHANNELS.windowCloseResponse, handleResponse);
         webContents.removeListener('render-process-gone', handleRenderProcessGone);
+        webContents.removeListener('destroyed', handleWebContentsDestroyed);
         webContents.removeListener('did-start-navigation', handleNavigationStart);
         options.rawIpcRegistrationAudit?.release('window-close-response', registrationScope);
     }
@@ -200,10 +250,11 @@ export function attachNativeWindowCloseHandshake(
     } else {
         register();
     }
+    webContents.on('destroyed', handleWebContentsDestroyed);
     webContents.on('render-process-gone', handleRenderProcessGone);
     webContents.on('did-start-navigation', handleNavigationStart);
     window.on('close', handleClose);
-    window.once('closed', cleanup);
+    window.once('closed', handleClosed);
 
     return cleanup;
 }

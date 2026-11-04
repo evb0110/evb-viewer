@@ -14,12 +14,13 @@ import {
     writeFileSync,
 } from 'node:fs';
 import {
+    basename,
     dirname,
     join,
 } from 'node:path';
 import {
     appendFile,
-    readFile, rename, stat,
+    readFile, readdir, rename, stat,
 } from 'node:fs/promises';
 import {
     afterEach,
@@ -33,8 +34,11 @@ import {
     createLargeScannedFixturePdf,
     createMultiPageTextFixturePdf,
     readPdfPageSnapshots,
+    readPdfTextAnnotationRecords,
 } from '@tests/e2e/electron/helpers/fixtures';
 import {createCanonicalTextBoxWithPointer} from '@tests/e2e/electron/helpers/viewerAnnotations';
+import {moveTabToNewWindow} from '@tests/e2e/electron/helpers/moveTabToNewWindow';
+import {installPageEvaluationShims} from '@tests/e2e/electron/helpers/pageRuntime';
 import {getActiveWorkspaceWorkingCopyPath} from '@tests/e2e/electron/helpers/electronApiHelpers';
 import {
     startElectronE2ESession,
@@ -77,7 +81,10 @@ interface IRecoveredSession {
     session: IElectronE2ESession;
 }
 
-interface ICreateRecoveredSessionOptions {replacementSourcePath?: string;}
+interface ICreateRecoveredSessionOptions {
+    replacementSourcePath?: string;
+    largeHistory?: boolean;
+}
 
 interface IRecoveryDirtyState {
     [key: string]: unknown;
@@ -96,7 +103,10 @@ async function createRecoveredSession(
     label: string,
     options: ICreateRecoveredSessionOptions = {},
 ): Promise<IRecoveredSession> {
-    const pdfPath = await createMultiPageTextFixturePdf(`project8-close-${label}-${Date.now()}.pdf`, 2);
+    const fileName = `project8-close-${label}-${Date.now()}.pdf`;
+    const pdfPath = options.largeHistory
+        ? await createLargeScannedFixturePdf(fileName, 2, 9 * 1024 * 1024)
+        : await createMultiPageTextFixturePdf(fileName, 2);
     const sessionName = `e2e-project8-close-${label}-${Date.now()}`;
     let session = await startElectronE2ESession(sessionName, {
         clean: true,
@@ -774,6 +784,74 @@ describe('Project 8 recovered close decisions', () => {
         expect((await readPdfPageSnapshots(await getActiveWorkspaceWorkingCopyPath(session.page)))[0]?.rotation).toBe(90);
     }, E2E_TIMEOUT_MS);
 
+    it.each([
+        'Discard changes',
+        'Save changes',
+    ] as const)('retires only an approved window while another stays open: %s', async decision => {
+        const recovered = await createRecoveredSession(`owner-retirement-${decision.startsWith('Save') ? 'save' : 'discard'}`, {largeHistory: true});
+        session = recovered.session;
+        const active = session;
+        const root = dirname(dirname(recovered.workingCopyPath));
+        const before = new Set(await readdir(root));
+        // Setup a second structural checkpoint so retirement includes history,
+        // as well as the recovered document's current working copy.
+        await requireWorkspaceCommand(active.page, 'handleRotateCw', [[1]]);
+        await waitForWorkspaceToolbarIdle(active.page);
+        const historyDirectories = (await readdir(root)).filter(name => name.startsWith('pdf-work-') && !before.has(name)).map(name => join(root, name));
+        expect(historyDirectories.length).toBeGreaterThan(0);
+        const closingCopy = await getActiveWorkspaceWorkingCopyPath(active.page);
+        const siblingPath = await createMultiPageTextFixturePdf(`retirement-sibling-${Date.now()}.pdf`, 3);
+        await createNewWorkspaceTab(active);
+        await openPdfInApp(active.page, siblingPath);
+        const sibling = await moveTabToNewWindow(active.page, {tabTitle: basename(siblingPath)});
+        await installPageEvaluationShims(sibling);
+        await waitForViewerInteractive(sibling);
+        const siblingCopy = await getActiveWorkspaceWorkingCopyPath(sibling);
+        const siblingBytes = await readFile(siblingCopy);
+        await activateWorkspaceTab(active, 0);
+        await waitForViewerInteractive(active.page);
+        await expect.poll(() => readWorkspaceRecoveryRecords<{checkpoint?: {
+            capturedAt?: number;
+            tabs?: Array<{
+                sourceRef?: string;
+                isDirty?: boolean
+            }>
+        }}>(active.name)
+            .some(record => record.checkpoint?.tabs?.some(tab => tab.sourceRef === recovered.pdfPath && tab.isDirty)), {timeout: 60_000}).toBe(true);
+
+        await clickWindowDecision(active, decision, {waitForClose: true});
+        expect(sibling.isClosed()).toBe(false);
+        await expect(readFile(siblingCopy)).resolves.toEqual(siblingBytes);
+        await sibling.waitForFunction(() => document.querySelector('.text-layer')?.textContent?.includes('Fixture 1/3'));
+        if (decision.startsWith('Save')) {
+            expect((await readPdfPageSnapshots(recovered.pdfPath))[0]?.rotation).toBe(180);
+            expect(await readPdfTextAnnotationRecords(recovered.pdfPath)).toEqual(expect.arrayContaining([expect.objectContaining({contents: RECOVERED_ANNOTATION_TEXT})]));
+        } else {
+            expect((await readPdfPageSnapshots(recovered.pdfPath))[0]?.rotation).toBe(0);
+        }
+        await expect.poll(() => [
+            closingCopy,
+            ...historyDirectories,
+        ].filter(path => existsSync(path)), {timeout: 30_000}).toEqual([]);
+        await expect.poll(() => readWorkspaceRecoveryRecords<{checkpoint?: {
+            capturedAt?: number;
+            tabs?: Array<{sourceRef?: string}>
+        }}>(active.name)
+            .some(record => record.checkpoint?.tabs?.some(tab => tab.sourceRef === recovered.pdfPath)), {timeout: 30_000}).toBe(false);
+        // Starting C exercises startup recovery in the same main process. A's
+        // explicit close must never be interpreted as an interrupted renderer.
+        const thirdPath = await createMultiPageTextFixturePdf(`retirement-third-${Date.now()}.pdf`, 1);
+        await clickAsUser(sibling, '.tab-new');
+        await openPdfInApp(sibling, thirdPath);
+        const third = await moveTabToNewWindow(sibling, {tabTitle: basename(thirdPath)});
+        await installPageEvaluationShims(third);
+        await waitForViewerInteractive(third);
+        const tabs = await third.$$eval('.tab-list [role="tab"]', elements => elements.map(element => element.textContent));
+        expect(tabs.some(text => text?.includes(basename(recovered.pdfPath)))).toBe(false);
+        expect(existsSync(siblingCopy)).toBe(true);
+        await expect(readFile(siblingCopy)).resolves.toEqual(siblingBytes);
+    }, E2E_TIMEOUT_MS);
+
     it('Save commits recovered bytes and permits close without Save As', async () => {
         const recovered = await createRecoveredSession('save');
         session = recovered.session;
@@ -841,6 +919,9 @@ describe('Project 8 recovered close decisions', () => {
             timeout: 60_000,
             visible: true,
         });
+        await waitForWorkspaceToolbarIdle(session.page, {timeoutMs: 60_000});
+        await clickWindowDecision(session, 'Save changes', {waitForClose: false});
+        await session.page.waitForFunction(() => !document.querySelector('[role="dialog"]'));
         await waitForWorkspaceToolbarIdle(session.page, {timeoutMs: 60_000});
         expect(session.page.isClosed()).toBe(false);
         await expect(readFile(recovered.pdfPath)).resolves.toEqual(externalBytes);
