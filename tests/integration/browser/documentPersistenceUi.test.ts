@@ -1143,6 +1143,7 @@ describe('browser document lifecycle UI', () => {
             const closeAndReload = async () => {
                 await page.getByRole('button', {name: 'Close Tab'}).click();
                 await expect.poll(() => page.locator('[data-tab-list] [role="tab"]').filter({hasText: '.pdf'}).count(), {timeout: 15_000}).toBe(0);
+                await page.locator('.workspace-host[data-workspace-active="true"] .workspace-host__start').waitFor();
                 await page.reload({waitUntil: 'domcontentloaded'});
                 await waitForOpenFileReady(page);
             };

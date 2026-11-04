@@ -321,11 +321,12 @@ function normalizeBookmarkTreeInput(options: {
 
 function normalizeBookmarkForAgent(
     bookmark: IPdfBookmarkEntry,
-    path: number[] = [],
+    path: number[],
 ): Record<string, unknown> {
     return {
         path,
-        depth: path.length,
+        // Zero-based, as in the flat view and the style selector: a root is 0.
+        depth: path.length - 1,
         title: bookmark.title,
         pageIndex: bookmark.pageIndex,
         pageNumber: bookmark.pageIndex === null ? null : bookmark.pageIndex + 1,
