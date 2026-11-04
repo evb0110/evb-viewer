@@ -329,13 +329,13 @@ describe('browser DjVu finalization acceptance in Chromium', () => {
                         type: 'module',
                     });
                     await page.waitForFunction(() => typeof Reflect.get(globalThis, '__evbInstallBrowserCompactDjvuAcceptance') === 'function');
-                    await page.evaluate(async () => {
+                    await page.evaluate(async shouldCancel => {
                         const install = Reflect.get(globalThis, '__evbInstallBrowserCompactDjvuAcceptance');
                         if (typeof install !== 'function') {
                             throw new Error('Compact DjVu acceptance controls were not installed');
                         }
-                        await install();
-                    });
+                        await install(1, !shouldCancel);
+                    }, cancel);
                     const wasmRequested = Promise.withResolvers<undefined>();
                     const releaseWasm = Promise.withResolvers<undefined>();
                     if (cancel) {

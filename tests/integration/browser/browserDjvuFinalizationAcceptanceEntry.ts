@@ -124,7 +124,7 @@ async function runBrowserDjvuFinalizationAcceptance() {
 
 Reflect.set(globalThis, '__evbRunBrowserDjvuFinalizationAcceptance', runBrowserDjvuFinalizationAcceptance);
 
-async function installBrowserCompactDjvuAcceptance(documentCount = 1) {
+async function installBrowserCompactDjvuAcceptance(documentCount = 1, compareReference = true) {
     const fixtureBytes = new Uint8Array(await (await fetch('/fixtures/bitonal-faint-pencil.djvu')).arrayBuffer());
     const sourcePath = await browserDocumentStore.createStoredDocument('compact.djvu', fixtureBytes, {
         mimeType: 'image/vnd.djvu',
@@ -139,8 +139,9 @@ async function installBrowserCompactDjvuAcceptance(documentCount = 1) {
         saveKind: 'pdf',
     });
     // A trusted export must produce exactly the old encoder's bytes even when
-    // the UI cannot run WASM. This small control is setup, never a fallback.
-    const reference = await withBrowserDjvuWorker(sourcePath, async (worker) => {
+    // the UI cannot run WASM. Cancellation asserts no bytes and needs no encoder
+    // control; avoid building a throwaway PDF before its pending-load probe.
+    const reference = compareReference ? await withBrowserDjvuWorker(sourcePath, async (worker) => {
         const pageSizes = await getDjvuWorkerPageSizes(worker);
         const pageSpecs: IBrowserPdfCombineWasmPageSpec[] = [];
         for (const [
@@ -161,7 +162,7 @@ async function installBrowserCompactDjvuAcceptance(documentCount = 1) {
             throw new Error(`Compact DjVu encoder control failed: ${result.status}`);
         }
         return result.data;
-    }, 'convert');
+    }, 'convert') : null;
     Reflect.set(globalThis, 'WebAssembly', undefined);
 
     document.body.innerHTML = '';
@@ -206,7 +207,7 @@ async function installBrowserCompactDjvuAcceptance(documentCount = 1) {
                             outputBytes: bytes.byteLength,
                             generatedPdfHeader: new TextDecoder().decode(bytes.slice(0, 5)),
                             pageSizes: pdf?.getPages().map(page => page.getSize()),
-                            referenceMatches: bytes.byteLength === reference.byteLength
+                            referenceMatches: reference !== null && bytes.byteLength === reference.byteLength
                                 && bytes.every((value, offset) => value === reference[offset]),
                         });
                         status.textContent = result.success ? 'Completed' : 'Canceled';
