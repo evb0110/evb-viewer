@@ -107,7 +107,13 @@ const settingsSaveFailurePresentation = computed<FailurePresentation | null>(() 
     return {
         ...capture,
         title: t('status.saveFailed'),
-        ...(settingsSaveError.value ? {description: settingsSaveError.value} : {}),
+        description: settingsSaveError.value?.name === 'QuotaExceededError'
+            ? t('errors.settings.storageFull')
+            : settingsSaveError.value?.name === 'SecurityError'
+                || settingsSaveError.value?.name === 'NotAllowedError'
+                ? t('errors.settings.storageUnavailable')
+                : t('errors.settings.save'),
+        ...(settingsSaveError.value ? {technicalDetails: `${settingsSaveError.value.name}: ${settingsSaveError.value.message}`} : {}),
     };
 });
 

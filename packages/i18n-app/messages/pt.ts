@@ -1879,6 +1879,9 @@ export default {
         },
         'settings': {
             'load': 'Não foi possível carregar as definições',
+            'save': 'Não foi possível guardar as definições. Tente novamente.',
+            'storageFull': 'O armazenamento está cheio. Liberte espaço e tente novamente.',
+            'storageUnavailable': 'O acesso ao armazenamento está bloqueado. Permita o acesso e tente novamente.',
             'recovered': 'Não foi possível usar as definições guardadas, por isso foram restaurados os valores predefinidos. O ficheiro anterior foi guardado como cópia de recuperação quando possível.',
             'recoveredWithPath': 'Não foi possível usar as definições guardadas, por isso foram restaurados os valores predefinidos. O ficheiro anterior foi colocado em quarentena em {path}.',
             'newerVersion': 'Estas definições foram guardadas por uma versão mais recente do EVB Viewer. Mantêm-se inalteradas; esta versão usa os valores predefinidos e não consegue guardar definições. Abra a versão mais recente para as alterar.',

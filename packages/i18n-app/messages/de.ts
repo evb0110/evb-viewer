@@ -1868,6 +1868,9 @@ export default {
         },
         'settings': {
             'load': 'Einstellungen konnten nicht geladen werden',
+            'save': 'Die Einstellungen konnten nicht gespeichert werden. Versuchen Sie es erneut.',
+            'storageFull': 'Der Speicher ist voll. Geben Sie Speicherplatz frei und versuchen Sie es erneut.',
+            'storageUnavailable': 'Der Speicherzugriff ist blockiert. Erlauben Sie den Zugriff und versuchen Sie es erneut.',
             'recovered': 'Die gespeicherten Einstellungen konnten nicht verwendet werden. Die Standardeinstellungen wurden wiederhergestellt. Die vorherige Datei wurde, wenn möglich, als Wiederherstellungskopie behalten.',
             'recoveredWithPath': 'Die gespeicherten Einstellungen konnten nicht verwendet werden. Die Standardeinstellungen wurden wiederhergestellt. Die vorherige Datei wurde unter {path} unter Quarantäne gestellt.',
             'newerVersion': 'Diese Einstellungen wurden von einer neueren Version von EVB Viewer gespeichert. Sie bleiben unverändert; diese Version verwendet ihre Standardeinstellungen und kann keine Einstellungen speichern. Öffnen Sie die neuere Version, um sie zu ändern.',

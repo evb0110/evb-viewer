@@ -1498,10 +1498,24 @@ describe('browser Settings save failure UI', () => {
         }
     });
 
-    it.each([{
-        name: 'Error',
-        action: 'retry',
-    }])('retries a late $name after Settings closes with the retained choice', async ({
+    it.each([
+        {
+            name: 'QuotaExceededError',
+            action: 'copy',
+        },
+        {
+            name: 'SecurityError',
+            action: 'copy',
+        },
+        {
+            name: 'Error',
+            action: 'copy',
+        },
+        {
+            name: 'Error',
+            action: 'retry',
+        },
+    ])('$action handles a late $name after Settings closes with a localized cause', async ({
         name, action,
     }) => {
         const author = page.locator('#settings-author');
@@ -1535,11 +1549,28 @@ describe('browser Settings save failure UI', () => {
         } finally {
             await page.screenshot({path: resolve(evidence, `settings-${name}-${action}.png`)});
         }
-        await page.evaluate(() => (Reflect.get(window, '__restoreD15Storage') as () => void)());
-        await toast.getByRole('button', {
-            name: 'Повторить',
-            exact: true,
-        }).click();
-        await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('evb-viewer:browser:settings') ?? '{}').authorName)).toBe('Retained after closing');
+        const reason = name === 'QuotaExceededError' ? 'Хранилище заполнено. Освободите место и повторите попытку.'
+            : name === 'SecurityError' ? 'Доступ к хранилищу заблокирован. Разрешите доступ и повторите попытку.'
+                : 'Не удалось записать настройки в хранилище. Повторите попытку.';
+        expect(await toast.locator('.app-toast-failure-reason').textContent()).toBe(reason);
+        expect(await toast.textContent()).not.toContain('RAW');
+        if (action === 'copy') {
+            const receipt = await toast.locator('.app-toast-error-id').textContent();
+            await toast.getByRole('button', {
+                name: 'Копировать подробности',
+                exact: true,
+            }).click();
+            const copy = await page.evaluate(() => navigator.clipboard.readText());
+            expect(copy).toContain(name === 'Error' ? 'Error: RAW unknown detail' : `${name}: RAW storage detail`);
+            expect(copy).toContain('Error ID:');
+            expect(copy).toContain(receipt!.split(': ').at(-1)!);
+        } else {
+            await page.evaluate(() => (Reflect.get(window, '__restoreD15Storage') as () => void)());
+            await toast.getByRole('button', {
+                name: 'Повторить',
+                exact: true,
+            }).click();
+            await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('evb-viewer:browser:settings') ?? '{}').authorName)).toBe('Retained after closing');
+        }
     });
 });

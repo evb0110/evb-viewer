@@ -464,7 +464,7 @@ describe('browserSettingsCapability', () => {
 
         const savePromise = browserSettingsCapability.save({clientDiagnosticsPreference: 'granted'});
         expect(failureReporter.getRendererDiagnosticsPreference()).toBe('granted');
-        await expect(savePromise).rejects.toThrow('localStorage');
+        await expect(savePromise).rejects.toThrow('quota exceeded');
         expect(failureReporter.getRendererDiagnosticsPreference()).toBe('unknown');
     });
 
@@ -488,7 +488,7 @@ describe('browserSettingsCapability', () => {
         const grantPromise = browserSettingsCapability.save({clientDiagnosticsPreference: 'granted'});
         const denialPromise = browserSettingsCapability.save({clientDiagnosticsPreference: 'denied'});
 
-        await expect(grantPromise).rejects.toThrow('localStorage');
+        await expect(grantPromise).rejects.toThrow('quota exceeded');
         await denialPromise;
         expect(failureReporter.getRendererDiagnosticsPreference()).toBe('denied');
     });
@@ -514,7 +514,7 @@ describe('browserSettingsCapability', () => {
 
         const savePromise = browserSettingsCapability.save({clientDiagnosticsPreference: 'denied'});
         expect(failureReporter.getRendererDiagnosticsPreference()).toBe('denied');
-        await expect(savePromise).rejects.toThrow('localStorage');
+        await expect(savePromise).rejects.toThrow('quota exceeded');
         browserWindow.dispatchEvent(Object.assign(new Event('storage'), {
             storageArea: localStorage,
             key: SETTINGS_STORAGE_KEY,
@@ -546,6 +546,46 @@ describe('browserSettingsCapability', () => {
         });
     });
 
+    it.each([
+        'QuotaExceededError',
+        'SecurityError',
+        'NotAllowedError',
+    ])('preserves %s and leaves stored settings, cookies and consent unchanged after a failed write', async (name) => {
+        const storage = new MemoryStorage();
+        let failure: DOMException | null = null;
+        vi.stubGlobal('window', {localStorage: {
+            getItem: storage.getItem.bind(storage),
+            setItem: (key: string, value: string) => {
+                if (failure) throw failure;
+                storage.setItem(key, value);
+            },
+        }});
+        let cookie = '';
+        vi.stubGlobal('document', {
+            get cookie() { return cookie; },
+            set cookie(value: string) { cookie = value; },
+        });
+        const {browserSettingsCapability} = await import('@app/platform/browser-api/browserSettingsCapability');
+        const reporter = await import('@app/utils/failureReporter');
+        await browserSettingsCapability.save({
+            authorName: 'Saved',
+            locale: 'ru',
+            clientDiagnosticsPreference: 'denied',
+        });
+        await expect(browserSettingsCapability.get()).resolves.toMatchObject({authorName: 'Saved'});
+        const stored = storage.getItem(SETTINGS_STORAGE_KEY);
+        const savedCookie = cookie;
+        failure = new DOMException('RAW storage detail', name);
+        await expect(browserSettingsCapability.save({
+            authorName: 'Unsaved',
+            locale: 'fr',
+            clientDiagnosticsPreference: 'granted',
+        })).rejects.toBe(failure);
+        expect(storage.getItem(SETTINGS_STORAGE_KEY)).toBe(stored);
+        expect(cookie).toBe(savedCookie);
+        expect(reporter.getRendererDiagnosticsPreference()).toBe('denied');
+    });
+
     it('rejects a browser settings write when localStorage refuses it', async () => {
         vi.stubGlobal('window', {localStorage: {
             getItem: () => null,
@@ -555,7 +595,7 @@ describe('browserSettingsCapability', () => {
         }});
         const { browserSettingsCapability } = await import('@app/platform/browser-api/browserSettingsCapability');
 
-        await expect(browserSettingsCapability.save({authorName: 'Unsaved'})).rejects.toThrow('localStorage');
+        await expect(browserSettingsCapability.save({authorName: 'Unsaved'})).rejects.toThrow('quota exceeded');
     });
 
     it('delivers a save to this page\'s own listeners before the save resolves', async () => {

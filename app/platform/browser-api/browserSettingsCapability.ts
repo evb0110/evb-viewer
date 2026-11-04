@@ -30,6 +30,7 @@ import type { ISettingsData } from '@contracts/shared';
 import {
     readLocalStorageItem,
     safeSetLocalStorageItem,
+    setLocalStorageItemOrThrow,
 } from '@app/utils/localStorage';
 import {
     BROWSER_LOCALE_COOKIE_KEY,
@@ -85,9 +86,7 @@ interface IBrowserSettingsReadOptions {
 const BROWSER_SETTINGS_STORAGE_LOCK_KEY = '__evb_browser_settings_storage_lock__';
 
 function writeBrowserSettingsToStorage(nextSettings: ISettingsData) {
-    if (!safeSetLocalStorageItem(SETTINGS_STORAGE_KEY, JSON.stringify(nextSettings))) {
-        throw new Error('Failed to persist browser settings to localStorage');
-    }
+    setLocalStorageItemOrThrow(SETTINGS_STORAGE_KEY, JSON.stringify(nextSettings));
 }
 
 function recordSettingsRecovery(reason: TSettingsRecoveryReason) {

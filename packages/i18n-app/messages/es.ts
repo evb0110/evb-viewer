@@ -1868,6 +1868,9 @@ export default {
         },
         'settings': {
             'load': 'No se pudieron cargar los ajustes',
+            'save': 'No se ha podido guardar la configuración. Inténtalo de nuevo.',
+            'storageFull': 'El almacenamiento está lleno. Libera espacio e inténtalo de nuevo.',
+            'storageUnavailable': 'El acceso al almacenamiento está bloqueado. Permite el acceso e inténtalo de nuevo.',
             'recovered': 'No se pudieron usar los ajustes guardados, así que se restauraron los valores predeterminados. El archivo anterior se conservó como copia de recuperación cuando fue posible.',
             'recoveredWithPath': 'No se pudieron usar los ajustes guardados, así que se restauraron los valores predeterminados. El archivo anterior se puso en cuarentena en {path}.',
             'newerVersion': 'Estos ajustes los guardó una versión más reciente de EVB Viewer. Se conservan sin cambios; esta versión usa sus valores predeterminados y no puede guardar ajustes. Abre la versión más reciente para cambiarlos.',

@@ -140,7 +140,10 @@ const synchronizedSettings = ref({
     ...DEFAULT_SETTINGS,
     agentMcpEnabled: true,
 });
-const settingsSaveError = ref<string | null>(null);
+const settingsSaveError = ref<{
+    name: string;
+    message: string
+} | null>(null);
 const settingsSaveFailure = ref<IPresentedFailureCapture | null>(null);
 const settingsSaveStatus = ref<TSettingsPersistenceStatus>('idle');
 let saveSettings: () => Promise<boolean> = async () => true;
@@ -428,7 +431,10 @@ function installSettingsQueue() {
         },
         onStatusChanged: (status, error) => {
             settingsSaveStatus.value = status;
-            settingsSaveError.value = error instanceof Error || error instanceof DOMException ? error.message : null;
+            settingsSaveError.value = error instanceof Error || error instanceof DOMException ? {
+                name: error.name,
+                message: error.message,
+            } : null;
         },
     });
     saveSettings = queue.save;
@@ -491,4 +497,55 @@ describe('Settings save presentation lifetime', () => {
         expect(mounted.host.textContent).toContain('01234567');
     });
 
+    it.each([
+        [
+            'QuotaExceededError',
+            'RAW quota detail',
+            'Хранилище заполнено. Освободите место и повторите попытку.',
+        ],
+        [
+            'SecurityError',
+            'RAW access detail',
+            'Доступ к хранилищу заблокирован. Разрешите доступ и повторите попытку.',
+        ],
+        [
+            'NotAllowedError',
+            'RAW permission detail',
+            'Доступ к хранилищу заблокирован. Разрешите доступ и повторите попытку.',
+        ],
+        [
+            'Error',
+            'RAW unknown detail',
+            'Не удалось записать настройки в хранилище. Повторите попытку.',
+        ],
+    ])('localizes %s while keeping raw diagnostics in Copy details after Settings closes', async (name, detail, reason) => {
+        selectedLocale.value = 'ru';
+        const copied = vi.fn().mockResolvedValue(undefined);
+        Object.defineProperty(navigator, 'clipboard', {
+            configurable: true,
+            value: {writeText: copied},
+        });
+        const queue = installSettingsQueue();
+        const mounted = mountSettingsRoot();
+        synchronizedSettings.value.authorName = 'Unsaved';
+        const saving = saveSettings();
+        mounted.visible.value = false;
+        await nextTick();
+        queue.reject(name === 'Error' ? new Error(detail) : new DOMException(detail, name));
+        await saving;
+        await flushUi();
+        expect(mounted.host.querySelector('.app-toast-failure-reason')?.textContent).toBe(reason);
+        expect(mounted.host.textContent).not.toContain(detail);
+        clickToastButton(mounted.host, LOCALE_MESSAGES.ru.errors.runtime.copy);
+        await flushUi();
+        expect(copied.mock.calls[0]?.[0]).toContain(`${name}: ${detail}`);
+        expect(copied.mock.calls[0]?.[0]).toContain('0123456789abcdef0123456789abcdef');
+        expect(mounted.host.textContent).toContain(LOCALE_MESSAGES.ru.common.retry);
+        selectedLocale.value = 'en';
+        await flushUi();
+        expect(mounted.host.querySelectorAll('.app-toast-failure')).toHaveLength(1);
+        expect(mounted.host.querySelector('.app-toast-failure-reason')?.textContent).toBe(name === 'QuotaExceededError'
+            ? 'Storage is full. Free some space and try again.'
+            : name === 'Error' ? 'Settings could not be written to storage. Try again.' : 'Access to storage is blocked. Allow access and try again.');
+    });
 });

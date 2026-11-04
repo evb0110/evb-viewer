@@ -1868,6 +1868,9 @@ export default {
         },
         'settings': {
             'load': 'Failed to load settings',
+            'save': 'Settings could not be written to storage. Try again.',
+            'storageFull': 'Storage is full. Free some space and try again.',
+            'storageUnavailable': 'Access to storage is blocked. Allow access and try again.',
             'recovered': 'Saved settings could not be used, so defaults were restored. The previous file was kept as a recovery copy when possible.',
             'recoveredWithPath': 'Saved settings could not be used, so defaults were restored. The previous file was quarantined at {path}.',
             'newerVersion': 'These settings were saved by a newer version of EVB Viewer. They are kept unchanged, and this version uses its defaults and cannot save settings. Open the newer version to change them.',
