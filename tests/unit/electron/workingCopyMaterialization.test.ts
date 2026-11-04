@@ -6,6 +6,9 @@ import {
     it,
     vi,
 } from 'vitest';
+import {writeFileHandleFully} from '@electron/file-access/writeFileHandleFully';
+import {cast} from '@tests/helpers/cast';
+import type {FileHandle} from 'node:fs/promises';
 import {
     closeSync,
     existsSync,
@@ -859,3 +862,42 @@ function materializingArtifacts(workingPath: string) {
     const prefix = `${workingPath.split('/').at(-1)}.materializing-`;
     return readdirSync(dirname(workingPath)).filter(name => name.startsWith(prefix));
 }
+
+describe('writing a working copy in full', () => {
+    // A write may take fewer bytes than asked; the writer loops, and a
+    // cancellation stops it before its next write.
+    const shortWritingHandle = (onWrite?: (writes: number) => void) => {
+        const written: number[] = [];
+        let writes = 0;
+        const handle = cast<FileHandle>({write: vi.fn(async (bytes: Uint8Array, offset: number, length: number) => {
+            const taken = Math.min(4, length);
+            written.push(...bytes.subarray(offset, offset + taken));
+            writes += 1;
+            onWrite?.(writes);
+            return {bytesWritten: taken};
+        })});
+        return {
+            handle,
+            written,
+        };
+    };
+
+    it('writes every byte through short writes', async () => {
+        const {
+            handle, written,
+        } = shortWritingHandle();
+        const bytes = Uint8Array.from({length: 16}, (_, index) => index);
+        await writeFileHandleFully(handle, bytes, 100);
+        expect(written).toEqual([...bytes]);
+    });
+
+    it('stops at a cancellation between short writes', async () => {
+        const controller = new AbortController();
+        const {
+            handle, written,
+        } = shortWritingHandle(writes => writes === 1 && controller.abort());
+        await expect(writeFileHandleFully(handle, new Uint8Array(16), 0, controller.signal)).rejects.toMatchObject({name: 'AbortError'});
+        expect(written).toHaveLength(4);
+    });
+});
+

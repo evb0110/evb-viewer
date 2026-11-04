@@ -417,7 +417,7 @@ async function copyFileCancellable(sourcePath: string, targetPath: string, signa
             if (signal.aborted) throw abortErrorFromSignal(signal);
             const {bytesRead} = await source.read(buffer, 0, buffer.byteLength, position);
             if (bytesRead === 0) break;
-            await writeFileHandleFully(target, buffer.subarray(0, bytesRead), position);
+            await writeFileHandleFully(target, buffer.subarray(0, bytesRead), position, signal);
             position += bytesRead;
         }
         await syncFileHandleForDurability(target);
