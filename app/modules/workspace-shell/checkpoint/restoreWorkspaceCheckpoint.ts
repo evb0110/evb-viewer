@@ -161,17 +161,20 @@ export async function restoreWorkspaceCheckpoint(
     options: IRestoreWorkspaceCheckpointOptions,
 ) {
     options.restoreGraph(checkpoint);
-    // Tabs that viewed one PDF share its working copy, which no other
-    // document uses; they come back as views of one document again. Only
-    // the first of them restores the document.
+    // Tabs that viewed one PDF come back as views of one document again: a
+    // later view names the first, and older checkpoints share its working
+    // copy. Only the first of them restores the document.
     const linkedToTabId = new Map<string, string>();
     const firstTabByWorkingCopy = new Map<TDocumentRef, string>();
+    const firstTabIds = new Set<string>();
     for (const tab of checkpoint.tabs) {
-        const firstTabId = tab.workingCopyRef && !tab.isDjvu ? firstTabByWorkingCopy.get(tab.workingCopyRef) : undefined;
+        const named = tab.linkedToTabId && firstTabIds.has(tab.linkedToTabId) ? tab.linkedToTabId : undefined;
+        const firstTabId = tab.isDjvu ? undefined : named ?? (tab.workingCopyRef ? firstTabByWorkingCopy.get(tab.workingCopyRef) : undefined);
         if (firstTabId) {
             linkedToTabId.set(tab.tabId, firstTabId);
             continue;
         }
+        firstTabIds.add(tab.tabId);
         if (tab.workingCopyRef && !tab.isDjvu) {
             firstTabByWorkingCopy.set(tab.workingCopyRef, tab.tabId);
         }

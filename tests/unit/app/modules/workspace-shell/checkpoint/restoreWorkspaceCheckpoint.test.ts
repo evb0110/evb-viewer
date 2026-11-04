@@ -177,4 +177,85 @@ describe('restoreWorkspaceCheckpoint', () => {
             continuousScroll: false,
         });
     });
+
+    it('relinks clean views that kept no working copy, and leaves a separate open of the file alone', async () => {
+        const tabs = ref<ITab[]>([]);
+        const documentSessions = useWorkspaceDocumentSessions({
+            activeTabId: ref(null),
+            tabs,
+        });
+        const place = {
+            currentPage: 1,
+            zoom: 1,
+            zoomMode: 'fit-width' as const,
+        };
+        const checkpoint = cast<IWorkspaceCheckpoint>({
+            version: 1,
+            capturedAt: requireEpochMs(1),
+            activePaneId: requirePaneId('pane-1'),
+            activeTabId: requireTabId('tab-1'),
+            layout: null,
+            panes: [{
+                paneId: requirePaneId('pane-1'),
+                tabIds: [
+                    requireTabId('tab-1'),
+                    requireTabId('tab-2'),
+                    requireTabId('tab-3'),
+                ],
+                activeTabId: requireTabId('tab-1'),
+            }],
+            tabs: [
+                {
+                    ...checkpointTab('tab-1', 'pane-1', place),
+                    workingCopyRef: null,
+                },
+                {
+                    ...checkpointTab('tab-2', 'pane-1', place),
+                    workingCopyRef: null,
+                    linkedToTabId: requireTabId('tab-1'),
+                },
+                {
+                    ...checkpointTab('tab-3', 'pane-1', place),
+                    workingCopyRef: null,
+                },
+            ],
+        });
+
+        const restoring = restoreWorkspaceCheckpoint(checkpoint, {
+            activeTabId: ref(null),
+            documentSessions,
+            restoreGraph: () => {
+                tabs.value = [
+                    {id: 'tab-1'},
+                    {id: 'tab-2'},
+                    {id: 'tab-3'},
+                ];
+            },
+            activateTab: () => {},
+        });
+        await nextTick();
+        const document = documentSessions.getSession('tab-1')!;
+        document.attachWorkspace('tab-1', createWorkspaceExposeFixture({waitForDocumentOpenSettled: async () => {
+            await document.runOpen({
+                kind: 'open',
+                target: {
+                    fileName: 'shared.pdf',
+                    originalPath,
+                },
+            }, async () => {
+                document.commitDocument({
+                    fileName: 'shared.pdf',
+                    originalPath,
+                    isDjvu: false,
+                    revisionInfo: null,
+                });
+                document.markPresented();
+                return true;
+            });
+        }}));
+        await restoring;
+
+        expect(documentSessions.getSession('tab-2')).toBe(document);
+        expect(documentSessions.getSession('tab-3')).not.toBe(document);
+    });
 });
