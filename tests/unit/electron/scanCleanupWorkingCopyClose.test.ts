@@ -1,6 +1,7 @@
 import type * as TViMockOriginalModule from '@electron/pdf/nativeToolPaths';
 import type * as TViMockOriginalModule2 from '@electron/file-access/workingCopyStore';
 import type * as TWorkingCopyDirectoryModule from '@electron/file-access/workingCopyDirectory';
+import type * as TInputLimits from '@contracts/scan-cleanup/inputLimits';
 
 import {
     existsSync,
@@ -55,6 +56,14 @@ import {
     lifecycleSender,
 } from '@tests/unit/electron/scanCleanupPreviewHarness';
 import {writeScanCleanupDetectionMetadata} from '@tests/unit/electron/writeScanCleanupDetectionMetadata';
+
+// The close test needs a completed store above the streaming boundary. Three
+// pages exercise that handoff and its real file-backed store without 1,025
+// pages of unrelated detection I/O, as in scanCleanupDetectionLifecycle.test.
+vi.mock('@contracts/scan-cleanup/inputLimits', async importOriginal => ({
+    ...await importOriginal<typeof TInputLimits>(),
+    SCAN_CLEANUP_STREAMING_BATCH_PAGES: 2,
+}));
 
 interface IWorkingCopyEntry {
     backingState: 'eager';
