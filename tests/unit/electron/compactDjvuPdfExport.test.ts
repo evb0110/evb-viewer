@@ -354,6 +354,41 @@ describe('buildCompactDjvuAwarePdfFromDjvu', () => {
         ]);
     });
 
+    it('sizes each page of an indirect document by its own resolution', async () => {
+        // An indirect document's index carries no page structure; each page's
+        // size and resolution come with its metrics.
+        setDjvuDump([]);
+        const result = await buildCompactDjvuAwarePdfFromDjvu({
+            jobId: 'job-indirect-dpi',
+            djvuPath: join(tempDir, 'input.djvu'),
+            outputPath: join(tempDir, 'output.pdf'),
+            tempDir,
+            pageCount: 2,
+            sourceDpi: 72,
+            pageSizes: [
+                {
+                    width: 640,
+                    height: 480,
+                    dpi: 72,
+                },
+                {
+                    width: 512,
+                    height: 512,
+                    dpi: 300,
+                },
+            ],
+            pages: [
+                1,
+                2,
+            ],
+        });
+
+        expect(result.success).toBe(true);
+        const lines = (await readCompactManifest(tempDir)).split('\n');
+        expect(lines[0]).toMatch(/^photo-jpeg\t640\.0000\t480\.0000\t/u);
+        expect(lines[1]).toMatch(/^photo-jpeg\t122\.8800\t122\.8800\t/u);
+    });
+
     it('preserves a colored foreground on a flat background', async () => {
         setDjvuDump([{
             pageNumber: 1,

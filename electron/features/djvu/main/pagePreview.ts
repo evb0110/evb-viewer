@@ -17,6 +17,7 @@ import { requirePageNumber } from '@contracts/pageNumbers';
 import {
     getDjvuPageCount,
     getDjvuResolution,
+    parseDjvuInfoLine,
 } from '@electron/features/djvu/main/metadata';
 import { buildDjvuRuntimeEnv } from '@electron/features/djvu/main/buildDjvuRuntimeEnv';
 import {
@@ -39,11 +40,13 @@ import {
 } from '@electron/features/djvu/main/djvuPageSourceInfoCache';
 
 const DJVU_PAGE_SIZE_TIMEOUT_MS = 30_000;
-const DJVU_PAGE_SIZE_MAX_STDOUT_BYTES = 1_048_576;
+// Each page answers its size and its IFF structure, a few lines of about 60
+// bytes each (about 1 KB for a page with every layer and annotations).
+const DJVU_PAGE_SIZE_MAX_STDOUT_BYTES = 8 * 1_048_576;
 // Each window is one djvused launch, which costs about 2 s on the Windows 11
-// guest whatever its size. 1024 `select; size` pairs are about 18 KB of
-// command line, under Windows' 32,767-character limit. At 2048 pairs (about
-// 38 KB) the measured launch returned 1024 lines with exit 0.
+// guest whatever its size. 1024 `select; size; dump` triples are about 25 KB
+// of command line, under Windows' 32,767-character limit. At 2048 pairs
+// (about 38 KB) the measured launch returned 1024 lines with exit 0.
 const DJVU_PAGE_SIZE_WINDOW_PAGES = 1024;
 const DJVU_PREVIEW_SUBSAMPLE_MAX = 12;
 const DJVU_PREVIEW_MAX_PIXELS = 45_000_000;
@@ -183,6 +186,8 @@ async function assertPreviewNetpbmReadSafe(ppmPath: string) {
     }
 }
 
+// djvused reports a page's stored size and its orientation; ddjvu renders the
+// page turned, so a quarter turn swaps the size every consumer sees.
 function parseSizeLine(line: string): Omit<IDjvuPageSize, 'dpi'> | null {
     const attributeMatch = line.match(/\bwidth=(\d+)\b.*\bheight=(\d+)\b/iu);
     const pairMatch = attributeMatch ?? line.match(/\b(\d+)\s*x\s*(\d+)\b/iu) ?? line.match(/^\s*(\d+)\s+(\d+)\s*$/u);
@@ -191,23 +196,83 @@ function parseSizeLine(line: string): Omit<IDjvuPageSize, 'dpi'> | null {
     if (width === null || height === null) {
         return null;
     }
+    return Number(line.match(/\brotation=(\d)\b/u)?.[1] ?? 0) % 2 === 1
+        ? {
+            width: height,
+            height: width,
+        }
+        : {
+            width,
+            height,
+        };
+}
+
+/**
+ * Reads `select N; size; dump` output: each page's size line, then its IFF
+ * structure, whose INFO chunk names the page's own resolution (pages of one
+ * document may differ). Structure lines carry a chunk length in brackets, so
+ * the sizes they mention are never taken for a page's.
+ */
+function createDjvuPageSizeParser(fallbackDpi: number) {
+    const sizes: IDjvuPageSize[] = [];
+    let resolved = true;
     return {
-        width,
-        height,
+        sizes,
+        consumeLine(line: string) {
+            if (line.includes('[')) {
+                const info = resolved ? null : parseDjvuInfoLine(line);
+                const page = sizes.at(-1);
+                if (info && page) {
+                    page.dpi = info.dpi;
+                    resolved = true;
+                }
+                return;
+            }
+            const size = parseSizeLine(line);
+            if (size) {
+                sizes.push({
+                    ...size,
+                    dpi: fallbackDpi,
+                });
+                resolved = false;
+            }
+        },
     };
 }
 
 export function parseDjvuPageSizeOutput(stdout: string, dpi: number): IDjvuPageSize[] {
-    return stdout
-        .split(/\r?\n/u)
-        .flatMap((line) => {
-            const size = parseSizeLine(line);
-            return size ? [size] : [];
-        })
-        .map(size => ({
-            ...size,
-            dpi,
-        }));
+    const parser = createDjvuPageSizeParser(dpi);
+    for (const line of stdout.split(/\r?\n/u)) parser.consumeLine(line);
+    return parser.sizes;
+}
+
+async function runDjvuPageSizeScript(
+    djvuPath: string,
+    script: string,
+    dpi: number,
+    commandLabel: string,
+    options: IDjvuPagePreviewLifecycleOptions,
+) {
+    const { djvused } = getDjvuNativeToolPaths();
+    const result = await runDjvuSourceCommand(djvused, [
+        djvuPath,
+        '-e',
+        script,
+    ], 0, {
+        env: buildDjvuRuntimeEnv(),
+        timeoutMs: DJVU_PAGE_SIZE_TIMEOUT_MS,
+        maxStdoutBytes: DJVU_PAGE_SIZE_MAX_STDOUT_BYTES,
+        commandLabel,
+        defaultCwdToCommandDir: true,
+        prependCommandDirToPath: true,
+        includeProcessEnv: true,
+        windowsHide: true,
+        rejectOnStdoutTruncation: true,
+        ...(options.signal ? { signal: options.signal } : {}),
+        ...(options.cancelGroup ? { cancelGroup: options.cancelGroup } : {}),
+    });
+    throwIfAborted(options.signal);
+    return parseDjvuPageSizeOutput(result.stdout, dpi);
 }
 
 interface IDjvuPagePreviewLifecycleOptions {
@@ -280,26 +345,7 @@ async function probeDjvuPageSize(
     options: IDjvuPagePreviewLifecycleOptions,
 ) {
     throwIfAborted(options.signal);
-    const { djvused } = getDjvuNativeToolPaths();
-    const result = await runDjvuSourceCommand(djvused, [
-        djvuPath,
-        '-e',
-        `select ${pageNumber}; size`,
-    ], 0, {
-        env: buildDjvuRuntimeEnv(),
-        timeoutMs: DJVU_PAGE_SIZE_TIMEOUT_MS,
-        maxStdoutBytes: DJVU_PAGE_SIZE_MAX_STDOUT_BYTES,
-        commandLabel: 'djvused(page-size)',
-        defaultCwdToCommandDir: true,
-        prependCommandDirToPath: true,
-        includeProcessEnv: true,
-        windowsHide: true,
-        rejectOnStdoutTruncation: true,
-        ...(options.signal ? { signal: options.signal } : {}),
-        ...(options.cancelGroup ? { cancelGroup: options.cancelGroup } : {}),
-    });
-    throwIfAborted(options.signal);
-    return parseDjvuPageSizeOutput(result.stdout, dpi)[0] ?? null;
+    return (await runDjvuPageSizeScript(djvuPath, `select ${pageNumber}; size; dump`, dpi, 'djvused(page-size)', options))[0] ?? null;
 }
 
 export async function getDjvuPageSourceInfoForViewing(
@@ -409,7 +455,7 @@ function createPageSizeWindowScript(firstPage: number, lastPage: number) {
         if (script.length > 0) {
             script += '; ';
         }
-        script += `select ${pageNumber}; size`;
+        script += `select ${pageNumber}; size; dump`;
     }
     return script;
 }
@@ -430,29 +476,10 @@ async function* getDjvuPageSizeWindowsForViewingInternal(
     }
     const dpi = await getDjvuResolution(djvuPath, options.signal ? { signal: options.signal } : {});
     throwIfAborted(options.signal);
-    const { djvused } = getDjvuNativeToolPaths();
 
     const runWindow = async (firstPage: number, lastPage: number) => {
         throwIfAborted(options.signal);
-        const result = await runDjvuSourceCommand(djvused, [
-            djvuPath,
-            '-e',
-            createPageSizeWindowScript(firstPage, lastPage),
-        ], 0, {
-            env: buildDjvuRuntimeEnv(),
-            timeoutMs: DJVU_PAGE_SIZE_TIMEOUT_MS,
-            maxStdoutBytes: DJVU_PAGE_SIZE_MAX_STDOUT_BYTES,
-            commandLabel: 'djvused(size-window)',
-            defaultCwdToCommandDir: true,
-            prependCommandDirToPath: true,
-            includeProcessEnv: true,
-            windowsHide: true,
-            rejectOnStdoutTruncation: true,
-            ...(options.signal ? { signal: options.signal } : {}),
-            ...(options.cancelGroup ? { cancelGroup: options.cancelGroup } : {}),
-        });
-        throwIfAborted(options.signal);
-        const sizes = parseDjvuPageSizeOutput(result.stdout, dpi);
+        const sizes = await runDjvuPageSizeScript(djvuPath, createPageSizeWindowScript(firstPage, lastPage), dpi, 'djvused(size-window)', options);
         const expectedWindowPageCount = lastPage - firstPage + 1;
         if (sizes.length !== expectedWindowPageCount) {
             throw new Error(

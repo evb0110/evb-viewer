@@ -427,7 +427,8 @@ export async function openDjvuArtifactJob(
         pageRanges,
         recipe: {
             // Bump when TypeScript compact representation/fidelity semantics change.
-            version: 1,
+            // 2: each page's own resolution and orientation size its page.
+            version: 2,
             djvulibre: getRuntimeToolArchiveIdentity('djvulibre'),
             imageCombine: options.artifactKind === 'compact-page'
                 ? getNativeToolBuildIdentity('evb-pdf-image-combine') : null,

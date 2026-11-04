@@ -991,7 +991,7 @@ async function buildPhotoPageSpec(
         pageNumber,
         kind: 'photo',
         reason,
-        effectivePpi: Math.min(structure?.info?.dpi ?? options.sourceDpi, fidelity.ppiCap),
+        effectivePpi: Math.min(structure?.info?.dpi ?? options.pageSizes?.[pageNumber - 1]?.dpi ?? options.sourceDpi, fidelity.ppiCap),
         jpegQuality: fidelity.photoQuality,
         manifestLine: createManifestLine(
             'photo-jpeg',
@@ -1012,7 +1012,7 @@ function resolvePhotoRenderOptions(
 ) {
     const pageInfo = structure?.info;
     const metrics = options.pageSizes?.[pageNumber - 1] ?? null;
-    const dpi = positiveNumber(pageInfo?.dpi) ?? positiveNumber(options.sourceDpi) ?? DEFAULT_DPI;
+    const dpi = positiveNumber(pageInfo?.dpi) ?? positiveNumber(metrics?.dpi) ?? positiveNumber(options.sourceDpi) ?? DEFAULT_DPI;
     const fidelity = getDjvuCompactFidelity(options.qualityPreset);
     const width = positiveNumber(metrics?.width) ?? positiveNumber(pageInfo?.width);
     const height = positiveNumber(metrics?.height) ?? positiveNumber(pageInfo?.height);
@@ -1108,7 +1108,10 @@ function resolvePageSizePoints(
     renderedSubsample: number,
     structure: IDjvuPageStructure | null = null,
 ) {
+    // An indirect document's index holds no page INFO; the page's own
+    // resolution then comes with its size.
     const dpi = positiveNumber(structure?.info?.dpi)
+        ?? positiveNumber(metrics?.dpi)
         ?? positiveNumber(sourceDpi)
         ?? DEFAULT_DPI;
     const width = positiveNumber(metrics?.width)
