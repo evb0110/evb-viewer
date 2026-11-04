@@ -1,6 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { constants as fsConstants } from 'fs';
 import {
+    chmod,
     link,
     lstat,
     open,
@@ -364,6 +365,25 @@ export async function moveFileToMissingPath(sourcePath: string, destinationPath:
     await unlink(sourcePath);
 }
 
+/**
+ * A replaced file keeps its permission bits: a staged copy is created with
+ * the default mode, so a private 0600 PDF would otherwise become readable to
+ * others. A staged hard link shares its inode with a source, whose mode must
+ * not change, so it is left as it is.
+ */
+async function keepDestinationMode(srcTemp: string, dst: string) {
+    if (process.platform === 'win32') return;
+    const [
+        staged,
+        replaced,
+    ] = await Promise.all([
+        stat(srcTemp),
+        stat(dst).catch(() => null),
+    ]);
+    if (replaced === null || staged.nlink !== 1 || (staged.mode & 0o7777) === (replaced.mode & 0o7777)) return;
+    await chmod(srcTemp, replaced.mode & 0o7777);
+}
+
 export async function atomicReplace(
     srcTemp: string,
     dst: string,
@@ -382,6 +402,7 @@ export async function atomicReplace(
         await recoverWindowsAtomicReplace(dst);
     }
     const durable = options.durable !== false;
+    await keepDestinationMode(srcTemp, dst);
     const shouldMarkMutationCommitStarted = options.markMutationCommitStarted !== false;
     const shouldDeferMutationCommitStarted = options.assertDestinationCurrent !== undefined
         && shouldMarkMutationCommitStarted;

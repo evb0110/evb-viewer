@@ -1,4 +1,5 @@
 import {
+    link,
     mkdtemp,
     chmod,
     readFile,
@@ -67,5 +68,29 @@ describe('atomicReplace real filesystem policy', () => {
                 process.env.EVB_TEST_FORCE_WORKING_COPY_CLONE_RESULT = previousCloneResult;
             }
         }
+    });
+
+    it.skipIf(process.platform === 'win32')('keeps a private destination private and leaves a linked source alone', async () => {
+        root = await mkdtemp(join(tmpdir(), 'evb-atomic-replace-mode-'));
+        const destinationPath = join(root, 'private.pdf');
+        const stagingPath = join(root, 'staging.pdf');
+        await writeFile(destinationPath, 'old bytes', {mode: 0o600});
+        await chmod(destinationPath, 0o600);
+        await writeFile(stagingPath, 'new bytes');
+        await chmod(stagingPath, 0o644);
+
+        await atomicReplace(stagingPath, destinationPath);
+
+        await expect(readFile(destinationPath, 'utf8')).resolves.toBe('new bytes');
+        expect((await stat(destinationPath)).mode & 0o777).toBe(0o600);
+
+        // A staged hard link shares the source's inode; the source keeps its mode.
+        const sourcePath = join(root, 'source.pdf');
+        const linkedPath = join(root, 'linked.pdf');
+        await writeFile(sourcePath, 'source bytes');
+        await chmod(sourcePath, 0o644);
+        await link(sourcePath, linkedPath);
+        await atomicReplace(linkedPath, destinationPath);
+        expect((await stat(sourcePath)).mode & 0o777).toBe(0o644);
     });
 });
