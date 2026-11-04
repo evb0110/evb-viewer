@@ -3465,9 +3465,12 @@ describe('Electron E2E - Viewer Smoke', () => {
                     const parent = element.parentElement!;
                     const first = parent.querySelector<HTMLElement>('.editor-split-pane-first')!;
                     const rect = first.getBoundingClientRect();
+                    const split = parent.getBoundingClientRect();
                     return {
                         width: rect.width,
                         height: rect.height,
+                        splitWidth: split.width,
+                        splitHeight: split.height,
                         value: element.getAttribute('aria-valuenow'),
                         min: element.getAttribute('aria-valuemin'),
                         max: element.getAttribute('aria-valuemax'),
@@ -3477,8 +3480,18 @@ describe('Electron E2E - Viewer Smoke', () => {
                         focused: document.activeElement === element,
                     };
                 });
+                const size = (geometry: Awaited<ReturnType<typeof readGeometry>>) => (
+                    direction === 'right' ? geometry.width : geometry.height
+                );
                 await clickAsUser(session.page, sash);
                 const before = await readGeometry();
+                // Panes keep 320 px each. A split with less room than two of
+                // them is shared evenly and its sash publishes equal bounds;
+                // a small automation display can leave the vertical split so.
+                const resizable = Number(before.max) > Number(before.min);
+                if (!resizable) {
+                    expect(direction === 'right' ? before.splitWidth : before.splitHeight, 'only a split shorter than two panes is pinned').toBeLessThan(2 * 320);
+                }
                 await session.page.keyboard.press(direction === 'right' ? 'ArrowRight' : 'ArrowDown');
                 await waitForAnimationFrames(session.page, 2);
                 const after = await readGeometry();
@@ -3488,8 +3501,10 @@ describe('Electron E2E - Viewer Smoke', () => {
                     before,
                     after,
                     anchor,
+                    resizable,
                 });
-                expect(direction === 'right' ? after.width : after.height).toBeGreaterThan(direction === 'right' ? before.width : before.height);
+                if (resizable) expect(size(after)).toBeGreaterThan(size(before));
+                else expect(after, 'a pinned sash does not move').toEqual(before);
                 expect(after.focused).toBe(true);
                 expect(after.label).toBeTruthy();
                 expect(after.controlsExists).toBe(true);
@@ -3502,7 +3517,7 @@ describe('Electron E2E - Viewer Smoke', () => {
                 await waitForAnimationFrames(session.page, 2);
                 const maximum = await readGeometry();
                 expect(Number(maximum.value)).toBe(Number(maximum.max));
-                expect(direction === 'right' ? maximum.width : maximum.height).toBeGreaterThan(direction === 'right' ? minimum.width : minimum.height);
+                if (resizable) expect(size(maximum)).toBeGreaterThan(size(minimum));
                 expectSplitResizeAnchorPreserved(await waitForSplitResizeViewportAnchor(session, paneId, 'pdf', anchor), anchor);
                 await session.page.keyboard.press('Tab');
                 await session.page.keyboard.down('Shift');
