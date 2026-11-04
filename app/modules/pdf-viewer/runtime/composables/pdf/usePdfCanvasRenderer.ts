@@ -2,6 +2,7 @@ import type {IPdfPage} from '@app/modules/pdf-viewer/engine/pdf-document-source/
 import type {
     ICancelableRenderTask, IPdfAnnotationRenderInput, IPdfLayerRenderResult,
 } from '@app/modules/pdf-viewer/runtime/rendering/pdfRendererTypes';
+import { resolveBoundedRasterDimensions } from '@app/modules/document-viewer/public';
 import { requirePageNumber } from '@contracts/pageNumbers';
 import type { TPdfPageRenderContentIntent } from '@app/modules/pdf-viewer/engine/pdf-page-render-pipeline/bindPdfOpenSurfaceRenderContext';
 import type { MaybeRefOrGetter } from 'vue';
@@ -151,32 +152,19 @@ export const usePdfCanvasRenderer = (deps: {
         const requestedPixelHeight = Math.max(1, Math.round(cssHeight * currentOutputScale));
         const requestedPixelCount = requestedPixelWidth * requestedPixelHeight;
         const maxCanvasPixels = getMaxCanvasPixels(options);
-        const shouldClampPixels = maxCanvasPixels !== null && requestedPixelCount > maxCanvasPixels;
-        // Clamping the unrounded size makes a clamped canvas depend only on
-        // the page shape and the cap, so zoom steps keep its pixel size.
-        const pixelScaleFactor = shouldClampPixels
-            ? Math.sqrt(maxCanvasPixels / (cssWidth * cssHeight)) / currentOutputScale
-            : 1;
-        let pixelWidth = shouldClampPixels ? Math.max(1, Math.round(cssWidth * currentOutputScale * pixelScaleFactor)) : requestedPixelWidth;
-        let pixelHeight = shouldClampPixels ? Math.max(1, Math.round(cssHeight * currentOutputScale * pixelScaleFactor)) : requestedPixelHeight;
-        // Rounding both axes independently can overshoot a strict pixel budget
-        // by one row or column. Correct the longer axis after rounding so the
-        // granted canvas is mathematically guaranteed to remain within budget.
-        if (maxCanvasPixels !== null && pixelWidth * pixelHeight > maxCanvasPixels) {
-            if (pixelHeight >= pixelWidth) {
-                pixelHeight = Math.max(1, Math.floor(maxCanvasPixels / pixelWidth));
-            } else {
-                pixelWidth = Math.max(1, Math.floor(maxCanvasPixels / pixelHeight));
-            }
-        }
-
+        const dimensions = resolveBoundedRasterDimensions({
+            width: cssWidth * currentOutputScale,
+            height: cssHeight * currentOutputScale,
+            maxPixels: maxCanvasPixels ?? Number.POSITIVE_INFINITY,
+        });
+        const grantedPixels = dimensions.width * dimensions.height;
         return {
-            pixelWidth,
-            pixelHeight,
+            pixelWidth: dimensions.width,
+            pixelHeight: dimensions.height,
             requestedPixels: requestedPixelCount,
-            grantedPixels: pixelWidth * pixelHeight,
-            pixelScaleFactor,
-            wasClamped: shouldClampPixels,
+            grantedPixels,
+            pixelScaleFactor: dimensions.scale,
+            wasClamped: dimensions.scale < 1 || grantedPixels < requestedPixelCount,
         };
     }
 

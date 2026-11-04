@@ -17,22 +17,24 @@ import {
     evidenceRoot, scanCleanupUiTimeoutMs, previewImage, cleanedImage, sha256, installProbe, openWorkspace, showWorkspace, waitForPixels, pixels, cleanedPixels, assertBrowserScope, select, drag, undoRedo,
 } from './scanCleanupUiTestHelpers';
 
-async function createFixture() {
+async function createFixture(pageScale = 1) {
     const pdf = await PDFDocument.create();
     pdf.setCreationDate(new Date('2026-01-01T00:00:00Z'));
     pdf.setModificationDate(new Date('2026-01-01T00:00:00Z'));
     for (let pageIndex = 0; pageIndex < 3; pageIndex += 1) {
-        const width = 1800;
-        const height = 1200;
+        const width = 1800 * pageScale;
+        const height = 1200 * pageScale;
         const data = new Uint8Array(width * height * 3);
         // Distinct scans, with two text columns and a colored page marker.
         // Integer raster coordinates keep the fixture independent of fonts.
         for (let y = 0; y < height; y += 1) {
             for (let x = 0; x < width; x += 1) {
-                const columnX = x % 900;
-                const ink = y > 150 && y < 1000 && y % 54 < 12
+                const sourceX = x / pageScale;
+                const sourceY = y / pageScale;
+                const columnX = sourceX % 900;
+                const ink = sourceY > 150 && sourceY < 1000 && sourceY % 54 < 12
                     && columnX > 100 && columnX < 760 - pageIndex * 70 && columnX % 43 < 28;
-                const marker = y > 50 && y < 120 && x > 100 + pageIndex * 100 && x < 340 + pageIndex * 100;
+                const marker = sourceY > 50 && sourceY < 120 && sourceX > 100 + pageIndex * 100 && sourceX < 340 + pageIndex * 100;
                 const paper = 230 + Math.floor(20 * x / width);
                 const offset = (y * width + x) * 3;
                 for (let channel = 0; channel < 3; channel += 1) {
@@ -48,24 +50,25 @@ async function createFixture() {
             depth: 8,
         }));
         pdf.addPage([
-            432,
-            288,
+            432 * pageScale,
+            288 * pageScale,
         ]).drawImage(image, {
             x: 0,
             y: 0,
-            width: 432,
-            height: 288,
+            width: 432 * pageScale,
+            height: 288 * pageScale,
         });
     }
     const bytes = Buffer.from(await pdf.save());
     await mkdir(evidenceRoot, {recursive: true});
-    await writeFile(join(evidenceRoot, 'source.pdf'), bytes);
-    await writeFile(join(evidenceRoot, 'fixture.json'), JSON.stringify({
+    const evidencePrefix = pageScale === 1 ? '' : 'save-as-';
+    await writeFile(join(evidenceRoot, `${evidencePrefix}source.pdf`), bytes);
+    await writeFile(join(evidenceRoot, `${evidencePrefix}fixture.json`), JSON.stringify({
         sha256: sha256(bytes),
         pages: 3,
         raster: [
-            1800,
-            1200,
+            1800 * pageScale,
+            1200 * pageScale,
         ],
         sourceDpi: 300,
     }, null, 2));
@@ -76,7 +79,7 @@ async function createFixture() {
     };
 }
 
-// Built once: every case scans the same three pages.
+// Reuse the full-size fixture across the pixel and geometry checks.
 let fixtureOnce: ReturnType<typeof createFixture> | undefined;
 const fixture = () => fixtureOnce ??= createFixture();
 
@@ -142,7 +145,9 @@ describe('browser Scan Cleanup workspace', () => {
         };
         try {
             await installProbe(page);
-            const source = await fixture();
+            // Settings and byte persistence use the same three scans at
+            // quarter size, keeping repeated WASM previews within the budget.
+            const source = await createFixture(0.25);
             await openWorkspace(page, source);
             const originalRef = await documentRef(page);
             expect(originalRef).toBeTypeOf('string');

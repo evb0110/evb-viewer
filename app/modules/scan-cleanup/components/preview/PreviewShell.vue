@@ -447,6 +447,7 @@
 </template>
 
 <script setup lang="ts">
+import {useWindowDevicePixelRatio} from '@app/composables/useWindowDevicePixelRatio';
 import type {
     IScanCleanupManualZones,
     IScanCleanupNormalizedRect,
@@ -820,27 +821,7 @@ const effectiveViewMode = computed(() => props.lossless
     : props.viewMode ?? 'cleaned');
 const zoomControlsDisabled = computed(() => props.disabled === true
     || (presentationResult.value ?? props.rawResult ?? null) === null);
-const devicePixelScale = ref(typeof window === 'undefined' ? 1 : window.devicePixelRatio || 1);
-let devicePixelMediaQuery: MediaQueryList | null = null;
-
-function updateDevicePixelScale() {
-    devicePixelScale.value = window.devicePixelRatio || 1;
-}
-
-function watchDevicePixelScale() {
-    devicePixelMediaQuery?.removeEventListener('change', handleDevicePixelScaleChange);
-    if (typeof window.matchMedia !== 'function') {
-        devicePixelMediaQuery = null;
-        return;
-    }
-    devicePixelMediaQuery = window.matchMedia(`(resolution: ${window.devicePixelRatio || 1}dppx)`);
-    devicePixelMediaQuery.addEventListener('change', handleDevicePixelScaleChange);
-}
-
-function handleDevicePixelScaleChange() {
-    updateDevicePixelScale();
-    watchDevicePixelScale();
-}
+const devicePixelScale = useWindowDevicePixelRatio();
 // Detail rendering starts as soon as the fixed-DPI base raster is stretched
 // past one device pixel per raster pixel; the display density (not a zoom
 // percentage) decides when the base bitmap runs out of resolution.
@@ -1729,14 +1710,7 @@ watch([
     previewPresentationCurrent,
     () => displayedCleanedFrame.value?.transitionKey,
 ], scheduleDetailRequest);
-onMounted(() => {
-    window.addEventListener('resize', handleDevicePixelScaleChange);
-    watchDevicePixelScale();
-});
 onBeforeUnmount(() => {
-    window.removeEventListener('resize', handleDevicePixelScaleChange);
-    devicePixelMediaQuery?.removeEventListener('change', handleDevicePixelScaleChange);
-    devicePixelMediaQuery = null;
     if (detailTimer !== null) clearTimeout(detailTimer);
 });
 
