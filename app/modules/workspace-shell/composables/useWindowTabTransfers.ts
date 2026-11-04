@@ -303,7 +303,19 @@ export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) =>
     ): Promise<IPreparedTransferItem | null> {
         const session = getDocumentSession(tabId);
         const capturePromise = (async (): Promise<IPreparedTransferItem | null> => {
-            const workspace = await waitForWorkspace(tabId);
+            ownership.assertCurrent();
+            const view = session?.getView(tabId);
+            if (!view?.mountedWorkspace.value) {
+                const pane = options.getPaneByTabId(tabId);
+                if (!pane || !view) return null;
+                options.activatePane(pane.paneId);
+                options.activateTab(pane.paneId, tabId);
+                await nextTick();
+                ownership.assertCurrent();
+            }
+            const workspace = await view?.whenMounted() ?? null;
+            ownership.assertCurrent();
+            if (getDocumentSession(tabId) !== session) return null;
             if (!workspace) {
                 return null;
             }
@@ -570,15 +582,35 @@ export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) =>
         const session = getDocumentSession(tabId);
         if (!session) return 'failed';
         return session.operationLease.runExclusive('tab-transfer', async (ownership) => {
-            const item = await captureWorkspaceTransferItem(tabId, ownership);
-            if (!item || (tabHoldsDocument(tabId) && item.payload.kind === 'empty')) {
-                session.reportFailure({
-                    message: t('tabs.transferErrors.rolledBack'),
-                    failure: null,
-                });
-                return 'failed' as const;
+            const pane = options.getPaneByTabId(tabId);
+            const previousPaneId = options.activePaneId.value;
+            const previousTabId = pane?.activeTabId ?? null;
+            let result: TSourceTransferOutcome = 'failed';
+            try {
+                const item = await captureWorkspaceTransferItem(tabId, ownership);
+                if (!item || (tabHoldsDocument(tabId) && item.payload.kind === 'empty')) {
+                    session.reportFailure({
+                        message: t('tabs.transferErrors.rolledBack'),
+                        failure: null,
+                    });
+                    return result;
+                }
+                result = await transferPreparedTabToTarget(item, target, ownership);
+                return result;
+            } finally {
+                // Restore only selection this attempt still owns, and only
+                // tabs/panes that survived earlier successful merge steps.
+                const currentPane = pane && options.getPaneById(pane.paneId);
+                if (result === 'failed' && currentPane?.activeTabId === tabId
+                    && options.activePaneId.value === currentPane.paneId) {
+                    if (previousTabId && currentPane.tabIds.includes(previousTabId)) {
+                        options.activateTab(currentPane.paneId, previousTabId);
+                    }
+                    if (previousPaneId && options.getPaneById(previousPaneId)) {
+                        options.activatePane(previousPaneId);
+                    }
+                }
             }
-            return transferPreparedTabToTarget(item, target, ownership);
         });
     }
 
