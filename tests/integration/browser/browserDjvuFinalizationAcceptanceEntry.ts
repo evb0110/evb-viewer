@@ -720,7 +720,7 @@ async function installFolderFailureAcceptance(mode: string) {
 Reflect.set(globalThis, '__evbInstallFolderFailureAcceptance', installFolderFailureAcceptance);
 
 async function installTiffPartsAcceptance(sourceKind: 'pdf' | 'djvu', destination: 'directory' | 'download' | 'cancel', collision: boolean, failPage: boolean) {
-    const source = sourceKind === 'pdf' ? await stagePdfFixture(5) : await stageDjvuFixture('/fixtures/browser-boundary-501-pages.djvu');
+    const source = sourceKind === 'pdf' ? await stagePdfFixture(5) : await stageDjvuFixture('/fixtures/browser-tiff-5-pages.djvu');
     const root = await navigator.storage.getDirectory();
     const directory = await root.getDirectoryHandle(`parts-${crypto.randomUUID()}`, {create: true});
     Reflect.set(window, 'showSaveFilePicker', undefined);

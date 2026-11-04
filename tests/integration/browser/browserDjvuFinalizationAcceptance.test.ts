@@ -69,6 +69,7 @@ let temporaryDirectory = '';
 let djvuBytes: Buffer;
 let mixedDpiDjvuBytes: Buffer;
 let boundaryDjvuBytes: Buffer;
+let tiffDjvuBytes: Buffer;
 let djvuScriptBytes: Buffer;
 let combineWorkerBytes: Buffer;
 let combineWasmBytes: Buffer;
@@ -205,6 +206,7 @@ beforeAll(async () => {
     djvuBytes = await readFile(resolve(process.cwd(), 'tests/fixtures/djvu/sources/bitonal-faint-pencil.djvu'));
     mixedDpiDjvuBytes = await readFile(resolve(process.cwd(), 'tests/fixtures/djvu/sources/mixed-dpi.djvu'));
     boundaryDjvuBytes = await readFile(resolve(process.cwd(), 'tests/fixtures/djvu/sources/browser-boundary-501-pages.djvu'));
+    tiffDjvuBytes = await readFile(resolve(process.cwd(), 'tests/fixtures/djvu/sources/browser-tiff-5-pages.djvu'));
     djvuScriptBytes = await readFile(resolve(process.cwd(), 'public/vendor/djvujs/djvu.js'));
     server = createServer((_request, response) => {
         const pathname = new URL(_request.url ?? '/', 'http://localhost').pathname;
@@ -244,6 +246,11 @@ beforeAll(async () => {
         if (_request.url === '/fixtures/mixed-dpi.djvu') {
             response.writeHead(200, {'content-type': 'application/octet-stream'});
             response.end(mixedDpiDjvuBytes);
+            return;
+        }
+        if (_request.url === '/fixtures/browser-tiff-5-pages.djvu') {
+            response.writeHead(200, {'content-type': 'application/octet-stream'});
+            response.end(tiffDjvuBytes);
             return;
         }
         if (_request.url === '/fixtures/browser-boundary-501-pages.djvu') {
