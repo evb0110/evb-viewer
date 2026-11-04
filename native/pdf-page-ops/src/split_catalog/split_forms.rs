@@ -161,7 +161,11 @@ fn split_form_field(
         field = combined;
         id
     } else {
-        let id = target.new_object_id();
+        // Actions already copied by the caller must keep naming this rebuilt field.
+        let id = match source_id {
+            Some(id) => copy(Object::Reference(id))?.as_reference()?,
+            None => target.new_object_id(),
+        };
         if let Ok(kids) = source_field.get(b"Kids") {
             let kids = source.resolved(kids)?.as_array()?;
             let options = source_field

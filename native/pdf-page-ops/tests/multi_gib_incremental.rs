@@ -3135,7 +3135,7 @@ fn existing_targets_keep_whole_fallback_for_ambiguous_names_and_missing_library(
 fn lazy_catalog_admission_refuses_tags_and_layers_before_publication() {
     for key in ["StructTreeRoot", "OCProperties"] {
         let input = temp_path("catalog-preservation", "pdf");
-        let _cleanup = TempFiles(vec![input.clone()]);
+        let _cleanup = TempFiles::new(vec![input.clone()]);
         let fixture =
             include_bytes!("../../../tests/fixtures/electron/pdf-preservation/layers-and-tags.pdf");
         let mut document = Document::load_mem(fixture).unwrap();
