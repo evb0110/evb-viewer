@@ -1,6 +1,7 @@
 import type { ILocalRect } from '@app/modules/document-viewer/public';
 import type {
-    ICropMargins, TPdfViewRotation,  
+    ICropMargins,
+    TPdfViewRotation,
 } from '@contracts/shared';
 import type { TPageSelection } from '@contracts/pageNumbers';
 

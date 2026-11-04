@@ -16,7 +16,7 @@ import type {
 import {getScanCleanupPageOverride} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
 import {resolveScanCleanupPageLayout} from '@evb/scan-cleanup/core/policy/scanCleanupPagePolicy';
 import {
-    requirePageNumber, type TPageNumber, 
+    requirePageNumber, type TPageNumber,
 } from '@contracts/pageNumbers';
 import type {
     IScanCleanupPageRasterSource,
