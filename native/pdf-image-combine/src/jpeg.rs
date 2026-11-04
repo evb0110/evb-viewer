@@ -16,7 +16,8 @@ pub(crate) struct JpegMetadata {
     pub(crate) width: u32,
     pub(crate) height: u32,
     pub(crate) components: u8,
-    pub(crate) dpi: Option<u32>,
+    /// Horizontal and vertical density, each from its own JFIF axis.
+    pub(crate) dpi: Option<(u32, u32)>,
     pub(crate) icc_profile: Option<Vec<u8>>,
 }
 
@@ -278,7 +279,7 @@ fn is_jpeg_sof_marker(marker: u8) -> bool {
     )
 }
 
-fn read_jfif_dpi(bytes: &[u8], offset: usize, segment_length: usize) -> Option<u32> {
+fn read_jfif_dpi(bytes: &[u8], offset: usize, segment_length: usize) -> Option<(u32, u32)> {
     if segment_length < 16 {
         return None;
     }
@@ -289,16 +290,15 @@ fn read_jfif_dpi(bytes: &[u8], offset: usize, segment_length: usize) -> Option<u
     let units = *bytes.get(offset + 9)?;
     let x_density = read_u16_be(bytes, offset + 10)? as u32;
     let y_density = read_u16_be(bytes, offset + 12)? as u32;
-    let density = x_density.max(y_density);
-    if density == 0 {
+    if x_density == 0 || y_density == 0 {
         return None;
     }
-
-    match units {
+    let per_inch = |density: u32| match units {
         1 => Some(density),
         2 => Some((density as f64 * CM_PER_INCH).round() as u32),
         _ => None,
-    }
+    };
+    Some((per_inch(x_density)?, per_inch(y_density)?))
 }
 
 #[cfg(test)]
@@ -312,6 +312,21 @@ mod tests {
         assert_eq!(metadata.width, 2);
         assert_eq!(metadata.height, 1);
         assert_eq!(metadata.components, 1);
+    }
+
+    #[test]
+    fn keeps_each_jfif_density_axis() {
+        let mut bytes = jpeg_with_sof_precision(8);
+        // APP0 JFIF 1.1 in dots per inch: 300 across, 150 down.
+        let app0 = [
+            0xFF, 0xE0, 0x00, 0x10, b'J', b'F', b'I', b'F', 0x00, 0x01, 0x01, 0x01, 0x01, 0x2C,
+            0x00, 0x96, 0x00, 0x00,
+        ];
+        bytes.splice(2..2, app0);
+        assert_eq!(parse_jpeg_metadata(&bytes).unwrap().dpi, Some((300, 150)));
+        // Dots per centimeter convert each axis on its own.
+        bytes[13] = 0x02;
+        assert_eq!(parse_jpeg_metadata(&bytes).unwrap().dpi, Some((762, 381)));
     }
 
     #[test]
