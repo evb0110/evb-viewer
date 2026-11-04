@@ -17,9 +17,11 @@ import {
     defineComponent,
     effectScope,
     h,
+    nextTick,
     ref,
     shallowRef,
 } from 'vue';
+import {usePdfCropSelection} from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfCropSelection';
 import { cast } from '@tests/helpers/cast';
 import { usePdfViewerFeatureController } from '@app/modules/pdf-viewer/runtime/usePdfViewerFeatureController';
 import {
@@ -311,3 +313,56 @@ describe('public annotation requests and document replacement', () => {
     });
 });
 
+
+it('cancels a crop gesture when the view rotates and accepts a fresh rotated gesture', async () => {
+    const viewer = document.createElement('div');
+    viewer.innerHTML = '<div class="page_container" data-page="1"></div>';
+    const page = viewer.firstElementChild as HTMLElement;
+    const viewRotation = ref<0 | 90>(0);
+    vi.spyOn(viewer, 'getBoundingClientRect').mockImplementation(() => new DOMRect(0, 0, 600, 800));
+    vi.spyOn(page, 'getBoundingClientRect').mockImplementation(() => viewRotation.value === 0
+        ? new DOMRect(0, 0, 600, 800) : new DOMRect(0, 0, 800, 600));
+    let crop!: ReturnType<typeof usePdfCropSelection>;
+    const app = createApp(defineComponent({setup() {
+        crop = usePdfCropSelection({
+            viewerContainer: ref(viewer),
+            viewRotation,
+        });
+        return () => h('div');
+    }}));
+    app.mount(document.createElement('div'));
+    const pointer = (width: number, height: number) => ({
+        clientX: 60,
+        clientY: 80,
+        overlayRect: {
+            left: 0,
+            top: 0,
+            width,
+            height,
+        },
+    });
+    try {
+        const oldSelection = crop.startCropSelection();
+        crop.onPointerStart(pointer(600, 800));
+        viewRotation.value = 90;
+        await nextTick();
+        crop.onPointerEnd(pointer(800, 600));
+        await expect(oldSelection).resolves.toBeNull();
+        const newSelection = crop.startCropSelection();
+        crop.onPointerStart(pointer(800, 600));
+        crop.onPointerEnd({
+            ...pointer(800, 600),
+            clientX: 300,
+            clientY: 400,
+        });
+        await expect(newSelection).resolves.toMatchObject({
+            viewRotation: 90,
+            pageRect: {
+                width: 800,
+                height: 600,
+            },
+        });
+    } finally {
+        app.unmount();
+    }
+});

@@ -236,6 +236,8 @@ export const usePdfCropSelection = (options: IUsePdfCropSelectionOptions) => {
         resolveSession(null);
     }
 
+    watch(options.viewRotation, cancelSelection, {flush: 'sync'});
+
     function abortPendingSession() {
         if (!pendingResolver) {
             return;
