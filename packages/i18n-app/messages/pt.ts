@@ -207,7 +207,10 @@ export default {
         'pages': {
             'title': 'Páginas de origem',
             'resetAction': 'Repor',
-            'count': 'Páginas de origem: {count}',
+            'count': plural({
+                one: '{count} página de origem',
+                other: '{count} páginas de origem',
+            }),
             'technicalDetails': 'Detalhes técnicos',
             'detecting': 'A detetar…',
             'includeInOutput': 'Incluir na saída',

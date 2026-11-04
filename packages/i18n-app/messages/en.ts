@@ -687,7 +687,10 @@ export default {
         'pages': {
             'title': 'Source pages',
             'resetAction': 'Reset',
-            'count': 'Source pages: {count}',
+            'count': plural({
+                one: '{count} source page',
+                other: '{count} source pages',
+            }),
             'technicalDetails': 'Technical details',
             'detecting': 'Detecting…',
             'includeInOutput': 'Include in output',

@@ -207,7 +207,10 @@ export default {
         'pages': {
             'title': 'Pagine di origine',
             'resetAction': 'Ripristina',
-            'count': 'Pagine di origine: {count}',
+            'count': plural({
+                one: '{count} pagina di origine',
+                other: '{count} pagine di origine',
+            }),
             'technicalDetails': 'Dettagli tecnici',
             'detecting': 'Rilevamento…',
             'includeInOutput': 'Includi nell\'output',

@@ -9,23 +9,27 @@ import {
     it,
     vi,
 } from 'vitest';
-import { nextTick } from 'vue';
+import {
+    nextTick, ref,
+} from 'vue';
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
 import {requireEpochMs} from '@contracts/timestamps';
 import {
     mountAnnotationCommentsList,
     unmountAnnotationCommentsLists,
 } from '@tests/helpers/pdfAnnotationCommentsListHarness';
+const selectedLocale = ref('en');
 
 vi.mock('@app/composables/useTypedI18n', async (importOriginal) => ({
     ...(await importOriginal<typeof TViMockOriginalModule>()),
     useTypedI18n: () => ({
         t: (key: string) => key,
-        locale: {value: 'en'},
+        locale: selectedLocale,
     }),
 }));
 
 afterEach(() => {
+    selectedLocale.value = 'en';
     unmountAnnotationCommentsLists();
 });
 
@@ -137,4 +141,33 @@ describe('PdfAnnotationCommentsList foreign note replies', () => {
 
         expect(events.deleted).toStrictEqual([comment]);
     });
+});
+
+it.each([
+    'modified',
+    'created',
+    'missing',
+] as const)('updates the rendered %s date when language changes without remounting', async (kind) => {
+    const comment = createForeignNote();
+    comment.createdAt = kind === 'missing' ? null : requireEpochMs(1_700_000_000_000);
+    comment.modifiedAt = kind === 'modified' ? requireEpochMs(1_790_000_000_000) : null;
+    const {host} = mountAnnotationCommentsList({comments: [comment]});
+    await nextTick();
+    const date = () => host.querySelector('.note-item-meta > span:last-child')?.textContent;
+    const timestamp = comment.modifiedAt ?? comment.createdAt;
+    const english = date();
+    selectedLocale.value = 'ru';
+    await nextTick();
+    if (timestamp) {
+        expect(date()).toBe(new Intl.DateTimeFormat('ru', {
+            dateStyle: 'medium',
+            timeStyle: 'short',
+        }).format(timestamp));
+        expect(date()).not.toBe(english);
+    } else {
+        expect(host.querySelectorAll('.note-item-meta > span')).toHaveLength(1);
+        expect(date()).toBe('Document author');
+    }
+    expect(host.textContent).toContain('Document author');
+    expect(host.textContent).toContain('Original foreign note');
 });

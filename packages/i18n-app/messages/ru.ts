@@ -695,7 +695,12 @@ export default {
         'pages': {
             'title': 'Исходные страницы',
             'resetAction': 'Сбросить',
-            'count': 'Исходных страниц: {count}',
+            'count': plural({
+                one: '{count} исходная страница',
+                few: '{count} исходные страницы',
+                many: '{count} исходных страниц',
+                other: '{count} исходной страницы',
+            }),
             'technicalDetails': 'Технические сведения',
             'detecting': 'Определение…',
             'includeInOutput': 'Включить в результат',

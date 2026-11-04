@@ -207,7 +207,10 @@ export default {
         'pages': {
             'title': 'Quellseiten',
             'resetAction': 'Zurücksetzen',
-            'count': 'Quellseiten: {count}',
+            'count': plural({
+                one: '{count} Quellseite',
+                other: '{count} Quellseiten',
+            }),
             'technicalDetails': 'Technische Details',
             'detecting': 'Wird erkannt…',
             'includeInOutput': 'In die Ausgabe einbeziehen',

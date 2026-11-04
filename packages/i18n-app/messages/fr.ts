@@ -207,7 +207,10 @@ export default {
         'pages': {
             'title': 'Pages sources',
             'resetAction': 'Réinitialiser',
-            'count': 'Pages sources : {count}',
+            'count': plural({
+                one: '{count} page source',
+                other: '{count} pages sources',
+            }),
             'technicalDetails': 'Détails techniques',
             'detecting': 'Détection…',
             'includeInOutput': 'Inclure dans la sortie',

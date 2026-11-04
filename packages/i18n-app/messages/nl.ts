@@ -207,7 +207,10 @@ export default {
         'pages': {
             'title': 'Bronpagina\'s',
             'resetAction': 'Opnieuw instellen',
-            'count': 'Bronpagina\'s: {count}',
+            'count': plural({
+                one: '{count} bronpagina',
+                other: '{count} bronpagina\'s',
+            }),
             'technicalDetails': 'Technische details',
             'detecting': 'Detecteren…',
             'includeInOutput': 'Opnemen in de uitvoer',
