@@ -73,6 +73,7 @@ vi.mock('@app/utils/platformDocuments', async importOriginal => ({
     getDocumentWorkingCopyCapability: () => ({
         createWorkingCopyFromPath: createWorkingCopyFromPathMock,
         createWorkingCopyFromData: createWorkingCopyFromDataMock,
+        cleanupFile: async () => undefined,
     }),
 }));
 vi.mock('@app/utils/platformWindowTabs', () => ({
@@ -1145,10 +1146,15 @@ describe('window tab transfer orchestration helpers', () => {
         'rejected',
         'user-selection',
         'superseded',
+        'late-refusal',
+        'late-refusal-user-selection',
+        'late-refusal-before-handoff-user-selection',
     ] as const)('captures a cold tab through residency and preserves source selection: %s', async scenario => {
         vi.stubGlobal('useTypedI18n', () => ({t: (key: string) => key}));
         onTestFinished(() => {vi.unstubAllGlobals();});
+        const lateRefusal = scenario.startsWith('late-refusal');
         transferMock.mockClear();
+        transferAckMock.mockClear();
         closeTransferredWindowMock.mockClear();
         const controllers = new Map<string, IWorkspaceDocumentController>();
         for (const id of [
@@ -1166,6 +1172,9 @@ describe('window tab transfer orchestration helpers', () => {
             controllers.set(id, controller);
         }
         const cold = controllers.get('cold')!;
+        // A surviving linked view keeps the source document mounted when the
+        // broker refuses ACK after the internal selection handoff.
+        if (lateRefusal) cold.addView('linked');
         cold.getView('cold')!.applyViewState({
             ...cold.getView('cold')!.viewState.value,
             currentPage: 6,
@@ -1191,7 +1200,7 @@ describe('window tab transfer orchestration helpers', () => {
         mount('survivor');
         const pane = {
             paneId: 'pane-source',
-            activeTabId: 'hot',
+            activeTabId: lateRefusal ? 'cold' : 'hot',
             tabIds: [
                 'cold',
                 'hot',
@@ -1235,8 +1244,26 @@ describe('window tab transfer orchestration helpers', () => {
                 finish: () => undefined,
             },
             handleCloseTab: async () => undefined,
-            handoffActiveTabBeforeClose: async () => undefined,
+            handoffActiveTabBeforeClose: async () => {
+                if (lateRefusal && pane.activeTabId === 'cold') pane.activeTabId = 'hot';
+            },
         });
+        if (lateRefusal) {
+            if (scenario === 'late-refusal-before-handoff-user-selection') {
+                transferMock.mockImplementationOnce(async () => {
+                    pane.activeTabId = 'survivor';
+                    return {
+                        success: true,
+                        transferId: 'transfer-source',
+                        targetWindowId: 7,
+                    };
+                });
+            }
+            transferAckMock.mockImplementationOnce(async () => {
+                if (scenario === 'late-refusal-user-selection') pane.activeTabId = 'survivor';
+                return false;
+            });
+        }
         if (scenario === 'rejected' || scenario === 'user-selection') {
             transferMock.mockImplementationOnce(async () => {
                 if (scenario === 'user-selection') pane.activeTabId = 'survivor';
@@ -1279,7 +1306,8 @@ describe('window tab transfer orchestration helpers', () => {
             expect(closeTransferredWindowMock).toHaveBeenCalledOnce();
         } else {
             expect(cold.getView('cold')!.mountedWorkspace.value).not.toBeNull();
-            expect(pane.activeTabId).toBe(scenario === 'user-selection' ? 'survivor' : 'hot');
+            expect(pane.activeTabId).toBe(scenario === 'user-selection' || scenario.endsWith('user-selection')
+                ? 'survivor' : lateRefusal ? 'cold' : 'hot');
             expect(tabs.value.map(tab => tab.id)).toEqual([
                 'cold',
                 'hot',

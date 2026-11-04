@@ -466,13 +466,17 @@ export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) =>
         }
     }
 
-    async function finalizeTransferredSourceTab(paneId: string, tabId: string, ownership: IDocumentOperationOwnership, ownsSource: () => boolean): Promise<TSourceTransferOutcome> {
+    async function finalizeTransferredSourceTab(paneId: string, tabId: string, ownership: IDocumentOperationOwnership, ownsSource: () => boolean, onSelectionHandoff: () => void): Promise<TSourceTransferOutcome> {
         // The departing view's place is remembered while it and its source still exist.
         const session = getDocumentSession(tabId);
         options.workspaceRestoreTracker.start(tabId);
         try {
             await rememberReadingView(session, tabId);
-            await options.handoffActiveTabBeforeClose(paneId, tabId);
+            const ownsSelection = options.activePaneId.value === paneId
+                && options.getPaneById(paneId)?.activeTabId === tabId;
+            const handoff = options.handoffActiveTabBeforeClose(paneId, tabId);
+            if (ownsSelection) onSelectionHandoff();
+            await handoff;
             if (!ownsSource()) return 'failed';
             if (session && tabHoldsDocument(tabId) && session.views.value.size <= 1) {
                 try {
@@ -499,6 +503,7 @@ export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) =>
         item: IPreparedTransferItem,
         target: TWindowTabTransferTarget,
         ownership: IDocumentOperationOwnership,
+        onSelectionHandoff: () => void,
     ): Promise<TSourceTransferOutcome> {
         const {
             tabId, payload, commandTarget, mutationFrontier,
@@ -524,7 +529,7 @@ export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) =>
             if (!sourcePane) throw new Error(t('tabs.transferErrors.sourceChanged'));
             result = await finalizeTransferredSourceTab(sourcePane.paneId, tabId, ownership, () => (
                 isCommandTargetCurrent(session, commandTarget) && session.readMutationFrontier() === mutationFrontier
-            ));
+            ), onSelectionHandoff);
             if (result !== 'success') throw new Error(t('tabs.transferErrors.sourceChanged'));
             if (canUseNativeWindowTabTransfers() && !await acknowledgeTransfer(transferId, true)) {
                 throw new Error(t('tabs.transferErrors.restoreFailed'));
@@ -585,6 +590,8 @@ export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) =>
             const pane = options.getPaneByTabId(tabId);
             const previousPaneId = options.activePaneId.value;
             const previousTabId = pane?.activeTabId ?? null;
+            let handoffPaneId: string | null = null;
+            let handoffTabId: string | null = null;
             let result: TSourceTransferOutcome = 'failed';
             try {
                 const item = await captureWorkspaceTransferItem(tabId, ownership);
@@ -595,14 +602,21 @@ export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) =>
                     });
                     return result;
                 }
-                result = await transferPreparedTabToTarget(item, target, ownership);
+                result = await transferPreparedTabToTarget(item, target, ownership, () => {
+                    // The handoff selects synchronously before its next tick.
+                    // Capture that selection before later user input can run.
+                    handoffPaneId = options.activePaneId.value;
+                    handoffTabId = options.getPaneById(handoffPaneId)?.activeTabId ?? null;
+                });
                 return result;
             } finally {
                 // Restore only selection this attempt still owns, and only
                 // tabs/panes that survived earlier successful merge steps.
                 const currentPane = pane && options.getPaneById(pane.paneId);
-                if (result === 'failed' && currentPane?.activeTabId === tabId
-                    && options.activePaneId.value === currentPane.paneId) {
+                const selectedPane = options.getPaneById(options.activePaneId.value);
+                if (result === 'failed' && currentPane && selectedPane
+                    && ((selectedPane.paneId === currentPane.paneId && selectedPane.activeTabId === tabId)
+                        || (selectedPane.paneId === handoffPaneId && selectedPane.activeTabId === handoffTabId))) {
                     if (previousTabId && currentPane.tabIds.includes(previousTabId)) {
                         options.activateTab(currentPane.paneId, previousTabId);
                     }

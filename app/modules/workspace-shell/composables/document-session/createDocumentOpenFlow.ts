@@ -675,7 +675,7 @@ export function createDocumentOpenFlow(
             recoveryDirtyBaseline?: boolean;
             preserveHistory?: boolean;
             previousPath?: TDocumentRef | null;
-            beforeSourceCommit?: (revision: TDocumentRevisionToken | null) => Promise<void>;
+            beforeSourceCommit?: (revision: TDocumentRevisionToken | null) => Promise<(() => void) | undefined>;
             isCurrent?: (() => boolean) | undefined;
         },
     ) {
@@ -688,8 +688,9 @@ export function createDocumentOpenFlow(
             return false;
         }
 
-        await options?.beforeSourceCommit?.(state.documentRevisionToken.value);
+        const commitRevisionSwap = await options?.beforeSourceCommit?.(state.documentRevisionToken.value);
         if (options?.isCurrent?.() === false) return false;
+        if (commitRevisionSwap) commitRevisionSwap();
 
         state.workingCopyPath.value = path;
         // A history step's copy is the same opened document; only a new load

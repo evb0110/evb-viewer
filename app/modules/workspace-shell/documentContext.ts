@@ -24,7 +24,7 @@ import { useWorkspaceExport } from '@app/modules/workspace-shell/composables/use
 import { useWorkspaceFailureSurface } from '@app/modules/workspace-shell/composables/useWorkspaceFailureSurface';
 import { useWorkspaceFileLifecycleController } from '@app/modules/workspace-shell/composables/useWorkspaceFileLifecycleController';
 import { useWorkspaceAnnotationSession } from '@app/modules/workspace-shell/composables/useWorkspaceAnnotationSession';
-import { prepareDocumentViewsForRevisionSwap } from '@app/modules/workspace-shell/document-sessions/prepareDocumentViewsForRevisionSwap';
+import { prepareDocumentViewsForHistorySwap } from '@app/modules/workspace-shell/document-sessions/prepareDocumentViewsForRevisionSwap';
 import { usePageOpsHandlers } from '@app/modules/workspace-shell/composables/usePageOpsHandlers';
 import { usePageFileOperations } from '@app/modules/workspace-shell/composables/usePageFileOperations';
 import { useWorkspaceSplitPayload } from '@app/modules/workspace-shell/composables/useWorkspaceSplitPayload';
@@ -128,17 +128,7 @@ export const createDocumentContext = ({controller}: {controller: IWorkspaceDocum
     // open's failure is told by the tab's document session.
     const failure = useWorkspaceFailureSurface();
     const file = useWorkspaceFileLifecycleController({
-        prepareHistoryRevisionSwap: async (revision, delta) => {
-            if (delta) views.mapPageIdentity(delta);
-            const pageCount = delta ? (delta.nextPageCount ?? delta.pages?.length ?? totalPages.value) : totalPages.value;
-            await prepareDocumentViewsForRevisionSwap(views, pdfViewerRef.value, {
-                documentRevision: revision,
-                invalidatedPages: Array.from({length: pageCount}, (_, index) => index + 1),
-                ...(delta ? {pageIdentityDelta: delta} : {}),
-            }).catch((error: unknown) => {
-                BrowserLogger.warn('pdf-history', 'Could not preserve the viewer surface for history reload', {error});
-            });
-        },
+        prepareHistoryRevisionSwap: (revision, delta) => prepareDocumentViewsForHistorySwap(views, pdfViewerRef.value, totalPages.value, revision, delta),
         createViewerLifecycleHooks: context => [createReadingViewLifecycleHooks(controller)].concat(driver.createLifecycleHooks(context)),
         getOpenSurface: () => commandView.value?.openSurface ?? null,
         runDocumentOpen,

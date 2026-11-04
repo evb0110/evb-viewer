@@ -13,7 +13,7 @@ import {
     createDocumentViews, type IDocumentViewPort,
 } from '@app/modules/workspace-shell/document-sessions/createDocumentViews';
 import {createWorkspaceDocumentController} from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
-import {prepareDocumentViewsForRevisionSwap} from '@app/modules/workspace-shell/document-sessions/prepareDocumentViewsForRevisionSwap';
+import {prepareDocumentViewsForHistorySwap} from '@app/modules/workspace-shell/document-sessions/prepareDocumentViewsForRevisionSwap';
 import {useWorkspaceCommandLedger} from '@app/modules/workspace-shell/composables/useWorkspaceCommandLedger';
 import {usePdfHistory} from '@app/modules/pdf-viewer/runtime/composables/usePdfHistory';
 import {createDocumentOpenSurfaceSession} from '@app/modules/document-viewer/public';
@@ -100,7 +100,7 @@ function createHistoryHarness(isDesktopRuntime = false) {
     };
 }
 
-function createContentHistoryHarness(pathHistory: boolean, withSurface: boolean) {
+function createContentHistoryHarness(pathHistory: boolean, withSurface: boolean, beforeRevisionPrepare?: () => Promise<void>) {
     vi.stubGlobal('useToast', () => ({
         add: vi.fn(),
         update: vi.fn(),
@@ -216,7 +216,10 @@ function createContentHistoryHarness(pathHistory: boolean, withSurface: boolean)
                 currentPage: pages[index],
                 pdfViewerRef: shallowRef({
                     ...viewer,
-                    preparePageMutationRevisionSwap: async () => false,
+                    preparePageMutationRevisionSwap: async () => {
+                        await beforeRevisionPrepare?.();
+                        return false;
+                    },
                 }),
             },
         }));
@@ -238,19 +241,9 @@ function createContentHistoryHarness(pathHistory: boolean, withSurface: boolean)
     });
     const history = createDocumentHistory(state, {
         applyLoadedPdfState: (...args) => flow.applyLoadedPdfState(...args),
-        prepareHistoryRevisionSwap: async (token, delta) => {
-            if (delta) views.mapPageIdentity(delta);
-            await prepareDocumentViewsForRevisionSwap(views, views.viewPorts.value.get('one')!.view.pdfViewerRef.value,
-                {
-                    documentRevision: token,
-                    invalidatedPages: [
-                        1,
-                        2,
-                        3,
-                    ],
-                    ...(delta ? {pageIdentityDelta: delta} : {}),
-                });
-        },
+        prepareHistoryRevisionSwap: (token, delta) => prepareDocumentViewsForHistorySwap(
+            views, views.viewPorts.value.get('one')!.view.pdfViewerRef.value, 3, token, delta,
+        ),
         clearPdfConformanceProfile: () => undefined,
         clearOcrCache: () => undefined,
         deferPdfConformanceProfile: () => undefined,
@@ -351,6 +344,61 @@ function createContentHistoryHarness(pathHistory: boolean, withSurface: boolean)
 }
 
 describe('createDocumentHistory', () => {
+    it.each([
+        false,
+        true,
+    ])('leaves every view unchanged when history preparation is superseded (path=%s)', async pathHistory => {
+        const entered = Promise.withResolvers<undefined>();
+        const release = Promise.withResolvers<undefined>();
+        onTestFinished(() => { release.resolve(undefined); });
+        const h = createContentHistoryHarness(pathHistory, false, () => {
+            entered.resolve(undefined);
+            return release.promise;
+        });
+        const initial = await h.readState(h.work);
+        h.state.pdfSrc.value = initial.pdfSrc;
+        h.state.pdfReloadSrc.value = initial.pdfSrc;
+        h.state.pdfData.value = initial.pdfData;
+        await h.history.ensureHistoryBaselineForMutation();
+        h.storage.set(h.work, h.encode([
+            'B',
+            'C',
+        ]));
+        await h.history.reloadWorkingCopyIntoHistory({
+            markDirty: true,
+            pageIdentityDelta: {
+                previousPageCount: 3,
+                nextPageCount: 2,
+                ranges: [
+                    {
+                        kind: 'delete',
+                        fromPageNumber: 1,
+                        count: 1,
+                    },
+                    {
+                        kind: 'retain',
+                        fromPageNumber: 2,
+                        toPageNumber: 1,
+                        count: 2,
+                    },
+                ],
+            },
+        });
+        h.pages[0]!.value = 2;
+        h.pages[1]!.value = 1;
+        const before = h.readViews();
+        const source = h.state.pdfSrc.value;
+        const undo = h.history.undo();
+        await entered.promise;
+        // A new document/session takes ownership while the old surface is
+        // preparing. Refusing that restore must also refuse its view mapping.
+        h.history.incrementSessionVersion();
+        release.resolve(undefined);
+        await expect(undo).resolves.toBe(false);
+        expect(h.readViews()).toEqual(before);
+        expect(h.state.pdfSrc.value).toBe(source);
+        expect(h.history.canUndo.value).toBe(true);
+    });
     it.each([
         false,
         true,

@@ -53,7 +53,7 @@ interface IApplyLoadedPdfStateOptions {
     markDirty?: boolean;
     preserveHistory?: boolean;
     previousPath?: TDocumentRef | null;
-    beforeSourceCommit?: (revision: TDocumentRevisionToken | null) => Promise<void>;
+    beforeSourceCommit?: (revision: TDocumentRevisionToken | null) => Promise<(() => void) | undefined>;
     isCurrent?: (() => boolean) | undefined;
 }
 
@@ -67,7 +67,7 @@ type TDocumentHistoryWorkingCopyDeps = Pick<
     'cleanupFile' | 'createWorkingCopyFromData' | 'createWorkingCopyFromPath'
 >;
 
-export interface IHistoryRevisionSwapOptions {prepareHistoryRevisionSwap?: (revision: TDocumentRevisionToken, delta: IPageIdentityDelta | undefined) => Promise<void>;}
+export interface IHistoryRevisionSwapOptions {prepareHistoryRevisionSwap?: (revision: TDocumentRevisionToken, delta: IPageIdentityDelta | undefined) => Promise<(() => void) | undefined>;}
 
 interface ICreateDocumentHistoryDeps extends IHistoryRevisionSwapOptions {
     applyLoadedPdfState: (
@@ -754,8 +754,9 @@ export function createDocumentHistory(
             if (workingPath) {
                 const revision = await deps.documentFiles().getDocumentRevision(workingPath);
                 if (!canApplyRestore()) return false;
-                await deps.prepareHistoryRevisionSwap?.(revision.token, delta);
+                const commitRevisionSwap = await deps.prepareHistoryRevisionSwap?.(revision.token, delta);
                 if (!canApplyRestore()) return false;
+                if (commitRevisionSwap) commitRevisionSwap();
                 state.documentRevisionInfo.value = revision;
                 state.documentRevisionToken.value = revision.token;
             }
@@ -793,7 +794,7 @@ export function createDocumentHistory(
             previousPath,
             isCurrent: canApplyRestore,
             beforeSourceCommit: async (revision) => {
-                if (revision) await deps.prepareHistoryRevisionSwap?.(revision, delta);
+                return revision ? deps.prepareHistoryRevisionSwap?.(revision, delta) : undefined;
             },
         });
         return didApply !== false;
