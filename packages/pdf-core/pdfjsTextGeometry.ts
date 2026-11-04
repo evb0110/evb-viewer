@@ -424,9 +424,14 @@ function showGlyphArray(
         const spaceGlyph = isGlyphSpace(glyph, text);
         const textToPage = multiplyMatrices(ctm, state.textMatrix);
         if (state.repositioned && nextActiveWord) {
+            // A gap ahead on the baseline or a move off it ends the word; a
+            // move back, as for an overstruck accent, does not.
             const origin = transformPoint(textToPage, 0, 0);
-            if (Math.hypot(origin.x - nextActiveWord.penX, origin.y - nextActiveWord.penY)
-                > MAX_WORD_GLYPH_GAP_EM * nextActiveWord.emSize) {
+            const dx = origin.x - nextActiveWord.penX;
+            const dy = origin.y - nextActiveWord.penY;
+            const run = Math.hypot(textToPage[0], textToPage[1]) || 1;
+            const limit = MAX_WORD_GLYPH_GAP_EM * nextActiveWord.emSize;
+            if ((dx * textToPage[0] + dy * textToPage[1]) / run > limit || Math.abs(dx * textToPage[1] - dy * textToPage[0]) / run > limit) {
                 nextActiveWord = flushActiveWord(words, nextActiveWord);
             }
         }

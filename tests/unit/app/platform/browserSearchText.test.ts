@@ -339,6 +339,15 @@ describe('word boxes from real PDF operators', () => {
         }
     }
 
+    it('keeps a word together when TJ moves back over a letter, as for an overstruck accent', async () => {
+        const words = await wordBoxes('BT /F1 10 Tf 1 0 0 1 10 170 Tm [(cafe) 556 (\\047s) -600 (menu)] TJ ET');
+
+        expect(words.map(word => word.text)).toEqual([
+            'cafe’s',
+            'menu',
+        ]);
+    });
+
     it('splits words a wide TJ gap separates and keeps kerned letters together', async () => {
         const words = await wordBoxes('BT /F1 10 Tf 1 0 0 1 10 170 Tm [(he) -40 (llo) -600 (world)] TJ ET');
 
