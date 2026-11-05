@@ -588,8 +588,8 @@ describe('browser document lifecycle UI', () => {
             stage = 'reopening';
             const reopened = await context.newPage();
             await openPdfFromChooser(reopened, savedPath);
-            await settleActiveOpen(reopened);
             await expect.poll(() => reopened.locator('.textLayer').first().innerText()).toContain('Hidden OCR survives Optimize');
+            await settleActiveOpen(reopened);
             const pageBounds = await reopened.locator('.page_container--rendered[data-page="1"]').first().boundingBox();
             expect(pageBounds).not.toBeNull();
             expect(pageBounds!.width / pageBounds!.height).toBeCloseTo(2 / 3, 2);
