@@ -1,5 +1,7 @@
 #!/usr/bin/env node
-import { readFileSync } from 'node:fs';
+import {
+    readFileSync, writeFileSync,
+} from 'node:fs';
 import { createInterface } from 'node:readline';
 
 // Replay captured provider metadata so the real-app picker needs no installed
@@ -47,8 +49,12 @@ if (process.argv.includes('--version')) {
                 },
             }),
         });
-        const {result} = await response.json();
-        return result?.isError ? `error ${result.content?.[0]?.text ?? ''}`.slice(0, 160) : 'ok';
+        const {
+            result, error,
+        } = await response.json();
+        if (error) return `error ${JSON.stringify(error)}`;
+        if (!response.ok || !result) throw new Error(`MCP request failed: HTTP ${response.status}`);
+        return result.isError ? `error ${result.content?.[0]?.text ?? ''}` : 'ok';
     };
     createInterface({input: process.stdin}).on('line', line => {
         const request = JSON.parse(line);
@@ -105,6 +111,25 @@ if (process.argv.includes('--version')) {
                         }, `${turnId}-save`);
                         const read = await callEvbTool('evb_workspace_snapshot', {}, `${turnId}-read`);
                         finishTurn(emit, turnId, `save:${save} read:${read}`);
+                    })().catch(error => finishTurn(emit, turnId, `fixture:${error.message}`));
+                } else if (prompt.includes('1544 own rotation')) {
+                    void (async () => {
+                        const rotate = await callEvbTool('evb_run_action', {
+                            id: 'page_ops.rotate_cw_selected',
+                            input: {},
+                        }, `${turnId}-rotate`);
+                        const read = await callEvbTool('evb_workspace_snapshot', {}, `${turnId}-read`);
+                        const save = await callEvbTool('evb_run_action', {
+                            id: 'file.save',
+                            input: {},
+                        }, `${turnId}-save`);
+                        writeFileSync(new URL('../../../.devkit/test/assistant-own-rotation-mcp.json', import.meta.url), JSON.stringify({
+                            turnId,
+                            rotate,
+                            read,
+                            save,
+                        }));
+                        finishTurn(emit, turnId, `rotate:${rotate} read:${read} save:${save}`);
                     })().catch(error => finishTurn(emit, turnId, `fixture:${error.message}`));
                 } else if (prompt.includes('AP-B02 tool activity')) {
                     const transcript = JSON.parse(readFileSync(new URL('./assistant-tool-transcript.json', import.meta.url), 'utf8'));

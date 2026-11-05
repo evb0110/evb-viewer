@@ -1,7 +1,7 @@
 import {createHash} from 'node:crypto';
 import {electronUserDataPath} from '@scripts/electron-run/electronRunSessionPaths';
 import {
-    copyFileSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync,
+    copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync,
 } from 'node:fs';
 import {
     join, resolve,
@@ -22,7 +22,9 @@ import {
     waitForPdfLoaded,
 } from '@tests/e2e/electron/helpers/viewerCore';
 import {readWorkspaceStateValues} from '@tests/e2e/electron/helpers/workspaceExpose';
-import {readPdfCatalogWithPdfjs} from '@tests/e2e/electron/helpers/fixtures';
+import {
+    readPdfPageSnapshots, readPdfCatalogWithPdfjs,
+} from '@tests/e2e/electron/helpers/fixtures';
 import type {IWorkspaceAutomationStateSnapshot} from '@app/types/workspaceExpose';
 import type {IE2EWindow} from '@tests/e2e/electron/helpers/e2EWindow';
 
@@ -152,6 +154,81 @@ describe('Electron E2E - assistant draft revision', () => {
         await session.command('screenshot', ['a10-4-own-save']);
         expect(await page.$eval(reply, element => element.textContent?.trim())).toContain('save:ok read:ok');
         expect((await readPdfCatalogWithPdfjs(pdfPath)).pageLabels?.[0]).toBe('A104-1');
+    });
+
+
+    // The turn follows its own native page edit before issuing its next command.
+    it('1544 lets one assistant turn rotate, read and save its selected page', async () => {
+        const session = fixture.getSession();
+        const {page} = session;
+        const directory = resolve('.devkit/test/assistant-own-rotation', session.name);
+        mkdirSync(directory, {recursive: true});
+        const pdfPath = join(directory, 'assistant-own-rotation.pdf');
+        copyFileSync(resolve('tests/fixtures/release/packaged-core-smoke.pdf'), pdfPath);
+        const before = await readPdfPageSnapshots(pdfPath);
+        await page.evaluate(async () => {
+            await (window as IE2EWindow).electronAPI?.settings.save({assistantPanelEnabled: true});
+        });
+        await page.reload();
+        await openPdfInApp(page, pdfPath);
+        await waitForPdfLoaded(page);
+        await openDocumentSidebarTab(page, 'Pages');
+        const selection = '[data-thumbnail-page="1"] .pdf-thumbnail-selection-toggle';
+        if (await page.$eval(selection, button => button.getAttribute('aria-pressed')) !== 'true') {
+            await clickAsUser(page, selection);
+        }
+        await clickAsUser(page, 'button[aria-label="Toggle EVB Assistant"]');
+        await page.waitForSelector('.agent-assistant-input:not(:disabled)', {visible: true});
+        await clickAsUser(page, '.agent-assistant-input');
+        const tracePath = resolve('.devkit/test/assistant-own-rotation-mcp.json');
+        rmSync(tracePath, {force: true});
+        await page.keyboard.type('1544 own rotation');
+        await page.keyboard.press('Enter');
+        const reply = '.agent-assistant-message.is-assistant:last-child';
+        await expect.poll(() => existsSync(tracePath), {timeout: 15_000}).toBe(true);
+        const trace = JSON.parse(readFileSync(tracePath, 'utf8')) as {
+            turnId: string;
+            rotate: string;
+            read: string;
+            save: string
+        };
+        if (trace.read === 'ok' && trace.save === 'ok') {
+            await page.waitForFunction(selector => document.querySelector(selector)?.textContent?.includes('rotate:'), {}, reply);
+        }
+        const text = await page.evaluate(selector => document.querySelector(selector)?.textContent?.trim() ?? '', reply);
+        const rendered = await page.$eval('.page_container[data-page="1"]', element => {
+            const rect = element.getBoundingClientRect();
+            return {
+                width: rect.width,
+                height: rect.height,
+            };
+        });
+        const after = await readPdfPageSnapshots(pdfPath);
+        await page.screenshot({path: join(directory, 'rotation-turn.png')});
+        writeFileSync(join(directory, 'result.json'), JSON.stringify({
+            session: session.name,
+            text,
+            trace,
+            rendered,
+            before,
+            after,
+        }, null, 2));
+        console.log(`1544_ASSISTANT ${JSON.stringify({
+            session: session.name,
+            text,
+            trace,
+            rendered,
+            before,
+            after,
+        })}`);
+        expect.soft(trace.rotate).toBe('ok');
+        expect.soft(trace.read).toBe('ok');
+        expect.soft(trace.save).toBe('ok');
+        expect.soft(rendered.width).toBeGreaterThan(rendered.height);
+        expect.soft(text).toContain('rotate:ok read:ok save:ok');
+        expect.soft(after[0]?.rotation).toBe(((before[0]?.rotation ?? 0) + 90) % 360);
+        expect.soft(after.map(item => item.textSnippet)).toEqual(before.map(item => item.textSnippet));
+        expect.soft(after.slice(1)).toEqual(before.slice(1));
     });
 
     // ADR 0004: schema-1 conversation history and provider continuation survive upgrades.
