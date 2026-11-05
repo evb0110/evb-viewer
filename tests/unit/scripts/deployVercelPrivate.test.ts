@@ -470,6 +470,41 @@ describe.skipIf(process.platform === 'win32')('private Vercel deployment source'
         }
     });
 
+    it('publishes every retained PDF.js build from a clean source snapshot', () => {
+        const projectRoot = createProjectFixture();
+        let prepared: IPreparedPrivateDeploySource | undefined;
+        const builds = [
+            'a'.repeat(64),
+            'b'.repeat(64),
+        ];
+        try {
+            for (const build of builds) {
+                const directory = path.join(projectRoot, 'public', 'pdf', build, 'wasm');
+                mkdirSync(directory, {recursive: true});
+                writeFileSync(path.join(directory, 'jbig2.wasm'), `wasm-${build}`);
+                writeFileSync(path.join(directory, '..', 'pdf.worker.min.mjs'), `worker-${build}`);
+                writeFileSync(path.join(directory, '..', '.pdfjs-version'), `version-${build}`);
+            }
+            const retainedIds = [...builds].reverse();
+            writeFileSync(path.join(projectRoot, 'public', 'pdf', 'assets.json'), JSON.stringify(retainedIds));
+            commitFixtureChanges(projectRoot);
+            prepared = preparePrivateDeploySource({projectRoot});
+            for (const build of builds) {
+                const directory = path.join(prepared.sourceRoot, 'public', 'pdf', build);
+                expect(readFileSync(path.join(directory, 'pdf.worker.min.mjs'), 'utf8')).toBe(`worker-${build}`);
+                expect(readFileSync(path.join(directory, '.pdfjs-version'), 'utf8')).toBe(`version-${build}`);
+                expect(readFileSync(path.join(directory, 'wasm', 'jbig2.wasm'), 'utf8')).toBe(`wasm-${build}`);
+            }
+            expect(JSON.parse(readFileSync(path.join(prepared.sourceRoot, 'public', 'pdf', 'assets.json'), 'utf8'))).toEqual(retainedIds);
+        } finally {
+            prepared?.cleanup();
+            rmSync(projectRoot, {
+                recursive: true,
+                force: true,
+            });
+        }
+    });
+
     it('removes Git identity and local secrets while preserving project linkage', () => {
         const projectRoot = createProjectFixture();
         let prepared: IPreparedPrivateDeploySource | undefined;

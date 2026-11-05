@@ -14,10 +14,115 @@ import {
 } from 'vitest';
 import type {IBrowserLifecycleTestApi} from './documentLifecycleTestHelpers';
 import {
-    lifecycle, waitForOpenFileReady, collectConsoleProblems, keepFileChooserInterceptionEnabled, readRecoveries, openPdfFromChooser, readPersistedDocumentBytes,
+    lifecycle, waitForOpenFileReady, collectConsoleProblems, keepFileChooserInterceptionEnabled, readRecoveries, openPdfFromChooser, readPersistedDocumentBytes, addNote, noteTexts, settleActiveOpen,
 } from './documentLifecycleTestHelpers';
 
 describe('browser document lifecycle UI', () => {
+    it('keeps compatible PDF.js assets and unsaved work when a deployment changes in an open tab', async () => {
+        const evidenceDir = resolve(process.cwd(), '.devkit/browser-pdfjs-deployment');
+        mkdirSync(evidenceDir, {recursive: true});
+        const version = readFileSync(resolve('public/pdf/.pdfjs-version'), 'utf8').trim();
+        const nextVersion = `${version}-next-deployment`;
+        const worker = readFileSync(resolve('public/pdf/pdf.worker.min.mjs'), 'utf8');
+        expect(worker).toContain(version);
+        const nextWorker = worker.replaceAll(version, nextVersion);
+        const requests: Array<{
+            path: string;
+            afterDeployment: boolean
+        }> = [];
+        let deployed = false;
+        const page = await lifecycle.browser.newPage({viewport: {
+            width: 1_200,
+            height: 900,
+        }});
+        const problems = collectConsoleProblems(page);
+        const active = page.locator('.workspace-host[data-workspace-active="true"]');
+        try {
+            // The existing server retains content-addressed files, as a clean
+            // source deploy does. Only the current, mutable deployment changes.
+            // Routing also disables HTTP cache, so a cached worker cannot pass.
+            await page.context().route(url => url.pathname.startsWith('/pdf/'), async route => {
+                const path = new URL(route.request().url()).pathname;
+                requests.push({
+                    path,
+                    afterDeployment: deployed,
+                });
+                if (deployed && path === '/pdf/pdf.worker.min.mjs') {
+                    await route.fulfill({
+                        contentType: 'text/javascript',
+                        body: nextWorker,
+                    });
+                } else if (deployed && path === '/pdf/.pdfjs-version') {
+                    await route.fulfill({body: `${nextVersion}\n`});
+                } else {
+                    await route.continue();
+                }
+            });
+            const makePdf = async (label: string) => {
+                const pdf = await PDFDocument.create();
+                pdf.addPage([
+                    400,
+                    600,
+                ]).drawText(label, {
+                    x: 40,
+                    y: 540,
+                });
+                return {
+                    name: `${label}.pdf`,
+                    mimeType: 'application/pdf',
+                    buffer: Buffer.from(await pdf.save()),
+                };
+            };
+            await openPdfFromChooser(page, await makePdf('Before deployment'));
+            await expect.poll(() => active.locator('.textLayer').first().textContent()).toContain('Before deployment');
+            await settleActiveOpen(page);
+            await addNote(page, 'Unsaved across deployment', {
+                x: 100,
+                y: 150,
+            });
+            const firstTab = page.getByRole('tab').filter({hasText: 'Before deployment.pdf'});
+            await expect.poll(() => firstTab.getAttribute('class')).toContain('is-dirty');
+            const documentToken = await page.evaluate(() => {
+                const token = crypto.randomUUID();
+                Reflect.set(window, '__pdfjsDeploymentDocument', token);
+                return token;
+            });
+            deployed = true;
+            await page.getByRole('button', {
+                name: 'New Tab',
+                exact: true,
+            }).click();
+            const chooser = page.waitForEvent('filechooser');
+            await page.getByRole('button', {
+                name: 'Open File',
+                exact: true,
+            }).first().click();
+            await (await chooser).setFiles(await makePdf('After deployment'));
+            await expect.poll(() => active.locator('.textLayer').first().textContent()).toContain('After deployment');
+            await active.locator('.page_container--rendered canvas').first().waitFor({state: 'visible'});
+            await settleActiveOpen(page);
+            const workers = requests.filter(request => request.path.endsWith('/pdf.worker.min.mjs'));
+            expect(workers.some(request => request.afterDeployment)).toBe(true);
+            expect(new Set(workers.map(request => request.path)).size).toBe(1);
+            expect(await page.evaluate(() => Reflect.get(window, '__pdfjsDeploymentDocument'))).toBe(documentToken);
+            await firstTab.click();
+            await expect.poll(() => active.locator('.textLayer').first().textContent()).toContain('Before deployment');
+            await active.locator('.page_container--rendered canvas').first().waitFor({state: 'visible'});
+            expect(await firstTab.getAttribute('class')).toContain('is-dirty');
+            const download = page.waitForEvent('download');
+            await page.locator('.save-split-primary:visible').first().click();
+            const savedPath = resolve(evidenceDir, 'preserved.pdf');
+            await (await download).saveAs(savedPath);
+            expect(noteTexts(await PDFDocument.load(readFileSync(savedPath)))).toContain('Unsaved across deployment');
+            await page.screenshot({path: resolve(evidenceDir, 'preserved.png')});
+            expect(problems).toEqual([]);
+        } finally {
+            writeFileSync(resolve(evidenceDir, 'requests.json'), JSON.stringify(requests, null, 2));
+            writeFileSync(resolve(evidenceDir, 'console.json'), JSON.stringify(problems, null, 2));
+            await page.context().close();
+        }
+    }, 90_000);
+
     it('retains a fully visible short indicator page while the center enters a tall page', async () => {
         const pdf = await PDFDocument.create();
         pdf.setCreationDate(new Date('2026-01-01T00:00:00Z'));

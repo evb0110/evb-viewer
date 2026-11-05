@@ -1,6 +1,7 @@
 import {
     mkdir,
     mkdtemp,
+    readdir,
     readFile,
     rm,
     writeFile,
@@ -12,6 +13,7 @@ import {
     describe,
     expect,
     it,
+    vi,
 } from 'vitest';
 
 interface ICopyPdfjsAssetsModule {
@@ -209,6 +211,9 @@ export { ChunkedStream, indexObjectsBounded, sendRange };
                 path.join(pdfjsRoot, 'standard_fonts', 'LICENSE_LIBERATION'),
                 'license line with spaces   \nlicense line without spaces\n',
             );
+            await mkdir(path.join(pdfjsRoot, 'web', 'images'), {recursive: true});
+            await writeFile(path.join(pdfjsRoot, 'web', 'images', 'annotation-note.svg'), '<svg/>');
+            await writeFile(path.join(pdfjsRoot, 'wasm', 'jbig2.wasm'), 'original wasm');
             await writeFile(path.join(pdfjsRoot, 'wasm', 'README.md'), 'documentation');
             await writeFile(path.join(pdfjsRoot, 'wasm', 'CHANGELOG.md'), 'documentation');
 
@@ -221,6 +226,116 @@ export { ChunkedStream, indexObjectsBounded, sendRange };
                 path.join(targetRoot, 'pdf.worker.min.mjs'),
                 'utf8',
             );
+            const readIds = async (): Promise<string[]> => JSON.parse(await readFile(path.join(targetRoot, 'assets.json'), 'utf8'));
+            const [firstId = ''] = await readIds();
+            expect(await readIds()).toEqual([firstId]);
+            expect(firstId).toMatch(/^[a-f0-9]{64}$/u);
+            expect(await readFile(path.join(targetRoot, firstId, 'pdf.worker.min.mjs'), 'utf8')).toBe(publicWorkerSource);
+            expect(await readFile(path.join(targetRoot, firstId, '.pdfjs-version'), 'utf8')).toBe('9.8.7\n');
+            expect(await readFile(path.join(targetRoot, firstId, 'images', 'annotation-note.svg'), 'utf8')).toBe('<svg/>');
+            await copyPdfjsAssets({
+                root: pdfjsRoot,
+                targetRoot,
+            });
+            expect(await readIds()).toEqual([firstId]);
+            // A companion-only update must also change the identity, while the
+            // previous build's lazy assets remain available within the bound.
+            await writeFile(path.join(pdfjsRoot, 'wasm', 'jbig2.wasm'), 'next wasm');
+            await copyPdfjsAssets({
+                root: pdfjsRoot,
+                targetRoot,
+            });
+            const [secondId = ''] = await readIds();
+            expect(secondId).not.toBe(firstId);
+            expect(await readIds()).toEqual([
+                secondId,
+                firstId,
+            ]);
+            expect(await readFile(path.join(targetRoot, firstId, 'wasm', 'jbig2.wasm'), 'utf8')).toBe('original wasm');
+            expect(await readFile(path.join(targetRoot, secondId, 'wasm', 'jbig2.wasm'), 'utf8')).toBe('next wasm');
+            await writeFile(path.join(pdfjsRoot, 'package.json'), JSON.stringify({version: '9.8.8'}));
+            await writeFile(path.join(pdfjsRoot, 'build', 'pdf.worker.mjs'), `${workerSource}\nexport const deployment = 2;\n`);
+            await copyPdfjsAssets({
+                root: pdfjsRoot,
+                targetRoot,
+            });
+            const [thirdId = ''] = await readIds();
+            expect(new Set([
+                firstId,
+                secondId,
+                thirdId,
+            ]).size).toBe(3);
+            expect(await readFile(path.join(targetRoot, firstId, 'pdf.worker.min.mjs'), 'utf8')).toBe(publicWorkerSource);
+            expect(await readFile(path.join(targetRoot, thirdId, '.pdfjs-version'), 'utf8')).toBe('9.8.8\n');
+            expect(await readIds()).toEqual([
+                thirdId,
+                secondId,
+                firstId,
+            ]);
+            await writeFile(path.join(pdfjsRoot, 'wasm', 'jbig2.wasm'), 'fourth wasm');
+            await copyPdfjsAssets({
+                root: pdfjsRoot,
+                targetRoot,
+            });
+            const [fourthId = ''] = await readIds();
+            expect(await readIds()).toEqual([
+                fourthId,
+                thirdId,
+                secondId,
+                firstId,
+            ]);
+
+            const unknownId = 'f'.repeat(64);
+            await mkdir(path.join(targetRoot, unknownId));
+            await writeFile(path.join(targetRoot, unknownId, 'manual.txt'), 'manual copy');
+            await mkdir(path.join(targetRoot, 'desktop-search'));
+            await writeFile(path.join(targetRoot, 'desktop-search', 'keep.txt'), 'search staging');
+            await writeFile(path.join(targetRoot, 'keep.txt'), 'stable root');
+            const warning = vi.spyOn(console, 'warn').mockImplementation(() => {});
+            try {
+                await writeFile(path.join(pdfjsRoot, 'wasm', 'jbig2.wasm'), 'fifth wasm');
+                await copyPdfjsAssets({
+                    root: pdfjsRoot,
+                    targetRoot,
+                });
+                const [fifthId = ''] = await readIds();
+                expect(await readIds()).toEqual([
+                    fifthId,
+                    fourthId,
+                    thirdId,
+                    secondId,
+                ]);
+                await expect(readdir(path.join(targetRoot, firstId)))
+                    .rejects.toMatchObject({code: 'ENOENT'});
+                for (const id of await readIds()) {
+                    expect(await readFile(path.join(targetRoot, id, '.pdfjs-version'), 'utf8'))
+                        .toBe(id === secondId ? '9.8.7\n' : '9.8.8\n');
+                }
+                // A rollback promotes the oldest retained identity to current;
+                // pruning must not delete it based on its former position.
+                await writeFile(path.join(pdfjsRoot, 'package.json'), JSON.stringify({version: '9.8.7'}));
+                await writeFile(path.join(pdfjsRoot, 'build', 'pdf.worker.mjs'), workerSource);
+                await writeFile(path.join(pdfjsRoot, 'wasm', 'jbig2.wasm'), 'next wasm');
+                await copyPdfjsAssets({
+                    root: pdfjsRoot,
+                    targetRoot,
+                });
+                expect(await readIds()).toEqual([
+                    secondId,
+                    fifthId,
+                    fourthId,
+                    thirdId,
+                ]);
+                expect(await readFile(path.join(targetRoot, secondId, 'pdf.worker.min.mjs'), 'utf8')).toBe(publicWorkerSource);
+                expect(await readFile(path.join(targetRoot, secondId, 'wasm', 'jbig2.wasm'), 'utf8')).toBe('next wasm');
+                expect(await readFile(path.join(targetRoot, unknownId, 'manual.txt'), 'utf8')).toBe('manual copy');
+                expect(warning).toHaveBeenCalledWith(`Keeping unlisted PDF.js identity directory: ${path.join(targetRoot, unknownId)}`);
+                expect(await readFile(path.join(targetRoot, 'keep.txt'), 'utf8')).toBe('stable root');
+                expect(await readFile(path.join(targetRoot, 'desktop-search', 'keep.txt'), 'utf8')).toBe('search staging');
+                expect(await readFile(path.join(targetRoot, 'wasm', 'jbig2.wasm'), 'utf8')).toBe('next wasm');
+            } finally {
+                warning.mockRestore();
+            }
             expect(publicWorkerSource).toContain('ChunkedStreamClone');
             expect(await readFile(
                 path.join(targetRoot, 'standard_fonts', 'LICENSE_LIBERATION'),

@@ -30,7 +30,6 @@ interface IPdfjsVendoredAssetVersionOptions {
     stampUrl?: string | undefined;
 }
 
-const PDFJS_VENDORED_VERSION_STAMP_URL = '/pdf/.pdfjs-version';
 const PDFJS_MAX_INTERMEDIATE_CANVAS_BYTES = 128 * 1024 * 1024;
 
 const DEFAULT_ANNOTATION_MODE = {
@@ -216,7 +215,7 @@ export async function assertPdfjsVendoredAssetVersion(
     }
 
     const expectedVersion = version.trim();
-    const stampUrl = options.stampUrl ?? PDFJS_VENDORED_VERSION_STAMP_URL;
+    const stampUrl = options.stampUrl ?? getViewerAssetResolver().pdfAssetUrl('.pdfjs-version');
     const rawStamp = await (
         options.readVersionStamp
             ? options.readVersionStamp()

@@ -1,15 +1,18 @@
 import {
     cp,
+    readdir,
     readFile,
     mkdir,
     rm,
     writeFile,
 } from 'node:fs/promises';
+import {createHash} from 'node:crypto';
 import { transform } from 'esbuild';
 import {
     basename,
     dirname,
     join,
+    relative,
     resolve,
 } from 'node:path';
 import {
@@ -34,6 +37,7 @@ const PDFJS_DOCUMENTATION_FILE_PATTERN = /^(?:README|CHANGELOG)(?:\.[^/\\]+)?$/i
 const PDFJS_LICENSE_FILE = 'standard_fonts/LICENSE_LIBERATION';
 
 const PDFJS_VERSION_STAMP_FILE = '.pdfjs-version';
+const PDFJS_ASSET_ID_PATTERN = /^[a-f0-9]{64}$/u;
 export const PDFJS_WORKER_MAX_BYTES = 1_500_000;
 export const PDFJS_WORKER_MAX_LINES = 100;
 
@@ -97,8 +101,8 @@ export async function copyPdfjsAssets({
     }
 
     // EVB patches the readable worker bundle to keep path-backed PDFs sparse.
-    // Keep the public filename stable for the viewer asset resolver, while
-    // restoring a bounded minified asset for browser delivery.
+    // The stable root also serves packaged Node search. The renderer binds to
+    // the retained snapshot below, including lazy worker and companion loads.
     const workerSource = await readFile(join(root, 'build', 'pdf.worker.mjs'), 'utf8');
     await writeFile(
         join(targetRoot, 'pdf.worker.min.mjs'),
@@ -134,6 +138,91 @@ export async function copyPdfjsAssets({
         root,
         targetRoot,
     });
+
+    const assets = new Map();
+    for (const file of [
+        'pdf.worker.min.mjs',
+        PDFJS_VERSION_STAMP_FILE,
+    ]) {
+        assets.set(file, await readFile(join(targetRoot, file)));
+    }
+    for (const [
+        directory,
+        sourceRoot,
+    ] of [
+            ...ASSET_DIRECTORIES.map(directory => [
+                directory,
+                join(targetRoot, directory),
+            ]),
+            [
+                'images',
+                join(root, 'web', 'images'),
+            ],
+        ]) {
+        for (const entry of await readdir(sourceRoot, {
+            recursive: true,
+            withFileTypes: true,
+        })) {
+            if (!entry.isFile()) continue;
+            const source = join(entry.parentPath, entry.name);
+            // Upstream licenses and SVGs include trailing spaces. Normalize the
+            // retained text before hashing so it is suitable for tracked source.
+            const bytes = /^(?:LICENSE(?:_|$))|\.svg$/u.test(entry.name)
+                ? Buffer.from((await readFile(source, 'utf8')).replace(/[ \t]+$/gmu, ''))
+                : await readFile(source);
+            assets.set(`${directory}/${relative(sourceRoot, source).replaceAll('\\', '/')}`, bytes);
+        }
+    }
+    const sortedAssets = [...assets].sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0);
+    const hash = createHash('sha256');
+    for (const [
+        file,
+        bytes,
+    ] of sortedAssets) {
+        hash.update(`${file}\0${bytes.length}\0`).update(bytes);
+    }
+    const assetId = hash.digest('hex');
+    const manifestPath = join(targetRoot, 'assets.json');
+    let previousIds = [];
+    try {
+        const manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
+        previousIds = typeof manifest === 'string' ? [manifest] : manifest;
+        if (!Array.isArray(previousIds)
+            || previousIds.some(id => typeof id !== 'string' || !PDFJS_ASSET_ID_PATTERN.test(id))) {
+            throw new Error(`Invalid retained PDF.js identities in ${manifestPath}`);
+        }
+    } catch (error) {
+        if (error?.code !== 'ENOENT') throw error;
+    }
+    // Retain the current build plus 3 previous identities. A tab open across
+    // more than 3 PDF.js upgrades falls back to existing version-mismatch handling.
+    const retainedIds = [...new Set([
+        assetId,
+        ...previousIds,
+    ])].slice(0, 4);
+    for (const [
+        file,
+        bytes,
+    ] of sortedAssets) {
+        const destination = join(targetRoot, assetId, file);
+        await mkdir(dirname(destination), {recursive: true});
+        await writeFile(destination, bytes);
+    }
+    for (const id of previousIds) {
+        if (!retainedIds.includes(id)) {
+            await rm(join(targetRoot, id), {
+                recursive: true,
+                force: true,
+            });
+        }
+    }
+    for (const entry of await readdir(targetRoot, {withFileTypes: true})) {
+        if (entry.isDirectory() && PDFJS_ASSET_ID_PATTERN.test(entry.name)
+            && !previousIds.includes(entry.name) && entry.name !== assetId) {
+            console.warn(`Keeping unlisted PDF.js identity directory: ${join(targetRoot, entry.name)}`);
+        }
+    }
+    await writeFile(manifestPath, `${JSON.stringify(retainedIds)}\n`);
 }
 
 if (pathToFileURL(resolve(process.argv[1] ?? '')).href === import.meta.url) {

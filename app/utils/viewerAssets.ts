@@ -1,10 +1,12 @@
+import pdfjsAssetIds from '../../public/pdf/assets.json';
+
 interface IViewerAssetResolver {
     pdfWorkerUrl(): string;
     pdfAssetUrl(path: string): string;
     standardFontUrl(fileName: string): string;
 }
 
-const PDF_ASSET_BASE_URL = '/pdf/';
+const PDF_ASSET_BASE_URL = `/pdf/${pdfjsAssetIds[0]!}/`;
 const PDF_WORKER_FILE = 'pdf.worker.min.mjs';
 const STANDARD_FONT_DIR = 'standard_fonts/';
 
@@ -21,9 +23,7 @@ const browserViewerAssets = {
         return `${PDF_ASSET_BASE_URL}${PDF_WORKER_FILE}`;
     },
     pdfAssetUrl(path: string) {
-        const relativePath = trimLeadingSlash(path);
-        const baseUrl = /^images(?:\/|$)/u.test(relativePath) ? '/pdfjs/' : PDF_ASSET_BASE_URL;
-        return `${baseUrl}${relativePath}`;
+        return `${PDF_ASSET_BASE_URL}${trimLeadingSlash(path)}`;
     },
     standardFontUrl(fileName: string) {
         return `${PDF_ASSET_BASE_URL}${STANDARD_FONT_DIR}${trimLeadingSlash(fileName)}`;
