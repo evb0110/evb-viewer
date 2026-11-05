@@ -28,10 +28,14 @@ import {
     dirname, join, resolve,
 } from 'node:path';
 import {PDFDocument} from 'pdf-lib';
+import {requireRequestId} from '@contracts/shared';
+import type {IPdfSearchProgress} from '@contracts/search';
 import {electronFileLogDir} from '@scripts/electron-run/electronRunSessionPaths';
 import {
     APP_LOG_FILE_NAME, type ILogRecord,
 } from '@contracts/logRecord';
+
+interface IFallbackSearchWindow extends Window {__e2eFallbackProgress?: (progress: IPdfSearchProgress) => Promise<void>;}
 
 // More documents than native commands may run at once (eight), each long
 // enough to need several pdftotext windows.
@@ -114,6 +118,7 @@ describe('Electron E2E - concurrent search indexes', () => {
         const cjk = await PDFDocument.load(await readFile(cjkPath));
         const rtl = await PDFDocument.load(await readFile(resolve('tests/fixtures/electron/semtext/search.pdf')));
         const paths: string[] = [];
+        const pageCounts: number[] = [];
         for (let i = 0; i < count; i++) {
             const document = await PDFDocument.create();
             const template = i % 2 === 0 ? cjk : rtl;
@@ -125,28 +130,70 @@ describe('Electron E2E - concurrent search indexes', () => {
                 y: 100,
             });
             const path = join(dirname(cjkPath), `fallback-concurrency-${i}.pdf`);
-            await writeFile(path, await document.save()); paths.push(path);
+            await writeFile(path, await document.save());
+            pageCounts.push(document.getPageCount());
             if (i > 0) await createNewWorkspaceTab(session);
             await openPdfInApp(page, path, 120_000);
+            paths.push(await getActiveWorkspaceWorkingCopyPath(page));
         }
         const logPath = join(electronFileLogDir(session.name), APP_LOG_FILE_NAME);
         const logOffset = (await readFile(logPath, 'utf8')).length;
-        // Start, then switch away before waiting for a result; all searches use trusted input.
-        for (let i = 0; i < count; i++) {
-            await activateWorkspaceTab(session, i);
-            await ensureSidebarOpen(page); await openDocumentSidebarTab(page, 'Search');
-            const input = await page.waitForSelector(`${SIDEBAR} .document-search-bar input`, {visible: true});
-            await clickAsUser(page, input!); await page.keyboard.type(`fallbackfinaldoc${i}`); await page.keyboard.press('Enter');
-        }
-        // The last request competes with more documents than the available fallback vector.
+        // Low mode unmounts cold workspaces, including their UI search state.
+        // Own these real IPC search results in the test so every query stays
+        // observable while its tab is cold. Closing still uses trusted input.
+        const requests = paths.map((pdfPath, index) => ({
+            pdfPath,
+            query: `fallbackfinaldoc${index}`,
+            requestId: requireRequestId(`fallback-concurrency-${index}`),
+            pageCount: pageCounts[index]!,
+        }));
+        const queuedRequest = requests.at(-1)!;
+        const progress = new Map<string, IPdfSearchProgress>();
+        await page.exposeFunction('__e2eFallbackProgress', (next: IPdfSearchProgress) => {
+            progress.set(next.requestId, next);
+        });
+        const searches = page.evaluate(async (batch: typeof requests) => {
+            const search = window.electronAPI!.search;
+            const unsubscribe = search.onProgress(next => {
+                void (window as IFallbackSearchWindow).__e2eFallbackProgress!(next);
+            });
+            try {
+                return await Promise.all(batch.map(request => search.run(request.pdfPath, request.query, {
+                    requestId: request.requestId,
+                    pageCount: request.pageCount,
+                })));
+            } finally {
+                unsubscribe();
+            }
+        }, requests);
+        // Observe extraction starting, rather than closing a debounced query
+        // that has never reached main. More requests compete than can run.
+        await expect.poll(() => progress.get(queuedRequest.requestId)?.processed ?? 0, {timeout: RESULT_TIMEOUT_MS}).toBeGreaterThan(0);
         await clickAsUser(page, '.tab.is-active .tab-close');
-        for (let i = 0; i < count - 1; i++) {
-            await activateWorkspaceTab(session, i);
-            await waitForFunctionInPage(page, (root: string, word: string) => (
-                Array.from(document.querySelectorAll<HTMLElement>(`${root} .document-search-result`)).some(result => result.textContent?.includes(word))
-            ), {timeout: RESULT_TIMEOUT_MS}, SIDEBAR, `fallbackfinaldoc${i}`);
+        const responses = await searches;
+        await page.removeExposedFunction('__e2eFallbackProgress');
+        expect(responses).toHaveLength(count);
+        expect(responses.at(-1)).toMatchObject({
+            canceled: true,
+            results: [],
+        });
+        for (const [
+            index,
+            response,
+        ] of responses.slice(0, -1).entries()) {
+            expect(response.canceled).not.toBe(true);
+            expect(response.truncated).toBe(false);
+            expect(response.coverage).toMatchObject({
+                pageCount: pageCounts[index],
+                pagesScanned: pageCounts[index],
+                truncated: false,
+            });
+            expect(response.results.some(result => result.pageNumber === pageCounts[index]
+                && result.excerpt.match === `fallbackfinaldoc${index}`)).toBe(true);
         }
         await activateWorkspaceTab(session, 0);
+        await ensureSidebarOpen(page);
+        await openDocumentSidebarTab(page, 'Search');
         const input = await page.waitForSelector(`${SIDEBAR} .document-search-bar input`, {visible: true});
         await clickAsUser(page, input!);
         await page.keyboard.down(process.platform === 'darwin' ? 'Meta' : 'Control');
