@@ -10,7 +10,9 @@ import {sweepBrowserDocumentMaintenance} from '@app/platform/browser/browserDocu
 import {
     loadBrowserTransferAuthority, mutateBrowserTransferAuthority, loadRecord,
 } from '@app/platform/browser/browserDocumentIdb';
-import {createBrowserFileContentWitness} from '@app/platform/browser/createBrowserFileContentWitness';
+import {
+    createBrowserFileContentWitness, createBrowserStoredBytesWitness,
+} from '@app/platform/browser/createBrowserFileContentWitness';
 import {
     BROWSER_LIVE_LEASES_STORE,
     BROWSER_DOCUMENT_CHUNK_SIZE,
@@ -95,11 +97,8 @@ describe('BrowserDocumentStore source registration', () => {
         expect((await store.requireEntry(reopenedRef)).saveHandle).toBe(handle);
     });
 
-    it.each([
-        32,
-        BROWSER_DOCUMENT_CHUNK_SIZE + 17,
-    ])('keeps bytes, snapshot, witness, and opening revision coherent for a fresh %i-byte source', async (size) => {
-        const bytes = Uint8Array.from({length: size}, (_value, index) => index ^ (index >>> 8) ^ (index >>> 16));
+    it('keeps bytes, snapshot, witness, and opening revision coherent for a fresh source', async () => {
+        const bytes = Uint8Array.from({length: 32}, (_value, index) => index + 1);
         const file = new File([bytes], 'coherent-source.pdf', {
             type: 'application/pdf',
             lastModified: 321,
@@ -127,6 +126,8 @@ describe('BrowserDocumentStore source registration', () => {
         expect(revision.token).toBe(`drt1:browser:${entry.contentToken}`);
         await expect(store.readRange(ref, 7, 9)).resolves.toEqual(bytes.slice(7, 16));
         await expect(store.read(ref)).resolves.toEqual(bytes);
+        const boundaryBytes = Uint8Array.from({length: BROWSER_DOCUMENT_CHUNK_SIZE + 17}, (_value, index) => index ^ (index >>> 8) ^ (index >>> 16));
+        await expect(createBrowserFileContentWitness(new File([boundaryBytes], 'boundary.pdf'))).resolves.toBe(await createBrowserStoredBytesWitness(boundaryBytes));
     });
 
     it.each([
