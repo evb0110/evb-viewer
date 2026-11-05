@@ -43,3 +43,16 @@ export function resolveExportRenderDpi(detectedDpi: number | null, pageSizes: re
     const dimensionLimitedDpi = Math.floor((IMAGE_EXPORT_MAX_RENDER_DIMENSION * POINTS_PER_INCH) / longestSidePts);
     return Math.max(1, Math.min(requestedDpi, dimensionLimitedDpi));
 }
+
+/** Match the browser canvas bounds without letting Poppler round DPI first. */
+export function resolveExportRenderSize(size: IExportPageSize, dpi: number, rotated = false) {
+    const width = Math.ceil(size.widthPts * dpi / POINTS_PER_INCH);
+    const height = Math.ceil(size.heightPts * dpi / POINTS_PER_INCH);
+    return rotated ? {
+        width: height,
+        height: width,
+    } : {
+        width,
+        height,
+    };
+}

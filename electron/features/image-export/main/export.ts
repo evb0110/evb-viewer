@@ -15,12 +15,12 @@ import {
 import {
     basename,
     dirname,
-    extname,
     join,
 } from 'path';
 import { fileURLToPath } from 'url';
 import type { ResourceLimits } from 'worker_threads';
 import {
+    chunkBy,
     sortBy,
     uniq,
 } from 'es-toolkit/array';
@@ -91,6 +91,7 @@ import {
 import {
     IMAGE_EXPORT_MAX_NETPBM_READ_BYTES,
     resolveExportRenderDpi,
+    resolveExportRenderSize,
     selectDpiProbePages,
 } from '@pdf-core/imageExportResolution';
 import {addPngPhysicalResolution} from '@pdf-core/addPngPhysicalResolution';
@@ -109,7 +110,6 @@ import {
     type TImageExportFormat,
 } from '@pdf-core/imageExportFileName';
 export type {TImageExportFormat} from '@pdf-core/imageExportFileName';
-type TPageRenderFormat = TImageExportFormat | 'ppm';
 interface IRenderedPageFile {
     page: number;
     path: string;
@@ -163,43 +163,6 @@ export function validateImageExportPath(filePath: string, format = resolveImageE
         throw new Error(te('errors.browser.imageExtensionMismatch', {extensions: extensions.join(', ')}));
     }
     return filePath;
-}
-
-function toPdftoppmFormatArgs(format: TPageRenderFormat) {
-    if (format === 'jpeg') {
-        return ['-jpeg'];
-    }
-    if (format === 'tiff') {
-        return ['-tiff'];
-    }
-    if (format === 'png') {
-        return ['-png'];
-    }
-    return [];
-}
-
-function parsePageNumber(fileName: string) {
-    const match = fileName.match(/-(\d+)\.[^.]+$/);
-    if (!match) {
-        return Number.POSITIVE_INFINITY;
-    }
-    return Number.parseInt(match[1] ?? '', 10);
-}
-
-function isExpectedPageFile(fileName: string, format: TPageRenderFormat) {
-    const extension = extname(fileName).toLowerCase();
-
-    if (format === 'jpeg') {
-        return extension === '.jpg' || extension === '.jpeg';
-    }
-    if (format === 'tiff') {
-        return extension === '.tif' || extension === '.tiff';
-    }
-    if (format === 'ppm') {
-        return extension === '.ppm';
-    }
-
-    return extension === '.png';
 }
 
 function readPnmToken(bytes: Uint8Array, cursor: { offset: number }) {
@@ -571,6 +534,7 @@ async function readExportPageSizes(
     pageCount: number,
     signal?: AbortSignal,
     cancelGroup?: string,
+    firstPage = 1,
 ) {
     const popplerEnv = buildPopplerEnv(popplerRuntimePaths);
     let longestSidePts = 0;
@@ -593,7 +557,7 @@ async function readExportPageSizes(
 
     const result = await runNativeToolCommand(popplerRuntimePaths.pdfinfo, [
         '-f',
-        '1',
+        String(firstPage),
         '-l',
         String(pageCount),
         pdfPath,
@@ -609,13 +573,13 @@ async function readExportPageSizes(
 
     // DPI planning only needs the longest side, so complete per-page
     // metadata is reduced while streaming instead of being kept dense.
-    if (longestSidePts <= 0) {
-        return [];
-    }
-    return [{
-        widthPts: longestSidePts,
-        heightPts: longestSidePts,
-    }];
+    return {
+        stdout: result.stdout,
+        pageSizes: longestSidePts > 0 ? [{
+            widthPts: longestSidePts,
+            heightPts: longestSidePts,
+        }] : [],
+    };
 }
 
 async function detectExportRenderDpi(
@@ -640,7 +604,8 @@ async function detectExportRenderDpi(
         pageSizes,
         sourceDpi,
     ] = await Promise.all([
-        readExportPageSizes(pdfPath, popplerRuntimePaths, pageCount, signal, cancelGroup).catch(fallBack([])),
+        readExportPageSizes(pdfPath, popplerRuntimePaths, pageCount, signal, cancelGroup)
+            .then(result => result.pageSizes).catch(fallBack([])),
         detectSourceDpiDetails(
             pdfPath,
             popplerRuntimePaths.pdfimages,
@@ -715,7 +680,8 @@ async function renderPdfToTempPages(
     const paths = getPdfNativeToolPaths();
     throwIfAborted(signal);
 
-    const renderFormat: TPageRenderFormat = format === 'png' ? 'ppm' : format;
+    const renderFormat = format === 'png' ? 'ppm' : format;
+    const extension = renderFormat === 'jpeg' ? 'jpg' : renderFormat === 'tiff' ? 'tif' : renderFormat;
     const popplerEnv = buildPopplerEnv(paths);
     const commandOptions: Parameters<typeof runNativeToolCommand>[2] = {
         timeoutMs: PDFTOPPM_TIMEOUT_MS,
@@ -727,36 +693,44 @@ async function renderPdfToTempPages(
         commandOptions.env = popplerEnv;
     }
 
-    await runNativeToolCommand(paths.pdftoppm, [
-        '-cropbox',
-        ...toPdftoppmFormatArgs(renderFormat),
-        '-r',
-        String(renderDpi),
-        '-f',
-        String(pageRange.firstPage),
-        '-l',
-        String(pageRange.lastPage),
-        pdfPath,
-        prefix,
-    ], commandOptions);
-    throwIfAborted(signal);
+    const {stdout} = await readExportPageSizes(pdfPath, paths, pageRange.lastPage, signal, cancelGroup, pageRange.firstPage);
+    const lines = stdout.split(/\r?\n/u);
+    const sizes = lines.flatMap((line, index) => {
+        const size = parsePdfInfoPageSizeLine(line);
+        return size ? [resolveExportRenderSize(size, renderDpi, /rot:\s+(?:90|270)\b/u.test(lines[index + 1] ?? ''))] : [];
+    });
+    if (sizes.length !== pageRange.lastPage - pageRange.firstPage + 1) {
+        throw new Error('PDF image export is missing page dimensions');
+    }
+    for (const group of chunkBy(sizes.map((size, index) => ({
+        ...size,
+        page: pageRange.firstPage + index,
+    })), size => `${size.width}x${size.height}`)) {
+        await runNativeToolCommand(paths.pdftoppm, [
+            '-cropbox',
+            ...(renderFormat === 'ppm' ? [] : [`-${renderFormat}`]),
+            '-r',
+            String(renderDpi),
+            '-W',
+            String(group[0]!.width),
+            '-H',
+            String(group[0]!.height),
+            '-f',
+            String(group[0]!.page),
+            '-l',
+            String(group.at(-1)!.page),
+            pdfPath,
+            prefix,
+        ], commandOptions);
+        throwIfAborted(signal);
+    }
 
-    const fileNames = await readdir(tempDir);
-    const pageFiles = sortBy(
-        fileNames
-            .filter(fileName => fileName.startsWith('page-'))
-            .filter(fileName => isExpectedPageFile(fileName, renderFormat))
-            .map(fileName => ({
-                fileName,
-                page: parsePageNumber(fileName),
-            }))
-            .filter(file => file.page >= pageRange.firstPage && file.page <= pageRange.lastPage),
-        ['page'],
-    )
-        .map((file) => ({
-            page: file.page,
-            path: join(tempDir, file.fileName),
-        }));
+    const pageFiles = sortBy((await readdir(tempDir))
+        .filter(name => name.startsWith('page-') && name.endsWith(`.${extension}`))
+        .map(name => ({
+            page: Number(name.slice(5, -extension.length - 1)),
+            path: join(tempDir, name),
+        })), ['page']);
 
     if (pageFiles.length === 0) {
         throw new Error('No page images were generated from the PDF');
