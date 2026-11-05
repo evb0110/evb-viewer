@@ -2286,11 +2286,55 @@ describe('[crpart3core] submitted open', () => {
             size: 18,
         });
         await writeFile(replacement, await pdf.save());
+        const cleanupGate = createFixturePath(`cr2-cleanup-${Date.now()}`);
+        await mkdir(cleanupGate, {recursive: true});
+        const hook = join(cleanupGate, 'hold-cleanup.cjs');
+        // Force the fast-render/slow-cleanup ordering without delaying PDF.js:
+        // the old copy is removed, but its cleanup reply waits for new pixels.
+        await writeFile(hook, `
+if (process.type === 'browser') {
+    const fs = require('node:fs/promises');
+    const {watch, existsSync, writeFileSync} = require('node:fs');
+    const {basename, join} = require('node:path');
+    const {syncBuiltinESMExports} = require('node:module');
+    const root = ${JSON.stringify(cleanupGate)};
+    const remove = fs.rm;
+    let held = false;
+    fs.rm = async (path, ...args) => {
+        const result = await remove(path, ...args);
+        if (!held && basename(String(path)).startsWith('pdf-work-')) {
+            held = true;
+            writeFileSync(join(root, 'held'), 'held');
+            await new Promise(resolve => {
+                const watcher = watch(root, () => {
+                    if (existsSync(join(root, 'release'))) {watcher.close(); resolve();}
+                });
+                if (existsSync(join(root, 'release'))) {watcher.close(); resolve();}
+            });
+        }
+        return result;
+    };
+    syncBuiltinESMExports();
+}
+`);
         const run = await startElectronE2ESession(`e2e-crpart3core-submitted-${Date.now()}`, {
             clean: true,
-            extraEnv: {EVB_E2E_OPEN_DIALOG_PATH: replacement},
+            extraEnv: {
+                EVB_E2E_OPEN_DIALOG_PATH: replacement,
+                NODE_OPTIONS: `${process.env.NODE_OPTIONS ?? ''} --require=${JSON.stringify(hook)}`,
+            },
         });
-        onTestFinished(() => run.stop());
+        onTestFinished(async () => {
+            await writeFile(join(cleanupGate, 'release'), 'release');
+            try {
+                await run.stop();
+            } finally {
+                await rm(cleanupGate, {
+                    recursive: true,
+                    force: true,
+                });
+            }
+        });
         const {page} = run;
         const errors: string[] = [];
         page.on('pageerror', error => errors.push(String(error)));
@@ -2347,6 +2391,12 @@ describe('[crpart3core] submitted open', () => {
             const firstWorkers = (await listWorkers()).filter(id => !existingWorkers.includes(id));
             expect(firstWorkers.length).toBeGreaterThan(0);
             await activateMenuItemAsUser(page, {accelerator: 'CmdOrCtrl+O'});
+            try {
+                await expect.poll(() => existsSync(join(cleanupGate, 'held')), {timeout: 20_000}).toBe(true);
+                await page.waitForFunction(() => document.querySelector('.editor-pane.is-active .textLayer')?.textContent?.includes('Replacement is ready'), {timeout: SAVE_TIMEOUT_MS});
+            } finally {
+                await writeFile(join(cleanupGate, 'release'), 'release');
+            }
             await waitForOpenedPdf(page, replacement);
             expect(await readTab()).toBe(tab);
             await expect.poll(async () => page.$eval('.editor-pane.is-active .textLayer', node => node.textContent), {timeout: 20_000})
