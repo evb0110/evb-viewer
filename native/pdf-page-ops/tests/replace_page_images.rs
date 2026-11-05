@@ -697,3 +697,56 @@ fn replacement_preserves_ocg_ocmd_and_optional_marked_content() {
 fn replacement_still_accepts_untagged_artifact_marked_content() {
     semantic_replacement_case("artifact-control", "replaced");
 }
+
+#[test]
+fn replacement_keeps_the_original_page_when_source_actual_text_is_not_supported() {
+    for named in [false, true] {
+        let scratch = Scratch::new("source-actual-text");
+        let source_path = scratch.path("source.pdf");
+        let source = save_source(&source_path, false, false, false);
+        let mut document = Document::load(&source_path).unwrap();
+        let props = if named {
+            "/Correction"
+        } else {
+            "<< /ActualText (Recognized) >>"
+        };
+        let content = document.add_object(Stream::new(dictionary! {}, format!("/Span {props} BDC BT /F1 12 Tf 3 Tr 1 0 0 1 50 60 Tm (X) Tj ET EMC q 200 0 0 120 0 0 cm /Scan Do Q").into_bytes()));
+        document
+            .get_dictionary_mut(source.page)
+            .unwrap()
+            .set("Contents", content);
+        if named {
+            let resources = document
+                .get_dictionary_mut(source.page)
+                .unwrap()
+                .get_mut(b"Resources")
+                .unwrap()
+                .as_dict_mut()
+                .unwrap();
+            resources.set("Properties", dictionary! {"Correction" => dictionary! {"ActualText" => Object::string_literal("Recognized")}});
+        }
+        document.save(&source_path).unwrap();
+        let before = fs::read(&source_path).unwrap();
+        let extract = |path: &Path| {
+            Command::new("pdftotext")
+                .args(["-layout"])
+                .arg(path)
+                .arg("-")
+                .output()
+                .unwrap()
+        };
+        let original = extract(&source_path);
+        assert!(original.status.success());
+        assert!(String::from_utf8_lossy(&original.stdout).contains("Recognized"));
+        save_replacement(&scratch.path("replacement.pdf"), false, false);
+        let result = run(&scratch, instructions(&scratch));
+        report(&result, "tagged-content");
+        assert_eq!(fs::read(&source_path).unwrap(), before);
+        let output = scratch.path("output.pdf");
+        if output.exists() {
+            assert_eq!(fs::read(&output).unwrap(), before);
+            assert_eq!(extract(&output).stdout, original.stdout);
+            Document::load(&output).unwrap();
+        }
+    }
+}

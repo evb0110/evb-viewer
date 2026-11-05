@@ -715,11 +715,11 @@ fn repaired_show_operations(
     final_matrix: TextMatrix,
     format: lopdf::StringFormat,
     force_pdfjs_item_breaks: bool,
-    visible: impl Fn(usize) -> Result<bool>,
+    mut visible: impl FnMut(&TextGlyph) -> Result<bool>,
 ) -> Result<Option<Vec<ContentOperation>>> {
     let mut operations = Vec::with_capacity(glyphs.len() * 2 + 3);
     for (index, glyph) in glyphs.iter().enumerate() {
-        if visible(index)? {
+        if visible(glyph)? {
             // PDF.js combines adjacent text operators before running its bidi
             // pass. Tesseract's RTL operators already carry logical codepoints
             // at right-to-left origins, so make each CID its own run while
@@ -789,121 +789,63 @@ fn repair_show_string(
     bytes: &[u8],
     format: lopdf::StringFormat,
     text: &mut TextFilterState,
+    strict: bool,
+    visible: impl FnMut(&TextGlyph) -> Result<bool>,
 ) -> Result<Option<Vec<ContentOperation>>> {
-    if bytes.len() > MAX_REPAIRED_SHOW_BYTES {
+    if !strict && bytes.len() > MAX_REPAIRED_SHOW_BYTES {
         text.text_matrix = None;
         return Ok(None);
     }
     let original = text.clone();
-    let result = match text.font.as_ref().cloned() {
-        Some(font) => {
-            let glyphs = match text.measure_glyphs(bytes) {
-                Ok(glyphs) => glyphs,
-                Err(_) => {
-                    *text = original;
-                    text.text_matrix = None;
-                    return Ok(None);
-                }
-            };
-            let Some(line_matrix) = text.line_matrix else {
-                return Ok(None);
-            };
-            let Some(final_matrix) = text.text_matrix else {
-                return Ok(None);
-            };
-            let source = glyphs
-                .iter()
-                .filter_map(|glyph| glyph.character)
-                .collect::<String>();
-            let has_rtl = contains_rtl(&source);
-            let ordered = if has_rtl && line_matrix.a >= 0.0 {
-                let Some(reordered) = reorder_glyphs(&glyphs, &font) else {
-                    return Ok(None);
-                };
-                reordered
-            } else {
-                glyphs
-            };
-            repaired_show_operations(
-                &ordered,
-                text,
-                line_matrix,
-                final_matrix,
-                format,
-                has_rtl && line_matrix.a < 0.0,
-                |_| Ok(true),
-            )?
-        }
-        None => {
+    let result = (|| {
+        let Some(font) = text.font.as_ref().cloned() else {
             text.text_matrix = None;
-            None
-        }
-    };
-    Ok(result)
-}
-
-fn repair_filtered_show_string(
-    bytes: &[u8],
-    format: lopdf::StringFormat,
-    text: &mut TextFilterState,
-    graphics: TextMatrix,
-    overlay: TextMatrix,
-    target_view: PdfRect,
-) -> Result<Option<Vec<ContentOperation>>> {
-    let original = text.clone();
-    let glyphs = match text.measure_glyphs(bytes) {
-        Ok(glyphs) => glyphs,
-        Err(error) => {
-            *text = original;
-            return Err(error);
-        }
-    };
-    let font = text
-        .font
-        .as_ref()
-        .cloned()
-        .ok_or("overlay-text show operator has no selected font")?;
-    let Some(line_matrix) = text.line_matrix else {
-        *text = original;
-        return Ok(None);
-    };
-    let Some(final_matrix) = text.text_matrix else {
-        *text = original;
-        return Ok(None);
-    };
-    let visibility_glyphs = glyphs.clone();
-    let source = glyphs
-        .iter()
-        .filter_map(|glyph| glyph.character)
-        .collect::<String>();
-    let has_rtl = contains_rtl(&source);
-    let ordered = if has_rtl && line_matrix.a >= 0.0 {
-        let Some(reordered) = reorder_glyphs(&glyphs, &font) else {
-            *text = original;
             return Ok(None);
         };
-        reordered
-    } else {
-        glyphs
-    };
-    let operations = repaired_show_operations(
-        &ordered,
-        text,
-        line_matrix,
-        final_matrix,
-        format,
-        has_rtl && line_matrix.a < 0.0,
-        |index| {
-            target_point_is_visible(
-                visibility_glyphs[index].start,
-                text.rise,
-                graphics,
-                overlay,
-                target_view,
-            )
-        },
-    )?;
-    Ok(operations)
+        let glyphs = match text.measure_glyphs(bytes) {
+            Ok(glyphs) => glyphs,
+            Err(error) => {
+                *text = original.clone();
+                if strict {
+                    return Err(error);
+                }
+                text.text_matrix = None;
+                return Ok(None);
+            }
+        };
+        let Some(line_matrix) = text.line_matrix else {
+            return Ok(None);
+        };
+        let Some(final_matrix) = text.text_matrix else {
+            return Ok(None);
+        };
+        let source = glyphs
+            .iter()
+            .filter_map(|glyph| glyph.character)
+            .collect::<String>();
+        let has_rtl = contains_rtl(&source);
+        let ordered = if has_rtl && line_matrix.a >= 0.0 {
+            let Some(reordered) = reorder_glyphs(&glyphs, &font) else {
+                return Ok(None);
+            };
+            reordered
+        } else {
+            glyphs
+        };
+        repaired_show_operations(
+            &ordered,
+            text,
+            line_matrix,
+            final_matrix,
+            format,
+            has_rtl && line_matrix.a < 0.0,
+            visible,
+        )
+    })();
+    if strict && !matches!(result, Ok(Some(_))) {
+        *text = original;
+    }
+    result
 }
 
 fn same_text_line(left: TextMatrix, right: TextMatrix) -> bool {
@@ -1051,6 +993,12 @@ fn mark_ltr_text_objects(
     parsed_fonts: &mut HashMap<Vec<u8>, Rc<TextFont>>,
     operations: Vec<ContentOperation>,
 ) -> Result<Vec<ContentOperation>> {
+    if operations
+        .iter()
+        .any(|operation| operation.operator == "BDC")
+    {
+        return Ok(operations);
+    }
     let mut rewritten = Vec::with_capacity(operations.len());
     let mut index = 0;
     while index < operations.len() {
@@ -1082,16 +1030,12 @@ fn filter_string(
     bytes: &[u8],
     format: lopdf::StringFormat,
     text: &mut TextFilterState,
-    graphics: TextMatrix,
-    overlay: TextMatrix,
-    target_view: PdfRect,
+    visible: &mut impl FnMut(&TextGlyph) -> Result<bool>,
     output: &mut Vec<Object>,
 ) -> Result<()> {
     let glyphs = text.measure_glyphs(bytes)?;
     for glyph in glyphs {
-        let visible =
-            target_point_is_visible(glyph.start, text.rise, graphics, overlay, target_view)?;
-        if visible {
+        if visible(&glyph)? {
             push_string(output, &glyph.bytes, format);
         } else if glyph.advance.abs() > f64::EPSILON {
             let scale = text.font_size * text.horizontal_scale;
@@ -1109,22 +1053,14 @@ fn filter_string(
 fn filter_show_array(
     values: &[Object],
     text: &mut TextFilterState,
-    graphics: TextMatrix,
-    overlay: TextMatrix,
-    target_view: PdfRect,
+    visible: &mut impl FnMut(&TextGlyph) -> Result<bool>,
 ) -> Result<Vec<Object>> {
     let mut output = Vec::new();
     for value in values {
         match value {
-            Object::String(bytes, format) => filter_string(
-                bytes,
-                *format,
-                text,
-                graphics,
-                overlay,
-                target_view,
-                &mut output,
-            )?,
+            Object::String(bytes, format) => {
+                filter_string(bytes, *format, text, visible, &mut output)?
+            }
             Object::Integer(_) | Object::Real(_) => {
                 let adjustment = object_to_f64(value)?;
                 push_adjustment(&mut output, adjustment);
@@ -1274,8 +1210,65 @@ pub(crate) fn text_operations(
     let mut graphics = TextMatrix::IDENTITY;
     let mut graphics_stack = Vec::new();
     let mut text = TextFilterState::new();
+    // Each source marked-content scope either owns an authoritative semantic
+    // span (output start, visibility), or is structural markup we omit.
+    let mut spans: Vec<Option<(usize, Option<bool>)>> = Vec::new();
     for operation in content.operations {
+        let rise = text.rise;
+        let mut visible = |glyph: &TextGlyph| -> Result<bool> {
+            let keep = match filter {
+                Some((overlay, view)) => {
+                    target_point_is_visible(glyph.start, rise, graphics, overlay, view)?
+                }
+                None => true,
+            };
+            for (_, previous) in spans.iter_mut().flatten() {
+                if previous.is_some_and(|previous| previous != keep) {
+                    return Err("overlay-text cannot partition a source ActualText span".into());
+                }
+                *previous = Some(keep);
+            }
+            Ok(keep)
+        };
         match operation.operator.as_str() {
+            "BDC" => {
+                let [_, property] = operation.operands.as_slice() else {
+                    return Err("overlay-text source has a malformed BDC operator".into());
+                };
+                let resources = page_resources(source, page_id)?;
+                let property = match source.resolved(property)? {
+                    Object::Name(name) => source
+                        .resolved(resources.get(b"Properties")?)?
+                        .as_dict()?
+                        .get(name)?,
+                    _ => property,
+                };
+                let property = source.resolved(property)?.as_dict()?;
+                if let Ok(actual) = property.get(b"ActualText") {
+                    let actual = source.resolved(actual)?.clone();
+                    actual.as_str()?;
+                    spans.push(Some((operations.len(), None)));
+                    operations.push(ContentOperation::new(
+                        "BDC",
+                        vec!["Span".into(), dictionary! {"ActualText" => actual}.into()],
+                    ));
+                } else {
+                    spans.push(None);
+                }
+            }
+            "BMC" => spans.push(None),
+            "EMC" => {
+                let span = spans
+                    .pop()
+                    .ok_or("overlay-text source has an unmatched EMC operator")?;
+                if let Some((start, visibility)) = span {
+                    if strict && visibility != Some(true) {
+                        operations.remove(start);
+                    } else {
+                        operations.push(ContentOperation::new("EMC", Vec::new()));
+                    }
+                }
+            }
             // Preserve affine graphics state around text objects. Image, path,
             // and paint operators are deliberately discarded.
             "q" if !in_text => {
@@ -1444,110 +1437,35 @@ pub(crate) fn text_operations(
                 operations.push(operation);
             }
             "Tj" | "TJ" if in_text => {
-                if let Some((overlay, target_view)) = filter {
-                    let repaired = if operation.operator == "Tj" && operation.operands.len() == 1 {
-                        match &operation.operands[0] {
-                            Object::String(bytes, format) => repair_filtered_show_string(
-                                bytes,
-                                *format,
-                                &mut text,
-                                graphics,
-                                overlay,
-                                target_view,
-                            )?,
-                            _ => None,
-                        }
-                    } else if operation.operator == "TJ" && operation.operands.len() == 1 {
-                        match operation.operands[0].as_array() {
-                            Ok(values) if values.len() == 1 => match values.first() {
-                                Some(Object::String(bytes, format)) => repair_filtered_show_string(
-                                    bytes,
-                                    *format,
-                                    &mut text,
-                                    graphics,
-                                    overlay,
-                                    target_view,
-                                )?,
-                                _ => None,
-                            },
-                            _ => None,
-                        }
-                    } else {
-                        None
-                    };
-                    if let Some(repaired) = repaired {
-                        operations.extend(repaired);
-                        continue;
+                let values = match (operation.operator.as_str(), operation.operands.as_slice()) {
+                    ("Tj", [value @ Object::String(..)]) => Some(std::slice::from_ref(value)),
+                    ("TJ", [Object::Array(values)]) => Some(values.as_slice()),
+                    _ => None,
+                };
+                let repaired = match values {
+                    Some([Object::String(bytes, format)]) => {
+                        repair_show_string(bytes, *format, &mut text, strict, &mut visible)?
                     }
-                    let source_values = if operation.operator == "Tj" {
-                        if operation.operands.len() != 1 {
-                            return Err("overlay-text source has a malformed Tj operator".into());
-                        }
-                        match &operation.operands[0] {
-                            Object::String(bytes, format) => {
-                                vec![Object::String(bytes.clone(), *format)]
-                            }
-                            _ => {
-                                return Err("overlay-text source has a non-string Tj operand".into())
-                            }
-                        }
-                    } else {
-                        if operation.operands.len() != 1 {
-                            return Err("overlay-text source has a malformed TJ operator".into());
-                        }
-                        operation.operands[0]
-                            .as_array()
-                            .map_err(|_| "overlay-text source has a non-array TJ operand")?
-                            .clone()
-                    };
-                    let filtered = filter_show_array(
-                        &source_values,
-                        &mut text,
-                        graphics,
-                        overlay,
-                        target_view,
-                    )?;
+                    _ => None,
+                };
+                if let Some(repaired) = repaired {
+                    operations.extend(repaired);
+                } else if strict {
+                    let values =
+                        values.ok_or("overlay-text source has a malformed text-show operator")?;
+                    let filtered = filter_show_array(values, &mut text, &mut visible)?;
                     if !filtered.is_empty() {
                         operations.push(ContentOperation::new("TJ", vec![Object::Array(filtered)]));
                     }
                 } else {
-                    let repaired = if operation.operator == "Tj" && operation.operands.len() == 1 {
-                        match &operation.operands[0] {
-                            Object::String(bytes, format) => {
-                                repair_show_string(bytes, *format, &mut text)?
-                            }
-                            _ => None,
-                        }
-                    } else if operation.operator == "TJ" && operation.operands.len() == 1 {
-                        match operation.operands[0].as_array() {
-                            Ok(values) if values.len() == 1 => match values.first() {
-                                Some(Object::String(bytes, format)) => {
-                                    repair_show_string(bytes, *format, &mut text)?
-                                }
-                                _ => None,
-                            },
-                            _ => None,
-                        }
-                    } else {
-                        None
-                    };
-                    if operation.operator == "TJ"
-                        && !matches!(operation.operands.as_slice(),
-                            [Object::Array(values)] if matches!(values.as_slice(), [Object::String(..)]))
-                    {
-                        // An unmeasured TJ leaves the position unknown.
-                        text.text_matrix = None;
-                    }
-                    if let Some(repaired) = repaired {
-                        operations.extend(repaired);
-                    } else {
-                        operations.push(operation);
-                    }
+                    // An unmeasured show leaves the position unknown.
+                    text.text_matrix = None;
+                    operations.push(operation);
                 }
             }
             "'" if in_text => {
                 text.next_line();
-                if let Some((overlay, target_view)) = filter {
+                if strict {
                     if operation.operands.len() != 1 {
                         return Err("overlay-text source has a malformed ' operator".into());
                     }
@@ -1556,15 +1474,7 @@ pub(crate) fn text_operations(
                     };
                     operations.push(ContentOperation::new("T*", Vec::new()));
                     let mut filtered = Vec::new();
-                    filter_string(
-                        bytes,
-                        *format,
-                        &mut text,
-                        graphics,
-                        overlay,
-                        target_view,
-                        &mut filtered,
-                    )?;
+                    filter_string(bytes, *format, &mut text, &mut visible, &mut filtered)?;
                     if !filtered.is_empty() {
                         operations.push(ContentOperation::new("TJ", vec![Object::Array(filtered)]));
                     }
@@ -1575,7 +1485,7 @@ pub(crate) fn text_operations(
             }
             "\"" if in_text => {
                 text.next_line();
-                if let Some((overlay, target_view)) = filter {
+                if strict {
                     if operation.operands.len() != 3 {
                         return Err("overlay-text source has a malformed \" operator".into());
                     }
@@ -1596,15 +1506,7 @@ pub(crate) fn text_operations(
                     ));
                     operations.push(ContentOperation::new("T*", Vec::new()));
                     let mut filtered = Vec::new();
-                    filter_string(
-                        bytes,
-                        *format,
-                        &mut text,
-                        graphics,
-                        overlay,
-                        target_view,
-                        &mut filtered,
-                    )?;
+                    filter_string(bytes, *format, &mut text, &mut visible, &mut filtered)?;
                     if !filtered.is_empty() {
                         operations.push(ContentOperation::new("TJ", vec![Object::Array(filtered)]));
                     }
@@ -1652,6 +1554,9 @@ pub(crate) fn text_operations(
             }
             _ => {}
         }
+    }
+    if !spans.is_empty() {
+        return Err("overlay-text source has unterminated marked content".into());
     }
     if in_text {
         if strict {

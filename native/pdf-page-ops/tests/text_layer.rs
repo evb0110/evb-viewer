@@ -5613,3 +5613,114 @@ fn lossless_split_keeps_each_note_reply() {
         let _ = remove_file(file);
     }
 }
+
+#[test]
+fn overlay_text_filters_reordered_rtl_glyphs_at_their_own_positions() {
+    let source = path("rtl-split-source", "pdf");
+    let input = path("rtl-split-input", "pdf");
+    let output = path("rtl-split-output", "pdf");
+    let control = path("rtl-split-control", "pdf");
+    let instructions = path("rtl-split-instructions", "json");
+    let mut doc = save_identity_text_source(
+        &source,
+        "אבג",
+        Some(Stream::new(dictionary! {}, FULL_RANGE_CMAP.to_vec())),
+    );
+    let page = doc.get_pages()[&1];
+    let content = doc.add_object(Stream::new(
+        dictionary! {},
+        b"BT /F1 20 Tf 3 Tr 1 0 0 1 90 80 Tm <05D005D1> Tj ET".to_vec(),
+    ));
+    doc.get_dictionary_mut(page)
+        .unwrap()
+        .set("Contents", content);
+    doc.save(&source).unwrap();
+    save_identity_overlay_target(&input, &instructions);
+    let result = run_overlay_text(&input, &source, &control, &instructions);
+    assert!(result.status.success());
+    let full = pdftotext_page(&control, 1, &[]);
+    assert!(full.status.success());
+    save_half_pages(&input, 2);
+    write(&instructions, r#"{"pages":[{"sourcePageIndex":0,"outputPageIndex":0,"matrix":[1,0,0,1,0,0],"filterToOutputPage":true},{"sourcePageIndex":0,"outputPageIndex":1,"matrix":[1,0,0,1,-100,0],"filterToOutputPage":true}]}"#).unwrap();
+    let result = run_overlay_text(&input, &source, &output, &instructions);
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    for (page, kept, removed, x) in [(1, "א", "ב", 90.0), (2, "ב", "א", 10.0)] {
+        let text = pdftotext_page(&output, page, &[]);
+        assert!(text.status.success());
+        let text = String::from_utf8_lossy(&text.stdout);
+        assert!(
+            text.contains(kept) && !text.contains(removed),
+            "page {page}: {text}"
+        );
+        assert!(String::from_utf8_lossy(&full.stdout).contains(kept));
+        let bbox = pdftotext_page(&output, page, &["-bbox"]);
+        assert!(bbox.status.success());
+        assert!((bbox_word_x(&String::from_utf8_lossy(&bbox.stdout), kept) - x).abs() < 0.01);
+    }
+    for file in [source, input, output, control, instructions] {
+        remove_file(file).unwrap();
+    }
+}
+
+#[test]
+fn overlay_text_preserves_source_actual_text_and_refuses_partial_semantic_spans() {
+    for named in [false, true] {
+        for nested in [false, true] {
+            let source = path("actual-source", "pdf");
+            let input = path("actual-input", "pdf");
+            let output = path("actual-output", "pdf");
+            let instructions = path("actual-instructions", "json");
+            let property = if named {
+                "/Correction"
+            } else {
+                "<< /ActualText (Recognized) >>"
+            };
+            let (begin, end) = if nested {
+                ("/P BMC ", " EMC")
+            } else {
+                ("", "")
+            };
+            save_single_page(&source, format!("{begin}/Span {property} BDC BT /F1 20 Tf 3 Tr 1 0 0 1 90 80 Tm (XX) Tj ET EMC{end}").into_bytes(), dictionary! {
+                "Font" => dictionary! {"F1" => dictionary! {"Type" => "Font", "Subtype" => "Type1", "BaseFont" => "Courier"}},
+                "Properties" => dictionary! {"Correction" => dictionary! {"ActualText" => Object::string_literal("Recognized"), "MCID" => 7}},
+            });
+            save_identity_overlay_target(&input, &instructions);
+            let source_text = pdftotext_page(&source, 1, &[]);
+            assert!(source_text.status.success());
+            assert!(String::from_utf8_lossy(&source_text.stdout).contains("Recognized"));
+            let result = run_overlay_text(&input, &source, &output, &instructions);
+            assert!(
+                result.status.success(),
+                "{}",
+                String::from_utf8_lossy(&result.stderr)
+            );
+            let saved = pdftotext_page(&output, 1, &[]);
+            assert!(saved.status.success());
+            assert_eq!(saved.stdout, source_text.stdout);
+            // A strict full-page copy must keep the same authoritative text.
+            write(&instructions, r#"{"pages":[{"sourcePageIndex":0,"outputPageIndex":0,"matrix":[1,0,0,1,0,0],"filterToOutputPage":true}]}"#).unwrap();
+            let result = run_overlay_text(&input, &source, &output, &instructions);
+            assert!(result.status.success());
+            assert_eq!(pdftotext_page(&output, 1, &[]).stdout, source_text.stdout);
+            // One semantic string describes both glyphs across the seam.
+            save_half_pages(&input, 1);
+            let result = run_overlay_text(&input, &source, &output, &instructions);
+            assert!(result.status.success());
+            assert!(
+                String::from_utf8_lossy(&result.stderr).contains("ActualText"),
+                "{}",
+                String::from_utf8_lossy(&result.stderr)
+            );
+            let saved = pdftotext_page(&output, 1, &[]);
+            assert!(saved.status.success());
+            assert!(!String::from_utf8_lossy(&saved.stdout).contains('X'));
+            for file in [source, input, output, instructions] {
+                remove_file(file).unwrap();
+            }
+        }
+    }
+}
