@@ -311,6 +311,19 @@ fn seed_file(source: &Path, destination: &Path) -> io::Result<bool> {
     // turn holes into gigabytes of zero writes at every incremental save.
     destination_file.set_len(0)?;
     let length = source_file.metadata()?.len();
+    copy_data_extents(&mut source_file, &mut destination_file, length)
+}
+
+/// Copies `source`'s data extents to the same offsets in an empty
+/// `destination` and sizes it to `length`; `false` asks for a streamed copy.
+#[cfg(target_os = "linux")]
+fn copy_data_extents(
+    source_file: &mut File,
+    destination_file: &mut File,
+    length: u64,
+) -> io::Result<bool> {
+    use std::os::unix::io::AsRawFd;
+
     let mut offset = 0;
     while offset < length {
         let data = unsafe {
@@ -335,7 +348,7 @@ fn seed_file(source: &Path, destination: &Path) -> io::Result<bool> {
         source_file.seek(SeekFrom::Start(data as u64))?;
         destination_file.seek(SeekFrom::Start(data as u64))?;
         let bytes = end - data as u64;
-        if io::copy(&mut (&mut source_file).take(bytes), &mut destination_file)? != bytes {
+        if io::copy(&mut (&mut *source_file).take(bytes), destination_file)? != bytes {
             return Err(io::Error::new(
                 io::ErrorKind::UnexpectedEof,
                 "Sparse input changed during copy",
@@ -705,6 +718,37 @@ mod tests {
 
         assert!(!temporary_path.exists());
         assert!(!destination.exists());
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn extent_copy_keeps_separated_data_and_holes() {
+        let source = test_path("extent-source");
+        let destination = test_path("extent-destination");
+        let mut source_file = File::options()
+            .read(true)
+            .write(true)
+            .create_new(true)
+            .open(&source)
+            .unwrap();
+        source_file.seek(SeekFrom::Start(1024 * 1024)).unwrap();
+        source_file.write_all(b"first-extent").unwrap();
+        source_file.seek(SeekFrom::Start(3 * 1024 * 1024)).unwrap();
+        source_file.write_all(b"second-extent").unwrap();
+        source_file.set_len(5 * 1024 * 1024).unwrap();
+        let expected = fs::read(&source).unwrap();
+        let mut destination_file = File::create(&destination).unwrap();
+
+        assert!(copy_data_extents(
+            &mut source_file,
+            &mut destination_file,
+            expected.len() as u64
+        )
+        .unwrap());
+
+        assert_eq!(fs::read(&destination).unwrap(), expected);
+        fs::remove_file(source).unwrap();
+        fs::remove_file(destination).unwrap();
     }
 
     #[cfg(unix)]
