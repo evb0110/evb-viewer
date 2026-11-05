@@ -26,6 +26,7 @@ const origin = inject('browserIntegrationOrigin');
 let browser: Browser;
 
 export interface IBrowserLifecycleTestApi {
+    getActiveWorkspaceHandle?: () => unknown;
     waitForActiveDocumentOpenSettled?: () => Promise<boolean>;
     callActiveWorkspaceCommand?: <TResult = unknown>(commandName: string, args?: unknown[]) => Promise<{
         called: boolean;
@@ -78,6 +79,11 @@ export async function waitForOpenFileReady(page: Page) {
 }
 
 export async function settleActiveOpen(page: Page) {
+    // File chooser delivery can finish before the lazy active workspace mounts.
+    await page.waitForFunction(() => {
+        const testApi = Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi | undefined;
+        return Boolean(testApi?.getActiveWorkspaceHandle?.());
+    }, undefined, {timeout: 30_000});
     await page.evaluate(async () => {
         const testApi = Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi | undefined;
         if (!await testApi?.waitForActiveDocumentOpenSettled?.()) throw new Error('PDF viewer open did not settle');
