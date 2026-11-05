@@ -665,14 +665,21 @@ describe('usePdfSinglePageNavigationController', () => {
         }
     });
 
-    it('relayouts a fit change on the page the user scrolled to, not on the reinterpreted offset', async () => {
+    it.each([
+        0,
+        1,
+        2,
+        3,
+        4,
+        -1,
+    ])('keeps the reading point through a fit or %i quarter turns before one flush', async (turns) => {
         const scope = effectScope();
         const viewer = document.createElement('div');
         Object.defineProperties(viewer, {
             clientHeight: {value: 700},
             clientWidth: {value: 900},
-            scrollHeight: {value: 5_000},
-            scrollWidth: {value: 900},
+            scrollHeight: {value: 50_000},
+            scrollWidth: {value: 5_000},
             scrollLeft: {
                 value: 0,
                 writable: true,
@@ -689,11 +696,11 @@ describe('usePdfSinglePageNavigationController', () => {
             page.innerHTML = '<div class="page_canvas"><canvas width="600" height="800"></canvas></div>';
             viewer.append(page);
         }
-        const buildLayout = (scale: number) => {
+        const buildLayout = (scale: number, rotated = false) => {
             const layout = buildPageLayoutMetrics({
                 pageMetrics: Array.from({length: 6}, () => ({
-                    width: 600,
-                    height: 800,
+                    width: rotated ? 2_400 : 600,
+                    height: rotated ? 600 : 2_400,
                 })),
                 totalPages: 6,
                 viewMode: 'single',
@@ -707,10 +714,8 @@ describe('usePdfSinglePageNavigationController', () => {
             }
             return layout;
         };
-        // Fit width, then the fit-height replacement: every row shrinks, so the
-        // pre-change scroll offset now sits several pages further down.
-        const wideLayout = buildLayout(1);
-        const shortLayout = buildLayout(0.25);
+        const wideLayout = buildLayout(2);
+        const targetLayout = buildLayout(turns === 0 ? 1.4 : 2, Math.abs(turns) % 2 === 1);
         let layout = wideLayout;
         const viewportWrites = createTestPdfViewportWritePort();
         const pageIndicator = ref(1);
@@ -750,23 +755,45 @@ describe('usePdfSinglePageNavigationController', () => {
 
             // The user scrolls into page 3. getLayoutPageTop takes a
             // zero-based row index.
-            viewer.scrollTop = requireLayoutPageTop(wideLayout, 2) + 300;
+            viewer.scrollTop = requireLayoutPageTop(wideLayout, 2) + 1_000;
+            viewer.scrollLeft = 170;
             controller.cancelProgrammaticNavigation('viewer-scroll-interaction');
             await nextTick();
             expect(pageIndicator.value).toBe(3);
 
-            // A fit change keeps the top of the page the indicator names.
-            controller.relayout(() => {
-                layout = shortLayout;
-            }, getRequestAnchor(undefined, pageIndicator.value));
+            const before = controller.captureRelayoutAnchor()!;
+            let expectedX = before.pageXFraction;
+            let expectedY = before.pageYFraction;
+            if (turns === 0) {
+                controller.relayout(() => { layout = targetLayout; });
+            }
+            for (let step = 0; step < Math.abs(turns); step += 1) {
+                [
+                    expectedX,
+                    expectedY,
+                ] = turns > 0 ? [
+                    1 - expectedY,
+                    expectedX,
+                ] : [
+                    expectedY,
+                    1 - expectedX,
+                ];
+                controller.relayout(() => { layout = targetLayout; }, anchor => ({
+                    ...anchor,
+                    pageXFraction: turns > 0 ? 1 - anchor.pageYFraction : anchor.pageYFraction,
+                    pageYFraction: turns > 0 ? anchor.pageXFraction : 1 - anchor.pageXFraction,
+                }));
+            }
             await nextTick();
             expect(pageIndicator.value).toBe(3);
-            // The viewport lands on page 3's row under the new metrics
-            // instead of staying at the offset that now points past page 6.
-            const settledTop = viewportWrites.writes.at(-1)?.top ?? -1;
-            const pageThreeTop = requireLayoutPageTop(shortLayout, 2);
-            expect(settledTop).toBeGreaterThanOrEqual(pageThreeTop - 20);
-            expect(settledTop).toBeLessThan(pageThreeTop + 200);
+            const targetWidth = (Math.abs(turns) % 2 === 1 ? 2_400 : 600) * targetLayout.scale;
+            const targetHeight = (Math.abs(turns) % 2 === 1 ? 600 : 2_400) * targetLayout.scale;
+            expect(viewer.scrollTop).toBeCloseTo(requireLayoutPageTop(targetLayout, 2) + expectedY * targetHeight - 350);
+            expect(viewer.scrollLeft).toBeCloseTo(Math.max(0, 20 + expectedX * targetWidth - 450));
+            // View/scroll mode may still explicitly request page-top placement.
+            controller.relayout(undefined, getRequestAnchor(undefined, 3));
+            await nextTick();
+            expect(viewer.scrollTop).toBe(requireLayoutPageTop(targetLayout, 2) - 20);
         } finally {
             scope.stop();
         }

@@ -59,6 +59,7 @@ import { reconcilePdfOpeningViewportCommit } from '@app/modules/pdf-viewer/runti
 import { createPdfOpeningViewportStallDiagnostic } from '@app/modules/pdf-viewer/runtime/viewport/createPdfOpeningViewportStallDiagnostic';
 import { createPdfViewportUserNavigationEpochs } from '@app/modules/pdf-viewer/runtime/viewport/createPdfViewportUserNavigationEpochs';
 import { getRequestAnchor } from '@app/modules/pdf-viewer/runtime/navigation/pdfNavigationRequestAnchors';
+import { rotateAnnotationPoint } from '@app/modules/pdf-viewer/engine/annotation-editor-geometry/annotationEditorGeometry';
 import { resolvePdfPreparedOpeningFitScale } from '@app/modules/pdf-viewer/runtime/lifecycle/resolvePdfPreparedOpeningFitScale';
 import { resolveCustomReloadZoomMultiplier } from '@app/modules/pdf-viewer/runtime/reload-zoom/resolveCustomReloadZoomMultiplier';
 import type { IPdfViewportReloadPlacement } from '@app/modules/pdf-viewer/runtime/sessions/pdfViewportReloadPlacement';
@@ -1006,20 +1007,31 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
     function pageTopAnchor() {
         return getRequestAnchor(undefined, clampPageNumber(currentPage.value, numPages.value));
     }
-    // Zoom keeps the point under the viewport centre; a fit, view mode,
-    // rotation or scroll mode change keeps the top of the committed page,
-    // because every row's height is rewritten under it.
+    // R3 keeps the centre point through zoom/fit and maps it through rotation.
     watch([
         options.zoom,
         options.zoomMode,
+        viewRotation,
     ], ([
-        , zoomMode,
+        , , rotation,
+    ], [
+        , , previousRotation,
     ]) => {
-        singlePageScroll.relayout(fitToViewport, zoomMode === 'custom' ? undefined : pageTopAnchor());
+        singlePageScroll.relayout(fitToViewport, rotation === previousRotation ? undefined : anchor => {
+            const point = rotateAnnotationPoint({
+                x: anchor.pageXFraction,
+                y: anchor.pageYFraction,
+            }, rotation - previousRotation);
+            return {
+                ...anchor,
+                pageXFraction: point.x,
+                pageYFraction: point.y,
+            };
+        });
     }, {flush: 'sync'});
+    // No reading-point rule changes view/scroll mode's page-top placement.
     watch([
         options.viewMode,
-        viewRotation,
         options.continuousScroll,
     ], () => {
         singlePageScroll.relayout(fitToViewport, pageTopAnchor());

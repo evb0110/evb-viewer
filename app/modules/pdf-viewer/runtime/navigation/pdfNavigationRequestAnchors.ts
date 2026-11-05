@@ -10,9 +10,7 @@ export function getRequestPage(request: IDocumentNavigationRequest | undefined, 
 
 /**
  * The semantic anchor a navigation request asks for. A rect target keeps its
- * own centre; everything else lands on the top of the page, which is also the
- * anchor a fit change re-projects to because the pre-fit pixel offset stops
- * describing anything once every row's height is rewritten.
+ * own centre; everything else lands on the top of the page.
  */
 export function getRequestAnchor(
     request: IDocumentNavigationRequest | undefined,
