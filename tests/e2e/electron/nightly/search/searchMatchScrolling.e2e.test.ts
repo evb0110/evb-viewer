@@ -116,6 +116,108 @@ const sessionFixture = createElectronE2ESessionFixture({
 });
 
 describe('Electron E2E - PDF search match scrolling', () => {
+
+    // A complemented member must not promote a later literal caret to negation.
+    it('1544 highlights a literal caret after complemented regex class members', async () => {
+        const session = sessionFixture.getSession();
+        const {page} = session;
+        const evidence = resolve('.devkit/test/regex-class-caret', session.name);
+        mkdirSync(evidence, {recursive: true});
+        const pdf = await PDFDocument.create();
+        pdf.setCreationDate(new Date('2026-01-01T00:00:00Z'));
+        pdf.setModificationDate(new Date('2026-01-01T00:00:00Z'));
+        pdf.addPage([
+            612,
+            792,
+        ]).drawText('a^1!', {
+            x: 72,
+            y: 650,
+            size: 48,
+        });
+        const path = resolve(evidence, 'caret.pdf');
+        writeFileSync(path, await pdf.save());
+        await openPdfInApp(page, path);
+        await waitForPdfLoaded(page);
+        await ensureSidebarOpen(page);
+        await openDocumentSidebarTab(page, 'Search');
+        await clickAsUser(page, 'button[aria-label="Use regular expression"]');
+        expect(await page.$eval('button[aria-label="Use regular expression"]', button => button.getAttribute('aria-pressed'))).toBe('true');
+        for (const [
+            query,
+            expected,
+        ] of [
+                [
+                    String.raw`[\D^]`,
+                    [
+                        'a',
+                        '^',
+                        '!',
+                    ],
+                ],
+                [
+                    String.raw`[\P{L}^]`,
+                    [
+                        '^',
+                        '1',
+                        '!',
+                    ],
+                ],
+            ] as const) {
+            await clickAsUser(page, '.document-search-bar input', {count: 3});
+            await page.keyboard.type(query);
+            await page.keyboard.press('Enter');
+            await page.waitForFunction((typed: string) => document.querySelectorAll('.document-search-result').length > 0
+                && document.querySelector('.document-search-results-header-summary')?.textContent?.includes(typed)
+                && !document.querySelector('.document-search-results-header-spinner'), {}, query);
+            await clickAsUser(page, '.document-search-result[data-result-index="0"]');
+            await page.waitForFunction(() => document.querySelector('.textLayer .pdf-search-highlight') !== null
+                || [...CSS.highlights?.get('pdf-search-current-match') ?? []].length > 0);
+            const painted = await page.evaluate(() => {
+                const nodes = [...document.querySelectorAll<HTMLElement>('.textLayer .pdf-search-highlight')];
+                const ranges = [
+                    'pdf-search-match',
+                    'pdf-search-current-match',
+                ].flatMap(name => [...CSS.highlights?.get(name) ?? []])
+                    .filter((range): range is Range => range instanceof Range);
+                const entries = nodes.length
+                    ? nodes.map(node => ({
+                        text: node.textContent,
+                        rect: node.getBoundingClientRect().toJSON(),
+                    }))
+                    : ranges.map(range => ({
+                        text: range.toString(),
+                        rect: range.getBoundingClientRect().toJSON(),
+                    }));
+                return {
+                    entries: entries.sort((a, b) => a.rect.x - b.rect.x),
+                    summary: document.querySelector('.document-search-results-header-summary')?.textContent,
+                    layer: document.querySelector('.textLayer')?.textContent,
+                    viewport: {
+                        width: innerWidth,
+                        height: innerHeight,
+                    },
+                };
+            });
+            const label = query.includes('P{') ? 'property' : 'non-digit';
+            const screenshot = await page.screenshot({path: resolve(evidence, `${label}.png`)});
+            const pixels = await Promise.all(painted.entries.map(entry => countWarmHighlightPixels(screenshot, entry.rect, painted.viewport)));
+            writeFileSync(resolve(evidence, `${label}.json`), JSON.stringify({
+                query,
+                expected,
+                painted,
+                pixels,
+            }, null, 2));
+            console.log(`1544_SEARCH ${JSON.stringify({
+                session: session.name,
+                query,
+                painted,
+                pixels,
+            })}`);
+            expect.soft(painted.entries.map(entry => entry.text), query).toEqual(expected);
+            expect.soft(pixels.every(count => count > 0), query).toBe(true);
+        }
+    });
+
     it('finds mixed RTL page text with painted ranges and excludes reversed FreeText appearances', async () => {
         const {page} = sessionFixture.getSession();
         const evidence = resolve('.devkit/test/desktop-rtl-search');
