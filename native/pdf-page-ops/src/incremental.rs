@@ -189,10 +189,10 @@ fn with_staged_incremental_output_for_revision(
         .map_err(|error| domain_error(NativeErrorCode::Io, error.to_string()))?;
     let mut staged = AtomicOutput::create(output_path)
         .map_err(|error| domain_error(NativeErrorCode::Io, error.to_string()))?;
-    let cloned = staged
-        .seed_from_path_copy_on_write(input_path)
+    let seeded = staged
+        .seed_from_path(input_path)
         .map_err(|error| domain_error(NativeErrorCode::Io, error.to_string()))?;
-    if !cloned {
+    if !seeded {
         let mut input = File::open(input_path)
             .map_err(|error| domain_error(NativeErrorCode::Io, error.to_string()))?;
         std::io::copy(
