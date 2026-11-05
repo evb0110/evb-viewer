@@ -325,7 +325,8 @@
       "@eslint/eslintrc@3.3.7": "patches/@eslint__eslintrc@3.3.7.patch",
       "eslint-plugin-import@2.32.0": "patches/eslint-plugin-import@2.32.0.patch",
       "eslint-plugin-import-x@4.17.1": "patches/eslint-plugin-import-x@4.17.1.patch",
-      "rimraf@2.6.3": "patches/rimraf@2.6.3.patch"
+      "rimraf@2.6.3": "patches/rimraf@2.6.3.patch",
+      "vitest@5.0.5": "patches/vitest@5.0.5.patch"
     }
   }
 }
