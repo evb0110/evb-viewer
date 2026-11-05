@@ -8267,6 +8267,9 @@ runDjvuSmokeOrSkip('Electron E2E - DjVu Viewer Smoke', () => {
         for (let packet = 0; packet < 8; packet += 1) {
             await session.page.mouse.wheel({deltaY: 180});
             await new Promise(resolve => setTimeout(resolve, 220));
+            // Packet cadence does not bound rendering time. Observe the completed
+            // transition before sampling; a lost commit still fails the ready wait.
+            await waitForReadyCurrentPage(slowSamples.at(-1)?.currentPage ?? 1);
             slowSamples.push(await collectPagedState());
         }
         const slowState = slowSamples.at(-1)!;
