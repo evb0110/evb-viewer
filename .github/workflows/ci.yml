@@ -437,7 +437,6 @@ jobs:
         uses: ./.github/actions/setup-ci-env
         with:
           node-version: ${{ env.NODE_VERSION }}
-          wasm: 'true'
 
       - name: Install PDF audit tools
         timeout-minutes: 15
@@ -446,8 +445,13 @@ jobs:
       - name: Preview, export, and word-loss gates
         run: scripts/ci/scan-cleanup-oracles.sh export "$RUNNER_TEMP/scan-cleanup-oracles"
 
-      - name: Build image combiner for native-backed TypeScript checks
-        run: pnpm run build:pdf-image-combine
+      # These checks load scan-cleanup WASM only; the shared wasm setup also
+      # cold-builds the unrelated page-ops and image-combiner browser tools.
+      - name: Build tools for native-backed TypeScript checks
+        run: |
+          rustup target add wasm32-unknown-unknown
+          node scripts/build-wasm-tool.mjs scan-cleanup
+          pnpm run build:pdf-image-combine
 
       - name: Native-backed detection, large output, and diagnostics checks
         env:
