@@ -1,4 +1,6 @@
-import {BROWSER_MAX_FULL_READ_BYTES} from '@app/platform/browser/browserDocumentConstants';
+import {
+    BROWSER_DOCUMENT_CHUNK_SIZE, BROWSER_MAX_FULL_READ_BYTES,
+} from '@app/platform/browser/browserDocumentConstants';
 
 const WITNESS_CHUNK_BYTES = 64 * 1024;
 
@@ -20,9 +22,16 @@ export function createBrowserStoredBytesWitness(bytes: Uint8Array) {
 }
 
 export function createBrowserFileContentWitness(file: File, knownBytes?: Uint8Array) {
-    return knownBytes?.byteLength === file.size
-        ? createBrowserStoredBytesWitness(knownBytes)
-        : createContentWitness(file.size, async (offset, length) => new Uint8Array(await file.slice(offset, offset + length).arrayBuffer()));
+    if (knownBytes?.byteLength === file.size) return createBrowserStoredBytesWitness(knownBytes);
+    let chunk = new Uint8Array();
+    let chunkOffset = 0;
+    return createContentWitness(file.size, async (offset, length) => {
+        if (offset + length > chunkOffset + chunk.byteLength) {
+            chunkOffset = offset;
+            chunk = new Uint8Array(await file.slice(offset, offset + BROWSER_DOCUMENT_CHUNK_SIZE).arrayBuffer());
+        }
+        return chunk.subarray(offset - chunkOffset, offset - chunkOffset + length);
+    });
 }
 
 export async function matchesBrowserFileContentWitness(file: File, baseline: string, currentWitness: string) {

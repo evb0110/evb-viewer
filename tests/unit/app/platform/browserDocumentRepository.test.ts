@@ -95,8 +95,11 @@ describe('BrowserDocumentStore source registration', () => {
         expect((await store.requireEntry(reopenedRef)).saveHandle).toBe(handle);
     });
 
-    it('keeps bytes, snapshot, witness, and opening revision coherent for a fresh source', async () => {
-        const bytes = Uint8Array.from({length: 32}, (_value, index) => index + 1);
+    it.each([
+        32,
+        BROWSER_DOCUMENT_CHUNK_SIZE + 17,
+    ])('keeps bytes, snapshot, witness, and opening revision coherent for a fresh %i-byte source', async (size) => {
+        const bytes = Uint8Array.from({length: size}, (_value, index) => index ^ (index >>> 8) ^ (index >>> 16));
         const file = new File([bytes], 'coherent-source.pdf', {
             type: 'application/pdf',
             lastModified: 321,
@@ -119,7 +122,7 @@ describe('BrowserDocumentStore source registration', () => {
         expect(entry.fileSnapshot).toBe(file);
         expect(entry.fileSize).toBe(bytes.byteLength);
         expect(entry.fileLastModified).toBe(file.lastModified);
-        expect(entry.contentToken).toBe(await createBrowserFileContentWitness(file, bytes));
+        expect(entry.contentToken).toBe(await createBrowserFileContentWitness(file));
         expect(contentSignature).toContain(`:${entry.contentToken}:`);
         expect(revision.token).toBe(`drt1:browser:${entry.contentToken}`);
         await expect(store.readRange(ref, 7, 9)).resolves.toEqual(bytes.slice(7, 16));
