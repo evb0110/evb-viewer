@@ -6,8 +6,9 @@ import {
     vi,
 } from 'vitest';
 import {BrowserDocumentStore} from '@app/platform/browser/browserDocumentRepository';
+import {sweepBrowserDocumentMaintenance} from '@app/platform/browser/browserDocumentMaintenance';
 import {
-    loadRecord,
+    loadBrowserTransferAuthority, mutateBrowserTransferAuthority, loadRecord,
 } from '@app/platform/browser/browserDocumentIdb';
 import {createBrowserFileContentWitness} from '@app/platform/browser/createBrowserFileContentWitness';
 import {
@@ -15,6 +16,7 @@ import {
     BROWSER_DOCUMENT_CHUNK_SIZE,
     BROWSER_MAX_FULL_READ_BYTES,
     DB_NAME,
+    DOCUMENTS_STORE,
 } from '@app/platform/browser/browserDocumentConstants';
 import {
     createFileSystemFileHandle,
@@ -748,4 +750,112 @@ describe('BrowserDocumentStore source registration', () => {
         );
     });
 
+});
+
+// T2/C1: a crashed transfer eventually releases only its own authority.
+describe('expired transfer admission', () => {
+    it('aborts expired pending authority, retains the poll window, and preserves independent readers', async () => {
+        const idb = new FakeIndexedDbFactory();
+        vi.stubGlobal('indexedDB', idb);
+        vi.stubGlobal('window', {localStorage: new MemoryStorage()});
+        vi.stubGlobal('document', {cookie: ''});
+        vi.stubGlobal('navigator', {});
+        const now = Date.now();
+        const clock = vi.spyOn(Date, 'now').mockReturnValue(now);
+        try {
+            const store = new BrowserDocumentStore();
+            const ref = await store.createStoredDocument('expired-transfer.pdf', Uint8Array.of(1, 2, 3), {
+                mimeType: 'application/pdf',
+                kind: 'output',
+                retention: 'transient',
+            });
+            await mutateBrowserTransferAuthority('expired', () => ({
+                id: 'transfer:expired',
+                transferId: 'expired',
+                nonce: 'nonce',
+                sourceWindowId: 1,
+                sourceInstanceNonce: 'gone',
+                targetWindowId: 2,
+                targetInstanceNonce: 'gone-too',
+                generation: 1,
+                state: 'pending',
+                targetReady: false,
+                deadlineAt: now - 1,
+                createdAt: now - 12000,
+                backingRefs: [{ref}],
+                payload: {
+                    transferId: 'expired',
+                    sourceWindowId: 1,
+                    targetWindowId: 2,
+                    tab: {
+                        fileName: 'expired-transfer.pdf',
+                        originalPath: ref,
+                        originalBackend: 'browser',
+                        isDirty: true,
+                        isDjvu: false,
+                    },
+                    payload: {kind: 'empty'},
+                },
+            }));
+            const pending = (await loadBrowserTransferAuthority('expired'))!;
+            const futureRef = await store.createStoredDocument('future-transfer.pdf', Uint8Array.of(4, 5, 6), {
+                mimeType: 'application/pdf',
+                kind: 'output',
+                retention: 'transient',
+            });
+            await mutateBrowserTransferAuthority('future', () => ({
+                ...pending,
+                id: 'transfer:future',
+                transferId: 'future',
+                deadlineAt: now + 120000,
+                backingRefs: [{ref: futureRef}],
+                payload: {
+                    ...pending.payload,
+                    transferId: 'future',
+                    tab: {
+                        ...pending.payload.tab,
+                        originalPath: futureRef,
+                    },
+                },
+            }));
+            const records = idb.getDatabase(DB_NAME)!.getStoreRecords(DOCUMENTS_STORE);
+            await sweepBrowserDocumentMaintenance(new Map());
+            expect(await loadBrowserTransferAuthority('future')).toMatchObject({
+                state: 'pending',
+                generation: 1,
+            });
+            expect(records.has(futureRef)).toBe(true);
+            expect(await loadBrowserTransferAuthority('expired')).toMatchObject({
+                state: 'aborted',
+                generation: 2,
+                decidedAt: now,
+            });
+            expect(records.has(ref)).toBe(true);
+            clock.mockReturnValue(now + 60000);
+            const leases = idb.getDatabase(DB_NAME)!.getStoreRecords(BROWSER_LIVE_LEASES_STORE);
+            leases.set('owner:reader', {
+                id: 'owner:reader',
+                ownerId: 'reader',
+                generation: 1,
+                leaseRevision: 1,
+                status: 'suspended',
+                heartbeatAt: 1,
+                protectedDependencies: [{ref}],
+            });
+            await sweepBrowserDocumentMaintenance(new Map());
+            expect(await loadBrowserTransferAuthority('expired')).toBeNull();
+            expect(records.has(ref)).toBe(true);
+            leases.clear();
+            await sweepBrowserDocumentMaintenance(new Map());
+            expect(records.has(ref)).toBe(false);
+            expect(records.has(futureRef)).toBe(true);
+            expect(await loadBrowserTransferAuthority('future')).toMatchObject({
+                state: 'pending',
+                generation: 1,
+            });
+        } finally {
+            clock.mockRestore();
+            vi.unstubAllGlobals();
+        }
+    });
 });

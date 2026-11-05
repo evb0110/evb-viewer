@@ -417,16 +417,20 @@ export async function loadBrowserTransferAuthority(transferId: string) {
     return parsed.success ? parsed.output : null;
 }
 
+export function abortBrowserTransferAuthorityRecord(current: IBrowserTransferAuthorityRecord): IBrowserTransferAuthorityRecord {
+    return {
+        ...current,
+        state: 'aborted',
+        generation: current.generation + 1,
+        decidedAt: Date.now(),
+    };
+}
+
 export async function abortBrowserTransferAuthority(transferId: string, nonce: string) {
     return mutateBrowserTransferAuthority(transferId, current => {
         if (!current || current.nonce !== nonce || current.state !== 'pending') {
             return current;
         }
-        return {
-            ...current,
-            state: 'aborted',
-            generation: current.generation + 1,
-            decidedAt: Date.now(),
-        };
+        return abortBrowserTransferAuthorityRecord(current);
     });
 }

@@ -7,6 +7,7 @@ import {
 } from '@app/platform/browser/browserDocumentConstants';
 import {
     runObjectStoresTransaction,
+    abortBrowserTransferAuthorityRecord,
     BROWSER_TRANSFER_AUTHORITY_RECORD_SCHEMA,
 } from '@app/platform/browser/browserDocumentIdb';
 import { toPersistedDocumentRecord } from '@app/platform/browser/browserDocumentRecords';
@@ -112,7 +113,7 @@ const SETTLED_TRANSFER_RETENTION_MS = 60 * 1_000;
 
 interface IBrowserTransferAuthorityProtection extends IBrowserLiveLeaseProtection {settledIds: Set<string>;}
 
-function readTransferAuthorityProtection(value: unknown): IBrowserTransferAuthorityProtection | null {
+function readTransferAuthorityProtection(value: unknown, store: IDBObjectStore | null): IBrowserTransferAuthorityProtection | null {
     const parsed = v.safeParse(v.array(BROWSER_TRANSFER_AUTHORITY_RECORD_SCHEMA), value, {abortEarly: true});
     if (!parsed.success) {
         return null;
@@ -123,6 +124,10 @@ function readTransferAuthorityProtection(value: unknown): IBrowserTransferAuthor
     const settledIds = new Set<string>();
     const settledBefore = Date.now() - SETTLED_TRANSFER_RETENTION_MS;
     for (const authority of parsed.output) {
+        if (store && authority.state === 'pending' && authority.deadlineAt <= Date.now()) {
+            Object.assign(authority, abortBrowserTransferAuthorityRecord(authority));
+            store.put(authority);
+        }
         if ((authority.state === 'committed' || authority.state === 'aborted')
             && authority.decidedAt !== undefined
             && authority.decidedAt <= settledBefore) {
@@ -165,7 +170,7 @@ function readBrowserMaintenanceAuthorities(reads: {
     recoveries: unknown;
     liveLeases: unknown;
     transfers: unknown;
-}): IBrowserMaintenanceAuthorities | null {
+}, transfersStore: IDBObjectStore | null): IBrowserMaintenanceAuthorities | null {
     if (!Array.isArray(reads.documents) || !Array.isArray(reads.recoveries)) {
         return null;
     }
@@ -186,7 +191,7 @@ function readBrowserMaintenanceAuthorities(reads: {
         parsed.output.snapshotRefs.forEach(ref => recoveryLeasedRefs.add(ref));
     }
     const liveLeases = readLiveLeaseProtection(reads.liveLeases);
-    const transfers = readTransferAuthorityProtection(reads.transfers);
+    const transfers = readTransferAuthorityProtection(reads.transfers, transfersStore);
     if (!liveLeases || !transfers) {
         return null;
     }
@@ -244,7 +249,7 @@ export async function admitBrowserMaintenance<T>(
                         recoveries: recoveriesRead.result,
                         liveLeases: liveLeasesRead.result,
                         transfers: transferAuthoritiesRead.result,
-                    });
+                    }, mode === 'readwrite' ? transaction.objectStore(BROWSER_TRANSFER_AUTHORITY_STORE) : null);
                     if (!authorities) {
                         BrowserLogger.warn(
                             'browser-document-maintenance',
