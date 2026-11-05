@@ -98,13 +98,6 @@ export function createWorkspaceExpose(
         ) {
             return false;
         }
-        if (
-            !save.canSave.value
-            && !save.hasPendingUnsavedChanges.value
-            && !annotations.hasOpenAnnotationNotes.value
-        ) {
-            return true;
-        }
         return owners.handleSave();
     }
 
