@@ -1385,6 +1385,58 @@ mod tests {
     use evb_scan_cleanup::{engine::render::clean_page, OutputMode};
 
     #[test]
+    fn hollow_figure_survives_content_crop_in_composed_pixels() {
+        let image = evb_scan_cleanup::io::png::decode_gray(
+            include_bytes!("../../../tests/fixtures/content-box/hollow-figure.png"),
+            400 * 600,
+            600,
+        )
+        .unwrap();
+        let truth = BinaryImage::from_fn_parallel(400, 600, |x, y| image.get(x, y) < 128);
+        let entry = CorpusEntry {
+            id: "hollow-figure".into(),
+            identity: "content-box/hollow-figure.png".into(),
+            origin: Origin::Synthetic,
+            categories: vec!["content".into()],
+            image,
+            dpi: 150.0,
+            options: evb_scan_cleanup::CleanupOptions {
+                dpi: 150.0,
+                layout: evb_scan_cleanup::LayoutMode::Single,
+                match_page_size: false,
+                margins_mm: None,
+                ..evb_scan_cleanup::CleanupOptions::default()
+            },
+            truth: crate::corpus::GroundTruth {
+                content_box: Some(Rect::new(60.0, 60.0, 275.0, 440.0)),
+                content_mask: Some(truth),
+                ..crate::corpus::GroundTruth::default()
+            },
+        };
+        let rendered = clean_page(&entry.image, &entry.options, 0).unwrap();
+        let observed = composed_source_pixels(&entry, &rendered).unwrap();
+        let retained = (360..500)
+            .flat_map(|y| (80..320).map(move |x| (x, y)))
+            .filter(|&(x, y)| entry.image.get(x, y) < 128 && observed.get(x, y))
+            .count();
+        let output = &rendered.outputs[0];
+        eprintln!(
+            "hollow figure: retained={retained}/1504 crop={:?} raster={}x{}",
+            output.metadata.crop_rect,
+            output.image.width(),
+            output.image.height()
+        );
+        assert_eq!(
+            retained, 1504,
+            "the complete outlined figure must remain visible"
+        );
+        let mut content = ContentAccumulator::default();
+        evaluate_content(&entry, output.metadata.content_box, &mut content);
+        assert_eq!(content.lost_ink_pixels, 0);
+        assert_eq!(content.content_lost_outside_crop, 0);
+    }
+
+    #[test]
     fn composed_metrics_reject_erasure_and_fragmentation_of_rendered_pixels() {
         let corpus = crate::corpus::build_corpus().unwrap();
         let entry = corpus
