@@ -201,6 +201,18 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           wasm: 'true'
 
+      # Browser shards consume this same source-checked build, including its
+      # receipt, instead of each compiling all three tools on a cold cache.
+      - name: Share browser WASM builds
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: browser-wasm
+          path: |
+            public/wasm
+            .tmp/wasm-build-ids.json
+          include-hidden-files: true
+          if-no-files-found: error
+
       - name: Restore typecheck cache
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -380,17 +392,13 @@ jobs:
 
   browser_integration:
     name: Browser Integration (${{ matrix.shard }}/8)
-    if: ${{ needs.changed_areas.outputs.browser_integration == 'true' }}
-    needs: changed_areas
+    if: ${{ !cancelled() && needs.changed_areas.outputs.browser_integration == 'true' }}
+    needs: [changed_areas, unit]
     runs-on: ubuntu-latest
-    # A WASM source change rebuilds the browser tools (about 2 minutes) inside
-    # the test step. Shards grew to fill the step's 9 minutes on slow runners
-    # as the suite grew. Each file starts Chromium and, for UI tests, a Nuxt
-    # server; several files at once oversubscribed the four-CPU runner during
-    # cold opens, so files run one at a time and eight shards keep each well
-    # inside the limit. Vitest shards by file, so no file may approach the
-    # step limit by itself. The test step keeps its own limit so a hang still
-    # fails well before the job one.
+    # Reuse the unit job's WASM so cold native builds leave the browser job's
+    # budget for tests. UI files each start Chromium and a Nuxt server; run
+    # files one at a time on the four-CPU runner, with eight shards keeping
+    # each inside the test step's own limit.
     timeout-minutes: 15
     strategy:
       fail-fast: false
@@ -407,7 +415,11 @@ jobs:
         uses: ./.github/actions/setup-ci-env
         with:
           node-version: ${{ env.NODE_VERSION }}
-          wasm: 'true'
+
+      - name: Download browser WASM builds
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: browser-wasm
 
       - name: Install Playwright Chromium
         # Playwright runs apt itself, so select the same probed Ubuntu mirrors
