@@ -1,13 +1,13 @@
 import {execFile} from 'node:child_process';
 import {
     access,
+    mkdir,
     mkdtemp,
     readFile,
     rm,
     symlink,
     writeFile,
 } from 'node:fs/promises';
-import {tmpdir} from 'node:os';
 import {
     join,
     resolve,
@@ -18,6 +18,7 @@ import {
 } from 'pdf-lib';
 import {
     afterEach,
+    beforeAll,
     describe,
     expect,
     it,
@@ -26,6 +27,7 @@ import {atomicReplace} from '@electron/utils/atomicReplace';
 
 const holdFileHandleScript = resolve('tests/integration/native/hold-file-handle.ps1');
 const publicationHarness = resolve('tests/integration/native/windowsAtomicPdfPublicationHarness.cjs');
+const runtimeRoot = resolve('.devkit');
 
 async function makePdf(text: string) {
     const document = await PDFDocument.create();
@@ -116,6 +118,8 @@ async function runPublicationHarness(
 describe.skipIf(process.platform !== 'win32')('Windows atomic PDF replacement', () => {
     const rootPaths: string[] = [];
 
+    beforeAll(async () => { await mkdir(runtimeRoot, {recursive: true}); });
+
     afterEach(async () => {
         await Promise.all(rootPaths.splice(0).map(path => rm(path, {
             force: true,
@@ -124,7 +128,7 @@ describe.skipIf(process.platform !== 'win32')('Windows atomic PDF replacement', 
     });
 
     it('keeps the original pathname on complete old or new PDF bytes', async () => {
-        const root = await mkdtemp(join(tmpdir(), 'evb-windows-atomic-pdf-'));
+        const root = await mkdtemp(join(runtimeRoot, 'evb-windows-atomic-pdf-'));
         rootPaths.push(root);
         const sourcePath = join(root, 'staged.pdf');
         const destinationPath = join(root, 'document.pdf');
@@ -140,7 +144,7 @@ describe.skipIf(process.platform !== 'win32')('Windows atomic PDF replacement', 
     });
 
     it('rejects a symlink destination without changing its referent', async () => {
-        const root = await mkdtemp(join(tmpdir(), 'evb-windows-atomic-symlink-'));
+        const root = await mkdtemp(join(runtimeRoot, 'evb-windows-atomic-symlink-'));
         rootPaths.push(root);
         const sourcePath = join(root, 'staged.pdf');
         const referentPath = join(root, 'referent.pdf');
@@ -154,7 +158,7 @@ describe.skipIf(process.platform !== 'win32')('Windows atomic PDF replacement', 
     });
 
     it('fails closed while a third-party reader denies delete sharing', async () => {
-        const root = await mkdtemp(join(tmpdir(), 'evb-windows-atomic-sharing-'));
+        const root = await mkdtemp(join(runtimeRoot, 'evb-windows-atomic-sharing-'));
         rootPaths.push(root);
         const sourcePath = join(root, 'staged.pdf');
         const destinationPath = join(root, 'document.pdf');
@@ -189,7 +193,7 @@ describe.skipIf(process.platform !== 'win32')('Windows atomic PDF replacement', 
     }, 60_000);
 
     it('keeps complete bytes when the production commit process dies before publication', async () => {
-        const root = await mkdtemp(join(tmpdir(), 'evb-windows-atomic-process-kill-'));
+        const root = await mkdtemp(join(runtimeRoot, 'evb-windows-atomic-process-kill-'));
         rootPaths.push(root);
         const sourcePath = join(root, 'staged.pdf');
         const destinationPath = join(root, 'document.pdf');
@@ -225,7 +229,7 @@ describe.skipIf(process.platform !== 'win32')('Windows atomic PDF replacement', 
     }, 90_000);
 
     it('cancels the real utility publisher through its parent terminator before publication', async () => {
-        const root = await mkdtemp(join(tmpdir(), 'evb-windows-atomic-utility-cancel-'));
+        const root = await mkdtemp(join(runtimeRoot, 'evb-windows-atomic-utility-cancel-'));
         rootPaths.push(root);
         const sourcePath = join(root, 'staged.pdf');
         const destinationPath = join(root, 'document.pdf');

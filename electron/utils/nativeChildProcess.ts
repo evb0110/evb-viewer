@@ -1,5 +1,7 @@
 import { spawn } from 'child_process';
 import { randomUUID } from 'node:crypto';
+import { dirname } from 'node:path';
+import { resolveNativeResourcesBase } from '@electron/native-tools/resolveNativeResourcesBase';
 import {
     createServer, type Socket,
 } from 'node:net';
@@ -71,11 +73,15 @@ export function spawnNativeChildProcess(
     if (process.platform !== 'win32') {
         return spawn(command, args, createDetachedChildProcessSpawnOptions(options)) as ChildProcessByStdio<Writable | null, Readable, Readable>;
     }
+    const isPackaged = import.meta.dirname.includes('app.asar');
+    const resourcesBase = resolveNativeResourcesBase(import.meta.dirname, isPackaged, {cwd: import.meta.dirname});
     const launcher = resolveNativeToolPath({
         binaryName: 'evb-windows-job-launcher.exe',
         crateName: 'windows-job-launcher',
+        projectRoot: dirname(resourcesBase),
+        resourcesBase,
         currentDir: import.meta.dirname,
-        isPackaged: import.meta.dirname.includes('app.asar'),
+        isPackaged,
     });
     if (!launcher) throw new Error('Windows Job Object launcher is missing; rebuild native tools');
     const pipe = `\\\\.\\pipe\\evb-native-job-${randomUUID()}`;
