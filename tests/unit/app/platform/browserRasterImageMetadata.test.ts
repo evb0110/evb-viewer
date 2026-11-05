@@ -2,6 +2,7 @@ import {
     describe,
     expect,
     it,
+    vi,
 } from 'vitest';
 import {
     BROWSER_RASTER_MAX_ICC_PROFILE_BYTES,
@@ -150,5 +151,73 @@ describe('browserRasterImageMetadata', () => {
             orientation: 1,
             iccProfile: new Uint8Array(BROWSER_RASTER_MAX_ICC_PROFILE_BYTES + 1),
         })).rejects.toThrow('ERR_BROWSER_PDF_COMBINE_ICC_PROFILE_TOO_LARGE');
+    });
+});
+
+
+describe('browser image export DPI planning', () => {
+    it('samples source DPI within the selected pages and guards even unprobed page dimensions', async () => {
+        const {
+            createCanvas, DOMMatrix, ImageData, Path2D,
+        } = await import('@napi-rs/canvas');
+        vi.stubGlobal('DOMMatrix', DOMMatrix);
+        vi.stubGlobal('ImageData', ImageData);
+        vi.stubGlobal('Path2D', Path2D);
+        const {PDFDocument} = await import('pdf-lib');
+        const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
+        const {browserImageExportConfig} = await import('@app/platform/browser-api/browserImageExportConfig');
+        const pdf = await PDFDocument.create();
+        const scan = createCanvas(96, 144);
+        scan.getContext('2d').fillRect(0, 0, scan.width, scan.height);
+        const image = await pdf.embedPng(scan.toBuffer('image/png'));
+        for (let pageNumber = 1; pageNumber <= 10; pageNumber += 1) {
+            const page = pdf.addPage(pageNumber === 8 ? [
+                10000,
+                72,
+            ] : [
+                72,
+                108,
+            ]);
+            if (pageNumber !== 8) {
+                // Page 3 is outside the eight evenly spread full-document probes.
+                const width = pageNumber === 3 ? 5.76 : 72;
+                page.drawImage(image, {
+                    x: 0,
+                    y: 0,
+                    width,
+                    height: width * 1.5,
+                });
+            }
+        }
+        const task = pdfjs.getDocument({data: await pdf.save()});
+        try {
+            const document = await task.promise;
+            expect(await browserImageExportConfig(document, [
+                1,
+                2,
+                3,
+                4,
+                5,
+                6,
+                7,
+                8,
+                9,
+                10,
+            ])).toBe(58);
+            expect(await browserImageExportConfig(document, [
+                1,
+                2,
+                4,
+                5,
+                6,
+                7,
+                9,
+                10,
+            ])).toBe(96);
+            expect(await browserImageExportConfig(document, [3])).toBe(1200);
+        } finally {
+            await task.destroy();
+            vi.unstubAllGlobals();
+        }
     });
 });

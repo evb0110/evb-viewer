@@ -19,7 +19,7 @@ import {
     browserDocumentStore,
     getBrowserDocumentFileName,
 } from '@app/platform/browserDocumentStore';
-import { EXPORT_RENDER_SCALE } from '@app/platform/browser-api/browserImageExportConfig';
+import {browserImageExportConfig} from '@app/platform/browser-api/browserImageExportConfig';
 import { toUint8Array } from '@app/platform/browser-api/browserBytes';
 import {runBrowserLock} from '@app/platform/browser/runBrowserLock';
 import { yieldToBrowser } from '@app/platform/browser-api/browserYield';
@@ -80,11 +80,9 @@ type TBrowserImageExportProgressPayload = Omit<IImageExportProgress, 'format' | 
 type TUtifModule = typeof UTIFModule;
 
 interface IRenderedPdfPage {
-    pageNumber: number;
     rgba: Uint8Array;
     width: number;
     height: number;
-    dpi: number;
 }
 
 interface IBrowserTiffPageDescriptor extends ITiffImageDescriptor {pageNumber: number;}
@@ -190,16 +188,18 @@ function buildMultiPageImageExportName(sourceKind: 'pdf' | 'djvu', pageNumber: n
 async function withRenderedPdfPageCanvas<T>(
     pdfDocument: Pick<IPdfDocument, 'getPage'>,
     pageNumber: number,
+    dpi: number,
     callback: (rendered: IRenderedPdfPageCanvas) => Promise<T> | T,
 ): Promise<T> {
     const page = await pdfDocument.getPage(pageNumber);
     let canvas: HTMLCanvasElement | null = null;
 
     try {
-        const viewport = page.getViewport({ scale: EXPORT_RENDER_SCALE });
+        const viewport = page.getViewport({ scale: dpi / 72 });
+        const size = page.getViewport({scale: 1});
         canvas = document.createElement('canvas');
-        canvas.width = Math.ceil(viewport.width);
-        canvas.height = Math.ceil(viewport.height);
+        canvas.width = Math.ceil(size.width * dpi / 72);
+        canvas.height = Math.ceil(size.height * dpi / 72);
         const context = canvas.getContext('2d');
         if (!context) {
             throw new Error('Canvas 2D context is unavailable');
@@ -230,21 +230,21 @@ async function withRenderedPdfPageCanvas<T>(
 async function renderPdfPage(
     pdfDocument: Pick<IPdfDocument, 'getPage'>,
     pageNumber: number,
+    dpi: number,
 ): Promise<IRenderedPdfPage> {
     return withRenderedPdfPageCanvas(
         pdfDocument,
         pageNumber,
+        dpi,
         ({
             canvas,
             context,
         }) => {
             const {data} = context.getImageData(0, 0, canvas.width, canvas.height);
             return {
-                pageNumber,
                 rgba: new Uint8Array(data.buffer, data.byteOffset, data.byteLength),
                 width: canvas.width,
                 height: canvas.height,
-                dpi: 72 * EXPORT_RENDER_SCALE,
             };
         },
     );
@@ -299,26 +299,30 @@ function renderPdfPageToImageBytes(
     pdfDocument: Pick<IPdfDocument, 'getPage'>,
     pageNumber: number,
     format: TBrowserImageExportFormat,
+    dpi: number,
 ) {
-    return withRenderedPdfPageCanvas(pdfDocument, pageNumber, ({canvas}) => encodeCanvasAs(canvas, format, 72 * EXPORT_RENDER_SCALE));
+    return withRenderedPdfPageCanvas(pdfDocument, pageNumber, dpi, ({canvas}) => encodeCanvasAs(canvas, format, dpi));
 }
 
 async function collectTiffPageDescriptors(
     pdfDocument: Pick<IPdfDocument, 'getPage'>,
     pageNumbers: number[],
+    dpi: number,
 ) {
     const descriptors: IBrowserTiffPageDescriptor[] = [];
 
     for (const pageNumber of pageNumbers) {
         const page = await pdfDocument.getPage(pageNumber);
-        const viewport = page.getViewport({ scale: EXPORT_RENDER_SCALE });
+        const viewport = page.getViewport({scale: 1});
+        const width = Math.ceil(viewport.width * dpi / 72);
+        const height = Math.ceil(viewport.height * dpi / 72);
         descriptors.push({
             pageNumber,
-            width: Math.ceil(viewport.width),
-            height: Math.ceil(viewport.height),
-            dataLength: Math.ceil(viewport.width) * Math.ceil(viewport.height) * 4,
-            dpiX: 72 * viewport.scale,
-            dpiY: 72 * viewport.scale,
+            width,
+            height,
+            dataLength: width * height * 4,
+            dpiX: dpi,
+            dpiY: dpi,
         });
 
         try {
@@ -497,14 +501,6 @@ async function saveImageExport(
 // The files already written at their chosen destinations stay.
 async function releaseImageExports(outputRefs: TDocumentRef[]) {
     await Promise.allSettled(outputRefs.map(outputRef => browserDocumentStore.remove(outputRef)));
-}
-
-async function loadPdfDocument(path: string) {
-    const pdfDocument = await loadBrowserPdfjsDocument(path);
-    return {
-        pdfDocument,
-        destroy: () => pdfDocument.loadingTask.destroy(),
-    };
 }
 
 function getTargetPages(pdfDocument: { numPages: number }, pageNumbers?: number[]) {
@@ -1132,20 +1128,21 @@ export function createBrowserImageExportCapability(): IImageExportCapability {
                 ? await chooseImageExportDestination(pageNumbers.length, pageNumbers[0]!)
                 : undefined;
             if (destination === null) return CANCELED_IMAGE_EXPORT;
-            const pdfDocument = await loadPdfDocument(workingCopyPath);
+            const pdfDocument = await loadBrowserPdfjsDocument(workingCopyPath);
             try {
-                const targetPages = getTargetPages(pdfDocument.pdfDocument, pageNumbers);
+                const targetPages = getTargetPages(pdfDocument, pageNumbers);
                 destination ??= targetPages.length ? await chooseImageExportDestination(targetPages.length, targetPages[0]!) : null;
                 if (!destination) return CANCELED_IMAGE_EXPORT;
+                const dpi = await browserImageExportConfig(pdfDocument, targetPages);
                 return await writeBrowserImagePages(
                     destination,
                     'pdf',
                     targetPages,
-                    (pageNumber, format) => renderPdfPageToImageBytes(pdfDocument.pdfDocument, pageNumber, format),
+                    (pageNumber, format) => renderPdfPageToImageBytes(pdfDocument, pageNumber, format, dpi),
                     requestId,
                 );
             } finally {
-                await pdfDocument.destroy();
+                await pdfDocument.loadingTask.destroy();
             }
         },
         async exportPdfToMultiPageTiff(workingCopyPath, pageNumbers, requestId, sourceKind) {
@@ -1166,9 +1163,9 @@ export function createBrowserImageExportCapability(): IImageExportCapability {
                     canceled: true,
                 };
             }
-            const pdfDocument = await loadPdfDocument(workingCopyPath);
+            const pdfDocument = await loadBrowserPdfjsDocument(workingCopyPath);
             try {
-                const targetPages = getTargetPages(pdfDocument.pdfDocument, pageNumbers);
+                const targetPages = getTargetPages(pdfDocument, pageNumbers);
 
                 if (targetPages.length === 0) {
                     return {
@@ -1177,11 +1174,12 @@ export function createBrowserImageExportCapability(): IImageExportCapability {
                     };
                 }
 
-                const descriptors = await collectTiffPageDescriptors(pdfDocument.pdfDocument, targetPages);
+                const dpi = await browserImageExportConfig(pdfDocument, targetPages);
+                const descriptors = await collectTiffPageDescriptors(pdfDocument, targetPages, dpi);
 
-                return await withDirectoryPublication(destination, () => exportRenderedPagesAsTiff(descriptors, pageNumber => renderPdfPage(pdfDocument.pdfDocument, pageNumber), destination, outputFileName, requestId));
+                return await withDirectoryPublication(destination, () => exportRenderedPagesAsTiff(descriptors, pageNumber => renderPdfPage(pdfDocument, pageNumber, dpi), destination, outputFileName, requestId));
             } finally {
-                await pdfDocument.destroy();
+                await pdfDocument.loadingTask.destroy();
             }
         },
         onProgress: (callback) => {

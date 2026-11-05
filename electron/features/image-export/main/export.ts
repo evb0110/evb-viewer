@@ -24,10 +24,7 @@ import {
     sortBy,
     uniq,
 } from 'es-toolkit/array';
-import {
-    clamp,
-    range,
-} from 'es-toolkit/math';
+import {clamp} from 'es-toolkit/math';
 import { encode as encodePng } from 'fast-png';
 import { isErrnoException } from '@contracts/runtimeGuards';
 import type { TImageExportProgressPhase } from '@contracts/imageExportPlatformFeature';
@@ -84,8 +81,6 @@ import {
     assertImageExportFreeSpace,
     assertImageExportOutputPathBudget,
     type IExportPageSize,
-    IMAGE_EXPORT_MAX_NETPBM_READ_BYTES,
-    resolveExportRenderDpi,
     estimateImageExportStagedBytes,
     validateRenderedImagePageFiles,
 } from '@electron/features/image-export/main/imageExportResourceLimits';
@@ -93,6 +88,11 @@ import {
     resolveOutputPathConflict,
     type IStagedImageFile,
 } from '@electron/features/image-export/main/imageExportPathPlanning';
+import {
+    IMAGE_EXPORT_MAX_NETPBM_READ_BYTES,
+    resolveExportRenderDpi,
+    selectDpiProbePages,
+} from '@pdf-core/imageExportResolution';
 import {addPngPhysicalResolution} from '@pdf-core/addPngPhysicalResolution';
 import {splitTiffPageDescriptorsForClassicLimit} from '@pdf-core/tiffEncoding';
 import UTIF from 'utif';
@@ -145,7 +145,6 @@ const PDFINFO_PAGE_SIZE_TIMEOUT_MS = 30 * 1000;
 const PDFTOPPM_TIMEOUT_MS = 3 * 60 * 1000;
 const QPDF_TIMEOUT_MS = 2 * 60 * 1000;
 const DEFAULT_RENDER_DPI = 300;
-const PDF_EXPORT_DPI_PROBE_SAMPLE_PAGES = 8;
 const PDF_EXPORT_PPM_CONVERT_CONCURRENCY = 4;
 const PDF_EXPORT_RENDER_CHUNK_PAGES = 25;
 const PDF_EXPORT_PNG_RENDER_CHUNK_PAGES = 5;
@@ -617,17 +616,6 @@ async function readExportPageSizes(
         widthPts: longestSidePts,
         heightPts: longestSidePts,
     }];
-}
-
-function selectDpiProbePages(pageCount: number) {
-    const sampleCount = Math.min(pageCount, PDF_EXPORT_DPI_PROBE_SAMPLE_PAGES);
-    if (sampleCount < 2) {
-        return [1];
-    }
-
-    return uniq(range(0, sampleCount).map(index => 1 + Math.round(
-        (index / (sampleCount - 1)) * (pageCount - 1),
-    )));
 }
 
 async function detectExportRenderDpi(
