@@ -566,7 +566,6 @@ export function createPageMutationWriterSave(deps: {
     currentPage: Readonly<Ref<number>>;
     waitForPdfReload: (page: number) => Promise<unknown>;
     reloadWorkingCopyRevision?: () => Promise<unknown>;
-    getNativeSaveTransactionOptions: () => INativePdfSaveTransactionOptions;
 }) {
     return async function saveAnnotationsForPageMutation() {
         const saveDeps = deps.save;
@@ -594,11 +593,10 @@ export function createPageMutationWriterSave(deps: {
             saveFlowMode: 'save',
             forceWriterSave: false,
             workingPath: capturedWorkingCopyPath,
-            ...deps.getNativeSaveTransactionOptions(),
+            ...getNativeSaveTransactionOptions(saveDeps),
         });
-        if (transaction.nativeRequiredFailure) {
-            throw new NativePdfSaveRequiredError(transaction.nativeRequiredFailure);
-        }
+        if (transaction.verifiedUnchangedWorkingCopy) return isCapturedTargetCurrent();
+        if (transaction.nativeRequiredFailure) throw new NativePdfSaveRequiredError(transaction.nativeRequiredFailure);
         const projection = transaction.nativeMutationProjection;
         if (!projection || !isCapturedTargetCurrent()) {
             return false;
@@ -623,8 +621,7 @@ export function createPageMutationWriterSave(deps: {
         const reloadPromise = deps.waitForPdfReload(capturedPage);
         await deps.reloadWorkingCopyRevision?.();
         await reloadPromise;
-        if (!isCapturedTargetCurrent(false)) return false;
-        return true;
+        return isCapturedTargetCurrent(false);
     };
 }
 

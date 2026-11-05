@@ -21,7 +21,6 @@ interface IMetadataSessionOptions {
     totalPages: Readonly<Ref<number>>;
     workingCopyPath: Ref<TDocumentRef | null>;
     documentRevisionToken?: Readonly<Ref<TDocumentRevisionToken | null>>;
-    prepareReload: () => ReturnType<typeof createPdfReloadWaiter>;
     markDirty: () => void;
     setWorkspaceCommandSink?: ((sink: IWorkspaceCommandSink | null) => void) | undefined;
 }
@@ -67,7 +66,6 @@ export const useMetadataSession = (options: IMetadataSessionOptions) => {
     }
     function registerCommand(command: IWorkspaceCommandRegistration) {
         const scope = preservedReload;
-        const prepareReload = scope?.prepareReload ?? options.prepareReload;
         if (command.source !== 'file') {
             workspaceUndoTimeline.registerCommand(command);
             return;
@@ -75,17 +73,17 @@ export const useMetadataSession = (options: IMetadataSessionOptions) => {
         let restoreCleanState = scope?.restoreCleanState ?? metadataHistory?.captureCleanState();
         const replay = async (operation: IWorkspaceCommandRegistration['undo']) => {
             const inverse = metadataHistory?.captureCleanState();
-            const reload = prepareReload();
+            const reload = scope?.prepareReload?.();
             try {
                 const changed = await operation();
                 if (changed) {
-                    await reload.promise;
+                    await reload?.promise;
                     await pageLabelState.whenPageLabelsSettled();
                     restoreCleanState?.();
                     restoreCleanState = inverse;
                 }
                 return changed;
-            } finally { reload.cancel(); }
+            } finally { reload?.cancel(); }
         };
         const run = (operation: IWorkspaceCommandRegistration['undo']) => runWithPreservedMetadataReload(() => replay(operation), scope?.prepareReload);
         workspaceUndoTimeline.registerCommand({

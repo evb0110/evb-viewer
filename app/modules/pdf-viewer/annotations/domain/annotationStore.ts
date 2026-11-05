@@ -721,9 +721,17 @@ export class AnnotationStore {
                 return;
             }
             if (preserveSavedBaseline) {
-                const represented = parsed && semanticEntityFingerprint(parsed) === semanticEntityFingerprint(current);
+                // Persisted records follow the writer's page geometry. Pending
+                // edits and tombstones keep their accepted intent and baseline.
+                const reconciled = parsed && !current.deleted && !isDirty(current)
+                    ? {
+                        ...parsed,
+                        revision: current.revision,
+                    }
+                    : current;
+                const represented = parsed && semanticEntityFingerprint(parsed) === semanticEntityFingerprint(reconciled);
                 next.set(id, {
-                    ...cloneEntity(current),
+                    ...cloneEntity(reconciled),
                     identity: identityWithPdfRef(current.identity, parsed?.identity.pdfRef),
                     persistedRevision: represented || (!parsed && current.deleted && this.#savedSemanticSnapshot.get(id)?.deleted) ? current.revision : -1,
                 });

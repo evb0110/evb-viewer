@@ -142,7 +142,6 @@ export const createDocumentContext = ({controller}: {controller: IWorkspaceDocum
         documentRevisionToken: file.documentRevisionToken,
         markDirty: file.markDirty,
         setWorkspaceCommandSink: file.setWorkspaceCommandSink,
-        prepareReload: () => pdfHistory.preparePdfReloadWaiter(currentPage.value),
     });
     const persistCrashCheckpoint = inject(crashCheckpointBeforeSaveKey, null);
     const pdfDocumentAnnotations = createPdfDocumentAnnotations({

@@ -34,10 +34,6 @@ function createSession(pdfDocument = shallowRef<IPdfDocument | null>(null)) {
         totalPages: ref(1),
         workingCopyPath: ref(requireDocumentRef('/tmp/work.pdf')),
         markDirty: vi.fn(),
-        prepareReload: () => ({
-            promise: Promise.resolve(),
-            cancel: () => {},
-        }),
     });
 }
 

@@ -846,10 +846,9 @@ export const useWorkspaceSaveService = (deps: IWorkspaceSaveDependencies) => {
         saveForExternalRead: saveIfDirty,
         getNativeSaveTransactionOptions: nativeSaveTransactionOptions,
         createRecoverySnapshot,
-        createPageMutationWriterSave: (options: Omit<Parameters<typeof createPageMutationWriterSave>[0], 'save' | 'getNativeSaveTransactionOptions'>) => createPageMutationWriterSave({
+        createPageMutationWriterSave: (options: Omit<Parameters<typeof createPageMutationWriterSave>[0], 'save'>) => createPageMutationWriterSave({
             save: deps,
             ...options,
-            getNativeSaveTransactionOptions: nativeSaveTransactionOptions,
         }),
         handleSaveAs: (optimizeLossless = deps.optimizePdfOnSaveAs?.value === true) => save({
             kind: 'save-as',
