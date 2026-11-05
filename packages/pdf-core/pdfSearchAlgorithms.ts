@@ -287,7 +287,7 @@ const UNICODE_REGEX_ESCAPES: Readonly<Record<string, string>> = {
 function toUnicodeSearchRegex(pattern: string) {
     let output = '';
     // A complemented member cannot be nested in a u-mode class. Keep the
-    // positive sets it excludes and form disjoint branches when the class ends.
+    // positive sets it excludes and intersect them when the class ends.
     let classOpen = -1;
     let classComplements: string[] = [];
     for (let index = 0; index < pattern.length; index += 1) {
@@ -327,19 +327,8 @@ function toUnicodeSearchRegex(pattern: string) {
             const open = classOpen;
             classOpen = -1;
             if (classComplements.length > 0) {
-                let replacement: string;
-                if (negated) {
-                    replacement = `(?:${members ? `(?!${members})` : ''}${classComplements.map(member => `(?=[${member}])`).join('')}[\\s\\S])`;
-                } else {
-                    const alternatives = members ? [members] : [];
-                    const branches = [...alternatives];
-                    for (const member of classComplements) {
-                        const atom = `[^${member}]`;
-                        branches.push(`${alternatives.length ? `(?!${alternatives.join('|')})` : ''}${atom}`);
-                        alternatives.push(atom);
-                    }
-                    replacement = `(?:${branches.join('|')})`;
-                }
+                const excluded = `${members ? `(?!${members})` : ''}${classComplements.map(member => `(?=[${member}])`).join('')}`;
+                const replacement = `(?:${negated ? excluded : `(?!${excluded})`}[\\s\\S])`;
                 classComplements = [];
                 output = output.slice(0, open) + replacement;
                 continue;
@@ -348,7 +337,7 @@ function toUnicodeSearchRegex(pattern: string) {
             output += '[^\\n]';
             continue;
         }
-        output += char;
+        output += classOpen >= 0 && char === '^' && pattern[index - 1] !== '[' ? '\\^' : char;
     }
     return output;
 }

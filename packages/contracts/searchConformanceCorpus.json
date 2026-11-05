@@ -2374,6 +2374,100 @@
       ]
     },
     {
+      "id": "regex-complemented-digit-set-later-caret",
+      "description": "A caret after a complemented digit set stays literal instead of negating the class.",
+      "text": "a^1!",
+      "query": "[\\D^]",
+      "options": {
+        "useRegex": true,
+        "matchCase": true
+      },
+      "contextChars": 4,
+      "nativeSupported": true,
+      "expectedMatches": [
+        {
+          "startOffset": 0,
+          "endOffset": 1,
+          "excerpt": {
+            "prefix": false,
+            "suffix": false,
+            "before": "",
+            "match": "a",
+            "after": "^1!"
+          }
+        },
+        {
+          "startOffset": 1,
+          "endOffset": 2,
+          "excerpt": {
+            "prefix": false,
+            "suffix": false,
+            "before": "a",
+            "match": "^",
+            "after": "1!"
+          }
+        },
+        {
+          "startOffset": 3,
+          "endOffset": 4,
+          "excerpt": {
+            "prefix": false,
+            "suffix": false,
+            "before": "a^1",
+            "match": "!",
+            "after": ""
+          }
+        }
+      ]
+    },
+    {
+      "id": "regex-complemented-property-set-later-caret",
+      "description": "A caret after a complemented Unicode property stays literal instead of negating the class.",
+      "text": "a^1!",
+      "query": "[\\P{L}^]",
+      "options": {
+        "useRegex": true,
+        "matchCase": true
+      },
+      "contextChars": 4,
+      "nativeSupported": true,
+      "expectedMatches": [
+        {
+          "startOffset": 1,
+          "endOffset": 2,
+          "excerpt": {
+            "prefix": false,
+            "suffix": false,
+            "before": "a",
+            "match": "^",
+            "after": "1!"
+          }
+        },
+        {
+          "startOffset": 2,
+          "endOffset": 3,
+          "excerpt": {
+            "prefix": false,
+            "suffix": false,
+            "before": "a^",
+            "match": "1",
+            "after": "!"
+          }
+        },
+        {
+          "startOffset": 3,
+          "endOffset": 4,
+          "excerpt": {
+            "prefix": false,
+            "suffix": false,
+            "before": "a^1",
+            "match": "!",
+            "after": ""
+          }
+        }
+      ]
+    },
+    {
       "id": "regex-property-complement-insensitive",
       "description": "Unicode property complement follows Rust case-fold and class set semantics.",
       "text": "Hello WORLD",
