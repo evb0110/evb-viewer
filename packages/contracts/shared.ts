@@ -224,6 +224,8 @@ export interface ISettingsData {
 }
 
 export interface ICropMargins {
+    /** Physical points when true; raw PDF coordinates when omitted. */
+    physical?: boolean | undefined;
     top: number;
     bottom: number;
     left: number;
@@ -245,11 +247,13 @@ export function normalizeCropMargins(value: unknown): ICropMargins {
         || value.bottom < 0
         || value.left < 0
         || value.right < 0
+        || (value.physical !== undefined && typeof value.physical !== 'boolean')
     ) {
         throw new Error('Invalid crop margins');
     }
 
     return {
+        ...(value.physical === undefined ? {} : {physical: value.physical}),
         top: value.top,
         bottom: value.bottom,
         left: value.left,

@@ -17,8 +17,8 @@ use crate::{
     insert_browser_pdf_pages, load_browser_pdf, ocr_text_layer_increment_bytes,
     ocr_text_visibility_bytes, remove_crop_browser_pdf_bytes, reorder_browser_pdf_pages,
     rotate_browser_pdf_bytes, serialize_annotation_parse, validate_native_mutations,
-    NativeMutationBytesResult, PageGeometry, PageMutationBytes, PdfRect, Result,
-    PAGE_OP_WASM_MAX_BUFFER_BYTES, PAGE_OP_WASM_MUTATION_HEADER_BYTES,
+    NativeMutationBytesResult, PageMutationBytes, Result, PAGE_OP_WASM_MAX_BUFFER_BYTES,
+    PAGE_OP_WASM_MUTATION_HEADER_BYTES,
 };
 
 use crate::wasm_abi::*;
@@ -197,10 +197,13 @@ fn run_request(request: &[u8]) -> Result<Vec<u8>> {
         OP_REMOVE_CROP => {
             encode_mutation(remove_crop_browser_pdf_bytes(parsed.data, &parsed.pages)?)
         }
-        OP_GET_PAGE_GEOMETRY => encode_geometry(get_browser_page_geometry_from_bytes(
-            parsed.data,
-            parsed.page_number,
-        )?),
+        OP_GET_PAGE_GEOMETRY => encode_bytes(
+            RESPONSE_JSON,
+            serde_json::to_vec(&get_browser_page_geometry_from_bytes(
+                parsed.data,
+                parsed.page_number,
+            )?)?,
+        ),
         OP_DECRYPT => encode_mutation(decrypt_browser_pdf_bytes(parsed.data, parsed.password)?),
         OP_PARSE_ANNOTATIONS => {
             let document = load_browser_pdf(parsed.data)?;
@@ -723,31 +726,6 @@ fn encode_reported(kind: u32, result: crate::ReportedBytes) -> Result<Vec<u8>> {
     output.extend_from_slice(&result.data);
     output.extend_from_slice(&result.report);
     Ok(output)
-}
-
-fn encode_geometry(geometry: PageGeometry) -> Result<Vec<u8>> {
-    let mut output = vec![0; GEOMETRY_HEADER.bytes];
-    output[GEOMETRY_HEADER.kind..GEOMETRY_HEADER.kind + U32_BYTES]
-        .copy_from_slice(&RESPONSE_GEOMETRY.to_le_bytes());
-    output[GEOMETRY_HEADER.rotation..GEOMETRY_HEADER.rotation + U32_BYTES]
-        .copy_from_slice(&u32::try_from(geometry.rotation)?.to_le_bytes());
-    write_rect(&mut output, GEOMETRY_HEADER.media_box, geometry.media_box);
-    if let Some(crop_box) = geometry.crop_box {
-        output[GEOMETRY_HEADER.has_crop_box..GEOMETRY_HEADER.has_crop_box + U32_BYTES]
-            .copy_from_slice(&1_u32.to_le_bytes());
-        write_rect(&mut output, GEOMETRY_HEADER.crop_box, crop_box);
-    }
-    Ok(output)
-}
-
-fn write_rect(output: &mut [u8], offset: usize, rect: PdfRect) {
-    let output = &mut output[offset..offset + BOX_LAYOUT.bytes];
-    output[BOX_LAYOUT.x..BOX_LAYOUT.x + F64_BYTES].copy_from_slice(&rect.x1.to_le_bytes());
-    output[BOX_LAYOUT.y..BOX_LAYOUT.y + F64_BYTES].copy_from_slice(&rect.y1.to_le_bytes());
-    output[BOX_LAYOUT.width..BOX_LAYOUT.width + F64_BYTES]
-        .copy_from_slice(&rect.width().to_le_bytes());
-    output[BOX_LAYOUT.height..BOX_LAYOUT.height + F64_BYTES]
-        .copy_from_slice(&rect.height().to_le_bytes());
 }
 
 #[cfg(test)]

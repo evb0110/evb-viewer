@@ -20,6 +20,7 @@ fn crops_pages_using_inherited_media_box() {
         &mut document,
         &[1],
         CropMargins {
+            physical: false,
             top: 4.0,
             bottom: 3.0,
             left: 2.0,
@@ -59,6 +60,7 @@ fn reversed_and_inherited_crop_boxes_preserve_visible_geometry_and_saved_crop() 
             // The renderer selects the middle of the visible CropBox; the
             // mutation protocol expresses that selection as MediaBox margins.
             let margins = CropMargins {
+            physical: false,
                 top: geometry.media_box.y2 - (visible.y1 + visible.height() * 0.75),
                 bottom: visible.y1 + visible.height() * 0.25 - geometry.media_box.y1,
                 left: visible.x1 + visible.width() * 0.375 - geometry.media_box.x1,
@@ -153,7 +155,8 @@ fn reversed_and_inherited_media_boxes_preserve_visible_geometry_and_saved_crop()
             let media = geometry.media_box;
             assert_eq!([media.x1, media.y1, media.x2, media.y2], [20.0, 10.0, 180.0, 90.0]);
             assert!(geometry.crop_box.is_none());
-            let margins = CropMargins { top: 4.0, bottom: 3.0, left: 2.0, right: 1.0 };
+            let margins = CropMargins {
+            physical: false, top: 4.0, bottom: 3.0, left: 2.0, right: 1.0 };
             let mut original_bytes = Vec::new();
             document.save_to(&mut original_bytes).unwrap();
             let mut incremental = IncrementalDocument::from_document(
@@ -243,6 +246,7 @@ fn path_crop_and_remove_crop_append_page_dictionary_revisions() {
         operation: Operation::Crop {
             pages_file: pages_file.clone(),
             margins: CropMargins {
+            physical: false,
                 top: 4.1,
                 bottom: 3.2,
                 left: 2.3,
@@ -282,7 +286,8 @@ fn path_crop_and_remove_crop_append_page_dictionary_revisions() {
 #[test]
 fn page_geometry_writes_json() {
     let pdf = temp_pdf_path("page-geometry-input");
-    let (mut document, _page_id) = create_test_document();
+    let (mut document, page_id) = create_test_document();
+    document.get_dictionary_mut(page_id).unwrap().set("UserUnit", 2);
     document.save(&pdf).unwrap();
 
     let mut output = Vec::new();
@@ -295,8 +300,34 @@ fn page_geometry_writes_json() {
     assert_eq!(geometry["mediaBox"]["height"], 100.0);
     assert_eq!(geometry["cropBox"], serde_json::Value::Null);
     assert_eq!(geometry["rotation"], 0);
+    assert_eq!(geometry["userUnit"], 2.0);
 
     remove_file(pdf).unwrap();
+}
+
+#[test]
+fn cli_crops_a_physical_inch_on_a_user_unit_two_page() {
+    let pdf = temp_pdf_path("physical-crop");
+    let pages = temp_pdf_path("physical-crop-pages");
+    let (mut document, page_id) = create_test_document();
+    document.get_dictionary_mut(page_id).unwrap().set("UserUnit", 2);
+    document.save(&pdf).unwrap();
+    std::fs::write(&pages, b"1\n").unwrap();
+    run_cli_entry(vec![
+        "crop".into(), "--input".into(), pdf.to_string_lossy().into_owned(),
+        "--output".into(), pdf.to_string_lossy().into_owned(),
+        "--pages-file".into(), pages.to_string_lossy().into_owned(),
+        "--physical".into(), "--left".into(), "72".into(),
+        "--top".into(), "0".into(), "--bottom".into(), "0".into(),
+        "--right".into(), "0".into(),
+    ]).unwrap();
+    let reopened = Document::load(&pdf).unwrap();
+    assert_eq!(crop_box(&reopened, page_id), vec![36.0, 0.0, 200.0, 100.0]);
+    let geometry = get_page_geometry(&reopened, 1).unwrap();
+    assert_eq!(geometry.user_unit, 2.0);
+    assert_eq!(geometry.crop_box.unwrap().x1 * geometry.user_unit / 72.0, 1.0);
+    remove_file(pdf).unwrap();
+    remove_file(pages).unwrap();
 }
 
 #[test]
@@ -330,6 +361,7 @@ fn crops_high_index_page_without_walking_the_page_tree() {
         &mut incremental,
         &[1_000_000],
         CropMargins {
+            physical: false,
             top: 4.0,
             bottom: 3.0,
             left: 2.0,
@@ -394,6 +426,7 @@ fn crop_postcondition_failure_does_not_publish_staged_output() {
         &mut incremental,
         &[1],
         CropMargins {
+            physical: false,
             top: 4.0,
             bottom: 3.0,
             left: 2.0,
@@ -420,6 +453,7 @@ fn crop_postcondition_failure_does_not_publish_staged_output() {
         &mut incremental,
         &[1],
         CropRevisionExpectation::Margins(CropMargins {
+            physical: false,
             top: 4.0,
             bottom: 3.0,
             left: 2.0,
@@ -471,6 +505,7 @@ fn large_path_crop_and_remove_crop_use_qpdf_without_reading_the_source() {
         operation: Operation::Crop {
             pages_file: pages_file.clone(),
             margins: CropMargins {
+            physical: false,
                 top: 4.0,
                 bottom: 3.0,
                 left: 2.0,
@@ -526,6 +561,7 @@ fn remove_crop_restores_media_box() {
         &mut document,
         &[1],
         CropMargins {
+            physical: false,
             top: 4.0,
             bottom: 3.0,
             left: 2.0,
@@ -546,6 +582,7 @@ fn rejects_crop_when_margins_consume_page() {
         &mut document,
         &[1],
         CropMargins {
+            physical: false,
             top: 100.0,
             bottom: 0.0,
             left: 0.0,
@@ -594,6 +631,7 @@ fn preflights_every_selected_page_before_mutating_any_page() {
         &mut document,
         &[1, 2],
         CropMargins {
+            physical: false,
             top: 11.0,
             bottom: 10.0,
             left: 1.0,
@@ -623,6 +661,7 @@ fn rejects_non_finite_or_negative_margins_before_mutation() {
             &mut document,
             &[1],
             CropMargins {
+            physical: false,
                 top: invalid_margin,
                 bottom: 0.0,
                 left: 0.0,

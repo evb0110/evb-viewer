@@ -743,6 +743,7 @@ fn large_metadata_reads_keep_inherited_geometry_catalog_and_note_recovery_depend
             "mediaBox": {"x": -10.0, "y": -20.0, "width": 210.0, "height": 120.0},
             "cropBox": {"x": 0.0, "y": 0.0, "width": 190.0, "height": 90.0},
             "rotation": 90,
+            "userUnit": 2.0,
         })
     );
     let catalog = metadata_command("read-document-catalog", &input, None);

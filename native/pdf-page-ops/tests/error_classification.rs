@@ -447,6 +447,7 @@ fn page_geometry_reports_inherited_boxes_and_rotation() {
             "mediaBox": {"x": 10.0, "y": 20.0, "width": 200.0, "height": 100.0},
             "cropBox": {"x": 30.0, "y": 40.0, "width": 160.0, "height": 60.0},
             "rotation": 90,
+            "userUnit": 1.0,
         })
     );
 
@@ -500,6 +501,7 @@ fn page_geometry_loads_a_path_pdf_above_the_byte_input_page_ceiling() {
             "mediaBox": {"x": 0.0, "y": 0.0, "width": 200.0, "height": 100.0},
             "cropBox": null,
             "rotation": 0,
+            "userUnit": 1.0,
         })
     );
 }

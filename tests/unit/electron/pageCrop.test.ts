@@ -126,6 +126,7 @@ describe('page crop operations', () => {
                         height: 80,
                     },
                     rotation: 0,
+                    userUnit: 2,
                 }),
             };
         });
@@ -146,6 +147,7 @@ describe('page crop operations', () => {
                     height: 80,
                 },
                 rotation: 0,
+                userUnit: 2,
             });
         } finally {
             expect(loadSpy).not.toHaveBeenCalled();

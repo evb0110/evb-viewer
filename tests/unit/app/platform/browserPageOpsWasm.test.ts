@@ -1079,6 +1079,7 @@ describe('browser page-ops WASM fast path', () => {
         });
         expect((await summarizePdf(wasmRemoveCrop.data))[1]?.cropBox).toBeNull();
         expect(wasmGeometry).toEqual({
+            userUnit: 1,
             mediaBox: {
                 x: 0,
                 y: 0,
@@ -1093,6 +1094,67 @@ describe('browser page-ops WASM fast path', () => {
             },
             rotation: 90,
         });
+    });
+
+    it('saves one physical inch on mixed UserUnit pages and retains their scale', async () => {
+        const pdf = await PDFDocument.create();
+        for (const userUnit of [
+            1,
+            2,
+        ]) {
+            const page = pdf.addPage([
+                300,
+                200,
+            ]);
+            page.node.set(PDFName.of('UserUnit'), PDFNumber.of(userUnit));
+        }
+        const data = new Uint8Array(await pdf.save());
+        const wasm = await loadWasmRunner();
+        const result = await wasm.run('crop', {
+            data,
+            pages: [
+                1,
+                2,
+            ],
+            margins: {
+                top: 0,
+                bottom: 0,
+                left: 72,
+                right: 0,
+                physical: true,
+            },
+        });
+        assertSuccessfulWasmMutation(result);
+        const reopened = await PDFDocument.load(result.data);
+        for (const [
+            index,
+            page,
+        ] of reopened.getPages().entries()) {
+            const userUnit = page.node.lookup(PDFName.of('UserUnit'), PDFNumber).asNumber();
+            expect(userUnit).toBe(index + 1);
+            expect(page.getCropBox().x).toBe(72 / userUnit);
+            expect(page.getCropBox().x * userUnit / 72).toBe(1);
+        }
+        expect(await wasm.run('getPageGeometry', {
+            data: result.data,
+            pageNumber: 2,
+        }))
+            .toMatchObject({
+                userUnit: 2,
+                cropBox: reopened.getPage(1).getCropBox(),
+            });
+        const raw = await wasm.run('crop', {
+            data,
+            pages: [2],
+            margins: {
+                top: 0,
+                bottom: 0,
+                left: 72,
+                right: 0,
+            },
+        });
+        assertSuccessfulWasmMutation(raw);
+        expect((await PDFDocument.load(raw.data)).getPage(1).getCropBox().x).toBe(72);
     });
 
     it('preserves outlines and remaps page labels across browser page operations', async () => {

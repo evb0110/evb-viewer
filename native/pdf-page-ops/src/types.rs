@@ -280,14 +280,6 @@ pub(crate) fn reclassify_domain_error(
     }
 }
 
-#[derive(Clone, Copy)]
-pub(crate) struct CropMargins {
-    pub(crate) top: f64,
-    pub(crate) bottom: f64,
-    pub(crate) left: f64,
-    pub(crate) right: f64,
-}
-
 #[derive(Clone, Copy, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct PageRotationMutation {

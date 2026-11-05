@@ -72,7 +72,6 @@ abi! {
         // wasm32 allocation; the parsed document shares the address space.
         MAX_BUFFER_BYTES: usize = evb_native_support::wasm_request_allocation::WASM_MAX_BUFFER_BYTES;
         RESPONSE_MUTATION: u32 = 1;
-        RESPONSE_GEOMETRY: u32 = 2;
         RESPONSE_ANNOTATION_PARSE: u32 = 3;
         RESPONSE_NATIVE_MUTATIONS: u32 = 4;
         RESPONSE_JSON: u32 = 5;
@@ -127,6 +126,7 @@ abi! {
         REQUEST_HEADER: RequestHeader {
             magic: REQUEST_MAGIC.len(), version: U32_BYTES, operation: U32_BYTES,
             page_count: U32_BYTES, page_number: U32_BYTES, after_page: U32_BYTES,
+            // For crop, angle is 0 for raw units or 1 for physical points.
             angle: U32_BYTES, top: F64_BYTES, bottom: F64_BYTES,
             left: F64_BYTES, right: F64_BYTES, data_length: U32_BYTES,
             insertion_data_length: U32_BYTES, password_length: U32_BYTES,
@@ -144,13 +144,6 @@ abi! {
         }
         MUTATION_HEADER: MutationHeader {
             kind: U32_BYTES, page_count: U32_BYTES, data_length: U32_BYTES,
-        }
-        BOX_LAYOUT: BoxLayout {
-            x: F64_BYTES, y: F64_BYTES, width: F64_BYTES, height: F64_BYTES,
-        }
-        GEOMETRY_HEADER: GeometryHeader {
-            kind: U32_BYTES, rotation: U32_BYTES, media_box: BOX_LAYOUT.bytes,
-            has_crop_box: U32_BYTES, crop_box: BOX_LAYOUT.bytes,
         }
         BYTES_HEADER: BytesHeader {
             kind: U32_BYTES, data_length: U32_BYTES,
@@ -248,6 +241,7 @@ pub(crate) fn parse_request(request: &[u8]) -> Result<ParsedRequest<'_>> {
     let after_page = read_u32_at(request, REQUEST_HEADER.after_page)?;
     let angle = i64::from(read_u32_at(request, REQUEST_HEADER.angle)?);
     let margins = CropMargins {
+        physical: operation == OP_CROP && angle == 1,
         top: read_f64_at(request, REQUEST_HEADER.top)?,
         bottom: read_f64_at(request, REQUEST_HEADER.bottom)?,
         left: read_f64_at(request, REQUEST_HEADER.left)?,

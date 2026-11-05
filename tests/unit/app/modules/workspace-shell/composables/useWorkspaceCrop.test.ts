@@ -133,6 +133,7 @@ describe('useWorkspaceCrop', () => {
             mediaBox,
             cropBox: null,
             rotation: 90,
+            userUnit: 2,
         });
         const displayRotation = (90 + viewRotation) % 360;
         const displayed = displayRotation % 180 === 0
@@ -223,6 +224,7 @@ describe('useWorkspaceCrop', () => {
             },
             cropBox: null,
             rotation: 90,
+            userUnit: 2,
         });
 
         await cropPromise;
@@ -230,7 +232,10 @@ describe('useWorkspaceCrop', () => {
         expect(crop.cropDialogLoading.value).toBe(false);
         expect(crop.cropDialogOpen.value).toBe(true);
         expect(crop.cropDialogPageNumber.value).toBe(1);
-        expect(crop.cropDialogRotation.value).toBe(90);
+        expect(crop.cropDialogGeometry.value).toMatchObject({
+            rotation: 90,
+            userUnit: 2,
+        });
         expect(crop.cropDialogMargins.value).toEqual({
             top: 20,
             bottom: 10,

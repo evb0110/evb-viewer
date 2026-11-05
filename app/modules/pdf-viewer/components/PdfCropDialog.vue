@@ -109,7 +109,7 @@ import type {
     ICropApplyPayload,
     ICropMargins,
     ICropRemovePayload,
-    IPdfBox,
+    IPageGeometry,
     TCropUnit,
 } from '@app/types/crop';
 import {
@@ -134,7 +134,7 @@ import {
 } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfPageScopeSelection';
 
 interface ICropMarginField {
-    side: keyof ICropMargins;
+    side: Exclude<keyof ICropMargins, 'physical'>;
     label: string;
     modelValue: number;
 }
@@ -143,11 +143,9 @@ const open = defineModel<boolean>('open', { required: true });
 
 const {
     currentPage,
-    currentVisibleBox = undefined,
     initialMargins,
     loading = false,
-    mediaBox,
-    rotation = undefined,
+    geometry,
     selectedPages,
     selectedPageSelection = undefined,
     totalPages,
@@ -157,9 +155,7 @@ const {
     currentPage: number;
     selectedPages: number[];
     initialMargins: ICropMargins;
-    mediaBox: IPdfBox;
-    currentVisibleBox?: IPdfBox | null | undefined;
-    rotation?: number | undefined;
+    geometry: IPageGeometry;
     selectedPageSelection?: TPageSelection | null | undefined;
 }>();
 
@@ -310,15 +306,15 @@ const scopeOptions = computed(() => {
 });
 
 function formatDisplay(pts: number) {
-    const value = pointsToUnit(pts, unit.value);
+    const value = pointsToUnit(pts, unit.value, geometry.userUnit);
     const precision = unit.value === 'in' ? 2 : 1;
     return parseFloat(value.toFixed(precision));
 }
 
-function updateMargin(side: keyof ICropMargins, displayValue: number | null) {
+function updateMargin(side: ICropMarginField['side'], displayValue: number | null) {
     const numValue = displayValue ?? Number.NaN;
     if (Number.isFinite(numValue) && numValue >= 0) {
-        margins[side] = unitToPoints(numValue, unit.value);
+        margins[side] = unitToPoints(numValue, unit.value, geometry.userUnit);
         marginsDirty.value = true;
     }
 }
@@ -326,8 +322,8 @@ function updateMargin(side: keyof ICropMargins, displayValue: number | null) {
 const previewAreaStyle = computed(() => {
     const rect = marginsToDisplayNormalizedRect(
         margins,
-        mediaBox,
-        rotation ?? 0,
+        geometry.mediaBox,
+        geometry.rotation,
     );
     return {
         left: `${rect.x * 100}%`,
@@ -338,14 +334,14 @@ const previewAreaStyle = computed(() => {
 });
 
 const previewCurrentStyle = computed(() => {
-    if (!currentVisibleBox) {
+    if (!geometry.cropBox) {
         return null;
     }
 
     const rect = boxToDisplayNormalizedRect(
-        currentVisibleBox,
-        mediaBox,
-        rotation ?? 0,
+        geometry.cropBox,
+        geometry.mediaBox,
+        geometry.rotation,
     );
     return {
         left: `${rect.x * 100}%`,
@@ -356,16 +352,16 @@ const previewCurrentStyle = computed(() => {
 });
 
 const previewPageStyle = computed(() => {
-    const normalizedRotation = normalizeCropRotation(rotation ?? 0);
+    const normalizedRotation = normalizeCropRotation(geometry.rotation);
     const isQuarterTurn = normalizedRotation === 90 || normalizedRotation === 270;
-    const width = Math.max(isQuarterTurn ? mediaBox.height : mediaBox.width, 1);
-    const height = Math.max(isQuarterTurn ? mediaBox.width : mediaBox.height, 1);
+    const width = Math.max(isQuarterTurn ? geometry.mediaBox.height : geometry.mediaBox.width, 1);
+    const height = Math.max(isQuarterTurn ? geometry.mediaBox.width : geometry.mediaBox.height, 1);
     return { aspectRatio: `${width} / ${height}` };
 });
 
 const isValid = computed(() => {
-    const cropWidth = mediaBox.width - margins.left - margins.right;
-    const cropHeight = mediaBox.height - margins.top - margins.bottom;
+    const cropWidth = geometry.mediaBox.width - margins.left - margins.right;
+    const cropHeight = geometry.mediaBox.height - margins.top - margins.bottom;
     return cropWidth > 0 && cropHeight > 0 && pageSelectionCount(cropSelection.value) > 0;
 });
 
@@ -398,7 +394,13 @@ function handleApply() {
     }
 
     emit('apply', {
-        margins: { ...margins },
+        margins: {
+            top: margins.top * geometry.userUnit,
+            bottom: margins.bottom * geometry.userUnit,
+            left: margins.left * geometry.userUnit,
+            right: margins.right * geometry.userUnit,
+            physical: true,
+        },
         pages: cropPages.value,
         pageSelection: cropSelection.value,
     });

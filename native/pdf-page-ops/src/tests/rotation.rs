@@ -150,6 +150,7 @@ fn browser_geometry_preserves_signed_bytes_across_successive_revisions() {
     let signatures = signature_objects(&original);
     assert_eq!(signatures.len(), 1);
     let margins = CropMargins {
+        physical: false,
         top: 4.0,
         bottom: 6.0,
         left: 8.0,

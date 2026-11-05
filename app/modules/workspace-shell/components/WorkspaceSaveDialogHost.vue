@@ -36,6 +36,7 @@
         />
 
         <PdfCropDialog
+            v-if="crop.cropDialogGeometry.value"
             :open="visible && crop.cropDialogOpen.value"
             :loading="crop.cropDialogLoading.value"
             :total-pages="totalPages"
@@ -43,9 +44,7 @@
             :selected-pages="selectedThumbnailPages"
             :selected-page-selection="selectedPageSelection"
             :initial-margins="crop.cropDialogMargins.value"
-            :media-box="crop.cropDialogMediaBox.value"
-            :current-visible-box="crop.cropDialogCurrentBox.value"
-            :rotation="crop.cropDialogRotation.value"
+            :geometry="crop.cropDialogGeometry.value"
             @apply="void pageOps.handleCropPages($event.pageSelection ?? $event.pages, $event.margins)"
             @remove="void pageOps.handleRemoveCrop($event.pageSelection ?? $event.pages)"
             @update:open="crop.cropDialogOpen.value = $event"

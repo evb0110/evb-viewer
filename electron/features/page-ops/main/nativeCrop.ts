@@ -121,6 +121,7 @@ function createNativeCropArgs(
     ];
 
     if (operation === 'crop' && margins) {
+        if (margins.physical) args.push('--physical');
         args.push(
             '--top',
             String(margins.top),
