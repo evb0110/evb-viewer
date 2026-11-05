@@ -42,6 +42,21 @@ function createSession(pdfDocument = shallowRef<IPdfDocument | null>(null)) {
 }
 
 describe('useMetadataSession', () => {
+    it('keeps unresolved bookmarks clean when page labels settle during a page reload', async () => {
+        const session = createSession();
+        session.bookmarkState.handleBookmarksChange({
+            bookmarks: [createBookmark('Imported')],
+            dirty: false,
+        });
+        await session.runWithPreservedMetadataReload(async () => {
+            // The outline is cleared while its independent catalog read is pending.
+            session.bookmarkState.bookmarkItems.value = [];
+            session.bookmarkState.bookmarksResolved.value = false;
+            await session.pageLabelState.syncPageLabelsFromDocument(null);
+            expect(session.bookmarkState.bookmarksDirty.value).toBe(false);
+        });
+    });
+
     it('keeps accepted metadata and its inverse commands across an OCR revision and its file history', async () => {
         const session = createSession();
         const bookmark = createBookmark('Accepted');

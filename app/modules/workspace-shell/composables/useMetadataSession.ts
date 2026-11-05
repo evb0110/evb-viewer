@@ -108,9 +108,8 @@ export const useMetadataSession = (options: IMetadataSessionOptions) => {
 
     function synchronizeMetadata(field: 'bookmarkItems' | 'pageLabelRanges') {
         if (preservesSourceReload()) return;
-        const restore = preservedReload ? metadataHistory?.captureCleanState() : undefined;
-        metadataHistory?.markCurrentStateClean(field);
-        restore?.();
+        if (preservedReload) metadataHistory?.captureCleanState()(field);
+        else metadataHistory?.markCurrentStateClean(field);
     }
 
     const bookmarkState = useBookmarkState({

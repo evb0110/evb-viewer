@@ -30,7 +30,9 @@ import {decodeMetadataSnapshot} from '@contracts/pageOpsPlatformFeature';
 import {waitForViewportQuiet} from '@tests/e2e/electron/helpers/viewportPageObservation';
 import {delay} from 'es-toolkit/promise';
 import type {Page} from 'puppeteer-core';
-import {callWorkspaceCommand} from '@tests/e2e/electron/helpers/workspaceExpose';
+import {
+    callWorkspaceCommand, waitForWorkspaceToolbarIdle,
+} from '@tests/e2e/electron/helpers/workspaceExpose';
 import {
     readNativePdfCatalog, readNativePdfCatalogPart, resolveNativePageOpsPath,
 } from '@electron/features/page-ops/public/nativePageOpsPath';
@@ -828,6 +830,7 @@ describe('Electron E2E - bookmark destination round trip', () => {
             .find(item => item.textContent?.trim() === 'Delete Pages'), null, {description: 'Delete unrelated page'});
         await waitForFunctionInPage(page, () => document.querySelector('[data-thumbnail-page="4"]') === null, {timeout: 60_000});
         await waitForPdfLoaded(page);
+        await waitForWorkspaceToolbarIdle(page, {timeoutMs: 60_000});
         await saveViaVisibleToolbar(page, 60_000, fixture);
         const saved = await PDFDocument.load(await readFile(fixture));
         const parent = saved.catalog.lookup(PDFName.of('Outlines'), PDFDict).lookup(PDFName.of('First'), PDFDict);

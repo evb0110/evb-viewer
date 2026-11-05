@@ -62,9 +62,11 @@ export const useWorkspaceMetadataHistory = (deps: {
 
     function captureCleanState() {
         const baseline = cleanSnapshot.value;
-        return () => {
+        return (field?: keyof IWorkspaceMetadataSnapshot) => {
             cleanSnapshot.value = baseline;
-            syncDirtyFlags(currentSnapshot.value ?? captureCurrentSnapshot());
+            // A catalog read reconciles its own field; file history restores both.
+            if (field) markCurrentStateClean(field, baseline?.[field]);
+            else syncDirtyFlags(currentSnapshot.value ?? captureCurrentSnapshot());
         };
     }
 
