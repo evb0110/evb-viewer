@@ -117,6 +117,7 @@ describe('browser document lifecycle UI', () => {
                 mimeType: 'application/pdf',
                 buffer: Buffer.from(await pdf.save()),
             });
+            await page.locator('.page_container--rendered canvas').first().waitFor();
             await settleActiveOpen(page);
             await customZoom();
             for (const fit of [

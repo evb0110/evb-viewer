@@ -84,7 +84,10 @@ function createUnitTestProject(
             ],
             globals: false,
             ...(name === vitestProjectNames.browserIntegration
-                ? {expect: {poll: {timeout: 15_000}}}
+                ? {
+                    expect: {poll: {timeout: 15_000}},
+                    globalSetup: ['scripts/run-browser-integration.mjs'],
+                }
                 : {}),
             ...(processCss ? {css: true} : {}),
             setupFiles: setupFiles ?? unitTestSetupFiles,
