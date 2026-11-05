@@ -16,6 +16,7 @@ export interface ICommitPdfAnnotationParseToStoreOptions {
     currentStore: AnnotationStore;
     expectedRevisionToken: TDocumentRevisionToken;
     currentRevisionToken: TDocumentRevisionToken | null;
+    preserveSavedBaseline?: boolean;
     selectedTextByPdfRef?: ReadonlyMap<string, string | null>;
 }
 
@@ -57,6 +58,7 @@ export function commitPdfAnnotationParseToStore(
             options.selectedTextByPdfRef?.get(pdfAnnotationRefKey(entry.objectNumber, entry.generationNumber)),
         )),
         options.result.foreign.map(mapPdfAnnotationParseForeign),
+        undefined, [], [], options.preserveSavedBaseline,
     );
     return true;
 }

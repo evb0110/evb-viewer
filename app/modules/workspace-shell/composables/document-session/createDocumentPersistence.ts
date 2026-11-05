@@ -28,10 +28,7 @@ import { isStaleRevisionError } from '@contracts/documentMutationErrors';
 import { findSerializableErrorEnvelope } from '@contracts/serializableError';
 import { SAVE_AS_SYNC_REQUIRED_ERROR_ENVELOPE_SCHEMA } from '@contracts/documentsPersistenceSchemas';
 import type { IDocumentSessionState } from '@app/modules/workspace-shell/viewers/workspaceDocumentDriver';
-import type {
-    ILazyHistoryBaseline,
-    IPdfLoadedState,
-} from '@app/modules/workspace-shell/composables/document-session/createDocumentHistory';
+import type {IPdfLoadedState} from '@app/modules/workspace-shell/composables/document-session/createDocumentHistory';
 import { createDocumentPersistResults } from '@app/modules/workspace-shell/composables/document-session/createDocumentPersistResults';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { getErrorMessage } from '@app/utils/error';
@@ -66,18 +63,7 @@ interface ICreateDocumentPersistenceDeps {
     refreshDocumentRevisionToken: (path: TDocumentRef, isCurrent: () => boolean) => Promise<boolean>;
     deferPdfConformanceProfile: (path: TDocumentRef) => void;
     ensureHistoryBaselineForMutation: () => Promise<boolean>;
-    getHistoryDebugState: () => {
-        historyLength: number;
-        historyIndex: number;
-        historyCleanIndex: number;
-    };
-    markCurrentHistoryEntryClean: (
-        snapshot: Uint8Array | null,
-        options?: {
-            lazyBaseline?: ILazyHistoryBaseline;
-            recordSnapshotChange?: boolean;
-        },
-    ) => Promise<void>;
+    captureHistoryCleanState: () => () => Promise<void>;
     pushHistorySnapshot: (
         snapshot: Uint8Array,
         options?: { reuseSnapshot?: boolean },
@@ -129,8 +115,9 @@ export function createDocumentPersistence(
     }
 
     async function commitPersistedPdfState(
-        snapshotHint?: Uint8Array | null,
-        expectedWorkingPath?: TDocumentRef,
+        snapshotHint: Uint8Array | null | undefined,
+        expectedWorkingPath: TDocumentRef,
+        markCurrentHistoryEntryClean: () => Promise<void>,
         opts?: {
             preserveLoadedSource?: boolean;
             preserveConformanceProfile?: boolean;
@@ -144,14 +131,6 @@ export function createDocumentPersistence(
             return false;
         }
 
-        BrowserLogger.debug('workspace', 'Committing persisted PDF state', () => ({
-            path,
-            hasSnapshotHint: Boolean(snapshotHint),
-            snapshotHintBytes: snapshotHint?.byteLength ?? 0,
-            isDirty: state.isDirty.value,
-            ...deps.getHistoryDebugState(),
-        }));
-
         // The native path is the source of truth for desktop path documents.
         // A save may still hand us a renderer byte hint, but that hint must not
         // become a history/recovery snapshot. Keep the path and revision token
@@ -163,7 +142,7 @@ export function createDocumentPersistence(
                 state,
                 path,
                 resolveStableBaseline: () => resolveStableLazyHistoryBaseline(path),
-                markCurrentHistoryEntryClean: deps.markCurrentHistoryEntryClean,
+                markCurrentHistoryEntryClean,
             })) {
                 return false;
             }
@@ -178,7 +157,7 @@ export function createDocumentPersistence(
                         path,
                         size: snapshot.byteLength,
                     };
-                await deps.markCurrentHistoryEntryClean(snapshot, { recordSnapshotChange: false });
+                await markCurrentHistoryEntryClean();
             } else {
                 const {
                     baseline,
@@ -197,17 +176,14 @@ export function createDocumentPersistence(
                     revision: baseline.revision,
                 };
                 alignLoadedPathSourceLength(state, path, baseline.size, baseline.revision);
-                await deps.markCurrentHistoryEntryClean(null, {
-                    lazyBaseline: baseline,
-                    recordSnapshotChange: false,
-                });
+                await markCurrentHistoryEntryClean();
             }
         } else if (snapshotHint && snapshotHint.byteLength <= MAX_IN_MEMORY_PDF_BYTES) {
             const snapshot = snapshotHint.slice();
             state.pdfData.value = snapshot;
             state.pdfSrc.value = deps.toPdfBlob(snapshot);
             state.pdfReloadSrc.value = state.pdfSrc.value;
-            await deps.markCurrentHistoryEntryClean(snapshot);
+            await markCurrentHistoryEntryClean();
         } else {
             const nextState = await deps.readPdfStateFromPath(path);
             if (!state.isActiveWorkingCopy(path)) {
@@ -216,17 +192,12 @@ export function createDocumentPersistence(
             state.pdfData.value = nextState.pdfData;
             state.pdfSrc.value = nextState.pdfSrc;
             state.pdfReloadSrc.value = nextState.pdfSrc;
-            await deps.markCurrentHistoryEntryClean(nextState.pdfData);
+            await markCurrentHistoryEntryClean();
         }
 
         if (opts?.preserveConformanceProfile !== true) {
             deps.deferPdfConformanceProfile(path);
         }
-        BrowserLogger.debug('workspace', 'Committed persisted PDF state', () => ({
-            path,
-            isDirty: state.isDirty.value,
-            ...deps.getHistoryDebugState(),
-        }));
         return true;
     }
 
@@ -298,7 +269,7 @@ export function createDocumentPersistence(
     async function runPersistOperation(
         saveMode: TPdfSaveMode,
         didSaveAs: boolean,
-        operation: (workingPath: TDocumentRef) => Promise<IPdfPersistResult>,
+        operation: (workingPath: TDocumentRef, markClean: () => Promise<void>) => Promise<IPdfPersistResult>,
         expectedWorkingPath?: TDocumentRef | null,
     ): Promise<IPdfPersistResult> {
         const workingPath = state.workingCopyPath.value;
@@ -318,7 +289,7 @@ export function createDocumentPersistence(
         }
 
         try {
-            return await operation(workingPath);
+            return await operation(workingPath, deps.captureHistoryCleanState());
         } catch (e) {
             // A canceled operation reaches the save flow's cancellation, not its failure toast.
             if (isStaleRevisionError(e) || (e instanceof DOMException && e.name === 'AbortError')) {
@@ -413,7 +384,7 @@ export function createDocumentPersistence(
         },
     ): Promise<IPdfPersistResult> {
         const requestedSaveMode = opts?.saveMode ?? 'rewrite';
-        return runPersistOperation(requestedSaveMode, false, async (workingPath) => {
+        return runPersistOperation(requestedSaveMode, false, async (workingPath, markClean) => {
             const expectedDocumentRevisionToken = resolveDocumentMutationRevisionToken(opts);
             const forceSaveAs = await deps.shouldForceSaveAsForWorkingCopy(requestedSaveMode, workingPath);
             if (!state.isActiveWorkingCopy(workingPath)) {
@@ -458,7 +429,7 @@ export function createDocumentPersistence(
             const commitOptions = opts?.preserveLoadedSource
                 ? { preserveLoadedSource: true }
                 : undefined;
-            if (!await commitPersistedPdfState(data, workingPath, commitOptions)) {
+            if (!await commitPersistedPdfState(data, workingPath, markClean, commitOptions)) {
                 return createStalePersistResult(requestedSaveMode, false);
             }
             state.lastSaveMode.value = requestedSaveMode;
@@ -470,7 +441,7 @@ export function createDocumentPersistence(
         opts?: IWorkingCopyPersistOptions,
     ): Promise<IPdfPersistResult> {
         const requestedSaveMode = opts?.saveMode ?? 'rewrite';
-        return runPersistOperation(requestedSaveMode, false, async (workingPath) => {
+        return runPersistOperation(requestedSaveMode, false, async (workingPath, markClean) => {
             const stagedRequest = await stageWorkingCopyPersistenceRequest(
                 opts,
                 requestedSaveMode,
@@ -510,7 +481,7 @@ export function createDocumentPersistence(
             if (!state.isActiveWorkingCopy(workingPath)) {
                 return skipStale('working-copy save completion', workingPath, requestedSaveMode);
             }
-            if (!await commitPersistedPdfState(undefined, workingPath, opts?.preserveLoadedSource === undefined ? undefined : {preserveLoadedSource: opts.preserveLoadedSource})) {
+            if (!await commitPersistedPdfState(undefined, workingPath, markClean, opts?.preserveLoadedSource === undefined ? undefined : {preserveLoadedSource: opts.preserveLoadedSource})) {
                 return createStalePersistResult(requestedSaveMode, false);
             }
             state.lastSaveMode.value = requestedSaveMode;
@@ -525,7 +496,7 @@ export function createDocumentPersistence(
         opts?: IWorkingCopyPersistOptions,
     ): Promise<IPdfPersistResult> {
         const requestedSaveMode = opts?.saveMode ?? 'rewrite';
-        return runPersistOperation(requestedSaveMode, false, async (workingPath) => {
+        return runPersistOperation(requestedSaveMode, false, async (workingPath, markClean) => {
             const stagedRequest = await stageWorkingCopyPersistenceRequest(
                 opts,
                 requestedSaveMode,
@@ -562,7 +533,7 @@ export function createDocumentPersistence(
                     {validation},
                 ));
             }
-            if (!await commitPersistedPdfState(undefined, workingPath)) {
+            if (!await commitPersistedPdfState(undefined, workingPath, markClean)) {
                 return createStalePersistResult(requestedSaveMode, false);
             }
             state.lastSaveMode.value = requestedSaveMode;
@@ -574,7 +545,7 @@ export function createDocumentPersistence(
         opts?: IWorkingCopyPersistOptions,
     ): Promise<IPdfPersistResult> {
         const requestedSaveMode = opts?.saveMode ?? 'rewrite';
-        return runPersistOperation(requestedSaveMode, false, async (workingPath) => {
+        return runPersistOperation(requestedSaveMode, false, async (workingPath, markClean) => {
             const stagedRequest = await stageWorkingCopyPersistenceRequest(
                 opts,
                 requestedSaveMode,
@@ -611,7 +582,7 @@ export function createDocumentPersistence(
                     {validation},
                 ));
             }
-            if (!await commitPersistedPdfState(undefined, workingPath)) {
+            if (!await commitPersistedPdfState(undefined, workingPath, markClean)) {
                 return createStalePersistResult(requestedSaveMode, false);
             }
             state.lastSaveMode.value = requestedSaveMode;
@@ -632,7 +603,7 @@ export function createDocumentPersistence(
         },
     ): Promise<IPdfPersistResult> {
         const requestedSaveMode = opts?.saveMode ?? 'save_as_rewrite';
-        return runPersistOperation(requestedSaveMode, true, async (workingPath) => {
+        return runPersistOperation(requestedSaveMode, true, async (workingPath, markClean) => {
             const previousWorkingPath = workingPath;
             const optimizePdfAsCopy = getDocumentFilesCapability().optimizePdfAsCopy;
             const revisionOptions = createDocumentMutationRevisionOptions(
@@ -694,7 +665,7 @@ export function createDocumentPersistence(
                 try {
                     state.originalPath.value = savedPath;
                     state.requiresSaveAsOnFirstSave.value = false;
-                    if (!await commitPersistedPdfState(undefined, savedWorkingPath)) {
+                    if (!await commitPersistedPdfState(undefined, savedWorkingPath, markClean)) {
                         return createStalePersistResult(requestedSaveMode, true);
                     }
                     state.lastSaveMode.value = requestedSaveMode;
@@ -835,6 +806,7 @@ export function createDocumentPersistence(
             return createStalePersistResult(opts.saveMode, false);
         }
 
+        const markClean = deps.captureHistoryCleanState();
         const phaseTimings: IPdfPersistPhaseTiming[] = [];
         const operationStart = performance.now();
         const logRendererTimings = (status: string, extra?: Record<string, unknown>) => {
@@ -1075,7 +1047,7 @@ export function createDocumentPersistence(
             const committed = await measurePdfPersistPhase(
                 phaseTimings,
                 'commit-persisted-state',
-                () => commitPersistedPdfState(undefined, commitWorkingPath, commitOptions),
+                () => commitPersistedPdfState(undefined, commitWorkingPath, markClean, commitOptions),
             );
             if (!committed) {
                 logRendererTimings('stale-commit');
@@ -1128,7 +1100,7 @@ export function createDocumentPersistence(
         },
     ): Promise<IPdfPersistResult> {
         const requestedSaveMode = opts?.saveMode ?? 'save_as_rewrite';
-        return runPersistOperation(requestedSaveMode, true, async (workingPath) => {
+        return runPersistOperation(requestedSaveMode, true, async (workingPath, markClean) => {
             const revisionOptions = resolveDocumentMutationRevisionOptions(opts);
             const previousWorkingPath = workingPath;
             const saveAsOptions = {
@@ -1166,7 +1138,7 @@ export function createDocumentPersistence(
                     }
                     state.originalPath.value = savedPath;
                     state.requiresSaveAsOnFirstSave.value = false;
-                    if (!await commitPersistedPdfState(data, savedWorkingPath, shouldRefreshWorkingCopyAfterSaveAs(savedPath, previousWorkingPath) ? {
+                    if (!await commitPersistedPdfState(data, savedWorkingPath, markClean, shouldRefreshWorkingCopyAfterSaveAs(savedPath, previousWorkingPath) ? {
                         preserveLoadedSource: opts?.preserveLoadedSource === true && state.pdfSrc.value instanceof Blob,
                         preserveConformanceProfile: opts?.preserveLoadedSource === true && state.pdfSrc.value instanceof Blob,
                     } : undefined)) {

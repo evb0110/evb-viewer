@@ -336,11 +336,13 @@ export class AnnotationApplication {
         session: IAnnotationSaveSession,
         currentDocumentRevisionToken: TDocumentRevisionToken | null = session.frontier.documentRevisionToken,
         identityBindings: readonly IPdfNativeAnnotationIdentityBinding[] = [],
+        preserveSavedBaseline = false,
     ) {
         this.store.markPersisted(
             session.frontier,
             identityBindings,
             currentDocumentRevisionToken,
+            preserveSavedBaseline,
         );
     }
 

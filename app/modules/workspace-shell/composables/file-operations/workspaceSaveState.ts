@@ -9,6 +9,7 @@ import type {
 } from '@app/modules/workspace-shell/composables/file-operations/workspaceSaveExecutionSupport';
 
 export interface IWorkspaceSaveStateDependencies {
+    pdf?: {viewer: Readonly<Ref<{getAnnotationDirtyEntityCount?: (() => number) | undefined} | null>>};
     annotations: {
         dirty: Ref<boolean>;
         hasChanges: () => boolean;
@@ -28,7 +29,7 @@ export interface IWorkspaceSaveStateDependencies {
 
 export function collectDirtyState(deps: IWorkspaceSaveStateDependencies): IWorkspaceSaveDirtyState {
     return {
-        annotationDirty: deps.annotations.dirty.value,
+        annotationDirty: deps.annotations.dirty.value || (deps.pdf?.viewer.value?.getAnnotationDirtyEntityCount?.() ?? 0) > 0,
         annotationChanges: deps.annotations.hasChanges(),
         bookmarks: deps.metadata.bookmarksDirty.value,
         pageLabels: deps.metadata.pageLabelsDirty.value,

@@ -10,6 +10,9 @@ import {
 import {PDFDocument} from 'pdf-lib';
 import {build} from 'esbuild';
 import {DEFAULT_SETTINGS} from '@contracts/settings';
+import {
+    getOcrModelDownloadUrl, OCR_LANGUAGE_MODEL_BYTES, OCR_LANGUAGE_MODEL_SHA256,
+} from '@contracts/ocrLanguages';
 import {chromium} from 'playwright';
 import type {
     BrowserContext, Download, Page,
@@ -1889,3 +1892,218 @@ describe('browser Settings save failure UI', () => {
         }
     });
 });
+
+// A3/T2: file commands retain annotation transactions and the external saved frontier.
+describe('B01 file command annotation isolation', () => {
+    it.each([
+        'A26-1',
+        'A26-3',
+    ] as const)('%s retains separate note and page transactions', async item => {
+        const context = await lifecycle.browser.newContext({acceptDownloads: true});
+        const page = await context.newPage();
+        const diagnostics: string[] = [];
+        page.on('console', message => {if ([
+            'error',
+            'warning',
+        ].includes(message.type())) diagnostics.push(message.text());});
+        page.on('pageerror', error => diagnostics.push(error.stack ?? error.message));
+        const orientation = async () => {
+            const rect = await page.locator('.page_container--rendered[data-page="1"]').first().boundingBox();
+            return rect ? rect.width > rect.height : null;
+        };
+        const markers = page.locator('.pdf-annotation-editor-layer [data-annotation-kind="note"]');
+        const history = async (direction: 'Undo' | 'Redo') => {
+            await page.getByRole('button', {
+                name: direction,
+                exact: true,
+            }).click();
+            await settleActiveOpen(page);
+        };
+        const rotate = async () => {
+            if (!await page.getByRole('tab', {
+                name: 'Pages',
+                exact: true,
+            }).isVisible()) await page.getByRole('button', {
+                name: 'Toggle Sidebar',
+                exact: true,
+            }).click();
+            await page.getByRole('tab', {
+                name: 'Pages',
+                exact: true,
+            }).click();
+            await clickCenter(page, '[data-thumbnail-page="1"]', 'right');
+            await page.getByRole('menuitem', {
+                name: 'Rotate Clockwise',
+                exact: true,
+            }).click();
+            await page.waitForFunction(() => {
+                const api = Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi;
+                return api.readActiveWorkspaceStateValues?.<{isPageOperationInProgress: boolean}>(['isPageOperationInProgress']).isPageOperationInProgress === false;
+            });
+            await settleActiveOpen(page);
+            await expect.poll(orientation).toBe(true);
+        };
+        try {
+            await openPdfFromChooser(page, await createReadingBook('B01', 'b01.pdf'));
+            await settleActiveOpen(page);
+            if (item === 'A26-1') {
+                // The browser fallback lacks the desktop receipt consumer. Supply
+                // only that setup boundary, using the real WASM output, receipt
+                // validation, revision-checked storage commit and lease release.
+                await page.evaluate(`(async () => {
+                    const {getDocumentFilesCapability} = await import('/_nuxt/utils/platformDocuments.ts');
+                    const {browserDocumentStore} = await import('/_nuxt/platform/browserDocumentStore.ts');
+                    const {commitBrowserStoreStagedArtifact} = await import('/_nuxt/platform/browser/browserStagedArtifact.ts');
+                    const files = getDocumentFilesCapability();
+                    files.replaceWorkingCopyFromStagedPdfNativeMutation = async (path, receipt, options) => {
+                        try {
+                            return await commitBrowserStoreStagedArtifact(browserDocumentStore, receipt, path, options.expectedDocumentRevisionToken);
+                        } finally {
+                            await files.releaseManagedTempFileHandle(receipt.leaseId);
+                        }
+                    };
+                })()`);
+            }
+            if (item === 'A26-1') {
+                if (await page.locator('.browser-install-dismiss').isVisible()) await page.locator('.browser-install-dismiss').click();
+                await page.getByRole('button', {
+                    name: 'Toggle Sidebar',
+                    exact: true,
+                }).click();
+                await page.getByRole('tab', {
+                    name: 'Pages',
+                    exact: true,
+                }).click();
+                const disclosure = page.locator('.pdf-sidebar-pages-disclosure');
+                if (await disclosure.getAttribute('aria-expanded') !== 'true') await disclosure.click();
+                await page.locator('#page-label-prefix-input').fill('B01-');
+                await page.getByRole('button', {
+                    name: 'Apply numbering',
+                    exact: true,
+                }).click();
+                await expect.poll(() => page.locator('[data-thumbnail-page="1"] [data-document-thumbnail-label]').innerText()).toBe('B01-1 (1)');
+                await disclosure.click();
+                await expect.poll(() => disclosure.getAttribute('aria-expanded')).toBe('false');
+            }
+            if (item === 'A26-3') await rotate();
+            await addNote(page, 'B01 accepted note', {
+                x: 120,
+                y: 180,
+            });
+            await expect.poll(() => markers.count()).toBe(1);
+            if (item === 'A26-1') await rotate();
+            else {
+                const download = page.waitForEvent('download');
+                await page.getByRole('button', {
+                    name: 'Save',
+                    exact: true,
+                }).click();
+                await (await download).path();
+                // Sticky-note text and marker creation are separate accepted commands.
+                await history('Undo');
+                await history('Undo');
+                await expect.poll(() => markers.count()).toBe(0);
+            }
+            await history('Undo');
+            await expect.poll(orientation).toBe(false);
+            if (item === 'A26-3') {
+                await history('Redo');
+                await expect.poll(orientation).toBe(true);
+            }
+            await expect.poll(() => markers.count()).toBe(item === 'A26-1' ? 1 : 0);
+            await expect.poll(async () => await page.locator('[data-tab-list] [role="tab"][aria-selected="true"]').getAttribute('aria-description') ?? '').toMatch(/unsaved/iu);
+            if (item === 'A26-1') {
+                await expect.poll(() => page.locator('[data-thumbnail-page="1"] [data-document-thumbnail-label]').innerText()).toBe('B01-1 (1)');
+                await history('Undo');
+            }
+            await history(item === 'A26-1' ? 'Undo' : 'Redo');
+            await expect.poll(() => markers.count()).toBe(item === 'A26-1' ? 0 : 1);
+            if (item === 'A26-1') {
+                await expect.poll(async () => await page.locator('[data-tab-list] [role="tab"][aria-selected="true"]').getAttribute('aria-description') ?? '').toMatch(/unsaved/iu);
+                await history('Undo');
+                await expect.poll(() => page.locator('[data-thumbnail-page="1"] [data-document-thumbnail-label]').innerText()).toBe('1');
+                diagnostics.push(JSON.stringify(await page.evaluate(() => (Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi).readActiveWorkspaceStateValues?.([
+                    'dirtyState',
+                    'sortedAnnotationNoteWindows',
+                ])), null, 2));
+                await expect.poll(async () => await page.locator('[data-tab-list] [role="tab"][aria-selected="true"]').getAttribute('aria-description') ?? '').toBe('');
+            }
+        } finally {
+            if (process.env.EVB_B01_EVIDENCE_DIR) {
+                mkdirSync(process.env.EVB_B01_EVIDENCE_DIR, {recursive: true});
+                writeFileSync(resolve(process.env.EVB_B01_EVIDENCE_DIR, `${item}.log`), diagnostics.join('\n'));
+                await page.screenshot({path: resolve(process.env.EVB_B01_EVIDENCE_DIR, `${item}.png`)});
+            }
+            await context.close();
+        }
+    }, 90_000);
+});
+
+// A26-2: real OCR, renderer text, note marker and document dirty state.
+it('B01 A26-2 preserves an unsaved note through OCR Undo and Redo', async () => {
+    const context = await lifecycle.browser.newContext({viewport: {
+        width: 1440,
+        height: 900,
+    }});
+    const page = await context.newPage();
+    try {
+        const response = await fetch(getOcrModelDownloadUrl('eng'));
+        expect(response.ok).toBe(true);
+        const model = Buffer.from(await response.arrayBuffer());
+        expect(model.byteLength).toBe(OCR_LANGUAGE_MODEL_BYTES.eng);
+        expect(createHash('sha256').update(model).digest('hex')).toBe(OCR_LANGUAGE_MODEL_SHA256.eng);
+        await page.route('**/eng.traineddata', route => route.fulfill({
+            contentType: 'application/octet-stream',
+            body: model,
+        }));
+        await openPdfFromChooser(page, {
+            name: 'b01-ocr.pdf',
+            mimeType: 'application/pdf',
+            buffer: readFileSync(resolve('tests/fixtures/release/packaged-core-ocr-smoke.pdf')),
+        });
+        await settleActiveOpen(page);
+        await addNote(page, 'B01 note before OCR', {
+            x: 120,
+            y: 180,
+        });
+        const markers = page.locator('.pdf-annotation-editor-layer [data-annotation-kind="note"]');
+        await expect.poll(() => markers.count()).toBe(1);
+        const text = () => page.locator('.textLayer').allTextContents().then(values => values.join(' ').trim());
+        expect(await text()).toBe('');
+        await page.getByRole('button', {
+            name: 'OCR',
+            exact: true,
+        }).click();
+        const dialog = page.getByRole('dialog');
+        await dialog.getByRole('button', {name: /^(Download and start OCR|Start OCR)$/u}).click();
+        const completion = 'OCR complete - PDF is now searchable';
+        await dialog.getByText(completion, {exact: true}).or(dialog.getByRole('alert')).first().waitFor({timeout: 90_000});
+        expect(await dialog.innerText()).toContain(completion);
+        await dialog.getByRole('button', {
+            name: 'Close',
+            exact: true,
+        }).last().click();
+        await settleActiveOpen(page);
+        await expect.poll(text).toMatch(/\w{4}/u);
+        for (const direction of [
+            'Undo',
+            'Redo',
+        ] as const) {
+            await page.getByRole('button', {
+                name: direction,
+                exact: true,
+            }).click();
+            await settleActiveOpen(page);
+            if (direction === 'Undo') await expect.poll(text).toBe('');
+            else await expect.poll(text).toMatch(/\w{4}/u);
+            await expect.poll(() => markers.count()).toBe(1);
+            await expect.poll(async () => await page.locator('[data-tab-list] [role="tab"][aria-selected="true"]').getAttribute('aria-description') ?? '').toMatch(/unsaved/iu);
+        }
+        if (process.env.EVB_B01_EVIDENCE_DIR) {
+            mkdirSync(process.env.EVB_B01_EVIDENCE_DIR, {recursive: true});
+            await page.screenshot({path: resolve(process.env.EVB_B01_EVIDENCE_DIR, 'A26-2.png')});
+        }
+    } finally {
+        await context.close();
+    }
+}, 120_000);

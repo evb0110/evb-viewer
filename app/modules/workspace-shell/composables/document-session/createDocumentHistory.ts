@@ -20,14 +20,14 @@ import type {
     TPdfHistoryEntry,
 } from '@app/services/pdf-file/pdfHistoryEntryTypes';
 import type { IDocumentSessionState } from '@app/modules/workspace-shell/viewers/workspaceDocumentDriver';
-import { appendHistoryEntry } from '@app/services/pdf-file/appendHistoryEntry';
-import { areByteArraysEqual } from '@app/utils/areByteArraysEqual';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { getDocumentRefBaseName } from '@app/utils/documentRef';
 import type {IWorkspaceCommandSink} from '@app/types/workspaceCommand';
 import { createWorkingCopySnapshotFromData } from '@app/services/pdf-file/createWorkingCopySnapshotFromData';
 import { IPC_DIRECT_BINARY_PAYLOAD_MAX_BYTES } from '@contracts/electronApiDocuments';
-import { isPathPdfSource } from '@app/modules/pdf-viewer/public';
+import {
+    isPathPdfSource, type TPdfDocumentAnnotations,
+} from '@app/modules/pdf-viewer/public';
 
 export interface IPdfLoadedState {
     pdfData: Uint8Array | null;
@@ -40,13 +40,14 @@ export interface ILazyHistoryBaseline {
     size: number;
 }
 
-interface ILazyHistoryEntry extends ILazyHistoryBaseline {kind: 'lazy';}
-
-type TMaterializedDocumentHistoryEntry = TPdfHistoryEntry & {pageIdentityDelta?: IPageIdentityDelta};
-type TDocumentHistoryEntry = TMaterializedDocumentHistoryEntry | (ILazyHistoryEntry & {pageIdentityDelta?: IPageIdentityDelta});
-
-function isMaterializedHistoryEntry(entry: TDocumentHistoryEntry): entry is TMaterializedDocumentHistoryEntry {
-    return entry.kind !== 'lazy';
+type TDocumentHistoryEntry = TPdfHistoryEntry;
+interface IFileCommand {
+    id: string;
+    before: TDocumentHistoryEntry;
+    after: TDocumentHistoryEntry;
+    beforeState: object;
+    afterState: object;
+    pageIdentityDelta?: IPageIdentityDelta;
 }
 
 interface IApplyLoadedPdfStateOptions {
@@ -67,7 +68,10 @@ type TDocumentHistoryWorkingCopyDeps = Pick<
     'cleanupFile' | 'createWorkingCopyFromData' | 'createWorkingCopyFromPath'
 >;
 
-export interface IHistoryRevisionSwapOptions {prepareHistoryRevisionSwap?: (revision: TDocumentRevisionToken, delta: IPageIdentityDelta | undefined) => Promise<(() => void) | undefined>;}
+export interface IHistoryRevisionSwapOptions {
+    documentAnnotations?: () => TPdfDocumentAnnotations;
+    prepareHistoryRevisionSwap?: (revision: TDocumentRevisionToken, delta: IPageIdentityDelta | undefined) => Promise<(() => void) | undefined>;
+}
 
 interface ICreateDocumentHistoryDeps extends IHistoryRevisionSwapOptions {
     applyLoadedPdfState: (
@@ -106,17 +110,37 @@ export function createDocumentHistory(
     state: IDocumentSessionState,
     deps: ICreateDocumentHistoryDeps,
 ) {
-    const history = shallowRef<TDocumentHistoryEntry[]>([]);
-    const historyIndex = ref(0);
-    const historyCleanIndex = ref(-1);
+    const commands = shallowRef<IFileCommand[]>([]);
+    const currentFileState = shallowRef<object>({});
+    let savedFileState = currentFileState.value;
+    let currentCheckpoint: TDocumentHistoryEntry | null = null;
+    let stagedBaseline: TDocumentHistoryEntry | null = null;
     const fileHistoryMutationVersion = ref(0);
     const fileHistorySessionVersion = ref(0);
     let workspaceCommandSink: IWorkspaceCommandSink | null = null;
-    let lazyHistoryBaseline: ILazyHistoryBaseline | null = null;
     let mutationHistoryBaselineStaging: Promise<boolean> | null = null;
 
     function setWorkspaceCommandSink(sink: IWorkspaceCommandSink | null) {
         workspaceCommandSink = sink;
+    }
+
+    function retainedEntries() {
+        return new Set([
+            ...commands.value.flatMap(command => [
+                command.before,
+                command.after,
+            ]),
+            ...[
+                currentCheckpoint,
+                stagedBaseline,
+            ].filter((entry): entry is TDocumentHistoryEntry => entry !== null),
+        ]);
+    }
+
+    function releaseEntries(entries: TDocumentHistoryEntry[]) {
+        const retained = retainedEntries();
+        const paths = new Set([...retained].flatMap(entry => entry.kind === 'path' ? [entry.path] : []));
+        scheduleHistoryEntryCleanup(entries.filter(entry => !retained.has(entry) && (entry.kind !== 'path' || !paths.has(entry.path))));
     }
 
     function createByteHistoryEntry(
@@ -150,66 +174,33 @@ export function createDocumentHistory(
         }
     }
 
-    function replaceHistory(nextHistory: TDocumentHistoryEntry[], nextIndex: number, nextCleanIndex: number) {
-        const removedEntries = history.value.filter(entry => !nextHistory.includes(entry));
-        history.value = nextHistory;
-        historyIndex.value = nextIndex;
-        historyCleanIndex.value = nextCleanIndex;
-        scheduleHistoryEntryCleanup(removedEntries);
-    }
-
     function clearHistory() {
-        lazyHistoryBaseline = null;
-        replaceHistory([], 0, -1);
+        const released = [...retainedEntries()];
+        workspaceCommandSink?.reset('file');
+        commands.value = [];
+        currentCheckpoint = stagedBaseline = null;
+        releaseEntries(released);
     }
 
-    async function resetHistory(
-        snapshot: Uint8Array | null,
-        options?: {
-            reuseSnapshot?: boolean;
-            isCurrent?: (() => boolean) | undefined;
-        },
-    ) {
+    async function resetHistory(snapshot: Uint8Array | null, options?: {
+        reuseSnapshot?: boolean;
+        isCurrent?: (() => boolean) | undefined;
+    }) {
+        if (options?.isCurrent?.() === false) return false;
+        const entry = snapshot ? await createHistoryEntryFromSnapshot(snapshot, options) : null;
         if (options?.isCurrent?.() === false) {
+            if (entry) releaseEntries([entry]);
             return false;
         }
-        lazyHistoryBaseline = null;
-
-        if (snapshot) {
-            const entry = await createHistoryEntryFromSnapshot(snapshot, options);
-            if (entry) {
-                if (options?.isCurrent?.() === false) {
-                    scheduleHistoryEntryCleanup([entry]);
-                    return false;
-                }
-                replaceHistory([entry], 0, 0);
-                return true;
-            }
-            // History is a resilience feature, not an open prerequisite. If a
-            // large checkpoint cannot be staged, keep the document usable and
-            // start with an empty history instead of aborting the open flow.
-            if (options?.isCurrent?.() === false) {
-                return false;
-            }
-            clearHistory();
-            return true;
-        } else {
-            if (options?.isCurrent?.() === false) {
-                return false;
-            }
-            clearHistory();
-            return true;
-        }
+        clearHistory();
+        currentFileState.value = {};
+        savedFileState = currentFileState.value;
+        currentCheckpoint = entry;
+        return true;
     }
 
     function syncDirtyFromHistory() {
-        if (history.value.length === 0) {
-            state.isDirty.value = state.recoveryDirtyBaseline.value;
-            return;
-        }
-        state.isDirty.value = state.recoveryDirtyBaseline.value
-            || historyCleanIndex.value < 0
-            || historyIndex.value !== historyCleanIndex.value;
+        state.isDirty.value = state.recoveryDirtyBaseline.value || currentFileState.value !== savedFileState;
     }
 
     async function cleanupPreviousWorkingCopy(path: TDocumentRef, nextPath: TDocumentRef) {
@@ -377,200 +368,47 @@ export function createDocumentHistory(
         return createByteHistoryEntry(snapshot, options);
     }
 
-    async function markCurrentHistoryEntryClean(
-        snapshot: Uint8Array | null,
-        options?: {
-            lazyBaseline?: ILazyHistoryBaseline;
-            recordSnapshotChange?: boolean;
-        },
-    ) {
-        state.recoveryDirtyBaseline.value = false;
-        BrowserLogger.debug('workspace', 'Marking file history clean', () => ({
-            hasSnapshot: Boolean(snapshot),
-            historyLength: history.value.length,
-            historyIndex: historyIndex.value,
-            historyCleanIndex: historyCleanIndex.value,
-            isDirty: state.isDirty.value,
-            recordSnapshotChange: options?.recordSnapshotChange !== false,
-        }));
-        if (options?.lazyBaseline) {
-            lazyHistoryBaseline = options.lazyBaseline;
-            const lazyEntry: ILazyHistoryEntry = {
-                kind: 'lazy',
-                ...options.lazyBaseline,
-                ...(history.value[historyIndex.value]?.pageIdentityDelta ? {pageIdentityDelta: history.value[historyIndex.value]!.pageIdentityDelta!} : {}),
-            };
-            if (history.value.length === 0) {
-                replaceHistory([lazyEntry], 0, 0);
-            } else {
-                const nextHistory = history.value.slice();
-                nextHistory[historyIndex.value] = lazyEntry;
-                replaceHistory(nextHistory, historyIndex.value, historyIndex.value);
-            }
-            state.isDirty.value = false;
-            return;
-        }
-        if (
-            !snapshot
-            && history.value[historyIndex.value]?.kind === 'lazy'
-            && !await materializeLazyHistoryBaseline()
-        ) {
-            clearHistory();
-        }
-        lazyHistoryBaseline = null;
-        if (!snapshot) {
-            if (history.value.length === 0) {
-                clearHistory();
-            } else {
-                historyCleanIndex.value = historyIndex.value;
+    function captureHistoryCleanState() {
+        const frontier = currentFileState.value;
+        const session = fileHistorySessionVersion.value;
+        return () => {
+            if (session === fileHistorySessionVersion.value) {
+                savedFileState = frontier;
+                state.recoveryDirtyBaseline.value = false;
+                if (currentFileState.value === frontier) {
+                    const released = [...retainedEntries()];
+                    currentCheckpoint = stagedBaseline = null;
+                    releaseEntries(released);
+                }
                 syncDirtyFromHistory();
             }
-            state.isDirty.value = false;
-            return;
-        }
-
-        const currentEntry = history.value[historyIndex.value] ?? null;
-        if (currentEntry?.kind === 'bytes' && !areByteArraysEqual(currentEntry.snapshot, snapshot)) {
-            if (options?.recordSnapshotChange === false) {
-                // Annotation-only preserved-source saves update the clean file
-                // baseline; they must not become file undo entries and steal
-                // undo/redo from app-managed annotation history.
-                const entry = await createHistoryEntryFromSnapshot(snapshot, { reuseSnapshot: true });
-                if (!entry) {
-                    return;
-                }
-                const nextHistory = history.value.slice();
-                nextHistory[historyIndex.value] = {
-                    ...entry,
-                    ...(history.value[historyIndex.value]?.pageIdentityDelta ? {pageIdentityDelta: history.value[historyIndex.value]!.pageIdentityDelta!} : {}),
-                };
-                replaceHistory(nextHistory, historyIndex.value, historyIndex.value);
-            } else {
-                await pushHistorySnapshot(snapshot, { reuseSnapshot: true });
-            }
-        } else if (currentEntry?.kind === 'path' && options?.recordSnapshotChange === false) {
-            const entry = await createHistoryEntryFromSnapshot(snapshot, { reuseSnapshot: true });
-            if (!entry) {
-                return;
-            }
-            const nextHistory = history.value.slice();
-            nextHistory[historyIndex.value] = {
-                ...entry,
-                ...(history.value[historyIndex.value]?.pageIdentityDelta ? {pageIdentityDelta: history.value[historyIndex.value]!.pageIdentityDelta!} : {}),
-            };
-            replaceHistory(nextHistory, historyIndex.value, historyIndex.value);
-        } else if (currentEntry?.kind === 'lazy') {
-            const entry = await createHistoryEntryFromSnapshot(snapshot, { reuseSnapshot: true });
-            if (!entry) {
-                return;
-            }
-            const nextHistory = history.value.slice();
-            nextHistory[historyIndex.value] = {
-                ...entry,
-                ...(history.value[historyIndex.value]?.pageIdentityDelta ? {pageIdentityDelta: history.value[historyIndex.value]!.pageIdentityDelta!} : {}),
-            };
-            replaceHistory(nextHistory, historyIndex.value, historyIndex.value);
-        } else if (!currentEntry) {
-            await resetHistory(snapshot, { reuseSnapshot: true });
-        }
-
-        historyCleanIndex.value = historyIndex.value;
-        syncDirtyFromHistory();
-        state.isDirty.value = false;
-        BrowserLogger.debug('workspace', 'File history marked clean', () => ({
-            historyLength: history.value.length,
-            historyIndex: historyIndex.value,
-            historyCleanIndex: historyCleanIndex.value,
-            isDirty: state.isDirty.value,
-        }));
-    }
-
-    async function materializeLazyHistoryBaseline() {
-        const baseline = lazyHistoryBaseline;
-        if (!baseline) {
-            return true;
-        }
-        if (
-            !state.isActiveWorkingCopy(baseline.workingPath)
-            || state.documentRevisionToken.value !== baseline.revision
-        ) {
-            return false;
-        }
-        const before = await deps.documentFiles().getDocumentRevision(baseline.workingPath);
-        if (before.token !== baseline.revision) {
-            return false;
-        }
-        const entry = await createPathHistoryEntry(baseline.workingPath, baseline.size);
-        const after = await deps.documentFiles().getDocumentRevision(baseline.workingPath).catch(async (error: unknown) => {
-            await deps.documentWorkingCopy().cleanupFile(entry.path);
-            throw error;
-        });
-        if (
-            lazyHistoryBaseline !== baseline
-            || !state.isActiveWorkingCopy(baseline.workingPath)
-            || state.documentRevisionToken.value !== baseline.revision
-            || after.token !== baseline.revision
-        ) {
-            await deps.documentWorkingCopy().cleanupFile(entry.path);
-            return false;
-        }
-        const nextHistory = history.value.slice();
-        if (nextHistory.length === 0) {
-            nextHistory.push(entry);
-            replaceHistory(nextHistory, 0, 0);
-        } else {
-            nextHistory[historyIndex.value] = {
-                ...entry,
-                ...(history.value[historyIndex.value]?.pageIdentityDelta ? {pageIdentityDelta: history.value[historyIndex.value]!.pageIdentityDelta!} : {}),
-            };
-            replaceHistory(nextHistory, historyIndex.value, historyIndex.value);
-        }
-        lazyHistoryBaseline = null;
-        return true;
+            return Promise.resolve();
+        };
     }
 
     async function stageHistoryBaselineForMutation() {
-        if (!await materializeLazyHistoryBaseline()) {
-            return false;
-        }
-        if (history.value.length > 0) {
-            return true;
-        }
-
         const path = state.workingCopyPath.value;
-        if (!path) {
-            return false;
-        }
-
+        if (!path) return false;
         const sessionVersion = fileHistorySessionVersion.value;
         const before = await deps.documentFiles().getDocumentRevision(path);
-        if (
-            sessionVersion !== fileHistorySessionVersion.value
-            || !state.isActiveWorkingCopy(path)
-            || (
-                state.documentRevisionToken.value !== null
-                && state.documentRevisionToken.value !== before.token
-            )
-        ) {
-            return false;
-        }
+        if (!state.isActiveWorkingCopy(path) || sessionVersion !== fileHistorySessionVersion.value
+            || (state.documentRevisionToken.value !== null && state.documentRevisionToken.value !== before.token)) return false;
         const {size} = await deps.documentFiles().statFile(path);
-        const entry = await createPathHistoryEntry(path, size);
-        const after = await deps.documentFiles().getDocumentRevision(path).catch(async (error: unknown) => {
-            await deps.documentWorkingCopy().cleanupFile(entry.path);
+        const entry = state.pdfData.value && !getPathHistorySource(path)
+            ? await createHistoryEntryFromSnapshot(state.pdfData.value)
+            : await createPathHistoryEntry(path, size);
+        if (!entry) return false;
+        const after = await deps.documentFiles().getDocumentRevision(path).catch(error => {
+            releaseEntries([entry]);
             throw error;
         });
-        if (
-            sessionVersion !== fileHistorySessionVersion.value
-            || !state.isActiveWorkingCopy(path)
-            || before.token !== after.token
-            || history.value.length > 0
-        ) {
-            await deps.documentWorkingCopy().cleanupFile(entry.path);
+        if (!state.isActiveWorkingCopy(path) || sessionVersion !== fileHistorySessionVersion.value || before.token !== after.token) {
+            releaseEntries([entry]);
             return false;
         }
-        replaceHistory([entry], 0, 0);
-        syncDirtyFromHistory();
+        const previous = stagedBaseline;
+        stagedBaseline = entry;
+        if (previous) releaseEntries([previous]);
         return true;
     }
 
@@ -596,136 +434,111 @@ export function createDocumentHistory(
         }
     }
 
-    async function reloadWorkingCopyIntoHistory(opts?: {
-        markDirty?: boolean;
-        pageIdentityDelta?: IPageIdentityDelta
-    }) {
+    async function reloadWorkingCopyRevision() {
         const path = state.workingCopyPath.value;
-        if (!path) {
-            return false;
-        }
-
+        if (!path) return false;
         const nextState = await deps.readPdfStateFromPath(path);
-        if (!state.isActiveWorkingCopy(path)) {
+        return state.isActiveWorkingCopy(path) && await deps.applyLoadedPdfState(path, nextState, {
+            preserveHistory: true,
+            isCurrent: () => state.isActiveWorkingCopy(path),
+        }) !== false;
+    }
+
+    async function reloadWorkingCopyIntoHistory(opts?: {pageIdentityDelta?: IPageIdentityDelta}) {
+        const path = state.workingCopyPath.value;
+        if (!path) return false;
+        const nextState = await deps.readPdfStateFromPath(path);
+        if (!state.isActiveWorkingCopy(path)) return false;
+        const entry = nextState.pdfData
+            ? await createHistoryEntryFromSnapshot(nextState.pdfData)
+            : await createCurrentPathHistoryEntry(path, nextState.pdfSrc.size);
+        if (!entry) return false;
+        if (!pushHistoryEntry(entry, opts?.pageIdentityDelta)) {
+            releaseEntries([entry]);
             return false;
         }
-
-        const nextPdfSrc = isPathPdfSource(nextState.pdfSrc) && state.documentRevisionToken.value
-            ? {
-                ...nextState.pdfSrc,
-                revision: state.documentRevisionToken.value,
-            }
-            : nextState.pdfSrc;
-
-        let didAppendHistory = false;
-        if (nextState.pdfData) {
-            state.pdfData.value = nextState.pdfData;
-            state.pdfSrc.value = nextPdfSrc;
-            state.pdfReloadSrc.value = nextPdfSrc;
-            didAppendHistory = await pushHistorySnapshot(nextState.pdfData, {
-                reuseSnapshot: true,
-                ...(opts?.pageIdentityDelta ? {pageIdentityDelta: opts.pageIdentityDelta} : {}),
-            });
-        } else {
-            const snapshotEntry = await createPathHistoryEntry(path, nextPdfSrc.size);
-            if (!state.isActiveWorkingCopy(path)) {
-                void deps.documentWorkingCopy().cleanupFile(snapshotEntry.path);
-                return false;
-            }
-            state.pdfData.value = nextState.pdfData;
-            state.pdfSrc.value = nextPdfSrc;
-            state.pdfReloadSrc.value = nextPdfSrc;
-            didAppendHistory = pushHistoryEntry({
-                ...snapshotEntry,
-                ...(opts?.pageIdentityDelta ? {pageIdentityDelta: opts.pageIdentityDelta} : {}),
-            });
-            if (!didAppendHistory) {
-                scheduleHistoryEntryCleanup([snapshotEntry]);
-            }
-        }
-
-        if (!didAppendHistory || !canUndo.value) {
-            BrowserLogger.warn('pdf-file', 'Reloaded working copy without an undoable history transition', {
-                path,
-                didAppendHistory,
-                historyLength: history.value.length,
-                historyIndex: historyIndex.value,
-            });
-            return false;
-        }
-
-        state.isDirty.value = !!opts?.markDirty;
+        state.pdfData.value = nextState.pdfData;
+        state.pdfSrc.value = nextState.pdfSrc;
+        state.pdfReloadSrc.value = nextState.pdfSrc;
         return true;
     }
 
-    function pushHistoryEntry(entry: TMaterializedDocumentHistoryEntry) {
-        if (entry.kind === 'bytes' && entry.snapshot.byteLength > MAX_FILE_HISTORY_BYTES) {
-            BrowserLogger.warn('pdf-file', 'Refusing oversized in-memory history entry', {
-                bytes: entry.snapshot.byteLength,
-                maxBytes: MAX_FILE_HISTORY_BYTES,
-            });
-            return false;
-        }
-        const materializedHistory = history.value.filter(isMaterializedHistoryEntry);
-        if (materializedHistory.length !== history.value.length) {
-            return false;
-        }
-        const nextState = appendHistoryEntry({
-            history: materializedHistory,
-            historyIndex: historyIndex.value,
-            historyCleanIndex: historyCleanIndex.value,
-        }, entry, {
-            maxEntries: MAX_HISTORY_ENTRIES,
-            maxBytes: MAX_FILE_HISTORY_BYTES,
-        });
-
-        // A post-mutation checkpoint without its baseline cannot be undone.
-        // Reject it before publishing a command that would be disabled from
-        // birth, and let the caller surface the missing history transition.
-        if (nextState.historyIndex <= 0) {
-            return false;
-        }
-
-        replaceHistory(nextState.history, nextState.historyIndex, nextState.historyCleanIndex);
-        fileHistoryMutationVersion.value += 1;
-        workspaceCommandSink?.register({
+    function pushHistoryEntry(entry: TDocumentHistoryEntry, pageIdentityDelta?: IPageIdentityDelta) {
+        const before = stagedBaseline ?? currentCheckpoint;
+        if (!before || !workspaceCommandSink || (entry.kind === 'bytes' && entry.snapshot.byteLength > MAX_FILE_HISTORY_BYTES)) return false;
+        const command: IFileCommand = {
+            id: crypto.randomUUID(),
+            before,
+            after: entry,
+            beforeState: currentFileState.value,
+            afterState: {},
+            ...(pageIdentityDelta ? {pageIdentityDelta} : {}),
+        };
+        const released = currentCheckpoint;
+        currentCheckpoint = entry;
+        stagedBaseline = null;
+        commands.value = [
+            ...commands.value,
+            command,
+        ];
+        const store = deps.documentAnnotations?.().application.value.store;
+        const releaseAnnotations = store?.retainHistoryTargets();
+        const annotationChange = pageIdentityDelta ? store?.remapPages(pageIdentityDelta) : undefined;
+        const replay = async (direction: 'undo' | 'redo') => {
+            const restored = await restoreHistoryEntry(direction === 'undo' ? before : entry,
+                direction === 'undo' && pageIdentityDelta ? invertPageIdentityDelta(pageIdentityDelta) : pageIdentityDelta,
+                direction === 'undo' ? annotationChange?.undo : annotationChange?.redo);
+            if (restored) {
+                currentFileState.value = direction === 'undo' ? command.beforeState : command.afterState;
+                const previous = currentCheckpoint;
+                currentCheckpoint = direction === 'undo' ? before : entry;
+                stagedBaseline = null;
+                if (previous) releaseEntries([previous]);
+                syncDirtyFromHistory();
+            }
+            return restored;
+        };
+        workspaceCommandSink.register({
             source: 'file',
-            undo,
-            cmd: redo,
-            canUndo: () => canUndo.value,
-            canRedo: () => canRedo.value,
-            ...(entry.kind === 'bytes' ? { estimatedBytes: entry.snapshot.byteLength } : {}),
+            entityIds: [command.id],
+            undo: () => replay('undo'),
+            cmd: () => replay('redo'),
+            estimatedBytes: [
+                before,
+                entry,
+            ].reduce((sum, endpoint) => sum + (endpoint.kind === 'bytes' ? endpoint.snapshot.byteLength : 0), 0),
+            onDiscard: () => {
+                releaseAnnotations?.();
+                commands.value = commands.value.filter(retained => retained !== command);
+                releaseEntries([
+                    before,
+                    entry,
+                ]);
+            },
         });
+        currentFileState.value = command.afterState;
+        if (released) releaseEntries([released]);
+        while (commands.value.length > 1 && (commands.value.length >= MAX_HISTORY_ENTRIES
+            || [...retainedEntries()].reduce((sum, endpoint) => sum + (endpoint.kind === 'bytes' ? endpoint.snapshot.byteLength : 0), 0) > MAX_FILE_HISTORY_BYTES)) {
+            workspaceCommandSink.forget('file', new Set([commands.value[0]!.id]));
+        }
+        fileHistoryMutationVersion.value += 1;
         syncDirtyFromHistory();
         return true;
     }
 
-    async function pushHistorySnapshot(
-        snapshot: Uint8Array,
-        options?: {
-            reuseSnapshot?: boolean;
-            pageIdentityDelta?: IPageIdentityDelta
-        },
-    ) {
+    async function pushHistorySnapshot(snapshot: Uint8Array, options?: {
+        reuseSnapshot?: boolean;
+        pageIdentityDelta?: IPageIdentityDelta
+    }) {
         const entry = await createHistoryEntryFromSnapshot(snapshot, options);
-        if (!entry) {
-            return false;
-        }
-        return pushHistoryEntry({
-            ...entry,
-            ...(options?.pageIdentityDelta ? {pageIdentityDelta: options.pageIdentityDelta} : {}),
-        });
+        if (!entry) return false;
+        const pushed = pushHistoryEntry(entry, options?.pageIdentityDelta);
+        if (!pushed) releaseEntries([entry]);
+        return pushed;
     }
 
-    const canUndo = computed(
-        () => history.value.length > 0 && historyIndex.value > 0,
-    );
-    const canRedo = computed(
-        () =>
-            history.value.length > 0 && historyIndex.value < history.value.length - 1,
-    );
-
-    async function restoreHistoryEntry(entry: TDocumentHistoryEntry | undefined, delta?: IPageIdentityDelta) {
+    async function restoreHistoryEntry(entry: TDocumentHistoryEntry | undefined, delta?: IPageIdentityDelta, applyAnnotations?: () => void) {
         const restoreSessionVersion = fileHistorySessionVersion.value;
         const restoreOpenRequestId = deps.getOpenEpoch();
 
@@ -757,6 +570,7 @@ export function createDocumentHistory(
                 const commitRevisionSwap = await deps.prepareHistoryRevisionSwap?.(revision.token, delta);
                 if (!canApplyRestore()) return false;
                 if (commitRevisionSwap) commitRevisionSwap();
+                applyAnnotations?.();
                 state.documentRevisionInfo.value = revision;
                 state.documentRevisionToken.value = revision.token;
             }
@@ -794,76 +608,36 @@ export function createDocumentHistory(
             previousPath,
             isCurrent: canApplyRestore,
             beforeSourceCommit: async (revision) => {
-                return revision ? deps.prepareHistoryRevisionSwap?.(revision, delta) : undefined;
+                const commit = revision ? await deps.prepareHistoryRevisionSwap?.(revision, delta) : undefined;
+                return () => { commit?.(); applyAnnotations?.(); };
             },
         });
         return didApply !== false;
     }
 
-    function getHistoryPageIdentityDelta(direction: 'undo' | 'redo') {
-        const entry = history.value[historyIndex.value + (direction === 'redo' ? 1 : 0)];
-        return direction === 'undo' && entry?.pageIdentityDelta
-            ? invertPageIdentityDelta(entry.pageIdentityDelta)
-            : entry?.pageIdentityDelta;
-    }
-
     function mapHistoryPage(direction: 'undo' | 'redo', page: number) {
-        const delta = getHistoryPageIdentityDelta(direction);
+        const command = commands.value.find(entry => (direction === 'undo' ? entry.afterState : entry.beforeState) === currentFileState.value);
+        const delta = direction === 'undo' && command?.pageIdentityDelta
+            ? invertPageIdentityDelta(command.pageIdentityDelta) : command?.pageIdentityDelta;
         return delta ? mapPageNumberThroughPageIdentityDelta(delta, requirePageNumber(page))
             ?? Math.max(1, Math.min(page, getPageIdentityDeltaNextPageCount(delta) ?? page)) : page;
     }
 
-    async function undo() {
-        if (!canUndo.value) {
-            return false;
-        }
-        if (!await materializeLazyHistoryBaseline()) {
-            return false;
-        }
-        const nextHistoryIndex = historyIndex.value - 1;
-        const restored = await restoreHistoryEntry(history.value[nextHistoryIndex], getHistoryPageIdentityDelta('undo'));
-        if (!restored) {
-            return false;
-        }
-        historyIndex.value = nextHistoryIndex;
-        syncDirtyFromHistory();
-        return true;
-    }
-
-    async function redo() {
-        if (!canRedo.value) {
-            return false;
-        }
-        if (!await materializeLazyHistoryBaseline()) {
-            return false;
-        }
-        const nextHistoryIndex = historyIndex.value + 1;
-        const restored = await restoreHistoryEntry(history.value[nextHistoryIndex], getHistoryPageIdentityDelta('redo'));
-        if (!restored) {
-            return false;
-        }
-        historyIndex.value = nextHistoryIndex;
-        syncDirtyFromHistory();
-        return true;
-    }
-
     function incrementSessionVersion() {
         fileHistorySessionVersion.value += 1;
-        lazyHistoryBaseline = null;
         workspaceCommandSink?.reset();
     }
 
     function getHistoryDebugState() {
         return {
-            historyLength: history.value.length,
-            historyIndex: historyIndex.value,
-            historyCleanIndex: historyCleanIndex.value,
+            retainedCheckpointCount: retainedEntries().size,
+            retainedFileCommandCount: commands.value.length,
+            isFileStateSaved: currentFileState.value === savedFileState,
         };
     }
 
     return {
-        canRedo,
-        canUndo,
+        captureHistoryCleanState,
         cleanupPreviousWorkingCopy,
         clearHistory,
         ensureHistoryBaselineForMutation,
@@ -871,18 +645,14 @@ export function createDocumentHistory(
         fileHistorySessionVersion,
         getHistoryDebugState,
         mapHistoryPage,
-        readDocumentDependencies: () => history.value.flatMap(entry => entry.kind === 'path'
-            ? [entry.path]
-            : entry.kind === 'lazy' ? [entry.workingPath] : []),
+        readDocumentDependencies: () => [...retainedEntries()].flatMap(entry => entry.kind === 'path' ? [entry.path] : []),
         incrementSessionVersion,
-        markCurrentHistoryEntryClean,
         pushHistoryEntry,
         pushHistorySnapshot,
-        redo,
         reloadWorkingCopyIntoHistory,
+        reloadWorkingCopyRevision,
         resetHistory,
         setWorkspaceCommandSink,
         syncDirtyFromHistory,
-        undo,
     };
 }

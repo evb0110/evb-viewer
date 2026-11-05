@@ -46,7 +46,7 @@ interface IWorkspaceDocumentLifecycleEffectsOptions extends Omit<IDocumentTransi
     isBusy: Ref<boolean>;
     clearOcrCache: (path: TDocumentRef) => void;
     ensureHistoryBaselineForMutation: () => Promise<boolean>;
-    reloadWorkingCopyIntoHistory: (opts?: {markDirty?: boolean}) => Promise<boolean>;
+    reloadWorkingCopyIntoHistory: () => Promise<boolean>;
     preparePdfReloadWaiter: (page: number) => ReturnType<typeof createPdfReloadWaiter>;
     runWithDocumentOperationLease?: <T>(
         kind: TDocumentOperationKind,
@@ -260,7 +260,6 @@ export const useWorkspaceDocumentLifecycleEffects = (options: IWorkspaceDocument
             if (!await refreshDocumentRevision(payload.sourceWorkingCopyPath)) {
                 throw new Error('Failed to refresh the working-copy revision after OCR apply');
             }
-            options.documentAnnotations.adoptCurrentRevision();
             // The searchable PDF keeps every page's geometry: each view keeps
             // its picture and reading point while the text layers are rebuilt.
             if (documentRevisionToken.value !== null) {
@@ -276,7 +275,7 @@ export const useWorkspaceDocumentLifecycleEffects = (options: IWorkspaceDocument
             restorePromise = preparePdfReloadWaiter(pageToRestore).promise.catch((error: unknown) => {
                 restoreError = error;
             });
-            if (!await reloadWorkingCopyIntoHistory({markDirty: true})) {
+            if (!await reloadWorkingCopyIntoHistory()) {
                 void restorePromise;
                 return null;
             }

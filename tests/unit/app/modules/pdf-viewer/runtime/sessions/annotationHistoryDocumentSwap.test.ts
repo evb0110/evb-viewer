@@ -253,6 +253,7 @@ describe('annotation history shared by two views of one document', () => {
             workingCopyPath: computed(() => requireDocumentRef('/managed/working.pdf')),
             source: computed(() => null),
             documentRevisionToken,
+            isSaving,
         });
         const mountView = () => {
             const loadedRevision = {value: documentRevisionToken.value};

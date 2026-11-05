@@ -156,6 +156,7 @@ export const useWorkspaceFileLifecycleController = (
         openFileDirectBatch,
         loadPdfFromPath,
         ensureHistoryBaselineForMutation,
+        reloadWorkingCopyRevision,
         reloadWorkingCopyIntoHistory,
         mapHistoryPage,
         loadPdfFromData,
@@ -173,8 +174,6 @@ export const useWorkspaceFileLifecycleController = (
         fileHistoryMutationVersion,
         fileHistorySessionVersion,
         setWorkspaceCommandSink,
-        undo,
-        redo,
     } = usePdfFile(options);
 
     const {
@@ -446,6 +445,7 @@ export const useWorkspaceFileLifecycleController = (
         openFileDirectBatch,
         loadPdfFromPath,
         ensureHistoryBaselineForMutation,
+        reloadWorkingCopyRevision,
         reloadWorkingCopyIntoHistory,
         mapHistoryPage,
         loadPdfFromData,
@@ -463,8 +463,6 @@ export const useWorkspaceFileLifecycleController = (
         fileHistoryMutationVersion,
         fileHistorySessionVersion,
         setWorkspaceCommandSink,
-        undo,
-        redo,
 
         isDjvuMode,
         djvuSourcePath,

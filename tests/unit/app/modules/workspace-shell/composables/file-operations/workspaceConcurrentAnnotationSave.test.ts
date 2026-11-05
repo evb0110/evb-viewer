@@ -593,6 +593,10 @@ describe('metadata edited while a save is writing', () => {
             pdfDocument: shallowRef(null),
             totalPages: ref(1),
             workingCopyPath: working,
+            prepareReload: () => ({
+                promise: Promise.resolve(),
+                cancel: () => {},
+            }),
             markDirty: () => undefined,
         });
         session.bookmarkState.handleBookmarksChange({

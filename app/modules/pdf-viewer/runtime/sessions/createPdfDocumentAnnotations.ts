@@ -55,6 +55,8 @@ export interface ICreatePdfDocumentAnnotationsOptions {
     workingCopyPath: Readonly<Ref<string | null>>;
     source: Readonly<Ref<TPdfSource | null>>;
     documentRevisionToken: Readonly<Ref<TDocumentRevisionToken | null>>;
+    documentSession?: Readonly<Ref<number>>;
+    isSaving?: Readonly<Ref<boolean>>;
     protectTextBoxDraft?: ((assertCurrent: () => void) => Promise<void>) | undefined;
 }
 
@@ -183,6 +185,7 @@ export const createPdfDocumentAnnotations = (options: ICreatePdfDocumentAnnotati
                     currentStore: application.value.store,
                     expectedRevisionToken,
                     currentRevisionToken: options.documentRevisionToken.value ?? expectedRevisionToken,
+                    preserveSavedBaseline: options.documentSession !== undefined,
                 });
                 if (!committed) {
                     return false;
@@ -237,15 +240,14 @@ export const createPdfDocumentAnnotations = (options: ICreatePdfDocumentAnnotati
         application.value = createAnnotationApplication(documentKey);
     }
 
-    // Canonical records describe the bytes a viewer's PDF.js document holds.
-    // Save and file-history undo rewrite the working copy in place and reload
-    // the same path, so each viewer reports the revision of the document that
-    // replaced the one it had loaded. The store follows the document's current
-    // revision: the first report of it starts a fresh store and history,
-    // later reports of the same revision keep it, and a report of an older
-    // revision, from a viewer that finished loading after the document moved
-    // on, changes nothing. A revision a save wrote from this store keeps it.
-    // Without revision tokens only a reload during a save keeps the store.
+    // The document session admits revisions before a view can report them.
+    // A genuine Open resets the owner even when it reuses the same path.
+    if (options.documentSession) {
+        watch(options.documentSession, () => { history.clear(); reset(documentIdentity.value); }, {flush: 'sync'});
+    }
+    watch(options.documentRevisionToken, revision => {
+        if (options.documentSession || options.isSaving?.value) storeRevision = revision;
+    }, {flush: 'sync'});
     function replaceLoadedDocument(loadedRevision: string | null, duringSave: boolean) {
         const currentRevision = options.documentRevisionToken.value;
         if (currentRevision !== null && (loadedRevision !== currentRevision || storeRevision === currentRevision)) {

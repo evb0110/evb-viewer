@@ -1,5 +1,4 @@
 import type {TDocumentCommitReceipt} from '@app/types/workspaceExpose';
-import type {Ref} from 'vue';
 import {crashCheckpointBeforeSaveKey} from '@app/modules/workspace-shell/checkpoint/useWorkspaceCrashCheckpoint';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
@@ -847,11 +846,7 @@ export const useWorkspaceSaveService = (deps: IWorkspaceSaveDependencies) => {
         saveForExternalRead: saveIfDirty,
         getNativeSaveTransactionOptions: nativeSaveTransactionOptions,
         createRecoverySnapshot,
-        createPageMutationWriterSave: (options: {
-            currentPage: Readonly<Ref<number>>;
-            waitForPdfReload: (page: number) => Promise<unknown>;
-            loadPdfFromPath?: (path: TDocumentRef, options?: {markDirty?: boolean}) => Promise<unknown>;
-        }) => createPageMutationWriterSave({
+        createPageMutationWriterSave: (options: Omit<Parameters<typeof createPageMutationWriterSave>[0], 'save' | 'getNativeSaveTransactionOptions'>) => createPageMutationWriterSave({
             save: deps,
             ...options,
             getNativeSaveTransactionOptions: nativeSaveTransactionOptions,

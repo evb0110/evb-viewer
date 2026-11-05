@@ -1,3 +1,4 @@
+import {useWorkspaceCommandLedger} from '@app/modules/workspace-shell/composables/useWorkspaceCommandLedger';
 import {encodeSerializableErrorEnvelope} from '@contracts/serializableError';
 import {
     beforeEach,
@@ -637,6 +638,12 @@ describe('usePdfFile façade', () => {
     it('does not attach a history restore after the document closes', async () => {
         const write = Promise.withResolvers<undefined>();
         const file = createFacade();
+        const ledger = useWorkspaceCommandLedger();
+        file.setWorkspaceCommandSink({
+            register: ledger.registerCommand,
+            reset: ledger.resetSource,
+            forget: ledger.forgetSourceEntries,
+        });
         await file.openFile(pdfResult('active'));
         await file.loadPdfFromData(Uint8Array.from([
             1,
@@ -645,7 +652,7 @@ describe('usePdfFile façade', () => {
         ]));
         mocks.write.mockImplementationOnce(() => write.promise);
 
-        const undo = file.undo();
+        const undo = ledger.undoTimeline();
         await file.closeFile();
         write.resolve(undefined);
 
@@ -660,6 +667,12 @@ describe('usePdfFile façade', () => {
         mocks.stat.mockResolvedValue({size});
         mocks.cloneWorkingCopy.mockReturnValue(staging.promise);
         const file = createFacade();
+        const ledger = useWorkspaceCommandLedger();
+        file.setWorkspaceCommandSink({
+            register: ledger.registerCommand,
+            reset: ledger.resetSource,
+            forget: ledger.forgetSourceEntries,
+        });
         await file.openFile(pdfResult('large'));
 
         const baseline = file.ensureHistoryBaselineForMutation();
@@ -672,6 +685,6 @@ describe('usePdfFile façade', () => {
         await expect(baseline).resolves.toBe(false);
         expect(mocks.cleanup).toHaveBeenCalledWith('/tmp/staged-baseline.pdf');
         expect(file.workingCopyPath.value).toBeNull();
-        expect(file.canUndo.value).toBe(false);
+        expect(ledger.canUndoTimeline.value).toBe(false);
     });
 });

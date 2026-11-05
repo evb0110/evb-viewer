@@ -689,6 +689,8 @@ export function createDocumentOpenFlow(
             return false;
         }
 
+        if (!options?.preserveHistory) deps.incrementSessionVersion();
+
         const commitRevisionSwap = await options?.beforeSourceCommit?.(state.documentRevisionToken.value);
         if (options?.isCurrent?.() === false) return false;
         if (commitRevisionSwap) commitRevisionSwap();
@@ -697,20 +699,16 @@ export function createDocumentOpenFlow(
         // Publish its identity with its source, before either can yield.
         if (options?.originalPath) state.originalPath.value = options.originalPath;
         state.workingCopyPath.value = path;
-        // A history step's copy is the same opened document; only a new load
-        // names the source its view defaults follow.
         if (!options?.preserveHistory) {
             state.openedWorkingCopyPath.value = path;
         }
         state.pdfData.value = nextState.pdfData;
         state.pdfSrc.value = nextState.pdfSrc;
         state.pdfReloadSrc.value = nextState.pdfSrc;
-        // Set recovery provenance before resetHistory derives dirty state.
-        state.recoveryDirtyBaseline.value = options?.recoveryDirtyBaseline === true;
+        if (!options?.preserveHistory) state.recoveryDirtyBaseline.value = options?.recoveryDirtyBaseline === true;
         deps.clearPdfConformanceProfile();
 
         if (!options?.preserveHistory) {
-            deps.incrementSessionVersion();
             if (
                 nextState.pdfData
                 && (
