@@ -837,21 +837,10 @@ fn note_pages_as_read(pdf: &Path) -> Vec<Vec<String>> {
 /// reads them, with each outline item's own object number left out: files that
 /// number their objects differently compare equal when their outlines do.
 fn catalog_outline_as_read(pdf: &Path) -> Value {
-    let object = |id: &str| {
-        let output = Command::new(qpdf_path())
-            .args(["--json=1", "--json-key=objects", "--json-stream-data=none"])
-            .arg(format!(
-                "--json-object={}",
-                id.split_whitespace().next().unwrap()
-            ))
-            .arg("--")
-            .arg(pdf)
-            .output()
-            .unwrap();
-        assert!(output.status.success(), "qpdf object query failed");
-        let mut value: Value = serde_json::from_slice(&output.stdout).unwrap();
-        value["objects"][id].take()
-    };
+    // One snapshot per saved revision avoids reparsing the oversized fixture
+    // for every catalog and outline object.
+    let objects: Value = serde_json::from_str(&qpdf_objects_json(pdf)).unwrap();
+    let object = |id: &str| objects["objects"][id].clone();
     fn items(object: &dyn Fn(&str) -> Value, mut next: Value) -> Vec<Value> {
         let mut read = Vec::new();
         while let Some(id) = next.as_str().map(str::to_string) {

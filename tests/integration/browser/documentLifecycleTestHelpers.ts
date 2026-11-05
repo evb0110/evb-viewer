@@ -1,11 +1,5 @@
-import {spawn} from 'node:child_process';
-import type {ChildProcess} from 'node:child_process';
-import {once} from 'node:events';
+import {readFileSync} from 'node:fs';
 import {resolve} from 'node:path';
-import {
-    findFreePort, isProcessAlive, killProcessTree,
-} from '@scripts/electron-run/electronRunProcessTree';
-import {buildNuxtDevServerEnv} from '@scripts/electron-run/electronRunLaunchConfig';
 import {
     PDFDocument, PDFArray, PDFDict, PDFName, PDFString, PDFHexString,
 } from 'pdf-lib';
@@ -14,20 +8,25 @@ import type {
     Browser, BrowserContext, Page, FileChooser,
 } from 'playwright';
 import {
-    afterAll, beforeAll, expect,
+    afterAll, beforeAll, expect, inject,
 } from 'vitest';
 
 export {clickCenter} from './clickCenter';
 
-let devServer: ChildProcess | null = null;
+declare module 'vitest' {
+    // eslint-disable-next-line @typescript-eslint/naming-convention -- Vitest requires this interface name for module augmentation.
+    export interface ProvidedContext {
+        browserIntegrationOrigin: string;
+        browserIntegrationServerOutputPath: string;
+    }
+}
 
-let origin = '';
-
-let serverOutput = '';
+const origin = inject('browserIntegrationOrigin');
 
 let browser: Browser;
 
 export interface IBrowserLifecycleTestApi {
+    getActiveWorkspaceHandle?: () => unknown;
     waitForActiveDocumentOpenSettled?: () => Promise<boolean>;
     callActiveWorkspaceCommand?: <TResult = unknown>(commandName: string, args?: unknown[]) => Promise<{
         called: boolean;
@@ -72,26 +71,6 @@ export async function readPersistedDocumentBytes(page: Page, ref: string, sha256
     })()`);
 }
 
-async function waitForServer(url: string) {
-    const deadline = Date.now() + 90_000;
-    while (Date.now() < deadline) {
-        if (devServer?.exitCode !== null || devServer.signalCode !== null) {
-            throw new Error(`Nuxt exited before becoming ready:\n${serverOutput.slice(-8_000)}`);
-        }
-        try {
-            const response = await fetch(url, {signal: AbortSignal.timeout(Math.max(1, deadline - Date.now()))});
-            await response.body?.cancel();
-            if (response.ok) {
-                return;
-            }
-        } catch {
-            // The development server is still compiling or binding.
-        }
-        await new Promise(resolveWait => setTimeout(resolveWait, 250));
-    }
-    throw new Error(`Timed out waiting for Nuxt:\n${serverOutput.slice(-8_000)}`);
-}
-
 export async function waitForOpenFileReady(page: Page) {
     await page.waitForFunction(() => {
         const api = Reflect.get(window, '__evbTestApi') as {isStartupOpenClaimPending?: () => boolean};
@@ -100,6 +79,11 @@ export async function waitForOpenFileReady(page: Page) {
 }
 
 export async function settleActiveOpen(page: Page) {
+    // File chooser delivery can finish before the lazy active workspace mounts.
+    await page.waitForFunction(() => {
+        const testApi = Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi | undefined;
+        return Boolean(testApi?.getActiveWorkspaceHandle?.());
+    }, undefined, {timeout: 30_000});
     await page.evaluate(async () => {
         const testApi = Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi | undefined;
         if (!await testApi?.waitForActiveDocumentOpenSettled?.()) throw new Error('PDF viewer open did not settle');
@@ -194,50 +178,7 @@ export async function freezeWindow(context: BrowserContext, page: Page) {
     };
 }
 
-async function stopServer() {
-    const server = devServer;
-    devServer = null;
-    if (!server?.pid) {
-        return;
-    }
-    await killProcessTree(server.pid);
-    if (isProcessAlive(server.pid)) {
-        throw new Error('The browser lifecycle Nuxt process did not exit');
-    }
-}
-
 beforeAll(async () => {
-    const port = await findFreePort();
-    origin = `http://127.0.0.1:${String(port)}`;
-    const sessionName = `browser-lifecycle-${process.pid}`;
-    devServer = spawn(process.execPath, [
-        resolve(process.cwd(), 'node_modules/nuxt/bin/nuxt.mjs'),
-        'dev',
-        '--host',
-        '127.0.0.1',
-        '--port',
-        String(port),
-    ], {
-        cwd: process.cwd(),
-        // The shared launcher isolates build/output/cache, strips Vitest's
-        // child environment and keeps Nitro's macOS socket path short.
-        env: buildNuxtDevServerEnv({
-            ...process.env,
-            SENTRY_BROWSER_DSN: `http://consenttest@127.0.0.1:${String(port)}/1`,
-        }, port, sessionName),
-        stdio: [
-            'ignore',
-            'pipe',
-            'pipe',
-        ],
-    });
-    const captureOutput = (chunk: Buffer) => {
-        serverOutput = `${serverOutput}${chunk.toString()}`.slice(-20_000);
-    };
-    devServer.stdout?.on('data', captureOutput);
-    devServer.stderr?.on('data', captureOutput);
-    await once(devServer, 'spawn');
-    await waitForServer(origin);
     browser = await chromium.launch({headless: true});
     // HTTP readiness precedes the cold client and document-worker graphs.
     // Complete one real open here so per-document hooks start with a ready app.
@@ -252,11 +193,7 @@ beforeAll(async () => {
 }, 120_000);
 
 afterAll(async () => {
-    try {
-        await browser?.close();
-    } finally {
-        await stopServer();
-    }
+    await browser?.close();
 });
 
 export async function addNote(page: Page, text: string, position: {
@@ -404,5 +341,5 @@ export async function readBrowserPayloadCounts(page: Page) {
 export const lifecycle = {
     get browser() { return browser; },
     get origin() { return origin; },
-    get serverOutput() { return serverOutput; },
+    get serverOutput() { return readFileSync(inject('browserIntegrationServerOutputPath'), 'utf8'); },
 };

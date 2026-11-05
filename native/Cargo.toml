@@ -36,3 +36,7 @@ strip = "symbols"
 
 [profile.test]
 opt-level = 1
+
+# Keep test backtraces without generating full debugger data for every PDF test binary.
+[profile.test.package.evb-pdf-page-ops]
+debug = "line-tables-only"

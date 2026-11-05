@@ -187,10 +187,9 @@ impl AtomicOutput {
             .ok_or_else(|| io::Error::other("Temporary output file is already closed"))
     }
 
-    /// Seeds the unpublished sibling with a filesystem copy-on-write clone.
-    /// Returns `false` when the platform or filesystem cannot clone so callers
-    /// can fall back to a regular streamed copy.
-    pub fn seed_from_path_copy_on_write(&mut self, source: &Path) -> io::Result<bool> {
+    /// Seeds the unpublished sibling with a filesystem clone or sparse copy.
+    /// Returns `false` when neither is supported so callers can stream a copy.
+    pub fn seed_from_path(&mut self, source: &Path) -> io::Result<bool> {
         drop(self.file.take());
         match fs::remove_file(&self.temporary_path) {
             Ok(()) => {}
@@ -199,8 +198,8 @@ impl AtomicOutput {
         }
         let source_length = fs::metadata(source)?.len();
 
-        let cloned = clone_file(source, &self.temporary_path).unwrap_or(false);
-        if !cloned {
+        let seeded = seed_file(source, &self.temporary_path).unwrap_or(false);
+        if !seeded {
             let _ = fs::remove_file(&self.temporary_path);
             self.file = Some(create_exclusive_temporary_file(&self.temporary_path)?);
             return Ok(false);
@@ -226,7 +225,7 @@ impl AtomicOutput {
             || opened_metadata.len() != metadata.len()
         {
             return Err(io::Error::other(
-                "Copy-on-write output changed before it could be opened",
+                "Seeded output changed before it could be opened",
             ));
         }
         file.seek(SeekFrom::End(0))?;
@@ -292,11 +291,11 @@ impl AtomicOutput {
 }
 
 #[cfg(target_os = "linux")]
-fn clone_file(source: &Path, destination: &Path) -> io::Result<bool> {
+fn seed_file(source: &Path, destination: &Path) -> io::Result<bool> {
     use std::os::unix::io::AsRawFd;
 
-    let source_file = File::open(source)?;
-    let destination_file = create_exclusive_temporary_file(destination)?;
+    let mut source_file = File::open(source)?;
+    let mut destination_file = create_exclusive_temporary_file(destination)?;
     let result = unsafe {
         libc::ioctl(
             destination_file.as_raw_fd(),
@@ -305,14 +304,64 @@ fn clone_file(source: &Path, destination: &Path) -> io::Result<bool> {
         )
     };
     if result == 0 {
-        Ok(true)
-    } else {
-        Ok(false)
+        return Ok(true);
     }
+
+    // Without reflinks, copy data extents so staging sparse PDFs does not
+    // turn holes into gigabytes of zero writes at every incremental save.
+    destination_file.set_len(0)?;
+    let length = source_file.metadata()?.len();
+    copy_data_extents(&mut source_file, &mut destination_file, length)
+}
+
+/// Copies `source`'s data extents to the same offsets in an empty
+/// `destination` and sizes it to `length`; `false` asks for a streamed copy.
+#[cfg(target_os = "linux")]
+fn copy_data_extents(
+    source_file: &mut File,
+    destination_file: &mut File,
+    length: u64,
+) -> io::Result<bool> {
+    use std::os::unix::io::AsRawFd;
+
+    let mut offset = 0;
+    while offset < length {
+        let data = unsafe {
+            libc::lseek(
+                source_file.as_raw_fd(),
+                offset.try_into().map_err(io::Error::other)?,
+                libc::SEEK_DATA,
+            )
+        };
+        if data < 0 {
+            return if io::Error::last_os_error().raw_os_error() == Some(libc::ENXIO) {
+                destination_file.set_len(length).map(|()| true)
+            } else {
+                Ok(false)
+            };
+        }
+        let hole = unsafe { libc::lseek(source_file.as_raw_fd(), data, libc::SEEK_HOLE) };
+        if hole <= data || (data as u64) < offset || data as u64 >= length {
+            return Ok(false);
+        }
+        let end = (hole as u64).min(length);
+        source_file.seek(SeekFrom::Start(data as u64))?;
+        destination_file.seek(SeekFrom::Start(data as u64))?;
+        let bytes = end - data as u64;
+        if io::copy(&mut (&mut *source_file).take(bytes), destination_file)? != bytes {
+            return Err(io::Error::new(
+                io::ErrorKind::UnexpectedEof,
+                "Sparse input changed during copy",
+            ));
+        }
+        offset = end;
+    }
+    destination_file.set_len(length)?;
+    Ok(true)
 }
 
 #[cfg(target_os = "macos")]
-fn clone_file(source: &Path, destination: &Path) -> io::Result<bool> {
+fn seed_file(source: &Path, destination: &Path) -> io::Result<bool> {
     use std::{ffi::CString, os::unix::ffi::OsStrExt};
 
     let source = CString::new(source.as_os_str().as_bytes())
@@ -325,7 +374,7 @@ fn clone_file(source: &Path, destination: &Path) -> io::Result<bool> {
 }
 
 #[cfg(not(any(target_os = "macos", target_os = "linux")))]
-fn clone_file(_source: &Path, _destination: &Path) -> io::Result<bool> {
+fn seed_file(_source: &Path, _destination: &Path) -> io::Result<bool> {
     Ok(false)
 }
 
@@ -671,21 +720,77 @@ mod tests {
         assert!(!destination.exists());
     }
 
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn extent_copy_keeps_separated_data_and_holes() {
+        let source = test_path("extent-source");
+        let destination = test_path("extent-destination");
+        let mut source_file = File::options()
+            .read(true)
+            .write(true)
+            .create_new(true)
+            .open(&source)
+            .unwrap();
+        source_file.seek(SeekFrom::Start(1024 * 1024)).unwrap();
+        source_file.write_all(b"first-extent").unwrap();
+        source_file.seek(SeekFrom::Start(3 * 1024 * 1024)).unwrap();
+        source_file.write_all(b"second-extent").unwrap();
+        source_file.set_len(5 * 1024 * 1024).unwrap();
+        let expected = fs::read(&source).unwrap();
+        let mut destination_file = File::create(&destination).unwrap();
+
+        assert!(copy_data_extents(
+            &mut source_file,
+            &mut destination_file,
+            expected.len() as u64
+        )
+        .unwrap());
+
+        assert_eq!(fs::read(&destination).unwrap(), expected);
+        fs::remove_file(source).unwrap();
+        fs::remove_file(destination).unwrap();
+    }
+
     #[cfg(unix)]
     #[test]
-    fn copy_on_write_seed_replaces_a_substituted_symlink_without_following_it() {
+    fn seeding_replaces_a_substituted_symlink_without_following_it() {
         use std::os::unix::fs::symlink;
 
         let source = test_path("clone-source");
         let destination = test_path("clone-destination");
         let victim = test_path("clone-victim");
-        fs::write(&source, b"source-bytes").unwrap();
+        let mut source_file = File::create(&source).unwrap();
+        source_file.seek(SeekFrom::Start(8192)).unwrap();
+        source_file.write_all(b"source-bytes").unwrap();
+        source_file.set_len(2 * 1024 * 1024).unwrap();
+        let expected = fs::read(&source).unwrap();
         fs::write(&victim, b"victim-bytes").unwrap();
         let mut output = AtomicOutput::create(&destination).unwrap();
         fs::remove_file(output.temporary_path()).unwrap();
         symlink(&victim, output.temporary_path()).unwrap();
 
-        let _ = output.seed_from_path_copy_on_write(&source).unwrap();
+        let seeded = output.seed_from_path(&source).unwrap();
+        #[cfg(target_os = "linux")]
+        {
+            use std::os::{fd::AsRawFd, unix::fs::MetadataExt};
+            // Require sparse output when the filesystem reports the leading hole.
+            let source_file = File::open(&source).unwrap();
+            if unsafe { libc::lseek(source_file.as_raw_fd(), 0, libc::SEEK_HOLE) } == 0 {
+                assert!(seeded);
+                assert!(
+                    output.file().unwrap().metadata().unwrap().blocks() * 512
+                        < expected.len() as u64
+                );
+            }
+        }
+        if seeded {
+            assert_eq!(fs::read(output.temporary_path()).unwrap(), expected);
+            output.file_mut().unwrap().write_all(b"append").unwrap();
+            let mut appended = expected.clone();
+            appended.extend_from_slice(b"append");
+            assert_eq!(fs::read(output.temporary_path()).unwrap(), appended);
+            assert_eq!(fs::read(&source).unwrap(), expected);
+        }
 
         assert_eq!(fs::read(&victim).unwrap(), b"victim-bytes");
         assert!(fs::symlink_metadata(output.temporary_path())
