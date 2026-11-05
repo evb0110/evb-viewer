@@ -6,6 +6,9 @@ import {
     vi,
 } from 'vitest';
 import {BrowserDocumentStore} from '@app/platform/browser/browserDocumentRepository';
+import {
+    loadRecord,
+} from '@app/platform/browser/browserDocumentIdb';
 import {createBrowserFileContentWitness} from '@app/platform/browser/createBrowserFileContentWitness';
 import {
     BROWSER_LIVE_LEASES_STORE,
@@ -197,6 +200,73 @@ describe('BrowserDocumentStore source registration', () => {
         await expect(store.readRange(reopenedRef, 2, 2)).resolves.toEqual(Uint8Array.of(68, 71));
         await expect(store.read(originalRef)).resolves.toEqual(Uint8Array.of(37, 80, 68, 70));
         await expect(store.read(dirtyRef)).resolves.toEqual(Uint8Array.of(37, 80, 68, 70, 1));
+    });
+
+    it.each([
+        'file',
+        'bytes',
+    ] as const)('migrates persisted legacy %s baselines only after matching the old content witness', async kind => {
+        const openingBytes = new Uint8Array(17 * 1024 * 1024).fill(32);
+        let physicalFile = new File([openingBytes], 'legacy.pdf', {lastModified: 200});
+        const handle = createFileSystemFileHandle({
+            name: physicalFile.name,
+            getFile: async () => physicalFile,
+        });
+        const store = new BrowserDocumentStore();
+        const sourceRef = await store.registerFile(physicalFile, {saveHandle: handle});
+        // Fixed old first/middle/last-sample hash; file tokens also embedded mtime 100.
+        const legacy = `${kind}:${openingBytes.length}:${kind === 'file' ? '100:' : ''}1bb89dc5-211a6485`;
+        const dirtyBytes = Uint8Array.of(37, 80, 68, 70, 9);
+        const workingRef = await store.createStoredDocument('legacy.pdf', dirtyBytes, {
+            mimeType: 'application/pdf',
+            retention: 'durable',
+            kind: 'working',
+            sourceRef,
+            sourceBaseWitness: legacy,
+        });
+        const revision = (await store.getDocumentRevision(workingRef)).token;
+        const openingWitness = await createBrowserFileContentWitness(physicalFile);
+        await store.runDocumentMutationWithSource(workingRef, sourceRef, revision, async mutation => {
+            await mutation.assertPhysicalSourceBaseCurrent();
+        });
+        // A failed later write must not require another sampled migration.
+        expect(await loadRecord(workingRef)).toMatchObject({sourceBaseWitness: openingWitness});
+        expect(openingWitness).toMatch(/^content-v2:/u);
+        // An edit outside every legacy sample is now caught by the upgraded baseline.
+        openingBytes[1024 * 1024] = 88;
+        physicalFile = new File([openingBytes], physicalFile.name, {lastModified: 200});
+        await expect(store.runDocumentMutationWithSource(workingRef, sourceRef, revision, async mutation => {
+            await mutation.assertPhysicalSourceBaseCurrent();
+        })).rejects.toThrow('physical source changed');
+        await expect(store.read(workingRef)).resolves.toEqual(dirtyBytes);
+    });
+
+    it.each([
+        'file',
+        'bytes',
+    ] as const)('refuses a changed file with a persisted legacy %s baseline', async kind => {
+        const bytes = new Uint8Array(17 * 1024 * 1024).fill(32);
+        bytes[0] = 88;
+        const file = new File([bytes], 'changed-legacy.pdf', {lastModified: 100});
+        const store = new BrowserDocumentStore();
+        const sourceRef = await store.registerFile(file, {saveHandle: createFileSystemFileHandle({
+            name: file.name,
+            getFile: async () => file,
+        })});
+        const legacy = `${kind}:${bytes.length}:${kind === 'file' ? '100:' : ''}1bb89dc5-211a6485`;
+        const workingRef = await store.createStoredDocument(file.name, Uint8Array.of(9), {
+            mimeType: 'application/pdf',
+            retention: 'durable',
+            kind: 'working',
+            sourceRef,
+            sourceBaseWitness: legacy,
+        });
+        await expect(store.runDocumentMutationWithSource(workingRef, sourceRef,
+            (await store.getDocumentRevision(workingRef)).token, async mutation => {
+                await mutation.assertPhysicalSourceBaseCurrent();
+            })).rejects.toThrow('physical source changed');
+        expect(await loadRecord(workingRef)).toMatchObject({sourceBaseWitness: legacy});
+        await expect(store.readRange(sourceRef, 0, 64 * 1024)).resolves.toEqual(bytes.slice(0, 64 * 1024));
     });
 
     it('rejects a materialized save when the physical source changed at equal size and mtime', async () => {
