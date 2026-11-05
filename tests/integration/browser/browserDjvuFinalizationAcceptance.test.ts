@@ -786,8 +786,8 @@ describe('browser DjVu finalization acceptance in Chromium', () => {
                     expect(offset).toBeGreaterThan(8);
                     expect(offset + length).toBeLessThanOrEqual(file.bytes.byteLength);
                     expect(readTiffFrameDpi(frame)).toEqual(kind === 'pdf' ? {
-                        x: 144,
-                        y: 144,
+                        x: 300,
+                        y: 300,
                     } : PAGE_DPI);
                     UTIF.decodeImage(file.bytes, frame);
                     const rgba = UTIF.toRGBA8(frame);
@@ -915,7 +915,7 @@ describe('browser DjVu finalization acceptance in Chromium', () => {
             expect(djvu.saved!.frames).toHaveLength(70);
             expect(djvu.saved!.frames.every(frame => frame.width === 512 && frame.height === 512)).toBe(true);
 
-            // Ten Letter pages at 144 DPI decode to 74 MiB of RGBA.
+            // Ten Letter pages at 300 DPI decode to 321 MiB of RGBA.
             const download = page.waitForEvent('download');
             const pdf = await runExport('pdf', 10);
             expect(pdf).toMatchObject({success: true});
@@ -929,8 +929,8 @@ describe('browser DjVu finalization acceptance in Chromium', () => {
                 firstNumber(frame.t257),
             ])).toEqual(
                 Array.from({length: 10}, () => [
-                    1224,
-                    1584,
+                    2550,
+                    3300,
                 ]),
             );
         } finally {
@@ -1093,8 +1093,8 @@ describe('browser DjVu finalization acceptance in Chromium', () => {
                 const bytes = bytesOf(result);
                 const dpi = extension === 'png' ? readPngDpi(bytes) : extension === 'jpg' ? readJpegDpi(bytes) : readTiffFrameDpi(UTIF.decode(bytes)[0]!);
                 expect(dpi, extension).toEqual({
-                    x: 144,
-                    y: 144,
+                    x: 300,
+                    y: 300,
                 });
             }
             const result = await page.evaluate(() => Reflect.get(globalThis, '__evbRunBrowserPdfMultiPageTiffExportAcceptance')('density.tif'));
@@ -1103,11 +1103,11 @@ describe('browser DjVu finalization acceptance in Chromium', () => {
                 height: firstNumber(frame.t257),
                 dpi: readTiffFrameDpi(frame),
             }))).toEqual(Array.from({length: 2}, () => ({
-                width: 144,
-                height: 288,
+                width: 300,
+                height: 600,
                 dpi: {
-                    x: 144,
-                    y: 144,
+                    x: 300,
+                    y: 300,
                 },
             })));
         } finally {

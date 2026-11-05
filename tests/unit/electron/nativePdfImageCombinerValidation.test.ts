@@ -70,10 +70,12 @@ vi.mock('fs/promises', () => ({
 }));
 vi.mock('@electron/native-tools/resolveNativeToolPath', () => ({resolveNativeToolPath: () => '/native/evb-pdf-image-combine'}));
 vi.mock('@electron/utils/nativeChildProcess', () => ({
-    createDetachedChildProcessSpawnOptions: (options: object) => ({
+    spawnNativeChildProcess: (command: string, args: string[], options: object) => mocks.spawn(command, args, {
         ...options,
         detached: true,
     }),
+    getNativeChildProcessPid: (proc: {pid?: number}) => Promise.resolve(proc.pid ?? null),
+    getNativeChildProcessTerminationProof: () => undefined,
     terminateDetachedChildProcess: mocks.terminateDetachedChildProcess,
 }));
 vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({

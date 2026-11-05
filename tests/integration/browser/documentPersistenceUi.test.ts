@@ -50,10 +50,13 @@ async function createReadingBook(label: string, name: string) {
 function readReadingView(page: Page) {
     return page.evaluate(() => {
         const host = document.querySelector('.workspace-host[data-workspace-active="true"]');
-        const viewport = host?.getBoundingClientRect();
+        const viewport = host?.querySelector('[data-document-viewer-chassis-viewport]')?.getBoundingClientRect();
         const visible = Array.from(host?.querySelectorAll<HTMLElement>('.page_container--rendered') ?? []).find((container) => {
+            if (!viewport) return false;
             const rect = container.getBoundingClientRect();
-            return viewport && rect.bottom > viewport.top + viewport.height / 4 && rect.top < viewport.bottom - viewport.height / 4;
+            const centerX = viewport.left + viewport.width / 2;
+            const centerY = viewport.top + viewport.height / 2;
+            return rect.left <= centerX && rect.right >= centerX && rect.top <= centerY && rect.bottom >= centerY;
         });
         const rect = visible?.getBoundingClientRect();
         return {

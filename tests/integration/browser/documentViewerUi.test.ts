@@ -1190,7 +1190,8 @@ describe('browser document lifecycle UI', () => {
             console.info('Foreign annotation image', JSON.stringify(observation));
             writeFileSync(resolve(process.cwd(), `.devkit/browser-annotation-icon-${process.pid}.json`), JSON.stringify(observation, null, 2));
             await page.screenshot({path: resolve(process.cwd(), `.devkit/browser-annotation-icon-${process.pid}.png`)});
-            expect(new URL(response.url()).pathname).toBe('/pdfjs/images/annotation-paperclip.svg');
+            const [pdfjsAssetIdentity] = JSON.parse(readFileSync(resolve('public/pdf/assets.json'), 'utf8')) as string[];
+            expect(new URL(response.url()).pathname).toBe(`/pdf/${pdfjsAssetIdentity}/images/annotation-paperclip.svg`);
             expect(response.status()).toBe(200);
             expect(bytes).toEqual(readFileSync(resolve(process.cwd(), 'node_modules/pdfjs-dist/web/images/annotation-paperclip.svg')));
             expect(dimensions.naturalWidth).toBeGreaterThan(0);

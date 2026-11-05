@@ -20,6 +20,9 @@ const mocks = vi.hoisted(() => ({
 vi.mock('child_process', () => ({spawn: mocks.spawn}));
 vi.mock('readline', () => ({createInterface: mocks.createInterface}));
 vi.mock('@electron/utils/nativeChildProcess', () => ({
+    spawnNativeChildProcess: mocks.spawn,
+    getNativeChildProcessPid: (proc: {pid?: number}) => Promise.resolve(proc.pid ?? null),
+    getNativeChildProcessTerminationProof: () => undefined,
     createDetachedChildProcessSpawnOptions: (options: unknown) => options,
     terminateDetachedChildProcess: mocks.terminateDetachedChildProcess,
 }));

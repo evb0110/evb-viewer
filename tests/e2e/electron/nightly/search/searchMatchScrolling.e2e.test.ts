@@ -430,8 +430,8 @@ describe('Electron E2E - PDF search match scrolling', () => {
             ]) {
                 await openDocumentSidebarTab(page, 'Pages');
                 await clickAsUser(page, '[data-thumbnail-page="1"]', {button: 'right'});
-                await clickFoundAsUser(page, label => [...document.querySelectorAll('[role="menuitem"]')]
-                    .find(element => element.textContent?.trim() === label), `Rotate ${direction}`, {description: `Rotate ${direction}`});
+                await clickFoundAsUser(page, label => [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')]
+                    .find(element => element.textContent?.trim() === label && !element.disabled), `Rotate ${direction}`, {description: `Rotate ${direction}`});
                 await page.waitForFunction(landscape => {
                     const target = document.querySelector<HTMLElement>('.page_container--rendered[data-page="1"]');
                     const rect = target?.getBoundingClientRect();

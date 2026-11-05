@@ -11,6 +11,7 @@ import {
     describe,
     expect,
     it,
+    onTestFinished,
     vi,
 } from 'vitest';
 import {
@@ -76,6 +77,7 @@ import {
 } from '@contracts/scan-cleanup/toolbarSelectors';
 import {useScanCleanupDocumentSettings} from '@app/modules/scan-cleanup/composables/useScanCleanupDocumentSettings';
 import {resetScanCleanupPreferencesStore} from '@app/modules/scan-cleanup/runtime/scanCleanupPreferencesStore';
+import {FakeIndexedDbFactory} from '@tests/unit/app/platform/browserPlatformTestDoubles';
 import type {IScanCleanupTabSessionState} from '@app/modules/workspace-shell/tabs/tabSessionStoreTypes';
 import type {IDocumentPageSource} from '@app/modules/document-viewer/source/documentPageSource';
 
@@ -2011,7 +2013,12 @@ describe('Scan cleanup components', () => {
         expect(harness.host.querySelector('.scan-cleanup-auto-value-reset')).toBeNull();
     });
 
-    it('normalizes persisted document mixed output to Auto and exposes Auto/B&W/Gray/Color labels', () => {
+    it('normalizes persisted document mixed output to Auto and exposes Auto/B&W/Gray/Color labels', async () => {
+        const previousIndexedDb = globalThis.indexedDB;
+        vi.stubGlobal('indexedDB', new FakeIndexedDbFactory());
+        onTestFinished(() => {
+            vi.stubGlobal('indexedDB', previousIndexedDb);
+        });
         localStorage.setItem('evb.scanCleanup.documentOverrides.v1', JSON.stringify({'document-mixed': {
             outputMode: 'mixed',
             updatedAt: 1,
@@ -2052,10 +2059,14 @@ describe('Scan cleanup components', () => {
                 'Color',
             ],
         ]);
-        const persisted = JSON.parse(
-            localStorage.getItem('evb.scanCleanup.documentOverrides.v1') ?? '{}',
-        ) as Record<string, {outputMode?: string}>;
-        expect(persisted['document-mixed']?.outputMode).toBe('auto');
+        await expect.poll(() => documentSettings?.documentSettingsReady.value).toBe(true);
+        expect(documentSettings?.values.outputMode).toBe('auto');
+        await expect.poll(() => {
+            const persisted = JSON.parse(
+                localStorage.getItem('evb.scanCleanup.documentOverrides.v1') ?? '{}',
+            ) as Record<string, {outputMode?: string}>;
+            return persisted['document-mixed']?.outputMode;
+        }).toBe('auto');
     });
 
     it('applies mixed output only to the current page from the zone editor', async () => {
