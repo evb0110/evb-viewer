@@ -1,3 +1,10 @@
+import { once } from 'node:events';
+import { createInterface } from 'node:readline';
+import {
+    mkdtemp, rm,
+} from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import {
     beforeEach,
     describe,
@@ -8,6 +15,8 @@ import {
 import {
     createDetachedChildProcessSpawnOptions,
     shouldUseDetachedProcessGroup,
+    spawnNativeChildProcess,
+    getNativeChildProcessTerminationProof,
     terminateDetachedChildProcess,
 } from '@electron/utils/nativeChildProcess';
 
@@ -126,4 +135,116 @@ describe('nativeChildProcess', () => {
         expect(processTreeMocks.terminateProcessTree).not.toHaveBeenCalled();
     });
 
+});
+
+// These exercise real suspended creation, inherited pipes and whole-job proof.
+// The native builder stages the same launcher used in the packaged application.
+describe.runIf(process.platform === 'win32')('Windows native Job Object ownership', () => {
+    const rootSource = `
+        const {spawn} = require('node:child_process');
+        const child = spawn(process.execPath, ['-e', "require('node:net').createServer().listen(0, '127.0.0.1', () => process.send('ready'))"], {
+            stdio: ['pipe', 'ignore', 'ignore', 'ipc'], windowsHide: true,
+        });
+        child.once('message', () => process.stdout.write(JSON.stringify({root: process.pid, child: child.pid}) + '\\n'));
+        process.stdin.once('data', () => process.exit(7));
+    `;
+    function alive(pid: number) {
+        try { process.kill(pid, 0); return true; } catch { return false; }
+    }
+    async function startTree() {
+        const proc = spawnNativeChildProcess(process.execPath, [
+            '-e',
+            rootSource,
+        ], {
+            stdio: [
+                'pipe',
+                'pipe',
+                'pipe',
+            ],
+            windowsHide: true,
+        });
+        const lines = createInterface({input: proc.stdout});
+        const [line] = await once(lines, 'line');
+        lines.close();
+        const tree = JSON.parse(String(line)) as {
+            root: number;
+            child: number
+        };
+        expect(alive(tree.root)).toBe(true);
+        expect(alive(tree.child)).toBe(true);
+        return {
+            proc,
+            tree,
+        };
+    }
+    it('terminates the entire job before reporting proof', async () => {
+        const {
+            proc, tree,
+        } = await startTree();
+        try {
+            await expect(terminateDetachedChildProcess(proc, 1_000)).resolves.toBe(true);
+            expect(alive(tree.root)).toBe(false);
+            expect(alive(tree.child)).toBe(false);
+        } finally { proc.kill(); }
+    });
+    it('contains descendants after the root crashes', async () => {
+        const {
+            proc, tree,
+        } = await startTree();
+        try {
+            const closed = once(proc, 'close');
+            proc.stdin?.end('crash');
+            expect((await closed)[0]).toBe(7);
+            await expect(getNativeChildProcessTerminationProof(proc)).resolves.toBe(true);
+            expect(alive(tree.root)).toBe(false);
+            expect(alive(tree.child)).toBe(false);
+        } finally { proc.kill(); }
+    });
+    it('preserves argv, cwd, environment, stdout, stderr and stdin bytes', async () => {
+        const cwd = await mkdtemp(join(tmpdir(), 'native-job-'));
+        const args = [
+            '',
+            'two words',
+            'שלום',
+            'quoted"value',
+            'trailing\\',
+        ];
+        const source = 'process.stdout.write(JSON.stringify({args:process.argv.slice(1),cwd:process.cwd(),env:process.env.B11_CUSTOM})); process.stdin.pipe(process.stderr)';
+        const proc = spawnNativeChildProcess(process.execPath, [
+            '-e',
+            source,
+            '--',
+            ...args,
+        ], {
+            cwd,
+            env: {
+                ...process.env,
+                B11_CUSTOM: 'custom-value',
+            },
+            stdio: [
+                'pipe',
+                'pipe',
+                'pipe',
+            ],
+            windowsHide: true,
+        });
+        let stdout = '', stderr = '';
+        proc.stdout.setEncoding('utf8').on('data', chunk => {stdout += chunk;});
+        proc.stderr.setEncoding('utf8').on('data', chunk => {stderr += chunk;});
+        try {
+            const closed = once(proc, 'close');
+            proc.stdin?.end('input Ω');
+            expect((await closed)[0]).toBe(0);
+            expect(JSON.parse(stdout)).toEqual({
+                args,
+                cwd,
+                env: 'custom-value',
+            });
+            expect(stderr).toBe('input Ω');
+            await expect(getNativeChildProcessTerminationProof(proc)).resolves.toBe(true);
+        } finally { proc.kill(); await rm(cwd, {
+            recursive: true,
+            force: true,
+        }); }
+    });
 });

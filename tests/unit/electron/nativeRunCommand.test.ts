@@ -18,6 +18,7 @@ import { join } from 'node:path';
 
 const mocks = vi.hoisted(() => ({
     spawn: vi.fn(),
+    jobProof: vi.fn<() => Promise<boolean> | undefined>(() => undefined),
     terminateDetachedChildProcess: vi.fn(async (_proc: unknown, _graceMs: number): Promise<boolean> => false),
     createManagedScratchTempDir: vi.fn(async (prefix: string, rootPath?: string) => join(rootPath ?? '/tmp', `${prefix}test`)),
     removeManagedScratchTempDir: vi.fn(async (_path: string, _prefix: string, _root: string) => true),
@@ -51,7 +52,9 @@ class MockNativeProcess extends EventEmitter {
 
 vi.mock('child_process', () => ({spawn: mocks.spawn}));
 vi.mock('@electron/utils/nativeChildProcess', () => ({
-    createDetachedChildProcessSpawnOptions: (options: unknown) => options,
+    spawnNativeChildProcess: mocks.spawn,
+    getNativeChildProcessTerminationProof: mocks.jobProof,
+    getNativeChildProcessPid: (proc: {pid?: number}) => Promise.resolve(proc.pid ?? null),
     terminateDetachedChildProcess: mocks.terminateDetachedChildProcess,
 }));
 vi.mock('@electron/utils/managedScratchTemp', () => ({
@@ -73,6 +76,7 @@ describe('runNativeCommand', () => {
         vi.clearAllMocks();
         vi.useRealTimers();
         vi.unstubAllEnvs();
+        mocks.jobProof.mockReturnValue(undefined);
         mocks.createManagedScratchTempDir.mockImplementation(async (prefix, rootPath) => join(rootPath ?? '/tmp', `${prefix}test`));
         mocks.removeManagedScratchTempDir.mockResolvedValue(true);
         mocks.unregisterManagedProcess.mockResolvedValue(undefined);
@@ -480,7 +484,7 @@ describe('runNativeCommand', () => {
         const resultPromise = runNativeCommand('/bin/tool', [], {onSpawn});
 
         expect(onSpawn).toHaveBeenCalledOnce();
-        expect(onSpawn).toHaveBeenCalledWith(proc.pid, expect.any(Function));
+        expect(onSpawn).toHaveBeenCalledWith(proc.pid, expect.any(Function), undefined);
         proc.emit('close', 0, null);
         await expect(resultPromise).resolves.toMatchObject({exitCode: 0});
     });
@@ -951,6 +955,7 @@ describe('runNativeCommand', () => {
     it.each([
         'abnormal-close',
         'cancellation',
+        'job-close',
     ] as const)('retains real Windows scratch after unproven %s', async mode => {
         const platform = Object.getOwnPropertyDescriptor(process, 'platform')!;
         const scratchRoot = await mkdtemp(join(tmpdir(), 'native-windows-containment-'));
@@ -976,6 +981,7 @@ describe('runNativeCommand', () => {
         const proc = new MockNativeProcess();
         mocks.spawn.mockReturnValue(proc);
         mocks.terminateDetachedChildProcess.mockResolvedValueOnce(false);
+        if (mode === 'job-close') mocks.jobProof.mockReturnValue(Promise.resolve(false));
         const {runNativeCommand} = await import('@electron/native-tools/runNativeCommand');
         const {getUnprovenNativeTerminationDetail} = await import('@electron/utils/nativeTerminationProof');
         const controller = new AbortController();
@@ -988,6 +994,47 @@ describe('runNativeCommand', () => {
         expect(getUnprovenNativeTerminationDetail(await rejection)).toBeDefined();
         expect(existsSync(scratch)).toBe(true);
         expect(mocks.unregisterManagedProcess).not.toHaveBeenCalled();
+        if (mode === 'job-close') {
+            const {acquireNativeCommandAdmission} = await import('@electron/native-tools/runNativeCommand');
+            const releases = Array.from({length: 7}, () => acquireNativeCommandAdmission());
+            const queued = new AbortController();
+            const admission = acquireNativeCommandAdmission(queued.signal);
+            expect(admission).toBeInstanceOf(Promise);
+            queued.abort();
+            await expect(admission).rejects.toMatchObject({name: 'AbortError'});
+            for (const release of releases) { if (typeof release === 'function') release(); }
+        }
+    });
+
+    it('keeps scratch until the owned Windows job acknowledges empty', async () => {
+        vi.stubEnv('EVB_APP_TEMP_NAMESPACE', 'windows-job-proof');
+        const scratchRoot = await mkdtemp(join(tmpdir(), 'native-windows-proof-'));
+        onTestFinished(() => rm(scratchRoot, {
+            recursive: true,
+            force: true,
+        }));
+        mocks.createManagedScratchTempDir.mockImplementation(async prefix => mkdtemp(join(scratchRoot, prefix)));
+        mocks.removeManagedScratchTempDir.mockImplementation(async path => {
+            await rm(path, {
+                recursive: true,
+                force: true,
+            });
+            return true;
+        });
+        const proof = Promise.withResolvers<boolean>();
+        mocks.jobProof.mockReturnValue(proof.promise);
+        const proc = new MockNativeProcess();
+        mocks.spawn.mockReturnValue(proc);
+        const {runNativeCommand} = await import('@electron/native-tools/runNativeCommand');
+        const result = runNativeCommand('/native/qpdf.exe', []);
+        await vi.waitFor(() => expect(mocks.spawn).toHaveBeenCalledOnce());
+        const scratch = await mocks.createManagedScratchTempDir.mock.results[0]!.value;
+        proc.emit('close', 0, null);
+        await Promise.resolve();
+        expect(existsSync(scratch)).toBe(true);
+        proof.resolve(true);
+        await expect(result).resolves.toMatchObject({exitCode: 0});
+        expect(existsSync(scratch)).toBe(false);
     });
 
 });

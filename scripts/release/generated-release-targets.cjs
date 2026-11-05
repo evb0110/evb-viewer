@@ -222,6 +222,32 @@ const manifest = JSON.parse(String.raw`{
             ]
         },
         {
+            "binaryName": "evb-windows-job-launcher",
+            "id": "windows-job-launcher",
+            "label": "Windows native process Job Object launcher",
+            "packagedEntries": [
+                {
+                    "id": "evb-windows-job-launcher",
+                    "label": "evb-windows-job-launcher binary",
+                    "pathSegments": [
+                        "bin",
+                        "evb-windows-job-launcher{exeSuffix}"
+                    ],
+                    "platforms": [
+                        "win32"
+                    ],
+                    "type": "file"
+                }
+            ],
+            "sourceRootSegments": [
+                ".tmp",
+                "windows-job-launcher"
+            ],
+            "stagedRootSegments": [
+                "windows-job-launcher"
+            ]
+        },
+        {
             "binaryName": "evb-pdf-image-combine",
             "id": "pdf-image-combine",
             "label": "PDF image combine native tool",
@@ -390,6 +416,9 @@ const manifest = JSON.parse(String.raw`{
             ],
             [
                 "pdf-print-dialog"
+            ],
+            [
+                "windows-job-launcher"
             ],
             [
                 "pdf-image-combine"

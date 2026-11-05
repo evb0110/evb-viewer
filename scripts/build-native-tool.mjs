@@ -162,8 +162,10 @@ export async function runNativeToolBuilder(argv = process.argv.slice(2)) {
         return;
     }
 
-    const tools = await resolveTools(request);
     const target = getRequestedNativeRustTarget();
+    if (target.platform === 'win32' && !request.toolIds.includes('windows-job-launcher')) request.toolIds.push('windows-job-launcher');
+    const tools = (await resolveTools(request))
+        .filter(tool => target.platform === 'win32' || tool.familyId !== 'windows-job-launcher');
     const staticLinuxCrt = target.platform === 'linux'
         && readBuildEnvironment(process.env).EVB_NATIVE_TARGET_PLATFORM !== undefined;
     const plans = tools.map(tool => ({

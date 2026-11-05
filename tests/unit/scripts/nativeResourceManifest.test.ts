@@ -25,6 +25,7 @@ describe('native resource manifest', () => {
     it('keeps generated native tools attached to package resource families', () => {
         const familyIds = new Set(NATIVE_TOOL_RESOURCE_FAMILIES.map(family => family.id));
         expect(GENERATED_NATIVE_TOOL_RESOURCES.map(tool => tool.familyId)).toEqual([
+            'windows-job-launcher',
             'pdf-image-combine',
             'pdf-page-ops',
             'pdf-search',
@@ -33,10 +34,13 @@ describe('native resource manifest', () => {
         for (const tool of GENERATED_NATIVE_TOOL_RESOURCES) {
             expect(familyIds.has(tool.familyId)).toBe(true);
         }
+        expect(NATIVE_TOOL_RESOURCE_FAMILIES.find(family => family.id === 'windows-job-launcher'))
+            .toMatchObject({packagedEntries: [{platforms: ['win32']}]});
 
         expect(NATIVE_TOOL_RESOURCE_FAMILIES
             .filter(family => GENERATED_NATIVE_TOOL_RESOURCES.some(tool => tool.familyId === family.id))
             .map(family => family.sourceRootSegments.join('/'))).toEqual([
+            '.tmp/windows-job-launcher',
             '.tmp/pdf-image-combine',
             '.tmp/pdf-page-ops',
             '.tmp/pdf-search',
