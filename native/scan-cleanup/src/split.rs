@@ -1,6 +1,6 @@
 use crate::{
     deskew::{detect_skew, score_skew},
-    engine::prepare::build_analysis_level,
+    engine::{batch_reconciliation::MANIFEST_RECONCILIATION_POLICY, prepare::build_analysis_level},
     protocol::manifest_v3::SplitSeamPolyline,
     LayoutMode,
 };
@@ -406,6 +406,7 @@ impl SplitResult {
             width,
             height,
             prior,
+            MANIFEST_RECONCILIATION_POLICY.minimum_confidence,
         );
         let previous_cutter = self.cutter_x;
         self.classification = decision.classification;
@@ -2540,6 +2541,7 @@ pub fn reconcile_layout_decision(
     width: usize,
     height: usize,
     prior: DocumentPrior,
+    minimum_confidence: f64,
 ) -> LayoutDecision {
     let mut decision = LayoutDecision {
         classification: tier1_classification,
@@ -2562,6 +2564,10 @@ pub fn reconcile_layout_decision(
     if tier1_classification == prior.dominant_layout {
         decision.confidence = confidence_with_document_agreement(decision.confidence, agreement);
         decision.reconciliation.cluster_agreement = agreement;
+        return decision;
+    }
+
+    if tier1_confidence >= minimum_confidence {
         return decision;
     }
 
@@ -4007,6 +4013,60 @@ mod tests {
     }
 
     #[test]
+    fn explicit_document_prior_keeps_confident_local_layouts_and_cutters() {
+        for (layout, cutter, dominant) in [
+            (
+                LayoutClassification::TwoPageSpread,
+                Some(300.0),
+                LayoutClassification::SingleUncutPage,
+            ),
+            (
+                LayoutClassification::SingleUncutPage,
+                None,
+                LayoutClassification::TwoPageSpread,
+            ),
+            (
+                LayoutClassification::PageWithOffcut,
+                Some(50.0),
+                LayoutClassification::SingleUncutPage,
+            ),
+        ] {
+            let mut local = detect_split(
+                &GrayImage::new(600, 400, 255),
+                150.0,
+                LayoutMode::Single,
+                None,
+            );
+            local.classification = layout;
+            local.confidence = 0.60;
+            local.cutter_x = cutter;
+            local.diagnostics.decision_x = 300.0;
+            local.diagnostics.whitespace_score = 0.9;
+            local.apply_document_prior(
+                600,
+                400,
+                DocumentPrior {
+                    dominant_layout: dominant,
+                    cutter_ratio_median: (dominant == LayoutClassification::TwoPageSpread)
+                        .then_some(0.5),
+                    cluster_dims: ClusterDimensions {
+                        width: 600.0,
+                        height: 400.0,
+                    },
+                    agreement_strength: 0.9,
+                    stroke_width_median_px: None,
+                    x_height_median_px: None,
+                },
+            );
+            assert_eq!(local.classification, layout);
+            assert_eq!(local.cutter_x, cutter);
+            assert_eq!(local.confidence, 0.60);
+            assert!(!local.reconciliation.reconciled);
+            assert_eq!(local.pages.len(), usize::from(cutter.is_some()) + 1);
+        }
+    }
+
+    #[test]
     fn document_agreement_boosts_matching_pages_and_promotes_only_matching_candidates() {
         let prior = DocumentPrior {
             dominant_layout: LayoutClassification::TwoPageSpread,
@@ -4028,6 +4088,7 @@ mod tests {
             1200,
             870,
             prior,
+            MANIFEST_RECONCILIATION_POLICY.minimum_confidence,
         );
         assert_eq!(matching.classification, LayoutClassification::TwoPageSpread);
         assert!(matching.confidence > 0.9, "{matching:?}");
@@ -4043,6 +4104,7 @@ mod tests {
             1200,
             870,
             prior,
+            MANIFEST_RECONCILIATION_POLICY.minimum_confidence,
         );
         assert_eq!(promoted.classification, LayoutClassification::TwoPageSpread);
         assert!(promoted.reconciliation.reconciled);
@@ -4058,6 +4120,7 @@ mod tests {
             1200,
             870,
             prior,
+            MANIFEST_RECONCILIATION_POLICY.minimum_confidence,
         );
         assert_eq!(
             median_recovered.classification,
@@ -4075,6 +4138,7 @@ mod tests {
             1200,
             870,
             prior,
+            MANIFEST_RECONCILIATION_POLICY.minimum_confidence,
         );
         assert_eq!(
             rejected.classification,
@@ -4595,6 +4659,7 @@ mod tests {
             1400,
             900,
             prior,
+            MANIFEST_RECONCILIATION_POLICY.minimum_confidence,
         );
         assert_eq!(
             decision.classification,

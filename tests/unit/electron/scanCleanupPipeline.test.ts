@@ -7222,8 +7222,8 @@ describe.skipIf(missingParityTools.length > 0)(`browser scan-cleanup WASM final 
                 3,
                 4,
             ].map(page => readHalfSizeSpreadPage(page)));
-            // The first spread shifted a twentieth of its width: its cutter
-            // falls off the document's, so reconciliation analyzes it again.
+            // The shifted spread is confident, so the document median must
+            // preserve its locally observed cutter.
             const pages = [
                 ...spreads,
                 shiftRight(spreads[0]!, 20),
@@ -7275,8 +7275,17 @@ describe.skipIf(missingParityTools.length > 0)(`browser scan-cleanup WASM final 
             const firstPass = [];
             for (const index of pages.keys()) firstPass.push(await analyze(index));
             const {pages: decisions} = unwrap(await reconcileBrowserScanCleanupDocument({candidates: firstPass.map(page => page.reconciliation)}));
-            expect(decisions.map(decision => decision?.kind ?? 'none')).toContain('rerun');
-            expect(decisions.map(decision => decision?.kind ?? 'none')).toContain('update');
+            expect(decisions.map(decision => decision?.kind ?? 'none')).toEqual(pages.map(() => 'update'));
+            for (const [
+                index,
+                decision,
+            ] of decisions.entries()) {
+                const candidate = firstPass[index]!.reconciliation;
+                expect(candidate.tier1Confidence).toBeGreaterThanOrEqual(0.60);
+                if (decision?.kind !== 'update') throw new Error('Confident pages must preserve their local layout');
+                expect(decision.classification).toBe(candidate.tier1Verdict);
+                expect(decision.cutterX).toBe(candidate.cutterX);
+            }
             for (const [
                 index,
                 decision,

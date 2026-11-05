@@ -942,8 +942,8 @@ fn analyze_matches_a_single_page_analyze_manifest() {
 }
 
 /// Four soft-gutter spreads, and the first again shifted a twentieth of its
-/// width: its cutter falls off the document's, so reconciliation analyzes it
-/// again under the prior while the others take the document's decision.
+/// width. Its confident cutter must survive document reconciliation even
+/// though it falls away from the document median.
 fn reconciliation_pages() -> Vec<Vec<u8>> {
     let mut pages = SPREAD_FIXTURES.map(half_size).to_vec();
     let decoded = raster::decode_image_bytes(&pages[0], u64::MAX, u32::MAX).unwrap();
@@ -1033,14 +1033,15 @@ fn document_reconciliation_matches_a_multi_page_analyze_manifest() {
             .iter()
             .map(|decision| decision["kind"].as_str().unwrap_or("none").to_owned())
             .collect::<Vec<_>>();
-        assert!(
-            kinds.iter().any(|kind| kind == "rerun"),
-            "{label}: {kinds:?}"
-        );
-        assert!(
-            kinds.iter().any(|kind| kind == "update"),
-            "{label}: {kinds:?}"
-        );
+        assert_eq!(kinds, vec!["update"; pages.len()], "{label}");
+        for (candidate, decision) in candidates.iter().zip(&decisions) {
+            assert!(
+                candidate["tier1Confidence"].as_f64().unwrap()
+                    >= MANIFEST_RECONCILIATION_POLICY.minimum_confidence
+            );
+            assert_eq!(decision["classification"], candidate["tier1Verdict"]);
+            assert_eq!(decision["cutterX"], candidate["cutterX"]);
+        }
         for (index, decision) in decisions.iter().enumerate() {
             let analysis = if decision["kind"] == "rerun" {
                 analyze(index, Some(&decision["prior"])).page
