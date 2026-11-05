@@ -28,6 +28,7 @@ import {
 import type * as FsPromises from 'fs/promises';
 import type * as WorkerTask from '@electron/utils/workerTask';
 import * as utifModule from 'utif';
+import type {ITiffEncoderModule} from '@pdf-core/tiffEncoding';
 import {
     getUnprovenNativeTerminationDetail,
     markUnprovenNativeTermination,
@@ -73,6 +74,7 @@ const mocks = vi.hoisted(() => ({
     holdRemoval: null as ((path: string) => boolean) | null,
     beforeAppend: null as ((path: string, data: string) => Promise<void>) | null,
     atomicReplace: vi.fn(),
+    moveFileToMissingPath: vi.fn(),
     copyFileAtomic: vi.fn(),
     makeSiblingTempPath: vi.fn((targetPath: string) => `${targetPath}.tmp`),
     createManagedScratchTempDir: vi.fn(async (_prefix: string) => ''),
@@ -263,10 +265,10 @@ vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({
     error: vi.fn(),
 })}));
 
-vi.mock('@electron/utils/atomicReplace', async importOriginal => ({
+vi.mock('@electron/utils/atomicReplace', () => ({
     atomicReplace: (...args: unknown[]) => mocks.atomicReplace(...args),
     makeSiblingTempPath: (...args: [string]) => mocks.makeSiblingTempPath(...args),
-    moveFileToMissingPath: (await importOriginal<typeof TAtomicReplace>()).moveFileToMissingPath,
+    moveFileToMissingPath: (...args: [string, string]) => mocks.moveFileToMissingPath(...args),
 }));
 vi.mock('@electron/utils/managedScratchTemp', async importOriginal => ({
     ...(await importOriginal<typeof TManagedScratch>()),
@@ -277,10 +279,14 @@ vi.mock('@electron/utils/managedScratchTemp', async importOriginal => ({
         run: (scratchPath: string) => Promise<unknown>,
     ) => {
         const scratchPath = await mocks.createManagedScratchTempDir(prefix);
+        let failure: unknown;
         try {
             return await run(scratchPath);
+        } catch (error) {
+            failure = error;
+            throw error;
         } finally {
-            await rm(scratchPath, {
+            if (getUnprovenNativeTerminationDetail(failure) === undefined) await rm(scratchPath, {
                 force: true,
                 recursive: true,
             });
@@ -300,17 +306,14 @@ const {
 } = await import('@electron/features/image-export/main/export');
 const { IMAGE_EXPORT_MAX_NETPBM_READ_BYTES } = await import('@electron/features/image-export/main/imageExportResourceLimits');
 const { buildOutputPathWithSuffix } = await import('@electron/utils/boundedPathComponent');
+const {resolveSuffixedOutputPathConflicts} = await import('@electron/features/image-export/main/imageExportPathPlanning');
+const {combinePagesIntoMultiPageTiffLocal} = await import('@electron/features/image-export/main/combinePagesIntoMultiPageTiffLocal');
 const {
-    buildMultiPageTiffOutputPaths,
-    resolveSuffixedOutputPathConflicts,
-} = await import('@electron/features/image-export/main/imageExportPathPlanning');
-const {
-    combinePagesIntoMultiPageTiffLocal,
-    estimateMultiPageTiffByteLength,
-    splitTiffPageDescriptorsForClassicLimit,
-} = await import('@electron/features/image-export/main/combinePagesIntoMultiPageTiffLocal');
+    estimateMultiPageTiffByteLength, splitTiffPageDescriptorsForClassicLimit,
+} = await import('@pdf-core/tiffEncoding');
+const {buildMultiPageTiffOutputSuffixes} = await import('@pdf-core/imageExportFileName');
 
-const UTIF = utifModule;
+const UTIF = utifModule as typeof utifModule & ITiffEncoderModule;
 const realPdfLib = await vi.importActual<typeof TPdfLib>('pdf-lib');
 const realNativeTools = await vi.importActual<typeof TViMockOriginalModule>('@electron/pdf/nativeToolPaths');
 const realFs = await vi.importActual<typeof FsPromises>('fs/promises');
@@ -410,12 +413,14 @@ describe('image export', () => {
         mocks.holdRemoval = null;
         mocks.beforeAppend = null;
         mocks.atomicReplace.mockReset();
+        mocks.moveFileToMissingPath.mockReset();
+        mocks.moveFileToMissingPath.mockImplementation(realAtomicReplace.moveFileToMissingPath);
         mocks.copyFileAtomic.mockReset();
         mocks.copyFileAtomic.mockImplementation(async (sourcePath: string, targetPath: string) => {
             await copyFile(sourcePath, targetPath);
         });
         mocks.makeSiblingTempPath.mockReset();
-        mocks.makeSiblingTempPath.mockImplementation((targetPath: string) => `${targetPath}.tmp`);
+        mocks.makeSiblingTempPath.mockImplementation(realAtomicReplace.makeSiblingTempPath);
         mocks.managedScratchDirs.length = 0;
         mocks.createManagedScratchTempDir.mockImplementation(async (prefix: string) => {
             const path = await realManagedScratch.createManagedScratchTempDir(prefix as TManagedScratch.TManagedScratchPrefix, tempDir);
@@ -1037,13 +1042,29 @@ describe('image export', () => {
         mocks.runCommand.mockImplementation(async (
             command: string,
             args: string[],
-            options?: {onStdout?: (chunk: string) => void},
+            options?: {
+                onStdout?: (chunk: string) => void;
+                rejectOnStdoutTruncation?: boolean;
+            },
         ) => {
             if (command === '/mock/pdftoppm') {
                 mocks.requestedRenderDpis.push(Number.parseFloat(String(args[args.indexOf('-r') + 1])));
                 throw renderStopped;
             }
-            return defaultRunCommand(command, args, options);
+            // The real runner rejects output past its retained 256 KiB unless
+            // the caller says the streamed output is enough.
+            let streamedBytes = 0;
+            const result = await defaultRunCommand(command, args, {
+                ...options,
+                onStdout: (chunk: string) => {
+                    streamedBytes += Buffer.byteLength(chunk);
+                    options?.onStdout?.(chunk);
+                },
+            });
+            if (streamedBytes > 262_144 && options?.rejectOnStdoutTruncation !== false) {
+                throw new Error('stdout exceeded 262144 bytes');
+            }
+            return result;
         });
 
         const outputPath = join(tempDir, 'huge-first-page.png');
@@ -1224,7 +1245,7 @@ describe('image export', () => {
         ]), 1, 1)));
         await import('node:fs/promises').then(({mkdir}) => mkdir(`${outputPath}.tmp`));
 
-        await expect(combinePagesIntoMultiPageTiffLocal([pagePath], outputPath))
+        await expect(combinePagesIntoMultiPageTiffLocal([pagePath], outputPath, {tempPath: `${outputPath}.tmp`}))
             .rejects.toBeInstanceOf(Error);
 
         expect(mocks.atomicReplace).not.toHaveBeenCalled();
@@ -1251,9 +1272,9 @@ describe('image export', () => {
                 dataLength: 400,
             },
         ];
-        const twoPageLimit = estimateMultiPageTiffByteLength(descriptors.slice(0, 2));
+        const twoPageLimit = estimateMultiPageTiffByteLength(descriptors.slice(0, 2), UTIF);
 
-        expect(splitTiffPageDescriptorsForClassicLimit(descriptors, twoPageLimit)).toEqual([
+        expect(splitTiffPageDescriptorsForClassicLimit(descriptors, UTIF, twoPageLimit)).toEqual([
             [
                 descriptors[0],
                 descriptors[1],
@@ -1271,8 +1292,8 @@ describe('image export', () => {
         };
 
         expect(() => splitTiffPageDescriptorsForClassicLimit(
-            [descriptor],
-            estimateMultiPageTiffByteLength([descriptor]) - 1,
+            [descriptor], UTIF,
+            estimateMultiPageTiffByteLength([descriptor], UTIF) - 1,
         )).toThrow('A single TIFF page exceeds the Classic TIFF 4GB limit');
     });
 
@@ -1297,7 +1318,6 @@ describe('image export', () => {
         mocks.rename.mockRejectedValue(Object.assign(new Error('Cross-device link'), {code: 'EXDEV'}));
 
         const outputPath = join(tempDir, 'exported.png');
-        const tempPath = `${outputPath}.tmp`;
 
         await expect(exportPdfPagesAsImages('/tmp/input.pdf', outputPath)).resolves.toEqual([outputPath]);
 
@@ -1306,7 +1326,7 @@ describe('image export', () => {
             0,
             0,
         ]);
-        expect(existsSync(tempPath)).toBe(false);
+        expect(listStagedNames(tempDir)).toEqual([]);
     });
 
     it('refuses an extensionless accepted image destination', async () => {
@@ -1434,12 +1454,116 @@ describe('image export', () => {
         ]);
         expect(new Set(paths).size).toBe(4);
         expect(paths.every(target => Buffer.byteLength(basename(target), 'utf8') <= 255)).toBe(true);
-        const tiffPaths = buildMultiPageTiffOutputPaths(join(tempDir, `${'a'.repeat(300)}.tif`), 2);
+        const tiffPaths = buildMultiPageTiffOutputSuffixes(2).map(suffix => buildOutputPathWithSuffix(join(tempDir, `${'a'.repeat(300)}.tif`), suffix));
         expect(tiffPaths.map(target => basename(target).slice(-13))).toEqual([
             '-part-001.tif',
             '-part-002.tif',
         ]);
         expect(tiffPaths.every(target => Buffer.byteLength(basename(target), 'utf8') === 255)).toBe(true);
+    });
+
+    // T3: successful concurrent jobs retain every complete physical output.
+    it.each([
+        1,
+        2,
+        3,
+    ])('keeps both overlapping exports and their distinct pixels, run %i', async () => {
+        const render = mocks.runCommand.getMockImplementation()!;
+        let renderedJobs = 0;
+        mocks.runCommand.mockImplementation(async (command: string, args: string[], options?: {onStdout?: (chunk: string) => void}) => {
+            const result = await render(command, args, options);
+            if (command === '/mock/pdftoppm') {
+                const color = renderedJobs++ === 0 ? [
+                    255,
+                    0,
+                    0,
+                ] : [
+                    0,
+                    0,
+                    255,
+                ];
+                for (const page of [
+                    1,
+                    2,
+                ]) {
+                    await writeFile(`${args.at(-1)}-${page}.ppm`, Buffer.concat([
+                        Buffer.from('P6\n1 1\n255\n'),
+                        Buffer.from(color),
+                    ]));
+                }
+            }
+            return result;
+        });
+        const readyA = Promise.withResolvers<undefined>();
+        const readyB = Promise.withResolvers<undefined>();
+        const releaseA = Promise.withResolvers<undefined>();
+        const releaseB = Promise.withResolvers<undefined>();
+        const template = join(tempDir, 'book.png');
+        const a = exportPdfPagesAsImages('/tmp/input.pdf', template, {beforePublish: async () => { readyA.resolve(undefined); await releaseA.promise; }});
+        await readyA.promise;
+        const b = exportPdfPagesAsImages('/tmp/input.pdf', template, {beforePublish: async () => { readyB.resolve(undefined); await releaseB.promise; }});
+        await readyB.promise;
+        releaseA.resolve(undefined);
+        const pathsA = await a;
+        releaseB.resolve(undefined);
+        const pathsB = await b;
+        expect(pathsA.map(path => basename(path))).toEqual([
+            'book-001.png',
+            'book-002.png',
+        ]);
+        expect(pathsB.map(path => basename(path))).toEqual([
+            'book-001-1.png',
+            'book-002-1.png',
+        ]);
+        for (const path of pathsA) expectSinglePixelPng(await readFile(path), [
+            255,
+            0,
+            0,
+        ]);
+        for (const path of pathsB) expectSinglePixelPng(await readFile(path), [
+            0,
+            0,
+            255,
+        ]);
+        expect(listStagedNames(tempDir)).toEqual([]);
+        expect((await readdir(tempDir)).sort()).toEqual([
+            ...pathsA,
+            ...pathsB,
+        ].map(path => basename(path)).sort());
+    });
+
+    it.each([
+        'book',
+        '界'.repeat(80),
+    ])('preserves a rival appearing during installation and rolls back only its own suffixed files: %s', async (stem) => {
+        const template = join(tempDir, `${stem}.png`);
+        const target = buildOutputPathWithSuffix(template, '-001');
+        const stagedPath = join(tempDir, '.job.tmp');
+        const ledger = createStagedFilePublicationLedger();
+        await writeFile(stagedPath, 'job bytes');
+        let rivalCreated = false;
+        mocks.moveFileToMissingPath.mockImplementation(async (source: string, destination: string) => {
+            if (!rivalCreated) {
+                rivalCreated = true;
+                await writeFile(destination, 'rival bytes');
+            }
+            return realAtomicReplace.moveFileToMissingPath(source, destination);
+        });
+        const result = await promoteStagedFiles([{
+            stagedPath,
+            targetPath: template,
+            suffix: '-001',
+            allowOverwrite: false,
+        }], undefined, ledger);
+        const actual = buildOutputPathWithSuffix(template, '-001-1');
+        expect(result).toEqual([actual]);
+        expect(Buffer.byteLength(basename(actual))).toBeLessThanOrEqual(255);
+        expect(await readFile(target, 'utf8')).toBe('rival bytes');
+        expect(await readFile(actual, 'utf8')).toBe('job bytes');
+        await rollbackStagedFilePublications(ledger);
+        expect(await readFile(target, 'utf8')).toBe('rival bytes');
+        expect(existsSync(actual)).toBe(false);
+        expect(listStagedNames(tempDir)).toEqual([]);
     });
 
     it('rejects equivalent final targets before publishing any staged image', async () => {
@@ -1453,10 +1577,14 @@ describe('image export', () => {
         await expect(promoteStagedFiles([
             {
                 stagedPath: firstStagedPath,
+                suffix: '',
+                allowOverwrite: true,
                 targetPath,
             },
             {
                 stagedPath: secondStagedPath,
+                suffix: '',
+                allowOverwrite: true,
                 targetPath: `${tempDir}/./duplicate.png`,
             },
         ])).rejects.toThrow('Duplicate image export target');
@@ -1521,10 +1649,14 @@ describe('image export', () => {
         await expect(promoteStagedFiles([
             {
                 stagedPath: firstStagedPath,
+                suffix: '',
+                allowOverwrite: true,
                 targetPath,
             },
             {
                 stagedPath: secondStagedPath,
+                suffix: '',
+                allowOverwrite: true,
                 targetPath: secondTargetPath,
             },
         ], abortController.signal)).rejects.toThrow('The operation was aborted');
@@ -1533,6 +1665,7 @@ describe('image export', () => {
     });
 
     it('uses a durable atomic copy for rollback backups', async () => {
+        mocks.makeSiblingTempPath.mockImplementation((targetPath: string) => `${targetPath}.tmp`);
         const targetPath = join(tempDir, 'durable-backup.png');
         const stagedPath = join(tempDir, 'durable-backup.staged');
         const ledger = createStagedFilePublicationLedger();
@@ -1541,6 +1674,8 @@ describe('image export', () => {
 
         await promoteStagedFiles([{
             stagedPath,
+            suffix: '',
+            allowOverwrite: true,
             targetPath,
         }], undefined, ledger);
 
@@ -1554,6 +1689,7 @@ describe('image export', () => {
     });
 
     it('keeps an unproven native termination on the promotion error when a backup is retained', async () => {
+        mocks.makeSiblingTempPath.mockImplementation((targetPath: string) => `${targetPath}.tmp`);
         const targetPath = join(tempDir, 'unproven-promotion.png');
         const stagedPath = join(tempDir, 'unproven-promotion.staged');
         await writeFile(targetPath, 'original');
@@ -1569,6 +1705,8 @@ describe('image export', () => {
 
         const failure = await promoteStagedFiles([{
             stagedPath,
+            suffix: '',
+            allowOverwrite: true,
             targetPath,
         }]).catch((error: unknown) => error);
 
@@ -1809,6 +1947,18 @@ describe('image export', () => {
             .rejects
             .toThrow('timed out');
         expect(existsSync(outputPath)).toBe(false);
+        const retained = mocks.managedScratchDirs.filter(({path}) => existsSync(path));
+        expect(retained).not.toHaveLength(0);
+        const files = (await Promise.all(retained.map(({path}) => readdir(path)))).flat();
+        expect(files.some(name => name.endsWith('.ppm'))).toBe(true);
+        for (const {path} of retained) {
+            // The native seam is mocked and has no live writer. Reclaim only
+            // after asserting that the real export owner retained its input.
+            await rm(path, {
+                recursive: true,
+                force: true,
+            });
+        }
     });
 
     it.each([
@@ -1924,7 +2074,6 @@ describe('image export', () => {
         mocks.atomicReplace.mockRejectedValue(new Error('replace failed'));
 
         const outputPath = join(tempDir, 'existing.png');
-        const tempPath = `${outputPath}.tmp`;
         await writeFile(outputPath, 'old-target');
 
         await expect(exportPdfPagesAsImages('/tmp/input.pdf', outputPath))
@@ -1932,7 +2081,7 @@ describe('image export', () => {
             .toThrow('replace failed');
 
         expect(await readFile(outputPath, 'utf8')).toBe('old-target');
-        expect(existsSync(tempPath)).toBe(false);
+        expect(listStagedNames(tempDir)).toEqual([]);
     });
 
     it('removes promoted multi-page image targets when a later promotion fails', async () => {
@@ -1943,7 +2092,7 @@ describe('image export', () => {
         const firstTargetPath = join(tempDir, 'new-export-001.png');
         const secondTargetPath = join(tempDir, 'new-export-002.png');
 
-        mocks.atomicReplace.mockImplementation(async (sourcePath: string, targetPath: string) => {
+        mocks.moveFileToMissingPath.mockImplementation(async (sourcePath: string, targetPath: string) => {
             if (targetPath === secondTargetPath) {
                 throw new Error('second promotion failed');
             }
@@ -1960,6 +2109,7 @@ describe('image export', () => {
     });
 
     it('retains the only backup when rollback restoration fails', async () => {
+        mocks.makeSiblingTempPath.mockImplementation((targetPath: string) => `${targetPath}.tmp`);
         const firstTargetPath = join(tempDir, 'first.png');
         const secondTargetPath = join(tempDir, 'second.png');
         const firstStagedPath = join(tempDir, 'first.staged');
@@ -1983,10 +2133,14 @@ describe('image export', () => {
         const failure = await promoteStagedFiles([
             {
                 stagedPath: firstStagedPath,
+                suffix: '',
+                allowOverwrite: true,
                 targetPath: firstTargetPath,
             },
             {
                 stagedPath: secondStagedPath,
+                suffix: '',
+                allowOverwrite: true,
                 targetPath: secondTargetPath,
             },
         ]).catch((error: unknown) => error);
@@ -2009,10 +2163,14 @@ describe('image export', () => {
 
         await promoteStagedFiles([{
             stagedPath: firstStagedPath,
+            suffix: '',
+            allowOverwrite: true,
             targetPath: firstTargetPath,
         }], undefined, ledger);
         await promoteStagedFiles([{
             stagedPath: secondStagedPath,
+            suffix: '',
+            allowOverwrite: true,
             targetPath: secondTargetPath,
         }], undefined, ledger);
 
@@ -2043,10 +2201,14 @@ describe('image export', () => {
         await expect(promoteStagedFiles([
             {
                 stagedPath: firstStagedPath,
+                suffix: '',
+                allowOverwrite: true,
                 targetPath: firstTargetPath,
             },
             {
                 stagedPath: secondStagedPath,
+                suffix: '',
+                allowOverwrite: true,
                 targetPath: secondTargetPath,
             },
         ])).rejects.toThrow('second promotion failed');
@@ -2079,10 +2241,14 @@ describe('image export', () => {
         await expect(promoteStagedFiles([
             {
                 stagedPath: firstStagedPath,
+                suffix: '',
+                allowOverwrite: true,
                 targetPath: firstTargetPath,
             },
             {
                 stagedPath: secondStagedPath,
+                suffix: '',
+                allowOverwrite: true,
                 targetPath: secondTargetPath,
             },
         ])).rejects.toThrow();
@@ -2160,7 +2326,7 @@ describe('image export', () => {
             .toThrow('The operation was aborted');
 
         expect(existsSync(outputPath)).toBe(false);
-        expect(existsSync(`${outputPath}.tmp`)).toBe(false);
+        expect(listStagedNames(tempDir)).toEqual([]);
     });
 
     it('keeps the rendered TIFF pages of a window whose native writer may still read them', async () => {
@@ -2234,6 +2400,22 @@ describe('image export', () => {
         expect(existsSync(outputPath)).toBe(false);
     });
 
+    it('starts crash recovery at or after the last filesystem write', async () => {
+        const appTempRoot = join(tempDir, 'app-temp');
+        const scratchPath = await realManagedScratch.createManagedScratchTempDir('pdfExport-', appTempRoot);
+        const scratchStat = await realFs.lstat(scratchPath);
+        vi.useFakeTimers({
+            toFake: ['Date'],
+            now: Math.floor(Math.max(scratchStat.mtimeMs, scratchStat.ctimeMs)) - 1,
+        });
+        try {
+            await restartAfterCrash(appTempRoot);
+            expect(existsSync(scratchPath)).toBe(false);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
     it('removes the staged TIFF of a multi-page export stopped before publishing, on the next start', async () => {
         mocks.renderPageCount = 2;
         mocks.pdfPageCount = 2;
@@ -2277,10 +2459,14 @@ describe('image export', () => {
         });
         void promoteStagedFiles([
             {
+                suffix: '',
+                allowOverwrite: true,
                 stagedPath: join(tempDir, 'first.staged'),
                 targetPath: firstTargetPath,
             },
             {
+                suffix: '',
+                allowOverwrite: true,
                 stagedPath: join(tempDir, 'second.staged'),
                 targetPath: secondTargetPath,
             },
@@ -2313,10 +2499,14 @@ describe('image export', () => {
         const publication = createStagedFilePublicationLedger(scratchPath);
         await promoteStagedFiles([
             {
+                suffix: '',
+                allowOverwrite: true,
                 stagedPath: join(tempDir, 'first.staged'),
                 targetPath: firstTargetPath,
             },
             {
+                suffix: '',
+                allowOverwrite: true,
                 stagedPath: join(tempDir, 'second.staged'),
                 targetPath: secondTargetPath,
             },
@@ -2379,6 +2569,8 @@ describe('image export', () => {
             return copied.stop();
         });
         void promoteStagedFiles([{
+            suffix: '',
+            allowOverwrite: true,
             stagedPath: join(tempDir, 'first.staged'),
             targetPath,
         }], undefined, createStagedFilePublicationLedger(scratchPath));
@@ -2415,10 +2607,14 @@ describe('image export', () => {
         });
         void promoteStagedFiles([
             {
+                suffix: '',
+                allowOverwrite: true,
                 stagedPath: join(tempDir, 'first.staged'),
                 targetPath: firstTargetPath,
             },
             {
+                suffix: '',
+                allowOverwrite: true,
                 stagedPath: join(tempDir, 'second.staged'),
                 targetPath: secondTargetPath,
             },
@@ -2490,10 +2686,14 @@ describe('image export', () => {
         });
         void promoteStagedFiles([
             {
+                suffix: '',
+                allowOverwrite: true,
                 stagedPath: join(tempDir, 'first.staged'),
                 targetPath: first,
             },
             {
+                suffix: '',
+                allowOverwrite: true,
                 stagedPath: join(tempDir, 'second.staged'),
                 targetPath: second,
             },
@@ -2603,12 +2803,12 @@ describe('image export', () => {
             join(tempDir, 'page-001.png'),
             join(tempDir, 'page-002.png'),
         ];
-        // The folder turns read-only after the first replacement: the second
-        // backup and the first restore both fail.
-        mocks.atomicReplace.mockImplementationOnce(async (sourcePath: string, targetPath: string) => {
-            await realAtomicReplace.atomicReplace(sourcePath, targetPath);
+        // The folder turns read-only after the first publication: the second
+        // publication and removal of the first published file both fail.
+        mocks.moveFileToMissingPath.mockImplementationOnce(async (sourcePath: string, targetPath: string) => {
+            await realAtomicReplace.moveFileToMissingPath(sourcePath, targetPath);
             await chmod(tempDir, 0o555);
-        }).mockImplementation(realAtomicReplace.atomicReplace);
+        }).mockImplementation(realAtomicReplace.moveFileToMissingPath);
         try {
             const failure = await exportPdfPagesAsImages('/tmp/input.pdf', join(tempDir, 'page.png'), {
                 scratch,
@@ -2628,6 +2828,11 @@ describe('image export', () => {
         ]);
         expect(listStagedNames(tempDir)).toEqual([]);
         await expect(readdir(appTempRoot)).resolves.toEqual([]);
+        expect((await readdir(tempDir)).sort()).toEqual([
+            'app-temp',
+            'page-001.png',
+            'page-002.png',
+        ]);
     });
 
     it('keeps a target replaced after the crash and puts its original beside it under a free name, on the next start', async () => {
@@ -2696,6 +2901,8 @@ describe('image export', () => {
         // The process stops before the backup copy creates anything.
         mocks.copyFileAtomic.mockImplementation(() => copying.stop());
         void promoteStagedFiles([{
+            suffix: '',
+            allowOverwrite: true,
             stagedPath: join(tempDir, 'first.staged'),
             targetPath,
         }], undefined, createStagedFilePublicationLedger(scratchPath));
@@ -2707,4 +2914,96 @@ describe('image export', () => {
         await expect(readdir(appTempRoot)).resolves.toEqual([]);
         expect(listStagedNames(tempDir)).toEqual([]);
     });
+
+    it.runIf(process.platform !== 'win32')('exports the requested newline source through bundled qpdf and cleans its scope', async () => {
+        const source = join(tempDir, 'source\nname.pdf');
+        const sibling = join(tempDir, 'source name.pdf');
+        const requested = await realPdfLib.PDFDocument.create();
+        requested.addPage().drawText('EXACT_EXPORT_SENTINEL');
+        const wrong = await realPdfLib.PDFDocument.create();
+        wrong.addPage().drawText('WRONG_EXPORT_SIBLING'); wrong.addPage();
+        await writeFile(source, await requested.save()); await writeFile(sibling, await wrong.save());
+        mocks.pdfPageCount = 2; mocks.renderPageCount = 1;
+        const defaultRun = mocks.runCommand.getMockImplementation()!;
+        const qpdf = resolveRealPdfToolPaths().qpdf;
+        let subsetVerified = false;
+        mocks.runCommand.mockImplementation(async (command: string, args: string[], options?: unknown) => {
+            if (command === '/mock/qpdf' && args[0]?.startsWith('@')) {
+                const result = await runFile(qpdf, args);
+                const subset = (await readFile(args[0].slice(1), 'utf8')).split('\n').at(-1)!;
+                expect((await realPdfLib.PDFDocument.load(await readFile(subset))).getPageCount()).toBe(1);
+                const pages = await runFile(qpdf, [
+                    '--show-pages',
+                    subset,
+                ]);
+                const content = /content:\s+(\d+) (\d+) R/u.exec(pages.stdout)!;
+                const stream = await runFile(qpdf, [
+                    `--show-object=${content[1]},${content[2]}`,
+                    '--filtered-stream-data',
+                    subset,
+                ]);
+                expect(stream.stdout.toUpperCase()).toContain(Buffer.from('EXACT_EXPORT_SENTINEL').toString('hex').toUpperCase());
+                subsetVerified = true;
+                return {
+                    ...result,
+                    exitCode: 0,
+                };
+            }
+            return defaultRun(command, args, options);
+        });
+        const output = join(tempDir, 'published.png');
+        await expect(exportPdfPagesAsImages(source, output, {pageNumbers: [1]})).resolves.toEqual([output]);
+        expect(subsetVerified).toBe(true);
+        expect((await readFile(output)).length).toBeGreaterThan(0);
+        for (const scope of mocks.managedScratchDirs) expect(existsSync(scope.path)).toBe(false);
+    });
+
+    it.each(process.platform === 'win32' ? ['ordinary'] : [
+        'ordinary',
+        'newline',
+    ])(
+        'retains subset bytes and qpdf artifacts in the injected scope on a marked failure (%s)', async spelling => {
+            const source = join(tempDir, spelling === 'newline' ? 'source\nname.pdf' : 'source.pdf');
+            await writeFile(source, '%PDF-1.7\n%%EOF\n');
+            mocks.pdfPageCount = 2;
+            const defaultRun = mocks.runCommand.getMockImplementation()!;
+            const error = markUnprovenNativeTermination(new Error('subset qpdf timeout'), 'subset writer still alive');
+            let argsPath = ''; let subsetPath = '';
+            const injectedScopes: string[] = [];
+            mocks.runCommand.mockImplementation(async (command: string, args: string[], options?: unknown) => {
+                if (command === '/mock/qpdf' && args[0]?.startsWith('@')) {
+                    argsPath = args[0].slice(1);
+                    subsetPath = (await readFile(argsPath, 'utf8')).split('\n').at(-1)!;
+                    await writeFile(subsetPath, 'partially written subset');
+                    throw error;
+                }
+                return defaultRun(command, args, options);
+            });
+            const output = join(tempDir, 'unpublished.png');
+            try {
+                await expect(exportPdfPagesAsImages(source, output, {
+                    pageNumbers: [1],
+                    scratch: {using: (prefix, run) => realManagedScratch.usingManagedScratchScope(prefix, tempDir, scope => {
+                        injectedScopes.push(scope);
+                        return run(scope);
+                    })},
+                })).rejects.toBe(error);
+                expect(await readFile(subsetPath, 'utf8')).toBe('partially written subset');
+                expect(dirname(subsetPath)).toBe(injectedScopes[0]);
+                expect(dirname(argsPath)).toBe(injectedScopes[0]);
+                expect(existsSync(argsPath)).toBe(true);
+                expect((await readdir(dirname(argsPath))).some(name => name.startsWith('path-'))).toBe(spelling === 'newline');
+                expect(existsSync(output)).toBe(false);
+            } finally {
+            // The seam has no live child. Dispose only this test's retained fixtures.
+                await Promise.all([
+                    ...injectedScopes,
+                    ...mocks.managedScratchDirs.map(scope => scope.path),
+                ].map(path => realFs.rm(path, {
+                    recursive: true,
+                    force: true,
+                })));
+            }
+        });
+
 });

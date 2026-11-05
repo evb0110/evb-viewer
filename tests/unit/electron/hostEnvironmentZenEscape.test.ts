@@ -25,6 +25,8 @@ interface IHostZenEscapeTestWindow {
     };
     focus: ReturnType<typeof vi.fn>;
     getBounds: ReturnType<typeof vi.fn<() => IHostZenEscapeTestBounds>>;
+    getContentSize: ReturnType<typeof vi.fn>;
+    setContentSize: ReturnType<typeof vi.fn>;
     isDestroyed: ReturnType<typeof vi.fn>;
     isFocused: ReturnType<typeof vi.fn>;
     isFullScreen: ReturnType<typeof vi.fn>;
@@ -95,6 +97,18 @@ vi.mock('electron', () => {
                 mocks.focusedWindow = window;
             }),
             getBounds: vi.fn(() => bounds),
+            // The content area is the window less its title bar.
+            getContentSize: vi.fn(() => [
+                bounds.width,
+                bounds.height - TITLE_BAR_HEIGHT,
+            ]),
+            setContentSize: vi.fn((width: number, height: number) => {
+                bounds = {
+                    ...bounds,
+                    width,
+                    height: height + TITLE_BAR_HEIGHT,
+                };
+            }),
             isDestroyed: vi.fn(() => false),
             isFocused: vi.fn(() => mocks.focusedWindow === window),
             isFullScreen: vi.fn(() => fullScreen),
@@ -159,6 +173,10 @@ vi.mock('electron', () => {
                         width: 800,
                         height: 600,
                     },
+                    workAreaSize: {
+                        width: 800,
+                        height: 600,
+                    },
                 };
             }),
             getDisplayNearestPoint: vi.fn(() => ({scaleFactor: 1})),
@@ -192,6 +210,9 @@ function getBeforeInputHandler(window: IHostZenEscapeTestWindow) {
         | ((event: IBeforeInputTestEvent, input: IBeforeInputTestInput) => void)
         | undefined;
 }
+
+// A window frame, so a content size and a window size differ.
+const TITLE_BAR_HEIGHT = 28;
 
 describe('host environment zen Escape handling', () => {
     beforeEach(() => {
@@ -322,23 +343,44 @@ describe('host environment startup argument', () => {
         const window = mocks.createWindow(4);
         window.maximized = true;
 
-        await expect(restoreHostNormalWindowForWindow(window as never)).resolves.toEqual({
+        const normal = {
             fullScreen: false,
             maximized: false,
             supported: true,
-        });
+            contentSize: {
+                width: 800,
+                height: 600 - TITLE_BAR_HEIGHT,
+            },
+            workAreaSize: {
+                width: 800,
+                height: 600,
+            },
+        };
+        await expect(restoreHostNormalWindowForWindow(window as never)).resolves.toEqual(normal);
         // Already normal: nothing to leave, same answer.
-        await expect(restoreHostNormalWindowForWindow(window as never)).resolves.toEqual({
-            fullScreen: false,
-            maximized: false,
-            supported: true,
+        await expect(restoreHostNormalWindowForWindow(window as never)).resolves.toEqual(normal);
+        // A requested content area is given natively, whatever the frame.
+        await expect(restoreHostNormalWindowForWindow(window as never, {
+            width: 640,
+            height: 480,
+        })).resolves.toEqual({
+            ...normal,
+            contentSize: {
+                width: 640,
+                height: 480,
+            },
+        });
+        // The window around it is the frame taller, not 480 high itself.
+        expect(window.getBounds()).toMatchObject({
+            width: 640,
+            height: 480 + TITLE_BAR_HEIGHT,
         });
         expect(window.focus).not.toHaveBeenCalled();
 
         const stuck = mocks.createWindow(5);
         stuck.maximized = true;
         stuck.honorsUnmaximize = false;
-        await expect(restoreHostNormalWindowForWindow(stuck as never)).resolves.toEqual({
+        await expect(restoreHostNormalWindowForWindow(stuck as never)).resolves.toMatchObject({
             fullScreen: false,
             maximized: true,
             supported: true,
@@ -374,6 +416,14 @@ describe('host environment startup argument', () => {
                 fullScreen: false,
                 maximized: false,
                 supported: true,
+                contentSize: {
+                    width: 1000,
+                    height: 700 - TITLE_BAR_HEIGHT,
+                },
+                workAreaSize: {
+                    width: 800,
+                    height: 600,
+                },
             });
             await new Promise(resolve => setTimeout(resolve, 0));
 

@@ -63,6 +63,7 @@ import {
     assertDjvuSourceIdentity,
     createDjvuDiskQuotaMonitor,
     type IDjvuSourceIdentity,
+    releaseDjvuArtifactConsumer,
 } from '@electron/features/djvu/main/djvuArtifactManifest';
 import {
     createFileBackedPdfCombineEnv,
@@ -210,6 +211,7 @@ export async function buildCompactDjvuAwarePdfFromDjvu(options: ICompactDjvuPdfE
     let fidelityWriter: Awaited<ReturnType<typeof openCompactDjvuFidelityManifestWriter>> | null = null;
     let combineQuotaMonitor: Awaited<ReturnType<typeof createDjvuDiskQuotaMonitor>> | null = null;
     let structureReady = false;
+    let consumersReleased = false;
     try {
         await writeFile(manifestPath, `${JSON.stringify({
             format: COMPACT_MANIFEST_JSONL_FORMAT,
@@ -260,6 +262,7 @@ export async function buildCompactDjvuAwarePdfFromDjvu(options: ICompactDjvuPdfE
                 await appendFile(batchDirectoriesPath, `${checkpointJob.directory}\n`, 'utf8');
             } catch (error) {
                 await checkpointJob.close();
+                await releaseDjvuArtifactConsumer(checkpointJob.directory, {remove: false});
                 throw error;
             }
             let quotaMonitor: Awaited<ReturnType<typeof createDjvuDiskQuotaMonitor>> | null = null;
@@ -443,7 +446,8 @@ export async function buildCompactDjvuAwarePdfFromDjvu(options: ICompactDjvuPdfE
         try {
             const s = await stat(options.outputPath);
             emitProgress(PROGRESS_COMBINE_CAP);
-            await cleanupCompactBatchJobs(batchDirectoriesPath);
+            await releaseCompactBatchJobs(batchDirectoriesPath, {remove: true});
+            consumersReleased = true;
             return {
                 success: true,
                 outputPath: options.outputPath,
@@ -464,11 +468,13 @@ export async function buildCompactDjvuAwarePdfFromDjvu(options: ICompactDjvuPdfE
         if (structureReady) {
             await rm(structurePath, {force: true}).catch(() => undefined);
         }
+        if (!consumersReleased) await releaseCompactBatchJobs(batchDirectoriesPath, {remove: false}).catch(() => undefined);
         await rm(batchDirectoriesPath, {force: true}).catch(() => undefined);
     }
 }
 
-async function cleanupCompactBatchJobs(path: string) {
+/** Lets go of this export's checkpoint directories; the last export to read one removes it. */
+async function releaseCompactBatchJobs(path: string, options: {remove: boolean}) {
     const input = createReadStream(path, {encoding: 'utf8'});
     const lines = createInterface({
         input,
@@ -476,12 +482,7 @@ async function cleanupCompactBatchJobs(path: string) {
     });
     try {
         for await (const line of lines) {
-            if (line.trim()) {
-                await rm(line, {
-                    force: true,
-                    recursive: true,
-                }).catch(() => undefined);
-            }
+            if (line.trim()) await releaseDjvuArtifactConsumer(line, options);
         }
     } finally {
         lines.close();
@@ -990,7 +991,7 @@ async function buildPhotoPageSpec(
         pageNumber,
         kind: 'photo',
         reason,
-        effectivePpi: Math.min(structure?.info?.dpi ?? options.sourceDpi, fidelity.ppiCap),
+        effectivePpi: Math.min(structure?.info?.dpi ?? options.pageSizes?.[pageNumber - 1]?.dpi ?? options.sourceDpi, fidelity.ppiCap),
         jpegQuality: fidelity.photoQuality,
         manifestLine: createManifestLine(
             'photo-jpeg',
@@ -1011,7 +1012,7 @@ function resolvePhotoRenderOptions(
 ) {
     const pageInfo = structure?.info;
     const metrics = options.pageSizes?.[pageNumber - 1] ?? null;
-    const dpi = positiveNumber(pageInfo?.dpi) ?? positiveNumber(options.sourceDpi) ?? DEFAULT_DPI;
+    const dpi = positiveNumber(pageInfo?.dpi) ?? positiveNumber(metrics?.dpi) ?? positiveNumber(options.sourceDpi) ?? DEFAULT_DPI;
     const fidelity = getDjvuCompactFidelity(options.qualityPreset);
     const width = positiveNumber(metrics?.width) ?? positiveNumber(pageInfo?.width);
     const height = positiveNumber(metrics?.height) ?? positiveNumber(pageInfo?.height);
@@ -1107,7 +1108,10 @@ function resolvePageSizePoints(
     renderedSubsample: number,
     structure: IDjvuPageStructure | null = null,
 ) {
+    // An indirect document's index holds no page INFO; the page's own
+    // resolution then comes with its size.
     const dpi = positiveNumber(structure?.info?.dpi)
+        ?? positiveNumber(metrics?.dpi)
         ?? positiveNumber(sourceDpi)
         ?? DEFAULT_DPI;
     const width = positiveNumber(metrics?.width)

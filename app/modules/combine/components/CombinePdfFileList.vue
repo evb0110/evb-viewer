@@ -32,7 +32,7 @@
                 <FileTypeIcon :kind="row.data.kind" class="combine-file-icon" />
                 <span class="combine-file-copy">
                     <strong>{{ row.data.name }}</strong>
-                    <span>{{ formatBytes(row.data.size) }}</span>
+                    <span>{{ formatBytes(row.data.size, {t, locale}) }}</span>
                 </span>
                 <span class="combine-row-actions">
                     <AppTooltip :text="t('combinePdf.moveUp')" :delay-duration="600">
@@ -94,7 +94,10 @@ const emit = defineEmits<{
     reorder: [fromIndex: number, toIndex: number];
 }>();
 
-const { t } = useTypedI18n();
+const {
+    t,
+    locale,
+} = useTypedI18n();
 const DEFAULT_ROW_STRIDE_PX = 60;
 const rowStridePx = ref(DEFAULT_ROW_STRIDE_PX);
 const fileList = computed(() => props.files);

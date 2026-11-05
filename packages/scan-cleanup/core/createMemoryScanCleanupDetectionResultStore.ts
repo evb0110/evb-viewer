@@ -1,5 +1,8 @@
 import {SCAN_CLEANUP_STREAMING_BATCH_PAGES} from '@contracts/scan-cleanup/inputLimits';
-import type {IScanCleanupDetectionResult} from '@contracts/scan-cleanup/electronApiScanCleanup';
+import type {
+    IScanCleanupDetectionResult,
+    TScanCleanupLayoutByPage,
+} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import type {IScanCleanupDetectionResultStore} from '@evb/scan-cleanup/core/types';
 import {
     assertMaxReadPages,
@@ -20,10 +23,11 @@ import {
 export function createMemoryScanCleanupDetectionResultStore(
     pageCount: number,
     maxReadPages = SCAN_CLEANUP_STREAMING_BATCH_PAGES,
-): IScanCleanupDetectionResultStore {
+) {
     assertPageCount(pageCount);
     assertMaxReadPages(maxReadPages);
     const records = new Map<number, string>();
+    let layoutByPage: TScanCleanupLayoutByPage = {};
     let closed = false;
     const assertOpen = () => {
         if (closed) throw new Error('Scan cleanup result store is closed');
@@ -39,6 +43,7 @@ export function createMemoryScanCleanupDetectionResultStore(
             throw new RangeError(`Scan cleanup result record exceeds ${String(RESULT_STORE_MAX_RECORD_BYTES)} bytes`);
         }
         records.set(pageNumber, record);
+        layoutByPage[String(pageNumber)] = result.classification;
     };
     const read = (pageNumber: number) => {
         const record = records.get(pageNumber);
@@ -53,8 +58,18 @@ export function createMemoryScanCleanupDetectionResultStore(
         }
         return results;
     };
+    // Both captures are synchronous: a replacement cannot run between them.
+    const readPreviewSnapshot = async (pageNumber: number, includeLayouts: boolean) => {
+        assertOpen();
+        assertPageNumber(pageNumber, pageCount);
+        return {
+            page: read(pageNumber),
+            layoutByPage: includeLayouts ? {...layoutByPage} : {},
+        };
+    };
     return {
         pageCount,
+        readPreviewSnapshot,
         get resultCount() {
             return records.size;
         },
@@ -83,6 +98,7 @@ export function createMemoryScanCleanupDetectionResultStore(
         close: async () => {
             closed = true;
             records.clear();
+            layoutByPage = {};
         },
-    };
+    } satisfies IScanCleanupDetectionResultStore & {readPreviewSnapshot: typeof readPreviewSnapshot};
 }

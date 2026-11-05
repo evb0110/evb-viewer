@@ -5831,3 +5831,98 @@ fn preview_bottom_boundary_crop_is_rejected_or_rendered_without_panicking() {
         rotation: OrthogonalRotation::None,
     });
 }
+
+/// A two-column page that a forced split cuts into a left and a right file.
+fn direct_split_fixture(input: &std::path::Path) {
+    let (width, height) = (320usize, 200usize);
+    let mut pixels = vec![245u8; width * height * 3];
+    for y in (35..165).step_by(14) {
+        for x_start in [24usize, 178] {
+            for word in 0..7 {
+                for x in (x_start + word * 18)..(x_start + 12 + word * 18).min(x_start + 118) {
+                    for yy in y..y + 3 {
+                        let offset = (yy * width + x) * 3;
+                        pixels[offset..offset + 3].fill(18);
+                    }
+                }
+            }
+        }
+    }
+    let mut ppm = format!("P6\n{width} {height}\n255\n").into_bytes();
+    ppm.extend_from_slice(&pixels);
+    fs::write(input, ppm).unwrap();
+}
+
+fn run_direct_split(
+    input: &std::path::Path,
+    output: &std::path::Path,
+    metadata: &std::path::Path,
+) -> std::process::Output {
+    Command::new(env!("CARGO_BIN_EXE_evb-scan-cleanup"))
+        .args([
+            "--input", input.to_str().unwrap(),
+            "--output", output.to_str().unwrap(),
+            "--metadata", metadata.to_str().unwrap(),
+            "--options",
+            r#"{"dpi":150,"sourceDpi":150,"despeckle":false,"outputMode":"grayscale","cropContent":false,"matchPageSize":false,"pageAlignment":"top-center","layout":"force-two-page","normalizeIllumination":false,"rotationDegrees":0,"margins":{"leftMm":0,"topMm":0,"rightMm":0,"bottomMm":0}}"#,
+        ])
+        .output().unwrap()
+}
+
+#[test]
+fn direct_split_refuses_an_input_named_like_a_split_output() {
+    let scratch = Scratch::new("split-input-alias");
+    let input = scratch.path("alias-left.png");
+    direct_split_fixture(&input);
+    let original = fs::read(&input).unwrap();
+    let result = run_direct_split(
+        &input,
+        &scratch.path("alias.png"),
+        &scratch.path("alias-meta.json"),
+    );
+    assert!(
+        !result.status.success(),
+        "the left split output would overwrite the input"
+    );
+    let error: Value = serde_json::from_slice(&result.stderr).unwrap();
+    assert_eq!(error["code"], "invalid-request");
+    assert_eq!(fs::read(&input).unwrap(), original);
+}
+
+#[test]
+fn direct_split_restores_prior_outputs_on_failure_and_keeps_what_it_does_not_write() {
+    let scratch = Scratch::new("split-rollback");
+    let input = scratch.path("input.ppm");
+    direct_split_fixture(&input);
+    let left = scratch.path("out-left.png");
+    let sentinel = b"previous left output\0";
+    fs::write(&left, sentinel).unwrap();
+    fs::create_dir(scratch.path("meta-right.json")).unwrap();
+    let failed = run_direct_split(&input, &scratch.path("out.png"), &scratch.path("meta.json"));
+    assert!(
+        !failed.status.success(),
+        "the right metadata cannot replace a directory"
+    );
+    assert_eq!(fs::read(&left).ok().as_deref(), Some(sentinel.as_slice()));
+
+    fs::remove_dir(scratch.path("meta-right.json")).unwrap();
+    let plain = scratch.path("out.png");
+    fs::write(&plain, sentinel).unwrap();
+    let split = run_direct_split(&input, &plain, &scratch.path("meta.json"));
+    assert!(
+        split.status.success(),
+        "stderr={}",
+        String::from_utf8_lossy(&split.stderr)
+    );
+    assert_ne!(
+        fs::read(&left).unwrap(),
+        sentinel,
+        "the split writes its left page"
+    );
+    assert!(scratch.path("out-right.png").exists());
+    assert_eq!(
+        fs::read(&plain).unwrap(),
+        sentinel,
+        "a split leaves the unsuffixed file alone"
+    );
+}

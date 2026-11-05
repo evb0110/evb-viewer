@@ -857,22 +857,15 @@ function resolveBatchPlacementAnchors(
 
 /** Read only one bounded conversion window from the detection sidecar. */
 export async function readDetectionResultsForPageNumbers(
-    store: NonNullable<IRunScanCleanupPipelineRequest['detectionResultStore']>,
+    store: IRunScanCleanupPipelineRequest['detectionResultStore'],
     pageNumbers: readonly number[],
     signal: AbortSignal,
 ) {
     const results: IScanCleanupDetectionResult[] = [];
-    if (pageNumbers.length === 0) {
+    if (store === undefined || pageNumbers.length === 0) {
         return results;
     }
-    let contiguous = true;
-    for (let index = 1; index < pageNumbers.length; index += 1) {
-        if (pageNumbers[index] !== pageNumbers[0]! + index) {
-            contiguous = false;
-            break;
-        }
-    }
-    if (!contiguous) {
+    if (!pageNumbers.every((pageNumber, index) => pageNumber === pageNumbers[0]! + index)) {
         for (const pageNumber of pageNumbers) {
             signal.throwIfAborted();
             const result = await store.getPage(pageNumber);
@@ -1129,13 +1122,7 @@ async function runStreamingScanCleanupConversion({
             signal.throwIfAborted();
             const batchPageNumbers = collectScanCleanupPageScopeBatch(pageNumbers, batch);
             if (batchPageNumbers.length === 0) continue;
-            const batchDetectionResults = detectionResultStore === undefined
-                ? []
-                : await readDetectionResultsForPageNumbers(
-                    detectionResultStore,
-                    batchPageNumbers,
-                    signal,
-                );
+            const batchDetectionResults = await readDetectionResultsForPageNumbers(detectionResultStore, batchPageNumbers, signal);
             const batchOutputPath = join(scratch, `scan-cleanup-batch-${String(batch.batchIndex)}.pdf`);
             const {
                 sourcePageRange: _sourcePageRange,
@@ -1626,16 +1613,14 @@ export async function runScanCleanupConversion(
                             `Scan cleanup page-size store reported ${String(chunk.pageCount)} pages for ${String(documentPageCount)} document pages`,
                         );
                     }
-                    const detectionByPage = request.detectionResultStore === undefined
-                        ? null
-                        : new Map((await readDetectionResultsForPageNumbers(
-                            request.detectionResultStore,
-                            chunk.pages.map(page => page.pageNumber),
-                            signal,
-                        )).map(result => [
-                            result.pageNumber,
-                            result,
-                        ] as const));
+                    const detectionByPage = new Map((await readDetectionResultsForPageNumbers(
+                        request.detectionResultStore,
+                        chunk.pages.map(page => page.pageNumber),
+                        signal,
+                    )).map(result => [
+                        result.pageNumber,
+                        result,
+                    ] as const));
                     for (const measuredPage of chunk.pages) {
                         if (measuredPage.pageNumber !== expectedGeometryPageNumber) {
                             throw new Error(
@@ -1643,7 +1628,7 @@ export async function runScanCleanupConversion(
                             );
                         }
                         expectedGeometryPageNumber += 1;
-                        const detectionResult = detectionByPage?.get(
+                        const detectionResult = detectionByPage.get(
                             requirePageNumber(measuredPage.pageNumber),
                         );
                         const detectedPageMetadata = detectionResult?.sourcePageMetadata;
@@ -1753,7 +1738,12 @@ export async function runScanCleanupConversion(
                 options: request.options,
                 rasterSource: dpiDetails,
                 rasterDetectionAvailable: paths.pdfimagesBinary !== undefined,
-                ...(request.layoutByPage === undefined ? {} : {layoutByPage: request.layoutByPage}),
+                // The layouts the canvas pass read.
+                readLayouts: async pageNumbers => buildBoundedDetectionRequestFields(
+                    request,
+                    await readDetectionResultsForPageNumbers(request.detectionResultStore, pageNumbers, signal),
+                    pageNumbers,
+                ).layoutByPage ?? {},
             })
             : [];
         if (resampledPages.length > 0) {

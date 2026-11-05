@@ -14,10 +14,14 @@ import type {
     IEditorPaneState,
     TEditorLayoutNode,
 } from '@contracts/editorPanes';
-import type { IDocumentRevisionInfo } from '@contracts/documentRevision';
+import type {
+    IDocumentRevisionInfo,
+    TDocumentRevisionToken,
+} from '@contracts/documentRevision';
 import type { ITab } from '@app/types/tabs';
 import type { IRecentFile } from '@contracts/shared';
 import type { IWorkspaceAgentCommandContext } from '@app/types/workspaceExpose';
+import { isEqual } from 'es-toolkit';
 import { getAgentCapability } from '@app/utils/getAgentCapability';
 import { waitForDesktopPlatformBridge } from '@app/utils/platform';
 import { guardAsync } from '@app/utils/asyncGuard';
@@ -54,7 +58,14 @@ export const useAgentWorkspaceSnapshot = (options: IUseAgentWorkspaceSnapshotOpt
     let cachedSnapshotRevision = 0;
     let cachedSnapshotSignature = '';
     let cachedSnapshot: IAgentWorkspaceSnapshot | null = null;
-    const activeCommandAbortControllers = new Map<string, AbortController>();
+    // Each running command, until main acknowledges its response. A scoped
+    // one keeps the tab's turn from reconciling, and holds the revision the
+    // command itself committed, if any.
+    const activeCommands = shallowReactive(new Map<string, {
+        abortController: AbortController;
+        tabId: string | undefined;
+        committedRevision?: TDocumentRevisionToken;
+    }>());
 
     function createToolbarSnapshotSignature(tabId: string) {
         const snapshot = options.documentSessionsByTabId.value[tabId]?.getView(tabId)?.toolbarSnapshot.value;
@@ -380,9 +391,13 @@ export const useAgentWorkspaceSnapshot = (options: IUseAgentWorkspaceSnapshotOpt
     async function waitForCommandWorkspace(
         tabId: string,
         expectedCommandTarget: TAgentWorkspaceCommandTarget | null,
+        passive = false,
     ) {
         const session = getTabSession(tabId);
-        const workspace = await session?.getView(tabId)?.whenMounted() ?? null;
+        const view = session?.getView(tabId);
+        const workspace = passive
+            ? view?.mountedWorkspace.value ?? null
+            : await view?.whenMounted() ?? null;
         return expectedCommandTarget && session && !session.validateCommandTarget(expectedCommandTarget).ok
             ? null
             : workspace;
@@ -401,6 +416,10 @@ export const useAgentWorkspaceSnapshot = (options: IUseAgentWorkspaceSnapshotOpt
             documentIdentity: request.scope?.documentIdentity ?? expectedIdentity,
             documentInstanceId: request.scope?.documentInstanceId ?? getTabDocumentInstanceId(tabId),
             ...(commandTarget ? {commandTarget} : {}),
+            recordDocumentCommit: (revision) => {
+                const command = activeCommands.get(request.requestId);
+                if (command) command.committedRevision = revision;
+            },
             assertCurrentDocument: (contextOptions = {}) => {
                 assertCommandCurrentDocument(
                     request,
@@ -442,10 +461,10 @@ export const useAgentWorkspaceSnapshot = (options: IUseAgentWorkspaceSnapshotOpt
             const expectedIdentity = request.scope?.documentIdentity ?? getTabDocumentIdentity(tabId);
             const expectedCommandTarget = request.scope?.commandTarget ?? getTabCommandTarget(tabId);
             assertCommandCurrentDocument(request, tabId, signal, expectedIdentity, true, expectedCommandTarget);
-            const workspace = await waitForCommandWorkspace(tabId, expectedCommandTarget);
+            const workspace = await waitForCommandWorkspace(tabId, expectedCommandTarget, true);
             assertCommandCurrentDocument(request, tabId, signal, expectedIdentity, true, expectedCommandTarget);
             if (!workspace) {
-                throw new Error(`Workspace for tab ${tabId} is not available.`);
+                throw new Error(`Workspace for tab ${tabId} is not available without activating it. Activate the tab explicitly, then retry.`);
             }
 
             const context = createCommandContext(request, tabId, signal, expectedIdentity, expectedCommandTarget);
@@ -469,12 +488,19 @@ export const useAgentWorkspaceSnapshot = (options: IUseAgentWorkspaceSnapshotOpt
             const expectedIdentity = request.scope?.documentIdentity ?? getTabDocumentIdentity(tabId);
             const expectedCommandTarget = request.scope?.commandTarget ?? getTabCommandTarget(tabId);
             assertCommandCurrentDocument(request, tabId, signal, expectedIdentity, true, expectedCommandTarget);
-            const paneId = await activateTabForAgent(tabId);
+            // The document handler validates input before its dry-run return.
+            // Only these preview handlers execute passively without dryRun.
+            const passive = request.command.arguments.dryRun === true
+                || request.command.arguments.id === 'bookmarks.preview_tree'
+                || request.command.arguments.id === 'page_labels.preview'
+                || request.command.arguments.id === 'toc.preview_tree'
+                || request.command.arguments.id === 'page_numbering.preview';
+            if (!passive) await activateTabForAgent(tabId);
             assertCommandCurrentDocument(request, tabId, signal, expectedIdentity, true, expectedCommandTarget);
-            const workspace = await waitForCommandWorkspace(tabId, expectedCommandTarget);
+            const workspace = await waitForCommandWorkspace(tabId, expectedCommandTarget, passive);
             assertCommandCurrentDocument(request, tabId, signal, expectedIdentity, true, expectedCommandTarget);
             if (!workspace) {
-                throw new Error(`Workspace for tab ${tabId} is not available.`);
+                throw new Error(`Workspace for tab ${tabId} is not available without activating it. Activate the tab explicitly, then retry.`);
             }
 
             const context = createCommandContext(request, tabId, signal, expectedIdentity, expectedCommandTarget);
@@ -487,11 +513,12 @@ export const useAgentWorkspaceSnapshot = (options: IUseAgentWorkspaceSnapshotOpt
                 context,
             );
             await nextTick();
-            assertCommandCurrentDocument(request, tabId, signal, expectedIdentity, false, expectedCommandTarget);
+            assertCommandCurrentDocument(request, tabId, signal, expectedIdentity, passive, expectedCommandTarget);
             return {
-                activePaneId: paneId,
-                activeTabId: tabId,
                 ...result,
+                activePaneId: options.activePaneId.value,
+                activeTabId: options.activeTabId.value,
+                targetTabId: tabId,
             };
         }
 
@@ -544,23 +571,46 @@ export const useAgentWorkspaceSnapshot = (options: IUseAgentWorkspaceSnapshotOpt
         });
     }
 
+    // A scoped command that committed a revision of its own document reports
+    // it while it is still the current one, so the assistant turn that ran it
+    // keeps working on it. A revision another view committed meanwhile is
+    // not the command's and ends the turn's authority instead.
+    function describeCommandSuccessor(scope: IAgentCommandExecutionScope | undefined, committedRevision: TDocumentRevisionToken | undefined) {
+        const documentIdentity = scope?.commandTarget && committedRevision ? getTabDocumentIdentity(scope.tabId) : null;
+        const commandTarget = documentIdentity?.token === committedRevision ? getTabCommandTarget(scope?.tabId ?? '') : null;
+        if (!commandTarget || !documentIdentity || isEqual(commandTarget, scope?.commandTarget)) return undefined;
+        // Plain copies: the session's reactive identity cannot cross IPC.
+        return {
+            commandTarget: {...commandTarget},
+            documentIdentity: {...documentIdentity},
+        };
+    }
+
     function submitCommandResult(request: IAgentCommandRequest) {
         const abortController = new AbortController();
-        activeCommandAbortControllers.set(request.requestId, abortController);
+        activeCommands.set(request.requestId, {
+            abortController,
+            tabId: request.scope?.tabId,
+        });
         guardAsync(
             runCommand(request, abortController.signal)
-                .then(result => submitCommandResponseWithAck({
-                    requestId: request.requestId,
-                    ...(request.windowId === undefined ? {} : { windowId: request.windowId }),
-                    ok: true,
-                    result,
-                }))
+                .then((result) => {
+                    const successor = describeCommandSuccessor(request.scope, activeCommands.get(request.requestId)?.committedRevision);
+                    return submitCommandResponseWithAck({
+                        requestId: request.requestId,
+                        ...(request.windowId === undefined ? {} : { windowId: request.windowId }),
+                        ok: true,
+                        result,
+                        ...(successor === undefined ? {} : {successor}),
+                    });
+                })
                 .catch(error => submitCommandResponseWithAck(
                     createCommandErrorResponse(request, error),
                 ))
                 .finally(() => {
                     abortController.abort();
-                    activeCommandAbortControllers.delete(request.requestId);
+                    // Main has adopted any successor by the time it acknowledges.
+                    activeCommands.delete(request.requestId);
                 }),
             {
                 category: 'background-diagnostic',
@@ -571,7 +621,7 @@ export const useAgentWorkspaceSnapshot = (options: IUseAgentWorkspaceSnapshotOpt
     }
 
     function cancelCommandRequest(request: IAgentCommandCancelRequest) {
-        activeCommandAbortControllers.get(request.requestId)?.abort(createAgentCommandAbortError());
+        activeCommands.get(request.requestId)?.abortController.abort(createAgentCommandAbortError());
     }
 
     function waitForRetryDelay() {
@@ -631,10 +681,10 @@ export const useAgentWorkspaceSnapshot = (options: IUseAgentWorkspaceSnapshotOpt
 
     onUnmounted(() => {
         lifecycle.isDisposed = true;
-        for (const abortController of activeCommandAbortControllers.values()) {
-            abortController.abort();
+        for (const command of activeCommands.values()) {
+            command.abortController.abort();
         }
-        activeCommandAbortControllers.clear();
+        activeCommands.clear();
         unsubscribeWorkspaceSnapshotRequest?.();
         unsubscribeWorkspaceSnapshotRequest = null;
         unsubscribeCommandRequest?.();
@@ -643,5 +693,8 @@ export const useAgentWorkspaceSnapshot = (options: IUseAgentWorkspaceSnapshotOpt
         unsubscribeCommandCancelRequest = null;
     });
 
-    return { buildSnapshot: () => buildAgentWorkspaceSnapshot(options) };
+    return {
+        buildSnapshot: () => buildAgentWorkspaceSnapshot(options),
+        isScopedCommandRunning: (tabId: string) => [...activeCommands.values()].some(command => command.tabId === tabId),
+    };
 };

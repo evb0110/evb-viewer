@@ -321,11 +321,12 @@ function normalizeBookmarkTreeInput(options: {
 
 function normalizeBookmarkForAgent(
     bookmark: IPdfBookmarkEntry,
-    path: number[] = [],
+    path: number[],
 ): Record<string, unknown> {
     return {
         path,
-        depth: path.length,
+        // Zero-based, as in the flat view and the style selector: a root is 0.
+        depth: path.length - 1,
         title: bookmark.title,
         pageIndex: bookmark.pageIndex,
         pageNumber: bookmark.pageIndex === null ? null : bookmark.pageIndex + 1,
@@ -601,6 +602,8 @@ type TAgentBookmarkIssue = TAgentBookmarkSnapshot['issues'][number];
 interface ICreateDocumentAgentBookmarksOptions {
     bookmarkItems: Ref<IPdfBookmarkEntry[]>;
     bookmarksDirty: Ref<boolean>;
+    /** Advances with every change to the outline, the reader's or the agent's. */
+    getBookmarksRevision: () => number;
     handleBookmarksChange: (payload: IPdfBookmarkChangePayload) => void;
     t: TWorkspaceAgentTranslate;
     totalPages: Ref<number>;
@@ -610,10 +613,22 @@ export function createDocumentAgentBookmarks(options: ICreateDocumentAgentBookma
     const {
         bookmarkItems,
         bookmarksDirty,
+        getBookmarksRevision,
         handleBookmarksChange,
         t,
         totalPages,
     } = options;
+
+    // A path names a place in the outline as the agent last read it; after the
+    // reader edits the outline it can name another bookmark. A write that
+    // brings the revision it read is refused once the outline has moved on.
+    function assertAgentBookmarkRevision(input: Record<string, unknown>, actionId: string) {
+        const expected = getAgentNumberInput(input, 'revision');
+        const current = getBookmarksRevision();
+        if (expected !== null && expected !== current) {
+            throw new Error(`${actionId} refused: the bookmarks changed since revision ${String(expected)} (now ${String(current)}). Read them again.`);
+        }
+    }
 
     function normalizeAgentBookmarkPageIndex(input: Record<string, unknown>, actionId: string) {
         return normalizeBookmarkPageIndex(input, totalPages.value, actionId);
@@ -867,7 +882,10 @@ export function createDocumentAgentBookmarks(options: ICreateDocumentAgentBookma
     }
 
     function createAgentBookmarkSnapshot() {
-        return createAgentBookmarkPlanSnapshot(bookmarkItems.value, {dirty: bookmarksDirty.value});
+        return {
+            ...createAgentBookmarkPlanSnapshot(bookmarkItems.value, {dirty: bookmarksDirty.value}),
+            revision: getBookmarksRevision(),
+        };
     }
 
     function getBlockingBookmarkIssues(snapshot: TAgentBookmarkSnapshot) {
@@ -912,6 +930,7 @@ export function createDocumentAgentBookmarks(options: ICreateDocumentAgentBookma
     }
 
     function setAgentBookmarkTree(input: Record<string, unknown>, actionId: string) {
+        assertAgentBookmarkRevision(input, actionId);
         const plan = previewAgentBookmarkPlan(input, actionId);
         assertAgentBookmarkChangeIsAllowed(plan.bookmarks, actionId);
         return {
@@ -921,17 +940,21 @@ export function createDocumentAgentBookmarks(options: ICreateDocumentAgentBookma
     }
 
     function previewAgentBookmarkPlan(input: Record<string, unknown>, actionId: string) {
-        return createAgentBookmarkPlan({
-            input,
-            currentBookmarks: bookmarkItems.value,
-            totalPages: totalPages.value,
-            dirty: bookmarksDirty.value,
-            untitledTitle: t('bookmarks.untitled'),
-            actionId,
-        });
+        return {
+            ...createAgentBookmarkPlan({
+                input,
+                currentBookmarks: bookmarkItems.value,
+                totalPages: totalPages.value,
+                dirty: bookmarksDirty.value,
+                untitledTitle: t('bookmarks.untitled'),
+                actionId,
+            }),
+            revision: getBookmarksRevision(),
+        };
     }
 
     function applyAgentBookmarkPlan(input: Record<string, unknown>, actionId: string) {
+        assertAgentBookmarkRevision(input, actionId);
         const plan = previewAgentBookmarkPlan(input, actionId);
         assertAgentBookmarkChangeIsAllowed(plan.bookmarks, actionId);
         return {
@@ -941,6 +964,7 @@ export function createDocumentAgentBookmarks(options: ICreateDocumentAgentBookma
     }
 
     function addAgentBookmark(input: Record<string, unknown>, actionId: string) {
+        assertAgentBookmarkRevision(input, actionId);
         const bookmarks = cloneAgentBookmarks();
         const parentPath = getAgentBookmarkPathInput(input, 'parentPath') ?? [];
         const list = getBookmarkListAtPath(bookmarks, parentPath, actionId);
@@ -955,6 +979,7 @@ export function createDocumentAgentBookmarks(options: ICreateDocumentAgentBookma
     }
 
     function addAgentBookmarks(input: Record<string, unknown>, actionId: string) {
+        assertAgentBookmarkRevision(input, actionId);
         const bookmarks = cloneAgentBookmarks();
         const batchParentPath = getAgentBookmarkPathInput(input, 'parentPath') ?? [];
         const rawItems = input.bookmarks ?? input.items;
@@ -980,6 +1005,7 @@ export function createDocumentAgentBookmarks(options: ICreateDocumentAgentBookma
     }
 
     function updateAgentBookmark(input: Record<string, unknown>, actionId: string) {
+        assertAgentBookmarkRevision(input, actionId);
         const bookmarks = cloneAgentBookmarks();
         const location = getBookmarkLocationAtPath(bookmarks, getAgentBookmarkPathInput(input), actionId);
         const bookmarkUpdates = isAgentRecord(input.bookmark) ? input.bookmark : input;
@@ -1035,6 +1061,7 @@ export function createDocumentAgentBookmarks(options: ICreateDocumentAgentBookma
     }
 
     function deleteAgentBookmark(input: Record<string, unknown>, actionId: string) {
+        assertAgentBookmarkRevision(input, actionId);
         const bookmarks = cloneAgentBookmarks();
         const location = getBookmarkLocationAtPath(bookmarks, getAgentBookmarkPathInput(input), actionId);
         location.list.splice(location.index, 1);
@@ -1042,6 +1069,7 @@ export function createDocumentAgentBookmarks(options: ICreateDocumentAgentBookma
     }
 
     function deleteAgentBookmarks(input: Record<string, unknown>, actionId: string) {
+        assertAgentBookmarkRevision(input, actionId);
         const bookmarks = cloneAgentBookmarks();
         const paths = getAgentBookmarkPathListInput(input, actionId);
         paths.forEach(path => getBookmarkLocationAtPath(bookmarks, path, actionId));
@@ -1181,6 +1209,7 @@ export function createDocumentAgentBookmarks(options: ICreateDocumentAgentBookma
     // Style-only edits cannot create unsafe destinations, so the destination
     // guard is skipped; a run that changes nothing records no undo entry.
     function setAgentBookmarkStyle(input: Record<string, unknown>, actionId: string) {
+        assertAgentBookmarkRevision(input, actionId);
         const bookmarks = cloneAgentBookmarks();
         const targetPaths = resolveAgentBookmarkStyleTargetPaths(bookmarks, input, actionId);
         const styleUpdate = getAgentBookmarkStyleUpdate(input, actionId);

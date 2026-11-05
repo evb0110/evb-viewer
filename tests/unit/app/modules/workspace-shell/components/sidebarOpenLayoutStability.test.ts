@@ -22,14 +22,17 @@ function mountHost() {
     document.body.append(host);
     const showSidebar = ref(false);
     const slideEvents: string[] = [];
+    const resizeSteps: number[] = [];
     const app = createApp(defineComponent({setup: () => () => h(WorkspaceSidebarHost, {
         isResizingSidebar: false,
         resizeAriaLabel: 'Resize sidebar',
         showSidebar: showSidebar.value,
         sidebarContentWidth: SIDEBAR.DEFAULT_WIDTH,
+        sidebarMaxWidth: SIDEBAR.MAX_WIDTH,
         sidebarWrapperStyle: {width: `${String(SIDEBAR.DEFAULT_WIDTH + SIDEBAR.RESIZER_WIDTH)}px`},
         onSlideStart: () => slideEvents.push('start'),
         onSlideEnd: () => slideEvents.push('end'),
+        onResizeBy: (delta: number) => resizeSteps.push(delta),
     }, {sidebar: () => h('div', {class: 'panel'})})}));
     app.mount(host);
     return {
@@ -39,6 +42,7 @@ function mountHost() {
         },
         content: () => host.querySelector<HTMLElement>('.sidebar-wrapper__content'),
         sash: () => host.querySelector<HTMLElement>('.sidebar-resizer'),
+        resizeSteps,
         showSidebar,
         slideEvents,
         wrapper: () => host.querySelector<HTMLElement>('.sidebar-wrapper'),
@@ -72,6 +76,41 @@ function dispatchTransitionEnd(target: HTMLElement, propertyName: string) {
 }
 
 describe('sidebar open layout stability', () => {
+    it('lets the keyboard reach the sash and step the width to its bounds', async () => {
+        const view = mountHost();
+        onTestFinished(view.dispose);
+        view.showSidebar.value = true;
+        await nextTick();
+        const sash = view.sash()!;
+        expect(sash.tabIndex).toBe(0);
+        expect([
+            sash.getAttribute('aria-valuemin'),
+            sash.getAttribute('aria-valuenow'),
+            sash.getAttribute('aria-valuemax'),
+        ]).toEqual([
+            String(SIDEBAR.MIN_WIDTH),
+            String(SIDEBAR.DEFAULT_WIDTH),
+            String(SIDEBAR.MAX_WIDTH),
+        ]);
+        for (const key of [
+            'ArrowRight',
+            'ArrowLeft',
+            'Home',
+            'End',
+            'a',
+        ]) sash.dispatchEvent(new KeyboardEvent('keydown', {
+            key,
+            bubbles: true,
+        }));
+
+        expect(view.resizeSteps).toEqual([
+            SIDEBAR.KEYBOARD_STEP,
+            -SIDEBAR.KEYBOARD_STEP,
+            Number.NEGATIVE_INFINITY,
+            Number.POSITIVE_INFINITY,
+        ]);
+    });
+
     it('gives the panel its open width on the first frame of the slide', async () => {
         const view = mountHost();
         onTestFinished(view.dispose);

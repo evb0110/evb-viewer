@@ -317,6 +317,50 @@ fn shared_photo_uses_the_largest_placement_across_pages() {
 }
 
 #[test]
+fn user_unit_page_sizes_the_photo_by_its_physical_placement() {
+    // 144x108 units at UserUnit 5 is 10x7.5 inches: at 200 dpi the 1200x900
+    // photo is already below the target and keeps every pixel.
+    let scratch = Scratch::new("user-unit");
+    let mut pdf = Pdf::new();
+    let image = pdf.image(1200, 900, 96, false, false);
+    let page = pdf.page(
+        dictionary! { "Photo" => image },
+        "q 144 0 0 108 40 500 cm /Photo Do Q",
+    );
+    pdf.document
+        .get_dictionary_mut(page)
+        .unwrap()
+        .set("UserUnit", 5);
+    pdf.save(&scratch.path("source.pdf"));
+
+    run(&scratch, &[]);
+
+    let output = Document::load(scratch.path("output.pdf")).unwrap();
+    assert_dimensions(&output, image, 1200, 900);
+}
+
+#[test]
+fn dangling_user_unit_reference_falls_back_to_one_unit() {
+    let scratch = Scratch::new("user-unit-dangling");
+    let mut pdf = Pdf::new();
+    let image = pdf.image(1200, 900, 96, false, false);
+    let page = pdf.page(
+        dictionary! { "Photo" => image },
+        "q 144 0 0 108 40 500 cm /Photo Do Q",
+    );
+    pdf.document
+        .get_dictionary_mut(page)
+        .unwrap()
+        .set("UserUnit", Object::Reference((999, 0)));
+    pdf.save(&scratch.path("source.pdf"));
+
+    let report = run(&scratch, &[]);
+
+    image_report(&report, image, "recompressed");
+    assert_eq!(report["pages"], json!([1]));
+}
+
+#[test]
 fn form_matrix_contributes_to_the_photos_drawn_size() {
     let scratch = Scratch::new("form");
     let mut pdf = Pdf::new();
@@ -678,4 +722,91 @@ fn neutral_icc_rgb_photo_is_saved_as_one_component_device_gray() {
         .position(|bytes| bytes == [0xff, 0xc0])
         .unwrap();
     assert_eq!(image.content[sof + 9], 1);
+}
+
+#[test]
+fn jpeg_fallback_preserves_figure_parent_tree_and_default_off_layer_bindings() {
+    let scratch = Scratch::new("semantic-fallback");
+    let mut pdf = Pdf::new();
+    let image = pdf.image(1200, 800, 98, false, false);
+    let draw =
+        "/Figure <</MCID 0>> BDC /OC /Hidden BDC q 500 0 0 330 30 400 cm /Photo Do Q EMC EMC";
+    let page = pdf.page(dictionary! { "Photo" => image }, draw);
+    pdf.save(&scratch.path("source.pdf"));
+    let document = &mut pdf.document;
+    let layer = document.add_object(
+        dictionary! { "Type" => "OCG", "Name" => Object::string_literal("Hidden photo") },
+    );
+    document
+        .get_object_mut(image)
+        .unwrap()
+        .as_stream_mut()
+        .unwrap()
+        .dict
+        .set("OC", layer);
+    document
+        .get_object_mut(image)
+        .unwrap()
+        .as_stream_mut()
+        .unwrap()
+        .dict
+        .set("StructParent", 1);
+    let root = document.new_object_id();
+    let image_reference =
+        document.add_object(dictionary! { "Type" => "OBJR", "Obj" => image, "Pg" => page });
+    let figure = document.add_object(dictionary! { "Type" => "StructElem", "S" => "Figure", "P" => root, "Pg" => page, "K" => vec![0.into(), Object::Reference(image_reference)], "Alt" => Object::string_literal("Photo") });
+    let parent_tree = document
+        .add_object(dictionary! { "Nums" => vec![0.into(), Object::Array(vec![figure.into()]), 1.into(), figure.into()] });
+    document.set_object(root, dictionary! { "Type" => "StructTreeRoot", "K" => vec![Object::Reference(figure)], "ParentTree" => parent_tree });
+    document
+        .get_dictionary_mut(page)
+        .unwrap()
+        .set("StructParents", 0);
+    document
+        .get_dictionary_mut(page)
+        .unwrap()
+        .get_mut(b"Resources")
+        .unwrap()
+        .as_dict_mut()
+        .unwrap()
+        .set("Properties", dictionary! { "Hidden" => layer });
+    document.catalog_mut().unwrap().set("StructTreeRoot", root);
+    document.catalog_mut().unwrap().set("OCProperties", dictionary! { "OCGs" => vec![Object::Reference(layer)], "D" => dictionary! { "OFF" => vec![Object::Reference(layer)] } });
+    document.save(scratch.path("source.pdf")).unwrap();
+    let before = Document::load(scratch.path("source.pdf")).unwrap();
+    let report = run(&scratch, &[]);
+    image_report(&report, image, "recompressed");
+    let after = Document::load(scratch.path("output.pdf")).unwrap();
+    assert!(fs::metadata(scratch.path("output.pdf")).unwrap().len() > 0);
+    assert_eq!(after.get_page_content(page), before.get_page_content(page));
+    for key in [b"StructTreeRoot".as_slice(), b"OCProperties".as_slice()] {
+        assert_eq!(
+            after.catalog().unwrap().get(key).unwrap(),
+            before.catalog().unwrap().get(key).unwrap()
+        );
+    }
+    for id in [root, parent_tree, figure, image_reference, layer] {
+        assert_eq!(
+            after.get_object(id).unwrap(),
+            before.get_object(id).unwrap()
+        );
+    }
+    for key in [b"OC".as_slice(), b"StructParent".as_slice()] {
+        assert_eq!(
+            stream(&after, image).dict.get(key).unwrap(),
+            stream(&before, image).dict.get(key).unwrap()
+        );
+    }
+    assert_eq!(
+        after
+            .get_dictionary(page)
+            .unwrap()
+            .get(b"Resources")
+            .unwrap(),
+        before
+            .get_dictionary(page)
+            .unwrap()
+            .get(b"Resources")
+            .unwrap()
+    );
 }

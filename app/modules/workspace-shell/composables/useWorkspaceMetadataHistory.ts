@@ -127,19 +127,26 @@ export const useWorkspaceMetadataHistory = (deps: {
         syncDirtyFlags(snapshot);
     }
 
-    function markCurrentStateClean(field?: keyof IWorkspaceMetadataSnapshot) {
+    // `written` is the field's value as a save put it on disk; the field is
+    // then clean only where the current value still equals it.
+    function markCurrentStateClean<TField extends keyof IWorkspaceMetadataSnapshot>(
+        field?: TField,
+        written?: IWorkspaceMetadataSnapshot[TField],
+    ) {
         const snapshot = captureCurrentSnapshot();
+        const clean = written === undefined ? snapshot[field!] : structuredClone(written);
         cleanSnapshot.value = field && cleanSnapshot.value
             ? {
                 ...cleanSnapshot.value,
-                [field]: snapshot[field],
+                [field]: clean,
             }
             : snapshot;
         currentSnapshot.value = snapshot;
         // A field read clears only its own flag. The other field may be
         // between a reload's clear and its own read, which is no edit.
-        if (field === 'bookmarkItems') deps.bookmarksDirty.value = false;
-        else if (field === 'pageLabelRanges') deps.pageLabelsDirty.value = false;
+        const dirty = field !== undefined && !isEqual(snapshot[field], clean);
+        if (field === 'bookmarkItems') deps.bookmarksDirty.value = dirty;
+        else if (field === 'pageLabelRanges') deps.pageLabelsDirty.value = dirty;
         else syncDirtyFlags(snapshot);
     }
 

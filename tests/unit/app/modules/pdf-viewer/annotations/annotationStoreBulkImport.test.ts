@@ -66,6 +66,21 @@ describe('AnnotationStore bulk imports', () => {
         }
     });
 
+    it('publishes one snapshot for a bulk import, however many entities it brings', () => {
+        const store = new AnnotationStore();
+        const published = vi.fn();
+        store.subscribe(published);
+        published.mockClear();
+
+        store.importMany(() => {
+            Array.from({length: 64}, (_, index) => persistedNote(`recovered-${index}`))
+                .forEach(entity => store.import(entity, {preserveSavedBaseline: true}));
+        });
+
+        expect(published).toHaveBeenCalledTimes(1);
+        expect(store.list()).toHaveLength(64);
+    });
+
     it('keeps a dirty store dirty when persisted entities arrive in bulk', () => {
         const store = new AnnotationStore();
         const savedId = asAnnotationId('saved');

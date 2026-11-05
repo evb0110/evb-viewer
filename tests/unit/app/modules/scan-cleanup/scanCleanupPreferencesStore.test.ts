@@ -36,7 +36,11 @@ import {
     scanCleanupSourceIdentityKey,
     type TScanCleanupSourceIdentityState,
 } from '@app/modules/scan-cleanup/composables/useScanCleanupSourceSha256';
-import {DEFAULT_SCAN_CLEANUP_DOCUMENT_OUTPUT_MODE} from '@app/utils/browserScanCleanupPreferences';
+import {
+    DEFAULT_SCAN_CLEANUP_DOCUMENT_OUTPUT_MODE,
+    loadScanCleanupDocumentOutputMode,
+    SCAN_CLEANUP_PREFERENCES_PERSISTENCE_DEBOUNCE_MS,
+} from '@app/utils/browserScanCleanupPreferences';
 import {discardScanCleanupDocumentState} from '@app/modules/scan-cleanup/runtime/discardScanCleanupDocumentState';
 import {
     flushScanCleanupDocumentPreferencesStore,
@@ -83,7 +87,8 @@ function connectMainProcessSettings(store: ReturnType<typeof createScanCleanupSe
     capability.value.updateSettings.mockImplementation(store.update);
 }
 
-vi.mock('@app/utils/platform', () => ({isDesktopPlatformActive: () => true}));
+const platform = vi.hoisted(() => ({desktop: true}));
+vi.mock('@app/utils/platform', () => ({isDesktopPlatformActive: () => platform.desktop}));
 vi.mock('@app/utils/getScanCleanupCapability', () => ({getScanCleanupCapability: () => capability.value}));
 
 describe('scan cleanup renderer preference store', () => {
@@ -110,6 +115,8 @@ describe('scan cleanup renderer preference store', () => {
 
     afterEach(async () => {
         vi.useRealTimers();
+        vi.restoreAllMocks();
+        platform.desktop = true;
         resetScanCleanupPreferencesStore();
         await Promise.all(temporaryDirectories.splice(0).map(directory => rm(directory, {
             recursive: true,
@@ -117,6 +124,24 @@ describe('scan cleanup renderer preference store', () => {
         })));
     });
 
+
+    it('keeps a browser document edit whose debounced write hit a full storage, and writes it once there is room', async () => {
+        platform.desktop = false;
+        vi.useFakeTimers();
+        const sourceSha256 = 'd'.repeat(64);
+        getScanCleanupPreferencesStore();
+        const setItem = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+            throw new DOMException('Storage is full', 'QuotaExceededError');
+        });
+        await scheduleScanCleanupDocumentPreferencesInStore(sourceSha256, 'browser://quota.pdf', {outputMode: 'color'});
+        await vi.advanceTimersByTimeAsync(SCAN_CLEANUP_PREFERENCES_PERSISTENCE_DEBOUNCE_MS + 1);
+        expect(setItem).toHaveBeenCalled();
+        expect(loadScanCleanupDocumentOutputMode(sourceSha256)).not.toBe('color');
+
+        setItem.mockRestore();
+        await flushScanCleanupDocumentPreferencesStore();
+        expect(loadScanCleanupDocumentOutputMode(sourceSha256)).toBe('color');
+    });
 
     it('keeps another window reading-order commit when an older local save reply arrives late', async () => {
         const {
@@ -892,10 +917,18 @@ describe('scan cleanup renderer preference store', () => {
     it.each([
         'reset',
         'another view',
+        'an unchanged selected page edited in another view',
     ] as const)('undo preserves page overrides after %s', async action => {
         const {store} = await createDurableSettingsStore();
         connectMainProcessSettings(store);
         const sourceSha256 = 'a'.repeat(64);
+        const unchangedPage = action === 'an unchanged selected page edited in another view';
+        if (unchangedPage) {
+            await store.update({document: {
+                sourceSha256,
+                patch: {overrideEdits: {'1': createScanCleanupPageOverride({rotationDegrees: 90})}},
+            }});
+        }
         const ledger = useWorkspaceCommandLedger();
         const active = ref(false);
         let settings!: ReturnType<typeof useScanCleanupDocumentSettings>;
@@ -924,19 +957,31 @@ describe('scan cleanup renderer preference store', () => {
         app.mount(host);
         try {
             await vi.waitFor(() => expect(settings.documentSettingsReady.value).toBe(true));
+            if (unchangedPage) expect(settings.values.pageOverrides['1']?.rotationDegrees).toBe(90);
             if (action === 'reset') selection.updatePageOverride(2, createScanCleanupPageOverride({rotationDegrees: 90}));
-            selection.updatePageOverride(1, createScanCleanupPageOverride({rotationDegrees: 180}));
+            // Page 1 is already turned: the bulk turn changes only page 2.
+            if (unchangedPage) selection.updateRotation(90, [
+                1,
+                2,
+            ]);
+            else selection.updatePageOverride(1, createScanCleanupPageOverride({rotationDegrees: 180}));
             await nextTick();
             await flushScanCleanupDocumentPreferencesStore();
             if (action === 'reset') {
                 settings.resetPageOverrides();
             } else {
+                const otherPage = unchangedPage ? '1' : '3';
                 await store.update({document: {
                     sourceSha256,
-                    patch: {overrideEdits: {'3': createScanCleanupPageOverride({rotationDegrees: 270})}},
+                    patch: {overrideEdits: {[otherPage]: createScanCleanupPageOverride(unchangedPage
+                        ? {
+                            rotationDegrees: 90,
+                            excluded: true,
+                        }
+                        : {rotationDegrees: 270})}},
                 }});
                 active.value = true;
-                await vi.waitFor(() => expect(settings.values.pageOverrides['3']?.rotationDegrees).toBe(270));
+                await vi.waitFor(() => expect(settings.values.pageOverrides[otherPage]?.[unchangedPage ? 'excluded' : 'rotationDegrees']).toBe(unchangedPage ? true : 270));
             }
 
             await ledger.undoTimeline();
@@ -946,10 +991,244 @@ describe('scan cleanup renderer preference store', () => {
             if (action === 'reset') {
                 expect(displayed).toEqual({});
                 expect(ledger.canUndoTimeline.value).toBe(false);
+            } else if (unchangedPage) {
+                expect(displayed['1']).toMatchObject({
+                    rotationDegrees: 90,
+                    excluded: true,
+                });
+                expect(displayed['2']).toBeUndefined();
             } else {
                 expect(displayed['1']).toBeUndefined();
                 expect(displayed['3']?.rotationDegrees).toBe(270);
             }
+        } finally {
+            app.unmount();
+            await flushScanCleanupDocumentPreferencesStore();
+            await store.get();
+        }
+    });
+
+    it('undoes Apply this page to All and an All-scope edit as one step each', async () => {
+        const {store} = await createDurableSettingsStore();
+        connectMainProcessSettings(store);
+        const sourceSha256 = 'c'.repeat(64);
+        const ledger = useWorkspaceCommandLedger();
+        let settings!: ReturnType<typeof useScanCleanupDocumentSettings>;
+        let selection!: ReturnType<typeof useScanCleanupSelection>;
+        const host = document.createElement('div');
+        const app = createApp(defineComponent({setup() {
+            settings = useScanCleanupDocumentSettings({
+                documentLifecycleKey: computed(() => sourceSha256),
+                sourceSha256: computed(() => sourceSha256),
+            });
+            selection = useScanCleanupSelection({
+                initialPage: 1,
+                previewResult: () => null,
+                previewTotalPages: () => 3,
+                marginsLinked: ref(true),
+                settings: settings.values,
+            });
+            return () => h('output', JSON.stringify({
+                defaults: settings.values.pageOverrideDefaults?.rotationDegrees ?? 0,
+                pages: Object.fromEntries(Object.entries(settings.values.pageOverrides).map(([
+                    page,
+                    override,
+                ]) => [
+                    page,
+                    override.rotationDegrees,
+                ])),
+            }));
+        }}));
+        app.provide(workspaceCommandSinkKey, {
+            register: ledger.registerCommand,
+            reset: ledger.resetSource,
+            forget: ledger.forgetSourceEntries,
+        });
+        app.mount(host);
+        const shown = async () => {
+            await nextTick();
+            return JSON.parse(host.textContent ?? '{}');
+        };
+        try {
+            await vi.waitFor(() => expect(settings.documentSettingsReady.value).toBe(true));
+            selection.updatePageOverride(2, createScanCleanupPageOverride({rotationDegrees: 90}));
+            selection.updatePageOverride(1, createScanCleanupPageOverride({rotationDegrees: 180}));
+            const pagesEdited = {
+                defaults: 0,
+                pages: {
+                    1: 180,
+                    2: 90,
+                },
+            };
+            expect(await shown()).toEqual(pagesEdited);
+
+            selection.applyLeaderOverrides('all');
+            const appliedToAll = {
+                defaults: 180,
+                pages: {},
+            };
+            expect(await shown()).toEqual(appliedToAll);
+            await ledger.undoTimeline();
+            expect(await shown(), 'undo restores the defaults and the page entries together').toEqual(pagesEdited);
+            await ledger.redoTimeline();
+            expect(await shown()).toEqual(appliedToAll);
+
+            // An All-scope rotation: the defaults and the pages that have their own entry.
+            selection.updatePageOverride(3, createScanCleanupPageOverride({rotationDegrees: 90}));
+            selection.updateOverrides([3], current => ({
+                ...current,
+                rotationDegrees: 270,
+            }), createScanCleanupPageOverride({rotationDegrees: 270}));
+            // Page 3 now matches the defaults, so it keeps no entry of its own.
+            expect(await shown()).toEqual({
+                defaults: 270,
+                pages: {},
+            });
+            await ledger.undoTimeline();
+            expect(await shown(), 'one undo restores the defaults and the page together').toEqual({
+                defaults: 180,
+                pages: {3: 90},
+            });
+        } finally {
+            app.unmount();
+            await flushScanCleanupDocumentPreferencesStore();
+            await store.get();
+        }
+    });
+
+    it('restores global placement and inherited placement in the same undo step', async () => {
+        const {store} = await createDurableSettingsStore();
+        connectMainProcessSettings(store);
+        const sourceSha256 = 'c'.repeat(64);
+        const ledger = useWorkspaceCommandLedger();
+        let settings!: ReturnType<typeof useScanCleanupDocumentSettings>;
+        let selection!: ReturnType<typeof useScanCleanupSelection>;
+        const host = document.createElement('div');
+        const app = createApp(defineComponent({setup() {
+            settings = useScanCleanupDocumentSettings({
+                documentLifecycleKey: computed(() => sourceSha256),
+                sourceSha256: computed(() => sourceSha256),
+            });
+            selection = useScanCleanupSelection({
+                initialPage: 1,
+                previewResult: () => null,
+                previewTotalPages: () => 3,
+                marginsLinked: ref(true),
+                settings: settings.values,
+            });
+            return () => h('output', JSON.stringify({
+                alignment: settings.values.pageAlignment,
+                defaults: settings.values.pageOverrideDefaults,
+                margins: settings.values.marginsMm,
+                pages: settings.values.pageOverrides,
+                effectivePlacement: selection.currentPlacementAlignment.value,
+            }));
+        }}));
+        app.provide(workspaceCommandSinkKey, {
+            register: ledger.registerCommand,
+            reset: ledger.resetSource,
+            forget: ledger.forgetSourceEntries,
+        });
+        app.mount(host);
+        const shown = async () => {
+            await nextTick();
+            return JSON.parse(host.textContent ?? '{}');
+        };
+        try {
+            await vi.waitFor(() => expect(settings.documentSettingsReady.value).toBe(true));
+            settings.values.pageAlignment = 'center';
+            const inheritedMargins = {
+                leftMm: 13,
+                topMm: 13,
+                rightMm: 13,
+                bottomMm: 13,
+            };
+            selection.setPageOverrideDefaults(createScanCleanupPageOverride({
+                marginsMm: inheritedMargins,
+                placementOverrides: {full: 'top-left'},
+            }));
+            const original = await shown();
+            selection.updateCurrentPlacementAll('top-left');
+            expect((await shown()).alignment).toBe('top-left');
+            await ledger.undoTimeline();
+            expect(await shown()).toEqual(original);
+            await ledger.redoTimeline();
+            expect((await shown()).alignment).toBe('top-left');
+            await ledger.undoTimeline();
+            selection.updatePageOverride(2, createScanCleanupPageOverride({rotationDegrees: 90}));
+            const beforeSparseEdit = await shown();
+            selection.updateCurrentPlacementAll('top-left');
+            settings.values.pageOverrides['3'] = createScanCleanupPageOverride({rotationDegrees: 270});
+            await ledger.undoTimeline();
+            const undone = await shown();
+            expect(undone.alignment).toBe(beforeSparseEdit.alignment);
+            expect(undone.defaults).toEqual(beforeSparseEdit.defaults);
+            expect(undone.effectivePlacement).toBe('top-left');
+            expect(undone.pages['2'].rotationDegrees).toBe(90);
+            expect(undone.pages['3'].rotationDegrees).toBe(270);
+            await ledger.redoTimeline();
+            expect((await shown()).alignment).toBe('top-left');
+            expect((await shown()).pages['3'].rotationDegrees).toBe(270);
+        } finally {
+            await nextTick();
+            app.unmount();
+            await flushScanCleanupPreferencesStore();
+            await flushScanCleanupDocumentPreferencesStore();
+            await store.get();
+        }
+    });
+
+    it('takes the document-wide settings another view saved when it comes on screen, keeping its own edit', async () => {
+        const {store} = await createDurableSettingsStore();
+        connectMainProcessSettings(store);
+        const sourceSha256 = 'b'.repeat(64);
+        const active = ref(false);
+        let settings!: ReturnType<typeof useScanCleanupDocumentSettings>;
+        const host = document.createElement('div');
+        const app = createApp(defineComponent({setup() {
+            settings = useScanCleanupDocumentSettings({
+                documentLifecycleKey: computed(() => sourceSha256),
+                sourceSha256: computed(() => sourceSha256),
+                active: () => active.value,
+            });
+            return () => h('output', JSON.stringify({
+                outputMode: settings.values.outputMode,
+                marginsMm: settings.values.marginsMm,
+                defaultRotation: settings.values.pageOverrideDefaults?.rotationDegrees,
+            }));
+        }}));
+        app.mount(host);
+        try {
+            await vi.waitFor(() => expect(settings.documentSettingsReady.value).toBe(true));
+            settings.values.outputMode = 'grayscale';
+            const savedMargins = {
+                leftMm: 11,
+                topMm: 12,
+                rightMm: 13,
+                bottomMm: 14,
+            };
+            await store.update({document: {
+                sourceSha256,
+                patch: {
+                    outputMode: 'bw',
+                    marginsMm: savedMargins,
+                    pageOverrideDefaults: createScanCleanupPageOverride({rotationDegrees: 90}),
+                },
+            }});
+
+            active.value = true;
+
+            await vi.waitFor(() => expect(JSON.parse(host.textContent ?? '{}')).toEqual({
+                outputMode: 'grayscale',
+                marginsMm: savedMargins,
+                defaultRotation: 90,
+            }));
+            await flushScanCleanupDocumentPreferencesStore();
+            expect((await store.get()).documentOverrides[sourceSha256]).toMatchObject({
+                outputMode: 'grayscale',
+                marginsMm: savedMargins,
+                pageOverrideDefaults: {rotationDegrees: 90},
+            });
         } finally {
             app.unmount();
             await flushScanCleanupDocumentPreferencesStore();

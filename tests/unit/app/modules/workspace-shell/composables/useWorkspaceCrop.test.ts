@@ -13,6 +13,7 @@ import {
     requireDocumentRef,
     type TDocumentRef,
 } from '@contracts/documentRef';
+import { marginsToDisplayNormalizedRect } from '@app/utils/pdfCropCoordinates';
 import {TEST_PDF_SAVE_BYTE_ROUTE_DECISION} from '@tests/unit/app/modules/pdf-viewer/runtime/save/testPdfSaveByteRouteDecision';
 import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
 
@@ -109,6 +110,68 @@ describe('useWorkspaceCrop', () => {
         vi.clearAllMocks();
     });
 
+    it.each([
+        0,
+        90,
+        180,
+        270,
+    ] as const)('reads the same page margins from a selection drawn at view rotation %i', async (viewRotation) => {
+        const mediaBox = {
+            x: 0,
+            y: 0,
+            width: 200,
+            height: 100,
+        };
+        const margins = {
+            top: 10,
+            bottom: 20,
+            left: 30,
+            right: 40,
+        };
+        // The page is stored rotated 90°; the view adds its own rotation.
+        mocks.getPageGeometry.mockResolvedValue({
+            mediaBox,
+            cropBox: null,
+            rotation: 90,
+        });
+        const displayRotation = (90 + viewRotation) % 360;
+        const displayed = displayRotation % 180 === 0
+            ? {
+                width: 200,
+                height: 100,
+            }
+            : {
+                width: 100,
+                height: 200,
+            };
+        const rect = marginsToDisplayNormalizedRect(margins, mediaBox, displayRotation);
+        const viewer = createPdfViewerExpose({startCropSelection: vi.fn(async (): Promise<ICropSelectionResult> => ({
+            pageNumber: 1,
+            viewRotation,
+            pageRect: displayed,
+            pageLocalRect: {
+                x: rect.x * displayed.width,
+                y: rect.y * displayed.height,
+                width: rect.width * displayed.width,
+                height: rect.height * displayed.height,
+            },
+        }))});
+        const {useWorkspaceCrop} = await import('@app/modules/workspace-shell/composables/useWorkspaceCrop');
+        const crop = useWorkspaceCrop({
+            pdfViewerRef: ref<IPdfViewerExpose | null>(viewer),
+            workingCopyPath: ref<TDocumentRef | null>(requireDocumentRef('/tmp/work.pdf')),
+        });
+
+        await crop.handleCrop();
+
+        expect(crop.cropDialogMargins.value).toEqual({
+            top: expect.closeTo(margins.top, 6),
+            bottom: expect.closeTo(margins.bottom, 6),
+            left: expect.closeTo(margins.left, 6),
+            right: expect.closeTo(margins.right, 6),
+        });
+    });
+
     it('opens the crop dialog only after geometry and margins are ready', async () => {
         let resolveGeometry: ((value: IPageGeometry) => void) | undefined;
 
@@ -120,6 +183,7 @@ describe('useWorkspaceCrop', () => {
 
         const selectionResult: ICropSelectionResult = {
             pageNumber: 1,
+            viewRotation: 0,
             pageRect: {
                 width: 100,
                 height: 50,
@@ -178,6 +242,7 @@ describe('useWorkspaceCrop', () => {
     it('ignores a crop selection if the working copy changes before selection resolves', async () => {
         const selectionResult: ICropSelectionResult = {
             pageNumber: 1,
+            viewRotation: 0,
             pageRect: {
                 width: 100,
                 height: 50,

@@ -1,6 +1,7 @@
 import { join } from 'node:path';
 import { escapeRegExp } from 'es-toolkit/string';
 import type * as TDjvuNativeToolPathsModule from '@electron/features/djvu/main/nativeToolPaths';
+import type * as TDjvuMetadataModule from '@electron/features/djvu/main/metadata';
 import {
     beforeEach,
     describe,
@@ -75,7 +76,8 @@ vi.mock('fs/promises', () => ({
     rm: mocks.rm,
     stat: mocks.stat,
 }));
-vi.mock('@electron/features/djvu/main/metadata', () => ({
+vi.mock('@electron/features/djvu/main/metadata', async importOriginal => ({
+    ...await importOriginal<typeof TDjvuMetadataModule>(),
     getDjvuPageCount: mocks.getDjvuPageCount,
     getDjvuResolution: mocks.getDjvuResolution,
 }));
@@ -125,6 +127,33 @@ describe('DjVu native page preview helpers', () => {
             mtimeMs: 1,
             size: mocks.tinyPpm.byteLength,
         });
+    });
+
+    it('reads each page its own resolution and turns a quarter-turned page', () => {
+        // djvused output for `select 1; size; dump; select 2; size; dump` on
+        // tests/fixtures/djvu/sources/indirect/index.djvu, page 1 turned once.
+        expect(parseDjvuPageSizeOutput([
+            'width=640 height=480 rotation=1',
+            '  FORM:DJVU [872] ',
+            '    INFO [10]         DjVu 640x480, v24, 72 dpi, gamma=2.2',
+            '    BG44 [785]        IW4 data #1, 90 slices, v1.2 (color), 640x480',
+            '    TXTz [48]         Hidden text (text, etc.)',
+            'width=512 height=512',
+            '  FORM:DJVU [188] ',
+            '    INFO [10]         DjVu 512x512, v24, 300 dpi, gamma=2.2',
+            '    Sjbz [158]        JB2 bilevel data',
+        ].join('\n'), 72)).toEqual([
+            {
+                width: 480,
+                height: 640,
+                dpi: 72,
+            },
+            {
+                width: 512,
+                height: 512,
+                dpi: 300,
+            },
+        ]);
     });
 
     it('parses djvused page size output variants', () => {
@@ -315,8 +344,8 @@ describe('DjVu native page preview helpers', () => {
         ]);
         expect(mocks.runNativeCommand).toHaveBeenCalledTimes(2);
         const calls = mocks.runNativeCommand.mock.calls as unknown[][];
-        expect((calls[0]?.[1] as string[] | undefined)?.[2]).toBe('select 1; size');
-        expect((calls[1]?.[1] as string[] | undefined)?.[2]).toBe('select 5000; size');
+        expect((calls[0]?.[1] as string[] | undefined)?.[2]).toBe('select 1; size; dump');
+        expect((calls[1]?.[1] as string[] | undefined)?.[2]).toBe('select 5000; size; dump');
     });
 
     it('bounds cached page metadata after a full-document scan', async () => {
@@ -483,7 +512,7 @@ describe('DjVu native page preview helpers', () => {
             Array.from({length: 20}, (_, index) => [
                 '/tmp/cold-pages.djvu',
                 '-e',
-                `select ${index + 1}; size`,
+                `select ${index + 1}; size; dump`,
             ]),
         );
     });
@@ -523,7 +552,7 @@ describe('DjVu native page preview helpers', () => {
             [
                 '/tmp/second.djvu',
                 '-e',
-                'select 1; size',
+                'select 1; size; dump',
             ],
             expect.any(Object),
         );

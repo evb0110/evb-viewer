@@ -132,6 +132,7 @@ export const createDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgent
         annotationTool,
         bookmarkItems,
         bookmarksDirty,
+        getBookmarksRevision,
         canSave,
         canUndo,
         canRedo,
@@ -229,6 +230,7 @@ export const createDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgent
     const bookmarksAgent = createDocumentAgentBookmarks({
         bookmarkItems,
         bookmarksDirty,
+        getBookmarksRevision,
         handleBookmarksChange,
         t,
         totalPages,
@@ -338,15 +340,6 @@ export const createDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgent
         };
     }
 
-    function createDjvuPageOperationBlockedResult() {
-        return {
-            ok: false,
-            blocked: true,
-            reason: 'djvu-page-operations-disabled',
-            requiredAction: 'page_ops.convert_to_pdf',
-        };
-    }
-
     function createAgentCommandAbortError() {
         const error = new Error('Agent command was aborted.');
         error.name = 'AbortError';
@@ -389,31 +382,26 @@ export const createDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgent
         assertDocumentIdentityMatches(context.documentIdentity, allowRevisionChange);
     }
 
-    function createGuardedAgentCommandContext(
-        context: IWorkspaceAgentCommandContext | undefined,
-        policy: IAgentActionExecutionPolicy,
-    ): IWorkspaceAgentCommandContext | undefined {
-        if (!context) {
-            return undefined;
-        }
-
-        return {
-            ...context,
-            assertCurrentDocument: () => {
-                assertAgentCommandContext(context, policy);
-            },
-        };
-    }
-
+    // An operation refused, canceled or failed did not change the pages, so
+    // the agent is told so rather than shown success.
     async function runPdfPageOperationAgentAction(
-        run: () => Promise<object>,
+        run: () => Promise<{completed: boolean} & object>,
         context?: IWorkspaceAgentCommandContext,
     ) {
         if (isDjvuMode.value) {
-            return createDjvuPageOperationBlockedResult();
+            return {
+                ok: false,
+                blocked: true,
+                reason: 'djvu-page-operations-disabled',
+                requiredAction: 'page_ops.convert_to_pdf',
+            };
         }
         context?.assertCurrentDocument();
-        return run();
+        const {
+            completed, ...result
+        } = await run();
+        if (!completed) throw new Error('The page operation did not complete.');
+        return result;
     }
 
     const agentActionHandlers = createAgentActionHandlerRegistry([
@@ -476,7 +464,10 @@ export const createDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgent
                 if (runOptions.open !== false) handleDropdownOpen('ocr', true);
                 await nextTick();
                 context?.assertCurrentDocument();
-                return ocr.runOcrForAgent(runOptions);
+                return ocr.runOcrForAgent(runOptions, context && {
+                    signal: context.signal,
+                    assertCurrentDocument: () => context.assertCurrentDocument(),
+                });
             },
         },
         {
@@ -522,9 +513,7 @@ export const createDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgent
                 previewAgentPageLabelPlan(input, actionId);
                 return input;
             },
-            run: createSettledMutationRunner(applyAgentPageLabelPlan, async () => {
-                await nextTick();
-            }),
+            run: createSettledMutationRunner(applyAgentPageLabelPlan, nextTick),
         },
         {
             ids: [
@@ -838,7 +827,7 @@ export const createDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgent
                 await waitForAgentMutationStateSettled();
                 context?.assertCurrentDocument();
                 const hadPendingSave = canSave.value;
-                const saveSucceeded = !hadPendingSave || await handleSave();
+                const saveSucceeded = !hadPendingSave || await handleSave(context?.recordDocumentCommit);
                 await waitForAgentMutationStateSettled();
                 if (!saveSucceeded) {
                     throw new Error(`Save did not complete; EVB Viewer still reports pending changes. ${JSON.stringify({
@@ -846,7 +835,6 @@ export const createDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgent
                         bookmarksDirty: bookmarksDirty.value,
                         canSave: canSave.value,
                         pageLabelsDirty: pageLabelsDirty.value,
-                        saveSucceeded,
                     })}`);
                 }
                 return {
@@ -864,7 +852,7 @@ export const createDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgent
             parse: parseEmptyAgentActionInput,
             async run(_input, _actionId, context) {
                 context?.assertCurrentDocument();
-                await handleSaveAs();
+                if (!await handleSaveAs()) throw new Error('Save As did not complete.');
                 return {};
             },
         },
@@ -1006,8 +994,10 @@ export const createDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgent
             async run(_input, _actionId, context) {
                 return runPdfPageOperationAgentAction(async () => {
                     const selection = getSelectedPagePayload();
-                    await pageOpsDelete(selection, totalPages.value);
-                    return describeSelectedPagePayload(selection);
+                    return {
+                        completed: await pageOpsDelete(selection, totalPages.value, ...(context?.recordDocumentCommit ? [context.recordDocumentCommit] : [])),
+                        ...describeSelectedPagePayload(selection),
+                    };
                 }, context);
             },
         },
@@ -1018,8 +1008,10 @@ export const createDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgent
             async run(_input, _actionId, context) {
                 return runPdfPageOperationAgentAction(async () => {
                     const selection = getSelectedPagePayload();
-                    await pageOpsExtract(selection);
-                    return describeSelectedPagePayload(selection);
+                    return {
+                        completed: await pageOpsExtract(selection),
+                        ...describeSelectedPagePayload(selection),
+                    };
                 }, context);
             },
         },
@@ -1030,8 +1022,10 @@ export const createDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgent
             async run(_input, _actionId, context) {
                 return runPdfPageOperationAgentAction(async () => {
                     const selection = getSelectedPagePayload();
-                    await handlePageRotate(selection, 90);
-                    return describeSelectedPagePayload(selection);
+                    return {
+                        completed: await handlePageRotate(selection, 90, ...(context?.recordDocumentCommit ? [context.recordDocumentCommit] : [])),
+                        ...describeSelectedPagePayload(selection),
+                    };
                 }, context);
             },
         },
@@ -1042,8 +1036,10 @@ export const createDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgent
             async run(_input, _actionId, context) {
                 return runPdfPageOperationAgentAction(async () => {
                     const selection = getSelectedPagePayload();
-                    await handlePageRotate(selection, 270);
-                    return describeSelectedPagePayload(selection);
+                    return {
+                        completed: await handlePageRotate(selection, 270, ...(context?.recordDocumentCommit ? [context.recordDocumentCommit] : [])),
+                        ...describeSelectedPagePayload(selection),
+                    };
                 }, context);
             },
         },
@@ -1053,8 +1049,7 @@ export const createDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgent
             parse: parseAgentInsertPagesInput,
             async run(afterPage: number, _actionId, context) {
                 return runPdfPageOperationAgentAction(async () => {
-                    await pageOpsInsert(totalPages.value, afterPage);
-                    return {};
+                    return {completed: await pageOpsInsert(totalPages.value, afterPage, ...(context?.recordDocumentCommit ? [context.recordDocumentCommit] : []))};
                 }, context);
             },
         },
@@ -1089,7 +1084,10 @@ export const createDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgent
             throw new Error(`Unsupported EVB agent action: ${actionId}`);
         }
         const parsedAction = handler.parse(input, actionId);
-        const guardedContext = createGuardedAgentCommandContext(context, parsedAction.policy);
+        const guardedContext = context && {
+            ...context,
+            assertCurrentDocument: () => assertAgentCommandContext(context, parsedAction.policy),
+        };
         assertAgentCommandContext(context, parsedAction.policy);
         if (actionOptions.dryRun) {
             return createAgentActionResult(actionId, {

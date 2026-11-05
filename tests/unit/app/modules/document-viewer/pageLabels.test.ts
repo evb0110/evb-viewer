@@ -378,6 +378,23 @@ describe('document page labels', () => {
         expect(ranges[0]?.startNumber).toBe(getPageLabelStartNumberMax('A'));
     });
 
+    it.each([
+        ['001'],
+        ['0'],
+        ['A01'],
+        ['aA'],
+        [
+            '001',
+            '002',
+            '003',
+        ],
+    ])('infers ranges that print the labels exactly: %j', (...labels) => {
+        const ranges = derivePageLabelRangesFromLabels(labels, labels.length);
+        const model = createPageLabelModel(labels.length, ranges);
+
+        expect(labels.map((_, index) => model.labelAt(index + 1))).toEqual(labels);
+    });
+
     it('reads an imported start value from a label too long to scan, and shows it bounded', () => {
         // This exceeds the former scan/display cap and the typed start bound.
         // Huge formula starts have separate coverage without a 38 MB input.

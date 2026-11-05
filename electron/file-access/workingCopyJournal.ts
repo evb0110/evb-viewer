@@ -24,9 +24,10 @@ import {
     getPublicationTemporaryPath,
     linkOrCopyFileDurably,
 } from '@electron/file-access/documentFileWriteAtomic';
+import {keepOriginalBeside} from '@electron/utils/boundedPathComponent';
 import {
-    keepOriginalBeside, MAX_PATH_COMPONENT_BYTES, truncateUtf8PathComponent,
-} from '@electron/utils/boundedPathComponent';
+    MAX_PATH_COMPONENT_BYTES, truncateUtf8PathComponent,
+} from '@pdf-core/imageExportFileName';
 import {rememberKeptOriginal} from '@electron/file-access/keptOriginalNotices';
 import {isSameFile} from '@electron/utils/fileIdentity';
 import {

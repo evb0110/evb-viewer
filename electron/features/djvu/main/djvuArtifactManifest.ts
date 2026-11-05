@@ -3,7 +3,7 @@ import {
     createHash,
     randomUUID,
 } from 'node:crypto';
-import { createReadStream } from 'node:fs';
+import type {Stats} from 'node:fs';
 import {
     chmod,
     lstat,
@@ -17,12 +17,15 @@ import {
     writeFile,
 } from 'node:fs/promises';
 import {
+    basename,
     isAbsolute,
     join,
     relative,
     resolve,
 } from 'node:path';
+import {hashFileSha256} from '@electron/utils/hashFileSha256';
 import {getAppTempDir} from '@electron/utils/appTempDir';
+import {getDjvuIndirectComponentPaths} from '@electron/features/djvu/main/metadata';
 import * as v from 'valibot';
 import {
     getNativeToolBuildIdentity,
@@ -60,13 +63,19 @@ type TDjvuArtifactRangeUpdate = {
     [TKey in keyof IDjvuArtifactRange]?: IDjvuArtifactRange[TKey] | undefined;
 };
 
-export interface IDjvuSourceIdentity {
-    sourceSha256: string;
+interface IDjvuFileStats {
     size: bigint;
     mtimeNs: bigint;
     ctimeNs: bigint;
     dev: bigint;
     ino: bigint;
+}
+
+export interface IDjvuSourceIdentity extends IDjvuFileStats {
+    /** The document's bytes, an indirect document's component files included. */
+    sourceSha256: string;
+    /** An indirect document's component files, which its pages are read from. */
+    components: ReadonlyArray<IDjvuFileStats & {path: string}>;
 }
 
 const djvuArtifactManifestSchema = v.object({
@@ -156,9 +165,7 @@ async function measurePathBytes(path: string): Promise<number> {
 
 function withoutNestedPaths(paths: readonly string[]) {
     const normalized = [...new Set(paths.map(path => resolve(path)))];
-    return normalized.filter((path, index) => !normalized.some((candidate, candidateIndex) => (
-        candidateIndex !== index && isPathInside(path, candidate)
-    )));
+    return normalized.filter(path => !normalized.some(candidate => candidate !== path && isPathInside(path, candidate)));
 }
 
 export async function createDjvuDiskQuotaMonitor(options: {
@@ -201,9 +208,7 @@ export async function createDjvuDiskQuotaMonitor(options: {
                 `temporary storage has ${availableBytes} bytes available; ${reserveBytes} bytes must remain free`,
             );
         }
-        const availableCeiling = Number.isFinite(availableBytes)
-            ? Math.max(0, availableBytes - reserveBytes)
-            : Number.POSITIVE_INFINITY;
+        const availableCeiling = Math.max(0, availableBytes - reserveBytes);
         const maxTotalBytes = Math.min(options.maxTotalBytes ?? availableCeiling, availableCeiling);
         if (totalBytes > maxTotalBytes) {
             throw new DjvuDiskQuotaError(
@@ -253,26 +258,10 @@ export async function createDjvuDiskQuotaMonitor(options: {
     };
 }
 
-async function sha256File(path: string, signal?: AbortSignal) {
-    const hash = createHash('sha256');
-    const stream = createReadStream(path, signal ? {signal} : undefined);
-    try {
-        for await (const chunk of stream) {
-            hash.update(chunk as Buffer);
-        }
-    } finally {
-        stream.destroy();
-    }
-    return hash.digest('hex');
-}
-
 // Windows input aliases change ctime without changing bytes. File identity,
 // size and write time detect replacement/writes; resume still hashes the bytes.
 // Unix keeps its previous change-time check, since its tools need no aliases.
-function sourceStatsMatch(
-    left: Pick<IDjvuSourceIdentity, 'size' | 'mtimeNs' | 'ctimeNs' | 'dev' | 'ino'>,
-    right: Pick<IDjvuSourceIdentity, 'size' | 'mtimeNs' | 'ctimeNs' | 'dev' | 'ino'>,
-) {
+function sourceStatsMatch(left: IDjvuFileStats, right: IDjvuFileStats) {
     return left.size === right.size
         && left.mtimeNs === right.mtimeNs
         && left.dev === right.dev
@@ -287,28 +276,88 @@ export async function assertDjvuSourceIdentity(
 ) {
     signal?.throwIfAborted();
     const source = await stat(sourcePath, {bigint: true});
-    if (!sourceStatsMatch(identity, source)) {
+    const components = await Promise.all(identity.components.map(component => stat(component.path, {bigint: true})));
+    if (!sourceStatsMatch(identity, source) || identity.components.some((component, index) => !sourceStatsMatch(component, components[index]!))) {
         throw new Error('DjVu source changed while a checkpoint export was in progress');
     }
 }
 
-async function captureDjvuSourceIdentity(sourcePath: string, signal?: AbortSignal) {
+async function captureFileIdentity(path: string, signal?: AbortSignal) {
     signal?.throwIfAborted();
-    const sourceBeforeHash = await stat(sourcePath, {bigint: true});
-    const sourceSha256 = await sha256File(sourcePath, signal);
-    const source = await stat(sourcePath, {bigint: true});
-    const identity = {
-        sourceSha256,
-        size: source.size,
-        mtimeNs: source.mtimeNs,
-        ctimeNs: source.ctimeNs,
-        dev: source.dev,
-        ino: source.ino,
-    } satisfies IDjvuSourceIdentity;
-    if (!sourceStatsMatch(sourceBeforeHash, identity)) {
+    const before = await stat(path, {bigint: true});
+    const sha256 = await hashFileSha256(path, signal);
+    const after = await stat(path, {bigint: true});
+    const stats = {
+        size: after.size,
+        mtimeNs: after.mtimeNs,
+        ctimeNs: after.ctimeNs,
+        dev: after.dev,
+        ino: after.ino,
+    } satisfies IDjvuFileStats;
+    if (!sourceStatsMatch(before, stats)) {
         throw new Error('DjVu source changed while its resume fingerprint was being computed');
     }
-    return identity;
+    return {
+        sha256,
+        stats,
+    };
+}
+
+// An indirect document's index names its pages' files; an edit to a page or a
+// shared dictionary changes the document, so each joins the fingerprint.
+async function captureDjvuSourceIdentity(sourcePath: string, signal?: AbortSignal): Promise<IDjvuSourceIdentity> {
+    const source = await captureFileIdentity(sourcePath, signal);
+    const componentPaths = await getDjvuIndirectComponentPaths(sourcePath, signal ? {signal} : {});
+    const components: Array<Awaited<ReturnType<typeof captureFileIdentity>> & {path: string}> = [];
+    for (const path of componentPaths) {
+        components.push({
+            path,
+            ...await captureFileIdentity(path, signal),
+        });
+    }
+    return {
+        sourceSha256: components.length === 0
+            ? source.sha256
+            : createHash('sha256').update(JSON.stringify([
+                source.sha256,
+                ...components.map(component => [
+                    relative(resolve(sourcePath, '..'), component.path),
+                    component.sha256,
+                ]),
+            ])).digest('hex'),
+        ...source.stats,
+        components: components.map(component => ({
+            path: component.path,
+            ...component.stats,
+        })),
+    };
+}
+
+/**
+ * Exports still reading a job directory after closing its job. A directory
+ * goes only when its last consumer lets go, under its fingerprint lock, so it
+ * never disappears beneath an export that opened it.
+ */
+const artifactDirectoryConsumers = new Map<string, number>();
+
+export async function releaseDjvuArtifactConsumer(directory: string, options: {remove: boolean}) {
+    const releaseFingerprintLock = await acquireFingerprintLock(basename(directory));
+    try {
+        const remaining = (artifactDirectoryConsumers.get(directory) ?? 1) - 1;
+        if (remaining > 0) {
+            artifactDirectoryConsumers.set(directory, remaining);
+            return;
+        }
+        artifactDirectoryConsumers.delete(directory);
+        if (options.remove) {
+            await rm(directory, {
+                force: true,
+                recursive: true,
+            }).catch(() => undefined);
+        }
+    } finally {
+        releaseFingerprintLock();
+    }
 }
 
 async function acquireFingerprintLock(fingerprint: string) {
@@ -340,34 +389,6 @@ async function writeManifest(path: string, manifest: IDjvuArtifactManifest) {
     }
 }
 
-function manifestMatchesRequestedJob(
-    manifest: IDjvuArtifactManifest,
-    fingerprint: string,
-    sourcePath: string,
-    sourceSha256: string,
-    directory: string,
-    pageRanges: ReadonlyArray<{
-        startPage: number;
-        endPage: number;
-    }>,
-    outputExtension: '.pdf' | '.json',
-) {
-    return manifest.fingerprint === fingerprint
-        && manifest.sourcePath === sourcePath
-        && manifest.sourceSha256 === sourceSha256
-        && manifest.ranges.length === pageRanges.length
-        && manifest.ranges.every((range, index) => {
-            const requested = pageRanges[index];
-            return requested
-                && range.startPage === requested.startPage
-                && range.endPage === requested.endPage
-                && range.outputPath === join(
-                    directory,
-                    `pages-${requested.startPage}-${requested.endPage}${outputExtension}`,
-                );
-        });
-}
-
 export async function openDjvuArtifactJob(
     sourcePath: string,
     pageRanges: ReadonlyArray<{
@@ -382,12 +403,14 @@ export async function openDjvuArtifactJob(
         maxTotalBytesForTests?: number;
         signal?: AbortSignal;
         sourceIdentity?: IDjvuSourceIdentity;
+        /** Counts the caller as a consumer until releaseDjvuArtifactConsumer. */
+        consumer?: boolean;
     },
 ): Promise<IDjvuArtifactJob> {
     const sourceIdentity = options.sourceIdentity
         ?? await captureDjvuSourceIdentity(sourcePath, options.signal);
     await assertDjvuSourceIdentity(sourcePath, sourceIdentity, options.signal);
-    const sourceSha256 = sourceIdentity.sourceSha256;
+    const {sourceSha256} = sourceIdentity;
     const fingerprint = createHash('sha256').update(JSON.stringify({
         sourcePath,
         sourceSha256,
@@ -397,7 +420,9 @@ export async function openDjvuArtifactJob(
         pageRanges,
         recipe: {
             // Bump when TypeScript compact representation/fidelity semantics change.
-            version: 1,
+            // 2: each page's own resolution and orientation size its page, and
+            // an indirect document's component files join its fingerprint.
+            version: 2,
             djvulibre: getRuntimeToolArchiveIdentity('djvulibre'),
             imageCombine: options.artifactKind === 'compact-page'
                 ? getNativeToolBuildIdentity('evb-pdf-image-combine') : null,
@@ -408,6 +433,7 @@ export async function openDjvuArtifactJob(
     const directory = join(jobRoot, fingerprint);
     const manifestPath = join(directory, 'manifest.json');
     const outputExtension = options.outputExtension ?? '.pdf';
+    if (options.consumer) artifactDirectoryConsumers.set(directory, (artifactDirectoryConsumers.get(directory) ?? 0) + 1);
     try {
         await mkdir(directory, {recursive: true});
         const fileSystem = await statfs(directory).catch(() => null);
@@ -427,15 +453,21 @@ export async function openDjvuArtifactJob(
                 return parsed.success ? parsed.output : null;
             })
             .catch(() => null);
-        if (!manifest || !manifestMatchesRequestedJob(
-            manifest,
-            fingerprint,
-            sourcePath,
-            sourceSha256,
-            directory,
-            pageRanges,
-            outputExtension,
-        )) {
+        if (!manifest
+            || manifest.fingerprint !== fingerprint
+            || manifest.sourcePath !== sourcePath
+            || manifest.sourceSha256 !== sourceSha256
+            || manifest.ranges.length !== pageRanges.length
+            || !manifest.ranges.every((range, index) => {
+                const requested = pageRanges[index];
+                return requested
+                    && range.startPage === requested.startPage
+                    && range.endPage === requested.endPage
+                    && range.outputPath === join(
+                        directory,
+                        `pages-${requested.startPage}-${requested.endPage}${outputExtension}`,
+                    );
+            })) {
             const now = Date.now();
             manifest = {
                 version: 2,
@@ -457,7 +489,7 @@ export async function openDjvuArtifactJob(
                 if (range.status === 'verified') {
                     const artifact = await stat(range.outputPath).catch(() => null);
                     const digest = artifact && artifact.size > 0 && artifact.size === range.size && range.sha256
-                        ? await sha256File(range.outputPath, options.signal).catch(() => null)
+                        ? await hashFileSha256(range.outputPath, options.signal).catch(() => null)
                         : null;
                     if (!artifact || artifact.size !== range.size || artifact.size <= 0 || digest !== range.sha256) {
                         range.status = 'pending';
@@ -524,7 +556,7 @@ export async function openDjvuArtifactJob(
                             if (!beforeHash.isFile() || beforeHash.size <= 0) {
                                 throw new Error(`DjVu artifact is empty or not a regular file: ${path}`);
                             }
-                            const sha256 = await sha256File(path);
+                            const sha256 = await hashFileSha256(path);
                             const afterHash = await stat(path);
                             if (
                                 !afterHash.isFile()
@@ -593,6 +625,11 @@ export async function openDjvuArtifactJob(
             },
         };
     } catch (error) {
+        if (options.consumer) {
+            const remaining = (artifactDirectoryConsumers.get(directory) ?? 1) - 1;
+            if (remaining > 0) artifactDirectoryConsumers.set(directory, remaining);
+            else artifactDirectoryConsumers.delete(directory);
+        }
         releaseFingerprintLock();
         throw error;
     }
@@ -605,26 +642,42 @@ export async function pruneStaleDjvuArtifactJobs(now = Date.now()) {
     const jobDirectories = entries.filter(entry => entry.isDirectory());
     const retained: Array<{
         directory: string;
-        mtimeMs: number
+        info: Stats | null
     }> = [];
-    await Promise.all(jobDirectories.map(async (entry) => {
-        const directory = join(jobRoot, entry.name);
-        const info = await stat(join(directory, 'manifest.json')).catch(() => null);
-        if (!info || now - info.mtimeMs > STALE_JOB_MS) {
-            await rm(directory, {
+    const removeIfUnchanged = async (entry: typeof retained[number]) => {
+        const fingerprint = basename(entry.directory);
+        // Claim the free lock synchronously; never queue behind an active job.
+        if (artifactDirectoryConsumers.has(entry.directory) || activeFingerprintTails.has(fingerprint)) return;
+        const release = await acquireFingerprintLock(fingerprint);
+        try {
+            if (artifactDirectoryConsumers.has(entry.directory)) return;
+            const current = await stat(join(entry.directory, 'manifest.json')).catch(() => null);
+            if (current?.ino !== entry.info?.ino || current?.size !== entry.info?.size
+                || current?.mtimeMs !== entry.info?.mtimeMs || current?.ctimeMs !== entry.info?.ctimeMs) return;
+            await rm(entry.directory, {
                 force: true,
                 recursive: true,
+            });
+        } finally {
+            release();
+        }
+    };
+    await Promise.all(jobDirectories.map(async (entry) => {
+        const directory = join(jobRoot, entry.name);
+        if (artifactDirectoryConsumers.has(directory) || activeFingerprintTails.has(entry.name)) return;
+        const info = await stat(join(directory, 'manifest.json')).catch(() => null);
+        if (!info || now - info.mtimeMs > STALE_JOB_MS) {
+            await removeIfUnchanged({
+                directory,
+                info,
             });
             return;
         }
         retained.push({
             directory,
-            mtimeMs: info.mtimeMs,
+            info,
         });
     }));
-    retained.sort((left, right) => right.mtimeMs - left.mtimeMs);
-    await Promise.all(retained.slice(32).map(entry => rm(entry.directory, {
-        force: true,
-        recursive: true,
-    })));
+    retained.sort((left, right) => right.info!.mtimeMs - left.info!.mtimeMs);
+    await Promise.all(retained.slice(32).map(removeIfUnchanged));
 }

@@ -3,6 +3,7 @@ import type { ICropMargins } from '@app/types/crop';
 import type { TPageMoveOperation } from '@contracts/pageNumbers';
 import type {
     IDocumentRevisionInfo,
+    TDocumentCommitReceipt,
     TDocumentRevisionToken,
 } from '@contracts/documentRevision';
 import type { TDocumentInstanceId } from '@contracts/documentInstanceId';
@@ -185,6 +186,7 @@ export interface IWorkspaceOpenFailure {
     /** The file the open was for, when the failure itself names it. */
     fileName?: string | null;
 }
+export type {TDocumentCommitReceipt} from '@contracts/documentRevision';
 
 export interface IWorkspaceAgentCommandContext {
     signal: AbortSignal;
@@ -192,6 +194,8 @@ export interface IWorkspaceAgentCommandContext {
     documentInstanceId: TDocumentInstanceId | null;
     commandTarget?: TWorkspaceCommandTarget;
     assertCurrentDocument: (options?: {allowRevisionChange?: boolean}) => void;
+    /** Receives a revision the command itself committed; only that one may succeed it. */
+    recordDocumentCommit?: TDocumentCommitReceipt;
 }
 
 export interface IWorkspaceAutomationStateSnapshot {

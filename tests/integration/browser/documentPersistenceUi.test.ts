@@ -11,10 +11,10 @@ import {PDFDocument} from 'pdf-lib';
 import {DEFAULT_SETTINGS} from '@contracts/settings';
 import {chromium} from 'playwright';
 import type {
-    Download, Page,
+    BrowserContext, Download, Page,
 } from 'playwright';
 import {
-    describe, expect, it,
+    afterEach, beforeEach, describe, expect, it,
 } from 'vitest';
 import type {IBrowserLifecycleTestApi} from './documentLifecycleTestHelpers';
 import {
@@ -1143,6 +1143,7 @@ describe('browser document lifecycle UI', () => {
             const closeAndReload = async () => {
                 await page.getByRole('button', {name: 'Close Tab'}).click();
                 await expect.poll(() => page.locator('[data-tab-list] [role="tab"]').filter({hasText: '.pdf'}).count(), {timeout: 15_000}).toBe(0);
+                await page.locator('.workspace-host[data-workspace-active="true"] .workspace-host__start').waitFor();
                 await page.reload({waitUntil: 'domcontentloaded'});
                 await waitForOpenFileReady(page);
             };
@@ -1435,9 +1436,10 @@ describe('browser document lifecycle UI', () => {
                     name: 'Clear History',
                     exact: true,
                 }).click();
-                // Terminal transfer protection lasts 60 seconds. Observe collection
-                // after it expires and a normal lifecycle event publishes the graph.
-                const expiredAt = Date.now() + 61_000;
+                // Terminal transfer protection lasts 60 seconds, and superseded chunks
+                // have a ten-minute grace. Observe collection after both expire and
+                // a normal lifecycle event publishes the graph.
+                const expiredAt = Date.now() + 11 * 60_000;
                 await Promise.all([
                     page,
                     creator,
@@ -1459,4 +1461,117 @@ describe('browser document lifecycle UI', () => {
             await Promise.all(lifecycle.browser.contexts().map(context => context.close()));
         }
     }, 240_000);
+});
+
+describe('browser Settings save failure UI', () => {
+    let context: BrowserContext;
+    let page: Page;
+    beforeEach(async () => {
+        context = await lifecycle.browser.newContext({
+            permissions: [
+                'clipboard-read',
+                'clipboard-write',
+            ],
+            ...(process.env.EVB_D15_EVIDENCE_DIR ? {recordVideo: {dir: resolve(process.env.EVB_D15_EVIDENCE_DIR, 'browser-video')}} : {}),
+        });
+        page = await context.newPage();
+        await page.addInitScript((settings) => {
+            localStorage.setItem('evb-viewer:browser:settings', JSON.stringify(settings));
+            document.cookie = 'i18n_redirected=ru; path=/';
+        }, {
+            ...DEFAULT_SETTINGS,
+            locale: 'ru',
+            authorName: 'Saved author',
+            clientDiagnosticsPreference: 'denied',
+        });
+        await page.goto(lifecycle.origin, {waitUntil: 'domcontentloaded'});
+        await page.locator('.start-rail button').filter({hasText: 'Настройки'}).click();
+        await page.locator('#settings-author').waitFor({state: 'visible'});
+    });
+    afterEach(async ({task}) => {
+        const video = page?.video();
+        await context?.close();
+        if (video && process.env.EVB_D15_EVIDENCE_DIR) {
+            const name = task.name.match(/QuotaExceededError|SecurityError|Error/u)?.[0] ?? 'unknown';
+            const action = task.name.startsWith('copy ') ? 'copy' : 'retry';
+            await video.saveAs(resolve(process.env.EVB_D15_EVIDENCE_DIR, `settings-${name}-${action}.webm`));
+            await video.delete();
+        }
+    });
+
+    it.each([
+        {
+            name: 'QuotaExceededError',
+            action: 'copy',
+        },
+        {
+            name: 'SecurityError',
+            action: 'copy',
+        },
+        {
+            name: 'Error',
+            action: 'copy',
+        },
+        {
+            name: 'Error',
+            action: 'retry',
+        },
+    ])('$action handles a late $name after Settings closes with a localized cause', async ({
+        name, action,
+    }) => {
+        const author = page.locator('#settings-author');
+        await page.evaluate((name) => {
+            const original = Storage.prototype.setItem;
+            Reflect.set(window, '__restoreD15Storage', () => {Storage.prototype.setItem = original;});
+            Storage.prototype.setItem = function(key, value) {
+                if (key === 'evb-viewer:browser:settings') {
+                    Reflect.set(window, '__D15SettingsOpenAtWrite', Boolean(document.querySelector('#settings-author')));
+                    throw name === 'Error' ? new Error('RAW unknown detail') : new DOMException('RAW storage detail', name);
+                }
+                return original.call(this, key, value);
+            };
+        }, name);
+        const recent = await page.locator('.start-rail button').filter({hasText: 'Недавние'}).boundingBox();
+        expect(recent).not.toBeNull();
+        await author.fill('Retained after closing');
+        await page.mouse.click(recent!.x + recent!.width / 2, recent!.y + recent!.height / 2);
+        expect(await author.count()).toBe(0);
+        // The actual debounced storage attempt must occur after Settings closes.
+        await expect.poll(() => page.evaluate(() => Reflect.get(window, '__D15SettingsOpenAtWrite'))).toBe(false);
+        const toast = page.locator('.app-toast-failure').filter({has: page.getByRole('button', {
+            name: 'Повторить',
+            exact: true,
+        })});
+        const evidence = resolve(process.env.EVB_D15_EVIDENCE_DIR ?? '.devkit/d15/screenshots');
+        mkdirSync(evidence, {recursive: true});
+        try {
+            await page.evaluate(() => new Promise<void>(resolveFrame => requestAnimationFrame(() => resolveFrame())));
+            expect(await toast.isVisible()).toBe(true);
+        } finally {
+            await page.screenshot({path: resolve(evidence, `settings-${name}-${action}.png`)});
+        }
+        const reason = name === 'QuotaExceededError' ? 'Хранилище заполнено. Освободите место и повторите попытку.'
+            : name === 'SecurityError' ? 'Доступ к хранилищу заблокирован. Разрешите доступ и повторите попытку.'
+                : 'Не удалось записать настройки в хранилище. Повторите попытку.';
+        expect(await toast.locator('.app-toast-failure-reason').textContent()).toBe(reason);
+        expect(await toast.textContent()).not.toContain('RAW');
+        if (action === 'copy') {
+            const receipt = await toast.locator('.app-toast-error-id').textContent();
+            await toast.getByRole('button', {
+                name: 'Копировать подробности',
+                exact: true,
+            }).click();
+            const copy = await page.evaluate(() => navigator.clipboard.readText());
+            expect(copy).toContain(name === 'Error' ? 'Error: RAW unknown detail' : `${name}: RAW storage detail`);
+            expect(copy).toContain('Error ID:');
+            expect(copy).toContain(receipt!.split(': ').at(-1)!);
+        } else {
+            await page.evaluate(() => (Reflect.get(window, '__restoreD15Storage') as () => void)());
+            await toast.getByRole('button', {
+                name: 'Повторить',
+                exact: true,
+            }).click();
+            await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('evb-viewer:browser:settings') ?? '{}').authorName)).toBe('Retained after closing');
+        }
+    });
 });

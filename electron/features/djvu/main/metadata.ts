@@ -1,3 +1,9 @@
+import { open } from 'node:fs/promises';
+import {
+    dirname,
+    resolve,
+    basename,
+} from 'node:path';
 import { buildDjvuRuntimeEnv } from '@electron/features/djvu/main/buildDjvuRuntimeEnv';
 import {
     getDjvuNativeToolPaths,
@@ -16,15 +22,19 @@ interface IRunResult {
 
 const DJVU_METADATA_TIMEOUT_MS = 20_000;
 const DJVU_METADATA_MAX_STDOUT_BYTES = 262_144;
+const DJVU_COMPONENT_LIST_MAX_STDOUT_BYTES = 8 * 1024 * 1024;
 const DJVU_METADATA_MAX_STDERR_BYTES = 131_072;
-interface IDjvuMetadataOptions {signal?: AbortSignal;}
+interface IDjvuMetadataOptions {
+    signal?: AbortSignal;
+    maxStdoutBytes?: number;
+}
 
 async function runDjvused(args: string[], options: IDjvuMetadataOptions = {}): Promise<IRunResult> {
     const { djvused } = getDjvuNativeToolPaths();
     const commandOptions = {
         env: buildDjvuRuntimeEnv(),
         timeoutMs: DJVU_METADATA_TIMEOUT_MS,
-        maxStdoutBytes: DJVU_METADATA_MAX_STDOUT_BYTES,
+        maxStdoutBytes: options.maxStdoutBytes ?? DJVU_METADATA_MAX_STDOUT_BYTES,
         maxStderrBytes: DJVU_METADATA_MAX_STDERR_BYTES,
         commandLabel: 'djvused',
         defaultCwdToCommandDir: true,
@@ -119,6 +129,44 @@ export function parseDjvuInfoLine(line: string) {
         dpi: Number(match?.[3]),
     };
     return Object.values(info).every(value => Number.isSafeInteger(value) && value > 0) ? info : null;
+}
+
+/**
+ * The files an indirect document's pages and shared dictionaries live in, or
+ * none for a bundled or single-page document, whose one file holds them all.
+ * The header tells which: an indirect directory chunk leaves its bundled flag
+ * clear, so only an indirect document pays for listing its components.
+ */
+export async function getDjvuIndirectComponentPaths(filePath: string, options: IDjvuMetadataOptions = {}) {
+    const header = Buffer.alloc(25);
+    const file = await open(filePath, 'r');
+    try {
+        await file.read(header, 0, header.length, 0);
+    } finally {
+        await file.close();
+    }
+    const isIndirect = header.toString('latin1', 0, 4) === 'AT&T'
+        && header.toString('latin1', 12, 20) === 'DJVMDIRM'
+        && (header[24]! & 0x80) === 0;
+    if (!isIndirect) {
+        return [];
+    }
+    // One line per component: a book of single-page files lists thousands.
+    const result = await runDjvused([
+        filePath,
+        '-e',
+        'ls',
+    ], {
+        ...options,
+        maxStdoutBytes: DJVU_COMPONENT_LIST_MAX_STDOUT_BYTES,
+    });
+    const names = result.stdout.split(/\r?\n/u)
+        .flatMap(line => line.match(/^\s*(?:\d+\s+)?[PITS]\s+\d+\s+(\S.*?)\s*$/u)?.[1] ?? []);
+    // Components are files beside the index; any other name is not one.
+    if (names.some(name => name !== basename(name) || name === '.' || name === '..')) {
+        throw new Error('Indirect DjVu names a component outside its folder');
+    }
+    return [...new Set(names.map(name => resolve(dirname(filePath), name)))];
 }
 
 export async function getDjvuResolution(filePath: string, options: IDjvuMetadataOptions = {}) {

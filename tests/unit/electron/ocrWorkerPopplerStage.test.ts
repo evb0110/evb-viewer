@@ -1,3 +1,4 @@
+import type * as TNodeFsPromises from 'node:fs/promises';
 import {
     beforeEach,
     describe,
@@ -98,6 +99,44 @@ describe('preparePdfForPoppler', () => {
         });
         expect(log).toHaveBeenCalledWith('warn', result.warnings[0]);
     });
+
+    it.each([
+        false,
+        true,
+    ])('preserves a marked repair error and its normalized bytes, aborted=%s', async aborted => {
+        const fs = await vi.importActual<typeof TNodeFsPromises>('node:fs/promises');
+        const {tmpdir} = await import('node:os');
+        const {getUnprovenNativeTerminationDetail} = await import('@electron/utils/nativeTerminationProof');
+        const directory = await fs.mkdtemp(join(tmpdir(), 'poppler-repair-proof-'));
+        const source = join(directory, 'source.pdf');
+        await fs.writeFile(source, 'original PDF');
+        const failure = markUnprovenNativeTermination(new Error('qpdf timeout'), 'repair writer still alive');
+        const controller = new AbortController();
+        const registered: string[] = [];
+        const log = vi.fn();
+        mocks.runOcrCommand.mockImplementationOnce(async (_binary: string, args: string[]) => {
+            await fs.writeFile(args[1]!, 'partially normalized PDF');
+            if (aborted) controller.abort(new Error('different abort reason'));
+            throw failure;
+        });
+        try {
+            await expect(preparePdfForPoppler({
+                ...workerPaths,
+                tempDir: directory,
+            }, log, source, 'proof', path => {
+                registered.push(path); return path;
+            }, controller.signal)).rejects.toBe(failure);
+            expect(getUnprovenNativeTerminationDetail(failure)).toBe('repair writer still alive');
+            expect(registered).toHaveLength(1);
+            expect(await fs.readFile(registered[0]!, 'utf8')).toBe('partially normalized PDF');
+            expect(await fs.readFile(source, 'utf8')).toBe('original PDF');
+            expect(log.mock.calls.some(([level]) => level === 'warn')).toBe(false);
+        } finally { await fs.rm(directory, {
+            recursive: true,
+            force: true,
+        }); }
+    });
+
 });
 
 describe('renderPdfPageToPng', () => {

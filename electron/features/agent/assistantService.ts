@@ -68,7 +68,10 @@ import {
     isAssistantTurnActive,
     matchesProviderTurn,
 } from '@electron/features/agent/assistantTurnLifecycle';
-import { getActiveAssistantMcpSessionScope } from '@electron/features/agent/assistantMcpSessionScope';
+import {
+    getActiveAssistantMcpSessionScope,
+    setAssistantTurnSuccessorListener,
+} from '@electron/features/agent/assistantMcpSessionScope';
 import { buildAgentAssistantStateSnapshot } from '@electron/features/agent/buildAgentAssistantStateSnapshot';
 import { createAssistantSessionTurnCoordinator } from '@electron/features/agent/createAssistantSessionTurnCoordinator';
 import {
@@ -205,6 +208,7 @@ const assistantFeatureLifecycle = createAssistantFeatureLifecycle({
 });
 let syncAssistantHeartbeat = () => {};
 const {
+    adoptSessionTurnSuccessor,
     claimSessionTurn,
     completeSessionTurn,
     errorSessionTurn,
@@ -332,6 +336,15 @@ const {
     currentState,
     getDefaultScope: sessionStore.getRememberedScope,
     getDefaultSelection: sessionStore.getRememberedSelection,
+});
+
+// A save, crop or OCR the assistant ran commits a new revision of its own
+// document; the turn keeps working on it instead of losing its authority.
+setAssistantTurnSuccessorListener((binding, successor) => {
+    const session = sessionStore.listSessions().find(candidate => sessionStore.keyForSession(candidate) === binding.sessionKey);
+    if (session && adoptSessionTurnSuccessor(session, binding.turnGeneration, successor)) {
+        publishState(session.scope, session);
+    }
 });
 
 const codexAssistantAdapter = createCodexAssistantAdapter({

@@ -3,38 +3,14 @@ use super::*;
 #[derive(Clone)]
 pub(crate) struct TextMarkupQuad {
     pub(crate) bottom: f64,
-    pub(crate) center_y: f64,
-    pub(crate) index: usize,
     pub(crate) left: f64,
     pub(crate) right: f64,
     pub(crate) top: f64,
 }
 
-pub(crate) struct TextMarkupQuadLineGroup {
-    pub(crate) average_height: f64,
-    pub(crate) bottom: f64,
-    pub(crate) center_y: f64,
-    pub(crate) quads: Vec<TextMarkupQuad>,
-    pub(crate) top: f64,
-}
-
-pub(crate) fn mean(values: impl Iterator<Item = f64>) -> f64 {
-    let mut total = 0.0;
-    let mut count = 0.0;
-    for value in values {
-        total += value;
-        count += 1.0;
-    }
-    if count == 0.0 {
-        0.0
-    } else {
-        total / count
-    }
-}
-
 pub(crate) fn to_text_markup_quads(values: &[f64]) -> Option<Vec<TextMarkupQuad>> {
     let mut quads = Vec::new();
-    for (index, chunk) in values.chunks_exact(8).enumerate() {
+    for chunk in values.chunks_exact(8) {
         let xs = [chunk[0], chunk[2], chunk[4], chunk[6]];
         let ys = [chunk[1], chunk[3], chunk[5], chunk[7]];
         if xs.iter().chain(ys.iter()).any(|value| !value.is_finite()) {
@@ -49,8 +25,6 @@ pub(crate) fn to_text_markup_quads(values: &[f64]) -> Option<Vec<TextMarkupQuad>
         }
         quads.push(TextMarkupQuad {
             bottom,
-            center_y: (top + bottom) / 2.0,
-            index,
             left,
             right,
             top,
@@ -59,99 +33,12 @@ pub(crate) fn to_text_markup_quads(values: &[f64]) -> Option<Vec<TextMarkupQuad>
     Some(quads)
 }
 
-pub(crate) fn add_quad_to_line_group(group: &mut TextMarkupQuadLineGroup, quad: TextMarkupQuad) {
-    group.quads.push(quad);
-    group.bottom = group
-        .quads
-        .iter()
-        .map(|item| item.bottom)
-        .fold(f64::INFINITY, f64::min);
-    group.top = group
-        .quads
-        .iter()
-        .map(|item| item.top)
-        .fold(f64::NEG_INFINITY, f64::max);
-    group.center_y = mean(group.quads.iter().map(|item| item.center_y));
-    group.average_height = mean(group.quads.iter().map(|item| item.top - item.bottom));
-}
-
-pub(crate) fn normalize_markup_quad_points(values: &[f64]) -> Option<Vec<f64>> {
-    let mut quads = to_text_markup_quads(values)?;
-    if quads.is_empty() {
-        return None;
-    }
-    quads.sort_by(|left, right| {
-        right
-            .center_y
-            .total_cmp(&left.center_y)
-            .then_with(|| left.left.total_cmp(&right.left))
-    });
-    let mut groups: Vec<TextMarkupQuadLineGroup> = Vec::new();
-    for quad in quads {
-        let belongs_to_previous = groups.last().is_some_and(|group| {
-            let tolerance = group.average_height.max(quad.top - quad.bottom)
-                * SAME_TEXT_MARKUP_LINE_CENTER_TOLERANCE_RATIO;
-            (quad.center_y - group.center_y).abs() <= tolerance
-        });
-        if belongs_to_previous {
-            let group = groups.last_mut().expect("line group exists");
-            add_quad_to_line_group(group, quad);
-        } else {
-            groups.push(TextMarkupQuadLineGroup {
-                average_height: quad.top - quad.bottom,
-                bottom: quad.bottom,
-                center_y: quad.center_y,
-                quads: vec![quad.clone()],
-                top: quad.top,
-            });
-        }
-    }
-    if groups.len() <= 1 {
-        return Some(values.to_vec());
-    }
-    let mut normalized = values.to_vec();
-    for group_index in 0..groups.len() {
-        let mut line_top = groups[group_index].top;
-        let mut line_bottom = groups[group_index].bottom;
-        if let Some(previous_group) = group_index
-            .checked_sub(1)
-            .and_then(|index| groups.get(index))
-        {
-            line_top = line_top.min((previous_group.center_y + groups[group_index].center_y) / 2.0);
-        }
-        if let Some(next_group) = groups.get(group_index + 1) {
-            line_bottom =
-                line_bottom.max((groups[group_index].center_y + next_group.center_y) / 2.0);
-        }
-        if line_top - line_bottom < MIN_TEXT_MARKUP_QUAD_HEIGHT {
-            line_top = groups[group_index].top;
-            line_bottom = groups[group_index].bottom;
-        }
-        for quad in &groups[group_index].quads {
-            let offset = quad.index * 8;
-            normalized[offset] = quad.left;
-            normalized[offset + 1] = line_top;
-            normalized[offset + 2] = quad.right;
-            normalized[offset + 3] = line_top;
-            normalized[offset + 4] = quad.left;
-            normalized[offset + 5] = line_bottom;
-            normalized[offset + 6] = quad.right;
-            normalized[offset + 7] = line_bottom;
-        }
-    }
-    Some(normalized)
-}
-
 pub(crate) fn ensure_markup_quad_points(
     candidate: &MarkupAnnotationCandidate,
 ) -> Option<(Vec<f64>, bool)> {
     if let Some(values) = &candidate.quad_points {
-        let normalized = normalize_markup_quad_points(values)?;
-        let changed = normalized
-            .iter()
-            .zip(values.iter())
-            .any(|(left, right)| (left - right).abs() > f64::EPSILON);
-        return Some((normalized, changed));
+        to_text_markup_quads(values)?;
+        return Some((values.clone(), false));
     }
     let rect = candidate.rect?;
     Some((rect_to_fallback_quad_points(rect), true))
@@ -188,17 +75,31 @@ pub(crate) fn build_text_markup_appearance_stream(
         "Highlight" => {
             content.push_str(&format!("{red} {green} {blue} rg\n"));
             for quad in values.chunks_exact(8) {
-                content.push_str(&format!(
-                    "{} {} m\n{} {} l\n{} {} l\n{} {} l\nh\n",
-                    number_to_content(quad[0]),
-                    number_to_content(quad[1]),
-                    number_to_content(quad[2]),
-                    number_to_content(quad[3]),
-                    number_to_content(quad[6]),
-                    number_to_content(quad[7]),
-                    number_to_content(quad[4]),
-                    number_to_content(quad[5]),
-                ));
+                // Adobe Z order paints corners 0, 1, 3, 2. A quad whose
+                // corners run around its perimeter would cross itself that
+                // way, so paint whichever order encloses more area.
+                let area = |order: [usize; 4]| {
+                    (0..4)
+                        .map(|i| {
+                            let (a, b) = (order[i], order[(i + 1) % 4]);
+                            quad[2 * a] * quad[2 * b + 1] - quad[2 * b] * quad[2 * a + 1]
+                        })
+                        .sum::<f64>()
+                        .abs()
+                };
+                let order = if area([0, 1, 2, 3]) > area([0, 1, 3, 2]) {
+                    [0, 1, 2, 3]
+                } else {
+                    [0, 1, 3, 2]
+                };
+                let [p0, p1, p2, p3] = order.map(|i| {
+                    format!(
+                        "{} {}",
+                        number_to_content(quad[2 * i]),
+                        number_to_content(quad[2 * i + 1])
+                    )
+                });
+                content.push_str(&format!("{p0} m\n{p1} l\n{p2} l\n{p3} l\nh\n"));
                 has_path = true;
             }
             content.push_str("f\n");
@@ -487,6 +388,7 @@ fn create_markup_annotation(
     page_view: PdfRect,
     page_rotation: i64,
     hint: &MarkupSubtypeHint,
+    modified_at: &str,
 ) -> Result<ObjectId> {
     let name = markup_annotation_name(hint)
         .ok_or("New text-markup annotation is missing a stable identity")?;
@@ -536,6 +438,20 @@ fn create_markup_annotation(
     } else {
         dict.set("CA", Object::Integer(1));
     }
+    let creation_date = hint
+        .created_at
+        .or(hint.modified_at)
+        .map(timestamp_millis_to_pdf_date_utc)
+        .unwrap_or_else(|| modified_at.to_string());
+    let modification_date = hint
+        .modified_at
+        .map(timestamp_millis_to_pdf_date_utc)
+        .unwrap_or_else(|| modified_at.to_string());
+    dict.set(
+        "CreationDate",
+        Object::string_literal(creation_date.into_bytes()),
+    );
+    dict.set("M", Object::string_literal(modification_date.into_bytes()));
     attach_markup_appearance(&mut dict, appearance_ref);
 
     let object_id = document.new_object_id();
@@ -590,15 +506,41 @@ fn apply_markup_rewrite_to_object_with_options(
     let target_color = resolve_hint_target_color(target_subtype, color);
     let mut modified = false;
     let mut appearance_rect = candidate.rect;
-    let authoritative_geometry = geometry.filter(|(hint, _, _)| {
-        hint.markup_geometry
-            .as_ref()
-            .is_some_and(|rects| !rects.is_empty())
-    });
+    let authoritative_geometry = geometry
+        .filter(|(hint, _, _)| {
+            hint.markup_geometry
+                .as_ref()
+                .is_some_and(|rects| !rects.is_empty())
+        })
+        .map(|(hint, page_view, page_rotation)| {
+            markup_hint_pdf_quads(hint, page_view, page_rotation)
+        })
+        .transpose()?
+        .filter(|(values, _)| {
+            // The reader exposes bounds, not source corners. Equal bounds are
+            // the same geometry, even when the source quad is skewed.
+            !candidate
+                .quad_points
+                .as_deref()
+                .and_then(to_text_markup_quads)
+                .zip(to_text_markup_quads(values))
+                .is_some_and(|(existing, requested)| {
+                    existing.len() == requested.len()
+                        && existing.iter().zip(&requested).all(|(left, right)| {
+                            [
+                                (left.left, right.left),
+                                (left.right, right.right),
+                                (left.bottom, right.bottom),
+                                (left.top, right.top),
+                            ]
+                            .into_iter()
+                            .all(|(left, right)| (left - right).abs() <= 0.000_001)
+                        })
+                })
+        });
     let (quad_points, quad_points_changed) =
-        if let Some((hint, page_view, page_rotation)) = authoritative_geometry {
-            let (values, rect) = markup_hint_pdf_quads(hint, page_view, page_rotation)?;
-            appearance_rect = Some(rect);
+        if let Some((values, rect)) = authoritative_geometry.as_ref() {
+            appearance_rect = Some(*rect);
             let changed = candidate.quad_points.as_ref().is_none_or(|existing| {
                 existing.len() != values.len()
                     || existing
@@ -617,7 +559,7 @@ fn apply_markup_rewrite_to_object_with_options(
                 .any(|(left, right)| (left - right).abs() > 0.000_001)
             });
             modified |= changed || rect_changed;
-            (Some(values), changed || rect_changed)
+            (Some(values.clone()), changed || rect_changed)
         } else if let Some((values, changed)) = ensure_markup_quad_points(candidate) {
             (Some(values), changed)
         } else {
@@ -712,11 +654,8 @@ fn apply_markup_rewrite_to_object_with_options(
         // that source explicit even for a full-opacity imported annotation.
         dict.set("CA", Object::Integer(1));
     }
-    if let Some((hint, _, _)) = authoritative_geometry {
-        if let Some(rect) = appearance_rect {
-            dict.set("Rect", rect_object(rect));
-        }
-        let _ = hint;
+    if let Some((_, rect)) = authoritative_geometry.as_ref() {
+        dict.set("Rect", rect_object(*rect));
     }
     if let Some(values) = quad_points {
         if authoritative_geometry.is_some() || candidate.quad_points.is_none() {
@@ -938,41 +877,7 @@ fn create_new_markup_annotations(
     page_view: PdfRect,
     page_rotation: i64,
     page_hints: &mut [MarkupHintState],
-) -> Result<bool> {
-    create_new_markup_annotations_internal(
-        document,
-        page_id,
-        page_view,
-        page_rotation,
-        page_hints,
-        None,
-    )
-}
-
-fn create_new_markup_annotations_with_bindings(
-    document: &mut Document,
-    page_id: ObjectId,
-    page_view: PdfRect,
-    page_rotation: i64,
-    page_hints: &mut [MarkupHintState],
-    identity_bindings: &mut Vec<AnnotationIdentityBinding>,
-) -> Result<bool> {
-    create_new_markup_annotations_internal(
-        document,
-        page_id,
-        page_view,
-        page_rotation,
-        page_hints,
-        Some(identity_bindings),
-    )
-}
-
-fn create_new_markup_annotations_internal(
-    document: &mut Document,
-    page_id: ObjectId,
-    page_view: PdfRect,
-    page_rotation: i64,
-    page_hints: &mut [MarkupHintState],
+    modified_at: &str,
     mut identity_bindings: Option<&mut Vec<AnnotationIdentityBinding>>,
 ) -> Result<bool> {
     let mut created = Vec::new();
@@ -993,8 +898,14 @@ fn create_new_markup_annotations_internal(
             Some(result) => Some(result?),
             None => None,
         };
-        let object_id =
-            create_markup_annotation(document, page_id, page_view, page_rotation, &state.hint)?;
+        let object_id = create_markup_annotation(
+            document,
+            page_id,
+            page_view,
+            page_rotation,
+            &state.hint,
+            modified_at,
+        )?;
         state.consumed = true;
         created.push(object_id);
         if let Some(bindings) = identity_bindings.as_mut() {
@@ -1181,41 +1092,7 @@ fn create_new_markup_annotations_incremental(
     page_view: PdfRect,
     page_rotation: i64,
     page_hints: &mut [MarkupHintState],
-) -> Result<bool> {
-    create_new_markup_annotations_incremental_internal(
-        incremental,
-        page_id,
-        page_view,
-        page_rotation,
-        page_hints,
-        None,
-    )
-}
-
-fn create_new_markup_annotations_incremental_with_bindings(
-    incremental: &mut IncrementalDocument,
-    page_id: ObjectId,
-    page_view: PdfRect,
-    page_rotation: i64,
-    page_hints: &mut [MarkupHintState],
-    identity_bindings: &mut Vec<AnnotationIdentityBinding>,
-) -> Result<bool> {
-    create_new_markup_annotations_incremental_internal(
-        incremental,
-        page_id,
-        page_view,
-        page_rotation,
-        page_hints,
-        Some(identity_bindings),
-    )
-}
-
-fn create_new_markup_annotations_incremental_internal(
-    incremental: &mut IncrementalDocument,
-    page_id: ObjectId,
-    page_view: PdfRect,
-    page_rotation: i64,
-    page_hints: &mut [MarkupHintState],
+    modified_at: &str,
     mut identity_bindings: Option<&mut Vec<AnnotationIdentityBinding>>,
 ) -> Result<bool> {
     let mut created = Vec::new();
@@ -1242,6 +1119,7 @@ fn create_new_markup_annotations_incremental_internal(
             page_view,
             page_rotation,
             &state.hint,
+            modified_at,
         )?;
         state.consumed = true;
         created.push(object_id);
@@ -1318,23 +1196,15 @@ pub(crate) fn apply_markup_mutations_internal(
             page_rotation,
             modified_at,
         )? || modified;
-        modified = match identity_bindings.as_mut() {
-            Some(bindings) => create_new_markup_annotations_with_bindings(
-                document,
-                page_id,
-                page_view,
-                page_rotation,
-                &mut page_hints,
-                bindings,
-            )?,
-            None => create_new_markup_annotations(
-                document,
-                page_id,
-                page_view,
-                page_rotation,
-                &mut page_hints,
-            )?,
-        } || modified;
+        modified = create_new_markup_annotations(
+            document,
+            page_id,
+            page_view,
+            page_rotation,
+            &mut page_hints,
+            modified_at,
+            identity_bindings.as_deref_mut(),
+        )? || modified;
     }
 
     if !modified {
@@ -1415,23 +1285,15 @@ pub(crate) fn apply_markup_mutations_incremental_internal(
         let document = incremental.get_prev_documents();
         let page_view = resolve_page_view(document, page_id)?;
         let page_rotation = resolve_page_rotation(document, page_id)?;
-        modified = match identity_bindings.as_mut() {
-            Some(bindings) => create_new_markup_annotations_incremental_with_bindings(
-                incremental,
-                page_id,
-                page_view,
-                page_rotation,
-                &mut page_hints,
-                bindings,
-            )?,
-            None => create_new_markup_annotations_incremental(
-                incremental,
-                page_id,
-                page_view,
-                page_rotation,
-                &mut page_hints,
-            )?,
-        } || modified;
+        modified = create_new_markup_annotations_incremental(
+            incremental,
+            page_id,
+            page_view,
+            page_rotation,
+            &mut page_hints,
+            modified_at,
+            identity_bindings.as_deref_mut(),
+        )? || modified;
     }
 
     if !modified {

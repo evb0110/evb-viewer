@@ -110,6 +110,9 @@ describe('Electron E2E - page number editor caret', () => {
         expect(afterClick.value).toBe(inputText);
         expect(afterClick.caret, 'the click places the caret after the page number').toBe(afterClick.value.length);
         expect(afterClick.caret).toBe(afterClick.selectionEnd);
+        // Escape closes the editor and hands focus back to the page button.
+        await page.keyboard.press('Escape');
+        await page.waitForFunction(() => document.activeElement?.matches('#editor-global-toolbar-host .page-controls-display') === true);
     }, 90_000);
 });
 

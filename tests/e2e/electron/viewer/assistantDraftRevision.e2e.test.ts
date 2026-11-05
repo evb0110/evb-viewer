@@ -1,5 +1,7 @@
+import {createHash} from 'node:crypto';
+import {electronUserDataPath} from '@scripts/electron-run/electronRunSessionPaths';
 import {
-    copyFileSync, mkdirSync, rmSync,
+    copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync,
 } from 'node:fs';
 import {
     join, resolve,
@@ -20,7 +22,9 @@ import {
     waitForPdfLoaded,
 } from '@tests/e2e/electron/helpers/viewerCore';
 import {readWorkspaceStateValues} from '@tests/e2e/electron/helpers/workspaceExpose';
-import {readPdfCatalogWithPdfjs} from '@tests/e2e/electron/helpers/fixtures';
+import {
+    readPdfPageSnapshots, readPdfCatalogWithPdfjs,
+} from '@tests/e2e/electron/helpers/fixtures';
 import type {IWorkspaceAutomationStateSnapshot} from '@app/types/workspaceExpose';
 import type {IE2EWindow} from '@tests/e2e/electron/helpers/e2EWindow';
 
@@ -113,4 +117,219 @@ describe('Electron E2E - assistant draft revision', () => {
             }],
         });
     }, 60_000);
+
+    // A10-4: the assistant's own save commits a revision its turn must keep.
+    it('lets an assistant turn read its document after the turn saves it', async () => {
+        const session = fixture.getSession();
+        const {page} = session;
+        const directory = join(tmpdir(), session.name);
+        fixtureDirectory = directory;
+        mkdirSync(directory, {recursive: true});
+        const pdfPath = join(directory, 'assistant-own-save.pdf');
+        copyFileSync(resolve('tests/fixtures/release/packaged-core-smoke.pdf'), pdfPath);
+        await page.evaluate(async () => {
+            await (window as IE2EWindow).electronAPI?.settings.save({assistantPanelEnabled: true});
+        });
+        await page.reload();
+        await openPdfInApp(page, pdfPath);
+        await waitForPdfLoaded(page);
+        await openDocumentSidebarTab(page, 'Pages');
+        const disclosure = '.workspace-host[data-workspace-active="true"] .pdf-sidebar-pages-disclosure';
+        if (await page.$eval(disclosure, button => button.getAttribute('aria-expanded')) !== 'true') {
+            await clickAsUser(page, disclosure);
+        }
+        await clickAsUser(page, '#page-label-prefix-input');
+        await page.keyboard.type('A104-');
+        await clickAsUser(page, '.workspace-host[data-workspace-active="true"] .pdf-sidebar-pages-primary-button');
+        if (await page.$('.agent-assistant-input') === null) {
+            await clickAsUser(page, 'button[aria-label="Toggle EVB Assistant"]');
+        }
+        await page.waitForSelector('.agent-assistant-input:not(:disabled)', {visible: true});
+        await clickAsUser(page, '.agent-assistant-input');
+        await page.keyboard.type('A10-4 own save');
+        await page.keyboard.press('Enter');
+
+        const reply = '.agent-assistant-message.is-assistant:last-child';
+        await page.waitForFunction(selector => document.querySelector(selector)?.textContent?.includes('save:'), {}, reply);
+        await session.command('screenshot', ['a10-4-own-save']);
+        expect(await page.$eval(reply, element => element.textContent?.trim())).toContain('save:ok read:ok');
+        expect((await readPdfCatalogWithPdfjs(pdfPath)).pageLabels?.[0]).toBe('A104-1');
+    });
+
+
+    // The turn follows its own native page edit before issuing its next command.
+    it('1544 lets one assistant turn rotate, read and save its selected page', async () => {
+        const session = fixture.getSession();
+        const {page} = session;
+        const directory = resolve('.devkit/test/assistant-own-rotation', session.name);
+        mkdirSync(directory, {recursive: true});
+        const pdfPath = join(directory, 'assistant-own-rotation.pdf');
+        copyFileSync(resolve('tests/fixtures/release/packaged-core-smoke.pdf'), pdfPath);
+        const before = await readPdfPageSnapshots(pdfPath);
+        await page.evaluate(async () => {
+            await (window as IE2EWindow).electronAPI?.settings.save({assistantPanelEnabled: true});
+        });
+        await page.reload();
+        await openPdfInApp(page, pdfPath);
+        await waitForPdfLoaded(page);
+        await openDocumentSidebarTab(page, 'Pages');
+        const selection = '[data-thumbnail-page="1"] .pdf-thumbnail-selection-toggle';
+        if (await page.$eval(selection, button => button.getAttribute('aria-pressed')) !== 'true') {
+            await clickAsUser(page, selection);
+        }
+        await clickAsUser(page, 'button[aria-label="Toggle EVB Assistant"]');
+        await page.waitForSelector('.agent-assistant-input:not(:disabled)', {visible: true});
+        await clickAsUser(page, '.agent-assistant-input');
+        const tracePath = resolve('.devkit/test/assistant-own-rotation-mcp.json');
+        rmSync(tracePath, {force: true});
+        await page.keyboard.type('1544 own rotation');
+        await page.keyboard.press('Enter');
+        const reply = '.agent-assistant-message.is-assistant:last-child';
+        await expect.poll(() => existsSync(tracePath), {timeout: 15_000}).toBe(true);
+        const trace = JSON.parse(readFileSync(tracePath, 'utf8')) as {
+            turnId: string;
+            rotate: string;
+            read: string;
+            save: string
+        };
+        if (trace.read === 'ok' && trace.save === 'ok') {
+            await page.waitForFunction(selector => document.querySelector(selector)?.textContent?.includes('rotate:'), {}, reply);
+        }
+        const text = await page.evaluate(selector => document.querySelector(selector)?.textContent?.trim() ?? '', reply);
+        const rendered = await page.$eval('.page_container[data-page="1"]', element => {
+            const rect = element.getBoundingClientRect();
+            return {
+                width: rect.width,
+                height: rect.height,
+            };
+        });
+        const after = await readPdfPageSnapshots(pdfPath);
+        await page.screenshot({path: join(directory, 'rotation-turn.png')});
+        writeFileSync(join(directory, 'result.json'), JSON.stringify({
+            session: session.name,
+            text,
+            trace,
+            rendered,
+            before,
+            after,
+        }, null, 2));
+        console.log(`1544_ASSISTANT ${JSON.stringify({
+            session: session.name,
+            text,
+            trace,
+            rendered,
+            before,
+            after,
+        })}`);
+        expect.soft(trace.rotate).toBe('ok');
+        expect.soft(trace.read).toBe('ok');
+        expect.soft(trace.save).toBe('ok');
+        expect.soft(rendered.width).toBeGreaterThan(rendered.height);
+        expect.soft(text).toContain('rotate:ok read:ok save:ok');
+        expect.soft(after[0]?.rotation).toBe(((before[0]?.rotation ?? 0) + 90) % 360);
+        expect.soft(after.map(item => item.textSnippet)).toEqual(before.map(item => item.textSnippet));
+        expect.soft(after.slice(1)).toEqual(before.slice(1));
+    });
+
+    // ADR 0004: schema-1 conversation history and provider continuation survive upgrades.
+    it('shows the deterministically adopted legacy conversation after opening the panel and relaunching', async () => {
+        let session = fixture.getSession();
+        const directory = join(tmpdir(), session.name);
+        fixtureDirectory = directory;
+        mkdirSync(directory, {recursive: true});
+        const pdfPath = join(directory, 'legacy-chat.pdf');
+        copyFileSync(resolve('tests/fixtures/release/packaged-core-smoke.pdf'), pdfPath);
+        const root = join(electronUserDataPath(session.name), 'assistant-chat');
+        const sessions = join(root, 'sessions');
+        mkdirSync(sessions, {recursive: true});
+        const canonicalScopeKey = `document:electron:${pdfPath}`;
+        const canonicalKey = `codex:${canonicalScopeKey}`;
+        const fileName = (key: string) => `v2-${createHash('sha256').update(key).digest('hex')}.jsonl`;
+        const seed = (scopeKey: string, text: string | null, lastAccessedAtMs: number) => {
+            const key = `codex:${scopeKey}`;
+            const bytes = `${JSON.stringify({
+                schemaVersion: 1,
+                type: 'session-snapshot',
+                key,
+                writtenAt: '2026-01-01T00:00:00.000Z',
+                session: {
+                    provider: 'codex',
+                    scope: {
+                        kind: 'document',
+                        key: scopeKey,
+                        title: 'legacy-chat.pdf',
+                        tabId: 'old-tab',
+                        documentRef: pdfPath,
+                        documentBackend: 'electron',
+                        documentSessionKey: 'old-opening',
+                    },
+                    model: 'gpt-5',
+                    effort: 'medium',
+                    speedMode: 'standard',
+                    providerThreadId: text ? `thread-${text}` : null,
+                    turnOwner: {
+                        phase: 'idle',
+                        generation: 0,
+                        turnId: null,
+                        localTurnId: null,
+                    },
+                    messages: text ? [{
+                        id: scopeKey,
+                        role: 'user',
+                        text,
+                        createdAt: '2026-01-01T00:00:00.000Z',
+                    }] : [],
+                    lastAccessedAtMs,
+                },
+            })}\n`;
+            writeFileSync(join(sessions, fileName(key)), bytes);
+            return bytes;
+        };
+        const originals = [
+            seed('document-session:b', 'Other saved conversation', 20),
+            seed(canonicalScopeKey, null, 99),
+            seed('document-session:a', 'Saved before the file-key upgrade', 20),
+        ];
+        await session.page.evaluate(async () => {
+            await (window as IE2EWindow).electronAPI?.settings.save({assistantPanelEnabled: true});
+        });
+        session = await fixture.restart({clean: false});
+        const openChat = async () => {
+            await openPdfInApp(session.page, pdfPath);
+            await waitForPdfLoaded(session.page);
+            if (!await session.page.$('.agent-assistant-input')) {
+                await clickAsUser(session.page, 'button[aria-label="Toggle EVB Assistant"]');
+            }
+            await session.page.waitForSelector('.agent-assistant-input:not(:disabled)', {visible: true});
+        };
+        await openChat();
+        await expect.poll(() => session.page.$$eval('.agent-assistant-message.is-user .agent-assistant-message-bubble',
+            bubbles => bubbles.map(bubble => bubble.textContent?.trim()))).toEqual(['Saved before the file-key upgrade']);
+        await session.command('screenshot', ['a35-legacy-chat-recovered']);
+        const canonicalPath = join(sessions, fileName(canonicalKey));
+        const readCanonicalSnapshot = () => readFileSync(canonicalPath, 'utf8').trim().split('\n')
+            .map(line => JSON.parse(line) as {
+                type: string;
+                session?: {providerThreadId: string}
+            })
+            .findLast(record => record.type === 'session-snapshot');
+        expect(readCanonicalSnapshot()?.session?.providerThreadId).toBe('thread-Saved before the file-key upgrade');
+        const backups = readdirSync(join(root, 'archive')).map(name => readFileSync(join(root, 'archive', name), 'utf8'));
+        for (const bytes of originals) expect(backups).toContain(bytes);
+        await clickAsUser(session.page, '.agent-assistant-input');
+        await session.page.keyboard.type('Continue this saved conversation.');
+        await session.page.keyboard.press('Enter');
+        await expect.poll(() => session.page.$$eval('.agent-assistant-message.is-assistant .agent-assistant-message-bubble',
+            bubbles => bubbles.map(bubble => bubble.textContent?.trim()))).toContain('Image received.');
+        session = await fixture.restart({clean: false});
+        await openChat();
+        await expect.poll(() => session.page.$$eval('.agent-assistant-message.is-user .agent-assistant-message-bubble',
+            bubbles => bubbles.map(bubble => bubble.textContent?.trim()))).toEqual([
+            'Saved before the file-key upgrade',
+            'Continue this saved conversation.',
+        ]);
+        expect(readCanonicalSnapshot()?.session?.providerThreadId).toBe('thread-Saved before the file-key upgrade');
+        await session.command('screenshot', ['a35-legacy-chat-relaunched']);
+    });
+
 });

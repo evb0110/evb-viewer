@@ -162,6 +162,7 @@ export async function preparePdfForPoppler(
             warnings: [],
         };
     } catch (err) {
+        if (getUnprovenNativeTerminationDetail(err) !== undefined) throw err;
         if (signal?.aborted) {
             throw signal.reason instanceof Error ? signal.reason : err;
         }

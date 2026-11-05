@@ -85,9 +85,12 @@ async function restoreTab(
     shown: boolean,
 ) {
     const recoveryTarget = getRecoveryTarget(checkpointTab);
-    // A tab that is not shown opens its document when it is. Shown tabs and
-    // tabs with unsaved work (kept mounted) open now.
+    // A tab that is not shown opens its document when it is, at the place it
+    // was checkpointed at. Shown tabs and tabs with unsaved work (kept
+    // mounted) open now.
     if (!shown && !recoveryTarget) {
+        const view = session.getView(checkpointTab.tabId);
+        view?.restoreView(createCheckpointViewSeed(checkpointTab, view.toolbarSnapshot.value));
         return true;
     }
     const workspace = await session.getView(checkpointTab.tabId)?.whenMounted() ?? null;
@@ -108,9 +111,9 @@ async function restoreTab(
     return recoveryApplied;
 }
 
-// A second view of a restored document starts from its own checkpointed
-// place, so a view that is hidden now opens there when it is first shown.
-function createLinkedViewSeed(
+// A view of a restored document starts from its own checkpointed place, so a
+// view that is hidden now opens there when it is first shown.
+function createCheckpointViewSeed(
     checkpointTab: IWorkspaceCheckpointTab,
     documentToolbar: IWorkspaceToolbarSnapshot,
 ): IWorkspaceDocumentViewSeed {
@@ -135,10 +138,12 @@ async function restoreLinkedTab(
     options: Pick<IRestoreWorkspaceCheckpointOptions, 'documentSessions'>,
     shown: boolean,
 ) {
+    const view = options.documentSessions.getView(checkpointTab.tabId);
     if (!shown) {
+        view?.restoreView(createCheckpointViewSeed(checkpointTab, view.toolbarSnapshot.value));
         return true;
     }
-    const workspace = await options.documentSessions.getView(checkpointTab.tabId)?.whenMounted() ?? null;
+    const workspace = await view?.whenMounted() ?? null;
     if (!workspace) {
         return false;
     }
@@ -158,17 +163,20 @@ export async function restoreWorkspaceCheckpoint(
     options: IRestoreWorkspaceCheckpointOptions,
 ) {
     options.restoreGraph(checkpoint);
-    // Tabs that viewed one PDF share its working copy, which no other
-    // document uses; they come back as views of one document again. Only
-    // the first of them restores the document.
+    // Tabs that viewed one PDF come back as views of one document again: a
+    // later view names the first, and older checkpoints share its working
+    // copy. Only the first of them restores the document.
     const linkedToTabId = new Map<string, string>();
     const firstTabByWorkingCopy = new Map<TDocumentRef, string>();
+    const firstTabIds = new Set<string>();
     for (const tab of checkpoint.tabs) {
-        const firstTabId = tab.workingCopyRef && !tab.isDjvu ? firstTabByWorkingCopy.get(tab.workingCopyRef) : undefined;
+        const named = tab.linkedToTabId && firstTabIds.has(tab.linkedToTabId) ? tab.linkedToTabId : undefined;
+        const firstTabId = tab.isDjvu ? undefined : named ?? (tab.workingCopyRef ? firstTabByWorkingCopy.get(tab.workingCopyRef) : undefined);
         if (firstTabId) {
             linkedToTabId.set(tab.tabId, firstTabId);
             continue;
         }
+        firstTabIds.add(tab.tabId);
         if (tab.workingCopyRef && !tab.isDjvu) {
             firstTabByWorkingCopy.set(tab.workingCopyRef, tab.tabId);
         }
@@ -193,7 +201,7 @@ export async function restoreWorkspaceCheckpoint(
                     ? options.documentSessions.getView(firstTabId)?.toolbarSnapshot.value
                     : undefined;
                 return documentToolbar !== undefined
-                    && options.documentSessions.linkView(firstTabId, tab.tabId, createLinkedViewSeed(tab, documentToolbar))
+                    && options.documentSessions.linkView(firstTabId, tab.tabId, createCheckpointViewSeed(tab, documentToolbar))
                     && await restoreLinkedTab(tab, options, shown);
             }
             const session = options.documentSessions.getSession(tab.tabId);

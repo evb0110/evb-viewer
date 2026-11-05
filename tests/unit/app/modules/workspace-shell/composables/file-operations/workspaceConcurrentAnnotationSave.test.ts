@@ -23,6 +23,8 @@ import {
     type INoteEntity,
 } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import {usePdfViewerSaveTransaction} from '@app/modules/pdf-viewer/runtime/save/usePdfViewerSaveTransaction';
+import {useBookmarkState} from '@app/modules/pdf-viewer/runtime/composables/pdf/useBookmarkState';
+import {useMetadataSession} from '@app/modules/workspace-shell/composables/useMetadataSession';
 import type {IWorkspaceSaveDependencies} from '@app/modules/workspace-shell/composables/file-operations/useWorkspaceSaveService';
 import {cast} from '@tests/helpers/cast';
 import {
@@ -477,6 +479,177 @@ describe('scoped annotation save readback through transaction and workspace serv
             });
         }
     }
+});
+
+describe('metadata edited while a save is writing', () => {
+    it('keeps a bookmark accepted after the saved revision unsaved', async () => {
+        const owner = useBookmarkState({markDirty: () => undefined});
+        const bookmark = (title: string) => cast<Parameters<typeof owner.handleBookmarksChange>[0]['bookmarks']>([{
+            id: 'bookmark-1',
+            title,
+            pageIndex: 0,
+            items: [],
+        }]);
+        owner.handleBookmarksChange({
+            bookmarks: bookmark('captured title'),
+            dirty: true,
+        });
+        const entered = createDeferred<undefined>();
+        const finish = createDeferred<undefined>();
+        let saved: unknown;
+        const {deps} = createDeps({
+            originalPath: ref(requireDocumentRef('/tmp/source.pdf')),
+            workingCopyPath: ref(requireDocumentRef('/tmp/work.pdf')),
+            bookmarkItems: owner.bookmarkItems,
+            bookmarksDirty: owner.bookmarksDirty,
+            getBookmarksSaveStateToken: owner.getBookmarksRevision,
+            markBookmarksSaved: owner.markBookmarksSaved,
+            trySavePdfNativeMutations: vi.fn(async mutations => {
+                saved = structuredClone(mutations.bookmarks);
+                entered.resolve(undefined);
+                await finish.promise;
+                return {
+                    success: true,
+                    outPath: requireDocumentRef('/tmp/source.pdf'),
+                    saveMode: 'rewrite' as const,
+                    didSaveAs: false,
+                };
+            }),
+        });
+        const service = useWorkspaceSaveServiceForTest(deps);
+        const saving = service.handleSave();
+        await entered.promise;
+        owner.handleBookmarksChange({
+            bookmarks: bookmark('newer unsaved title'),
+            dirty: true,
+        });
+        finish.resolve(undefined);
+
+        await expect(saving).resolves.toBe(true);
+        expect(JSON.stringify(saved)).toContain('captured title');
+        expect(owner.bookmarksDirty.value).toBe(true);
+        expect(service.canSave.value).toBe(true);
+    });
+
+    it('keeps an outline changed back while saving unsaved against the saved one', async () => {
+        const owner = useBookmarkState({markDirty: () => undefined});
+        const bookmark = (title: string) => cast<Parameters<typeof owner.handleBookmarksChange>[0]['bookmarks']>([{
+            id: 'bookmark-1',
+            title,
+            pageIndex: 0,
+            items: [],
+        }]);
+        owner.handleBookmarksChange({
+            bookmarks: bookmark('A'),
+            dirty: false,
+        });
+        owner.handleBookmarksChange({
+            bookmarks: bookmark('B'),
+            dirty: true,
+        });
+        const entered = createDeferred<undefined>();
+        const finish = createDeferred<undefined>();
+        let saved: unknown;
+        const {deps} = createDeps({
+            originalPath: ref(requireDocumentRef('/tmp/source.pdf')),
+            workingCopyPath: ref(requireDocumentRef('/tmp/work.pdf')),
+            bookmarkItems: owner.bookmarkItems,
+            bookmarksDirty: owner.bookmarksDirty,
+            getBookmarksSaveStateToken: owner.getBookmarksRevision,
+            markBookmarksSaved: owner.markBookmarksSaved,
+            trySavePdfNativeMutations: vi.fn(async mutations => {
+                saved = structuredClone(mutations.bookmarks);
+                entered.resolve(undefined);
+                await finish.promise;
+                return {
+                    success: true,
+                    outPath: requireDocumentRef('/tmp/source.pdf'),
+                    saveMode: 'rewrite' as const,
+                    didSaveAs: false,
+                };
+            }),
+        });
+        const service = useWorkspaceSaveServiceForTest(deps);
+        const saving = service.handleSave();
+        await entered.promise;
+        // The reader changes it back to A, which equals the old clean outline,
+        // so the history reports it clean while B is being written.
+        owner.handleBookmarksChange({
+            bookmarks: bookmark('A'),
+            dirty: true,
+        });
+        owner.bookmarksDirty.value = false;
+        finish.resolve(undefined);
+
+        await expect(saving).resolves.toBe(true);
+        expect(JSON.stringify(saved)).toContain('"B"');
+        expect(owner.bookmarksDirty.value, 'the file now holds B, the reader shows A').toBe(true);
+        expect(service.canSave.value).toBe(true);
+    });
+
+    it('keeps page labels added during a bookmark save unsaved', async () => {
+        const working = ref(requireDocumentRef('/tmp/work.pdf'));
+        const session = useMetadataSession({
+            pdfDocument: shallowRef(null),
+            totalPages: ref(1),
+            workingCopyPath: working,
+            markDirty: () => undefined,
+        });
+        session.bookmarkState.handleBookmarksChange({
+            bookmarks: cast([{
+                title: 'captured',
+                pageIndex: 0,
+                items: [],
+            }]),
+            dirty: true,
+        });
+        const entered = createDeferred<undefined>();
+        const finish = createDeferred<undefined>();
+        let saved: {
+            bookmarks?: unknown;
+            pageLabels?: unknown
+        } = {};
+        const {deps} = createDeps({
+            originalPath: ref(requireDocumentRef('/tmp/source.pdf')),
+            workingCopyPath: working,
+            bookmarkItems: session.bookmarkState.bookmarkItems,
+            bookmarksDirty: session.bookmarkState.bookmarksDirty,
+            getBookmarksSaveStateToken: session.bookmarkState.getBookmarksRevision,
+            markBookmarksSaved: session.bookmarkState.markBookmarksSaved,
+            pageLabelRanges: session.pageLabelState.pageLabelRanges,
+            pageLabelsDirty: session.pageLabelState.pageLabelsDirty,
+            getPageLabelsSaveStateToken: session.pageLabelState.getPageLabelsRevision,
+            markPageLabelsSaved: session.pageLabelState.markPageLabelsSaved,
+            trySavePdfNativeMutations: vi.fn(async mutations => {
+                saved = structuredClone(mutations);
+                entered.resolve(undefined);
+                await finish.promise;
+                return {
+                    success: true,
+                    outPath: requireDocumentRef('/tmp/source.pdf'),
+                    saveMode: 'rewrite' as const,
+                    didSaveAs: false,
+                };
+            }),
+        });
+        const service = useWorkspaceSaveServiceForTest(deps);
+        const saving = service.handleSave();
+        await entered.promise;
+        session.pageLabelState.handlePageLabelRangesUpdate([{
+            startPage: 1,
+            style: 'D',
+            prefix: 'UNSAVED-',
+            startNumber: 1,
+        }]);
+        finish.resolve(undefined);
+
+        await expect(saving).resolves.toBe(true);
+        expect(saved.bookmarks).toBeDefined();
+        expect(saved.pageLabels).toBeUndefined();
+        expect(session.pageLabelState.labelAt(1)).toBe('UNSAVED-1');
+        expect(session.pageLabelState.pageLabelsDirty.value).toBe(true);
+        expect(session.bookmarkState.bookmarksDirty.value).toBe(false);
+    });
 });
 
 describe('bookmark-only save readback', () => {

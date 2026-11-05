@@ -1,3 +1,4 @@
+import type {TDocumentCommitReceipt} from '@app/types/workspaceExpose';
 import type {Ref} from 'vue';
 import {crashCheckpointBeforeSaveKey} from '@app/modules/workspace-shell/checkpoint/useWorkspaceCrashCheckpoint';
 import type { TDocumentRef } from '@contracts/documentRef';
@@ -394,8 +395,6 @@ async function executeNativeMutationSave(
             markAnnotationStateSaved: annotationEditsWritten,
             markBookmarksStateSaved: bookmarks !== undefined,
             markPageLabelsStateSaved: pageLabels !== undefined,
-            allowBookmarksSaveStateRefresh: bookmarks !== undefined,
-            allowPageLabelsSaveStateRefresh: pageLabels !== undefined,
         },
     };
 }
@@ -459,9 +458,6 @@ async function executeNativeRepairSave(
             markAnnotationStateSaved: false,
             markBookmarksStateSaved: projection.mutations.bookmarks !== undefined,
             markPageLabelsStateSaved: projection.mutations.pageLabels !== undefined,
-            allowAnnotationSaveStateRefresh: false,
-            allowBookmarksSaveStateRefresh: false,
-            allowPageLabelsSaveStateRefresh: false,
         },
     };
 }
@@ -561,6 +557,7 @@ export const useWorkspaceSaveService = (deps: IWorkspaceSaveDependencies) => {
     async function executeSave(
         request: TWorkspaceSaveRequest,
         queuedTarget: Omit<IWorkspaceSaveTarget, 'expectedRevisionToken'>,
+        onCommitted?: TDocumentCommitReceipt,
     ) {
         const indicator = isSaveAsRequest(request) ? deps.status.isSavingAs : deps.status.isSaving;
         indicator.value = true;
@@ -773,27 +770,24 @@ export const useWorkspaceSaveService = (deps: IWorkspaceSaveDependencies) => {
                 }
                 if (!lastPlan || result?.status !== 'saved') return false;
                 const committedPath = deps.document.workingCopyPath.value;
-                const committedRevision = deps.document.revisionToken.value;
+                const committedRevision = result.persisted.documentRevision?.token;
+                // The document still holds the revision this save committed.
+                const holdsCommit = () => deps.document.sessionKey.value === queuedTarget.expectedDocumentSessionKey
+                    && deps.document.workingCopyPath.value === committedPath && (!committedRevision || deps.document.revisionToken.value === committedRevision);
                 try {
-                    if (deps.document.sessionKey.value !== queuedTarget.expectedDocumentSessionKey) return false;
+                    if (!holdsCommit()) return false;
                     const baseline = getCompletionBaseline(lastPlan, result, deps);
                     await result.reloadWaiter?.promise.catch(error => BrowserLogger.warn('workspace', 'Saved PDF but failed to restore the reloaded view', error));
-                    if (deps.document.sessionKey.value !== queuedTarget.expectedDocumentSessionKey
-                        || deps.document.workingCopyPath.value !== committedPath
-                        || deps.document.revisionToken.value !== committedRevision) return false;
+                    if (!holdsCommit()) return false;
                     completeSuccessfulSaveState(baseline, result.completion, deps);
                     await persistCrashCheckpoint?.(committedPath);
-                    if (deps.document.sessionKey.value !== queuedTarget.expectedDocumentSessionKey
-                        || deps.document.workingCopyPath.value !== committedPath
-                        || deps.document.revisionToken.value !== committedRevision) return false;
+                    if (!holdsCommit()) return false;
                     if (result.persisted.outPath) deps.lifecycle.loadRecentFiles();
+                    if (committedRevision) onCommitted?.(committedRevision);
                     saveSucceeded = true;
                     return true;
                 } catch (error) {
-                    if (!(error instanceof DOMException && error.name === 'AbortError')
-                        && deps.document.sessionKey.value === queuedTarget.expectedDocumentSessionKey
-                        && deps.document.workingCopyPath.value === committedPath
-                        && deps.document.revisionToken.value === committedRevision) {
+                    if (!(error instanceof DOMException && error.name === 'AbortError') && holdsCommit()) {
                         failureSurface.reportSaveFailure(operationId, 'recovery-settlement-failed', getErrorMessage(error),
                             getFailureReceipt(error) ?? BrowserLogger.error('workspace', 'PDF saved but recovery settlement failed', error, {code: 'RENDERER_WORKSPACE_OPERATION_FAILED'}));
                     }
@@ -816,13 +810,13 @@ export const useWorkspaceSaveService = (deps: IWorkspaceSaveDependencies) => {
         return runWithDocumentOperationLease(resolveOperationKind(request), runSave);
     }
 
-    function save(request: TWorkspaceSaveRequest) {
+    function save(request: TWorkspaceSaveRequest, onCommitted?: TDocumentCommitReceipt) {
         const queuedTarget: Omit<IWorkspaceSaveTarget, 'expectedRevisionToken'> = {
             expectedDocumentSessionKey: deps.document.sessionKey.value,
             expectedOriginalPath: deps.document.originalPath.value,
             expectedWorkingPath: deps.document.workingCopyPath.value,
         };
-        const execute = () => executeSave(request, queuedTarget);
+        const execute = () => executeSave(request, queuedTarget, onCommitted);
         const result = saveQueueTail.then(execute, execute);
         saveQueueTail = result.then(() => undefined, () => undefined);
         return result;
@@ -837,18 +831,17 @@ export const useWorkspaceSaveService = (deps: IWorkspaceSaveDependencies) => {
             || deps.shapes.hasChanges()
         )
     )));
-    const isAnySaving = computed(() => deps.status.isSaving.value || deps.status.isSavingAs.value);
-    const saveIfDirty = () => (
-        deps.hasPendingUnsavedChanges || deps.hasUnsavedChanges
-            ? canSave.value ? save({kind: 'save'}) : Promise.resolve(!failureSurface.hasSaveFailure.value)
-            : save({kind: 'save'})
+    const saveIfDirty = (onCommitted?: TDocumentCommitReceipt) => (
+        (deps.hasPendingUnsavedChanges || deps.hasUnsavedChanges) && !canSave.value
+            ? Promise.resolve(!failureSurface.hasSaveFailure.value)
+            : save({kind: 'save'}, onCommitted)
     );
 
     return {
         save,
         hasSaveFailure: failureSurface.hasSaveFailure,
         canSave,
-        isAnySaving,
+        isAnySaving: computed(() => deps.status.isSaving.value || deps.status.isSavingAs.value),
         isAnySaveAdmitted,
         handleSave: saveIfDirty,
         saveForExternalRead: saveIfDirty,
@@ -867,13 +860,10 @@ export const useWorkspaceSaveService = (deps: IWorkspaceSaveDependencies) => {
             kind: 'save-as',
             optimizeLossless,
         }),
-        handleRepairSave: () => save({kind: 'repair'}),
-        handleOptimizePdfForInteraction: async () => {
-            if (canSave.value && !await saveIfDirty()) {
-                return false;
-            }
-            return save({kind: 'optimize'});
-        },
+        handleRepairSave: save.bind(null, {kind: 'repair'}),
+        handleOptimizePdfForInteraction: async (onCommitted?: TDocumentCommitReceipt) => (
+            (!canSave.value || await saveIfDirty()) && save({kind: 'optimize'}, onCommitted)
+        ),
         handleOptimizePdfAsCopy: (
             options: IPdfOptimizeOptions,
             requestId?: TRequestId,

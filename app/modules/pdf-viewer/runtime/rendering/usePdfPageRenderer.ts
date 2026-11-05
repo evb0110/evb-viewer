@@ -358,6 +358,37 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         logNonCriticalStageError,
     });
 
+    // A layer that failed keeps the readable canvas and waits for the
+    // user's Retry instead of being promoted again on every frame.
+    function settleFailedLayers(
+        pageNumber: TPageNumber,
+        version: number,
+        requestId: number,
+        container: HTMLElement,
+        layer: {
+            failure?: FailureReceipt | undefined;
+            error?: unknown
+        },
+    ) {
+        if (!pageRenderState.failLayerHydration(pageNumber, version, requestId, 'failed')) return;
+        container.dataset.pageLayerReadiness = 'failed';
+        options.onRenderedPageStateChanged?.();
+        if (!layer.failure) return;
+        presentPageFailure(pageNumber, {
+            receipt: layer.failure,
+            error: layer.error,
+            description: t('common.pageInteractionFailed', {page: pageNumber}),
+            retry: () => renderLayerPromotions({
+                start: pageNumber,
+                end: pageNumber,
+            }, {
+                contentIntent: 'layers-only-promotion',
+                rasterDemandPages: [pageNumber],
+                prioritizeTextLayer: true,
+            }),
+        });
+    }
+
     async function hydrateCommittedLayers(
         commit: ICommittedPdfPageRaster,
         publishRaster?: () => boolean,
@@ -459,8 +490,11 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
                     return true;
                 },
             );
-            if (!textReady || !pageRenderState.markTextLayerReady(pageNumber, version, requestId, container)) return;
-            options.onRenderedPageStateChanged?.();
+            if (!textReady) return;
+            if (typeof textReady !== 'object') {
+                if (!pageRenderState.markTextLayerReady(pageNumber, version, requestId, container)) return;
+                options.onRenderedPageStateChanged?.();
+            }
             const annotation = stagedAnnotations ?? await annotationLayerController(
                 pageNumber,
                 version,
@@ -468,26 +502,14 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
                 context,
                 shouldContinue,
             );
-            if ('error' in annotation && shouldContinue()) {
-                if (pageRenderState.failLayerHydration(pageNumber, version, requestId, 'failed')) {
-                    container.dataset.pageLayerReadiness = 'failed';
-                    options.onRenderedPageStateChanged?.();
-                    if (annotation.failure) {
-                        presentPageFailure(pageNumber, {
-                            receipt: annotation.failure,
-                            error: annotation.error,
-                            description: t('common.pageInteractionFailed', {page: pageNumber}),
-                            retry: () => renderLayerPromotions({
-                                start: pageNumber,
-                                end: pageNumber,
-                            }, {
-                                contentIntent: 'layers-only-promotion',
-                                rasterDemandPages: [pageNumber],
-                                prioritizeTextLayer: true,
-                            }),
-                        });
-                    }
+            if (typeof textReady === 'object') {
+                if (shouldContinue()) {
+                    settleFailedLayers(pageNumber, version, requestId, container, textReady);
                 }
+                return;
+            }
+            if ('error' in annotation && shouldContinue()) {
+                settleFailedLayers(pageNumber, version, requestId, container, annotation);
                 return;
             }
             if (!annotation.shouldContinue || !shouldContinue()) return;

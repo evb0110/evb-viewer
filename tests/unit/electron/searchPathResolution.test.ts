@@ -7,6 +7,7 @@ import {
     it,
     vi,
 } from 'vitest';
+import {cast} from '@tests/helpers/cast';
 
 const mocks = vi.hoisted(() => ({
     app: {
@@ -26,6 +27,14 @@ vi.mock('electron', () => ({
 vi.mock('fs', () => ({existsSync: mocks.existsSync}));
 
 vi.mock('@electron/utils/pathValidator', () => ({resolveAllowedReadPath: mocks.resolveAllowedReadPath}));
+
+// The service resolves the request's document and reports what it admitted.
+vi.mock('@electron/features/search/main/searchService', () => ({
+    searchPathDeniedError: () => new Error('SEARCH_PATH_DENIED'),
+    createSearchService: () => ({async run(_context: unknown, request: {resolveDocument: (signal: AbortSignal) => Promise<{documentRevision: string}>}) {
+        return (await request.resolveDocument(new AbortController().signal)).documentRevision;
+    }}),
+}));
 
 vi.mock('@electron/file-access/workingCopyStore', async (importOriginal) => ({
     ...(await importOriginal<typeof TViMockOriginalModule>()),
@@ -73,5 +82,80 @@ describe('resolveSearchablePdfPath', () => {
         const resolved = await resolveSearchablePdfPath('/Users/test/Documents/original.pdf');
 
         expect(resolved).toBeNull();
+    });
+
+    it('refuses to search another window\'s working copy, whatever revision it names', async () => {
+        const path = '/tmp/pdf-work-victim/document.pdf';
+        mocks.resolveAllowedReadPath.mockResolvedValue(path);
+        const {workingCopyMap} = await import('@electron/file-access/workingCopyStore');
+        workingCopyMap.set(path, cast({
+            logicalPath: path,
+            originalPath: '/private/victim.pdf',
+            backingState: 'materialized',
+            ownerWebContentsId: 222,
+            registeredAtMs: 1,
+            registrationId: 1,
+            role: 'current',
+        }));
+        try {
+            const {prepareSearchMainBindings} = await import('@electron/features/search/main/ipc');
+            const {SEARCH_PLATFORM_FEATURE} = await import('@contracts/searchPlatformFeature');
+            const [request] = SEARCH_PLATFORM_FEATURE.ipcCodecs['pdf:search'].decodeArgs([{
+                pdfPath: path,
+                query: 'PRIVATE',
+                documentRevision: 'drt1:chosen-by-the-caller',
+            }]);
+            const search = (senderId: number) => prepareSearchMainBindings().run(cast({
+                sender: {id: senderId},
+                senderId,
+            }), request);
+
+            await expect(search(111)).rejects.toThrow('SEARCH_PATH_DENIED');
+            await expect(search(222)).resolves.toBe('drt1:chosen-by-the-caller');
+        } finally {
+            workingCopyMap.delete(path);
+        }
+    });
+
+    it('refuses to search a retired copy kept in quarantine, but not an open one', async () => {
+        const path = '/tmp/pdf-work-retired/document.pdf';
+        mocks.resolveAllowedReadPath.mockResolvedValue(path);
+        const {workingCopyMap} = await import('@electron/file-access/workingCopyStore');
+        const {
+            clearWorkingCopyQuarantinesForTests, quarantineWorkingCopy,
+        } = await import('@electron/file-access/workingCopyQuarantine');
+        const {prepareSearchMainBindings} = await import('@electron/features/search/main/ipc');
+        const {SEARCH_PLATFORM_FEATURE} = await import('@contracts/searchPlatformFeature');
+        const [request] = SEARCH_PLATFORM_FEATURE.ipcCodecs['pdf:search'].decodeArgs([{
+            pdfPath: path,
+            query: 'PRIVATE',
+            documentRevision: 'drt1:chosen-by-the-caller',
+        }]);
+        const search = (senderId: number) => prepareSearchMainBindings().run(cast({
+            sender: {id: senderId},
+            senderId,
+        }), request);
+        quarantineWorkingCopy(path, 'native sidecar exit was not proven');
+        try {
+            // Its window still has it open: that window may search it.
+            workingCopyMap.set(path, cast({
+                logicalPath: path,
+                originalPath: '/private/retired.pdf',
+                backingState: 'materialized',
+                ownerWebContentsId: 222,
+                registeredAtMs: 1,
+                registrationId: 1,
+                role: 'current',
+            }));
+            await expect(search(222)).resolves.toBe('drt1:chosen-by-the-caller');
+
+            // Retired: no window owns it, and its kept bytes are nobody's.
+            workingCopyMap.delete(path);
+            await expect(search(111)).rejects.toThrow('SEARCH_PATH_DENIED');
+            await expect(search(222)).rejects.toThrow('SEARCH_PATH_DENIED');
+        } finally {
+            workingCopyMap.delete(path);
+            clearWorkingCopyQuarantinesForTests();
+        }
     });
 });

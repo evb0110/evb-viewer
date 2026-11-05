@@ -16,10 +16,8 @@ import {
 } from 'node:os';
 import path, {resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
-import {
-    computeNativeBuildId,
-    getNativeExternalBuildInputs,
-} from '../../../scripts/native-build-id.mjs';
+import {getNativeExternalBuildInputs} from '../../../scripts/native-build-id.mjs';
+import {computeWasmBuildIdentity} from '../../../scripts/ensure-wasm-artifacts.mjs';
 import {WASM_ARTIFACTS} from '../../../scripts/wasm-artifacts.mjs';
 import {
     execFileSync,
@@ -401,8 +399,8 @@ function createProjectFixture() {
     return projectRoot;
 }
 
-// Minimal native sources for the two browser WASM crates, with the build IDs a
-// local `ensure-wasm-artifacts.mjs` run would record for them.
+// Minimal native sources for the browser WASM crates, with the build identities
+// a local `ensure-wasm-artifacts.mjs` run would record for them.
 function writeNativeWasmFixture(projectRoot: string) {
     const nativeRoot = path.join(projectRoot, 'native');
     const crateNames = WASM_ARTIFACTS.map(artifact => artifact.crateName);
@@ -420,9 +418,9 @@ function writeNativeWasmFixture(projectRoot: string) {
     }
     mkdirSync(path.join(projectRoot, '.tmp'), {recursive: true});
     writeFileSync(path.join(projectRoot, '.tmp', 'wasm-build-ids.json'), `${JSON.stringify(Object.fromEntries(
-        crateNames.map(crateName => [
-            crateName,
-            computeNativeBuildId(projectRoot, crateName),
+        WASM_ARTIFACTS.map(artifact => [
+            artifact.crateName,
+            computeWasmBuildIdentity(projectRoot, artifact),
         ]),
     ), null, 2)}\n`);
 }
@@ -639,6 +637,33 @@ describe.skipIf(process.platform === 'win32')('private Vercel deployment source'
             );
         } finally {
             prepared?.cleanup();
+            rmSync(projectRoot, {
+                force: true,
+                maxRetries: 5,
+                recursive: true,
+                retryDelay: 20,
+            });
+        }
+    });
+
+    it('refuses browser WASM built with another toolchain pin or other Rust flags', () => {
+        const projectRoot = createProjectFixture();
+        try {
+            writeNativeWasmFixture(projectRoot);
+            commitFixtureChanges(projectRoot);
+            preparePrivateDeploySource({projectRoot}).cleanup();
+
+            // The sources are unchanged; only what compiles them differs.
+            vi.stubEnv('RUSTFLAGS', '-C opt-level=1');
+            expect(() => preparePrivateDeploySource({projectRoot}), 'other effective flags').toThrow(/ensure-wasm-artifacts\.mjs/u);
+            vi.unstubAllEnvs();
+            preparePrivateDeploySource({projectRoot}).cleanup();
+
+            writeFileSync(path.join(projectRoot, 'native', 'rust-toolchain.toml'), '[toolchain]\nchannel = "1.90.0"\n');
+            commitFixtureChanges(projectRoot);
+            expect(() => preparePrivateDeploySource({projectRoot}), 'another toolchain pin').toThrow(/ensure-wasm-artifacts\.mjs/u);
+        } finally {
+            vi.unstubAllEnvs();
             rmSync(projectRoot, {
                 force: true,
                 maxRetries: 5,

@@ -5,7 +5,10 @@ import {
     clickFoundAsUser,
     activateMenuItemAsUser,
 } from '@tests/e2e/electron/helpers/userInput';
-import {existsSync} from 'node:fs';
+import {
+    existsSync, watch,
+} from 'node:fs';
+import {decode as decodePng} from 'fast-png';
 import {
     chmod,
     mkdir,
@@ -31,6 +34,7 @@ import {
 } from 'vitest';
 import {
     PDFDocument,
+    rgb,
     PDFHexString,
     PDFName,
     PDFString,
@@ -1133,6 +1137,155 @@ describe('Electron E2E - save pipeline diagnostics', () => {
         }
     }, E2E_TIMEOUT_MS);
 
+    it.each([
+        1,
+        2,
+        3,
+    ])('keeps every file from overlapping desktop exports started through the real Export dialog: run %i', async () => {
+        const exportRoot = createFixturePath(`overlapping-exports-${Date.now()}`);
+        await mkdir(exportRoot, {recursive: true});
+        const template = join(exportRoot, 'book.png');
+        const hook = join(exportRoot, 'hold-rendered-page.cjs');
+        const sessions: IElectronE2ESession[] = [];
+        await writeFile(hook, `
+const fs = require('node:fs/promises');
+const {watch, writeFileSync} = require('node:fs');
+const {join} = require('node:path');
+const {syncBuiltinESMExports} = require('node:module');
+writeFileSync(join(${JSON.stringify(exportRoot)}, process.env.EVB_TEST_EXPORT_ROLE + '.' + process.type + '.loaded'), 'loaded');
+const move = fs.rename;
+let held = false;
+fs.rename = async (source, target) => {
+    const result = await move(source, target);
+    if (!held && String(source).includes('pdfExport-') && String(target).endsWith('.tmp')) {
+        held = true;
+        const root = ${JSON.stringify(exportRoot)};
+        const role = process.env.EVB_TEST_EXPORT_ROLE;
+        const released = new Promise(resolve => {
+            const watcher = watch(root, (_event, name) => {
+                if (String(name) === role + '.release') { watcher.close(); resolve(); }
+            });
+        });
+        await fs.writeFile(join(root, role + '.ready'), 'ready');
+        await released;
+    }
+    return result;
+};
+syncBuiltinESMExports();
+`);
+        const ready = (role: string) => new Promise<void>(resolve => {
+            const path = join(exportRoot, `${role}.ready`);
+            const watcher = watch(exportRoot, () => {if (existsSync(path)) {watcher.close(); resolve();}});
+            if (existsSync(path)) {watcher.close(); resolve();}
+        });
+        try {
+            for (const [
+                index,
+                role,
+            ] of [
+                    'a',
+                    'b',
+                ].entries()) {
+                const pdf = await PDFDocument.create();
+                for (let page = 0; page < 2; page += 1) {
+                    pdf.addPage([
+                        24,
+                        24,
+                    ]).drawRectangle({
+                        x: 0,
+                        y: 0,
+                        width: 24,
+                        height: 24,
+                        color: index === 0 ? rgb(1, 0, 0) : rgb(0, 0, 1),
+                    });
+                }
+                const source = join(exportRoot, `${role}.pdf`);
+                await writeFile(source, await pdf.save());
+                const ownSession = await startElectronE2ESession(`e2e-export-overlap-${role}-${Date.now()}`, {
+                    clean: true,
+                    initialOpenPaths: [source],
+                    extraEnv: {
+                        EVB_E2E_SAVE_DIALOG_PATH: template,
+                        EVB_TEST_EXPORT_ROLE: role,
+                        NODE_OPTIONS: `${process.env.NODE_OPTIONS ?? ''} --require=${JSON.stringify(hook)}`,
+                    },
+                });
+                sessions.push(ownSession);
+                await waitForOpenedPdf(ownSession.page, source);
+                console.log('[overlap]', role, 'opened');
+                const {openDocumentSidebarTab} = await import('@tests/e2e/electron/helpers/viewerCore');
+                await openDocumentSidebarTab(ownSession.page, 'Pages');
+                console.log('[overlap]', role, 'sidebar');
+                await clickAsUser(ownSession.page, '.editor-pane.is-active [data-thumbnail-page="1"]', {button: 'right'});
+                await clickFoundAsUser(ownSession.page, () => Array.from(document.querySelectorAll('[role="menuitem"]')).find(item => item.textContent?.trim() === 'Export Pages'), null, {description: 'Export Pages from the page menu'});
+                await ownSession.page.waitForSelector('[role="dialog"]');
+                console.log('[overlap]', role, 'dialog');
+                await clickAsUser(ownSession.page, '[role="dialog"] [role="radio"][value="all"]');
+                await clickFoundAsUser(ownSession.page, () => Array.from(document.querySelectorAll('[role="dialog"] button')).find(button => button.textContent?.trim() === 'Export Images'), null, {description: 'Export Images in the scope dialog'});
+                console.log('[overlap]', role, 'export clicked');
+                await ready(role);
+                console.log('[overlap]', role, 'ready');
+            }
+            await writeFile(join(exportRoot, 'a.release'), 'release');
+            await sessions[0]!.page.waitForFunction(() => document.body.textContent?.includes('Images exported'));
+            await writeFile(join(exportRoot, 'b.release'), 'release');
+            await sessions[1]!.page.waitForFunction(() => document.body.textContent?.includes('Images exported'));
+            for (const [
+                suffix,
+                expected,
+            ] of [
+                    [
+                        '',
+                        [
+                            255,
+                            0,
+                            0,
+                        ],
+                    ],
+                    [
+                        '-1',
+                        [
+                            0,
+                            0,
+                            255,
+                        ],
+                    ],
+                ] as const) {
+                for (const page of [
+                    '001',
+                    '002',
+                ]) {
+                    const path = join(exportRoot, `book-${page}${suffix}.png`);
+                    const decoded = decodePng(await readFile(path));
+                    const offset = (Math.floor(decoded.height / 2) * decoded.width + Math.floor(decoded.width / 2)) * decoded.channels;
+                    expect(Array.from(decoded.data.slice(offset, offset + 3))).toEqual(expected);
+                }
+            }
+            console.log('[overlapping-desktop-exports]', JSON.stringify({
+                files: [
+                    'book-001.png',
+                    'book-002.png',
+                    'book-001-1.png',
+                    'book-002-1.png',
+                ],
+                pixels: 'two red A pages and two blue B pages',
+            }));
+        } catch (error) {
+            for (const ownSession of sessions) await ownSession.captureFailureArtifacts('overlapping-exports');
+            throw error;
+        } finally {
+            await Promise.all([
+                'a',
+                'b',
+            ].map(role => writeFile(join(exportRoot, `${role}.release`), 'release')));
+            for (const ownSession of sessions.reverse()) await ownSession.stop();
+            await rm(exportRoot, {
+                force: true,
+                recursive: true,
+            });
+        }
+    });
+
     it('keeps an external save made while refreshing the saved original', async () => {
         const pdfPath = createFixturePath(`save-refresh-race-${Date.now()}.pdf`);
         const pdf = await PDFDocument.load(await readFile(GENERATED_TEXT_FIXTURE));
@@ -2133,11 +2286,55 @@ describe('[crpart3core] submitted open', () => {
             size: 18,
         });
         await writeFile(replacement, await pdf.save());
+        const cleanupGate = createFixturePath(`cr2-cleanup-${Date.now()}`);
+        await mkdir(cleanupGate, {recursive: true});
+        const hook = join(cleanupGate, 'hold-cleanup.cjs');
+        // Force the fast-render/slow-cleanup ordering without delaying PDF.js:
+        // the old copy is removed, but its cleanup reply waits for new pixels.
+        await writeFile(hook, `
+if (process.type === 'browser') {
+    const fs = require('node:fs/promises');
+    const {watch, existsSync, writeFileSync} = require('node:fs');
+    const {basename, join} = require('node:path');
+    const {syncBuiltinESMExports} = require('node:module');
+    const root = ${JSON.stringify(cleanupGate)};
+    const remove = fs.rm;
+    let held = false;
+    fs.rm = async (path, ...args) => {
+        const result = await remove(path, ...args);
+        if (!held && basename(String(path)).startsWith('pdf-work-')) {
+            held = true;
+            writeFileSync(join(root, 'held'), 'held');
+            await new Promise(resolve => {
+                const watcher = watch(root, () => {
+                    if (existsSync(join(root, 'release'))) {watcher.close(); resolve();}
+                });
+                if (existsSync(join(root, 'release'))) {watcher.close(); resolve();}
+            });
+        }
+        return result;
+    };
+    syncBuiltinESMExports();
+}
+`);
         const run = await startElectronE2ESession(`e2e-crpart3core-submitted-${Date.now()}`, {
             clean: true,
-            extraEnv: {EVB_E2E_OPEN_DIALOG_PATH: replacement},
+            extraEnv: {
+                EVB_E2E_OPEN_DIALOG_PATH: replacement,
+                NODE_OPTIONS: `${process.env.NODE_OPTIONS ?? ''} --require=${JSON.stringify(hook)}`,
+            },
         });
-        onTestFinished(() => run.stop());
+        onTestFinished(async () => {
+            await writeFile(join(cleanupGate, 'release'), 'release');
+            try {
+                await run.stop();
+            } finally {
+                await rm(cleanupGate, {
+                    recursive: true,
+                    force: true,
+                });
+            }
+        });
         const {page} = run;
         const errors: string[] = [];
         page.on('pageerror', error => errors.push(String(error)));
@@ -2194,6 +2391,12 @@ describe('[crpart3core] submitted open', () => {
             const firstWorkers = (await listWorkers()).filter(id => !existingWorkers.includes(id));
             expect(firstWorkers.length).toBeGreaterThan(0);
             await activateMenuItemAsUser(page, {accelerator: 'CmdOrCtrl+O'});
+            try {
+                await expect.poll(() => existsSync(join(cleanupGate, 'held')), {timeout: 20_000}).toBe(true);
+                await page.waitForFunction(() => document.querySelector('.editor-pane.is-active .textLayer')?.textContent?.includes('Replacement is ready'), {timeout: SAVE_TIMEOUT_MS});
+            } finally {
+                await writeFile(join(cleanupGate, 'release'), 'release');
+            }
             await waitForOpenedPdf(page, replacement);
             expect(await readTab()).toBe(tab);
             await expect.poll(async () => page.$eval('.editor-pane.is-active .textLayer', node => node.textContent), {timeout: 20_000})

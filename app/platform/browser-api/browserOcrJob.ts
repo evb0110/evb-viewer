@@ -291,7 +291,8 @@ export async function runBrowserOcrJob(input: IBrowserOcrJobInput): Promise<TBro
                 queue.push(...selection.pages);
                 if (!page || selection.pages.length === 0) continue;
                 const viewport = page.getViewport({scale: 1});
-                maxPageArea = Math.max(maxPageArea, viewport.width * viewport.height);
+                // In user-space units, as the raster is rendered.
+                maxPageArea = Math.max(maxPageArea, viewport.width * viewport.height / (viewport.userUnit || 1) ** 2);
                 if (renderDpi === undefined) {
                     const sourceDpi = readPageSourceDpi(await page.getOperatorList({annotationMode: BROWSER_OCR_ANNOTATION_MODE}));
                     if (sourceDpi !== undefined) {

@@ -59,5 +59,5 @@ export async function terminateDetachedChildProcess(
     } catch {
         // Process may already be gone.
     }
-    return proc.exitCode !== null || proc.signalCode !== null;
+    return platform !== 'win32' && (proc.exitCode !== null || proc.signalCode !== null);
 }

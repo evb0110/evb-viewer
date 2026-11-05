@@ -316,6 +316,27 @@ impl PdfRect {
     }
 }
 
+pub(crate) fn read_normalized_rect(
+    document: &impl PdfObjectSource,
+    object: &Object,
+) -> Result<Option<PdfRect>> {
+    let values = document.resolved(object)?.as_array()?;
+    if values.len() != 4 {
+        return Ok(None);
+    }
+    let mut numbers = [0.0; 4];
+    for (slot, value) in numbers.iter_mut().zip(values) {
+        *slot = object_to_f64(document.resolved(value)?)?;
+    }
+    let rect = PdfRect {
+        x1: numbers[0].min(numbers[2]),
+        y1: numbers[1].min(numbers[3]),
+        x2: numbers[0].max(numbers[2]),
+        y2: numbers[1].max(numbers[3]),
+    };
+    Ok((rect.width() > 0.0 && rect.height() > 0.0).then_some(rect))
+}
+
 const PDF_REFERENCE_LIMIT: usize = 128;
 const PAGE_TREE_DEPTH_LIMIT: usize = 256;
 
@@ -660,71 +681,6 @@ impl PdfObjectSource for Document {
     }
 }
 
-pub(crate) enum Operation {
-    SplitPages {
-        instructions_file: PathBuf,
-    },
-    OverlayText {
-        source_path: PathBuf,
-        instructions_file: PathBuf,
-    },
-    OcrTextLayer {
-        instructions_file: PathBuf,
-    },
-    ReplacePageImages {
-        instructions_file: PathBuf,
-    },
-    RecompressImages {
-        instructions_file: PathBuf,
-    },
-    OcrTextVisibility {
-        pages_file: PathBuf,
-        /// Also report the text of each page's EVB OCR layer.
-        with_evb_ocr_text: bool,
-    },
-    Crop {
-        pages_file: PathBuf,
-        margins: CropMargins,
-    },
-    RemoveCrop {
-        pages_file: PathBuf,
-    },
-    SaveMutations {
-        mutations_file: PathBuf,
-        modified_at: String,
-        append: bool,
-        append_in_place: bool,
-        identity_bindings_file: Option<PathBuf>,
-        source_path: Option<PathBuf>,
-    },
-    TextBoxAppearance {
-        metadata_file: PathBuf,
-    },
-    ParseAnnotations {
-        modified_at: String,
-        pages_file: Option<PathBuf>,
-    },
-    AnnotationNameIndex,
-    EmbeddedShapeIndex,
-    PdfConformance,
-    AppendAdmission,
-    Decrypt {
-        password_file: Option<PathBuf>,
-    },
-    PageGeometry {
-        page_number: u32,
-    },
-    PageSizes {
-        metadata_only: bool,
-    },
-    ReadCatalog,
-    ReadDocumentCatalog(Option<PathBuf>),
-    PrintLayout {
-        view_mode: PrintViewMode,
-        orientation: PrintOrientation,
-    },
-}
-
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct SplitPagesFile {
@@ -823,14 +779,6 @@ pub(crate) struct SplitCropRect {
     pub(crate) y: f64,
     pub(crate) width: f64,
     pub(crate) height: f64,
-}
-
-pub(crate) struct Config {
-    pub(crate) operation: Operation,
-    pub(crate) input_path: PathBuf,
-    /// Absent for the queries that print their JSON result on stdout.
-    pub(crate) output_path: Option<PathBuf>,
-    pub(crate) qpdf_path: Option<PathBuf>,
 }
 
 #[derive(Default, Deserialize)]
@@ -1035,6 +983,10 @@ pub(crate) struct MarkupSubtypeHint {
     pub(crate) contents: Option<String>,
     #[serde(default)]
     pub(crate) author: Option<String>,
+    #[serde(default)]
+    pub(crate) created_at: Option<u64>,
+    #[serde(default)]
+    pub(crate) modified_at: Option<u64>,
     #[serde(default)]
     pub(crate) id: Option<String>,
     #[serde(default)]

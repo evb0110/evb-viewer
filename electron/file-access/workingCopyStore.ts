@@ -52,6 +52,8 @@ export interface IWorkingCopyOriginalEntry {
     openingPageGeometry?: IPdfNativePageGeometry;
     admissionSnapshot?: IWorkingCopyAdmissionSnapshot;
     backingState: TWorkingCopyBackingState;
+    /** Materialization progress (0 to 1) reported for this registration; it never moves back. */
+    backingProgress?: number;
     originalPath: string;
     logicalPath: string;
     ownerWebContentsId?: number;
@@ -105,10 +107,6 @@ interface IRetiredWorkingCopyOriginalEntry {
     sourceBackingErrorCode?: TWorkingCopyBackingErrorCode;
 }
 
-interface IWorkingCopyRecoveryClaim {
-    generation: number;
-    registrationId: number | null;
-}
 let retiredWorkingCopyPruneTimer: ReturnType<typeof setTimeout> | null = null;
 const currentWorkingCopyByOriginalPath = new Map<string, {
     ownerWebContentsId?: number;
@@ -136,11 +134,19 @@ function stripWindowsExtendedLengthPrefix(filePath: string) {
     return filePath;
 }
 
-function runWithWorkingCopyRegistrationTransition<T>(
+function getWorkingCopyDirectoryKey(workingPath: string) {
+    const directory = isWindowsPathLike(workingPath) ? win32.dirname(workingPath) : dirname(workingPath);
+    return normalizePathForLookup(directory);
+}
+
+// A directory is the deletion unit. Registrations, claims and collection of
+// any leaf in it therefore share the existing transition queue.
+export function runWithWorkingCopyRegistrationTransition<T>(
     workingPath: string,
     operation: () => Promise<T> | T,
 ) {
-    return runRegistrationTransition(normalizePathForLookup(workingPath), operation);
+    return runRegistrationTransition(`directory\0${getWorkingCopyDirectoryKey(workingPath)}`, () =>
+        runRegistrationTransition(`file\0${normalizePathForLookup(workingPath)}`, operation));
 }
 
 function isWindowsPathLike(filePath: string) {
@@ -281,7 +287,7 @@ class TCanonicalWorkingCopyMap<TValue> extends Map<string, TValue> {
 export const workingCopyMap = new TCanonicalWorkingCopyMap<IWorkingCopyOriginalEntry>();
 const retiredWorkingCopyOriginalMap = new TCanonicalWorkingCopyMap<IRetiredWorkingCopyOriginalEntry>();
 const runRegistrationTransition = createKeyedSerialQueue();
-const workingCopyRecoveryClaims = new TCanonicalWorkingCopyMap<IWorkingCopyRecoveryClaim>();
+const workingCopyRecoveryClaims = new TCanonicalWorkingCopyMap<Map<number, string>>();
 let nextWorkingCopyRecoveryClaimGeneration = 0;
 
 async function createOriginalFileExpectation(
@@ -791,35 +797,31 @@ export function getWorkingCopyOwnerWebContentsId(workingPath: string): number | 
     return workingCopyMap.get(workingPath)?.ownerWebContentsId;
 }
 
-/**
- * A claimed recovery copy remains protected while the renderer proves that it
- * opened and adopted the bytes. The checkpoint acknowledgement or explicit
- * discard retires the claim. Registration ids make a claim auditable without
- * making a path reusable by a late failed open.
- */
+/** A durable record owns its bytes until replacement or explicit retirement. */
 export function claimWorkingCopyRecovery(workingPath: string) {
-    const normalizedPath = normalizePathForLookup(workingPath) || workingPath;
-    const entry = workingCopyMap.get(normalizedPath) ?? workingCopyMap.get(workingPath);
-    const generation = nextWorkingCopyRecoveryClaimGeneration += 1;
-    workingCopyRecoveryClaims.set(normalizedPath, {
-        generation,
-        registrationId: entry?.registrationId ?? null,
+    return runWithWorkingCopyRegistrationTransition(workingPath, () => {
+        const generations = workingCopyRecoveryClaims.get(workingPath) ?? new Map<number, string>();
+        const generation = nextWorkingCopyRecoveryClaimGeneration += 1;
+        generations.set(generation, workingPath);
+        workingCopyRecoveryClaims.set(workingPath, generations);
+        return generation;
     });
-    return generation;
 }
 
 export function hasWorkingCopyRecoveryClaim(workingPath: string) {
-    const normalizedPath = normalizePathForLookup(workingPath) || workingPath;
-    return workingCopyRecoveryClaims.has(normalizedPath);
+    return workingCopyRecoveryClaims.has(workingPath);
+}
+
+export function hasWorkingCopyRecoveryClaimInDirectory(workDir: string) {
+    const directoryKey = normalizePathForLookup(workDir);
+    return Array.from(workingCopyRecoveryClaims.values())
+        .some(generations => Array.from(generations.values()).some(path => getWorkingCopyDirectoryKey(path) === directoryKey));
 }
 
 export function releaseWorkingCopyRecovery(workingPath: string, generation?: number) {
-    const normalizedPath = normalizePathForLookup(workingPath) || workingPath;
-    const claim = workingCopyRecoveryClaims.get(normalizedPath);
-    if (!claim || (generation !== undefined && claim.generation !== generation)) {
-        return false;
-    }
-    workingCopyRecoveryClaims.delete(normalizedPath);
+    const generations = workingCopyRecoveryClaims.get(workingPath);
+    if (!generations || (generation !== undefined && !generations.delete(generation))) return false;
+    if (generation === undefined || generations.size === 0) workingCopyRecoveryClaims.delete(workingPath);
     return true;
 }
 

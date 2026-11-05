@@ -191,16 +191,12 @@ export async function reconcileVisualMatches(
         match,
     ]));
     const matches = buildBackendVisualMatches(pageMatches, assembled, compatible);
-    const seenRanges = new Set(matches.map(match => `${match.start}:${match.end}`));
     pageMatches.matches.forEach((backendMatch, index) => {
         if (compatible.has(index)) return;
         const pageMatchIndex = ordinals[index]!;
         const occurrence = occurrences.get(pageMatchIndex);
         const mapped = occurrence && mapAssembledSearchablePageTextRange(assembled, occurrence);
         if (!mapped) return;
-        const key = `${mapped.startOffset}:${mapped.endOffset}`;
-        if (seenRanges.has(key)) return;
-        seenRanges.add(key);
         matches.push({
             start: mapped.startOffset,
             end: mapped.endOffset,

@@ -839,6 +839,9 @@ export function derivePageLabelRangesFromLabels(
         let bestPriority = bestRange.style === null ? 0 : 1;
 
         for (const candidate of candidates) {
+            // A candidate that does not print this label (001 as decimal 1)
+            // would rewrite it; the literal candidate keeps it instead.
+            if (!pageLabelMatchesText(candidate, 0, label)) continue;
             let length = 1;
             while (pageIndex + length < totalPages) {
                 const actual = pageLabels[pageIndex + length] ?? '';

@@ -1,3 +1,4 @@
+import type * as TTesseractRunner from '@electron/features/ocr/pipeline/tesseractRunner';
 import {randomUUID} from 'node:crypto';
 import {
     mkdtemp,
@@ -24,6 +25,8 @@ import type {IJobBrokerRequest} from '@electron/resources/jobBroker';
 
 const mocks = vi.hoisted(() => ({
     acquire: vi.fn(),
+    broker: null as TJobBrokerModule.JobBroker | null,
+    realRunner: false,
     pageSlots: 2,
     runOcrCommand: vi.fn(),
     readPngDimensions: vi.fn(),
@@ -34,8 +37,8 @@ const mocks = vi.hoisted(() => ({
 vi.mock('@electron/resources/jobBroker', async importOriginal => ({
     ...await importOriginal<typeof TJobBrokerModule>(),
     mainJobBroker: {
-        acquire: (request: IJobBrokerRequest) => mocks.acquire(request),
-        getSnapshot: () => ({capacity: {cpuTokens: 2}}),
+        acquire: (request: IJobBrokerRequest) => mocks.broker?.acquire(request) ?? mocks.acquire(request),
+        getSnapshot: () => mocks.broker?.getSnapshot() ?? ({capacity: {cpuTokens: 2}}),
     },
 }));
 vi.mock('@electron/features/ocr/main/ocrRuntimePolicy', () => ({getOcrRuntimePolicy: () => ({globalPageSlots: mocks.pageSlots})}));
@@ -49,13 +52,16 @@ vi.mock('@evb/scan-cleanup/core/rasterLayerDimensions', () => ({
         height: 1,
     }),
 }));
-vi.mock('@electron/features/ocr/pipeline/tesseractRunner', () => ({
-    getPngDimensionsFromFile: async () => ({
-        width: 2550,
-        height: 3300,
-    }),
-    runOcrFileBased: (...args: unknown[]) => mocks.runOcrFileBased(...args),
-}));
+vi.mock('@electron/features/ocr/pipeline/tesseractRunner', async importOriginal => {
+    const actual = await importOriginal<typeof TTesseractRunner>();
+    return {
+        getPngDimensionsFromFile: async () => ({
+            width: 2550,
+            height: 3300,
+        }),
+        runOcrFileBased: (...args: Parameters<typeof actual.runOcrFileBased>) => mocks.realRunner ? actual.runOcrFileBased(...args) : mocks.runOcrFileBased(...args),
+    };
+});
 vi.mock('@electron/features/ocr/pipeline/persistOcrPageCheckpoint', () => ({persistOcrPageCheckpoint: (...args: unknown[]) => mocks.persistOcrPageCheckpoint(...args)}));
 
 const {processOcrPages} = await import('@electron/features/ocr/pipeline/runOcrJob');
@@ -175,6 +181,8 @@ describe('OCR worker page processing guards (SRCH-006)', () => {
     beforeEach(async () => {
         vi.clearAllMocks();
         mocks.pageSlots = 2;
+        mocks.broker = null;
+        mocks.realRunner = false;
         events.length = 0;
         acquireRequests.length = 0;
         checkpointDir = await mkdtemp(join(tmpdir(), 'evb-ocr-page-processing-'));
@@ -540,4 +548,98 @@ describe('OCR worker page processing guards (SRCH-006)', () => {
         expect(mocks.persistOcrPageCheckpoint).not.toHaveBeenCalled();
         expect(checkpointPage).not.toHaveBeenCalled();
     });
+
+    it.each([
+        'repair-mark',
+        'runner-mark',
+        'confirmed-abort',
+    ] as const)('ties page bytes and paid capacity to actual runner proof: %s', async mode => {
+        const {JobBroker} = await vi.importActual<typeof TJobBrokerModule>('@electron/resources/jobBroker');
+        const {preparePdfForPoppler} = await import('@electron/features/ocr/pipeline/popplerStage');
+        const {readdir} = await import('node:fs/promises');
+        const broker = new JobBroker({
+            cpuTokens: 1,
+            nativeProcesses: 1,
+            estimatedResidentBytes: 2 * 1024 ** 3,
+            ioWeight: 1,
+        });
+        mocks.broker = broker;
+        mocks.realRunner = true;
+        const controller = new AbortController();
+        const error = mode === 'confirmed-abort' ? createAbortError('native reader stopped')
+            : markUnprovenNativeTermination(new Error('native timeout'), 'page child still alive');
+        const source = join(checkpointDir, 'source.pdf');
+        const raster = join(checkpointDir, 'session-page-1.png');
+        const normalized = join(checkpointDir, 'session-poppler-input.pdf');
+        await writeFile(source, 'source bytes');
+        const context = createContext({
+            signal: controller.signal,
+            pageSizeByNumber: new Map([[
+                1,
+                {
+                    width: 1,
+                    height: 1,
+                },
+            ]]),
+            preparePopplerFallback: () => preparePdfForPoppler(context.paths, context.log, source, 'session', path => path, controller.signal),
+        });
+        mocks.runOcrCommand.mockImplementation(async (binary: string, args: string[]) => {
+            if (binary.endsWith('pdftoppm')) {
+                await writeFile(raster, 'owned raster');
+                if (mode === 'repair-mark') throw new Error('ordinary render failure');
+                return {
+                    exitCode: 0,
+                    stdout: '',
+                    stderr: '',
+                };
+            }
+            if (binary.endsWith('qpdf')) {
+                await writeFile(args[1]!, 'normalized bytes');
+            } else {
+                await writeFile(`${args[1]}.pdf`, 'first-pass PDF');
+                await writeFile(`${args[1]}.tsv`, 'first-pass TSV');
+            }
+            controller.abort(new Error('different cancellation reason'));
+            throw error;
+        });
+        await expect(runSinglePage(context)).rejects.toBe(error);
+        expect(await readFile(source, 'utf8')).toBe('source bytes');
+        const competingSignal = new AbortController();
+        const next = broker.acquire({
+            ownerId: 'competing-page',
+            kind: 'ocr-page',
+            priority: 'user',
+            resources: {
+                cpuTokens: 1,
+                nativeProcesses: 1,
+                estimatedResidentBytes: 1,
+                ioWeight: 1,
+            },
+            signal: competingSignal.signal,
+        });
+        if (mode === 'confirmed-abort') {
+            const lease = await next;
+            expect(broker.getSnapshot().active).toBe(1);
+            expect((await readdir(checkpointDir)).filter(name => /\.(?:png|tsv|hocr)$/u.test(name))).toEqual([]);
+            lease.release();
+            expect(broker.getSnapshot().active).toBe(0);
+        } else {
+            expect(broker.getSnapshot()).toMatchObject({
+                active: 1,
+                queued: 1,
+                used: {
+                    cpuTokens: 1,
+                    nativeProcesses: 1,
+                    ioWeight: 1,
+                },
+            });
+            if (mode !== 'repair-mark') expect(await readFile(raster, 'utf8')).toBe('owned raster');
+            if (mode === 'repair-mark') expect(await readFile(normalized, 'utf8')).toBe('normalized bytes');
+            else expect(await readFile(raster.replace('.png', '-ocr.pdf'), 'utf8')).toBe('first-pass PDF');
+            competingSignal.abort(new Error('test removes queued competitor only'));
+            await expect(next).rejects.toThrow('test removes queued competitor only');
+            expect(broker.getSnapshot().active).toBe(1);
+        }
+    });
+
 });

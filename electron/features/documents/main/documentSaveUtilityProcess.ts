@@ -14,9 +14,9 @@ import {validateTargetedPdfObjects} from '@electron/features/documents/main/vali
 import {atomicReplace} from '@electron/utils/atomicReplace';
 import {getOwnStartTime} from '@electron/utils/processIdentity';
 import {
-    cancelNativeCommandGroupAndWait,
-    runNativeCommand,
-} from '@electron/native-tools/runNativeCommand';
+    runNativeToolCommand, type IRunNativeToolCommandOptions,
+} from '@electron/native-tools/runNativeToolCommand';
+import {getUnprovenNativeTerminationDetail} from '@electron/utils/nativeTerminationProof';
 
 interface IUtilityParentPort {
     on(eventName: string, listener: (event: {data: unknown}) => void): unknown;
@@ -73,32 +73,20 @@ async function inspectPdf(
     return fingerprint;
 }
 
-let validationSequence = 0;
-const activeValidationGroups = new Set<string>();
-
+const shutdownController = new AbortController();
+const activeValidations = new Set<Promise<boolean>>();
 let shutdownInFlight: Promise<boolean> | null = null;
-let shutdownRequested = false;
 
-function cancelActiveValidationGroupsAndWait() {
-    if (shutdownInFlight) {
-        return shutdownInFlight;
-    }
-    const attempt = Promise.all(
-        [...activeValidationGroups].map(cancelGroup => cancelNativeCommandGroupAndWait(cancelGroup)),
-    ).then(results => results.every(Boolean));
-    shutdownInFlight = attempt;
-    void attempt.then(terminated => {
-        if (!terminated && shutdownInFlight === attempt) {
-            shutdownInFlight = null;
-        }
-    });
-    return attempt;
+function stopValidationsAndWait() {
+    shutdownController.abort(new Error('Document save utility is shutting down'));
+    return shutdownInFlight ??= Promise.all([...activeValidations])
+        .then(results => results.every(Boolean));
 }
 
 process.once('SIGTERM', () => {
     const exitTimer = setTimeout(() => process.exit(143), 5_000);
     exitTimer.unref();
-    void cancelActiveValidationGroupsAndWait().finally(() => {
+    void stopValidationsAndWait().finally(() => {
         clearTimeout(exitTimer);
         // `once` already restored the default disposition, so re-raising ends the
         // process by the signal itself. Chromium then reports the app's own
@@ -111,22 +99,25 @@ process.once('SIGTERM', () => {
 async function runValidationCommand(
     validationBinary: string,
     args: string[],
-    allowedExitCodes: number[],
+    options: IRunNativeToolCommandOptions = {},
 ) {
-    const cancelGroup = `document-save-utility:${process.pid}:${validationSequence++}`;
-    activeValidationGroups.add(cancelGroup);
-    try {
-        return await runNativeCommand(validationBinary, args, {
-            allowedExitCodes,
-            cancelGroup,
-            timeoutMs: 5 * 60_000,
-            maxStdoutBytes: 4 * 1024 * 1024,
-            maxStderrBytes: 4 * 1024 * 1024,
-            windowsHide: true,
-        });
-    } finally {
-        activeValidationGroups.delete(cancelGroup);
-    }
+    shutdownController.signal.throwIfAborted();
+    const command = runNativeToolCommand(validationBinary, args, {
+        timeoutMs: 5 * 60_000,
+        maxStdoutBytes: 4 * 1024 * 1024,
+        maxStderrBytes: 4 * 1024 * 1024,
+        ...options,
+        signal: shutdownController.signal,
+    });
+    const termination = command.then(
+        () => true,
+        (error: unknown) => getUnprovenNativeTerminationDetail(error) === undefined,
+    );
+    activeValidations.add(termination);
+    void termination.then(proven => {
+        if (proven) activeValidations.delete(termination);
+    });
+    return command;
 }
 
 async function validatePdf(path: string, validationBinary?: string) {
@@ -137,14 +128,15 @@ async function validatePdf(path: string, validationBinary?: string) {
         const result = await runValidationCommand(validationBinary, [
             '--check',
             path,
-        ], [
+        ], {allowedExitCodes: [
             0,
             3,
-        ]);
+        ]});
         if (result.exitCode === 3) {
             return;
         }
     } catch (error) {
+        if (getUnprovenNativeTerminationDetail(error) !== undefined || shutdownController.signal.aborted) throw error;
         const exitCode: unknown = (error as {code?: unknown}).code;
         if (exitCode !== 3 && exitCode !== '3') {
             throw new Error(`PDF save staging file failed qpdf validation: ${getErrorMessage(error)}`);
@@ -155,8 +147,7 @@ async function validatePdf(path: string, validationBinary?: string) {
 utilityParentPort.on('message', (event) => {
     const shutdown = decodeDocumentSaveUtilityShutdownRequest(event.data);
     if (shutdown) {
-        shutdownRequested = true;
-        void cancelActiveValidationGroupsAndWait().then(terminated => {
+        void stopValidationsAndWait().then(terminated => {
             utilityParentPort.postMessage({
                 type: 'shutdown-complete',
                 requestId: shutdown.requestId,
@@ -168,7 +159,7 @@ utilityParentPort.on('message', (event) => {
     void (async () => {
         const request = decodeDocumentSaveUtilityRequest(event.data);
         if (!request) throw new Error('Invalid document save utility request');
-        if (shutdownRequested) throw new Error('Document save utility is shutting down');
+        shutdownController.signal.throwIfAborted();
         if (request.type === 'inspect') {
             const inspection = await fingerprintFileBounded(request.sourcePath, request.expectedBytes);
             const result: TDocumentSaveUtilityResult = {
@@ -207,8 +198,10 @@ utilityParentPort.on('message', (event) => {
                 request.sourcePath,
                 request.validationBinary,
                 changedObjectRefs,
+                runValidationCommand,
             );
         }
+        shutdownController.signal.throwIfAborted();
         if (request.validateOnly !== true) {
             await atomicReplace(request.sourcePath, request.targetPath, {durable: reuse.fileSync !== true});
         }

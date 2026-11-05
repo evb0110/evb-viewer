@@ -1,5 +1,7 @@
 #!/usr/bin/env node
-import { readFileSync } from 'node:fs';
+import {
+    readFileSync, writeFileSync,
+} from 'node:fs';
 import { createInterface } from 'node:readline';
 
 // Replay captured provider metadata so the real-app picker needs no installed
@@ -25,6 +27,34 @@ if (process.argv.includes('--version')) {
             text,
         }});
         emit('turn/completed');
+    };
+    // Calls the embedded EVB MCP server the way Codex does: the URL from the
+    // generated config, the bearer token from the environment.
+    const callEvbTool = async (name, args, callId) => {
+        const config = readFileSync(`${process.env.CODEX_HOME}/config.toml`, 'utf8');
+        const url = /^url = "([^"]+)"$/mu.exec(config)?.[1];
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: {
+                'content-type': 'application/json',
+                authorization: `Bearer ${process.env.EVB_MCP_TOKEN}`,
+            },
+            body: JSON.stringify({
+                jsonrpc: '2.0',
+                id: callId,
+                method: 'tools/call',
+                params: {
+                    name,
+                    arguments: args,
+                },
+            }),
+        });
+        const {
+            result, error,
+        } = await response.json();
+        if (error) return `error ${JSON.stringify(error)}`;
+        if (!response.ok || !result) throw new Error(`MCP request failed: HTTP ${response.status}`);
+        return result.isError ? `error ${result.content?.[0]?.text ?? ''}` : 'ok';
     };
     createInterface({input: process.stdin}).on('line', line => {
         const request = JSON.parse(line);
@@ -72,6 +102,35 @@ if (process.argv.includes('--version')) {
                         '```',
                         'After',
                     ].join('\n'));
+                } else if (prompt.includes('A10-4 own save')) {
+                    // The turn saves its own document, then must still read it.
+                    void (async () => {
+                        const save = await callEvbTool('evb_run_action', {
+                            id: 'file.save',
+                            input: {},
+                        }, `${turnId}-save`);
+                        const read = await callEvbTool('evb_workspace_snapshot', {}, `${turnId}-read`);
+                        finishTurn(emit, turnId, `save:${save} read:${read}`);
+                    })().catch(error => finishTurn(emit, turnId, `fixture:${error.message}`));
+                } else if (prompt.includes('1544 own rotation')) {
+                    void (async () => {
+                        const rotate = await callEvbTool('evb_run_action', {
+                            id: 'page_ops.rotate_cw_selected',
+                            input: {},
+                        }, `${turnId}-rotate`);
+                        const read = await callEvbTool('evb_workspace_snapshot', {}, `${turnId}-read`);
+                        const save = await callEvbTool('evb_run_action', {
+                            id: 'file.save',
+                            input: {},
+                        }, `${turnId}-save`);
+                        writeFileSync(new URL('../../../.devkit/test/assistant-own-rotation-mcp.json', import.meta.url), JSON.stringify({
+                            turnId,
+                            rotate,
+                            read,
+                            save,
+                        }));
+                        finishTurn(emit, turnId, `rotate:${rotate} read:${read} save:${save}`);
+                    })().catch(error => finishTurn(emit, turnId, `fixture:${error.message}`));
                 } else if (prompt.includes('AP-B02 tool activity')) {
                     const transcript = JSON.parse(readFileSync(new URL('./assistant-tool-transcript.json', import.meta.url), 'utf8'));
                     for (const event of transcript) {

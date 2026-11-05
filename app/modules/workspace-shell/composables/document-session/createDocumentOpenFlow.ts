@@ -371,6 +371,7 @@ export function createDocumentOpenFlow(
             }, () => null);
         try {
             await loadPdfFromPath(result.workingPath, {
+                originalPath: result.originalPath,
                 markDirty: result.isGenerated === true || result.recoveryDirtyBaseline === true,
                 recoveryDirtyBaseline: result.recoveryDirtyBaseline === true,
                 openRequestId,
@@ -403,7 +404,6 @@ export function createDocumentOpenFlow(
             state.recoveryDirtyBaseline.value = true;
             state.isDirty.value = true;
         }
-        state.originalPath.value = result.originalPath;
         state.requiresSaveAsOnFirstSave.value = !!result.isGenerated;
         state.pdfRasterDisplayProfile.value = rasterDisplayProfile;
         releaseDocumentOpenWorkingCopyRetention(result);
@@ -671,10 +671,12 @@ export function createDocumentOpenFlow(
         path: TDocumentRef,
         nextState: IPdfLoadedState,
         options?: {
+            originalPath?: TDocumentRef;
             markDirty?: boolean;
             recoveryDirtyBaseline?: boolean;
             preserveHistory?: boolean;
             previousPath?: TDocumentRef | null;
+            beforeSourceCommit?: (revision: TDocumentRevisionToken | null) => Promise<(() => void) | undefined>;
             isCurrent?: (() => boolean) | undefined;
         },
     ) {
@@ -687,6 +689,13 @@ export function createDocumentOpenFlow(
             return false;
         }
 
+        const commitRevisionSwap = await options?.beforeSourceCommit?.(state.documentRevisionToken.value);
+        if (options?.isCurrent?.() === false) return false;
+        if (commitRevisionSwap) commitRevisionSwap();
+
+        // A replacement can paint while history and old-copy cleanup still wait.
+        // Publish its identity with its source, before either can yield.
+        if (options?.originalPath) state.originalPath.value = options.originalPath;
         state.workingCopyPath.value = path;
         // A history step's copy is the same opened document; only a new load
         // names the source its view defaults follow.
@@ -834,6 +843,7 @@ export function createDocumentOpenFlow(
     }
 
     async function loadPdfFromPath(path: TDocumentRef, opts?: {
+        originalPath?: TDocumentRef;
         markDirty?: boolean;
         recoveryDirtyBaseline?: boolean;
         openRequestId?: number;
@@ -944,6 +954,7 @@ export function createDocumentOpenFlow(
             sourceKind: nextState.pdfData ? 'data' : 'path',
         });
         const didCommit = await applyLoadedPdfState(path, nextState, {
+            ...(opts?.originalPath ? {originalPath: opts.originalPath} : {}),
             isCurrent,
             markDirty: !!opts?.markDirty,
             recoveryDirtyBaseline: opts?.recoveryDirtyBaseline === true,

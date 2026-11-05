@@ -56,6 +56,7 @@ pub(crate) struct PageCloneContext<'a> {
     pub(crate) pages_id: ObjectId,
     pub(crate) object_map: HashMap<(usize, ObjectId), ObjectId>,
     completed_pages: HashSet<(usize, ObjectId)>,
+    pending_objects: Vec<(usize, ObjectId, ObjectId)>,
 }
 
 struct BrowserPageLabelRange {
@@ -220,26 +221,6 @@ pub(crate) fn validate_browser_rotation_angle(angle: i64) -> Result<i64> {
     }
 }
 
-pub(crate) fn rotate_browser_pages(
-    document: &mut Document,
-    pages: &[u32],
-    angle: i64,
-) -> Result<()> {
-    let angle = validate_browser_rotation_angle(angle)?;
-    let page_map = document.get_pages();
-    validate_browser_page_numbers(pages, "rotatePages", page_map.len() as u32, true, false)?;
-
-    for page_number in pages {
-        let page_id = resolve_page_id(&page_map, *page_number)?;
-        let current_rotation = resolve_page_rotation(document, page_id)?;
-        document
-            .get_dictionary_mut(page_id)?
-            .set("Rotate", normalize_page_rotation(current_rotation + angle));
-    }
-
-    Ok(())
-}
-
 pub(crate) fn get_browser_page_geometry(
     document: &Document,
     page_number: u32,
@@ -247,55 +228,49 @@ pub(crate) fn get_browser_page_geometry(
     get_page_geometry(document, page_number)
 }
 
-pub(crate) fn crop_pages(
-    document: &mut Document,
+fn browser_geometry_incremental(
+    data: &[u8],
     pages: &[u32],
-    margins: CropMargins,
-) -> Result<()> {
-    validate_crop_margins(margins)?;
-    let page_map = document.get_pages();
-    let mut preflighted_pages = Vec::new();
-    preflighted_pages
-        .try_reserve_exact(pages.len())
-        .map_err(|_| "Too many pages selected for crop")?;
-    for page_number in pages {
-        let page_id = resolve_page_id(&page_map, *page_number)?;
-        let media_box = resolve_inherited_box(document, page_id, b"MediaBox")?;
-        let crop_width = media_box.width() - margins.left - margins.right;
-        let crop_height = media_box.height() - margins.top - margins.bottom;
-        if crop_width <= 0.0 || crop_height <= 0.0 {
-            return Err(format!(
-                "Crop margins consume page {page_number} ({} x {})",
-                media_box.width(),
-                media_box.height()
-            )
-            .into());
-        }
-        let crop_box = PdfRect {
-            x1: media_box.x1 + margins.left,
-            y1: media_box.y1 + margins.bottom,
-            x2: media_box.x1 + margins.left + crop_width,
-            y2: media_box.y1 + margins.bottom + crop_height,
-        };
-        preflighted_pages.push((page_id, crop_box));
-    }
-
-    for (page_id, crop_box) in preflighted_pages {
-        let page = document.get_dictionary_mut(page_id)?;
-        set_page_crop_box_on_dictionary(page, crop_box);
-    }
-    Ok(())
+    label: &str,
+) -> Result<IncrementalDocument> {
+    let incremental = incremental_from_bytes(data)?;
+    let source = incremental.get_prev_documents();
+    assert_plaintext_base(
+        source,
+        "Encrypted PDFs are not supported by browser page-op WASM",
+    )?;
+    validate_browser_page_numbers(pages, label, page_count(source), true, false)?;
+    Ok(incremental)
 }
 
-pub(crate) fn remove_crop_from_pages(document: &mut Document, pages: &[u32]) -> Result<()> {
-    let page_map = document.get_pages();
-    for page_number in pages {
-        let page_id = resolve_page_id(&page_map, *page_number)?;
-        let media_box = resolve_inherited_box(document, page_id, b"MediaBox")?;
-        let page = document.get_dictionary_mut(page_id)?;
-        set_page_crop_box_on_dictionary(page, media_box);
-    }
-    Ok(())
+fn browser_geometry_bytes(
+    data: &[u8],
+    mut incremental: IncrementalDocument,
+) -> Result<PageMutationBytes> {
+    incremental.new_document.version = incremental.get_prev_documents().version.clone();
+    let revision = appended_revision_bytes(&mut incremental)?;
+    let too_large = || {
+        domain_error(
+            NativeErrorCode::TooLarge,
+            "Page-op WASM output exceeds the admission ceiling",
+        )
+    };
+    let framed_len = data
+        .len()
+        .checked_add(revision.len())
+        .and_then(|len| len.checked_add(PAGE_OP_WASM_MUTATION_HEADER_BYTES))
+        .filter(|len| *len <= PAGE_OP_WASM_MAX_BUFFER_BYTES)
+        .ok_or_else(too_large)?;
+    let mut output = Vec::new();
+    output
+        .try_reserve_exact(framed_len)
+        .map_err(|_| too_large())?;
+    output.extend_from_slice(data);
+    output.extend_from_slice(&revision);
+    Ok(PageMutationBytes {
+        data: output,
+        page_count: page_count(incremental.get_prev_documents()),
+    })
 }
 
 pub(crate) fn crop_browser_pdf_bytes(
@@ -303,30 +278,18 @@ pub(crate) fn crop_browser_pdf_bytes(
     pages: &[u32],
     margins: CropMargins,
 ) -> Result<PageMutationBytes> {
-    let mut document = load_browser_pdf(data)?;
-    let document_page_count = page_count(&document);
-    validate_browser_page_numbers(pages, "cropPages", document_page_count, true, false)?;
-    crop_pages(&mut document, pages, margins)?;
-    let page_count = page_count(&document);
-    Ok(PageMutationBytes {
-        data: save_document_to_bytes(&mut document)?,
-        page_count,
-    })
+    let mut incremental = browser_geometry_incremental(data, pages, "cropPages")?;
+    crop_pages_incremental(&mut incremental, pages, margins)?;
+    browser_geometry_bytes(data, incremental)
 }
 
 pub(crate) fn remove_crop_browser_pdf_bytes(
     data: &[u8],
     pages: &[u32],
 ) -> Result<PageMutationBytes> {
-    let mut document = load_browser_pdf(data)?;
-    let document_page_count = page_count(&document);
-    validate_browser_page_numbers(pages, "removeCrop", document_page_count, true, false)?;
-    remove_crop_from_pages(&mut document, pages)?;
-    let page_count = page_count(&document);
-    Ok(PageMutationBytes {
-        data: save_document_to_bytes(&mut document)?,
-        page_count,
-    })
+    let mut incremental = browser_geometry_incremental(data, pages, "removeCrop")?;
+    remove_crop_from_pages_incremental(&mut incremental, pages)?;
+    browser_geometry_bytes(data, incremental)
 }
 
 pub(crate) fn rotate_browser_pdf_bytes(
@@ -334,13 +297,19 @@ pub(crate) fn rotate_browser_pdf_bytes(
     pages: &[u32],
     angle: i64,
 ) -> Result<PageMutationBytes> {
-    let mut document = load_browser_pdf(data)?;
-    rotate_browser_pages(&mut document, pages, angle)?;
-    let page_count = page_count(&document);
-    Ok(PageMutationBytes {
-        data: save_document_to_bytes(&mut document)?,
-        page_count,
-    })
+    let angle = validate_browser_rotation_angle(angle)?;
+    let mut incremental = browser_geometry_incremental(data, pages, "rotatePages")?;
+    let rotations = pages
+        .iter()
+        .map(|page| {
+            Ok(PageRotationMutation {
+                page_index: page.checked_sub(1).ok_or("Invalid rotation page number")?,
+                angle,
+            })
+        })
+        .collect::<Result<Vec<_>>>()?;
+    rotate_pages_incremental(&mut incremental, &rotations)?;
+    browser_geometry_bytes(data, incremental)
 }
 
 pub(crate) fn get_browser_page_geometry_from_bytes(
@@ -469,6 +438,9 @@ pub(crate) fn build_browser_page_subset_pdf(
         return Err("Browser page subset must contain at least one page".into());
     }
 
+    for source in sources {
+        crate::split_catalog::assert_page_structure_supported(*source)?;
+    }
     let version = sources
         .iter()
         .map(|document| document.version.as_str())
@@ -483,6 +455,7 @@ pub(crate) fn build_browser_page_subset_pdf(
         pages_id,
         object_map: HashMap::new(),
         completed_pages: HashSet::new(),
+        pending_objects: Vec::new(),
     };
     for source in page_sequence {
         clone_context
@@ -520,6 +493,52 @@ pub(crate) fn build_browser_page_subset_pdf(
             page_sequence,
             &mut catalog,
         )?;
+    }
+    if sources.len() == 1 {
+        let source = sources[0];
+        let mut annotations = crate::split_output::SplitAnnotationMap::new();
+        for page in page_sequence {
+            let output_page = clone_context.object_map[&(0, page.page_id)];
+            for entry in crate::split_navigation::source_annotation_entries(source, page.page_id) {
+                if let Some(id) = source.dereference(&entry)?.0 {
+                    let copy = *clone_context
+                        .object_map
+                        .get(&(0, id))
+                        .ok_or("Retained annotation was not cloned")?;
+                    annotations.entry(id).or_default().push((output_page, copy));
+                }
+            }
+        }
+        let identities = &clone_context.object_map;
+        let form = crate::split_catalog::split_forms::split_form_with_copy(
+            source,
+            &mut clone_context.target,
+            &annotations,
+            &mut |object| {
+                map_page_object_references(object, &mut |id| {
+                    if let Some(copy) = identities.get(&(0, id)) {
+                        return Ok(Object::Reference(*copy));
+                    }
+                    // Removed page/tree references were nulled by the worklist cloner.
+                    if source
+                        .get_dictionary(id)
+                        .ok()
+                        .and_then(|dict| {
+                            dict.get(b"Type")
+                                .ok()
+                                .and_then(|value| value.as_name().ok())
+                        })
+                        .is_some_and(|kind| matches!(kind, b"Page" | b"Pages"))
+                    {
+                        return Ok(Object::Null);
+                    }
+                    Err("Form property was not cloned".into())
+                })
+            },
+        )?;
+        if let Some(form) = form {
+            catalog.set("AcroForm", form);
+        }
     }
     let catalog_id = clone_context.target.add_object(catalog);
     clone_context.target.trailer.set("Root", catalog_id);
@@ -628,12 +647,15 @@ fn remap_browser_page_labels(
 fn page_label_for_number(ranges: &[BrowserPageLabelRange], page_number: i64) -> Result<String> {
     // The ranges are sorted by start page; a reverse scan per page made a
     // label on every page quadratic in the document.
-    let range = ranges
+    let Some(range) = ranges
         .partition_point(|range| range.start_page <= page_number)
         .checked_sub(1)
         .and_then(|index| ranges.get(index))
         .or_else(|| ranges.first())
-        .expect("PDF page labels must contain a range");
+    else {
+        // An empty label tree labels nothing: the page keeps its number.
+        return Ok(format_decimal(page_number));
+    };
     let number = range
         .start_number
         .saturating_add(page_number.saturating_sub(range.start_page))
@@ -767,67 +789,60 @@ impl PageCloneContext<'_> {
         Ok(new_page_id)
     }
 
+    /// Clones one indirect object and every object it reaches.
     pub(crate) fn clone_indirect_object(
         &mut self,
         source_index: usize,
         object_id: ObjectId,
     ) -> Result<ObjectId> {
-        if let Some(new_id) = self.object_map.get(&(source_index, object_id)) {
-            return Ok(*new_id);
-        }
-
-        let new_id = self.target.new_object_id();
-        self.object_map.insert((source_index, object_id), new_id);
-        let object = self.source(source_index)?.get_object(object_id)?.clone();
-        let cloned_object = self.clone_object_references(source_index, object)?;
-        self.target.objects.insert(new_id, cloned_object);
+        let new_id = self.map_indirect_object(source_index, object_id);
+        self.drain_pending_objects()?;
         Ok(new_id)
     }
 
+    /// Clones a direct object and every indirect object it reaches.
     pub(crate) fn clone_object_references(
         &mut self,
         source_index: usize,
         object: Object,
     ) -> Result<Object> {
-        match object {
-            Object::Reference(object_id) => {
-                if self.is_unretained_page_tree_object(source_index, object_id)? {
-                    return Ok(Object::Null);
-                }
-                Ok(Object::Reference(
-                    self.clone_indirect_object(source_index, object_id)?,
-                ))
-            }
-            Object::Array(items) => Ok(Object::Array(
-                items
-                    .into_iter()
-                    .map(|item| self.clone_object_references(source_index, item))
-                    .collect::<Result<Vec<_>>>()?,
-            )),
-            Object::Dictionary(dictionary) => Ok(Object::Dictionary(
-                self.clone_dictionary_references(source_index, dictionary)?,
-            )),
-            Object::Stream(mut stream) => {
-                stream.dict = self.clone_dictionary_references(source_index, stream.dict)?;
-                Ok(Object::Stream(stream))
-            }
-            object => Ok(object),
-        }
+        let cloned = self.clone_direct_references(source_index, object)?;
+        self.drain_pending_objects()?;
+        Ok(cloned)
     }
 
-    pub(crate) fn clone_dictionary_references(
-        &mut self,
-        source_index: usize,
-        dictionary: Dictionary,
-    ) -> Result<Dictionary> {
-        let mut cloned_dictionary = Dictionary::new();
-        for (key, value) in dictionary.iter() {
-            cloned_dictionary.set(
-                key.clone(),
-                self.clone_object_references(source_index, value.clone())?,
-            );
+    // A reference takes its target id at once and its object later, from a
+    // worklist, so a long chain such as an outline's /Next links cannot
+    // exhaust the stack the way recursing through each link did.
+    fn map_indirect_object(&mut self, source_index: usize, object_id: ObjectId) -> ObjectId {
+        if let Some(new_id) = self.object_map.get(&(source_index, object_id)) {
+            return *new_id;
         }
-        Ok(cloned_dictionary)
+        let new_id = self.target.new_object_id();
+        self.object_map.insert((source_index, object_id), new_id);
+        self.pending_objects.push((source_index, object_id, new_id));
+        new_id
+    }
+
+    fn drain_pending_objects(&mut self) -> Result<()> {
+        while let Some((source_index, object_id, new_id)) = self.pending_objects.pop() {
+            let object = self.source(source_index)?.get_object(object_id)?.clone();
+            let cloned_object = self.clone_direct_references(source_index, object)?;
+            self.target.objects.insert(new_id, cloned_object);
+        }
+        Ok(())
+    }
+
+    fn clone_direct_references(&mut self, source_index: usize, object: Object) -> Result<Object> {
+        map_page_object_references(object, &mut |object_id| {
+            if self.is_unretained_page_tree_object(source_index, object_id)? {
+                Ok(Object::Null)
+            } else {
+                Ok(Object::Reference(
+                    self.map_indirect_object(source_index, object_id),
+                ))
+            }
+        })
     }
 
     /// Catalog metadata such as outlines can point at pages the operation
@@ -882,4 +897,33 @@ pub(crate) fn materialize_page_inherited_object(
     }
 
     Ok(())
+}
+
+/// Walk direct containers only; each caller owns indirect-object identity.
+pub(crate) fn map_page_object_references(
+    object: Object,
+    reference: &mut impl FnMut(ObjectId) -> Result<Object>,
+) -> Result<Object> {
+    match object {
+        Object::Reference(id) => reference(id),
+        Object::Array(items) => Ok(Object::Array(
+            items
+                .into_iter()
+                .map(|item| map_page_object_references(item, reference))
+                .collect::<Result<_>>()?,
+        )),
+        Object::Dictionary(_) | Object::Stream(_) => {
+            let mut object = object;
+            let dictionary = match &mut object {
+                Object::Dictionary(dictionary) => dictionary,
+                Object::Stream(stream) => &mut stream.dict,
+                _ => unreachable!(),
+            };
+            for (_, value) in dictionary.iter_mut() {
+                *value = map_page_object_references(value.clone(), reference)?;
+            }
+            Ok(object)
+        }
+        object => Ok(object),
+    }
 }

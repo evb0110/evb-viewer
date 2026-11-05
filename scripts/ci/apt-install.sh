@@ -2,10 +2,10 @@
 # Installs apt packages on a GitHub runner without letting a stalled mirror
 # hold the job for its whole timeout budget. `select-apt-mirrors.sh` probes
 # the Ubuntu mirrors and writes the fallback chain apt reads through
-# `mirror+file:/etc/apt/apt-mirrors.txt`; the options below keep each
-# request short and send a failed file to the next mirror instead of
-# retrying the one that just timed out, so apt reaches a working mirror well
-# inside the hard budget on each command.
+# `mirror+file:/etc/apt/apt-mirrors.txt` together with apt configuration that
+# keeps each request short and sends a failed file to the next mirror instead
+# of retrying the one that just timed out, so apt reaches a working mirror
+# well inside the hard budget on each command.
 set -euo pipefail
 
 if [ "$#" -eq 0 ]; then
@@ -22,13 +22,7 @@ done
 
 bash "$(dirname "$0")/select-apt-mirrors.sh"
 
-apt_opts=(
-    -o Acquire::Retries=0
-    -o Acquire::http::Timeout=15
-    -o Acquire::https::Timeout=15
-    -o Acquire::ForceIPv4=true
-    -o DPkg::Lock::Timeout=120
-)
+apt_opts=()
 
 # Only the Ubuntu archive serves the packages this script installs. The runner
 # image also lists dl.google.com and packages.microsoft.com, whose indexes fail

@@ -243,6 +243,10 @@ export async function reapOrphanedManagedProcesses(
             continue;
         }
         if (!isProcessAlive(entry.pid)) {
+            if (platform === 'win32') {
+                log('warn', `Preserved managed process pid ${String(entry.pid)} because Windows descendant exit is unproven`);
+                continue;
+            }
             if (entry.scratchPath && isProcessTreeAlive(entry.pid, platform)) {
                 log('warn', `Preserved scratch for managed process pid ${String(entry.pid)} while its process group is still alive`);
                 continue;
@@ -261,7 +265,7 @@ export async function reapOrphanedManagedProcesses(
             platform,
             preferProcessGroup: platform !== 'win32',
         }).catch(() => false);
-        const processTreeGone = terminated || !isProcessTreeAlive(entry.pid, platform);
+        const processTreeGone = terminated || (platform !== 'win32' && !isProcessTreeAlive(entry.pid, platform));
         if (!processTreeGone) {
             log('warn', `Could not reap orphaned managed process pid ${String(entry.pid)}`);
         } else if (await release()) {

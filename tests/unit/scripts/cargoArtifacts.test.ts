@@ -25,6 +25,7 @@ import {
     getNativeExternalBuildInputs,
 } from '@scripts/native-build-id.mjs';
 import { createWasmToolBuildPlan } from '@scripts/build-wasm-tool.mjs';
+import { getRequestedNativeRustTarget } from '@scripts/native-rust-targets.mjs';
 import { getGeneratedNativeToolResource } from '@scripts/nativeResourceManifest';
 import { getWasmArtifactByCrateName } from '@scripts/wasm-artifacts.mjs';
 
@@ -360,6 +361,33 @@ describe('Cargo artifact staging', () => {
             '-C',
             'target-feature=+crt-static',
         ]);
+    });
+
+    it('builds and stages the host target by name, whatever Cargo defaults to', () => {
+        // A CARGO_BUILD_TARGET or config default would send an unnamed build
+        // elsewhere and leave an older binary at the unqualified path.
+        const plan = createNativeToolBuildPlan({
+            projectRoot: '/repo',
+            target: getRequestedNativeRustTarget({}, {
+                arch: 'x64',
+                platform: 'linux',
+            }),
+            tool: getGeneratedNativeToolResource('pdf-search'),
+        });
+        expect(plan.cargoArgs).toEqual([
+            'build',
+            '--manifest-path',
+            'native/pdf-search/Cargo.toml',
+            '--release',
+            '--locked',
+            '--target',
+            'x86_64-unknown-linux-gnu',
+        ]);
+        expect(getCargoArtifactPath({
+            fileName: plan.binaryName,
+            rustTarget: plan.rustTarget,
+            targetDirectory: '/checkout/native/target',
+        })).toBe(path.join('/checkout/native/target', 'x86_64-unknown-linux-gnu', 'release', 'evb-pdf-search'));
     });
 
     it('keeps the PDF metadata host dynamically linked for qpdf exception recovery', () => {

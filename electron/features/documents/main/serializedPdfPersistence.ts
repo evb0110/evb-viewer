@@ -76,6 +76,7 @@ import {
 import {
     createTypedStagedArtifact, releaseManagedTempFileHandle,
 } from '@electron/features/documents/main/managedTempFileHandles';
+import {writeFileHandleFully} from '@electron/file-access/writeFileHandleFully';
 
 const SERIALIZED_PDF_MAX_CHUNK_BYTES = PDF_PERSISTENCE_DEFAULT_CHUNK_BYTES;
 const SERIALIZED_PDF_MAX_IN_FLIGHT_CHUNKS = PDF_PERSISTENCE_DEFAULT_MAX_IN_FLIGHT_CHUNKS;
@@ -413,17 +414,6 @@ function containsPdfEofMarker(bytes: Uint8Array) {
     return Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength).includes(Buffer.from('%%EOF'));
 }
 
-async function writeSessionBytes(handle: FileHandle, bytes: Uint8Array) {
-    let offset = 0;
-    while (offset < bytes.byteLength) {
-        const {bytesWritten} = await handle.write(bytes, offset, bytes.byteLength - offset);
-        if (bytesWritten < 1) {
-            throw new Error('PDF persistence stream write made no progress');
-        }
-        offset += bytesWritten;
-    }
-}
-
 
 async function stageSession(
     session: ISerializedPdfPersistenceSession,
@@ -710,7 +700,7 @@ async function handlePortMessage(
                 throw new Error('PDF persistence stream exceeded expected byte count');
             }
 
-            await writeSessionBytes(session.handle, bytes);
+            await writeFileHandleFully(session.handle, bytes);
             session.receivedBytes = receivedBytes;
             session.hash.update(bytes);
             session.streamedTail = updateStreamedTail(session.streamedTail, bytes);

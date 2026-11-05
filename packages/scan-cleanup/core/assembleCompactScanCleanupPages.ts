@@ -1,11 +1,8 @@
+import * as v from 'valibot';
+import {PDF_ANNOTATION_INDEX_SIDECAR_HEADER_SCHEMA} from '@contracts/pdfAnnotationParseSchemas';
 import {decodeScanCleanupPageOpsResult} from '@contracts/scan-cleanup/nativeArtifactCodecs';
 import {createReadStream} from 'node:fs';
-import * as v from 'valibot';
 import {isRecord} from '@contracts/runtimeGuards';
-import {
-    PDF_ANNOTATION_PARSE_ENTRY_SCHEMA,
-    PDF_ANNOTATION_PARSE_SIDECAR_HEADER_SCHEMA,
-} from '@contracts/pdfAnnotationParseSchemas';
 import {createScanCleanupSidecarProtocolHandler} from '@evb/scan-cleanup/core/createScanCleanupSidecarProtocolHandler';
 import {
     rename,
@@ -238,20 +235,20 @@ async function assertSourceAnnotationsHaveGeometry(
         commandLabel: 'qpdf(scan-cleanup:refused-annotation-pages)',
         timeoutMs: 10 * 60 * 1000,
     });
+    // Every annotation the pages carry, links and form fields included: the
+    // editor's parser leaves those out, and none survives non-affine geometry.
     const sidecarPath = join(scratch, 'source-annotations.jsonl');
     await dependencies.runCommand(paths.pdfPageOpsBinary, [
-        'parse-annotations',
+        'annotation-index',
         '--input',
         sourcePagesPath,
         '--qpdf',
         paths.qpdfBinary,
         '--output',
         sidecarPath,
-        '--modified-at',
-        'D:19700101000000Z',
     ], {
         signal,
-        commandLabel: 'evb-pdf-page-ops(parse-annotations:scan-cleanup)',
+        commandLabel: 'evb-pdf-page-ops(annotation-index:scan-cleanup)',
         timeoutMs: 10 * 60 * 1000,
         log,
         ...(onTerminationProof === undefined ? {} : {onTerminationProof}),
@@ -272,7 +269,9 @@ async function assertSourceAnnotationsHaveGeometry(
             signal.throwIfAborted();
             const value: unknown = JSON.parse(line);
             if (!headerRead) {
-                v.parse(PDF_ANNOTATION_PARSE_SIDECAR_HEADER_SCHEMA, value);
+                if (!v.safeParse(PDF_ANNOTATION_INDEX_SIDECAR_HEADER_SCHEMA, value).success) {
+                    throw new ScanCleanupContractError('Invalid source annotation header');
+                }
                 headerRead = true;
                 continue;
             }
@@ -283,8 +282,7 @@ async function assertSourceAnnotationsHaveGeometry(
             }
             expectedChunkIndex += 1;
             for (const entry of value.entries) {
-                const annotation = v.parse(PDF_ANNOTATION_PARSE_ENTRY_SCHEMA, entry);
-                const pageNumber = pages[annotation.pageIndex];
+                const pageNumber = isRecord(entry) && typeof entry.pageIndex === 'number' ? pages[entry.pageIndex] : undefined;
                 if (pageNumber === undefined) throw new ScanCleanupContractError('Invalid source annotation page index');
                 throw new ScanCleanupContractError(
                     `Cannot preserve annotations on source page ${String(pageNumber)} `

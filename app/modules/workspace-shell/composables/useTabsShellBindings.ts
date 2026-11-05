@@ -463,6 +463,7 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
             return;
         }
         rendererReadyNotified = true;
+        traceRendererStartup('tabs shell dispatching app:rendererReady');
         getWindowTabsCapability().notifyRendererReady();
         const profile = resolveStartupWorkProfile();
         desktopViewerWarmupHandle = scheduleDesktopViewerWarmup({
@@ -620,7 +621,10 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
                 return;
             }
             dispatchStartupOpenClaimed(startupExternalPaths.length);
-            if (startupExternalPaths.length > 0) {
+            // Opening a claimed file can wait on the reader, for a password for
+            // instance; that is not startup, so the window reports ready first.
+            const startupOpen = (async () => {
+                if (startupExternalPaths.length === 0) return;
                 traceRendererStartup('tabs shell claimed startup external paths', {pathCount: startupExternalPaths.length});
                 const targets = getWorkspaceViewerChunkTargetsForPaths(startupExternalPaths);
                 const matchingWarmupTraceData = {
@@ -639,17 +643,16 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
                 traceRendererStartup('startup matching viewer warmup settled', matchingWarmupTraceData);
                 const failedPaths = await beginOpenPathsInAppropriateTab(startupExternalPaths);
                 await windowTabsCapability.acknowledgePendingExternalOpenPaths(failedPaths);
-                if (lifecycle.isDisposed.valueOf()) {
-                    return;
-                }
-            }
-            isStartupOpenClaimPending.value = false;
+            })();
             await nextTick();
+            if (!lifecycle.isDisposed.valueOf()) {
+                notifyRendererReadyAndScheduleViewerWarmup();
+            }
+            await startupOpen;
             if (lifecycle.isDisposed.valueOf()) {
                 return;
             }
-            traceRendererStartup('tabs shell dispatching app:rendererReady');
-            notifyRendererReadyAndScheduleViewerWarmup();
+            isStartupOpenClaimPending.value = false;
         })().catch((error) => {
             if (lifecycle.isDisposed.valueOf()) {
                 return;
@@ -664,7 +667,6 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
             setFatalRuntimeError('startup', presentation);
             dispatchStartupOpenClaimed(0);
             isStartupOpenClaimPending.value = false;
-            traceRendererStartup('tabs shell dispatching app:rendererReady');
             notifyRendererReadyAndScheduleViewerWarmup();
         });
 

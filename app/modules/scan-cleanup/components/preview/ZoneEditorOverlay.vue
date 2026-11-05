@@ -28,6 +28,14 @@
                 ]"
                 :points="polygonPoints(zone.polygon)"
                 vector-effect="non-scaling-stroke"
+                tabindex="0"
+                role="button"
+                :aria-label="t('scanCleanup.zones.zoneLabel', {
+                    number: zone.selection.index + 1,
+                    kind: t(`scanCleanup.zones.${zone.selection.kind}`),
+                })"
+                :aria-pressed="isSelected(zone.selection)"
+                @focus="!disabled && emit('update:selected', zone.selection)"
                 @pointerdown.stop="startMoving($event, zone.selection, zone.polygon)"
             />
             <polygon
@@ -51,6 +59,7 @@
                     direction: t(`scanCleanup.zones.corners.${handle}`),
                 })"
                 @pointerdown.stop="startResizing($event, handle)"
+                @keydown="resizeByKey($event, handle)"
             />
             <UButton
                 class="zone-editor-delete"
@@ -350,6 +359,50 @@ function samePolygon(
             return point.xNormalized === other.xNormalized
                 && point.yNormalized === other.yNormalized;
         });
+}
+
+// Arrow keys move the focused corner by 1% of the frame, 5% with Shift, as
+// the content box's corners do; each step is one edit.
+function resizeByKey(event: KeyboardEvent, corner: TScanCleanupZoneCorner) {
+    const polygon = selectedPolygon.value;
+    const bounds = selectedBounds.value;
+    const [
+        dx,
+        dy,
+    ] = {
+        ArrowLeft: [
+            -1,
+            0,
+        ],
+        ArrowRight: [
+            1,
+            0,
+        ],
+        ArrowUp: [
+            0,
+            -1,
+        ],
+        ArrowDown: [
+            0,
+            1,
+        ],
+    }[event.key] ?? [];
+    if (props.disabled || !props.selected || !polygon || !bounds || dx === undefined || dy === undefined) {
+        return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    const step = event.shiftKey ? 0.05 : 0.01;
+    const resized = resizeScanCleanupZonePolygon(polygon, corner, {
+        xNormalized: (corner.includes('w') ? bounds.left : bounds.right) + dx * step,
+        yNormalized: (corner.includes('n') ? bounds.top : bounds.bottom) + dy * step,
+    });
+    if (samePolygon(polygon, resized)) {
+        return;
+    }
+    const next = cloneZones();
+    replaceZone(next, props.selected, resized);
+    emit('update:manualZones', next);
 }
 
 function finishDrag(event: PointerEvent) {

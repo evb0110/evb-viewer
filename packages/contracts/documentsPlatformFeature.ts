@@ -59,7 +59,6 @@ import {
     readFileArgs,
     pdfPageLabelRangesResult,
     readFileRangeArgs,
-    readTextFileArgs,
     recentFilesResult,
     releaseManagedHandleArgs,
     repairPdfArgs,
@@ -443,9 +442,6 @@ export const DOCUMENT_FILES_PLATFORM_FEATURE = definePlatformFeature({
             ),
             ...electronImplementedOptional,
         },
-        readTextFile: defineIpcMethod(
-            'readTextFile', 'file:readText', readTextFileArgs, v.string(), 'readTextFile', 'sender',
-        ),
         fileExists: defineIpcMethod(
             'fileExists', 'file:exists', fileExistsArgs, booleanResult, 'fileExists', 'sender',
         ),

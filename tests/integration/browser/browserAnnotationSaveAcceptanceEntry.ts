@@ -18,6 +18,50 @@ import {
     type TLegacyDocumentRef,
 } from '@contracts/documentRef';
 import {requirePdfDateString} from '@contracts/pdfDateString';
+import type {IPdfNativeMutationSet} from '@contracts/electronApiDocuments';
+
+async function saveAnnotationFidelity(input: number[], mutations: IPdfNativeMutationSet) {
+    const previousPicker = Reflect.get(window, 'showSaveFilePicker');
+    Reflect.set(window, 'showSaveFilePicker', undefined);
+    const sourcePath = requireDocumentRef(await browserDocumentStore.createStoredDocument(
+        'annotation-fidelity.pdf', new Uint8Array(input),
+        {
+            mimeType: 'application/pdf',
+            kind: 'source',
+            retention: 'transient',
+            saveKind: 'pdf',
+        },
+    ));
+    const capability = createCapability();
+    let workingPath: TLegacyDocumentRef | undefined;
+    try {
+        const opened = await capability.openDocumentDirect(sourcePath);
+        if (!opened || opened.kind !== 'pdf') throw new Error('Fidelity fixture failed to open');
+        workingPath = opened.workingPath;
+        const revision = await browserDocumentStore.getDocumentRevision(workingPath);
+        const applied = await capability.applyPdfNativeMutationsToWorkingCopy!(
+            workingPath, mutations, requirePdfDateString('D:20261105000000Z'),
+            {expectedDocumentRevisionToken: revision.token},
+        );
+        if (!applied.applied || !applied.stagedOutput || !applied.nativeMutationPostconditionsVerified) {
+            throw new Error('Fidelity mutations failed canonical verification');
+        }
+        const committed = await capability.commitStagedPdfNativeMutations!(workingPath, applied.stagedOutput, {
+            expectedDocumentRevisionToken: revision.token,
+            ...(applied.identityBindings ? {identityBindings: [...applied.identityBindings]} : {}),
+        });
+        if (!committed.applied || !committed.nativeMutationPostconditionsVerified) throw new Error('Fidelity save failed');
+        browserDocumentStore.unload(sourcePath);
+        const reopened = await browserDocumentStore.getDocumentRevision(sourcePath);
+        return await capability.parsePdfAnnotations(sourcePath, {expectedDocumentRevisionToken: reopened.token});
+    } finally {
+        if (workingPath) await browserDocumentStore.remove(workingPath);
+        await browserDocumentStore.remove(sourcePath);
+        Reflect.set(window, 'showSaveFilePicker', previousPicker);
+    }
+}
+
+Reflect.set(globalThis, '__evbSaveAnnotationFidelity', saveAnnotationFidelity);
 
 
 async function createAnnotatedFixture(paddingBytes = 0) {

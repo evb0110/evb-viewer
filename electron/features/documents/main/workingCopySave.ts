@@ -1,5 +1,6 @@
 import { existsSync } from 'fs';
 import type { IPdfValidationResult } from '@contracts/pdfConformance';
+import type {IDocumentRevisionInfo} from '@contracts/documentRevision';
 import type {
     IDocumentMutationRevisionOptions,
     IPdfSerializedSaveOptions,
@@ -53,6 +54,7 @@ function requireSenderId(context: IDocumentsSenderIdContext): number {
 }
 
 interface IReplaceOriginalWithValidatedTempResult {
+    documentRevision?: IDocumentRevisionInfo;
     validation: IPdfValidationResult;
     optimized: boolean;
 }
@@ -193,7 +195,10 @@ async function replaceOriginalWithValidatedTemp(
         if (error !== invalidStage) throw error;
         return null;
     });
-    return transition || !result.validation.isValid ? result : {
+    return transition ? {
+        ...result,
+        documentRevision: transition,
+    } : !result.validation.isValid ? result : {
         validation: createOriginalChangedValidationResult(),
         optimized: false,
     };
@@ -307,6 +312,7 @@ export async function handleFileSaveStructured(
             ok: true,
             externalWriteCommitted: true,
             workingCopyRefreshed: true,
+            ...(saveResult.documentRevision ? {documentRevision: saveResult.documentRevision} : {}),
             validation: saveResult.validation,
         };
     } catch (err) {

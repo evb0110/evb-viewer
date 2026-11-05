@@ -20,6 +20,7 @@ const OBSERVED_EVENT_TYPES = [
     'keydown',
     'pointerdown',
     'pointerup',
+    'resize',
     'wheel',
 ] as const;
 const PAGE_TRACK_SELECTOR = '[data-pdf-page-track]';
@@ -307,13 +308,11 @@ function recordAction(event: Event) {
     lastInputAt = Date.now();
     if (event.type === 'wheel') {
         recordWheel(event as WheelEvent, lastInputAt);
-        return;
-    }
-    if (event.type === 'keydown') {
+    } else if (event.type === 'keydown') {
         recordKey(event as KeyboardEvent, lastInputAt);
-        return;
+    } else if (event.type === 'pointerdown' || event.type === 'pointerup') {
+        recordPointer(event as PointerEvent, lastInputAt);
     }
-    recordPointer(event as PointerEvent, lastInputAt);
 }
 
 export function installViewerActionLog() {

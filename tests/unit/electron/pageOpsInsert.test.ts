@@ -105,7 +105,15 @@ vi.mock('node:crypto', async (importOriginal) => {
         randomUUID: () => randomUuidMock(),
     };
 });
-vi.mock('@electron/native-tools/runNativeToolCommand', () => ({runNativeToolCommand: (...args: unknown[]) => runNativeToolCommandMock(...args)}));
+vi.mock('@electron/features/page-ops/public/nativePageOpsPath', () => ({resolveNativePageOpsPath: () => '/mock/pdf-page-ops'}));
+vi.mock('@electron/native-tools/runNativeToolCommand', () => ({runNativeToolCommand: (...args: unknown[]) =>
+    Array.isArray(args[1]) && args[1][0] === 'validate-page-structure'
+        ? Promise.resolve({
+            exitCode: 0,
+            stdout: '{}',
+            stderr: '',
+        })
+        : runNativeToolCommandMock(...args)}));
 vi.mock('@electron/pdf/nativeToolPaths', async (importOriginal_1) => ({
     ...(await importOriginal_1<typeof TViMockOriginalModule>()),
     getPdfNativeToolPaths: () => ({ qpdf: '/mock/qpdf' }),

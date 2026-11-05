@@ -5,6 +5,7 @@ import type { TDocumentOpenOutcome } from '@app/types/documentOpenOutcome';
 import type { IPdfRasterDisplayProfileOpenOptions } from '@app/types/pdfRasterDisplayProfile';
 import {getDocumentRefBaseName} from '@app/utils/documentRef';
 import {getWorkspaceViewerAdapter} from '@app/modules/workspace-shell/viewers/workspaceViewerAdapters';
+import {dispatchStartupOpenVisualReady} from '@app/modules/workspace-shell/composables/useWorkspaceStartupReadiness';
 
 type TOpenedFileResult = Extract<TOpenFileResult, {kind: 'pdf' | 'djvu'}>;
 type TPdfPasswordFailureResult = Extract<
@@ -69,6 +70,9 @@ export async function openPdfAfterPasswordPrompt(
             getDocumentRefBaseName(initialFailure.originalPath) ?? initialFailure.originalPath,
             retryError,
         );
+        // The reader must see the prompt: a startup overlay waiting for the
+        // document would cover it while the open waits on the password.
+        dispatchStartupOpenVisualReady('password-prompt');
         const password = await request;
         if (!deps.isCurrentOpenRequest(openRequestId)) {
             deps.closePasswordPrompt(request);

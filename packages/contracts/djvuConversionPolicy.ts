@@ -1,6 +1,9 @@
 export interface IDjvuConversionPageMetrics {
+    /** Pixels as rendered, turned for the page's orientation. */
     width: number;
     height: number;
+    /** The page's own resolution, where it was read. */
+    dpi?: number;
 }
 
 export interface IDjvuPdfConversionMetrics {

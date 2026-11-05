@@ -5,7 +5,9 @@ import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronP
 
 import { requireDocumentRef } from '@contracts/documentRef';
 import { requireDocumentRevisionToken } from '@contracts/documentRevision';
-import {requirePageIndex} from '@contracts/pageNumbers';
+import {
+    requirePageNumber, requirePageIndex,
+} from '@contracts/pageNumbers';
 import {requireEpochMs} from '@contracts/timestamps';
 import {
     afterEach,
@@ -99,6 +101,7 @@ function mountAnnotationSession(initial: {
     const src = shallowRef<TPdfSource | null>(initial.src ?? null);
     const pdfDocument = shallowRef<IPdfDocument | null>(null);
     const emitAnnotationComments = vi.fn();
+    const probeViewer = ref<HTMLElement | null>(null);
     const viewRotation = ref<0 | 90 | 180 | 270>(0);
     let annotationProjectionReady: Ref<boolean> | undefined;
     let currentTransition = true;
@@ -148,7 +151,7 @@ function mountAnnotationSession(initial: {
                 renderedPageStateVersion: ref(0),
             },
             viewRotation: computed(() => viewRotation.value),
-            viewerContainer: ref(null),
+            viewerContainer: probeViewer,
             originalPath: computed(() => originalPath.value),
             src: computed(() => src.value),
             sourcePdfData: computed(() => null),
@@ -193,6 +196,7 @@ function mountAnnotationSession(initial: {
     const activeSession = session;
     return {
         session: activeSession,
+        probeViewer,
         viewRotation,
         originalPath,
         workingCopyPath,
@@ -697,4 +701,69 @@ describe('live canonical text box sidebar drafts', () => {
         session.annotationApplication.value.store.createTextBox(entity);
         expect(session.annotationCommentsCache.value[0]?.text).toBe('Original');
     });
+});
+
+const selectionGeometry = vi.hoisted(() => ({resolve: vi.fn()}));
+vi.mock('@app/modules/pdf-viewer/runtime/sessions/resolvePdfAnnotationSelectionGeometry', () => ({resolvePdfAnnotationSelectionGeometry: (...args: unknown[]) => selectionGeometry.resolve(...args)}));
+
+it.each([
+    false,
+    true,
+])('refuses an old page after a one-page replacement (current=%s)', async (current) => {
+    const harness = mountAnnotationSession();
+    await expect(harness.session.highlightComposable.createTextMarkupFromText({
+        pageNumber: requirePageNumber(3),
+        text: 'Alpha',
+    }, () => current))
+        .resolves.toMatchObject({
+            created: false,
+            reason: current ? 'Page 3 is outside the document.' : 'The document changed before the annotation was created.',
+        });
+    expect(harness.canonicalAnnotationIds()).toEqual([]);
+});
+
+it.each([
+    true,
+    false,
+])('creates markup only while the geometry result still belongs to its document (replace=%s)', async (replace) => {
+    const harness = mountAnnotationSession();
+    let current = true;
+    const viewer = document.createElement('div');
+    viewer.innerHTML = '<div class="page_container" data-page="1"><div class="text-layer"><span>Alpha</span></div></div>';
+    document.body.append(viewer);
+    harness.probeViewer.value = viewer;
+    selectionGeometry.resolve.mockImplementation(async () => {
+        if (replace) queueMicrotask(() => { current = false; });
+        return {
+            status: 'ready',
+            pages: [{
+                pageNumber: 1,
+                quadPoints: [{
+                    left: 0.1,
+                    top: 0.1,
+                    width: 0.2,
+                    height: 0.03,
+                }],
+                selectedText: 'Alpha',
+            }],
+        };
+    });
+    const store = harness.session.annotationApplication.value.store;
+    const epoch = store.mutationEpoch;
+    try {
+        const result = await harness.session.highlightComposable.createTextMarkupFromText({
+            pageNumber: requirePageNumber(1),
+            text: 'Alpha',
+        }, () => current);
+        expect(result.created).toBe(!replace);
+        if (replace) {
+            expect(result.reason).toContain('document changed');
+            expect(harness.canonicalAnnotationIds()).toEqual([]);
+            expect(store.mutationEpoch).toBe(epoch);
+        } else {
+            expect(harness.canonicalAnnotationIds()).toHaveLength(1);
+        }
+    } finally {
+        viewer.remove();
+    }
 });

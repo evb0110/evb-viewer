@@ -250,6 +250,7 @@ describe('viewer invariant journey', () => {
         // A real pane resize: the controls stay reachable and the reading
         // anchor survives the relayout.
         const pageBeforeResize = await readToolbarPageFromScreen(page);
+        const resizeStartedAt = Date.now();
         await session.command('windowResize', [
             RESIZED_WIDTH_PX,
             RESIZED_HEIGHT_PX,
@@ -263,6 +264,8 @@ describe('viewer invariant journey', () => {
             requirePresent: {pageIndicator: true},
             requireRan: ['R1-toolbar-page-visible'],
         });
+        expect(Date.now() - resizeStartedAt, 'a real window resize keeps the viewer unquiet for 500 ms')
+            .toBeGreaterThanOrEqual(500);
         expect(await readToolbarPageFromScreen(page)).toBe(pageBeforeResize);
 
         // Pointer-drawn markup, then a sticky note whose window opens over the

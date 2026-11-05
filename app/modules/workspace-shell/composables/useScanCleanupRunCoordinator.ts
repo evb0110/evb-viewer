@@ -1,3 +1,4 @@
+import {useTypedI18n} from '@app/composables/useTypedI18n';
 import { until } from '@vueuse/core';
 import type {
     ComputedRef,
@@ -148,6 +149,7 @@ export const useScanCleanupRunCoordinator = (
     persistCheckpointNow: () => Promise<void>,
 ) => {
     const toast = useToast();
+    const {locale} = useTypedI18n();
     const cleanup = installScanCleanupRunCoordinator({
         // An output reopened after a reload may be back in its tab from the
         // workspace checkpoint already; that tab is the output. A replayed
@@ -171,6 +173,7 @@ export const useScanCleanupRunCoordinator = (
         createCompletedOutputSaveAs: outputPath => createScanCleanupOutputSaveAs(outputPath, documentSessionsByTabId, activateTab, toast, t),
         openScanCleanupForDocument: documentRef => recoverScanCleanupWorkspaceForDocument(documentRef, documentSessionsByTabId.value, activateTab),
         t,
+        locale: () => locale.value,
         toast,
     });
 

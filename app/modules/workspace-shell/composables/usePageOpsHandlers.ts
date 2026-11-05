@@ -3,11 +3,12 @@ import { difference } from 'es-toolkit/array';
 import { range } from 'es-toolkit/math';
 import type { ICropMargins } from '@app/types/crop';
 import type { TDocumentRef } from '@contracts/documentRef';
-import type { TDocumentRevisionToken } from '@contracts/documentRevision';
+import type {
+    TDocumentCommitReceipt, TDocumentRevisionToken,
+} from '@contracts/documentRevision';
 import type {IPdfBookmarkEntry} from '@contracts/pdfBookmarkEntry';
 import type {IPdfPageLabelRange} from '@contracts/pdfPageLabels';
 import {
-    requirePageNumber,
     createAllPageSelection,
     createExplicitPageSelection,
     createMappedPageSelection,
@@ -18,11 +19,7 @@ import {
     pageMoveRangesSelectedPageCount,
     pageSelectionCount,
 } from '@pdf-core/pdfPageSelection';
-import {
-    getPageIdentityDeltaNextPageCount,
-    mapPageNumberThroughPageIdentityDelta,
-    type IPageIdentityDelta,
-} from '@contracts/electronApiPageOps';
+import type {IPageIdentityDelta} from '@contracts/electronApiPageOps';
 import type {
     IPageMoveRangeSegment,
     TPageMoveOperation,
@@ -78,7 +75,7 @@ export interface IPageOpsHandlersDeps {
     bookmarkItems: Ref<IPdfBookmarkEntry[]>;
     bookmarksResolved?: Ref<boolean>;
     /** The document's views: operations run in the one in use and keep every view on its pages. */
-    views: Pick<TDocumentViews, 'viewPorts' | 'commandViewRef'>;
+    views: Pick<TDocumentViews, 'viewPorts' | 'commandViewRef' | 'mapPageIdentity'>;
     totalPages: Ref<number>;
     selectedThumbnailPages: Ref<number[]>;
     setSelectedThumbnailPages: (pages: number[]) => void;
@@ -101,7 +98,10 @@ export interface IPageOpsHandlersDeps {
     onExtractedDocument?: (path: TDocumentRef) => Promise<void> | void;
     ensureHistoryBaselineForMutation: () => Promise<boolean>;
     saveAnnotationsForPageMutation: () => Promise<boolean>;
-    reloadWorkingCopyIntoHistory: (opts?: { markDirty?: boolean }) => Promise<boolean>;
+    reloadWorkingCopyIntoHistory: (opts?: {
+        markDirty?: boolean;
+        pageIdentityDelta?: IPageIdentityDelta
+    }) => Promise<boolean>;
     clearOcrCache: (path: TDocumentRef) => void;
     resetSearchCache: () => void;
     ensureWorkingCopyFreshForRead?: () => Promise<boolean>;
@@ -142,16 +142,6 @@ export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
     } = deps;
     const pdfViewerRef = views.commandViewRef<IPdfViewerForPageOps | null>(port => port.view.pdfViewerRef, null);
     let stagedPageIdentityDelta: IPageIdentityDelta | null = null;
-
-    // Each view keeps showing the pages it was reading (T4).
-    function mapViewPages(delta: IPageIdentityDelta) {
-        const nextPageCount = getPageIdentityDeltaNextPageCount(delta);
-        for (const port of views.viewPorts.value.values()) {
-            const page = port.view.currentPage;
-            page.value = mapPageNumberThroughPageIdentityDelta(delta, requirePageNumber(page.value))
-                ?? Math.min(page.value, nextPageCount ?? page.value);
-        }
-    }
 
     function runPageOperationDetached(label: string, task: () => Promise<unknown>) {
         return runDetached(task, {
@@ -219,7 +209,7 @@ export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
             );
             const delta = result.pageIdentityDelta;
             if (delta) {
-                mapViewPages(delta);
+                views.mapPageIdentity(delta);
                 stagedPageIdentityDelta = delta;
             }
             if (result.documentRevision?.documentRef !== path) {
@@ -355,7 +345,7 @@ export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
                     : undefined;
                 if (delta) {
                     if (delta !== stagedPageIdentityDelta) {
-                        mapViewPages(delta);
+                        views.mapPageIdentity(delta);
                     }
                     stagedPageIdentityDelta = null;
                 }
@@ -373,6 +363,7 @@ export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
     async function pageOpsDeleteAndClearSelection(
         pages: TPageSelectionInput,
         expectedTotalPages: number,
+        onCommitted?: TDocumentCommitReceipt,
     ) {
         if (!Array.isArray(pages)) {
             const selection = normalizePageSelectionInput(pages, expectedTotalPages);
@@ -391,7 +382,7 @@ export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
                     0,
                 );
                 const didDelete = await runStructuralPageMutation(
-                    () => pageOpsDeleteRanges(compactDeleteRanges, expectedTotalPages),
+                    () => pageOpsDeleteRanges(compactDeleteRanges, expectedTotalPages, onCommitted),
                     undefined,
                     {
                         kind: 'delete',
@@ -409,7 +400,7 @@ export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
             }
 
             const didDelete = await runStructuralPageMutation(
-                () => pageOpsDelete(selection, expectedTotalPages),
+                () => pageOpsDelete(selection, expectedTotalPages, onCommitted),
                 undefined,
                 {
                     kind: 'delete',
@@ -426,7 +417,7 @@ export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
         }
         const deleted = new Set(pages);
         return runStructuralPageMutation(
-            () => pageOpsDelete(pages, expectedTotalPages),
+            () => pageOpsDelete(pages, expectedTotalPages, onCommitted),
             selection => selection.flatMap((page) => {
                 if (deleted.has(page)) {
                     return [];
@@ -440,9 +431,9 @@ export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
         );
     }
 
-    async function pageOpsInsertAndClearSelection(expectedTotalPages: number, afterPage: number) {
+    async function pageOpsInsertAndClearSelection(expectedTotalPages: number, afterPage: number, onCommitted?: TDocumentCommitReceipt) {
         return runStructuralPageMutation(
-            () => pageOpsInsert(expectedTotalPages, afterPage),
+            () => pageOpsInsert(expectedTotalPages, afterPage, onCommitted),
             undefined,
             {
                 kind: 'insert',
@@ -547,7 +538,7 @@ export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
         onExportPages(Array.isArray(pages) ? [...pages] : pages);
     }
 
-    async function handlePageRotate(pages: TPageSelectionInput, angle: 90 | 180 | 270) {
+    async function handlePageRotate(pages: TPageSelectionInput, angle: 90 | 180 | 270, onCommitted?: TDocumentCommitReceipt) {
         if (isPdfPageOperationBlocked()) {
             return false;
         }
@@ -577,6 +568,7 @@ export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
                         selection,
                         totalPages.value,
                         angle,
+                        onCommitted,
                     );
                     if (!didRotate) {
                         await pdfViewerRef.value?.cancelPageRotationPreview?.({invalidatedPages});
@@ -675,7 +667,7 @@ export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
         ));
     }
 
-    async function handleCropPages(pages: number[] | TPageSelection, margins: ICropMargins) {
+    async function handleCropPages(pages: number[] | TPageSelection, margins: ICropMargins, onCommitted?: TDocumentCommitReceipt) {
         if (isPdfPageOperationBlocked()) {
             return false;
         }
@@ -683,10 +675,10 @@ export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
         if (pageCount === 0) {
             return false;
         }
-        return runTrackedPageOperation('crop', pageCount, () => pageOpsCrop(pages, totalPages.value, margins));
+        return runTrackedPageOperation('crop', pageCount, () => pageOpsCrop(pages, totalPages.value, margins, onCommitted));
     }
 
-    async function handleRemoveCrop(pages: number[] | TPageSelection) {
+    async function handleRemoveCrop(pages: number[] | TPageSelection, onCommitted?: TDocumentCommitReceipt) {
         if (isPdfPageOperationBlocked()) {
             return false;
         }
@@ -694,7 +686,7 @@ export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
         if (pageCount === 0) {
             return false;
         }
-        return runTrackedPageOperation('removeCrop', pageCount, () => pageOpsRemoveCrop(pages, totalPages.value));
+        return runTrackedPageOperation('removeCrop', pageCount, () => pageOpsRemoveCrop(pages, totalPages.value, onCommitted));
     }
 
     return {

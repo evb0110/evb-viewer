@@ -64,10 +64,11 @@ const RUNTIME_ARCHIVES = {
         archiveBytes: 1397021,
         archiveSha256: '4a34454a29526e77d388a3af26dbaaad3c30569f1edf968b2c3e9ddded7a0a05',
     },
+    // v4 restores the shared libqpdf that pdf-page-ops loads beside qpdf.
     'qpdf-darwin-arm64': {
-        releaseName: 'runtime-binaries-v3',
-        archiveBytes: 1269205,
-        archiveSha256: '5c4ea8be8fbb91b182d2315078cca249b34dcbd0cd3313efcc240d44e447a40b',
+        releaseName: 'runtime-binaries-v4',
+        archiveBytes: 1350407,
+        archiveSha256: '8b148823fa24423285a2b768a54021af6d6c5f41295858957f04756faaafa2ec',
     },
     'qpdf-linux-x64': {
         releaseName: 'runtime-binaries-v2',
@@ -171,5 +172,5 @@ export const TESSDATA_RUNTIME_DATA_ENTRY: IRuntimeBinaryDataManifestEntry = {
 export const RUNTIME_BINARY_MANIFEST: IRuntimeBinaryManifest = {
     entries: RUNTIME_BINARY_MANIFEST_ENTRIES,
     dataEntries: [TESSDATA_RUNTIME_DATA_ENTRY],
-    manifestSha256: 'b93da3cd47d6c6634715e48cc80fb983f36857aa378fc459a5d0d46b65db7194',
+    manifestSha256: '25599e37595d2adfc3e66799caed1ac1cfa363d652dacbfc1cebd7e7e645b167',
 };

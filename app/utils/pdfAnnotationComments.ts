@@ -116,20 +116,38 @@ export function splitByQueryMatches(text: string, normalizedQuery: string): ICom
         }];
     }
 
+    // Lowercasing can change a character's length (İ becomes i̇), so matches
+    // are found in the folded text and cut from the original at the
+    // original characters they cover. The text folds as a whole, as the
+    // filter folds it, so a final sigma stays final; context changes a
+    // character's folded value there, never its length.
     const loweredText = text.toLowerCase();
+    const originalStart: number[] = [];
+    const originalEnd: number[] = [];
+    for (let index = 0; index < text.length;) {
+        const character = String.fromCodePoint(text.codePointAt(index)!);
+        for (let unit = 0; unit < character.toLowerCase().length; unit += 1) {
+            originalStart.push(index);
+            originalEnd.push(index + character.length);
+        }
+        index += character.length;
+    }
     const parts: ICommentQueryMatchPart[] = [];
     const queryLength = normalizedQuery.length;
     let cursor = 0;
+    let foldedCursor = 0;
 
     while (cursor < text.length) {
-        const matchIndex = loweredText.indexOf(normalizedQuery, cursor);
-        if (matchIndex === -1) {
+        const foldedMatch = loweredText.indexOf(normalizedQuery, foldedCursor);
+        if (foldedMatch === -1) {
             parts.push({
                 text: text.slice(cursor),
                 match: false,
             });
             break;
         }
+        const matchIndex = originalStart[foldedMatch]!;
+        const matchEnd = originalEnd[foldedMatch + queryLength - 1]!;
 
         if (matchIndex > cursor) {
             parts.push({
@@ -139,11 +157,14 @@ export function splitByQueryMatches(text: string, normalizedQuery: string): ICom
         }
 
         parts.push({
-            text: text.slice(matchIndex, matchIndex + queryLength),
+            text: text.slice(matchIndex, matchEnd),
             match: true,
         });
 
-        cursor = matchIndex + queryLength;
+        cursor = matchEnd;
+        // Resume after the last original character the match touched.
+        foldedCursor = foldedMatch + queryLength;
+        while (foldedCursor < loweredText.length && originalStart[foldedCursor]! < matchEnd) foldedCursor += 1;
     }
 
     return parts.length ? parts : [{

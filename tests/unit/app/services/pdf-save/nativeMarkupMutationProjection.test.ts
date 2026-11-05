@@ -7,11 +7,87 @@ import {
     buildNativeMarkupMutationForSave,
     toNativeMarkupHint,
 } from '@app/modules/pdf-viewer/annotations/persistence/nativeMarkupProjection';
-import {PDF_NATIVE_MUTATION_LIMITS} from '@contracts/nativePdfMutations';
+import {
+    PDF_NATIVE_MUTATION_LIMITS,
+    normalizePdfNativeMutationSet,
+} from '@contracts/nativePdfMutations';
+import {requireEpochMs} from '@contracts/timestamps';
 import {requirePageIndex} from '@contracts/pageNumbers';
 import {createComment} from '@tests/unit/app/services/pdf-save/createComment';
 
 describe('native markup builders', () => {
+    it.each([
+        'Highlight',
+        'Underline',
+        'StrikeOut',
+        'Squiggly',
+    ] as const)(
+        'keeps %s dates through collection, projection and contract normalization', subtype => {
+            for (const [
+                createdAt,
+                modifiedAt,
+            ] of [
+                    [
+                        requireEpochMs(1793750400000),
+                        requireEpochMs(1793750460000),
+                    ],
+                    [
+                        requireEpochMs(0),
+                        requireEpochMs(0),
+                    ],
+                    [
+                        null,
+                        null,
+                    ],
+                ] as const) {
+                const comment = createComment({
+                    subtype,
+                    annotationId: null,
+                    source: 'editor',
+                    createdAt,
+                    modifiedAt,
+                    markerRect: {
+                        left: 0.1,
+                        top: 0.2,
+                        width: 0.3,
+                        height: 0.1,
+                    },
+                    markupGeometry: [{
+                        left: 0.1,
+                        top: 0.2,
+                        width: 0.3,
+                        height: 0.1,
+                    }],
+                });
+                const markup = buildNativeMarkupMutationForSave({
+                    canonicalComments: [comment],
+                    changedComments: [comment],
+                    annotationWorkDirty: true,
+                });
+                const normalized = normalizePdfNativeMutationSet({markup: markup ?? undefined}, 'collected markup dates');
+                expect(normalized.markup?.hints[0]).toMatchObject({
+                    subtype,
+                    createdAt,
+                    modifiedAt,
+                });
+            }
+            const absent = toNativeMarkupHint({
+                subtype,
+                pageIndex: requirePageIndex(0),
+                markerRect: {
+                    left: 0.1,
+                    top: 0.2,
+                    width: 0.3,
+                    height: 0.1,
+                },
+                consumed: false,
+            });
+            const normalized = normalizePdfNativeMutationSet({markup: {hints: [absent!]}}, 'absent markup dates');
+            expect(normalized.markup?.hints[0]).not.toHaveProperty('createdAt');
+            expect(normalized.markup?.hints[0]).not.toHaveProperty('modifiedAt');
+        },
+    );
+
     it('converts eligible markup hints and edited comment hints', () => {
         const markerRect = {
             left: 0.1,
@@ -179,30 +255,38 @@ describe('native markup builders', () => {
         },
     );
 
-    it('keeps the marker rectangle when detailed geometry exceeds the native bound', () => {
-        const markerRect = {
+    it('saves every rectangle up to the native bound and refuses a longer list', () => {
+        // One distinct line per rectangle, so a dropped one cannot hide.
+        const lines = (count: number) => Array.from({length: count}, (_, index) => ({
             left: 0.1,
-            top: 0.2,
+            top: index / 1_024,
             width: 0.3,
-            height: 0.4,
-        };
-        const nativeHint = toNativeMarkupHint({
-            subtype: 'Squiggly',
-            pageIndex: requirePageIndex(0),
-            markerRect,
-            markupGeometry: Array.from(
-                {length: PDF_NATIVE_MUTATION_LIMITS.markupGeometryItems + 1},
-                () => markerRect,
-            ),
+            height: 0.0008,
+        }));
+        const comment = (count: number) => createComment({
+            subtype: 'Highlight',
             annotationId: null,
-            color: '#336699',
-            id: 'bounded-fallback',
-            pageMarkupIndex: null,
-            source: 'editor',
-            consumed: false,
+            markerRect: {
+                left: 0.1,
+                top: 0,
+                width: 0.3,
+                height: count / 1_024,
+            },
+            markupGeometry: lines(count),
         });
+        const limit = PDF_NATIVE_MUTATION_LIMITS.markupGeometryItems;
+        const atLimit = comment(limit);
 
-        expect(nativeHint).toEqual(expect.objectContaining({markerRect}));
-        expect(nativeHint).not.toHaveProperty('markupGeometry');
+        expect(buildNativeMarkupMutationForSave({
+            canonicalComments: [atLimit],
+            changedComments: [atLimit],
+            annotationWorkDirty: true,
+        })?.hints[0]?.markupGeometry).toEqual(lines(limit));
+        const overLimit = comment(limit + 1);
+        expect(() => buildNativeMarkupMutationForSave({
+            canonicalComments: [overLimit],
+            changedComments: [overLimit],
+            annotationWorkDirty: true,
+        })).toThrow(`more than ${String(limit)} rectangles`);
     });
 });

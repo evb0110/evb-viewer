@@ -1690,30 +1690,47 @@ describe('BrowserDocumentStore', () => {
         await expect(store.readRange(ref, largeBytes.byteLength - 1, 1)).resolves.toEqual(Uint8Array.of(7));
     });
 
-    it('replaces chunk generations after a large rewrite and removes superseded chunks', async () => {
-        const store = new BrowserDocumentStore();
-        const firstBytes = new Uint8Array((16 * 1024 * 1024) + 1);
-        firstBytes[0] = 1;
-        firstBytes[firstBytes.byteLength - 1] = 2;
-        const ref = await store.createStoredDocument('rewrite-generations.pdf', firstBytes, {
-            mimeType: 'application/pdf',
-            kind: 'working',
+    it('keeps a saved-over source readable for another tab, and maintenance reclaims it after release', async () => {
+        const tabA = new BrowserDocumentStore();
+        const source = await tabA.createStoredDocument('shared.pdf', Uint8Array.of(1, 2, 3, 4, 5, 6, 7, 8), {
+            kind: 'source',
+            retention: 'durable',
+            storageMode: 'chunked',
+            chunkSize: 4,
             saveKind: 'pdf',
+            mimeType: 'application/pdf',
         });
-        const database = indexedDbFactory.getDatabase('evb-viewer-browser-documents');
-        const firstChunkKeys = Array.from(database?.getStoreRecords('document-chunks').keys() ?? []);
+        await tabA.touchRecentFile(source);
+        const workingA = await tabA.cloneAsWorkingCopy(source);
+        const tabB = await createFreshBrowserDocumentStore();
+        const workingB = await tabB.cloneAsWorkingCopy(source);
+        const leaseB = await tabB.createLiveLease('window:b', [
+            {ref: source},
+            {ref: workingB},
+        ]);
+        await expect(tabB.readRange(workingB, 0, 4)).resolves.toEqual(Uint8Array.of(1, 2, 3, 4));
+        const generation = (await tabB.requireEntry(source)).chunkGeneration;
+        const database = indexedDbFactory.getDatabase('evb-viewer-browser-documents')!;
+        const oldChunks = () => [...database.getStoreRecords('document-chunks').keys()].filter(key => key.includes(`::${String(generation)}::`));
 
-        const secondBytes = new Uint8Array((16 * 1024 * 1024) + 1);
-        secondBytes[0] = 3;
-        secondBytes[secondBytes.byteLength - 1] = 4;
-        const revision = await store.getDocumentRevision(ref);
-        await store.write(ref, secondBytes, {expectedDocumentRevisionToken: revision.token});
+        const revision = await tabA.getDocumentRevision(workingA);
+        await tabA.runDocumentMutationWithSource(workingA, source, revision.token, async (mutation) => {
+            await mutation.materializeWorkingCopy();
+            await mutation.writeSource(Uint8Array.of(9, 9, 9, 9, 9, 9, 9, 9));
+            await mutation.acknowledgePhysicalSourceCommit();
+        });
 
-        const secondChunkKeys = Array.from(database?.getStoreRecords('document-chunks').keys() ?? []);
-        expect(secondChunkKeys).not.toEqual(firstChunkKeys);
-        expect(secondChunkKeys.some(key => firstChunkKeys.includes(key))).toBe(false);
-        await expect(store.readRange(ref, 0, 1)).resolves.toEqual(Uint8Array.of(3));
-        await expect(store.readRange(ref, secondBytes.byteLength - 1, 1)).resolves.toEqual(Uint8Array.of(4));
+        // Tab B keeps reading the bytes it opened, including ones it had not read yet.
+        await expect(tabB.readRange(workingB, 4, 4)).resolves.toEqual(Uint8Array.of(5, 6, 7, 8));
+        expect(oldChunks()).toHaveLength(2);
+
+        // Released and past its grace, the old generation goes to the next sweep.
+        await tabB.releaseLiveLease('window:b', leaseB.generation);
+        vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 11 * 60_000);
+        await sweepBrowserDocumentMaintenance(new Map());
+        vi.restoreAllMocks();
+        expect(oldChunks()).toHaveLength(0);
+        await expect(new BrowserDocumentStore().readRange(source, 0, 1)).resolves.toEqual(Uint8Array.of(9));
     });
 
     it('keeps the previous chunk generation readable when a large rewrite is interrupted', async () => {

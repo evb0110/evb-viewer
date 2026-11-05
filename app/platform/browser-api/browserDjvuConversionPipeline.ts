@@ -506,7 +506,7 @@ async function mapDjvuContentsToPdfBookmarks(
     for (const item of items) {
         throwIfCanceled(signal);
         const pageNumber = item.url
-            ? await worker.doc.getPageNumberByUrl(item.url).run().catch(() => null)
+            ? await worker.doc.getPageNumberByUrl(item.url).run()
             : null;
         const children = await mapDjvuContentsToPdfBookmarks(
             worker,
@@ -685,7 +685,7 @@ async function buildPdfWithOptionalBookmarks(options: {
         let bookmarks: IPdfBookmarkEntry[] = [];
         if (options.preserveBookmarks) {
             throwIfCanceled(options.signal);
-            const contents = await options.worker.doc.getContents().run().catch(() => null);
+            const contents = await options.worker.doc.getContents().run();
             throwIfCanceled(options.signal);
             bookmarks = await mapDjvuContentsToPdfBookmarks(
                 options.worker,
@@ -816,7 +816,7 @@ async function buildCompactDjvuPdfWithWasm(options: {
         throwIfCanceled(options.signal);
         let output = data;
         if (options.preserveBookmarks) {
-            const contents = await options.worker.doc.getContents().run().catch(() => null);
+            const contents = await options.worker.doc.getContents().run();
             const bookmarks = await mapDjvuContentsToPdfBookmarks(options.worker, contents, options.pages, options.signal);
             if (bookmarks.length > 0) {
                 options.onBookmarksStart?.();

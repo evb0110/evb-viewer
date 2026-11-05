@@ -152,6 +152,7 @@ import {
 import {
     clearWorkspaceCheckpoint,
     flushPendingWorkspaceCheckpointSave,
+    reserveWorkspaceCheckpointWorkingCopies,
 } from '@electron/workspaceCheckpointStore';
 import { initializeHostResourceProfile } from '@electron/resources/hostResourceProfile';
 import { configureMainJobBroker } from '@electron/resources/jobBroker';
@@ -773,7 +774,10 @@ void runInitSequence({
         }
     },
     cleanupStaleAppTempNamespaces,
-    cleanupStaleWorkingCopyDirectories,
+    cleanupStaleWorkingCopyDirectories: async () => {
+        await reserveWorkspaceCheckpointWorkingCopies();
+        return cleanupStaleWorkingCopyDirectories();
+    },
     createAdditionalWindow: () => createAppWindow(),
     createWindow,
     devDockBadgeText: DEV_DOCK_BADGE_TEXT,

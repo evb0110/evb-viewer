@@ -32,6 +32,7 @@ import {
 import {createOriginalFileContentFingerprintHash} from '@electron/file-access/createOriginalFileContentFingerprintHash';
 import {createLogger} from '@electron/utils/createLogger';
 import {fsyncDirectorySync} from '@electron/utils/fsyncPath';
+import {writeFileHandleFully} from '@electron/file-access/writeFileHandleFully';
 
 const COPY_ON_WRITE_FALLBACK_CODES = new Set([
     'ENOTSUP',
@@ -261,6 +262,8 @@ export async function copyFileCopyOnWrite(sourcePath: string, targetPath: string
 /** `fingerprintSource` hashes the source bytes as they are read, for a registration of that source. */
 interface ICopyFromStableSourceOptions {
     fingerprintSource?: boolean;
+    /** Give the target the source's permission bits, as a plain file copy does. */
+    preserveMode?: boolean;
     signal?: AbortSignal;
 }
 
@@ -291,6 +294,7 @@ export async function copyFileFromStableSource(
             ? createOriginalFileContentFingerprintHash(Number(sourceStat.size))
             : null;
         targetHandle = await open(targetPath, 'wx');
+        if (options.preserveMode) await targetHandle.chmod(Number(sourceStat.mode & 0o7777n));
         const buffer = Buffer.allocUnsafe(1024 * 1024);
         let offset = 0n;
         while (offset < sourceStat.size) {
@@ -306,7 +310,7 @@ export async function copyFileFromStableSource(
             }
             options.signal?.throwIfAborted();
             hash?.update(buffer.subarray(0, length));
-            await targetHandle.write(buffer, 0, length, Number(offset));
+            await writeFileHandleFully(targetHandle, buffer.subarray(0, length), Number(offset));
             offset += BigInt(length);
             if (offset < sourceStat.size) {
                 await new Promise<void>(resolveCopyYield => setImmediate(resolveCopyYield));

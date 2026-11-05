@@ -307,8 +307,14 @@ export const usePageShortcuts = <TDeps extends IPageShortcutsDeps>(deps: TDeps) 
         }
     }
 
+    // A dialog owns the keys pressed in it; the document behind it does not act.
+    function isInDialog(target: EventTarget | null) {
+        return typeof Element !== 'undefined' && target instanceof Element
+            && target.closest('[role="dialog"], [role="alertdialog"]') !== null;
+    }
+
     function handleCapturedWebMenuAccelerator(event: KeyboardEvent) {
-        if (!shouldHandleRendererMenuAccelerators()) {
+        if (!shouldHandleRendererMenuAccelerators() || isInDialog(event.target)) {
             return;
         }
         if (!eventHasCommandModifier(event) || event.altKey) {
@@ -344,6 +350,10 @@ export const usePageShortcuts = <TDeps extends IPageShortcutsDeps>(deps: TDeps) 
 
     function handleKeyboardShortcut(event: KeyboardEvent) {
         if (event.defaultPrevented || event.isComposing) {
+            return;
+        }
+        if (isInDialog(event.target)) {
+            editableBlocked.value = true;
             return;
         }
         suppressBrowserDefaultForConflictingAccelerator(event);
@@ -404,7 +414,7 @@ export const usePageShortcuts = <TDeps extends IPageShortcutsDeps>(deps: TDeps) 
     }
 
     function handleImagePaste(event: ClipboardEvent) {
-        if (!isActive.value || !interactiveDocument.value || event.defaultPrevented || isEditingText(event.target)) {
+        if (!isActive.value || !interactiveDocument.value || event.defaultPrevented || isEditingText(event.target) || isInDialog(event.target)) {
             return;
         }
         const file = readPageAnnotationImageFileFromPasteData(event.clipboardData);
@@ -415,8 +425,8 @@ export const usePageShortcuts = <TDeps extends IPageShortcutsDeps>(deps: TDeps) 
         deps.handlePasteImageFile(file);
     }
 
-    // Tracks whether the most recent keydown targeted an editable element,
-    // so the reactive `whenever` watchers can skip those events.
+    // Tracks whether the most recent keydown targeted an editable element or
+    // a dialog, so the reactive `whenever` watchers can skip those events.
     const editableBlocked = ref(false);
 
     const keys = useMagicKeys({

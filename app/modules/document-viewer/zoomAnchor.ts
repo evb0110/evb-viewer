@@ -47,6 +47,47 @@ export function resolveDocumentPageLeft(containerWidth: number, pageWidth: numbe
     return Math.max(DOCUMENT_PAGE_GUTTER_PX, (containerWidth - pageWidth) / 2);
 }
 
+function distanceToPage(layout: IDocumentZoomPageLayout, y: number) {
+    const bottom = layout.top + layout.height;
+    return y < layout.top ? layout.top - y : y > bottom ? y - bottom : 0;
+}
+
+/**
+ * The first page nearest to `y` in a layout whose page tops run down the
+ * document, as a continuous layout's do. A scroll reads it on every frame, so
+ * it searches the tops instead of visiting every page: pages starting below
+ * `y` only get farther, and pages above it are no nearer than the row just
+ * above `y`, except where a page ends exactly where the next row starts.
+ */
+function findNearestPageIndex(layouts: readonly IDocumentZoomPageLayout[], y: number) {
+    let low = 0;
+    let high = layouts.length;
+    while (low < high) {
+        const middle = (low + high) >>> 1;
+        if (layouts[middle]!.top > y) high = middle;
+        else low = middle + 1;
+    }
+    let nearest = Math.min(low, layouts.length - 1);
+    let nearestDistance = distanceToPage(layouts[nearest]!, y);
+    // The row holding the last page that starts above y, and the row before it.
+    let rowsLeft = 2;
+    let rowTop = Number.NaN;
+    for (let index = low - 1; index >= 0; index -= 1) {
+        const layout = layouts[index]!;
+        if (layout.top !== rowTop) {
+            rowTop = layout.top;
+            rowsLeft -= 1;
+            if (rowsLeft < 0) break;
+        }
+        const distance = distanceToPage(layout, y);
+        if (distance <= nearestDistance) {
+            nearestDistance = distance;
+            nearest = index;
+        }
+    }
+    return nearest;
+}
+
 export function captureDocumentZoomAnchor(
     container: TDocumentZoomViewport,
     layouts: readonly IDocumentZoomPageLayout[],
@@ -67,20 +108,7 @@ export function captureDocumentZoomAnchor(
         && preferredPageIndex < layouts.length
         ? preferredPageIndex
         : null;
-    let pageIndex = normalizedPreferredPageIndex ?? 0;
-    if (normalizedPreferredPageIndex === null) {
-        let nearestDistance = Number.POSITIVE_INFINITY;
-        layouts.forEach((layout, index) => {
-            const bottom = layout.top + layout.height;
-            const distance = viewportY < layout.top
-                ? layout.top - viewportY
-                : viewportY > bottom ? viewportY - bottom : 0;
-            if (distance < nearestDistance) {
-                nearestDistance = distance;
-                pageIndex = index;
-            }
-        });
-    }
+    const pageIndex = normalizedPreferredPageIndex ?? findNearestPageIndex(layouts, viewportY);
     const layout = layouts[pageIndex];
     if (!layout) {
         return null;

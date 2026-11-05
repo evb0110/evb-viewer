@@ -75,7 +75,8 @@ interface IAgentPageLabelSnapshot {
         rangeCount: number;
         firstLabel: string | null;
         lastLabel: string | null;
-        duplicateLabelCount: number;
+        duplicateLabelCount: number | null;
+        duplicateLabelAnalysisComplete: boolean;
     };
     issues: IAgentMetadataIssue[];
     ranges: IPdfPageLabelRange[];
@@ -177,6 +178,15 @@ function getPageNumberInput(input: Record<string, unknown>, totalPages: number, 
     );
 }
 
+/** The first style alias the input sets; an explicit null asks for literal labels. */
+function getStyleInput(input: Record<string, unknown>) {
+    return [
+        input.style,
+        input.numberStyle,
+        input.format,
+    ].find(value => value !== undefined);
+}
+
 function normalizeAgentPageLabelStyle(value: unknown): TPageLabelStyle {
     if (value === null) {
         return null;
@@ -231,7 +241,7 @@ function normalizePageLabelRangeInput(
     const hasExplicitPrefix = hasInputKey(input, 'prefix');
     const style = !hasExplicitStyle && !hasExplicitPrefix && literalLabel !== null
         ? null
-        : normalizeAgentPageLabelStyle(input.style ?? input.numberStyle ?? input.format);
+        : normalizeAgentPageLabelStyle(getStyleInput(input));
     return {
         startPage: getPageNumberInput(input, totalPages, actionId),
         style,
@@ -526,52 +536,43 @@ function createPageLabelSamples(
         }));
 }
 
-function createDuplicateLabelIssues(
-    ranges: IPdfPageLabelRange[],
+function createPageLabelIssues(
+    segments: readonly IAgentPageLabelSegment[],
     lookup: TDocumentPageLabelLookup,
-    totalPages: number,
 ) {
     const counts = new Map<string, number>();
+    const complete = isPageLabelArray(lookup) || segments.every(segment => segment.style === null);
     if (isPageLabelArray(lookup)) {
         for (const label of lookup) {
-            if (!label) {
-                continue;
-            }
-            counts.set(label, (counts.get(label) ?? 0) + 1);
+            if (label) counts.set(label, (counts.get(label) ?? 0) + 1);
         }
     } else {
-        for (const segment of buildPageLabelSegments(totalPages, ranges)) {
+        for (const segment of segments) {
             if (segment.style === null && segment.prefix) {
-                counts.set(
-                    segment.prefix,
-                    (counts.get(segment.prefix) ?? 0) + segment.endPage - segment.startPage + 1,
-                );
+                counts.set(segment.prefix, (counts.get(segment.prefix) ?? 0) + segment.pageCount);
             }
         }
     }
-
-    return Array.from(counts.entries())
-        .filter(([
-            , count,
-        ]) => count > 1)
-        .slice(0, 10)
-        .map(([
-            label,
-            count,
-        ]): IAgentMetadataIssue => ({
+    const duplicates = Array.from(counts.entries()).filter(([
+        , count,
+    ]) => count > 1);
+    const issues: IAgentMetadataIssue[] = duplicates.slice(0, 10).map(([
+        label,
+        count,
+    ]) => ({
+        severity: 'info',
+        code: 'duplicate_page_label',
+        message: complete
+            ? `Page label "${label}" appears on ${count} pages.`
+            : `Page label "${label}" appears on at least ${count} pages; numbered ranges were not analyzed.`,
+    }));
+    if (!complete) {
+        pushIssue(issues, {
             severity: 'info',
-            code: 'duplicate_page_label',
-            message: `Page label "${label}" appears on ${count} pages.`,
-        }));
-}
-
-function createPageLabelIssues(
-    ranges: IPdfPageLabelRange[],
-    segments: readonly IAgentPageLabelSegment[],
-    lookup: TDocumentPageLabelLookup,
-    totalPages: number,
-) {
-    const issues = createDuplicateLabelIssues(ranges, lookup, totalPages);
+            code: 'duplicate_page_label_analysis_incomplete',
+            message: 'Duplicate page-label analysis is incomplete because numbered ranges were not expanded. A null count does not mean labels are unique.',
+        });
+    }
     for (const segment of segments) {
         if (segment.style === null && segment.pageCount > 1) {
             pushIssue(issues, {
@@ -582,42 +583,11 @@ function createPageLabelIssues(
             });
         }
     }
-    return issues;
-}
-
-function countDuplicateLabels(
-    ranges: IPdfPageLabelRange[],
-    lookup: TDocumentPageLabelLookup,
-    totalPages: number,
-) {
-    if (!isPageLabelArray(lookup)) {
-        let duplicateCount = 0;
-        const counts = new Map<string, number>();
-        for (const segment of buildPageLabelSegments(totalPages, ranges)) {
-            if (segment.style !== null || !segment.prefix) {
-                continue;
-            }
-            const count = counts.get(segment.prefix) ?? 0;
-            const segmentCount = segment.endPage - segment.startPage + 1;
-            duplicateCount += Math.max(0, count + segmentCount - 1) - Math.max(0, count - 1);
-            counts.set(segment.prefix, count + segmentCount);
-        }
-        return duplicateCount;
-    }
-
-    const counts = new Map<string, number>();
-    let duplicateCount = 0;
-    for (const label of lookup) {
-        if (!label) {
-            continue;
-        }
-        const count = counts.get(label) ?? 0;
-        if (count === 1) {
-            duplicateCount += 1;
-        }
-        counts.set(label, count + 1);
-    }
-    return duplicateCount;
+    return {
+        issues,
+        complete,
+        duplicateLabelCount: complete ? duplicates.length : null,
+    };
 }
 
 export function createAgentPageLabelSnapshot(options: {
@@ -648,7 +618,7 @@ export function createAgentPageLabelSnapshot(options: {
         )
         ?? createPageLabelLookup(totalPages, ranges, labels);
     const segments = createPageLabelSegments(ranges, lookup, totalPages);
-    const issues = createPageLabelIssues(ranges, segments, lookup, totalPages);
+    const duplicateAnalysis = createPageLabelIssues(segments, lookup);
     return {
         totalPages,
         dirty: options.dirty,
@@ -657,9 +627,10 @@ export function createAgentPageLabelSnapshot(options: {
             rangeCount: ranges.length,
             firstLabel: totalPages > 0 ? lookupLabel(lookup, 1) : null,
             lastLabel: totalPages > 0 ? lookupLabel(lookup, totalPages) : null,
-            duplicateLabelCount: countDuplicateLabels(ranges, lookup, totalPages),
+            duplicateLabelCount: duplicateAnalysis.duplicateLabelCount,
+            duplicateLabelAnalysisComplete: duplicateAnalysis.complete,
         },
-        issues,
+        issues: duplicateAnalysis.issues,
         ranges,
         segments,
         samples: createPageLabelSamples(segments, lookup, totalPages),
@@ -853,20 +824,6 @@ export function createDocumentAgentPageLabels(options: ICreateDocumentAgentPageL
         totalPages,
     } = options;
 
-    function normalizeAgentPageLabelRange(input: Record<string, unknown>, actionId: string): IPdfPageLabelRange {
-        const style = normalizeAgentPageLabelStyle(input.style ?? input.numberStyle ?? input.format);
-        return {
-            startPage: getAgentPageNumberInput(input, totalPages.value, actionId),
-            style,
-            prefix: getAgentRawStringInput(input, 'prefix') ?? '',
-            startNumber: admitPdfPageLabelStartNumber(style,
-                getAgentNumberInput(input, 'startNumber')
-                ?? getAgentNumberInput(input, 'number')
-                ?? 1,
-            ),
-        };
-    }
-
     function createAgentPageLabelSnapshot() {
         const viewerLabelsResolved = pageLabelsResolved?.value ?? true;
         const viewerModel = viewerLabelsResolved
@@ -942,7 +899,7 @@ export function createDocumentAgentPageLabels(options: ICreateDocumentAgentPageL
         }
         return rawRanges
             .filter(isAgentRecord)
-            .map(range => normalizeAgentPageLabelRange(range, actionId));
+            .map(range => normalizePageLabelRangeInput(range, totalPages.value, actionId));
     }
 
     function getAgentPageLabelApplyRangeOptions(input: Record<string, unknown>, actionId: string) {
@@ -959,7 +916,7 @@ export function createDocumentAgentPageLabels(options: ICreateDocumentAgentPageL
         if (endPage < startPage) {
             throw new Error(`${actionId} endPage must be greater than or equal to startPage.`);
         }
-        const style = normalizeAgentPageLabelStyle(input.style ?? input.numberStyle ?? input.format);
+        const style = normalizeAgentPageLabelStyle(getStyleInput(input));
         return {
             startPage,
             endPage,

@@ -9,7 +9,14 @@ import {
 } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { runWasmToolBuilder } from './build-wasm-tool.mjs';
+import {
+    createWasmToolBuildPlan,
+    runWasmToolBuilder,
+} from './build-wasm-tool.mjs';
+import {
+    getCargoConfigurationInputs,
+    getCargoFingerprintEnvironment,
+} from './lib/build-environment.mjs';
 import { computeNativeBuildId } from './native-build-id.mjs';
 import {
     PREBUILT_WASM_FILES,
@@ -17,8 +24,42 @@ import {
 } from './wasm-artifacts.mjs';
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-// Keyed by crate name: the native build ID each public/wasm file was built from.
+// Keyed by crate name: the build identity each public/wasm file was built from.
 const buildIdsPathFor = root => path.join(root, '.tmp', 'wasm-build-ids.json');
+
+/**
+ * Everything a browser WASM build is made from: its native sources, and the
+ * Cargo arguments, effective Rust flags, Cargo and toolchain configuration
+ * files and compiler environment. A toolchain pin or flag change makes the
+ * build stale as surely as a source change. CI keys its WASM cache on it too.
+ * @param {string} root
+ * @param {import('./wasm-artifacts.mjs').IWasmArtifact} artifact
+ * @param {NodeJS.ProcessEnv} [env]
+ */
+export function computeWasmBuildIdentity(root, artifact, env = process.env) {
+    const plan = createWasmToolBuildPlan({
+        artifact,
+        env,
+        projectRoot: root,
+    });
+    const hash = createHash('sha256').update(JSON.stringify({
+        buildId: computeNativeBuildId(root, artifact.crateName),
+        cargoArgs: plan.cargoArgs,
+        environment: getCargoFingerprintEnvironment(env),
+        rustflags: plan.rustflags,
+    }));
+    for (const input of [
+        ...getCargoConfigurationInputs({
+            env,
+            projectRoot: root,
+        }),
+        path.join(root, 'native', 'rust-toolchain.toml'),
+    ]) {
+        if (!existsSync(input)) continue;
+        hash.update(`${path.relative(root, input)}\0`).update(readFileSync(input)).update('\0');
+    }
+    return hash.digest('hex');
+}
 
 /** @param {string} root @returns {Record<string, string>} */
 function readRecordedBuildIds(root) {
@@ -30,8 +71,8 @@ function readRecordedBuildIds(root) {
 }
 
 /**
- * The browser WASM files that are missing or were built from other native
- * sources, with the build ID each one must carry. Without native/ sources there
+ * The browser WASM files that are missing or were built from other inputs,
+ * with the build identity each one must carry. Without native/ sources there
  * is no identity to compare, so only presence counts and the build ID is null.
  * @param {string} [root]
  * @returns {Array<{artifact: import('./wasm-artifacts.mjs').IWasmArtifact, buildId: string | null}>}
@@ -50,7 +91,7 @@ export function findWasmArtifactsToBuild(root = projectRoot) {
     return WASM_ARTIFACTS
         .map(artifact => ({
             artifact,
-            buildId: computeNativeBuildId(root, artifact.crateName),
+            buildId: computeWasmBuildIdentity(root, artifact),
         }))
         .filter(({
             artifact, buildId,

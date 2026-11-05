@@ -258,6 +258,12 @@ try {
     const corruptSource = await readFile(join(sourceDirectory, 'photo-art.djvu'));
     await writeFile(join(sourceDirectory, 'corrupt-truncated.djvu'), corruptSource.subarray(0, 96));
 
+    await run('djvm', [
+        '-create',
+        join(sourceDirectory, 'browser-tiff-5-pages.djvu'),
+        ...Array.from({length: 5}, () => bitonalPage),
+    ]);
+
     const boundaryPages = Array.from({length: 501}, () => bitonalPage);
     await run('djvm', [
         '-create',
@@ -338,6 +344,10 @@ try {
         [
             'corrupt-missing-tool-enospc',
             'corrupt-truncated.djvu',
+        ],
+        [
+            'browser-tiff',
+            'browser-tiff-5-pages.djvu',
         ],
         [
             'browser-boundary',

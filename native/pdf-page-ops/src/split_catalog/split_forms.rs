@@ -3,17 +3,73 @@ use super::*;
 use crate::catalog::CatalogWalkState;
 use crate::split_output::SplitAnnotationMap;
 
+/// Finalize qpdf's page subset with the same field owner as browser subsets.
+pub(crate) fn write_subset_form_path(
+    input: &Path,
+    output: &Path,
+    qpdf: Option<&Path>,
+) -> Result<()> {
+    let mut incremental = load_dictionary_incremental_pdf_path(input, qpdf)?;
+    let source = &incremental.previous_document;
+    assert_page_structure_supported(source)?;
+    if !source.catalog()?.has(b"AcroForm") {
+        return if input == output {
+            Ok(())
+        } else {
+            with_staged_incremental_output(input, output, |_| Ok(()))
+        };
+    }
+    let mut annotations = SplitAnnotationMap::new();
+    for page in source.get_pages().values() {
+        for entry in crate::split_navigation::source_annotation_entries(source, *page) {
+            let (id, object) = source.dereference(&entry)?;
+            let dictionary = object.as_dict()?;
+            if dictionary.get(b"Subtype").and_then(Object::as_name).ok() == Some(b"Widget") {
+                let id = id.ok_or("Retained form widget must be indirect")?;
+                incremental.new_document.set_object(id, dictionary.clone());
+                annotations.entry(id).or_default().push((*page, id));
+            }
+        }
+    }
+    if let Some(form) = split_form(source, &mut incremental.new_document, &annotations)? {
+        let mut catalog = source.catalog()?.clone();
+        catalog.set("AcroForm", form);
+        incremental
+            .new_document
+            .set_object(source.trailer.get(b"Root")?.as_reference()?, catalog);
+    }
+    incremental.new_document.version = source.version.clone();
+    let revision = build_incremental_revision(&mut incremental)?;
+    let ids = collect_incremental_append_object_ids(&incremental);
+    with_staged_incremental_output(input, output, |staged| {
+        write_incremental_revision(staged, &incremental, &revision, &ids)
+    })
+}
+
 pub(crate) fn split_form(
     source: &Document,
     target: &mut Document,
     annotations: &SplitAnnotationMap,
 ) -> Result<Option<Dictionary>> {
+    split_form_with_copy(source, target, annotations, &mut |object| Ok(object))
+}
+
+pub(crate) fn split_form_with_copy(
+    source: &Document,
+    target: &mut Document,
+    annotations: &SplitAnnotationMap,
+    copy: &mut impl FnMut(Object) -> Result<Object>,
+) -> Result<Option<Dictionary>> {
     if let Ok(form) = source.catalog()?.get(b"AcroForm") {
-        let mut form = source.resolved(form)?.as_dict()?.clone();
+        let source_form = source.resolved(form)?.as_dict()?;
+        let mut form = source_form.clone();
+        form.remove(b"Fields");
+        form.remove(b"CO");
+        let mut form = copy(Object::Dictionary(form))?.as_dict()?.clone();
         let mut state = CatalogWalkState::new();
         let mut fields = HashMap::new();
         let mut roots = Vec::new();
-        for field in form
+        for field in source_form
             .get(b"Fields")
             .ok()
             .and_then(|fields| source.resolved(fields).ok())
@@ -25,18 +81,18 @@ pub(crate) fn split_form(
                 source,
                 target,
                 field,
-                None,
-                None,
+                (None, None),
                 annotations,
                 &mut fields,
                 &mut state,
+                copy,
                 0,
             )? {
                 roots.push(field.into());
             }
         }
         form.set("Fields", roots);
-        if let Ok(order) = form.get(b"CO") {
+        if let Ok(order) = source_form.get(b"CO") {
             let order = source
                 .resolved(order)?
                 .as_array()?
@@ -66,11 +122,12 @@ fn split_form_field(
     source: &Document,
     target: &mut Document,
     object: &Object,
-    parent: Option<ObjectId>,
-    field_type: Option<&[u8]>,
+    // The parent field and the field type it passes down.
+    (parent, field_type): (Option<ObjectId>, Option<&[u8]>),
     annotations: &SplitAnnotationMap,
     fields: &mut HashMap<ObjectId, ObjectId>,
     state: &mut CatalogWalkState,
+    copy: &mut impl FnMut(Object) -> Result<Object>,
     depth: usize,
 ) -> Result<Vec<ObjectId>> {
     if depth >= 256 || !state.enter(object) {
@@ -84,13 +141,17 @@ fn split_form_field(
         .and_then(|value| source.resolved(value).ok())
         .and_then(|value| value.as_name().ok())
         .or(field_type);
-    let mut field = field.clone();
-    let widget = field
+    let source_field = field;
+    let widget = source_field
         .get(b"Subtype")
         .ok()
         .and_then(|value| source.resolved(value).ok())
         .and_then(|value| value.as_name().ok())
         == Some(b"Widget");
+    let mut field = source_field.clone();
+    field.remove(b"Kids");
+    field.remove(b"Parent");
+    let mut field = copy(Object::Dictionary(field))?.as_dict()?.clone();
     let id = if widget {
         let copies = source_id.and_then(|id| annotations.get(&id));
         let Some(copies) = copies.filter(|copies| !copies.is_empty()) else {
@@ -143,10 +204,14 @@ fn split_form_field(
         field = combined;
         id
     } else {
-        let id = target.new_object_id();
-        if let Ok(kids) = field.get(b"Kids") {
+        // Actions already copied by the caller must keep naming this rebuilt field.
+        let id = match source_id {
+            Some(id) => copy(Object::Reference(id))?.as_reference()?,
+            None => target.new_object_id(),
+        };
+        if let Ok(kids) = source_field.get(b"Kids") {
             let kids = source.resolved(kids)?.as_array()?;
-            let options = field
+            let options = source_field
                 .get(b"Opt")
                 .ok()
                 .and_then(|value| source.resolved(value).ok())
@@ -159,16 +224,16 @@ fn split_form_field(
                     source,
                     target,
                     child,
-                    Some(id),
-                    field_type,
+                    (Some(id), field_type),
                     annotations,
                     fields,
                     state,
+                    copy,
                     depth + 1,
                 )? {
                     kept.push(Object::Reference(child));
                     if let Some(options) = options {
-                        kept_options.push(options[index].clone());
+                        kept_options.push(copy(options[index].clone())?);
                     }
                 }
             }

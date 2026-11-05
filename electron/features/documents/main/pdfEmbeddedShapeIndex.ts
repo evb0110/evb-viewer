@@ -137,7 +137,8 @@ function decodeOptionalString(value: unknown, fieldName: string) {
 }
 
 function decodeOptionalTimestamp(value: unknown, fieldName: string) {
-    if (value === undefined || value === null) {
+    // A date before 1970 reads as unknown, as the entry contract reads it.
+    if (value === undefined || value === null || (Number.isSafeInteger(value) && (value as number) < 0)) {
         return null;
     }
     const timestamp = parseEpochMs(value);

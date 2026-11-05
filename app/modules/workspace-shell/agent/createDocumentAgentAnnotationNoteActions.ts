@@ -134,7 +134,6 @@ export function createDocumentAgentAnnotationNoteActions(
             parse: parseAgentUpdateNoteInput,
             async run(parsedInput: IAgentUpdateNoteInput, _actionId, context?: IWorkspaceAgentCommandContext) {
                 const comment = options.findAgentAnnotationComment(parsedInput.input);
-                const previousText = comment.text;
                 const previousMarkerRect = comment.markerRect ?? null;
                 const commentForUpdate = parsedInput.markerRect
                     ? {
@@ -146,6 +145,9 @@ export function createDocumentAgentAnnotationNoteActions(
                 options.handleOpenAnnotationNote(commentForUpdate);
                 await nextTick();
                 context?.assertCurrentDocument();
+                // The open window's draft is what the reader sees and Undo must
+                // bring back, saved or not; the stored text may be older.
+                const previousText = findOpenAgentAnnotationNote(commentForUpdate)?.draftText ?? comment.text;
                 const updated = await applyAgentAnnotationNoteTextUpdate(
                     commentForUpdate,
                     parsedInput.text,

@@ -16,7 +16,10 @@ interface IUseDocumentWorkspaceOptimizeDialogOptions {handleOptimizePdfAsCopy: (
 ) => Promise<boolean>;}
 
 export const useDocumentWorkspaceOptimizeDialog = ({handleOptimizePdfAsCopy}: IUseDocumentWorkspaceOptimizeDialogOptions) => {
-    const { t } = useTypedI18n();
+    const {
+        t,
+        locale,
+    } = useTypedI18n();
     const toast = useToast();
     const optimizeDialogOpen = ref(false);
     const optimizeProgress = ref<IPdfOptimizeProgress | null>(null);
@@ -55,8 +58,14 @@ export const useDocumentWorkspaceOptimizeDialog = ({handleOptimizePdfAsCopy}: IU
             return undefined;
         }
         return {
-            original: formatBytes(result.originalBytes),
-            optimized: formatBytes(result.optimizedBytes),
+            original: formatBytes(result.originalBytes, {
+                t,
+                locale: locale.value,
+            }),
+            optimized: formatBytes(result.optimizedBytes, {
+                t,
+                locale: locale.value,
+            }),
             percent: Math.max(1, Math.round((1 - result.optimizedBytes / result.originalBytes) * 100)),
         };
     }

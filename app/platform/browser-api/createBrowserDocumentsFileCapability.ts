@@ -86,7 +86,6 @@ import {
     readBrowserStoreStagedArtifact,
     sha256Hex,
 } from '@app/platform/browser/browserStagedArtifact';
-import type {ITypedStagedArtifact} from '@contracts/stagedArtifacts';
 import {nativePdfSemanticScope} from '@contracts/nativePdfSemanticScope';
 import {
     parseDocumentRef,
@@ -164,14 +163,6 @@ function bindOptimizeTarget(target: TPickedSaveTarget): TPreparedPdfOptimizeCopy
     };
 }
 
-function createCanceledSaveValidationResult(validation: IPdfValidationResult): IPdfValidationResult {
-    return {
-        ...validation,
-        isValid: false,
-        errors: [],
-    };
-}
-
 export function createBrowserDocumentsFileCapability(
     options: ICreateBrowserDocumentsFileCapabilityOptions,
 ): TCanonicalDocumentsFileCapability {
@@ -206,7 +197,7 @@ export function createBrowserDocumentsFileCapability(
             pickerTypes: saveKind === 'pdf' ? buildPdfSaveTypes() : buildDocxSaveTypes(),
         });
         if (saveResult.canceled) return null;
-        const name = normalizeName(saveResult.fileName);
+        const name = saveResult.handle?.name ?? normalizeName(saveResult.fileName);
         const ref = await reserveBrowserDocumentWorkingCopy(name);
         try {
             return await browserDocumentStore.createStoredDocument(name, new Uint8Array(), {
@@ -266,7 +257,7 @@ export function createBrowserDocumentsFileCapability(
         }
     }
 
-    const capability: TCanonicalDocumentsFileCapability = {
+    return {
         async openDocumentDialog() {
             // Several files open as one combined document, as on desktop. An
             // indirect DjVu index picked with the files beside it opens as
@@ -478,14 +469,14 @@ export function createBrowserDocumentsFileCapability(
         },
         async commitStagedPdfNativeMutations(
             path,
-            stagedOutput: ITypedStagedArtifact,
+            stagedOutput,
             options,
         ) {
             if (!options?.expectedDocumentRevisionToken) {
                 throw new Error('Browser staged PDF save requires the document revision');
             }
             const identityBindings = browserNativeMutationLeases.get(stagedOutput.leaseId)?.identityBindings;
-            let committed: boolean;
+            let committed: Awaited<ReturnType<typeof saveWorkingBytesToSource>>;
             try {
                 committed = await saveWorkingBytesToSource(path, options, stagedOutput);
             } catch (error) {
@@ -516,6 +507,7 @@ export function createBrowserDocumentsFileCapability(
                 applied: true,
                 validation: createValidBrowserOutputResult(),
                 nativeMutationPostconditionsVerified: true,
+                documentRevision: committed,
                 ...(identityBindings ? {identityBindings} : {}),
             } satisfies IPdfNativeSaveResult;
         },
@@ -561,7 +553,6 @@ export function createBrowserDocumentsFileCapability(
         readFileRange(path, offset, length) {
             return browserDocumentStore.readRange(path, offset, length);
         },
-        readTextFile: path => browserDocumentStore.readText(path),
         fileExists: path => browserDocumentStore.exists(path),
         getDocumentRevision(path) {
             return browserDocumentStore.getDocumentRevision(path);
@@ -624,29 +615,24 @@ export function createBrowserDocumentsFileCapability(
                 path,
                 {expectedDocumentRevisionToken: revision.token},
             );
-            if (!saved) {
-                return createCanceledSaveValidationResult(validation);
-            }
+            if (!saved) return {
+                ...validation,
+                isValid: false,
+                errors: [],
+            };
             await clearSearchCaches();
             return validation;
         },
         // Streams a DOCX into the file chosen for `path`, or, without a file
         // handle, into `path`'s own record and then a download.
         async beginDocxFileStream(path) {
-            const saveTarget = await browserDocumentStore.getSaveTarget(path);
-            const fileName = ensureDocxExtension(saveTarget.saveName);
-            const sink = await openBrowserOutputSink(
-                saveTarget.saveHandle
-                    ? {
-                        fileName,
-                        handle: saveTarget.saveHandle,
-                    }
-                    : {
-                        fileName,
-                        stagingRef: path,
-                    },
-                {mimeType: DOCX_MIME_TYPE},
-            );
+            const {
+                saveHandle: handle, saveName,
+            } = await browserDocumentStore.getSaveTarget(path);
+            const sink = await openBrowserOutputSink({
+                fileName: handle?.name ?? ensureDocxExtension(saveName),
+                ...(handle ? {handle} : {stagingRef: path}),
+            }, {mimeType: DOCX_MIME_TYPE});
             const sessionId = createSessionId('browser-docx');
             docxStreams.set(sessionId, sink);
             return {sessionId};
@@ -747,40 +733,30 @@ export function createBrowserDocumentsFileCapability(
         recentFiles: {
             async get() {
                 const recentFiles = await browserDocumentStore.recoverRecentFilesIfStorageMissing();
-                const validatedFiles: IRecentFile[] = [];
-                let shouldBackfillStorage = false;
-
+                const sized = new Map<string, number>();
                 for (const file of recentFiles) {
                     const {
                         available,
                         entry,
                     } = await browserDocumentStore.ensureEntryAvailability(file.originalPath);
-                    if (!available) {
-                        return recentFiles;
-                    }
-                    if (entry && entry.retention !== 'transient') {
-                        const fileSize = typeof file.fileSize === 'number'
-                            ? file.fileSize
-                            : entry.fileSize;
-                        shouldBackfillStorage ||= fileSize !== file.fileSize;
-                        validatedFiles.push({
-                            ...file,
-                            fileSize,
-                        });
+                    if (!available) return recentFiles;
+                    if (entry?.retention === 'transient' || !entry) {
+                        await browserDocumentStore.removeRecentFile(file.originalPath);
                         continue;
                     }
-
-                    await browserDocumentStore.removeRecentFile(file.originalPath);
+                    sized.set(file.originalPath, entry.fileSize);
                 }
-
-                if (shouldBackfillStorage) {
-                    await runSerializedRecentFilesStorageMutation(() => ({
-                        files: validatedFiles,
+                const withSize = (file: IRecentFile) => (file.fileSize ? file : {
+                    ...file,
+                    fileSize: sized.get(file.originalPath) ?? 0,
+                });
+                if (recentFiles.some(file => !file.fileSize && sized.get(file.originalPath))) {
+                    await runSerializedRecentFilesStorageMutation(currentFiles => ({
+                        files: currentFiles.map(withSize),
                         value: undefined,
                     }));
                 }
-
-                return validatedFiles;
+                return recentFiles.filter(file => sized.has(file.originalPath)).map(withSize);
             },
             async remove(path) {
                 await browserDocumentStore.removeRecentFile(path);
@@ -850,6 +826,4 @@ export function createBrowserDocumentsFileCapability(
             }
         },
     };
-
-    return capability;
 }

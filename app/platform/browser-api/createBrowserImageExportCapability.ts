@@ -21,8 +21,10 @@ import {
 } from '@app/platform/browserDocumentStore';
 import { EXPORT_RENDER_SCALE } from '@app/platform/browser-api/browserImageExportConfig';
 import { toUint8Array } from '@app/platform/browser-api/browserBytes';
+import {runBrowserLock} from '@app/platform/browser/runBrowserLock';
 import { yieldToBrowser } from '@app/platform/browser-api/browserYield';
 import {
+    BrowserFileWriteOutcomeError,
     openBrowserOutputSink,
     pickSaveTarget,
     saveBytesToPickerOrDownload,
@@ -35,8 +37,8 @@ import {
     buildTiffSaveTypes,
 } from '@app/platform/browser-api/browserFileAccepts';
 import {
-    buildTiffImageIfd,
-    encodeTiffIfds,
+    encodeMultiPageTiffHeader,
+    splitTiffPageDescriptorsForClassicLimit,
 } from '@pdf-core/tiffEncoding';
 import {
     crc32,
@@ -68,6 +70,8 @@ import {PdfCombineCapabilityError} from '@contracts/pdfCombineErrors';
 
 import {
     IMAGE_EXPORT_FORMATS,
+    buildMultiPageTiffOutputSuffixes,
+    buildOutputFileNameWithSuffix,
     normalizeImageExportFileName,
     resolveImageExportFormat,
     type TImageExportFormat as TBrowserImageExportFormat,
@@ -331,60 +335,6 @@ async function collectTiffPageDescriptors(
     return descriptors;
 }
 
-function alignOffset(offset: number, alignment: number) {
-    if (alignment <= 1) {
-        return offset;
-    }
-
-    const remainder = offset % alignment;
-    return remainder === 0 ? offset : offset + (alignment - remainder);
-}
-
-function encodeMultiPageTiffHeader(
-    pageDescriptors: IBrowserTiffPageDescriptor[],
-    encoder: ITiffEncoderModule,
-) {
-    let firstDataOffset = 0;
-    let header = new Uint8Array();
-
-    for (let attempt = 0; attempt < 8; attempt += 1) {
-        const pageOffsets = pageDescriptors.map(() => 0);
-        let cursor = firstDataOffset;
-        for (let index = 0; index < pageDescriptors.length; index += 1) {
-            const descriptor = pageDescriptors[index];
-            if (!descriptor) {
-                throw new Error('Missing TIFF page descriptor');
-            }
-            pageOffsets[index] = cursor;
-            cursor += descriptor.dataLength;
-        }
-
-        header = toUint8Array(encodeTiffIfds(
-            pageDescriptors.map((page, index) =>
-                buildTiffImageIfd(page, pageOffsets[index] ?? 0),
-            ),
-            encoder,
-        ));
-
-        const nextFirstDataOffset = alignOffset(header.length, 8);
-        if (nextFirstDataOffset === firstDataOffset) {
-            break;
-        }
-        firstDataOffset = nextFirstDataOffset;
-    }
-
-    const finalFirstDataOffset = alignOffset(header.length, 8);
-    const totalByteLength = finalFirstDataOffset + sumBy(pageDescriptors, descriptor => descriptor.dataLength);
-    if (totalByteLength > 0xFFFFFFFF) {
-        throw new Error('Multi-page TIFF export exceeds the Classic TIFF 4GB limit');
-    }
-
-    return {
-        header,
-        firstDataOffset: finalFirstDataOffset,
-    };
-}
-
 function createMultiPageTiffOutput(
     pageDescriptors: IBrowserTiffPageDescriptor[],
     encoder: ITiffEncoderModule,
@@ -500,15 +450,14 @@ async function storeTiffAtHandle(
     return outputRef;
 }
 
-// Encodes one page in the format its chosen name selects, writes it there and
+// Writes an already encoded page in the format its chosen name selects and
 // stores the transient output. A canceled download picker stores nothing.
 async function saveImageExport(
     saveTarget: Pick<Awaited<ReturnType<typeof pickSaveTarget>>, 'fileName' | 'handle'>,
-    encode: (format: TBrowserImageExportFormat) => Promise<Uint8Array>,
+    bytes: Uint8Array,
 ) {
     const format = resolveImageExportFormat(saveTarget.fileName, 'jpeg');
     const mimeType = IMAGE_EXPORT_FORMATS[format].mimeType;
-    const bytes = await encode(format);
     let saveName = saveTarget.fileName;
     let saveHandle = saveTarget.handle;
     if (saveHandle) {
@@ -547,7 +496,7 @@ async function saveImageExport(
 // An export that does not finish releases the store entries it created.
 // The files already written at their chosen destinations stay.
 async function releaseImageExports(outputRefs: TDocumentRef[]) {
-    await Promise.allSettled(outputRefs.map(outputRef => browserDocumentStore.cleanupDetachedDocument(outputRef)));
+    await Promise.allSettled(outputRefs.map(outputRef => browserDocumentStore.remove(outputRef)));
 }
 
 async function loadPdfDocument(path: string) {
@@ -623,6 +572,27 @@ async function claimDirectoryFileName(directory: FileSystemDirectoryHandle, name
     return candidate;
 }
 
+// A failed writer may leave the new directory entry it opened. Remove only
+// the same, unchanged empty entry, after a known discard. Complete files stay.
+async function removeFailedDirectoryExport(
+    directory: FileSystemDirectoryHandle,
+    handle: FileSystemFileHandle,
+    initial: File,
+    error: unknown,
+) {
+    if (initial.size !== 0 || error instanceof BrowserFileWriteOutcomeError) return;
+    try {
+        const current = await directory.getFileHandle(handle.name);
+        if (!await handle.isSameEntry(current)) return;
+        const file = await current.getFile();
+        if (file.size === 0 && file.lastModified === initial.lastModified) {
+            await directory.removeEntry(handle.name);
+        }
+    } catch {
+        // Lost access, a removed entry, or an uncertain identity is not ownership.
+    }
+}
+
 async function exportImagePagesToDirectory(
     directory: FileSystemDirectoryHandle,
     names: string[],
@@ -637,12 +607,17 @@ async function exportImagePagesToDirectory(
             index,
             pageNumber,
         ] of targetPages.entries()) {
+            const bytes = await renderPage(pageNumber, resolveImageExportFormat(names[index]!, 'jpeg'));
             const fileName = await claimDirectoryFileName(directory, names[index]!, claimed);
             const handle = await directory.getFileHandle(fileName, {create: true});
+            const initial = await handle.getFile();
             const outputRef = await saveImageExport({
                 fileName,
                 handle,
-            }, format => renderPage(pageNumber, format));
+            }, bytes).catch(async (error: unknown) => {
+                await removeFailedDirectoryExport(directory, handle, initial, error);
+                throw error;
+            });
             if (!outputRef) throw new Error('A handle-backed image export cannot be canceled');
             outputRefs.push(outputRef);
             onPageWritten(index + 1);
@@ -717,19 +692,29 @@ type TImageExportDestination =
         kind: 'directory';
         directory: FileSystemDirectoryHandle
     }
-    | {kind: 'zip'};
+    | {kind: 'download'};
+
+// Keep directory claims, publication and cleanup under their own origin-wide
+// owner. Document saves use a separate lock and remain available.
+function withDirectoryPublication<T>(destination: TImageExportDestination, publish: () => Promise<T>) {
+    return destination.kind === 'directory' ? runBrowserLock('evb-viewer:browser-directory-export', publish) : publish();
+}
 
 // One page goes to the file the person names, in the format its name selects.
 // Several pages go, as on desktop, into one chosen folder under deterministic
 // names, or into one ZIP download where the browser cannot choose a folder.
 // The picker opens before slow work where it can, while the click that asked
 // for the export still allows it.
-async function chooseImageExportDestination(pageCount: number, firstPage: number): Promise<TImageExportDestination | null> {
+async function chooseImageExportDestination(
+    pageCount: number,
+    firstPage: number,
+    singleFile = {
+        suggestedName: buildSinglePageImageExportName(firstPage),
+        pickerTypes: buildImageExportPickerTypes(),
+    },
+): Promise<TImageExportDestination | null> {
     if (pageCount === 1) {
-        const saveTarget = await pickSaveTarget({
-            suggestedName: buildSinglePageImageExportName(firstPage),
-            pickerTypes: buildImageExportPickerTypes(),
-        });
+        const saveTarget = await pickSaveTarget(singleFile);
         return saveTarget.canceled ? null : {
             kind: 'file',
             saveTarget,
@@ -740,7 +725,7 @@ async function chooseImageExportDestination(pageCount: number, firstPage: number
     return directory ? {
         kind: 'directory',
         directory,
-    } : {kind: 'zip'};
+    } : {kind: 'download'};
 }
 
 const CANCELED_IMAGE_EXPORT = {
@@ -764,7 +749,8 @@ async function writeBrowserImagePages(
     const [firstPage] = targetPages;
     if (firstPage === undefined) return CANCELED_IMAGE_EXPORT;
     if (destination.kind === 'file') {
-        const outputRef = await saveImageExport(destination.saveTarget, format => renderPage(firstPage, format));
+        const bytes = await renderPage(firstPage, resolveImageExportFormat(destination.saveTarget.fileName, 'jpeg'));
+        const outputRef = await saveImageExport(destination.saveTarget, bytes);
         if (!outputRef) return CANCELED_IMAGE_EXPORT;
         onPageWritten(1);
         return {
@@ -777,7 +763,7 @@ async function writeBrowserImagePages(
     if (destination.kind === 'directory') {
         return {
             success: true as const,
-            outputPaths: await exportImagePagesToDirectory(destination.directory, names, targetPages, renderPage, onPageWritten),
+            outputPaths: await withDirectoryPublication(destination, () => exportImagePagesToDirectory(destination.directory, names, targetPages, renderPage, onPageWritten)),
         };
     }
     await exportImagePagesAsZip(names, targetPages, renderPage, onPageWritten);
@@ -898,6 +884,12 @@ async function exportBrowserDjvuAsTiff(
     pageNumbers: number[] | undefined,
     requestId: TRequestId | undefined,
 ) {
+    const fileName = normalizeImageExportFileName('document.tiff', 'tiff');
+    const destination = await chooseImageExportDestination(pageNumbers?.length ?? 2, pageNumbers?.[0] ?? 1, {
+        suggestedName: fileName,
+        pickerTypes: buildTiffSaveTypes(),
+    });
+    if (!destination) return CANCELED_IMAGE_EXPORT;
     const worker = await createDjvuWorkerFromPath(workingCopyPath);
     try {
         const sizes = await getDjvuWorkerPageSizes(worker);
@@ -909,19 +901,8 @@ async function exportBrowserDjvuAsTiff(
             };
         }
 
-        const saveTarget = await pickSaveTarget({
-            suggestedName: normalizeImageExportFileName('document.tiff', 'tiff'),
-            pickerTypes: buildTiffSaveTypes(),
-        });
-        if (saveTarget.canceled) {
-            return {
-                success: false as const,
-                canceled: true as const,
-            };
-        }
-
         const pageDescriptors = buildDjvuTiffPageDescriptors(sizes, targetPages);
-        return await exportRenderedPagesAsTiff(pageDescriptors, pageNumber => renderBrowserDjvuPage(worker, pageNumber), saveTarget, requestId);
+        return await withDirectoryPublication(destination, () => exportRenderedPagesAsTiff(pageDescriptors, pageNumber => renderBrowserDjvuPage(worker, pageNumber), destination, fileName, requestId));
     } finally {
         worker.terminate();
     }
@@ -930,10 +911,16 @@ async function exportBrowserDjvuAsTiff(
 async function exportRenderedPagesAsTiff(
     pageDescriptors: IBrowserTiffPageDescriptor[],
     renderPage: TTiffPageRenderer,
-    saveTarget: Awaited<ReturnType<typeof pickSaveTarget>>,
+    destination: TImageExportDestination,
+    suggestedName: string,
     requestId: TRequestId | undefined,
 ) {
     const encoder = await loadUtifEncoder();
+    const groups = splitTiffPageDescriptorsForClassicLimit(pageDescriptors, encoder);
+    const suffixes = buildMultiPageTiffOutputSuffixes(groups.length);
+    const outputRefs: TDocumentRef[] = [];
+    const claimed = new Set<string>();
+    let processedPages = 0;
     const emitPageProgress = (processed: number) => emitBrowserImageExportProgress(requestId, 'multipage-tiff', {
         phase: 'rendering',
         processed,
@@ -942,58 +929,80 @@ async function exportRenderedPagesAsTiff(
     });
     emitPageProgress(0);
 
-    // Without a handle the TIFF is staged in its output record, which also
-    // keeps it in Recent Files, and downloaded from there.
-    const {
-        fileName,
-        handle,
-    } = saveTarget;
-    const target: TBrowserOutputTarget = handle
-        ? {
-            fileName,
-            handle,
-        }
-        : {
-            fileName,
-            stagingRef: await browserDocumentStore.createStoredDocument(fileName, new Uint8Array(), {
-                mimeType: 'image/tiff',
-                saveKind: 'generic',
-                kind: 'output',
-                retention: 'transient',
-                saveHandle: null,
-            }),
-        };
-    let published = false;
     try {
-        const sink = await openBrowserOutputSink(target, {mimeType: 'image/tiff'});
-        let fileSize: number;
-        try {
-            fileSize = await writeRenderedTiff(pageDescriptors, encoder, renderPage, sink, emitPageProgress);
-        } catch (error) {
-            await sink.abort();
-            throw error;
+        for (const [
+            index,
+            group,
+        ] of groups.entries()) {
+            let fileName = buildOutputFileNameWithSuffix(suggestedName, suffixes[index]!);
+            let handle: FileSystemFileHandle | null = null;
+            let initial: File | null = null;
+            if (destination.kind === 'file') {
+                // Explicit one-page selections are the only file-picker route.
+                fileName = destination.saveTarget.fileName;
+                handle = destination.saveTarget.handle;
+            } else if (destination.kind === 'directory') {
+                fileName = await claimDirectoryFileName(destination.directory, fileName, claimed);
+                handle = await destination.directory.getFileHandle(fileName, {create: true});
+                initial = await handle.getFile();
+            }
+            const target: TBrowserOutputTarget = handle ? {
+                fileName,
+                handle,
+            } : {
+                fileName,
+                stagingRef: await browserDocumentStore.createStoredDocument(fileName, new Uint8Array(), {
+                    mimeType: 'image/tiff',
+                    saveKind: 'generic',
+                    kind: 'output',
+                    retention: 'transient',
+                    saveHandle: null,
+                }),
+            };
+            let published = false;
+            try {
+                const sink = await openBrowserOutputSink(target, {mimeType: 'image/tiff'});
+                let fileSize: number;
+                try {
+                    fileSize = await writeRenderedTiff(group, encoder, renderPage, sink,
+                        processed => emitPageProgress(processedPages + processed));
+                } catch (error) {
+                    await sink.abort();
+                    throw error;
+                }
+                await sink.close();
+                const outputRef = 'handle' in target
+                    ? await storeTiffAtHandle(target.handle, fileSize)
+                    : target.stagingRef;
+                if ('stagingRef' in target) await browserDocumentStore.touchRecentFile(outputRef);
+                outputRefs.push(outputRef);
+                published = true;
+                processedPages += group.length;
+            } catch (error) {
+                if (destination.kind === 'directory' && handle && initial) {
+                    await removeFailedDirectoryExport(destination.directory, handle, initial, error);
+                }
+                throw error;
+            } finally {
+                if (!published && 'stagingRef' in target) {
+                    await browserDocumentStore.remove(target.stagingRef).catch(() => undefined);
+                }
+            }
         }
-        await sink.close();
-        const outputRef = 'handle' in target
-            ? await storeTiffAtHandle(target.handle, fileSize)
-            : target.stagingRef;
-        if (!('handle' in target)) await browserDocumentStore.touchRecentFile(outputRef);
-        published = true;
         emitBrowserImageExportProgress(requestId, 'multipage-tiff', {
             phase: 'combining',
-            processed: 1,
-            total: 1,
+            processed: groups.length,
+            total: groups.length,
             percent: 100,
         });
         return {
             success: true as const,
-            outputPath: outputRef,
-            outputPaths: [outputRef],
+            outputPath: outputRefs[0]!,
+            outputPaths: outputRefs,
         };
-    } finally {
-        if (!published && 'stagingRef' in target) {
-            await browserDocumentStore.remove(target.stagingRef).catch(() => undefined);
-        }
+    } catch (error) {
+        await releaseImageExports(outputRefs);
+        throw error;
     }
 }
 
@@ -1147,11 +1156,11 @@ export function createBrowserImageExportCapability(): IImageExportCapability {
             const outputFileName = normalizeImageExportFileName(
                 getBrowserDocumentFileName(workingCopyPath).replace(/\.pdf$/iu, ''), 'tiff',
             );
-            const firstSaveTarget = await pickSaveTarget({
+            const destination = await chooseImageExportDestination(pageNumbers?.length ?? 2, pageNumbers?.[0] ?? 1, {
                 suggestedName: outputFileName,
                 pickerTypes: buildTiffSaveTypes(),
             });
-            if (firstSaveTarget.canceled) {
+            if (!destination) {
                 return {
                     success: false,
                     canceled: true,
@@ -1170,7 +1179,7 @@ export function createBrowserImageExportCapability(): IImageExportCapability {
 
                 const descriptors = await collectTiffPageDescriptors(pdfDocument.pdfDocument, targetPages);
 
-                return await exportRenderedPagesAsTiff(descriptors, pageNumber => renderPdfPage(pdfDocument.pdfDocument, pageNumber), firstSaveTarget, requestId);
+                return await withDirectoryPublication(destination, () => exportRenderedPagesAsTiff(descriptors, pageNumber => renderPdfPage(pdfDocument.pdfDocument, pageNumber), destination, outputFileName, requestId));
             } finally {
                 await pdfDocument.destroy();
             }

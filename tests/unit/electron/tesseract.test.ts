@@ -1,8 +1,10 @@
 import type * as TViMockOriginalModule from '@ocr-core/resolveTesseractLanguageConfig';
 
 import { EventEmitter } from 'node:events';
+import {PassThrough} from 'node:stream';
 import {
     mkdtemp,
+    readdir,
     rm,
     writeFile,
 } from 'fs/promises';
@@ -26,8 +28,8 @@ class MockStdin extends EventEmitter {
 }
 
 class MockChildProcess extends EventEmitter {
-    public stdout = Object.assign(new EventEmitter(), { resume: vi.fn() });
-    public stderr = new EventEmitter();
+    public stdout = new PassThrough();
+    public stderr = new PassThrough();
     public stdin: MockStdin | undefined;
     public kill = vi.fn((_signal: string) => true);
 }
@@ -207,7 +209,7 @@ describe('file-based Tesseract arguments', () => {
         await vi.waitFor(() => {
             expect(mocks.spawn).toHaveBeenCalledTimes(1);
         });
-        child.emit('close', 1);
+        child.emit('close', 0);
         await resultPromise;
 
         expect(mocks.resolveTesseractLanguageConfig).toHaveBeenCalledWith(['eng'], {preserveDictionaries: false});
@@ -223,6 +225,59 @@ describe('file-based Tesseract arguments', () => {
             '-c',
             'textonly_pdf=1',
         ]));
+    });
+
+    it.each([
+        'model-preparation',
+        'confirmed-reread',
+    ] as const)('removes the first pass outputs when early-print reading is canceled (%s)', async phase => {
+        const directory = await mkdtemp(join(tmpdir(), 'evb-ocr-early-print-cancel-'));
+        try {
+            const image = join(directory, 'page-1.png');
+            await writeFile(image, PNG_SIGNATURE);
+            // The first pass writes its TSV and PDF; long-s-shaped words send
+            // the page on to early-print reading.
+            let passes = 0;
+            mocks.spawn.mockImplementation((_command: string, args: string[]) => {
+                const child = new MockChildProcess();
+                const outputBase = args[1]!;
+                const header = 'level\tpage_num\tblock_num\tpar_num\tline_num\tword_num\tleft\ttop\twidth\theight\tconf\ttext';
+                const rows = Array.from({length: 20}, (_, index) => `5\t1\t1\t1\t1\t${index + 1}\t${index * 12}\t10\t10\t10\t95\tfafa`);
+                void Promise.all([
+                    writeFile(`${outputBase}.tsv`, [
+                        header,
+                        ...rows,
+                    ].join('\n')),
+                    writeFile(`${outputBase}.pdf`, '%PDF-1.4\n'),
+                    ...(args.includes('tessedit_create_hocr=1') ? [writeFile(`${outputBase}.hocr`, '<html/>')] : []),
+                ]).then(() => {
+                    if (phase === 'confirmed-reread' && passes++ > 0) {
+                        // The reread has stopped before cancellation; the next native
+                        // attempt observes the abort without launching another process.
+                        child.emit('close', 0);
+                        controller.abort();
+                    } else child.emit('close', 0);
+                });
+                return child;
+            });
+            const controller = new AbortController();
+            const { runOcrFileBased } = await import('@electron/features/ocr/pipeline/tesseractRunner');
+
+            await expect(runOcrFileBased(image, ['lat'], 512, 512, 300, '/mock/tesseract', directory, 1, controller.signal, {}, async () => {
+                if (phase === 'model-preparation') {
+                    controller.abort();
+                    throw controller.signal.reason;
+                }
+            })).rejects.toMatchObject({name: 'AbortError'});
+
+            expect(mocks.spawn).toHaveBeenCalledTimes(phase === 'confirmed-reread' ? 2 : 1);
+            expect(await readdir(directory)).toEqual(['page-1.png']);
+        } finally {
+            await rm(directory, {
+                recursive: true,
+                force: true,
+            });
+        }
     });
 
     it('preserves dictionaries for the accurate quality profile', async () => {
@@ -246,7 +301,7 @@ describe('file-based Tesseract arguments', () => {
         await vi.waitFor(() => {
             expect(mocks.spawn).toHaveBeenCalledTimes(1);
         });
-        child.emit('close', 1);
+        child.emit('close', 0);
         await resultPromise;
 
         expect(mocks.resolveTesseractLanguageConfig).toHaveBeenCalledWith(['eng'], {preserveDictionaries: true});

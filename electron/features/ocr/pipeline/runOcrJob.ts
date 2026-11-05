@@ -509,13 +509,15 @@ async function processOcrPage(
         });
         return {error: `Failed to process page ${page.pageNumber}: ${errMsg}`};
     } finally {
-        lease?.release();
-        if (getUnprovenNativeTerminationDetail(pageFailure) === undefined) await Promise.all([
-            rm(pageImagePath, {force: true}),
-            rm(preprocessedImagePath, {force: true}),
-            rm(preprocessMetadataPath, {force: true}),
-            ...(ocrOutputPath === null ? [] : [rm(ocrOutputPath, {force: true})]),
-        ]).catch(() => undefined);
+        if (getUnprovenNativeTerminationDetail(pageFailure) === undefined) {
+            lease?.release();
+            await Promise.all([
+                rm(pageImagePath, {force: true}),
+                rm(preprocessedImagePath, {force: true}),
+                rm(preprocessMetadataPath, {force: true}),
+                ...(ocrOutputPath === null ? [] : [rm(ocrOutputPath, {force: true})]),
+            ]).catch(() => undefined);
+        }
     }
 }
 

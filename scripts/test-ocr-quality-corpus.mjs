@@ -57,14 +57,9 @@ const tesseract = process.env.EVB_TESSERACT_PATH ?? bundledExecutable('tesseract
 const pdftotext = process.env.EVB_PDFTOTEXT_PATH ?? bundledExecutable('poppler', 'pdftotext');
 const pdftoppm = process.env.EVB_PDFTOPPM_PATH ?? bundledExecutable('poppler', 'pdftoppm');
 const qpdf = process.env.EVB_QPDF_PATH ?? bundledExecutable('qpdf', 'qpdf');
-const pdfPageOps = process.env.EVB_PDF_PAGE_OPS_PATH
-    ?? join(
-        repositoryRoot,
-        'native',
-        'target',
-        'release',
-        process.platform === 'win32' ? 'evb-pdf-page-ops.exe' : 'evb-pdf-page-ops',
-    );
+// The copies `build-native-tool.mjs` stages for this host.
+const stagedNativeTool = (crateName, binaryName) => join(repositoryRoot, '.tmp', crateName, platformArch, 'bin', `${binaryName}${executableSuffix}`);
+const pdfPageOps = process.env.EVB_PDF_PAGE_OPS_PATH ?? stagedNativeTool('pdf-page-ops', 'evb-pdf-page-ops');
 const required = process.env.EVB_OCR_QUALITY_REQUIRED === '1';
 const degradedOptIn = required || process.env.EVB_OCR_QUALITY_DEGRADED === '1';
 const tessdataDirectory = process.env.EVB_TESSDATA_PATH
@@ -1013,8 +1008,7 @@ async function runCleanLanguageBenchmark({
 }
 
 async function resolveOptionalScanCleanup() {
-    const candidate = process.env.EVB_SCAN_CLEANUP_PATH
-        ?? join(repositoryRoot, 'native', 'target', 'release', `evb-scan-cleanup${executableSuffix}`);
+    const candidate = process.env.EVB_SCAN_CLEANUP_PATH ?? stagedNativeTool('scan-cleanup', 'evb-scan-cleanup');
     try {
         await access(candidate, fsConstants.X_OK);
         return candidate;

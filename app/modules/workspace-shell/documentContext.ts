@@ -24,6 +24,7 @@ import { useWorkspaceExport } from '@app/modules/workspace-shell/composables/use
 import { useWorkspaceFailureSurface } from '@app/modules/workspace-shell/composables/useWorkspaceFailureSurface';
 import { useWorkspaceFileLifecycleController } from '@app/modules/workspace-shell/composables/useWorkspaceFileLifecycleController';
 import { useWorkspaceAnnotationSession } from '@app/modules/workspace-shell/composables/useWorkspaceAnnotationSession';
+import { prepareDocumentViewsForHistorySwap } from '@app/modules/workspace-shell/document-sessions/prepareDocumentViewsForRevisionSwap';
 import { usePageOpsHandlers } from '@app/modules/workspace-shell/composables/usePageOpsHandlers';
 import { usePageFileOperations } from '@app/modules/workspace-shell/composables/usePageFileOperations';
 import { useWorkspaceSplitPayload } from '@app/modules/workspace-shell/composables/useWorkspaceSplitPayload';
@@ -108,8 +109,9 @@ export const createDocumentContext = ({controller}: {controller: IWorkspaceDocum
         selectedPageSelection: commandViewRef<TPageSelection | null>(port => port.view.selectedPageSelection, null),
         setSelectedThumbnailPages: (pages: number[]) => commandView.value?.view.setSelectedThumbnailPages(pages),
         setSelectedPageSelection: (selection: TPageSelection) => commandView.value?.view.setSelectedPageSelection(selection),
+        // Every view shows this document's thumbnails, not only the one acting.
         requestThumbnailInvalidation: (...args: Parameters<TViewShellState['requestThumbnailInvalidation']>) => (
-            commandView.value?.view.requestThumbnailInvalidation(...args)
+            viewPorts.value.forEach(port => port.view.requestThumbnailInvalidation(...args))
         ),
         closeAllDropdowns: () => commandView.value?.view.closeAllDropdowns(),
         openDropdown: (...args: Parameters<TViewShellState['openDropdown']>) => commandView.value?.view.openDropdown(...args),
@@ -126,6 +128,7 @@ export const createDocumentContext = ({controller}: {controller: IWorkspaceDocum
     // open's failure is told by the tab's document session.
     const failure = useWorkspaceFailureSurface();
     const file = useWorkspaceFileLifecycleController({
+        prepareHistoryRevisionSwap: (revision, delta) => prepareDocumentViewsForHistorySwap(views, pdfViewerRef.value, totalPages.value, revision, delta),
         createViewerLifecycleHooks: context => [createReadingViewLifecycleHooks(controller)].concat(driver.createLifecycleHooks(context)),
         getOpenSurface: () => commandView.value?.openSurface ?? null,
         runDocumentOpen,
@@ -290,9 +293,6 @@ export const createDocumentContext = ({controller}: {controller: IWorkspaceDocum
             sourceCapabilities.value = EMPTY_SOURCE_CAPABILITIES;
         }
     }, {immediate: true});
-    const saveThroughDriver = (action: 'save' | 'save-as') => (
-        driver.activeDocumentDriver.value?.operations.save.execute(action) ?? Promise.resolve(false)
-    );
     useShutdownSaveFlushReporting({
         workingCopyPath: file.workingCopyPath,
         hasPendingUnsavedChanges,
@@ -305,12 +305,12 @@ export const createDocumentContext = ({controller}: {controller: IWorkspaceDocum
     const save = {
         ...saveService,
         canSave: computed(() => !isMoving.value && saveService.canSave.value),
-        isAnySaving: saveService.isAnySaving,
         isSaving,
         isSavingAs,
         hasPendingUnsavedChanges,
-        handleSave: () => saveThroughDriver('save'),
-        handleSaveAs: () => saveThroughDriver('save-as'),
+        // An agent's Save learns the revision it committed, not whichever is current afterwards.
+        handleSave: driver.handleSave,
+        handleSaveAs: driver.handleSaveAs,
         optimizeDialog: useDocumentWorkspaceOptimizeDialog({handleOptimizePdfAsCopy: saveService.handleOptimizePdfAsCopy}),
     };
 
@@ -349,12 +349,16 @@ export const createDocumentContext = ({controller}: {controller: IWorkspaceDocum
     });
 
     const pdfHistory = usePdfHistory({
+        documentRevisionToken: file.documentRevisionToken,
+        runWithDocumentOperationLease: runExclusive,
+        isHistoryBusy: computed(() => controller.operationLease.activeKind.value === 'history'),
         pdfDocument,
         pdfViewerRef,
         openSurface: commandOpenSurface,
         currentPage,
         isAnySaving: saveService.isAnySaving,
         prepareHistory: pdfDocumentAnnotations.commitPendingDraftsForSave,
+        mapHistoryPage: file.mapHistoryPage,
         canUndo: commandCanUndo,
         canRedo: commandCanRedo,
         nextUndoSource: metadata.workspaceUndoTimeline.nextUndoSource,
@@ -365,13 +369,6 @@ export const createDocumentContext = ({controller}: {controller: IWorkspaceDocum
         undoHistory: metadata.workspaceUndoTimeline.undoTimeline,
         redoHistory: metadata.workspaceUndoTimeline.redoTimeline,
     });
-    const history = {
-        isHistoryBusy: computed(() => controller.operationLease.activeKind.value === 'history'),
-        canUndo: commandCanUndo,
-        canRedo: commandCanRedo,
-        handleUndo: () => runExclusive('history', () => pdfHistory.handleUndo()),
-        handleRedo: () => runExclusive('history', () => pdfHistory.handleRedo()),
-    };
     const hasOpenDocument = computed(() => (
         file.hasPdf.value
         || (
@@ -431,7 +428,7 @@ export const createDocumentContext = ({controller}: {controller: IWorkspaceDocum
         pdfSrc: file.pdfSrc,
         hasDocument: hasOpenDocument,
         isAnySaving: saveService.isAnySaving,
-        isHistoryBusy: history.isHistoryBusy,
+        isHistoryBusy: pdfHistory.isHistoryBusy,
         isExportingDocx: docx.isExportingDocx,
         isAnyAnnotationNoteSaving: annotations.isAnyAnnotationNoteSaving,
         isDocumentOperationInProgress: controller.operationLease.isBusy,
@@ -640,7 +637,7 @@ export const createDocumentContext = ({controller}: {controller: IWorkspaceDocum
             handleExportDocx,
             cancel: cancelDocxExport,
         },
-        history,
+        history: pdfHistory,
         hasOpenDocument,
         pageOps,
         fileOps,

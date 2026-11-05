@@ -39,6 +39,10 @@ import {
     createScanCleanupPageOverride,
     setScanCleanupPageOverride,
 } from '@contracts/scan-cleanup/scanCleanupPageOverrides';
+import {LOCALE_MESSAGES} from '@i18n-app';
+import {
+    formatTranslationLeaf, getNestedTranslationLeaf,
+} from '@i18n-core';
 import AppTooltip from '@app/components/AppTooltip.vue';
 import ScanCleanupThumbnailRail from '@app/modules/scan-cleanup/components/ScanCleanupThumbnailRail.vue';
 
@@ -88,6 +92,8 @@ vi.mock('@app/components/document-viewer/DocumentThumbnailList.vue', async () =>
         },
     })};
 });
+
+let realLocale: 'en' | 'fr' | null = null;
 
 const messages: Record<string, string> = {
     'scanCleanup.pages.title': 'Source pages',
@@ -197,7 +203,7 @@ vi.mock('@app/composables/useTypedI18n', async (importOriginal) => ({
     useTypedI18n: () => ({t: (
         key: string,
         parameters?: Record<string, string | number>,
-    ) => Object.entries(parameters ?? {}).reduce(
+    ) => realLocale ? formatTranslationLeaf(getNestedTranslationLeaf(LOCALE_MESSAGES[realLocale], key) ?? key, parameters, realLocale) : Object.entries(parameters ?? {}).reduce(
         (value, [
             parameter,
             replacement,
@@ -463,6 +469,7 @@ function pageRow(host: HTMLElement, page: number) {
 }
 
 afterEach(() => {
+    realLocale = null;
     for (const unmount of mountedApps) unmount();
     document.body.innerHTML = '';
 });
@@ -739,6 +746,41 @@ describe('ScanCleanupThumbnailRail', () => {
         }));
         await nextTick();
         expect(harness.leader.value).toBe(1);
+
+        // The keyboard builds a multi-page selection too.
+        for (let step = 0; step < 2; step += 1) {
+            list.dispatchEvent(new KeyboardEvent('keydown', {
+                bubbles: true,
+                key: 'ArrowDown',
+                shiftKey: true,
+            }));
+            await nextTick();
+        }
+        expect(harness.leader.value).toBe(3);
+        expect([...harness.selected.value].sort()).toEqual([
+            1,
+            2,
+            3,
+        ]);
+        for (const repeat of [
+            false,
+            true,
+            true,
+        ]) {
+            const event = new KeyboardEvent('keydown', {
+                bubbles: true,
+                cancelable: true,
+                key: ' ',
+                repeat,
+            });
+            list.dispatchEvent(event);
+            await nextTick();
+            expect(event.defaultPrevented).toBe(true);
+            expect([...harness.selected.value].sort()).toEqual([
+                1,
+                2,
+            ]);
+        }
     });
 
     it('sorts only rail positions by classification and confidence with unknowns last', async () => {
@@ -1026,4 +1068,21 @@ describe('ScanCleanupThumbnailRail', () => {
         expect(document.body.querySelector('[role="tooltip"]')?.textContent).toBe('Include in output');
     });
 
+});
+
+it.each([
+    [
+        'en',
+        '1 source page',
+    ],
+    [
+        'fr',
+        '1 page source',
+    ],
+] as const)('renders the one-page accessible source count in %s', (locale, expected) => {
+    realLocale = locale;
+    const {host} = mountRail({source: createSource(1)});
+    const label = host.querySelector('.scan-thumbnail-rail-heading span');
+    expect(label?.textContent).toBe('1');
+    expect(label?.getAttribute('aria-label')).toBe(expected);
 });

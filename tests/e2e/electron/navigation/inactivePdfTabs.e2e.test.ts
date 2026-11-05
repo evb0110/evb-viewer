@@ -1,3 +1,10 @@
+import type {IE2EWindow} from '@tests/e2e/electron/helpers/e2EWindow';
+import {randomBytes} from 'node:crypto';
+import {createServer} from 'node:net';
+import {
+    readFile, writeFile,
+} from 'node:fs/promises';
+import {resolve} from 'node:path';
 import {
     describe,
     expect,
@@ -663,4 +670,134 @@ describe('Electron E2E - Inactive PDF Tabs', () => {
             }
         }
     }, 120_000);
+    it('keeps dry runs and metadata previews from selecting another tab', async () => {
+        let session = sessionFixture.getSession();
+        const settingsPath = resolve('.devkit/sessions', session.name, 'electron-user-data/settings.json');
+        const settings = await session.page.evaluate(async () => {
+            const api = (window as IE2EWindow).electronAPI;
+            if (!api) throw new Error('Electron settings bridge unavailable');
+            return api.settings.get();
+        });
+        await writeFile(settingsPath, JSON.stringify({
+            ...settings,
+            agentMcpEnabled: true,
+        }));
+        const reservation = createServer();
+        await new Promise<void>(resolve => reservation.listen(0, '127.0.0.1', resolve));
+        const address = reservation.address();
+        if (!address || typeof address === 'string') throw new Error('No task MCP port');
+        const port = address.port;
+        await new Promise<void>((resolve, reject) => reservation.close(error => error ? reject(error) : resolve()));
+        const token = randomBytes(32).toString('hex');
+        session = await sessionFixture.restart({
+            clean: false,
+            extraEnv: {
+                EVB_MCP_PORT: String(port),
+                EVB_MCP_TOKEN: token,
+            },
+        });
+        const {page} = session;
+        const call = async (name: string, args: Record<string, unknown>) => {
+            const response = await fetch(`http://127.0.0.1:${port}`, {
+                method: 'POST',
+                headers: {
+                    'content-type': 'application/json',
+                    authorization: `Bearer ${token}`,
+                },
+                body: JSON.stringify({
+                    jsonrpc: '2.0',
+                    id: name,
+                    method: 'tools/call',
+                    params: {
+                        name,
+                        arguments: args,
+                    },
+                }),
+            });
+            expect(response.ok).toBe(true);
+            return (await response.json()).result;
+        };
+        await setTabMemoryPolicyForE2E(page, 'conservative');
+        firstFixturePath = await createMultiPageTextFixturePdf(`passive-first-${Date.now()}.pdf`, 3);
+        secondFixturePath = await createMultiPageTextFixturePdf(`passive-second-${Date.now()}.pdf`, 3);
+        await openPdfInApp(page, firstFixturePath);
+        await waitForPdfLoaded(page);
+        await setupScrollToPage(page, 2);
+        await createNewTab(session);
+        await openPdfInApp(page, secondFixturePath);
+        await waitForPdfLoaded(page);
+        const targetTabId = await page.$eval('.tab.is-active[data-tab-id]', tab => tab.getAttribute('data-tab-id'));
+        await activateTab(session, 0);
+        await waitForPdfLoaded(page);
+        const selectedTabId = await page.$eval('.tab.is-active[data-tab-id]', tab => tab.getAttribute('data-tab-id'));
+        const readVisible = () => page.evaluate((pageNumber: number) => ({
+            selected: document.querySelector('.tab.is-active[data-tab-id]')?.getAttribute('data-tab-id'),
+            text: document.querySelector(`.workspace-host[data-workspace-active="true"] .page_container[data-page="${pageNumber}"] .text-layer`)?.textContent,
+            zoom: [...document.querySelectorAll('.zoom-controls-display-value')].find(element => element.getBoundingClientRect().width > 0)?.textContent,
+            dirty: [...document.querySelectorAll('.tab[data-tab-id]')].map(tab => tab.className),
+        }), point.page);
+        const point = await readSettledReadingPoint(session);
+        await page.waitForFunction((pageNumber: number) => document.querySelector(`.workspace-host[data-workspace-active="true"] .page_container[data-page="${pageNumber}"] .text-layer`)?.textContent?.includes('E2E Multi Page Fixture'), {}, point.page);
+        const before = await readVisible();
+        expect(before.selected).toBe(selectedTabId);
+        expect(before.text).toContain('E2E Multi Page Fixture');
+        expect(before.zoom).toMatch(/%/u);
+        const originalBytes = await readFile(secondFixturePath);
+        for (const id of [
+            'view.activate_tab',
+            'view.go_to_page',
+        ]) {
+            expect(await call('evb_run_action', {
+                id,
+                tabId: targetTabId,
+                ...(id === 'view.go_to_page' ? {input: {page: 3}} : {}),
+                dryRun: true,
+            })).toMatchObject({structuredContent: {
+                dryRun: true,
+                wouldRun: true,
+                targetTabId,
+            }});
+            expect(await readVisible()).toEqual(before);
+            expect(await readSettledReadingPoint(session)).toEqual(point);
+        }
+        const snapshot = await call('evb_run_action', {id: 'workspace.snapshot'});
+        const target = snapshot.structuredContent.tabs.find((tab: {tabId: string}) => tab.tabId === targetTabId);
+        const preview = await call('evb_read_action', {
+            id: 'bookmarks.preview_tree',
+            tabId: targetTabId,
+            input: {entries: [{
+                level: 1,
+                title: 'Preview',
+                page: 2,
+            }]},
+        });
+        console.info(`A40 metadata preview target mounted: ${target.workspaceAttached}`);
+        if (target.workspaceAttached) {
+            expect(preview.isError).not.toBe(true);
+            expect(preview.structuredContent).toMatchObject({
+                activeTabId: selectedTabId,
+                targetTabId,
+            });
+        } else {
+            expect(preview).toMatchObject({isError: true});
+            expect(JSON.stringify(preview)).toContain('not available without activating it');
+        }
+        expect(await readVisible()).toEqual(before);
+        expect(await readSettledReadingPoint(session)).toEqual(point);
+        await setTabMemoryPolicyForE2E(page, 'aggressive');
+        const cold = await call('evb_run_action', {id: 'workspace.snapshot'});
+        expect(cold.structuredContent.tabs.find((tab: {tabId: string}) => tab.tabId === targetTabId).workspaceAttached).toBe(false);
+        const refused = await call('evb_read_action', {
+            id: 'page_labels.preview',
+            tabId: targetTabId,
+            input: {ranges: []},
+        });
+        expect(refused).toMatchObject({isError: true});
+        expect(JSON.stringify(refused)).toContain('not available without activating it');
+        expect(await readVisible()).toEqual(before);
+        expect(await readSettledReadingPoint(session)).toEqual(point);
+        expect(await readFile(secondFixturePath)).toEqual(originalBytes);
+        await session.command('screenshot', ['a40-passive-tabs']);
+    });
+
 });

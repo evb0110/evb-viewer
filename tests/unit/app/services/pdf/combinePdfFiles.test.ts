@@ -321,6 +321,37 @@ describe('combinePdfFiles', () => {
         expect(mocks.documentOpen.cancelOpenDocumentDirectBatch).toHaveBeenCalledWith('pdf-combine-combine-request-1');
     });
 
+    it('discards a desktop combine that finished after the user canceled', async () => {
+        const controller = new AbortController();
+        mocks.documentPicker.getPathsForFiles.mockReturnValue(['/tmp/first.pdf']);
+        const reply: {resolve?: (result: unknown) => void} = {};
+        mocks.documentOpen.openDocumentDirectBatch.mockImplementation(() => new Promise((resolve) => {
+            reply.resolve = resolve;
+        }));
+        // Main has already finished, so there is no request left to cancel.
+        mocks.documentOpen.cancelOpenDocumentDirectBatch.mockResolvedValue(false);
+        const pending = combinePdfFiles({
+            files: [{file: createFile('first.pdf')}],
+            outputName: 'combined.pdf',
+            openErrorMessage: 'open failed',
+            signal: controller.signal,
+        });
+        await vi.waitFor(() => {
+            expect(mocks.documentOpen.openDocumentDirectBatch).toHaveBeenCalledOnce();
+        });
+
+        controller.abort(new DOMException('Canceled', 'AbortError'));
+        reply.resolve?.({
+            kind: 'pdf',
+            workingPath: '/tmp/managed/combined.pdf',
+            originalPath: '/tmp/managed/combined.pdf',
+            isGenerated: true,
+        });
+
+        await expect(pending).rejects.toMatchObject({code: 'canceled'});
+        expect(mocks.documentWorkingCopy.cleanupFile).toHaveBeenCalledWith('/tmp/managed/combined.pdf');
+    });
+
     it('does not classify an unrelated aborted error as cancellation', async () => {
         mocks.documentPicker.getPathsForFiles.mockReturnValue(['/tmp/first.pdf']);
         mocks.documentOpen.openDocumentDirectBatch.mockRejectedValue(new Error('native operation aborted unexpectedly'));

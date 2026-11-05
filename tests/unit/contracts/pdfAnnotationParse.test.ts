@@ -132,6 +132,44 @@ describe('PDF annotation parse IPC contracts', () => {
         }])).toThrow(/unsupported field/iu);
     });
 
+    it('reads a date before 1970 as unknown instead of rejecting the note', () => {
+        // D:19691231235959Z parses to -1000 ms.
+        const decoded = decodeEntries({entries: [{
+            kind: 'note' as const,
+            pageIndex: 0,
+            objectNumber: 18,
+            generationNumber: 0,
+            name: 'note-18',
+            author: null,
+            createdAt: -1_000,
+            modifiedAt: 1_788_091_200_000,
+            position: {
+                left: 0.4,
+                top: 0.1,
+                width: 0.1,
+                height: 0.1,
+            },
+            contents: 'An old note',
+            color: '#ff0000',
+            open: false,
+            replies: [{
+                objectNumber: 24,
+                generationNumber: 0,
+                contents: 'An old reply',
+                author: null,
+                createdAt: null,
+                modifiedAt: -1_000,
+            }],
+        }]});
+
+        expect(decoded.entries[0]).toMatchObject({
+            contents: 'An old note',
+            createdAt: null,
+            modifiedAt: 1_788_091_200_000,
+            replies: [{modifiedAt: null}],
+        });
+    });
+
     it('round-trips parsed annotation entries and results', () => {
         const textBox = {
             kind: 'text-box' as const,

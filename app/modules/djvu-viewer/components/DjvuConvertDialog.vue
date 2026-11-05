@@ -122,7 +122,7 @@
                                                 {{ t('djvu.convertDialog.estimating') }}
                                             </span>
                                             <span v-else-if="(item.estimatedBytes ?? 0) > 0">
-                                                ~{{ formatBytes(item.estimatedBytes ?? 0) }}
+                                                ~{{ formatBytes(item.estimatedBytes ?? 0, {t, locale}) }}
                                             </span>
                                         </span>
                                     </template>
@@ -163,6 +163,7 @@
 </template>
 
 <script setup lang="ts">
+import {formatBytes} from '@app/utils/formatters';
 
 import type { TDocumentRef } from '@contracts/documentRef';
 import type {
@@ -189,7 +190,10 @@ import { BrowserLogger } from '@app/utils/browserLogger';
 import { getDocumentRefBaseName } from '@app/utils/documentRef';
 import { getDjvuCapability } from '@app/utils/getDjvuCapability';
 
-const { t } = useTypedI18n();
+const {
+    t,
+    locale,
+} = useTypedI18n();
 
 const { djvuPath } = defineProps<{djvuPath: TDocumentRef | null;}>();
 
@@ -326,22 +330,12 @@ const selectedConversionPolicy = computed(() => {
 });
 
 const fileName = computed(() => getDocumentRefBaseName(djvuPath) ?? '');
-const pageCountLabel = computed(() => info.value?.pageCount.toLocaleString() ?? t('common.loading'));
+const pageCountLabel = computed(() => info.value?.pageCount.toLocaleString(locale.value) ?? t('common.loading'));
 const sourceResolutionLabel = computed(() => (
     info.value
         ? `${info.value.sourceDpi} ${t('common.unitDpi')}`
         : t('common.loading')
 ));
-
-function formatBytes(bytes: number) {
-    if (bytes < 1024) {
-        return `${bytes} ${t('common.unitByte')}`;
-    }
-    if (bytes < 1024 * 1024) {
-        return `${(bytes / 1024).toFixed(1)} ${t('common.unitKilobyte')}`;
-    }
-    return `${(bytes / (1024 * 1024)).toFixed(1)} ${t('common.unitMegabyte')}`;
-}
 
 function resolveEstimateLabel(subsample: number) {
     switch (subsample) {
@@ -488,7 +482,8 @@ function handleConvert() {
     }
     const selection = resolveDjvuConvertDialogSelection(selectedPresetValue.value);
     open.value = false;
-    emit('convert', selection.subsample, preserveBookmarks.value, selection.pdfStrategy);
+    // The checkbox shows only for a readable outline; without one there is nothing to keep.
+    emit('convert', selection.subsample, preserveBookmarks.value && info.value?.hasBookmarks === true, selection.pdfStrategy);
 }
 </script>
 

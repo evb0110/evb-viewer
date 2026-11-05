@@ -28,6 +28,9 @@ const TEXT_RANGE_EPSILON = 1e-6;
 interface ITextPreviewItemGeometry {
     readonly text: string;
     readonly rect: Readonly<IAnnotationMarkerRect>;
+    /** The page axis the text runs along, and whether it runs against it. */
+    readonly horizontal: boolean;
+    readonly reversed: boolean;
 }
 
 interface ITextRange {
@@ -44,52 +47,6 @@ function hasUsableViewport(viewport: IPdfTextPreviewViewport | null | undefined)
         && viewport.width > 0
         && viewport.height > 0,
     );
-}
-
-function matrixTransform(
-    left: number[],
-    right: number[],
-): readonly [number, number, number, number, number, number] | null {
-    const [
-        leftA,
-        leftB,
-        leftC,
-        leftD,
-        leftE,
-        leftF,
-    ] = left;
-    const [
-        rightA,
-        rightB,
-        rightC,
-        rightD,
-        rightE,
-        rightF,
-    ] = right;
-    if (
-        leftA === undefined
-        || leftB === undefined
-        || leftC === undefined
-        || leftD === undefined
-        || leftE === undefined
-        || leftF === undefined
-        || rightA === undefined
-        || rightB === undefined
-        || rightC === undefined
-        || rightD === undefined
-        || rightE === undefined
-        || rightF === undefined
-    ) {
-        return null;
-    }
-    return [
-        leftA * rightA + leftC * rightB,
-        leftB * rightA + leftD * rightB,
-        leftA * rightC + leftC * rightD,
-        leftB * rightC + leftD * rightD,
-        leftA * rightE + leftC * rightF + leftE,
-        leftB * rightE + leftD * rightF + leftF,
-    ];
 }
 
 function clampPreviewText(text: string) {
@@ -178,35 +135,80 @@ function expandMarkerRect(rect: IAnnotationMarkerRect) {
     }) ?? rect;
 }
 
-function toTextItemMarkerRect(
+// The item's box from its own corners: it runs along its text matrix from its
+// origin for its width, and up for its height, and the whole viewport
+// transform, with its rotation and UserUnit, places those corners on the page.
+function toTextItemGeometry(
     item: IPdfTextPreviewItem,
     viewport: IPdfTextPreviewViewport,
-) {
-    const transform = item.transform;
-    if (!transform || transform.length < 6 || !transform.slice(0, 6).every(isFiniteNumber)) {
+): Omit<ITextPreviewItemGeometry, 'text'> | null {
+    const [
+        a,
+        b,
+        c,
+        d,
+        e,
+        f,
+    ] = item.transform ?? [];
+    const [
+        va,
+        vb,
+        vc,
+        vd,
+        ve,
+        vf,
+    ] = viewport.transform;
+    if (![
+        a,
+        b,
+        c,
+        d,
+        e,
+        f,
+    ].every(isFiniteNumber)) {
         return null;
     }
-
-    const tx = matrixTransform(viewport.transform, transform);
-    if (!tx) {
+    const along = Math.hypot(a!, b!);
+    const up = Math.hypot(c!, d!);
+    const width = Math.abs(item.width ?? 0);
+    const height = Math.max(up, Math.abs(item.height ?? 0));
+    if (along <= 0 || up <= 0 || width <= 0 || height <= 0) {
         return null;
     }
-    const scale = Math.abs(viewport.scale ?? 1) || 1;
-    const fontHeight = Math.max(
-        Math.hypot(tx[2], tx[3]),
-        Math.abs(item.height ?? 0) * scale,
-    );
-    const width = Math.abs(item.width ?? 0) * scale;
-    if (fontHeight <= 0 || width <= 0) {
-        return null;
-    }
-
-    return normalizeMarkerRect({
-        left: tx[4] / viewport.width,
-        top: (tx[5] - fontHeight) / viewport.height,
-        width: width / viewport.width,
-        height: fontHeight / viewport.height,
+    const place = (x: number, y: number) => [
+        va! * x + vc! * y + ve!,
+        vb! * x + vd! * y + vf!,
+    ] as const;
+    const origin = place(e!, f!);
+    const end = place(e! + a! / along * width, f! + b! / along * width);
+    const top = place(e! + c! / up * height, f! + d! / up * height);
+    const corners = [
+        origin,
+        end,
+        top,
+        [
+            end[0] - origin[0] + top[0],
+            end[1] - origin[1] + top[1],
+        ] as const,
+    ];
+    const xs = corners.map(([x]) => x / viewport.width);
+    const ys = corners.map(([
+        , y,
+    ]) => y / viewport.height);
+    const rect = normalizeMarkerRect({
+        left: Math.min(...xs),
+        top: Math.min(...ys),
+        width: Math.max(...xs) - Math.min(...xs),
+        height: Math.max(...ys) - Math.min(...ys),
     });
+    const dx = end[0] - origin[0];
+    const dy = end[1] - origin[1];
+    const horizontal = Math.abs(dx) >= Math.abs(dy);
+    return rect ? {
+        rect,
+        horizontal,
+        reversed: horizontal ? dx < 0 : dy < 0,
+    } : null;
 }
 
 function intervalOverlap(start: number, end: number, targetStart: number, targetEnd: number) {
@@ -225,12 +227,12 @@ function clamp01(value: number) {
 }
 
 function toTextRangeForTarget(
-    text: string,
-    textRect: IAnnotationMarkerRect,
+    {
+        text, rect: textRect, horizontal: isHorizontal, reversed,
+    }: ITextPreviewItemGeometry,
     targetRect: IAnnotationMarkerRect,
 ) {
     const expandedTarget = expandMarkerRect(targetRect);
-    const isHorizontal = textRect.width >= textRect.height;
 
     const inlineStart = isHorizontal ? textRect.left : textRect.top;
     const inlineLength = isHorizontal ? textRect.width : textRect.height;
@@ -287,8 +289,11 @@ function toTextRangeForTarget(
     const targetInlineStart = isHorizontal ? targetRect.left : targetRect.top;
     const targetInlineLength = isHorizontal ? targetRect.width : targetRect.height;
     const targetInlineEnd = targetInlineStart + targetInlineLength;
-    const startRatio = clamp01((Math.max(inlineStart, targetInlineStart) - inlineStart) / inlineLength);
-    const endRatio = clamp01((Math.min(inlineEnd, targetInlineEnd) - inlineStart) / inlineLength);
+    const fromRatio = clamp01((Math.max(inlineStart, targetInlineStart) - inlineStart) / inlineLength);
+    const toRatio = clamp01((Math.min(inlineEnd, targetInlineEnd) - inlineStart) / inlineLength);
+    // Text running against the page axis starts at its far end.
+    const startRatio = reversed ? 1 - toRatio : fromRatio;
+    const endRatio = reversed ? 1 - fromRatio : toRatio;
     if (endRatio <= startRatio) {
         return null;
     }
@@ -330,14 +335,13 @@ function mergeTextRanges(ranges: ITextRange[]) {
 }
 
 function extractTextItemSegments(
-    {
-        text, rect,
-    }: ITextPreviewItemGeometry,
+    item: ITextPreviewItemGeometry,
     targets: readonly IAnnotationMarkerRect[],
 ) {
+    const {text} = item;
     const ranges = mergeTextRanges(
         targets.flatMap((target) => {
-            const range = toTextRangeForTarget(text, rect, target);
+            const range = toTextRangeForTarget(item, target);
             return range ? [range] : [];
         }),
     );
@@ -376,10 +380,10 @@ export function createPdfAnnotationPreviewTextResolver(
             if (!text.trim()) {
                 return [];
             }
-            const rect = toTextItemMarkerRect(item, viewport);
-            return rect ? [{
+            const geometry = toTextItemGeometry(item, viewport);
+            return geometry ? [{
                 text,
-                rect,
+                ...geometry,
             }] : [];
         })
         : [];

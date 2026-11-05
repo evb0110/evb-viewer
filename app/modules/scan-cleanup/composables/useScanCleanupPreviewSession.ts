@@ -318,7 +318,8 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
         options.settings.pageOverrideDefaults,
         options.settings.marginsMm,
     );
-    const {t} = useTypedI18n();
+    const i18n = useTypedI18n();
+    const {t} = i18n;
     const result = shallowRef<IScanCleanupPreviewResult | null>(null);
     const rawResult = shallowRef<IScanCleanupRawPreviewResult | null>(null);
     const resultKey = shallowRef<string | null>(null);
@@ -585,9 +586,15 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
     }
 
     function presentationKey(key: string) {
-        const separator = key.indexOf(SCAN_CLEANUP_PREVIEW_CACHE_KEY_SEPARATOR);
-        const identity = separator < 0 ? key : key.slice(0, separator);
-        return `${identity}${SCAN_CLEANUP_PREVIEW_CACHE_KEY_SEPARATOR}`
+        const [
+            identity = key,
+            validity = '{}',
+        ] = key.split(SCAN_CLEANUP_PREVIEW_CACHE_KEY_SEPARATOR);
+        // Another page's override is the user's edit too: the frame redrawn for
+        // it is a new presentation, not a replan the pane may keep pinned.
+        const {canvasOverrides = ''} = JSON.parse(validity) as {canvasOverrides?: string};
+        return `${identity}${SCAN_CLEANUP_PREVIEW_CACHE_KEY_SEPARATOR}canvas:${canvasOverrides}`
+            + SCAN_CLEANUP_PREVIEW_CACHE_KEY_SEPARATOR
             + `lifecycle:${String(lifecycleGeneration.value)}`
             + `${SCAN_CLEANUP_PREVIEW_CACHE_KEY_SEPARATOR}user:${String(userPresentationGeneration)}`;
     }
@@ -1062,7 +1069,7 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
                 const envelope = findSerializableErrorEnvelope(caught, SCAN_CLEANUP_ERROR_ENVELOPE_SCHEMA);
                 if (envelope) {
                     error.value = formatScanCleanupErrorByCode(
-                        t,
+                        i18n,
                         envelope.code,
                         envelope.message,
                         envelope.details?.scratchShortfall,
@@ -1071,7 +1078,7 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
                 } else {
                     error.value = caught instanceof Error
                         && !getErrorMessage(caught).includes(SERIALIZABLE_ERROR_PREFIX)
-                        ? formatScanCleanupErrorByCode(t, 'internal', caught)
+                        ? formatScanCleanupErrorByCode(i18n, 'internal', caught)
                         : t('scanCleanup.preview.unavailable');
                     errorCode.value = 'internal';
                 }
@@ -1201,8 +1208,10 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
         detailAttemptCount += 1;
         try {
             const documentPrior = options.documentPriorByPage.get(requestPage);
-            const softAlphaForegroundRecommendation =
-                options.softAlphaForegroundRecommendationByPage.get(requestPage);
+            // The same recommendations its base was rendered with, so the
+            // detail refines that base rather than missing it.
+            const outputModeRecommendation = resolveOutputModeRecommendation(requestPage);
+            const softAlphaForegroundRecommendation = resolveSoftAlphaForegroundRecommendation(requestPage);
             const pagePlanEvidence = options.pagePlanEvidenceByPage.get(requestPage);
             const placementAnchors = placementAnchorsFor(requestPage);
             const requestId = nextRequestId();
@@ -1214,6 +1223,7 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
                 pageNumber: requirePageNumber(requestPage),
                 options: requestOptions,
                 ...(documentPrior === undefined ? {} : {documentPrior}),
+                ...(outputModeRecommendation === undefined ? {} : {outputModeRecommendation}),
                 ...(softAlphaForegroundRecommendation === undefined
                     ? {}
                     : {softAlphaForegroundRecommendation}),

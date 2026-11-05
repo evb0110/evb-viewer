@@ -41,6 +41,39 @@ describe('createPdfSearchMatchScroller', () => {
         expect(scheduleRenderForSinglePage).not.toHaveBeenCalled();
     });
 
+    it('navigates a vertical text-only match through its exact text anchor', () => {
+        const revealSearchNavigationTarget = vi.fn();
+        const scroller = createPdfSearchMatchScroller({
+            getContainer: () => null,
+            getCurrentSearchMatch: () => ({
+                pageIndex: requirePageIndex(0),
+                startOffset: 1,
+                endOffset: 3,
+                excerpt: {
+                    prefix: true,
+                    suffix: true,
+                    before: '日',
+                    match: '本語',
+                    after: '文',
+                },
+            }),
+            scrollToCurrentMatch: () => false,
+            scheduleRenderForSinglePage: vi.fn(),
+            revealSearchNavigationTarget,
+        });
+        scroller.requestScrollToMatch(0);
+        expect(revealSearchNavigationTarget).toHaveBeenCalledWith(1, {textAnchor: {
+            text: '本語',
+            prefix: '日',
+            suffix: '文',
+            searchRange: {
+                startOffset: 1,
+                endOffset: 3,
+            },
+        }});
+        expect(revealSearchNavigationTarget.mock.calls[0]?.[1]).not.toHaveProperty('markerRect');
+    });
+
     it('rotates the navigation marker with the visible page highlight', () => {
         const revealSearchNavigationTarget = vi.fn();
         const scroller = createPdfSearchMatchScroller({

@@ -34,6 +34,7 @@ import {
 import {
     createPageNavigationRequest,
     type IDocumentPageSource,
+    type IDocumentRenderLease,
 } from '@app/modules/document-viewer/public';
 
 const mocks = vi.hoisted(() => ({
@@ -179,6 +180,115 @@ function layOutLoadedPages() {
 }
 
 describe('DocumentPageSourceFeaturePack concurrent open surfaces', () => {
+    it.each([
+        'resize',
+        'resolution',
+    ])('replaces a settled raster after a density-only %s change', async (trigger) => {
+        layOutLoadedPages();
+        const originalDpr = window.devicePixelRatio;
+        const setDpr = (value: number) => Object.defineProperty(window, 'devicePixelRatio', {
+            configurable: true,
+            value,
+        });
+        setDpr(1);
+        const resolutionChange = new EventTarget();
+        vi.spyOn(window, 'matchMedia').mockImplementation(query => {
+            return Object.assign(resolutionChange, {
+                matches: true,
+                media: query,
+            }) as MediaQueryList;
+        });
+        const decode = Promise.withResolvers<undefined>();
+        vi.spyOn(HTMLImageElement.prototype, 'decode').mockImplementation(() => decode.promise);
+        const documentRef = '/documents/density.djvu' as TDocumentRef;
+        const source = createPageSource(documentRef);
+        const oldRelease = vi.fn();
+        const replacement = Promise.withResolvers<IDocumentRenderLease>();
+        source.renderPage = vi.fn(async ({widthPx}) => widthPx === 860 ? {
+            bytes: 860 * 1_147 * 4,
+            widthPx,
+            heightPx: 1_147,
+            surface: 'data:image/png;base64,low',
+            release: oldRelease,
+        } : replacement.promise);
+        mocks.createDjvuPagePreviewSourceFromPath.mockImplementation(async (path: TDocumentRef) => ({path}));
+        mocks.createDjvuPageSource.mockResolvedValue(source);
+        const surface = createDocumentOpenSurfaceSession();
+        surface.begin({
+            documentId: documentRef,
+            documentRevision: 'open-intent:density',
+            provisional: true,
+        });
+        const settle = createWorkspaceOpenSettleHarness();
+        const errors = ref<unknown[]>([]);
+        const root = document.createElement('div');
+        document.body.append(root);
+        const app = createApp(createFeaturePackHost(surface, documentRef, errors, settle, ref(false)));
+        app.component('USkeleton', defineComponent({setup: () => () => h('span')}));
+        app.mount(root);
+        const image = () => root.querySelector<HTMLImageElement>('[data-testid="document-page-source-image"]:not([data-page-source-candidate])')!;
+        const readPageLayout = () => {
+            const page = image().closest<HTMLElement>('[data-testid="document-page-source-page"]')!;
+            const {
+                width, height, top, left,
+            } = page.style;
+            return {
+                width,
+                height,
+                top,
+                left,
+            };
+        };
+        try {
+            await vi.waitFor(() => expect(settle.documentOpenSettled.value).toBe(true));
+            // The chassis retires its opening shell and mounts the final image.
+            await nextTick();
+            image().dispatchEvent(new Event('load'));
+            await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+            const lowImage = image();
+            expect(lowImage.getAttribute('src')).toContain('base64,low');
+            const layout = readPageLayout();
+            expect(layout).toMatchObject({
+                width: '860px',
+                height: '1147px',
+            });
+            const scrollTop = root.firstElementChild!.scrollTop;
+            setDpr(2);
+            if (trigger === 'resize') window.dispatchEvent(new Event('resize'));
+            else resolutionChange.dispatchEvent(new Event('change'));
+            await vi.waitFor(() => expect(source.renderPage).toHaveBeenLastCalledWith(expect.objectContaining({
+                pageNumber: 1,
+                widthPx: 1_720,
+            })));
+            expect(oldRelease).not.toHaveBeenCalled();
+            expect(lowImage.isConnected).toBe(true);
+            replacement.resolve({
+                bytes: 1_720 * 2_293 * 4,
+                widthPx: 1_720,
+                heightPx: 2_293,
+                surface: 'data:image/png;base64,high',
+                release: vi.fn(),
+            });
+            await vi.waitFor(() => expect(root.querySelector('[data-page-source-candidate]')).not.toBeNull());
+            expect(oldRelease).not.toHaveBeenCalled();
+            decode.resolve(undefined);
+            await vi.waitFor(() => expect(image().getAttribute('src')).toContain('base64,high'));
+            await vi.waitFor(() => expect(oldRelease).toHaveBeenCalledOnce());
+            expect(readPageLayout()).toEqual(layout);
+            expect(root.firstElementChild!.scrollTop).toBe(scrollTop);
+            expect(errors.value).toEqual([]);
+            const rendered = vi.mocked(source.renderPage).mock.calls.length;
+            window.dispatchEvent(new Event('resize'));
+            await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+            expect(source.renderPage).toHaveBeenCalledTimes(rendered);
+        } finally {
+            decode.resolve(undefined);
+            app.unmount();
+            root.remove();
+            setDpr(originalDpr);
+        }
+    });
+
     it('publishes prepared opening page count before the page source resolves', async () => {
         const documentRef = '/documents/large.djvu' as TDocumentRef;
         const surface = createDocumentOpenSurfaceSession();

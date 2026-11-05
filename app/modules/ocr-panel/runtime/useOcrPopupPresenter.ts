@@ -19,6 +19,7 @@ import type { MaybeRefOrGetter } from 'vue';
 import { useOcr } from '@app/composables/useOcr';
 import { useTypedI18n } from '@app/composables/useTypedI18n';
 import type {IAgentOcrRunOptions} from '@contracts/agentOcr';
+import type {IAgentOcrRunAdmission} from '@app/types/ocrPopupAgentExpose';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { getSettingsCapability } from '@app/utils/getSettingsCapability';
 import type { IOcrSearchablePdfResult } from '@app/utils/ocr/ocrTypes';
@@ -646,7 +647,7 @@ export const useOcrPopupPresenter = ({
         };
     }
 
-    async function runOcrForAgent(options: IAgentOcrRunOptions = {}) {
+    async function runOcrForAgent(options: IAgentOcrRunOptions = {}, admission?: IAgentOcrRunAdmission) {
         if (toValue(context.busy)) {
             return refuseAgentRun(t('errors.ocr.disabled'));
         }
@@ -656,6 +657,10 @@ export const useOcrPopupPresenter = ({
         }
 
         await loadLanguages();
+        // The command may have been aborted, or its document replaced, while
+        // the languages loaded.
+        admission?.signal.throwIfAborted();
+        admission?.assertCurrentDocument();
         applyAgentOcrOptions(options);
 
         if (!workingCopyPath.value) {
@@ -672,7 +677,13 @@ export const useOcrPopupPresenter = ({
 
         activeOcrSourcePath.value = workingCopyPath.value;
         activeOcrSourcePage.value = currentPage.value;
-        await runOcr(currentPage.value, totalPages.value, workingCopyPath.value);
+        const cancelWithCommand = () => void cancelOcr();
+        admission?.signal.addEventListener('abort', cancelWithCommand, {once: true});
+        try {
+            await runOcr(currentPage.value, totalPages.value, workingCopyPath.value);
+        } finally {
+            admission?.signal.removeEventListener('abort', cancelWithCommand);
+        }
         await nextTick();
 
         const agentSnapshot = createAgentOcrSnapshot();

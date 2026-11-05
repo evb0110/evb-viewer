@@ -34,6 +34,7 @@ function vendoredPdfjsDirectory(relativePath: string) {
 export async function renderPdfCanvasFidelityMetrics(
     path: string,
     pageNumber = 1,
+    optionalContentVisible?: boolean,
 ): Promise<IPdfCanvasFidelityMetrics> {
     Object.assign(globalThis, {
         DOMMatrix,
@@ -69,6 +70,12 @@ export async function renderPdfCanvasFidelityMetrics(
         // legacy Node build accepts the @napi-rs/canvas equivalents. Read
         // and invoke this third-party method through the runtime boundary
         // so the browser-only parameter type does not leak into the shim.
+        const optionalContentConfig = await document.getOptionalContentConfig();
+        if (optionalContentVisible !== undefined) {
+            for (const [id] of optionalContentConfig) {
+                optionalContentConfig.setVisibility(id, optionalContentVisible);
+            }
+        }
         const renderFunction: unknown = Reflect.get(page, 'render');
         if (typeof renderFunction !== 'function') {
             throw new TypeError('PDF.js page render method is unavailable');
@@ -77,6 +84,7 @@ export async function renderPdfCanvasFidelityMetrics(
             canvas,
             canvasContext: context,
             viewport,
+            optionalContentConfigPromise: Promise.resolve(optionalContentConfig),
         }]);
         if (!isRecord(renderTask) || !(renderTask.promise instanceof Promise)) {
             throw new TypeError('PDF.js page render task is invalid');

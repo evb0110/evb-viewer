@@ -21,7 +21,7 @@
         data-document-page-visual="error"
         role="alert"
     >
-        {{ errorPresentation ? formatFailurePresentationDescription(errorPresentation) : errorMessage }}
+        {{ errorPresentation ? formatFailurePresentationDescription(errorPresentation, t) : errorMessage }}
     </div>
     <img
         v-if="surface"
@@ -48,6 +48,7 @@
 </template>
 
 <script setup lang="ts">
+import {useTypedI18n} from '@app/composables/useTypedI18n';
 import {
     formatFailurePresentationDescription,
     type FailurePresentation,
@@ -91,6 +92,8 @@ const emit = defineEmits<{
     surfaceLoad: [surface: string, event: Event];
     surfaceError: [surface: string, event: Event];
 }>();
+
+const {t} = useTypedI18n();
 </script>
 
 <style scoped>

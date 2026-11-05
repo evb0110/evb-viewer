@@ -17,6 +17,7 @@ import {
     reactive,
     ref,
 } from 'vue';
+import {requireEpochMs} from '@contracts/timestamps';
 import WorkspaceAnnotationOverlays from '@app/modules/workspace-shell/components/WorkspaceAnnotationOverlays.vue';
 import {
     provideDocumentContext,
@@ -31,8 +32,13 @@ import type {IAnnotationNoteWindowEntry} from '@app/modules/workspace-shell/anno
 
 vi.mock('@app/composables/useTypedI18n', async (importOriginal) => ({
     ...(await importOriginal<typeof TViMockOriginalModule>()),
-    useTypedI18n: () => ({t: (key: string) => key}),
+    useTypedI18n: () => ({
+        t: (key: string) => key,
+        locale: selectedLocale,
+    }),
 }));
+
+const selectedLocale = ref('en');
 
 const disposals: Array<() => void> = [];
 afterEach(() => disposals.splice(0).forEach(dispose => dispose()));
@@ -187,4 +193,34 @@ it('does not return focus after the workspace becomes inactive', async () => {
     await nextTick();
     await nextTick();
     expect(mounted.focusReturned).not.toHaveBeenCalled();
+});
+
+it.each([
+    'modified',
+    'created',
+    'missing',
+] as const)('updates the popup %s date in place with the selected language', async (kind) => {
+    selectedLocale.value = 'en';
+    const mounted = mountNotes();
+    const note = mounted.notes[0]!;
+    note.author = 'Date fixture author';
+    note.createdAt = kind === 'missing' ? null : requireEpochMs(1_700_000_000_000);
+    note.modifiedAt = kind === 'modified' ? requireEpochMs(1_790_000_000_000) : null;
+    await nextTick();
+    const date = () => mounted.host.querySelector('.note-window__date')?.textContent;
+    const english = date();
+    selectedLocale.value = 'ru';
+    await nextTick();
+    const timestamp = note.modifiedAt ?? note.createdAt;
+    if (timestamp) {
+        expect(date()).toBe(new Intl.DateTimeFormat('ru', {
+            dateStyle: 'medium',
+            timeStyle: 'short',
+        }).format(timestamp));
+        expect(date()).not.toBe(english);
+    } else {
+        expect(date()).toBe('noteWindow.noDate');
+    }
+    expect(mounted.host.textContent).toContain('Date fixture author');
+    expect(mounted.host.querySelector('textarea')?.value).toBe('Note');
 });

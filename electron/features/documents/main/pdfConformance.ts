@@ -21,7 +21,10 @@ import { runNativeToolCommand } from '@electron/native-tools/runNativeToolComman
 import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
 import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
-import { getUnprovenNativeTerminationDetail } from '@electron/utils/nativeTerminationProof';
+import {
+    getUnprovenNativeTerminationDetail, markUnprovenNativeTermination,
+} from '@electron/utils/nativeTerminationProof';
+import {mainJobBroker} from '@electron/resources/jobBroker';
 import {
     abortErrorFromSignal,
     isAbortError,
@@ -109,7 +112,18 @@ function runPdfConformanceWorker(
     filePath: string,
     options: IPdfConformancePathAnalysisOptions = {},
 ) {
-    return runResultWorkerTask<IPdfConformanceProfile>({
+    return mainJobBroker.run({
+        ownerId: 'pdf-conformance',
+        kind: 'pdf-conformance',
+        priority: 'background',
+        resources: {
+            cpuTokens: 2,
+            estimatedResidentBytes: 512 * 1024 * 1024,
+            nativeProcesses: 2,
+            ioWeight: 1,
+        },
+        ...(options.signal === undefined ? {} : {signal: options.signal}),
+    }, () => runResultWorkerTask<IPdfConformanceProfile>({
         workerPath: getPdfConformanceWorkerPath(),
         workerData: {
             filePath,
@@ -127,7 +141,14 @@ function runPdfConformanceWorker(
         createStartupExitError: (code) => new PdfConformanceWorkerStartupError(
             `PDF conformance worker exited during startup with code ${code}`,
         ),
-        createWorkerExitError: (code) => new Error(`PDF conformance worker exited with code ${code}`),
+        createWorkerExitError: code => markUnprovenNativeTermination(
+            new Error(`PDF conformance worker exited with code ${code}`),
+            'PDF conformance worker exited without settling its native children',
+        ),
+        createWorkerError: error => markUnprovenNativeTermination(
+            error instanceof Error ? error : new Error(getErrorMessage(error)),
+            'PDF conformance worker failed without settling its native children',
+        ),
         timeoutMs: options.timeoutMs ?? QPDF_VALIDATE_MAX_TIMEOUT_MS,
         createCancelMessage: () => ({type: 'cancel'}),
         cooperativeCancelDelayMs: 5_000,
@@ -138,7 +159,7 @@ function runPdfConformanceWorker(
             }
             return decodePdfConformanceResult(data);
         },
-    });
+    }));
 }
 
 export async function analyzePdfConformanceFile(

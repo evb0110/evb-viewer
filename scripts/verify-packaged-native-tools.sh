@@ -587,6 +587,12 @@ if [ "$platform" = "mac" ]; then
   # ddjvu prints usage to stdout and exits 1 for --help on healthy builds.
   run_macos_packaged_tool_smoke "ddjvu" "$(packaged_entry_path ddjvu)" --help
   run_macos_packaged_tool_smoke "qpdf" "$(packaged_entry_path qpdf)" --version
+  # pdf-page-ops reads large documents' metadata through the libqpdf beside qpdf.
+  qpdf_entry="$(packaged_entry_path qpdf)"
+  if ! compgen -G "$(dirname "$(dirname "$qpdf_entry")")/lib/libqpdf*.dylib" >/dev/null; then
+    echo "Error: packaged qpdf for $platform_arch has no libqpdf beside it"
+    exit 1
+  fi
   run_macos_packaged_tool_smoke "pdfinfo" "$(packaged_entry_path pdfinfo)" -v
   run_macos_packaged_tool_smoke "pdftoppm" "$(packaged_entry_path pdftoppm)" -v
   run_macos_packaged_tool_smoke "pdftotext" "$(packaged_entry_path pdftotext)" -v

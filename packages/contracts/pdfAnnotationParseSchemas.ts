@@ -44,8 +44,18 @@ function nullableString(fieldName: string, allowEmpty = true) {
     return v.optional(v.nullable(nonEmptyString(fieldName, allowEmpty)), null);
 }
 
+/**
+ * A PDF date before 1970 parses to a negative timestamp, which the
+ * application does not hold; it reads as an unknown date rather than
+ * rejecting every annotation of the document.
+ */
 function nullableTimestamp(fieldName: string) {
-    return v.optional(v.nullable(nonNegativeInteger(fieldName, `${fieldName} must be a safe integer timestamp or null`)), null);
+    const message = `${fieldName} must be a safe integer timestamp or null`;
+    return v.optional(v.nullable(v.pipe(
+        v.number(message),
+        v.safeInteger(message),
+        v.transform(value => (value < 0 ? null : value)),
+    )), null);
 }
 
 const pageIndexSchema = v.pipe(nonNegativeInteger('pageIndex'), v.transform(value => value as TPageIndex));
@@ -359,4 +369,12 @@ export const PDF_ANNOTATION_PARSE_SIDECAR_HEADER_SCHEMA = v.strictObject({
     pageCount: v.pipe(v.number(), v.safeInteger(), v.minValue(0)),
     chunkBytes: v.pipe(v.number(), v.safeInteger(), v.minValue(64), v.maxValue(PDF_ANNOTATION_PARSE_MAX_LINE_BYTES)),
     pageIndices: v.optional(pageIndicesSchema),
+});
+
+/** The first line of `evb-pdf-page-ops annotation-index` JSONL output. */
+export const PDF_ANNOTATION_INDEX_SIDECAR_HEADER_SCHEMA = v.strictObject({
+    format: v.literal('evb-pdf-annotation-name-index'),
+    schemaVersion: PDF_ANNOTATION_PARSE_SIDECAR_HEADER_SCHEMA.entries.schemaVersion,
+    pageCount: PDF_ANNOTATION_PARSE_SIDECAR_HEADER_SCHEMA.entries.pageCount,
+    chunkBytes: PDF_ANNOTATION_PARSE_SIDECAR_HEADER_SCHEMA.entries.chunkBytes,
 });

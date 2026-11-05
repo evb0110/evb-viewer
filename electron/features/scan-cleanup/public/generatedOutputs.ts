@@ -38,7 +38,6 @@ export const SCAN_CLEANUP_OUTPUT_LEAF_MAX_BYTES = 255;
 const OUTPUT_NAME_HASH_HEX_LENGTH = 12;
 const COMPLETED_OUTPUT_JOURNAL_VERSION = 1;
 export const SCAN_CLEANUP_COMPLETED_OUTPUT_JOURNAL_NAME = '.evb-scan-cleanup-completed-outputs.json';
-const COMPLETED_OUTPUT_JOURNAL_MAX_ENTRIES = 32;
 
 interface ICompletedOutputJournalEntry {
     version: 1;
@@ -104,7 +103,7 @@ function parseCompletedOutputJournal(value: unknown): ICompletedOutputJournalEnt
             completedAtMs: entry.completedAtMs,
         });
     }
-    return entries.slice(-COMPLETED_OUTPUT_JOURNAL_MAX_ENTRIES);
+    return entries;
 }
 
 async function readCompletedOutputJournal(baseDir: string) {
@@ -186,7 +185,7 @@ export function recordScanCleanupCompletedOutput(
             outputPdfPath,
             completedAtMs: options.completedAtMs ?? Date.now(),
         });
-        await writeCompletedOutputJournal(baseDir, nextEntries.slice(-COMPLETED_OUTPUT_JOURNAL_MAX_ENTRIES));
+        await writeCompletedOutputJournal(baseDir, nextEntries);
     });
 }
 

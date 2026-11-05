@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import {writeFileHandleFully} from '@electron/file-access/writeFileHandleFully';
 import { statSync } from 'node:fs';
 import {dirname} from 'node:path';
 import {
@@ -235,27 +236,6 @@ async function assertSourceSnapshot(
     }
 }
 
-async function writeAll(
-    outputHandle: FileHandle,
-    buffer: Buffer,
-    length: number,
-    position: number,
-) {
-    let written = 0;
-    while (written < length) {
-        const result = await outputHandle.write(
-            buffer,
-            written,
-            length - written,
-            position + written,
-        );
-        if (result.bytesWritten < 1) {
-            throw new Error('Working-copy materialization write made no progress');
-        }
-        written += result.bytesWritten;
-    }
-}
-
 async function hashMaterializedTarget(
     targetPath: string,
     size: number,
@@ -383,7 +363,7 @@ async function copyAndPublishFlight(flight: IMaterializationFlight) {
                     'The original document changed while it was being materialized',
                 );
             }
-            await writeAll(outputHandle, buffer, length, bytesCopied);
+            await writeFileHandleFully(outputHandle, buffer.subarray(0, length), bytesCopied);
             hash.update(buffer.subarray(0, length));
             bytesCopied += length;
             emitProgress(flight, {
@@ -540,7 +520,9 @@ function createFlight(
         'materializing',
         {
             expectedBackingState: 'lazy-original',
-            sourceBackingErrorCode: null,
+            sourceBackingErrorCode: entry.sourceBackingErrorCode === 'SOURCE_BACKING_UNAVAILABLE'
+                ? 'SOURCE_BACKING_UNAVAILABLE'
+                : null,
         },
     )) {
         flights.delete(key);
@@ -575,15 +557,10 @@ function getOrCreateFlight(
     if (entry.withheld) {
         throw new WorkingCopyMissingError('The unsaved changes of this document are in a working copy missing on this computer');
     }
-    if (
-        entry.sourceBackingErrorCode === 'SOURCE_BACKING_CHANGED'
-        || entry.sourceBackingErrorCode === 'SOURCE_BACKING_UNAVAILABLE'
-    ) {
+    if (entry.sourceBackingErrorCode === 'SOURCE_BACKING_CHANGED') {
         throw new WorkingCopyMaterializationError(
-            entry.sourceBackingErrorCode,
-            entry.sourceBackingErrorCode === 'SOURCE_BACKING_CHANGED'
-                ? 'The original document changed after it was opened'
-                : 'The original document is unavailable',
+            'SOURCE_BACKING_CHANGED',
+            'The original document changed after it was opened',
         );
     }
     const key = createFlightKey(logicalRef, entry.registrationId);

@@ -226,8 +226,13 @@ export function makeEndOfCentralDirectory(entryCount: number, centralSize: numbe
     return footer;
 }
 
+// Characters XML 1.0 cannot carry at all, escaped or not: control
+// characters, unpaired surrogates and U+FFFE/U+FFFF. Word refuses the file.
+const XML_FORBIDDEN_CHARACTERS = /[^\t\n\r\u0020-\uD7FF\uE000-\uFFFD\u{10000}-\u{10FFFF}]/gu;
+
 export function escapeXml(text: string) {
     return text
+        .replace(XML_FORBIDDEN_CHARACTERS, '')
         .replace(/&/g, '&amp;')
         .replace(/</g, '&lt;')
         .replace(/>/g, '&gt;')

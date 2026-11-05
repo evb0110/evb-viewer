@@ -20,6 +20,7 @@ import { toSelectedTextMarkupComment } from '@app/modules/pdf-viewer/annotations
 import { cloneSparsePageMetrics } from '@app/modules/document-viewer/public';
 
 const POINT_NOTE_CANCELLED_REASON = 'The document changed before the point note was created.';
+const DOCUMENT_CHANGED_REASON = 'The document changed before the annotation was created.';
 
 type TPdfViewerPublicApiRefBackedKeys =
     | 'annotationHistoryResetVersion'
@@ -117,15 +118,28 @@ export const usePdfViewerPublicApiController = (
             : normalizedPage;
     }
 
+    /**
+     * Brings the page an annotation request names into view. The request
+     * belongs to the document it arrived on: a reload or replacement while
+     * the page renders answers false through `isCurrent`.
+     */
     async function ensurePublicAnnotationTargetPageReady(pageNumber: TPageNumber) {
+        const fence = documentSession.captureFence();
+        const isCurrent = () => documentSession.isCurrent(fence);
         if (documentSession.numPages.value > 0 && pageNumber > documentSession.numPages.value) {
-            return false;
+            return {
+                ready: false,
+                isCurrent,
+            };
         }
         options.cancelPendingSearchScroll();
         viewportSession.singlePageScroll.scrollToPage(pageNumber);
         await nextTick();
         if (documentSession.numPages.value > 0 && pageNumber > documentSession.numPages.value) {
-            return false;
+            return {
+                ready: false,
+                isCurrent,
+            };
         }
         await options.waitForViewerLoadSettled();
         await documentSession.ensurePageMetricsInRange(pageNumber, pageNumber);
@@ -141,7 +155,10 @@ export const usePdfViewerPublicApiController = (
         );
         await nextTick();
         const container = options.viewerContainer.value;
-        return Boolean(container && getPageContainerByNumber(container, pageNumber));
+        return {
+            ready: Boolean(container && getPageContainerByNumber(container, pageNumber)),
+            isCurrent,
+        };
     }
 
     return {
@@ -178,8 +195,8 @@ export const usePdfViewerPublicApiController = (
                 ...target,
                 pageNumber,
             };
-            await ensurePublicAnnotationTargetPageReady(pageNumber);
-            return annotationRuntime.highlightComposable.createTextMarkupFromText(normalizedTarget);
+            const {isCurrent} = await ensurePublicAnnotationTargetPageReady(pageNumber);
+            return annotationRuntime.highlightComposable.createTextMarkupFromText(normalizedTarget, isCurrent);
         },
         // The narrow boolean surface predates typed outcomes. It answers the
         // same question as `createPointNoteAnnotation`, so it derives its
@@ -216,8 +233,11 @@ export const usePdfViewerPublicApiController = (
                 return result(false, `Page ${pageNumber} is outside the document.`);
             }
 
-            const isTargetPageReady = await ensurePublicAnnotationTargetPageReady(pageNumber);
-            if (!isTargetPageReady) {
+            const prepared = await ensurePublicAnnotationTargetPageReady(pageNumber);
+            if (!prepared.isCurrent()) {
+                return result(false, DOCUMENT_CHANGED_REASON);
+            }
+            if (!prepared.ready) {
                 return result(false, `Page ${pageNumber} is not rendered.`);
             }
             const pointOptions = target.preferTextAnchor === undefined
@@ -254,8 +274,11 @@ export const usePdfViewerPublicApiController = (
                 return result(false, null, `Page ${pageNumber} is outside the document.`);
             }
 
-            const isTargetPageReady = await ensurePublicAnnotationTargetPageReady(pageNumber);
-            if (!isTargetPageReady) {
+            const prepared = await ensurePublicAnnotationTargetPageReady(pageNumber);
+            if (!prepared.isCurrent()) {
+                return result(false, null, DOCUMENT_CHANGED_REASON);
+            }
+            if (!prepared.ready) {
                 return result(false, null, `Page ${pageNumber} is not rendered.`);
             }
 

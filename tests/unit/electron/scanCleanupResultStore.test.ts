@@ -572,3 +572,34 @@ describe.each([
         await expect(empty.forEachChunk(() => undefined)).rejects.toThrow('closed');
     });
 });
+
+
+describe('memory detection preview snapshots', () => {
+    it('captures detached page evidence and append/replace layouts together', async () => {
+        const store = createMemoryScanCleanupDetectionResultStore(2000, 1);
+        await store.append(detectionResult(1, 'two-page-spread'));
+        await store.append(detectionResult(2000, 'two-page-spread'));
+        const pending = store.readPreviewSnapshot(1, true);
+        await store.replace(1, detectionResult(1));
+        await store.replace(2000, detectionResult(2000));
+        const before = await pending;
+        expect(before.page?.classification).toBe('two-page-spread');
+        expect(before.layoutByPage).toEqual({
+            '1': 'two-page-spread',
+            '2000': 'two-page-spread',
+        });
+        before.layoutByPage['1'] = 'single-uncut-page';
+        const after = await store.readPreviewSnapshot(1, true);
+        expect(after.page?.classification).toBe('single-uncut-page');
+        expect(after.layoutByPage).toEqual({
+            '1': 'single-uncut-page',
+            '2000': 'single-uncut-page',
+        });
+        await expect(store.readPreviewSnapshot(2, false)).resolves.toEqual({
+            page: undefined,
+            layoutByPage: {},
+        });
+        await store.close();
+        await expect(store.readPreviewSnapshot(1, true)).rejects.toThrow('closed');
+    });
+});

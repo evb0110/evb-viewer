@@ -109,7 +109,6 @@ import {
     handleFileExists,
     handleFileRead,
     handleFileReadRange,
-    handleFileReadText,
     handleFileStat,
 } from '@electron/features/documents/main/documentFileReadHandlers';
 import {
@@ -478,8 +477,6 @@ export const documentsMainBindings = {
         readPdfEmbeddedShapeIndexChunk(context, sessionId, offset, options),
     releasePdfEmbeddedShapeIndex: (context, sessionId) =>
         releasePdfEmbeddedShapeIndex(context, sessionId),
-    readTextFile: (context, filePath) =>
-        handleFileReadText(context, filePath),
     fileExists: (context, filePath) =>
         handleFileExists(context, filePath),
     getDocumentRevision: (context, filePath) =>

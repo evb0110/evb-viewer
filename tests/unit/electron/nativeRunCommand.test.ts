@@ -357,7 +357,8 @@ describe('runNativeCommand', () => {
         });
     });
 
-    it('removes managed native scratch after a native error', async () => {
+    it('cleans an ordinary native error only when its process tree is proven stopped', async () => {
+        const {getUnprovenNativeTerminationDetail} = await import('@electron/utils/nativeTerminationProof');
         vi.stubEnv('EVB_APP_TEMP_NAMESPACE', 'profile-one');
         const proc = new MockNativeProcess();
         mocks.spawn.mockReturnValue(proc);
@@ -367,9 +368,17 @@ describe('runNativeCommand', () => {
         await vi.waitFor(() => expect(mocks.spawn).toHaveBeenCalledOnce());
         proc.emit('close', 2, null);
 
-        await expect(resultPromise).rejects.toMatchObject({kind: 'exit-code'});
-        expect(mocks.removeManagedScratchTempDir).toHaveBeenCalledOnce();
-        expect(mocks.unregisterManagedProcess).toHaveBeenCalledOnce();
+        const failure: unknown = await resultPromise.catch((error: unknown) => error);
+        expect(failure).toMatchObject({kind: 'exit-code'});
+        if (process.platform === 'win32') {
+            expect(getUnprovenNativeTerminationDetail(failure)).toBeDefined();
+            expect(mocks.removeManagedScratchTempDir).not.toHaveBeenCalled();
+            expect(mocks.unregisterManagedProcess).not.toHaveBeenCalled();
+        } else {
+            expect(getUnprovenNativeTerminationDetail(failure)).toBeUndefined();
+            expect(mocks.removeManagedScratchTempDir).toHaveBeenCalledOnce();
+            expect(mocks.unregisterManagedProcess).toHaveBeenCalledOnce();
+        }
     });
 
     it('removes managed native scratch after confirmed cancellation', async () => {
@@ -938,4 +947,47 @@ describe('runNativeCommand', () => {
         await expect(rejection).resolves.toMatchObject({message: 'The operation was aborted'});
         expect(mocks.terminateDetachedChildProcess).toHaveBeenCalledWith(proc, 1_000);
     });
+
+    it.each([
+        'abnormal-close',
+        'cancellation',
+    ] as const)('retains real Windows scratch after unproven %s', async mode => {
+        const platform = Object.getOwnPropertyDescriptor(process, 'platform')!;
+        const scratchRoot = await mkdtemp(join(tmpdir(), 'native-windows-containment-'));
+        onTestFinished(async () => {
+            Object.defineProperty(process, 'platform', platform);
+            await rm(scratchRoot, {
+                recursive: true,
+                force: true,
+            });
+        });
+        Object.defineProperty(process, 'platform', {
+            value: 'win32',
+            configurable: true,
+        });
+        vi.stubEnv('EVB_APP_TEMP_NAMESPACE', 'windows-containment');
+        mocks.createManagedScratchTempDir.mockImplementation(async prefix => mkdtemp(join(scratchRoot, prefix)));
+        mocks.removeManagedScratchTempDir.mockImplementation(async path => {
+            await rm(path, {
+                recursive: true,
+                force: true,
+            }); return true;
+        });
+        const proc = new MockNativeProcess();
+        mocks.spawn.mockReturnValue(proc);
+        mocks.terminateDetachedChildProcess.mockResolvedValueOnce(false);
+        const {runNativeCommand} = await import('@electron/native-tools/runNativeCommand');
+        const {getUnprovenNativeTerminationDetail} = await import('@electron/utils/nativeTerminationProof');
+        const controller = new AbortController();
+        const result = runNativeCommand('/native/qpdf.exe', [], {signal: controller.signal});
+        const rejection = result.catch((error: unknown) => error);
+        await vi.waitFor(() => expect(mocks.spawn).toHaveBeenCalledOnce());
+        const scratch = await mocks.createManagedScratchTempDir.mock.results[0]!.value;
+        if (mode === 'cancellation') controller.abort(new Error('cancel native command'));
+        proc.emit('close', 2, null);
+        expect(getUnprovenNativeTerminationDetail(await rejection)).toBeDefined();
+        expect(existsSync(scratch)).toBe(true);
+        expect(mocks.unregisterManagedProcess).not.toHaveBeenCalled();
+    });
+
 });

@@ -355,8 +355,9 @@ export class AnnotationStore {
     }
 
     /**
-     * Runs related persisted imports with one saved-baseline comparison. Each
-     * import still updates the identity index in callback order.
+     * Runs related persisted imports with one saved-baseline comparison and one
+     * published snapshot. Each import still updates the identity index in
+     * callback order.
      */
     importMany<T>(callback: () => T): T {
         if (this.#bulkImportState) {
@@ -364,7 +365,7 @@ export class AnnotationStore {
         }
         this.#bulkImportState = {canUseFastPath: !this.hasChangesSinceSavedBaseline()};
         try {
-            return callback();
+            return this.batch(callback);
         } finally {
             this.#bulkImportState = null;
         }

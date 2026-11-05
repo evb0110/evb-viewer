@@ -11,7 +11,6 @@ import type {
 import { resolveBoundedRasterDimensions } from '@app/modules/document-viewer/public';
 
 const PDF_THUMBNAIL_MAX_PIXELS = 4 * 1024 * 1024;
-const PDF_THUMBNAIL_MAX_DIMENSION = 16_384;
 
 interface IPreparedPdfThumbnail {
     canvas: HTMLCanvasElement;
@@ -76,7 +75,6 @@ export async function renderPdfDocumentThumbnail(options: {
                         width: baseViewport.width * requestedScale,
                         height: baseViewport.height * requestedScale,
                         maxPixels: PDF_THUMBNAIL_MAX_PIXELS,
-                        maxDimension: PDF_THUMBNAIL_MAX_DIMENSION,
                     });
                     const canvas = window.document.createElement('canvas');
                     canvas.width = dimensions.width;

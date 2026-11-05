@@ -119,7 +119,10 @@ const emit = defineEmits<{
     focus: [];
 }>();
 
-const { t } = useTypedI18n();
+const {
+    t,
+    locale,
+} = useTypedI18n();
 
 const NOTE_WINDOW_INITIAL_OFFSET_X = 14;
 const NOTE_WINDOW_INITIAL_OFFSET_Y = 72;
@@ -165,10 +168,11 @@ function updateText(event: Event) {
     emit('update:text', (event.target as HTMLTextAreaElement).value);
 }
 
-const timeFormatter = new Intl.DateTimeFormat(undefined, {
+// Dates read in the app's selected language, and follow a language switch.
+const timeFormatter = computed(() => new Intl.DateTimeFormat(locale.value, {
     dateStyle: 'medium',
     timeStyle: 'short',
-});
+}));
 
 const title = computed(() => t('noteWindow.popUpNote', { page: pageNumber }));
 const authorText = computed(() => {
@@ -183,7 +187,7 @@ const timestampText = computed(() => {
     if (!timestamp) {
         return t('noteWindow.noDate');
     }
-    return timeFormatter.format(new Date(timestamp));
+    return timeFormatter.value.format(new Date(timestamp));
 });
 
 const windowStyle = computed<CSSProperties>(() => ({
@@ -394,6 +398,7 @@ function stopDrag(event?: MouseEvent) {
     }
     isDragging.value = false;
     dragWindowTarget.value = undefined;
+    followPage();
     emitPositionUpdate();
 }
 
@@ -446,8 +451,14 @@ function measureObservedWindowSize(entry: ResizeObserverEntry) {
     };
 }
 
-useEventListener(dragWindowTarget, 'mousemove', noteDragMove.schedule);
+// A release outside the window never reaches mouseup, and a window that loses
+// focus mid-drag may never see one: either ends the drag where it last was.
+useEventListener(dragWindowTarget, 'mousemove', (event: MouseEvent) => {
+    if ((event.buttons & 1) === 0) stopDrag();
+    else noteDragMove.schedule(event);
+});
 useEventListener(dragWindowTarget, 'mouseup', stopDrag);
+useEventListener(dragWindowTarget, 'blur', () => stopDrag());
 
 useResizeObserver(noteWindowRef, (entries) => {
     const entry = entries[0];

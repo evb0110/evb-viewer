@@ -2,6 +2,7 @@ import {
     NATIVE_ERROR_CODES,
     hasNativeErrorCode,
     isNativeErrorEnvelope,
+    isPdfStructurePreservationRefusal,
 } from '@contracts/nativeErrors';
 import {
     describe,
@@ -25,5 +26,38 @@ describe('native error envelopes', () => {
             message: 'detail',
         })).toBe(false);
         expect(hasNativeErrorCode({message: 'encrypted document'})).toBe(false);
+    });
+});
+
+
+describe('PDF structure preservation refusals', () => {
+    const refusal = {
+        code: 'invalid-request',
+        message: 'ERR_PDF_STRUCTURE_PRESERVATION: accessibility tags cannot be preserved',
+    };
+    it.each([
+        refusal,
+        {errorEnvelope: refusal},
+        {message: `EVB_SERIALIZABLE_ERROR:${JSON.stringify(refusal)}`},
+        {
+            code: 'native-failure',
+            message: 'Capability failed',
+            cause: {errorEnvelope: refusal},
+        },
+    ])('finds the native refusal through worker and capability envelopes: %j', value => {
+        expect(isPdfStructurePreservationRefusal(value)).toBe(true);
+    });
+    it('rejects unrelated invalid requests and terminates cyclic cause chains', () => {
+        expect(isPdfStructurePreservationRefusal({
+            code: 'invalid-request',
+            message: 'Bad page',
+        })).toBe(false);
+        const cyclic: {cause?: unknown} = {};
+        cyclic.cause = cyclic;
+        expect(isPdfStructurePreservationRefusal(cyclic)).toBe(false);
+        expect(isPdfStructurePreservationRefusal({
+            code: 'io',
+            message: refusal.message,
+        })).toBe(false);
     });
 });

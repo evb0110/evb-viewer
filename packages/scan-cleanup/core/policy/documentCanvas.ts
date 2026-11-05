@@ -15,7 +15,9 @@ import type {
 } from '@contracts/scan-cleanup/electronApiScanCleanup';
 import {getScanCleanupPageOverride} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
 import {resolveScanCleanupPageLayout} from '@evb/scan-cleanup/core/policy/scanCleanupPagePolicy';
-import { requirePageNumber } from '@contracts/pageNumbers';
+import {
+    requirePageNumber, type TPageNumber,
+} from '@contracts/pageNumbers';
 import type {
     IScanCleanupPageRasterSource,
     IPdfPageSize,
@@ -843,7 +845,8 @@ export async function resolveMatchedCanvasResamplePagesFromStore(input: {
     options: IScanCleanupOptions;
     rasterSource: IScanCleanupPageRasterSource;
     rasterDetectionAvailable: boolean;
-    layoutByPage?: TScanCleanupLayoutByPage;
+    /** Each chunk's layouts, from the same decisions the canvas was built on. */
+    readLayouts?: (pageNumbers: readonly TPageNumber[]) => Promise<TScanCleanupLayoutByPage>;
 }) {
     const canvas = input.canvas;
     if (canvas === null) {
@@ -871,6 +874,7 @@ export async function resolveMatchedCanvasResamplePagesFromStore(input: {
                 input.rasterSource.getPageRaster(pageNumber),
             )))
             : chunk.pages.map(() => undefined);
+        const layoutByPage = await input.readLayouts?.(pageNumbers);
         for (const [
             index,
             pageSize,
@@ -881,7 +885,7 @@ export async function resolveMatchedCanvasResamplePagesFromStore(input: {
             }
             const carriesRaster = !input.rasterDetectionAvailable || rasters[index] !== undefined;
             if (!carriesRaster) continue;
-            const shares = resolveSheetShares(input.options, pageNumber, input.layoutByPage);
+            const shares = resolveSheetShares(input.options, pageNumber, layoutByPage);
             const scale = resolveScanCleanupCanvasFitScale(
                 canvas,
                 resolveScanCleanupOutputPageRect(pageSize, shares),

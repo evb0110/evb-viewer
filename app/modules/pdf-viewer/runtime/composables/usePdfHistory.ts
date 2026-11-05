@@ -1,3 +1,8 @@
+import type {
+    TDocumentCommitReceipt, TDocumentRevisionToken,
+} from '@contracts/documentRevision';
+import type {TDocumentOperationKind} from '@app/types/documentOperationKind';
+import {runWithoutDocumentOperationLease} from '@app/utils/runWithoutDocumentOperationLease';
 import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import type { IDocumentOpenSurfaceSession } from '@app/modules/document-viewer/public';
 import type { Ref } from 'vue';
@@ -26,6 +31,10 @@ export const usePdfHistory = (deps: {
     currentPage: Ref<number>;
     isAnySaving: Ref<boolean>;
     prepareHistory: () => void | Promise<void>;
+    documentRevisionToken?: Ref<TDocumentRevisionToken | null>;
+    isHistoryBusy?: Readonly<Ref<boolean>>;
+    runWithDocumentOperationLease?: <T>(kind: TDocumentOperationKind, operation: () => Promise<T>) => Promise<T>;
+    mapHistoryPage?: (direction: THistoryDirection, page: number) => number;
     canUndo: Ref<boolean>;
     canRedo: Ref<boolean>;
     nextUndoSource: Ref<TWorkspaceUndoSource | null>;
@@ -43,6 +52,7 @@ export const usePdfHistory = (deps: {
         currentPage,
         isAnySaving,
         prepareHistory,
+        mapHistoryPage,
         canUndo,
         canRedo,
         nextUndoSource,
@@ -79,27 +89,15 @@ export const usePdfHistory = (deps: {
         return preparePdfReloadWaiter(pageToRestore).promise;
     }
 
-    function getCanUseHistory(direction: THistoryDirection) {
-        return direction === 'undo'
-            ? canUndo.value
-            : canRedo.value;
-    }
-
-    function getTimelineHistorySource(direction: THistoryDirection) {
-        return direction === 'undo'
-            ? nextUndoSource.value
-            : nextRedoSource.value;
-    }
-
     function resolveHistoryRoute(direction: THistoryDirection): THistoryRoute {
-        if (isAnySaving.value || !getCanUseHistory(direction)) {
+        if (isAnySaving.value || !(direction === 'undo' ? canUndo.value : canRedo.value)) {
             return {kind: 'blocked'};
         }
 
         return {
             kind: 'command',
             direction,
-            source: getTimelineHistorySource(direction),
+            source: direction === 'undo' ? nextUndoSource.value : nextRedoSource.value,
         };
     }
 
@@ -132,7 +130,7 @@ export const usePdfHistory = (deps: {
         if (historySource === 'file' && workingCopyPath.value) {
             clearOcrCache(workingCopyPath.value);
         }
-        const pageToRestore = currentPage.value;
+        const pageToRestore = mapHistoryPage?.(direction, currentPage.value) ?? currentPage.value;
         const reloadWaiter = historySource === 'file'
             ? preparePdfReloadWaiter(pageToRestore)
             : null;
@@ -145,10 +143,22 @@ export const usePdfHistory = (deps: {
         return didRun;
     }
 
+    const runHistory = (direction: THistoryDirection, onCommitted?: TDocumentCommitReceipt) => (
+        (deps.runWithDocumentOperationLease ?? runWithoutDocumentOperationLease)('history', async () => {
+            const didRun = await runTimelineHistoryRoute(direction, direction === 'undo' ? undoHistory : redoHistory);
+            const revision = deps.documentRevisionToken?.value;
+            if (didRun && revision) onCommitted?.(revision);
+            return didRun;
+        })
+    );
+
     return {
         preparePdfReloadWaiter,
         waitForPdfReload,
-        handleUndo: () => runTimelineHistoryRoute('undo', undoHistory),
-        handleRedo: () => runTimelineHistoryRoute('redo', redoHistory),
+        canUndo,
+        canRedo,
+        isHistoryBusy: deps.isHistoryBusy ?? computed(() => false),
+        handleUndo: (onCommitted?: TDocumentCommitReceipt) => runHistory('undo', onCommitted),
+        handleRedo: (onCommitted?: TDocumentCommitReceipt) => runHistory('redo', onCommitted),
     };
 };

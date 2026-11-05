@@ -6,7 +6,7 @@ import {
 } from 'node:fs';
 import {resolve} from 'node:path';
 import {
-    PDFDocument, PDFName, pushGraphicsState, popGraphicsState, concatTransformationMatrix, drawObject, setTextRenderingMode, TextRenderingMode,
+    PDFDocument, PDFDict, PDFHexString, PDFName, pushGraphicsState, popGraphicsState, concatTransformationMatrix, drawObject, setTextRenderingMode, TextRenderingMode,
 } from 'pdf-lib';
 import {spawnSync} from 'node:child_process';
 import {getPdfNativeToolPaths} from '@electron/pdf/nativeToolPaths';
@@ -23,6 +23,231 @@ import {
 } from './documentLifecycleTestHelpers';
 
 describe('browser document lifecycle UI', () => {
+
+    // Keep document preparation in bounded hooks, as in the signature-field cases.
+    // The five-second test body covers the real operation and its saved-byte contract.
+    describe.each([
+        'rotate',
+        'crop',
+    ] as const)('historical CMS preservation after browser %s', operation => {
+        let page: Page;
+        let original: PDFDocument;
+        let verify: (bytes: Buffer, label: string) => void;
+        const source = readFileSync(resolve('tests/fixtures/electron/pdf-preservation/signed.pdf'));
+        const evidence = resolve('.devkit/fixes16/evidence/signed-browser');
+        beforeAll(async () => {
+            mkdirSync(evidence, {recursive: true});
+            original = await PDFDocument.load(source);
+            const signature = original.context.enumerateIndirectObjects().find(([
+                , object,
+            ]) => object instanceof PDFDict && object.has(PDFName.of('ByteRange')))?.[1];
+            if (!(signature instanceof PDFDict)) throw new Error('Fixture signature missing');
+            const contents = signature.get(PDFName.of('Contents'));
+            if (!(contents instanceof PDFHexString)) throw new Error('Fixture CMS missing');
+            const der = Buffer.from(contents.asBytes());
+            writeFileSync(resolve(evidence, 'signature.der'), der);
+            verify = (bytes: Buffer, label: string) => {
+                const ranges = bytes.toString('latin1').match(/\/ByteRange\s*\[\s*(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s*\]/u);
+                if (!ranges) throw new Error('Saved signature ByteRange missing');
+                const [
+                    a,
+                    b,
+                    c,
+                    d,
+                ] = ranges.slice(1).map(Number) as [number, number, number, number];
+                writeFileSync(resolve(evidence, `${label}.ranges.bin`), Buffer.concat([
+                    bytes.subarray(a, a + b),
+                    bytes.subarray(c, c + d),
+                ]));
+                const result = spawnSync('openssl', [
+                    'cms',
+                    '-verify',
+                    '-binary',
+                    '-inform',
+                    'DER',
+                    '-in',
+                    resolve(evidence, 'signature.der'),
+                    '-content',
+                    resolve(evidence, `${label}.ranges.bin`),
+                    '-noverify',
+                    '-out',
+                    resolve(evidence, `${label}.verified.bin`),
+                ], {encoding: 'utf8'});
+                writeFileSync(resolve(evidence, `${label}.cms.log`), result.stderr);
+                expect(result.status, `${label}: ${result.stderr}`).toBe(0);
+            };
+            verify(source, 'original');
+
+            const context = await lifecycle.browser.newContext({acceptDownloads: true});
+            page = await context.newPage();
+            await openPdfFromChooser(page, {
+                name: 'signed.pdf',
+                mimeType: 'application/pdf',
+                buffer: source,
+            });
+            await page.locator('.page_container--rendered canvas').first().waitFor();
+            await settleActiveOpen(page);
+            await page.getByRole('button', {
+                name: 'Toggle Sidebar',
+                exact: true,
+            }).click();
+            await page.getByRole('tab', {
+                name: 'Pages',
+                exact: true,
+            }).click();
+        });
+
+        afterAll(async () => {
+            await page?.context().close();
+        });
+
+        it('preserves the historical CMS digest and saves the page edit', async () => {
+            if (operation === 'rotate') {
+                await clickCenter(page, '[data-thumbnail-page="1"]', 'right');
+                await page.getByRole('menuitem', {
+                    name: 'Rotate Clockwise',
+                    exact: true,
+                }).click();
+            } else {
+                await page.getByRole('button', {
+                    name: 'Crop Pages',
+                    exact: true,
+                }).click();
+                const overlay = page.locator('.crop-overlay.is-active').first();
+                await overlay.waitFor();
+                const box = await overlay.boundingBox();
+                if (!box) throw new Error('Crop overlay has no painted rectangle');
+                await page.mouse.move(box.x + box.width * 0.2, box.y + box.height * 0.2);
+                await page.mouse.down();
+                await page.mouse.move(box.x + box.width * 0.8, box.y + box.height * 0.8, {steps: 8});
+                await page.mouse.up();
+                await page.getByRole('button', {
+                    name: 'Apply Crop',
+                    exact: true,
+                }).click();
+            }
+            const download = page.waitForEvent('download');
+            await page.getByRole('button', {
+                name: 'Save',
+                exact: true,
+            }).click();
+            const path = await (await download).path();
+            if (!path) throw new Error('Signed Save As produced no download');
+            const saved = readFileSync(path);
+            verify(saved, operation);
+            expect(saved.subarray(0, source.length)).toEqual(source);
+            const reopened = await PDFDocument.load(saved);
+            if (operation === 'rotate') expect(reopened.getPage(0).getRotation().angle).toBe(90);
+            else expect(reopened.getPage(0).getCropBox().width).toBeLessThan(original.getPage(0).getCropBox().width);
+        });
+    });
+
+    describe.each([
+        'delete',
+        'extract',
+    ] as const)('form membership after browser %s', operation => {
+        let page: Page;
+
+        beforeAll(async () => {
+            const source = readFileSync(resolve('tests/fixtures/electron/pdf-preservation/forms.pdf'));
+            const context = await lifecycle.browser.newContext({acceptDownloads: true});
+            page = await context.newPage();
+            await openPdfFromChooser(page, {
+                name: 'forms.pdf',
+                mimeType: 'application/pdf',
+                buffer: source,
+            });
+            await page.locator('.page_container--rendered canvas').first().waitFor();
+            await settleActiveOpen(page);
+            await page.getByRole('button', {
+                name: 'Toggle Sidebar',
+                exact: true,
+            }).click();
+            await page.getByRole('tab', {
+                name: 'Pages',
+                exact: true,
+            }).click();
+        });
+
+        afterAll(async () => {
+            await page?.context().close();
+        });
+
+        it('removes deleted-page form values through the page menu and saved bytes', async () => {
+            await clickCenter(page, `[data-thumbnail-page="${operation === 'delete' ? 2 : 1}"]`, 'right');
+            const download = page.waitForEvent('download');
+            await page.getByRole('menuitem', {
+                name: operation === 'delete' ? 'Delete Pages' : 'Extract to New PDF',
+                exact: true,
+            }).click();
+            if (operation === 'delete') {
+                await expect.poll(() => page.locator('.page-controls-total').first().innerText()).toBe('1');
+                await page.getByRole('button', {
+                    name: 'Save',
+                    exact: true,
+                }).click();
+            }
+            const path = await (await download).path();
+            if (!path) throw new Error('Page operation produced no downloaded PDF');
+            const saved = await PDFDocument.load(readFileSync(path));
+            expect(saved.getPageCount()).toBe(1);
+            expect(saved.getForm().getFields().map(field => field.getName())).toEqual(['retained']);
+            expect(saved.getForm().getTextField('retained').getText()).toBe('VISIBLE');
+        });
+    });
+
+    describe.each([
+        'StructTreeRoot',
+        'OCProperties',
+    ])('browser Combine refusal for %s', key => {
+        let page: Page;
+        let tabCount: number;
+
+        beforeAll(async () => {
+            const context = await lifecycle.browser.newContext();
+            page = await context.newPage();
+            const source = await PDFDocument.load(readFileSync(resolve('tests/fixtures/electron/pdf-preservation/layers-and-tags.pdf')));
+            source.catalog.delete(PDFName.of(key === 'StructTreeRoot' ? 'OCProperties' : 'StructTreeRoot'));
+            const feature = Buffer.from(await source.save());
+            await page.addInitScript(() => {
+                Reflect.set(window, '__allowRendererFileOpenForAutomation', () => true);
+                Reflect.set(window, 'showSaveFilePicker', undefined);
+                window.sessionStorage.setItem('evb-viewer:browser:open-picker-mode', 'input');
+            });
+            await page.goto(lifecycle.origin, {waitUntil: 'domcontentloaded'});
+            await waitForOpenFileReady(page);
+            await page.locator('nav[aria-label="File"] button.rail-item').click();
+            await page.locator('[data-combine-page]').waitFor();
+            await page.locator('input[type="file"]').setInputFiles([
+                {
+                    name: 'features.pdf',
+                    mimeType: 'application/pdf',
+                    buffer: feature,
+                },
+                {
+                    name: 'ordinary.pdf',
+                    mimeType: 'application/pdf',
+                    buffer: readFileSync(resolve('tests/fixtures/electron/generated-text.pdf')),
+                },
+            ]);
+            await page.locator('[data-combine-row]').nth(1).waitFor();
+            tabCount = await page.getByRole('tab').count();
+        });
+
+        afterAll(async () => {
+            await page?.context().close();
+        });
+
+        it('shows the localized refusal without saving a result or generating a tab', async () => {
+            await page.locator('footer.combine-actions button').click();
+            await expect.poll(async () => await page.locator('.app-toast, .page_container').count() > 0
+                || await page.getByRole('tab').count() > tabCount).toBe(true);
+            expect((await page.locator('.app-toast').allTextContents()).join('\n')).toContain('This operation was stopped because it cannot preserve the PDF’s accessibility tags or layers. No result was saved.');
+            expect(await page.locator('[data-combine-row]').count()).toBe(2);
+            expect(await page.getByRole('tab').count()).toBe(tabCount);
+            expect(await page.locator('.page_container').count()).toBe(0);
+        });
+    });
 
     it('saves a note and rotation in a PDF over 16 MiB', async () => {
         const context = await lifecycle.browser.newContext({
@@ -80,6 +305,9 @@ describe('browser document lifecycle UI', () => {
                     ['isPageOperationInProgress'],
                 ).isPageOperationInProgress === false;
             }, undefined, {timeout: 60_000});
+            // Rotation can show its preview before the replacement page is interactive.
+            await settleActiveOpen(page);
+            await page.locator('.page_container[data-page="1"][data-page-raster="current"] [data-pdf-annotation-editor-ready="true"]').first().waitFor();
             await addNote(page, 'Large PDF note survives Save', {
                 x: 120,
                 y: 120,
@@ -360,8 +588,8 @@ describe('browser document lifecycle UI', () => {
             stage = 'reopening';
             const reopened = await context.newPage();
             await openPdfFromChooser(reopened, savedPath);
-            await settleActiveOpen(reopened);
             await expect.poll(() => reopened.locator('.textLayer').first().innerText()).toContain('Hidden OCR survives Optimize');
+            await settleActiveOpen(reopened);
             const pageBounds = await reopened.locator('.page_container--rendered[data-page="1"]').first().boundingBox();
             expect(pageBounds).not.toBeNull();
             expect(pageBounds!.width / pageBounds!.height).toBeCloseTo(2 / 3, 2);
@@ -893,6 +1121,20 @@ describe('browser document lifecycle UI', () => {
         const trace: string[] = [];
         page.on('console', message => trace.push(message.text()));
         page.on('crash', () => trace.push('PAGE CRASHED'));
+        page.on('close', () => trace.push('PAGE CLOSED'));
+        page.on('request', request => {
+            if (request.isNavigationRequest()) trace.push(`NAVIGATION REQUEST ${request.url()}`);
+        });
+        page.on('response', response => {
+            if (response.request().isNavigationRequest()) trace.push(`NAVIGATION RESPONSE ${response.status()} ${response.url()}`);
+        });
+        page.on('requestfailed', request => {
+            if (request.isNavigationRequest()) trace.push(`NAVIGATION FAILED ${request.failure()?.errorText} ${request.url()}`);
+        });
+        page.on('framenavigated', frame => {
+            if (frame === page.mainFrame()) trace.push(`NAVIGATION COMMITTED ${frame.url()}`);
+        });
+        page.on('domcontentloaded', () => trace.push('DOM CONTENT LOADED'));
         let phase = 'chooser';
         try {
             const pdf = await PDFDocument.create();
@@ -1040,7 +1282,9 @@ describe('browser document lifecycle UI', () => {
                 trace: trace.slice(-35),
                 error: String(error),
                 problems,
-                text: await page.locator('body').innerText().catch(() => '<page closed>'),
+                url: page.url(),
+                closed: page.isClosed(),
+                serverOutput: lifecycle.serverOutput,
             }));
             throw error;
         } finally {

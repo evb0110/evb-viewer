@@ -478,6 +478,11 @@ import {
     SCAN_CLEANUP_MANUAL_SKEW_MIN_DEGREES,
     SCAN_CLEANUP_MARGIN_MAX_MM,
 } from '@contracts/scan-cleanup/electronApiScanCleanup';
+import {
+    DEFAULT_SCAN_CLEANUP_PAGE_OVERRIDE,
+    getScanCleanupPageOverride,
+} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
+import {requirePageNumber} from '@contracts/pageNumbers';
 import ScanCleanupAutoValueRow from '@app/modules/scan-cleanup/components/settings/ScanCleanupAutoValueRow.vue';
 import ScanCleanupPageFindings from '@app/modules/scan-cleanup/components/settings/ScanCleanupPageFindings.vue';
 import ScanCleanupScopeSelector from '@app/modules/scan-cleanup/components/settings/ScanCleanupScopeSelector.vue';
@@ -681,12 +686,22 @@ const contentBoxesState = computed(() => props.contentBoxes.mixed
     ? 'mixed'
     : hasContentBoxes.value ? 'manual' : 'auto');
 // Text thickness and speckle removal only affect black-and-white output, which
-// Auto produces for text pages. They keep their place and disable instead of
-// unmounting: switching B&W/gray/colour must not move the controls below them.
-const bilevelOutput = computed(() => !lossless.value
-    && (props.settings.outputMode === 'auto'
-        || props.settings.outputMode === 'bw'
-        || props.settings.outputMode === 'mixed'));
+// Auto produces for text pages, so they apply while any page that is output
+// can be black and white, whether by the document's mode or its own. They keep
+// their place and disable instead of unmounting: switching B&W/gray/colour
+// must not move the controls below them.
+const bilevelOutput = computed(() => !lossless.value && [
+    props.settings.pageOverrideDefaults ?? DEFAULT_SCAN_CLEANUP_PAGE_OVERRIDE,
+    ...Object.keys(props.settings.pageOverrides)
+        .map(Number)
+        .filter(page => Number.isSafeInteger(page) && page >= 1 && page <= props.totalPages)
+        .map(page => getScanCleanupPageOverride(props.settings.pageOverrides, requirePageNumber(page))),
+].some(override => !override.excluded
+    && [
+        'auto',
+        'bw',
+        'mixed',
+    ].includes(override.outputModeOverride ?? props.settings.outputMode)));
 const autoDewarpDepthState = computed(() => props.settings.autoDewarpDepth === undefined ? 'auto' : 'manual');
 const autoDewarpDepthDisabled = computed(() => lossless.value || !(props.settings.autoDewarp ?? false));
 const resetConfirmationBody = computed(() => t(`scanCleanup.settings.resetScope.${props.scope}Body`, {

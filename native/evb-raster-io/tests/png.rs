@@ -249,6 +249,28 @@ fn decodes_standard_png_variants_into_the_existing_eight_bit_contract() {
 }
 
 #[test]
+fn admits_an_incompressible_interlaced_png_by_its_pass_layout() {
+    // Adam7 stores more filter bytes than a noninterlaced image, so noise that
+    // does not compress exceeds a bound sized for noninterlaced rows.
+    let mut state = 0x2545_f491_u32;
+    let pixels = (0..256 * 768 * 3)
+        .map(|_| {
+            state ^= state << 13;
+            state ^= state >> 17;
+            state ^= state << 5;
+            state as u8
+        })
+        .collect::<Vec<_>>();
+    let png = make_adam7_png(256, 768, &pixels, None);
+    let metadata = read_png_metadata(png.as_slice(), PASSTHROUGH).unwrap();
+    assert_eq!((metadata.width, metadata.height), (256, 768));
+    assert_eq!(
+        decode_png(png.as_slice(), DECODE).unwrap().rgb.data(),
+        pixels
+    );
+}
+
+#[test]
 fn composites_keyed_interlaced_rgb_onto_white() {
     // The black pixel matches the key, so it is transparent and paints white.
     let pixels = [0, 0, 0, 1, 2, 3];
@@ -337,6 +359,24 @@ fn expanded_decode_paints_keyed_samples_white_on_every_gray_and_rgb_path() {
     // Interlaced keyed RGB: the black pixel matches the key and must be white
     // in the RGB plane and the gray plane, as the ordinary path already does.
     let keyed = make_adam7_png(2, 1, &[0, 0, 0, 1, 2, 3], Some(&[0, 0, 0, 0, 0, 0]));
+    let decoded = decode_png(&keyed[..], DECODE).unwrap();
+    assert_eq!(decoded.rgb.data(), &[255, 255, 255, 1, 2, 3]);
+    assert_eq!(decoded.gray.data(), &[255, 2]);
+    assert_eq!(
+        decode_png_gray(&keyed[..], DECODE).unwrap().data(),
+        decoded.gray.data()
+    );
+
+    // The same keyed RGB without interlacing takes the ordinary row path.
+    let keyed = encode_variant(
+        2,
+        1,
+        png::ColorType::Rgb,
+        png::BitDepth::Eight,
+        None,
+        Some(&[0, 0, 0, 0, 0, 0]),
+        &[0, 0, 0, 1, 2, 3],
+    );
     let decoded = decode_png(&keyed[..], DECODE).unwrap();
     assert_eq!(decoded.rgb.data(), &[255, 255, 255, 1, 2, 3]);
     assert_eq!(decoded.gray.data(), &[255, 2]);

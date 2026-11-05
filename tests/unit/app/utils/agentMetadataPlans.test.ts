@@ -35,6 +35,48 @@ function bookmark(overrides: Partial<IPdfBookmarkEntry>): IPdfBookmarkEntry {
 }
 
 describe('agentMetadataPlans', () => {
+    it('keeps nested bookmark depths equal to the flat view and summary maximum', () => {
+        const snapshot = createAgentBookmarkSnapshot([
+            bookmark({
+                title: 'Parent',
+                items: [bookmark({
+                    title: 'Child',
+                    items: [bookmark({title: 'Grandchild'})],
+                })],
+            }),
+            bookmark({title: 'Other root'}),
+        ], {dirty: false});
+        const nestedEntries: Array<{
+            path: unknown;
+            depth: unknown
+        }> = [];
+        const visit = (entries: Array<Record<string, unknown>>) => {
+            for (const entry of entries) {
+                nestedEntries.push({
+                    path: entry.path,
+                    depth: entry.depth,
+                });
+                visit(entry.items as Array<Record<string, unknown>>);
+            }
+        };
+        visit(snapshot.bookmarks);
+
+        expect(nestedEntries).toEqual(snapshot.flat.map(({
+            path, depth,
+        }) => ({
+            path,
+            depth,
+        })));
+        expect(nestedEntries.map(entry => entry.depth)).toEqual([
+            0,
+            1,
+            2,
+            0,
+        ]);
+        expect(snapshot.summary.maxDepth).toBe(2);
+        expect(snapshot.summary.maxDepth).toBe(Math.max(...nestedEntries.map(entry => Number(entry.depth))));
+    });
+
     it('previews page numbering from inclusive segments with samples and diffs', () => {
         const plan = createAgentPageLabelPlan({
             input: {
@@ -427,5 +469,94 @@ describe('agentMetadataPlans', () => {
             totalCount: 2,
             destinationlessCount: 1,
         });
+    });
+});
+
+describe('page-label duplicate analysis completeness', () => {
+    it.each([
+        200,
+        201,
+    ])('reports restarted numbering honestly at %i pages', (totalPages) => {
+        const snapshot = createAgentPageLabelSnapshot({
+            totalPages,
+            dirty: false,
+            pageLabelRanges: [
+                {
+                    startPage: 1,
+                    style: 'D',
+                    prefix: '',
+                    startNumber: 1,
+                },
+                {
+                    startPage: 101,
+                    style: 'D',
+                    prefix: '',
+                    startNumber: 1,
+                },
+            ],
+        });
+        expect(snapshot.summary).toMatchObject({
+            duplicateLabelCount: totalPages === 200 ? 100 : null,
+            duplicateLabelAnalysisComplete: totalPages === 200,
+        });
+        if (totalPages === 201) {
+            expect(snapshot.labels).toBeNull();
+            expect(snapshot.issues).toContainEqual(expect.objectContaining({code: 'duplicate_page_label_analysis_incomplete'}));
+        }
+    });
+
+    it.each([
+        200,
+        201,
+        1_000_000,
+    ])('counts distinct repeated literal labels at %i pages', (totalPages) => {
+        const snapshot = createAgentPageLabelSnapshot({
+            totalPages,
+            dirty: false,
+            pageLabelRanges: [{
+                startPage: 1,
+                style: null,
+                prefix: 'Cover',
+                startNumber: 1,
+            }],
+        });
+        expect(snapshot.summary).toMatchObject({
+            duplicateLabelCount: 1,
+            duplicateLabelAnalysisComplete: true,
+        });
+        expect(snapshot.issues).toContainEqual(expect.objectContaining({
+            code: 'duplicate_page_label',
+            message: `Page label "Cover" appears on ${totalPages} pages.`,
+        }));
+        if (totalPages > 200) expect(snapshot.labels).toBeNull();
+    });
+
+    it('does not claim a partial literal count is a complete mixed-range result', () => {
+        const snapshot = createAgentPageLabelSnapshot({
+            totalPages: 201,
+            dirty: false,
+            pageLabelRanges: [
+                {
+                    startPage: 1,
+                    style: null,
+                    prefix: 'A1',
+                    startNumber: 1,
+                },
+                {
+                    startPage: 101,
+                    style: 'D',
+                    prefix: 'A',
+                    startNumber: 1,
+                },
+            ],
+        });
+        expect(snapshot.summary).toMatchObject({
+            duplicateLabelCount: null,
+            duplicateLabelAnalysisComplete: false,
+        });
+        expect(snapshot.issues).toContainEqual(expect.objectContaining({
+            code: 'duplicate_page_label',
+            message: expect.stringContaining('at least 100 pages'),
+        }));
     });
 });

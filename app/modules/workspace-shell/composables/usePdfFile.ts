@@ -7,6 +7,7 @@ import {
     getDocumentWorkingCopyCapability,
 } from '@app/utils/platformDocuments';
 import { createDocumentConformance } from '@app/modules/workspace-shell/composables/document-session/createDocumentConformance';
+import type { IHistoryRevisionSwapOptions } from '@app/modules/workspace-shell/composables/document-session/createDocumentHistory';
 import { createDocumentHistory } from '@app/modules/workspace-shell/composables/document-session/createDocumentHistory';
 import { createDocumentOpenFlow } from '@app/modules/workspace-shell/composables/document-session/createDocumentOpenFlow';
 import { createDocumentPersistence } from '@app/modules/workspace-shell/composables/document-session/createDocumentPersistence';
@@ -16,7 +17,7 @@ import {
 } from '@app/modules/workspace-shell/viewers/workspaceDocumentDriver';
 
 
-export const usePdfFile = () => {
+export const usePdfFile = (options: IHistoryRevisionSwapOptions = {}) => {
     const { t } = useTypedI18n();
 
     const { clearCache: clearOcrCache } = useOcrTextContent();
@@ -71,11 +72,13 @@ export const usePdfFile = () => {
         pushHistorySnapshot,
         redo,
         reloadWorkingCopyIntoHistory,
+        mapHistoryPage,
         resetHistory,
         setWorkspaceCommandSink,
         syncDirtyFromHistory,
         undo,
     } = createDocumentHistory(sessionState, {
+        ...options,
         applyLoadedPdfState: (...args) => documentOpenFlow.applyLoadedPdfState(...args),
         clearPdfConformanceProfile,
         clearOcrCache,
@@ -213,6 +216,7 @@ export const usePdfFile = () => {
         loadPdfFromPath,
         ensureHistoryBaselineForMutation,
         reloadWorkingCopyIntoHistory,
+        mapHistoryPage,
         loadPdfFromData,
         persistPdfDataSilently,
         saveFile,

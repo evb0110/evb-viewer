@@ -85,33 +85,36 @@ vi.mock('@evb/scan-cleanup/core/policy/scanCleanupPagePolicy', async importOrigi
 vi.mock('@app/utils/getScanCleanupCapability', () => ({getScanCleanupCapability: () => capability.value}));
 vi.mock('@app/composables/useTypedI18n', async (importOriginal_1) => ({
     ...(await importOriginal_1<typeof TViMockOriginalModule>()),
-    useTypedI18n: () => ({t: (
-        key: string,
-        values?: Record<string, unknown>,
-    ) => {
-        if (key === 'scanCleanup.detectAll.preAnalyzing') {
-            return 'Pre-analyzing pages';
-        }
-        if (key === 'scanCleanup.runCount') {
-            return `${String(values?.completed)} of ${String(values?.total)} pages`;
-        }
-        if (key === 'scanCleanup.runStatus') {
-            return `${String(values?.phase)} — ${String(values?.counter)}`;
-        }
-        if (key === 'scanCleanup.etaMinutes') {
-            return `Current task: about ${String(values?.minutes)} min`;
-        }
-        if (key === 'scanCleanup.etaSeconds') {
-            return `Current task: about ${String(values?.seconds)} sec`;
-        }
-        if (key === 'scanCleanup.runProgress.assembling') {
-            return 'Building PDF';
-        }
-        if (key === 'scanCleanup.runProgress.handoff') {
-            return 'Opening result';
-        }
-        return values?.output === undefined ? key : `${key}:${String(values.output)}`;
-    }}),
+    useTypedI18n: () => ({
+        locale: {value: 'en'},
+        t: (
+            key: string,
+            values?: Record<string, unknown>,
+        ) => {
+            if (key === 'scanCleanup.detectAll.preAnalyzing') {
+                return 'Pre-analyzing pages';
+            }
+            if (key === 'scanCleanup.runCount') {
+                return `${String(values?.completed)} of ${String(values?.total)} pages`;
+            }
+            if (key === 'scanCleanup.runStatus') {
+                return `${String(values?.phase)} — ${String(values?.counter)}`;
+            }
+            if (key === 'scanCleanup.etaMinutes') {
+                return `Current task: about ${String(values?.minutes)} min`;
+            }
+            if (key === 'scanCleanup.etaSeconds') {
+                return `Current task: about ${String(values?.seconds)} sec`;
+            }
+            if (key === 'scanCleanup.runProgress.assembling') {
+                return 'Building PDF';
+            }
+            if (key === 'scanCleanup.runProgress.handoff') {
+                return 'Opening result';
+            }
+            return values?.output === undefined ? key : `${key}:${String(values.output)}`;
+        },
+    }),
 }));
 
 function previewResult(
@@ -589,7 +592,7 @@ describe('scan cleanup workspace session detection guidance', () => {
         expect(harness.value.start).not.toHaveBeenCalled();
         expect(harness.value.detectAll).toHaveBeenCalledTimes(2);
         expect(mounted.session.run.error.value).toMatch(
-            /^scanCleanup\.detectAll\.evidenceMissing\nError ID: [0-9a-f]{8}$/u,
+            /^scanCleanup\.detectAll\.evidenceMissing\nerrors\.runtime\.errorId: [0-9a-f]{8}$/u,
         );
         mounted.unmount();
     });
@@ -1889,6 +1892,31 @@ describe('scan cleanup workspace session detection guidance', () => {
 
         expect(mounted.session.preview.detailResult.value?.pageMetadata.layoutClassification)
             .toBe('single-uncut-page');
+        mounted.unmount();
+    });
+
+    it('asks for detail with the output recommendation its base was rendered with', async () => {
+        const harness = capabilityHarness();
+        vi.mocked(harness.value.preview).mockImplementation(async request => previewResult(request.pageNumber, 'single-uncut-page'));
+        capability.value = harness.value;
+        const mounted = mountSession(`detail-recommendation-${Date.now()}`);
+        mounted.session.settings.values.outputMode = 'auto';
+        await vi.waitFor(() => expect(mounted.session.preview.resultCurrent.value).toBe(true));
+        mounted.session.detection.recommendedOutputModeByPage.set(1, 'bw');
+        await vi.waitFor(() => expect(vi.mocked(harness.value.preview).mock.calls
+            .some(([request]) => request?.pageNumber === 1 && !request.detail && request.outputModeRecommendation === 'bw')).toBe(true));
+        await vi.waitFor(() => expect(mounted.session.preview.resultCurrent.value).toBe(true));
+
+        await mounted.session.preview.requestDetail({full: {
+            xNormalized: 0,
+            yNormalized: 0,
+            widthNormalized: 0.5,
+            heightNormalized: 0.5,
+            rotationDegrees: 0,
+        }});
+
+        const detailRequest = vi.mocked(harness.value.preview).mock.calls.find(([request]) => request?.detail)?.[0];
+        expect(detailRequest?.outputModeRecommendation).toBe('bw');
         mounted.unmount();
     });
 
@@ -3803,7 +3831,7 @@ describe('scan cleanup workspace session detection guidance', () => {
         await mounted.session.run.run();
 
         expect(mounted.session.run.error.value).toMatch(
-            /^scanCleanup\.errors\.toolsUnavailable \(Scan cleanup is unavailable\)\nError ID: [0-9a-f]{8}$/u,
+            /^scanCleanup\.errors\.toolsUnavailable \(Scan cleanup is unavailable\)\nerrors\.runtime\.errorId: [0-9a-f]{8}$/u,
         );
         expect(mounted.session.run.errorCode.value).toBe('tools-unavailable');
         mounted.unmount();
@@ -4664,6 +4692,8 @@ describe('scan cleanup workspace session detection guidance', () => {
         const pageOnePreviewCalls = () => vi.mocked(harness.value.preview).mock.calls
             .filter(([request]) => request?.pageNumber === 1).length;
         const callsBeforeExclusion = pageOnePreviewCalls();
+        const shownBeforeExclusion = mounted.session.preview.result.value;
+        const presentationBeforeExclusion = mounted.session.preview.resultPresentationKey.value;
 
         mounted.session.selection.updatePageOverride(3, {
             rotationDegrees: 0,
@@ -4673,6 +4703,10 @@ describe('scan cleanup workspace session detection guidance', () => {
         });
 
         await vi.waitFor(() => expect(pageOnePreviewCalls()).toBeGreaterThan(callsBeforeExclusion));
+        await vi.waitFor(() => expect(mounted.session.preview.result.value).not.toBe(shownBeforeExclusion));
+        // The pane keeps a settled frame against later frames of the same
+        // presentation, so the redrawn page must arrive as a new one.
+        expect(mounted.session.preview.resultPresentationKey.value).not.toBe(presentationBeforeExclusion);
         mounted.unmount();
     });
 });

@@ -6,6 +6,7 @@ import {
     vi,
 } from 'vitest';
 import {requireDocumentRevisionToken} from '@contracts/documentRevision';
+import {requireEpochMs} from '@contracts/timestamps';
 import {requireDocumentRef} from '@contracts/documentRef';
 import {
     createFileSystemFileHandle,
@@ -13,6 +14,15 @@ import {
 } from '@tests/unit/app/platform/browserPlatformTestDoubles';
 import type * as BrowserFilePickerAdapter from '@app/platform/browser-api/browserFilePickerAdapter';
 import type * as BrowserQpdfEngineClient from '@app/platform/browser-api/browserQpdfEngineClient';
+
+const savedRevision = {
+    version: 1 as const,
+    documentRef: requireDocumentRef('browser://documents/working'),
+    authority: 'browser-document-store' as const,
+    token: requireDocumentRevisionToken('drt1:browser:own-save'),
+    contentRevision: 2,
+    mintedAt: requireEpochMs(2),
+};
 
 const browserDocumentStoreMock = vi.hoisted(() => ({
     getSourceRef: vi.fn(),
@@ -86,6 +96,7 @@ describe('browserSaveTargets', () => {
             acknowledgePhysicalSourceCommit: browserDocumentStoreMock.acknowledgePhysicalSourceCommit,
         }));
         browserDocumentStoreMock.write.mockResolvedValue(true);
+        browserDocumentStoreMock.acknowledgePhysicalSourceCommit.mockResolvedValue(savedRevision);
         browserDocumentStoreMock.assignSaveTarget.mockResolvedValue(undefined);
         browserDocumentStoreMock.touchRecentFile.mockResolvedValue(undefined);
         filePickerMock.ensureFileHandleWritePermission.mockResolvedValue(undefined);
@@ -106,8 +117,25 @@ describe('browserSaveTargets', () => {
                 ok: true,
                 externalWriteCommitted: true,
                 workingCopyRefreshed: true,
+                documentRevision: savedRevision,
                 validation: null,
             });
+    });
+
+    it('records a stored handle save under its physical name rather than a stale saveName', async () => {
+        const handle = createFileSystemFileHandle({name: ' report.PDF'});
+        browserDocumentStoreMock.getSaveTarget.mockResolvedValue({
+            saveName: 'old.pdf',
+            saveKind: 'pdf',
+            saveHandle: handle,
+        });
+        const {saveWorkingBytesToSourceStructured} = await import('@app/platform/browser-api/browserSaveTargets');
+        await expect(saveWorkingBytesToSourceStructured(requireDocumentRef('browser://documents/working'))).resolves.toMatchObject({ok: true});
+        expect(browserDocumentStoreMock.replaceWithHandleBackedDocument).toHaveBeenCalledWith('browser://documents/source', expect.objectContaining({
+            saveName: handle.name,
+            saveHandle: handle,
+        }));
+        expect(browserDocumentStoreMock.assignSaveTarget).toHaveBeenCalledWith('browser://documents/source', handle.name, 'pdf', handle);
     });
 
     it('advances the source base after a download save so the next save is not seen as an external edit', async () => {

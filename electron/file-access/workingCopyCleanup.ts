@@ -21,10 +21,11 @@ import {
     forgetRetiredWorkingCopyOriginal,
     forgetWorkingCopyOriginalPath,
     getWorkingCopyOwnerWebContentsId,
-    hasWorkingCopyRecoveryClaim,
+    hasWorkingCopyRecoveryClaimInDirectory,
     normalizePathForLookup,
     rememberRetiredWorkingCopyOriginal,
     runWithWorkingCopyRegistrationFence,
+    runWithWorkingCopyRegistrationTransition,
     workingCopyMap,
     type IWorkingCopyOriginalEntry,
 } from '@electron/file-access/workingCopyStore';
@@ -120,6 +121,10 @@ export function isRegisteredWorkingCopyDirectory(workDir: string) {
     return false;
 }
 
+function isOwnedWorkingCopyDirectory(workDir: string) {
+    return isRegisteredWorkingCopyDirectory(workDir) || hasWorkingCopyRecoveryClaimInDirectory(workDir);
+}
+
 // The working copy and PDF a folder's journal names, if it has one; an unreadable journal names document.pdf, and
 // recovery refuses it.
 async function readJournaledPaths(workDir: string) {
@@ -167,7 +172,7 @@ async function isRemovableWorkingCopyDirectory(workDir: string, now: number) {
  */
 export async function supersedeClosedWorkingCopyJournals(originalPath: string) {
     for (const workDir of await listWorkingCopyDirectories()) {
-        const journaled = isRegisteredWorkingCopyDirectory(workDir) ? null : await readJournaledPaths(workDir);
+        const journaled = isOwnedWorkingCopyDirectory(workDir) ? null : await readJournaledPaths(workDir);
         if (!journaled || existsSync(journaled.workingCopyPath) || journaled.originalPath === undefined
             || normalizePathForLookup(journaled.originalPath) !== normalizePathForLookup(originalPath)) continue;
         await readJournal(journaled.workingCopyPath).then(async (journal) => {
@@ -201,58 +206,34 @@ async function performCleanupStaleWorkingCopyDirectories(
         candidates.length,
         Math.max(1, Math.trunc(options.statConcurrency ?? 8)),
     );
-    const retainedAtomicReplaceBackupDirectories = new Set<string>();
     let removedAtomicReplaceBackups = 0;
-    let nextBackupCleanupIndex = 0;
-
-    await Promise.all(Array.from({length: workerCount}, async () => {
-        while (nextBackupCleanupIndex < candidates.length) {
-            if (staleWorkingCopyCleanupBlockedReason) {
-                return;
-            }
-            const candidateIndex = nextBackupCleanupIndex;
-            nextBackupCleanupIndex += 1;
-            const candidate = candidates[candidateIndex];
-            if (!candidate) {
-                continue;
-            }
-            const backupCleanup = await cleanupStaleAtomicReplaceBackups(candidate, {
-                isDestinationActive: destinationPath => isRegisteredWorkingCopyDirectory(dirname(destinationPath)),
-                maxAgeMs: STALE_WORK_DIR_MAX_AGE_MS,
-                now,
-            });
-            if (backupCleanup.hasRetainedBackup) {
-                retainedAtomicReplaceBackupDirectories.add(candidate);
-            }
-            removedAtomicReplaceBackups += backupCleanup.removedBackups;
-        }
-    }));
-
-    if (staleWorkingCopyCleanupBlockedReason) {
-        return {removedDirectories};
-    }
-
     let nextCandidateIndex = 0;
 
     await Promise.all(Array.from({length: workerCount}, async () => {
         while (nextCandidateIndex < candidates.length) {
-            if (staleWorkingCopyCleanupBlockedReason) {
-                return;
-            }
-            const candidateIndex = nextCandidateIndex;
-            nextCandidateIndex += 1;
-            const workDir = candidates[candidateIndex];
-            if (!workDir || isRegisteredWorkingCopyDirectory(workDir) || !await isRemovableWorkingCopyDirectory(workDir, now)
-                || retainedAtomicReplaceBackupDirectories.has(workDir)) {
-                continue;
-            }
-
-            if (staleWorkingCopyCleanupBlockedReason) {
-                return;
-            }
-            if (await safeRemoveDirectory(workDir)) {
-                removedDirectories += 1;
-            }
+            if (staleWorkingCopyCleanupBlockedReason) return;
+            const workDir = candidates[nextCandidateIndex++];
+            if (!workDir) continue;
+            const transitionPath = join(workDir, 'document.pdf');
+            const backupCleanup = await runWithWorkingCopyRegistrationTransition(transitionPath, async () => {
+                if (staleWorkingCopyCleanupBlockedReason || isOwnedWorkingCopyDirectory(workDir)) return null;
+                return cleanupStaleAtomicReplaceBackups(workDir, {
+                    isDestinationActive: destinationPath => Boolean(staleWorkingCopyCleanupBlockedReason)
+                        || isOwnedWorkingCopyDirectory(dirname(destinationPath)),
+                    maxAgeMs: STALE_WORK_DIR_MAX_AGE_MS,
+                    now,
+                });
+            });
+            if (!backupCleanup) continue;
+            removedAtomicReplaceBackups += backupCleanup.removedBackups;
+            // Journal recovery takes the original-path lock. Do it before the
+            // directory transition, never while holding that transition.
+            if (isOwnedWorkingCopyDirectory(workDir) || !await isRemovableWorkingCopyDirectory(workDir, now)
+                || backupCleanup.hasRetainedBackup) continue;
+            await runWithWorkingCopyRegistrationTransition(transitionPath, async () => {
+                if (staleWorkingCopyCleanupBlockedReason || isOwnedWorkingCopyDirectory(workDir)) return;
+                if (await safeRemoveDirectory(workDir)) removedDirectories += 1;
+            });
         }
     }));
 
@@ -601,7 +582,7 @@ async function retireAndDeleteWorkingCopy(
         workingPath,
         entry.registrationId,
         async (currentEntry): Promise<TWorkingCopyRetirementOutcome> => {
-            if (hasWorkingCopyRecoveryClaim(workingPath)) {
+            if (hasWorkingCopyRecoveryClaimInDirectory(dirname(workingPath))) {
                 return {
                     status: 'retained',
                     reason: 'an unresolved recovery checkpoint still owns this working copy',
@@ -676,11 +657,6 @@ export async function cleanupWorkingCopy(workingPath: string, senderWebContentsI
         && ownerWebContentsId !== senderWebContentsId
     ) {
         logger.warn('Rejected cleanup for working copy path owned by another sender', {workingPath: normalizedPath});
-        return false;
-    }
-
-    if (hasWorkingCopyRecoveryClaim(normalizedPath)) {
-        logger.warn('Retained recovery working copy while checkpoint adoption is unresolved', {workingPath: normalizedPath});
         return false;
     }
 

@@ -585,6 +585,20 @@ describe('findPdfSearchMatches', () => {
             .toThrow('pattern is too complex for document search');
     });
 
+    it.each([
+        '[a-\\P{Ll}]',
+        '[\\P{Ll}-a]',
+        '[\\b]',
+        '(a+)+$',
+        '\\P{Ll',
+        '\\P{Unknown_Property}',
+    ])('rejects invalid or unsafe Unicode complement syntax %s', pattern => {
+        expect(() => pdfSearchCore.assertSafePdfSearchRegex(pattern, {
+            matchCase: false,
+            wholeWord: false,
+        })).toThrow();
+    });
+
     it('rejects regex patterns that are unsafe for document search', () => {
         expect(() => findPdfSearchMatches('aaaaaaaaaaaaaaaa!', '(a+)+$', { useRegex: true }))
             .toThrow('pattern is too complex for document search');

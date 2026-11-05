@@ -24,6 +24,7 @@ import type * as DocumentFileWriteAtomicModule from '@electron/file-access/docum
 import type * as OriginalPathSnapshotModule from '@electron/file-access/originalPathSnapshot';
 import type * as TransitionModule from '@electron/features/documents/main/transitionOriginalAndWorkingCopyRevision';
 import type * as WorkingCopyDirectoryModule from '@electron/file-access/workingCopyDirectory';
+import type {IDocumentRevisionChangedEvent} from '@contracts/documentRevision';
 import {requireDocumentRef} from '@contracts/documentRef';
 import {requirePaneId} from '@contracts/editorPanes';
 import {requireEpochMs} from '@contracts/timestamps';
@@ -204,6 +205,54 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
             saveAnnotations,
         };
     }
+
+    it.each([
+        'structured',
+        'native',
+    ] as const)('returns the %s save revision when a second writer commits before the handler settles', async (path) => {
+        let ownRevision: IDocumentRevisionChangedEvent | null = null;
+        vi.doMock('@electron/features/documents/main/transitionOriginalAndWorkingCopyRevision', async importOriginal => {
+            const actual = await importOriginal<typeof TransitionModule>();
+            return {
+                ...actual,
+                transitionOriginalAndWorkingCopyRevision: async (input: Parameters<typeof actual.transitionOriginalAndWorkingCopyRevision>[0]) => {
+                    ownRevision = await actual.transitionOriginalAndWorkingCopyRevision(input);
+                    if (ownRevision) {
+                        const {transitionWorkingCopyContentRevision} = await import('@electron/file-access/documentRevisionStore');
+                        await transitionWorkingCopyContentRevision(input.workingCopyPath, 'write', async () => {
+                            await writeFile(input.workingCopyPath, 'reader-write');
+                        }, 7);
+                    }
+                    return ownRevision;
+                },
+            };
+        });
+        const conformance = await import('@electron/features/documents/main/pdfConformance');
+        const validation = vi.spyOn(conformance, 'validatePdfFileForSave').mockResolvedValue({
+            isValid: true,
+            tool: 'qpdf',
+            errors: [],
+            warnings: [],
+        });
+        try {
+            const fixture = await prepareAnnotationSaves('pdf-work-receipt');
+            const {getWorkingCopyRevision} = await import('@electron/file-access/documentRevisionStore');
+            const before = await getWorkingCopyRevision(fixture.workingCopyPath, 7);
+            const result = path === 'native'
+                ? await fixture.saveAnnotations(Buffer.from('saved-annotations'))
+                : await (await import('@electron/features/documents/main/workingCopySave')).handleFileSaveStructured(
+                    {senderId: 7}, fixture.workingCopyPath, {expectedDocumentRevisionToken: before.token},
+                );
+            expect(result).toMatchObject({documentRevision: ownRevision});
+            expect(ownRevision).not.toBeNull();
+            expect((await getWorkingCopyRevision(fixture.workingCopyPath, 7)).token).not.toBe('documentRevision' in result ? result.documentRevision?.token : undefined);
+            await expect(readFile(fixture.workingCopyPath, 'utf8')).resolves.toBe('reader-write');
+            await expect(readFile(fixture.originalPath, 'utf8')).resolves.toBe(path === 'native' ? 'saved-annotations' : 'old-working');
+        } finally {
+            validation.mockRestore();
+            vi.doUnmock('@electron/features/documents/main/transitionOriginalAndWorkingCopyRevision');
+        }
+    });
 
     it('keeps accepted work and an external save made during registration refresh', async () => {
         const {

@@ -16,6 +16,10 @@ import {build} from 'esbuild';
 import {chromium} from 'playwright';
 import {clickCenter} from './clickCenter';
 import {
+    createAnnotationFidelityFixtureBytes,
+    readAnnotationFidelitySnapshot,
+} from '@tests/e2e/electron/helpers/fixtures';
+import {
     PDFDocument, PDFArray, PDFDict, PDFName, PDFString, PDFHexString,
 } from 'pdf-lib';
 import {
@@ -94,6 +98,109 @@ afterAll(async () => {
 });
 
 describe('browser annotation save acceptance in Chromium', () => {
+    it('preserves imported shape threads, a closed arrow and skewed markup when saving their sibling', async () => {
+        const source = await createAnnotationFidelityFixtureBytes();
+        const before = await readAnnotationFidelitySnapshot(source);
+        const sourcePdf = await PDFDocument.load(source);
+        const annots = sourcePdf.getPage(0).node.lookup(PDFName.of('Annots'), PDFArray);
+        const refFor = (name: string) => {
+            const index = before.findIndex(row => row.name === name);
+            return annots.get(index).toString();
+        };
+        const mutations = {
+            shapes: {
+                totalPages: 1,
+                rewriteShapeState: false,
+                shapes: [{
+                    type: 'rectangle',
+                    pageIndex: 0,
+                    annotationId: refFor('evb-shape:sibling'),
+                    stableKey: 'evb-shape:sibling',
+                    x: 0.51,
+                    y: 0.725,
+                    width: 0.275,
+                    height: 0.175,
+                    color: '#0000ff',
+                    opacity: 1,
+                    strokeWidth: 2,
+                }],
+                deletedAnnotationIds: [],
+                deletedStableKeys: [],
+            },
+            markup: {hints: [{
+                subtype: 'Highlight',
+                pageIndex: 0,
+                annotationId: refFor('skewed-markup'),
+                markerRect: {
+                    left: 0.1,
+                    top: 0.2,
+                    width: 0.5,
+                    height: 0.15,
+                },
+                markupGeometry: [{
+                    left: 0.1,
+                    top: 0.2,
+                    width: 0.5,
+                    height: 0.15,
+                }],
+                color: '#ff0000',
+                opacity: 1,
+                contents: 'Browser edited skewed comment',
+            }]},
+        };
+        const browser = await chromium.launch({headless: true});
+        try {
+            const page = await browser.newPage();
+            await page.goto(origin);
+            await page.addScriptTag({
+                path: bundlePath,
+                type: 'module',
+            });
+            const [download] = await Promise.all([
+                page.waitForEvent('download'),
+                page.evaluate(async ({
+                    bytes, mutation,
+                }) => {
+                    const save = Reflect.get(globalThis, '__evbSaveAnnotationFidelity');
+                    if (typeof save !== 'function') throw new Error('Missing browser fidelity entry');
+                    return save(bytes, mutation);
+                }, {
+                    bytes: Array.from(source),
+                    mutation: mutations,
+                }),
+            ]);
+            const evidence = resolve(process.cwd(), '.devkit/checks/browser-fidelity.pdf');
+            await download.saveAs(evidence);
+            const after = await readAnnotationFidelitySnapshot(await readFile(evidence));
+            expect(after).toHaveLength(before.length);
+            for (const name of [
+                'foreign-dashed',
+                'evb-shape:closed-arrow',
+            ]) {
+                expect(after.find(row => row.name === name), name).toEqual(before.find(row => row.name === name));
+            }
+            for (const thread of before.filter(row => row.name === null)) {
+                expect(after.find(row => row.ref === thread.ref)).toEqual(thread);
+            }
+            const oldMarkup = before.find(row => row.name === 'skewed-markup')!;
+            const newMarkup = after.find(row => row.name === 'skewed-markup')!;
+            for (const key of [
+                'quads',
+                'rect',
+                'appearance',
+                'appearanceStream',
+                'appearanceDictionary',
+                'resources',
+            ] as const) {
+                expect(newMarkup[key], key).toEqual(oldMarkup[key]);
+            }
+            expect(newMarkup.contents).toBe('Browser edited skewed comment');
+            expect(after.find(row => row.name === 'evb-shape:sibling')?.rect).not.toEqual(before.find(row => row.name === 'evb-shape:sibling')?.rect);
+        } finally {
+            await browser.close();
+        }
+    });
+
     it('saves and reopens annotations in small PDFs and in PDFs above the 16 MiB full-read default', async () => {
         const browser = await chromium.launch({headless: true});
         try {

@@ -121,6 +121,8 @@ export const REPLACE_PAGE_IMAGES_REPORT_SCHEMA = v.object({
             'visible-drawing',
             'form-xobject',
             'unsupported-text',
+            'tagged-content',
+            'optional-content',
         ]),
         sourceBytes: byteCountSchema,
         replacementBytes: byteCountSchema,

@@ -1,5 +1,6 @@
 import type {IPdfPage} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 // @vitest-environment happy-dom
+import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
 
 import { requirePageNumber } from '@contracts/pageNumbers';
 import type { TPageNumber } from '@contracts/pageNumbers';
@@ -127,7 +128,7 @@ function createHarness() {
             window.getSelection()?.removeAllRanges();
             return true;
         },
-        logNonCriticalStageError: vi.fn(),
+        logNonCriticalStageError: vi.fn(() => STAGE_FAILURE_RECEIPT),
     });
 
     const harness = {
@@ -178,6 +179,8 @@ function createHarness() {
     return harness;
 }
 
+const STAGE_FAILURE_RECEIPT = cast<FailureReceipt>({errorId: 'text-layer-receipt'});
+
 describe('usePdfRendererTextLayerController', () => {
     it('keeps the selection and the mounted interaction across a scale step', async () => {
         const harness = createHarness();
@@ -226,11 +229,14 @@ describe('usePdfRendererTextLayerController', () => {
         expect(harness.textLayerCleanupFns.get(requirePageNumber(1))).toBeTypeOf('function');
     });
 
-    it('keeps the committed canvas path retryable after text extraction fails', async () => {
+    it('reports a text extraction failure and renders the layer when asked again', async () => {
         const harness = createHarness();
 
         harness.failNextTextLayer(new Error('text extraction failed'));
-        expect(await harness.renderAtScale(1)).toBe(false);
+        expect(await harness.renderAtScale(1)).toMatchObject({
+            failure: STAGE_FAILURE_RECEIPT,
+            error: expect.objectContaining({message: 'text extraction failed'}),
+        });
         expect(harness.setupTextLayerInteraction).not.toHaveBeenCalled();
         expect(harness.cleanupTextLayerDom).toHaveBeenCalledOnce();
 
@@ -238,17 +244,20 @@ describe('usePdfRendererTextLayerController', () => {
         expect(harness.setupTextLayerInteraction).toHaveBeenCalledOnce();
     });
 
-    it('does not claim text readiness when interaction setup fails', async () => {
+    it('reports a failed interaction setup instead of claiming text readiness', async () => {
         const harness = createHarness();
         harness.setupTextLayerInteraction.mockImplementationOnce(() => {
             throw new Error('interaction setup failed');
         });
 
-        expect(await harness.renderAtScale(1)).toBe(false);
+        expect(await harness.renderAtScale(1)).toMatchObject({
+            failure: STAGE_FAILURE_RECEIPT,
+            error: expect.objectContaining({message: 'interaction setup failed'}),
+        });
         expect(harness.cleanupTextLayerDom).toHaveBeenCalledOnce();
     });
 
-    it('cleans the text DOM and stays retryable when the text stage times out', async () => {
+    it('cleans the text DOM and reports the text stage timing out', async () => {
         vi.useFakeTimers();
         const harness = createHarness();
         try {
@@ -256,7 +265,8 @@ describe('usePdfRendererTextLayerController', () => {
             const render = harness.renderAtScale(1);
             await vi.advanceTimersByTimeAsync(15_000);
 
-            await expect(render).resolves.toBe(false);
+            // A receipt lets the page offer Retry for its text.
+            await expect(render).resolves.toMatchObject({failure: STAGE_FAILURE_RECEIPT});
             expect(harness.cleanupTextLayerDom).toHaveBeenCalledOnce();
             expect(harness.setupTextLayerInteraction).not.toHaveBeenCalled();
         } finally {

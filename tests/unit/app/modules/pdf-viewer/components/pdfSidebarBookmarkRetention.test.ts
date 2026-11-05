@@ -24,7 +24,10 @@ import WorkspaceSidebarHost from '@app/modules/workspace-shell/components/layout
 
 vi.mock('@app/composables/useTypedI18n', async (importOriginal) => ({
     ...(await importOriginal<typeof TViMockOriginalModule>()),
-    useTypedI18n: () => ({t: (key: string) => key}),
+    useTypedI18n: () => ({
+        t: (key: string) => key,
+        locale: {value: 'en'},
+    }),
 }));
 
 const outlineLifecycle = {
@@ -169,6 +172,7 @@ async function mountSidebar(overrides: {
         resizeAriaLabel: 'Resize sidebar',
         showSidebar: state.isOpen,
         sidebarContentWidth: overrides.width ?? SIDEBAR.DEFAULT_WIDTH,
+        sidebarMaxWidth: SIDEBAR.MAX_WIDTH,
         sidebarWrapperStyle: {width: `${(overrides.width ?? SIDEBAR.DEFAULT_WIDTH) + SIDEBAR.RESIZER_WIDTH}px`},
     }, {sidebar: renderSidebar})}));
     app.mount(host);

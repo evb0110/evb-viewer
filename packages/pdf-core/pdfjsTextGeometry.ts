@@ -20,7 +20,9 @@ export type TPdfjsTextOps = Partial<Record<
     | 'showText'
     | 'showSpacedText'
     | 'nextLineShowText'
-    | 'nextLineSetSpacingShowText',
+    | 'nextLineSetSpacingShowText'
+    | 'paintFormXObjectBegin'
+    | 'paintFormXObjectEnd',
     number
 >>;
 
@@ -408,6 +410,9 @@ function showGlyphArray(
     for (const glyph of glyphs) {
         if (typeof glyph === 'number') {
             advanceText(state, -glyph / 1000 * fontSize * hScale);
+            // A wide TJ gap separates words as any move does; kerning stays
+            // inside the word under the same pen-distance rule.
+            state.repositioned = true;
             continue;
         }
         if (!glyph || typeof glyph !== 'object') {
@@ -419,9 +424,14 @@ function showGlyphArray(
         const spaceGlyph = isGlyphSpace(glyph, text);
         const textToPage = multiplyMatrices(ctm, state.textMatrix);
         if (state.repositioned && nextActiveWord) {
+            // A gap ahead on the baseline or a move off it ends the word; a
+            // move back, as for an overstruck accent, does not.
             const origin = transformPoint(textToPage, 0, 0);
-            if (Math.hypot(origin.x - nextActiveWord.penX, origin.y - nextActiveWord.penY)
-                > MAX_WORD_GLYPH_GAP_EM * nextActiveWord.emSize) {
+            const dx = origin.x - nextActiveWord.penX;
+            const dy = origin.y - nextActiveWord.penY;
+            const run = Math.hypot(textToPage[0], textToPage[1]) || 1;
+            const limit = MAX_WORD_GLYPH_GAP_EM * nextActiveWord.emSize;
+            if ((dx * textToPage[0] + dy * textToPage[1]) / run > limit || Math.abs(dx * textToPage[1] - dy * textToPage[0]) / run > limit) {
                 nextActiveWord = flushActiveWord(words, nextActiveWord);
             }
         }
@@ -505,7 +515,9 @@ export function extractPdfjsWordBoxesFromOperatorList(
     const words: IOcrWord[] = [];
     const state = createInitialTextState();
     let ctm = identityMatrix();
-    const ctmStack: TMatrix[] = [];
+    // q saves the text parameters with the CTM; the text matrices are not
+    // part of the graphics state.
+    const graphicsStack: Array<{ctm: TMatrix} & Pick<ITextState, 'fontSize' | 'hScale' | 'charSpacing' | 'wordSpacing' | 'leading' | 'textRise'>> = [];
     let activeWord: IActiveWord | null = null;
 
     for (let index = 0; index < operatorList.fnArray.length; index += 1) {
@@ -516,12 +528,37 @@ export function extractPdfjsWordBoxesFromOperatorList(
 
         switch (op) {
             case ops.save:
-                ctmStack.push(cloneMatrix(ctm));
+            case ops.paintFormXObjectBegin: {
+                // A Form draws inside its own saved state, under its matrix.
+                const formMatrix = op === ops.paintFormXObjectBegin ? matrixFromArgs(args[0]) : null;
+                if (op === ops.paintFormXObjectBegin) activeWord = flushActiveWord(words, activeWord);
+                graphicsStack.push({
+                    ctm: cloneMatrix(ctm),
+                    fontSize: state.fontSize,
+                    hScale: state.hScale,
+                    charSpacing: state.charSpacing,
+                    wordSpacing: state.wordSpacing,
+                    leading: state.leading,
+                    textRise: state.textRise,
+                });
+                if (formMatrix) ctm = multiplyMatrices(ctm, formMatrix);
                 break;
+            }
             case ops.restore:
+            case ops.paintFormXObjectEnd: {
                 activeWord = flushActiveWord(words, activeWord);
-                ctm = ctmStack.pop() ?? identityMatrix();
+                const saved = graphicsStack.pop();
+                ctm = saved?.ctm ?? identityMatrix();
+                if (saved) {
+                    state.fontSize = saved.fontSize;
+                    state.hScale = saved.hScale;
+                    state.charSpacing = saved.charSpacing;
+                    state.wordSpacing = saved.wordSpacing;
+                    state.leading = saved.leading;
+                    state.textRise = saved.textRise;
+                }
                 break;
+            }
             case ops.transform: {
                 const matrix = matrixFromArgs(args);
                 if (matrix) {

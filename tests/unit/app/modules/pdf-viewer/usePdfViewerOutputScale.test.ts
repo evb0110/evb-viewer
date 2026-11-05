@@ -114,6 +114,23 @@ describe('usePdfViewerOutputScale', () => {
         },
     );
 
+    it('tracks raw fractional DPR through media events and releases its listener', () => {
+        setDevicePixelRatio(0.75);
+        const scope = effectScope();
+        const outputScale = scope.run(() => usePdfViewerOutputScale(performancePolicy))!;
+        expect(outputScale.value).toBe(2);
+        expect(mediaQueries[0]?.media).toBe('(resolution: 0.75dppx)');
+        setDevicePixelRatio(2);
+        mediaQueries[0]!.addEventListener.mock.calls[0]![1]();
+        expect(outputScale.value).toBe(2);
+        expect(mediaQueries[1]?.media).toBe('(resolution: 2dppx)');
+        scope.stop();
+        expect(mediaQueries[1]?.removeEventListener).toHaveBeenCalledOnce();
+        setDevicePixelRatio(3);
+        window.dispatchEvent(new Event('resize'));
+        expect(outputScale.value).toBe(2);
+    });
+
     it('keeps the resolution media listener stable across same-DPR resizes', () => {
         const scope = effectScope();
         const outputScale = scope.run(() => usePdfViewerOutputScale(performancePolicy));
@@ -131,19 +148,19 @@ describe('usePdfViewerOutputScale', () => {
         window.dispatchEvent(new Event('resize'));
 
         expect(outputScale.value).toBe(2);
-        expect(window.matchMedia).toHaveBeenCalledOnce();
-        expect(mediaQueries[0]?.removeEventListener).not.toHaveBeenCalled();
+        expect(window.matchMedia).toHaveBeenCalledTimes(2);
+        expect(window.matchMedia).toHaveBeenLastCalledWith('(resolution: 2dppx)');
 
         setDevicePixelRatio(3);
         window.dispatchEvent(new Event('resize'));
 
         expect(outputScale.value).toBe(3);
-        expect(window.matchMedia).toHaveBeenCalledTimes(2);
+        expect(window.matchMedia).toHaveBeenCalledTimes(3);
         expect(window.matchMedia).toHaveBeenLastCalledWith('(resolution: 3dppx)');
         expect(mediaQueries[0]?.removeEventListener).toHaveBeenCalledOnce();
 
         scope.stop();
 
-        expect(mediaQueries[1]?.removeEventListener).toHaveBeenCalledOnce();
+        expect(mediaQueries[2]?.removeEventListener).toHaveBeenCalledOnce();
     });
 });

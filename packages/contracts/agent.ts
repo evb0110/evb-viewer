@@ -775,11 +775,18 @@ const agentWorkspaceSnapshotResponseSchema = v.object({
     unchanged: v.optional(v.boolean()),
     error: v.optional(v.string()),
 });
+// The document a scoped command left behind when the command itself
+// committed a new revision of it, so the assistant turn can keep working on it.
+const agentCommandSuccessorSchema = v.object({
+    commandTarget: agentWorkspaceCommandTargetSchema,
+    documentIdentity: v.nullable(agentDocumentRevisionInfoSchema),
+});
 const agentCommandResponseSchema = v.object({
     requestId: agentRequestIdSchema,
     windowId: v.optional(agentSafeIntegerSchema),
     ok: v.boolean(),
     result: v.optional(v.record(v.string(), v.unknown())),
+    successor: v.optional(agentCommandSuccessorSchema),
     error: v.optional(v.string()),
 });
 const agentRendererAckSchema = v.pipe(
@@ -840,6 +847,7 @@ export type TAgentCommand = v.InferOutput<typeof AGENT_COMMAND_SCHEMA>;
 export type IAgentCommandRequest = v.InferOutput<typeof AGENT_COMMAND_REQUEST_SCHEMA>;
 export type IAgentCommandCancelRequest = v.InferOutput<typeof AGENT_COMMAND_CANCEL_REQUEST_SCHEMA>;
 export type IAgentCommandResponse = v.InferOutput<typeof AGENT_COMMAND_RESPONSE_SCHEMA>;
+export type IAgentCommandSuccessor = v.InferOutput<typeof agentCommandSuccessorSchema>;
 export type TAgentRendererAckReason = v.InferOutput<typeof AGENT_RENDERER_ACK_SCHEMA>['reason'];
 export type IAgentRendererAck = v.InferOutput<typeof AGENT_RENDERER_ACK_SCHEMA>;
 export type IAgentMcpSetupSnippets = v.InferOutput<typeof agentMcpSetupSnippetsSchema>;

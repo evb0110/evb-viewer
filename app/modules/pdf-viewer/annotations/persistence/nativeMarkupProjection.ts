@@ -39,23 +39,21 @@ export function toNativeMarkupHint(hint: IMarkupSubtypeHint): IPdfNativeMarkupSu
     const validMarkupGeometry = markupGeometry
         ? markupGeometry.filter((rect): rect is NonNullable<typeof rect> => rect !== null)
         : null;
-    const emittedMarkupGeometry = validMarkupGeometry
-        && validMarkupGeometry.length <= PDF_NATIVE_MUTATION_LIMITS.markupGeometryItems
-        ? validMarkupGeometry
-        : null;
     return {
         subtype: hint.subtype,
         pageIndex: requirePageIndex(hint.pageIndex),
         markerRect,
         ...(hint.appAnnotationId?.trim() ? {appAnnotationId: hint.appAnnotationId.trim()} : {}),
-        ...(emittedMarkupGeometry
-            ? {markupGeometry: emittedMarkupGeometry}
+        ...(validMarkupGeometry
+            ? {markupGeometry: validMarkupGeometry}
             : {}),
         annotationId: hint.annotationId ?? null,
         color: hint.color ?? null,
         ...(hint.opacity !== undefined ? {opacity: hint.opacity} : {}),
         ...(hint.contents !== undefined ? {contents: hint.contents} : {}),
         ...(hint.author !== undefined ? {author: hint.author} : {}),
+        ...(hint.createdAt !== undefined ? {createdAt: hint.createdAt} : {}),
+        ...(hint.modifiedAt !== undefined ? {modifiedAt: hint.modifiedAt} : {}),
         id: hint.id ?? null,
         pageMarkupIndex: typeof hint.pageMarkupIndex === 'number' && Number.isSafeInteger(hint.pageMarkupIndex)
             ? hint.pageMarkupIndex
@@ -91,6 +89,11 @@ export function buildNativeMarkupMutationForSave(opts: {
             || !normalizeMarkerRect(rect)
         ))) {
             throw new Error('Cannot save text-markup annotation with invalid geometry');
+        }
+        // The native writer takes a bounded list; a longer one must stay
+        // unsaved work rather than be written as its first rectangle.
+        if (comment.markupGeometry.length > PDF_NATIVE_MUTATION_LIMITS.markupGeometryItems) {
+            throw new Error(`Cannot save text-markup annotation ${comment.annotationId ?? comment.id} of more than ${String(PDF_NATIVE_MUTATION_LIMITS.markupGeometryItems)} rectangles`);
         }
     }
     const currentMarkupHints = collectMarkupSubtypeHints(opts.canonicalComments);

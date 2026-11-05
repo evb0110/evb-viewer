@@ -299,6 +299,7 @@ export function mountDocumentThumbnailList(
     source: IDocumentPageSource | null,
     isActive = true,
     pageRevision?: (pageNumber: number) => string,
+    documentPage?: (pageNumber: number) => number,
 ): IMountedDocumentThumbnailList {
     const activeSource = ref<IDocumentPageSource | null>(source);
     const active = ref(isActive);
@@ -314,6 +315,7 @@ export function mountDocumentThumbnailList(
         isActive: active.value,
         itemMetricsKey: itemMetricsKey.value,
         ...(pageRevision === undefined ? {} : {pageRevision}),
+        ...(documentPage === undefined ? {} : {documentPage}),
         onGoToPage: (pageNumber: number, event: MouseEvent) => {
             navigations.push(pageNumber);
             navigationEvents.push(event);

@@ -36,6 +36,7 @@ function createCanvas() {
         style: {setProperty(property: string, value: string) {Reflect.set(this, property, value);}} as CSSStyleDeclaration,
         getContext: vi.fn(() => ({})),
         remove: vi.fn(),
+        setAttribute: vi.fn(),
     };
 }
 
@@ -402,6 +403,98 @@ describe('usePdfCanvasRenderer', () => {
             expect(prepared?.canvas).toBe(canvas);
             expect(prepared?.canvas).not.toBe(committed?.canvas);
         });
+    });
+
+    it.each([
+        false,
+        true,
+    ])('bounds the long canvas axis (landscape=%s)', async (landscape) => {
+        const viewport = {
+            ...DEFAULT_VIEWPORT,
+            width: landscape ? 36_000 : 180,
+            height: landscape ? 180 : 36_000,
+        };
+        const {
+            canvas, result,
+        } = await renderScenario({
+            viewport,
+            outputScale: 2,
+            rendererOptions: {defaultMaxCanvasPixels: 2 ** 25},
+        });
+        expect([
+            canvas.width,
+            canvas.height,
+        ]).toEqual(landscape ? [
+            16_384,
+            82,
+        ] : [
+            82,
+            16_384,
+        ]);
+        expect(result).toMatchObject({
+            requestedPixels: 25_920_000,
+            wasClamped: true,
+        });
+        expect(result?.pixelScaleFactor).toBeCloseTo(16_384 / 72_000, 12);
+        expect(result?.grantedPixels).toBe(canvas.width * canvas.height);
+    });
+
+    it('bounds region canvases even without an area cap and keeps their exact transform', async () => {
+        const {canvas} = installCanvasDocument();
+        const page = createPdfPage({getViewport: () => ({
+            ...DEFAULT_VIEWPORT,
+            width: 360,
+            height: 72_000,
+        })});
+        const renderer = usePdfCanvasRenderer({outputScale: 2});
+        const result = await renderer.renderCanvas(page as never, 5, {region: {
+            area: {
+                x0: 0.25,
+                y0: 0.25,
+                x1: 0.75,
+                y1: 0.75,
+            },
+            base: cast({}),
+        }});
+        expect([
+            canvas.width,
+            canvas.height,
+        ]).toEqual([
+            82,
+            16_384,
+        ]);
+        expect(result?.wasClamped).toBe(true);
+        expect(page.render.mock.calls[0]?.[0].transform).toEqual([
+            82 / 180,
+            0,
+            0,
+            16_384 / 36_000,
+            -41,
+            -8_192,
+        ]);
+    });
+
+    it('keeps axis-capped dimensions equal across zoom steps', async () => {
+        const sizes = new Set<string>();
+        for (const zoom of [
+            2.5,
+            2.51,
+            4,
+            10,
+        ]) {
+            const {canvas} = await renderScenario({
+                outputScale: 2,
+                zoom,
+                viewport: {
+                    ...DEFAULT_VIEWPORT,
+                    width: 72 * zoom,
+                    height: 14_400 * zoom,
+                },
+                renderOptions: {maxCanvasPixels: 2 ** 25},
+            });
+            sizes.add(`${canvas.width}x${canvas.height}`);
+        }
+        expect([...sizes]).toEqual(['82x16384']);
     });
 
     it('uses the latest reactive output scale for future canvas sizing', async () => {

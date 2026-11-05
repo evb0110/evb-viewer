@@ -35,7 +35,8 @@ runs:
       shell: bash
       run: node scripts/ci-install-dependencies.mjs --frozen-lockfile
 
-    # Keyed on the native build IDs ensure-wasm-artifacts.mjs compares, so a
+    # Keyed on the build identities ensure-wasm-artifacts.mjs compares (native
+    # sources, toolchain pin, Cargo configuration, effective flags), so a
     # restored build is current exactly when the key matches. A hand-written
     # list of crates missed scan-cleanup, whose changes then restored a stale
     # build that the strict build rebuilt without the WASM target.
@@ -45,9 +46,11 @@ runs:
       shell: bash
       run: |
         node --input-type=module -e "
-          import {computeNativeBuildId} from './scripts/native-build-id.mjs';
+          import {createHash} from 'node:crypto';
+          import {computeWasmBuildIdentity} from './scripts/ensure-wasm-artifacts.mjs';
           import {WASM_ARTIFACTS} from './scripts/wasm-artifacts.mjs';
-          console.log('build-ids=' + WASM_ARTIFACTS.map(artifact => computeNativeBuildId(process.cwd(), artifact.crateName)).join('-'));
+          const identities = WASM_ARTIFACTS.map(artifact => computeWasmBuildIdentity(process.cwd(), artifact)).join('-');
+          console.log('build-ids=' + createHash('sha256').update(identities).digest('hex'));
         " >> "$GITHUB_OUTPUT"
 
     - name: Restore browser WASM builds
@@ -58,7 +61,7 @@ runs:
         path: |
           public/wasm
           .tmp/wasm-build-ids.json
-        key: wasm-v2-${{ runner.os }}-${{ steps.wasm-sources.outputs.build-ids }}-${{ hashFiles('scripts/build-wasm-tool.mjs', 'scripts/wasm-artifacts.mjs', 'scripts/lib/build-environment.mjs') }}
+        key: wasm-v3-${{ runner.os }}-${{ steps.wasm-sources.outputs.build-ids }}-${{ hashFiles('scripts/build-wasm-tool.mjs', 'scripts/wasm-artifacts.mjs', 'scripts/lib/build-environment.mjs') }}
 
     - name: Build browser WASM
       if: inputs.wasm == 'true' && steps.wasm-cache.outputs.cache-hit != 'true'

@@ -1374,9 +1374,11 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
         }, stickyPageNumber);
         await waitForSaveFrontierReady(freshSession.page, NOTE_TEXT_ENTRY_TIMEOUT_MS);
         interface IStickyDirtyState extends Record<string, unknown> {dirtyState?: {
-            annotationDirty: boolean;
+            hasPendingUnsavedChanges: boolean;
             annotationDirtyEntityCount: number;
         };}
+        // Canonical notes and note drafts contribute to the aggregate dirty
+        // state without advancing the legacy annotation revision flag.
         await expect.poll(async () => {
             const [
                 state,
@@ -1388,12 +1390,16 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
                 )),
             ]);
             return {
-                annotationDirty: state.dirtyState?.annotationDirty ?? null,
+                hasPendingUnsavedChanges: state.dirtyState?.hasPendingUnsavedChanges ?? null,
+                dirtyTabVisible: await freshSession.page.$('.editor-pane.is-active .tab.is-active.is-dirty') !== null,
+                canSave: (await getWorkspaceToolbarSnapshot(freshSession.page))?.canSave ?? null,
                 creationFailureVisible,
                 annotationDirtyEntityCount: state.dirtyState?.annotationDirtyEntityCount ?? null,
             };
         }, {timeout: NOTE_TEXT_ENTRY_TIMEOUT_MS}).toEqual({
-            annotationDirty: true,
+            hasPendingUnsavedChanges: true,
+            dirtyTabVisible: true,
+            canSave: true,
             creationFailureVisible: false,
             annotationDirtyEntityCount: expect.any(Number),
         });
@@ -1513,11 +1519,13 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
         }, stickyPageNumber);
         await waitForSaveFrontierReady(restartedSession.page, NOTE_TEXT_ENTRY_TIMEOUT_MS);
         const secondDirtyState = await readWorkspaceStateValues<{dirtyState?: {
-            annotationDirty: boolean;
+            hasPendingUnsavedChanges: boolean;
             hasAnnotationChanges: boolean;
             annotationDirtyEntityCount: number;
         };}>(restartedSession.page, ['dirtyState']);
-        expect(secondDirtyState.dirtyState?.annotationDirty).toBe(true);
+        expect(secondDirtyState.dirtyState?.hasPendingUnsavedChanges).toBe(true);
+        expect(await restartedSession.page.$('.editor-pane.is-active .tab.is-active.is-dirty')).not.toBeNull();
+        expect((await getWorkspaceToolbarSnapshot(restartedSession.page))?.canSave).toBe(true);
         expect(secondDirtyState.dirtyState?.hasAnnotationChanges).toBe(true);
         expect(secondDirtyState.dirtyState?.annotationDirtyEntityCount ?? 0).toBeGreaterThan(0);
         await installStagedArtifactCapture(restartedSession.page);

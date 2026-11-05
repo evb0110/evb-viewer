@@ -18,11 +18,13 @@ import {
     rgb,
 } from 'pdf-lib';
 import type {Page} from 'puppeteer-core';
+import type {IE2EWindow} from '@tests/e2e/electron/helpers/e2EWindow';
 import {startConfiguredElectronE2ESession} from '@tests/e2e/electron/helpers/startConfiguredElectronE2ESession';
 import type {IElectronE2ESession} from '@tests/e2e/electron/helpers/startElectronE2ESession';
 import {createFixturePath} from '@tests/e2e/electron/helpers/fixtures';
 import {clickAsUser} from '@tests/e2e/electron/helpers/userInput';
 import {
+    openDjvuInApp,
     openPdfInApp,
     waitForViewerInteractive,
 } from '@tests/e2e/electron/helpers/viewerCore';
@@ -253,6 +255,171 @@ describe('Electron E2E - deep zoom sharpness', () => {
         session = null;
     });
 
+    it.each([
+        {
+            widthPoints: 72,
+            cssWidth: 180,
+            canvasWidth: 82,
+        },
+        {
+            widthPoints: 36,
+            cssWidth: 90,
+            canvasWidth: 41,
+        },
+    ])('paints a long page whose requested area fits but whose long axis does not (width=$widthPoints pt)', async ({
+        widthPoints, cssWidth, canvasWidth,
+    }) => {
+        session = await startConfiguredElectronE2ESession(`e2e-long-axis-${Date.now()}`, 'medium', {EVB_AUTOMATION_DEVICE_SCALE_FACTOR: '2'});
+        const {page} = session;
+        // Setup only: monitor density is the precondition; zoom uses real input.
+        expect(await page.evaluate(() => window.devicePixelRatio)).toBe(2);
+        const pdf = await PDFDocument.create();
+        const pdfPage = pdf.addPage([
+            widthPoints,
+            14_400,
+        ]);
+        pdfPage.drawRectangle({
+            x: 0,
+            y: 0,
+            width: widthPoints,
+            height: 14_400,
+            color: rgb(0, 0, 0),
+        });
+        const fixturePath = createFixturePath(`long-axis-${Date.now()}.pdf`);
+        await writeFile(fixturePath, await pdf.save());
+        await openPdfInApp(page, fixturePath);
+        await waitForViewerInteractive(page);
+        await zoomToPercentAsUser(page, 250);
+        await page.waitForFunction((expectedWidth: number) => {
+            const container = document.querySelector<HTMLElement>('.page_container[data-page="1"]');
+            const surface = container?.querySelector<HTMLElement>('.page_canvas');
+            return container?.dataset.pageRaster === 'current'
+                && Math.abs((surface?.getBoundingClientRect().width ?? 0) - expectedWidth) < 1;
+        }, {timeout: SETTLE_TIMEOUT_MS}, cssWidth);
+        const raster = await page.evaluate(() => {
+            const canvas = document.querySelector<HTMLCanvasElement>('.page_container[data-page="1"] .page_canvas__render-layer > canvas')!;
+            return {
+                size: [
+                    canvas.width,
+                    canvas.height,
+                ],
+                pixel: [...canvas.getContext('2d')!.getImageData(Math.floor(canvas.width / 2), Math.floor(canvas.height / 2), 1, 1).data],
+                encoding: canvas.toDataURL().slice(0, 22),
+                hostResourceProfile: (window as IE2EWindow).electronAPI?.host.getResourceProfile(),
+            };
+        });
+        const evidenceDir = resolve('.devkit/checks/deep-zoom-sharpness', session.name);
+        await mkdir(evidenceDir, {recursive: true});
+        await writeFile(join(evidenceDir, 'long-axis-raster.json'), JSON.stringify(raster, null, 2));
+        await page.screenshot({
+            path: join(evidenceDir, 'long-axis-base-250.png'),
+            type: 'png',
+        });
+        expect(raster.size).toEqual([
+            canvasWidth,
+            16_384,
+        ]);
+        expect(raster.pixel).toEqual([
+            0,
+            0,
+            0,
+            255,
+        ]);
+        expect(raster.encoding).toBe('data:image/png;base64,');
+        // Axis reduction must set wasClamped, admitting the existing detail path.
+        await page.waitForFunction(() => {
+            const canvas = document.querySelector<HTMLCanvasElement>('.page_container[data-page="1"] .page_canvas__detail-layer > canvas');
+            const rect = canvas?.getBoundingClientRect();
+            return Boolean(canvas && rect && rect.width > 0
+                && canvas.width > 0 && canvas.height > 0
+                && canvas.width <= 16_384 && canvas.height <= 16_384
+                && Math.abs(canvas.width / rect.width - 2) < 0.02);
+        }, {timeout: SETTLE_TIMEOUT_MS});
+        await page.screenshot({
+            path: join(evidenceDir, 'long-axis-250.png'),
+            type: 'png',
+        });
+    }, E2E_TIMEOUT_MS);
+
+    it('replaces decoded DjVu pixels after a density-only display change', async () => {
+        session = await startConfiguredElectronE2ESession(`e2e-djvu-density-${Date.now()}`, 'medium');
+        const {page} = session;
+        await openDjvuInApp(page, resolve('tests/fixtures/djvu/sources/color-text-stamps-maps.djvu'));
+        await zoomToPercentAsUser(page, 100);
+        await page.waitForFunction(() => {
+            const image = document.querySelector<HTMLImageElement>('[data-testid="document-page-source-page"][data-page-number="1"] > [data-testid="document-page-source-image"]');
+            return image?.complete && image.naturalWidth === Math.round(Number.parseFloat(getComputedStyle(image).width))
+                && image.dataset.documentPageVisual === 'committed';
+        }, {timeout: SETTLE_TIMEOUT_MS});
+        const readRaster = () => page.evaluate(() => {
+            const image = document.querySelector<HTMLImageElement>('[data-testid="document-page-source-page"][data-page-number="1"] > [data-testid="document-page-source-image"]')!;
+            const rect = image.getBoundingClientRect();
+            const viewport = image.closest<HTMLElement>('[data-document-viewer-chassis-viewport]')!;
+            return {
+                dpr: devicePixelRatio,
+                width: image.naturalWidth,
+                height: image.naturalHeight,
+                cssWidth: Number.parseFloat(getComputedStyle(image).width),
+                rect: {
+                    x: rect.x,
+                    y: rect.y,
+                    width: rect.width,
+                    height: rect.height,
+                },
+                scrollTop: viewport.scrollTop,
+                scrollLeft: viewport.scrollLeft,
+                viewportWidth: innerWidth,
+                viewportHeight: innerHeight,
+            };
+        });
+        const before = await readRaster();
+        expect(before.dpr).toBe(1);
+        // The fixture is 640 px at 200 DPI. CSS rounds its 230.4 pt width
+        // before layout, while raster demand rounds after multiplying by DPR.
+        const pageWidthPoints = 640 * 72 / 200;
+        expect(before.width).toBe(Math.round(pageWidthPoints));
+        const targetWidth = Math.round(pageWidthPoints * 2);
+        const evidenceDir = resolve('.devkit/checks/djvu-density', session.name);
+        await mkdir(evidenceDir, {recursive: true});
+        await page.screenshot({
+            path: join(evidenceDir, 'density-1.png'),
+            type: 'png',
+        });
+        const cdp = await page.createCDPSession();
+        try {
+            // Emulate moving to a denser display without changing the CSS viewport.
+            await cdp.send('Emulation.setDeviceMetricsOverride', {
+                width: before.viewportWidth,
+                height: before.viewportHeight,
+                deviceScaleFactor: 2,
+                mobile: false,
+            });
+            try {
+                await page.waitForFunction((width: number) => {
+                    const image = document.querySelector<HTMLImageElement>('[data-testid="document-page-source-page"][data-page-number="1"] > [data-testid="document-page-source-image"]');
+                    return image?.complete && image.naturalWidth === width && image.dataset.documentPageVisual === 'committed';
+                }, {timeout: SETTLE_TIMEOUT_MS}, targetWidth);
+            } finally {
+                await writeFile(join(evidenceDir, 'density.json'), JSON.stringify({
+                    before,
+                    after: await readRaster(),
+                }, null, 2));
+                await page.screenshot({
+                    path: join(evidenceDir, 'density-2.png'),
+                    type: 'png',
+                });
+            }
+            const after = await readRaster();
+            expect(after.dpr).toBe(2);
+            expect(after.width).toBe(targetWidth);
+            expect(after.rect).toEqual(before.rect);
+            expect(after.scrollTop).toBe(before.scrollTop);
+            expect(after.scrollLeft).toBe(before.scrollLeft);
+        } finally {
+            await cdp.detach();
+        }
+    }, E2E_TIMEOUT_MS);
+
     it('paints the visible part of a capped page at full resolution after a toolbar zoom', async () => {
         session = await startConfiguredElectronE2ESession(`e2e-deep-zoom-sharpness-${Date.now()}`, 'low');
         const {page} = session;
@@ -267,7 +434,7 @@ describe('Electron E2E - deep zoom sharpness', () => {
         expect(region.height).toBeGreaterThan(100);
         await waitForDetailCanvasCovering(page, region);
 
-        const evidenceDir = resolve('.devkit/deep-zoom-sharpness', session.name);
+        const evidenceDir = resolve('.devkit/checks/deep-zoom-sharpness', session.name);
         await mkdir(evidenceDir, {recursive: true});
         const evidencePath = join(evidenceDir, 'deep-zoom-1000.png');
         const shares = await measureResolvedBarShare(page, region, evidencePath);
@@ -304,7 +471,7 @@ describe('Electron E2E - deep zoom sharpness', () => {
             size: `${String(canvas.width)}x${String(canvas.height)}`,
         }));
 
-        const evidenceDir = resolve('.devkit/deep-zoom-sharpness', session.name);
+        const evidenceDir = resolve('.devkit/checks/deep-zoom-sharpness', session.name);
         await mkdir(evidenceDir, {recursive: true});
         const evidencePath = join(evidenceDir, 'deep-zoom-step-1000.png');
         await page.screenshot({

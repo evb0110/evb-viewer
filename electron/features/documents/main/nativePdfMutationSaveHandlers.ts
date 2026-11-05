@@ -481,7 +481,6 @@ export async function handleCommitStagedPdfNativeMutations(
     const phaseTimings: INativeNotePhaseTiming[] = [];
     const operationStart = performance.now();
     const operationStartedAtEpochMs = Date.now();
-    const refreshWorkingCopy = (expectation?: Parameters<typeof refreshWorkingCopyOriginalFileExpectation>[2]) => syncNativeOutputToRequestingWorkingCopy(normalizedWorkingPath, senderId, expectation);
     const releaseStagedArtifact = async () => {
         releaseManagedTempFileHandle(context, stagedOutput.leaseId);
         await measureNativeNotePhase(phaseTimings, 'release-staged-artifact', () =>
@@ -518,7 +517,7 @@ export async function handleCommitStagedPdfNativeMutations(
                     // original's ctime, so it must happen before the transaction records the witness.
                     await releaseStagedArtifact();
                 },
-                refreshOriginalExpectation: refreshWorkingCopy,
+                refreshOriginalExpectation: expectation => syncNativeOutputToRequestingWorkingCopy(normalizedWorkingPath, senderId, expectation),
                 onPhase: (phase, durationMs) => phaseTimings.push({
                     phase,
                     durationMs,
@@ -528,6 +527,7 @@ export async function handleCommitStagedPdfNativeMutations(
                 ? {
                     applied: true,
                     validation: createNativeValidationResult(),
+                    documentRevision: transition,
                     ...(revisionOptions?.identityBindings === undefined
                         ? {}
                         : {identityBindings: revisionOptions.identityBindings}),
@@ -552,8 +552,7 @@ export async function handleCommitStagedPdfNativeMutations(
         if (existsSync(stagedOutput.path)) await releaseStagedArtifact();
     }
     const totalMs = Math.round((performance.now() - operationStart) * 10) / 10;
-    const logTimings = totalMs >= 1_000 ? log.info.bind(log) : log.debug.bind(log);
-    logTimings('Native staged mutation commit phase timings', {
+    (totalMs >= 1_000 ? log.info.bind(log) : log.debug.bind(log))('Native staged mutation commit phase timings', {
         endedAtEpochMs: Date.now(),
         startedAtEpochMs: operationStartedAtEpochMs,
         totalMs,

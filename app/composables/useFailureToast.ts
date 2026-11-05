@@ -73,10 +73,11 @@ export function getNonEmptyDetails(values: Array<string | undefined>) {
     return values.filter((value): value is string => Boolean(value?.trim())).join('\n');
 }
 
-export function formatFailurePresentationDescription(presentation: FailurePresentation) {
+/** A failure's reason and short Error ID, labeled in the reader's language. */
+export function formatFailurePresentationDescription(presentation: FailurePresentation, t: TTranslateFn) {
     return getNonEmptyDetails([
         presentation.description,
-        `Error ID: ${getFailureErrorId(presentation.failure)}`,
+        `${t('errors.runtime.errorId')}: ${getFailureErrorId(presentation.failure)}`,
     ]);
 }
 

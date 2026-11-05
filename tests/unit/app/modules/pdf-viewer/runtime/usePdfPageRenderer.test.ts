@@ -493,11 +493,39 @@ describe('usePdfPageRenderer layer hydration ownership', () => {
         }
     });
 
-    it('keeps a committed canvas canvas-only when text hydration rejects, then retries', async () => {
+    it.each([
+        false,
+        true,
+    ])('keeps PDF links readable after text failure and restores text on Retry (staged=%s)', async (staged) => {
         rendererFixture.renderTextLayer
             .mockRejectedValueOnce(new Error('text extraction failed'))
             .mockResolvedValue(undefined);
         const harness = createHarness();
+        const annotations = document.createElement('div');
+        annotations.className = 'annotation-layer';
+        harness.pageContainer.append(annotations);
+        const appearance = document.createElement('canvas');
+        const renderResult = {
+            ...harness.renderResult,
+            annotationOutput: {
+                ...harness.renderResult.annotationOutput,
+                ownCanvases: staged ? [[
+                    'link',
+                    appearance,
+                ] as const] : [],
+            },
+        };
+        annotationControllerFixture.render.mockImplementation(async (_page, _version, _request, context) => {
+            const layer = context.container.querySelector('.annotation-layer');
+            const link = document.createElement('a');
+            link.href = 'https://example.test/';
+            link.textContent = 'PDF link';
+            layer?.append(link, appearance);
+            return {
+                shouldContinue: true,
+                annotationLayerInstance: null,
+            };
+        });
         try {
             harness.pageRenderState.beginRender(requirePageNumber(1), 1, 11, 'document-a', 1, 1, harness.pageContainer);
             harness.pageRenderState.commitVisual(requirePageNumber(1), 1, 11);
@@ -508,25 +536,28 @@ describe('usePdfPageRenderer layer hydration ownership', () => {
                 requestId: 11,
                 scale: 1,
                 container: harness.pageContainer,
-                renderResult: harness.renderResult,
+                renderResult,
                 renderOptions: {prioritizeTextLayer: true},
-            });
+            }, staged ? () => true : undefined);
 
+            const link = harness.pageContainer.querySelector('a');
+            expect(link?.textContent).toBe('PDF link');
+            expect(link?.getAttribute('href')).toBe('https://example.test/');
+            expect(link?.isConnected).toBe(true);
+
+            // The failure is settled: the canvas stays, and no frame promotes
+            // the page again by itself.
             expect(harness.canvas.isConnected).toBe(true);
-            expect(harness.pageRenderState.getSlot(requirePageNumber(1)).textLayerReadiness).toBe('none');
-            expect(harness.pageRenderState.getSlot(requirePageNumber(1)).layerReadiness).toBe('canvas-only');
-            expect(harness.renderer.resolveLayerPromotionDemand([1])).not.toBeNull();
+            expect(harness.pageRenderState.getSlot(requirePageNumber(1)).layerReadiness).toBe('failed');
+            expect(harness.pageContainer.dataset.pageLayerReadiness).toBe('failed');
+            expect(harness.renderer.resolveLayerPromotionDemand([1])).toBeNull();
+            expect(rendererFixture.renderTextLayer).toHaveBeenCalledOnce();
 
-            await harness.renderer.renderLayerPromotions({
-                start: 1,
-                end: 1,
-            }, {
-                contentIntent: 'layers-only-promotion',
-                rasterDemandPages: [1],
-                prioritizeTextLayer: true,
-            });
+            const retry = toastAdd.mock.calls[0]?.[0].actions.find((action: {label: string}) => action.label === 'common.retry');
+            expect(retry).toBeDefined();
+            retry.onClick();
+            await vi.waitFor(() => expect(harness.pageRenderState.getSlot(requirePageNumber(1)).layerReadiness).toBe('ready'));
             expect(harness.pageRenderState.getSlot(requirePageNumber(1)).textLayerReadiness).toBe('ready');
-            expect(harness.pageRenderState.getSlot(requirePageNumber(1)).layerReadiness).toBe('ready');
         } finally {
             harness.root.remove();
         }

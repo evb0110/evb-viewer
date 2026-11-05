@@ -145,7 +145,8 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
         options.settings.pageOverrideDefaults,
         options.settings.marginsMm,
     );
-    const {t} = useTypedI18n();
+    const i18n = useTypedI18n();
+    const {t} = i18n;
     const starting = ref(false);
     const autoPending = ref(false);
     const jobState = shallowRef<TScanCleanupDetectionJobState | null>(null);
@@ -825,8 +826,8 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
             // on, so it is stated in full instead of a generic headline with
             // the English exception appended to it.
             error.value = state.errorCode === 'insufficient-scratch'
-                ? formatScanCleanupScratchMessage(t, state.scratchShortfall)
-                : formatScanCleanupErrorByCode(t, state.errorCode, state.error);
+                ? formatScanCleanupScratchMessage(i18n, state.scratchShortfall)
+                : formatScanCleanupErrorByCode(i18n, state.errorCode, state.error);
             errorCode.value = state.errorCode;
         } else if (state.status === 'completed') {
             error.value = '';
@@ -902,7 +903,7 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
             if (isStale()) {
                 scheduleAutoDetect();
             } else {
-                error.value = formatScanCleanupErrorByCode(t, 'internal', caught);
+                error.value = formatScanCleanupErrorByCode(i18n, 'internal', caught);
                 errorCode.value = 'internal';
             }
             return;
@@ -920,7 +921,7 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
             return;
         }
         if (!result.started) {
-            error.value = formatScanCleanupErrorByCode(t, result.errorCode, result.error, result.scratchShortfall);
+            error.value = formatScanCleanupErrorByCode(i18n, result.errorCode, result.error, result.scratchShortfall);
             errorCode.value = result.errorCode;
             return;
         }
@@ -1047,7 +1048,7 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
             ) {
                 return;
             }
-            placementAnchorCalibrationError.value = formatScanCleanupErrorByCode(t, 'internal', caught);
+            placementAnchorCalibrationError.value = formatScanCleanupErrorByCode(i18n, 'internal', caught);
             error.value = placementAnchorCalibrationError.value;
             errorCode.value = 'internal';
             placementAnchorSummary.value = null;

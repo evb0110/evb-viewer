@@ -1,11 +1,12 @@
 import { randomBytes } from 'node:crypto';
-import { constants as fsConstants } from 'fs';
 import {
+    chmod,
     link,
     lstat,
     open,
     readFile,
     readdir,
+    copyFile,
     rename,
     stat,
     unlink,
@@ -28,14 +29,17 @@ import {
     capturePathSaveWitness,
 } from '@electron/file-access/originalPathSaveWitness';
 import type {IOriginalPathSaveJournalSnapshot} from '@electron/file-access/originalPathSnapshot';
-import { fsyncFile as fsyncPath } from '@electron/utils/fsyncPath';
+import {
+    fsyncDirectory,
+    fsyncFile as fsyncPath,
+} from '@electron/utils/fsyncPath';
 import {runtimeConfig} from '@electron/runtimeConfig';
 
 const logger = createLogger('atomicReplace');
 const DEFAULT_ATOMIC_REPLACE_BACKUP_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 const ATOMIC_REPLACE_BACKUP_NAME_PATTERN = /^(?<destination>.+)\.bak-[0-9a-f]{16}$/u;
 const ATOMIC_REPLACE_JOURNAL_VERSION = 1;
-const WINDOWS_FALLBACK_CODES = new Set([
+const WINDOWS_FALLBACK_CODES = new Set<string | number>([
     'EACCES',
     'EBUSY',
     'EPERM',
@@ -85,19 +89,7 @@ function randomSuffix() {
 
 
 export async function fsyncParentDirectory(filePath: string) {
-    if (process.platform === 'win32') {
-        return;
-    }
-
-    let handle: Awaited<ReturnType<typeof open>> | null = null;
-    try {
-        handle = await open(dirname(filePath), fsConstants.O_RDONLY);
-        await handle.sync();
-    } catch {
-        return;
-    } finally {
-        await handle?.close().catch(() => undefined);
-    }
+    await fsyncDirectory(dirname(filePath)).catch(() => undefined);
 }
 
 async function fileExists(filePath: string) {
@@ -248,15 +240,11 @@ export async function cleanupStaleAtomicReplaceBackups(
         return result;
     }
 
-    const configuredNow = options.now;
-    const now = configuredNow !== undefined && Number.isFinite(configuredNow)
-        ? configuredNow
-        : Date.now();
-    const configuredMaxAgeMs = options.maxAgeMs;
-    const maxAgeMs = configuredMaxAgeMs !== undefined
-        && Number.isFinite(configuredMaxAgeMs)
-        && configuredMaxAgeMs >= 0
-        ? configuredMaxAgeMs
+    const now = options.now !== undefined && Number.isFinite(options.now) ? options.now : Date.now();
+    const maxAgeMs = options.maxAgeMs !== undefined
+        && Number.isFinite(options.maxAgeMs)
+        && options.maxAgeMs >= 0
+        ? options.maxAgeMs
         : DEFAULT_ATOMIC_REPLACE_BACKUP_MAX_AGE_MS;
     try {
         const directoryStat = await lstat(directoryPath);
@@ -358,10 +346,51 @@ export async function moveFileToMissingPath(sourcePath: string, destinationPath:
         await link(sourcePath, destinationPath);
     } catch (error) {
         if (!isNoHardLinkError(error)) throw error;
+        // A no-link volume still refuses an entry already present. Node cannot
+        // make this check and the following rename one no-replace operation.
+        const destination = await lstat(destinationPath).catch((lookupError: unknown) => {
+            if (isErrnoException(lookupError) && lookupError.code === 'ENOENT') return null;
+            throw lookupError;
+        });
+        if (destination) throw Object.assign(new Error(`File exists: ${destinationPath}`), {code: 'EEXIST'});
         await rename(sourcePath, destinationPath);
         return;
     }
     await unlink(sourcePath);
+}
+
+/** Detach shared staging before opening the inode to chmod and durably publish. */
+async function prepareReplacement(srcTemp: string, dst: string, durable: boolean) {
+    const [
+        staged,
+        replaced,
+    ] = await Promise.all([
+        stat(srcTemp),
+        process.platform === 'win32' ? null : stat(dst).catch(() => null),
+    ]);
+    const mode = replaced && (staged.mode & 0o7777) !== (replaced.mode & 0o7777)
+        ? replaced.mode & 0o7777 : undefined;
+    if (mode !== undefined && staged.nlink !== 1) {
+        const ownCopy = `${srcTemp}.mode`;
+        try {
+            await copyFile(srcTemp, ownCopy);
+            await rename(ownCopy, srcTemp);
+        } finally {
+            await unlink(ownCopy).catch(() => undefined);
+        }
+    }
+    const handle = durable ? await open(srcTemp, process.platform === 'win32' ? 'r+' : 'r') : undefined;
+    try {
+        if (mode !== undefined) {
+            await chmod(srcTemp, mode).catch(async (error: unknown) => {
+                if (((await stat(srcTemp)).mode & ~mode & 0o777) !== 0) throw error;
+                logger.warn(`Could not keep the permissions of "${dst}": ${getErrorMessage(error)}`);
+            });
+        }
+        await handle?.sync();
+    } finally {
+        await handle?.close();
+    }
 }
 
 export async function atomicReplace(
@@ -382,18 +411,9 @@ export async function atomicReplace(
         await recoverWindowsAtomicReplace(dst);
     }
     const durable = options.durable !== false;
-    const shouldMarkMutationCommitStarted = options.markMutationCommitStarted !== false;
-    const shouldDeferMutationCommitStarted = options.assertDestinationCurrent !== undefined
-        && shouldMarkMutationCommitStarted;
-    if (durable) {
-        await fsyncPath(srcTemp);
-    }
-    if (shouldMarkMutationCommitStarted && !shouldDeferMutationCommitStarted) {
-        markActiveWorkingCopyMutationCommitStarted();
-    }
-
-    await options.assertDestinationCurrent?.();
-    if (shouldDeferMutationCommitStarted) markActiveWorkingCopyMutationCommitStarted();
+    await prepareReplacement(srcTemp, dst, durable);
+    if (options.assertDestinationCurrent) await options.assertDestinationCurrent();
+    if (options.markMutationCommitStarted !== false) markActiveWorkingCopyMutationCommitStarted();
     if (options.destinationBackupPath !== undefined) {
         const backupPath = options.destinationBackupPath;
         assertNoSymlinkPathSegments(backupPath);
@@ -418,8 +438,7 @@ export async function atomicReplace(
         await waitForAtomicReplaceTestBarrier('before-publish');
         await rename(srcTemp, dst);
     } catch (error) {
-        const code = isErrnoException(error) ? error.code : undefined;
-        if (!WINDOWS_FALLBACK_CODES.has(typeof code === 'string' ? code : '') || !(await fileExists(dst))) {
+        if (!isErrnoException(error) || !WINDOWS_FALLBACK_CODES.has(error.code ?? '') || !(await fileExists(dst))) {
             throw error;
         }
 

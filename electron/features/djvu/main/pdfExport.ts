@@ -118,6 +118,7 @@ import {
     type TRequestId,
 } from '@contracts/shared';
 import {requireEpochMs} from '@contracts/timestamps';
+import {writeFileHandleFully} from '@electron/file-access/writeFileHandleFully';
 
 const logger = createLogger('djvu-pdfExport');
 interface IDjvuOperationContext extends IPlatformMainSenderContext<WebContents> {}
@@ -416,22 +417,7 @@ async function copyFileCancellable(sourcePath: string, targetPath: string, signa
             if (signal.aborted) throw abortErrorFromSignal(signal);
             const {bytesRead} = await source.read(buffer, 0, buffer.byteLength, position);
             if (bytesRead === 0) break;
-            let bytesWritten = 0;
-            while (bytesWritten < bytesRead) {
-                if (signal.aborted) throw abortErrorFromSignal(signal);
-                const writeResult = await target.write(
-                    buffer,
-                    bytesWritten,
-                    bytesRead - bytesWritten,
-                    position + bytesWritten,
-                );
-                if (!Number.isInteger(writeResult.bytesWritten)
-                    || writeResult.bytesWritten <= 0
-                    || writeResult.bytesWritten > bytesRead - bytesWritten) {
-                    throw new Error(`DjVu export write made invalid progress: ${writeResult.bytesWritten}`);
-                }
-                bytesWritten += writeResult.bytesWritten;
-            }
+            await writeFileHandleFully(target, buffer.subarray(0, bytesRead), position, signal);
             position += bytesRead;
         }
         await syncFileHandleForDurability(target);

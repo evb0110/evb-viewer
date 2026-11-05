@@ -519,11 +519,12 @@ export async function editVisibleStickyNote(page: Page, currentText: string, nex
 
     await expect.poll(async () => {
         const state = await readWorkspaceStateValues<{dirtyState?: {
-            annotationDirty: boolean;
+            hasPendingUnsavedChanges: boolean;
             hasAnnotationChanges: boolean;
         };}>(page, ['dirtyState']);
-        return state.dirtyState?.annotationDirty === true
-            && state.dirtyState.hasAnnotationChanges === true;
+        return state.dirtyState?.hasPendingUnsavedChanges === true
+            && state.dirtyState.hasAnnotationChanges === true
+            && await page.$('.editor-pane.is-active .tab.is-active.is-dirty') !== null;
     }, {timeout: NOTE_TEXT_ENTRY_TIMEOUT_MS}).toBe(true);
 
     const closeButtons = await page.$$('.editor-pane.is-active .workspace-host .note-window__close');

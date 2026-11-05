@@ -383,4 +383,102 @@ describe('page preview text derivation', () => {
             },
         )).toBe('ABCDEFGH');
     });
+
+    it.each([
+        [
+            '0 degrees',
+            [
+                1,
+                0,
+                0,
+                -1,
+                0,
+                100,
+            ],
+            100,
+            100,
+            0,
+        ],
+        [
+            '90 degrees',
+            [
+                0,
+                1,
+                1,
+                0,
+                0,
+                0,
+            ],
+            100,
+            100,
+            90,
+        ],
+        [
+            '180 degrees',
+            [
+                -1,
+                0,
+                0,
+                1,
+                100,
+                0,
+            ],
+            100,
+            100,
+            180,
+        ],
+        [
+            '270 degrees',
+            [
+                0,
+                -1,
+                -1,
+                0,
+                100,
+                100,
+            ],
+            100,
+            100,
+            270,
+        ],
+        [
+            'UserUnit 2',
+            [
+                2,
+                0,
+                0,
+                -2,
+                0,
+                200,
+            ],
+            200,
+            200,
+            0,
+        ],
+    ] as const)('selects only the highlighted letters on a page at %s', (_label, transform, width, height, rotation) => {
+        expect(resolvePdfAnnotationPreviewText(
+            {
+                subtype: 'Highlight',
+                quadPoints: [
+                    30,
+                    80,
+                    50,
+                    80,
+                    30,
+                    70,
+                    50,
+                    70,
+                ],
+            },
+            [lineTextItem],
+            pageView,
+            rotation,
+            {
+                transform: [...transform],
+                width,
+                height,
+                scale: 1,
+            },
+        )).toBe('CD');
+    });
 });

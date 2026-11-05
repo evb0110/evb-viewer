@@ -8,6 +8,7 @@ use crate::split_navigation::{
 };
 use crate::split_output::{split_annotation_matrix, SplitAnnotationMap, SplitOutputPage};
 use lopdf::dictionary;
+pub(crate) use split_tags::assert_page_structure_supported;
 
 /// Source publishes the split; assembly carries navigation, labels and page
 /// dependencies into qpdf. Final raster replacements use the same catalog map.

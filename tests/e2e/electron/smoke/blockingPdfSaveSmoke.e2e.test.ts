@@ -8,6 +8,7 @@ import {
 import { createHash } from 'node:crypto';
 import {
     existsSync,
+    mkdirSync,
     readFileSync,
     rmSync,
     writeFileSync,
@@ -17,7 +18,9 @@ import {
     join,
 } from 'node:path';
 import { delay } from 'es-toolkit/promise';
-import { PDFDocument } from 'pdf-lib';
+import {
+    PDFDocument, PDFName,
+} from 'pdf-lib';
 import type { Page } from 'puppeteer-core';
 import {
     createLargeScannedFixturePdf,
@@ -516,6 +519,49 @@ describe('Electron E2E - Blocking PDF Save Smoke', () => {
             await stopping;
         }
     }, BLOCKING_SMOKE_TIMEOUT_MS);
+
+    it.each([
+        'StructTreeRoot',
+        'OCProperties',
+    ])('refuses native Combine %s with localized feedback and no published tab', async key => {
+        const directory = join(process.cwd(), '.devkit/fixes16/evidence/combine-electron');
+        mkdirSync(directory, {recursive: true});
+        const featurePath = join(directory, `${key}.pdf`);
+        const ordinaryPath = join(process.cwd(), 'tests/fixtures/electron/generated-text.pdf');
+        const feature = await PDFDocument.load(readFileSync(join(process.cwd(), 'tests/fixtures/electron/pdf-preservation/layers-and-tags.pdf')));
+        feature.catalog.delete(PDFName.of(key === 'StructTreeRoot' ? 'OCProperties' : 'StructTreeRoot'));
+        writeFileSync(featurePath, await feature.save());
+        const hashes = [
+            featurePath,
+            ordinaryPath,
+        ].map(hashFile);
+        session = await startElectronE2ESession(`e2e-combine-preservation-${key}-${Date.now()}`, {
+            clean: true,
+            extraEnv: {EVB_PDF_NATIVE_ASSEMBLER_ENABLE: '1'},
+        });
+        const {page} = session;
+        await page.waitForSelector('nav[aria-label="File"] button.rail-item', {visible: true});
+        await page.waitForFunction(() => document.querySelector('#evb-startup-overlay') === null);
+        await clickAsUser(page, 'nav[aria-label="File"] button.rail-item');
+        await page.waitForSelector('[data-combine-page]', {visible: true});
+        const input = await page.$('input[type="file"]');
+        if (!input) throw new Error('Combine input missing');
+        await input.uploadFile(featurePath, ordinaryPath);
+        await page.waitForFunction(() => document.querySelectorAll('[data-combine-row]').length === 2);
+        const tabs = await page.$$eval('[role="tab"]', elements => elements.length);
+        await clickAsUser(page, 'footer.combine-actions button');
+        await page.waitForFunction((before: number) => document.querySelector('.app-toast, .page_container')
+            || document.querySelectorAll('[role="tab"]').length > before, {}, tabs);
+        await page.screenshot({path: join(directory, `${key}.png`)});
+        expect(await page.$$eval('.app-toast', elements => elements.map(element => element.textContent).join('\n'))).toContain('This operation was stopped because it cannot preserve the PDF’s accessibility tags or layers. No result was saved.');
+        expect(await page.$$eval('[data-combine-row]', elements => elements.length)).toBe(2);
+        expect(await page.$$eval('[role="tab"]', elements => elements.length)).toBe(tabs);
+        expect(await page.$('.page_container')).toBeNull();
+        expect([
+            featurePath,
+            ordinaryPath,
+        ].map(hashFile)).toEqual(hashes);
+    });
 
     it('saves a combined PDF whose open failed, and Retry opens the kept file', async () => {
         const savedPath = join(process.cwd(), '.devkit', `blocking-combine-save-as-${process.pid}-${Date.now()}.pdf`);

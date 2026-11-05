@@ -1,5 +1,9 @@
-import { readFile } from 'node:fs/promises';
-import { basename } from 'node:path';
+import {
+    mkdir, readFile, writeFile,
+} from 'node:fs/promises';
+import {
+    basename, join, resolve,
+} from 'node:path';
 import { delay } from 'es-toolkit/promise';
 import type { Page } from 'puppeteer-core';
 import {
@@ -47,6 +51,7 @@ import {
 } from '@tests/e2e/electron/helpers/workspaceExpose';
 import type { IE2EWindow } from '@tests/e2e/electron/helpers/e2EWindow';
 import {waitForViewportQuiet} from '@tests/e2e/electron/helpers/viewportPageObservation';
+import {sessionDir} from '@scripts/electron-run/electronRunSessionPaths';
 
 // Issue #845, owner-approved design R5: Split shows one document in two views.
 // The views share annotations, undo, dirty state and save; each keeps its own
@@ -87,6 +92,94 @@ interface IPaneView {
 }
 
 let session: IElectronE2ESession | null = null;
+
+// T4: a page edit is visible in every linked view, including its painted rail.
+it('refreshes the cropped page thumbnail in both linked PDF views', async () => {
+    const evidence = resolve(process.env.EVB_ROUND2_EVIDENCE_DIR ?? '.devkit/checks/round2/candidate', 'a45-linked-crop');
+    await mkdir(evidence, {recursive: true});
+    const pdfPath = await createMultiPageTextFixturePdf(`linked-crop-${Date.now()}.pdf`, 3);
+    await writeFile(join(evidence, 'fixture.pdf'), await readFile(pdfPath));
+    session = await startElectronE2ESession(`e2e-linked-crop-${Date.now()}`, {
+        clean: true,
+        initialOpenPaths: [pdfPath],
+    });
+    const {page} = session;
+    await writeFile(join(evidence, 'session.json'), JSON.stringify({
+        name: session.name,
+        pdfPath,
+    }, null, 2));
+    const readThumbnails = () => page.$$eval('.editor-pane', panes => panes.map(pane => {
+        const canvas = pane.querySelector<HTMLCanvasElement>('[data-thumbnail-page="1"] canvas');
+        return {
+            pane: (pane as HTMLElement).dataset.editorPaneId,
+            width: canvas?.width,
+            height: canvas?.height,
+            pixels: canvas?.toDataURL(),
+        };
+    }));
+    await session.command('windowResize', [
+        1440,
+        900,
+    ]);
+    await waitForPdfLoaded(page);
+    await waitForViewerInteractive(page);
+    await openDocumentSidebarTab(page, 'Pages');
+    await splitActiveTabFromTabMenu(page, 'right');
+    const [
+        leftPane,
+        rightPane,
+    ] = await paneIds(page);
+    await page.waitForSelector(`${paneSelector(rightPane!)} ${PAINTED_FIRST_PAGE}`);
+    await openDocumentSidebarTab(page, 'Pages');
+    await page.waitForFunction(() => Array.from(document.querySelectorAll('.editor-pane')).length === 2
+        && Array.from(document.querySelectorAll('.editor-pane')).every(pane => {
+            const canvas = pane.querySelector<HTMLCanvasElement>('[data-thumbnail-page="1"] canvas');
+            return canvas && canvas.width > 0 && canvas.height > 0;
+        }));
+    const before = await readThumbnails();
+    await writeFile(join(evidence, 'thumbnails-before.json'), JSON.stringify(before, null, 2));
+    await page.screenshot({path: join(evidence, 'before-crop.png')});
+    await activatePaneByTab(page, leftPane!);
+    await clickVisibleToolbarButton(page, 'Crop Pages');
+    await page.waitForSelector('.crop-overlay.is-active');
+    const drag = await page.$eval(`${paneSelector(leftPane!)} .page_container[data-page="1"]`, element => {
+        const rect = element.getBoundingClientRect();
+        const viewport = element.closest('#pdf-viewer')!.getBoundingClientRect();
+        const left = Math.max(rect.left, viewport.left) + 20;
+        const top = Math.max(rect.top, viewport.top) + 30;
+        const width = Math.min(rect.right, viewport.right) - left - 20;
+        const height = Math.min(rect.bottom, viewport.bottom) - top - 20;
+        return {
+            x: left,
+            y: top,
+            endX: left + width * 0.75,
+            endY: top + height * 0.3,
+        };
+    });
+    expect(await page.evaluate(({
+        x, y,
+    }) => Boolean(document.elementFromPoint(x, y)?.closest('.crop-overlay.is-active')), drag)).toBe(true);
+    await page.mouse.move(drag.x, drag.y);
+    await page.mouse.down();
+    await page.mouse.move(drag.endX, drag.endY, {steps: 6});
+    await page.mouse.up();
+    await page.waitForSelector('[role="dialog"] .crop-preview-area');
+    await clickFoundAsUser(page, () => Array.from(document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button'))
+        .find(button => button.textContent?.trim() === 'Apply Crop' && !button.disabled), null, {description: 'Apply the selected crop'});
+    await page.waitForSelector('[role="dialog"] .crop-preview-area', {hidden: true});
+    await page.waitForFunction((originalRatio: number) => {
+        const canvas = document.querySelector<HTMLCanvasElement>('.editor-pane.is-active [data-thumbnail-page="1"] canvas');
+        return canvas && Math.abs(canvas.width / canvas.height - originalRatio) > 0.15;
+    }, {}, before[0]!.width! / before[0]!.height!);
+    await page.waitForFunction(() => {
+        const canvases = Array.from(document.querySelectorAll<HTMLCanvasElement>('.editor-pane [data-thumbnail-page="1"] canvas'));
+        return canvases.length === 2 && canvases.every(canvas => Math.abs(canvas.width / canvas.height - canvases[0]!.width / canvases[0]!.height) < 0.02);
+    });
+    const after = await readThumbnails();
+    expect(after.every((thumbnail, index) => thumbnail.pixels !== before[index]!.pixels)).toBe(true);
+    await writeFile(join(evidence, 'thumbnails-after.json'), JSON.stringify(after, null, 2));
+    await page.screenshot({path: join(evidence, 'after-crop.png')});
+});
 
 afterEach(async () => {
     await session?.stop({preserveArtifacts: true});
@@ -1367,14 +1460,20 @@ describe('shared PDF split', () => {
         // The right view reads page 4.
         await waitForPaneView(page, rightPane!, 'Split Right shows the document', view => !view.showsStart && view.centerPage !== null);
         await goToPageViaToolbar(page, 4);
-        await waitForSteadyPaneView(page, rightPane!, 'the right view reads page 4', view => (
+        await zoomInUntilPageFillsViewport(page, rightPane!);
+        const originalRight = await waitForSteadyPaneView(page, rightPane!, 'the right view reads page 4', view => (
             view.centerPage === 4 && view.centerText?.includes('Fixture 4/6') === true
         ));
 
-        // The left view deletes page 1 from its Pages panel.
+        // The left view deletes page 1 from its Pages panel at its own zoom.
         await activatePaneByTab(page, leftPane!);
+        await zoomInUntilPageFillsViewport(page, leftPane!);
+        await clickToolbarButton(page, 'Zoom In');
         await openDocumentSidebarTab(page, 'Pages');
         await clickAsUser(page, thumbnailSelector(leftPane!, 1));
+        await waitForSteadyPaneView(page, leftPane!, 'the left view reads the page it will delete', view => (
+            view.centerPage === 1 && view.centerText?.includes('Fixture 1/6') === true
+        ));
         await clickAsUser(page, thumbnailSelector(leftPane!, 1), {button: 'right'});
         await clickFoundAsUser(page, () => Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]'))
             .find(item => item.textContent?.trim() === 'Delete Pages' && item.getBoundingClientRect().width > 0), null, {description: 'Delete Pages'});
@@ -1386,6 +1485,39 @@ describe('shared PDF split', () => {
             view.pageCount === 5 && view.centerPage === 3 && view.centerText?.includes('Fixture 4/6') === true
         ));
         expect(rightView.centerPage).toBe(3);
+        expect(sameWidth(rightView.pageWidthPx, originalRight.pageWidthPx)).toBe(true);
+        const leftAfterDelete = await waitForSteadyPaneView(page, leftPane!, 'the left view reads its deletion fallback', view => view.pageCount === 5 && view.centerText?.includes('Fixture 2/6') === true);
+
+        await clickToolbarButton(page, 'Undo');
+        const rightAfterUndo = await waitForSteadyPaneView(page, rightPane!, 'undo keeps original page 4 in the right view', view => (
+            view.pageCount === 6 && view.centerPage === 4 && view.centerText?.includes('Fixture 4/6') === true
+        ));
+        expect(sameWidth(rightAfterUndo.pageWidthPx, originalRight.pageWidthPx)).toBe(true);
+        expect(Math.abs((rightAfterUndo.centerOffsetPx ?? 0) / (rightAfterUndo.pageWidthPx ?? 1)
+            - (originalRight.centerOffsetPx ?? 0) / (originalRight.pageWidthPx ?? 1))).toBeLessThan(0.05);
+        await waitForSteadyPaneView(page, leftPane!, 'undo keeps original page 2 in the left view', view => (
+            view.pageCount === 6 && view.centerPage === 2 && view.centerText?.includes('Fixture 2/6') === true
+            && sameWidth(view.pageWidthPx, leftAfterDelete.pageWidthPx)
+        ));
+
+        await page.screenshot({path: join(sessionDir(session.name), 'history-after-undo.png')});
+        await activatePaneByTab(page, rightPane!);
+        await goToPageViaToolbar(page, 5);
+        const rightBeforeRedo = await waitForSteadyPaneView(page, rightPane!, 'the right view now reads original page 5', view => (
+            view.centerPage === 5 && view.centerText?.includes('Fixture 5/6') === true
+        ));
+        await clickToolbarButton(page, 'Redo');
+        const rightAfterRedo = await waitForSteadyPaneView(page, rightPane!, 'redo maps the page read now to original page 5', view => (
+            view.pageCount === 5 && view.centerPage === 4 && view.centerText?.includes('Fixture 5/6') === true
+        ));
+        expect(sameWidth(rightAfterRedo.pageWidthPx, originalRight.pageWidthPx)).toBe(true);
+        expect(Math.abs((rightAfterRedo.centerOffsetPx ?? 0) / (rightAfterRedo.pageWidthPx ?? 1)
+            - (rightBeforeRedo.centerOffsetPx ?? 0) / (rightBeforeRedo.pageWidthPx ?? 1))).toBeLessThan(0.05);
+        await waitForSteadyPaneView(page, leftPane!, 'redo independently keeps original page 2 in the left view', view => (
+            view.pageCount === 5 && view.centerPage === 1 && view.centerText?.includes('Fixture 2/6') === true
+            && sameWidth(view.pageWidthPx, leftAfterDelete.pageWidthPx)
+        ));
+        await page.screenshot({path: join(sessionDir(session.name), 'history-after-redo.png')});
     }, TIMEOUT_MS);
 
     // Sweep #845: opening the same file again from a view (Recent Files, a drop)

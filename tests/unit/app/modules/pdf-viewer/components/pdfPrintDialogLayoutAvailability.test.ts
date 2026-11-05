@@ -16,12 +16,20 @@ import {
     nextTick,
     ref,
 } from 'vue';
+import {LOCALE_MESSAGES} from '@i18n-app';
+import {
+    formatTranslationLeaf, getNestedTranslationLeaf,
+} from '@i18n-core';
 import PdfPrintDialog from '@app/modules/pdf-viewer/components/PdfPrintDialog.vue';
 
 vi.mock('@app/composables/useTypedI18n', async (importOriginal) => ({
     ...(await importOriginal<typeof TViMockOriginalModule>()),
-    useTypedI18n: () => ({t: (key: string) => key}),
+    useTypedI18n: () => ({t: (key: string, params?: Record<string, string | number>) => realMessages
+        ? formatTranslationLeaf(getNestedTranslationLeaf(LOCALE_MESSAGES.en, key) ?? key, params, 'en')
+        : key}),
 }));
+
+let realMessages = false;
 
 const ModalStub = defineComponent({setup: (_props, {slots}) => () => h('section', [
     slots.description?.(),
@@ -46,13 +54,24 @@ const ButtonStub = defineComponent({
 });
 
 const RadioGroupStub = defineComponent({
-    props: {legend: String},
-    setup: props => () => h('fieldset', [h('legend', props.legend)]),
+    props: {
+        legend: String,
+        modelValue: String,
+        items: Array<{
+            label: string;
+            value: string
+        }>,
+    },
+    emits: ['update:modelValue'],
+    setup: (props, {emit}) => () => h('fieldset', [
+        h('legend', props.legend),
+        ...((props.items ?? []).map(item => h('button', {onClick: () => emit('update:modelValue', item.value)}, item.label))),
+    ]),
 });
 
 const activeUnmounts = new Set<() => void>();
 
-function mountDialog(supportsFirstPageSinglePrintLayout: boolean) {
+function mountDialog(supportsFirstPageSinglePrintLayout: boolean, totalPages = 882) {
     const host = document.createElement('div');
     document.body.append(host);
     const open = ref(false);
@@ -62,7 +81,7 @@ function mountDialog(supportsFirstPageSinglePrintLayout: boolean) {
         'onUpdate:open': (value: boolean) => {
             open.value = value;
         },
-        totalPages: 882,
+        totalPages,
         currentPage: 1,
         selectedPages: [],
         defaultViewMode: 'single',
@@ -101,6 +120,7 @@ function buttonsWithPrefix(host: HTMLElement, prefix: string) {
 }
 
 afterEach(() => {
+    realMessages = false;
     for (const unmount of [...activeUnmounts]) {
         unmount();
     }
@@ -155,4 +175,23 @@ describe('PdfPrintDialog layout availability', () => {
             'print.layoutFacingFirstSingle',
         ]);
     });
+});
+
+it.each([
+    1,
+    12,
+])('renders a singular print summary for one selected page out of %s', async (totalPages) => {
+    realMessages = true;
+    const mounted = mountDialog(true, totalPages);
+    mounted.open.value = true;
+    await nextTick();
+    await nextTick();
+    if (totalPages > 1) {
+        const current = [...mounted.host.querySelectorAll('fieldset button')].find(button => button.textContent === 'Current page (1)');
+        expect(current).toBeDefined();
+        (current as HTMLButtonElement).click();
+        await nextTick();
+    }
+    expect([...mounted.host.querySelectorAll('p')].map(p => p.textContent))
+        .toContain('Printing 1 page with Single pages and Auto orientation.');
 });

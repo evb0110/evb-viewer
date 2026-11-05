@@ -74,6 +74,7 @@
 <script setup lang="ts">
 import { isReleasedMouseCapture } from '@app/modules/pdf-viewer/annotations/editor/isReleasedMouseCapture';
 import { useEventListener } from '@vueuse/core';
+import { annotationEditorSurfaceKey } from '@app/modules/pdf-viewer/runtime/annotations/usePdfAnnotationEditorSurface';
 import type {
     IPdfImagePlacementDraft,
     IPdfImagePlacementRectUpdate,
@@ -108,8 +109,11 @@ const emit = defineEmits<{
 const { t } = useTypedI18n();
 const frameRef = ref<HTMLElement | null>(null);
 const GLOBAL_CURSOR_ATTRIBUTE = 'data-pdf-image-placement-cursor';
+// Only the active viewer's placement takes the keyboard: another pane may
+// hold a placement of its own.
+const surface = inject(annotationEditorSurfaceKey, null);
 const placementKeyboardTarget = computed(() => (
-    placement && !busy && typeof window !== 'undefined'
+    placement && !busy && surface?.isActive.value !== false && typeof window !== 'undefined'
         ? window
         : null
 ));
@@ -534,8 +538,11 @@ function handlePlacementKeydown(event: KeyboardEvent) {
         return;
     }
 
+    // Enter on any other control, such as Cancel, does what that control does.
+    const control = event.target instanceof Element ? event.target.closest('button, summary, a[href], [role="button"]') : null;
     if (
         (event.key === 'Enter' || event.key === 'NumpadEnter')
+        && (control === null || control.closest('.pdf-image-placement__transform') !== null)
         && !event.metaKey
         && !event.ctrlKey
         && !event.altKey

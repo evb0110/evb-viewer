@@ -405,7 +405,9 @@ onBeforeUnmount(() => {
 
 defineExpose(pdfViewerPublicApi);
 </script>
-<style lang="scss" src="@app/assets/css/pdf-viewer.scss"></style>
+<style lang="scss">
+@use '@app/assets/css/pdf-viewer';
+</style>
 
 <style scoped>
 /* css-important-allow: clean capture suppresses inline annotation-tool cursors and editing carets only while reading the composed frame. */

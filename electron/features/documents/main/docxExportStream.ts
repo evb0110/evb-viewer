@@ -25,6 +25,7 @@ import {
     requireSessionId,
     type TSessionId,
 } from '@contracts/shared';
+import {writeFileHandleFully} from '@electron/file-access/writeFileHandleFully';
 
 interface IDocxExportStreamSession {
     id: TSessionId;
@@ -185,17 +186,6 @@ export async function beginDocxExportStream(
     return {sessionId: id};
 }
 
-async function writeChunkToHandle(handle: FileHandle, chunk: Uint8Array) {
-    let offset = 0;
-    while (offset < chunk.byteLength) {
-        const result = await handle.write(chunk, offset, chunk.byteLength - offset);
-        if (result.bytesWritten < 1) {
-            throw new Error('DOCX stream write made no progress');
-        }
-        offset += result.bytesWritten;
-    }
-}
-
 export function nextDocxExportStreamByteCount(receivedBytes: number, chunkBytes: number) {
     const nextReceivedBytes = receivedBytes + chunkBytes;
     if (!Number.isSafeInteger(nextReceivedBytes)) {
@@ -213,7 +203,7 @@ export async function writeDocxExportStreamChunk(
     const chunk = normalizeChunk(rawChunk);
     const write = session.queue.then(async () => {
         const nextReceivedBytes = nextDocxExportStreamByteCount(session.receivedBytes, chunk.byteLength);
-        await writeChunkToHandle(session.handle, chunk);
+        await writeFileHandleFully(session.handle, chunk);
         session.receivedBytes = nextReceivedBytes;
     });
     session.queue = write;

@@ -59,7 +59,7 @@ export async function saveWorkingBytesToSource(
     const pickedTarget = saveTarget.saveHandle
         ? {
             canceled: false,
-            fileName: saveTarget.saveName,
+            fileName: saveTarget.saveHandle.name,
             handle: saveTarget.saveHandle,
         }
         : await pickSaveTarget({
@@ -135,12 +135,11 @@ export async function saveWorkingBytesToSource(
                 // record points at. Skipping it on the picker branch left the
                 // working copy describing the file it no longer saves to, so the
                 // next ordinary Save reported our own write as an external edit.
-                await mutation.acknowledgePhysicalSourceCommit();
+                const documentRevision = await mutation.acknowledgePhysicalSourceCommit();
                 await browserDocumentStore.touchRecentFile(sourceRef);
                 // The authored bytes go in last, so any earlier failure leaves
                 // the working copy at the base its unsaved annotations describe.
-                if (staged) await mutation.write(staged.bytes);
-                return true;
+                return staged ? mutation.write(staged.bytes) : documentRevision;
             },
         );
     } catch (error) {
@@ -163,37 +162,32 @@ export async function saveWorkingBytesToSourceStructured(
             workingCopyPath,
             revisionOptions,
         );
-        if (!saved) {
-            return {
+        return {
+            validation: null,
+            ...(saved ? {
+                ok: true,
+                externalWriteCommitted: true,
+                workingCopyRefreshed: true,
+                documentRevision: saved,
+            } : {
                 ok: false,
                 reason: 'user-canceled',
                 externalWriteCommitted: false,
-                validation: null,
-            };
-        }
-        return {
-            ok: true,
-            externalWriteCommitted: true,
-            workingCopyRefreshed: true,
-            validation: null,
+            }),
         };
     } catch (error) {
-        if (error instanceof BrowserExternalSaveSyncRequiredError) {
-            return {
-                ok: false,
-                reason: 'working-copy-sync-required',
-                message: error.message,
-                externalWriteCommitted: error.externalWriteCommitted,
-                workingCopySyncRequired: true,
-                validation: null,
-            };
-        }
         return {
             ok: false,
-            reason: 'write-failed',
             message: getErrorMessage(error),
-            externalWriteCommitted: false,
             validation: null,
+            ...(error instanceof BrowserExternalSaveSyncRequiredError ? {
+                reason: 'working-copy-sync-required',
+                externalWriteCommitted: error.externalWriteCommitted,
+                workingCopySyncRequired: true,
+            } : {
+                reason: 'write-failed',
+                externalWriteCommitted: false,
+            }),
         };
     }
 }
@@ -312,7 +306,7 @@ export async function savePdfAsFromWorkingCopy(
                     {maxBytes: publication ? BROWSER_PAGE_OPS_MAX_OUTPUT_BYTES : BROWSER_QPDF_MAX_INPUT_BYTES},
                 ) : null;
                 signal?.throwIfAborted();
-                const normalizedFileName = ensurePdfExtension(saveResult.fileName);
+                const normalizedFileName = saveResult.handle?.name ?? ensurePdfExtension(saveResult.fileName);
                 const sourcePath = staged?.artifact.path ?? workingCopyPath;
                 const {size} = await browserDocumentStore.stat(sourcePath);
                 let publishedBytes = staged?.bytes;
@@ -332,10 +326,9 @@ export async function savePdfAsFromWorkingCopy(
                     publishedBytes = candidate ?? staged?.bytes;
                 }
                 signal?.throwIfAborted();
-                const savedHandle = saveResult.handle;
-                if (savedHandle) {
-                    if (publishedBytes) await writeBytesToHandleInSaveLock(savedHandle, publishedBytes, signal);
-                    else await writeDocumentRefToHandle(savedHandle, workingCopyPath);
+                if (saveResult.handle) {
+                    if (publishedBytes) await writeBytesToHandleInSaveLock(saveResult.handle, publishedBytes, signal);
+                    else await writeDocumentRefToHandle(saveResult.handle, workingCopyPath);
                 } else if (publication && publishedBytes) {
                     // The picker already ran in the request's gesture; never reopen it.
                     downloadBrowserBytes(publishedBytes, normalizedFileName, 'application/pdf', signal);
@@ -357,19 +350,19 @@ export async function savePdfAsFromWorkingCopy(
                 try {
                     // A downloaded copy's record is created holding its bytes, so
                     // peer collection never sees an empty committed target.
-                    await browserDocumentStore.createStoredDocument(normalizedFileName, savedHandle ? new Uint8Array() : publishedBytes ?? new Uint8Array(), {
+                    await browserDocumentStore.createStoredDocument(normalizedFileName, saveResult.handle ? new Uint8Array() : publishedBytes ?? new Uint8Array(), {
                         ref: sourceRef,
                         mimeType: 'application/pdf',
                         saveKind: 'pdf',
                         kind: 'source',
-                        saveHandle: savedHandle,
-                        ...(savedHandle ? {storageMode: 'handle' as const} : {}),
-                        ...(!savedHandle && !publishedBytes ? {contentFrom: workingCopyPath} : {}),
+                        saveHandle: saveResult.handle,
+                        ...(saveResult.handle ? {storageMode: 'handle' as const} : {}),
+                        ...(!saveResult.handle && !publishedBytes ? {contentFrom: workingCopyPath} : {}),
                     });
-                    if (savedHandle) {
+                    if (saveResult.handle) {
                         await browserDocumentStore.replaceWithHandleBackedDocument(sourceRef, {
                             fileSize: publishedBytes?.byteLength ?? size,
-                            saveHandle: savedHandle,
+                            saveHandle: saveResult.handle,
                             saveName: normalizedFileName,
                         });
                     }

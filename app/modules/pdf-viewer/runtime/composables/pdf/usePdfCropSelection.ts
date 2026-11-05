@@ -7,6 +7,7 @@ import type {
 } from 'vue';
 import { useEventListener } from '@vueuse/core';
 import type { ICropSelectionResult } from '@app/types/crop';
+import type { TPdfViewRotation } from '@contracts/shared';
 import type {
     IClientPoint,
     IClientRect,
@@ -25,7 +26,10 @@ import { createSelectionRectFromPointerDrag } from '@app/modules/pdf-viewer/engi
 
 type TCropSelectionState = 'idle' | 'selecting';
 
-interface IUsePdfCropSelectionOptions {viewerContainer: Ref<HTMLElement | null>;}
+interface IUsePdfCropSelectionOptions {
+    viewerContainer: Ref<HTMLElement | null>;
+    viewRotation: Readonly<Ref<TPdfViewRotation>>;
+}
 
 interface IPageTarget {
     pageNumber: TPageNumber;
@@ -232,6 +236,8 @@ export const usePdfCropSelection = (options: IUsePdfCropSelectionOptions) => {
         resolveSession(null);
     }
 
+    watch(options.viewRotation, cancelSelection, {flush: 'sync'});
+
     function abortPendingSession() {
         if (!pendingResolver) {
             return;
@@ -297,6 +303,7 @@ export const usePdfCropSelection = (options: IUsePdfCropSelectionOptions) => {
 
         resolveSession({
             pageNumber: pageTarget.pageNumber,
+            viewRotation: options.viewRotation.value,
             pageRect: {
                 width: getRectWidth(pageTarget.clientRect),
                 height: getRectHeight(pageTarget.clientRect),
@@ -329,6 +336,7 @@ export const usePdfCropSelection = (options: IUsePdfCropSelectionOptions) => {
 
         resolveSession({
             pageNumber: pageTarget.pageNumber,
+            viewRotation: options.viewRotation.value,
             pageRect: {
                 width: getRectWidth(pageTarget.clientRect),
                 height: getRectHeight(pageTarget.clientRect),

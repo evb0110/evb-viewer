@@ -57,6 +57,18 @@ describe('resolveAppWindowTitle', () => {
         expect(result.endsWith('…')).toBe(true);
     });
 
+    it('never cuts a character in half when it caps a document name', () => {
+        const result = resolveAppWindowTitle({
+            appTitle: 'EVB Viewer',
+            webTitle: 'EVB Viewer Web',
+            fileName: `${'a'.repeat(58)}😀.pdf`,
+            isBrowserRuntime: false,
+        });
+
+        expect(result).toBe(`${'a'.repeat(58)}…`);
+        expect(result.isWellFormed()).toBe(true);
+    });
+
     it('caps the document name before composing the browser window title', () => {
         const result = resolveAppWindowTitle({
             appTitle: 'EVB Viewer',

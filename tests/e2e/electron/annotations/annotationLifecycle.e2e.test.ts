@@ -7,6 +7,7 @@ import {
 import {
     copyFileSync,
     mkdtempSync,
+    mkdirSync,
     realpathSync,
     rmSync,
     writeFileSync,
@@ -573,7 +574,7 @@ function preserveFixtureAcrossRestart(path: string) {
 }
 
 async function moveFocusedTextCaretToEnd(page: Page) {
-    await page.waitForFunction(() => document.activeElement?.getAttribute('contenteditable') === 'true');
+    await page.waitForFunction(() => document.activeElement?.matches('textarea, [contenteditable="true"]'));
     if (process.platform === 'darwin') {
         const client = await page.createCDPSession();
         try {
@@ -1153,6 +1154,74 @@ describe('Electron E2E - Annotation Lifecycle', () => {
     const sessionFixture = createElectronE2ESessionFixture({
         restartBeforeEach: true,
         sessionName: () => `e2e-annotation-lifecycle-${Date.now()}`,
+    });
+
+    it('clears dirty and Save after a saved-note draft reverts, preserving other accepted edits', async () => {
+        const {page} = sessionFixture.getSession();
+        const fixture = await createCanonicalAnnotationSurfaceFixturePdf(`draft-revert-${Date.now()}.pdf`);
+        onTestFinished(() => rmSync(fixture, {force: true}));
+        await openPdfInApp(page, fixture);
+        await waitForPdfLoaded(page);
+        await waitForViewerInteractive(page);
+        await openAnnotationsTab(page);
+        await clickVisibleAnnotationControl(page, '.editor-pane.is-active .note-item[data-annotation-kind="note"] .note-item-content', 2);
+        const input = 'textarea.note-window__textarea';
+        await page.waitForSelector(input, {visible: true});
+        await clickAsUser(page, input);
+        await moveFocusedTextCaretToEnd(page);
+        expect(await page.$eval(input, element => (element as HTMLTextAreaElement).value)).toBe('Store-owned note');
+        await page.keyboard.type('X');
+        expect(await page.$eval('.tab.is-active', tab => tab.classList.contains('is-dirty'))).toBe(true);
+        await page.keyboard.press('Backspace');
+        expect(await page.$eval(input, element => (element as HTMLTextAreaElement).value)).toBe('Store-owned note');
+        const evidence = process.env.EVB_D15_EVIDENCE_DIR ?? '.devkit/d15/screenshots';
+        mkdirSync(evidence, {recursive: true});
+        try {
+            await page.waitForFunction(() => !document.querySelector('.tab.is-active')?.classList.contains('is-dirty'));
+            expect(await page.$eval('button[aria-label="Save"]', button => (button as HTMLButtonElement).disabled)).toBe(true);
+        } finally {
+            await page.screenshot({path: join(evidence, 'note-revert.png')});
+        }
+        await clickLatestVisibleNoteWindowClose(page);
+        await waitForNoOpenNoteWindows(page);
+        await clickAsUser(page, '.tab.is-active .tab-close');
+        await page.waitForFunction(() => document.querySelector('.page_container') === null);
+        expect(await page.$('[role="dialog"]')).toBeNull();
+
+        await openPdfInApp(page, fixture);
+        await waitForPdfLoaded(page);
+        await waitForViewerInteractive(page);
+        await openAnnotationsTab(page);
+        await clickVisibleAnnotationControl(page, '.editor-pane.is-active .note-item[data-annotation-kind="note"] .note-item-content', 2);
+        await page.waitForSelector(input, {visible: true});
+        await clickAsUser(page, input);
+        await moveFocusedTextCaretToEnd(page);
+        await page.keyboard.type(' accepted');
+        expect(await page.$eval(input, element => (element as HTMLTextAreaElement).value)).toBe('Store-owned note accepted');
+        await page.keyboard.press('Tab');
+        await clickLatestVisibleNoteWindowClose(page);
+        await waitForNoOpenNoteWindows(page);
+        await page.waitForFunction(() => [...document.querySelectorAll('.note-item-content')].some(node => node.textContent?.includes('Store-owned note accepted')));
+        await clickVisibleAnnotationControl(page, '.editor-pane.is-active .note-item[data-annotation-kind="note"] .note-item-content', 2);
+        await clickAsUser(page, input);
+        await moveFocusedTextCaretToEnd(page);
+        await page.keyboard.type('X');
+        await page.keyboard.press('Backspace');
+        expect(await page.$eval('.tab.is-active', tab => tab.classList.contains('is-dirty'))).toBe(true);
+        expect(await page.$eval('button[aria-label="Save"]', button => (button as HTMLButtonElement).disabled)).toBe(false);
+        await clickLatestVisibleNoteWindowClose(page);
+        await clickAsUser(page, '.tab.is-active .tab-close');
+        await page.waitForSelector('[role="dialog"]', {visible: true});
+        await page.waitForFunction(() => {
+            for (let node = document.querySelector('[role="dialog"]'); node; node = node.parentElement) {
+                if (Number(getComputedStyle(node).opacity) < 1) return false;
+            }
+            return true;
+        });
+        await page.screenshot({path: join(evidence, 'note-accepted-edit-protected.png')});
+        const dialogText = await page.$eval('[role="dialog"]', dialog => dialog.textContent);
+        expect(dialogText).toContain('Close tab with unsaved changes?');
+        expect(dialogText).toContain('Save changes');
     });
 
     it('places a new note over an imported highlight without moving the highlight', async () => {
@@ -2332,6 +2401,10 @@ describe('Electron E2E - Annotation Lifecycle', () => {
         await openAnnotationsTab(page);
         await waitForViewerInteractive(page);
         await waitForSidebarAnnotationCount(page, 0);
+        // The link a keyboard reaches says where it goes.
+        await page.waitForFunction(() => Array.from(document.querySelectorAll('.editor-pane.is-active .pdf-link-overlay'))
+            .some(link => link.getAttribute('aria-label') === 'Link to https://example.com/evb-viewer-link-fixture'
+                && link.getAttribute('tabindex') === '0'), {timeout: 30_000});
     });
 
     it.each([
@@ -2589,6 +2662,64 @@ describe('Electron E2E - Annotation Lifecycle', () => {
         // 20-point icon rectangle around the same centre.
         expectMarkerCentreClose(reopened.markerRect, moved.markerRect);
     }, 90_000);
+
+    it('ends a note window drag when the window loses focus or the button is released outside it', async () => {
+        const {page} = sessionFixture.getSession();
+        const fixturePath = await createMultiPageTextFixturePdf(`annotation-lifecycle-${Date.now()}-note-drag-end.pdf`, 1);
+        onTestFinished(() => rmSync(fixturePath, {force: true}));
+        await openPdfInApp(page, fixturePath);
+        await waitForPdfLoaded(page);
+        await waitForViewerInteractive(page);
+        await clickAnnotationTool(page, 'Note');
+        await createStickyNoteWithPointer(page, `Drag end note ${Date.now()}`, {
+            x: 0.4,
+            y: 0.3,
+        });
+        const windowRect = () => page.$eval('.editor-pane.is-active .note-window', element => {
+            const rect = element.getBoundingClientRect();
+            return [
+                Math.round(rect.left),
+                Math.round(rect.top),
+            ];
+        });
+        const grabTitle = async () => {
+            const title = await page.$eval('.editor-pane.is-active .note-window .note-window__title-main', element => element.getBoundingClientRect().toJSON());
+            const start = {
+                x: title.x + title.width / 2,
+                y: title.y + title.height / 2,
+            };
+            await page.mouse.move(start.x, start.y);
+            await page.mouse.down();
+            await page.mouse.move(start.x + 30, start.y + 20, {steps: 4});
+            await expect.poll(windowRect, {message: 'the title drag moves the window'}).not.toEqual(before);
+            return start;
+        };
+
+        let before = await windowRect();
+        let start = await grabTitle();
+        const afterGrab = await windowRect();
+        await page.evaluate(() => window.dispatchEvent(new Event('blur')));
+        await page.mouse.move(start.x + 150, start.y + 90, {steps: 4});
+        await page.mouse.up();
+        expect(await windowRect(), 'a window that lost focus stops the drag').toEqual(afterGrab);
+
+        before = afterGrab;
+        start = await grabTitle();
+        const afterSecondGrab = await windowRect();
+        // A release outside the window reaches it only as a move with no button down.
+        const cdp = await page.createCDPSession();
+        onTestFinished(() => cdp.detach().catch(() => undefined));
+        await cdp.send('Input.dispatchMouseEvent', {
+            type: 'mouseMoved',
+            x: start.x + 60,
+            y: start.y + 40,
+            button: 'none',
+            buttons: 0,
+        });
+        await page.mouse.move(start.x + 160, start.y + 100, {steps: 4});
+        await page.mouse.up();
+        expect(await windowRect(), 'a move after the release does not drag the window').toEqual(afterSecondGrab);
+    });
 
     it('shows foreign note replies as read-only and deletes them with their parent', async () => {
         const session = sessionFixture.getSession();

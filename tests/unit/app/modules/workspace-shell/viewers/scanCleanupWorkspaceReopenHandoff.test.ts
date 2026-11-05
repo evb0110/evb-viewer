@@ -134,6 +134,7 @@ describe('scan-cleanup workspace reopen handoff', () => {
             },
             createCompletedOutputSaveAs: vi.fn(() => async () => undefined),
             t: ((key: string) => key) as never,
+            locale: () => 'en',
             toast: {add: vi.fn()},
         });
 

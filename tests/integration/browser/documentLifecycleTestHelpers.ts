@@ -239,6 +239,16 @@ beforeAll(async () => {
     await once(devServer, 'spawn');
     await waitForServer(origin);
     browser = await chromium.launch({headless: true});
+    // HTTP readiness precedes the cold client and document-worker graphs.
+    // Complete one real open here so per-document hooks start with a ready app.
+    const page = await browser.newPage();
+    try {
+        await openPdfFromChooser(page, resolve('tests/fixtures/electron/generated-text.pdf'));
+        await page.locator('.page_container--rendered canvas').first().waitFor();
+        await settleActiveOpen(page);
+    } finally {
+        await page.context().close();
+    }
 }, 120_000);
 
 afterAll(async () => {

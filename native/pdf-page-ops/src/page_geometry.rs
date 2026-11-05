@@ -347,7 +347,10 @@ pub(crate) fn resolve_page_user_unit(
     let Some(object) = dict.get(b"UserUnit").ok() else {
         return Ok(1.0);
     };
-    let resolved = document.resolved(object)?;
+    // A reference that does not resolve is malformed too.
+    let Ok(resolved) = document.resolved(object) else {
+        return Ok(1.0);
+    };
     let value = match resolved {
         Object::Integer(value) => *value as f64,
         Object::Real(value) => f64::from(*value),
@@ -716,7 +719,7 @@ pub(crate) fn resolve_inherited_box(
 ) -> Result<PdfRect> {
     let object = resolve_inherited_object(document, page_id, key)?
         .ok_or_else(|| format!("Missing inherited {}", String::from_utf8_lossy(key)))?;
-    parse_rect(document.resolved(object)?)
+    read_normalized_rect(document, object)?.ok_or("Invalid PDF rectangle dimensions".into())
 }
 
 pub(crate) fn parse_rect(object: &Object) -> Result<PdfRect> {
@@ -731,11 +734,7 @@ pub(crate) fn parse_rect(object: &Object) -> Result<PdfRect> {
         x2: object_to_f64(&values[2])?,
         y2: object_to_f64(&values[3])?,
     };
-    if !rect.width().is_finite()
-        || !rect.height().is_finite()
-        || rect.width() <= 0.0
-        || rect.height() <= 0.0
-    {
+    if rect.width() <= 0.0 || rect.height() <= 0.0 {
         return Err("Invalid PDF rectangle dimensions".into());
     }
     Ok(rect)

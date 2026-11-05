@@ -2443,6 +2443,8 @@ mod tests {
                     app_annotation_id: None,
                     color: Some("#ffcc00".to_string()),
                     author: None,
+                    created_at: None,
+                    modified_at: None,
                     contents: Some("app text".to_string()),
                     id: Some("app-highlight".to_string()),
                     page_markup_index: Some(0),

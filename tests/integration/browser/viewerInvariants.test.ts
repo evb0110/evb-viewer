@@ -23,6 +23,10 @@ import { evaluateViewerInvariantCheckpoint } from '@tests/e2e/electron/helpers/v
 import type { IViewerBugReport } from '@app/modules/viewer-invariants/buildViewerBugReport';
 import type { IViewerUserAction } from '@app/modules/viewer-invariants/viewerActionLog';
 import type {
+    IViewerSettleOptions,
+    IViewerSettleOutcome,
+} from '@app/modules/viewer-invariants/waitForViewerSettled';
+import type {
     IViewerInvariantOptions,
     IViewerInvariantReport,
 } from '@app/modules/viewer-invariants/viewerInvariantTypes';
@@ -208,6 +212,7 @@ declare global {
     var __evbInstallViewerActionLog: () => void;
     var __evbReadViewerUserActions: () => readonly IViewerUserAction[];
     var __evbResetViewerInvariantMemory: () => void;
+    var __evbWaitForViewerSettled: (options?: IViewerSettleOptions) => Promise<IViewerSettleOutcome>;
     var __evbNotifyRendererDiagnosticNotice: (notice: {
         occurredAt: number;
         signature: string;
@@ -252,7 +257,74 @@ function violationIds(report: IViewerInvariantReport) {
     return report.violations.map(violation => violation.id);
 }
 
+/** Two painted panes side by side; a pane still painting shows its page skeleton. */
+function buildTwoPaneMarkup(panes: ReadonlyArray<{
+    active: boolean;
+    painting: boolean
+}>) {
+    return `<!doctype html><html><body style="margin:0">${panes.map((pane, index) => `
+<div class="editor-pane${pane.active ? ' is-active' : ''}" data-pane="${String(index)}"
+    style="position:fixed;left:${String(index * 320)}px;top:0;width:300px;height:300px">
+    <div class="workspace-host" data-workspace-active="${String(pane.active)}"
+        data-workspace-tab-id="tab-${String(index)}" style="width:100%;height:100%">
+        <div data-document-viewer-chassis-viewport style="width:100%;height:100%;overflow:auto">
+            <div data-pdf-page-track style="position:relative;width:200px;height:200px">
+                <div class="page_container" data-page="1" style="position:absolute;left:0;top:0;width:200px;height:200px">
+                    ${pane.painting ? '<div class="document-page-skeleton" style="width:100%;height:100%;background:#ddd"></div>' : ''}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>`).join('')}</body></html>`;
+}
+
 describe('viewer invariant checker against real Chromium layout', () => {
+    it('keeps the viewer unquiet for 500 ms after a trusted window resize', async () => {
+        const browser = await chromium.launch({headless: true});
+        try {
+            const page = await browser.newPage({viewport: {
+                height: 700,
+                width: 900,
+            }});
+            await loadFixture(page, buildFixtureMarkup());
+            await page.evaluate(() => globalThis.__evbWaitForViewerSettled());
+            await page.evaluate(() => {
+                Reflect.set(globalThis, '__evbResizeSettled', new Promise(resolve => {
+                    window.addEventListener('resize', (event) => {
+                        const resizedAt = Date.now();
+                        void globalThis.__evbWaitForViewerSettled().then(outcome => resolve({
+                            ...outcome,
+                            elapsedMs: Date.now() - resizedAt,
+                            trusted: event.isTrusted,
+                        }));
+                    }, {
+                        capture: true,
+                        once: true,
+                    });
+                }));
+                globalThis.__evbInstallViewerActionLog();
+            });
+
+            await page.setViewportSize({
+                height: 700,
+                width: 800,
+            });
+            const outcome = await page.evaluate(async () => (
+                await Reflect.get(globalThis, '__evbResizeSettled') as IViewerSettleOutcome & {
+                    elapsedMs: number;
+                    trusted: boolean;
+                }
+            ));
+
+            expect(outcome.trusted).toBe(true);
+            expect(outcome.settled).toBe(true);
+            expect(outcome.reason).toBeNull();
+            expect(outcome.elapsedMs).toBeGreaterThanOrEqual(500);
+        } finally {
+            await browser.close();
+        }
+    }, BROWSER_TEST_TIMEOUT_MS);
+
     it('reports nothing on a conforming viewer and exactly one violation on each known-bad fixture', async () => {
         const browser = await chromium.launch({headless: true});
         try {
@@ -1051,6 +1123,64 @@ describe('viewer invariant checker against real Chromium layout', () => {
                 });
             });
             expect(allowlisted.violations).toEqual([]);
+        } finally {
+            await browser.close();
+        }
+    }, BROWSER_TEST_TIMEOUT_MS);
+
+    it('settles on the active pane, not the first one, and follows a switch of panes', async () => {
+        const browser = await chromium.launch({headless: true});
+        try {
+            const page = await browser.newPage();
+            const settle = (timeoutMs: number) => page.evaluate(timeout => globalThis.__evbWaitForViewerSettled({timeoutMs: timeout}), timeoutMs);
+
+            await loadFixture(page, buildTwoPaneMarkup([
+                {
+                    active: false,
+                    painting: false,
+                },
+                {
+                    active: true,
+                    painting: true,
+                },
+            ]));
+            const activePainting = await settle(800);
+            expect(activePainting.settled, 'the active pane is still painting').toBe(false);
+            expect(activePainting.reason).toContain('skeleton');
+
+            await loadFixture(page, buildTwoPaneMarkup([
+                {
+                    active: false,
+                    painting: true,
+                },
+                {
+                    active: true,
+                    painting: false,
+                },
+            ]));
+            expect((await settle(3_000)).settled, 'only the inactive pane is painting').toBe(true);
+
+            await loadFixture(page, buildTwoPaneMarkup([
+                {
+                    active: false,
+                    painting: false,
+                },
+                {
+                    active: true,
+                    painting: true,
+                },
+            ]));
+            const switched = settle(5_000);
+            // The wait has sampled the painting pane before the switch.
+            await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+            await page.evaluate(() => {
+                for (const pane of document.querySelectorAll<HTMLElement>('.editor-pane')) {
+                    const active = pane.dataset.pane === '0';
+                    pane.classList.toggle('is-active', active);
+                    pane.querySelector<HTMLElement>('.workspace-host')!.dataset.workspaceActive = String(active);
+                }
+            });
+            expect((await switched).settled, 'the wait follows the newly active pane').toBe(true);
         } finally {
             await browser.close();
         }

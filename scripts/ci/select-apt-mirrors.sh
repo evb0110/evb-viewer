@@ -13,8 +13,10 @@
 # nearest region ahead without a region table: from the OVH VPS in France
 # the OVH mirror finished three probes in 130 ms and the US mirrors took
 # over 600 ms, while a US runner sees the reverse. The mirrors that stalled
-# follow as alternates. Callers pass `Acquire::Retries=0`
-# so a file that still fails moves to the next mirror at once. The Azure
+# follow as alternates. The request limits are written to apt's own
+# configuration, so every apt run on the runner keeps them, including the one
+# Playwright starts for `install --with-deps`: no retry, so a file that still
+# fails moves to the next mirror at once, and a short request timeout. The Azure
 # mirrors the runner image lists first stay out: azure.archive.ubuntu.com
 # stalled `apt-get update` for 27 minutes without tripping apt's request
 # timeouts, so a probe cannot vouch for it. Every candidate below served
@@ -129,6 +131,14 @@ for mirror in "${ordered[@]}"; do
     priority=$((priority + 1))
     printf '%s\tpriority:%s\n' "$mirror" "$priority"
 done | as_root tee "$mirror_list" >/dev/null
+
+as_root tee /etc/apt/apt.conf.d/80evb-mirror-failover >/dev/null <<'CONF'
+Acquire::Retries "0";
+Acquire::http::Timeout "15";
+Acquire::https::Timeout "15";
+Acquire::ForceIPv4 "true";
+DPkg::Lock::Timeout "120";
+CONF
 
 for source in /etc/apt/sources.list /etc/apt/sources.list.d/ubuntu.sources; do
     if [ -f "$source" ]; then

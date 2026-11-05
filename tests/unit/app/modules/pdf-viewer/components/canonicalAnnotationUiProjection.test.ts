@@ -29,7 +29,10 @@ import { requirePageIndex } from '@contracts/pageNumbers';
 
 vi.mock('@app/composables/useTypedI18n', async (importOriginal) => ({
     ...(await importOriginal<typeof TViMockOriginalModule>()),
-    useTypedI18n: () => ({t: (key: string) => key}),
+    useTypedI18n: () => ({
+        t: (key: string) => key,
+        locale: {value: 'en'},
+    }),
 }));
 
 afterEach(unmountAnnotationCommentsLists);
@@ -291,7 +294,6 @@ function noteWindows(application = applicationWith(note())) {
     const scope = effectScope();
     const windows = scope.run(() => useAnnotationNoteWindows({
         annotationComments: comments,
-        markAnnotationDirty: () => {},
         updateAnnotationCommentInViewer: (id, contents) => Boolean(application.store.updateNote(id, {contents})),
         getDeletedCanonicalAnnotationIds: () => application.store.deletedAnnotationIds(),
         isAnnotationCommentSyncReady: () => syncReady.value,
@@ -409,7 +411,6 @@ it('does not reopen a deleted window when its pending save settles', async () =>
     let settle!: (value: boolean) => void;
     const windows = scope.run(() => useAnnotationNoteWindows({
         annotationComments: comments,
-        markAnnotationDirty: () => {},
         getDeletedCanonicalAnnotationIds: () => application.store.deletedAnnotationIds(),
         updateAnnotationCommentInViewer: () => new Promise<boolean>((resolve) => { settle = resolve; }),
     }))!;
@@ -460,7 +461,6 @@ it('invalidates rendered saving and error state when an asynchronous update sett
     const application = applicationWith(note());
     const windows = scope.run(() => useAnnotationNoteWindows({
         annotationComments: ref([...application.listCommentSummaries()]),
-        markAnnotationDirty: () => {},
         updateAnnotationCommentInViewer: () => new Promise<boolean>((resolve) => { settle = resolve; }),
     }))!;
     windows.handleOpenAnnotationNote(application.listCommentSummaries()[0]!);

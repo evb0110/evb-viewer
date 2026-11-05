@@ -1,3 +1,7 @@
+import { ref } from 'vue';
+import type { IPdfBookmarkEntry } from '@contracts/pdfBookmarkEntry';
+import { requirePageIndex } from '@contracts/pageNumbers';
+import { createDocumentAgentBookmarks } from '@app/modules/workspace-shell/agent/createDocumentAgentBookmarks';
 import {
     afterEach,
     describe,
@@ -310,6 +314,140 @@ function expectStructuredCloneable(value: unknown) {
 }
 
 describe('processMcpRequest', () => {
+    it.each([
+        {
+            id: 'annotation.create_text_markup',
+            alias: {query: 'Heading'},
+            primary: {text: 'Heading'},
+            missing: {page: 1},
+        },
+        {
+            id: 'annotation.create_shape',
+            alias: {
+                tool: 'rectangle',
+                x: 0.1,
+                y: 0.2,
+                width: 0.3,
+                height: 0.4,
+            },
+            primary: {
+                shape: 'rectangle',
+                x: 0.1,
+                y: 0.2,
+                width: 0.3,
+                height: 0.4,
+            },
+            missing: {
+                x: 0.1,
+                y: 0.2,
+            },
+        },
+    ])('accepts alias-only $id inputs while refusing missing selectors and unknown fields', async ({
+        id, alias, primary, missing,
+    }) => {
+        const options = createOptions();
+        options.runCommand.mockImplementation(async command => {
+            if (command.name !== 'run_action') throw new Error('Expected an action command');
+            return {
+                ok: true,
+                dryRun: command.arguments.dryRun,
+                input: command.arguments.input,
+            };
+        });
+        for (const input of [
+            alias,
+            primary,
+        ]) {
+            const response = await runAction(options, id, input, {dryRun: true});
+            expect(response?.error).toBeUndefined();
+            expect(response?.result).toMatchObject({structuredContent: {
+                ok: true,
+                dryRun: true,
+                input,
+            }});
+            expect(response?.result).not.toHaveProperty('isError', true);
+        }
+        for (const input of [
+            missing,
+            {
+                ...alias,
+                unexpected: true,
+            },
+        ]) {
+            const response = await runAction(options, id, input, {dryRun: true});
+            expect(response?.result).toMatchObject({
+                isError: true,
+                structuredContent: {message: expect.stringContaining('did not match its advertised schema')},
+            });
+        }
+    });
+
+    it.each([
+        'direct',
+        'wrapped',
+    ])('refuses insertion placement fields in %s bookmark updates while preserving additions', async (form) => {
+        const options = createOptions();
+        for (const placement of [
+            {parentPath: [0]},
+            {index: 0},
+        ]) {
+            const entry = {
+                title: 'Renamed',
+                ...placement,
+            };
+            const input = form === 'direct' ? {
+                path: [1],
+                ...entry,
+            } : {
+                path: [1],
+                bookmark: entry,
+            };
+            const response = await runAction(options, 'bookmarks.update', input);
+            expect(response?.result).toMatchObject({
+                isError: true,
+                structuredContent: {message: expect.stringContaining('did not match its advertised schema')},
+            });
+        }
+        const update = form === 'direct' ? {
+            path: [1],
+            title: 'Renamed',
+        } : {
+            path: [1],
+            bookmark: {title: 'Renamed'},
+        };
+        for (const [
+            id,
+            input,
+        ] of [
+                [
+                    'bookmarks.update',
+                    update,
+                ],
+                [
+                    'bookmarks.add',
+                    {
+                        title: 'Inserted',
+                        parentPath: [0],
+                        index: 0,
+                    },
+                ],
+                [
+                    'bookmarks.add_batch',
+                    {
+                        parentPath: [0],
+                        bookmarks: [{
+                            title: 'Inserted',
+                            index: 0,
+                        }],
+                    },
+                ],
+            ] as const) {
+            const response = await runAction(options, id, input);
+            expect(response?.result).toMatchObject({structuredContent: {ok: true}});
+            expect(response?.result).not.toHaveProperty('isError', true);
+        }
+    });
+
     afterEach(async () => {
         await shutdownEmbeddedMcpServer();
         await shutdownLocalMcpServer();
@@ -700,6 +838,108 @@ describe('processMcpRequest', () => {
         }});
     });
 
+    it.each([
+        [
+            'view.activate_tab',
+            false,
+        ],
+        [
+            'view.activate_tab',
+            true,
+        ],
+        [
+            'view.go_to_page',
+            false,
+        ],
+        [
+            'view.go_to_page',
+            true,
+        ],
+    ] as const)('keeps navigation passive for dry-run %s with nested target %s', async (id, nested) => {
+        const options = createOptions();
+        let snapshot = structuredClone(workspaceSnapshot);
+        const other = {
+            ...snapshot.tabs[0]!,
+            tabId: requireTabId('tab-2'),
+        };
+        snapshot = {
+            ...snapshot,
+            tabs: [
+                ...snapshot.tabs,
+                other,
+            ],
+            panes: snapshot.panes.map(pane => ({
+                ...pane,
+                tabIds: [
+                    ...pane.tabIds,
+                    other.tabId,
+                ],
+            })),
+        };
+        options.getWorkspaceSnapshot.mockImplementation(async windowId => {
+            expect(windowId).toBe(42);
+            return snapshot;
+        });
+        options.runCommand.mockImplementation(async command => {
+            if (command.name === 'activate_tab' || command.name === 'go_to_page') {
+                snapshot = {
+                    ...snapshot,
+                    activeTabId: other.tabId,
+                };
+                if (command.name === 'go_to_page') other.currentPage = command.arguments.page;
+            }
+            return {ok: true};
+        });
+        const target = {
+            tabId: 'tab-2',
+            ...(id === 'view.go_to_page' ? {page: 9} : {}),
+        };
+        const response = await runAction(options, id, {
+            ...(id === 'view.go_to_page' ? {page: 9} : {}),
+            ...(nested ? {tabId: 'tab-2'} : {}),
+        }, {
+            windowId: 42,
+            dryRun: true,
+            ...(nested ? {} : {tabId: 'tab-2'}),
+        });
+        expect(response?.result).toMatchObject({structuredContent: {
+            actionId: id,
+            dryRun: true,
+            wouldRun: true,
+            targetTabId: 'tab-2',
+            ...(id === 'view.go_to_page' ? {page: 9} : {}),
+        }});
+        expect(snapshot.activeTabId).toBe('tab-1');
+        expect(other.currentPage).toBe(5);
+        expect(options.runCommand).not.toHaveBeenCalled();
+
+        const actual = await runAction(options, id, target, {windowId: 42});
+        expect(actual?.result).not.toHaveProperty('isError', true);
+        expect(snapshot.activeTabId).toBe('tab-2');
+        expect(other.currentPage).toBe(id === 'view.go_to_page' ? 9 : 5);
+        expect(options.runCommand).toHaveBeenCalledOnce();
+    });
+
+    it.each([
+        {
+            id: 'view.activate_tab',
+            tabId: 'missing',
+        },
+        {
+            id: 'view.go_to_page',
+            tabId: 'tab-1',
+            page: 0,
+        },
+    ])('rejects invalid passive navigation intent $id', async args => {
+        const options = createOptions();
+        const response = await callTool(options, 'evb_run_action', {
+            ...args,
+            dryRun: true,
+        });
+        expect(response?.result).toMatchObject({isError: true});
+        expect(options.runCommand).not.toHaveBeenCalled();
+    });
+
     it('dispatches bookmark previews through the read-only action tool', async () => {
         const options = {
             ...createOptions(),
@@ -957,6 +1197,25 @@ describe('processMcpRequest', () => {
     });
 
     it.each([
+        'document.inspect_text',
+        'document.search',
+        'document.read_pages',
+    ])('resolves the %s tab in the window the request names', async (id) => {
+        const options = createOptions();
+        const response = await callTool(options, 'evb_read_action', {
+            id,
+            windowId: 42,
+            input: id === 'document.search' ? {query: 'Grammar'} : {},
+        });
+
+        expect(response?.error).toBeUndefined();
+        expect(response?.result).toMatchObject({structuredContent: {tabId: 'tab-1'}});
+        expect(response?.result).not.toHaveProperty('isError', true);
+        expect(options.getWorkspaceSnapshot).toHaveBeenCalledWith(42);
+        expect(options.getWorkspaceSnapshot).not.toHaveBeenCalledWith(undefined);
+    });
+
+    it.each([
         [
             'toc.read',
             'toc',
@@ -1092,5 +1351,167 @@ describe('processMcpRequest', () => {
                 page: 8,
             },
         }, undefined);
+    });
+});
+
+describe('bookmark replacement confirmation', () => {
+    it('preserves the outline for equivalent removals and permits scalar edits and previews', async () => {
+        const bookmark = (title: string, items: IPdfBookmarkEntry[] = []): IPdfBookmarkEntry => ({
+            title,
+            items,
+            pageIndex: requirePageIndex(0),
+            namedDest: null,
+            bold: false,
+            italic: false,
+            color: null,
+        });
+        const before = [bookmark('Parent', [bookmark('Child')])];
+        const bookmarkItems = ref<IPdfBookmarkEntry[]>(before);
+        let bookmarksRevision = 0;
+        const owner = createDocumentAgentBookmarks({
+            bookmarkItems,
+            bookmarksDirty: ref(false),
+            getBookmarksRevision: () => bookmarksRevision,
+            totalPages: ref(3),
+            t: key => key,
+            handleBookmarksChange: ({bookmarks}) => {
+                bookmarkItems.value = [...bookmarks];
+                bookmarksRevision += 1;
+            },
+        });
+        const options = createOptions();
+        options.runCommand.mockImplementation(async (command) => {
+            if (command.name !== 'run_action') throw new Error('Unexpected command');
+            const {
+                id, input = {}, dryRun,
+            } = command.arguments;
+            if (dryRun) return {
+                id,
+                dryRun: true,
+            };
+            if (id === 'bookmarks.set_tree') return {...owner.setAgentBookmarkTree(input, id)};
+            if (id === 'bookmarks.apply_plan') return {...owner.applyAgentBookmarkPlan(input, id)};
+            if (id === 'bookmarks.update') return {...owner.updateAgentBookmark(input, id)};
+            if (id === 'bookmarks.preview_tree') return {...owner.previewAgentBookmarkPlan(input, id)};
+            if (id === 'bookmarks.delete') return {...owner.deleteAgentBookmark(input, id)};
+            throw new Error(`Unexpected action ${id}`);
+        });
+        for (const [
+            id,
+            input,
+        ] of [
+                [
+                    'bookmarks.delete',
+                    {path: [0]},
+                ],
+                [
+                    'bookmarks.set_tree',
+                    {bookmarks: []},
+                ],
+                [
+                    'bookmarks.apply_plan',
+                    {entries: []},
+                ],
+                [
+                    'bookmarks.set_tree',
+                    {bookmarks: [{
+                        title: 'Parent',
+                        page: 1,
+                    }]},
+                ],
+                [
+                    'bookmarks.update',
+                    {
+                        path: [0],
+                        children: [],
+                    },
+                ],
+                [
+                    'bookmarks.update',
+                    {
+                        path: [0],
+                        items: [],
+                    },
+                ],
+                [
+                    'bookmarks.update',
+                    {
+                        path: [0],
+                        bookmark: {children: []},
+                    },
+                ],
+                [
+                    'bookmarks.update',
+                    {
+                        path: [0],
+                        bookmark: {items: []},
+                    },
+                ],
+            ] as const) {
+            const response = await runAction(options, id, input);
+            expect(response?.result).toMatchObject({
+                isError: true,
+                structuredContent: {message: expect.stringContaining('requires explicit user confirmation')},
+            });
+            expect(bookmarkItems.value).toEqual(before);
+        }
+        const preview = await runAction(options, 'bookmarks.preview_tree', {bookmarks: []});
+        expect(preview?.result).toMatchObject({structuredContent: {diff: {removedCount: 2}}});
+        expect(bookmarkItems.value).toEqual(before);
+        for (const [
+            id,
+            input,
+        ] of [
+                [
+                    'bookmarks.set_tree',
+                    {bookmarks: []},
+                ],
+                [
+                    'bookmarks.apply_plan',
+                    {entries: []},
+                ],
+                [
+                    'bookmarks.update',
+                    {
+                        path: [0],
+                        children: [],
+                    },
+                ],
+            ] as const) {
+            const dryRun = await runAction(options, id, input, {
+                tabId: 'tab-1',
+                dryRun: true,
+            });
+            expect(dryRun?.result).toMatchObject({structuredContent: {dryRun: true}});
+            expect(options.runCommand).toHaveBeenLastCalledWith({
+                name: 'run_action',
+                arguments: {
+                    tabId: 'tab-1',
+                    id,
+                    input,
+                    dryRun: true,
+                },
+            }, undefined);
+        }
+        const rename = await runAction(options, 'bookmarks.update', {
+            path: [0],
+            title: 'Renamed',
+            bold: true,
+        });
+        expect(rename?.result).not.toHaveProperty('isError', true);
+        expect(bookmarkItems.value).toEqual([{
+            ...before[0],
+            title: 'Renamed',
+            bold: true,
+        }]);
+        const denied = await runAction({
+            ...options,
+            callerKind: 'external',
+        }, 'bookmarks.update', {
+            path: [0],
+            title: 'External',
+        });
+        expect(denied?.result).toMatchObject({isError: true});
+        expect(bookmarkItems.value[0]?.title).toBe('Renamed');
     });
 });

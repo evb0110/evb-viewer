@@ -50,6 +50,13 @@ export function formatUserEnvironment(report: IUserEnvironmentReport) {
         + `scale=${report.devicePixelRatio} content=${report.contentSize.width}x${report.contentSize.height}`;
 }
 
+function formatHostSize(size: {
+    width: number;
+    height: number
+} | undefined) {
+    return size === undefined ? 'unknown' : `${size.width}x${size.height}`;
+}
+
 /**
  * Puts the renderer in the canonical state and fails when it cannot get
  * there. It also undoes what a previous test may have left behind: viewport
@@ -64,7 +71,7 @@ export async function establishUserEnvironment(page: Page, deviceScaleFactor: nu
             && report.contentSize.width === E2E_CONTENT_SIZE.width
             && report.contentSize.height === E2E_CONTENT_SIZE.height
             ? []
-            : ['the window did not reach the canonical content size']),
+            : [`the window did not reach the canonical content size (native content ${formatHostSize(resize.windowState.contentSize)}, display work area ${formatHostSize(resize.windowState.workAreaSize)})`]),
         ...(report.hasFocus ? [] : ['the document has no focus']),
         ...(report.visibilityState === 'visible' ? [] : ['the document is not visible']),
         ...(report.devicePixelRatio === deviceScaleFactor ? [] : [`the scale is not ${deviceScaleFactor}`]),

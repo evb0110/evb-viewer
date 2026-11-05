@@ -1,6 +1,7 @@
 import type {Ref} from 'vue';
 import type {
     IDocumentsBatchProgress,
+    IOpenPdfResult,
     TOpenFileResult,
 } from '@contracts/electronApiDocuments';
 import {
@@ -20,9 +21,12 @@ import {removeCompletedCombineSnapshot} from '@app/services/pdf/removeCompletedC
 import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
 import type {TTranslateFn} from '@i18n-app';
 import {BrowserLogger} from '@app/utils/browserLogger';
-import {findSerializableErrorEnvelope} from '@contracts/serializableError';
+import {
+    NATIVE_ERROR_ENVELOPE_SCHEMA,
+    isPdfStructurePreservationRefusal,
+} from '@contracts/nativeErrors';
 import {DOCUMENT_OPEN_ERROR_ENVELOPE_SCHEMA} from '@contracts/documentOpenErrors';
-import {NATIVE_ERROR_ENVELOPE_SCHEMA} from '@contracts/nativeErrors';
+import {findSerializableErrorEnvelope} from '@contracts/serializableError';
 import {hasElectronAPI} from '@app/utils/platform';
 
 export const useCombinePdfOperation = <T extends {
@@ -35,6 +39,10 @@ export const useCombinePdfOperation = <T extends {
     emitOpenResult: (result: TOpenFileResult) => void;
     translate: TTranslateFn;
 }) => {
+    const {
+        files,
+        translate,
+    } = options;
     // `combining` builds the PDF; `opening` hands the result to a tab and
     // cannot be canceled from here.
     const phase = ref<'idle' | 'combining' | 'opening'>('idle');
@@ -43,42 +51,17 @@ export const useCombinePdfOperation = <T extends {
     const combineError = ref<string | null>(null);
     const combineFailure = ref<FailureReceipt | null>(null);
     const combineErrorIsExpected = ref(false);
-    const pendingCombinedResult = ref<TOpenFileResult | null>(null);
-    const canCancel = ref(isCombineCancellationSupported());
-    const queueMutationLocked = computed(() => (
-        isCombining.value || pendingCombinedResult.value !== null
-    ));
+    const pendingCombinedResult = ref<IOpenPdfResult | null>(null);
     let abortController: AbortController | null = null;
 
-    // The browser engine's request ceiling, named with its size, or the
-    // memory its engine ran out of.
-    function describeCombineEngineLimit(cause: unknown) {
-        const envelope = findSerializableErrorEnvelope(cause, DOCUMENT_OPEN_ERROR_ENVELOPE_SCHEMA);
-        if (envelope?.code === 'browser-byte-limit' && envelope.maxBytes !== undefined) {
-            return options.translate('errors.browser.documentTooLarge', {limitMiB: Math.round(envelope.maxBytes / (1024 * 1024))});
-        }
-        return !hasElectronAPI() && findSerializableErrorEnvelope(cause, NATIVE_ERROR_ENVELOPE_SCHEMA)?.code === 'too-large'
-            ? options.translate('errors.browser.notEnoughMemory')
-            : null;
-    }
-
-    function buildOutputName(operationFiles: readonly T[]) {
-        const firstFile = operationFiles[0];
-        return operationFiles.length === 1 && firstFile
-            ? firstFile.name.replace(/\.[^.]+$/u, '.pdf')
-            : `combined-${Date.now()}.pdf`;
-    }
-
     async function combine() {
-        if (options.files.value.length === 0 || isCombining.value) {
+        if (!files.value.length || isCombining.value) {
             return;
         }
-        const snapshot = Object.freeze(options.files.value.map(file => Object.freeze({...file})));
+        const snapshot = Object.freeze(files.value.map(file => Object.freeze({...file})));
         phase.value = pendingCombinedResult.value ? 'opening' : 'combining';
         abortController = new AbortController();
-        combineError.value = null;
-        combineFailure.value = null;
-        combineErrorIsExpected.value = false;
+        clearError();
         progress.value = {
             processed: 0,
             total: snapshot.length,
@@ -89,8 +72,10 @@ export const useCombinePdfOperation = <T extends {
         try {
             const result = pendingCombinedResult.value ?? await combinePdfFiles({
                 files: snapshot,
-                outputName: buildOutputName(snapshot),
-                openErrorMessage: options.translate('errors.file.open'),
+                outputName: snapshot.length === 1
+                    ? snapshot[0]!.name.replace(/\.[^.]+$/u, '.pdf')
+                    : `combined-${Date.now()}.pdf`,
+                openErrorMessage: translate('errors.file.open'),
                 onProgress: next => { progress.value = next; },
                 signal: abortController.signal,
             });
@@ -102,41 +87,37 @@ export const useCombinePdfOperation = <T extends {
             // this page removes it once the result is no longer pending.
             retainDocumentOpenWorkingCopyForRetry(result);
             phase.value = 'opening';
-            const opened = options.openResult ? await options.openResult(result) : true;
-            if (!opened) throw new Error('ERR_COMBINE_RESULT_OPEN_FAILED');
+            if (options.openResult && !await options.openResult(result)) throw new Error('ERR_COMBINE_RESULT_OPEN_FAILED');
             if (!options.openResult) options.emitOpenResult(result);
             // The opened document now owns the working copy.
             releaseDocumentOpenWorkingCopyRetention(result);
             pendingCombinedResult.value = null;
-            options.files.value = removeCompletedCombineSnapshot(options.files.value, snapshot);
-            progress.value = null;
+            files.value = removeCompletedCombineSnapshot(files.value, snapshot);
         } catch (error) {
-            const failedPhase = phase.value;
-            progress.value = null;
-            const expected = error instanceof CombinePdfError && [
-                'canceled',
-                'invalid-input',
-                'limit',
-                'unsupported',
-            ].includes(error.code);
-            combineFailure.value = expected
-                ? null
-                : error instanceof CombinePdfError && error.failure
-                    ? error.failure
-                    : BrowserLogger.error('pdf-combine', 'PDF combine controller failed', error, {code: 'RENDERER_PDF_COMBINE_OPERATION_FAILED'});
+            const expected = error instanceof CombinePdfError && error.code !== 'open-failed';
             combineErrorIsExpected.value = expected;
-            combineError.value = error instanceof CombinePdfError && error.code === 'canceled'
-                ? null
-                : error instanceof CombinePdfError && [
-                    'invalid-input',
-                    'limit',
-                    'unsupported',
-                ].includes(error.code)
-                    ? describeCombineEngineLimit(error.cause) ?? options.translate('errors.file.invalid')
-                    : options.translate(failedPhase === 'opening' ? 'errors.file.open' : 'combinePdf.combineFailed');
+            if (error instanceof CombinePdfError && error.code === 'canceled') return;
+            if (!expected) {
+                combineFailure.value = (error instanceof CombinePdfError ? error.failure : null)
+                    ?? BrowserLogger.error('pdf-combine', 'PDF combine controller failed', error, {code: 'RENDERER_PDF_COMBINE_OPERATION_FAILED'});
+            }
+            const envelope = expected && findSerializableErrorEnvelope(error.cause, DOCUMENT_OPEN_ERROR_ENVELOPE_SCHEMA);
+            combineError.value = isPdfStructurePreservationRefusal(error)
+                ? translate('errors.pdfStructurePreservation')
+                : expected
+                    ? envelope && envelope.code === 'browser-byte-limit' && envelope.maxBytes !== undefined
+                        ? translate('errors.browser.documentTooLarge', {limitMiB: Math.round(envelope.maxBytes / (1024 * 1024))})
+                        : !hasElectronAPI() && findSerializableErrorEnvelope(error.cause, NATIVE_ERROR_ENVELOPE_SCHEMA)?.code === 'too-large'
+                            ? translate('errors.browser.notEnoughMemory')
+                            : translate('errors.file.invalid')
+                    : translate(phase.value === 'opening' ? 'errors.file.open' : 'combinePdf.combineFailed');
         } finally {
+            progress.value = null;
             abortController = null;
             phase.value = 'idle';
+            // A page closed while this ran can no longer offer Retry or Save
+            // As: what is still pending is let go. An opened result is not.
+            if (disposed) releasePendingResult();
         }
     }
 
@@ -146,24 +127,20 @@ export const useCombinePdfOperation = <T extends {
 
     async function savePendingAs() {
         const pending = pendingCombinedResult.value;
-        if (!pending || pending.kind !== 'pdf' || !pending.workingPath || isCombining.value) {
+        if (!pending || isCombining.value) {
             return;
         }
+        // Discarded or replaced since: not this save's.
+        const replaced = () => pendingCombinedResult.value !== pending;
         try {
-            // No document opened this file, so its revision comes from the
-            // working copy's owner rather than a document session.
             const documentFiles = getDocumentFilesCapability();
             const {token} = await documentFiles.getDocumentRevision(pending.workingPath);
             const savedPath = await documentFiles.savePdfAs(pending.workingPath, undefined, {expectedDocumentRevisionToken: token});
-            if (savedPath) {
-                combineError.value = null;
-                combineFailure.value = null;
-                combineErrorIsExpected.value = false;
-                releasePendingResult();
-                progress.value = null;
-            }
+            if (replaced() || isCombining.value) return;
+            if (savedPath) discardPendingResult();
         } catch (error) {
-            combineError.value = options.translate('errors.file.save');
+            if (replaced()) return;
+            combineError.value = translate('errors.file.save');
             combineErrorIsExpected.value = false;
             combineFailure.value = BrowserLogger.error(
                 'pdf-combine',
@@ -179,7 +156,7 @@ export const useCombinePdfOperation = <T extends {
     function releasePendingResult() {
         const pending = pendingCombinedResult.value;
         pendingCombinedResult.value = null;
-        if (!pending || pending.kind !== 'pdf' || !pending.workingPath) {
+        if (!pending) {
             return;
         }
         releaseDocumentOpenWorkingCopyRetention(pending);
@@ -188,15 +165,20 @@ export const useCombinePdfOperation = <T extends {
         });
     }
 
-    function discardPendingResult() {
-        releasePendingResult();
-        progress.value = null;
+    function clearError() {
         combineError.value = null;
         combineFailure.value = null;
         combineErrorIsExpected.value = false;
     }
 
+    function discardPendingResult() {
+        releasePendingResult();
+        clearError();
+    }
+
+    let disposed = false;
     onScopeDispose(() => {
+        disposed = true;
         if (!isCombining.value) {
             releasePendingResult();
         }
@@ -210,8 +192,8 @@ export const useCombinePdfOperation = <T extends {
         combineFailure,
         combineErrorIsExpected,
         pendingCombinedResult,
-        queueMutationLocked,
-        canCancel,
+        queueMutationLocked: computed(() => isCombining.value || pendingCombinedResult.value !== null),
+        canCancel: ref(isCombineCancellationSupported()),
         combine,
         cancel,
         savePendingAs,

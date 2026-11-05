@@ -394,6 +394,30 @@ describe('buildWorkspaceCheckpoint', () => {
         expect(checkpoint.tabs.filter(tab => tab.annotationRecovery)).toHaveLength(1);
     });
 
+    it('names the first view of a clean document on its later views', () => {
+        const {checkpoint} = checkpointSharedDocument({
+            dirty: false,
+            mountedTabIds: [
+                'tab-1',
+                'tab-2',
+            ],
+        });
+
+        expect(checkpoint.tabs.map(tab => [
+            tab.tabId,
+            tab.linkedToTabId,
+        ])).toEqual([
+            [
+                'tab-1',
+                undefined,
+            ],
+            [
+                'tab-2',
+                'tab-1',
+            ],
+        ]);
+    });
+
     it('captures a dirty document\'s annotations through its surviving view when the first view lost its workspace', () => {
         const {
             checkpoint,

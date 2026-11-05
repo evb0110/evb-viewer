@@ -62,14 +62,17 @@ export function safeGetLocalStorageItem(key: string) {
     return result.status === 'present' ? result.value : null;
 }
 
-export function safeSetLocalStorageItem(key: string, value: string) {
-    const storage = getLocalStorageSafe();
-    if (!storage || typeof storage.setItem !== 'function') {
-        return false;
+/** Required writes preserve the browser's original quota or access error. */
+export function setLocalStorageItemOrThrow(key: string, value: string) {
+    if (typeof window === 'undefined') {
+        throw new Error('localStorage is unavailable');
     }
+    window.localStorage.setItem(key, value);
+}
 
+export function safeSetLocalStorageItem(key: string, value: string) {
     try {
-        storage.setItem(key, value);
+        setLocalStorageItemOrThrow(key, value);
         return true;
     } catch {
         // Best-effort write only.

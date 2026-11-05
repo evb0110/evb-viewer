@@ -31,10 +31,12 @@ import { allowOpenPath } from '@electron/file-access/openPathCapabilities';
 import { te } from '@electron/te';
 import {makeSiblingTempPath} from '@electron/utils/atomicReplace';
 import { commitPdfTempFile } from '@electron/features/documents/main/commitPdfTempFile';
+import { encodeSerializableErrorEnvelope } from '@contracts/serializableError';
 import { getErrorMessage } from '@electron/utils/error';
 import { validatePdfFile } from '@electron/features/documents/main/pdfConformance';
 import { enqueueWorkingCopyMutation } from '@electron/file-access/workingCopyMutationQueue';
 import { copyFileCopyOnWrite } from '@electron/file-access/workingCopyDirectory';
+import { copyFileAtomic } from '@electron/file-access/documentFileWriteAtomic';
 import { optimizePdfForSaveAs } from '@electron/features/documents/public/pdfSaveAsOptimization';
 import type { IDocumentsDialogContext } from '@electron/features/documents/documentsContexts';
 import {
@@ -73,11 +75,15 @@ function normalizeExpectedDocumentRevisionToken(options?: IPdfSerializedSaveOpti
     return parsedToken;
 }
 
-function markSaveAsWorkingCopySyncRequired(workingPath: string, error: unknown) {
-    return markWorkingCopySyncRequired(
-        workingPath,
-        `Target file was saved, but the working copy refresh failed: ${getErrorMessage(error)}`,
-    );
+// The target is published either way; the caller learns that the open copy
+// no longer matches it, rather than taking the save for a plain success.
+async function markSaveAsWorkingCopySyncRequired(workingPath: string, error: unknown) {
+    const message = `Target file was saved, but the working copy refresh failed: ${getErrorMessage(error)}`;
+    await markWorkingCopySyncRequired(workingPath, message);
+    return new Error(encodeSerializableErrorEnvelope({
+        code: 'working-copy-sync-required',
+        message,
+    }));
 }
 
 async function promptForPdfSaveAsTarget(
@@ -131,6 +137,7 @@ export async function savePdfAs(
         return null;
     }
 
+    const refresh: {syncRequired?: Error} = {};
     await enqueueWorkingCopyMutation(normalizedWorkingPath, async () => {
         await assertQueuedWorkingCopyMutationPreconditions(normalizedWorkingPath, expectedDocumentRevisionToken);
         if (!await ensureWorkingCopyDirectory(normalizedWorkingPath, context.senderId)) {
@@ -159,11 +166,13 @@ export async function savePdfAs(
             try {
                 await setWorkingCopyOriginalPath(normalizedWorkingPath, targetPath, context.senderId);
                 if (optimizedValidation || stagedOutput) {
-                    await copyFileCopyOnWrite(targetPath, normalizedWorkingPath);
+                    // Replaced through a temporary file, so a failed copy
+                    // leaves the live working copy as it was.
+                    await copyFileAtomic(targetPath, normalizedWorkingPath);
                     await markWorkingCopyContentChanged(normalizedWorkingPath, 'save-sync', context.senderId);
                 }
             } catch (syncError) {
-                await markSaveAsWorkingCopySyncRequired(normalizedWorkingPath, syncError);
+                refresh.syncRequired = await markSaveAsWorkingCopySyncRequired(normalizedWorkingPath, syncError);
             }
         } finally {
             if (!replaced) {
@@ -175,6 +184,7 @@ export async function savePdfAs(
     allowOpenPath(targetPath, context.sender);
     await addRecentFile(targetPath);
     updateRecentFilesMenu();
+    if (refresh.syncRequired) throw refresh.syncRequired;
 
     return requireDocumentRef(targetPath);
 }

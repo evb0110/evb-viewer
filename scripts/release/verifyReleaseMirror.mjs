@@ -36,7 +36,6 @@ async function verifyMirrorObjects({
         : DEFAULT_UPDATES_MIRROR_RELEASE_BASE_URL;
     let metadata;
     let manifest;
-    let assetUrl;
     let publicRoute = true;
     try {
         const channelResponse = await readPublic(metadataUrl, fetchFn);
@@ -45,12 +44,14 @@ async function verifyMirrorObjects({
         const manifestResponse = await readPublic(`${releaseBase}/${encodeURIComponent(tag)}/manifest.json`, fetchFn);
         manifest = await manifestResponse.json();
         if (manifest?.release?.tag !== tag) throw new Error(`Mirror release object points to ${manifest?.release?.tag ?? 'no tag'}, expected ${tag}`);
-        const asset = manifest.assets?.[0]?.name;
-        if (typeof asset !== 'string') throw new Error('Mirror channel has no release asset');
-        assetUrl = `${releaseBase}/${encodeURIComponent(tag)}/${encodeURIComponent(asset)}`;
-        let assetResponse = await fetchFn(assetUrl, {method: 'HEAD'});
-        if (!assetResponse.ok) assetResponse = await fetchFn(assetUrl, {headers: {Range: 'bytes=0-0'}});
-        if (!assetResponse.ok) throw new Error(`Mirror release asset returned HTTP ${assetResponse.status}`);
+        if (!Array.isArray(manifest.assets) || manifest.assets.length === 0) throw new Error('Mirror channel has no release asset');
+        for (const asset of manifest.assets) {
+            if (typeof asset?.name !== 'string' || asset.name.length === 0) throw new Error('Mirror release asset has no name');
+            const assetUrl = `${releaseBase}/${encodeURIComponent(tag)}/${encodeURIComponent(asset.name)}`;
+            let assetResponse = await fetchFn(assetUrl, {method: 'HEAD'});
+            if (!assetResponse.ok) assetResponse = await fetchFn(assetUrl, {headers: {Range: 'bytes=0-0'}});
+            if (!assetResponse.ok) throw new Error(`Mirror release asset ${asset.name} returned HTTP ${assetResponse.status}`);
+        }
     } catch (error) {
         if (!drillRunId) throw error;
         publicRoute = false;
@@ -73,12 +74,14 @@ async function verifyMirrorObjects({
         if (!manifestObject.Body) throw new Error('Drill mirror release object has no body');
         manifest = JSON.parse(await manifestObject.Body.transformToString());
         if (manifest?.release?.tag !== tag) throw new Error(`Drill mirror release object points to ${manifest?.release?.tag ?? 'no tag'}, expected ${tag}`);
-        const asset = manifest.assets?.[0]?.name;
-        if (typeof asset !== 'string') throw new Error('Drill mirror release object has no asset');
-        await client.send(new HeadObjectCommand({
-            Bucket: bucket,
-            Key: `${releaseKey}/${asset}`,
-        }));
+        if (!Array.isArray(manifest.assets) || manifest.assets.length === 0) throw new Error('Drill mirror release object has no asset');
+        for (const asset of manifest.assets) {
+            if (typeof asset?.name !== 'string' || asset.name.length === 0) throw new Error('Drill mirror release asset has no name');
+            await client.send(new HeadObjectCommand({
+                Bucket: bucket,
+                Key: `${releaseKey}/${asset.name}`,
+            }));
+        }
     }
     if (manifest?.release?.tag !== tag) throw new Error(`Mirror release object does not name ${tag}`);
     return {
@@ -122,7 +125,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(fileURLToP
         const result = await verify(tag, drillFlag === '--drill' && runId ? {drillRunId: runId} : {});
         process.stdout.write(result.publicRoute
             ? `Public GitHub and updater mirror both serve ${tag}.\n`
-            : `Drill mirror HTTP route does not serve the isolated prefix; mirror client verified channel, release manifest, and asset for ${tag}.\n`);
+            : `Drill mirror HTTP route does not serve the isolated prefix; mirror client verified channel, release manifest, and all assets for ${tag}.\n`);
     } catch (error) {
         process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
         process.exitCode = 1;

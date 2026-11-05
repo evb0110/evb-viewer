@@ -4,6 +4,7 @@ export const SIDEBAR = {
     MAX_WIDTH: 520,
     RESIZER_WIDTH: 8,
     MIN_VIEWER_WIDTH: 320,
+    KEYBOARD_STEP: 16,
 };
 
 export const ZOOM = {

@@ -28,9 +28,14 @@
                 class="sidebar-resizer"
                 :class="{ 'is-active': isResizingSidebar }"
                 role="separator"
+                tabindex="0"
                 aria-orientation="vertical"
                 :aria-label="resizeAriaLabel"
+                :aria-valuemin="SIDEBAR.MIN_WIDTH"
+                :aria-valuemax="Math.round(sidebarMaxWidth)"
+                :aria-valuenow="Math.round(sidebarContentWidth)"
                 @pointerdown.prevent="handleResizeStart"
+                @keydown="handleResizeKeyDown"
             />
         </div>
         <div class="workspace-main__viewer">
@@ -43,15 +48,18 @@
 import type { CSSProperties } from 'vue';
 import { useResizeObserver } from '@vueuse/core';
 import { BrowserLogger } from '@app/utils/browserLogger';
+import { SIDEBAR } from '@app/constants/pdfLayout';
 
 const {
     isResizingSidebar,
     showSidebar,
     sidebarContentWidth,
+    sidebarMaxWidth,
     sidebarWrapperStyle = undefined,
 } = defineProps<{
     showSidebar: boolean;
     sidebarContentWidth: number;
+    sidebarMaxWidth: number;
     sidebarWrapperStyle?: CSSProperties | null;
     isResizingSidebar: boolean;
     resizeAriaLabel: string;
@@ -59,6 +67,7 @@ const {
 
 const emit = defineEmits<{
     'resize-start': [event: PointerEvent];
+    'resize-by': [delta: number];
     'container-resize': [width: number];
     'slide-start': [];
     'slide-end': [];
@@ -167,6 +176,20 @@ useResizeObserver(workspaceMainRef, (entries) => {
 
 function handleResizeStart(event: PointerEvent) {
     emit('resize-start', event);
+}
+
+// Arrows step the width as a drag would; Home and End reach its bounds.
+const RESIZE_KEY_DELTAS: Readonly<Record<string, number>> = {
+    ArrowLeft: -SIDEBAR.KEYBOARD_STEP,
+    ArrowRight: SIDEBAR.KEYBOARD_STEP,
+    Home: Number.NEGATIVE_INFINITY,
+    End: Number.POSITIVE_INFINITY,
+};
+function handleResizeKeyDown(event: KeyboardEvent) {
+    const delta = RESIZE_KEY_DELTAS[event.key];
+    if (delta === undefined || event.altKey || event.ctrlKey || event.metaKey) return;
+    event.preventDefault();
+    emit('resize-by', delta);
 }
 
 watch(

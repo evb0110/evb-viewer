@@ -39,7 +39,10 @@ import type {
     TPdfSaveMode,
 } from '@app/types/pdfContracts';
 import type {TDocumentImageExportSourceKind} from '@contracts/imageExportPlatformFeature';
-import type { IWorkspaceViewerCapabilities } from '@app/types/workspaceExpose';
+import type {
+    IWorkspaceViewerCapabilities,
+    TDocumentCommitReceipt,
+} from '@app/types/workspaceExpose';
 import {
     getWorkspaceViewerAdapter,
     resolveWorkspaceViewerViewMode,
@@ -260,7 +263,7 @@ export interface IWorkspaceDocumentDriverExportTarget {
 export interface IWorkspaceDocumentDriverOperations {
     save: {
         strategy: TWorkspaceDocumentSaveStrategy;
-        execute: (action: TWorkspaceDocumentSaveAction) => Promise<boolean>;
+        execute: (action: TWorkspaceDocumentSaveAction, onCommitted?: TDocumentCommitReceipt) => Promise<boolean>;
     };
     export: {
         imageTarget: IWorkspaceDocumentDriverExportTarget | null;
@@ -330,7 +333,7 @@ interface IWorkspaceDocumentDriverSources {
     djvuSourcePath: Ref<TDocumentRef | null>;
     workingCopyPath: Ref<TDocumentRef | null>;
     save?: {
-        save: () => Promise<boolean>;
+        save: (onCommitted?: TDocumentCommitReceipt) => Promise<boolean>;
         saveAs: () => Promise<boolean>;
         saveAsDjvuProjection: () => Promise<boolean>;
     };
@@ -493,12 +496,12 @@ export function createWorkspaceDocumentDriverForAdapter(
             return {
                 save: {
                     strategy: isDjvu ? 'djvu-pdf-projection' : 'pdf-working-copy',
-                    execute: action => {
+                    execute: (action, onCommitted) => {
                         if (isDjvu && action === 'save-as') {
                             return sources.save?.saveAsDjvuProjection() ?? Promise.resolve(false);
                         }
                         return action === 'save'
-                            ? sources.save?.save() ?? Promise.resolve(false)
+                            ? sources.save?.save(onCommitted) ?? Promise.resolve(false)
                             : sources.save?.saveAs() ?? Promise.resolve(false);
                     },
                 },
@@ -589,6 +592,10 @@ export const useWorkspaceDocumentDriver = (
 
     return {
         activeDocumentDriver,
+        handleSave: (onCommitted?: TDocumentCommitReceipt) => (
+            activeDocumentDriver.value?.operations.save.execute('save', onCommitted) ?? Promise.resolve(false)
+        ),
+        handleSaveAs: () => activeDocumentDriver.value?.operations.save.execute('save-as') ?? Promise.resolve(false),
         mountedDocumentDriver: computed(() => activeDocumentDriver.value ?? drivers.pdfjs),
         createLifecycleHooks: (context: IWorkspaceViewerLifecycleContext) => driverList.flatMap((driver) => {
             const hooks = driver.lifecycle.createHooks(context);

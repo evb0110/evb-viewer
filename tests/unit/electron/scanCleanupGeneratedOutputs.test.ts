@@ -398,6 +398,26 @@ describe('scan cleanup generated output pruning', () => {
         await expect(stat(outputPath)).rejects.toMatchObject({code: 'ENOENT'});
     });
 
+    it('keeps every unopened output pending, however many there are', async () => {
+        const outputBaseDir = await mkdtemp(join(tmpdir(), 'scan-cleanup-output-many-pending-test-'));
+        tempDirs.push(outputBaseDir);
+        const aged = Date.now() - SCAN_CLEANUP_OUTPUT_MAX_AGE_MS - 1_000;
+        const outputs: string[] = [];
+        for (let index = 0; index < 33; index += 1) {
+            const outputPath = await writeGeneratedOutput(outputBaseDir, `01234567-89ab-cdef-0123-${String(index).padStart(12, '0')}`, aged);
+            await recordScanCleanupCompletedOutput(outputPath, {baseDir: outputBaseDir});
+            outputs.push(outputPath);
+        }
+
+        await expect(getPendingScanCleanupCompletedOutputs({baseDir: outputBaseDir})).resolves.toHaveLength(33);
+        await expect(pruneScanCleanupGeneratedOutputs({
+            baseDirs: [outputBaseDir],
+            isOutputLive: () => false,
+            nowMs: Date.now(),
+        })).resolves.toBe(0);
+        await expect(stat(outputs[0]!)).resolves.toBeDefined();
+    });
+
     it('aggregates main-owned output liveness across two WebContents', async () => {
         const outputBaseDir = await mkdtemp(join(tmpdir(), 'scan-cleanup-output-owners-test-'));
         tempDirs.push(outputBaseDir);

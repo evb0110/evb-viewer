@@ -82,6 +82,9 @@ export interface IWorkspaceSaveBaseline {
     annotations: unknown;
     pageLabels: unknown;
     bookmarks: unknown;
+    /** The metadata values the save writes, acknowledged once it has. */
+    writtenPageLabelRanges?: IPdfPageLabelRange[] | undefined;
+    writtenBookmarkItems?: IPdfBookmarkEntry[] | undefined;
 }
 
 export interface IWorkspaceSaveDirtyState {
@@ -262,9 +265,9 @@ export interface IWorkspaceSaveDependencies {
         bookmarksDirty: Ref<boolean>;
         bookmarkItems: Ref<IPdfBookmarkEntry[]>;
         untitledBookmarkLabel: string;
-        markPageLabelsSaved: () => void;
+        markPageLabelsSaved: (written?: IPdfPageLabelRange[]) => void;
         getPageLabelsSaveStateToken?: () => unknown;
-        markBookmarksSaved: () => void;
+        markBookmarksSaved: (written?: IPdfBookmarkEntry[]) => void;
         getBookmarksSaveStateToken?: () => unknown;
     };
     pdf: {
@@ -457,9 +460,11 @@ export interface IWorkspaceSaveCompletionDependencies {
         getSaveStateToken?: () => unknown;
     };
     metadata: {
-        markPageLabelsSaved: () => void;
+        pageLabelsDirty: Readonly<Ref<boolean>>;
+        markPageLabelsSaved: (written?: IPdfPageLabelRange[]) => void;
         getPageLabelsSaveStateToken?: () => unknown;
-        markBookmarksSaved: () => void;
+        bookmarksDirty: Readonly<Ref<boolean>>;
+        markBookmarksSaved: (written?: IPdfBookmarkEntry[]) => void;
         getBookmarksSaveStateToken?: () => unknown;
     };
 }
@@ -499,18 +504,20 @@ export function completeSuccessfulSaveState(
         deps.annotations.markSaved();
     }
 
+    // A metadata field is acknowledged as the value the save wrote: what the
+    // reader shows now is unsaved exactly where it differs from that, whether
+    // edited on or back while saving. Without the written value, it is
+    // acknowledged only at the revision the save wrote, or once clean again.
     const pageLabelsUnchanged = !deps.metadata.getPageLabelsSaveStateToken
         || Object.is(deps.metadata.getPageLabelsSaveStateToken(), baseline.pageLabels);
-    if (policy.markPageLabelsStateSaved
-        && (pageLabelsUnchanged || policy.allowPageLabelsSaveStateRefresh === true)) {
-        deps.metadata.markPageLabelsSaved();
+    if (policy.markPageLabelsStateSaved && (baseline.writtenPageLabelRanges || pageLabelsUnchanged || !deps.metadata.pageLabelsDirty.value)) {
+        deps.metadata.markPageLabelsSaved(baseline.writtenPageLabelRanges);
     }
 
     const bookmarksUnchanged = !deps.metadata.getBookmarksSaveStateToken
         || Object.is(deps.metadata.getBookmarksSaveStateToken(), baseline.bookmarks);
-    if (policy.markBookmarksStateSaved
-        && (bookmarksUnchanged || policy.allowBookmarksSaveStateRefresh === true)) {
-        deps.metadata.markBookmarksSaved();
+    if (policy.markBookmarksStateSaved && (baseline.writtenBookmarkItems || bookmarksUnchanged || !deps.metadata.bookmarksDirty.value)) {
+        deps.metadata.markBookmarksSaved(baseline.writtenBookmarkItems);
     }
 
 }

@@ -118,7 +118,10 @@ pub(crate) fn set_shape_dates(dict: &mut Dictionary, shape: &ShapeAnnotation, mo
     }
     let created = shape_pdf_date(shape.created_at.or(shape.modified_at), modified_at);
     let modified = shape_pdf_date(shape.modified_at, &created);
-    dict.set("CreationDate", Object::string_literal(created.into_bytes()));
+    // A creation date the payload does not know stays as the PDF has it.
+    if shape.created_at.is_some_and(|value| value > 0) || !dict.has(b"CreationDate") {
+        dict.set("CreationDate", Object::string_literal(created.into_bytes()));
+    }
     dict.set("M", Object::string_literal(modified.into_bytes()));
 }
 
@@ -803,18 +806,17 @@ impl<'a> ShapeConsumptionState<'a> {
         state
     }
 
-    pub(crate) fn find_by_annotation_id(&self, annotation_id: &str) -> Option<usize> {
-        self.by_annotation_id
-            .get(annotation_id)
+    fn find_for_annotation(&self, stable_key: Option<&str>, annotation_id: &str) -> Option<usize> {
+        stable_key
+            .and_then(|key| self.by_stable_key.get(key))
             .copied()
             .filter(|index| !self.consumed[*index])
-    }
-
-    pub(crate) fn find_by_stable_key(&self, stable_key: &str) -> Option<usize> {
-        self.by_stable_key
-            .get(stable_key)
-            .copied()
-            .filter(|index| !self.consumed[*index])
+            .or_else(|| {
+                self.by_annotation_id
+                    .get(annotation_id)
+                    .copied()
+                    .filter(|index| !self.consumed[*index])
+            })
     }
 
     pub(crate) fn consume(&mut self, index: usize) {
@@ -880,7 +882,6 @@ pub(crate) fn apply_shape_annotation_decision(
     state: &mut ShapeConsumptionState,
     deleted_refs: &DeletedShapeRefs,
     refs_to_delete: &mut HashSet<ObjectId>,
-    rewrite_shape_state: bool,
     page: ShapePageContext,
     listing: &OnceCell<AnnotationListing>,
     object_id: ObjectId,
@@ -908,25 +909,8 @@ pub(crate) fn apply_shape_annotation_decision(
         collect_shape_delete(document, listing, object_id, refs_to_delete)?;
         return Ok(true);
     }
-    if let Some(stable_key) = annotation_stable_key.as_deref() {
-        if let Some(index) = state.find_by_stable_key(stable_key) {
-            return update_shape_in_document(
-                document,
-                state,
-                index,
-                object_id,
-                &subtype,
-                page,
-                modified_at,
-            );
-        }
-        if rewrite_shape_state {
-            collect_shape_delete(document, listing, object_id, refs_to_delete)?;
-            return Ok(true);
-        }
-        return Ok(false);
-    }
-    if let Some(index) = state.find_by_annotation_id(&annotation_id) {
+    if let Some(index) = state.find_for_annotation(annotation_stable_key.as_deref(), &annotation_id)
+    {
         return update_shape_in_document(
             document,
             state,
@@ -1017,7 +1001,6 @@ pub(crate) fn apply_shape_annotation_decision_incremental(
     state: &mut ShapeConsumptionState,
     deleted_refs: &DeletedShapeRefs,
     refs_to_delete: &mut HashSet<ObjectId>,
-    rewrite_shape_state: bool,
     page: ShapePageContext,
     listing: &OnceCell<AnnotationListing>,
     object_id: ObjectId,
@@ -1046,10 +1029,7 @@ pub(crate) fn apply_shape_annotation_decision_incremental(
         collect_shape_delete(document, listing, object_id, refs_to_delete)?;
         return Ok(true);
     }
-    let shape_index = annotation_stable_key
-        .as_deref()
-        .and_then(|stable_key| state.find_by_stable_key(stable_key))
-        .or_else(|| state.find_by_annotation_id(&annotation_id));
+    let shape_index = state.find_for_annotation(annotation_stable_key.as_deref(), &annotation_id);
     if let Some(index) = shape_index {
         let shape = state.shapes[index].clone();
         incremental.opt_clone_object_to_new_document(object_id)?;
@@ -1091,11 +1071,6 @@ pub(crate) fn apply_shape_annotation_decision_incremental(
         }
         state.consume(index);
         return Ok(modified);
-    }
-    if annotation_stable_key.is_some() && rewrite_shape_state {
-        let document = incremental.get_prev_documents();
-        collect_shape_delete(document, listing, object_id, refs_to_delete)?;
-        return Ok(true);
     }
     Ok(false)
 }
@@ -1336,7 +1311,6 @@ pub(crate) fn apply_shape_annotations(
                 &mut state,
                 &deleted_refs,
                 &mut refs_to_delete,
-                shapes.rewrite_shape_state,
                 ShapePageContext {
                     page_id,
                     page_view,
@@ -1413,7 +1387,6 @@ pub(crate) fn apply_shape_annotations_incremental(
                 &mut state,
                 &deleted_refs,
                 &mut refs_to_delete,
-                shapes.rewrite_shape_state,
                 ShapePageContext {
                     page_id,
                     page_view,

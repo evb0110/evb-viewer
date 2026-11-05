@@ -823,4 +823,41 @@ describe('scan-cleanup durability', () => {
         expect(terminate).not.toHaveBeenCalled();
         await expect(access(entryPath)).resolves.toBeUndefined();
     });
+
+    it.each([
+        'dead-root',
+        'failed-taskkill-root-exit',
+    ] as const)('retains Windows registry and scratch with unproven descendants: %s', async mode => {
+        const namespace = await createTemporaryDirectory();
+        const registry = getManagedProcessRegistryDirectory(namespace);
+        await mkdir(registry);
+        const scratchPath = await createManagedScratchTempDir('native-command-', namespace);
+        const ownedFile = join(scratchPath, 'input.pdf');
+        await writeFile(ownedFile, 'still owned by a possible descendant');
+        const entryPath = join(registry, `${MANAGED_PROCESS_REGISTRY_ENTRY_PREFIX}windows.json`);
+        const entry: IManagedProcessRegistryEntry = {
+            version: 1,
+            pid: 4242,
+            ownerPid: 4241,
+            binaryPath: '/native/qpdf.exe',
+            processStartTime: '2026-10-01T09:59:59.8123456Z',
+            ownerStartTime: 'owner-start',
+            scratchPath,
+        };
+        await writeFile(entryPath, JSON.stringify(entry));
+        let rootAlive = mode !== 'dead-root';
+        await expect(reapOrphanedManagedProcesses(namespace, {
+            platform: 'win32',
+            isProcessAlive: pid => pid === entry.pid && rootAlive,
+            readProcessIdentity: async () => ({
+                executablePath: entry.binaryPath,
+                arguments: [entry.binaryPath],
+                startTime: entry.processStartTime!,
+            }),
+            terminateProcessTree: async () => { rootAlive = false; return false; },
+        })).resolves.toBe(0);
+        expect(JSON.parse(await readFile(entryPath, 'utf8'))).toEqual(entry);
+        expect(await readFile(ownedFile, 'utf8')).toBe('still owned by a possible descendant');
+    });
+
 });

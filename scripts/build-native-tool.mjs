@@ -67,7 +67,7 @@ export function createNativeToolBuildPlan({
         manifestPath,
         platform: target.platform,
         platformArch: target.platformArch,
-        rustTarget: target.isHostTarget ? undefined : target.rustTarget,
+        rustTarget: target.rustTarget,
     };
 }
 
