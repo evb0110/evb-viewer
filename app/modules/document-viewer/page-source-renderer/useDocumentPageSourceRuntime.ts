@@ -1,3 +1,10 @@
+import {
+    buildDocumentPageSourceScrollLayout,
+    createLayoutPhysicalScrollSession,
+    getLayoutContentHeight,
+    getLayoutPhysicalScrollSegment,
+    resolveLayoutPhysicalScrollOrigin,
+} from '@app/modules/document-viewer/layout/pdfPageLayoutMetrics';
 import { useWindowDevicePixelRatio } from '@app/composables/useWindowDevicePixelRatio';
 import {useTypedI18n} from '@app/composables/useTypedI18n';
 import { useResizeObserver } from '@vueuse/core';
@@ -85,51 +92,12 @@ const DOCUMENT_SOURCE_LAYOUT_CHUNK_SIZE = 256;
 const DOCUMENT_SOURCE_LAYOUT_MAX_CACHED_CHUNKS = 32;
 export const DOCUMENT_SOURCE_INACTIVE_LEASE_GRACE_MS = 1_500;
 
-interface IDocumentPageSourceCollectionMetadata<T> {
-    readonly estimateValue?: (index: number) => T | undefined;
-    readonly getKnownIndices?: () => readonly number[];
-}
 interface ISuspendedViewportRestore {
     readonly anchor: IDocumentZoomAnchor;
     readonly epoch: string;
     readonly fence: IDocumentPageSourceTransition['fence'];
 }
-type TDocumentPageSourceLazyCollection<T> = ILazyIndexedCollection<T> & IDocumentPageSourceCollectionMetadata<T>;
-type TDocumentPageSourceCollection<T> = T[] | TDocumentPageSourceLazyCollection<T>;
-
-function readDocumentPageSourceCollectionMetadata<T>(
-    collection: TDocumentPageSourceCollection<T>,
-) {
-    if (!isLazyIndexedCollection(collection)) {
-        return {} as IDocumentPageSourceCollectionMetadata<T>;
-    }
-    const lazyCollection = collection;
-    return {
-        ...(lazyCollection.estimateValue ? {estimateValue: lazyCollection.estimateValue} : {}),
-        ...(lazyCollection.getKnownIndices ? {getKnownIndices: lazyCollection.getKnownIndices} : {}),
-    } satisfies IDocumentPageSourceCollectionMetadata<T>;
-}
-
-function attachDocumentPageSourceCollectionMetadata<T>(
-    collection: ILazyIndexedCollection<T>,
-    metadata: IDocumentPageSourceCollectionMetadata<T>,
-) {
-    if (metadata.estimateValue) {
-        Object.defineProperty(collection, 'estimateValue', {
-            configurable: false,
-            enumerable: false,
-            value: metadata.estimateValue,
-        });
-    }
-    if (metadata.getKnownIndices) {
-        Object.defineProperty(collection, 'getKnownIndices', {
-            configurable: false,
-            enumerable: false,
-            value: metadata.getKnownIndices,
-        });
-    }
-    return collection as TDocumentPageSourceLazyCollection<T>;
-}
+type TDocumentPageSourceCollection<T> = T[] | ILazyIndexedCollection<T>;
 
 interface IDocumentPageDisplayLayoutCollection extends ILazyIndexedCollection<IDocumentPageDisplayLayout> {readonly sumHeightRange?: (start: number, end: number) => number;}
 
@@ -218,19 +186,8 @@ export function resolveDocumentPageDisplayLayoutsBounded(
         maxCachedChunks: DOCUMENT_SOURCE_LAYOUT_MAX_CACHED_CHUNKS,
     });
     if (!sparseMetrics) {
-        return displayLayouts as TDocumentPageSourceLazyCollection<IDocumentPageDisplayLayout>;
+        return displayLayouts as ILazyIndexedCollection<IDocumentPageDisplayLayout>;
     }
-    const sparseLayouts = attachDocumentPageSourceCollectionMetadata(displayLayouts, {
-        estimateValue: index => resolveDocumentPageDisplayLayout(
-            sparseMetrics.getEstimated(index + 1),
-            availableHeight,
-            availableWidth,
-            manualZoom,
-            zoomMode,
-            fitWidthPageWidth,
-        ),
-        getKnownIndices: () => sparseMetrics.getExactPageNumbers().map(pageNumber => pageNumber - 1),
-    });
     const fallbackLayout = resolveDocumentPageDisplayLayout(metrics.fallbackMetric, availableHeight, availableWidth, manualZoom, zoomMode, fitWidthPageWidth);
     let correctionRevision = -1;
     let correctionIndices: number[] = [];
@@ -267,7 +224,7 @@ export function resolveDocumentPageDisplayLayoutsBounded(
         }
         return correctionPrefixes[low] ?? 0;
     };
-    Object.defineProperty(sparseLayouts, 'sumHeightRange', {
+    Object.defineProperty(displayLayouts, 'sumHeightRange', {
         configurable: false,
         enumerable: false,
         value: (start: number, end: number) => {
@@ -282,27 +239,19 @@ export function resolveDocumentPageDisplayLayoutsBounded(
                 - sumCorrectionsBefore(rangeStart);
         },
     });
-    return sparseLayouts as TDocumentPageSourceLazyCollection<IDocumentPageDisplayLayout> & IDocumentPageDisplayLayoutCollection;
+    return displayLayouts as IDocumentPageDisplayLayoutCollection;
 }
 function mapDocumentPageSourceCollectionBounded<T, U>(
     collection: TDocumentPageSourceCollection<T>,
     mapValue: (value: T, index: number) => U,
 ): TDocumentPageSourceCollection<U> {
     if (isLazyIndexedCollection(collection)) {
-        const metadata = readDocumentPageSourceCollectionMetadata(collection);
-        const estimateValue = metadata.estimateValue;
-        const mapped = createLazyIndexedCollection({
+        return createLazyIndexedCollection({
             cacheValues: true,
             chunkSize: DOCUMENT_SOURCE_LAYOUT_CHUNK_SIZE,
             getValue: index => mapValue(collection.get(index) as T, index),
             length: collection.length,
             maxCachedChunks: DOCUMENT_SOURCE_LAYOUT_MAX_CACHED_CHUNKS,
-        });
-        return attachDocumentPageSourceCollectionMetadata(mapped, {
-            ...(estimateValue
-                ? {estimateValue: index => mapValue(estimateValue(index) as T, index)}
-                : {}),
-            ...(metadata.getKnownIndices ? {getKnownIndices: metadata.getKnownIndices} : {}),
         });
     }
     return collection.map((value, index) => mapValue(value, index));
@@ -320,106 +269,6 @@ export function resolveDocumentPageHeightsBounded(
         });
     }
     return heights as TDocumentPageSourceCollection<number> & IDocumentPageHeightCollection;
-}
-export function resolveDocumentPageTopsBounded(
-    heights: TDocumentPageSourceCollection<number>,
-) {
-    if (!isLazyIndexedCollection(heights)) {
-        let top = DOCUMENT_PAGE_GUTTER_PX;
-        return heights.map((height) => {
-            const value = top;
-            top += height + DOCUMENT_PAGE_GUTTER_PX;
-            return value;
-        });
-    }
-    const sumRange = (heights as IDocumentPageHeightCollection).sumRange;
-    if (sumRange) {
-        return createLazyIndexedCollection({
-            cacheValues: false,
-            chunkSize: DOCUMENT_SOURCE_LAYOUT_CHUNK_SIZE,
-            getValue: index => DOCUMENT_PAGE_GUTTER_PX
-                + index * DOCUMENT_PAGE_GUTTER_PX
-                + sumRange(0, index),
-            length: heights.length,
-            maxCachedChunks: DOCUMENT_SOURCE_LAYOUT_MAX_CACHED_CHUNKS,
-        });
-    }
-    const metadata = readDocumentPageSourceCollectionMetadata(heights);
-    const estimateValue = metadata.estimateValue;
-    if (estimateValue) {
-        const estimatedHeight = Math.max(0, estimateValue(0) ?? 0);
-        let knownIndices: number[] = [];
-        let knownIndexCount = -1;
-        const resolveKnownIndices = () => {
-            const nextKnownIndices = metadata.getKnownIndices?.() ?? [];
-            if (nextKnownIndices.length !== knownIndexCount) {
-                knownIndices = [...nextKnownIndices]
-                    .filter(index => Number.isSafeInteger(index) && index >= 0 && index < heights.length)
-                    .sort((left, right) => left - right);
-                knownIndexCount = nextKnownIndices.length;
-            }
-            return knownIndices;
-        };
-        const resolvePageTop = (index: number) => {
-            let top = DOCUMENT_PAGE_GUTTER_PX + index * (estimatedHeight + DOCUMENT_PAGE_GUTTER_PX);
-            for (const knownIndex of resolveKnownIndices()) {
-                if (knownIndex >= index) {
-                    break;
-                }
-                const exactHeight = Math.max(0, heights[knownIndex] ?? estimatedHeight);
-                const knownEstimatedHeight = Math.max(0, estimateValue(knownIndex) ?? estimatedHeight);
-                top += exactHeight - knownEstimatedHeight;
-            }
-            return top;
-        };
-        return createLazyIndexedCollection({
-            cacheValues: false,
-            chunkSize: DOCUMENT_SOURCE_LAYOUT_CHUNK_SIZE,
-            getValue: resolvePageTop,
-            length: heights.length,
-            maxCachedChunks: DOCUMENT_SOURCE_LAYOUT_MAX_CACHED_CHUNKS,
-        });
-    }
-    const prefixTops = new Map<number, number>([[
-        0,
-        DOCUMENT_PAGE_GUTTER_PX,
-    ]]);
-    const resolvePageTop = (index: number) => {
-        const cached = prefixTops.get(index);
-        if (cached !== undefined) {
-            return cached;
-        }
-        let nearestIndex = 0;
-        let top = DOCUMENT_PAGE_GUTTER_PX;
-        for (const [
-            cachedIndex,
-            cachedTop,
-        ] of prefixTops) {
-            if (cachedIndex <= index && cachedIndex >= nearestIndex) {
-                nearestIndex = cachedIndex;
-                top = cachedTop;
-            }
-        }
-        for (let pageIndex = nearestIndex; pageIndex < index; pageIndex += 1) {
-            top += (heights[pageIndex] ?? 0) + DOCUMENT_PAGE_GUTTER_PX;
-        }
-        prefixTops.set(index, top);
-        while (prefixTops.size > DOCUMENT_SOURCE_LAYOUT_MAX_CACHED_CHUNKS) {
-            const oldest = [...prefixTops.keys()].find(key => key !== 0 && key !== index);
-            if (oldest === undefined) {
-                break;
-            }
-            prefixTops.delete(oldest);
-        }
-        return top;
-    };
-    return createLazyIndexedCollection({
-        cacheValues: false,
-        chunkSize: DOCUMENT_SOURCE_LAYOUT_CHUNK_SIZE,
-        getValue: resolvePageTop,
-        length: heights.length,
-        maxCachedChunks: DOCUMENT_SOURCE_LAYOUT_MAX_CACHED_CHUNKS,
-    });
 }
 export function resolveDocumentPageLayoutsBounded(
     displayLayouts: TDocumentPageSourceCollection<IDocumentPageDisplayLayout>,
@@ -474,6 +323,7 @@ export const useDocumentPageSourceRuntime = (options: {
     const pixelRatio = useWindowDevicePixelRatio();
     const containerWidth = ref(0);
     const containerHeight = ref(0);
+    const physicalScroll = createLayoutPhysicalScrollSession();
     const viewportScrollTop = ref(0);
     const viewportScrollLeft = ref(0);
     const viewportScrollDirection = ref<-1 | 0 | 1>(0);
@@ -510,7 +360,7 @@ export const useDocumentPageSourceRuntime = (options: {
         containerWidth.value = container.clientWidth;
         containerHeight.value = container.clientHeight;
         viewportScrollLeft.value = container.scrollLeft;
-        viewportScrollTop.value = container.scrollTop;
+        viewportScrollTop.value = physicalScroll.origin.value + container.scrollTop;
     }
     useResizeObserver(viewerContainer, measureViewport);
     const pageDisplayLayouts = computed(() => resolveDocumentPageDisplayLayoutsBounded(
@@ -544,18 +394,40 @@ export const useDocumentPageSourceRuntime = (options: {
         reset: () => { handleWheelZoom.reset(); layoutLifecycle.cancelPendingRestore(); },
     });
     const pageHeights = computed(() => resolveDocumentPageHeightsBounded(pageDisplayLayouts.value));
-    const pageTops = computed(() => resolveDocumentPageTopsBounded(
-        pageHeights.value,
-    ));
-    const totalHeight = computed(() => Math.max(
-        containerHeight.value,
-        (pageTops.value.at(-1) ?? DOCUMENT_PAGE_GUTTER_PX)
-            + (pageHeights.value.at(-1) ?? 0)
-            + DOCUMENT_PAGE_GUTTER_PX,
-        (pageTops.value[props.value.currentPage - 1] ?? DOCUMENT_PAGE_GUTTER_PX)
-            + (pageHeights.value[props.value.currentPage - 1] ?? 0)
-            + DOCUMENT_PAGE_GUTTER_PX,
-    ));
+    const scrollLayout = computed(() => buildDocumentPageSourceScrollLayout(pageHeights.value));
+    const pageTops = computed(() => scrollLayout.value.pageTops);
+    const totalHeight = computed(() => Math.max(containerHeight.value, getLayoutContentHeight(scrollLayout.value.layout)));
+    const physicalSegment = computed(() => props.value.continuousScroll
+        ? getLayoutPhysicalScrollSegment(scrollLayout.value.layout, physicalScroll.origin.value)
+        : null);
+    function readLogicalViewport(container: HTMLElement) {
+        return {
+            clientWidth: container.clientWidth,
+            clientHeight: container.clientHeight,
+            offsetWidth: container.offsetWidth,
+            offsetHeight: container.offsetHeight,
+            scrollLeft: container.scrollLeft,
+            scrollTop: physicalScroll.origin.value + container.scrollTop,
+            scrollWidth: container.scrollWidth,
+            scrollHeight: props.value.continuousScroll ? totalHeight.value : container.scrollHeight,
+        };
+    }
+    function applyLogicalScroll(container: HTMLElement, write: Parameters<typeof viewportWritePort.apply>[1], onApplied?: () => void) {
+        const fence = transitions.readFence();
+        return physicalScroll.apply({
+            container,
+            port: viewportWritePort,
+            write,
+            layout: props.value.continuousScroll ? scrollLayout.value.layout : null,
+            isCurrent: () => transitions.isCurrent(fence) && viewerContainer.value === container,
+            onApplied: () => {
+                measureViewport();
+                layoutLifecycle.refreshLayoutTransactionAnchor();
+                scheduleRender.schedule();
+                onApplied?.();
+            },
+        });
+    }
     const pageLayouts = computed(() => resolveDocumentPageLayoutsBounded(
         pageDisplayLayouts.value,
         pageTops.value,
@@ -582,7 +454,7 @@ export const useDocumentPageSourceRuntime = (options: {
                 overscanViewports: 1,
             })?.pageNumbers ?? []
             : [];
-        return renderSession?.resolveMountedPages({
+        const pages = renderSession?.resolveMountedPages({
             currentPage: navigationTargetPage.value ?? props.value.currentPage,
             destinationPage: navigationTargetPage.value
                 ?? ([
@@ -596,6 +468,8 @@ export const useDocumentPageSourceRuntime = (options: {
             radius: props.value.continuousScroll ? DOCUMENT_SOURCE_CONTINUOUS_MOUNT_RADIUS : 3,
             viewportPages,
         }) ?? [];
+        const segment = physicalSegment.value;
+        return segment ? pages.filter(page => page >= segment.firstPage && page <= segment.lastPage) : pages;
     });
     const renderDemand = computed(() => resolveDocumentPageSourceRenderDemand({
         bufferRadius: props.value.continuousScroll && effectiveZoom.value < 1
@@ -622,7 +496,7 @@ export const useDocumentPageSourceRuntime = (options: {
         scrollTop: viewportScrollTop.value,
         viewportHeight: containerHeight.value,
     }));
-    const surfaceStyle = computed(() => ({height: props.value.continuousScroll ? `${Math.max(1, totalHeight.value)}px` : '100%'}));
+    const surfaceStyle = computed(() => ({height: props.value.continuousScroll ? `${Math.max(1, physicalSegment.value?.height ?? totalHeight.value)}px` : '100%'}));
     function resolvePageLeft(pageWidth: number) {
         return resolveDocumentPageLeft(containerWidth.value, pageWidth);
     }
@@ -661,7 +535,7 @@ export const useDocumentPageSourceRuntime = (options: {
             width: `${String(layout.width)}px`,
             height: `${String(layout.height)}px`,
             top: `${String(props.value.continuousScroll
-                ? pageTops.value[pageNumber - 1] ?? DOCUMENT_PAGE_GUTTER_PX
+                ? (pageTops.value[pageNumber - 1] ?? DOCUMENT_PAGE_GUTTER_PX) - physicalScroll.origin.value
                 : DOCUMENT_PAGE_GUTTER_PX)}px`,
             left: `${String(resolvePageLeft(layout.width))}px`,
             display: !props.value.continuousScroll && pageNumber !== props.value.currentPage
@@ -842,6 +716,7 @@ export const useDocumentPageSourceRuntime = (options: {
     const layoutLifecycle = useDocumentViewportLayoutLifecycle({
         viewerContainer,
         pageLayouts: zoomAnchorPageLayouts,
+        readViewport: readLogicalViewport,
         capturePageIndex: () => {
             const preferredPageIndex = modeTransitionPreferredPageIndex;
             modeTransitionPreferredPageIndex = null;
@@ -861,7 +736,7 @@ export const useDocumentPageSourceRuntime = (options: {
             )),
         applyRestoredScroll: (restored) => {
             const container = viewerContainer.value;
-            return container !== null && viewportWritePort.apply(container, {
+            return container !== null && applyLogicalScroll(container, {
                 intent: viewportWritePort.beginIntent(
                     `page-source-zoom-anchor:${String(transitions.loadGeneration.value)}`,
                 ),
@@ -920,7 +795,7 @@ export const useDocumentPageSourceRuntime = (options: {
             return;
         }
         const restored = resolveDocumentZoomAnchorScroll(
-            container,
+            readLogicalViewport(container),
             zoomAnchorPageLayouts.value,
             snapshot.anchor,
         );
@@ -930,7 +805,7 @@ export const useDocumentPageSourceRuntime = (options: {
             clearIfRetained();
             return;
         }
-        const applied = viewportWritePort.apply(container, {
+        const applied = applyLogicalScroll(container, {
             intent,
             reason: 'page-source-activation-restore',
             left: props.value.continuousScroll && props.value.zoomMode === 'fit-width'
@@ -940,7 +815,7 @@ export const useDocumentPageSourceRuntime = (options: {
         });
         if (applied) {
             viewportScrollLeft.value = container.scrollLeft;
-            viewportScrollTop.value = container.scrollTop;
+            viewportScrollTop.value = physicalScroll.origin.value + container.scrollTop;
             layoutLifecycle.cancelPendingRestore();
             layoutLifecycle.refreshLayoutTransactionAnchor();
         }
@@ -962,7 +837,7 @@ export const useDocumentPageSourceRuntime = (options: {
             measureViewport();
             return;
         }
-        const nextScrollTop = viewerContainer.value.scrollTop;
+        const nextScrollTop = physicalScroll.origin.value + viewerContainer.value.scrollTop;
         const scrollDelta = nextScrollTop - viewportScrollTop.value;
         if (Math.abs(scrollDelta) > 1) {
             viewportScrollDirection.value = scrollDelta > 0 ? 1 : -1;
@@ -1022,6 +897,15 @@ export const useDocumentPageSourceRuntime = (options: {
                 by: 'user-input',
             });
         }
+        if (resolveLayoutPhysicalScrollOrigin(scrollLayout.value.layout, nextScrollTop,
+            viewerContainer.value.clientHeight, physicalScroll.origin.value) !== physicalScroll.origin.value) {
+            applyLogicalScroll(viewerContainer.value, {
+                intent: viewportWritePort.beginIntent('page-source-scroll-segment'),
+                reason: 'page-source-scroll-segment',
+                top: nextScrollTop,
+            }, syncCurrentPageFromViewport);
+            return;
+        }
         syncCurrentPageFromViewport();
     }
     function syncCurrentPageFromViewport(
@@ -1056,7 +940,7 @@ export const useDocumentPageSourceRuntime = (options: {
             currentPage: props.value.currentPage,
             pageLayouts: zoomAnchorPageLayouts.value,
             scrollLeft: container.scrollLeft,
-            scrollTop: container.scrollTop,
+            scrollTop: physicalScroll.origin.value + container.scrollTop,
             totalPages,
             viewportHeight: container.clientHeight,
             viewportWidth: container.clientWidth,
@@ -1144,6 +1028,9 @@ export const useDocumentPageSourceRuntime = (options: {
             ? ticket.request.target.page
             : normalized;
         const targetPage = Math.max(1, Math.min(source.value?.pageCount ?? normalized, Math.trunc(requestedTargetPage)));
+        physicalScroll.place(props.value.continuousScroll ? scrollLayout.value.layout : null,
+            Math.max(0, (pageTops.value[targetPage - 1] ?? DOCUMENT_PAGE_GUTTER_PX) - DOCUMENT_PAGE_GUTTER_PX),
+            containerHeight.value);
         const readyState = presentation.pageStates.get(normalized);
         const intent = chassisAuthority?.viewportWritePort.beginIntent(
             `page-source-navigation:${String(targetPage)}:${String(transitions.loadGeneration.value)}`,
@@ -1193,7 +1080,7 @@ export const useDocumentPageSourceRuntime = (options: {
                         ? container.offsetWidth - container.clientWidth
                         : 0),
                     scrollLeft: container.scrollLeft,
-                    scrollTop: container.scrollTop,
+                    scrollTop: physicalScroll.origin.value + container.scrollTop,
                 }, zoomAnchorPageLayouts.value, {
                     pageIndex: targetPage - 1,
                     xRatio: anchor.pageXFraction,
@@ -1201,7 +1088,7 @@ export const useDocumentPageSourceRuntime = (options: {
                     viewportXRatio: anchor.viewportXFraction,
                     viewportYRatio: anchor.viewportYFraction,
                 }) : null;
-                chassisAuthority?.viewportWritePort.apply(viewerContainer.value, {
+                applyLogicalScroll(viewerContainer.value, {
                     intent,
                     reason: 'source-neutral-page-navigation',
                     ...(restored ? {left: restored.left} : {}),
@@ -1315,6 +1202,7 @@ export const useDocumentPageSourceRuntime = (options: {
             chassisAuthority.bindSource(null);
         }
         source.value = null;
+        physicalScroll.place(null, 0, 0);
         emit('update:pageSource', null);
         if (!seedOpeningPageMetrics()) {
             pageMetrics.value = documentRef

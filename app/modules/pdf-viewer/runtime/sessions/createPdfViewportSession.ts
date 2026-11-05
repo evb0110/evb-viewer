@@ -29,6 +29,7 @@ import {
     type IPdfPageLayoutMetrics,
     getLayoutPageTop,
     resolveLayoutPhysicalScrollOrigin,
+    createLayoutPhysicalScrollSession,
     type IPdfSemanticAnchor,
 } from '@app/modules/document-viewer/public';
 import { BrowserLogger } from '@app/utils/browserLogger';
@@ -147,7 +148,8 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
     const viewportPin = useViewportPagePin({summarizeViewerStateForLog: options.summarizeViewerStateForLog});
     // Document offset of the page track's top. Its only writers are the
     // placements below; every physical position derives from it.
-    const physicalScrollOrigin = shallowRef(0);
+    const physicalScroll = createLayoutPhysicalScrollSession();
+    const physicalScrollOrigin = physicalScroll.origin;
     let physicalScrollTransitionSequence = 0;
     const getActivePhysicalScrollOrigin = () => physicalScrollOrigin.value;
     const scroll = usePdfScroll({
@@ -274,28 +276,25 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         sequence: number,
     ) {
         const documentFence = documentSession.captureFence();
-        physicalScrollOrigin.value = origin;
-        void nextTick(() => {
-            if (
-                sequence !== physicalScrollTransitionSequence
-                || !documentSession.isCurrent(documentFence)
-                || scroll.getPageLayoutMetrics() !== layout
-                || physicalScrollOrigin.value !== origin
-            ) {
-                return;
-            }
-            const applied = viewportWritePort.apply(container, {
+        physicalScroll.apply({
+            container,
+            layout,
+            port: viewportWritePort,
+            write: {
                 intent: viewportWritePort.beginIntent(`pdf-scroll-segment-transition-${sequence}`),
                 reason: 'pdf-scroll-segment-transition',
                 left: container.scrollLeft,
-                top: documentTop - origin,
-            });
-            if (!applied) {
-                return;
-            }
-            navigationEpochs.observeAuthoredScrollOffset(container.scrollTop);
-            projectViewportVisibleRange(container, numPages.value);
-            options.emitCurrentPage(singlePageScroll.viewportAuthority.currentPage.value);
+                top: documentTop,
+            },
+            isCurrent: () => sequence === physicalScrollTransitionSequence
+                && documentSession.isCurrent(documentFence)
+                && scroll.getPageLayoutMetrics() === layout
+                && physicalScrollOrigin.value === origin,
+            onApplied: () => {
+                navigationEpochs.observeAuthoredScrollOffset(container.scrollTop);
+                projectViewportVisibleRange(container, numPages.value);
+                options.emitCurrentPage(singlePageScroll.viewportAuthority.currentPage.value);
+            },
         });
     }
     /** Places the origin so `page` can be shown; `currentOrigin` is kept when it already can. */
@@ -305,11 +304,11 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         currentOrigin: number,
     ) {
         if (!options.continuousScroll.value) {
-            physicalScrollOrigin.value = 0;
+            physicalScroll.place(null, 0, 0);
             return;
         }
         const pageTop = getLayoutPageTop(layout, requirePageIndex(clampPageNumber(page, layout.base.totalPages) - 1)) ?? 0;
-        physicalScrollOrigin.value = resolveLayoutPhysicalScrollOrigin(
+        physicalScroll.place(
             layout,
             pageTop,
             options.viewerContainer.value?.clientHeight ?? 0,

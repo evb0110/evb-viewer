@@ -14,6 +14,7 @@ interface IUseDocumentViewportLayoutLifecycleOptions {
     viewerContainer: Ref<HTMLElement | null>;
     pageLayouts: Ref<readonly IDocumentZoomPageLayout[]>;
     capturePageIndex?: () => number | null;
+    readViewport?: (container: HTMLElement) => Parameters<typeof resolveRetainedDocumentZoomAnchor>[0];
     captureRestoreEpoch: () => unknown;
     canRestore: (epoch: unknown) => boolean;
     applyRestoredScroll: (restored: {
@@ -61,7 +62,7 @@ export const useDocumentViewportLayoutLifecycle = (
             y: number
         },
     ) => captureDocumentZoomAnchor(
-        container,
+        options.readViewport?.(container) ?? container,
         layouts,
         point,
         options.capturePageIndex?.(),
@@ -88,7 +89,7 @@ export const useDocumentViewportLayoutLifecycle = (
         ) {
             return false;
         }
-        const restored = resolveDocumentZoomAnchorScroll(container, layouts, anchor);
+        const restored = resolveDocumentZoomAnchorScroll(options.readViewport?.(container) ?? container, layouts, anchor);
         if (!restored) {
             return false;
         }
@@ -250,7 +251,7 @@ export const useDocumentViewportLayoutLifecycle = (
                 isResizeTransitionActive.value = true;
                 dragAnchor = container
                     ? resolveRetainedDocumentZoomAnchor(
-                        container,
+                        options.readViewport?.(container) ?? container,
                         options.pageLayouts.value,
                         retainedAnchor,
                         1,
