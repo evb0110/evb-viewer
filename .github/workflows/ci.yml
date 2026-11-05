@@ -360,6 +360,15 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
 
+      - name: Restore Windows launcher build
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .tmp/windows-job-launcher
+          key: windows-job-launcher-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('native/**', 'scripts/build-native-tool.mjs', 'scripts/native-build-id.mjs', 'scripts/cargo-artifacts.mjs', 'scripts/lib/build-environment.mjs', 'scripts/nativeResourceManifest.ts', 'scripts/native-rust-targets.mjs', 'native/rust-toolchain.toml', 'rust-toolchain.toml', 'pnpm-lock.yaml') }}
+
+      - name: Build Windows Job Object launcher
+        run: node scripts/build-native-tool.mjs windows-job-launcher
+
       - name: Run working-copy save witness unit tests
         run: >-
           pnpm exec vitest run --project unit-electron

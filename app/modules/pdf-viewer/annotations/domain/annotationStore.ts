@@ -2,7 +2,9 @@ import {
     admitsAnnotationReadback, keepsReplies,
 } from './annotationReadbackGuards';
 import type {IPageIdentityDelta} from '@contracts/electronApiPageOps';
-import {mapPageNumberThroughPageIdentityDelta} from '@contracts/electronApiPageOps';
+import {
+    invertPageIdentityDelta, mapPageNumberThroughPageIdentityDelta,
+} from '@contracts/electronApiPageOps';
 import {
     requirePageIndex,
     requirePageNumber,
@@ -612,6 +614,7 @@ export class AnnotationStore {
         pageIndices?: readonly number[],
         expectedUpserts: ReadonlyArray<Pick<AnnotationEntity, 'identity' | 'kind'>> = [],
         deletedReplyRefs: readonly string[] = [],
+        preserveSavedBaseline = false,
     ) {
         const scope = pageIndices === undefined ? null : new Set(pageIndices);
         const inScope = (entry: {pageIndex: number}) => scope === null || scope.has(entry.pageIndex);
@@ -717,6 +720,25 @@ export class AnnotationStore {
                 }
                 return;
             }
+            if (preserveSavedBaseline) {
+                // Persisted records follow the writer's page geometry. Pending
+                // edits and tombstones keep their accepted intent and baseline.
+                const reconciled = parsed && !current.deleted && !isDirty(current)
+                    ? {
+                        ...parsed,
+                        revision: current.revision,
+                    }
+                    : current;
+                const represented = parsed && semanticEntityFingerprint(parsed) === semanticEntityFingerprint(reconciled);
+                next.set(id, {
+                    ...cloneEntity(reconciled),
+                    identity: identityWithPdfRef(current.identity, parsed?.identity.pdfRef),
+                    persistedRevision: represented || (!parsed && current.deleted && this.#savedSemanticSnapshot.get(id)?.deleted) ? current.revision : -1,
+                });
+                const saved = this.#savedSemanticSnapshot.get(id);
+                if (saved !== undefined) nextBaseline.set(id, saved);
+                return;
+            }
             if (!parsed) {
                 // A committed deletion is absent from the parse by design.
                 // Keep its command target so undo can recreate it without a
@@ -794,6 +816,19 @@ export class AnnotationStore {
             if (this.#entities.has(id)) {
                 return;
             }
+            if (preserveSavedBaseline && this.#retainedHistoryTargets.has(id)) {
+                // A creation undone out of the store stays absent even if an
+                // older checkpoint still contains its PDF object.
+                next.set(id, {
+                    ...cloneCanonicalEntity(parsed),
+                    deleted: true,
+                    revision: 1,
+                    persistedRevision: 0,
+                });
+                const saved = this.#savedSemanticSnapshot.get(id);
+                if (saved !== undefined) nextBaseline.set(id, saved);
+                return;
+            }
             const inserted = {
                 ...cloneCanonicalEntity(parsed),
                 revision: 0,
@@ -812,6 +847,7 @@ export class AnnotationStore {
         this.#replaceAllEntities(next);
         forgotten.forEach(id => this.#persistenceIdentities.forget(id));
         this.#savedSemanticSnapshot = nextBaseline;
+        if (preserveSavedBaseline) this.#persistenceIdentities.clear();
         this.#foreign = [
             ...this.#foreign.filter(record => !inScope(record)),
             ...foreign.map(record => structuredClone(record)),
@@ -909,30 +945,60 @@ export class AnnotationStore {
     }
 
     remapPages(delta: IPageIdentityDelta) {
-        this.#entities.forEach((entity, id) => {
-            const mappedPageNumber = mapPageNumberThroughPageIdentityDelta(delta, requirePageNumber(entity.pageIndex + 1));
-            const nextPageIndex = mappedPageNumber === null ? undefined : requirePageIndex(mappedPageNumber - 1);
-            const saved = this.#savedSemanticSnapshot.get(id);
-            if (saved !== undefined) {
-                this.#savedSemanticSnapshot.set(id, {
-                    kind: saved.kind,
-                    deleted: saved.deleted || nextPageIndex === undefined,
-                    fingerprint: remapSavedSemanticFingerprint(saved.fingerprint, nextPageIndex),
-                });
-            }
-            this.#entities.set(id, nextPageIndex === undefined
-                ? {
-                    ...entity,
-                    deleted: true,
+        const removed = Array.from(this.#entities).filter(([
+            , entity,
+        ]) =>
+            mapPageNumberThroughPageIdentityDelta(delta, requirePageNumber(entity.pageIndex + 1)) === null)
+            .map(([
+                id,
+                entity,
+            ]) => ({
+                id,
+                entity: cloneEntity(entity),
+                saved: this.#savedSemanticSnapshot.get(id),
+            }));
+        const apply = (mapping: IPageIdentityDelta) => {
+            this.#entities.forEach((entity, id) => {
+                const mappedPageNumber = mapPageNumberThroughPageIdentityDelta(mapping, requirePageNumber(entity.pageIndex + 1));
+                const nextPageIndex = mappedPageNumber === null ? undefined : requirePageIndex(mappedPageNumber - 1);
+                const saved = this.#savedSemanticSnapshot.get(id);
+                if (saved !== undefined) {
+                    this.#savedSemanticSnapshot.set(id, {
+                        kind: saved.kind,
+                        deleted: saved.deleted || nextPageIndex === undefined,
+                        fingerprint: remapSavedSemanticFingerprint(saved.fingerprint, nextPageIndex),
+                    });
                 }
-                : {
-                    ...entity,
-                    pageIndex: nextPageIndex,
+                this.#entities.set(id, nextPageIndex === undefined
+                    ? {
+                        ...entity,
+                        deleted: true,
+                    }
+                    : {
+                        ...entity,
+                        pageIndex: nextPageIndex,
+                    });
+            });
+            this.#rebindIdentities();
+            this.#mutationEpoch += 1;
+            this.#emit();
+        };
+        apply(delta);
+        return {
+            redo: () => apply(delta),
+            undo: () => {
+                apply(invertPageIdentityDelta(delta));
+                removed.forEach(({
+                    id, entity, saved,
+                }) => {
+                    this.#entities.set(id, cloneEntity(entity));
+                    if (saved) this.#savedSemanticSnapshot.set(id, saved);
+                    else this.#savedSemanticSnapshot.delete(id);
                 });
-        });
-        this.#rebindIdentities();
-        this.#mutationEpoch += 1;
-        this.#emit();
+                this.#rebindIdentities();
+                this.#emit();
+            },
+        };
     }
 
     beginSave(documentRevisionToken: TDocumentRevisionToken | null = null): IAnnotationSaveFrontier {
@@ -958,6 +1024,7 @@ export class AnnotationStore {
         frontier: IAnnotationSaveFrontier,
         bindings: readonly IPdfNativeAnnotationIdentityBinding[] = [],
         currentDocumentRevisionToken: TDocumentRevisionToken | null = frontier.documentRevisionToken,
+        preserveSavedBaseline = false,
     ) {
         const saved = this.#saveFrontiers.get(frontier);
         if (!saved || frontier.documentRevisionToken !== currentDocumentRevisionToken) {
@@ -1013,7 +1080,7 @@ export class AnnotationStore {
             });
         });
         this.#replaceEntities(updates);
-        saved.forEach((entry, id) => this.#savedSemanticSnapshot.set(id, entry));
+        if (!preserveSavedBaseline) saved.forEach((entry, id) => this.#savedSemanticSnapshot.set(id, entry));
         frontier.revisions.forEach((_revision, id) => this.#persistenceIdentities.forget(id));
         this.#saveFrontiers.delete(frontier);
         this.#pruneUnretainedSavedDeletions();
@@ -1152,6 +1219,24 @@ export class AnnotationStore {
         return cloneEntity(after);
     }
 
+    retainHistoryTargets(ids: readonly AnnotationId[] = [...new Set([
+        ...this.#entities.keys(),
+        ...this.#retainedHistoryTargets.keys(),
+    ])]) {
+        ids.forEach(id => this.#retainedHistoryTargets.set(id, (this.#retainedHistoryTargets.get(id) ?? 0) + 1));
+        return () => {
+            ids.forEach(id => {
+                const remaining = (this.#retainedHistoryTargets.get(id) ?? 1) - 1;
+                if (remaining > 0) this.#retainedHistoryTargets.set(id, remaining);
+                else this.#retainedHistoryTargets.delete(id);
+            });
+            if (this.#pruneUnretainedSavedDeletions()) {
+                this.#mutationEpoch += 1;
+                this.#emit();
+            }
+        };
+    }
+
     #commit(entries: readonly IHistoryEntry[]) {
         const apply = (
             side: 'before' | 'after',
@@ -1166,23 +1251,13 @@ export class AnnotationStore {
             })), mode, registerFailureRollback);
         };
         apply('after', 'commit');
-        entries.forEach(({id}) => this.#retainedHistoryTargets.set(id, (this.#retainedHistoryTargets.get(id) ?? 0) + 1));
+        const releaseTargets = this.retainHistoryTargets(entries.map(entry => entry.id));
         this.#history.registerCommand({
             cmd: register => apply('after', 'replay', register),
             undo: register => apply('before', 'replay', register),
             estimatedBytes: estimateRetainedAnnotationBytes(entries),
             annotationIds: entries.map(entry => entry.id),
-            onDiscard: () => {
-                entries.forEach(({id}) => {
-                    const remaining = (this.#retainedHistoryTargets.get(id) ?? 1) - 1;
-                    if (remaining > 0) this.#retainedHistoryTargets.set(id, remaining);
-                    else this.#retainedHistoryTargets.delete(id);
-                });
-                if (this.#pruneUnretainedSavedDeletions()) {
-                    this.#mutationEpoch += 1;
-                    this.#emit();
-                }
-            },
+            onDiscard: releaseTargets,
         });
     }
 
@@ -1216,14 +1291,20 @@ export class AnnotationStore {
             const revision = mode === 'commit'
                 ? entry.after.revision
                 : Math.max(entry.before?.revision ?? -1, entry.after.revision, entry.after.persistedRevision) + 1;
-            const matchesSaved = this.#savedSemanticSnapshot.get(entry.id)?.fingerprint
-                === semanticEntityFingerprint(entry.after);
+            const matchesSaved = (entry.after.persistedRevision >= 0 || (entry.after.deleted && !('pdfRef' in entry.after.identity)))
+                && this.#savedSemanticSnapshot.get(entry.id)?.fingerprint === semanticEntityFingerprint(entry.after);
             return {
                 ...entry,
                 after: {
                     ...entry.after,
                     revision,
+                    // Replaying intent can require writing even when it equals
+                    // the saved document: the loaded checkpoint is independent.
                     persistedRevision: matchesSaved ? revision : entry.after.persistedRevision,
+                    ...(!this.#entities.has(entry.id) && this.#readWholeDocument ? {
+                        identity: identityWithPdfRef(entry.after.identity, undefined),
+                        persistedRevision: -1,
+                    } : {}),
                 },
             };
         });

@@ -11,7 +11,6 @@ export const U32_BYTES = 4;
 export const F64_BYTES = 8;
 export const MAX_BUFFER_BYTES = 2147483647;
 export const RESPONSE_MUTATION = 1;
-export const RESPONSE_GEOMETRY = 2;
 export const RESPONSE_ANNOTATION_PARSE = 3;
 export const RESPONSE_NATIVE_MUTATIONS = 4;
 export const RESPONSE_JSON = 5;
@@ -90,23 +89,6 @@ export const MUTATION_HEADER = {
     pageCount: 4,
     dataLength: 8,
     bytes: 12,
-} as const;
-
-export const BOX_LAYOUT = {
-    x: 0,
-    y: 8,
-    width: 16,
-    height: 24,
-    bytes: 32,
-} as const;
-
-export const GEOMETRY_HEADER = {
-    kind: 0,
-    rotation: 4,
-    mediaBox: 8,
-    hasCropBox: 40,
-    cropBox: 44,
-    bytes: 76,
 } as const;
 
 export const BYTES_HEADER = {

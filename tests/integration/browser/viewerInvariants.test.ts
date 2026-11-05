@@ -2,6 +2,7 @@ import {
     mkdir,
     mkdtemp,
     rm,
+    writeFile,
 } from 'node:fs/promises';
 import {
     join,
@@ -279,6 +280,237 @@ function buildTwoPaneMarkup(panes: ReadonlyArray<{
 }
 
 describe('viewer invariant checker against real Chromium layout', () => {
+
+    it('reads the last page of a continuous DjVu beyond the browser scroll extent', async () => {
+        // R2/R3/R5: real page-source runtime and DjVu adapter, with deterministic
+        // preview bytes at the codec boundary. Layout and input are Chromium's.
+        const longSurfaceBundle = join(temporaryDirectory, 'long-djvu.js');
+        await build({
+            bundle: true,
+            stdin: {
+                resolveDir: process.cwd(),
+                contents: `
+                    import * as Vue from 'vue';
+                    import { useDocumentPageSourceRuntime } from '@app/modules/document-viewer/page-source-renderer/useDocumentPageSourceRuntime';
+                    import { createDocumentViewerRuntime, documentViewerRuntimeKey } from '@app/modules/document-viewer/runtime/documentViewerRuntime';
+                    Object.assign(globalThis, Vue, { useI18n: () => ({ t: key => key, locale: Vue.ref('en') }) });
+                    const { createApp, defineComponent, h, provide, reactive, ref } = Vue;
+                    const authority = createDocumentViewerRuntime(ref('djvu'));
+                    const props = reactive({ continuousScroll: true, currentPage: 1,
+                        isActive: true, isInteractionActive: true, isResizing: false,
+                        viewMode: 'single', src: '/long.djvu', zoom: 10, zoomMode: 'custom' });
+                    authority.openSurface.begin({ documentId: props.src,
+                        documentRevision: 'long', provisional: true });
+                    const Surface = defineComponent({ setup() {
+                        const runtime = reactive(useDocumentPageSourceRuntime({
+                            readProps: () => props,
+                            emit: (event, value) => {
+                                if (event === 'update:currentPage') props.currentPage = value;
+                                if (event === 'loadError') throw value;
+                            },
+                        }));
+                        return () => h('div', [
+                            h('input', { id: 'page-number', 'aria-label': 'Page',
+                                onKeydown: event => { if (event.key === 'Enter') runtime.viewerExpose.scrollToPage(Number(event.target.value)); } }),
+                            h('button', { id: 'zoom', onClick: () => { props.zoom = props.zoom === 10 ? 8 : 10; } }, 'Zoom'),
+                            h('output', { id: 'indicator', 'data-lifecycle': authority.openSurface.viewportSession.value.lifecycle }, String(props.currentPage)),
+                            h('div', { id: 'track', style: { position: 'relative', ...runtime.surfaceStyle } },
+                                runtime.mountedPages.map(pageNumber => {
+                                    const surface = runtime.getSurface(pageNumber);
+                                    return h('section', { key: pageNumber,
+                                        ref: element => {
+                                            runtime.setPageElement(pageNumber, element);
+                                            if (pageNumber === authority.openSurface.snapshot.value.openingPageFrame?.pageNumber)
+                                                authority.bindOpeningPageElement(element);
+                                        },
+                                        'data-testid': 'document-page-source-page',
+                                        'data-open-surface-frame-owner': authority.openSurface.snapshot.value.openingPageFrame?.ownerId ?? '',
+                                        'data-open-surface-generation': authority.openSurface.snapshot.value.generation,
+                                        'data-page-number': pageNumber, 'data-document-page-number': pageNumber,
+                                        style: { position: 'absolute', background: 'white', ...runtime.getPageStyle(pageNumber) } }, [
+                                        h('span', 'DjVu page ' + pageNumber),
+                                        surface ? h('img', { 'data-testid': 'document-page-source-image', src: surface, style: { width: '100%', height: '100%' },
+                                            'data-page-render-generation': runtime.getRenderGeneration(pageNumber),
+                                            'data-document-load-generation': runtime.loadGeneration,
+                                            'data-open-surface-generation': runtime.activeOpenSurfaceGeneration ?? '',
+                                            onLoad: event => runtime.handleSurfaceLoad(pageNumber, surface, event),
+                                        }) : null,
+                                    ]);
+                                })),
+                        ]);
+                    }});
+                    createApp(defineComponent({ setup() {
+                        provide(documentViewerRuntimeKey, authority);
+                        return () => h('div', { id: 'viewport', tabindex: 0,
+                            ref: element => authority.bindViewportElement(element),
+                            style: { width: '900px', height: 'calc(100vh - 150px)', overflow: 'auto', overflowAnchor: 'none' },
+                            onScroll: event => authority.dispatchViewportEvent('scroll', event),
+                        }, [h(Surface)]);
+                    }})).mount('#app');
+                `,
+            },
+            define: {
+                'process.env.NODE_ENV': '"production"',
+                'import.meta.client': 'true',
+                'import.meta.dev': 'false',
+            },
+            format: 'iife',
+            outfile: longSurfaceBundle,
+            platform: 'browser',
+            tsconfig: resolve(process.cwd(), 'tsconfig.json'),
+            plugins: [{
+                name: 'controlled-djvu-preview',
+                setup(builder) {
+                    builder.onResolve({filter: /^@app\/platform\/browser-api\/public$/}, () => ({
+                        path: 'preview',
+                        namespace: 'long-djvu',
+                    }));
+                    builder.onLoad({
+                        filter: /.*/,
+                        namespace: 'long-djvu',
+                    }, () => ({contents: `
+                        const size = { width: 600, height: 800, dpi: 72 };
+                        export async function createDjvuPagePreviewSourceFromPath() {
+                            return {
+                                getPageSourceInfo: async pageNumber => ({ pageNumber, pageCount: 5010, pageSize: size }),
+                                getPageSize: async () => size,
+                                getPageSizes: async () => Array(5010).fill(size),
+                                renderPageObjectUrl: async pageNumber => ({ renderedPx: 60,
+                                    objectUrl: 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="60" height="80"><text y="40">' + pageNumber + '</text></svg>') }),
+                                revokeObjectURL() {}, terminate() {},
+                            };
+                        }
+                    `}));
+                },
+            }],
+        });
+        const evidenceDirectory = resolve(process.cwd(), '.devkit/b03-long-djvu');
+        await mkdir(evidenceDirectory, {recursive: true});
+        const observations: unknown[] = [];
+        const browser = await chromium.launch({headless: true});
+        try {
+            const page = await browser.newPage({
+                viewport: {
+                    width: 1000,
+                    height: 800,
+                },
+                recordVideo: {dir: evidenceDirectory},
+            });
+            const errors: string[] = [];
+            page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
+            page.on('pageerror', error => errors.push(error.message));
+            await page.route('http://long-djvu.test/', route => route.fulfill({
+                contentType: 'text/html',
+                body: '<style>body { margin: 0; } #page-number, #zoom, #indicator { position: fixed; top: 680px; } #zoom { left: 220px; } #indicator { left: 300px; }</style><div id="app"></div>',
+            }));
+            await page.goto('http://long-djvu.test/');
+            await page.addScriptTag({path: longSurfaceBundle});
+
+            await page.locator('[data-page-number="1"] img').waitFor({
+                state: 'visible',
+                timeout: 10000,
+            });
+            await expect.poll(() => page.locator('#indicator').getAttribute('data-lifecycle')).toBe('ready');
+            await page.getByRole('textbox', {name: 'Page'}).fill('5010');
+            await page.getByRole('textbox', {name: 'Page'}).press('Enter');
+            const read = () => page.evaluate(() => {
+                const viewport = document.querySelector<HTMLElement>('#viewport')!;
+                const view = viewport.getBoundingClientRect();
+                const last = document.querySelector<HTMLElement>('[data-page-number="5010"]');
+                const previous = document.querySelector<HTMLElement>('[data-page-number="5009"]');
+                const lastRect = last?.getBoundingClientRect();
+                return {
+                    lastTop: lastRect ? lastRect.top - view.top : null,
+                    previousTop: previous ? previous.getBoundingClientRect().top - view.top : null,
+                    lastHeight: lastRect?.height ?? null,
+                    physicalHeight: viewport.scrollHeight,
+                    physicalTop: viewport.scrollTop,
+                    indicator: document.querySelector('#indicator')!.textContent,
+                };
+            });
+            try {
+                await expect.poll(async () => (await read()).lastTop).toBe(20);
+            } catch (error) {
+                observations.push({
+                    checkpoint: 'last-page-jump-failed',
+                    ...await read(),
+                });
+                throw error;
+            }
+            await expect.poll(async () => (await read()).indicator).toBe('5010');
+            const aligned = await read();
+            observations.push({
+                checkpoint: 'last-page-jump',
+                ...aligned,
+            });
+            expect(aligned.lastHeight).toBe(8000);
+            expect(aligned.previousTop).toBe(-8000);
+            expect(aligned.physicalHeight).toBeLessThan(8_400_000);
+            await page.screenshot({path: join(evidenceDirectory, 'last-page.png')});
+            await page.locator('#viewport').hover();
+            await page.mouse.wheel(0, 1200);
+            await expect.poll(async () => (await read()).lastTop).toBe(-1180);
+            await expect.poll(async () => (await read()).indicator).toBe('5010');
+            observations.push({
+                checkpoint: 'last-page-wheel',
+                ...await read(),
+            });
+            // Toolbar zoom preserves the page point under the viewport center.
+            const beforeZoom = await read();
+            await page.getByRole('button', {
+                name: 'Zoom',
+                exact: true,
+            }).click();
+            const afterZoomTop = 325 - (325 - beforeZoom.lastTop!) * 0.8;
+            await expect.poll(async () => (await read()).lastTop).toBe(afterZoomTop);
+            observations.push({
+                checkpoint: 'last-page-zoom',
+                ...await read(),
+            });
+            await page.getByRole('button', {
+                name: 'Zoom',
+                exact: true,
+            }).click();
+            await expect.poll(async () => (await read()).lastTop).toBe(beforeZoom.lastTop);
+            // A viewport resize uses the same logical anchor in a late segment.
+            await page.setViewportSize({
+                width: 1000,
+                height: 750,
+            });
+            await expect.poll(async () => (await read()).lastTop).toBe(beforeZoom.lastTop! - 25);
+            observations.push({
+                checkpoint: 'last-page-resize',
+                ...await read(),
+            });
+            // Crossing a physical segment end keeps document-space movement.
+            await page.getByRole('textbox', {name: 'Page'}).fill('1');
+            await page.getByRole('textbox', {name: 'Page'}).press('Enter');
+            await expect.poll(async () => page.locator('[data-page-number="1"]').evaluate(element =>
+                element.getBoundingClientRect().top - document.querySelector('#viewport')!.getBoundingClientRect().top,
+            )).toBe(20);
+            await page.getByRole('textbox', {name: 'Page'}).fill('1046');
+            await page.getByRole('textbox', {name: 'Page'}).press('Enter');
+            await expect.poll(async () => page.locator('[data-page-number="1046"]').evaluate(element =>
+                element.getBoundingClientRect().top - document.querySelector('#viewport')!.getBoundingClientRect().top,
+            )).toBe(20);
+            await page.locator('#viewport').hover();
+            expect((await read()).physicalTop).toBeGreaterThan(8_000_000);
+            await page.mouse.wheel(0, 7000);
+            await expect.poll(async () => page.locator('[data-page-number="1046"]').evaluate(element =>
+                element.getBoundingClientRect().top - document.querySelector('#viewport')!.getBoundingClientRect().top,
+            )).toBe(-6980);
+            expect((await read()).physicalTop).toBeLessThan(5_000_000);
+            observations.push({
+                checkpoint: 'segment-wheel',
+                ...await read(),
+            });
+            expect(errors).toEqual([]);
+        } finally {
+            await browser.close();
+            await writeFile(join(evidenceDirectory, 'observations.json'), JSON.stringify(observations, null, 2));
+        }
+    }, BROWSER_TEST_TIMEOUT_MS);
+
     it('keeps the viewer unquiet for 500 ms after a trusted window resize', async () => {
         const browser = await chromium.launch({headless: true});
         try {

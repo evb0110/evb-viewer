@@ -9,9 +9,22 @@ import {
     marginsToDisplayNormalizedRect,
     marginsToNormalizedRect,
     screenRectToMargins,
+    pointsToUnit,
+    unitToPoints,
 } from '@app/utils/pdfCropCoordinates';
 
 describe('pdf crop coordinates', () => {
+    it.each([
+        1,
+        2,
+    ])('converts a physical inch at UserUnit %s', (userUnit) => {
+        expect(unitToPoints(1, 'in', userUnit)).toBe(72 / userUnit);
+        expect(unitToPoints(25.4, 'mm', userUnit)).toBeCloseTo(72 / userUnit, 12);
+        expect(pointsToUnit(72 / userUnit, 'in', userUnit)).toBe(1);
+        expect(pointsToUnit(72 / userUnit, 'mm', userUnit)).toBeCloseTo(25.4, 12);
+        expect(pointsToUnit(36, 'pt', userUnit)).toBe(36 * userUnit);
+    });
+
     it('clamps each selection edge independently when the drag starts outside the page', () => {
         expect(screenRectToMargins(
             {

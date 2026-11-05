@@ -33,12 +33,13 @@ export const NATIVE_TOOL_RESOURCE_FAMILY_IDS = [
     'pdf-print-dialog',
     'pdf-search',
     'scan-cleanup',
+    'windows-job-launcher',
 ] as const;
 
 export type TNativeToolResourceFamilyId = typeof NATIVE_TOOL_RESOURCE_FAMILY_IDS[number];
 type TGeneratedNativeToolResourceFamilyId = Extract<
     TNativeToolResourceFamilyId,
-    'pdf-image-combine' | 'pdf-page-ops' | 'pdf-search' | 'scan-cleanup'
+    'pdf-image-combine' | 'pdf-page-ops' | 'pdf-search' | 'scan-cleanup' | 'windows-job-launcher'
 >;
 
 export interface INativeResourceTarget {
@@ -92,6 +93,10 @@ export const NATIVE_RESOURCE_PLATFORM_ARCHES = [
 ] as const satisfies readonly TNativeResourcePlatformArch[];
 
 const NATIVE_TOOLS = [
+    {
+        crateName: 'windows-job-launcher',
+        label: 'Windows native process Job Object launcher',
+    },
     {
         crateName: 'pdf-image-combine',
         label: 'PDF image combine native tool',
@@ -246,7 +251,7 @@ export const NATIVE_TOOL_RESOURCE_FAMILIES: readonly INativeToolResourceFamily[]
     ...NATIVE_TOOLS.map(tool => ({
         id: tool.crateName,
         label: tool.label,
-        packagedEntries: [packagedBinary(`evb-${tool.crateName}`)],
+        packagedEntries: [packagedBinary(`evb-${tool.crateName}`, tool.crateName === 'windows-job-launcher' ? ['win32'] : undefined)],
         sourceRootSegments: [
             '.tmp',
             tool.crateName,

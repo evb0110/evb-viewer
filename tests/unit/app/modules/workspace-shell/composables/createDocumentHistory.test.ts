@@ -1,3 +1,8 @@
+import {createPdfDocumentAnnotations} from '@app/modules/pdf-viewer/runtime/sessions/createPdfDocumentAnnotations';
+import {
+    asAnnotationId, type INoteEntity,
+} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
+import {requirePageIndex} from '@contracts/pageNumbers';
 import {
     describe,
     expect,
@@ -6,7 +11,7 @@ import {
     vi,
 } from 'vitest';
 import {
-    ref, shallowRef, watch,
+    ref, shallowRef, watch, effectScope,
 } from 'vue';
 import {createDocumentOpenFlow} from '@app/modules/workspace-shell/composables/document-session/createDocumentOpenFlow';
 import {
@@ -47,7 +52,7 @@ function createHistoryHarness(isDesktopRuntime = false) {
     state.documentRevisionToken.value = requireDocumentRevisionToken('revision-before-restore');
 
     const documentFiles = {
-        writeFile: vi.fn(async () => true),
+        writeFile: vi.fn(async (_path: TDocumentRef, _data: Uint8Array) => true),
         getDocumentRevision: vi.fn(async () => ({
             version: 1 as const,
             documentRef: requireDocumentRef('/tmp/history.pdf'),
@@ -91,16 +96,34 @@ function createHistoryHarness(isDesktopRuntime = false) {
         toPdfBlob: vi.fn(() => new Blob()),
     });
 
+    const ledger = useWorkspaceCommandLedger();
+    history.setWorkspaceCommandSink({
+        register: ledger.registerCommand,
+        reset: ledger.resetSource,
+        forget: ledger.forgetSourceEntries,
+    });
     return {
         applyLoadedPdfState,
         documentFiles,
         documentWorkingCopy,
-        history,
+        history: {
+            ...history,
+            undo: ledger.undoTimeline,
+            redo: ledger.redoTimeline,
+            canUndo: ledger.canUndoTimeline,
+            canRedo: ledger.canRedoTimeline,
+            setWorkspaceCommandSink: (sink: Parameters<typeof history.setWorkspaceCommandSink>[0]) => history.setWorkspaceCommandSink(sink ? {
+                ...sink,
+                register: command => {ledger.registerCommand(command); sink.register(command);},
+                reset: source => {ledger.resetSource(source); sink.reset(source);},
+                forget: (source, ids) => {ledger.forgetSourceEntries(source, ids); sink.forget(source, ids);},
+            } : null),
+        },
         state,
     };
 }
 
-function createContentHistoryHarness(pathHistory: boolean, withSurface: boolean, beforeRevisionPrepare?: () => Promise<void>) {
+function createContentHistoryHarness(pathHistory: boolean, withSurface: boolean, beforeRevisionPrepare?: () => Promise<void>, documentAnnotations?: () => ReturnType<typeof createPdfDocumentAnnotations>) {
     vi.stubGlobal('useToast', () => ({
         add: vi.fn(),
         update: vi.fn(),
@@ -240,6 +263,7 @@ function createContentHistoryHarness(pathHistory: boolean, withSurface: boolean,
         t: (key, ..._args) => String(key),
     });
     const history = createDocumentHistory(state, {
+        ...(documentAnnotations ? {documentAnnotations} : {}),
         applyLoadedPdfState: (...args) => flow.applyLoadedPdfState(...args),
         prepareHistoryRevisionSwap: (token, delta) => prepareDocumentViewsForHistorySwap(
             views, views.viewPorts.value.get('one')!.view.pdfViewerRef.value, 3, token, delta,
@@ -321,7 +345,14 @@ function createContentHistoryHarness(pathHistory: boolean, withSurface: boolean,
     });
     return {
         state,
-        history,
+        ledger,
+        history: {
+            ...history,
+            undo: ledger.undoTimeline,
+            redo: ledger.redoTimeline,
+            canUndo: ledger.canUndoTimeline,
+            canRedo: ledger.canRedoTimeline,
+        },
         ui,
         pages,
         files,
@@ -364,26 +395,23 @@ describe('createDocumentHistory', () => {
             'B',
             'C',
         ]));
-        await h.history.reloadWorkingCopyIntoHistory({
-            markDirty: true,
-            pageIdentityDelta: {
-                previousPageCount: 3,
-                nextPageCount: 2,
-                ranges: [
-                    {
-                        kind: 'delete',
-                        fromPageNumber: 1,
-                        count: 1,
-                    },
-                    {
-                        kind: 'retain',
-                        fromPageNumber: 2,
-                        toPageNumber: 1,
-                        count: 2,
-                    },
-                ],
-            },
-        });
+        await h.history.reloadWorkingCopyIntoHistory({pageIdentityDelta: {
+            previousPageCount: 3,
+            nextPageCount: 2,
+            ranges: [
+                {
+                    kind: 'delete',
+                    fromPageNumber: 1,
+                    count: 1,
+                },
+                {
+                    kind: 'retain',
+                    fromPageNumber: 2,
+                    toPageNumber: 1,
+                    count: 2,
+                },
+            ],
+        }});
         h.pages[0]!.value = 2;
         h.pages[1]!.value = 1;
         const before = h.readViews();
@@ -397,7 +425,7 @@ describe('createDocumentHistory', () => {
         await expect(undo).resolves.toBe(false);
         expect(h.readViews()).toEqual(before);
         expect(h.state.pdfSrc.value).toBe(source);
-        expect(h.history.canUndo.value).toBe(true);
+        expect(h.history.canUndo.value).toBe(false);
     });
     it.each([
         false,
@@ -444,10 +472,7 @@ describe('createDocumentHistory', () => {
                 'B',
                 'C',
             ]));
-            await h.history.reloadWorkingCopyIntoHistory({
-                markDirty: true,
-                pageIdentityDelta: delta,
-            });
+            await h.history.reloadWorkingCopyIntoHistory({pageIdentityDelta: delta});
             // Forward edit is already complete. Map what both readers see now,
             // rather than giving history positions saved at the edit's start.
             h.pages[0]!.value = 2;
@@ -463,16 +488,9 @@ describe('createDocumentHistory', () => {
                     32,
                 ]);
                 await h.files.writeFile(h.state.workingCopyPath.value!, padded);
-                await h.history.markCurrentHistoryEntryClean(padded, {recordSnapshotChange: false});
+                await h.history.captureHistoryCleanState()();
             } else if (save === 'lazy') {
-                await h.history.markCurrentHistoryEntryClean(null, {
-                    recordSnapshotChange: false,
-                    lazyBaseline: {
-                        workingPath: h.state.workingCopyPath.value!,
-                        revision: h.revision(h.state.workingCopyPath.value!).token,
-                        size: pathHistory ? 64 * 1024 * 1024 : 16,
-                    },
-                });
+                await h.history.captureHistoryCleanState()();
             }
             h.observeLoads();
             expect(await h.ui.handleUndo()).toBe(true);
@@ -538,10 +556,7 @@ describe('createDocumentHistory', () => {
                 ],
             };
             h.views.mapPageIdentity(moveDelta);
-            await h.history.reloadWorkingCopyIntoHistory({
-                markDirty: true,
-                pageIdentityDelta: moveDelta,
-            });
+            await h.history.reloadWorkingCopyIntoHistory({pageIdentityDelta: moveDelta});
             expect(h.history.canRedo.value).toBe(false);
             expect(await h.ui.handleRedo()).toBe(false);
             expect(await h.ui.handleUndo()).toBe(true);
@@ -613,11 +628,6 @@ describe('createDocumentHistory', () => {
         await expect(history.resetHistory(new Uint8Array([1]), {reuseSnapshot: true})).resolves.toBe(true);
         await expect(history.pushHistorySnapshot(new Uint8Array([2]), {reuseSnapshot: true})).resolves.toBe(true);
 
-        expect(history.getHistoryDebugState()).toEqual({
-            historyLength: 2,
-            historyIndex: 1,
-            historyCleanIndex: 0,
-        });
         expect(documentWorkingCopy.createWorkingCopyFromPath).toHaveBeenNthCalledWith(
             1,
             '/tmp/work.pdf',
@@ -659,24 +669,16 @@ describe('createDocumentHistory', () => {
 
         await expect(reset).resolves.toBe(false);
         expect(documentWorkingCopy.cleanupFile).toHaveBeenCalledWith('/tmp/canceled-history.pdf');
-        expect(history.getHistoryDebugState().historyLength).toBe(0);
     });
 
-    it('cleans a failed lazy desktop path history clone', async () => {
+    it('cleans a failed desktop path checkpoint clone', async () => {
         const {
             documentFiles,
             documentWorkingCopy,
             history,
         } = createHistoryHarness(true);
         await history.resetHistory(new Uint8Array([1]), {reuseSnapshot: true});
-        await history.markCurrentHistoryEntryClean(null, {
-            lazyBaseline: {
-                workingPath: requireDocumentRef('/tmp/work.pdf'),
-                revision: requireDocumentRevisionToken('revision-before-restore'),
-                size: 2 * 1024 * 1024 * 1024,
-            },
-            recordSnapshotChange: false,
-        });
+        await history.captureHistoryCleanState()();
         documentWorkingCopy.createWorkingCopyFromPath.mockResolvedValueOnce(requireDocumentRef('/tmp/failed-history.pdf'));
         documentFiles.getDocumentRevision
             .mockResolvedValueOnce({
@@ -700,10 +702,6 @@ describe('createDocumentHistory', () => {
         for (let step = 1; step <= 3; step += 1) {
             await expect(history.pushHistorySnapshot(snapshot(step), {reuseSnapshot: true})).resolves.toBe(true);
         }
-        expect(history.getHistoryDebugState()).toMatchObject({
-            historyLength: 4,
-            historyIndex: 3,
-        });
         for (let step = 0; step < 3; step += 1) {
             await expect(history.undo()).resolves.toBe(true);
         }
@@ -723,11 +721,6 @@ describe('createDocumentHistory', () => {
             { reuseSnapshot: true },
         )).resolves.toBe(true);
 
-        expect(history.getHistoryDebugState()).toEqual({
-            historyLength: 0,
-            historyIndex: 0,
-            historyCleanIndex: -1,
-        });
     });
 
     it('rejects oversized byte entries supplied through the public history entry API', () => {
@@ -737,7 +730,6 @@ describe('createDocumentHistory', () => {
             kind: 'bytes',
             snapshot: new Uint8Array((16 * 1024 * 1024) + 1),
         })).toBe(false);
-        expect(history.getHistoryDebugState().historyLength).toBe(0);
     });
 
     it('publishes file checkpoints directly to the workspace command sink', async () => {
@@ -763,13 +755,13 @@ describe('createDocumentHistory', () => {
         expect(registrations).toHaveLength(1);
         expect(registrations[0]).toMatchObject({
             source: 'file',
-            estimatedBytes: 2,
+            estimatedBytes: 3,
         });
         await expect(registrations[0]?.undo()).resolves.toBe(true);
         await expect(registrations[0]?.cmd()).resolves.toBe(true);
 
         history.incrementSessionVersion();
-        expect(reset).toHaveBeenCalledWith();
+        expect(reset).toHaveBeenLastCalledWith(undefined);
     });
 
     it('keeps the undo cursor unchanged when restoring bytes fails', async () => {
@@ -780,12 +772,10 @@ describe('createDocumentHistory', () => {
 
         await history.resetHistory(new Uint8Array([1]), { reuseSnapshot: true });
         await history.pushHistorySnapshot(new Uint8Array([2]), { reuseSnapshot: true });
-        expect(history.getHistoryDebugState().historyIndex).toBe(1);
 
         documentFiles.writeFile.mockRejectedValueOnce(new Error('write failed'));
 
         await expect(history.undo()).rejects.toThrow('write failed');
-        expect(history.getHistoryDebugState().historyIndex).toBe(1);
     });
 
     it('restores byte history with the current document revision token', async () => {
@@ -873,7 +863,6 @@ describe('createDocumentHistory', () => {
         documentFiles.writeFile.mockRejectedValueOnce(createMissingRevisionError({documentRef: requireDocumentRef('/tmp/work.pdf')}));
 
         await expect(history.undo()).rejects.toMatchObject({ code: 'MISSING_REVISION' });
-        expect(history.getHistoryDebugState().historyIndex).toBe(1);
         expect(documentFiles.writeFile).toHaveBeenCalledWith(
             '/tmp/work.pdf',
             new Uint8Array([1]),
@@ -896,7 +885,6 @@ describe('createDocumentHistory', () => {
         }));
 
         await expect(history.undo()).rejects.toMatchObject({ code: 'STALE_REVISION' });
-        expect(history.getHistoryDebugState().historyIndex).toBe(1);
         expect(documentFiles.writeFile).toHaveBeenCalledWith(
             '/tmp/work.pdf',
             new Uint8Array([1]),
@@ -957,34 +945,25 @@ describe('createDocumentHistory', () => {
             readPdfStateFromPath,
             toPdfBlob: vi.fn(() => new Blob()),
         });
+        const ledger = useWorkspaceCommandLedger();
         history.setWorkspaceCommandSink({
-            register,
+            register: command => {ledger.registerCommand(command); register(command);},
             reset: vi.fn(),
             forget: vi.fn(),
         });
 
         await expect(history.ensureHistoryBaselineForMutation()).resolves.toBe(true);
-        await expect(history.reloadWorkingCopyIntoHistory({markDirty: true})).resolves.toBe(true);
+        await expect(history.reloadWorkingCopyIntoHistory()).resolves.toBe(true);
 
         expect(register).toHaveBeenCalledOnce();
         expect(register.mock.calls[0]?.[0]).toMatchObject({source: 'file'});
-        expect(register.mock.calls[0]?.[0]).not.toHaveProperty('estimatedBytes');
-        expect(history.canUndo.value).toBe(true);
+        expect(register.mock.calls[0]?.[0].estimatedBytes).toBe(0);
+        expect(ledger.canUndoTimeline.value).toBe(true);
         expect(state.isDirty.value).toBe(true);
-        expect(history.getHistoryDebugState()).toMatchObject({
-            historyLength: 2,
-            historyIndex: 1,
-            historyCleanIndex: 0,
-        });
 
-        await expect(history.undo()).resolves.toBe(true);
+        await expect(ledger.undoTimeline()).resolves.toBe(true);
 
         expect(state.isDirty.value).toBe(false);
-        expect(history.getHistoryDebugState()).toMatchObject({
-            historyLength: 2,
-            historyIndex: 0,
-            historyCleanIndex: 0,
-        });
         expect(createWorkingCopyFromPath).toHaveBeenNthCalledWith(
             1,
             '/tmp/work.pdf',
@@ -1037,11 +1016,6 @@ describe('createDocumentHistory', () => {
         ]);
         await history.pushHistorySnapshot(new Uint8Array([2]), {reuseSnapshot: true});
 
-        expect(history.getHistoryDebugState()).toEqual({
-            historyLength: 2,
-            historyIndex: 1,
-            historyCleanIndex: 0,
-        });
         expect(history.canUndo.value).toBe(true);
 
         await expect(history.undo()).resolves.toBe(true);
@@ -1074,10 +1048,9 @@ describe('createDocumentHistory', () => {
 
         await expect(baseline).resolves.toBe(false);
         expect(documentWorkingCopy.cleanupFile).toHaveBeenCalledWith('/tmp/stale-mutation-baseline.pdf');
-        expect(history.getHistoryDebugState().historyLength).toBe(0);
     });
 
-    it('materializes a lazy clean baseline before the next external mutation without adding file undo', async () => {
+    it('stages saved bytes before the next external mutation without adding file undo', async () => {
         const {
             documentFiles,
             documentWorkingCopy,
@@ -1101,14 +1074,7 @@ describe('createDocumentHistory', () => {
             forget: vi.fn(),
         });
         await history.resetHistory(new Uint8Array([1]), {reuseSnapshot: true});
-        await history.markCurrentHistoryEntryClean(null, {
-            lazyBaseline: {
-                workingPath: requireDocumentRef('/tmp/work.pdf'),
-                revision,
-                size: 128,
-            },
-            recordSnapshotChange: false,
-        });
+        await history.captureHistoryCleanState()();
 
         await expect(history.ensureHistoryBaselineForMutation()).resolves.toBe(true);
 
@@ -1118,14 +1084,9 @@ describe('createDocumentHistory', () => {
             '/tmp/original.pdf',
         );
         expect(register).not.toHaveBeenCalled();
-        expect(history.getHistoryDebugState()).toEqual({
-            historyLength: 1,
-            historyIndex: 0,
-            historyCleanIndex: 0,
-        });
     });
 
-    it('refuses to materialize a lazy baseline after its working-copy revision changes', async () => {
+    it('refuses to stage a checkpoint after its working-copy revision changes', async () => {
         const {
             documentFiles,
             documentWorkingCopy,
@@ -1134,14 +1095,7 @@ describe('createDocumentHistory', () => {
         } = createHistoryHarness(true);
         const baselineRevision = requireDocumentRevisionToken('lazy-history-before');
         state.documentRevisionToken.value = baselineRevision;
-        await history.markCurrentHistoryEntryClean(null, {
-            lazyBaseline: {
-                workingPath: requireDocumentRef('/tmp/work.pdf'),
-                revision: baselineRevision,
-                size: 128,
-            },
-            recordSnapshotChange: false,
-        });
+        await history.captureHistoryCleanState()();
         documentFiles.getDocumentRevision.mockResolvedValue({
             version: 1,
             documentRef: requireDocumentRef('/tmp/work.pdf'),
@@ -1156,42 +1110,238 @@ describe('createDocumentHistory', () => {
         expect(documentWorkingCopy.createWorkingCopyFromPath).not.toHaveBeenCalled();
     });
 
-    it('materializes a lazy redo snapshot before file undo moves the cursor', async () => {
+    it('keeps immutable redo bytes after an annotation-only lazy Save', async () => {
         const {
-            documentFiles,
-            documentWorkingCopy,
-            history,
-            state,
+            documentFiles, documentWorkingCopy, history, state,
         } = createHistoryHarness(true);
-        const revision = requireDocumentRevisionToken('lazy-redo-revision');
-        state.documentRevisionToken.value = revision;
-        documentFiles.getDocumentRevision.mockResolvedValue({
-            version: 1,
-            documentRef: requireDocumentRef('/tmp/work.pdf'),
-            token: revision,
-            contentRevision: 4,
-            authority: 'electron-working-copy',
-            mintedAt: requireEpochMs(4),
-        });
-        await history.resetHistory(new Uint8Array([1]), {reuseSnapshot: true});
-        await history.pushHistorySnapshot(new Uint8Array([2]), {reuseSnapshot: true});
-        await history.markCurrentHistoryEntryClean(null, {
-            lazyBaseline: {
-                workingPath: requireDocumentRef('/tmp/work.pdf'),
-                revision,
-                size: 256,
-            },
-            recordSnapshotChange: false,
-        });
-
+        await history.resetHistory(new Uint8Array([1]));
+        await history.pushHistorySnapshot(new Uint8Array([2]));
+        await history.captureHistoryCleanState()();
         await expect(history.undo()).resolves.toBe(true);
+        expect(Array.from(documentFiles.writeFile.mock.calls[0]![1])).toEqual([1]);
+        await expect(history.redo()).resolves.toBe(true);
+        expect(Array.from(documentFiles.writeFile.mock.calls[1]![1])).toEqual([2]);
+        expect(documentWorkingCopy.createWorkingCopyFromPath).not.toHaveBeenCalled();
+        expect(state.isDirty.value).toBe(false);
+    });
+});
 
-        expect(documentWorkingCopy.createWorkingCopyFromPath).toHaveBeenCalledWith(
-            '/tmp/work.pdf',
-            '/tmp/original.pdf',
-        );
-        expect(documentWorkingCopy.createWorkingCopyFromPath.mock.invocationCallOrder[0])
-            .toBeLessThan(documentFiles.writeFile.mock.invocationCallOrder[0]!);
-        expect(history.canRedo.value).toBe(true);
+// A3/T2/T4: physical checkpoint replay never owns canonical annotation intent.
+describe.each([
+    false,
+    true,
+])('B01 canonical command isolation (path=%s)', path => {
+    function setup() {
+        const h = createContentHistoryHarness(path, false, undefined, () => owner);
+        const scope = effectScope();
+        onTestFinished(() => scope.stop());
+        const owner: ReturnType<typeof createPdfDocumentAnnotations> = scope.run(() => createPdfDocumentAnnotations({
+            workingCopyPath: h.state.workingCopyPath,
+            source: h.state.pdfSrc,
+            documentRevisionToken: h.state.documentRevisionToken,
+            documentSession: h.history.fileHistorySessionVersion,
+        }))!;
+        owner.history.setWorkspaceCommandSink({
+            register: h.ledger.registerCommand,
+            reset: h.ledger.resetSource,
+            forget: h.ledger.forgetSourceEntries,
+        });
+        const note: INoteEntity = {
+            kind: 'note',
+            identity: {id: asAnnotationId('b01-note')},
+            pageIndex: requirePageIndex(0),
+            revision: 0,
+            persistedRevision: -1,
+            deleted: false,
+            createdAt: null,
+            modifiedAt: null,
+            author: null,
+            contents: 'Accepted B01 note',
+            color: '#ffff00',
+            open: false,
+            position: {
+                left: 0.1,
+                top: 0.1,
+                width: 0.02,
+                height: 0.02,
+            },
+        };
+        const reconcile = (parsed: INoteEntity[] = []) => {
+            owner.replaceLoadedDocument(h.state.documentRevisionToken.value, false);
+            return owner.application.value.store.replaceFromDocument(parsed, [], undefined, [], [], true);
+        };
+        const mutate = async (label: string, pageIdentityDelta?: IPageIdentityDelta) => {
+            await h.files.writeFile(h.state.workingCopyPath.value!, h.encode([label]));
+            h.state.documentRevisionToken.value = (await h.files.getDocumentRevision(h.state.workingCopyPath.value!)).token;
+            if (label === 'OCR text') owner.adoptCurrentRevision();
+            return h.history.reloadWorkingCopyIntoHistory({...(pageIdentityDelta ? {pageIdentityDelta} : {})});
+        };
+        return {
+            ...h,
+            owner,
+            get store() {return owner.application.value.store;},
+            note,
+            reconcile,
+            mutate,
+        };
+    }
+
+    it('A26-1 keeps materialization unsaved and the original annotation Undo available', async () => {
+        const h = setup();
+        await h.history.ensureHistoryBaselineForMutation();
+        h.store.createNote(h.note);
+        h.store.markPersisted(h.store.beginSave(), [], null, true);
+        await h.history.reloadWorkingCopyRevision();
+        await h.mutate('rotated');
+        await expect(h.ledger.undoTimeline()).resolves.toBe(true);
+        h.reconcile();
+        expect(h.store.list().filter(entity => entity.kind === 'note').map(entity => entity.contents)).toEqual(['Accepted B01 note']);
+        expect(h.store.hasChangesSinceSavedBaseline()).toBe(true);
+        expect(h.ledger.nextUndoSource.value).toBe('annotation');
+        await expect(h.ledger.undoTimeline()).resolves.toBe(true);
+        expect(h.store.list()).toEqual([]);
+        expect(h.store.hasChangesSinceSavedBaseline()).toBe(false);
+    });
+
+    it('A26-2 keeps accepted notes and drafts through both OCR inverse directions', async () => {
+        const h = setup();
+        h.store.createNote(h.note);
+        h.owner.setTextBoxDraft('b01-draft', 'Uncommitted text');
+        await h.history.ensureHistoryBaselineForMutation();
+        await h.mutate('OCR text');
+        h.reconcile();
+        await expect(h.ledger.undoTimeline()).resolves.toBe(true);
+        h.reconcile();
+        expect(h.store.list().filter(entity => entity.kind === 'note').map(entity => entity.contents)).toEqual(['Accepted B01 note']);
+        expect(h.owner.textBoxDrafts.get('b01-draft')).toBe('Uncommitted text');
+        await expect(h.ledger.redoTimeline()).resolves.toBe(true);
+        h.reconcile();
+        expect(h.store.list().filter(entity => entity.kind === 'note').map(entity => entity.contents)).toEqual(['Accepted B01 note']);
+        expect(h.store.hasChangesSinceSavedBaseline()).toBe(true);
+        await expect(h.ledger.undoTimeline()).resolves.toBe(true);
+        await expect(h.ledger.undoTimeline()).resolves.toBe(true);
+        expect(h.store.list()).toEqual([]);
+    });
+
+    it('keeps the captured save frontier dirty after a newer file command and ignores a replaced session', async () => {
+        const h = setup();
+        await h.history.ensureHistoryBaselineForMutation();
+        await h.mutate('rotated');
+        const acknowledge = h.history.captureHistoryCleanState();
+        await h.history.ensureHistoryBaselineForMutation();
+        await h.mutate('cropped');
+        await acknowledge();
+        expect(h.state.isDirty.value).toBe(true);
+        await expect(h.ledger.undoTimeline()).resolves.toBe(true);
+        expect(h.state.isDirty.value).toBe(false);
+        await expect(h.ledger.redoTimeline()).resolves.toBe(true);
+        expect(h.state.isDirty.value).toBe(true);
+        const stale = h.history.captureHistoryCleanState();
+        h.history.incrementSessionVersion();
+        await h.history.resetHistory(null);
+        h.state.recoveryDirtyBaseline.value = true;
+        await stale();
+        h.history.syncDirtyFromHistory();
+        expect(h.state.isDirty.value).toBe(true);
+    });
+
+    it('keeps a later file command before-checkpoint separate from an earlier command after-checkpoint', async () => {
+        const h = setup();
+        const content = () => JSON.parse(new TextDecoder().decode(h.state.pdfData.value ?? h.storage.get(h.state.workingCopyPath.value!)!));
+        await h.history.ensureHistoryBaselineForMutation();
+        await h.mutate('rotation only');
+        const materialized = h.encode(['rotation with saved note']);
+        await h.files.writeFile(h.state.workingCopyPath.value!, materialized);
+        h.state.documentRevisionToken.value = (await h.files.getDocumentRevision(h.state.workingCopyPath.value!)).token;
+        h.state.pdfData.value = path ? null : materialized;
+        await h.history.captureHistoryCleanState()();
+        await h.history.ensureHistoryBaselineForMutation();
+        await h.mutate('crop with saved note');
+        await expect(h.ledger.undoTimeline()).resolves.toBe(true);
+        expect(content()).toEqual(['rotation with saved note']);
+        await expect(h.ledger.undoTimeline()).resolves.toBe(true);
+        await expect(h.ledger.redoTimeline()).resolves.toBe(true);
+        expect(content()).toEqual(['rotation only']);
+        await expect(h.ledger.redoTimeline()).resolves.toBe(true);
+        expect(content()).toEqual(['crop with saved note']);
+    });
+
+    it('releases saved deletion targets when their last file command is discarded', async () => {
+        const h = setup();
+        h.store.createNote(h.note);
+        h.store.markPersisted(h.store.beginSave());
+        await h.history.ensureHistoryBaselineForMutation();
+        await h.mutate('rotated');
+        h.store.delete(h.note.identity.id);
+        h.store.markPersisted(h.store.beginSave());
+        h.ledger.resetSource('annotation');
+        expect(h.store.get(h.note.identity.id)?.deleted).toBe(true);
+        h.ledger.resetSource('file');
+        expect(h.store.get(h.note.identity.id)).toBeNull();
+        expect(h.store.hasChangesSinceSavedBaseline()).toBe(false);
+    });
+
+    it('resets notes, drafts and commands for a genuine replacement of the same pathname', async () => {
+        const h = setup();
+        h.store.createNote(h.note);
+        h.owner.setTextBoxDraft('draft', 'pending');
+        h.history.incrementSessionVersion();
+        expect(h.store.list()).toEqual([]);
+        expect(h.owner.textBoxDrafts.size).toBe(0);
+        expect(h.ledger.canUndoTimeline.value).toBe(false);
+    });
+
+    it('replays structural deletion without losing the annotation command or duplicating it', async () => {
+        const h = setup();
+        h.store.createNote(h.note);
+        await h.history.ensureHistoryBaselineForMutation();
+        await h.mutate('remaining pages', {
+            previousPageCount: 3,
+            nextPageCount: 2,
+            ranges: [
+                {
+                    kind: 'delete',
+                    fromPageNumber: 1,
+                    count: 1,
+                },
+                {
+                    kind: 'retain',
+                    fromPageNumber: 2,
+                    toPageNumber: 1,
+                    count: 2,
+                },
+            ],
+        });
+        h.reconcile();
+        expect(h.store.list()).toEqual([]);
+        await expect(h.ledger.undoTimeline()).resolves.toBe(true);
+        h.reconcile();
+        expect(h.store.list().filter(entity => entity.kind === 'note').map(entity => entity.contents)).toEqual(['Accepted B01 note']);
+        await expect(h.ledger.undoTimeline()).resolves.toBe(true);
+        expect(h.store.list()).toEqual([]);
+        await expect(h.ledger.redoTimeline()).resolves.toBe(true);
+        await expect(h.ledger.redoTimeline()).resolves.toBe(true);
+        expect(h.store.list()).toEqual([]);
+    });
+
+    it('A26-3 keeps a saved note undone until its own Redo and requires writer work after older bytes', async () => {
+        const h = setup();
+        await h.history.ensureHistoryBaselineForMutation();
+        await h.mutate('rotated');
+        h.store.createNote(h.note);
+        h.store.markPersisted(h.store.beginSave());
+        await h.history.captureHistoryCleanState()();
+        await expect(h.ledger.undoTimeline()).resolves.toBe(true);
+        await expect(h.ledger.undoTimeline()).resolves.toBe(true);
+        h.reconcile();
+        await expect(h.ledger.redoTimeline()).resolves.toBe(true);
+        h.reconcile();
+        expect(h.store.list()).toEqual([]);
+        expect(h.store.hasChangesSinceSavedBaseline()).toBe(true);
+        expect(h.ledger.nextRedoSource.value).toBe('annotation');
+        await expect(h.ledger.redoTimeline()).resolves.toBe(true);
+        expect(h.store.list().filter(entity => entity.kind === 'note').map(entity => entity.contents)).toEqual(['Accepted B01 note']);
+        expect(h.store.hasChangesSinceSavedBaseline()).toBe(false);
+        expect(h.store.dirtyEntities()).toHaveLength(1);
     });
 });

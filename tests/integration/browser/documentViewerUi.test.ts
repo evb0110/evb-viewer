@@ -14,10 +14,247 @@ import {
 } from 'vitest';
 import type {IBrowserLifecycleTestApi} from './documentLifecycleTestHelpers';
 import {
-    lifecycle, waitForOpenFileReady, collectConsoleProblems, keepFileChooserInterceptionEnabled, readRecoveries, openPdfFromChooser, readPersistedDocumentBytes,
+    lifecycle, waitForOpenFileReady, collectConsoleProblems, keepFileChooserInterceptionEnabled, readRecoveries, openPdfFromChooser, readPersistedDocumentBytes, addNote, noteTexts, settleActiveOpen,
 } from './documentLifecycleTestHelpers';
 
 describe('browser document lifecycle UI', () => {
+    it('keeps the viewport center document point through fit changes and view rotation (R3)', async () => {
+        const pdf = await PDFDocument.create();
+        for (let index = 0; index < 16; index += 1) {
+            pdf.addPage([
+                600,
+                2_400,
+            ]).drawText(`Reading page ${String(index + 1)}`, {
+                x: 40,
+                y: 1_000,
+            });
+        }
+        const page = await lifecycle.browser.newPage({viewport: {
+            width: 1_200,
+            height: 900,
+        }});
+        const viewport = page.locator('.workspace-host[data-workspace-active="true"] [data-document-viewer-chassis-viewport]');
+        const readingPage = page.locator('.workspace-host[data-workspace-active="true"] .page_container[data-page="7"]');
+        const problems = collectConsoleProblems(page);
+        const settle = async () => {
+            const outcome = await page.evaluate(`(async () => {
+                const {waitForViewerSettled} = await import('/_nuxt/modules/viewer-invariants/waitForViewerSettled.ts');
+                return waitForViewerSettled();
+            })()`);
+            expect(outcome).toMatchObject({settled: true});
+        };
+        const customZoom = async () => {
+            await page.locator('#editor-global-toolbar-host .zoom-controls-display:visible').click();
+            await page.locator('.zoom-chip-custom-input').fill('200');
+            await page.locator('.zoom-chip-custom-input').press('Enter');
+            await settle();
+        };
+        const position = async (x: number, y: number) => {
+            // Setup may place the viewport directly. The operations below use
+            // trusted toolbar/menu input and are measured from rendered boxes.
+            await viewport.evaluate((element) => {
+                const first = element.querySelector('.page_container')!.getBoundingClientRect();
+                element.scrollTop = 6 * (first.height + 20);
+            });
+            await readingPage.waitFor({state: 'attached'});
+            await readingPage.evaluate((element, point) => {
+                const container = element.closest<HTMLElement>('[data-document-viewer-chassis-viewport]')!;
+                const box = element.getBoundingClientRect();
+                const frame = container.getBoundingClientRect();
+                container.scrollLeft += box.left - frame.left - container.clientLeft + box.width * point.x - container.clientWidth / 2;
+                container.scrollTop += box.top - frame.top - container.clientTop + box.height * point.y - container.clientHeight / 2;
+            }, {
+                x,
+                y,
+            });
+            await settle();
+        };
+        const read = () => readingPage.evaluate((element) => {
+            const container = element.closest<HTMLElement>('[data-document-viewer-chassis-viewport]')!;
+            const box = element.getBoundingClientRect();
+            const frame = container.getBoundingClientRect();
+            return {
+                x: (frame.left + container.clientLeft + container.clientWidth / 2 - box.left) / box.width,
+                y: (frame.top + container.clientTop + container.clientHeight / 2 - box.top) / box.height,
+                width: box.width,
+                height: box.height,
+            };
+        });
+        const observations: unknown[] = [];
+        const check = async (operation: string, expected: {
+            x: number;
+            y: number
+        }) => {
+            await settle();
+            const actual = await read();
+            const errorX = (actual.x - expected.x) * actual.width;
+            const errorY = (actual.y - expected.y) * actual.height;
+            observations.push({
+                operation,
+                expected,
+                actual,
+                errorX,
+                errorY,
+            });
+            expect.soft(Math.abs(errorX), `${operation}: horizontal document point drift`).toBeLessThanOrEqual(1);
+            expect.soft(Math.abs(errorY), `${operation}: vertical document point drift`).toBeLessThanOrEqual(1);
+        };
+        const rotate = async (direction: 'Clockwise' | 'Counterclockwise') => {
+            const item = (text: string) => page.getByRole('menuitem', {
+                name: text,
+                exact: true,
+            });
+            await page.getByRole('button', {
+                name: 'Menu',
+                exact: true,
+            }).click();
+            await item('View').click();
+            await item(`Rotate View ${direction}`).click();
+        };
+        try {
+            await openPdfFromChooser(page, {
+                name: 'r3-reading-place.pdf',
+                mimeType: 'application/pdf',
+                buffer: Buffer.from(await pdf.save()),
+            });
+            await settleActiveOpen(page);
+            await customZoom();
+            for (const fit of [
+                'Fit Width',
+                'Fit Height',
+                'Fit Width',
+            ]) {
+                await position(0.5, 0.63);
+                const before = await read();
+                await page.locator('#editor-global-toolbar-host .zoom-controls-display:visible').click();
+                await page.locator('.zoom-dropdown').getByRole('button', {
+                    name: fit,
+                    exact: true,
+                }).click();
+                await check(fit, before);
+            }
+            await customZoom();
+            await position(0.4, 0.63);
+            const before = await read();
+            await rotate('Clockwise');
+            await check('rotation 0 to 90', {
+                x: 1 - before.y,
+                y: before.x,
+            });
+            await rotate('Counterclockwise');
+            await check('rotation 90 to 0', before);
+            expect(problems).toEqual([]);
+        } finally {
+            console.info('R3 center observations', JSON.stringify(observations));
+            await page.context().close();
+        }
+    }, 120_000);
+
+    it('keeps compatible PDF.js assets and unsaved work when a deployment changes in an open tab', async () => {
+        const evidenceDir = resolve(process.cwd(), '.devkit/browser-pdfjs-deployment');
+        mkdirSync(evidenceDir, {recursive: true});
+        const version = readFileSync(resolve('public/pdf/.pdfjs-version'), 'utf8').trim();
+        const nextVersion = `${version}-next-deployment`;
+        const worker = readFileSync(resolve('public/pdf/pdf.worker.min.mjs'), 'utf8');
+        expect(worker).toContain(version);
+        const nextWorker = worker.replaceAll(version, nextVersion);
+        const requests: Array<{
+            path: string;
+            afterDeployment: boolean
+        }> = [];
+        let deployed = false;
+        const page = await lifecycle.browser.newPage({viewport: {
+            width: 1_200,
+            height: 900,
+        }});
+        const problems = collectConsoleProblems(page);
+        const active = page.locator('.workspace-host[data-workspace-active="true"]');
+        try {
+            // The existing server retains content-addressed files, as a clean
+            // source deploy does. Only the current, mutable deployment changes.
+            // Routing also disables HTTP cache, so a cached worker cannot pass.
+            await page.context().route(url => url.pathname.startsWith('/pdf/'), async route => {
+                const path = new URL(route.request().url()).pathname;
+                requests.push({
+                    path,
+                    afterDeployment: deployed,
+                });
+                if (deployed && path === '/pdf/pdf.worker.min.mjs') {
+                    await route.fulfill({
+                        contentType: 'text/javascript',
+                        body: nextWorker,
+                    });
+                } else if (deployed && path === '/pdf/.pdfjs-version') {
+                    await route.fulfill({body: `${nextVersion}\n`});
+                } else {
+                    await route.continue();
+                }
+            });
+            const makePdf = async (label: string) => {
+                const pdf = await PDFDocument.create();
+                pdf.addPage([
+                    400,
+                    600,
+                ]).drawText(label, {
+                    x: 40,
+                    y: 540,
+                });
+                return {
+                    name: `${label}.pdf`,
+                    mimeType: 'application/pdf',
+                    buffer: Buffer.from(await pdf.save()),
+                };
+            };
+            await openPdfFromChooser(page, await makePdf('Before deployment'));
+            await expect.poll(() => active.locator('.textLayer').first().textContent()).toContain('Before deployment');
+            await settleActiveOpen(page);
+            await addNote(page, 'Unsaved across deployment', {
+                x: 100,
+                y: 150,
+            });
+            const firstTab = page.getByRole('tab').filter({hasText: 'Before deployment.pdf'});
+            await expect.poll(() => firstTab.getAttribute('class')).toContain('is-dirty');
+            const documentToken = await page.evaluate(() => {
+                const token = crypto.randomUUID();
+                Reflect.set(window, '__pdfjsDeploymentDocument', token);
+                return token;
+            });
+            deployed = true;
+            await page.getByRole('button', {
+                name: 'New Tab',
+                exact: true,
+            }).click();
+            const chooser = page.waitForEvent('filechooser');
+            await page.getByRole('button', {
+                name: 'Open File',
+                exact: true,
+            }).first().click();
+            await (await chooser).setFiles(await makePdf('After deployment'));
+            await expect.poll(() => active.locator('.textLayer').first().textContent()).toContain('After deployment');
+            await active.locator('.page_container--rendered canvas').first().waitFor({state: 'visible'});
+            await settleActiveOpen(page);
+            const workers = requests.filter(request => request.path.endsWith('/pdf.worker.min.mjs'));
+            expect(workers.some(request => request.afterDeployment)).toBe(true);
+            expect(new Set(workers.map(request => request.path)).size).toBe(1);
+            expect(await page.evaluate(() => Reflect.get(window, '__pdfjsDeploymentDocument'))).toBe(documentToken);
+            await firstTab.click();
+            await expect.poll(() => active.locator('.textLayer').first().textContent()).toContain('Before deployment');
+            await active.locator('.page_container--rendered canvas').first().waitFor({state: 'visible'});
+            expect(await firstTab.getAttribute('class')).toContain('is-dirty');
+            const download = page.waitForEvent('download');
+            await page.locator('.save-split-primary:visible').first().click();
+            const savedPath = resolve(evidenceDir, 'preserved.pdf');
+            await (await download).saveAs(savedPath);
+            expect(noteTexts(await PDFDocument.load(readFileSync(savedPath)))).toContain('Unsaved across deployment');
+            await page.screenshot({path: resolve(evidenceDir, 'preserved.png')});
+            expect(problems).toEqual([]);
+        } finally {
+            writeFileSync(resolve(evidenceDir, 'requests.json'), JSON.stringify(requests, null, 2));
+            writeFileSync(resolve(evidenceDir, 'console.json'), JSON.stringify(problems, null, 2));
+            await page.context().close();
+        }
+    }, 90_000);
+
     it('retains a fully visible short indicator page while the center enters a tall page', async () => {
         const pdf = await PDFDocument.create();
         pdf.setCreationDate(new Date('2026-01-01T00:00:00Z'));
@@ -105,7 +342,9 @@ describe('browser document lifecycle UI', () => {
             });
             const viewer = page.locator('[data-document-viewer-chassis-viewport]').first();
             await viewer.hover();
-            await page.mouse.wheel(0, 10);
+            // Put the center inside page 2, rather than exactly on its edge
+            // when the fit scale makes the initial distance ten pixels.
+            await page.mouse.wheel(0, Math.ceil(before.rects[1]!.top - before.centerY) + 1);
             await expect.poll(async () => (await readPosition()).top).toBeGreaterThan(before.top);
             await page.evaluate(() => new Promise<void>(done => requestAnimationFrame(() => requestAnimationFrame(() => done()))));
             const after = await readPosition();
@@ -951,7 +1190,8 @@ describe('browser document lifecycle UI', () => {
             console.info('Foreign annotation image', JSON.stringify(observation));
             writeFileSync(resolve(process.cwd(), `.devkit/browser-annotation-icon-${process.pid}.json`), JSON.stringify(observation, null, 2));
             await page.screenshot({path: resolve(process.cwd(), `.devkit/browser-annotation-icon-${process.pid}.png`)});
-            expect(new URL(response.url()).pathname).toBe('/pdfjs/images/annotation-paperclip.svg');
+            const [pdfjsAssetIdentity] = JSON.parse(readFileSync(resolve('public/pdf/assets.json'), 'utf8')) as string[];
+            expect(new URL(response.url()).pathname).toBe(`/pdf/${pdfjsAssetIdentity}/images/annotation-paperclip.svg`);
             expect(response.status()).toBe(200);
             expect(bytes).toEqual(readFileSync(resolve(process.cwd(), 'node_modules/pdfjs-dist/web/images/annotation-paperclip.svg')));
             expect(dimensions.naturalWidth).toBeGreaterThan(0);

@@ -921,6 +921,7 @@ if(process.type==='browser'){
             const copied = await session.page.evaluate(() => navigator.clipboard.readText());
             expect(copied).toContain('ENOSPC');
             expect(copied).toContain(retainedCause!.id!.replace('Error ID: ', ''));
+            expect(await session.page.$$eval('.app-toast-error-id', (ids, id) => ids.every(node => node.textContent === id), retainedCause!.id)).toBe(true);
         }
         expect(await session.page.$(`.editor-pane[data-editor-pane-id="${targetPane}"] [contenteditable="true"]`).then(Boolean)).toBe(false);
         expect(await session.page.$('.tab.is-active.is-dirty').then(Boolean)).toBe(true);

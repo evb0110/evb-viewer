@@ -8,6 +8,7 @@ import {
     describe,
     expect,
     it,
+    onTestFinished,
     vi,
 } from 'vitest';
 import {readFile} from 'node:fs/promises';
@@ -1465,16 +1466,14 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
     });
 
     it('cleans up transient combine refs when opening picked browser inputs fails', async () => {
-        vi.stubGlobal('crypto', {
-            ...(globalThis.crypto ?? {}),
-            randomUUID: vi.fn(() => 'open-failure-ref'),
-        });
+        const uuid = vi.spyOn(globalThis.crypto, 'randomUUID').mockReturnValue('00000000-0000-4000-8000-000000000006');
+        onTestFinished(() => uuid.mockRestore());
         const brokenPng = new File([Uint8Array.of(1, 2, 3)], 'broken.png', { type: 'image/png' });
         const {
             capability,
             browserDocumentStore,
         } = await loadBrowserDocumentsFileCapability({ inputFiles: [brokenPng] });
-        const failedRef = 'browser://documents/open-failure-ref/broken.png';
+        const failedRef = 'browser://documents/00000000-0000-4000-8000-000000000006/broken.png';
 
         await expect(capability.openCombineDialog()).rejects.toThrow();
         await expect(browserDocumentStore.exists(failedRef)).resolves.toBe(false);

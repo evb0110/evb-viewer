@@ -769,14 +769,19 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
      * new one, before the browser paints. A navigation that has not placed
      * its page yet resolves against the new layout on its own.
      */
-    function relayout(change?: () => void, anchor?: IPdfSemanticAnchor | null) {
+    function relayout(change?: () => void, anchor?: IPdfSemanticAnchor | null | ((point: IPdfSemanticAnchor) => IPdfSemanticAnchor)) {
         if (pendingRelayoutAnchor.value === undefined && isNavigationRuntimeReady()) {
             const ticket = currentNavigationTicket();
             pendingRelayoutAnchor.value = ticket
                 ? (isPlacedNavigationAnchor(viewportAuthority.committedAnchor.value)
                     ? viewportAuthority.committedAnchor.value
                     : null)
-                : anchor ?? captureRelayoutAnchor();
+                : typeof anchor === 'function' ? captureRelayoutAnchor() : anchor ?? captureRelayoutAnchor();
+        }
+        // Compose transforms on the pending point, including several rotations
+        // before Vue flushes. An explicit navigation keeps its own destination.
+        if (typeof anchor === 'function' && pendingRelayoutAnchor.value && !currentNavigationTicket()) {
+            pendingRelayoutAnchor.value = anchor(pendingRelayoutAnchor.value);
         }
         change?.();
     }

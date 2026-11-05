@@ -202,7 +202,8 @@ describe('Electron E2E - concurrent search indexes', () => {
         await waitForFunctionInPage(page, (root: string, word: string) => (
             Array.from(document.querySelectorAll<HTMLElement>(`${root} .document-search-result`)).some(result => result.textContent?.includes(word))
         ), {timeout: RESULT_TIMEOUT_MS}, SIDEBAR, NON_EMBEDDED_CJK_SEARCH_FIXTURE_QUERY);
-        // Existing structured worker records provide lifetime evidence, with no new polling lane.
+        // Normal shutdown drains buffered worker records before the lifetime assertions.
+        await sessionFixture.stop({preserveArtifacts: true});
         const records = (await readFile(logPath, 'utf8')).slice(logOffset).split('\n').filter(Boolean).map(line => JSON.parse(line) as ILogRecord)
             .filter(record => record.data?.workerName === 'pdf-text-worker.js');
         let active = 0; let peak = 0; let started = 0;

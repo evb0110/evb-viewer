@@ -124,7 +124,6 @@ export async function sweepBrowserDocumentMaintenance(
         loadAllChunkKeysAvailability(),
     ]);
     if (!records.available || !chunks.available) return;
-    if (records.value?.length === 0 && chunks.value?.length === 0) return;
     const pendingRefs = new Set<string>(Array.from(entries.values())
         .filter((entry) => Boolean(entry.pendingLoad))
         .map((entry) => entry.ref));

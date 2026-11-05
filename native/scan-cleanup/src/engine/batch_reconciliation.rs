@@ -281,16 +281,8 @@ pub(crate) fn reconcile_classification_batch(
 
         for index in cluster {
             let metadata = results[index];
-            let candidate_is_off_prior = prior
-                .cutter_ratio_median
-                .zip(metadata.candidate_cutter_ratio)
-                .is_some_and(|(prior_ratio, candidate_ratio)| {
-                    (prior_ratio - candidate_ratio).abs() > 0.015
-                });
             let rerun_with_prior = prior.dominant_layout == LayoutClassification::TwoPageSpread
-                && (metadata.tier1_verdict != prior.dominant_layout
-                    || metadata.tier1_confidence < 0.60
-                    || candidate_is_off_prior);
+                && metadata.tier1_confidence < policy.minimum_confidence;
             if rerun_with_prior {
                 actions.push(ReconciliationAction {
                     index,
@@ -319,6 +311,7 @@ pub(crate) fn reconcile_classification_batch(
                 metadata.rotated_width,
                 metadata.rotated_height,
                 prior,
+                policy.minimum_confidence,
             );
             actions.push(ReconciliationAction {
                 index,
@@ -411,6 +404,76 @@ mod tests {
             reconciliation_eligible: true,
             excluded: false,
             document_prior: None,
+        }
+    }
+
+    #[test]
+    fn batch_policy_threshold_preserves_confident_minority_layouts() {
+        for threshold in [0.60, 0.90] {
+            for (majority, minority, cutter) in [
+                (
+                    LayoutClassification::SingleUncutPage,
+                    LayoutClassification::TwoPageSpread,
+                    Some(120.0),
+                ),
+                (
+                    LayoutClassification::TwoPageSpread,
+                    LayoutClassification::SingleUncutPage,
+                    None,
+                ),
+            ] {
+                for confidence in [threshold - 0.01, threshold] {
+                    let majority_cutter =
+                        (majority == LayoutClassification::TwoPageSpread).then_some(120.0);
+                    let candidates = [
+                        candidate(majority, 1.0, majority_cutter, Some(0.5)),
+                        candidate(majority, 1.0, majority_cutter, Some(0.5)),
+                        candidate(minority, confidence, cutter, Some(0.5)),
+                    ];
+                    let actions = reconcile_classification_batch(
+                        &candidates,
+                        ReconciliationPolicy {
+                            minimum_confidence: threshold,
+                            minimum_support: 2,
+                        },
+                    );
+                    let change = actions
+                        .iter()
+                        .find(|action| action.index == 2)
+                        .unwrap()
+                        .change;
+                    if confidence >= threshold {
+                        match change {
+                            PageReconciliation::Update {
+                                classification,
+                                cutter_x,
+                                output_count,
+                                reconciled,
+                                ..
+                            } => {
+                                assert_eq!(classification, minority);
+                                assert_eq!(cutter_x, cutter);
+                                assert_eq!(output_count, usize::from(cutter.is_some()) + 1);
+                                assert!(!reconciled);
+                            }
+                            PageReconciliation::Rerun { .. } => {
+                                panic!("confident minority must not rerun")
+                            }
+                        }
+                    } else if majority == LayoutClassification::TwoPageSpread {
+                        assert!(matches!(change, PageReconciliation::Rerun { .. }));
+                    } else {
+                        assert!(matches!(
+                            change,
+                            PageReconciliation::Update {
+                                classification: LayoutClassification::SingleUncutPage,
+                                reconciled: true,
+                                ..
+                            }
+                        ));
+                    }
+                }
+            }
         }
     }
 

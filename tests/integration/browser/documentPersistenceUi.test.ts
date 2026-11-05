@@ -8,7 +8,11 @@ import {
     basename, resolve,
 } from 'node:path';
 import {PDFDocument} from 'pdf-lib';
+import {build} from 'esbuild';
 import {DEFAULT_SETTINGS} from '@contracts/settings';
+import {
+    getOcrModelDownloadUrl, OCR_LANGUAGE_MODEL_BYTES, OCR_LANGUAGE_MODEL_SHA256,
+} from '@contracts/ocrLanguages';
 import {chromium} from 'playwright';
 import type {
     BrowserContext, Download, Page,
@@ -46,10 +50,13 @@ async function createReadingBook(label: string, name: string) {
 function readReadingView(page: Page) {
     return page.evaluate(() => {
         const host = document.querySelector('.workspace-host[data-workspace-active="true"]');
-        const viewport = host?.getBoundingClientRect();
+        const viewport = host?.querySelector('[data-document-viewer-chassis-viewport]')?.getBoundingClientRect();
         const visible = Array.from(host?.querySelectorAll<HTMLElement>('.page_container--rendered') ?? []).find((container) => {
+            if (!viewport) return false;
             const rect = container.getBoundingClientRect();
-            return viewport && rect.bottom > viewport.top + viewport.height / 4 && rect.top < viewport.bottom - viewport.height / 4;
+            const centerX = viewport.left + viewport.width / 2;
+            const centerY = viewport.top + viewport.height / 2;
+            return rect.left <= centerX && rect.right >= centerX && rect.top <= centerY && rect.bottom >= centerY;
         });
         const rect = visible?.getBoundingClientRect();
         return {
@@ -74,6 +81,319 @@ async function openReadingBook(page: Page, label: string, name: string) {
 }
 
 describe('browser document lifecycle UI', () => {
+    // T2/C1: accepted independent settings survive an interleaved latest-read/write.
+    it('serializes Scan Cleanup document and global intents with real cross-page IndexedDB', async () => {
+        const bundle = await build({
+            stdin: {
+                contents: `
+                import * as preferences from './app/utils/browserScanCleanupPreferences';
+                import {createScanCleanupPageOverride} from './packages/contracts/scan-cleanup/scanCleanupPageOverrides';
+                const key = 'evb.scanCleanup.documentOverrides.v1';
+                const marginsMm = {leftMm: 3, rightMm: 4, topMm: 5, bottomMm: 6};
+                globalThis.__b02Preferences = preferences;
+                globalThis.__b02Race = async kind => {
+                    const hash = 'a'.repeat(64);
+                    const override = createScanCleanupPageOverride({rotationDegrees: 90});
+                    if (['copy', 'adopt', 'reset', 'override-edits'].includes(kind)) {
+                        localStorage.setItem(key, JSON.stringify({book: {updatedAt: 1, marginsMm, outputMode: 'bw', overrides: {}}}));
+                    }
+                    let nested;
+                    let armed = true;
+                    const storage = {
+                        get(name) {
+                            const snapshot = localStorage.getItem(name);
+                            if (armed) {
+                                armed = false;
+                                nested = Promise.resolve(kind === 'global'
+                                    ? preferences.saveScanCleanupPreferencesPatch({firstRunGuidanceDismissed: true})
+                                    : kind === 'override-edits'
+                                        ? preferences.saveScanCleanupDocumentPreferences('book', {overrideEdits: {'2': override}})
+                                        : preferences.saveScanCleanupDocumentPreferences(kind === 'adopt' ? hash : ['other-document', 'copy', 'reset'].includes(kind) ? 'peer' : 'book', {outputMode: 'color'}));
+                            }
+                            return snapshot;
+                        },
+                        set(name, value) {localStorage.setItem(name, value); return true;},
+                    };
+                    await (kind === 'global'
+                        ? preferences.saveScanCleanupPreferencesPatch({marginsMm}, storage)
+                        : kind === 'copy' ? preferences.copyScanCleanupDocumentPreferences(['book'], 'copy', storage)
+                        : kind === 'adopt' ? preferences.adoptScanCleanupDocumentKey(hash, 'book', storage)
+                        : kind === 'reset' ? preferences.resetScanCleanupDocumentOverrides('book', storage)
+                        : preferences.saveScanCleanupDocumentPreferences('book', kind === 'override-edits' ? {overrideEdits: {'1': override}} : {marginsMm}, storage));
+                    await nested;
+                    return JSON.parse(localStorage.getItem(kind === 'global' ? 'evb.scanCleanup.settings.v1' : key));
+                };
+            `,
+                resolveDir: process.cwd(),
+                loader: 'ts',
+            },
+            bundle: true,
+            write: false,
+            format: 'iife',
+            platform: 'browser',
+            tsconfig: resolve(process.cwd(), 'tsconfig.json'),
+            define: {'import.meta.dev': 'false'},
+        });
+        const context = await lifecycle.browser.newContext();
+        await context.route('**/b02-preferences', route => route.fulfill({
+            contentType: 'text/html',
+            body: '<!doctype html><title>Scan Cleanup preference integration</title>',
+        }));
+        const pageA = await context.newPage();
+        const pageB = await context.newPage();
+        try {
+            for (const page of [
+                pageA,
+                pageB,
+            ]) {
+                await page.goto(`${lifecycle.origin}/b02-preferences`);
+                await page.addScriptTag({content: bundle.outputFiles[0]!.text});
+            }
+            const observations: Array<{
+                kind: string;
+                run: number;
+                margin: number | null;
+                peer: unknown
+            }> = [];
+            for (const kind of [
+                'same-document',
+                'other-document',
+                'global',
+                'override-edits',
+                'copy',
+                'adopt',
+                'reset',
+            ]) {
+                for (let run = 0; run < 3; run += 1) {
+                    await pageA.evaluate(() => {
+                        localStorage.removeItem('evb.scanCleanup.documentOverrides.v1');
+                        localStorage.removeItem('evb.scanCleanup.settings.v1');
+                    });
+                    await pageA.evaluate(async race => Reflect.get(window, '__b02Race')(race), kind);
+                    // Reload the peer to read persisted state after storage-event delivery.
+                    await pageB.reload();
+                    await pageB.addScriptTag({content: bundle.outputFiles[0]!.text});
+                    const saved = await pageB.evaluate(race => JSON.parse(localStorage.getItem(race === 'global'
+                        ? 'evb.scanCleanup.settings.v1' : 'evb.scanCleanup.documentOverrides.v1') ?? '{}'), kind);
+                    observations.push({
+                        kind,
+                        run,
+                        margin: (kind === 'global' ? saved.marginsMm?.leftMm : saved[kind === 'adopt' ? 'a'.repeat(64) : kind === 'copy' ? 'copy' : 'book']?.marginsMm?.leftMm) ?? null,
+                        peer: kind === 'global' ? saved.firstRunGuidanceDismissed
+                            : kind === 'override-edits' ? Boolean(saved.book?.overrides?.['1'] && saved.book?.overrides?.['2'])
+                                : saved[kind === 'adopt' ? 'a'.repeat(64) : [
+                                    'other-document',
+                                    'copy',
+                                    'reset',
+                                ].includes(kind) ? 'peer' : 'book']?.outputMode,
+                    });
+                }
+            }
+            console.info('B02 controlled preference interleavings', JSON.stringify(observations));
+            expect(observations).toEqual([
+                'same-document',
+                'other-document',
+                'global',
+                'override-edits',
+                'copy',
+                'adopt',
+                'reset',
+            ].flatMap(kind => Array.from({length: 3}, (_value, run) => ({
+                kind,
+                run,
+                margin: 3,
+                peer: [
+                    'global',
+                    'override-edits',
+                ].includes(kind) ? true : 'color',
+            }))));
+            // Independent renderer contexts share the very same transaction owner.
+            await Promise.all([
+                pageA.evaluate(async () => Reflect.get(window, '__b02Preferences').saveScanCleanupDocumentPreferences('cross-page', {outputMode: 'color'})),
+                pageB.evaluate(async () => Reflect.get(window, '__b02Preferences').saveScanCleanupDocumentPreferences('cross-page', {marginsMm: {
+                    leftMm: 7,
+                    rightMm: 7,
+                    topMm: 7,
+                    bottomMm: 7,
+                }})),
+            ]);
+            await pageA.reload();
+            expect(await pageA.evaluate(() => JSON.parse(localStorage.getItem('evb.scanCleanup.documentOverrides.v1') ?? '{}')['cross-page'])).toMatchObject({
+                outputMode: 'color',
+                marginsMm: {leftMm: 7},
+            });
+        } finally {
+            await context.close();
+        }
+    });
+
+    // T3: physical Save compares every opening byte and ignores an mtime-only touch.
+    it.each([
+        'unsampled-edit',
+        'mtime-only',
+        'legacy-file-unchanged',
+        'legacy-bytes-unchanged',
+        'legacy-file-changed',
+        'legacy-bytes-changed',
+    ] as const)('preserves physical-source Save authority after %s', async scenario => {
+        const context = await lifecycle.browser.newContext({viewport: {
+            width: 1280,
+            height: 900,
+        }});
+        const page = await context.newPage();
+        const name = 'physical-authority.pdf';
+        const note = 'Independent working note';
+        const book = await createReadingBook('Physical authority', name);
+        // A valid PDF with trailing comments; offset 1 MiB is outside all old witness samples.
+        const legacyKind = scenario.startsWith('legacy-file') ? 'file' : scenario.startsWith('legacy-bytes') ? 'bytes' : null;
+        const changed = scenario === 'unsampled-edit' || scenario.endsWith('-changed');
+        const bytes = scenario === 'unsampled-edit' || legacyKind
+            ? Buffer.concat([
+                book.buffer,
+                Buffer.from('\n%'),
+                Buffer.alloc(17 * 1024 * 1024, 32),
+            ])
+            : book.buffer;
+        try {
+            await page.addInitScript(fileName => {
+                Reflect.set(window, '__allowRendererFileOpenForAutomation', () => true);
+                Reflect.set(window, 'showOpenFilePicker', async () => [new File([], fileName)]);
+                Object.defineProperties(File.prototype, {
+                    kind: {get: () => 'file'},
+                    createWritable: {value: async function (this: File) {
+                        const root = await navigator.storage.getDirectory();
+                        return (await root.getFileHandle(this.name)).createWritable();
+                    }},
+                    isSameEntry: {value: async function (this: File, other: FileSystemHandle) {return this.name === other.name;}},
+                    getFile: {value: async function (this: File) {
+                        const root = await navigator.storage.getDirectory();
+                        const file = await (await root.getFileHandle(this.name)).getFile();
+                        return new File([await file.arrayBuffer()], this.name, {
+                            type: 'application/pdf',
+                            lastModified: Number(sessionStorage.getItem('physical-mtime') ?? 100),
+                        });
+                    }},
+                });
+            }, name);
+            await page.goto(lifecycle.origin, {waitUntil: 'domcontentloaded'});
+            await waitForOpenFileReady(page);
+            await page.evaluate(async ({
+                fileName, content,
+            }) => {
+                const root = await navigator.storage.getDirectory();
+                const output = await (await root.getFileHandle(fileName, {create: true})).createWritable();
+                await output.write(Uint8Array.from(atob(content), character => character.charCodeAt(0)));
+                await output.close();
+            }, {
+                fileName: name,
+                content: bytes.toString('base64'),
+            });
+            await page.getByRole('button', {
+                name: 'Open File',
+                exact: true,
+            }).first().click();
+            await expect.poll(async () => (await readReadingView(page)).visibleText, {timeout: 30_000}).toBe('Physical authority page 1');
+            await settleActiveOpen(page);
+            await addNote(page, note, {
+                x: 90,
+                y: 100,
+            });
+            if (legacyKind) {
+                const sampleSize = 64 * 1024;
+                const middle = Math.floor(bytes.length / 2) - sampleSize / 2;
+                const samples = Buffer.concat([
+                    bytes.subarray(0, sampleSize),
+                    bytes.subarray(middle, middle + sampleSize),
+                    bytes.subarray(-sampleSize),
+                ]);
+                let first = 2_166_136_261;
+                let second = 2_169_136_261;
+                for (const byte of samples) {
+                    first = Math.imul(first ^ byte, 16_777_619);
+                    second = Math.imul(second ^ byte, 2_654_435_761);
+                }
+                const baseline = `${legacyKind}:${bytes.length}:${legacyKind === 'file' ? '100:' : ''}${(first >>> 0).toString(16)}-${(second >>> 0).toString(16)}`;
+                // Setup only: emulate a pre-upgrade persisted baseline in the open working copy.
+                await page.evaluate(`(async () => {
+                    const {browserDocumentStore: store} = await import('/_nuxt/platform/browser/browserDocumentRepository.ts');
+                    const {loadAllRecordKeys, loadRecord, persistRecord} = await import('/_nuxt/platform/browser/browserDocumentIdb.ts');
+                    for (const ref of await loadAllRecordKeys()) {
+                        const record = await loadRecord(ref);
+                        if (record?.kind !== 'working' && record?.kind !== 'source') continue;
+                        record.sourceBaseWitness = ${JSON.stringify(baseline)};
+                        await persistRecord(record);
+                        (await store.requireEntry(ref)).sourceBaseWitness = record.sourceBaseWitness;
+                    }
+                })()`);
+            }
+            await page.evaluate(async ({
+                fileName, changeBytes, position,
+            }) => {
+                sessionStorage.setItem('physical-mtime', changeBytes ? '100' : '200');
+                if (!changeBytes) return;
+                const root = await navigator.storage.getDirectory();
+                const handle = await root.getFileHandle(fileName);
+                const output = await handle.createWritable({keepExistingData: true});
+                await output.write({
+                    type: 'write',
+                    position,
+                    data: Uint8Array.of(88),
+                });
+                await output.close();
+            }, {
+                fileName: name,
+                changeBytes: changed,
+                position: legacyKind ? bytes.length - 1 : 1024 * 1024,
+            });
+            const save = page.locator('.save-split-primary').first();
+            await save.click();
+            // Both success and refusal settle the save operation; inspect actual disk bytes.
+            await expect.poll(() => save.getAttribute('aria-busy'), {timeout: 15_000}).toBe('false');
+            const savedBase64 = await page.evaluate(async fileName => {
+                const root = await navigator.storage.getDirectory();
+                const file = await (await root.getFileHandle(fileName)).getFile();
+                return new Promise<string>((resolveRead, rejectRead) => {
+                    const reader = new FileReader();
+                    reader.onload = () => resolveRead(String(reader.result).split(',')[1]!);
+                    reader.onerror = () => rejectRead(reader.error);
+                    reader.readAsDataURL(file);
+                });
+            }, name);
+            const saved = Buffer.from(savedBase64, 'base64');
+            if (changed) {
+                expect(saved[legacyKind ? bytes.length - 1 : 1024 * 1024]).toBe(88);
+                expect(noteTexts(await PDFDocument.load(Uint8Array.from(saved)))).not.toContain(note);
+                expect(await save.isDisabled()).toBe(false);
+                // Save As still contains the reader's independent authored work.
+                await page.getByRole('button', {
+                    name: 'Save options',
+                    exact: true,
+                }).click();
+                const download = page.waitForEvent('download');
+                await page.evaluate(() => Reflect.set(window, 'showSaveFilePicker', undefined));
+                await page.getByRole('menuitem', {name: /^Save As/u}).click();
+                expect(noteTexts(await PDFDocument.load(readFileSync(await (await download).path())))).toContain(note);
+            } else {
+                expect(noteTexts(await PDFDocument.load(Uint8Array.from(saved)))).toContain(note);
+                expect(await save.isDisabled()).toBe(true);
+                const persistedWitnesses = await page.evaluate(`(async () => {
+                    const {loadAllRecordKeys, loadRecord} = await import('/_nuxt/platform/browser/browserDocumentIdb.ts');
+                    return Promise.all((await loadAllRecordKeys()).map(async ref => (await loadRecord(ref))?.sourceBaseWitness));
+                })()`) as string[];
+                expect(persistedWitnesses.length).toBeGreaterThanOrEqual(2);
+                expect(persistedWitnesses.every(witness => witness?.startsWith('content-v2:'))).toBe(true);
+                await addNote(page, 'Second save advances the baseline', {
+                    x: 140,
+                    y: 140,
+                });
+                await save.click();
+                await expect.poll(() => save.isDisabled(), {timeout: 15_000}).toBe(true);
+            }
+        } finally {
+            await context.close();
+        }
+    }, 120_000);
+
 
     it.each([
         'corrupt',
@@ -1575,3 +1895,218 @@ describe('browser Settings save failure UI', () => {
         }
     });
 });
+
+// A3/T2: file commands retain annotation transactions and the external saved frontier.
+describe('B01 file command annotation isolation', () => {
+    it.each([
+        'A26-1',
+        'A26-3',
+    ] as const)('%s retains separate note and page transactions', async item => {
+        const context = await lifecycle.browser.newContext({acceptDownloads: true});
+        const page = await context.newPage();
+        const diagnostics: string[] = [];
+        page.on('console', message => {if ([
+            'error',
+            'warning',
+        ].includes(message.type())) diagnostics.push(message.text());});
+        page.on('pageerror', error => diagnostics.push(error.stack ?? error.message));
+        const orientation = async () => {
+            const rect = await page.locator('.page_container--rendered[data-page="1"]').first().boundingBox();
+            return rect ? rect.width > rect.height : null;
+        };
+        const markers = page.locator('.pdf-annotation-editor-layer [data-annotation-kind="note"]');
+        const history = async (direction: 'Undo' | 'Redo') => {
+            await page.getByRole('button', {
+                name: direction,
+                exact: true,
+            }).click();
+            await settleActiveOpen(page);
+        };
+        const rotate = async () => {
+            if (!await page.getByRole('tab', {
+                name: 'Pages',
+                exact: true,
+            }).isVisible()) await page.getByRole('button', {
+                name: 'Toggle Sidebar',
+                exact: true,
+            }).click();
+            await page.getByRole('tab', {
+                name: 'Pages',
+                exact: true,
+            }).click();
+            await clickCenter(page, '[data-thumbnail-page="1"]', 'right');
+            await page.getByRole('menuitem', {
+                name: 'Rotate Clockwise',
+                exact: true,
+            }).click();
+            await page.waitForFunction(() => {
+                const api = Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi;
+                return api.readActiveWorkspaceStateValues?.<{isPageOperationInProgress: boolean}>(['isPageOperationInProgress']).isPageOperationInProgress === false;
+            });
+            await settleActiveOpen(page);
+            await expect.poll(orientation).toBe(true);
+        };
+        try {
+            await openPdfFromChooser(page, await createReadingBook('B01', 'b01.pdf'));
+            await settleActiveOpen(page);
+            if (item === 'A26-1') {
+                // The browser fallback lacks the desktop receipt consumer. Supply
+                // only that setup boundary, using the real WASM output, receipt
+                // validation, revision-checked storage commit and lease release.
+                await page.evaluate(`(async () => {
+                    const {getDocumentFilesCapability} = await import('/_nuxt/utils/platformDocuments.ts');
+                    const {browserDocumentStore} = await import('/_nuxt/platform/browserDocumentStore.ts');
+                    const {commitBrowserStoreStagedArtifact} = await import('/_nuxt/platform/browser/browserStagedArtifact.ts');
+                    const files = getDocumentFilesCapability();
+                    files.replaceWorkingCopyFromStagedPdfNativeMutation = async (path, receipt, options) => {
+                        try {
+                            return await commitBrowserStoreStagedArtifact(browserDocumentStore, receipt, path, options.expectedDocumentRevisionToken);
+                        } finally {
+                            await files.releaseManagedTempFileHandle(receipt.leaseId);
+                        }
+                    };
+                })()`);
+            }
+            if (item === 'A26-1') {
+                if (await page.locator('.browser-install-dismiss').isVisible()) await page.locator('.browser-install-dismiss').click();
+                await page.getByRole('button', {
+                    name: 'Toggle Sidebar',
+                    exact: true,
+                }).click();
+                await page.getByRole('tab', {
+                    name: 'Pages',
+                    exact: true,
+                }).click();
+                const disclosure = page.locator('.pdf-sidebar-pages-disclosure');
+                if (await disclosure.getAttribute('aria-expanded') !== 'true') await disclosure.click();
+                await page.locator('#page-label-prefix-input').fill('B01-');
+                await page.getByRole('button', {
+                    name: 'Apply numbering',
+                    exact: true,
+                }).click();
+                await expect.poll(() => page.locator('[data-thumbnail-page="1"] [data-document-thumbnail-label]').innerText()).toBe('B01-1 (1)');
+                await disclosure.click();
+                await expect.poll(() => disclosure.getAttribute('aria-expanded')).toBe('false');
+            }
+            if (item === 'A26-3') await rotate();
+            await addNote(page, 'B01 accepted note', {
+                x: 120,
+                y: 180,
+            });
+            await expect.poll(() => markers.count()).toBe(1);
+            if (item === 'A26-1') await rotate();
+            else {
+                const download = page.waitForEvent('download');
+                await page.getByRole('button', {
+                    name: 'Save',
+                    exact: true,
+                }).click();
+                await (await download).path();
+                // Sticky-note text and marker creation are separate accepted commands.
+                await history('Undo');
+                await history('Undo');
+                await expect.poll(() => markers.count()).toBe(0);
+            }
+            await history('Undo');
+            await expect.poll(orientation).toBe(false);
+            if (item === 'A26-3') {
+                await history('Redo');
+                await expect.poll(orientation).toBe(true);
+            }
+            await expect.poll(() => markers.count()).toBe(item === 'A26-1' ? 1 : 0);
+            await expect.poll(async () => await page.locator('[data-tab-list] [role="tab"][aria-selected="true"]').getAttribute('aria-description') ?? '').toMatch(/unsaved/iu);
+            if (item === 'A26-1') {
+                await expect.poll(() => page.locator('[data-thumbnail-page="1"] [data-document-thumbnail-label]').innerText()).toBe('B01-1 (1)');
+                await history('Undo');
+            }
+            await history(item === 'A26-1' ? 'Undo' : 'Redo');
+            await expect.poll(() => markers.count()).toBe(item === 'A26-1' ? 0 : 1);
+            if (item === 'A26-1') {
+                await expect.poll(async () => await page.locator('[data-tab-list] [role="tab"][aria-selected="true"]').getAttribute('aria-description') ?? '').toMatch(/unsaved/iu);
+                await history('Undo');
+                await expect.poll(() => page.locator('[data-thumbnail-page="1"] [data-document-thumbnail-label]').innerText()).toBe('1');
+                diagnostics.push(JSON.stringify(await page.evaluate(() => (Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi).readActiveWorkspaceStateValues?.([
+                    'dirtyState',
+                    'sortedAnnotationNoteWindows',
+                ])), null, 2));
+                await expect.poll(async () => await page.locator('[data-tab-list] [role="tab"][aria-selected="true"]').getAttribute('aria-description') ?? '').toBe('');
+            }
+        } finally {
+            if (process.env.EVB_B01_EVIDENCE_DIR) {
+                mkdirSync(process.env.EVB_B01_EVIDENCE_DIR, {recursive: true});
+                writeFileSync(resolve(process.env.EVB_B01_EVIDENCE_DIR, `${item}.log`), diagnostics.join('\n'));
+                await page.screenshot({path: resolve(process.env.EVB_B01_EVIDENCE_DIR, `${item}.png`)});
+            }
+            await context.close();
+        }
+    }, 90_000);
+});
+
+// A26-2: real OCR, renderer text, note marker and document dirty state.
+it('B01 A26-2 preserves an unsaved note through OCR Undo and Redo', async () => {
+    const context = await lifecycle.browser.newContext({viewport: {
+        width: 1440,
+        height: 900,
+    }});
+    const page = await context.newPage();
+    try {
+        const response = await fetch(getOcrModelDownloadUrl('eng'));
+        expect(response.ok).toBe(true);
+        const model = Buffer.from(await response.arrayBuffer());
+        expect(model.byteLength).toBe(OCR_LANGUAGE_MODEL_BYTES.eng);
+        expect(createHash('sha256').update(model).digest('hex')).toBe(OCR_LANGUAGE_MODEL_SHA256.eng);
+        await page.route('**/eng.traineddata', route => route.fulfill({
+            contentType: 'application/octet-stream',
+            body: model,
+        }));
+        await openPdfFromChooser(page, {
+            name: 'b01-ocr.pdf',
+            mimeType: 'application/pdf',
+            buffer: readFileSync(resolve('tests/fixtures/release/packaged-core-ocr-smoke.pdf')),
+        });
+        await settleActiveOpen(page);
+        await addNote(page, 'B01 note before OCR', {
+            x: 120,
+            y: 180,
+        });
+        const markers = page.locator('.pdf-annotation-editor-layer [data-annotation-kind="note"]');
+        await expect.poll(() => markers.count()).toBe(1);
+        const text = () => page.locator('.textLayer').allTextContents().then(values => values.join(' ').trim());
+        expect(await text()).toBe('');
+        await page.getByRole('button', {
+            name: 'OCR',
+            exact: true,
+        }).click();
+        const dialog = page.getByRole('dialog');
+        await dialog.getByRole('button', {name: /^(Download and start OCR|Start OCR)$/u}).click();
+        const completion = 'OCR complete - PDF is now searchable';
+        await dialog.getByText(completion, {exact: true}).or(dialog.getByRole('alert')).first().waitFor({timeout: 90_000});
+        expect(await dialog.innerText()).toContain(completion);
+        await dialog.getByRole('button', {
+            name: 'Close',
+            exact: true,
+        }).last().click();
+        await settleActiveOpen(page);
+        await expect.poll(text).toMatch(/\w{4}/u);
+        for (const direction of [
+            'Undo',
+            'Redo',
+        ] as const) {
+            await page.getByRole('button', {
+                name: direction,
+                exact: true,
+            }).click();
+            await settleActiveOpen(page);
+            if (direction === 'Undo') await expect.poll(text).toBe('');
+            else await expect.poll(text).toMatch(/\w{4}/u);
+            await expect.poll(() => markers.count()).toBe(1);
+            await expect.poll(async () => await page.locator('[data-tab-list] [role="tab"][aria-selected="true"]').getAttribute('aria-description') ?? '').toMatch(/unsaved/iu);
+        }
+        if (process.env.EVB_B01_EVIDENCE_DIR) {
+            mkdirSync(process.env.EVB_B01_EVIDENCE_DIR, {recursive: true});
+            await page.screenshot({path: resolve(process.env.EVB_B01_EVIDENCE_DIR, 'A26-2.png')});
+        }
+    } finally {
+        await context.close();
+    }
+}, 120_000);

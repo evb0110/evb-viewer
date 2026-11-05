@@ -1,3 +1,5 @@
+import {DOCUMENTS_STORE} from '@app/platform/browser/browserDocumentConstants';
+import {runObjectStoreTransaction} from '@app/platform/browser/browserDocumentIdb';
 import type {
     IScanCleanupMarginsMm,
     IScanCleanupPageOverride,
@@ -49,6 +51,22 @@ const browserStorage: IScanCleanupPreferenceStorage = {
     set: safeSetLocalStorageItem,
 };
 
+async function runSerializedScanCleanupPreferencesMutation<T>(mutate: () => T): Promise<T> {
+    const result = await runObjectStoreTransaction<{value: T} | {error: unknown}>(DOCUMENTS_STORE, 'readwrite', (store, setResult) => {
+        const read = store.get('__evb_scan_cleanup_preferences_storage_lock__');
+        read.onsuccess = () => {
+            try {
+                setResult({value: mutate()});
+            } catch (error) {
+                setResult({error});
+            }
+        };
+    });
+    if (result === null) throw new Error('Failed to serialize scan-cleanup preferences');
+    if ('error' in result) throw result.error;
+    return result.value;
+}
+
 export function exportScanCleanupLegacyStorage(
     storage: IScanCleanupPreferenceStorage = browserStorage,
 ): IScanCleanupLegacyStorageExport {
@@ -64,19 +82,21 @@ export function exportScanCleanupLegacyStorage(
  * migrate on the first read. A document entry keyed by its path can only be
  * adopted once that document's source hash is known, so it stays until then.
  */
-export function clearScanCleanupLegacyStorage(isDocumentAdopted: (legacyDocumentKey: string) => boolean) {
+export async function clearScanCleanupLegacyStorage(isDocumentAdopted: (legacyDocumentKey: string) => boolean) {
     if (typeof window === 'undefined') {
         return;
     }
     try {
-        window.localStorage.removeItem(SETTINGS_KEY);
-        const remaining = Object.entries(loadDocumentEntries(browserStorage))
-            .filter(([legacyDocumentKey]) => !isDocumentAdopted(legacyDocumentKey));
-        if (remaining.length === 0) {
-            window.localStorage.removeItem(OVERRIDES_KEY);
-        } else {
-            window.localStorage.setItem(OVERRIDES_KEY, JSON.stringify(Object.fromEntries(remaining)));
-        }
+        await runSerializedScanCleanupPreferencesMutation(() => {
+            window.localStorage.removeItem(SETTINGS_KEY);
+            const remaining = Object.entries(loadDocumentEntries(browserStorage))
+                .filter(([legacyDocumentKey]) => !isDocumentAdopted(legacyDocumentKey));
+            if (remaining.length === 0) {
+                window.localStorage.removeItem(OVERRIDES_KEY);
+            } else {
+                window.localStorage.setItem(OVERRIDES_KEY, JSON.stringify(Object.fromEntries(remaining)));
+            }
+        });
     } catch {
         // Best-effort cleanup after the file-backed store confirms migration.
     }
@@ -128,11 +148,11 @@ function saveDocumentEntries(entries: Record<string, unknown>, storage: IScanCle
  * was known moves to the hash on the first such read; while storage refuses
  * that move, the reference stays the key.
  */
-export function adoptScanCleanupDocumentKey(
+export async function adoptScanCleanupDocumentKey(
     sourceSha256: string | null | undefined,
     legacyDocumentKey: string | null | undefined,
     storage: IScanCleanupPreferenceStorage = browserStorage,
-): string | null {
+): Promise<string | null> {
     if (!isScanCleanupSourceSha256(sourceSha256)) {
         return legacyDocumentKey ?? null;
     }
@@ -140,18 +160,15 @@ export function adoptScanCleanupDocumentKey(
     if (!legacyDocumentKey || legacyDocumentKey === key) {
         return key;
     }
-    const entries = loadDocumentEntries(storage);
-    if (Object.hasOwn(entries, legacyDocumentKey) && !Object.hasOwn(entries, key)) {
-        entries[key] = entries[legacyDocumentKey];
-        Reflect.deleteProperty(entries, legacyDocumentKey);
-        try {
+    return runSerializedScanCleanupPreferencesMutation(() => {
+        const entries = loadDocumentEntries(storage);
+        if (Object.hasOwn(entries, legacyDocumentKey) && !Object.hasOwn(entries, key)) {
+            entries[key] = entries[legacyDocumentKey];
+            Reflect.deleteProperty(entries, legacyDocumentKey);
             saveDocumentEntries(entries, storage);
-        } catch {
-            // Storage refused the move; the entry stays under the reference for a later read.
-            return legacyDocumentKey;
         }
-    }
-    return key;
+        return key;
+    }).catch(() => legacyDocumentKey);
 }
 
 /**
@@ -165,24 +182,26 @@ export function copyScanCleanupDocumentPreferences(
     savedKey: string,
     storage: IScanCleanupPreferenceStorage = browserStorage,
 ) {
-    const entries = loadDocumentEntries(storage);
-    if (Object.hasOwn(entries, savedKey)) return;
-    const sourceKey = sourceKeys.find(key => Object.hasOwn(entries, key));
-    if (sourceKey === undefined) return;
-    const entry = scanCleanupPreferenceRecord(entries[sourceKey]);
-    if (!entry) return;
-    // Both documents were just in use: fresh times keep the size bound from
-    // dropping either the copy or the source it came from.
-    const updatedAt = Date.now();
-    entries[sourceKey] = {
-        ...entry,
-        updatedAt,
-    };
-    entries[savedKey] = {
-        ...entry,
-        updatedAt,
-    };
-    saveDocumentEntries(entries, storage);
+    return runSerializedScanCleanupPreferencesMutation(() => {
+        const entries = loadDocumentEntries(storage);
+        if (Object.hasOwn(entries, savedKey)) return;
+        const sourceKey = sourceKeys.find(key => Object.hasOwn(entries, key));
+        if (sourceKey === undefined) return;
+        const entry = scanCleanupPreferenceRecord(entries[sourceKey]);
+        if (!entry) return;
+        // Both documents were just in use: fresh times keep the size bound from
+        // dropping either the copy or the source it came from.
+        const updatedAt = Date.now();
+        entries[sourceKey] = {
+            ...entry,
+            updatedAt,
+        };
+        entries[savedKey] = {
+            ...entry,
+            updatedAt,
+        };
+        saveDocumentEntries(entries, storage);
+    });
 }
 
 export function loadScanCleanupPreferences(
@@ -191,54 +210,41 @@ export function loadScanCleanupPreferences(
     return decodeScanCleanupGlobalPreferences(parseScanCleanupPreferenceJson(storage.get(SETTINGS_KEY)));
 }
 
-export function saveScanCleanupPreferences(
+function writeScanCleanupPreferences(
     value: IScanCleanupGlobalPreferences,
     storage: IScanCleanupPreferenceStorage = browserStorage,
 ) {
     assertFiniteScanCleanupPreferences(value);
-    const {
-        outputMode: _ignoredLegacyOutputMode,
-        runOcrAfterCleanup: _ignoredLegacyRunOcr,
-        ...globalPreferences
-    } = value as IScanCleanupGlobalPreferences & {
-        outputMode?: unknown;
-        runOcrAfterCleanup?: unknown;
-    };
-    const committed = storage.set(SETTINGS_KEY, JSON.stringify({
-        ...globalPreferences,
-        marginsMm: decodeScanCleanupMarginsMm(value.marginsMm),
-    }));
-    if (committed === false) {
+    const preferences = decodeScanCleanupGlobalPreferences(value);
+    if (storage.set(SETTINGS_KEY, JSON.stringify(preferences)) === false) {
         throw new Error('Failed to persist scan-cleanup preferences');
     }
+    return preferences;
+}
+
+export function saveScanCleanupPreferences(value: IScanCleanupGlobalPreferences, storage: IScanCleanupPreferenceStorage = browserStorage) {
+    return runSerializedScanCleanupPreferencesMutation(() => writeScanCleanupPreferences(value, storage));
 }
 
 export function saveScanCleanupPreferencesPatch(
     patch: IScanCleanupGlobalPreferencePatch,
     storage: IScanCleanupPreferenceStorage = browserStorage,
 ) {
-    const current = loadScanCleanupPreferences(storage);
-    const next: IScanCleanupGlobalPreferences = {
-        ...current,
-        ...patch,
-        marginsMm: patch.marginsMm === undefined
-            ? current.marginsMm
-            : decodeScanCleanupMarginsMm(patch.marginsMm, current.marginsMm),
-    };
-    saveScanCleanupPreferences(next, storage);
-    return next;
+    return runSerializedScanCleanupPreferencesMutation(() => {
+        const current = loadScanCleanupPreferences(storage);
+        const next: IScanCleanupGlobalPreferences = {
+            ...current,
+            ...patch,
+            marginsMm: patch.marginsMm === undefined
+                ? current.marginsMm
+                : decodeScanCleanupMarginsMm(patch.marginsMm, current.marginsMm),
+        };
+        return writeScanCleanupPreferences(next, storage);
+    });
 }
 
-export function dismissScanCleanupFirstRunGuidance(
-    storage: IScanCleanupPreferenceStorage = browserStorage,
-) {
-    const preferences = loadScanCleanupPreferences(storage);
-    if (!preferences.firstRunGuidanceDismissed) {
-        saveScanCleanupPreferences({
-            ...preferences,
-            firstRunGuidanceDismissed: true,
-        }, storage);
-    }
+export function dismissScanCleanupFirstRunGuidance(storage: IScanCleanupPreferenceStorage = browserStorage) {
+    return saveScanCleanupPreferencesPatch({firstRunGuidanceDismissed: true}, storage);
 }
 
 export function loadScanCleanupDocumentOverrides(
@@ -251,16 +257,7 @@ export function loadScanCleanupDocumentOverrides(
     const entries = loadDocumentEntries(storage);
     const entry = scanCleanupPreferenceRecord(entries[documentKey]);
     const migration = migrateScanCleanupDocumentOverridesV1(entry);
-    if (migration.migratedLegacyGeometry) {
-        entries[documentKey] = {
-            ...(entry ?? {}),
-            updatedAt: Date.now(),
-            overrides: migration.overrides,
-        };
-        // A migration storage refuses is redone on the next read.
-        storage.set(OVERRIDES_KEY, JSON.stringify(boundedDocumentEntries(entries)));
-        warnScanCleanupOverrideMigrationV1();
-    }
+    if (migration.migratedLegacyGeometry) warnScanCleanupOverrideMigrationV1();
     return migration.overrides;
 }
 
@@ -291,17 +288,7 @@ export function loadScanCleanupDocumentPageOverrideDefaults(
         return null;
     }
     const migration = migrateScanCleanupPageOverrideV1(entry.pageOverrideDefaults);
-    if (migration.migratedLegacyGeometry) {
-        const entries = loadDocumentEntries(storage);
-        entries[documentKey] = {
-            ...(entry ?? {}),
-            updatedAt: Date.now(),
-            pageOverrideDefaults: migration.value,
-        };
-        // A migration storage refuses is redone on the next read.
-        storage.set(OVERRIDES_KEY, JSON.stringify(boundedDocumentEntries(entries)));
-        warnScanCleanupOverrideMigrationV1();
-    }
+    if (migration.migratedLegacyGeometry) warnScanCleanupOverrideMigrationV1();
     try {
         return decodeScanCleanupPageOverride(migration.value);
     } catch {
@@ -348,7 +335,7 @@ export function loadScanCleanupDocumentEntry(
     };
 }
 
-export function saveScanCleanupDocumentPreferences(
+export async function saveScanCleanupDocumentPreferences(
     documentKey: string | null | undefined,
     patch: IScanCleanupDocumentPreferencePatch,
     storage: IScanCleanupPreferenceStorage = browserStorage,
@@ -369,111 +356,70 @@ export function saveScanCleanupDocumentPreferences(
         throw new TypeError('Scan cleanup document margins require finite numeric values');
     }
 
-    const entries = loadDocumentEntries(storage);
-    const existingEntry = scanCleanupPreferenceRecord(entries[documentKey]);
-    const nextEntry = {...(existingEntry ?? {})};
-    // Validated here because this store reads renderer storage, not IPC.
-    const writesUpdatedAt = applyScanCleanupDocumentPreferencePatch(nextEntry, {
-        ...patch,
-        ...(patch.overrides === undefined ? {} : {overrides: decodeScanCleanupPageOverrides(patch.overrides)}),
-        ...(patch.overrideEdits === undefined
-            ? {}
-            : {overrideEdits: decodeScanCleanupPageOverrideEdits(patch.overrideEdits)}),
-        ...(patch.pageOverrideDefaults === undefined
-            ? {}
-            : {pageOverrideDefaults: decodeScanCleanupPageOverride(patch.pageOverrideDefaults)}),
-        ...(patch.marginsMm === undefined ? {} : {marginsMm: decodeScanCleanupMarginsMm(patch.marginsMm)}),
-    });
-    if (writesUpdatedAt) {
-        nextEntry.updatedAt = Date.now();
-    }
-    if (Object.keys(nextEntry).length === 0) {
-        Reflect.deleteProperty(entries, documentKey);
-    } else {
-        entries[documentKey] = nextEntry;
-    }
-    saveDocumentEntries(entries, storage);
-}
-
-export function saveScanCleanupDocumentOverrides(
-    documentKey: string | null | undefined,
-    overrides: TScanCleanupPageOverrides,
-    storage: IScanCleanupPreferenceStorage = browserStorage,
-) {
-    if (!documentKey) {
-        return;
-    }
-    const validatedOverrides = decodeScanCleanupPageOverrides(overrides);
-    const entries = loadDocumentEntries(storage);
-    entries[documentKey] = {
-        ...scanCleanupPreferenceRecord(entries[documentKey]),
-        updatedAt: Date.now(),
-        overrides: validatedOverrides,
-    };
-    saveDocumentEntries(entries, storage);
-}
-
-export function saveScanCleanupDocumentMargins(
-    documentKey: string | null | undefined,
-    marginsMm: IScanCleanupMarginsMm,
-    storage: IScanCleanupPreferenceStorage = browserStorage,
-) {
-    if (!documentKey) {
-        return;
-    }
-    if (Object.values(marginsMm).some(margin => !Number.isFinite(margin))) {
-        throw new TypeError('Scan cleanup document margins require finite numeric values');
-    }
-    const entries = loadDocumentEntries(storage);
-    entries[documentKey] = {
-        ...scanCleanupPreferenceRecord(entries[documentKey]),
-        updatedAt: Date.now(),
-        marginsMm: decodeScanCleanupMarginsMm(marginsMm),
-    };
-    saveDocumentEntries(entries, storage);
-}
-
-export function saveScanCleanupDocumentOutputMode(
-    documentKey: string | null | undefined,
-    outputMode: TScanCleanupOutputModeSetting,
-    storage: IScanCleanupPreferenceStorage = browserStorage,
-) {
-    if (!documentKey || ![
-        'auto',
-        'bw',
-        'mixed',
-        'grayscale',
-        'color',
-    ].includes(outputMode)) {
-        return;
-    }
-    const entries = loadDocumentEntries(storage);
-    entries[documentKey] = {
-        ...scanCleanupPreferenceRecord(entries[documentKey]),
-        updatedAt: Date.now(),
-        outputMode,
-    };
-    saveDocumentEntries(entries, storage);
-}
-
-export function resetScanCleanupDocumentOverrides(
-    documentKey: string | null | undefined,
-    storage: IScanCleanupPreferenceStorage = browserStorage,
-) {
-    if (!documentKey) {
-        return;
-    }
-    const entries = loadDocumentEntries(storage);
-    const entry = scanCleanupPreferenceRecord(entries[documentKey]);
-    if (entry?.marginsMm !== undefined || entry?.outputMode !== undefined) {
-        Reflect.deleteProperty(entry, 'overrides');
-        Reflect.deleteProperty(entry, 'pageOverrideDefaults');
-        entries[documentKey] = {
-            ...entry,
-            updatedAt: Date.now(),
+    return runSerializedScanCleanupPreferencesMutation(() => {
+        const entries = loadDocumentEntries(storage);
+        const existingEntry = scanCleanupPreferenceRecord(entries[documentKey]);
+        const nextEntry: Record<string, unknown> = {
+            ...(existingEntry ?? {}),
+            ...(existingEntry?.overrides === undefined ? {} : {overrides: migrateScanCleanupDocumentOverridesV1(existingEntry).overrides}),
+            ...(existingEntry?.pageOverrideDefaults === undefined ? {} : {pageOverrideDefaults: migrateScanCleanupPageOverrideV1(existingEntry.pageOverrideDefaults).value}),
         };
-    } else {
-        Reflect.deleteProperty(entries, documentKey);
+        // Validated here because this store reads renderer storage, not IPC.
+        const writesUpdatedAt = applyScanCleanupDocumentPreferencePatch(nextEntry, {
+            ...patch,
+            ...(patch.overrides === undefined ? {} : {overrides: decodeScanCleanupPageOverrides(patch.overrides)}),
+            ...(patch.overrideEdits === undefined
+                ? {}
+                : {overrideEdits: decodeScanCleanupPageOverrideEdits(patch.overrideEdits)}),
+            ...(patch.pageOverrideDefaults === undefined
+                ? {}
+                : {pageOverrideDefaults: decodeScanCleanupPageOverride(patch.pageOverrideDefaults)}),
+            ...(patch.marginsMm === undefined ? {} : {marginsMm: decodeScanCleanupMarginsMm(patch.marginsMm)}),
+        });
+        if (writesUpdatedAt) {
+            nextEntry.updatedAt = Date.now();
+        }
+        if (Object.keys(nextEntry).length === 0) {
+            Reflect.deleteProperty(entries, documentKey);
+        } else {
+            entries[documentKey] = nextEntry;
+        }
+        saveDocumentEntries(entries, storage);
+    });
+}
+
+export function saveScanCleanupDocumentOverrides(documentKey: string | null | undefined, overrides: TScanCleanupPageOverrides, storage: IScanCleanupPreferenceStorage = browserStorage) {
+    return saveScanCleanupDocumentPreferences(documentKey, {overrides}, storage);
+}
+
+export function saveScanCleanupDocumentMargins(documentKey: string | null | undefined, marginsMm: IScanCleanupMarginsMm, storage: IScanCleanupPreferenceStorage = browserStorage) {
+    return saveScanCleanupDocumentPreferences(documentKey, {marginsMm}, storage);
+}
+
+export function saveScanCleanupDocumentOutputMode(documentKey: string | null | undefined, outputMode: TScanCleanupOutputModeSetting, storage: IScanCleanupPreferenceStorage = browserStorage) {
+    return saveScanCleanupDocumentPreferences(documentKey, {outputMode}, storage);
+}
+
+export async function resetScanCleanupDocumentOverrides(
+    documentKey: string | null | undefined,
+    storage: IScanCleanupPreferenceStorage = browserStorage,
+) {
+    if (!documentKey) {
+        return;
     }
-    saveDocumentEntries(entries, storage);
+    return runSerializedScanCleanupPreferencesMutation(() => {
+        const entries = loadDocumentEntries(storage);
+        const entry = scanCleanupPreferenceRecord(entries[documentKey]);
+        if (entry?.marginsMm !== undefined || entry?.outputMode !== undefined) {
+            Reflect.deleteProperty(entry, 'overrides');
+            Reflect.deleteProperty(entry, 'pageOverrideDefaults');
+            entries[documentKey] = {
+                ...entry,
+                updatedAt: Date.now(),
+            };
+        } else {
+            Reflect.deleteProperty(entries, documentKey);
+        }
+        saveDocumentEntries(entries, storage);
+    });
 }

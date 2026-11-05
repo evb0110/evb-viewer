@@ -62,6 +62,7 @@ export function isBrowserWorkerResponseEnvelope(value: unknown): value is TBrows
 }
 
 const cropMarginsSchema = v.object({
+    physical: v.optional(v.boolean()),
     top: finiteNonNegativeSchema,
     bottom: finiteNonNegativeSchema,
     left: finiteNonNegativeSchema,

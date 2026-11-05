@@ -26,15 +26,8 @@ export const useWorkspaceCrop = (options: IUseWorkspaceCropOptions) => {
         left: 0,
         right: 0,
     });
-    const cropDialogMediaBox = ref({
-        x: 0,
-        y: 0,
-        width: 612,
-        height: 792,
-    });
-    const cropDialogCurrentBox = ref<IPageGeometry['cropBox']>(null);
+    const cropDialogGeometry = ref<IPageGeometry | null>(null);
     const cropDialogPageNumber = ref(1);
-    const cropDialogRotation = ref(0);
     let cropRequestToken = 0;
 
     const isCropSelecting = computed(() => options.pdfViewerRef.value?.isCropSelecting ?? false);
@@ -68,9 +61,7 @@ export const useWorkspaceCrop = (options: IUseWorkspaceCropOptions) => {
             return;
         }
 
-        cropDialogCurrentBox.value = null;
         cropDialogPageNumber.value = result.pageNumber;
-        cropDialogRotation.value = 0;
         cropDialogOpen.value = false;
         cropDialogLoading.value = true;
 
@@ -116,9 +107,10 @@ export const useWorkspaceCrop = (options: IUseWorkspaceCropOptions) => {
         );
 
         cropDialogMargins.value = margins;
-        cropDialogMediaBox.value = geometry.mediaBox;
-        cropDialogCurrentBox.value = geometry.cropBox;
-        cropDialogRotation.value = displayRotation;
+        cropDialogGeometry.value = {
+            ...geometry,
+            rotation: displayRotation,
+        };
         await nextTick();
         if (!isCurrentCropRequest(requestToken, viewer, workingCopyPath)) {
             if (requestToken === cropRequestToken) {
@@ -143,10 +135,8 @@ export const useWorkspaceCrop = (options: IUseWorkspaceCropOptions) => {
         cropDialogOpen,
         cropDialogLoading,
         cropDialogMargins,
-        cropDialogMediaBox,
-        cropDialogCurrentBox,
+        cropDialogGeometry,
         cropDialogPageNumber,
-        cropDialogRotation,
         isCropSelecting,
         handleCrop,
     };

@@ -399,6 +399,7 @@ pub(crate) fn insert_browser_pdf_pages(
 ) -> Result<PageMutationBytes> {
     let destination = load_browser_pdf(data)?;
     let insertion = load_browser_pdf(insertion_data)?;
+    crate::catalog::read_pdf_combine_catalog(&insertion)?;
     let destination_pages = destination.get_pages();
     let insertion_pages = insertion.get_pages();
     if after_page > destination_pages.len() as u32 {
@@ -515,7 +516,7 @@ pub(crate) fn build_browser_page_subset_pdf(
             &mut clone_context.target,
             &annotations,
             &mut |object| {
-                map_page_object_references(object, &mut |id| {
+                map_page_object_references(object, None, &mut |id| {
                     if let Some(copy) = identities.get(&(0, id)) {
                         return Ok(Object::Reference(*copy));
                     }
@@ -834,7 +835,8 @@ impl PageCloneContext<'_> {
     }
 
     fn clone_direct_references(&mut self, source_index: usize, object: Object) -> Result<Object> {
-        map_page_object_references(object, &mut |object_id| {
+        let imported = (source_index > 0).then_some(self.sources[source_index]);
+        map_page_object_references(object, imported, &mut |object_id| {
             if self.is_unretained_page_tree_object(source_index, object_id)? {
                 Ok(Object::Null)
             } else {
@@ -902,6 +904,7 @@ pub(crate) fn materialize_page_inherited_object(
 /// Walk direct containers only; each caller owns indirect-object identity.
 pub(crate) fn map_page_object_references(
     object: Object,
+    imported: Option<&Document>,
     reference: &mut impl FnMut(ObjectId) -> Result<Object>,
 ) -> Result<Object> {
     match object {
@@ -909,7 +912,7 @@ pub(crate) fn map_page_object_references(
         Object::Array(items) => Ok(Object::Array(
             items
                 .into_iter()
-                .map(|item| map_page_object_references(item, reference))
+                .map(|item| map_page_object_references(item, imported, reference))
                 .collect::<Result<_>>()?,
         )),
         Object::Dictionary(_) | Object::Stream(_) => {
@@ -919,8 +922,26 @@ pub(crate) fn map_page_object_references(
                 Object::Stream(stream) => &mut stream.dict,
                 _ => unreachable!(),
             };
+            // Imported names belong to the source catalog, which is not copied.
+            // Resolve them before mapping page identities, including inline links
+            // and actions, so a destination catalog's same name cannot capture them.
+            if let Some(source) = imported {
+                let key = if dictionary.get(b"S").and_then(Object::as_name).ok() == Some(b"GoTo") {
+                    b"D".as_slice()
+                } else {
+                    b"Dest".as_slice()
+                };
+                if let Ok(destination) = dictionary.get(key) {
+                    let destination =
+                        crate::internal_destinations::resolve_destination(source, destination)?
+                            .ok_or(
+                                "Browser insertion cannot resolve an imported named destination",
+                            )?;
+                    dictionary.set(key, Object::Array(destination));
+                }
+            }
             for (_, value) in dictionary.iter_mut() {
-                *value = map_page_object_references(value.clone(), reference)?;
+                *value = map_page_object_references(value.clone(), imported, reference)?;
             }
             Ok(object)
         }

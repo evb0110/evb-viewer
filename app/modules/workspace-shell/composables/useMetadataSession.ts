@@ -39,41 +39,53 @@ export const useMetadataSession = (options: IMetadataSessionOptions) => {
     const workspaceUndoTimeline = useWorkspaceCommandLedger();
     // This reload scope holds the existing owner, never a second metadata copy.
     let preservedReload: {
-        prepareReload: () => ReturnType<typeof createPdfReloadWaiter>;
+        prepareReload: (() => ReturnType<typeof createPdfReloadWaiter>) | undefined;
         restoreCleanState: (() => void) | undefined;
     } | null = null;
-    const preservesSourceReload = () => preservedReload !== null;
+    const preservesSourceReload = () => preservedReload?.prepareReload !== undefined;
     async function runWithPreservedMetadataReload<T>(
         operation: () => Promise<T>,
-        prepareReload: () => ReturnType<typeof createPdfReloadWaiter>,
+        prepareReload?: () => ReturnType<typeof createPdfReloadWaiter>,
     ) {
         const previous = preservedReload;
         preservedReload = {
             prepareReload,
             restoreCleanState: metadataHistory?.captureCleanState(),
         };
-        try { return await operation(); } finally { preservedReload = previous; }
+        try {
+            const result = await operation();
+            await pageLabelState.whenPageLabelsSettled();
+            return result;
+        } finally {
+            // Keep same-document admission for late views; file reset admits Open.
+            preservedReload = previous ?? {
+                prepareReload: undefined,
+                restoreCleanState: undefined,
+            };
+        }
     }
     function registerCommand(command: IWorkspaceCommandRegistration) {
         const scope = preservedReload;
-        if (command.source !== 'file' || !scope) {
+        if (command.source !== 'file') {
             workspaceUndoTimeline.registerCommand(command);
             return;
         }
-        let restoreCleanState = scope.restoreCleanState;
-        const run = (operation: IWorkspaceCommandRegistration['undo']) => runWithPreservedMetadataReload(async () => {
+        let restoreCleanState = scope?.restoreCleanState ?? metadataHistory?.captureCleanState();
+        const replay = async (operation: IWorkspaceCommandRegistration['undo']) => {
             const inverse = metadataHistory?.captureCleanState();
-            const reload = scope.prepareReload();
+            const reload = scope?.prepareReload?.();
             try {
                 const changed = await operation();
                 if (changed) {
-                    await reload.promise;
+                    await reload?.promise;
+                    await pageLabelState.whenPageLabelsSettled();
                     restoreCleanState?.();
                     restoreCleanState = inverse;
                 }
                 return changed;
-            } finally { reload.cancel(); }
-        }, scope.prepareReload);
+            } finally { reload?.cancel(); }
+        };
+        const run = (operation: IWorkspaceCommandRegistration['undo']) => runWithPreservedMetadataReload(() => replay(operation), scope?.prepareReload);
         workspaceUndoTimeline.registerCommand({
             ...command,
             undo: () => run(command.undo),
@@ -82,17 +94,26 @@ export const useMetadataSession = (options: IMetadataSessionOptions) => {
     }
     const commandSink: IWorkspaceCommandSink = {
         register: registerCommand,
-        reset: workspaceUndoTimeline.resetSource,
+        reset: source => {
+            if (source === 'file' || source === undefined) preservedReload = null;
+            workspaceUndoTimeline.resetSource(source);
+        },
         forget: workspaceUndoTimeline.forgetSourceEntries,
         undo: workspaceUndoTimeline.undoTimeline,
         redo: workspaceUndoTimeline.redoTimeline,
     };
     setWorkspaceCommandSink?.(commandSink);
 
+    function synchronizeMetadata(field: 'bookmarkItems' | 'pageLabelRanges') {
+        if (preservesSourceReload()) return;
+        if (preservedReload) metadataHistory?.captureCleanState()(field);
+        else metadataHistory?.markCurrentStateClean(field);
+    }
+
     const bookmarkState = useBookmarkState({
         markDirty,
         preservesSourceReload,
-        onBookmarksSynchronized: () => { if (!preservesSourceReload()) metadataHistory?.markCurrentStateClean('bookmarkItems'); },
+        onBookmarksSynchronized: () => synchronizeMetadata('bookmarkItems'),
         onBookmarksDirty: () => metadataHistory?.recordCurrentState(),
         onBookmarksSaved: written => metadataHistory?.markCurrentStateClean('bookmarkItems', written),
     });
@@ -116,7 +137,7 @@ export const useMetadataSession = (options: IMetadataSessionOptions) => {
             return getDocumentFilesCapability().readPdfPageLabelRanges(path);
         },
         preservesSourceReload,
-        onPageLabelsSynchronized: () => { if (!preservesSourceReload()) metadataHistory?.markCurrentStateClean('pageLabelRanges'); },
+        onPageLabelsSynchronized: () => synchronizeMetadata('pageLabelRanges'),
         onPageLabelsDirty: () => metadataHistory?.recordCurrentState(),
         onPageLabelsSaved: written => metadataHistory?.markCurrentStateClean('pageLabelRanges', written),
         // The outline is re-read from new bytes, not from another view's copy of the same.

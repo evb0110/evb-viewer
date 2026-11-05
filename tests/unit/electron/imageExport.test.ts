@@ -27,6 +27,7 @@ import {
 } from 'fs/promises';
 import type * as FsPromises from 'fs/promises';
 import type * as WorkerTask from '@electron/utils/workerTask';
+import * as workerTask from '@electron/utils/workerTask';
 import * as utifModule from 'utif';
 import type {ITiffEncoderModule} from '@pdf-core/tiffEncoding';
 import {
@@ -35,6 +36,15 @@ import {
 } from '@electron/utils/nativeTerminationProof';
 import { decode as decodePng } from 'fast-png';
 import { readImageDpi } from '@electron/image/imageDpi';
+import {requireDocumentRef} from '@contracts/documentRef';
+import {requirePageNumber} from '@contracts/pageNumbers';
+import {
+    readBrowserRasterImageMetadata, readBrowserTiffFrameDpi,
+} from '@app/platform/browser-api/browserRasterImageMetadata';
+import {loadBrowserPdfjsDocument} from '@app/platform/browser-api/loadBrowserPdfjsDocument';
+import * as browserPicker from '@app/platform/browser-api/browserFilePickerAdapter';
+import {browserDocumentStore} from '@app/platform/browserDocumentStore';
+
 import {
     createStopPoint,
     listStagedNames,
@@ -49,6 +59,8 @@ import {
     it,
     vi,
 } from 'vitest';
+
+vi.mock('@app/platform/browser-api/loadBrowserPdfjsDocument', () => ({loadBrowserPdfjsDocument: vi.fn()}));
 
 interface IManagedScratchDir {
     path: string;
@@ -1737,6 +1749,237 @@ describe('image export', () => {
         expect(getUnprovenNativeTerminationDetail(combined)).toBe('first writer still alive');
         expect(getUnprovenNativeTerminationDetail(new AggregateError([rollbackFailure], 'export failed'))).toBeUndefined();
     });
+
+    it.each([
+        {
+            name: 'Letter fallback',
+            width: 612,
+            height: 792,
+            sourceDpi: null,
+            dpi: 300,
+            pixels: [
+                2550,
+                3300,
+            ],
+        },
+        {
+            name: '600 DPI scan',
+            width: 72,
+            height: 108,
+            sourceDpi: 600,
+            dpi: 600,
+            pixels: [
+                600,
+                900,
+            ],
+        },
+        {
+            name: '96 DPI scan',
+            width: 72,
+            height: 108,
+            sourceDpi: 96,
+            dpi: 96,
+            pixels: [
+                96,
+                144,
+            ],
+        },
+        {
+            name: 'dimension guard',
+            width: 10000,
+            height: 72,
+            sourceDpi: null,
+            dpi: 58,
+            pixels: [
+                8056,
+                58,
+            ],
+        },
+    ].flatMap(fixture => [
+        'png',
+        'jpeg',
+        'tiff',
+        'multipage-tiff',
+    ].map(format => ({
+        ...fixture,
+        format,
+    }))))(
+        'exports matching browser and desktop pixel dimensions and density for $name $format', async (fixture) => {
+            const {
+                createCanvas, DOMMatrix, ImageData, Path2D, loadImage,
+            } = await import('@napi-rs/canvas');
+            vi.stubGlobal('DOMMatrix', DOMMatrix);
+            vi.stubGlobal('ImageData', ImageData);
+            vi.stubGlobal('Path2D', Path2D);
+            vi.stubGlobal('document', {createElement: (tag: string) => {
+                if (tag !== 'canvas') throw new Error(`Unexpected element: ${tag}`);
+                return createCanvas(1, 1);
+            }});
+            const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
+            const {createBrowserImageExportCapability} = await import('@app/platform/browser-api/createBrowserImageExportCapability');
+            const worker = vi.spyOn(workerTask, 'runResultWorkerTask');
+            if (fixture.format === 'multipage-tiff') {
+                const {build} = await import('esbuild');
+                mocks.tiffWorkerPath = join(tempDir, 'image-export-tiff-worker.mjs');
+                await build({
+                    entryPoints: ['electron/features/image-export/main/tiffCombineWorker.ts'],
+                    outfile: mocks.tiffWorkerPath,
+                    bundle: true,
+                    platform: 'node',
+                    format: 'esm',
+                    external: ['electron'],
+                    tsconfig: 'tsconfig.base.json',
+                });
+                const actual = await vi.importActual<typeof WorkerTask>('@electron/utils/workerTask');
+                worker.mockImplementation(actual.runResultWorkerTask);
+            }
+            const toolPaths = resolveRealPdfToolPaths();
+            const pdfimages = join(dirname(toolPaths.pdfinfo), process.platform === 'win32' ? 'pdfimages.exe' : 'pdfimages');
+            mocks.pdfimagesPath = '/mock/pdfimages';
+            mocks.stat.mockImplementation(realFs.stat);
+            mocks.rename.mockImplementation(realFs.rename);
+            mocks.atomicReplace.mockImplementation(realAtomicReplace.atomicReplace);
+            mocks.popplerDataDir = toolPaths.popplerDataDir;
+            mocks.popplerFontConfigDir = toolPaths.popplerFontConfigDir;
+            const commands: Record<string, string> = {
+                '/mock/qpdf': toolPaths.qpdf,
+                '/mock/pdfinfo': toolPaths.pdfinfo,
+                '/mock/pdftoppm': toolPaths.pdftoppm,
+                '/mock/pdfimages': pdfimages,
+            };
+            mocks.runCommand.mockImplementation(async (command: string, args: string[], options?: {
+                env?: NodeJS.ProcessEnv;
+                signal?: AbortSignal;
+                onStdout?: (chunk: string) => void;
+            }) => {
+                const result = await runFile(commands[command]!, args, {
+                    env: options?.env,
+                    signal: options?.signal,
+                });
+                options?.onStdout?.(result.stdout);
+                return {
+                    ...result,
+                    exitCode: 0,
+                };
+            });
+            const pdf = await realPdfLib.PDFDocument.create();
+            const page = pdf.addPage([
+                fixture.width,
+                fixture.height,
+            ]);
+            if (fixture.sourceDpi) {
+                const scan = createCanvas(fixture.pixels[0]!, fixture.pixels[1]!);
+                scan.getContext('2d').fillRect(0, 0, scan.width, scan.height);
+                page.drawImage(await pdf.embedPng(scan.toBuffer('image/png')), {
+                    x: 0,
+                    y: 0,
+                    width: fixture.width,
+                    height: fixture.height,
+                });
+            } else {
+                page.drawLine({
+                    start: {
+                        x: 0,
+                        y: 0,
+                    },
+                    end: {
+                        x: fixture.width,
+                        y: fixture.height,
+                    },
+                    thickness: 0.1,
+                });
+            }
+            const sourceBytes = await pdf.save();
+            const sourcePath = join(tempDir, 'parity.pdf');
+            await writeFile(sourcePath, sourceBytes);
+            const outputRef = requireDocumentRef('browser://documents/export-parity');
+            let browserBytes = new Uint8Array();
+            const store = vi.spyOn(browserDocumentStore, 'createStoredDocument').mockResolvedValue(outputRef);
+            const recent = vi.spyOn(browserDocumentStore, 'touchRecentFile').mockResolvedValue(undefined);
+            const picker = vi.spyOn(browserPicker, 'pickSaveTarget');
+            const save = vi.spyOn(browserPicker, 'saveBytesToPickerOrDownload');
+            const sink = vi.spyOn(browserPicker, 'openBrowserOutputSink').mockImplementation(async () => {
+                const chunks: Uint8Array[] = [];
+                return {
+                    write: async chunk => { chunks.push(chunk.slice()); },
+                    close: async () => { browserBytes = new Uint8Array(Buffer.concat(chunks)); },
+                    abort: async () => true,
+                };
+            });
+            try {
+                const format = fixture.format;
+                const extension = format.includes('tiff') ? 'tiff' : format;
+                const fileName = `export.${extension}`;
+                picker.mockResolvedValue({
+                    canceled: false,
+                    fileName,
+                    handle: null,
+                });
+                save.mockImplementation(async bytes => {
+                    browserBytes = bytes.slice();
+                    return {
+                        canceled: false,
+                        fileName,
+                        handle: null,
+                    };
+                });
+                const task = pdfjs.getDocument({
+                    data: sourceBytes.slice(),
+                    useSystemFonts: true,
+                });
+                vi.mocked(loadBrowserPdfjsDocument).mockResolvedValue(await task.promise);
+                const browser = createBrowserImageExportCapability();
+                const browserResult = format === 'multipage-tiff'
+                    ? await browser.exportPdfToMultiPageTiff(outputRef, [requirePageNumber(1)])
+                    : await browser.exportPdfToImages(outputRef, [requirePageNumber(1)]);
+                expect(browserResult.success).toBe(true);
+                const desktopPath = join(tempDir, `desktop-${fileName}`);
+                if (format === 'multipage-tiff') await exportPdfAsMultiPageTiff(sourcePath, desktopPath);
+                else await exportPdfPagesAsImages(sourcePath, desktopPath);
+                const desktopBytes = new Uint8Array(await readFile(desktopPath));
+                const dimensions = async (bytes: Uint8Array) => {
+                    if (extension === 'tiff') {
+                        const frames = UTIF.decode(bytes);
+                        expect(frames).toHaveLength(1);
+                        const frame = frames[0]!;
+                        UTIF.decodeImage(bytes, frame);
+                        expect(UTIF.toRGBA8(frame).byteLength).toBe(frame.width! * frame.height! * 4);
+                        return {
+                            pixels: [
+                                frame.width,
+                                frame.height,
+                            ],
+                            dpi: readBrowserTiffFrameDpi(frame),
+                        };
+                    }
+                    const image = await loadImage(Buffer.from(bytes));
+                    const metadata = readBrowserRasterImageMetadata(bytes, `.${extension}`);
+                    if (!metadata) throw new Error('The exported raster has no readable metadata');
+                    return {
+                        pixels: [
+                            image.width,
+                            image.height,
+                        ],
+                        dpi: metadata.dpi,
+                    };
+                };
+                const desktopImage = await dimensions(desktopBytes);
+                const browserImage = await dimensions(browserBytes);
+                console.info(`export parity ${fixture.name} ${format}: browser=${browserImage.pixels.join('x')}@${browserImage.dpi} desktop=${desktopImage.pixels.join('x')}@${desktopImage.dpi}`);
+                expect(desktopImage.pixels).toEqual(fixture.pixels);
+                expect(browserImage.pixels).toEqual(desktopImage.pixels);
+                expect(desktopImage.dpi).toBe(fixture.dpi);
+                expect(browserImage.dpi).toBe(fixture.dpi);
+            } finally {
+                store.mockRestore();
+                recent.mockRestore();
+                picker.mockRestore();
+                save.mockRestore();
+                sink.mockRestore();
+                worker.mockRestore();
+                vi.unstubAllGlobals();
+            }
+        });
 
     it('renders a real PDF through the export service and decodes every long-name page output', async () => {
         const {

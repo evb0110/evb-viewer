@@ -1,4 +1,7 @@
 import {
+    buildDocumentPageSourceScrollLayout, createLayoutPhysicalScrollSession, getLayoutContentHeight, getLayoutPhysicalScrollSegment, PDF_VIEWER_SCROLL_SEGMENT_MAX_HEIGHT, resolveDocumentPageTopsBounded,
+} from '@app/modules/document-viewer/layout/pdfPageLayoutMetrics';
+import {
     describe,
     expect,
     it,
@@ -9,7 +12,6 @@ import {
     resolveDocumentPageHeightsBounded,
     resolveDocumentPageLayoutsBounded,
     resolveDocumentPageSourceReadyEdgeSemanticPage,
-    resolveDocumentPageTopsBounded,
     resolveDocumentPageZoomAnchorLayoutsBounded,
 } from '@app/modules/document-viewer/page-source-renderer/useDocumentPageSourceRuntime';
 import {
@@ -342,5 +344,54 @@ describe('document page-source layout memory bounds', () => {
             width: 600,
             height: 800,
         });
+    });
+});
+
+
+describe('page-source logical and physical scroll coordinates', () => {
+    it('keeps neighboring pages distinct across segments and the final page reachable', () => {
+        const metrics = createProvisionalDocumentPageMetrics(5_010, {
+            widthPoints: 600,
+            heightPoints: 800,
+            rotation: 0,
+        });
+        const heights = resolveDocumentPageHeightsBounded(resolveDocumentPageDisplayLayoutsBounded(metrics, 650, 900, 10, 'custom'));
+        const {
+            layout, pageTops,
+        } = buildDocumentPageSourceScrollLayout(heights);
+        const viewport = createLayoutPhysicalScrollSession();
+        expect(getLayoutContentHeight(layout)).toBe(40_180_220);
+        for (const page of [
+            1,
+            1046,
+            1047,
+            2093,
+            5010,
+        ]) {
+            const pageTop = pageTops[page - 1]!;
+            const origin = viewport.place(layout, pageTop - 20, 650);
+            const segment = getLayoutPhysicalScrollSegment(layout, origin)!;
+            const physicalTop = pageTop - origin;
+            expect(page).toBeGreaterThanOrEqual(segment.firstPage);
+            expect(page).toBeLessThanOrEqual(segment.lastPage);
+            expect(physicalTop).toBeGreaterThanOrEqual(20);
+            expect(physicalTop).toBeLessThan(segment.height);
+            expect(segment.height).toBeLessThan(PDF_VIEWER_SCROLL_SEGMENT_MAX_HEIGHT + 8020);
+            expect(origin + physicalTop).toBe(pageTop);
+            if (page > 1) expect(physicalTop - (pageTops[page - 2]! - origin)).toBe(8020);
+        }
+        // The same logical point survives rebasing in both directions.
+        for (const top of [
+            8_388_000,
+            8_389_000,
+            8_000_000,
+            0,
+        ]) {
+            const origin = viewport.place(layout, top, 650);
+            expect(origin + (top - origin)).toBe(top);
+            expect(top - origin).toBeGreaterThanOrEqual(0);
+            expect(top - origin + 650).toBeLessThanOrEqual(getLayoutPhysicalScrollSegment(layout, origin)!.height);
+        }
+        expect(viewport.place(null, 0, 650)).toBe(0);
     });
 });

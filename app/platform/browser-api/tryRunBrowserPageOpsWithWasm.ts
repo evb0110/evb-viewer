@@ -3,10 +3,8 @@ import {
 } from '@contracts/browserPageOpsLimits';
 import { getErrorMessage } from '@app/utils/error';
 import {
-    BOX_LAYOUT,
     BYTES_HEADER,
     DOCUMENT_LIST_HEADER,
-    GEOMETRY_HEADER,
     MAX_U32,
     MUTATION_HEADER,
     NATIVE_MUTATION_HEADER,
@@ -24,7 +22,6 @@ import {
     REQUEST_VERSION_ORIGINAL_APPEARANCE_SOURCE,
     REQUEST_ORIGINAL_APPEARANCE_SOURCE_HEADER,
     RESPONSE_ANNOTATION_PARSE,
-    RESPONSE_GEOMETRY,
     RESPONSE_INCREMENT,
     RESPONSE_JSON,
     RESPONSE_MUTATION,
@@ -332,7 +329,7 @@ function getAfterPage(request: TBrowserPageOpsWasmRequest): number {
 function getAngle(request: TBrowserPageOpsWasmRequest): number {
     return request.type === 'rotate'
         ? request.payload.angle
-        : 0;
+        : Number(request.type === 'crop' && request.payload.margins.physical === true);
 }
 
 function getMargins(request: TBrowserPageOpsWasmRequest): ICropMargins {
@@ -623,32 +620,6 @@ function readMutationResult(output: Uint8Array) {
     };
 }
 
-function readBox(view: DataView, offset: number) {
-    return {
-        x: view.getFloat64(offset + BOX_LAYOUT.x, true),
-        y: view.getFloat64(offset + BOX_LAYOUT.y, true),
-        width: view.getFloat64(offset + BOX_LAYOUT.width, true),
-        height: view.getFloat64(offset + BOX_LAYOUT.height, true),
-    };
-}
-
-function readGeometryResult(output: Uint8Array) {
-    const view = new DataView(output.buffer, output.byteOffset, output.byteLength);
-    const rotation = view.getUint32(GEOMETRY_HEADER.rotation, true);
-    const mediaBox = readBox(view, GEOMETRY_HEADER.mediaBox);
-    const hasCropBox = view.getUint32(GEOMETRY_HEADER.hasCropBox, true) === 1;
-    const cropBox = readBox(view, GEOMETRY_HEADER.cropBox);
-    if (GEOMETRY_HEADER.bytes !== output.byteLength) {
-        return null;
-    }
-
-    return {
-        mediaBox,
-        cropBox: hasCropBox ? cropBox : null,
-        rotation,
-    };
-}
-
 function readJsonResult(output: Uint8Array) {
     if (output.byteLength < BYTES_HEADER.bytes) {
         return null;
@@ -736,13 +707,6 @@ function parseWasmOutput<K extends TBrowserPageOpsWasmRequestType>(
             return parsed.success ? parsed.output as IBrowserPageOpsWasmResultMap[K] : null;
         } catch { return null; }
     }
-    if (type === 'getPageGeometry') {
-        const parsed = kind === RESPONSE_GEOMETRY
-            ? v.safeParse(BROWSER_PAGE_OPS_WORKER_RESULT_SCHEMAS.getPageGeometry, readGeometryResult(output), {abortEarly: true})
-            : null;
-        return parsed?.success ? parsed.output as IBrowserPageOpsWasmResultMap[K] : null;
-    }
-
     if (type === 'parseAnnotations') {
         if (kind !== RESPONSE_ANNOTATION_PARSE || output.byteLength < BYTES_HEADER.bytes) {
             return null;
@@ -792,7 +756,7 @@ function parseWasmOutput<K extends TBrowserPageOpsWasmRequestType>(
         return parsed.success ? parsed.output as IBrowserPageOpsWasmResultMap[K] : null;
     }
 
-    if (type === 'ocrTextVisibility' || type === 'inspectScanCleanupPdf') {
+    if (type === 'getPageGeometry' || type === 'ocrTextVisibility' || type === 'inspectScanCleanupPdf') {
         const parsed = kind === RESPONSE_JSON
             ? v.safeParse(BROWSER_PAGE_OPS_WORKER_RESULT_SCHEMAS[type], readJsonResult(output), {abortEarly: true})
             : null;

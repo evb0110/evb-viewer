@@ -63,6 +63,7 @@ import {
     setScanCleanupRunError,
 } from '@app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator';
 import {encodeSerializableErrorEnvelope} from '@contracts/serializableError';
+import {FakeIndexedDbFactory} from '@tests/unit/app/platform/browserPlatformTestDoubles';
 
 const capability = vi.hoisted(() => ({value: null as IScanCleanupCapability | null}));
 // Counts the real reduction rather than replacing it: the document's layouts
@@ -376,6 +377,11 @@ function mountSession(documentKey: string, overrides: {
 
 describe('scan cleanup workspace session detection guidance', () => {
     beforeEach(() => {
+        const previousIndexedDb = globalThis.indexedDB;
+        vi.stubGlobal('indexedDB', new FakeIndexedDbFactory());
+        onTestFinished(() => {
+            vi.stubGlobal('indexedDB', previousIndexedDb);
+        });
         resetScanCleanupPreferencesStore();
         localStorage.clear();
         scanCleanupAutoDetectionCanceledDocuments.clear();
@@ -2390,7 +2396,8 @@ describe('scan cleanup workspace session detection guidance', () => {
         const secondKey = `preferences-b-${Date.now()}`;
         const first = mountSession(firstKey);
         const second = mountSession(secondKey);
-        await nextTick();
+        await expect.poll(() => first.session.settings.documentSettingsReady.value).toBe(true);
+        await expect.poll(() => second.session.settings.documentSettingsReady.value).toBe(true);
 
         first.session.settings.values.outputMode = 'color';
         expect(second.session.settings.values.outputMode).toBe('auto');
@@ -2409,6 +2416,7 @@ describe('scan cleanup workspace session detection guidance', () => {
         second.unmount();
 
         const reopened = mountSession(firstKey);
+        await expect.poll(() => reopened.session.settings.documentSettingsReady.value).toBe(true);
         expect(reopened.session.settings.values.outputMode).toBe('color');
         reopened.unmount();
     });
@@ -2455,9 +2463,8 @@ describe('scan cleanup workspace session detection guidance', () => {
         const first = mountSession('shared-source-settings', identity);
         const second = mountSession('shared-source-settings', identity);
         onTestFinished(() => { first.unmount(); second.unmount(); });
-        await nextTick();
-        expect(first.session.settings.documentSettingsReady.value).toBe(true);
-        expect(second.session.settings.documentSettingsReady.value).toBe(true);
+        await expect.poll(() => first.session.settings.documentSettingsReady.value).toBe(true);
+        await expect.poll(() => second.session.settings.documentSettingsReady.value).toBe(true);
 
         first.session.selection.updateRotation(90, [1]);
         await nextTick();
@@ -2468,7 +2475,7 @@ describe('scan cleanup workspace session detection guidance', () => {
 
         const reopened = mountSession('shared-source-settings', identity);
         onTestFinished(() => reopened.unmount());
-        await nextTick();
+        await expect.poll(() => reopened.session.settings.documentSettingsReady.value).toBe(true);
         const expected = {
             '1': {rotationDegrees: 90},
             '2': {rotationDegrees: 180},
@@ -2485,7 +2492,8 @@ describe('scan cleanup workspace session detection guidance', () => {
         const first = mountSession('shared-source-later-edit', identity);
         const second = mountSession('shared-source-later-edit', identity);
         onTestFinished(() => { first.unmount(); second.unmount(); });
-        await nextTick();
+        await expect.poll(() => first.session.settings.documentSettingsReady.value).toBe(true);
+        await expect.poll(() => second.session.settings.documentSettingsReady.value).toBe(true);
         first.session.selection.updateRotation(90, [1]);
         await nextTick();
         await flushScanCleanupDocumentPreferencesStore();
@@ -2500,7 +2508,7 @@ describe('scan cleanup workspace session detection guidance', () => {
 
         const reopened = mountSession('shared-source-later-edit', identity);
         onTestFinished(() => reopened.unmount());
-        await nextTick();
+        await expect.poll(() => reopened.session.settings.documentSettingsReady.value).toBe(true);
         expect(reopened.session.settings.values.pageOverrides).toMatchObject({
             '1': {rotationDegrees: 270},
             '2': {rotationDegrees: 180},
@@ -2514,7 +2522,7 @@ describe('scan cleanup workspace session detection guidance', () => {
         const secondKey = `debounced-preferences-b-${Date.now()}`;
         const documentKey = ref(firstKey);
         const mounted = mountSession(firstKey, {documentKey: () => documentKey.value});
-        await nextTick();
+        await expect.poll(() => mounted.session.settings.documentSettingsReady.value).toBe(true);
         const setItem = vi.spyOn(localStorage, 'setItem');
         const documentWrites = () => setItem.mock.calls.filter(([key]) => (
             key === 'evb.scanCleanup.documentOverrides.v1'
@@ -2542,8 +2550,7 @@ describe('scan cleanup workspace session detection guidance', () => {
         await nextTick();
         expect(documentWrites()).toBe(1);
         documentKey.value = secondKey;
-        await nextTick();
-        expect(documentWrites()).toBe(2);
+        await expect.poll(documentWrites).toBe(2);
         expect(JSON.parse(localStorage.getItem('evb.scanCleanup.documentOverrides.v1') ?? '{}'))
             .toMatchObject({[firstKey]: {outputMode: 'grayscale'}});
 
@@ -4169,6 +4176,7 @@ describe('scan cleanup workspace session detection guidance', () => {
         capability.value = harness.value;
         const documentKey = `reopen-overrides-${Date.now()}`;
         const first = mountSession(documentKey);
+        await expect.poll(() => first.session.settings.documentSettingsReady.value).toBe(true);
 
         first.session.settings.values.pageOverrides['2'] = {
             rotationDegrees: 0,
@@ -4195,6 +4203,7 @@ describe('scan cleanup workspace session detection guidance', () => {
         first.unmount();
 
         const reopened = mountSession(documentKey);
+        await expect.poll(() => reopened.session.settings.documentSettingsReady.value).toBe(true);
         expect(reopened.session.settings.values.pageOverrides['2']?.outputModeOverride).toBe('color');
         expect(reopened.session.detection.recommendedOutputModeByPage.size).toBe(0);
         expect(reopened.session.detection.recommendedOutputModeConfidenceByPage.size).toBe(0);
@@ -4424,6 +4433,7 @@ describe('scan cleanup workspace session detection guidance', () => {
         const mounted = mountSession(`mid-detection-evidence-${Date.now()}`);
 
         await vi.waitFor(() => expect(harness.value.detectAll).toHaveBeenCalledOnce());
+        await expect.poll(() => mounted.session.settings.documentSettingsReady.value).toBe(true);
         mounted.session.settings.values.pageOverrides['1'] = {
             rotationDegrees: 90,
             layoutOverride: 'auto',

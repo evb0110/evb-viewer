@@ -38,6 +38,21 @@ function createSession(pdfDocument = shallowRef<IPdfDocument | null>(null)) {
 }
 
 describe('useMetadataSession', () => {
+    it('keeps unresolved bookmarks clean when page labels settle during a page reload', async () => {
+        const session = createSession();
+        session.bookmarkState.handleBookmarksChange({
+            bookmarks: [createBookmark('Imported')],
+            dirty: false,
+        });
+        await session.runWithPreservedMetadataReload(async () => {
+            // The outline is cleared while its independent catalog read is pending.
+            session.bookmarkState.bookmarkItems.value = [];
+            session.bookmarkState.bookmarksResolved.value = false;
+            await session.pageLabelState.syncPageLabelsFromDocument(null);
+            expect(session.bookmarkState.bookmarksDirty.value).toBe(false);
+        });
+    });
+
     it('keeps accepted metadata and its inverse commands across an OCR revision and its file history', async () => {
         const session = createSession();
         const bookmark = createBookmark('Accepted');
@@ -86,6 +101,46 @@ describe('useMetadataSession', () => {
         expect(session.bookmarkState.bookmarkItems.value).toEqual([bookmark]);
         expect(await session.workspaceUndoTimeline.undoTimeline()).toBe(true);
         expect(session.bookmarkState.bookmarkItems.value).toEqual([]);
+    });
+
+    it('retains the pre-materialization metadata baseline through an ordinary page command inverse', async () => {
+        const session = createSession();
+        const bookmark = createBookmark('Unsaved');
+        session.bookmarkState.handleBookmarksChange({
+            bookmarks: [bookmark],
+            dirty: true,
+        });
+        await session.runWithPreservedMetadataReload(async () => {
+            session.bookmarkState.handleBookmarksChange({
+                bookmarks: [bookmark],
+                dirty: false,
+            });
+        });
+        expect(session.bookmarkState.bookmarksDirty.value).toBe(true);
+        const reload = async () => {
+            session.bookmarkState.handleBookmarksChange({
+                bookmarks: [bookmark],
+                dirty: false,
+            });
+            return true;
+        };
+        session.workspaceCommandSink.register({
+            source: 'file',
+            undo: reload,
+            cmd: reload,
+        });
+        await reload();
+        await expect(session.workspaceUndoTimeline.undoTimeline()).resolves.toBe(true);
+        expect(session.bookmarkState.bookmarksDirty.value).toBe(true);
+        // A late view reports the checkpoint after the inverse scope has ended.
+        await reload();
+        expect(session.bookmarkState.bookmarksDirty.value).toBe(true);
+        await expect(session.workspaceUndoTimeline.undoTimeline()).resolves.toBe(true);
+        expect(session.bookmarkState.bookmarkItems.value).toEqual([]);
+        expect(session.bookmarkState.bookmarksDirty.value).toBe(false);
+        session.workspaceCommandSink.reset('file');
+        await reload();
+        expect(session.bookmarkState.bookmarksDirty.value).toBe(false);
     });
 
     it('persists accepted metadata after Save restores an older OCR file checkpoint', async () => {

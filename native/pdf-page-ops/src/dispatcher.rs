@@ -100,6 +100,7 @@ pub(crate) fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Confi
     let mut right = None;
     let mut page_number = None;
     let mut qpdf_path = None;
+    let mut physical = false;
     let mut append = false;
     let mut with_evb_ocr_text = false;
     let mut append_in_place = false;
@@ -155,6 +156,7 @@ pub(crate) fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Confi
             "--modified-at" => {
                 modified_at = Some(args.next().ok_or("Missing --modified-at value")?)
             }
+            "--physical" if command == "crop" => physical = true,
             "--top" => {
                 top = Some(parse_margin(
                     &args.next().ok_or("Missing --top value")?,
@@ -261,6 +263,7 @@ pub(crate) fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Confi
         "crop" => Operation::Crop {
             pages_file: pages_file.ok_or("Missing --pages-file value")?,
             margins: CropMargins {
+                physical,
                 top: top.ok_or("Missing --top value")?,
                 bottom: bottom.ok_or("Missing --bottom value")?,
                 left: left.ok_or("Missing --left value")?,

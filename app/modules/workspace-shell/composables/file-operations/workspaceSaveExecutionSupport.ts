@@ -272,7 +272,10 @@ export interface IWorkspaceSaveDependencies {
     };
     pdf: {
         document: ShallowRef<IPdfDocument | null>;
-        viewer: Ref<{runSaveTransaction: IPdfViewerSaveExpose['runSaveTransaction']} | null>;
+        viewer: Ref<{
+            runSaveTransaction: IPdfViewerSaveExpose['runSaveTransaction'];
+            getAnnotationDirtyEntityCount?: (() => number) | undefined
+        } | null>;
         commitEditorsForSave?: () => Promise<void>;
         runSaveTransaction: IPdfViewerSaveExpose['runSaveTransaction'];
         getSourceData: () => Promise<Uint8Array | null>;
@@ -541,7 +544,7 @@ export function getNativeSaveTransactionOptions(
             canPersistNativeMetadataMutations: canStageNativeMutation && canConsumeNativeMutation,
         },
         dirtyState: {
-            annotationDirty: deps.annotations.dirty.value,
+            annotationDirty: collectDirtyState(deps).annotationDirty,
             hasAnnotationChanges: deps.annotations.hasChanges(),
             shapeStateDirty: deps.shapes.hasChanges(),
         },
@@ -562,8 +565,7 @@ export function createPageMutationWriterSave(deps: {
     save: IWorkspaceSaveDependencies;
     currentPage: Readonly<Ref<number>>;
     waitForPdfReload: (page: number) => Promise<unknown>;
-    loadPdfFromPath?: (path: TDocumentRef, options?: {markDirty?: boolean}) => Promise<unknown>;
-    getNativeSaveTransactionOptions: () => INativePdfSaveTransactionOptions;
+    reloadWorkingCopyRevision?: () => Promise<unknown>;
 }) {
     return async function saveAnnotationsForPageMutation() {
         const saveDeps = deps.save;
@@ -591,22 +593,13 @@ export function createPageMutationWriterSave(deps: {
             saveFlowMode: 'save',
             forceWriterSave: false,
             workingPath: capturedWorkingCopyPath,
-            ...deps.getNativeSaveTransactionOptions(),
+            ...getNativeSaveTransactionOptions(saveDeps),
         });
-        if (transaction.nativeRequiredFailure) {
-            throw new NativePdfSaveRequiredError(transaction.nativeRequiredFailure);
-        }
+        if (transaction.verifiedUnchangedWorkingCopy) return isCapturedTargetCurrent();
+        if (transaction.nativeRequiredFailure) throw new NativePdfSaveRequiredError(transaction.nativeRequiredFailure);
         const projection = transaction.nativeMutationProjection;
         if (!projection || !isCapturedTargetCurrent()) {
             return false;
-        }
-        if (!deps.loadPdfFromPath) {
-            throw new NativePdfSaveRequiredError({
-                code: 'native-save-required',
-                phase: 'pre-write',
-                reason: 'missing-native-capability',
-                detail: 'Native PDF page mutation reload is unavailable',
-            });
         }
         await transaction.assertAnnotationSaveCurrent?.();
         let materializedIdentityBindings: readonly IPdfNativeAnnotationIdentityBinding[] = [];
@@ -624,19 +617,11 @@ export function createPageMutationWriterSave(deps: {
         if (!isCapturedTargetCurrent(false)) {
             return false;
         }
-        let didCommitAnnotationSave = false;
-        if (materializedIdentityBindings.length > 0) {
-            transaction.commitAnnotationSave?.(materializedIdentityBindings);
-            didCommitAnnotationSave = true;
-        }
+        transaction.commitAnnotationSave?.(materializedIdentityBindings);
         const reloadPromise = deps.waitForPdfReload(capturedPage);
-        await deps.loadPdfFromPath(capturedWorkingCopyPath, {markDirty: true});
+        await deps.reloadWorkingCopyRevision?.();
         await reloadPromise;
-        if (!isCapturedTargetCurrent(false)) {
-            return false;
-        }
-        if (!didCommitAnnotationSave) transaction.commitAnnotationSave?.(materializedIdentityBindings);
-        return true;
+        return isCapturedTargetCurrent(false);
     };
 }
 

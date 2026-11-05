@@ -98,10 +98,7 @@ export interface IPageOpsHandlersDeps {
     onExtractedDocument?: (path: TDocumentRef) => Promise<void> | void;
     ensureHistoryBaselineForMutation: () => Promise<boolean>;
     saveAnnotationsForPageMutation: () => Promise<boolean>;
-    reloadWorkingCopyIntoHistory: (opts?: {
-        markDirty?: boolean;
-        pageIdentityDelta?: IPageIdentityDelta
-    }) => Promise<boolean>;
+    reloadWorkingCopyIntoHistory: (opts?: {pageIdentityDelta?: IPageIdentityDelta}) => Promise<boolean>;
     clearOcrCache: (path: TDocumentRef) => void;
     resetSearchCache: () => void;
     ensureWorkingCopyFreshForRead?: () => Promise<boolean>;

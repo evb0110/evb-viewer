@@ -134,7 +134,7 @@ export const usePdfViewerSaveTransaction = (
     function prepareAnnotationSave(input: {
         annotationApplication: AnnotationApplication | undefined;
         documentRevisionToken: TDocumentRevisionToken | null;
-    }) {
+    }, preserveSavedBaseline: boolean) {
         if (options.prepareAnnotationSave) {
             return options.prepareAnnotationSave();
         }
@@ -150,7 +150,7 @@ export const usePdfViewerSaveTransaction = (
             verifyPath: () => Promise.resolve(),
             assertCurrent: () => application.assertSaveCurrent(session, input.documentRevisionToken),
             commit: (identityBindings?: readonly IPdfNativeAnnotationIdentityBinding[]) => {
-                application.acknowledgeSave(session, input.documentRevisionToken, identityBindings);
+                application.acknowledgeSave(session, input.documentRevisionToken, identityBindings, preserveSavedBaseline);
                 expectedUpserts = expectedUpserts.map(entity => ({
                     ...entity,
                     identity: application.store.get(entity.identity.id)?.identity ?? entity.identity,
@@ -162,6 +162,7 @@ export const usePdfViewerSaveTransaction = (
                 result.pageIndices,
                 expectedUpserts,
                 deletedReplyRefs,
+                preserveSavedBaseline,
             ),
             affectedPageIndices: session.affectedPageIndices,
         };
@@ -234,7 +235,7 @@ export const usePdfViewerSaveTransaction = (
             () => commitPdfEditorsForSave(options.commitPendingEditorDraftsForSave),
         );
         assertSaveTargetCurrent();
-        const canonicalSave = prepareAnnotationSave(capturedTarget);
+        const canonicalSave = prepareAnnotationSave(capturedTarget, request.mode === 'embedded-mutation');
         // Complete the annotation frontier into the global immutable save plan
         // before route selection. From this point onward no backend is allowed to
         // sample metadata or route constraints from mutable UI state.

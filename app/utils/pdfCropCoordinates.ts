@@ -8,7 +8,8 @@ import { clamp } from 'es-toolkit/math';
 export const PDF_POINTS_PER_INCH = 72;
 const PDF_POINTS_PER_MM = 72 / 25.4;
 
-export function pointsToUnit(pts: number, unit: TCropUnit) {
+export function pointsToUnit(raw: number, unit: TCropUnit, userUnit = 1) {
+    const pts = raw * userUnit;
     switch (unit) {
         case 'pt': return pts;
         case 'mm': return pts / PDF_POINTS_PER_MM;
@@ -16,11 +17,11 @@ export function pointsToUnit(pts: number, unit: TCropUnit) {
     }
 }
 
-export function unitToPoints(value: number, unit: TCropUnit) {
+export function unitToPoints(value: number, unit: TCropUnit, userUnit = 1) {
     switch (unit) {
-        case 'pt': return value;
-        case 'mm': return value * PDF_POINTS_PER_MM;
-        case 'in': return value * PDF_POINTS_PER_INCH;
+        case 'pt': return value / userUnit;
+        case 'mm': return value * PDF_POINTS_PER_MM / userUnit;
+        case 'in': return value * PDF_POINTS_PER_INCH / userUnit;
     }
 }
 

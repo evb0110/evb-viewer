@@ -249,6 +249,9 @@ vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({
     warn: mocks.loggerWarn,
 })}));
 vi.mock('@electron/utils/nativeChildProcess', () => ({
+    spawnNativeChildProcess: mocks.spawn,
+    getNativeChildProcessPid: (proc: {pid?: number}) => Promise.resolve(proc.pid ?? null),
+    getNativeChildProcessTerminationProof: () => undefined,
     createDetachedChildProcessSpawnOptions: (options: unknown) => options,
     terminateDetachedChildProcess: mocks.terminateDetachedChildProcess,
 }));

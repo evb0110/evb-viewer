@@ -1591,3 +1591,112 @@ fn browser_form_actions_share_the_published_field_graph_after_page_edits() {
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
+
+#[test]
+fn insertion_refuses_imported_forms_before_publication() {
+    let (mut destination, _) = create_test_document();
+    let (mut insertion, page) = create_test_document();
+    let font = insertion.add_object(
+        dictionary! {"Type" => "Font", "Subtype" => "Type1", "BaseFont" => "Helvetica"},
+    );
+    let field = insertion.add_object(dictionary! {
+        "Type" => "Annot", "Subtype" => "Widget", "FT" => "Tx", "P" => page,
+        "T" => Object::string_literal("Answer"), "V" => Object::string_literal("Preserved answer"),
+        "Rect" => vec![10.into(), 10.into(), 150.into(), 40.into()],
+    });
+    insertion
+        .get_dictionary_mut(page)
+        .unwrap()
+        .set("Annots", vec![Object::Reference(field)]);
+    insertion.catalog_mut().unwrap().set(
+        "AcroForm",
+        dictionary! {
+            "Fields" => vec![Object::Reference(field)], "NeedAppearances" => true,
+            "DA" => Object::string_literal("/Helv 12 Tf 0 g"),
+            "DR" => dictionary! {"Font" => dictionary! {"Helv" => font}},
+        },
+    );
+    let mut original = Vec::new();
+    destination.save_to(&mut original).unwrap();
+    let mut imported = Vec::new();
+    insertion.save_to(&mut imported).unwrap();
+    let error = insert_browser_pdf_pages(&original, &imported, 1)
+        .err()
+        .expect("forms must be refused before publishing bytes");
+    assert!(
+        error.to_string().contains("does not support source forms"),
+        "{error}"
+    );
+    let reopened = Document::load_mem(&original).unwrap();
+    assert_eq!(reopened.get_pages().len(), 1);
+    let reopened = Document::load_mem(&imported).unwrap();
+    assert_eq!(string_bytes(&reopened, field, b"V"), b"Preserved answer");
+}
+
+#[test]
+fn insertion_resolves_imported_named_links_before_destination_name_collisions() {
+    for action in [false, true] {
+        let (mut destination, destination_page) = create_test_document();
+        let (mut insertion, insertion_page) = create_test_document();
+        for (document, page) in [
+            (&mut destination, destination_page),
+            (&mut insertion, insertion_page),
+        ] {
+            document.catalog_mut().unwrap().set("Names", dictionary! {
+                "Dests" => dictionary! {"Names" => vec![Object::string_literal("chapter"), Object::Array(vec![Object::Reference(page), "Fit".into()])]},
+            });
+        }
+        let mut link = dictionary! {"Type" => "Annot", "Subtype" => "Link", "P" => insertion_page,
+        "Rect" => vec![10.into(), 10.into(), 100.into(), 40.into()]};
+        if action {
+            link.set(
+                "A",
+                dictionary! {"S" => "GoTo", "D" => Object::string_literal("chapter")},
+            );
+        } else {
+            link.set("Dest", Object::string_literal("chapter"));
+        }
+        let link = insertion.add_object(link);
+        insertion
+            .get_dictionary_mut(insertion_page)
+            .unwrap()
+            .set("Annots", vec![Object::Reference(link)]);
+        let mut original = Vec::new();
+        destination.save_to(&mut original).unwrap();
+        let mut imported = Vec::new();
+        insertion.save_to(&mut imported).unwrap();
+        let output = insert_browser_pdf_pages(&original, &imported, 1).unwrap();
+        let reopened = Document::load_mem(&output.data).unwrap();
+        let pages = reopened.get_pages();
+        let link = get_page_annots(&reopened, pages[&2]).unwrap().remove(0);
+        let link = reopened.resolved(&link).unwrap().as_dict().unwrap();
+        let target = if action {
+            reopened
+                .resolved(link.get(b"A").unwrap())
+                .unwrap()
+                .as_dict()
+                .unwrap()
+                .get(b"D")
+                .unwrap()
+        } else {
+            link.get(b"Dest").unwrap()
+        };
+        let resolved = crate::internal_destinations::resolve_destination(&reopened, target)
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            resolved[0],
+            Object::Reference(pages[&2]),
+            "imported link must navigate to the inserted page"
+        );
+        assert_eq!(
+            crate::internal_destinations::resolve_destination(
+                &reopened,
+                &Object::string_literal("chapter")
+            )
+            .unwrap()
+            .unwrap()[0],
+            Object::Reference(pages[&1])
+        );
+    }
+}

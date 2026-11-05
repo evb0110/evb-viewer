@@ -86,18 +86,11 @@ export const createDocumentContext = ({controller}: {controller: IWorkspaceDocum
     } = views;
     const idleOpenSurface = createDocumentOpenSurfaceSession();
     const commandOpenSurface = {
-        get snapshot() {
-            return (commandView.value?.openSurface ?? idleOpenSurface).snapshot;
-        },
-        get viewportSession() {
-            return (commandView.value?.openSurface ?? idleOpenSurface).viewportSession;
-        },
-        get navigationTicket() {
-            return (commandView.value?.openSurface ?? idleOpenSurface).navigationTicket;
-        },
+        snapshot: commandViewRef(port => port.openSurface.snapshot, idleOpenSurface.snapshot.value),
+        viewportSession: commandViewRef(port => port.openSurface.viewportSession, idleOpenSurface.viewportSession.value),
     };
     const pdfViewerRef = commandViewRef<IPdfViewerExpose | null>(port => port.view.pdfViewerRef, null);
-    const documentViewerRef = computed(() => commandView.value?.view.documentViewerRef.value ?? null);
+    const documentViewerRef = commandViewRef(port => port.view.documentViewerRef, null);
     const currentPage = commandViewRef(port => port.view.currentPage, 1);
     const totalPages = commandViewRef(port => port.view.totalPages, 0);
     const pdfDocument = commandViewRef<IPdfDocument | null>(port => port.view.pdfDocument, null);
@@ -116,11 +109,8 @@ export const createDocumentContext = ({controller}: {controller: IWorkspaceDocum
         closeAllDropdowns: () => commandView.value?.view.closeAllDropdowns(),
         openDropdown: (...args: Parameters<TViewShellState['openDropdown']>) => commandView.value?.view.openDropdown(...args),
     };
-    const idlePageContextMenu = usePageContextMenu().pageContextMenu;
-    const pageContextMenu = {
-        pageContextMenu: computed(() => commandView.value?.pageContextMenu.pageContextMenu.value ?? idlePageContextMenu.value),
-        closePageContextMenu: () => commandView.value?.pageContextMenu.closePageContextMenu(),
-    };
+    const pageContextMenu = commandViewRef(port => port.pageContextMenu.pageContextMenu, usePageContextMenu().pageContextMenu.value);
+    const closePageContextMenu = () => commandView.value?.pageContextMenu.closePageContextMenu();
     // A document source change resets every view's search, not only the one in use.
     const resetSearchCaches = () => viewPorts.value.forEach(port => port.search.resetSearchCache());
     registerViewInUse(controller, () => views.commandTabId.value);
@@ -128,6 +118,7 @@ export const createDocumentContext = ({controller}: {controller: IWorkspaceDocum
     // open's failure is told by the tab's document session.
     const failure = useWorkspaceFailureSurface();
     const file = useWorkspaceFileLifecycleController({
+        documentAnnotations: () => pdfDocumentAnnotations,
         prepareHistoryRevisionSwap: (revision, delta) => prepareDocumentViewsForHistorySwap(views, pdfViewerRef.value, totalPages.value, revision, delta),
         createViewerLifecycleHooks: context => [createReadingViewLifecycleHooks(controller)].concat(driver.createLifecycleHooks(context)),
         getOpenSurface: () => commandView.value?.openSurface ?? null,
@@ -140,8 +131,6 @@ export const createDocumentContext = ({controller}: {controller: IWorkspaceDocum
         updateSetting,
     } = useSettings();
     const sourceCapabilities = ref<IDocumentSourceCapabilities>(EMPTY_SOURCE_CAPABILITIES);
-    const commandCanUndo = computed(() => commandView.value?.navigation.canUndo.value ?? false);
-    const commandCanRedo = computed(() => commandView.value?.navigation.canRedo.value ?? false);
     const isSaving = ref(false);
     const isSavingAs = ref(false);
     const runExclusive = controller.operationLease.runExclusive;
@@ -154,12 +143,12 @@ export const createDocumentContext = ({controller}: {controller: IWorkspaceDocum
         markDirty: file.markDirty,
         setWorkspaceCommandSink: file.setWorkspaceCommandSink,
     });
-    // One canonical annotation store, history and draft set for every view.
     const persistCrashCheckpoint = inject(crashCheckpointBeforeSaveKey, null);
     const pdfDocumentAnnotations = createPdfDocumentAnnotations({
         workingCopyPath: file.workingCopyPath,
         source: file.pdfSrc,
         documentRevisionToken: file.documentRevisionToken,
+        documentSession: file.fileHistorySessionVersion,
         protectTextBoxDraft: hasElectronAPI() ? async (assertCurrent) => {
             const target = controller.snapshot.value.identity;
             try {
@@ -190,7 +179,8 @@ export const createDocumentContext = ({controller}: {controller: IWorkspaceDocum
         reportNoteFailure: failure.reportNoteFailure,
     });
     const hasPendingUnsavedChanges = computed(() => (
-        annotations.hasUnsavedAnnotationChanges.value
+        pdfViewerRef.value?.hasCanonicalAnnotationChanges?.() === true
+        || annotations.annotationNoteWindows.value.some(note => note.dirty)
         || file.isDirty.value
         || metadata.pageLabelState.pageLabelsDirty.value
         || metadata.bookmarkState.bookmarksDirty.value
@@ -359,8 +349,8 @@ export const createDocumentContext = ({controller}: {controller: IWorkspaceDocum
         isAnySaving: saveService.isAnySaving,
         prepareHistory: pdfDocumentAnnotations.commitPendingDraftsForSave,
         mapHistoryPage: file.mapHistoryPage,
-        canUndo: commandCanUndo,
-        canRedo: commandCanRedo,
+        canUndo: metadata.workspaceUndoTimeline.canUndoTimeline,
+        canRedo: metadata.workspaceUndoTimeline.canRedoTimeline,
         nextUndoSource: metadata.workspaceUndoTimeline.nextUndoSource,
         nextRedoSource: metadata.workspaceUndoTimeline.nextRedoSource,
         workingCopyPath: file.workingCopyPath,
@@ -376,11 +366,11 @@ export const createDocumentContext = ({controller}: {controller: IWorkspaceDocum
             && driver.activeDocumentDriver.value.source.path !== null
         )
     ));
-    const preparePageOperationWorkingCopy = saveService.createPageMutationWriterSave({
+    const preparePageOperationWorkingCopy = () => metadata.runWithPreservedMetadataReload(saveService.createPageMutationWriterSave({
         currentPage,
         waitForPdfReload: pdfHistory.waitForPdfReload,
-        loadPdfFromPath: file.loadPdfFromPath,
-    });
+        reloadWorkingCopyRevision: file.reloadWorkingCopyRevision,
+    }));
     const pageOps = usePageOpsHandlers({
         workingCopyPath: file.workingCopyPath,
         documentRevisionToken: file.documentRevisionToken,
@@ -397,8 +387,8 @@ export const createDocumentContext = ({controller}: {controller: IWorkspaceDocum
         selectedPageSelection: viewPort.selectedPageSelection,
         setSelectedPageSelection: viewPort.setSelectedPageSelection,
         invalidateThumbnailPages: viewPort.requestThumbnailInvalidation,
-        pageContextMenu: pageContextMenu.pageContextMenu,
-        closePageContextMenu: pageContextMenu.closePageContextMenu,
+        pageContextMenu,
+        closePageContextMenu,
         onExportPages: pages => void exportWorkflow.handleExportImages(pages),
         canMutatePages: computed(() => sourceCapabilities.value.pageEdits),
         onExtractedDocument: result => commandView.value?.emitOpenInNewTab(result),
@@ -410,7 +400,7 @@ export const createDocumentContext = ({controller}: {controller: IWorkspaceDocum
         ensureWorkingCopyFreshForRead: preparePageOperationWorkingCopy,
         clearOcrCache,
         resetSearchCache: resetSearchCaches,
-        runWithDocumentOperationLease: runExclusive,
+        runWithDocumentOperationLease: (kind, operation) => runExclusive(kind, () => metadata.runWithPreservedMetadataReload(operation)),
     });
     // Opening another file in a view of a shared document detaches only that
     // view (T4); the document stays with its other views, asking nothing. A
@@ -589,12 +579,12 @@ export const createDocumentContext = ({controller}: {controller: IWorkspaceDocum
         annotationActiveCommentStableKey: annotations.annotationActiveCommentStableKey,
         annotationEditorState: annotations.annotationEditorState,
         metadata,
-        navigationTicket: computed(() => commandOpenSurface.navigationTicket.value),
+        navigationTicket: commandViewRef(port => port.openSurface.navigationTicket, null),
         resetAnnotationTracking: annotations.resetAnnotationTracking,
         resetSearchCache: resetSearchCaches,
         closeSearch: () => viewPorts.value.forEach(port => port.search.closeSearch()),
         closeAnnotationContextMenu: views.closeAnnotationContextMenus,
-        closePageContextMenu: pageContextMenu.closePageContextMenu,
+        closePageContextMenu,
         closeAllAnnotationNotes: annotations.closeAllAnnotationNotes,
         loadRecentFiles: () => void file.loadRecentFiles(),
         isBusy: computed(() => controller.operationLease.isBusy.value || saveService.isAnySaving.value),

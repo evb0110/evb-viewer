@@ -1,4 +1,3 @@
-import { spawn } from 'child_process';
 import type { ChildProcessByStdio } from 'child_process';
 import { isAbsolute } from 'node:path';
 import {
@@ -9,7 +8,7 @@ import { isProcessTreeAlive } from '@electron/utils/processTree';
 import { getAppTempNamespacePathForNamespace } from '@node-runtime/appTempNamespace';
 import { StringDecoder } from 'string_decoder';
 import {
-    Readable, type Writable, 
+    Readable, type Writable,
 } from 'stream';
 import { pipeline } from 'stream/promises';
 import {
@@ -33,7 +32,9 @@ import {
     type IManagedProcessRegistration,
 } from '@electron/native-tools/managedProcessRegistry';
 import {
-    createDetachedChildProcessSpawnOptions,
+    getNativeChildProcessPid,
+    getNativeChildProcessTerminationProof,
+    spawnNativeChildProcess,
     terminateDetachedChildProcess,
 } from '@electron/utils/nativeChildProcess';
 import { markUnprovenNativeTermination } from '@electron/utils/nativeTerminationProof';
@@ -70,7 +71,7 @@ export interface IRunCommandOptions {
     rejectOnStdoutTruncation?: boolean;
     onStdout?: (chunk: string) => void;
     onStderr?: (chunk: string) => void;
-    onSpawn?: (pid: number, hasExited: () => boolean) => void;
+    onSpawn?: (pid: number, hasExited: () => boolean, binaryPath?: string) => void;
     onClose?: () => void;
     onTerminationProof?: (proof: Promise<boolean>) => void;
     /** Written to the child's stdin with backpressure, then closed. */
@@ -282,27 +283,16 @@ function spawnNativeProcess(
         ...(context.effectiveCwd === undefined ? {} : {cwd: context.effectiveCwd}),
         ...(context.effectiveEnv === undefined ? {} : {env: context.effectiveEnv}),
     };
-    return pipeStdin
-        ? spawn(spawnCommand, spawnArgs, createDetachedChildProcessSpawnOptions({
-            shell: false,
-            windowsHide,
-            stdio: [
-                'pipe',
-                'pipe',
-                'pipe',
-            ],
-            ...location,
-        }))
-        : spawn(spawnCommand, spawnArgs, createDetachedChildProcessSpawnOptions({
-            shell: false,
-            windowsHide,
-            stdio: [
-                'ignore',
-                'pipe',
-                'pipe',
-            ],
-            ...location,
-        }));
+    return spawnNativeChildProcess(spawnCommand, spawnArgs, {
+        shell: false,
+        windowsHide,
+        stdio: [
+            pipeStdin ? 'pipe' : 'ignore',
+            'pipe',
+            'pipe',
+        ],
+        ...location,
+    });
 }
 
 // Reports whether the process tree was proven dead, not whether the request was
@@ -371,12 +361,12 @@ export async function runNativeCommand(
                 TMP: scratchPath,
                 TEMP: scratchPath,
             },
-            onSpawn: (pid, hasExited) => {
+            onSpawn: (pid, hasExited, binaryPath) => {
                 processId = pid;
                 registration = registerManagedProcess(namespacePath, {
                     pid,
                     hasExited,
-                    binaryPath: command,
+                    binaryPath: binaryPath ?? command,
                     ...(manifestPath === undefined ? {} : {manifestPath}),
                     scratchPath,
                 }).catch(error => {
@@ -451,6 +441,7 @@ async function runNativeCommandCore(
         terminationGraceMs = DEFAULT_TERMINATION_GRACE_MS,
     } = options;
 
+    let terminationPromise: Promise<boolean> | null = null;
     return new Promise<IProcessResult>((resolve, reject) => {
         if (signal?.aborted) {
             reject(abortErrorFromSignal(signal));
@@ -484,7 +475,6 @@ async function runNativeCommandCore(
         let timeoutHandle: NodeJS.Timeout | null = null;
         let forceRejectHandle: NodeJS.Timeout | null = null;
         let pendingTerminationError = null as Error | null;
-        let terminationPromise: Promise<boolean> | null = null;
         let settled = false as boolean;
         let settlementOutcome: 'resolved' | 'rejected' | null = null;
         let settlementExitCode: number | null = null;
@@ -555,6 +545,16 @@ async function runNativeCommandCore(
             + `${terminationGraceMs + 2_000}ms of termination; its inputs may still be open`,
         );
 
+        const recordTerminationProof = (proof: Promise<boolean>) => {
+            terminationPromise = proof;
+            try {
+                onTerminationProof?.(proof);
+            } catch (error) {
+                log?.('warn', `${context.displayName} termination handler failed: ${getErrorMessage(error)}`);
+            }
+            return proof;
+        };
+
         const requestTermination = (error: Error) => {
             if (settled || pendingTerminationError) {
                 return;
@@ -567,18 +567,12 @@ async function runNativeCommandCore(
             }
 
             cleanupProcessOutput(targetProc, true);
-            terminationPromise = Promise.resolve().then(() => (
+            void recordTerminationProof(Promise.resolve().then(() => (
                 terminateNativeProcessBestEffort(targetProc, terminationGraceMs)
             )).then(
                 terminated => terminated,
                 () => false,
-            );
-            try {
-                onTerminationProof?.(terminationPromise);
-            } catch (terminationHookError) {
-                log?.('warn', `${context.displayName} termination handler failed: ${getErrorMessage(terminationHookError)}`);
-            }
-            void terminationPromise.then((terminated) => {
+            )).then((terminated) => {
                 if (pendingTerminationError !== error) {
                     return;
                 }
@@ -694,7 +688,7 @@ async function runNativeCommandCore(
                 return;
             }
             try {
-                onSpawn(pid, () => proc.exitCode !== null || proc.signalCode !== null);
+                onSpawn(pid, () => proc.exitCode !== null || proc.signalCode !== null, proc.spawnfile);
             } catch (error) {
                 // The callback runs before the regular process listeners are
                 // attached. Keep late child errors from becoming uncaught
@@ -760,13 +754,14 @@ async function runNativeCommandCore(
         proc.stderr.on('data', stderrDataHandler);
 
         armTimeout();
-        if (typeof proc.pid === 'number') {
-            stopMemoryWatch = watchPopplerMemory(command, proc.pid, (bytes) => {
+        void getNativeChildProcessPid(proc).then(pid => {
+            if (settled || pid === null) return;
+            stopMemoryWatch = watchPopplerMemory(command, pid, (bytes) => {
                 const message = `${context.displayName} stopped after using more than ${POPPLER_MEMORY_LIMIT_BYTES / 1024 ** 3} GiB of memory`;
                 log?.('error', `${message} (${bytes} bytes); cmd=${context.displayCommand}`);
                 requestTermination(new Error(message));
             });
-        }
+        });
         if (signal?.aborted) {
             requestTermination(abortErrorFromSignal(signal));
         }
@@ -779,75 +774,85 @@ async function runNativeCommandCore(
         proc.on('error', processErrorHandler);
 
         processCloseHandler = (code, closeSignal) => {
-            if (pendingTerminationError) {
-                notifyClose();
-                const terminationError = pendingTerminationError;
-                // `close` means this child's stdio is done, which does not
-                // prove the detached group it leads went with it; the
-                // termination result stays the authority on that. An absent
-                // result is an absent proof: the close arrived before the
-                // termination request could record what it observed, so this
-                // path has seen nothing that says the tree died.
-                void (terminationPromise ?? Promise.resolve(false)).then((terminated) => {
-                    if (pendingTerminationError !== terminationError) {
-                        return;
-                    }
-                    finalizeReject(terminated ? terminationError : markTerminationUnproven(terminationError));
-                });
-                return;
-            }
-
-            appendDecodedStdout(stdoutDecoder.end());
-            appendDecodedStderr(stderrDecoder.end());
-            notifyClose();
-            if (getPendingTerminationError()) {
-                return;
-            }
-            const exitCode = typeof code === 'number' ? code : null;
-            settlementExitCode = exitCode;
-            settlementSignal = closeSignal;
-            const outputSnapshot = output.snapshot();
-            if (closeSignal || exitCode === null || !allowedExitCodes.includes(exitCode)) {
-                if (!closeSignal) {
-                    const structuredError = parseNativeErrorEnvelope(outputSnapshot.stderr);
-                    if (structuredError) {
-                        if (process.platform === 'win32') requestTermination(structuredError);
-                        else finalizeReject(structuredError);
+            void (async () => {
+                const jobProof = getNativeChildProcessTerminationProof(proc);
+                if (!pendingTerminationError && jobProof) {
+                    void recordTerminationProof(jobProof);
+                    if (!await jobProof) {
+                        requestTermination(new Error(`${context.displayName} Windows job exit was not proven`));
                         return;
                     }
                 }
-                const failure = formatCommandFailureMessage(
-                    context.displayName,
-                    command,
-                    args,
-                    exitCode,
-                    getTruncatedOutputMessage('stdout', outputSnapshot.stdoutTruncated, maxStdoutBytes, outputSnapshot.stdout),
-                    getTruncatedOutputMessage('stderr', outputSnapshot.stderrTruncated, maxStderrBytes, outputSnapshot.stderr),
-                    closeSignal,
-                );
-                log?.('error', `${failure.message}; cmd=${failure.displayCommand}`);
-                const error = new NativeProcessError(
-                    closeSignal ? 'signal' : 'exit-code',
-                    exitCode,
-                    closeSignal,
-                    failure.message,
-                );
-                if (process.platform === 'win32') requestTermination(error);
-                else finalizeReject(error);
-                return;
-            }
-            if (rejectOnStdoutTruncation && outputSnapshot.stdoutTruncated) {
-                const message = `${context.displayName} stdout exceeded ${maxStdoutBytes} bytes`;
-                log?.('error', `${message}; cmd=${context.displayCommand}`);
-                finalizeReject(new Error(message));
-                return;
-            }
+                if (pendingTerminationError) {
+                    notifyClose();
+                    const terminationError = pendingTerminationError;
+                    // `close` means this child's stdio is done, which does not
+                    // prove the detached group it leads went with it; the
+                    // termination result stays the authority on that. An absent
+                    // result is an absent proof: the close arrived before the
+                    // termination request could record what it observed, so this
+                    // path has seen nothing that says the tree died.
+                    void (terminationPromise ?? Promise.resolve(false)).then((terminated) => {
+                        if (pendingTerminationError !== terminationError) {
+                            return;
+                        }
+                        finalizeReject(terminated ? terminationError : markTerminationUnproven(terminationError));
+                    });
+                    return;
+                }
 
-            finalizeResolve({
-                stdout: outputSnapshot.stdout,
-                stderr: outputSnapshot.stderr,
-                exitCode,
-            });
+                appendDecodedStdout(stdoutDecoder.end());
+                appendDecodedStderr(stderrDecoder.end());
+                notifyClose();
+                if (getPendingTerminationError()) {
+                    return;
+                }
+                const exitCode = typeof code === 'number' ? code : null;
+                settlementExitCode = exitCode;
+                settlementSignal = closeSignal;
+                const outputSnapshot = output.snapshot();
+                if (closeSignal || exitCode === null || !allowedExitCodes.includes(exitCode)) {
+                    if (!closeSignal) {
+                        const structuredError = parseNativeErrorEnvelope(outputSnapshot.stderr);
+                        if (structuredError) {
+                            if (process.platform === 'win32') requestTermination(structuredError);
+                            else finalizeReject(structuredError);
+                            return;
+                        }
+                    }
+                    const failure = formatCommandFailureMessage(
+                        context.displayName,
+                        command,
+                        args,
+                        exitCode,
+                        getTruncatedOutputMessage('stdout', outputSnapshot.stdoutTruncated, maxStdoutBytes, outputSnapshot.stdout),
+                        getTruncatedOutputMessage('stderr', outputSnapshot.stderrTruncated, maxStderrBytes, outputSnapshot.stderr),
+                        closeSignal,
+                    );
+                    log?.('error', `${failure.message}; cmd=${failure.displayCommand}`);
+                    const error = new NativeProcessError(
+                        closeSignal ? 'signal' : 'exit-code',
+                        exitCode,
+                        closeSignal,
+                        failure.message,
+                    );
+                    if (process.platform === 'win32') requestTermination(error);
+                    else finalizeReject(error);
+                    return;
+                }
+                if (rejectOnStdoutTruncation && outputSnapshot.stdoutTruncated) {
+                    const message = `${context.displayName} stdout exceeded ${maxStdoutBytes} bytes`;
+                    log?.('error', `${message}; cmd=${context.displayCommand}`);
+                    finalizeReject(new Error(message));
+                    return;
+                }
+
+                finalizeResolve({
+                    stdout: outputSnapshot.stdout,
+                    stderr: outputSnapshot.stderr,
+                    exitCode,
+                });
+            })();
         };
         proc.on('close', processCloseHandler);
 
@@ -862,7 +867,11 @@ async function runNativeCommandCore(
                 }
             });
         }
-    }).finally(releaseAdmission);
+    }).finally(() => {
+        if (terminationPromise) {
+            void terminationPromise.then(proven => { if (proven) releaseAdmission(); });
+        } else releaseAdmission();
+    });
 }
 
 function registerCancelGroupHandler(cancelGroup: string, handler: TCancelGroupHandler) {

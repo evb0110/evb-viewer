@@ -551,3 +551,161 @@
 
         let _ = remove_file(pdf_path);
     }
+
+#[test]
+fn editing_a_stamp_preserves_shared_appearance_and_raster_pixels_in_both_writers() {
+    let _cleanup = PlacedImageTestCleanup;
+    for append in [false, true] {
+        for raster in [false, true] {
+            for shared_form in [false, true] {
+                let (mut source, page) = create_test_document();
+                source
+                    .get_dictionary_mut(page)
+                    .unwrap()
+                    .set("Resources", Dictionary::new());
+                let mut jpeg = Vec::new();
+                jpeg_encoder::Encoder::new(&mut jpeg, 100)
+                    .encode(&[255, 0, 0, 0, 0, 255], 2, 1, jpeg_encoder::ColorType::Rgb)
+                    .unwrap();
+                let mut image = placed_jpeg_mutation();
+                write(&image.bytes_path, &jpeg).unwrap();
+                image.byte_length = jpeg.len() as u64;
+                image.sha256 = sha256_hex(&jpeg);
+                image.stable_key = Some("edited-stamp".into());
+                image.rotation_degrees = Some(0.0);
+                apply_placed_images(
+                    &mut source,
+                    std::slice::from_ref(&image),
+                    vec![jpeg],
+                    0,
+                    "D:20261105000000Z",
+                    &mut None,
+                )
+                .unwrap();
+                let edited = get_page_annots(&source, page).unwrap()[0]
+                    .as_reference()
+                    .unwrap();
+                let (form, pixels) = placed_image_appearance_refs(&source, edited).unwrap();
+                let other_form = if shared_form {
+                    form
+                } else {
+                    source.add_object(source.get_object(form).unwrap().clone())
+                };
+                let mut other = source.get_dictionary(edited).unwrap().clone();
+                other.set("NM", Object::string_literal("other-stamp"));
+                other.set("Rect", vec![130.into(), 55.into(), 190.into(), 75.into()]);
+                other.set("AP", dictionary! {"N" => other_form});
+                let other = source.add_object(other);
+                source.get_dictionary_mut(page).unwrap().set(
+                    "Annots",
+                    vec![Object::Reference(edited), Object::Reference(other)],
+                );
+                let before = temp_pdf_path("shared-stamp-before");
+                let after = temp_pdf_path("shared-stamp-after");
+                source.save(&before).unwrap();
+                let form_bytes = source
+                    .get_object(other_form)
+                    .unwrap()
+                    .as_stream()
+                    .unwrap()
+                    .content
+                    .clone();
+                let image_bytes = source
+                    .get_object(pixels)
+                    .unwrap()
+                    .as_stream()
+                    .unwrap()
+                    .content
+                    .clone();
+                let mutation = if raster {
+                    let mut replacement = Vec::new();
+                    jpeg_encoder::Encoder::new(&mut replacement, 100)
+                        .encode(
+                            &[0, 255, 0, 255, 255, 0],
+                            2,
+                            1,
+                            jpeg_encoder::ColorType::Rgb,
+                        )
+                        .unwrap();
+                    write(&image.bytes_path, &replacement).unwrap();
+                    image.byte_length = replacement.len() as u64;
+                    image.sha256 = sha256_hex(&replacement);
+                    NativeMutationsFile {
+                        placed_images: vec![image],
+                        ..Default::default()
+                    }
+                } else {
+                    let update = serde_json::from_value(serde_json::json!({
+                        "pageIndex": 0, "stableKey": "edited-stamp", "x": 0.1, "y": 0.25,
+                        "width": 0.3, "height": 0.2, "rotationDegrees": 90,
+                    }))
+                    .unwrap();
+                    NativeMutationsFile {
+                        placed_image_geometry_updates: vec![update],
+                        ..Default::default()
+                    }
+                };
+                let mut saved = recovery_save(source, &mutation, append);
+                saved.save(&after).unwrap();
+                let reopened = Document::load(&after).unwrap();
+                let other_refs = placed_image_appearance_refs(&reopened, other).unwrap();
+                assert_eq!(other_refs, (other_form, pixels));
+                assert_eq!(reopened.get_object(other_form).unwrap().as_stream().unwrap().content, form_bytes,
+                    "other stamp appearance changed: append={append}, raster={raster}, shared_form={shared_form}");
+                assert_eq!(
+                    reopened
+                        .get_object(pixels)
+                        .unwrap()
+                        .as_stream()
+                        .unwrap()
+                        .content,
+                    image_bytes
+                );
+                let render = |path: &Path, x: &str| {
+                    let rendered = std::process::Command::new("pdftoppm")
+                        .args([
+                            "-singlefile",
+                            "-r",
+                            "72",
+                            "-x",
+                            x,
+                            "-y",
+                            "0",
+                            "-W",
+                            "80",
+                            "-H",
+                            "100",
+                        ])
+                        .arg(path)
+                        .output()
+                        .unwrap();
+                    assert!(
+                        rendered.status.success(),
+                        "{}",
+                        String::from_utf8_lossy(&rendered.stderr)
+                    );
+                    rendered.stdout
+                };
+                assert_eq!(
+                    render(&before, "120"),
+                    render(&after, "120"),
+                    "untouched stamp's pixels changed"
+                );
+                assert_ne!(
+                    render(&before, "0"),
+                    render(&after, "0"),
+                    "edited stamp did not change"
+                );
+                // After detaching, a second identical edit must reuse its private graph.
+                let private = placed_image_appearance_refs(&reopened, edited).unwrap();
+                let again = recovery_save(reopened, &mutation, append);
+                assert_eq!(
+                    placed_image_appearance_refs(&again, edited).unwrap(),
+                    private
+                );
+                remove_file(before).unwrap();
+                remove_file(after).unwrap();
+            }
+        }
+    }
+}

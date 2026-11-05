@@ -14,8 +14,6 @@ import {
     it,
 } from 'vitest';
 import type {IPdfPageLabelRange} from '@contracts/pdfPageLabels';
-import type {TLegacyDocumentRef} from '@contracts/documentRef';
-import type {TRequestId} from '@contracts/shared';
 import type {IEvbTestApi} from '@app/types/evbTestApi';
 import {
     createCompactPageLabelsFixturePdf,
@@ -48,6 +46,7 @@ import {observeRendererErrors} from '@tests/e2e/electron/helpers/rendererErrorOb
 import {
     clickAsUser,
     clickFoundAsUser,
+    revealForPointer,
 } from '@tests/e2e/electron/helpers/userInput';
 import {waitForViewportQuiet} from '@tests/e2e/electron/helpers/viewportPageObservation';
 import {waitForAnimationFrames} from '@tests/e2e/electron/helpers/viewerVirtualizationContract';
@@ -400,36 +399,45 @@ async function runCommand<T>(session: IElectronE2ESession, name: string, args: u
     return null as T | null;
 }
 
-async function insertOnePageThroughGrantedNative(
-    session: IElectronE2ESession,
-    sourcePath: string,
-) {
-    const granted = await session.page.evaluate(async path => {
-        const grant = (window as IE2EWindow & {__allowRendererFileOpenForAutomation?: (value: TLegacyDocumentRef) => Promise<boolean>;}).__allowRendererFileOpenForAutomation;
-        return typeof grant === 'function' && await grant(path as TLegacyDocumentRef);
-    }, sourcePath);
-    expect(granted, 'insert source path automation grant').toBe(true);
-
+async function insertOnePageThroughWorkspace(session: IElectronE2ESession, sourcePath: string) {
     const afterPage = 200;
-    const result = await session.page.evaluate(async ({
-        source, after,
-    }) => {
-        const api = (window as IE2EWindow).electronAPI;
-        if (!api) {
-            throw new Error('electronAPI is unavailable');
-        }
-        const state = (window as IE2EWindow).__evbTestApi?.readActiveWorkspaceStateValues(['workingCopyPath']);
-        const path = state && typeof state.workingCopyPath === 'string' ? state.workingCopyPath : null;
-        if (!path) {
-            throw new Error('active working copy path is unavailable');
-        }
-        const revision = await api.documentFiles.getDocumentRevision(path as TLegacyDocumentRef);
-        return api.pageOps.insertFile(path, 200, after, [source], 'compact-label-positive-insert' as TRequestId, {expectedDocumentRevisionToken: revision?.token});
-    }, {
-        source: sourcePath,
-        after: afterPage,
+    const {page} = session;
+    await goToPageViaToolbar(page, afterPage);
+    await openDocumentSidebarTab(page, 'Pages');
+    const selector = `.editor-pane.is-active [data-thumbnail-page="${afterPage}"]`;
+    await revealForPointer(page, selector);
+    const point = await page.$eval(selector, (element) => {
+        const rect = element.getBoundingClientRect();
+        const rail = element.closest('.pdf-thumbnails')!.getBoundingClientRect();
+        return {
+            x: rect.left + rect.width / 2,
+            y: Math.min(rect.bottom, rail.bottom) - 8,
+            middle: rect.top + rect.height / 2,
+        };
     });
-    expect(result.success, 'positive page insertion must complete').toBe(true);
+    expect(point.y, 'drop on the lower half to insert after the final page').toBeGreaterThan(point.middle);
+    const client = await page.createCDPSession();
+    try {
+        for (const type of [
+            'dragEnter',
+            'dragOver',
+            'drop',
+        ] as const) {
+            await client.send('Input.dispatchDragEvent', {
+                type,
+                x: point.x,
+                y: point.y,
+                data: {
+                    items: [],
+                    files: [sourcePath],
+                    dragOperationsMask: 1,
+                },
+            });
+        }
+    } finally {
+        await client.detach();
+    }
+    await waitForPageOperationResult(session, afterPage + 1);
     return afterPage;
 }
 
@@ -848,10 +856,10 @@ describe('Electron E2E, compact page labels through structural operations', () =
         expected.splice(move.insertAt - 1, 0, moved);
         await runCommand(session, 'handlePageMove', [move]);
 
-        const insertionAfterPage = await insertOnePageThroughGrantedNative(session, insertionSourcePath);
-        // The source has no page labels, so the inserted page takes a range
-        // with no style and no prefix: its label is empty.
-        expected.splice(insertionAfterPage, 0, '');
+        const insertionAfterPage = await insertOnePageThroughWorkspace(session, insertionSourcePath);
+        // The workspace remaps known labels and gives a new page its physical ordinal.
+        expected.splice(insertionAfterPage, 0, String(insertionAfterPage + 1));
+        await waitForSemanticLabels(session, expected);
 
         await runCommand(session, 'handleSave', []);
 

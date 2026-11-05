@@ -66,8 +66,8 @@ import {
     type IDocumentRevisionInfo,
 } from '@contracts/documentRevision';
 import {
-    createBrowserFileBytesWitness,
     createBrowserFileContentWitness,
+    matchesBrowserFileContentWitness,
     createBrowserStoredBytesWitness,
 } from '@app/platform/browser/createBrowserFileContentWitness';
 import {runBrowserLock} from '@app/platform/browser/runBrowserLock';
@@ -119,14 +119,6 @@ function createBrowserFileDocumentEntry(
         chunkCount: 0,
         chunkSize: BROWSER_DOCUMENT_CHUNK_SIZE,
     };
-}
-
-function isBrowserFileContentWitness(value: string | undefined): value is string {
-    return value?.startsWith('file:') === true;
-}
-
-function isBrowserStoredBytesWitness(value: string | undefined): value is string {
-    return value?.startsWith('bytes:') === true;
 }
 
 interface IBrowserStagedCommitResult {
@@ -235,7 +227,7 @@ export class BrowserDocumentStore extends BrowserDocumentRecordStore {
         }
         const sourceBaseWitness = options.sourceBaseWitness
             ?? (kind === 'source' && options.saveHandle && (storageMode === 'inline' || storageMode === 'chunked')
-                ? createBrowserStoredBytesWitness(sourceBytes)
+                ? await createBrowserStoredBytesWitness(sourceBytes)
                 : undefined);
         const entry = createBrowserDocumentEntry({
             ref: options.ref ?? createBrowserDocumentRef(fileName),
@@ -349,13 +341,10 @@ export class BrowserDocumentStore extends BrowserDocumentRecordStore {
         const metadata = await readFileHandleMetadata(entry.saveHandle);
         const contentToken = await createBrowserFileContentWitness(metadata.file);
         const openingWitness = entry.sourceBaseWitness ?? entry.contentToken;
-        const currentWitness = isBrowserStoredBytesWitness(openingWitness)
-            ? await createBrowserFileBytesWitness(metadata.file)
-            : contentToken;
         if (
             entry.fileSize === metadata.size
             && entry.fileLastModified === metadata.lastModified
-            && openingWitness === currentWitness
+            && openingWitness === contentToken
         ) {
             return ref;
         }
@@ -381,12 +370,8 @@ export class BrowserDocumentStore extends BrowserDocumentRecordStore {
                 created: false,
             };
         }
-        // A newly selected File always becomes a new source version. The
-        // bounded witness cannot prove equality for large files, so reusing a
-        // physical-handle ref could bind fresh bytes to an old ref. Keep the
-        // old ref intact so dirty dependents retain their immutable source and
-        // conflict authority; the handle map below moves physical identity to
-        // this newly ingested version.
+        // A fresh selection owns a new source version; dirty dependents keep
+        // their immutable opening bytes and overwrite authority.
         const ref = createBrowserDocumentRef(file.name);
         const entry = createBrowserFileDocumentEntry(ref, file, options);
 
@@ -437,7 +422,7 @@ export class BrowserDocumentStore extends BrowserDocumentRecordStore {
         }
 
         if (entry.storageMode === 'inline' || entry.storageMode === 'chunked') {
-            if (isBrowserFileContentWitness(entry.contentToken) || isBrowserStoredBytesWitness(entry.contentToken)) {
+            if (/^(?:content-v2|file|bytes):/u.test(entry.contentToken ?? '')) {
                 return entry.contentToken;
             }
             if (entry.storageMode === 'inline' && entry.fileSize === entry.data.byteLength) {
@@ -870,10 +855,12 @@ export class BrowserDocumentStore extends BrowserDocumentRecordStore {
             return;
         }
         const metadata = await readFileHandleMetadata(sourceEntry.saveHandle);
-        const currentWitness = isBrowserStoredBytesWitness(workingEntry.sourceBaseWitness)
-            ? await createBrowserFileBytesWitness(metadata.file)
-            : await createBrowserFileContentWitness(metadata.file);
-        if (currentWitness === workingEntry.sourceBaseWitness) {
+        const currentWitness = await createBrowserFileContentWitness(metadata.file);
+        if (await matchesBrowserFileContentWitness(metadata.file, workingEntry.sourceBaseWitness, currentWitness)) {
+            if (workingEntry.sourceBaseWitness !== currentWitness) {
+                workingEntry.sourceBaseWitness = currentWitness;
+                await this.persistEntry(workingEntry);
+            }
             return;
         }
         throw new Error(`Browser physical source changed since this working copy opened: ${sourceRef}`);
@@ -894,7 +881,7 @@ export class BrowserDocumentStore extends BrowserDocumentRecordStore {
             sourceEntry.fileLastModified = metadata.lastModified;
             sourceEntry.fileSnapshot = metadata.file;
         } else if (sourceEntry.fileSize <= BROWSER_MAX_FULL_READ_BYTES) {
-            witness = createBrowserStoredBytesWitness(await this.readEntryBytes(sourceEntry));
+            witness = await createBrowserStoredBytesWitness(await this.readEntryBytes(sourceEntry));
         }
         for (const entry of [
             sourceEntry,
@@ -1330,7 +1317,6 @@ export class BrowserDocumentStore extends BrowserDocumentRecordStore {
             entry.fileSize = file.size;
             entry.fileLastModified = file.lastModified;
             entry.updatedAt = Date.now();
-            entry.contentToken = await createBrowserFileContentWitness(file);
             entry.chunkCount = 0;
             entry.pendingLoad = null;
             delete entry.chunkGeneration;

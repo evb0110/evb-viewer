@@ -167,6 +167,7 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         workingCopyPath: options.workingCopyPath,
         source: options.src,
         documentRevisionToken: options.documentRevisionToken,
+        isSaving: options.isAnySaving,
     });
     const appAnnotationHistory = documentAnnotations.history;
     const commentSync = {
@@ -306,14 +307,6 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         }
     });
     onScopeDispose(() => stopAnnotationApplicationProjection());
-    // A save reports the revision it mints while it still holds the document;
-    // the reloads of that revision may land after it has let go.
-    watch(options.documentRevisionToken, (revision) => {
-        if (options.isAnySaving.value && revision !== null) {
-            documentAnnotations.adoptCurrentRevision();
-        }
-    }, {flush: 'sync'});
-
     const linkAnnotations = options.linkAnnotations ?? ref<ILinkAnnotation[]>([]);
     const linksByPage = computed<Record<number, ILinkAnnotation[]>>(() =>
         groupBy(linkAnnotations.value, link => link.pageNumber),

@@ -29,6 +29,7 @@ export const PAGE_GEOMETRY_SCHEMA = v.pipe(
         mediaBox: PDF_BOX_SCHEMA,
         cropBox: v.nullable(PDF_BOX_SCHEMA),
         rotation: v.pipe(v.number(), v.finite()),
+        userUnit: v.pipe(v.number(), v.finite(), v.minValue(Number.MIN_VALUE)),
     }),
 );
 

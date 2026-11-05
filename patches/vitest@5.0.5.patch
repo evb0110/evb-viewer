@@ -1,0 +1,6 @@
+diff --git a/dist/chunks/index.1TqnEahn.js b/dist/chunks/index.1TqnEahn.js
+--- a/dist/chunks/index.1TqnEahn.js
++++ b/dist/chunks/index.1TqnEahn.js
+@@ -3582 +3582 @@ class ServerModuleRunner extends ModuleRunner {
+-						const code = await readFile(result.tmp);
++						const code = await readFile(result.tmp, "utf-8");

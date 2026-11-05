@@ -1,36 +1,53 @@
 use super::*;
-use serde::Serialize;
+use serde::{ser::SerializeStruct, Serialize, Serializer};
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct PageGeometry {
     pub(crate) media_box: PdfRect,
     pub(crate) crop_box: Option<PdfRect>,
     pub(crate) rotation: i64,
+    pub(crate) user_unit: f64,
 }
 
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct PageGeometryBoxOutput {
-    x: f64,
-    y: f64,
-    width: f64,
-    height: f64,
+impl Serialize for PdfRect {
+    fn serialize<S: Serializer>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error> {
+        let mut rect = serializer.serialize_struct("PdfRect", 4)?;
+        rect.serialize_field("x", &self.x1)?;
+        rect.serialize_field("y", &self.y1)?;
+        rect.serialize_field("width", &self.width())?;
+        rect.serialize_field("height", &self.height())?;
+        rect.end()
+    }
 }
 
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct PageGeometryOutput {
-    media_box: PageGeometryBoxOutput,
-    crop_box: Option<PageGeometryBoxOutput>,
-    rotation: i64,
+#[derive(Clone, Copy)]
+pub(crate) struct CropMargins {
+    pub(crate) top: f64,
+    pub(crate) bottom: f64,
+    pub(crate) left: f64,
+    pub(crate) right: f64,
+    pub(crate) physical: bool,
 }
 
-fn page_geometry_box_output(rect: PdfRect) -> PageGeometryBoxOutput {
-    PageGeometryBoxOutput {
-        x: rect.x1,
-        y: rect.y1,
-        width: rect.width(),
-        height: rect.height(),
+impl CropMargins {
+    fn crop_box(self, document: &impl PdfObjectSource, page_id: ObjectId) -> Result<PdfRect> {
+        let media = resolve_inherited_box(document, page_id, b"MediaBox")?;
+        let unit = if self.physical {
+            resolve_page_user_unit(document, page_id)?
+        } else {
+            1.0
+        };
+        let rect = PdfRect {
+            x1: media.x1 + self.left / unit,
+            y1: media.y1 + self.bottom / unit,
+            x2: media.x2 - self.right / unit,
+            y2: media.y2 - self.top / unit,
+        };
+        if rect.width() <= 0.0 || rect.height() <= 0.0 {
+            return Err("Crop margins consume page".into());
+        }
+        Ok(rect)
     }
 }
 
@@ -50,6 +67,7 @@ pub(crate) fn get_page_geometry(
         media_box,
         crop_box,
         rotation: resolve_page_rotation(document, page_id)?,
+        user_unit: resolve_page_user_unit(document, page_id)?,
     })
 }
 
@@ -68,12 +86,7 @@ pub(crate) fn write_page_geometry(
     )?;
 
     let geometry = get_page_geometry(&AppendedRevision::new(&incremental), page_number)?;
-    let output_geometry = PageGeometryOutput {
-        media_box: page_geometry_box_output(geometry.media_box),
-        crop_box: geometry.crop_box.map(page_geometry_box_output),
-        rotation: geometry.rotation,
-    };
-    serde_json::to_writer(output, &output_geometry)?;
+    serde_json::to_writer(output, &geometry)?;
     Ok(())
 }
 
@@ -162,24 +175,11 @@ fn validate_crop_revision_postconditions(
 
     for &page_number in pages {
         let page_id = page_resolver.page_id(&revision, page_number)?;
-        let media_box = resolve_inherited_box(&revision, page_id, b"MediaBox")?;
         let expected_crop_box = match expectation {
-            CropRevisionExpectation::Margins(margins) => {
-                let crop_width = media_box.width() - margins.left - margins.right;
-                let crop_height = media_box.height() - margins.top - margins.bottom;
-                if crop_width <= 0.0 || crop_height <= 0.0 {
-                    return Err(
-                        format!("Crop postcondition could not resolve page {page_number}").into(),
-                    );
-                }
-                PdfRect {
-                    x1: media_box.x1 + margins.left,
-                    y1: media_box.y1 + margins.bottom,
-                    x2: media_box.x1 + margins.left + crop_width,
-                    y2: media_box.y1 + margins.bottom + crop_height,
-                }
+            CropRevisionExpectation::Margins(margins) => margins.crop_box(&revision, page_id)?,
+            CropRevisionExpectation::RestoreMediaBox => {
+                resolve_inherited_box(&revision, page_id, b"MediaBox")?
             }
-            CropRevisionExpectation::RestoreMediaBox => media_box,
         };
         let actual_crop_box = resolve_inherited_box(&revision, page_id, b"CropBox")?;
         // Compare in the PDF number representation used by the writer. Real
@@ -584,25 +584,12 @@ pub(crate) fn crop_pages_incremental(
         .try_reserve_exact(selected_pages.len())
         .map_err(|_| "Too many pages selected for crop")?;
     for (page_number, page_id) in selected_pages {
-        let media_box =
-            resolve_inherited_box(incremental.get_prev_documents(), page_id, b"MediaBox")?;
-        let crop_width = media_box.width() - margins.left - margins.right;
-        let crop_height = media_box.height() - margins.top - margins.bottom;
-        if crop_width <= 0.0 || crop_height <= 0.0 {
-            return Err(format!(
-                "Crop margins consume page {page_number} ({} x {})",
-                media_box.width(),
-                media_box.height()
-            )
-            .into());
-        }
-        let crop_box = PdfRect {
-            x1: media_box.x1 + margins.left,
-            y1: media_box.y1 + margins.bottom,
-            x2: media_box.x1 + margins.left + crop_width,
-            y2: media_box.y1 + margins.bottom + crop_height,
-        };
-        preflighted_pages.push((page_id, crop_box));
+        preflighted_pages.push((
+            page_id,
+            margins
+                .crop_box(incremental.get_prev_documents(), page_id)
+                .map_err(|error| format!("{error} {page_number}"))?,
+        ));
     }
 
     for (page_id, crop_box) in preflighted_pages {

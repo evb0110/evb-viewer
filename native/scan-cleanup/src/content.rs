@@ -701,6 +701,14 @@ impl BlockStats {
     }
 }
 
+// Dilation contains every source pixel, but need not fill a component's hollow center.
+fn content_block_label(map: &ComponentMap, component: &Component, blocks: &ComponentMap) -> usize {
+    let x = (component.left..=component.right)
+        .find(|&x| map.label_at(x, component.top) == component.label)
+        .expect("a component occupies its top row");
+    blocks.label_at(x, component.top) as usize
+}
+
 fn cluster_content_blocks(
     map: &ComponentMap,
     candidates: &[ContentCandidate<'_>],
@@ -719,13 +727,8 @@ fn cluster_content_blocks(
     let mut component_blocks = vec![0usize; map.components().len() + 1];
     for candidate in candidates {
         let component = candidate.component;
-        let center_x = (component.left + component.right) / 2;
-        let center_y = (component.top + component.bottom) / 2;
-        let block_label = block_map.label_at(center_x, center_y) as usize;
+        let block_label = content_block_label(map, component, &block_map);
         component_blocks[component.label as usize] = block_label;
-        if block_label == 0 {
-            continue;
-        }
         let block = &mut blocks[block_label];
         if !block.initialized {
             block.left = component.left;
@@ -1321,13 +1324,8 @@ fn retained_content_blocks(
         if !retained[component.label as usize] {
             continue;
         }
-        let center_x = (component.left + component.right) / 2;
-        let center_y = (component.top + component.bottom) / 2;
-        let block_label = block_map.label_at(center_x, center_y) as usize;
+        let block_label = content_block_label(map, component, &block_map);
         component_blocks[component.label as usize] = block_label;
-        if block_label == 0 {
-            continue;
-        }
         let block = &mut blocks[block_label];
         if !block.initialized {
             block.left = component.left;
@@ -2993,6 +2991,20 @@ mod tests {
         let result = detect_content_and_margins(&image, 150.0, None, Some([0.0; 4]));
         let bounds = result.content.unwrap();
         assert!(bounds.right() < 350.0, "remote stain survived: {bounds:?}");
+    }
+
+    #[test]
+    fn hollow_figure_is_inside_the_detected_content_box() {
+        let image = crate::io::png::decode_gray(
+            include_bytes!("../tests/fixtures/content-box/hollow-figure.png"),
+            400 * 600,
+            600,
+        )
+        .unwrap();
+        let bounds = detect_content_and_margins(&image, 150.0, None, None)
+            .content
+            .unwrap();
+        assert_eq!(bounds, Rect::new(60.0, 60.0, 275.0, 440.0));
     }
 
     #[test]

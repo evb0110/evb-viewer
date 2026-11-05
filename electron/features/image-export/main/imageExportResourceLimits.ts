@@ -2,19 +2,13 @@ import {
     stat,
     statfs,
 } from 'fs/promises';
-import { clampDpi } from '@electron/image/imageDpi';
+import type {IExportPageSize} from '@pdf-core/imageExportResolution';
+export {IMAGE_EXPORT_MAX_NETPBM_READ_BYTES} from '@pdf-core/imageExportResolution';
+export type {IExportPageSize} from '@pdf-core/imageExportResolution';
 
 const IMAGE_EXPORT_MAX_PAGE_FILE_BYTES = 512 * 1024 * 1024;
 const IMAGE_EXPORT_MAX_STAGED_BYTES = 2 * 1024 * 1024 * 1024;
 const POINTS_PER_INCH = 72;
-const DEFAULT_EXPORT_RENDER_DPI = 300;
-const PPM_HEADER_AND_ROUNDING_RESERVE_BYTES = 64 * 1024;
-
-export const IMAGE_EXPORT_MAX_NETPBM_READ_BYTES = 192 * 1024 * 1024;
-
-const IMAGE_EXPORT_MAX_RENDER_DIMENSION = Math.floor(
-    Math.sqrt((IMAGE_EXPORT_MAX_NETPBM_READ_BYTES - PPM_HEADER_AND_ROUNDING_RESERVE_BYTES) / 3),
-);
 
 /**
  * Maximum number of exported file paths returned through one IPC result.
@@ -36,11 +30,6 @@ export function assertImageExportOutputPathBudget(paths: readonly string[] | num
     if (pathCount > IMAGE_EXPORT_MAX_OUTPUT_PATHS) {
         throw new ImageExportOutputBudgetError(pathCount);
     }
-}
-
-export interface IExportPageSize {
-    widthPts: number;
-    heightPts: number;
 }
 
 export function estimateImageExportStagedBytes(
@@ -83,21 +72,6 @@ export async function assertImageExportFreeSpace(directory: string, projectedByt
             `Image export does not have enough free space for projected staging: requires ${projectedBytes} bytes, but only ${availableBytes} bytes are available`,
         );
     }
-}
-
-export function resolveExportRenderDpi(detectedDpi: number | null, pageSizes: readonly IExportPageSize[]) {
-    const requestedDpi = clampDpi(detectedDpi ?? DEFAULT_EXPORT_RENDER_DPI);
-    let longestSidePts = 0;
-    for (const pageSize of pageSizes) {
-        longestSidePts = Math.max(longestSidePts, pageSize.widthPts, pageSize.heightPts);
-    }
-
-    if (longestSidePts <= 0) {
-        return requestedDpi;
-    }
-
-    const dimensionLimitedDpi = Math.floor((IMAGE_EXPORT_MAX_RENDER_DIMENSION * POINTS_PER_INCH) / longestSidePts);
-    return Math.max(1, Math.min(requestedDpi, dimensionLimitedDpi));
 }
 
 export async function validateRenderedImagePageFiles(pageFiles: Array<{

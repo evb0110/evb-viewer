@@ -1,4 +1,6 @@
 import {
+    afterEach,
+    beforeEach,
     describe,
     expect,
     it,
@@ -6,6 +8,7 @@ import {
     vi,
 } from 'vitest';
 import {reactive} from 'vue';
+import {FakeIndexedDbFactory} from '@tests/unit/app/platform/browserPlatformTestDoubles';
 import type {IScanCleanupPageOverride} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import {createScanCleanupPageOverride} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
 import {
@@ -41,7 +44,9 @@ function memoryStorage(): IScanCleanupPreferenceStorage {
 }
 
 describe('scan cleanup preferences', () => {
-    it('copies the first available whole document entry for Save As, keeps both entries recent and existing settings intact, and reports refused storage', () => {
+    beforeEach(() => vi.stubGlobal('indexedDB', new FakeIndexedDbFactory()));
+    afterEach(() => vi.unstubAllGlobals());
+    it('copies the first available whole document entry for Save As, keeps both entries recent and existing settings intact, and reports refused storage', async () => {
         const storage = memoryStorage();
         const storageKey = 'evb.scanCleanup.documentOverrides.v1';
         const now = 1_800_000_000_000;
@@ -81,7 +86,7 @@ describe('scan cleanup preferences', () => {
         }));
         const entries = () => JSON.parse(storage.get(storageKey) ?? '{}');
 
-        copyScanCleanupDocumentPreferences([
+        await copyScanCleanupDocumentPreferences([
             'source',
             'working',
         ], 'saved', storage);
@@ -100,7 +105,7 @@ describe('scan cleanup preferences', () => {
             },
         });
 
-        copyScanCleanupDocumentPreferences([
+        await copyScanCleanupDocumentPreferences([
             'missing',
             'working',
         ], 'legacy-saved', storage);
@@ -109,23 +114,23 @@ describe('scan cleanup preferences', () => {
             updatedAt: now,
         });
         // An intentionally reset first entry still wins over the fallback.
-        copyScanCleanupDocumentPreferences([
+        await copyScanCleanupDocumentPreferences([
             'reset',
             'working',
         ], 'reset-saved', storage);
         expect(entries()['reset-saved']).toEqual({updatedAt: now});
 
         const before = storage.get(storageKey);
-        copyScanCleanupDocumentPreferences([
+        await copyScanCleanupDocumentPreferences([
             'source',
             'working',
         ], 'existing', storage);
-        copyScanCleanupDocumentPreferences(['missing'], 'absent-saved', storage);
+        await copyScanCleanupDocumentPreferences(['missing'], 'absent-saved', storage);
         expect(storage.get(storageKey)).toBe(before);
-        expect(() => copyScanCleanupDocumentPreferences(['source'], 'refused-saved', {
+        await expect(copyScanCleanupDocumentPreferences(['source'], 'refused-saved', {
             get: storage.get,
             set: () => false,
-        })).toThrow('Failed to persist scan-cleanup document preferences');
+        })).rejects.toThrow('Failed to persist scan-cleanup document preferences');
         expect(storage.get(storageKey)).toBe(before);
         expect(entries().source).toEqual({
             ...source,
@@ -138,47 +143,53 @@ describe('scan cleanup preferences', () => {
         expect(entries().existing).toEqual(existing);
     });
 
-    it('moves a document saved under its reference to its source hash once the hash is known', () => {
+    it('moves a document saved under its reference to its source hash once the hash is known', async () => {
         const storage = memoryStorage();
         const sourceSha256 = 'a'.repeat(64);
-        saveScanCleanupDocumentOutputMode('/docs/book.pdf', 'grayscale', storage);
+        await saveScanCleanupDocumentOutputMode('/docs/book.pdf', 'grayscale', storage);
 
-        expect(adoptScanCleanupDocumentKey(null, '/docs/book.pdf', storage)).toBe('/docs/book.pdf');
-        expect(adoptScanCleanupDocumentKey(sourceSha256.toUpperCase(), '/docs/book.pdf', storage)).toBe(sourceSha256);
+        expect(await adoptScanCleanupDocumentKey(null, '/docs/book.pdf', storage)).toBe('/docs/book.pdf');
+        expect(await adoptScanCleanupDocumentKey(sourceSha256.toUpperCase(), '/docs/book.pdf', storage)).toBe(sourceSha256);
         expect(loadScanCleanupDocumentOutputMode(sourceSha256, storage)).toBe('grayscale');
         expect(loadScanCleanupDocumentOutputMode('/docs/book.pdf', storage)).toBe('auto');
         // Reopened under another reference, the document keeps its preferences.
-        expect(adoptScanCleanupDocumentKey(sourceSha256, '/docs/book-copy.pdf', storage)).toBe(sourceSha256);
+        expect(await adoptScanCleanupDocumentKey(sourceSha256, '/docs/book-copy.pdf', storage)).toBe(sourceSha256);
         expect(loadScanCleanupDocumentOutputMode(sourceSha256, storage)).toBe('grayscale');
     });
 
-    it('reports a document edit that storage refuses', () => {
+    it('reports a document edit that storage refuses', async () => {
         const storage: IScanCleanupPreferenceStorage = {
             get: () => null,
             set: () => false,
         };
-        expect(() => saveScanCleanupDocumentOutputMode('/docs/book.pdf', 'bw', storage)).toThrow('Failed to persist');
-        expect(() => saveScanCleanupDocumentPreferences('/docs/book.pdf', {outputMode: 'bw'}, storage)).toThrow('Failed to persist');
+        await expect(saveScanCleanupDocumentOutputMode('/docs/book.pdf', 'bw', storage)).rejects.toThrow('Failed to persist');
+        await expect(saveScanCleanupDocumentPreferences('/docs/book.pdf', {outputMode: 'bw'}, storage)).rejects.toThrow('Failed to persist');
+        const admittedStorage = memoryStorage();
+        await saveScanCleanupDocumentPreferences('book', {outputMode: 'color'}, admittedStorage);
+        const before = admittedStorage.get('evb.scanCleanup.documentOverrides.v1');
+        vi.stubGlobal('indexedDB', {open: () => {throw new DOMException('Storage unavailable', 'SecurityError');}});
+        await expect(saveScanCleanupDocumentPreferences('book', {outputMode: 'bw'}, admittedStorage)).rejects.toThrow('Failed to serialize');
+        expect(admittedStorage.get('evb.scanCleanup.documentOverrides.v1')).toBe(before);
     });
 
-    it('reads the legacy document settings when storage refuses their adoption', () => {
+    it('reads the legacy document settings when storage refuses their adoption', async () => {
         const storage = memoryStorage();
         const legacyKey = '/docs/book.pdf';
         const sourceSha256 = 'a'.repeat(64);
-        saveScanCleanupDocumentOutputMode(legacyKey, 'grayscale', storage);
-        saveScanCleanupDocumentOverrides(legacyKey, {'2': createScanCleanupPageOverride({rotationDegrees: 90})}, storage);
+        await saveScanCleanupDocumentOutputMode(legacyKey, 'grayscale', storage);
+        await saveScanCleanupDocumentOverrides(legacyKey, {'2': createScanCleanupPageOverride({rotationDegrees: 90})}, storage);
         const refusedStorage: IScanCleanupPreferenceStorage = {
             get: storage.get,
             set: () => false,
         };
 
-        const key = adoptScanCleanupDocumentKey(sourceSha256, legacyKey, refusedStorage);
+        const key = await adoptScanCleanupDocumentKey(sourceSha256, legacyKey, refusedStorage);
 
         expect(key).toBe(legacyKey);
         expect(loadScanCleanupDocumentOutputMode(key, refusedStorage)).toBe('grayscale');
         expect(loadScanCleanupDocumentOverrides(key, refusedStorage)['2']?.rotationDegrees).toBe(90);
         expect(loadScanCleanupDocumentOverrides(sourceSha256, refusedStorage)).toEqual({});
-        expect(adoptScanCleanupDocumentKey(sourceSha256, legacyKey, storage)).toBe(sourceSha256);
+        expect(await adoptScanCleanupDocumentKey(sourceSha256, legacyKey, storage)).toBe(sourceSha256);
         expect(loadScanCleanupDocumentOutputMode(sourceSha256, storage)).toBe('grayscale');
     });
 
@@ -186,7 +197,7 @@ describe('scan cleanup preferences', () => {
         expect(DEFAULT_SCAN_CLEANUP_DOCUMENT_OUTPUT_MODE).toBe('auto');
     });
 
-    it('saves and restores global settings without persisting document output mode', () => {
+    it('saves and restores global settings without persisting document output mode', async () => {
         const storage = memoryStorage();
         const preferencesWithLegacyField = {
             ...DEFAULT_SCAN_CLEANUP_PREFERENCES,
@@ -200,7 +211,7 @@ describe('scan cleanup preferences', () => {
             runOcrAfterCleanup: true,
             outputMode: 'bw' as const,
         };
-        saveScanCleanupPreferences(preferencesWithLegacyField, storage);
+        await saveScanCleanupPreferences(preferencesWithLegacyField, storage);
         const loaded = loadScanCleanupPreferences(storage);
         expect(loaded).toMatchObject({
             readingOrder: 'rtl',
@@ -228,10 +239,10 @@ describe('scan cleanup preferences', () => {
         expect(loadScanCleanupDocumentOutputMode('new-document', storage)).toBe('auto');
     });
 
-    it('restores output mode only for the same document', () => {
+    it('restores output mode only for the same document', async () => {
         const storage = memoryStorage();
 
-        saveScanCleanupDocumentOutputMode('document-a', 'grayscale', storage);
+        await saveScanCleanupDocumentOutputMode('document-a', 'grayscale', storage);
 
         expect(loadScanCleanupDocumentOutputMode('document-a', storage)).toBe('grayscale');
         expect(loadScanCleanupDocumentOutputMode('document-b', storage)).toBe('auto');
@@ -250,9 +261,9 @@ describe('scan cleanup preferences', () => {
         });
     });
 
-    it('clamps each persisted margin independently', () => {
+    it('clamps each persisted margin independently', async () => {
         const storage = memoryStorage();
-        saveScanCleanupPreferences({
+        await saveScanCleanupPreferences({
             ...DEFAULT_SCAN_CLEANUP_PREFERENCES,
             marginsMm: {
                 leftMm: -2,
@@ -270,7 +281,7 @@ describe('scan cleanup preferences', () => {
         });
     });
 
-    it('round-trips four document margin values independently of page overrides', () => {
+    it('round-trips four document margin values independently of page overrides', async () => {
         const storage = memoryStorage();
         const marginsMm = {
             leftMm: 1,
@@ -278,9 +289,9 @@ describe('scan cleanup preferences', () => {
             rightMm: 3,
             bottomMm: 4,
         };
-        saveScanCleanupDocumentMargins('document-a', marginsMm, storage);
-        saveScanCleanupDocumentOutputMode('document-a', 'color', storage);
-        saveScanCleanupDocumentOverrides('document-a', {'2': {
+        await saveScanCleanupDocumentMargins('document-a', marginsMm, storage);
+        await saveScanCleanupDocumentOutputMode('document-a', 'color', storage);
+        await saveScanCleanupDocumentOverrides('document-a', {'2': {
             rotationDegrees: 90,
             layoutOverride: 'auto',
             excluded: false,
@@ -303,15 +314,15 @@ describe('scan cleanup preferences', () => {
                 bottomMm: 5,
             },
         });
-        resetScanCleanupDocumentOverrides('document-a', storage);
+        await resetScanCleanupDocumentOverrides('document-a', storage);
         expect(loadScanCleanupDocumentOverrides('document-a', storage)).toEqual({});
         expect(loadScanCleanupDocumentMargins('document-a', storage)).toEqual(marginsMm);
         expect(loadScanCleanupDocumentOutputMode('document-a', storage)).toBe('color');
     });
 
-    it('isolates per-document overrides and removes them on reset', () => {
+    it('isolates per-document overrides and removes them on reset', async () => {
         const storage = memoryStorage();
-        saveScanCleanupDocumentOverrides('document-a', {'2': {
+        await saveScanCleanupDocumentOverrides('document-a', {'2': {
             rotationDegrees: 90,
             layoutOverride: 'spread',
             excluded: false,
@@ -322,11 +333,11 @@ describe('scan cleanup preferences', () => {
         }}, storage);
         expect(loadScanCleanupDocumentOverrides('document-a', storage)['2']).toMatchObject({rotationDegrees: 90});
         expect(loadScanCleanupDocumentOverrides('document-b', storage)).toEqual({});
-        resetScanCleanupDocumentOverrides('document-a', storage);
+        await resetScanCleanupDocumentOverrides('document-a', storage);
         expect(loadScanCleanupDocumentOverrides('document-a', storage)).toEqual({});
     });
 
-    it('keeps migration and reset writes within the document-entry bound', () => {
+    it('keeps migration and reset writes within the document-entry bound', async () => {
         // Both writes stamp Date.now(); a fast machine gave them the same
         // millisecond. Fix the clock and move it once between the writes.
         vi.useFakeTimers({
@@ -365,7 +376,15 @@ describe('scan cleanup preferences', () => {
         ]));
         storage.set('evb.scanCleanup.documentOverrides.v1', JSON.stringify(entries));
 
+        const beforeRead = storage.get('evb.scanCleanup.documentOverrides.v1');
         loadScanCleanupDocumentOverrides(currentDocument, storage);
+        expect(storage.get('evb.scanCleanup.documentOverrides.v1')).toBe(beforeRead);
+        await saveScanCleanupDocumentPreferences(currentDocument, {marginsMm: {
+            leftMm: 5,
+            topMm: 5,
+            rightMm: 5,
+            bottomMm: 5,
+        }}, storage);
         const migrated = JSON.parse(storage.get('evb.scanCleanup.documentOverrides.v1') ?? '{}') as Record<string, {
             documentRevision?: string;
             updatedAt?: number;
@@ -376,7 +395,7 @@ describe('scan cleanup preferences', () => {
         expect(migrated[currentDocument]?.updatedAt).toBeGreaterThan(54);
 
         vi.advanceTimersByTime(1);
-        resetScanCleanupDocumentOverrides(currentDocument, storage);
+        await resetScanCleanupDocumentOverrides(currentDocument, storage);
         const reset = JSON.parse(storage.get('evb.scanCleanup.documentOverrides.v1') ?? '{}') as Record<string, {
             documentRevision?: string;
             updatedAt?: number;
@@ -386,9 +405,9 @@ describe('scan cleanup preferences', () => {
         expect(reset[currentDocument]?.updatedAt).toBeGreaterThan(migrated[currentDocument]?.updatedAt ?? 0);
     });
 
-    it('persists concrete page output-mode overrides and prunes Auto', () => {
+    it('persists concrete page output-mode overrides and prunes Auto', async () => {
         const storage = memoryStorage();
-        saveScanCleanupDocumentOverrides('document-a', {
+        await saveScanCleanupDocumentOverrides('document-a', {
             '1': {
                 rotationDegrees: 0,
                 layoutOverride: 'auto',
@@ -409,14 +428,14 @@ describe('scan cleanup preferences', () => {
         expect(restored['2']).not.toHaveProperty('outputModeOverride');
     });
 
-    it('round-trips a document-wide page override without allocating page entries', () => {
+    it('round-trips a document-wide page override without allocating page entries', async () => {
         const storage = memoryStorage();
         const defaults = createScanCleanupPageOverride({
             excluded: true,
             rotationDegrees: 90,
         });
 
-        saveScanCleanupDocumentPreferences('million-page-document', {
+        await saveScanCleanupDocumentPreferences('million-page-document', {
             pageOverrideDefaults: defaults,
             overrides: {},
         }, storage);
@@ -425,19 +444,19 @@ describe('scan cleanup preferences', () => {
             .toEqual(defaults);
         expect(loadScanCleanupDocumentOverrides('million-page-document', storage)).toEqual({});
 
-        resetScanCleanupDocumentOverrides('million-page-document', storage);
+        await resetScanCleanupDocumentOverrides('million-page-document', storage);
         expect(loadScanCleanupDocumentPageOverrideDefaults('million-page-document', storage)).toBeNull();
     });
 
-    it('persists first-run guidance dismissal with the existing preferences', () => {
+    it('persists first-run guidance dismissal with the existing preferences', async () => {
         const storage = memoryStorage();
 
         expect(loadScanCleanupPreferences(storage).firstRunGuidanceDismissed).toBe(false);
-        dismissScanCleanupFirstRunGuidance(storage);
+        await dismissScanCleanupFirstRunGuidance(storage);
         expect(loadScanCleanupPreferences(storage).firstRunGuidanceDismissed).toBe(true);
     });
 
-    it('persists Vue-reactive page overrides as plain JSON data', () => {
+    it('persists Vue-reactive page overrides as plain JSON data', async () => {
         const storage = memoryStorage();
         const pageOverride = {
             rotationDegrees: 90 as const,
@@ -450,7 +469,7 @@ describe('scan cleanup preferences', () => {
         };
         const overrides = reactive({'2': pageOverride});
 
-        expect(() => saveScanCleanupDocumentOverrides('document-a', overrides, storage)).not.toThrow();
+        await expect(saveScanCleanupDocumentOverrides('document-a', overrides, storage)).resolves.toBeUndefined();
         expect(loadScanCleanupDocumentOverrides('document-a', storage)).toEqual({'2': {
             rotationDegrees: 90,
             layoutOverride: 'spread',
@@ -462,7 +481,7 @@ describe('scan cleanup preferences', () => {
         }});
     });
 
-    it('round-trips every page-override contract field through persistence', () => {
+    it('round-trips every page-override contract field through persistence', async () => {
         const storage = memoryStorage();
         const fullyPopulatedFields = {
             rotationDegrees: 90,
@@ -530,7 +549,7 @@ describe('scan cleanup preferences', () => {
         } satisfies Required<IScanCleanupPageOverride>;
         const expected = createScanCleanupPageOverride(fullyPopulatedFields);
 
-        saveScanCleanupDocumentPreferences('document-all-fields', {overrides: {'1': expected}}, storage);
+        await saveScanCleanupDocumentPreferences('document-all-fields', {overrides: {'1': expected}}, storage);
         const restored = loadScanCleanupDocumentOverrides('document-all-fields', storage)['1'];
 
         expect(restored).toEqual(expected);
@@ -662,7 +681,7 @@ describe('scan cleanup preferences', () => {
         expect(loadScanCleanupDocumentOverrides('document-a', storage)).toEqual(overrides);
     });
 
-    it('migrates a document-wide persisted manual split before decoding defaults', () => {
+    it('projects legacy defaults without writing, then normalizes them with the next document mutation', async () => {
         const storage = memoryStorage();
         storage.set('evb.scanCleanup.documentOverrides.v1', JSON.stringify({'document-a': {
             updatedAt: 1,
@@ -678,15 +697,22 @@ describe('scan cleanup preferences', () => {
             },
         }}));
 
+        const beforeRead = storage.get('evb.scanCleanup.documentOverrides.v1');
         expect(loadScanCleanupDocumentPageOverrideDefaults('document-a', storage)?.manualSplit)
             .toEqual({
                 xNormalized: 0.98,
                 rotationDegrees: 270,
             });
+        expect(storage.get('evb.scanCleanup.documentOverrides.v1')).toBe(beforeRead);
+        await saveScanCleanupDocumentPreferences('document-a', {outputMode: 'color'}, storage);
         expect(JSON.parse(storage.get('evb.scanCleanup.documentOverrides.v1') ?? '{}')['document-a'])
             .toEqual(expect.objectContaining({
                 documentRevision: 'revision-1',
                 updatedAt: expect.any(Number),
+                pageOverrideDefaults: expect.objectContaining({manualSplit: {
+                    xNormalized: 0.98,
+                    rotationDegrees: 270,
+                }}),
             }));
         expect(JSON.parse(storage.get('evb.scanCleanup.documentOverrides.v1') ?? '{}')['document-a'].updatedAt)
             .toBeGreaterThan(1);
@@ -710,22 +736,22 @@ describe('scan cleanup preferences', () => {
         });
     });
 
-    it('rejects non-finite numeric preferences before persistence', () => {
+    it('rejects non-finite numeric preferences before persistence', async () => {
         const storage = memoryStorage();
 
-        expect(() => saveScanCleanupPreferences({
+        await expect(saveScanCleanupPreferences({
             ...DEFAULT_SCAN_CLEANUP_PREFERENCES,
             marginsMm: {
                 ...DEFAULT_SCAN_CLEANUP_PREFERENCES.marginsMm,
                 leftMm: Number.NaN,
             },
-        }, storage)).toThrow('finite numeric values');
+        }, storage)).rejects.toThrow('finite numeric values');
         expect(storage.get('evb.scanCleanup.settings.v1')).toBeNull();
     });
 
-    it('rejects non-finite override geometry before persistence', () => {
+    it('rejects non-finite override geometry before persistence', async () => {
         const storage = memoryStorage();
-        expect(() => saveScanCleanupDocumentOverrides('document-a', {'1': {
+        await expect(saveScanCleanupDocumentOverrides('document-a', {'1': {
             rotationDegrees: 0,
             layoutOverride: 'spread',
             excluded: false,
@@ -733,8 +759,7 @@ describe('scan cleanup preferences', () => {
                 xNormalized: Number.POSITIVE_INFINITY,
                 rotationDegrees: 0,
             },
-        }}, storage))
-            .toThrow('manual split x');
+        }}, storage)).rejects.toThrow('manual split x');
         expect(storage.get('evb.scanCleanup.documentOverrides.v1')).toBeNull();
     });
 });

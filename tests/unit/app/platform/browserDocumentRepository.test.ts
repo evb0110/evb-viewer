@@ -6,12 +6,19 @@ import {
     vi,
 } from 'vitest';
 import {BrowserDocumentStore} from '@app/platform/browser/browserDocumentRepository';
-import {createBrowserFileContentWitness} from '@app/platform/browser/createBrowserFileContentWitness';
+import {sweepBrowserDocumentMaintenance} from '@app/platform/browser/browserDocumentMaintenance';
+import {
+    loadBrowserTransferAuthority, mutateBrowserTransferAuthority, loadRecord,
+} from '@app/platform/browser/browserDocumentIdb';
+import {
+    createBrowserFileContentWitness, createBrowserStoredBytesWitness,
+} from '@app/platform/browser/createBrowserFileContentWitness';
 import {
     BROWSER_LIVE_LEASES_STORE,
     BROWSER_DOCUMENT_CHUNK_SIZE,
     BROWSER_MAX_FULL_READ_BYTES,
     DB_NAME,
+    DOCUMENTS_STORE,
 } from '@app/platform/browser/browserDocumentConstants';
 import {
     createFileSystemFileHandle,
@@ -114,11 +121,13 @@ describe('BrowserDocumentStore source registration', () => {
         expect(entry.fileSnapshot).toBe(file);
         expect(entry.fileSize).toBe(bytes.byteLength);
         expect(entry.fileLastModified).toBe(file.lastModified);
-        expect(entry.contentToken).toBe(await createBrowserFileContentWitness(file, bytes));
+        expect(entry.contentToken).toBe(await createBrowserFileContentWitness(file));
         expect(contentSignature).toContain(`:${entry.contentToken}:`);
         expect(revision.token).toBe(`drt1:browser:${entry.contentToken}`);
         await expect(store.readRange(ref, 7, 9)).resolves.toEqual(bytes.slice(7, 16));
         await expect(store.read(ref)).resolves.toEqual(bytes);
+        const boundaryBytes = Uint8Array.from({length: BROWSER_DOCUMENT_CHUNK_SIZE + 17}, (_value, index) => index ^ (index >>> 8) ^ (index >>> 16));
+        await expect(createBrowserFileContentWitness(new File([boundaryBytes], 'boundary.pdf'))).resolves.toBe(await createBrowserStoredBytesWitness(boundaryBytes));
     });
 
     it.each([
@@ -197,6 +206,73 @@ describe('BrowserDocumentStore source registration', () => {
         await expect(store.readRange(reopenedRef, 2, 2)).resolves.toEqual(Uint8Array.of(68, 71));
         await expect(store.read(originalRef)).resolves.toEqual(Uint8Array.of(37, 80, 68, 70));
         await expect(store.read(dirtyRef)).resolves.toEqual(Uint8Array.of(37, 80, 68, 70, 1));
+    });
+
+    it.each([
+        'file',
+        'bytes',
+    ] as const)('migrates persisted legacy %s baselines only after matching the old content witness', async kind => {
+        const openingBytes = new Uint8Array(17 * 1024 * 1024).fill(32);
+        let physicalFile = new File([openingBytes], 'legacy.pdf', {lastModified: 200});
+        const handle = createFileSystemFileHandle({
+            name: physicalFile.name,
+            getFile: async () => physicalFile,
+        });
+        const store = new BrowserDocumentStore();
+        const sourceRef = await store.registerFile(physicalFile, {saveHandle: handle});
+        // Fixed old first/middle/last-sample hash; file tokens also embedded mtime 100.
+        const legacy = `${kind}:${openingBytes.length}:${kind === 'file' ? '100:' : ''}1bb89dc5-211a6485`;
+        const dirtyBytes = Uint8Array.of(37, 80, 68, 70, 9);
+        const workingRef = await store.createStoredDocument('legacy.pdf', dirtyBytes, {
+            mimeType: 'application/pdf',
+            retention: 'durable',
+            kind: 'working',
+            sourceRef,
+            sourceBaseWitness: legacy,
+        });
+        const revision = (await store.getDocumentRevision(workingRef)).token;
+        const openingWitness = await createBrowserFileContentWitness(physicalFile);
+        await store.runDocumentMutationWithSource(workingRef, sourceRef, revision, async mutation => {
+            await mutation.assertPhysicalSourceBaseCurrent();
+        });
+        // A failed later write must not require another sampled migration.
+        expect(await loadRecord(workingRef)).toMatchObject({sourceBaseWitness: openingWitness});
+        expect(openingWitness).toMatch(/^content-v2:/u);
+        // An edit outside every legacy sample is now caught by the upgraded baseline.
+        openingBytes[1024 * 1024] = 88;
+        physicalFile = new File([openingBytes], physicalFile.name, {lastModified: 200});
+        await expect(store.runDocumentMutationWithSource(workingRef, sourceRef, revision, async mutation => {
+            await mutation.assertPhysicalSourceBaseCurrent();
+        })).rejects.toThrow('physical source changed');
+        await expect(store.read(workingRef)).resolves.toEqual(dirtyBytes);
+    });
+
+    it.each([
+        'file',
+        'bytes',
+    ] as const)('refuses a changed file with a persisted legacy %s baseline', async kind => {
+        const bytes = new Uint8Array(17 * 1024 * 1024).fill(32);
+        bytes[0] = 88;
+        const file = new File([bytes], 'changed-legacy.pdf', {lastModified: 100});
+        const store = new BrowserDocumentStore();
+        const sourceRef = await store.registerFile(file, {saveHandle: createFileSystemFileHandle({
+            name: file.name,
+            getFile: async () => file,
+        })});
+        const legacy = `${kind}:${bytes.length}:${kind === 'file' ? '100:' : ''}1bb89dc5-211a6485`;
+        const workingRef = await store.createStoredDocument(file.name, Uint8Array.of(9), {
+            mimeType: 'application/pdf',
+            retention: 'durable',
+            kind: 'working',
+            sourceRef,
+            sourceBaseWitness: legacy,
+        });
+        await expect(store.runDocumentMutationWithSource(workingRef, sourceRef,
+            (await store.getDocumentRevision(workingRef)).token, async mutation => {
+                await mutation.assertPhysicalSourceBaseCurrent();
+            })).rejects.toThrow('physical source changed');
+        expect(await loadRecord(workingRef)).toMatchObject({sourceBaseWitness: legacy});
+        await expect(store.readRange(sourceRef, 0, 64 * 1024)).resolves.toEqual(bytes.slice(0, 64 * 1024));
     });
 
     it('rejects a materialized save when the physical source changed at equal size and mtime', async () => {
@@ -678,4 +754,112 @@ describe('BrowserDocumentStore source registration', () => {
         );
     });
 
+});
+
+// T2/C1: a crashed transfer eventually releases only its own authority.
+describe('expired transfer admission', () => {
+    it('aborts expired pending authority, retains the poll window, and preserves independent readers', async () => {
+        const idb = new FakeIndexedDbFactory();
+        vi.stubGlobal('indexedDB', idb);
+        vi.stubGlobal('window', {localStorage: new MemoryStorage()});
+        vi.stubGlobal('document', {cookie: ''});
+        vi.stubGlobal('navigator', {});
+        const now = Date.now();
+        const clock = vi.spyOn(Date, 'now').mockReturnValue(now);
+        try {
+            const store = new BrowserDocumentStore();
+            const ref = await store.createStoredDocument('expired-transfer.pdf', Uint8Array.of(1, 2, 3), {
+                mimeType: 'application/pdf',
+                kind: 'output',
+                retention: 'transient',
+            });
+            await mutateBrowserTransferAuthority('expired', () => ({
+                id: 'transfer:expired',
+                transferId: 'expired',
+                nonce: 'nonce',
+                sourceWindowId: 1,
+                sourceInstanceNonce: 'gone',
+                targetWindowId: 2,
+                targetInstanceNonce: 'gone-too',
+                generation: 1,
+                state: 'pending',
+                targetReady: false,
+                deadlineAt: now - 1,
+                createdAt: now - 12000,
+                backingRefs: [{ref}],
+                payload: {
+                    transferId: 'expired',
+                    sourceWindowId: 1,
+                    targetWindowId: 2,
+                    tab: {
+                        fileName: 'expired-transfer.pdf',
+                        originalPath: ref,
+                        originalBackend: 'browser',
+                        isDirty: true,
+                        isDjvu: false,
+                    },
+                    payload: {kind: 'empty'},
+                },
+            }));
+            const pending = (await loadBrowserTransferAuthority('expired'))!;
+            const futureRef = await store.createStoredDocument('future-transfer.pdf', Uint8Array.of(4, 5, 6), {
+                mimeType: 'application/pdf',
+                kind: 'output',
+                retention: 'transient',
+            });
+            await mutateBrowserTransferAuthority('future', () => ({
+                ...pending,
+                id: 'transfer:future',
+                transferId: 'future',
+                deadlineAt: now + 120000,
+                backingRefs: [{ref: futureRef}],
+                payload: {
+                    ...pending.payload,
+                    transferId: 'future',
+                    tab: {
+                        ...pending.payload.tab,
+                        originalPath: futureRef,
+                    },
+                },
+            }));
+            const records = idb.getDatabase(DB_NAME)!.getStoreRecords(DOCUMENTS_STORE);
+            await sweepBrowserDocumentMaintenance(new Map());
+            expect(await loadBrowserTransferAuthority('future')).toMatchObject({
+                state: 'pending',
+                generation: 1,
+            });
+            expect(records.has(futureRef)).toBe(true);
+            expect(await loadBrowserTransferAuthority('expired')).toMatchObject({
+                state: 'aborted',
+                generation: 2,
+                decidedAt: now,
+            });
+            expect(records.has(ref)).toBe(true);
+            clock.mockReturnValue(now + 60000);
+            const leases = idb.getDatabase(DB_NAME)!.getStoreRecords(BROWSER_LIVE_LEASES_STORE);
+            leases.set('owner:reader', {
+                id: 'owner:reader',
+                ownerId: 'reader',
+                generation: 1,
+                leaseRevision: 1,
+                status: 'suspended',
+                heartbeatAt: 1,
+                protectedDependencies: [{ref}],
+            });
+            await sweepBrowserDocumentMaintenance(new Map());
+            expect(await loadBrowserTransferAuthority('expired')).toBeNull();
+            expect(records.has(ref)).toBe(true);
+            leases.clear();
+            await sweepBrowserDocumentMaintenance(new Map());
+            expect(records.has(ref)).toBe(false);
+            expect(records.has(futureRef)).toBe(true);
+            expect(await loadBrowserTransferAuthority('future')).toMatchObject({
+                state: 'pending',
+                generation: 1,
+            });
+        } finally {
+            clock.mockRestore();
+            vi.unstubAllGlobals();
+        }
+    });
 });

@@ -145,10 +145,7 @@ export const usePageOperations = (deps: {
     bookmarksResolved?: Ref<boolean>;
     ensureHistoryBaselineForMutation: () => Promise<boolean>;
     saveAnnotationsForPageMutation?: () => Promise<boolean>;
-    reloadWorkingCopyIntoHistory: (opts?: {
-        markDirty?: boolean;
-        pageIdentityDelta?: IPageIdentityDelta
-    }) => Promise<boolean>;
+    reloadWorkingCopyIntoHistory: (opts?: {pageIdentityDelta?: IPageIdentityDelta}) => Promise<boolean>;
     clearOcrCache: (path: TDocumentRef) => void;
     resetSearchCache: () => void;
     onExtractedDocument?: (path: TDocumentRef) => Promise<void> | void;
@@ -514,12 +511,12 @@ export const usePageOperations = (deps: {
                             options.beforeRun,
                         ],
                         [
-                            'history-baseline',
-                            options.shouldReload ? ensureHistoryBaselineForMutation : undefined,
-                        ],
-                        [
                             'before-run',
                             options.shouldReload ? saveAnnotationsForPageMutation : undefined,
+                        ],
+                        [
+                            'history-baseline',
+                            options.shouldReload ? ensureHistoryBaselineForMutation : undefined,
                         ],
                     ] as const) {
                     if (!prepare) continue;
@@ -593,10 +590,7 @@ export const usePageOperations = (deps: {
                         documentRevisionToken.value = result.documentRevision.token;
                     }
                     invalidateCaches(path);
-                    const didReload = await reloadWorkingCopyIntoHistory({
-                        markDirty: true,
-                        ...(result.pageIdentityDelta ? {pageIdentityDelta: result.pageIdentityDelta} : {}),
-                    });
+                    const didReload = await reloadWorkingCopyIntoHistory({...(result.pageIdentityDelta ? {pageIdentityDelta: result.pageIdentityDelta} : {})});
                     if (!didReload || workingCopyPath.value !== path) {
                         return recordOutcome<TResult>({
                             status: 'stale',
