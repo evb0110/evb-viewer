@@ -596,6 +596,55 @@ pub(crate) fn placed_image_appearance_refs(
     Some((appearance_ref, image_ref))
 }
 
+/// Resources remain private only if the live catalog cannot reach them without
+/// this stamp's AP edge. This includes foreign annotations and page XObjects.
+/// An incomplete structural source cannot prove exclusivity and copies instead.
+fn private_placed_image_refs(
+    document: &impl PdfObjectSource,
+    stamp: ObjectId,
+    appearance: ObjectId,
+    image: ObjectId,
+) -> (bool, bool) {
+    let Ok(root) = document.root_id() else {
+        return (false, false);
+    };
+    let root = Object::Reference(root);
+    let mut pending = vec![&root];
+    let mut seen = HashSet::new();
+    let mut private = (true, true);
+    while let Some(object) = pending.pop() {
+        match object {
+            Object::Reference(id) if seen.insert(*id) => {
+                private.0 &= *id != appearance;
+                private.1 &= *id != image;
+                let Some(object) = document.stored_object(*id) else {
+                    return (false, false);
+                };
+                if *id == stamp {
+                    let Ok(dictionary) = object.as_dict() else {
+                        return (false, false);
+                    };
+                    pending.extend(
+                        dictionary
+                            .iter()
+                            .filter(|(key, _)| key.as_slice() != b"AP")
+                            .map(|(_, value)| value),
+                    );
+                } else {
+                    pending.push(object);
+                }
+            }
+            Object::Array(values) => pending.extend(values.iter()),
+            Object::Dictionary(dictionary) => {
+                pending.extend(dictionary.iter().map(|(_, value)| value))
+            }
+            Object::Stream(stream) => pending.extend(stream.dict.iter().map(|(_, value)| value)),
+            _ => {}
+        }
+    }
+    private
+}
+
 fn patch_placed_image_stamp_dict(
     dict: &mut Dictionary,
     geometry: &PlacedImageGeometry,
@@ -673,13 +722,19 @@ pub(crate) fn apply_placed_images(
             resolve_placed_image_target(document, page_id, image, &expected_name)?;
         let existing_appearance = existing_stamp_ref
             .and_then(|stamp_ref| placed_image_appearance_refs(document, stamp_ref));
+        let private = existing_stamp_ref
+            .zip(existing_appearance)
+            .map(|(stamp, (appearance, image))| {
+                private_placed_image_refs(document, stamp, appearance, image)
+            })
+            .unwrap_or((false, false));
         let (mut image_stream, mask_stream) = build_placed_raster_streams(image_bytes, image)?;
         if let Some(mask) = mask_stream {
             image_stream
                 .dict
                 .set("SMask", Object::Reference(document.add_object(mask)));
         }
-        let image_ref = if let Some((_, image_ref)) = existing_appearance {
+        let image_ref = if let Some((_, image_ref)) = existing_appearance.filter(|_| private.1) {
             document.set_object(image_ref, Object::Stream(image_stream));
             image_ref
         } else {
@@ -688,12 +743,13 @@ pub(crate) fn apply_placed_images(
         let image_name = format!("Im{}", image_ref.0);
         let appearance_stream =
             build_placed_image_appearance_stream(image_ref, &geometry, &image_name);
-        let appearance_ref = if let Some((appearance_ref, _)) = existing_appearance {
-            document.set_object(appearance_ref, Object::Stream(appearance_stream));
-            appearance_ref
-        } else {
-            document.add_object(appearance_stream)
-        };
+        let appearance_ref =
+            if let Some((appearance_ref, _)) = existing_appearance.filter(|_| private.0) {
+                document.set_object(appearance_ref, Object::Stream(appearance_stream));
+                appearance_ref
+            } else {
+                document.add_object(appearance_stream)
+            };
         let stamp_ref = if let Some(stamp_ref) = existing_stamp_ref {
             let stamp_dict = document.get_dictionary_mut(stamp_ref)?;
             patch_placed_image_stamp_dict(
@@ -905,15 +961,18 @@ pub(crate) fn apply_placed_image_geometry_updates(
         };
         let (appearance_ref, image_ref) = placed_image_appearance_refs(document, stamp_ref)
             .ok_or("Placed image appearance resources are unavailable")?;
-        let geometry = placed_image_geometry(&probe, page_view, page_rotation)?;
-        document.set_object(
-            appearance_ref,
-            Object::Stream(build_placed_image_appearance_stream(
-                image_ref,
-                &geometry,
-                &format!("Im{}", image_ref.0),
-            )),
+        let appearance = build_placed_image_appearance_stream(
+            image_ref,
+            &geometry,
+            &format!("Im{}", image_ref.0),
         );
+        let appearance_ref =
+            if private_placed_image_refs(document, stamp_ref, appearance_ref, image_ref).0 {
+                document.set_object(appearance_ref, Object::Stream(appearance));
+                appearance_ref
+            } else {
+                document.add_object(appearance)
+            };
         let stamp = document.get_dictionary_mut(stamp_ref)?;
         patch_placed_image_stamp_dict(
             stamp,
@@ -976,6 +1035,17 @@ pub(crate) fn apply_placed_images_incremental(
         let existing_appearance = existing_stamp_ref.and_then(|stamp_ref| {
             placed_image_appearance_refs(&AppendedRevision::new(incremental), stamp_ref)
         });
+        let private = existing_stamp_ref
+            .zip(existing_appearance)
+            .map(|(stamp, (appearance, image))| {
+                private_placed_image_refs(
+                    &AppendedRevision::new(incremental),
+                    stamp,
+                    appearance,
+                    image,
+                )
+            })
+            .unwrap_or((false, false));
         let (mut image_stream, mask_stream) = build_placed_raster_streams(image_bytes, image)?;
         if let Some(mask) = mask_stream {
             image_stream.dict.set(
@@ -983,7 +1053,7 @@ pub(crate) fn apply_placed_images_incremental(
                 Object::Reference(incremental.new_document.add_object(mask)),
             );
         }
-        let image_ref = if let Some((_, image_ref)) = existing_appearance {
+        let image_ref = if let Some((_, image_ref)) = existing_appearance.filter(|_| private.1) {
             incremental
                 .new_document
                 .set_object(image_ref, Object::Stream(image_stream));
@@ -994,14 +1064,15 @@ pub(crate) fn apply_placed_images_incremental(
         let image_name = format!("Im{}", image_ref.0);
         let appearance_stream =
             build_placed_image_appearance_stream(image_ref, &geometry, &image_name);
-        let appearance_ref = if let Some((appearance_ref, _)) = existing_appearance {
-            incremental
-                .new_document
-                .set_object(appearance_ref, Object::Stream(appearance_stream));
-            appearance_ref
-        } else {
-            incremental.new_document.add_object(appearance_stream)
-        };
+        let appearance_ref =
+            if let Some((appearance_ref, _)) = existing_appearance.filter(|_| private.0) {
+                incremental
+                    .new_document
+                    .set_object(appearance_ref, Object::Stream(appearance_stream));
+                appearance_ref
+            } else {
+                incremental.new_document.add_object(appearance_stream)
+            };
         let stamp_ref = if let Some(stamp_ref) = existing_stamp_ref {
             incremental.opt_clone_object_to_new_document(stamp_ref)?;
             let stamp_dict = incremental.new_document.get_dictionary_mut(stamp_ref)?;
@@ -1099,15 +1170,26 @@ pub(crate) fn apply_placed_image_geometry_updates_incremental(
         let (appearance_ref, image_ref) =
             placed_image_appearance_refs(&AppendedRevision::new(incremental), stamp_ref)
                 .ok_or("Placed image appearance resources are unavailable")?;
-        let geometry = placed_image_geometry(&probe, page_view, page_rotation)?;
-        incremental.new_document.set_object(
-            appearance_ref,
-            Object::Stream(build_placed_image_appearance_stream(
-                image_ref,
-                &geometry,
-                &format!("Im{}", image_ref.0),
-            )),
+        let appearance = build_placed_image_appearance_stream(
+            image_ref,
+            &geometry,
+            &format!("Im{}", image_ref.0),
         );
+        let appearance_ref = if private_placed_image_refs(
+            &AppendedRevision::new(incremental),
+            stamp_ref,
+            appearance_ref,
+            image_ref,
+        )
+        .0
+        {
+            incremental
+                .new_document
+                .set_object(appearance_ref, Object::Stream(appearance));
+            appearance_ref
+        } else {
+            incremental.new_document.add_object(appearance)
+        };
         incremental.opt_clone_object_to_new_document(stamp_ref)?;
         let stamp = incremental.new_document.get_dictionary_mut(stamp_ref)?;
         patch_placed_image_stamp_dict(
