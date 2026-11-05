@@ -9,6 +9,7 @@ export interface IFailureToastAction {
     variant?: 'outline' | 'soft';
     icon?: string;
     onClick: () => void;
+    onMousedown?: (event: MouseEvent) => void;
 }
 
 // The public name is pinned by SEN-CORE-06 and intentionally differs from the
@@ -146,6 +147,7 @@ export function createFailureToastPresenter(
                 icon: copied ? 'i-ph-check' : 'i-ph-copy',
                 color: 'neutral',
                 variant: 'outline',
+                onMousedown: event => event.preventDefault(),
                 onClick: () => {
                     void copyFailurePresentation(presentation).then((didCopy) => {
                         if (didCopy) {
