@@ -68,7 +68,6 @@ interface IPendingGlobalWrite {
 let pendingRemoteGlobalWrite: IPendingGlobalWrite | null = null;
 let persistenceRetryTimer: ReturnType<typeof setTimeout> | null = null;
 let persistenceRetryAttempt = 0;
-let persistedBrowserPreferences: IScanCleanupGlobalPreferences | null = null;
 let migrationContext: IScanCleanupPreferencesStoreOptions = {};
 let applyingRemotePreferences = false;
 let acknowledgedPreferences: IScanCleanupGlobalPreferences | null = null;
@@ -270,19 +269,6 @@ function createSettingsReadRequest(
     };
 }
 
-function buildGlobalPreferencesPatch(
-    previous: IScanCleanupGlobalPreferences,
-    next: IScanCleanupGlobalPreferences,
-): IScanCleanupGlobalPreferencePatch {
-    const patch: IScanCleanupGlobalPreferencePatch = {};
-    for (const key of Object.keys(createDefaultScanCleanupSettingsFile().settings) as Array<keyof IScanCleanupGlobalPreferences>) {
-        if (!isEqual(previous[key], next[key])) {
-            Object.assign(patch, {[key]: cloneScanCleanupPreferenceValue(next[key])});
-        }
-    }
-    return patch;
-}
-
 function schedulePersistenceRetry() {
     if (
         persistenceRetryTimer !== null
@@ -476,7 +462,7 @@ async function hydratePreferences() {
         const hydratedSourceSha256 = isScanCleanupSourceSha256(requestContext.sourceSha256)
             ? requestContext.sourceSha256.toLowerCase()
             : null;
-        clearScanCleanupLegacyStorage(legacyDocumentKey => {
+        await clearScanCleanupLegacyStorage(legacyDocumentKey => {
             const adoptedSha256 = isScanCleanupSourceSha256(legacyDocumentKey)
                 ? legacyDocumentKey.toLowerCase()
                 : legacyDocumentKey === requestContext.legacyDocumentKey ? hydratedSourceSha256 : null;
@@ -525,16 +511,21 @@ export async function flushScanCleanupPreferencesStore(): Promise<void> {
         if (!pending || !preferencesHydrated) {
             return;
         }
-        const previous = persistedBrowserPreferences ?? loadScanCleanupPreferences();
-        const settingsPatch = buildGlobalPreferencesPatch(previous, pending);
+        const settingsPatch = Object.fromEntries(pendingGlobalFields) as IScanCleanupGlobalPreferencePatch;
         if (Object.keys(settingsPatch).length === 0) {
             pendingPreferences = null;
             persistenceRetryAttempt = 0;
             return;
         }
         try {
-            persistedBrowserPreferences = saveScanCleanupPreferencesPatch(settingsPatch);
-            pendingPreferences = null;
+            const committed = await saveScanCleanupPreferencesPatch(settingsPatch);
+            for (const [
+                key,
+                intent,
+            ] of pendingGlobalFields) {
+                if (isEqual(intent, settingsPatch[key]) || isEqual(intent, committed[key])) pendingGlobalFields.delete(key);
+            }
+            if (pendingPreferences === pending) pendingPreferences = null;
             persistenceRetryAttempt = 0;
         } catch (error) {
             BrowserLogger.error('scan-cleanup', 'Failed to persist browser settings', error, {code: 'RENDERER_SCAN_CLEANUP_OPERATION_FAILED'});
@@ -610,9 +601,6 @@ export function getScanCleanupPreferencesStore(options?: IScanCleanupPreferences
     const initialPreferences = desktopStore
         ? cloneScanCleanupPreferenceValue(createDefaultScanCleanupSettingsFile().settings)
         : loadScanCleanupPreferences();
-    persistedBrowserPreferences = desktopStore
-        ? null
-        : cloneScanCleanupPreferenceValue(initialPreferences);
     const sharedPreferences = reactive(initialPreferences);
     preferences = sharedPreferences;
     observedPreferences = cloneScanCleanupPreferenceValue(initialPreferences);
@@ -662,13 +650,12 @@ export function loadScanCleanupDocumentSettings(
     legacyDocumentKey: string | null | undefined,
 ): IScanCleanupDocumentSettingsSnapshot | Promise<IScanCleanupDocumentSettingsSnapshot> {
     if (!desktopStore) {
-        const browserDocumentKey = adoptScanCleanupDocumentKey(sourceSha256, legacyDocumentKey);
-        return {
+        return adoptScanCleanupDocumentKey(sourceSha256, legacyDocumentKey).then(browserDocumentKey => ({
             overrides: loadScanCleanupDocumentOverrides(browserDocumentKey),
             pageOverrideDefaults: loadScanCleanupDocumentPageOverrideDefaults(browserDocumentKey),
             marginsMm: loadScanCleanupDocumentMargins(browserDocumentKey),
             outputMode: loadScanCleanupDocumentOutputMode(browserDocumentKey),
-        };
+        }));
     }
     promoteUnresolvedDocumentUpdate(sourceSha256, legacyDocumentKey);
     return whenScanCleanupPreferencesReady().then(async () => {
@@ -698,7 +685,7 @@ export function loadScanCleanupDocumentSettings(
             throw error;
         }
         if (legacyEntryPending && remoteSettingsFile.documentOverrides[normalizedSourceSha256] !== undefined) {
-            clearScanCleanupLegacyStorage(key => key === legacyDocumentKey);
+            await clearScanCleanupLegacyStorage(key => key === legacyDocumentKey);
         }
         const entry = remoteSettingsFile?.documentOverrides[normalizedSourceSha256];
         return {
@@ -720,14 +707,9 @@ export function saveScanCleanupDocumentPreferencesInStore(
     patch: IScanCleanupDocumentPreferencePatch,
 ) {
     if (!desktopStore) {
-        try {
-            saveScanCleanupDocumentPreferences(adoptScanCleanupDocumentKey(sourceSha256, legacyDocumentKey), patch);
-        } catch (error) {
-            BrowserLogger.error('scan-cleanup', 'Failed to persist browser document settings', error, {code: 'RENDERER_SCAN_CLEANUP_OPERATION_FAILED'});
-            return Promise.reject(error);
-        }
-        announceDocumentSettingsCommit(sourceSha256, legacyDocumentKey);
-        return Promise.resolve();
+        return adoptScanCleanupDocumentKey(sourceSha256, legacyDocumentKey)
+            .then(documentKey => saveScanCleanupDocumentPreferences(documentKey, patch))
+            .then(() => announceDocumentSettingsCommit(sourceSha256, legacyDocumentKey));
     }
     if (!isScanCleanupSourceSha256(sourceSha256)) {
         warnMissingDocumentSourceHash('persist', legacyDocumentKey);
@@ -848,7 +830,13 @@ export async function flushScanCleanupDocumentPreferencesStore() {
             await saveScanCleanupDocumentPreferencesInStore(write.sourceSha256, write.legacyDocumentKey, write.patch);
         } catch (error) {
             const key = `${write.sourceSha256 ?? ''}\0${write.legacyDocumentKey ?? ''}`;
-            pendingLegacyDocumentUpdates.set(key, write);
+            if (isScanCleanupDocumentPersistenceTokenCurrent(write.token)) {
+                const newer = pendingLegacyDocumentUpdates.get(key);
+                pendingLegacyDocumentUpdates.set(key, {
+                    ...write,
+                    patch: mergeScanCleanupDocumentPreferencePatches(write.patch, newer?.patch ?? {}),
+                });
+            }
             firstError ??= error;
         }
     }
@@ -905,7 +893,6 @@ export function resetScanCleanupPreferencesStore() {
     }
     acknowledgedPreferences = null;
     observedPreferences = null;
-    persistedBrowserPreferences = null;
     nextDocumentUpdateVersion = 0;
     if (documentPersistenceTimer !== null) {
         clearTimeout(documentPersistenceTimer);

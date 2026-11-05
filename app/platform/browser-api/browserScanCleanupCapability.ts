@@ -250,10 +250,10 @@ async function previewDetail(request: IScanCleanupPreviewRequest, identity: stri
     return settled(work, request.requestId);
 }
 
-function readSettings(request: IScanCleanupSettingsReadRequest = {}): IScanCleanupSettingsFile {
+async function readSettings(request: IScanCleanupSettingsReadRequest = {}): Promise<IScanCleanupSettingsFile> {
     const file = createDefaultScanCleanupSettingsFile();
     file.settings = loadScanCleanupPreferences();
-    const documentKey = adoptScanCleanupDocumentKey(request.sourceSha256, request.legacyDocumentKey);
+    const documentKey = await adoptScanCleanupDocumentKey(request.sourceSha256, request.legacyDocumentKey);
     const entry = documentKey === null ? undefined : loadScanCleanupDocumentEntry(documentKey);
     if (entry !== undefined && isScanCleanupSourceSha256(request.sourceSha256)) {
         file.documentOverrides[request.sourceSha256.toLowerCase()] = entry;
@@ -347,44 +347,26 @@ export const browserScanCleanupCapability: IScanCleanupCapability = {
     acknowledgeCompletedOutputs() {
         return Promise.resolve();
     },
-    getSettings(request) {
-        try {
-            return Promise.resolve(readSettings(request));
-        } catch (error) {
-            return Promise.reject(error);
+    getSettings: readSettings,
+    async updateSettings(request) {
+        if (request.settings !== undefined && request.settingsPatch !== undefined) {
+            throw new Error('Scan-cleanup settings and settingsPatch cannot be supplied together');
         }
-    },
-    updateSettings(request) {
-        try {
-            if (request.settings !== undefined && request.settingsPatch !== undefined) {
-                throw new Error('Scan-cleanup settings and settingsPatch cannot be supplied together');
-            }
-            // Each write throws when storage refuses it, so nothing is
-            // announced that was not saved.
-            let settings: IScanCleanupGlobalPreferences | null = null;
-            if (request.settings !== undefined) {
-                saveScanCleanupPreferences(request.settings);
-                settings = loadScanCleanupPreferences();
-            }
-            if (request.settingsPatch !== undefined) {
-                settings = saveScanCleanupPreferencesPatch(request.settingsPatch);
-            }
-            if (request.document !== undefined) {
-                saveScanCleanupDocumentPreferences(
-                    adoptScanCleanupDocumentKey(request.document.sourceSha256, request.document.legacyDocumentKey),
-                    request.document.patch,
-                );
-            }
-            if (settings !== null) announceSettings(settings, request.requestId);
-            return Promise.resolve(readSettings(request.document === undefined
-                ? {}
-                : {
-                    sourceSha256: request.document.sourceSha256,
-                    ...(request.document.legacyDocumentKey === undefined ? {} : {legacyDocumentKey: request.document.legacyDocumentKey}),
-                }));
-        } catch (error) {
-            return Promise.reject(error);
+        let settings: IScanCleanupGlobalPreferences | null = null;
+        if (request.settings !== undefined) {
+            settings = await saveScanCleanupPreferences(request.settings);
         }
+        if (request.settingsPatch !== undefined) {
+            settings = await saveScanCleanupPreferencesPatch(request.settingsPatch);
+        }
+        if (request.document !== undefined) {
+            await saveScanCleanupDocumentPreferences(
+                await adoptScanCleanupDocumentKey(request.document.sourceSha256, request.document.legacyDocumentKey),
+                request.document.patch,
+            );
+        }
+        if (settings !== null) announceSettings(settings, request.requestId);
+        return readSettings(request.document);
     },
     onPreviewRaw(listener) {
         previewRawListeners.add(listener);

@@ -363,14 +363,13 @@ export async function savePdfAsFromWorkingCopy(
                         await browserDocumentStore.replaceWithHandleBackedDocument(sourceRef, {
                             fileSize: publishedBytes?.byteLength ?? size,
                             saveHandle: saveResult.handle,
-                            saveName: normalizedFileName,
                         });
                     }
                     // The browser keys Scan Cleanup settings by document, so the saved
                     // file takes them before the workspace adopts it. A refused copy
                     // leaves the saved file at the defaults; the save still stands.
                     try {
-                        copyScanCleanupDocumentPreferences([
+                        await copyScanCleanupDocumentPreferences([
                             previousSourceRef,
                             workingCopyPath,
                         ], sourceRef);

@@ -21,6 +21,7 @@ import {
     ref,
 } from 'vue';
 import type * as preferencesStoreModule from '@app/modules/scan-cleanup/runtime/scanCleanupPreferencesStore';
+import {FakeIndexedDbFactory} from '@tests/unit/app/platform/browserPlatformTestDoubles';
 import {BrowserLogger} from '@app/utils/browserLogger';
 import {createScanCleanupSettingsStore} from '@electron/features/scan-cleanup/createScanCleanupSettingsStore';
 import {createScanCleanupPageOverride} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
@@ -94,6 +95,7 @@ vi.mock('@app/utils/getScanCleanupCapability', () => ({getScanCleanupCapability:
 describe('scan cleanup renderer preference store', () => {
     beforeEach(() => {
         resetScanCleanupPreferencesStore();
+        vi.stubGlobal('indexedDB', new FakeIndexedDbFactory());
         localStorage.clear();
         vi.clearAllMocks();
         capability.value.getSettings.mockResolvedValue(createDefaultScanCleanupSettingsFile());

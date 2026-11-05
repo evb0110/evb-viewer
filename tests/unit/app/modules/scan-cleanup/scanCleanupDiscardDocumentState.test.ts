@@ -1,10 +1,13 @@
 // @vitest-environment happy-dom
 import {
+    afterEach,
     beforeEach,
     describe,
     expect,
     it,
+    vi,
 } from 'vitest';
+import {FakeIndexedDbFactory} from '@tests/unit/app/platform/browserPlatformTestDoubles';
 import {requireJobId} from '@contracts/shared';
 import {requireEpochMs} from '@contracts/timestamps';
 import {discardScanCleanupDocumentState} from '@app/modules/scan-cleanup/runtime/discardScanCleanupDocumentState';
@@ -48,23 +51,26 @@ function cacheEntry() {
 
 describe('discardScanCleanupDocumentState', () => {
     beforeEach(() => {
+        vi.stubGlobal('indexedDB', new FakeIndexedDbFactory());
         localStorage.clear();
         scanCleanupDetectionSessionCache.clear();
         scanCleanupAutoDetectionCanceledDocuments.clear();
     });
+
+    afterEach(() => vi.unstubAllGlobals());
 
     it('drops detection restore state and persisted overrides but keeps document margins', async () => {
         scanCleanupDetectionSessionCache.set(LIFECYCLE_KEY, cacheEntry());
         scanCleanupDetectionSessionCache.set(AUTHORITATIVE_LIFECYCLE_KEY, cacheEntry());
         scanCleanupAutoDetectionCanceledDocuments.add(LIFECYCLE_KEY);
         scanCleanupAutoDetectionCanceledDocuments.add(AUTHORITATIVE_LIFECYCLE_KEY);
-        saveScanCleanupDocumentOverrides(DOCUMENT_KEY, {'1': {
+        await saveScanCleanupDocumentOverrides(DOCUMENT_KEY, {'1': {
             rotationDegrees: 90,
             layoutOverride: 'spread',
             excluded: false,
             manualSplit: null,
         }});
-        saveScanCleanupDocumentMargins(DOCUMENT_KEY, {
+        await saveScanCleanupDocumentMargins(DOCUMENT_KEY, {
             leftMm: 19,
             topMm: 6,
             rightMm: 18,
@@ -77,7 +83,7 @@ describe('discardScanCleanupDocumentState', () => {
         expect(scanCleanupDetectionSessionCache.size).toBe(0);
         expect(scanCleanupAutoDetectionCanceledDocuments.size).toBe(0);
         // The document's hash is known, so its preferences now live under it.
-        const documentKey = adoptScanCleanupDocumentKey(SOURCE_SHA256, DOCUMENT_KEY);
+        const documentKey = await adoptScanCleanupDocumentKey(SOURCE_SHA256, DOCUMENT_KEY);
         expect(documentKey).toBe(SOURCE_SHA256);
         expect(loadScanCleanupDocumentMargins(DOCUMENT_KEY)).toBeNull();
         expect(loadScanCleanupDocumentOverrides(documentKey)).toEqual({});

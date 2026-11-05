@@ -30,7 +30,7 @@ export async function discardScanCleanupDocumentState(
         sourceSha256,
     ]);
     if (documentKey) {
-        resetScanCleanupDocumentOverrides(documentKey);
+        await resetScanCleanupDocumentOverrides(documentKey);
     }
     if (sourceSha256) {
         await saveScanCleanupDocumentPreferencesInStore(

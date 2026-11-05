@@ -8,6 +8,7 @@ import {
     basename, resolve,
 } from 'node:path';
 import {PDFDocument} from 'pdf-lib';
+import {build} from 'esbuild';
 import {DEFAULT_SETTINGS} from '@contracts/settings';
 import {chromium} from 'playwright';
 import type {
@@ -74,6 +75,152 @@ async function openReadingBook(page: Page, label: string, name: string) {
 }
 
 describe('browser document lifecycle UI', () => {
+    // T2/C1: accepted independent settings survive an interleaved latest-read/write.
+    it('serializes Scan Cleanup document and global intents with real cross-page IndexedDB', async () => {
+        const bundle = await build({
+            stdin: {
+                contents: `
+                import * as preferences from './app/utils/browserScanCleanupPreferences';
+                import {createScanCleanupPageOverride} from './packages/contracts/scan-cleanup/scanCleanupPageOverrides';
+                const key = 'evb.scanCleanup.documentOverrides.v1';
+                const marginsMm = {leftMm: 3, rightMm: 4, topMm: 5, bottomMm: 6};
+                globalThis.__b02Preferences = preferences;
+                globalThis.__b02Race = async kind => {
+                    const hash = 'a'.repeat(64);
+                    const override = createScanCleanupPageOverride({rotationDegrees: 90});
+                    if (['copy', 'adopt', 'reset', 'override-edits'].includes(kind)) {
+                        localStorage.setItem(key, JSON.stringify({book: {updatedAt: 1, marginsMm, outputMode: 'bw', overrides: {}}}));
+                    }
+                    let nested;
+                    let armed = true;
+                    const storage = {
+                        get(name) {
+                            const snapshot = localStorage.getItem(name);
+                            if (armed) {
+                                armed = false;
+                                nested = Promise.resolve(kind === 'global'
+                                    ? preferences.saveScanCleanupPreferencesPatch({firstRunGuidanceDismissed: true})
+                                    : kind === 'override-edits'
+                                        ? preferences.saveScanCleanupDocumentPreferences('book', {overrideEdits: {'2': override}})
+                                        : preferences.saveScanCleanupDocumentPreferences(kind === 'adopt' ? hash : ['other-document', 'copy', 'reset'].includes(kind) ? 'peer' : 'book', {outputMode: 'color'}));
+                            }
+                            return snapshot;
+                        },
+                        set(name, value) {localStorage.setItem(name, value); return true;},
+                    };
+                    await (kind === 'global'
+                        ? preferences.saveScanCleanupPreferencesPatch({marginsMm}, storage)
+                        : kind === 'copy' ? preferences.copyScanCleanupDocumentPreferences(['book'], 'copy', storage)
+                        : kind === 'adopt' ? preferences.adoptScanCleanupDocumentKey(hash, 'book', storage)
+                        : kind === 'reset' ? preferences.resetScanCleanupDocumentOverrides('book', storage)
+                        : preferences.saveScanCleanupDocumentPreferences('book', kind === 'override-edits' ? {overrideEdits: {'1': override}} : {marginsMm}, storage));
+                    await nested;
+                    return JSON.parse(localStorage.getItem(kind === 'global' ? 'evb.scanCleanup.settings.v1' : key));
+                };
+            `,
+                resolveDir: process.cwd(),
+                loader: 'ts',
+            },
+            bundle: true,
+            write: false,
+            format: 'iife',
+            platform: 'browser',
+            tsconfig: resolve(process.cwd(), 'tsconfig.json'),
+            define: {'import.meta.dev': 'false'},
+        });
+        const context = await lifecycle.browser.newContext();
+        await context.route('**/b02-preferences', route => route.fulfill({
+            contentType: 'text/html',
+            body: '<!doctype html><title>Scan Cleanup preference integration</title>',
+        }));
+        const pageA = await context.newPage();
+        const pageB = await context.newPage();
+        try {
+            for (const page of [
+                pageA,
+                pageB,
+            ]) {
+                await page.goto(`${lifecycle.origin}/b02-preferences`);
+                await page.addScriptTag({content: bundle.outputFiles[0]!.text});
+            }
+            const observations: Array<{
+                kind: string;
+                run: number;
+                margin: number | null;
+                peer: unknown
+            }> = [];
+            for (const kind of [
+                'same-document',
+                'other-document',
+                'global',
+                'override-edits',
+                'copy',
+                'adopt',
+                'reset',
+            ]) {
+                for (let run = 0; run < 3; run += 1) {
+                    await pageA.evaluate(() => {
+                        localStorage.removeItem('evb.scanCleanup.documentOverrides.v1');
+                        localStorage.removeItem('evb.scanCleanup.settings.v1');
+                    });
+                    await pageA.evaluate(async race => Reflect.get(window, '__b02Race')(race), kind);
+                    // Reload the peer to read persisted state after storage-event delivery.
+                    await pageB.reload();
+                    await pageB.addScriptTag({content: bundle.outputFiles[0]!.text});
+                    const saved = await pageB.evaluate(race => JSON.parse(localStorage.getItem(race === 'global'
+                        ? 'evb.scanCleanup.settings.v1' : 'evb.scanCleanup.documentOverrides.v1') ?? '{}'), kind);
+                    observations.push({
+                        kind,
+                        run,
+                        margin: (kind === 'global' ? saved.marginsMm?.leftMm : saved[kind === 'adopt' ? 'a'.repeat(64) : kind === 'copy' ? 'copy' : 'book']?.marginsMm?.leftMm) ?? null,
+                        peer: kind === 'global' ? saved.firstRunGuidanceDismissed
+                            : kind === 'override-edits' ? Boolean(saved.book?.overrides?.['1'] && saved.book?.overrides?.['2'])
+                                : saved[kind === 'adopt' ? 'a'.repeat(64) : [
+                                    'other-document',
+                                    'copy',
+                                    'reset',
+                                ].includes(kind) ? 'peer' : 'book']?.outputMode,
+                    });
+                }
+            }
+            console.info('B02 controlled preference interleavings', JSON.stringify(observations));
+            expect(observations).toEqual([
+                'same-document',
+                'other-document',
+                'global',
+                'override-edits',
+                'copy',
+                'adopt',
+                'reset',
+            ].flatMap(kind => Array.from({length: 3}, (_value, run) => ({
+                kind,
+                run,
+                margin: 3,
+                peer: [
+                    'global',
+                    'override-edits',
+                ].includes(kind) ? true : 'color',
+            }))));
+            // Independent renderer contexts share the very same transaction owner.
+            await Promise.all([
+                pageA.evaluate(async () => Reflect.get(window, '__b02Preferences').saveScanCleanupDocumentPreferences('cross-page', {outputMode: 'color'})),
+                pageB.evaluate(async () => Reflect.get(window, '__b02Preferences').saveScanCleanupDocumentPreferences('cross-page', {marginsMm: {
+                    leftMm: 7,
+                    rightMm: 7,
+                    topMm: 7,
+                    bottomMm: 7,
+                }})),
+            ]);
+            await pageA.reload();
+            expect(await pageA.evaluate(() => JSON.parse(localStorage.getItem('evb.scanCleanup.documentOverrides.v1') ?? '{}')['cross-page'])).toMatchObject({
+                outputMode: 'color',
+                marginsMm: {leftMm: 7},
+            });
+        } finally {
+            await context.close();
+        }
+    });
+
     // T3: physical Save compares every opening byte and ignores an mtime-only touch.
     it.each([
         'unsampled-edit',
