@@ -1,6 +1,6 @@
 import {encode} from 'fast-png';
 import {
-    appendFileSync, copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, mkdtempSync, rmSync, writeFileSync,
+    appendFileSync, copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, mkdtempSync, rmSync, watch, writeFileSync,
 } from 'node:fs';
 import {
     activateMenuItemAsUser, clickAsUser, clickFoundAsUser,
@@ -10,7 +10,7 @@ import {
     basename, join, resolve,
 } from 'node:path';
 import {
-    afterEach, describe, expect, it,
+    afterEach, describe, expect, it, onTestFinished,
 } from 'vitest';
 import {
     createMultiPageTextFixturePdf, createOutlinePageLabelFixturePdf, createPasswordProtectedFixturePdf, fixtureBookmark,
@@ -111,16 +111,32 @@ describe('checkpointed annotation recovery', () => {
                 annotationRecovery?: {artifactId: string}
             }>
         }}
-        let originalRecord: INoteRecord | undefined;
-        await expect.poll(() => {
-            originalRecord = readWorkspaceRecoveryRecords<INoteRecord>(session!.name)
-                .find(record => record.checkpoint.tabs.some(tab => tab.isDirty && tab.annotationRecovery));
-            const artifact = originalRecord?.checkpoint.tabs.find(tab => tab.annotationRecovery)?.annotationRecovery;
-            if (!artifact) return false;
-            const path = join(electronUserDataPath(session!.name), 'workspace-annotation-recovery', `${artifact.artifactId}.json`);
-            return existsSync(path) && readFileSync(path, 'utf8').includes(marker);
-        }).toBe(true);
-        const capturedAt = originalRecord!.checkpoint.capturedAt;
+        // A checkpointed-note scenario starts at the durable journal receipt.
+        // The note and checkpoint debounces can outlast expect.poll's default
+        // budget, especially on the low performance profile. Observe admission
+        // instead; the test's existing deadline still bounds a missing receipt.
+        const recoveryDirectory = join(electronUserDataPath(session.name), 'workspace-recovery');
+        mkdirSync(recoveryDirectory, {recursive: true});
+        const originalRecord = await new Promise<INoteRecord>((resolveRecord, reject) => {
+            const check = () => {
+                const record = readWorkspaceRecoveryRecords<INoteRecord>(session!.name)
+                    .find(candidate => candidate.checkpoint.tabs.some(tab => tab.isDirty && tab.annotationRecovery));
+                const artifact = record?.checkpoint.tabs.find(tab => tab.annotationRecovery)?.annotationRecovery;
+                if (!record || !artifact) return;
+                const path = join(electronUserDataPath(session!.name), 'workspace-annotation-recovery', `${artifact.artifactId}.json`);
+                if (existsSync(path) && readFileSync(path, 'utf8').includes(marker)) {
+                    watcher.close();
+                    resolveRecord(record);
+                }
+            };
+            const watcher = watch(recoveryDirectory, check);
+            onTestFinished(() => watcher.close());
+            watcher.once('error', reject);
+            check();
+        });
+        const artifact = originalRecord.checkpoint.tabs.find(tab => tab.annotationRecovery)!.annotationRecovery!;
+        expect(readFileSync(join(electronUserDataPath(session.name), 'workspace-annotation-recovery', `${artifact.artifactId}.json`), 'utf8')).toContain(marker);
+        const capturedAt = originalRecord.checkpoint.capturedAt;
         await session.page.screenshot({path: join(evidenceDirectory, 'note-before-first-crash.png')});
         await session.browser.disconnect();
         await stopSingleSession(session.name, {
