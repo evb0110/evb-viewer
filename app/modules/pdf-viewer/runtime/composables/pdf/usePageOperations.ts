@@ -5,7 +5,9 @@ import { clamp } from 'es-toolkit/math';
 import type { ICropMargins } from '@app/types/crop';
 import type { TDocumentOperationKind } from '@app/types/documentOperationKind';
 import type { TDocumentRef } from '@contracts/documentRef';
-import type { TDocumentRevisionToken } from '@contracts/documentRevision';
+import type {
+    TDocumentCommitReceipt, TDocumentRevisionToken,
+} from '@contracts/documentRevision';
 import {
     createRequestId,
     type TRequestId,
@@ -107,8 +109,10 @@ type TPageOperationOutcome<TResult extends IPageOpsResult = IPageOpsResult> =
  */
 export type TPageOperationCancelState = 'idle' | 'canceling' | 'finishing';
 
-function didPageOperationSucceed(outcome: TPageOperationOutcome) {
-    return outcome.status === 'succeeded';
+function didPageOperationSucceed(outcome: TPageOperationOutcome, onCommitted?: TDocumentCommitReceipt) {
+    if (outcome.status !== 'succeeded') return false;
+    if (outcome.result.documentRevision) onCommitted?.(outcome.result.documentRevision.token);
+    return true;
 }
 
 export function buildPageMetadataSnapshot(source: {
@@ -275,9 +279,7 @@ export const usePageOperations = (deps: {
         totalPages: number,
         mutationOptions?: IPageOpsMutationOptions,
     ) {
-        return mutationOptions
-            ? getPageOpsCapability().delete(path, pages, totalPages, mutationOptions)
-            : getPageOpsCapability().delete(path, pages, totalPages);
+        return getPageOpsCapability().delete(path, pages, totalPages, mutationOptions);
     }
 
     function runDeletePageRangesOp(
@@ -286,9 +288,7 @@ export const usePageOperations = (deps: {
         totalPages: number,
         mutationOptions?: IPageOpsMutationOptions,
     ) {
-        return mutationOptions
-            ? getPageOpsCapability().deleteRanges(path, ranges, totalPages, mutationOptions)
-            : getPageOpsCapability().deleteRanges(path, ranges, totalPages);
+        return getPageOpsCapability().deleteRanges(path, ranges, totalPages, mutationOptions);
     }
 
     function runRotatePageOp(
@@ -298,9 +298,7 @@ export const usePageOperations = (deps: {
         angle: TPageOpsRotation,
         mutationOptions?: IPageOpsMutationOptions,
     ) {
-        return mutationOptions
-            ? getPageOpsCapability().rotate(path, pages, totalPages, angle, mutationOptions)
-            : getPageOpsCapability().rotate(path, pages, totalPages, angle);
+        return getPageOpsCapability().rotate(path, pages, totalPages, angle, mutationOptions);
     }
 
     function runInsertPageOp(
@@ -663,7 +661,7 @@ export const usePageOperations = (deps: {
             });
         }
 
-        const outcome = await runOperationDetailed({
+        return runOperationDetailed({
             operationName: 'deletePages',
             errorKey: 'errors.pageOps.delete',
             shouldReload: true,
@@ -671,11 +669,10 @@ export const usePageOperations = (deps: {
             beforeRun: ensurePageLabelsResolvedForMutation,
             run: (path) => runDeletePageOp(path, toPageOpsSelection(pages), totalPages, capturePageMutationOptions()),
         });
-        return outcome;
     }
 
-    async function deletePages(pages: number[] | TPageSelection, totalPages: number) {
-        return didPageOperationSucceed(await deletePagesDetailed(pages, totalPages));
+    async function deletePages(pages: number[] | TPageSelection, totalPages: number, onCommitted?: TDocumentCommitReceipt) {
+        return didPageOperationSucceed(await deletePagesDetailed(pages, totalPages), onCommitted);
     }
 
     async function deletePageRangesDetailed(
@@ -700,7 +697,7 @@ export const usePageOperations = (deps: {
             });
         }
 
-        const outcome = await runOperationDetailed({
+        return runOperationDetailed({
             operationName: 'deletePageRanges',
             errorKey: 'errors.pageOps.delete',
             shouldReload: true,
@@ -716,11 +713,10 @@ export const usePageOperations = (deps: {
                 capturePageMutationOptions(),
             ),
         });
-        return outcome;
     }
 
-    async function deletePageRanges(ranges: IPageMoveRangeSegment[], totalPages: number) {
-        return didPageOperationSucceed(await deletePageRangesDetailed(ranges, totalPages));
+    async function deletePageRanges(ranges: IPageMoveRangeSegment[], totalPages: number, onCommitted?: TDocumentCommitReceipt) {
+        return didPageOperationSucceed(await deletePageRangesDetailed(ranges, totalPages), onCommitted);
     }
 
     async function extractPagesDetailed(pages: number[] | TPageSelection) {
@@ -734,7 +730,7 @@ export const usePageOperations = (deps: {
             });
         }
 
-        const outcome = await runOperationDetailed({
+        return runOperationDetailed({
             operationName: 'extractPages',
             errorKey: 'errors.pageOps.extract',
             beforeRun: ensurePageLabelsAndWorkingCopyFresh,
@@ -746,7 +742,6 @@ export const usePageOperations = (deps: {
                 }
             },
         });
-        return outcome;
     }
 
     async function extractPages(pages: number[] | TPageSelection) {
@@ -764,33 +759,31 @@ export const usePageOperations = (deps: {
             });
         }
 
-        const outcome = await runOperationDetailed({
+        return runOperationDetailed({
             operationName: 'rotatePages',
             errorKey: 'errors.pageOps.rotate',
             shouldReload: true,
             fallbackAffectedPages: getFallbackAffectedPages(pages),
             run: (path) => runRotatePageOp(path, toPageOpsSelection(pages), totalPages, angle, capturePageMutationOptions()),
         });
-        return outcome;
     }
 
-    async function rotatePages(pages: number[] | TPageSelection, totalPages: number, angle: TPageOpsRotation) {
-        return didPageOperationSucceed(await rotatePagesDetailed(pages, totalPages, angle));
+    async function rotatePages(pages: number[] | TPageSelection, totalPages: number, angle: TPageOpsRotation, onCommitted?: TDocumentCommitReceipt) {
+        return didPageOperationSucceed(await rotatePagesDetailed(pages, totalPages, angle), onCommitted);
     }
 
     async function insertPagesDetailed(totalPages: number, afterPage: number) {
-        const outcome = await runOperationDetailed({
+        return runOperationDetailed({
             operationName: 'insertPages',
             errorKey: 'errors.pageOps.insert',
             shouldReload: true,
             beforeRun: ensurePageLabelsResolvedForMutation,
             run: (path) => runInsertPageOp(path, totalPages, afterPage, capturePageMutationOptions()),
         });
-        return outcome;
     }
 
-    async function insertPages(totalPages: number, afterPage: number) {
-        return didPageOperationSucceed(await insertPagesDetailed(totalPages, afterPage));
+    async function insertPages(totalPages: number, afterPage: number, onCommitted?: TDocumentCommitReceipt) {
+        return didPageOperationSucceed(await insertPagesDetailed(totalPages, afterPage), onCommitted);
     }
 
     async function insertFileDetailed(totalPages: number, afterPage: number, sourcePaths: TDocumentRef[]) {
@@ -830,7 +823,7 @@ export const usePageOperations = (deps: {
         }
 
         try {
-            const outcome = await runOperationDetailed({
+            return await runOperationDetailed({
                 operationName: 'insertFile',
                 errorKey: 'errors.pageOps.insertFile',
                 shouldReload: true,
@@ -844,7 +837,6 @@ export const usePageOperations = (deps: {
                     capturePageMutationOptions(),
                 ),
             });
-            return outcome;
         } finally {
             stopProgress?.();
             batchProgress.value = null;
@@ -863,7 +855,7 @@ export const usePageOperations = (deps: {
             });
         }
 
-        const outcome = await runOperationDetailed({
+        return runOperationDetailed({
             operationName: 'reorderPages',
             errorKey: 'errors.pageOps.reorder',
             shouldReload: true,
@@ -873,7 +865,6 @@ export const usePageOperations = (deps: {
             beforeRun: ensurePageLabelsResolvedForMutation,
             run: (path) => runReorderPageOp(path, [...newOrder], capturePageMutationOptions()),
         });
-        return outcome;
     }
 
     async function reorderPages(newOrder: number[]) {
@@ -888,7 +879,7 @@ export const usePageOperations = (deps: {
             });
         }
 
-        const outcome = await runOperationDetailed({
+        return runOperationDetailed({
             operationName: 'movePages',
             errorKey: 'errors.pageOps.reorder',
             shouldReload: true,
@@ -896,7 +887,6 @@ export const usePageOperations = (deps: {
             beforeRun: ensurePageLabelsResolvedForMutation,
             run: (path) => runMovePageOp(path, move, capturePageMutationOptions()),
         });
-        return outcome;
     }
 
     async function movePages(move: TPageMoveOperation) {
@@ -917,7 +907,7 @@ export const usePageOperations = (deps: {
                 reason: 'empty-selection',
             });
         }
-        const outcome = await runOperationDetailed({
+        return runOperationDetailed({
             operationName: 'cropPages',
             errorKey: 'errors.pageOps.crop',
             shouldReload: true,
@@ -930,11 +920,10 @@ export const usePageOperations = (deps: {
                 capturePageMutationOptions(),
             ),
         });
-        return outcome;
     }
 
-    async function cropPages(pages: number[] | TPageSelection, totalPages: number, margins: ICropMargins) {
-        return didPageOperationSucceed(await cropPagesDetailed(pages, totalPages, margins));
+    async function cropPages(pages: number[] | TPageSelection, totalPages: number, margins: ICropMargins, onCommitted?: TDocumentCommitReceipt) {
+        return didPageOperationSucceed(await cropPagesDetailed(pages, totalPages, margins), onCommitted);
     }
 
     async function removeCropDetailed(pages: number[] | TPageSelection, totalPages: number) {
@@ -947,7 +936,7 @@ export const usePageOperations = (deps: {
                 reason: 'empty-selection',
             });
         }
-        const outcome = await runOperationDetailed({
+        return runOperationDetailed({
             operationName: 'removeCrop',
             errorKey: 'errors.pageOps.removeCrop',
             shouldReload: true,
@@ -959,11 +948,10 @@ export const usePageOperations = (deps: {
                 capturePageMutationOptions(),
             ),
         });
-        return outcome;
     }
 
-    async function removeCrop(pages: number[] | TPageSelection, totalPages: number) {
-        return didPageOperationSucceed(await removeCropDetailed(pages, totalPages));
+    async function removeCrop(pages: number[] | TPageSelection, totalPages: number, onCommitted?: TDocumentCommitReceipt) {
+        return didPageOperationSucceed(await removeCropDetailed(pages, totalPages), onCommitted);
     }
 
     return {

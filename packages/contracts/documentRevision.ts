@@ -13,6 +13,8 @@ import {
 } from '@contracts/timestamps';
 
 export type TDocumentRevisionToken = Tagged<string, 'DocumentRevisionToken'>;
+/** Receives a revision the operation itself committed. */
+export type TDocumentCommitReceipt = (revision: TDocumentRevisionToken) => void;
 export type TDocumentRevisionAuthority = 'electron-working-copy' | 'browser-document-store';
 
 export type TDocumentRevisionChangeReason =

@@ -3,6 +3,7 @@ import type { ICropMargins } from '@app/types/crop';
 import type { TPageMoveOperation } from '@contracts/pageNumbers';
 import type {
     IDocumentRevisionInfo,
+    TDocumentCommitReceipt,
     TDocumentRevisionToken,
 } from '@contracts/documentRevision';
 import type { TDocumentInstanceId } from '@contracts/documentInstanceId';
@@ -185,9 +186,7 @@ export interface IWorkspaceOpenFailure {
     /** The file the open was for, when the failure itself names it. */
     fileName?: string | null;
 }
-
-/** Receives the revision an operation committed, once it is still the current one. */
-export type TDocumentCommitReceipt = (revision: TDocumentRevisionToken) => void;
+export type {TDocumentCommitReceipt} from '@contracts/documentRevision';
 
 export interface IWorkspaceAgentCommandContext {
     signal: AbortSignal;

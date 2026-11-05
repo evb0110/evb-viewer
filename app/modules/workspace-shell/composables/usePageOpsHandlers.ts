@@ -3,7 +3,9 @@ import { difference } from 'es-toolkit/array';
 import { range } from 'es-toolkit/math';
 import type { ICropMargins } from '@app/types/crop';
 import type { TDocumentRef } from '@contracts/documentRef';
-import type { TDocumentRevisionToken } from '@contracts/documentRevision';
+import type {
+    TDocumentCommitReceipt, TDocumentRevisionToken,
+} from '@contracts/documentRevision';
 import type {IPdfBookmarkEntry} from '@contracts/pdfBookmarkEntry';
 import type {IPdfPageLabelRange} from '@contracts/pdfPageLabels';
 import {
@@ -361,6 +363,7 @@ export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
     async function pageOpsDeleteAndClearSelection(
         pages: TPageSelectionInput,
         expectedTotalPages: number,
+        onCommitted?: TDocumentCommitReceipt,
     ) {
         if (!Array.isArray(pages)) {
             const selection = normalizePageSelectionInput(pages, expectedTotalPages);
@@ -379,7 +382,7 @@ export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
                     0,
                 );
                 const didDelete = await runStructuralPageMutation(
-                    () => pageOpsDeleteRanges(compactDeleteRanges, expectedTotalPages),
+                    () => pageOpsDeleteRanges(compactDeleteRanges, expectedTotalPages, onCommitted),
                     undefined,
                     {
                         kind: 'delete',
@@ -397,7 +400,7 @@ export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
             }
 
             const didDelete = await runStructuralPageMutation(
-                () => pageOpsDelete(selection, expectedTotalPages),
+                () => pageOpsDelete(selection, expectedTotalPages, onCommitted),
                 undefined,
                 {
                     kind: 'delete',
@@ -414,7 +417,7 @@ export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
         }
         const deleted = new Set(pages);
         return runStructuralPageMutation(
-            () => pageOpsDelete(pages, expectedTotalPages),
+            () => pageOpsDelete(pages, expectedTotalPages, onCommitted),
             selection => selection.flatMap((page) => {
                 if (deleted.has(page)) {
                     return [];
@@ -428,9 +431,9 @@ export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
         );
     }
 
-    async function pageOpsInsertAndClearSelection(expectedTotalPages: number, afterPage: number) {
+    async function pageOpsInsertAndClearSelection(expectedTotalPages: number, afterPage: number, onCommitted?: TDocumentCommitReceipt) {
         return runStructuralPageMutation(
-            () => pageOpsInsert(expectedTotalPages, afterPage),
+            () => pageOpsInsert(expectedTotalPages, afterPage, onCommitted),
             undefined,
             {
                 kind: 'insert',
@@ -535,7 +538,7 @@ export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
         onExportPages(Array.isArray(pages) ? [...pages] : pages);
     }
 
-    async function handlePageRotate(pages: TPageSelectionInput, angle: 90 | 180 | 270) {
+    async function handlePageRotate(pages: TPageSelectionInput, angle: 90 | 180 | 270, onCommitted?: TDocumentCommitReceipt) {
         if (isPdfPageOperationBlocked()) {
             return false;
         }
@@ -565,6 +568,7 @@ export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
                         selection,
                         totalPages.value,
                         angle,
+                        onCommitted,
                     );
                     if (!didRotate) {
                         await pdfViewerRef.value?.cancelPageRotationPreview?.({invalidatedPages});
@@ -663,7 +667,7 @@ export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
         ));
     }
 
-    async function handleCropPages(pages: number[] | TPageSelection, margins: ICropMargins) {
+    async function handleCropPages(pages: number[] | TPageSelection, margins: ICropMargins, onCommitted?: TDocumentCommitReceipt) {
         if (isPdfPageOperationBlocked()) {
             return false;
         }
@@ -671,10 +675,10 @@ export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
         if (pageCount === 0) {
             return false;
         }
-        return runTrackedPageOperation('crop', pageCount, () => pageOpsCrop(pages, totalPages.value, margins));
+        return runTrackedPageOperation('crop', pageCount, () => pageOpsCrop(pages, totalPages.value, margins, onCommitted));
     }
 
-    async function handleRemoveCrop(pages: number[] | TPageSelection) {
+    async function handleRemoveCrop(pages: number[] | TPageSelection, onCommitted?: TDocumentCommitReceipt) {
         if (isPdfPageOperationBlocked()) {
             return false;
         }
@@ -682,7 +686,7 @@ export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
         if (pageCount === 0) {
             return false;
         }
-        return runTrackedPageOperation('removeCrop', pageCount, () => pageOpsRemoveCrop(pages, totalPages.value));
+        return runTrackedPageOperation('removeCrop', pageCount, () => pageOpsRemoveCrop(pages, totalPages.value, onCommitted));
     }
 
     return {

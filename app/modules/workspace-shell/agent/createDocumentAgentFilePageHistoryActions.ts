@@ -1,8 +1,7 @@
-import type { Ref } from 'vue';
-import type { TDocumentRef } from '@contracts/documentRef';
-import type { ICropMargins } from '@app/types/crop';
 import { normalizeCropMargins } from '@contracts/shared';
+import type { ICropMargins } from '@app/types/crop';
 import type { IWorkspaceAgentCommandContext } from '@app/types/workspaceExpose';
+import type {IUseDocumentWorkspaceAgentOptions} from '@app/modules/workspace-shell/agent/documentWorkspaceAgentTypes';
 import {getAgentNumberArrayInput} from '@app/modules/workspace-shell/agent/documentWorkspaceAgentInputs';
 import {
     defineAgentActionHandler,
@@ -10,19 +9,10 @@ import {
 } from '@app/modules/workspace-shell/agent/documentWorkspaceAgentActionRegistry';
 import { normalizeAgentPageNumber } from '@app/modules/workspace-shell/agent/documentWorkspaceAgentPages';
 
-interface ICreateDocumentAgentFilePageHistoryActionsOptions {
-    canSave: Ref<boolean>;
-    canUndo: Ref<boolean>;
-    canRedo: Ref<boolean>;
-    totalPages: Ref<number>;
-    workingCopyPath: Ref<TDocumentRef | null>;
-    originalPath: Ref<TDocumentRef | null>;
-    handleRepairSave: () => Promise<boolean>;
-    handleOptimizePdfForInteraction: () => Promise<boolean>;
-    handleCropPages: (pages: number[], margins: ICropMargins) => Promise<boolean>;
-    handleRemoveCrop: (pages: number[]) => Promise<boolean>;
-    handleUndo: () => Promise<unknown> | unknown;
-    handleRedo: () => Promise<unknown> | unknown;
+interface ICreateDocumentAgentFilePageHistoryActionsOptions extends Pick<IUseDocumentWorkspaceAgentOptions,
+    | 'canSave' | 'canUndo' | 'canRedo' | 'totalPages' | 'workingCopyPath' | 'originalPath'
+    | 'handleRepairSave' | 'handleOptimizePdfForInteraction' | 'handleCropPages'
+    | 'handleRemoveCrop' | 'handleUndo' | 'handleRedo'> {
     waitForAgentMutationStateSettled: () => Promise<void>;
     runPdfPageOperationAgentAction: (
         run: () => Promise<{completed: boolean} & object>,
@@ -82,7 +72,7 @@ export function createDocumentAgentFilePageHistoryActions(
             async run(_input, _actionId, context) {
                 await options.waitForAgentMutationStateSettled();
                 context?.assertCurrentDocument();
-                const repairSucceeded = await options.handleRepairSave();
+                const repairSucceeded = await options.handleRepairSave(context?.recordDocumentCommit);
                 await options.waitForAgentMutationStateSettled();
                 if (!repairSucceeded) {
                     throw new Error('Repair save did not complete.');
@@ -97,7 +87,7 @@ export function createDocumentAgentFilePageHistoryActions(
             async run(_input, _actionId, context) {
                 await options.waitForAgentMutationStateSettled();
                 context?.assertCurrentDocument();
-                const optimizeSucceeded = await options.handleOptimizePdfForInteraction();
+                const optimizeSucceeded = await options.handleOptimizePdfForInteraction(context?.recordDocumentCommit);
                 await options.waitForAgentMutationStateSettled();
                 if (!optimizeSucceeded) {
                     throw new Error('PDF optimization did not complete.');
@@ -112,7 +102,7 @@ export function createDocumentAgentFilePageHistoryActions(
             async run(cropInput: ReturnType<typeof parseCropInput>, _actionId, context) {
                 return options.runPdfPageOperationAgentAction(async () => {
                     return {
-                        completed: await options.handleCropPages(cropInput.pages, cropInput.margins),
+                        completed: await options.handleCropPages(cropInput.pages, cropInput.margins, ...(context?.recordDocumentCommit ? [context.recordDocumentCommit] : [])),
                         pages: cropInput.pages,
                         margins: cropInput.margins,
                         cropped: true,
@@ -127,7 +117,7 @@ export function createDocumentAgentFilePageHistoryActions(
             async run(pages: number[], _actionId, context) {
                 return options.runPdfPageOperationAgentAction(async () => {
                     return {
-                        completed: await options.handleRemoveCrop(pages),
+                        completed: await options.handleRemoveCrop(pages, ...(context?.recordDocumentCommit ? [context.recordDocumentCommit] : [])),
                         pages,
                         cropRemoved: true,
                     };
@@ -143,7 +133,7 @@ export function createDocumentAgentFilePageHistoryActions(
                     throw new Error('Undo is not currently available.');
                 }
                 context?.assertCurrentDocument();
-                await options.handleUndo();
+                await options.handleUndo(context?.recordDocumentCommit);
                 await options.waitForAgentMutationStateSettled();
                 return {
                     canUndo: options.canUndo.value,
@@ -161,7 +151,7 @@ export function createDocumentAgentFilePageHistoryActions(
                     throw new Error('Redo is not currently available.');
                 }
                 context?.assertCurrentDocument();
-                await options.handleRedo();
+                await options.handleRedo(context?.recordDocumentCommit);
                 await options.waitForAgentMutationStateSettled();
                 return {
                     canUndo: options.canUndo.value,

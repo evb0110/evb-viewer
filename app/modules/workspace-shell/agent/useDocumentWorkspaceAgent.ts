@@ -340,15 +340,6 @@ export const createDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgent
         };
     }
 
-    function createDjvuPageOperationBlockedResult() {
-        return {
-            ok: false,
-            blocked: true,
-            reason: 'djvu-page-operations-disabled',
-            requiredAction: 'page_ops.convert_to_pdf',
-        };
-    }
-
     function createAgentCommandAbortError() {
         const error = new Error('Agent command was aborted.');
         error.name = 'AbortError';
@@ -391,22 +382,6 @@ export const createDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgent
         assertDocumentIdentityMatches(context.documentIdentity, allowRevisionChange);
     }
 
-    function createGuardedAgentCommandContext(
-        context: IWorkspaceAgentCommandContext | undefined,
-        policy: IAgentActionExecutionPolicy,
-    ): IWorkspaceAgentCommandContext | undefined {
-        if (!context) {
-            return undefined;
-        }
-
-        return {
-            ...context,
-            assertCurrentDocument: () => {
-                assertAgentCommandContext(context, policy);
-            },
-        };
-    }
-
     // An operation refused, canceled or failed did not change the pages, so
     // the agent is told so rather than shown success.
     async function runPdfPageOperationAgentAction(
@@ -414,7 +389,12 @@ export const createDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgent
         context?: IWorkspaceAgentCommandContext,
     ) {
         if (isDjvuMode.value) {
-            return createDjvuPageOperationBlockedResult();
+            return {
+                ok: false,
+                blocked: true,
+                reason: 'djvu-page-operations-disabled',
+                requiredAction: 'page_ops.convert_to_pdf',
+            };
         }
         context?.assertCurrentDocument();
         const {
@@ -1015,7 +995,7 @@ export const createDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgent
                 return runPdfPageOperationAgentAction(async () => {
                     const selection = getSelectedPagePayload();
                     return {
-                        completed: await pageOpsDelete(selection, totalPages.value),
+                        completed: await pageOpsDelete(selection, totalPages.value, ...(context?.recordDocumentCommit ? [context.recordDocumentCommit] : [])),
                         ...describeSelectedPagePayload(selection),
                     };
                 }, context);
@@ -1043,7 +1023,7 @@ export const createDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgent
                 return runPdfPageOperationAgentAction(async () => {
                     const selection = getSelectedPagePayload();
                     return {
-                        completed: await handlePageRotate(selection, 90),
+                        completed: await handlePageRotate(selection, 90, ...(context?.recordDocumentCommit ? [context.recordDocumentCommit] : [])),
                         ...describeSelectedPagePayload(selection),
                     };
                 }, context);
@@ -1057,7 +1037,7 @@ export const createDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgent
                 return runPdfPageOperationAgentAction(async () => {
                     const selection = getSelectedPagePayload();
                     return {
-                        completed: await handlePageRotate(selection, 270),
+                        completed: await handlePageRotate(selection, 270, ...(context?.recordDocumentCommit ? [context.recordDocumentCommit] : [])),
                         ...describeSelectedPagePayload(selection),
                     };
                 }, context);
@@ -1069,7 +1049,7 @@ export const createDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgent
             parse: parseAgentInsertPagesInput,
             async run(afterPage: number, _actionId, context) {
                 return runPdfPageOperationAgentAction(async () => {
-                    return {completed: await pageOpsInsert(totalPages.value, afterPage)};
+                    return {completed: await pageOpsInsert(totalPages.value, afterPage, ...(context?.recordDocumentCommit ? [context.recordDocumentCommit] : []))};
                 }, context);
             },
         },
@@ -1104,7 +1084,10 @@ export const createDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgent
             throw new Error(`Unsupported EVB agent action: ${actionId}`);
         }
         const parsedAction = handler.parse(input, actionId);
-        const guardedContext = createGuardedAgentCommandContext(context, parsedAction.policy);
+        const guardedContext = context && {
+            ...context,
+            assertCurrentDocument: () => assertAgentCommandContext(context, parsedAction.policy),
+        };
         assertAgentCommandContext(context, parsedAction.policy);
         if (actionOptions.dryRun) {
             return createAgentActionResult(actionId, {

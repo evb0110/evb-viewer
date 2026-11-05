@@ -1,3 +1,4 @@
+import {usePageOperations} from '@app/modules/pdf-viewer/runtime/composables/pdf/usePageOperations';
 import {createAgentOptions} from '@tests/unit/app/modules/workspace-shell/agent/createAgentOptions';
 import {createDocumentWorkspaceAgent} from '@app/modules/workspace-shell/agent/useDocumentWorkspaceAgent';
 // @vitest-environment happy-dom
@@ -150,13 +151,6 @@ async function flushAsyncWork() {
     }
 }
 
-async function waitForCommandResponse(responses: IAgentCommandResponse[]) {
-    await waitForAssertion(() => {
-        expect(responses[0]).toBeDefined();
-    });
-    return responses[0]!;
-}
-
 async function waitForAssertion(assertion: () => void) {
     let lastError: unknown;
     for (let attempt = 0; attempt < 20; attempt += 1) {
@@ -211,6 +205,7 @@ async function mountAgentWorkspaceSnapshotHarness(options: {
     const commandCallbacks: Array<(request: IAgentCommandRequest) => void> = [];
     const snapshotCallbacks: Array<(request: IAgentWorkspaceSnapshotRequest) => void> = [];
     const commandResponses: IAgentCommandResponse[] = [];
+    const responseWaiters = new Map<string, (response: IAgentCommandResponse) => void>();
     const agent = options.agent ?? ({
         onWorkspaceSnapshotRequest: vi.fn((callback) => {
             snapshotCallbacks.push(callback);
@@ -227,6 +222,8 @@ async function mountAgentWorkspaceSnapshotHarness(options: {
         }),
         submitCommandResponse: vi.fn(async (response) => {
             commandResponses.push(response);
+            responseWaiters.get(response.requestId)?.(response);
+            responseWaiters.delete(response.requestId);
             return {accepted: true};
         }),
     } satisfies TAgentHarnessCapability);
@@ -267,8 +264,9 @@ async function mountAgentWorkspaceSnapshotHarness(options: {
         firstIdentity,
         session,
         async submitCommand(request: IAgentCommandRequest) {
+            const result = new Promise<IAgentCommandResponse>(resolve => responseWaiters.set(request.requestId, resolve));
             commandCallbacks[0]?.(request);
-            return waitForCommandResponse(commandResponses);
+            return result;
         },
         submitCommandCancel(request: IAgentCommandCancelRequest) {
             commandCancelCallbacks[0]?.(request);
@@ -893,7 +891,6 @@ describe('useAgentWorkspaceSnapshot command guards', () => {
     });
 });
 
-
 describe('passive agent actions', () => {
     it.each([
         [
@@ -1026,5 +1023,100 @@ describe('passive agent actions', () => {
         } finally {
             h.app.unmount();
         }
+    });
+});
+
+describe('agent page-edit revision successors', () => {
+    it.each([
+        false,
+        true,
+    ])('keeps only its own rotation receipt, superseded=%s', async (superseded) => {
+        const holder: {session?: IWorkspaceDocumentController} = {};
+        const identity = ref<IDocumentRevisionInfo | null>(createDocumentIdentity());
+        vi.stubGlobal('useTypedI18n', () => ({t: (key: string) => key}));
+        vi.stubGlobal('useState', () => ref([]));
+        const workingCopyPath = ref(requireDocumentRef('/tmp/document.pdf'));
+        const revisionToken = ref(requireDocumentRevisionToken('revision-1'));
+        const pageOps = usePageOperations({
+            workingCopyPath,
+            documentRevisionToken: revisionToken,
+            ensureHistoryBaselineForMutation: async () => true,
+            reloadWorkingCopyIntoHistory: async () => {
+                identity.value = createDocumentIdentity('revision-2', 2);
+                recommitIdentity(holder.session!, '/tmp/document.pdf', identity.value);
+                return true;
+            },
+            clearOcrCache: () => {},
+            resetSearchCache: () => {},
+        });
+        const agent = createDocumentWorkspaceAgent(createAgentOptions({
+            documentIdentity: identity,
+            selectedThumbnailPages: ref([1]),
+            handlePageRotate: async (pages, angle, receipt) => {
+                const result = await pageOps.rotatePages(pages, 3, angle, receipt);
+                if (superseded) {
+                    identity.value = createDocumentIdentity('reader-revision', 3);
+                    recommitIdentity(holder.session!, '/tmp/document.pdf', identity.value);
+                }
+                return result;
+            },
+        }));
+        const harness = await mountAgentWorkspaceSnapshotHarness({workspace: createWorkspace({hasPdf: true}, {runAgentAction: agent.runAgentAction})});
+        holder.session = harness.session;
+        const electronApi = (window as IWindowWithElectronApi).electronAPI!;
+        vi.spyOn(electronApi.pageOps, 'rotate').mockResolvedValue({
+            success: true,
+            documentRevision: createDocumentIdentity('revision-2', 2),
+        });
+        const tabId = requireTabId('tab-1');
+        const target = harness.session.createCommandTarget(tabId);
+        const scope = {
+            windowId: 1,
+            tabId,
+            commandTarget: target,
+            documentRef: target.documentRef,
+            documentIdentity: harness.firstIdentity,
+            documentInstanceId: target.documentInstanceId ?? null,
+        };
+        try {
+            const response = await harness.submitCommand({
+                requestId: requireRequestId('review-rotate'),
+                command: {
+                    name: 'run_action',
+                    arguments: {
+                        id: 'page_ops.rotate_cw_selected',
+                        tabId,
+                    },
+                },
+                scope,
+            });
+            harness.commandResponses.length = 0;
+            const nextScope = response.successor ? {
+                ...scope,
+                ...response.successor,
+            } : scope;
+            const next = await harness.submitCommand({
+                requestId: requireRequestId('review-next-command'),
+                command: {
+                    name: 'read_resource',
+                    arguments: {
+                        uri: 'evb://document/tab-1/state',
+                        tabId,
+                    },
+                },
+                scope: nextScope,
+            });
+            expect(response.ok).toBe(true);
+            if (superseded) {
+                expect(response.successor).toBeUndefined();
+                expect(next).toMatchObject({
+                    ok: false,
+                    error: 'stale-command-target',
+                });
+            } else {
+                expect(response.successor?.documentIdentity?.token).toBe('revision-2');
+                expect(next.ok).toBe(true);
+            }
+        } finally { harness.app.unmount(); vi.unstubAllGlobals(); }
     });
 });

@@ -349,6 +349,9 @@ export const createDocumentContext = ({controller}: {controller: IWorkspaceDocum
     });
 
     const pdfHistory = usePdfHistory({
+        documentRevisionToken: file.documentRevisionToken,
+        runWithDocumentOperationLease: runExclusive,
+        isHistoryBusy: computed(() => controller.operationLease.activeKind.value === 'history'),
         pdfDocument,
         pdfViewerRef,
         openSurface: commandOpenSurface,
@@ -366,13 +369,6 @@ export const createDocumentContext = ({controller}: {controller: IWorkspaceDocum
         undoHistory: metadata.workspaceUndoTimeline.undoTimeline,
         redoHistory: metadata.workspaceUndoTimeline.redoTimeline,
     });
-    const history = {
-        isHistoryBusy: computed(() => controller.operationLease.activeKind.value === 'history'),
-        canUndo: commandCanUndo,
-        canRedo: commandCanRedo,
-        handleUndo: () => runExclusive('history', () => pdfHistory.handleUndo()),
-        handleRedo: () => runExclusive('history', () => pdfHistory.handleRedo()),
-    };
     const hasOpenDocument = computed(() => (
         file.hasPdf.value
         || (
@@ -432,7 +428,7 @@ export const createDocumentContext = ({controller}: {controller: IWorkspaceDocum
         pdfSrc: file.pdfSrc,
         hasDocument: hasOpenDocument,
         isAnySaving: saveService.isAnySaving,
-        isHistoryBusy: history.isHistoryBusy,
+        isHistoryBusy: pdfHistory.isHistoryBusy,
         isExportingDocx: docx.isExportingDocx,
         isAnyAnnotationNoteSaving: annotations.isAnyAnnotationNoteSaving,
         isDocumentOperationInProgress: controller.operationLease.isBusy,
@@ -641,7 +637,7 @@ export const createDocumentContext = ({controller}: {controller: IWorkspaceDocum
             handleExportDocx,
             cancel: cancelDocxExport,
         },
-        history,
+        history: pdfHistory,
         hasOpenDocument,
         pageOps,
         fileOps,

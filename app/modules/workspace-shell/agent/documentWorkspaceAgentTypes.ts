@@ -32,20 +32,19 @@ export type TWorkspaceAgentFitMode = 'width' | 'height';
 export type TWorkspaceAgentRotateAngle = 90 | 180 | 270;
 export type TWorkspaceAgentTranslate = (key: 'bookmarks.untitled') => string;
 
-export interface IUseDocumentWorkspaceAgentOptions {
+type TDocumentMutation<TArgs extends unknown[] = [], TResult = Promise<boolean>> = (...args: [...TArgs, onCommitted?: TDocumentCommitReceipt]) => TResult;
+export interface IUseDocumentWorkspaceAgentOptions extends Record<
+    | 'canSave' | 'canUndo' | 'canRedo'
+    | 'annotationDirty' | 'bookmarksDirty' | 'continuousScroll' | 'hasPdf'
+    | 'isAnySaving' | 'isDjvuMode' | 'ocrPopupOpen' | 'pageLabelsDirty'
+    | 'showConvertDialog' | 'showSidebar', Ref<boolean>> {
     annotationComments: Ref<IAnnotationCommentSummary[]>;
     annotationCommentsStatus: Ref<TAnnotationCommentsStatus>;
     annotationInventory: Ref<IAnnotationInventoryCompleteness | null>;
-    annotationDirty: Ref<boolean>;
     annotationTool: Ref<TAnnotationTool>;
     bookmarkItems: Ref<IPdfBookmarkEntry[]>;
-    bookmarksDirty: Ref<boolean>;
     getBookmarksRevision: () => number;
-    canSave: Ref<boolean>;
-    canUndo: Ref<boolean>;
-    canRedo: Ref<boolean>;
     closeAllDropdowns: () => void;
-    continuousScroll: Ref<boolean>;
     currentPage: Ref<number>;
     documentIdentity: Ref<IDocumentRevisionInfo | null>;
     fitMode: Ref<TWorkspaceAgentFitMode>;
@@ -63,25 +62,21 @@ export interface IUseDocumentWorkspaceAgentOptions {
     handleGoToPage: (page: number) => void;
     handleOpenAnnotationNote: (comment: IAnnotationCommentSummary) => void;
     handleOpenFileFromUi: () => Promise<unknown>;
-    handleRepairSave: () => Promise<boolean>;
-    handleOptimizePdfForInteraction: () => Promise<boolean>;
-    handleUndo: () => Promise<unknown> | unknown;
-    handleRedo: () => Promise<unknown> | unknown;
+    handleRepairSave: TDocumentMutation;
+    handleOptimizePdfForInteraction: TDocumentMutation;
+    handleUndo: TDocumentMutation<[], unknown>;
+    handleRedo: TDocumentMutation<[], unknown>;
     handlePageLabelRangesUpdate: (ranges: IPdfPageLabelRange[]) => void;
-    handlePageRotate: (pages: number[] | TPageSelection, degrees: TWorkspaceAgentRotateAngle) => Promise<boolean>;
+    handlePageRotate: TDocumentMutation<[pages: number[] | TPageSelection, degrees: TWorkspaceAgentRotateAngle]>;
     handlePrint: () => void;
     handlePrintCurrentPage: () => Promise<unknown>;
     handleQuickNoteAction: () => Promise<unknown>;
-    handleSave: (onCommitted?: TDocumentCommitReceipt) => Promise<boolean>;
+    handleSave: TDocumentMutation;
     handleSaveAs: () => Promise<boolean>;
     handleZoomIn: () => void;
     handleZoomOut: () => void;
-    hasPdf: Ref<boolean>;
-    isAnySaving: Ref<boolean>;
-    isDjvuMode: Ref<boolean>;
     isSameAnnotationComment: (left: IAnnotationCommentSummary, right: IAnnotationCommentSummary) => boolean;
     markAnnotationDirty: () => void;
-    ocrPopupOpen: Ref<boolean>;
     ocr: IOcrPopupAgentExpose;
     openConvertDialog: () => void;
     originalPath: Ref<TDocumentRef | null>;
@@ -89,17 +84,14 @@ export interface IUseDocumentWorkspaceAgentOptions {
     pageLabels: Ref<string[] | null>;
     pageLabelModel?: Ref<IDocumentPageLabelModel | null> | undefined;
     pageLabelsResolved?: Ref<boolean> | undefined;
-    pageLabelsDirty: Ref<boolean>;
-    pageOpsDelete: (pages: number[] | TPageSelection, totalPages: number) => Promise<boolean>;
+    pageOpsDelete: TDocumentMutation<[pages: number[] | TPageSelection, totalPages: number]>;
     pageOpsExtract: (pages: number[] | TPageSelection) => Promise<boolean>;
-    pageOpsInsert: (totalPages: number, afterPage: number) => Promise<boolean>;
-    handleCropPages: (pages: number[], margins: ICropMargins) => Promise<boolean>;
-    handleRemoveCrop: (pages: number[]) => Promise<boolean>;
+    pageOpsInsert: TDocumentMutation<[totalPages: number, afterPage: number]>;
+    handleCropPages: TDocumentMutation<[pages: number[], margins: ICropMargins]>;
+    handleRemoveCrop: TDocumentMutation<[pages: number[]]>;
     pdfViewerRef: Ref<IWorkspacePdfViewerAgentPort | null>;
     selectedThumbnailPages: Ref<number[]>;
     selectedPageSelection?: Ref<TPageSelection | null>;
-    showConvertDialog: Ref<boolean>;
-    showSidebar: Ref<boolean>;
     sidebarTab: Ref<TWorkspaceAgentSidebarTab>;
     sortedAnnotationNoteWindows: Ref<IAnnotationNoteWindowViewModel[]>;
     t: TWorkspaceAgentTranslate;

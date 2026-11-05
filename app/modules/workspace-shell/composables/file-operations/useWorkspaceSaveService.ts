@@ -831,10 +831,9 @@ export const useWorkspaceSaveService = (deps: IWorkspaceSaveDependencies) => {
             || deps.shapes.hasChanges()
         )
     )));
-    const isAnySaving = computed(() => deps.status.isSaving.value || deps.status.isSavingAs.value);
     const saveIfDirty = (onCommitted?: TDocumentCommitReceipt) => (
-        deps.hasPendingUnsavedChanges || deps.hasUnsavedChanges
-            ? canSave.value ? save({kind: 'save'}, onCommitted) : Promise.resolve(!failureSurface.hasSaveFailure.value)
+        (deps.hasPendingUnsavedChanges || deps.hasUnsavedChanges) && !canSave.value
+            ? Promise.resolve(!failureSurface.hasSaveFailure.value)
             : save({kind: 'save'}, onCommitted)
     );
 
@@ -842,7 +841,7 @@ export const useWorkspaceSaveService = (deps: IWorkspaceSaveDependencies) => {
         save,
         hasSaveFailure: failureSurface.hasSaveFailure,
         canSave,
-        isAnySaving,
+        isAnySaving: computed(() => deps.status.isSaving.value || deps.status.isSavingAs.value),
         isAnySaveAdmitted,
         handleSave: saveIfDirty,
         saveForExternalRead: saveIfDirty,
@@ -861,13 +860,10 @@ export const useWorkspaceSaveService = (deps: IWorkspaceSaveDependencies) => {
             kind: 'save-as',
             optimizeLossless,
         }),
-        handleRepairSave: () => save({kind: 'repair'}),
-        handleOptimizePdfForInteraction: async () => {
-            if (canSave.value && !await saveIfDirty()) {
-                return false;
-            }
-            return save({kind: 'optimize'});
-        },
+        handleRepairSave: save.bind(null, {kind: 'repair'}),
+        handleOptimizePdfForInteraction: async (onCommitted?: TDocumentCommitReceipt) => (
+            (!canSave.value || await saveIfDirty()) && save({kind: 'optimize'}, onCommitted)
+        ),
         handleOptimizePdfAsCopy: (
             options: IPdfOptimizeOptions,
             requestId?: TRequestId,
