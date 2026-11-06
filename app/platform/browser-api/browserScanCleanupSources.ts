@@ -20,6 +20,9 @@ interface ISourceEntry {
 }
 
 const sources = new Map<string, ISourceEntry>();
+const retire = (key: string, entry: ISourceEntry) => {
+    if (sources.get(key) === entry) sources.delete(key);
+};
 
 const count = v.pipe(v.number(), v.safeInteger(), v.minValue(0));
 /** What browser inspection adds to a page record: the facts desktop reads from pdfimages and the annotation index. */
@@ -135,9 +138,7 @@ export function borrowBrowserScanCleanupSource(ref: string, revision: string) {
             controller,
             promise,
         };
-        promise.catch(() => {
-            if (sources.get(key) === created) sources.delete(key);
-        });
+        promise.catch(() => retire(key, created));
         sources.set(key, created);
         entry = created;
     }
@@ -152,12 +153,14 @@ export function borrowBrowserScanCleanupSource(ref: string, revision: string) {
         get stale() {
             return sources.get(key) !== borrowed;
         },
+        /** Lends no new borrower this snapshot. */
+        retire: () => retire(key, borrowed),
         release() {
             if (released) return;
             released = true;
             borrowed.borrowers -= 1;
             if (borrowed.borrowers > 0) return;
-            if (sources.get(key) === borrowed) sources.delete(key);
+            retire(key, borrowed);
             borrowed.controller.abort(new DOMException('Scan cleanup source was released.', 'AbortError'));
             void borrowed.promise.then(opened => opened.pdf.loadingTask.destroy()).catch(() => undefined);
         },
@@ -167,7 +170,7 @@ export function borrowBrowserScanCleanupSource(ref: string, revision: string) {
 export type TBrowserScanCleanupSourceBorrow = ReturnType<typeof borrowBrowserScanCleanupSource>;
 
 function abortReason(signal: AbortSignal) {
-    return signal.reason instanceof Error || signal.reason instanceof DOMException
+    return signal.reason instanceof Error
         ? signal.reason
         : new DOMException('Scan cleanup was canceled.', 'AbortError');
 }
@@ -178,12 +181,6 @@ export function awaitScanCleanupSource<T>(promise: Promise<T>, signal: AbortSign
     return new Promise<T>((resolve, reject) => {
         const abort = () => reject(abortReason(signal));
         signal.addEventListener('abort', abort, {once: true});
-        promise.then(value => {
-            signal.removeEventListener('abort', abort);
-            resolve(value);
-        }, (error: unknown) => {
-            signal.removeEventListener('abort', abort);
-            reject(error);
-        });
+        void promise.then(resolve, reject).finally(() => signal.removeEventListener('abort', abort));
     });
 }

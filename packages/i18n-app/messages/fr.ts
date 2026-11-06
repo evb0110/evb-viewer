@@ -524,6 +524,7 @@ export default {
         'sourceTextOmitted': 'Le texte source a été omis dans les résultats de {count} page(s) source : {pages}. La recherche et la copie sont indisponibles sur les pages de sortie concernées. Lancez l’OCR du PDF nettoyé pour rétablir la recherche de texte.',
         'sourceTextOmittedMorePages': '{pages} et {remaining} autres',
         'accessibilityTagsRemoved': 'Les balises d’accessibilité ont été supprimées, car les pages nettoyées ne correspondent plus à la structure d’origine du document.',
+        'sourceLayersReconstructed': 'Les calques de texte compacts d’origine ont été reconstruits à partir des images des pages ; le fichier peut donc être plus volumineux qu’avec l’application de bureau.',
     },
     'app': {
         'title': 'EVB Viewer',

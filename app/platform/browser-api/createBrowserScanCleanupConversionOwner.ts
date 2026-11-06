@@ -19,6 +19,7 @@ import {
     browserDocumentStore,
     getBrowserDocumentFileName,
 } from '@app/platform/browserDocumentStore';
+import {createBrowserDocumentRef} from '@app/platform/browser/browserDocumentRefs';
 import {createBrowserScanCleanupJobRegistry} from '@app/platform/browser-api/createBrowserScanCleanupJobRegistry';
 import type {createBrowserScanCleanupDetectionOwner} from '@app/platform/browser-api/createBrowserScanCleanupDetectionOwner';
 import {classifyBrowserScanCleanupError} from '@app/platform/browser-api/classifyBrowserScanCleanupError';
@@ -114,7 +115,11 @@ export function createBrowserScanCleanupConversionOwner(
 
     const run = async (
         request: IScanCleanupStartRequest,
-        outputRef: TDocumentRef,
+        output: {
+            ref: TDocumentRef;
+            name: string
+        },
+        lease: ReturnType<typeof detection.leaseResultStore>,
         context: Parameters<Parameters<typeof jobs.start>[0]['run']>[0],
     ): Promise<IConversionResult> => {
         const {signal} = context;
@@ -126,17 +131,14 @@ export function createBrowserScanCleanupConversionOwner(
                 updatedAtMs: createEpochMs(),
             });
         };
-        const lease = request.detectionResultStoreId === undefined
-            ? null
-            : detection.leaseResultStore(request.detectionResultStoreId, request);
-        if (request.detectionResultStoreId !== undefined && lease === null) {
-            throw new Error('Detection results are no longer available for this document');
-        }
         const borrow = borrowBrowserScanCleanupSource(request.sourcePdfPath, request.documentRevision);
         try {
             const source = await awaitScanCleanupSource(borrow.opened, signal);
             const token = requireDocumentRevisionToken(request.documentRevision);
-            const {runBrowserScanCleanupConversion} = await import('@app/platform/browser-api/runBrowserScanCleanupConversion');
+            const {
+                runBrowserScanCleanupConversion,
+                BrowserScanCleanupEngineChangedError,
+            } = await import('@app/platform/browser-api/runBrowserScanCleanupConversion');
             const {
                 detectionResultStoreId: _detectionResultStoreId,
                 ownerId: _ownerId,
@@ -156,22 +158,29 @@ export function createBrowserScanCleanupConversionOwner(
                 },
                 signal,
                 onProgress: progress => publish('running', progress),
+            }).catch((error: unknown) => {
+                // A retry inspects the source again under the engine now loaded.
+                if (error instanceof BrowserScanCleanupEngineChangedError) borrow.retire();
+                throw error;
             });
             signal.throwIfAborted();
             // Past this point the output is being published; a cancel would
             // leave the workspace without the document it is about to open.
             publish('committing', context.latest().progress);
-            if (!await browserDocumentStore.write(outputRef, result.pdf)) {
-                throw new Error('Scan cleanup could not store the cleaned document');
-            }
+            await browserDocumentStore.createStoredDocument(output.name, result.pdf, {
+                mimeType: 'application/pdf',
+                saveKind: 'pdf',
+                kind: 'output',
+                retention: 'transient',
+                ref: output.ref,
+            });
             return {
-                outputRef,
+                outputRef: output.ref,
                 summary: result.summary,
                 partial: isPartial(request),
             };
         } finally {
             borrow.release();
-            lease?.release();
         }
     };
 
@@ -184,38 +193,36 @@ export function createBrowserScanCleanupConversionOwner(
                 listeners.delete(listener);
             };
         },
-        async start(request: IScanCleanupStartRequest): Promise<TScanCleanupStartResult> {
+        start(request: IScanCleanupStartRequest): Promise<TScanCleanupStartResult> {
             attachScanCleanupPageOverrideDefaults(
                 request.options.pageOverrides,
                 request.options.pageOverrideDefaults,
                 request.options.marginsMm,
             );
             const jobId = createJobId('scan-cleanup');
-            // The output document exists from the start, as desktop's output
-            // path does; a run that does not complete removes it.
-            let outputRef: TDocumentRef;
-            try {
-                outputRef = await browserDocumentStore.createStoredDocument(
-                    formatScanCleanupOutputName(
-                        getBrowserDocumentFileName(request.sourcePdfPath).replace(/\.[^.]+$/u, ''),
-                        isPartial(request),
-                    ),
-                    new Uint8Array(),
-                    {
-                        mimeType: 'application/pdf',
-                        saveKind: 'pdf',
-                        kind: 'output',
-                        retention: 'transient',
-                    },
-                );
-            } catch (error) {
-                return {
+            // Admission holds the detection results the run reads, so later
+            // maintenance cannot evict them between start and the first page.
+            const lease = request.detectionResultStoreId === undefined
+                ? null
+                : detection.leaseResultStore(request.detectionResultStoreId, request);
+            if (request.detectionResultStoreId !== undefined && lease === null) {
+                return Promise.resolve({
                     started: false,
                     jobId,
-                    error: getErrorMessage(error),
-                    errorCode: classifyBrowserScanCleanupError(error),
-                };
+                    error: 'Detection results are no longer available for this document',
+                    errorCode: 'detection-results-unavailable',
+                });
             }
+            // The output ref is reserved now and stored only at commit, so no
+            // placeholder document exists for a run that does not complete.
+            const name = formatScanCleanupOutputName(
+                getBrowserDocumentFileName(request.sourcePdfPath).replace(/\.[^.]+$/u, ''),
+                isPartial(request),
+            );
+            const output = {
+                ref: createBrowserDocumentRef(name),
+                name,
+            };
             sourceByJob.set(jobId, {
                 ref: request.sourcePdfPath,
                 owner: request,
@@ -234,19 +241,17 @@ export function createBrowserScanCleanupConversionOwner(
                     },
                     updatedAtMs: createEpochMs(),
                 },
-                run: context => run(request, outputRef, context),
+                run: context => run(request, output, lease, context),
             });
-            void settled.finally(async () => {
+            void settled.finally(() => {
                 sourceByJob.delete(jobId);
-                if (jobs.get(jobId, request)?.status !== 'completed') {
-                    await browserDocumentStore.remove(outputRef).catch(() => undefined);
-                }
+                lease?.release();
             });
-            return {
+            return Promise.resolve({
                 started: true,
                 jobId,
-                outputPdfPath: outputRef,
-            };
+                outputPdfPath: output.ref,
+            });
         },
         cancel(jobId: string, owner: IScanCleanupOwnerContext) {
             const state = owned(jobId, owner);

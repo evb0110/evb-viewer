@@ -524,6 +524,7 @@ export default {
         'sourceTextOmitted': 'Der Quelltext wurde bei der Ausgabe von {count} Quellseite(n) weggelassen: {pages}. Auf den betroffenen Ausgabeseiten sind Textsuche und Kopieren nicht verfügbar. Führen Sie OCR für die bereinigte PDF aus, um durchsuchbaren Text wiederherzustellen.',
         'sourceTextOmittedMorePages': '{pages} und {remaining} weitere',
         'accessibilityTagsRemoved': 'Barrierefreiheits-Tags wurden entfernt, weil die bereinigten Seiten nicht mehr zur ursprünglichen Dokumentstruktur passen.',
+        'sourceLayersReconstructed': 'Die ursprünglichen kompakten Textebenen wurden aus den Seitenbildern neu erstellt, daher kann die Datei größer sein als in der Desktop-App.',
     },
     'app': {
         'title': 'EVB Viewer',

@@ -146,6 +146,14 @@ async function sha256Hex(bytes: Uint8Array<ArrayBuffer>) {
 
 type TEngineRole = 'scanCleanup' | 'pdfImageCombine' | 'pdfPageOps';
 
+/** An engine module changed during a run; its source must be inspected again before a retry. */
+export class BrowserScanCleanupEngineChangedError extends ScanCleanupContractError {
+    public constructor(role: string) {
+        super(`The browser ${role} engine changed during the run; run it again`);
+        this.name = 'BrowserScanCleanupEngineChangedError';
+    }
+}
+
 /**
  * The engine modules this run executed, identified by the bytes each worker
  * compiled, as desktop hashes the binaries it ran. A module that changes
@@ -161,14 +169,9 @@ function createEngineIdentities() {
     };
     return {
         observe,
-        async identifyScanCleanup(signal: AbortSignal) {
-            const {sha256} = await runBrowserScanCleanupWorkerRequest('identify-engine', {}, signal);
-            if (sha256 === null) throw new ScanCleanupContractError('The browser cleanup engine did not identify its module');
-            observe('scanCleanup')(sha256);
-        },
         settled(roles: readonly TEngineRole[]) {
             if (conflict !== null) {
-                throw new ScanCleanupContractError(`The browser ${conflict} engine changed during the run; run it again`);
+                throw new BrowserScanCleanupEngineChangedError(conflict);
             }
             const missing = roles.find(role => identities[role] === undefined);
             if (missing !== undefined) {
@@ -311,7 +314,9 @@ export async function runBrowserScanCleanupConversion({
     }
     const geometryRecords: IPdfPageSize[] = [];
     const quality = await planScanCleanupRunQuality({
-        request,
+        // The store, not its materialized copy: the planner reads each page's
+        // chosen view from it, as desktop's does.
+        request: inputRequest,
         documentPageCount,
         pageSizeStore,
         rasterSource,
@@ -329,10 +334,7 @@ export async function runBrowserScanCleanupConversion({
     losslessRun = quality.losslessRun;
     const engines = createEngineIdentities();
     if (source.pageOpsEngineSha256 !== null) engines.observe('pdfPageOps')(source.pageOpsEngineSha256);
-    const [sourceBytes] = await Promise.all([
-        readSource(),
-        engines.identifyScanCleanup(signal),
-    ]);
+    const sourceBytes = await readSource();
     const sourceSha256 = await sha256Hex(new Uint8Array(sourceBytes));
     const context: IConversionContext = {
         request,
@@ -416,6 +418,7 @@ function createRollingOutput(signal: AbortSignal, onEngineIdentity: (sha256: str
                 pagePdf,
             ]}, {
                 signal,
+                dedicated: true,
                 requireWorker: true,
                 onEngineIdentity,
             });
@@ -491,7 +494,7 @@ async function runRasterConversion(
             planned.detectedRasterByPage.get(plan.pageNumber),
         ).eligible)) {
             sourceMrcFallbackReported = true;
-            context.warn('Compact source layers are not reused in the browser; using raster reconstruction');
+            summary.sourceLayersReconstructed = true;
         }
         const manifest = buildShapeOnlyNativeScanCleanupManifest({
             operation: 'render',
@@ -528,7 +531,6 @@ async function runRasterConversion(
             pageGeometryByNumber.set(pageNumber, pageGeometry);
             nativeOptionsBySource.set(pageNumber, manifestPage.options);
             const maxPixels = resolveScanCleanupPipelineMaxPixels(plan.resolvedOutputMode, undefined);
-            emitProgress('rasterizing', completedPageNumbers.size, pageCount, completedPageNumbers);
             const raster = await rasterizePage(context, pageGeometry, pageNumber, plan.dpi, maxPixels);
             const analysisDpi = planned.analysisDpiByPage.get(pageNumber)!;
             const analysisMaxPixels = Math.min(maxPixels, SCAN_CLEANUP_RASTER_MAX_PIXELS);
@@ -547,7 +549,6 @@ async function runRasterConversion(
                     raster: (await rasterizePage(context, pageGeometry, pageNumber, analysisDpi, analysisMaxPixels)).ppm,
                     dpi: analysisDpi,
                 };
-            emitProgress('rendering', completedPageNumbers.size, pageCount, completedPageNumbers);
             const rendered = unwrapBrowserScanCleanupOutcome(await runBrowserScanCleanupWorkerRequest('render-page', {
                 input: raster.ppm,
                 page: {
@@ -562,10 +563,9 @@ async function runRasterConversion(
                 },
                 analysisPlane,
                 planes: 'encoded',
-            }, signal));
+            }, signal, context.engines.observe('scanCleanup')));
             const pageMetadata = decodeNativeScanCleanupPageMetadataJson(rendered.pageMetadataJson);
             pageMetadataBySource.set(pageNumber, pageMetadata);
-            emitProgress('collecting', completedPageNumbers.size, pageCount, completedPageNumbers);
             const collected = collectRenderedPage(context, {
                 pageNumber,
                 plan,
@@ -591,7 +591,6 @@ async function runRasterConversion(
                     outputPageIndex: page.outputPageIndex + outputPages.length,
                 })));
                 skippedNonAffine.push(...textPlan.skippedNonAffine);
-                emitProgress('assembling', outputPages.length, outputPages.length + collected.pageOutputs.length);
                 const combined = await runBrowserPdfCombineWorkerRequest('combinePdfs', {
                     inputs: [...collected.planes].map(([
                         fileName,
@@ -655,7 +654,7 @@ async function runRasterConversion(
             pageMetadataBySource.get(record.sourcePage) ?? {excluded: true},
         )),
         buildIds: composeScanCleanupStampBuildIds({
-            nativeBinarySha256s: await settledEngines(context, [
+            nativeBinarySha256s: settledEngines(context, [
                 'scanCleanup',
                 'pdfImageCombine',
                 'pdfPageOps',
@@ -664,6 +663,7 @@ async function runRasterConversion(
             transportMode: 'browser-wasm-encoded',
         }),
     }));
+    emitProgress('assembling', 0, 1, []);
     // One overlay over the merged output: a link may name another page's target.
     const overlaid = await overlayPdfTextLayers(assembled, new Uint8Array(context.sourceBytes), {
         pages: textPages,
@@ -674,6 +674,7 @@ async function runRasterConversion(
         onEngineIdentity: context.engines.observe('pdfPageOps'),
     });
     summary.accessibilityTagsRemoved = overlaid.report.accessibilityTagsRemoved;
+    emitProgress('assembling', 1, 1);
     // The overlay names its module only now; it must be the one stamped.
     context.engines.settled([
         'scanCleanup',
@@ -846,8 +847,7 @@ function collectRenderedPage(context: IConversionContext, input: ICollectRendere
  * stamp runs; page-ops is known from the source's inspection, and every later
  * page-ops step must match it.
  */
-async function settledEngines(context: IConversionContext, roles: readonly TEngineRole[]) {
-    await context.engines.identifyScanCleanup(context.signal);
+function settledEngines(context: IConversionContext, roles: readonly TEngineRole[]) {
     return context.engines.settled(roles);
 }
 
@@ -964,18 +964,17 @@ async function runLosslessConversion(
                     canvasScope: 'document',
                     ...(documentPrior === undefined ? {} : {documentPrior: documentPrior as never}),
                 },
-            }, signal));
+            }, signal, context.engines.observe('scanCleanup')));
         };
         const firstPass = [];
         for (const page of pages) {
-            emitProgress('rasterizing', completed.size, pageCount, completed);
+            emitProgress('classifying', completed.size, pageCount, completed);
             firstPass.push(await analyze(page));
         }
         const {pages: decisions} = unwrapBrowserScanCleanupOutcome(await runBrowserScanCleanupWorkerRequest(
             'reconcile-document',
             {candidates: firstPass.map(entry => entry.reconciliation)},
-            signal,
-        ));
+            signal, context.engines.observe('scanCleanup')));
         for (const [
             index,
             page,
@@ -1001,7 +1000,7 @@ async function runLosslessConversion(
                     renderMode: 'final',
                     ...(documentCanvas === null ? {} : {documentCanvas}),
                 },
-            }, signal));
+            }, signal, context.engines.observe('scanCleanup')));
             const metadata = finished.pageMetadata;
             // Placement is planned from the canvas, not observed on the page,
             // so the provenance evidence stays the analysis alone.
@@ -1012,7 +1011,7 @@ async function runLosslessConversion(
                 }) => rest),
             });
             completed.add(page.pageNumber);
-            emitProgress('collecting', completed.size, pageCount, completed);
+            emitProgress('classifying', completed.size, pageCount, completed);
             if (metadata.excluded) {
                 summary.excludedPages += 1;
                 continue;
@@ -1110,7 +1109,7 @@ async function runLosslessConversion(
             pageMetadataBySource.get(record.sourcePage) ?? {excluded: true},
         )),
         buildIds: composeScanCleanupStampBuildIds({
-            nativeBinarySha256s: await settledEngines(context, [
+            nativeBinarySha256s: settledEngines(context, [
                 'scanCleanup',
                 'pdfPageOps',
             ]),

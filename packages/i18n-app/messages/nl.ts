@@ -524,6 +524,7 @@ export default {
         'sourceTextOmitted': 'De brontekst is weggelaten in de uitvoer van {count} bronpagina’s: {pages}. Zoeken en kopiëren zijn niet beschikbaar op de betrokken uitvoerpagina’s. Voer OCR uit op de opgeschoonde PDF om doorzoekbare tekst te herstellen.',
         'sourceTextOmittedMorePages': '{pages} en nog {remaining}',
         'accessibilityTagsRemoved': 'De toegankelijkheidstags zijn verwijderd, omdat de opgeschoonde pagina’s niet meer overeenkomen met de oorspronkelijke documentstructuur.',
+        'sourceLayersReconstructed': 'De oorspronkelijke compacte tekstlagen zijn opnieuw opgebouwd uit de paginabeelden, dus het bestand kan groter zijn dan in de desktop-app.',
     },
     'app': {
         'title': 'EVB Viewer',

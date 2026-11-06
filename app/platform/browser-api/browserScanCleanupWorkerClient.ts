@@ -89,6 +89,7 @@ export function runBrowserScanCleanupWorkerRequest<K extends TBrowserScanCleanup
     type: K,
     payload: IBrowserScanCleanupWorkerRequestMap[K],
     signal: AbortSignal,
+    onEngineIdentity?: (sha256: string) => void,
 ): Promise<IBrowserScanCleanupWorkerResultMap[K]> {
     if (signal.aborted) return Promise.reject(abortError(signal));
     const id = owner.createRequestId();
@@ -98,6 +99,7 @@ export function runBrowserScanCleanupWorkerRequest<K extends TBrowserScanCleanup
         const worker = client.getWorker();
         client.registerPendingRequest(id, {
             requestType: type,
+            onEngineIdentity,
             resolveData: data => {
                 if (!isBrowserScanCleanupWorkerResult(type, data)) return false;
                 resolve(data);

@@ -524,6 +524,7 @@ export default {
         'sourceTextOmitted': 'Il testo originale è stato omesso nei risultati di {count} pagina/e di origine: {pages}. Ricerca e copia non sono disponibili nelle pagine di output interessate. Esegui OCR sul PDF pulito per ripristinare il testo ricercabile.',
         'sourceTextOmittedMorePages': '{pages} e altre {remaining}',
         'accessibilityTagsRemoved': 'I tag di accessibilità sono stati rimossi perché le pagine pulite non corrispondono più alla struttura originale del documento.',
+        'sourceLayersReconstructed': 'I livelli di testo compatti originali sono stati ricostruiti dalle immagini delle pagine, quindi il file può risultare più grande che nell’app desktop.',
     },
     'app': {
         'title': 'EVB Viewer',
