@@ -59,7 +59,6 @@ describe('scan-cleanup source MRC geometry', () => {
             output(),
             {
                 backgroundDpi: 100,
-                backgroundPath: '/background.ppm',
                 foregroundDpi: 300,
                 foregroundHeight: 1_000,
                 foregroundPath: '/foreground.jp2',
@@ -97,14 +96,8 @@ describe('scan-cleanup source MRC geometry', () => {
         const matrix = buildScanCleanupSourceMrcForegroundPdfMatrix(
             rendered.metadata,
             {
-                backgroundDpi: 100,
-                backgroundPath: '/background.ppm',
-                foregroundDpi: 300,
                 foregroundHeight: 300,
-                foregroundPath: '/foreground.jp2',
                 foregroundWidth: 400,
-                selectionMaskDecode: 'default',
-                selectionMaskPath: '/selection.jb2e',
             },
             600,
             600,
@@ -134,14 +127,8 @@ describe('scan-cleanup source MRC geometry', () => {
         const matrix = buildScanCleanupSourceMrcForegroundPdfMatrix(
             rendered.metadata,
             {
-                backgroundDpi: 100,
-                backgroundPath: '/background.ppm',
-                foregroundDpi: 300,
                 foregroundHeight: 1_000,
-                foregroundPath: '/foreground.jp2',
                 foregroundWidth: 1_000,
-                selectionMaskDecode: 'default',
-                selectionMaskPath: '/selection.jb2e',
             },
             100,
             100,
@@ -175,14 +162,8 @@ describe('scan-cleanup source MRC geometry', () => {
         const matrix = buildScanCleanupSourceMrcForegroundPdfMatrix(
             rendered.metadata,
             {
-                backgroundDpi: 100,
-                backgroundPath: '/background.ppm',
-                foregroundDpi: 300,
                 foregroundHeight: 800,
-                foregroundPath: '/foreground.jp2',
                 foregroundWidth: 1_000,
-                selectionMaskDecode: 'default',
-                selectionMaskPath: '/selection.jb2e',
             },
             400,
             240,
