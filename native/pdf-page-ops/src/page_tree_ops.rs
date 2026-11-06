@@ -23,15 +23,11 @@ impl BoundedPdfWriter {
 
 impl Write for BoundedPdfWriter {
     fn write(&mut self, buffer: &[u8]) -> std::io::Result<usize> {
-        let Some(next_len) = self.bytes.len().checked_add(buffer.len()) else {
-            self.limit_exceeded = true;
-            return Err(std::io::Error::other("Page-op WASM output limit exceeded"));
-        };
-        let Some(reserve_len) = buffer.len().checked_add(PAGE_OP_WASM_MUTATION_HEADER_BYTES) else {
-            self.limit_exceeded = true;
-            return Err(std::io::Error::other("Page-op WASM output limit exceeded"));
-        };
-        if next_len > self.max_bytes || self.bytes.try_reserve(reserve_len).is_err() {
+        let next_len = self.bytes.len().checked_add(buffer.len());
+        let reserve_len = buffer.len().checked_add(PAGE_OP_WASM_MUTATION_HEADER_BYTES);
+        if !matches!((next_len, reserve_len), (Some(next), Some(reserve))
+            if next <= self.max_bytes && self.bytes.try_reserve(reserve).is_ok())
+        {
             self.limit_exceeded = true;
             return Err(std::io::Error::other("Page-op WASM output limit exceeded"));
         }
@@ -449,6 +445,8 @@ pub(crate) fn build_browser_page_subset_pdf(
         .unwrap_or("1.4")
         .to_string();
     let mut target = Document::with_version(version);
+    // lopdf's xref streams omit object 0, which readers report.
+    target.reference_table.cross_reference_type = lopdf::xref::XrefType::CrossReferenceTable;
     let pages_id = target.new_object_id();
     let mut clone_context = PageCloneContext {
         sources: sources.to_vec(),
