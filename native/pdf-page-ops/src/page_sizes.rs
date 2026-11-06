@@ -408,9 +408,10 @@ fn page_size_entry(
 }
 
 /// One image a page paints, as `pdfimages -list` reports it: an image or
-/// stencil, or the soft or explicit mask attached to an image, which carries
-/// its parent image's object number. Resolution is the image's pixels over
-/// the placement it is painted at.
+/// stencil, or the active soft or explicit mask attached to an image, which
+/// carries its parent image's object number (zero for an inline image).
+/// Resolution is the image's pixels over the placement it is painted at, as
+/// the listing prints it and desktop parses it back.
 #[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
 #[derive(Serialize, Debug, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -430,61 +431,186 @@ const MAX_FORM_XOBJECT_DEPTH: usize = 12;
 #[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
 struct RasterInventory {
     uses: Vec<RasterUse>,
-    /// False when the page paints images this walk cannot measure: inline
-    /// images, unresolvable names or forms nested past the depth bound.
+    /// False when the page paints images this walk cannot measure:
+    /// unreadable inline images or image facts, unresolvable names,
+    /// optional-content expressions or forms nested past the depth bound.
     complete: bool,
 }
 
+/// The names a content stream resolves: its XObjects and marked-content properties.
 #[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
-fn merged_xobjects<'a>(
+struct ResourceScope<'a> {
+    xobjects: HashMap<Vec<u8>, &'a Object>,
+    properties: HashMap<Vec<u8>, &'a Object>,
+}
+
+#[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
+fn resource_scope<'a>(
     document: &'a Document,
     resources: impl Iterator<Item = &'a Dictionary>,
-) -> HashMap<Vec<u8>, &'a Object> {
-    let mut xobjects = HashMap::new();
+) -> ResourceScope<'a> {
+    let mut scope = ResourceScope {
+        xobjects: HashMap::new(),
+        properties: HashMap::new(),
+    };
     for resources in resources {
-        if let Some(dictionary) = resources
-            .get(b"XObject")
-            .ok()
-            .and_then(|object| resolved_dictionary(document, object))
-        {
-            for (name, object) in dictionary {
-                xobjects.insert(name.clone(), object);
+        for (key, names) in [
+            (b"XObject".as_slice(), &mut scope.xobjects),
+            (b"Properties".as_slice(), &mut scope.properties),
+        ] {
+            if let Some(dictionary) = resources
+                .get(key)
+                .ok()
+                .and_then(|object| resolved_dictionary(document, object))
+            {
+                for (name, object) in dictionary {
+                    names.insert(name.clone(), object);
+                }
             }
         }
     }
-    xobjects
+    scope
 }
 
+/// The document's default optional-content configuration, which decides
+/// whether marked content and XObjects in a layer are painted at all.
+#[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
+struct OptionalContent {
+    base_off: bool,
+    on: Vec<ObjectId>,
+    off: Vec<ObjectId>,
+}
+
+#[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
+impl OptionalContent {
+    fn read(document: &Document) -> Self {
+        let configuration = document
+            .catalog()
+            .ok()
+            .and_then(|catalog| catalog.get(b"OCProperties").ok())
+            .and_then(|object| resolved_dictionary(document, object))
+            .and_then(|properties| properties.get(b"D").ok())
+            .and_then(|object| resolved_dictionary(document, object));
+        let references = |key: &[u8]| {
+            configuration
+                .and_then(|configuration| configuration.get(key).ok())
+                .and_then(|object| document.resolved(object).ok())
+                .and_then(|object| object.as_array().ok())
+                .map(|values| {
+                    values
+                        .iter()
+                        .filter_map(|value| value.as_reference().ok())
+                        .collect()
+                })
+                .unwrap_or_default()
+        };
+        Self {
+            base_off: configuration
+                .and_then(|configuration| configuration.get(b"BaseState").ok())
+                .and_then(|object| object.as_name().ok())
+                == Some(b"OFF".as_slice()),
+            on: references(b"ON"),
+            off: references(b"OFF"),
+        }
+    }
+
+    fn group_visible(&self, id: ObjectId) -> bool {
+        if self.base_off {
+            self.on.contains(&id)
+        } else {
+            !self.off.contains(&id)
+        }
+    }
+
+    /// Whether an optional-content group or membership dictionary is shown.
+    fn visible(&self, document: &Document, object: &Object, complete: &mut bool) -> bool {
+        let Some(dictionary) = resolved_dictionary(document, object) else {
+            return true;
+        };
+        match dictionary.get(b"Type").and_then(Object::as_name).ok() {
+            Some(b"OCG") => object
+                .as_reference()
+                .map_or(true, |id| self.group_visible(id)),
+            Some(b"OCMD") => {
+                if dictionary.has(b"VE") {
+                    *complete = false;
+                    return true;
+                }
+                let groups: Vec<ObjectId> = match dictionary.get(b"OCGs").ok().and_then(|object| {
+                    document
+                        .resolved(object)
+                        .ok()
+                        .map(|resolved| (object, resolved))
+                }) {
+                    Some((_, Object::Array(values))) => values
+                        .iter()
+                        .filter_map(|value| value.as_reference().ok())
+                        .collect(),
+                    Some((Object::Reference(id), _)) => vec![*id],
+                    _ => return true,
+                };
+                let shown = groups.iter().map(|id| self.group_visible(*id));
+                match dictionary.get(b"P").and_then(Object::as_name).ok() {
+                    Some(b"AllOn") => shown.into_iter().all(|on| on),
+                    Some(b"AnyOff") => shown.into_iter().any(|on| !on),
+                    Some(b"AllOff") => shown.into_iter().all(|on| !on),
+                    _ => shown.into_iter().any(|on| on),
+                }
+            }
+            _ => true,
+        }
+    }
+}
+
+#[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
+fn dictionary_value<'a>(
+    document: &'a Document,
+    dictionary: &'a Dictionary,
+    keys: &[&[u8]],
+) -> Option<&'a Object> {
+    keys.iter()
+        .find_map(|key| dictionary.get(key).ok())
+        .and_then(|object| document.resolved(object).ok())
+}
+
+/// Pixels over painted points, as pdfimages prints it and desktop parses it
+/// back: a whole number rounded half to even, and zero below one.
 #[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
 fn image_ppi(pixels: i64, matrix_x: f64, matrix_y: f64) -> i64 {
     let points = matrix_x.hypot(matrix_y);
     if points <= 0.0 || !points.is_finite() {
         return 0;
     }
-    (pixels as f64 * 72.0 / points).round() as i64
+    let ppi = pixels as f64 * 72.0 / points;
+    if ppi >= 1.0 {
+        ppi.round_ties_even() as i64
+    } else {
+        0
+    }
 }
 
 #[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
 fn push_raster_use(
-    uses: &mut Vec<RasterUse>,
+    document: &Document,
+    inventory: &mut RasterInventory,
     kind: &'static str,
     dictionary: &Dictionary,
     bits_per_component: i64,
     object_number: u32,
     matrix: Matrix,
 ) {
-    let width_px = dictionary
-        .get(b"Width")
-        .and_then(Object::as_i64)
-        .unwrap_or(0);
-    let height_px = dictionary
-        .get(b"Height")
-        .and_then(Object::as_i64)
-        .unwrap_or(0);
-    if width_px <= 0 || height_px <= 0 {
+    let dimension = |keys: &[&[u8]]| {
+        dictionary_value(document, dictionary, keys)
+            .and_then(|object| object.as_i64().ok())
+            .filter(|value| *value > 0)
+    };
+    let (Some(width_px), Some(height_px)) =
+        (dimension(&[b"Width", b"W"]), dimension(&[b"Height", b"H"]))
+    else {
+        inventory.complete = false;
         return;
-    }
-    uses.push(RasterUse {
+    };
+    inventory.uses.push(RasterUse {
         kind,
         width_px,
         height_px,
@@ -496,193 +622,355 @@ fn push_raster_use(
 }
 
 #[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
+fn image_bits(document: &Document, dictionary: &Dictionary, default_bits: i64) -> (bool, i64) {
+    let stencil = dictionary_value(document, dictionary, &[b"ImageMask", b"IM"])
+        .and_then(|object| object.as_bool().ok())
+        .unwrap_or(false);
+    let bits = dictionary_value(document, dictionary, &[b"BitsPerComponent", b"BPC"])
+        .and_then(|object| object.as_i64().ok())
+        .unwrap_or(default_bits);
+    (stencil, if stencil { 1 } else { bits })
+}
+
+#[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
 fn record_image_use(
     document: &Document,
-    uses: &mut Vec<RasterUse>,
+    inventory: &mut RasterInventory,
     dictionary: &Dictionary,
     object_number: u32,
     matrix: Matrix,
 ) {
-    let stencil = dictionary
-        .get(b"ImageMask")
-        .and_then(Object::as_bool)
-        .unwrap_or(false);
-    let bits = dictionary
-        .get(b"BitsPerComponent")
-        .and_then(Object::as_i64)
-        .unwrap_or(if stencil { 1 } else { 8 });
+    let (stencil, bits) = image_bits(document, dictionary, 8);
     push_raster_use(
-        uses,
+        document,
+        inventory,
         if stencil { "stencil" } else { "image" },
         dictionary,
-        if stencil { 1 } else { bits },
+        bits,
         object_number,
         matrix,
     );
-    for (key, kind) in [(b"SMask".as_slice(), "smask"), (b"Mask".as_slice(), "mask")] {
-        let Some(mask) = dictionary
-            .get(key)
-            .ok()
-            .and_then(|object| document.resolved(object).ok())
-            .and_then(|object| object.as_stream().ok())
-        else {
-            continue;
-        };
-        let mask_bits = if mask
-            .dict
-            .get(b"ImageMask")
-            .and_then(Object::as_bool)
-            .unwrap_or(false)
-        {
-            1
-        } else {
-            mask.dict
-                .get(b"BitsPerComponent")
-                .and_then(Object::as_i64)
-                .unwrap_or(1)
-        };
-        push_raster_use(uses, kind, &mask.dict, mask_bits, object_number, matrix);
+    // A soft mask takes the place of an explicit one; only the active mask is painted.
+    let mask = |key: &[u8]| {
+        dictionary_value(document, dictionary, &[key]).and_then(|object| object.as_stream().ok())
+    };
+    let active = mask(b"SMask")
+        .map(|stream| ("smask", stream))
+        .or_else(|| mask(b"Mask").map(|stream| ("mask", stream)));
+    if let Some((kind, stream)) = active {
+        let (_, mask_bits) = image_bits(document, &stream.dict, 1);
+        push_raster_use(
+            document,
+            inventory,
+            kind,
+            &stream.dict,
+            mask_bits,
+            object_number,
+            matrix,
+        );
     }
 }
 
 #[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
-#[allow(clippy::too_many_arguments)]
-fn walk_raster_uses(
-    document: &Document,
-    operations: &[Operation],
-    xobjects: &HashMap<Vec<u8>, &Object>,
-    base: Matrix,
-    form_path: &mut Vec<ObjectId>,
+fn read_matrix(object: Option<&Object>) -> Option<Matrix> {
+    object
+        .and_then(|object| object.as_array().ok())
+        .and_then(|values| values.iter().map(object_number).collect::<Option<Vec<_>>>())
+        .filter(|values| values.len() == 6)
+        .map(|values| Matrix {
+            a: values[0],
+            b: values[1],
+            c: values[2],
+            d: values[3],
+            e: values[4],
+            f: values[5],
+        })
+}
+
+#[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
+struct InventoryWalk<'a> {
+    document: &'a Document,
+    optional_content: OptionalContent,
+    form_path: Vec<ObjectId>,
     max_decompressed_bytes: usize,
-    inventory: &mut RasterInventory,
-) -> Result<()> {
-    let mut matrix = base;
-    let mut stack = Vec::new();
-    for operation in operations {
-        match operation.operator.as_str() {
-            "q" => stack.push(matrix),
-            "Q" => matrix = stack.pop().unwrap_or(base),
-            "cm" if operation.operands.len() == 6 => {
-                if let Some(values) = operation
-                    .operands
-                    .iter()
-                    .map(object_number)
-                    .collect::<Option<Vec<_>>>()
-                {
-                    matrix = Matrix {
-                        a: values[0],
-                        b: values[1],
-                        c: values[2],
-                        d: values[3],
-                        e: values[4],
-                        f: values[5],
+    inventory: RasterInventory,
+}
+
+#[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
+impl InventoryWalk<'_> {
+    fn walk(
+        &mut self,
+        operations: &[Operation],
+        scope: &ResourceScope<'_>,
+        base: Matrix,
+    ) -> Result<()> {
+        let document = self.document;
+        let mut matrix = base;
+        let mut stack = Vec::new();
+        // Each open marked-content sequence, true where its layer is hidden.
+        let mut hidden = Vec::<bool>::new();
+        for operation in operations {
+            let is_hidden = hidden.last().copied().unwrap_or(false);
+            match operation.operator.as_str() {
+                "q" => stack.push(matrix),
+                "Q" => matrix = stack.pop().unwrap_or(base),
+                "cm" => {
+                    if let Some(values) =
+                        read_matrix(Some(&Object::Array(operation.operands.clone())))
+                    {
+                        matrix = values.concat_onto(matrix);
                     }
-                    .concat_onto(matrix);
                 }
-            }
-            "BI" | "ID" | "EI" => inventory.complete = false,
-            "Do" if operation.operands.len() == 1 => {
-                let Ok(name) = operation.operands[0].as_name() else {
-                    continue;
-                };
-                let Some(&object) = xobjects.get(name) else {
-                    inventory.complete = false;
-                    continue;
-                };
-                let object_id = object.as_reference().ok();
-                let Some(stream) = document
-                    .resolved(object)
-                    .ok()
-                    .and_then(|object| object.as_stream().ok())
-                else {
-                    inventory.complete = false;
-                    continue;
-                };
-                match stream.dict.get(b"Subtype").and_then(Object::as_name).ok() {
-                    Some(b"Image") => record_image_use(
-                        document,
-                        &mut inventory.uses,
-                        &stream.dict,
-                        object_id.map_or(0, |id| id.0),
-                        matrix,
-                    ),
-                    Some(b"Form") => {
-                        // A cycle is a repeat along the current path, not a
-                        // form painted twice: both uses are real images.
-                        if object_id.is_some_and(|id| form_path.contains(&id))
-                            || form_path.len() >= MAX_FORM_XOBJECT_DEPTH
-                        {
-                            inventory.complete = false;
+                "BMC" => hidden.push(is_hidden),
+                "BDC" => {
+                    let layer = (operation
+                        .operands
+                        .first()
+                        .and_then(|tag| tag.as_name().ok())
+                        == Some(b"OC".as_slice()))
+                    .then(|| operation.operands.get(1))
+                    .flatten();
+                    let shown = match layer {
+                        Some(Object::Name(name)) => {
+                            scope.properties.get(name).is_none_or(|object| {
+                                self.optional_content.visible(
+                                    document,
+                                    object,
+                                    &mut self.inventory.complete,
+                                )
+                            })
+                        }
+                        Some(object) => self.optional_content.visible(
+                            document,
+                            object,
+                            &mut self.inventory.complete,
+                        ),
+                        None => true,
+                    };
+                    hidden.push(is_hidden || !shown);
+                }
+                "EMC" => {
+                    hidden.pop();
+                }
+                _ if is_hidden => {}
+                "BI" => match operation.operands.first() {
+                    Some(Object::Stream(inline)) => {
+                        record_image_use(document, &mut self.inventory, &inline.dict, 0, matrix)
+                    }
+                    _ => self.inventory.complete = false,
+                },
+                "Do" if operation.operands.len() == 1 => {
+                    let Ok(name) = operation.operands[0].as_name() else {
+                        continue;
+                    };
+                    let Some(&object) = scope.xobjects.get(name) else {
+                        self.inventory.complete = false;
+                        continue;
+                    };
+                    let object_id = object.as_reference().ok();
+                    let Some(stream) = document
+                        .resolved(object)
+                        .ok()
+                        .and_then(|object| object.as_stream().ok())
+                    else {
+                        self.inventory.complete = false;
+                        continue;
+                    };
+                    if let Ok(layer) = stream.dict.get(b"OC") {
+                        if !self.optional_content.visible(
+                            document,
+                            layer,
+                            &mut self.inventory.complete,
+                        ) {
                             continue;
                         }
-                        let form_matrix = stream
-                            .dict
-                            .get(b"Matrix")
-                            .ok()
-                            .and_then(|object| object.as_array().ok())
-                            .and_then(|values| {
-                                values.iter().map(object_number).collect::<Option<Vec<_>>>()
-                            })
-                            .filter(|values| values.len() == 6)
-                            .map_or(Matrix::IDENTITY, |values| Matrix {
-                                a: values[0],
-                                b: values[1],
-                                c: values[2],
-                                d: values[3],
-                                e: values[4],
-                                f: values[5],
-                            });
-                        let form_resources = stream
-                            .dict
-                            .get(b"Resources")
-                            .ok()
-                            .and_then(|object| resolved_dictionary(document, object));
-                        let form_xobjects;
-                        let scope = match form_resources {
-                            Some(resources) => {
-                                form_xobjects =
-                                    merged_xobjects(document, std::iter::once(resources));
-                                &form_xobjects
-                            }
-                            None => xobjects,
-                        };
-                        let bytes = crate::load_policy::plain_stream_with_limit(
-                            stream,
-                            max_decompressed_bytes,
-                        )
-                        .map_err(|error| {
-                            domain_error(
-                                NativeErrorCode::CorruptXref,
-                                format!("Failed to decode a PDF form XObject: {error}"),
-                            )
-                        })?;
-                        let content = parse_content(&bytes)?.map_err(|error| {
-                            domain_error(
-                                NativeErrorCode::CorruptXref,
-                                format!("Failed to parse a PDF form XObject: {error}"),
-                            )
-                        })?;
-                        form_path.extend(object_id);
-                        walk_raster_uses(
-                            document,
-                            &content.operations,
-                            scope,
-                            form_matrix.concat_onto(matrix),
-                            form_path,
-                            max_decompressed_bytes,
-                            inventory,
-                        )?;
-                        if object_id.is_some() {
-                            form_path.pop();
-                        }
                     }
-                    _ => {}
+                    match stream.dict.get(b"Subtype").and_then(Object::as_name).ok() {
+                        Some(b"Image") => record_image_use(
+                            document,
+                            &mut self.inventory,
+                            &stream.dict,
+                            object_id.map_or(0, |id| id.0),
+                            matrix,
+                        ),
+                        Some(b"Form") => self.walk_form(stream, object_id, matrix, scope)?,
+                        _ => {}
+                    }
+                }
+                _ => {}
+            }
+        }
+        Ok(())
+    }
+
+    fn walk_form(
+        &mut self,
+        stream: &lopdf::Stream,
+        object_id: Option<ObjectId>,
+        outer: Matrix,
+        parent_scope: &ResourceScope<'_>,
+    ) -> Result<()> {
+        // A cycle is a repeat along the current path, not a form painted
+        // twice: both uses of a repeated form are real images.
+        if object_id.is_some_and(|id| self.form_path.contains(&id))
+            || self.form_path.len() >= MAX_FORM_XOBJECT_DEPTH
+        {
+            self.inventory.complete = false;
+            return Ok(());
+        }
+        let document = self.document;
+        let form_matrix = read_matrix(stream.dict.get(b"Matrix").ok()).unwrap_or(Matrix::IDENTITY);
+        let own_scope = stream
+            .dict
+            .get(b"Resources")
+            .ok()
+            .and_then(|object| resolved_dictionary(document, object))
+            .map(|resources| resource_scope(document, std::iter::once(resources)));
+        let bytes =
+            crate::load_policy::plain_stream_with_limit(stream, self.max_decompressed_bytes)
+                .map_err(|error| {
+                    domain_error(
+                        NativeErrorCode::CorruptXref,
+                        format!("Failed to decode a PDF form XObject: {error}"),
+                    )
+                })?;
+        let content = parse_content(&bytes)?.map_err(|error| {
+            domain_error(
+                NativeErrorCode::CorruptXref,
+                format!("Failed to parse a PDF form XObject: {error}"),
+            )
+        })?;
+        self.form_path.extend(object_id);
+        let walked = self.walk(
+            &content.operations,
+            own_scope.as_ref().unwrap_or(parent_scope),
+            form_matrix.concat_onto(outer),
+        );
+        if object_id.is_some() {
+            self.form_path.pop();
+        }
+        walked
+    }
+
+    /// The images a page's visible annotation appearances paint, placed as
+    /// a viewer places them: the appearance box mapped onto the annotation's rectangle.
+    fn walk_annotations(
+        &mut self,
+        page: &Dictionary,
+        page_scope: &ResourceScope<'_>,
+    ) -> Result<()> {
+        const HIDDEN: i64 = 2;
+        const NO_VIEW: i64 = 32;
+        let document = self.document;
+        let Some(annotations) = page
+            .get(b"Annots")
+            .ok()
+            .and_then(|object| document.resolved(object).ok())
+            .and_then(|object| object.as_array().ok())
+        else {
+            return Ok(());
+        };
+        for annotation in annotations {
+            let Some(annotation) = resolved_dictionary(document, annotation) else {
+                continue;
+            };
+            let flags = annotation.get(b"F").and_then(Object::as_i64).unwrap_or(0);
+            if flags & (HIDDEN | NO_VIEW) != 0 {
+                continue;
+            }
+            if let Ok(layer) = annotation.get(b"OC") {
+                if !self
+                    .optional_content
+                    .visible(document, layer, &mut self.inventory.complete)
+                {
+                    continue;
                 }
             }
-            _ => {}
+            let Some(normal) = annotation
+                .get(b"AP")
+                .ok()
+                .and_then(|object| resolved_dictionary(document, object))
+                .and_then(|appearances| appearances.get(b"N").ok())
+            else {
+                continue;
+            };
+            // A normal appearance is a form, or one form per appearance state.
+            let appearance = match document.resolved(normal).ok() {
+                Some(Object::Stream(_)) => normal,
+                Some(Object::Dictionary(states)) => {
+                    let Some(state) = annotation.get(b"AS").and_then(Object::as_name).ok() else {
+                        continue;
+                    };
+                    let Ok(appearance) = states.get(state) else {
+                        continue;
+                    };
+                    appearance
+                }
+                _ => continue,
+            };
+            let object_id = appearance.as_reference().ok();
+            let Some(stream) = document
+                .resolved(appearance)
+                .ok()
+                .and_then(|object| object.as_stream().ok())
+            else {
+                continue;
+            };
+            let rect = annotation
+                .get(b"Rect")
+                .ok()
+                .and_then(|object| object.as_array().ok())
+                .and_then(|values| values.iter().map(object_number).collect::<Option<Vec<_>>>())
+                .filter(|values| values.len() == 4);
+            let bbox = stream
+                .dict
+                .get(b"BBox")
+                .ok()
+                .and_then(|object| object.as_array().ok())
+                .and_then(|values| values.iter().map(object_number).collect::<Option<Vec<_>>>())
+                .filter(|values| values.len() == 4);
+            let (Some(rect), Some(bbox)) = (rect, bbox) else {
+                self.inventory.complete = false;
+                continue;
+            };
+            let form_matrix =
+                read_matrix(stream.dict.get(b"Matrix").ok()).unwrap_or(Matrix::IDENTITY);
+            let corners = [
+                form_matrix.transform(bbox[0], bbox[1]),
+                form_matrix.transform(bbox[2], bbox[1]),
+                form_matrix.transform(bbox[0], bbox[3]),
+                form_matrix.transform(bbox[2], bbox[3]),
+            ];
+            let (min_x, max_x, min_y, max_y) = corners.iter().fold(
+                (
+                    f64::INFINITY,
+                    f64::NEG_INFINITY,
+                    f64::INFINITY,
+                    f64::NEG_INFINITY,
+                ),
+                |(min_x, max_x, min_y, max_y), (x, y)| {
+                    (min_x.min(*x), max_x.max(*x), min_y.min(*y), max_y.max(*y))
+                },
+            );
+            let (rect_x, rect_y) = (rect[0].min(rect[2]), rect[1].min(rect[3]));
+            let (rect_width, rect_height) = ((rect[2] - rect[0]).abs(), (rect[3] - rect[1]).abs());
+            if max_x <= min_x || max_y <= min_y {
+                continue;
+            }
+            let scale_x = rect_width / (max_x - min_x);
+            let scale_y = rect_height / (max_y - min_y);
+            let placement = Matrix {
+                a: scale_x,
+                b: 0.0,
+                c: 0.0,
+                d: scale_y,
+                e: rect_x - scale_x * min_x,
+                f: rect_y - scale_y * min_y,
+            };
+            self.walk_form(stream, object_id, placement, page_scope)?;
         }
+        Ok(())
     }
-    Ok(())
 }
 
 #[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
@@ -699,22 +987,23 @@ fn page_raster_inventory(
         .into_iter()
         .rev()
         .filter_map(|id| document.get_dictionary(id).ok());
-    let xobjects = merged_xobjects(document, inherited.chain(direct_resources));
-    let mut inventory = RasterInventory {
-        uses: Vec::new(),
-        complete: true,
+    let scope = resource_scope(document, inherited.chain(direct_resources));
+    let mut walk = InventoryWalk {
+        document,
+        optional_content: OptionalContent::read(document),
+        form_path: Vec::new(),
+        max_decompressed_bytes,
+        inventory: RasterInventory {
+            uses: Vec::new(),
+            complete: true,
+        },
     };
     let content = decode_page_content_with_limit(document, page_id, max_decompressed_bytes)?;
-    walk_raster_uses(
-        document,
-        &content.operations,
-        &xobjects,
-        Matrix::IDENTITY,
-        &mut Vec::new(),
-        max_decompressed_bytes,
-        &mut inventory,
-    )?;
-    Ok(inventory)
+    walk.walk(&content.operations, &scope, Matrix::IDENTITY)?;
+    if let Ok(page) = document.get_dictionary(page_id) {
+        walk.walk_annotations(page, &scope)?;
+    }
+    Ok(walk.inventory)
 }
 
 #[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
@@ -1397,6 +1686,128 @@ mod tests {
                 mask,
                 row("image", 100, 50, 8, foreground_id.0, 36),
                 row("mask", 2000, 1000, 1, foreground_id.0, 720),
+            ],
+        );
+    }
+
+    #[test]
+    fn inventories_what_pdfimages_lists_beyond_page_content() {
+        let (mut document, page_id) = create_test_document();
+        let image = |document: &mut Document, extra: Dictionary| {
+            let mut dictionary = dictionary! {
+                "Type" => "XObject",
+                "Subtype" => "Image",
+                "Width" => 10,
+                "Height" => 10,
+                "ColorSpace" => "DeviceGray",
+                "BitsPerComponent" => 8,
+            };
+            for (key, value) in extra {
+                dictionary.set(key, value);
+            }
+            document.add_object(Stream::new(dictionary, Vec::new()))
+        };
+        // Indirect facts: a one-bit image whose size and depth are references.
+        let width_id = document.add_object(10);
+        let bits_id = document.add_object(1);
+        let indirect = image(
+            &mut document,
+            dictionary! {"Width" => width_id, "BitsPerComponent" => bits_id},
+        );
+        // An explicit mask overridden by a soft mask is not painted.
+        let hard_mask = image(&mut document, dictionary! {"ImageMask" => true});
+        let soft_mask = image(&mut document, Dictionary::new());
+        let masked = image(
+            &mut document,
+            dictionary! {"Mask" => hard_mask, "SMask" => soft_mask},
+        );
+        // An image in a layer the default configuration turns off.
+        let layer = document.add_object(dictionary! {"Type" => "OCG", "Name" => "Hidden"});
+        let hidden = image(&mut document, Dictionary::new());
+        document.objects.insert(
+            document
+                .trailer
+                .get(b"Root")
+                .unwrap()
+                .as_reference()
+                .unwrap(),
+            Object::Dictionary({
+                let mut catalog = document.catalog().unwrap().clone();
+                catalog.set(
+                    "OCProperties",
+                    dictionary! {
+                        "OCGs" => vec![layer.into()],
+                        "D" => dictionary! {"OFF" => vec![layer.into()]},
+                    },
+                );
+                catalog
+            }),
+        );
+        // A stamp's appearance painting an image at 36 points per 10 pixels.
+        let stamp_image = image(&mut document, Dictionary::new());
+        let appearance = document.add_object(Stream::new(
+            dictionary! {
+                "Type" => "XObject",
+                "Subtype" => "Form",
+                "BBox" => vec![0.into(), 0.into(), 1.into(), 1.into()],
+                "Resources" => dictionary! {"XObject" => dictionary! {"S" => stamp_image}},
+            },
+            b"/S Do".to_vec(),
+        ));
+        let content_id = document.add_object(Stream::new(
+            Dictionary::new(),
+            [
+                b"q 7.2 0 0 7.2 0 0 cm /I Do Q".as_slice(),
+                b"q 288 0 0 288 0 0 cm /M Do Q",
+                b"/OC /L BDC q 72 0 0 72 0 0 cm /H Do Q EMC",
+                b"q 1440 0 0 1440 0 0 cm BI /W 2 /H 2 /BPC 8 /CS /DeviceGray ID \x00\x00\x00\x00 EI Q",
+            ]
+            .join(&b' '),
+        ));
+        let page = document.get_dictionary_mut(page_id).unwrap();
+        page.set(
+            "Resources",
+            dictionary! {
+                "XObject" => dictionary! {"I" => indirect, "M" => masked, "H" => hidden},
+                "Properties" => dictionary! {"L" => layer},
+            },
+        );
+        page.set("Contents", content_id);
+        page.set(
+            "Annots",
+            vec![dictionary! {
+                "Subtype" => "Stamp",
+                "Rect" => vec![0.into(), 0.into(), 36.into(), 36.into()],
+                "AP" => dictionary! {"N" => appearance},
+            }
+            .into()],
+        );
+
+        let inventory = page_raster_inventory(&document, page_id, 1 << 20).unwrap();
+
+        assert!(inventory.complete);
+        let row = |kind, bits, object_number: u32, ppi| RasterUse {
+            kind,
+            width_px: 10,
+            height_px: 10,
+            bits_per_component: bits,
+            object_number,
+            x_ppi: ppi,
+            y_ppi: ppi,
+        };
+        let mut inline = row("image", 8, 0, 0);
+        inline.width_px = 2;
+        inline.height_px = 2;
+        assert_eq!(
+            inventory.uses,
+            vec![
+                row("image", 1, indirect.0, 100),
+                // 10 pixels over 288 points is 2.5, printed as 2.
+                row("image", 8, masked.0, 2),
+                row("smask", 8, masked.0, 2),
+                // 2 pixels over 1,440 points prints below one, parsed as zero.
+                inline,
+                row("image", 8, stamp_image.0, 20),
             ],
         );
     }

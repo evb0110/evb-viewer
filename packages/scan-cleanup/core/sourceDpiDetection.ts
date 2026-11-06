@@ -123,15 +123,18 @@ function parsePdfImagesListOutput(output: string): IPageRasterDetectionResult {
     const lines = output.split(/\r?\n/u).map(line => line.trim()).filter(Boolean);
     return reduceScanCleanupRasterRows(lines.flatMap(line => {
         const parts = line.split(/\s+/);
-        return parts.length < 14 ? [] : [{
+        // An inline image prints `[inline]` in place of the object and
+        // generation columns, so its resolution columns start one earlier.
+        const inline = parts[10] === '[inline]';
+        return parts.length < (inline ? 13 : 14) ? [] : [{
             pageNumber: parseInt(parts[0] ?? '', 10),
             type: parts[2] ?? '',
             width: parseInt(parts[3] ?? '', 10),
             height: parseInt(parts[4] ?? '', 10),
             bitsPerComponent: parseInt(parts[7] ?? '', 10),
-            objectId: parseInt(parts[10] ?? '', 10),
-            xPpi: parseInt(parts[12] ?? '', 10),
-            yPpi: parseInt(parts[13] ?? '', 10),
+            objectId: inline ? 0 : parseInt(parts[10] ?? '', 10),
+            xPpi: parseInt(parts[inline ? 11 : 12] ?? '', 10),
+            yPpi: parseInt(parts[inline ? 12 : 13] ?? '', 10),
         }];
     }));
 }
