@@ -2,16 +2,18 @@
     <nav v-if="isBrowserRuntime" class="app-menu-bar" :aria-label="t('toolbar.appMenu')">
         <UDropdownMenu
             v-model:open="menuOpen"
+            :modal="false"
             :items="appMenuItems"
             :content="menuContentOptions"
             :ui="appMenuUi"
         >
             <button
                 type="button"
-                :class="['app-menu-trigger', { 'is-open': menuOpen }]"
+                :class="['app-menu-trigger text-edit-menu', { 'is-open': menuOpen }]"
                 :aria-label="t('toolbar.appMenu')"
                 aria-haspopup="menu"
                 :aria-expanded="menuOpen"
+                @pointerdown.capture="captureTextEditSource()"
             >
                 <UIcon name="i-ph-list" class="app-menu-trigger-icon" />
                 <span class="app-menu-trigger-label">{{ t('toolbar.appMenu') }}</span>
@@ -45,6 +47,7 @@
 </template>
 
 <script setup lang="ts">
+import { useEventListener } from '@vueuse/core';
 import { useShortcutLabels } from '@app/constants/shortcuts';
 import PrintCurrentPageIcon from '@app/components/icons/PrintCurrentPageIcon.vue';
 import { isReaderPrintCommandDisabled } from '@app/utils/isReaderPrintCommandDisabled';
@@ -54,6 +57,7 @@ import {
     keepMenuFocusWhenItemsChange,
     keepMovedFocus,
 } from '@app/utils/menuFocus';
+import {TEXT_EDIT_MENU_SELECTOR as TEXT_EDIT_MENU} from '@app/constants/textEditMenuSelector';
 import { useRecentFiles } from '@app/composables/useRecentFiles';
 import {
     dispatchBrowserMenuEvent,
@@ -178,10 +182,219 @@ const menuContentOptions = {
     align: 'start' as const,
     sideOffset: 8,
     collisionPadding: 8,
-    onCloseAutoFocus: keepMovedFocus,
+    onCloseAutoFocus: (event: Event) => {
+        // Dismissing the menu returns to the text it was opened over.
+        const source = textEditSource.value;
+        textEditSource.value = null;
+        const active = document.activeElement;
+        if (source !== null && (active === document.body || active?.closest(TEXT_EDIT_MENU)) && restoreTextEditSource(source)) {
+            event.preventDefault();
+            return;
+        }
+        keepMovedFocus(event);
+    },
 };
+
+// Cut, Copy, Paste and Select All act on the field, selection or annotation
+// that had input before the menu opened, borrowed for this opening only. The
+// menu is not modal: a modal focus trap would take focus back from the source
+// it restores inside the user's activation. The class reaches both the trigger
+// and the portalled panel, so the inline editor keeps its draft across them.
+interface ITextEditSource {
+    element: HTMLElement;
+    /** The element had focus, so restoring it must regain focus. */
+    focused: boolean;
+    /** The workspace the source belongs to; an inactive one is no longer the user's target. */
+    workspace: Element | null;
+    selection: {
+        start: number;
+        end: number;
+        direction: 'forward' | 'backward' | 'none';
+    } | Range[];
+}
+const textEditSource = shallowRef<ITextEditSource | null>(null);
+const toast = useToast();
+
+function textControl(element: Element | null) {
+    if (element instanceof HTMLTextAreaElement) return element;
+    if (!(element instanceof HTMLInputElement)) return null;
+    try {
+        return element.selectionStart === null ? null : element;
+    } catch {
+        return null;
+    }
+}
+
+function editingHost(element: Element | null) {
+    let host = element instanceof HTMLElement && element.isContentEditable ? element : null;
+    while (host?.parentElement?.isContentEditable) host = host.parentElement;
+    return host;
+}
+
+function currentRanges() {
+    const selection = window.getSelection();
+    return selection === null ? [] : Array.from({length: selection.rangeCount}, (_, index) => selection.getRangeAt(index).cloneRange());
+}
+
+function readTextEditSource(focused: Element | null): ITextEditSource | null {
+    const owner = focused instanceof HTMLElement && focused !== document.body && !focused.closest(TEXT_EDIT_MENU) ? focused : null;
+    const control = textControl(owner);
+    const host = editingHost(owner);
+    // A focused annotation keeps its own selection routing, with or without selected text.
+    const annotation = owner?.closest('.pdf-annotation-editor-layer') ? owner : null;
+    const ranges = currentRanges();
+    const selected = ranges.filter(range => !range.collapsed);
+    // Selected document text leaves focus on the page; its range is the source.
+    const container = selected[0]?.commonAncestorContainer;
+    const focusedSource = control ?? host ?? annotation;
+    const element = focusedSource ?? (container instanceof HTMLElement ? container : container?.parentElement ?? null);
+    if (element === null || element.closest(TEXT_EDIT_MENU)) return null;
+    return {
+        element,
+        focused: focusedSource !== null,
+        workspace: element.closest('[data-workspace-active]'),
+        selection: control === null ? host === null ? selected : ranges : {
+            start: control.selectionStart ?? 0,
+            end: control.selectionEnd ?? 0,
+            direction: control.selectionDirection ?? 'none',
+        },
+    };
+}
+
+function captureTextEditSource(focused: Element | null = document.activeElement) {
+    // The open menu's own trigger dismisses it; the source stays for that dismissal.
+    if (!menuOpen.value) textEditSource.value = readTextEditSource(focused);
+}
+
+// Keyboard entry: focus leaving a source for this menu names the source.
+useEventListener(typeof document === 'undefined' ? undefined : document, 'focusout', (event: FocusEvent) => {
+    if (event.relatedTarget instanceof Element && event.relatedTarget.closest(TEXT_EDIT_MENU)
+        && event.target instanceof Element && !event.target.closest(TEXT_EDIT_MENU)) {
+        captureTextEditSource(event.target);
+    }
+}, {capture: true});
+
+function isTextEditSourceCurrent(source: ITextEditSource) {
+    return source.element.isConnected
+        && source.workspace?.getAttribute('data-workspace-active') !== 'false'
+        && (!Array.isArray(source.selection) || source.selection.every(range => range.startContainer.isConnected && range.endContainer.isConnected));
+}
+
+function restoreTextEditSource(source: ITextEditSource) {
+    if (!isTextEditSourceCurrent(source)) return false;
+    source.element.focus({preventScroll: true});
+    if (Array.isArray(source.selection)) {
+        const selection = window.getSelection();
+        selection?.removeAllRanges();
+        for (const range of source.selection) selection?.addRange(range);
+    } else {
+        (source.element as HTMLInputElement).setSelectionRange(source.selection.start, source.selection.end, source.selection.direction);
+    }
+    return !source.focused || source.element.contains(document.activeElement);
+}
+
+function textEditState() {
+    const source = textEditSource.value;
+    const control = source === null ? null : textControl(source.element);
+    const writable = control !== null
+        ? !control.readOnly && !control.disabled
+        : source !== null && editingHost(source.element) !== null;
+    const selected = source !== null && (Array.isArray(source.selection)
+        ? source.selection.some(range => !range.collapsed)
+        : source.selection.start !== source.selection.end);
+    const secret = control?.type === 'password';
+    return {
+        canCut: writable && selected && !secret,
+        canCopy: selected && !secret,
+        canPaste: writable,
+    };
+}
+
+function warnTextEdit(key: 'menu.cutUnavailable' | 'menu.copyUnavailable' | 'menu.pasteUnavailable', shortcut: string) {
+    toast.add({
+        color: 'warning',
+        title: t(key, {shortcut}),
+    });
+}
+
+function takeTextEditSource() {
+    const source = textEditSource.value;
+    textEditSource.value = null;
+    close();
+    return source !== null && restoreTextEditSource(source) ? source : null;
+}
+
+/** The browser's own editing command: no other API keeps its clipboard trust, selection and undo. */
+function runEditingCommand(command: 'cut' | 'copy' | 'insertText', value?: string) {
+    // An engine without it offers its keyboard shortcuts only; the caller says so.
+    // eslint-disable-next-line @typescript-eslint/no-deprecated -- no replacement keeps native undo and clipboard semantics.
+    return typeof document.execCommand === 'function' && document.execCommand(command, false, value);
+}
+
+function runNativeTextEdit(command: 'cut' | 'copy') {
+    // Inside the trusted selection event, so the browser keeps its own
+    // clipboard, selection and undo semantics.
+    if (takeTextEditSource() === null || !runEditingCommand(command)) {
+        warnTextEdit(command === 'cut' ? 'menu.cutUnavailable' : 'menu.copyUnavailable', shortcutLabels.value[command]);
+    }
+}
+
+/** The target's text and exact selection: a moved caret is a changed target. */
+function snapshotTextEditTarget(source: ITextEditSource): unknown[] {
+    const control = textControl(source.element);
+    return control === null
+        ? [
+            source.element.textContent,
+            ...currentRanges().flatMap(range => [
+                range.startContainer,
+                range.startOffset,
+                range.endContainer,
+                range.endOffset,
+            ]),
+        ]
+        : [
+            control.value,
+            control.selectionStart,
+            control.selectionEnd,
+        ];
+}
+
+const isSameSnapshot = (left: unknown[], right: unknown[]) => left.length === right.length
+    && left.every((value, index) => value === right[index]);
+
+function pasteText() {
+    const source = takeTextEditSource();
+    const read = navigator.clipboard?.readText;
+    if (source === null || read === undefined) {
+        warnTextEdit('menu.pasteUnavailable', shortcutLabels.value.paste);
+        return;
+    }
+    const before = snapshotTextEditTarget(source);
+    // Read within the user's activation; the permission prompt, if any, is the browser's.
+    void navigator.clipboard.readText().then((text) => {
+        if (text === '') {
+            toast.add({
+                color: 'warning',
+                title: t('menu.clipboardEmpty'),
+            });
+        } else if (!isTextEditSourceCurrent(source) || !source.element.contains(document.activeElement)
+            || !isSameSnapshot(snapshotTextEditTarget(source), before)) {
+            toast.add({
+                color: 'warning',
+                title: t('menu.pasteTargetChanged'),
+            });
+        } else if (!runEditingCommand('insertText', text)) {
+            warnTextEdit('menu.pasteUnavailable', shortcutLabels.value.paste);
+        }
+    }, () => warnTextEdit('menu.pasteUnavailable', shortcutLabels.value.paste));
+}
+
+function selectAllText() {
+    takeTextEditSource();
+    dispatchBrowserMenuEvent('onMenuSelectAll');
+}
 const appMenuUi = {
-    content: 'app-menu toolbar-menu-panel',
+    content: 'app-menu toolbar-menu-panel text-edit-menu',
     viewport: 'divide-y-0 p-1',
     group: 'app-menu-section toolbar-menu-section p-0',
     label: 'app-menu-section-header toolbar-menu-section-header',
@@ -313,9 +526,28 @@ function buildEditItems(): TToolbarAppMenuItem[] {
             shortcut: shortcutLabels.value.redo,
         }),
         { type: 'separator' },
+        ...buildTextEditItems(),
+        { type: 'separator' },
         createMenuEventItem('onMenuInsertImageFromFile', t('menu.insertImageFromFile'), 'i-ph-image', {disabled: !hasInteractiveDocument.value || isDjvuMode}),
         createMenuEventItem('onMenuPasteImageFromClipboard', t('menu.pasteImageFromClipboard'), 'i-ph-clipboard-text', {disabled: !hasInteractiveDocument.value || isDjvuMode}),
         { type: 'separator' },
+    ];
+}
+
+function buildTextEditItems(): TToolbarAppMenuItem[] {
+    const state = textEditState();
+    const item = (label: string, icon: string, shortcut: string, disabled: boolean, onSelect: () => void) => ({
+        label,
+        icon,
+        disabled,
+        shortcut,
+        onSelect,
+    });
+    return [
+        item(t('menu.cut'), 'i-ph-scissors', shortcutLabels.value.cut, !state.canCut, () => runNativeTextEdit('cut')),
+        item(t('menu.copy'), 'i-ph-copy', shortcutLabels.value.copy, !state.canCopy, () => runNativeTextEdit('copy')),
+        item(t('menu.paste'), 'i-ph-clipboard-text', shortcutLabels.value.paste, !state.canPaste, pasteText),
+        item(t('menu.selectAll'), 'i-ph-selection-all', shortcutLabels.value.selectAll, false, selectAllText),
     ];
 }
 

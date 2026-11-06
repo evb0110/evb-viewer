@@ -109,6 +109,26 @@ const SHORTCUTS = {
         modifiers: ['mod'],
         helpLabelKey: 'settings.actualSize',
     },
+    cut: {
+        key: 'X',
+        modifiers: ['mod'],
+        helpLabelKey: 'menu.cut',
+    },
+    copy: {
+        key: 'C',
+        modifiers: ['mod'],
+        helpLabelKey: 'menu.copy',
+    },
+    paste: {
+        key: 'V',
+        modifiers: ['mod'],
+        helpLabelKey: 'menu.paste',
+    },
+    selectAll: {
+        key: 'A',
+        modifiers: ['mod'],
+        helpLabelKey: 'menu.selectAll',
+    },
     newPaneRight: {
         key: '\\',
         modifiers: ['mod'],

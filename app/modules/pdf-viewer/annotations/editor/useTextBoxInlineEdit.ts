@@ -7,6 +7,7 @@ import {
     normalizeAnnotationText,
     type ITextBoxEntity,
 } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
+import {TEXT_EDIT_MENU_SELECTOR} from '@app/constants/textEditMenuSelector';
 
 interface ITextBoxInlineEditOptions {
     entity: ComputedRef<ITextBoxEntity>;
@@ -149,22 +150,24 @@ export const useTextBoxInlineEdit = (
         }
     }
 
-    function isInspectorTarget(target: EventTarget | null | undefined) {
+    // The inspector and the app menu's text editing act on this draft, so
+    // moving to either keeps it open.
+    function isEditingContextTarget(target: EventTarget | null | undefined) {
         return typeof HTMLElement !== 'undefined'
             && target instanceof HTMLElement
-            && Boolean(target.closest('[data-annotation-inspector]'));
+            && Boolean(target.closest(`[data-annotation-inspector], ${TEXT_EDIT_MENU_SELECTOR}`));
     }
 
     function handleContextFocusOut(event: FocusEvent) {
         const target = event.relatedTarget;
-        if (options.editing.value && isInspectorTarget(event.target) && !isInspectorTarget(target)
+        if (options.editing.value && isEditingContextTarget(event.target) && !isEditingContextTarget(target)
             && !(typeof Node !== 'undefined' && target instanceof Node && editorRef.value?.contains(target))) {
             void commit();
         }
     }
 
     function handleBlur(event?: Pick<FocusEvent, 'relatedTarget'>) {
-        if (!isInspectorTarget(event?.relatedTarget)) void commit();
+        if (!isEditingContextTarget(event?.relatedTarget)) void commit();
     }
 
     onScopeDispose(() => {
