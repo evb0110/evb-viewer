@@ -79,7 +79,7 @@ import {
     assertScanCleanupCompactSourceBudget,
     resolveScanCleanupCompactSourceBudget,
 } from '@evb/scan-cleanup/core/policy/scanCleanupRepresentationPolicy';
-import {buildShapeOnlyNativeScanCleanupManifest} from '@evb/scan-cleanup/core/policy/buildNativeScanCleanupManifest';
+import {buildShapeOnlyNativeScanCleanupManifest} from '@evb/scan-cleanup/core/policy/assembleNativeScanCleanupManifest';
 import {
     resolveScanCleanupPipelineMaxPixels,
     SCAN_CLEANUP_MAX_DIMENSION_PX,

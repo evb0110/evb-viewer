@@ -96,7 +96,7 @@ import {
     PdfPageSizeStore,
     type IPdfPageSizeStore,
 } from '@evb/scan-cleanup/core/pdfPageSizes';
-import {buildRunnableNativeScanCleanupManifest} from '@evb/scan-cleanup/core/policy/buildNativeScanCleanupManifest';
+import {buildRunnableNativeScanCleanupManifest} from '@evb/scan-cleanup/core/policy/buildRunnableNativeScanCleanupManifest';
 import {resolveScanCleanupDocumentCanvasRenderDpi} from '@evb/scan-cleanup/core/policy/documentCanvas';
 import {
     resolveScanCleanupDocumentGuardrail,

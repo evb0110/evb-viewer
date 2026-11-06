@@ -5,7 +5,7 @@ export {
 export {runScanCleanupConversion} from '@evb/scan-cleanup/core/runScanCleanupConversion';
 export {resolveScanCleanupMatchedCanvasPlacement} from '@evb/scan-cleanup/core/policy/documentCanvas';
 export * from '@evb/scan-cleanup/core/policy/effectiveOptions';
-export * from '@evb/scan-cleanup/core/policy/buildNativeScanCleanupManifest';
+export * from '@evb/scan-cleanup/core/policy/buildRunnableNativeScanCleanupManifest';
 export {
     resolveScanCleanupPageScope, ScanCleanupPageScopeError,
 } from '@evb/scan-cleanup/core/pageScope';
