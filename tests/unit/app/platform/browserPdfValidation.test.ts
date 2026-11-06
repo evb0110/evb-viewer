@@ -13,6 +13,11 @@ import {
 } from 'vitest';
 import { BROWSER_MAX_FULL_READ_BYTES } from '@app/platform/browser/browserDocumentConstants';
 import {
+    PDF_CONFORMANCE_MARKER_SCAN_CHUNK_BYTES,
+    PDF_CONFORMANCE_MARKER_SCAN_OVERLAP_BYTES,
+    scanPdfMarkerEvidence,
+} from '@pdf-core/pdfConformanceHelpers';
+import {
     createPdfConformanceFixture,
     type TPdfConformanceFixtureKind,
 } from '@tests/helpers/createPdfConformanceFixture';
@@ -22,6 +27,8 @@ const browserDocumentStoreMock = vi.hoisted(() => ({
     requireEntry: vi.fn(async () => ({fileName: 'User $& file.pdf'})),
     read: vi.fn(),
     readRange: vi.fn(),
+    getDocumentRevision: vi.fn(async () => ({token: 'revision-1'})),
+    assertDocumentRevisionCurrent: vi.fn(async () => undefined),
 }));
 
 vi.mock('@app/platform/browserDocumentStore', () => ({browserDocumentStore: browserDocumentStoreMock}));
@@ -76,7 +83,6 @@ function storeDocument(bytes: Uint8Array) {
     );
 }
 
-const CONSERVATIVE_RESTRICTION = 'incremental_save_not_supported';
 
 describe('browserPdfValidation', () => {
     beforeEach(() => {
@@ -145,7 +151,7 @@ describe('browserPdfValidation', () => {
                 canIncrementalSave: false,
                 saveRestrictions: [
                     'xfa_forms_are_not_supported_for_rewrite',
-                    CONSERVATIVE_RESTRICTION,
+                    'incremental_save_not_supported',
                 ],
             },
         },
@@ -195,42 +201,85 @@ describe('browserPdfValidation', () => {
         });
     });
 
-    it('keeps the conservative marker profile when the structure cannot be read', async () => {
+    it('rejects a document whose structure cannot be read instead of guessing its facts', async () => {
         await stubPageOpsWasmFetch();
         storeDocument(new TextEncoder().encode('%PDF-1.7\n/ByteRange [0 1 2 3]\nnot a PDF body\n%%EOF\n'));
 
         const { analyzeBrowserPdfConformance } = await import('@app/platform/browser-api/browserPdfValidation');
-        await expect(analyzeBrowserPdfConformance('/tmp/browser.pdf', {purpose: 'save-restrictions'})).resolves.toEqual({
-            isSigned: true,
-            isEncrypted: false,
-            isTagged: false,
-            pdfaLevel: null,
-            hasAcroForm: false,
-            hasXfa: false,
-            canIncrementalSave: false,
-            saveRestrictions: [
-                'signed_original_requires_save_as',
-                CONSERVATIVE_RESTRICTION,
-            ],
-        });
+        await expect(analyzeBrowserPdfConformance('/tmp/browser.pdf', {purpose: 'save-restrictions'})).rejects.toThrow();
+        await expect(analyzeBrowserPdfConformance('/tmp/browser.pdf')).rejects.toThrow();
     });
 
-    it('judges a PDF beyond the 16 MiB full-read budget by its edge markers alone', async () => {
-        const size = BROWSER_MAX_FULL_READ_BYTES + 1;
-        const marker = new TextEncoder().encode('trailer << /Encrypt 9 0 R >>');
-        browserDocumentStoreMock.stat.mockResolvedValue({size});
-        browserDocumentStoreMock.readRange.mockImplementation(async (_path: string, offset: number, length: number) => {
-            const bytes = new Uint8Array(length);
-            if (offset + length === size) bytes.set(marker, length - marker.byteLength);
-            return bytes;
-        });
+    it('reads the structure of a compressed signature past the 16 MiB full-read budget', async () => {
+        await stubPageOpsWasmFetch();
+        const bytes = await createPdfConformanceFixture('signed-object-stream', {padding: new Uint8Array(BROWSER_MAX_FULL_READ_BYTES + 1)});
+        expect(bytes.byteLength).toBeGreaterThan(BROWSER_MAX_FULL_READ_BYTES);
+        storeDocument(bytes);
 
         const { analyzeBrowserPdfConformance } = await import('@app/platform/browser-api/browserPdfValidation');
-        await expect(analyzeBrowserPdfConformance('/tmp/browser.pdf')).resolves.toMatchObject({
-            isEncrypted: true,
-            canIncrementalSave: false,
-        });
-        expect(browserDocumentStoreMock.read).not.toHaveBeenCalled();
+        // No byte marker shows this signature: only its structure does.
+        for (const purpose of [
+            undefined,
+            'save-restrictions',
+        ] as const) {
+            await expect(analyzeBrowserPdfConformance('/tmp/browser.pdf', purpose ? {purpose} : {})).resolves.toMatchObject({
+                isSigned: true,
+                hasAcroForm: true,
+                saveRestrictions: ['signed_original_requires_save_as'],
+            });
+        }
+    });
+
+    it('finds a PDF/A claim in the middle of a large document', async () => {
+        await stubPageOpsWasmFetch();
+        const claim = new TextEncoder().encode('<pdfaid:part>2</pdfaid:part><pdfaid:conformance>B</pdfaid:conformance>');
+        const padding = new Uint8Array(2 * BROWSER_MAX_FULL_READ_BYTES);
+        padding.set(claim, BROWSER_MAX_FULL_READ_BYTES);
+        storeDocument(await createPdfConformanceFixture('plain', {padding}));
+
+        const { analyzeBrowserPdfConformance } = await import('@app/platform/browser-api/browserPdfValidation');
+        await expect(analyzeBrowserPdfConformance('/tmp/browser.pdf')).resolves.toMatchObject({pdfaLevel: 'PDF/A-2B'});
+    });
+
+    it('reads marker evidence across a slice boundary as desktop\'s whole-file scan does', async () => {
+        await stubPageOpsWasmFetch();
+        // The analysis scans 16 of the shared scanner's windows per slice.
+        const slice = 16 * (PDF_CONFORMANCE_MARKER_SCAN_CHUNK_BYTES - PDF_CONFORMANCE_MARKER_SCAN_OVERLAP_BYTES);
+        const claim = new TextEncoder().encode('<pdfaid:part>2</pdfaid:part><pdfaid:conformance>B</pdfaid:conformance>');
+        const paddingBytes = slice + 4096;
+        // The padding stream is the first stream written; place the claim so
+        // the file's first slice boundary falls inside it.
+        const probe = await createPdfConformanceFixture('plain', {padding: new Uint8Array(paddingBytes)});
+        const paddingStart = Buffer.from(probe).indexOf('stream\n') + 'stream\n'.length;
+        const padding = new Uint8Array(paddingBytes);
+        padding.set(claim, slice - paddingStart - claim.byteLength / 2);
+        const bytes = await createPdfConformanceFixture('plain', {padding});
+        const claimStart = Buffer.from(bytes).indexOf(Buffer.from(claim));
+        expect(claimStart).toBeLessThan(slice);
+        expect(claimStart + claim.byteLength).toBeGreaterThan(slice);
+        storeDocument(bytes);
+
+        const { analyzeBrowserPdfConformance } = await import('@app/platform/browser-api/browserPdfValidation');
+        expect(scanPdfMarkerEvidence(bytes).pdfaLevel).toBe('PDF/A-2B');
+        await expect(analyzeBrowserPdfConformance('/tmp/browser.pdf')).resolves.toMatchObject({pdfaLevel: 'PDF/A-2B'});
+    });
+
+    it('refuses a document past the structural worker ceiling before reading it', async () => {
+        const {
+            analyzeBrowserPdfConformance, BROWSER_PDF_CONFORMANCE_MAX_INPUT_BYTES,
+        } = await import('@app/platform/browser-api/browserPdfValidation');
+        browserDocumentStoreMock.stat.mockResolvedValue({size: BROWSER_PDF_CONFORMANCE_MAX_INPUT_BYTES + 1});
+
+        await expect(analyzeBrowserPdfConformance('/tmp/browser.pdf')).rejects.toMatchObject({code: 'browser-byte-limit'});
+    });
+
+    it('refuses a profile for a document that changed while it was read', async () => {
+        await stubPageOpsWasmFetch();
+        storeDocument(await createPdfConformanceFixture('plain'));
+        browserDocumentStoreMock.assertDocumentRevisionCurrent.mockRejectedValueOnce(new Error('The document changed'));
+
+        const { analyzeBrowserPdfConformance } = await import('@app/platform/browser-api/browserPdfValidation');
+        await expect(analyzeBrowserPdfConformance('/tmp/browser.pdf')).rejects.toThrow('The document changed');
     });
 
     it.each([

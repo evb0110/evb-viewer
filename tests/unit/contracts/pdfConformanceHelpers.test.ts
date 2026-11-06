@@ -11,7 +11,6 @@ import {
 } from 'vitest';
 import {
     buildPdfSaveRestrictions,
-    createConservativePdfConformanceFallbackProfile,
     createDefaultPdfConformanceProfile,
     detectPdfaLevelFromPdfText,
     hasPdfEncryptMarkersInPdfText,
@@ -124,28 +123,6 @@ describe('PDF conformance contract helpers', () => {
             'pdfa_preservation_required:PDF/A-2B',
             'incremental_save_not_supported',
         ]);
-    });
-
-    it('creates conservative fallback profiles for failed analysis', () => {
-        expect(createConservativePdfConformanceFallbackProfile({
-            isSigned: true,
-            isEncrypted: true,
-            pdfaLevel: 'PDF/A-2B',
-        })).toEqual({
-            isSigned: true,
-            isEncrypted: true,
-            isTagged: false,
-            pdfaLevel: 'PDF/A-2B',
-            hasAcroForm: false,
-            hasXfa: false,
-            canIncrementalSave: false,
-            saveRestrictions: [
-                'signed_original_requires_save_as',
-                'encrypted_document_requires_preservation',
-                'pdfa_preservation_required:PDF/A-2B',
-                'incremental_save_not_supported',
-            ],
-        });
     });
 
     it('lets markers widen structural signature and encryption facts and carry PDF/A', () => {

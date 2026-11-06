@@ -1,7 +1,6 @@
 export {
     buildPdfSaveRestrictions,
     containsPdfEncryptMarker,
-    createConservativePdfConformanceFallbackProfile,
     createDefaultPdfConformanceProfile,
     createPdfConformanceProfile,
     detectPdfaLevelFromPdfText,

@@ -14,10 +14,10 @@ import {
 } from '@contracts/browserPageOpsWasm.generated';
 import {browserDocumentStore} from '@app/platform/browserDocumentStore';
 import {
-    createConservativePdfConformanceFallbackProfile,
     createPdfConformanceProfile,
     scanPdfMarkerEvidence,
-    PDF_ENCRYPT_SCAN_REGION_BYTES,
+    PDF_CONFORMANCE_MARKER_SCAN_CHUNK_BYTES,
+    PDF_CONFORMANCE_MARKER_SCAN_OVERLAP_BYTES,
 } from '@pdf-core/pdfConformanceHelpers';
 import {
     extractQpdfWarnings,
@@ -36,32 +36,45 @@ import {
 } from '@app/platform/browser-api/browserQpdfEngineClient';
 import {buildBrowserByteLimitError} from '@app/platform/browser-api/browserPlatformHelpers';
 import { yieldToBrowser } from '@app/platform/browser-api/browserYield';
-import { BROWSER_MAX_FULL_READ_BYTES } from '@app/platform/browser/browserDocumentConstants';
 
 // One document-list header and one u32 length precede the PDF.
 export const BROWSER_PDF_CONFORMANCE_MAX_INPUT_BYTES = BROWSER_PAGE_OPS_MAX_REQUEST_BYTES
     - DOCUMENT_LIST_HEADER.bytes - U32_BYTES;
 const COMPATIBILITY_WARNING = `qpdf validation is unavailable above the ${Math.round(BROWSER_QPDF_MAX_INPUT_BYTES / (1024 * 1024))} MiB browser input limit; only browser loadability was checked.`;
 
-async function readPdfMarkerRegions(path: string, size: number) {
-    const head = await browserDocumentStore.readRange(path, 0, Math.min(PDF_ENCRYPT_SCAN_REGION_BYTES, size));
-    const tailStart = Math.max(head.byteLength, size - PDF_ENCRYPT_SCAN_REGION_BYTES);
-    const tail = tailStart < size
-        ? await browserDocumentStore.readRange(path, tailStart, size - tailStart)
-        : new Uint8Array();
-    const merged = new Uint8Array(head.byteLength + tail.byteLength);
-    merged.set(head);
-    merged.set(tail, head.byteLength);
-    return merged;
+// Slices of 16 of the shared scanner's overlapping windows, each starting where
+// one of its windows starts, so the page responds between them and the scan
+// reads exactly the windows desktop's whole-file scan reads.
+const MARKER_SCAN_SLICE_STRIDE = 16 * (PDF_CONFORMANCE_MARKER_SCAN_CHUNK_BYTES - PDF_CONFORMANCE_MARKER_SCAN_OVERLAP_BYTES);
+const markerScanSlice = (data: Uint8Array, offset: number) => scanPdfMarkerEvidence(
+    data.subarray(offset, offset + MARKER_SCAN_SLICE_STRIDE + PDF_CONFORMANCE_MARKER_SCAN_OVERLAP_BYTES),
+);
+
+async function scanPdfMarkerEvidenceInSlices(data: Uint8Array) {
+    let evidence = markerScanSlice(data, 0);
+    for (let offset = MARKER_SCAN_SLICE_STRIDE; offset + PDF_CONFORMANCE_MARKER_SCAN_OVERLAP_BYTES < data.byteLength; offset += MARKER_SCAN_SLICE_STRIDE) {
+        await yieldToBrowser();
+        const found = markerScanSlice(data, offset);
+        evidence = {
+            isSigned: evidence.isSigned || found.isSigned,
+            isEncrypted: evidence.isEncrypted || found.isEncrypted,
+            pdfaLevel: evidence.pdfaLevel ?? found.pdfaLevel,
+        };
+    }
+    return evidence;
 }
 
-async function readPdfStructuralFacts(data: Uint8Array, signal?: AbortSignal) {
+async function readPdfStructuralFacts(data: Uint8Array, signal?: AbortSignal, transferInput = false) {
     if (data.byteLength > BROWSER_PDF_CONFORMANCE_MAX_INPUT_BYTES) {
         throw buildBrowserByteLimitError('PDF structure analysis', BROWSER_PDF_CONFORMANCE_MAX_INPUT_BYTES, 'inputs');
     }
     return runBrowserPageOpsWorkerRequest('conformance', {data}, {
         dedicated: true,
         timeoutMs: QPDF_VALIDATE_MAX_TIMEOUT_MS,
+        ...(transferInput ? {
+            requireWorker: true,
+            transferInput: true,
+        } : {}),
         ...(signal ? {signal} : {}),
     });
 }
@@ -75,26 +88,29 @@ export async function analyzeBrowserPdfConformanceData(
     return createPdfConformanceProfile(facts, options.purpose === 'save-restrictions' ? undefined : scanPdfMarkerEvidence(data));
 }
 
+/**
+ * Desktop's analysis of a stored document: its structure from the engine and,
+ * for the full profile, marker evidence from every byte. A document whose
+ * structure cannot be read, or that changed meanwhile, has no profile; facts
+ * it does not have must not authorize a rewrite.
+ */
 export async function analyzeBrowserPdfConformance(
     path: string,
     options: IPdfConformanceAnalysisOptions = {},
 ): Promise<IPdfConformanceProfile> {
     const {size} = await browserDocumentStore.stat(path);
-    if (size > BROWSER_MAX_FULL_READ_BYTES) {
-        return createConservativePdfConformanceFallbackProfile(scanPdfMarkerEvidence(await readPdfMarkerRegions(path, size)));
+    if (size > BROWSER_PDF_CONFORMANCE_MAX_INPUT_BYTES) {
+        throw buildBrowserByteLimitError('PDF structure analysis', BROWSER_PDF_CONFORMANCE_MAX_INPUT_BYTES, 'inputs');
     }
-    const bytes = await browserDocumentStore.read(path);
-    await yieldToBrowser();
-    try {
-        return await analyzeBrowserPdfConformanceData(bytes, options);
-    } catch (error) {
-        if (error instanceof Error && error.name === 'AbortError') throw error;
-        BrowserLogger.debug('pdf-validation', 'PDF structure is unavailable; using the conservative marker profile', {
-            path,
-            error,
-        });
-        return createConservativePdfConformanceFallbackProfile(scanPdfMarkerEvidence(bytes));
-    }
+    const {token} = await browserDocumentStore.getDocumentRevision(path);
+    const bytes = await browserDocumentStore.read(path, {maxBytes: BROWSER_PDF_CONFORMANCE_MAX_INPUT_BYTES});
+    // Save restrictions are structural alone, as on desktop: an empty
+    // signature field's marker is not a signature.
+    const markerEvidence = options.purpose === 'save-restrictions' ? undefined : await scanPdfMarkerEvidenceInSlices(bytes);
+    // The bytes move to the worker; nothing here reads them afterwards.
+    const facts = await readPdfStructuralFacts(bytes, undefined, true);
+    await browserDocumentStore.assertDocumentRevisionCurrent(path, token);
+    return createPdfConformanceProfile(facts, markerEvidence);
 }
 
 function validationResult(isValid: boolean, errors: string[] = [], warnings: string[] = []): IPdfValidationResult {
