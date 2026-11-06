@@ -32,8 +32,9 @@ export function createArrayBackedPdfPageSizeStore(
             return page;
         }
         // A few direct compatibility tests vary pageCount without replacing
-        // their tiny geometry fixture. Production always supplies a native
-        // store and never takes this branch.
+        // their tiny geometry fixture. Production geometry covers every page
+        // (browser inspection refuses a source whose records do not), so it
+        // never takes this branch.
         if (pageSizes.length === pageCount) {
             throw new Error(`Page-size source returned no geometry for page ${String(pageNumber)}`);
         }

@@ -404,31 +404,24 @@ async function rasterizePage(
     }
 }
 
-/** The rolling output: each page's PDF merged onto the pages before it, in the page-ops worker. */
-function createRollingOutput(signal: AbortSignal, onEngineIdentity: (sha256: string) => void) {
-    let merged: Uint8Array | null = null;
+/** The output pages' PDFs, joined once in the page-ops worker, as on desktop. */
+function createOutputPages(signal: AbortSignal, onEngineIdentity: (sha256: string) => void) {
+    const pages: Uint8Array[] = [];
     return {
-        async append(pagePdf: Uint8Array) {
-            if (merged === null) {
-                merged = pagePdf;
-                return;
-            }
-            const result = await runBrowserPageOpsWorkerRequest('mergePages', {documents: [
-                merged,
-                pagePdf,
-            ]}, {
+        append: (pagePdf: Uint8Array) => pages.push(pagePdf),
+        async merge() {
+            if (pages.length < 2) return pages[0] ?? null;
+            const result = await runBrowserPageOpsWorkerRequest('mergePages', {documents: pages}, {
                 signal,
                 dedicated: true,
                 requireWorker: true,
+                transferInput: true,
                 onEngineIdentity,
             });
             if (isBrowserPageOpsWasmFailure(result)) {
                 throw new ScanCleanupContractError(`Scan cleanup could not merge its output pages: ${result.error.message}`);
             }
-            merged = result.data;
-        },
-        get pdf() {
-            return merged;
+            return result.data;
         },
     };
 }
@@ -441,7 +434,7 @@ async function runRasterConversion(
     const {
         request, signal, summary, emitProgress, pageNumbers, pageCount, options, documentCanvas,
     } = context;
-    const output = createRollingOutput(signal, context.engines.observe('pdfPageOps'));
+    const output = createOutputPages(signal, context.engines.observe('pdfPageOps'));
     const outputPages: TRenderedOutput[] = [];
     const emptyOutputMappings: IScanCleanupOutputMapping[] = [];
     const nativeOptionsBySource = new Map<number, NonNullable<ReturnType<typeof buildShapeOnlyNativeScanCleanupManifest>['pages'][number]['options']>>();
@@ -603,7 +596,7 @@ async function runRasterConversion(
                         planScanCleanupCombinePage(pageOutput, undefined),
                     ))},
                 }, signal, {onEngineIdentity: context.engines.observe('pdfImageCombine')});
-                await output.append(combined.data);
+                output.append(combined.data);
                 outputPages.push(...collected.pageOutputs);
             }
             completedPageNumbers.add(pageNumber);
@@ -617,7 +610,7 @@ async function runRasterConversion(
         });
     }
     summary.outputPages = outputPages.length;
-    const assembled = output.pdf;
+    const assembled = await output.merge();
     if (assembled === null || outputPages.length === 0) {
         throw new ScanCleanupContractError('evb-scan-cleanup produced no output pages');
     }

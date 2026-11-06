@@ -198,7 +198,8 @@ describe('browser Scan Cleanup workspace', () => {
             expect(problems).toEqual([]);
         } catch (error) {
             observations.failure = error instanceof Error ? error.message : String(error);
-            await page.screenshot({path: join(modeDirectory, 'failure.png')});
+            // A failed capture must not replace the failure it records.
+            await page.screenshot({path: join(modeDirectory, 'failure.png')}).catch(() => undefined);
             throw error;
         } finally {
             try {

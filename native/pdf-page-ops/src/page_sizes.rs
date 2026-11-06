@@ -767,10 +767,10 @@ impl InventoryWalk<'_> {
                 "EMC" => {
                     hidden.pop();
                 }
-                _ if is_hidden => {}
                 // The dictionary's declared facts, as pdfimages lists them,
                 // whether or not lopdf could decode the image itself.
                 "BI" => match inline_images.next() {
+                    _ if is_hidden => {}
                     Some(&Some((width, height, bits, stencil))) => {
                         self.inventory.uses.push(RasterUse {
                             kind: if stencil { "stencil" } else { "image" },
@@ -784,6 +784,7 @@ impl InventoryWalk<'_> {
                     }
                     _ => self.inventory.complete = false,
                 },
+                _ if is_hidden => {}
                 "Do" if operation.operands.len() == 1 => {
                     let Ok(name) = operation.operands[0].as_name() else {
                         continue;
@@ -851,22 +852,19 @@ impl InventoryWalk<'_> {
             .ok()
             .and_then(|object| resolved_dictionary(document, object))
             .map(|resources| resource_scope(document, std::iter::once(resources)));
-        let bytes =
+        // pdfimages skips a form it cannot read.
+        let Ok(bytes) =
             crate::load_policy::plain_stream_with_limit(stream, self.max_decompressed_bytes)
-                .map_err(|error| {
-                    domain_error(
-                        NativeErrorCode::CorruptXref,
-                        format!("Failed to decode a PDF form XObject: {error}"),
-                    )
-                })?;
-        let (content, inline_images) =
-            crate::content_parse::parse_content_with_inline_images(&bytes)?;
-        let content = content.map_err(|error| {
-            domain_error(
-                NativeErrorCode::CorruptXref,
-                format!("Failed to parse a PDF form XObject: {error}"),
-            )
-        })?;
+        else {
+            self.inventory.complete = false;
+            return Ok(());
+        };
+        let (Ok(content), inline_images) =
+            crate::content_parse::parse_content_with_inline_images(&bytes)?
+        else {
+            self.inventory.complete = false;
+            return Ok(());
+        };
         self.form_path.extend(object_id);
         let walked = self.walk(
             &content.operations,
@@ -1795,7 +1793,7 @@ mod tests {
             [
                 b"q 7.2 0 0 7.2 0 0 cm /I Do Q".as_slice(),
                 b"q 288 0 0 288 0 0 cm /M Do Q",
-                b"/OC /L BDC q 72 0 0 72 0 0 cm /H Do Q EMC",
+                b"/OC /L BDC q 72 0 0 72 0 0 cm /H Do BI /W 5 /H 5 /BPC 1 /CS /G ID \x00\x00\x00\x00\x00 EI Q EMC",
                 b"q 1440 0 0 1440 0 0 cm BI /W 2 /H 2 /BPC 8 /CS /DeviceGray ID \x00\x00\x00\x00 EI Q",
             ]
             .join(&b' '),

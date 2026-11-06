@@ -80,7 +80,7 @@ export function resolveBuildGitSha(buildEnv) {
             '--porcelain',
         ], gitOptions).trim();
     } catch {
-        const ciSha = (buildEnv.GITHUB_SHA ?? buildEnv.VERCEL_GIT_COMMIT_SHA)?.trim().toLowerCase() ?? '';
+        const ciSha = (buildEnv.GITHUB_SHA || buildEnv.VERCEL_GIT_COMMIT_SHA || '').trim().toLowerCase();
         return GIT_SHA_PATTERN.test(ciSha) ? ciSha : null;
     }
     if (status !== '') {
