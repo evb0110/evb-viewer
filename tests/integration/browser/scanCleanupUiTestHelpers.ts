@@ -420,13 +420,21 @@ export function assertConversionPdf(
             expect(page.images, 'lossless mode preserves each original compressed image stream').toEqual(original.images);
         } else {
             expect(page.images.every(image => image.softMask === null && image.mask === null)).toBe(true);
+            if (mode.name === 'Color') {
+                expect(page.images.some(image => image.imageMask !== 'true'), 'a continuous-tone background').toBe(true);
+            }
             for (const image of page.images) {
                 if (mode.name === 'B&W') expect(image.bits).toBe('1');
                 if (mode.name === 'Gray') {
                     expect(image.bits).toBe('8');
                     expect(image.colorSpace).toBe('/DeviceGray');
                 }
-                if (mode.name === 'Color') {
+                // Color keeps text as desktop does: a 1-bit stencil, which has
+                // no color space, over the continuous-tone background.
+                if (mode.name === 'Color' && image.imageMask === 'true') {
+                    expect(image.bits).toBe('1');
+                    expect(image.colorSpace).toBeNull();
+                } else if (mode.name === 'Color') {
                     expect(image.bits).toBe('8');
                     // Desktop retains DeviceGray for an achromatic scan.
                     expect([
