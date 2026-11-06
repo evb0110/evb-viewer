@@ -15,7 +15,6 @@ import type {
     IScanCleanupWasmRenderPageResult,
     TScanCleanupWasmPlaneRole,
 } from '@contracts/scan-cleanup/browserScanCleanupWasm';
-import {BROWSER_SCAN_CLEANUP_WASM_PATH} from '@contracts/scan-cleanup/browserScanCleanupWasm';
 import type {
     OutputPlanes,
     PageOutput,
@@ -121,8 +120,6 @@ import {
     type IPageRaster,
 } from '@app/platform/browser-api/browserScanCleanupJob';
 
-const PDF_IMAGE_COMBINE_WASM_PATH = '/wasm/evb-pdf-image-combine.wasm';
-const PDF_PAGE_OPS_WASM_PATH = '/wasm/evb-pdf-page-ops.wasm';
 
 type TPlaneName = string;
 type TRenderedOutput = IScanCleanupRenderedOutput<TPlaneName>;
@@ -147,29 +144,41 @@ async function sha256Hex(bytes: Uint8Array<ArrayBuffer>) {
     return Array.from(digest, byte => byte.toString(16).padStart(2, '0')).join('');
 }
 
-/** The engines this run executes, identified by their bytes as desktop hashes its binaries. */
-async function hashBrowserScanCleanupEngines(signal: AbortSignal) {
-    const hash = async (path: string) => {
-        const response = await fetch(path, {
-            signal,
-            cache: 'force-cache',
-        });
-        if (!response.ok) throw new Error(`Scan cleanup could not read ${path} to identify it`);
-        return sha256Hex(new Uint8Array(await response.arrayBuffer()));
+type TEngineRole = 'scanCleanup' | 'pdfImageCombine' | 'pdfPageOps';
+
+/**
+ * The engine modules this run executed, identified by the bytes each worker
+ * compiled, as desktop hashes the binaries it ran. A module that changes
+ * mid-run, or a run step that names no module, cannot be stamped.
+ */
+function createEngineIdentities() {
+    const identities: Partial<Record<TEngineRole, string>> = {};
+    let conflict: string | null = null;
+    const observe = (role: TEngineRole) => (sha256: string) => {
+        const known = identities[role];
+        if (known !== undefined && known !== sha256) conflict = role;
+        identities[role] = sha256;
     };
-    const [
-        scanCleanup,
-        pdfImageCombine,
-        pdfPageOps,
-    ] = await Promise.all([
-        hash(BROWSER_SCAN_CLEANUP_WASM_PATH),
-        hash(PDF_IMAGE_COMBINE_WASM_PATH),
-        hash(PDF_PAGE_OPS_WASM_PATH),
-    ]);
     return {
-        scanCleanup,
-        pdfImageCombine,
-        pdfPageOps,
+        observe,
+        async identifyScanCleanup(signal: AbortSignal) {
+            const {sha256} = await runBrowserScanCleanupWorkerRequest('identify-engine', {}, signal);
+            if (sha256 === null) throw new ScanCleanupContractError('The browser cleanup engine did not identify its module');
+            observe('scanCleanup')(sha256);
+        },
+        settled(roles: readonly TEngineRole[]) {
+            if (conflict !== null) {
+                throw new ScanCleanupContractError(`The browser ${conflict} engine changed during the run; run it again`);
+            }
+            const missing = roles.find(role => identities[role] === undefined);
+            if (missing !== undefined) {
+                throw new ScanCleanupContractError(`The browser ${missing} engine did not identify its module`);
+            }
+            return Object.fromEntries(roles.map(role => [
+                role,
+                identities[role]!,
+            ]));
+        },
     };
 }
 
@@ -318,12 +327,11 @@ export async function runBrowserScanCleanupConversion({
     });
     const finalPageSizeStore = largeRun ? createArrayBackedPdfPageSizeStore(geometryRecords) : pageSizeStore;
     losslessRun = quality.losslessRun;
-    const [
-        sourceBytes,
-        engines,
-    ] = await Promise.all([
+    const engines = createEngineIdentities();
+    if (source.pageOpsEngineSha256 !== null) engines.observe('pdfPageOps')(source.pageOpsEngineSha256);
+    const [sourceBytes] = await Promise.all([
         readSource(),
-        hashBrowserScanCleanupEngines(signal),
+        engines.identifyScanCleanup(signal),
     ]);
     const sourceSha256 = await sha256Hex(new Uint8Array(sourceBytes));
     const context: IConversionContext = {
@@ -376,7 +384,7 @@ interface IConversionContext {
     options: IRunScanCleanupPipelineRequest['options'];
     sourceBytes: Uint8Array;
     sourceSha256: string;
-    engines: Awaited<ReturnType<typeof hashBrowserScanCleanupEngines>>;
+    engines: ReturnType<typeof createEngineIdentities>;
 }
 
 async function rasterizePage(
@@ -395,7 +403,7 @@ async function rasterizePage(
 }
 
 /** The rolling output: each page's PDF merged onto the pages before it, in the page-ops worker. */
-function createRollingOutput(signal: AbortSignal) {
+function createRollingOutput(signal: AbortSignal, onEngineIdentity: (sha256: string) => void) {
     let merged: Uint8Array | null = null;
     return {
         async append(pagePdf: Uint8Array) {
@@ -406,7 +414,11 @@ function createRollingOutput(signal: AbortSignal) {
             const result = await runBrowserPageOpsWorkerRequest('mergePages', {documents: [
                 merged,
                 pagePdf,
-            ]}, {signal});
+            ]}, {
+                signal,
+                requireWorker: true,
+                onEngineIdentity,
+            });
             if (isBrowserPageOpsWasmFailure(result)) {
                 throw new ScanCleanupContractError(`Scan cleanup could not merge its output pages: ${result.error.message}`);
             }
@@ -426,7 +438,7 @@ async function runRasterConversion(
     const {
         request, signal, summary, emitProgress, pageNumbers, pageCount, options, documentCanvas,
     } = context;
-    const output = createRollingOutput(signal);
+    const output = createRollingOutput(signal, context.engines.observe('pdfPageOps'));
     const outputPages: TRenderedOutput[] = [];
     const emptyOutputMappings: IScanCleanupOutputMapping[] = [];
     const nativeOptionsBySource = new Map<number, NonNullable<ReturnType<typeof buildShapeOnlyNativeScanCleanupManifest>['pages'][number]['options']>>();
@@ -591,7 +603,7 @@ async function runRasterConversion(
                     wasmImagePreprocessing: {compactManifestLines: collected.pageOutputs.map(pageOutput => serializeScanCleanupCombinePage(
                         planScanCleanupCombinePage(pageOutput, undefined),
                     ))},
-                }, signal);
+                }, signal, {onEngineIdentity: context.engines.observe('pdfImageCombine')});
                 await output.append(combined.data);
                 outputPages.push(...collected.pageOutputs);
             }
@@ -643,7 +655,11 @@ async function runRasterConversion(
             pageMetadataBySource.get(record.sourcePage) ?? {excluded: true},
         )),
         buildIds: composeScanCleanupStampBuildIds({
-            nativeBinarySha256s: context.engines,
+            nativeBinarySha256s: await settledEngines(context, [
+                'scanCleanup',
+                'pdfImageCombine',
+                'pdfPageOps',
+            ]),
             assemblerBackend: 'browser-wasm-pdf-image-combine',
             transportMode: 'browser-wasm-encoded',
         }),
@@ -652,8 +668,18 @@ async function runRasterConversion(
     const overlaid = await overlayPdfTextLayers(assembled, new Uint8Array(context.sourceBytes), {
         pages: textPages,
         provenanceStampHex: stampHex,
-    }, {signal});
+    }, {
+        signal,
+        requireWorker: true,
+        onEngineIdentity: context.engines.observe('pdfPageOps'),
+    });
     summary.accessibilityTagsRemoved = overlaid.report.accessibilityTagsRemoved;
+    // The overlay names its module only now; it must be the one stamped.
+    context.engines.settled([
+        'scanCleanup',
+        'pdfImageCombine',
+        'pdfPageOps',
+    ]);
     summary.sourceTextOmission = await inspectOmittedSourceText(context, skippedNonAffine);
     const budget = resolveScanCleanupCompactSourceBudget({
         documentPageCount: context.documentPageCount,
@@ -815,13 +841,27 @@ function collectRenderedPage(context: IConversionContext, input: ICollectRendere
     };
 }
 
+/**
+ * The engines a route stamps, settled before the writer that embeds the
+ * stamp runs; page-ops is known from the source's inspection, and every later
+ * page-ops step must match it.
+ */
+async function settledEngines(context: IConversionContext, roles: readonly TEngineRole[]) {
+    await context.engines.identifyScanCleanup(context.signal);
+    return context.engines.settled(roles);
+}
+
 async function inspectOmittedSourceText(context: IConversionContext, skippedNonAffine: readonly number[]) {
     if (skippedNonAffine.length === 0) return undefined;
     const report = await runBrowserPageOpsWorkerRequest('ocrTextVisibility', {
         data: new Uint8Array(context.sourceBytes),
         pages: [...skippedNonAffine],
         withEvbOcrText: true,
-    }, {signal: context.signal});
+    }, {
+        signal: context.signal,
+        requireWorker: true,
+        onEngineIdentity: context.engines.observe('pdfPageOps'),
+    });
     return isBrowserPageOpsWasmFailure(report) ? undefined : reduceScanCleanupSourceTextOmission(report);
 }
 
@@ -1070,7 +1110,10 @@ async function runLosslessConversion(
             pageMetadataBySource.get(record.sourcePage) ?? {excluded: true},
         )),
         buildIds: composeScanCleanupStampBuildIds({
-            nativeBinarySha256s: context.engines,
+            nativeBinarySha256s: await settledEngines(context, [
+                'scanCleanup',
+                'pdfPageOps',
+            ]),
             assemblerBackend: 'browser-wasm-pdf-page-ops',
             transportMode: 'source-preserved',
         }),
@@ -1084,7 +1127,16 @@ async function runLosslessConversion(
             ...(placement.contentTransform ? {contentTransform: placement.contentTransform} : {}),
         })),
     })), stampHex);
-    const split = await splitPdfPages(new Uint8Array(context.sourceBytes), instructions, {signal});
+    const split = await splitPdfPages(new Uint8Array(context.sourceBytes), instructions, {
+        signal,
+        requireWorker: true,
+        onEngineIdentity: context.engines.observe('pdfPageOps'),
+    });
+    // The split names its module only now; it must be the one stamped.
+    context.engines.settled([
+        'scanCleanup',
+        'pdfPageOps',
+    ]);
     summary.accessibilityTagsRemoved = split.report.accessibilityTagsRemoved;
     emitProgress('assembling', allOutputs.length, allOutputs.length);
     const budget = resolveScanCleanupCompactSourceBudget({

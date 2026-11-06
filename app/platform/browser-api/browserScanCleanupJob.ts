@@ -78,6 +78,8 @@ export interface IBrowserScanCleanupSource {
     pageSizes: readonly IPdfPageSize[];
     /** Each painted image, as desktop's pdfimages listing rows describe them. */
     rasterRows: readonly IScanCleanupRasterRow[];
+    /** The page-ops module that inspected this source, as its worker identified it. */
+    pageOpsEngineSha256: string | null;
     /** Pages whose images the inventory could not all measure. */
     incompleteRasterPages: ReadonlySet<number>;
     /** The whole document's raster facts, as desktop reduces its pdfimages listing. */

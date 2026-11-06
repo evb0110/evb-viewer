@@ -11,6 +11,7 @@ import {assembleBrowserPdfRasterPpm} from '@app/platform/browser-api/assembleBro
 import {
     analyzeBrowserScanCleanupPage,
     deriveBrowserScanCleanupInkContexts,
+    identifyBrowserScanCleanupEngine,
     finishBrowserScanCleanupPageAnalysis,
     reconcileBrowserScanCleanupDocument,
     renderBrowserScanCleanupPage,
@@ -71,6 +72,8 @@ async function handle(request: TBrowserScanCleanupWorkerRequest): Promise<IBrows
             return sampleBrowserScanCleanupPageInk(request.payload);
         case 'derive-ink-contexts':
             return deriveBrowserScanCleanupInkContexts(request.payload);
+        case 'identify-engine':
+            return {sha256: await identifyBrowserScanCleanupEngine()};
     }
 }
 

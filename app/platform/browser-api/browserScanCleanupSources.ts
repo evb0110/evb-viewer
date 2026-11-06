@@ -50,12 +50,16 @@ async function openSource(ref: string, revision: string, signal: AbortSignal): P
     const token = requireDocumentRevisionToken(revision);
     await browserDocumentStore.assertDocumentRevisionCurrent(ref, token);
     const data = await browserDocumentStore.read(ref, {maxBytes: BROWSER_PAGE_OPS_MAX_REQUEST_BYTES - REQUEST_HEADER.bytes});
+    let pageOpsEngineSha256: string | null = null;
     const inspected = await runBrowserPageOpsWorkerRequest('inspectScanCleanupPdf', {
         data,
         pages: [],
     }, {
         dedicated: true,
         signal,
+        onEngineIdentity: sha256 => {
+            pageOpsEngineSha256 = sha256;
+        },
     });
     if (isBrowserPageOpsWasmFailure(inspected)) {
         throw new Error(`Scan cleanup could not read the page geometry: ${inspected.error.message}`);
@@ -103,6 +107,7 @@ async function openSource(ref: string, revision: string, signal: AbortSignal): P
         pageSizes,
         rasterRows,
         incompleteRasterPages,
+        pageOpsEngineSha256,
         rasterFacts: reduceScanCleanupRasterRows(rasterRows),
         annotatedPages,
         pdf,

@@ -272,6 +272,7 @@ export interface IRunBrowserPageOpsWorkerRequestOptions {
      * that neither an abort nor a deadline can stop.
      */
     requireWorker?: boolean;
+    onEngineIdentity?: (sha256: string) => void;
     // A dedicated request copies its input so the caller keeps it; a caller
     // that reads its input again after a failure transfers it instead.
     transferInput?: boolean;
@@ -288,13 +289,9 @@ async function runBrowserPageOpsWorkerRequestWithClient<K extends TBrowserPageOp
     requestId: number,
     type: K,
     payload: IBrowserPageOpsWorkerRequestMap[K],
-    options: {
-        signal?: AbortSignal;
-        preserveInputOwnership?: boolean;
-        timeoutMs?: number;
-    } = {},
+    options: Pick<IRunBrowserPageOpsWorkerRequestOptions, 'signal' | 'timeoutMs' | 'onEngineIdentity'> & {preserveInputOwnership?: boolean} = {},
 ): Promise<IBrowserPageOpsWorkerResultMap[K]> {
-    const request: IBrowserPageOpsWorkerRequest<K> = {
+    const request = {
         id: requestId,
         type,
         payload,
@@ -318,13 +315,11 @@ async function runBrowserPageOpsWorkerRequestWithClient<K extends TBrowserPageOp
             return true;
         };
         const rejectRequest = (error: Error) => {
-            if (!finish()) {
-                return;
-            }
-            reject(error);
+            if (finish()) reject(error);
         };
         client.registerPendingRequest(request.id, {
             requestType: type,
+            onEngineIdentity: options.onEngineIdentity,
             resolveData: (value) => {
                 if (settled) {
                     return false;
@@ -443,9 +438,6 @@ export async function runBrowserPageOpsWorkerRequest<K extends TBrowserPageOpsWo
         browserPageOpsWorkerClient.createRequestId(),
         type,
         payload,
-        {
-            ...(options.signal ? {signal: options.signal} : {}),
-            ...(options.timeoutMs === undefined ? {} : {timeoutMs: options.timeoutMs}),
-        },
+        options,
     );
 }

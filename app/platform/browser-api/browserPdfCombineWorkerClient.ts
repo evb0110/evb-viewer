@@ -173,7 +173,11 @@ export async function runBrowserPdfCombineWorkerRequest<K extends TBrowserPdfCom
     type: K,
     payload: IBrowserPdfCombineWorkerRequestMap[K],
     signal?: AbortSignal,
-    options: {timeoutMs?: number} = {},
+    options: {
+        timeoutMs?: number;
+        /** Receives the digest of the engine module the worker combined with. */
+        onEngineIdentity?: (sha256: string) => void;
+    } = {},
 ): Promise<IBrowserPdfCombineWorkerResultMap[K]> {
     if (signal?.aborted) {
         throw signal.reason instanceof Error
@@ -200,6 +204,7 @@ export async function runBrowserPdfCombineWorkerRequest<K extends TBrowserPdfCom
             return new Promise<IBrowserPdfCombineWorkerResultMap[K]>((resolve, reject) => {
                 client.registerPendingRequest(request.id, {
                     requestType: type,
+                    ...(options.onEngineIdentity === undefined ? {} : {onEngineIdentity: options.onEngineIdentity}),
                     resolveData: (value) => {
                         const result = v.safeParse(BROWSER_PDF_COMBINE_WORKER_RESULT_SCHEMAS[type], {data: value}, {abortEarly: true});
                         if (!result.success) return false;

@@ -9,7 +9,10 @@ import type {
 import { getBrowserFileExtension } from '@app/platform/browser-api/browserPlatformHelpers';
 import { toTransferableUint8Array } from '@app/platform/browser-api/toTransferableUint8Array';
 import { BrowserLogger } from '@app/utils/browserLogger';
-import { loadWasmWithDeadline } from '@app/platform/browser-api/loadWasmWithDeadline';
+import {
+    loadWasmWithDeadline,
+    readLoadedWasmDigest,
+} from '@app/platform/browser-api/loadWasmWithDeadline';
 import {
     NATIVE_ERROR_ENVELOPE_SCHEMA,
     type INativeErrorEnvelope,
@@ -286,6 +289,11 @@ function canUsePdfImageCombineWasm(
 
 function resolveWasmUrl() {
     return new URL(WASM_PATH, globalThis.location.href).toString();
+}
+
+/** The SHA-256 of the image-combine module this context compiled, if it has loaded. */
+export function readPdfImageCombineEngineDigest() {
+    return readLoadedWasmDigest(resolveWasmUrl());
 }
 
 async function loadPdfImageCombineWasm() {

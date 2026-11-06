@@ -19,7 +19,10 @@ import {
     BROWSER_COMBINE_IMAGE_EXTENSIONS,
     getBrowserFileExtension, buildBrowserByteLimitError, 
 } from '@app/platform/browser-api/browserPlatformHelpers';
-import { tryCombineImageInputsWithWasm } from '@app/platform/browser-api/tryCombineImageInputsWithWasm';
+import {
+    readPdfImageCombineEngineDigest,
+    tryCombineImageInputsWithWasm,
+} from '@app/platform/browser-api/tryCombineImageInputsWithWasm';
 import {
     isBrowserPageOpsWasmFailure,
     tryRunBrowserPageOpsWithWasm,
@@ -297,12 +300,21 @@ async function handleCombinePdfsRequest(request: TBrowserPdfCombineWorkerRequest
     throw new Error('ERR_BROWSER_PDF_COMBINE_WORKER_UNSUPPORTED_INPUT');
 }
 
+/** Posts a response; a success names the engine module that produced it. */
+async function postResponse(message: TBrowserPdfCombineWorkerResponse, transfer: Transferable[] = []) {
+    const engineSha256 = message.ok ? await readPdfImageCombineEngineDigest()?.catch(() => null) : null;
+    self.postMessage(typeof engineSha256 === 'string' ? {
+        ...message,
+        engineSha256,
+    } : message, transfer);
+}
+
 self.addEventListener('message', async (event: MessageEvent<unknown>) => {
     const request = parseBrowserPdfCombineWorkerRequest(event.data);
     if (request === null) {
         const id = getBrowserPdfCombineWorkerRequestId(event.data);
         if (id !== null) {
-            self.postMessage({
+            await postResponse({
                 id,
                 ok: false,
                 error: 'Invalid browser PDF combine worker request',
@@ -319,7 +331,7 @@ self.addEventListener('message', async (event: MessageEvent<unknown>) => {
             ok: true,
             data: data.data,
         } satisfies TBrowserPdfCombineWorkerResponse;
-        self.postMessage(response, [data.data.buffer]);
+        await postResponse(response, [data.data.buffer]);
     } catch (error) {
         const errorEnvelope = findSerializableErrorEnvelope(error, NATIVE_ERROR_ENVELOPE_SCHEMA);
         const response = {
@@ -331,6 +343,6 @@ self.addEventListener('message', async (event: MessageEvent<unknown>) => {
                 message: errorEnvelope.message,
             }}),
         } satisfies TBrowserPdfCombineWorkerResponse;
-        self.postMessage(response);
+        await postResponse(response);
     }
 });

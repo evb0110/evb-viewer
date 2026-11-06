@@ -1,4 +1,5 @@
 import { getErrorMessage } from '@app/utils/error';
+import {readLoadedWasmDigest} from '@app/platform/browser-api/loadWasmWithDeadline';
 import {
     createNativeWasmToolLoader,
     type TNativeWasmCallResult,
@@ -97,6 +98,12 @@ async function run<TResult>(
     } catch (error) {
         return failed('invalid-request', getErrorMessage(error));
     }
+}
+
+/** The SHA-256 of the engine module this context compiled, loading it if needed. */
+export async function identifyBrowserScanCleanupEngine() {
+    await engine.load();
+    return readLoadedWasmDigest(new URL(BROWSER_SCAN_CLEANUP_WASM_PATH, globalThis.location.href).toString());
 }
 
 /** Loads the engine ahead of the first page, so its download overlaps other work. */

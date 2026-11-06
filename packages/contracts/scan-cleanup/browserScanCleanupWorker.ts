@@ -63,6 +63,8 @@ export interface IBrowserScanCleanupWorkerRequestMap {
     'finish-page-analysis': IScanCleanupWasmFinishPageAnalysisRequest;
     'sample-page-ink': IScanCleanupWasmSamplePageInkRequest;
     'derive-ink-contexts': TScanCleanupWasmDeriveInkContextsRequest;
+    /** The SHA-256 of the engine module this worker runs, loading it if needed. */
+    'identify-engine': Record<string, never>;
 }
 
 export interface IBrowserScanCleanupWorkerResultMap {
@@ -75,6 +77,7 @@ export interface IBrowserScanCleanupWorkerResultMap {
     'finish-page-analysis': TScanCleanupWasmOutcome<IScanCleanupWasmPageResult>;
     'sample-page-ink': TScanCleanupWasmOutcome<IScanCleanupWasmSamplePageInkResult>;
     'derive-ink-contexts': TScanCleanupWasmOutcome<IScanCleanupWasmDeriveInkContextsResult>;
+    'identify-engine': {sha256: string | null};
 }
 
 export type TBrowserScanCleanupWorkerRequestType = keyof IBrowserScanCleanupWorkerRequestMap;
@@ -89,6 +92,7 @@ export const BROWSER_SCAN_CLEANUP_WORKER_REQUEST_TYPES = [
     'finish-page-analysis',
     'sample-page-ink',
     'derive-ink-contexts',
+    'identify-engine',
 ] as const satisfies readonly TBrowserScanCleanupWorkerRequestType[];
 
 export type TBrowserScanCleanupWorkerRequest = {
@@ -130,6 +134,10 @@ export function getBrowserScanCleanupWorkerRequestId(value: unknown) {
     return isRecord(value) && isSafeWorkerRequestId(value.id) ? value.id : null;
 }
 
+function isSha256Hex(value: unknown) {
+    return typeof value === 'string' && /^[0-9a-f]{64}$/u.test(value);
+}
+
 const outcomeSchema = v.variant('status', [
     v.object({
         status: v.literal('succeeded'),
@@ -152,5 +160,6 @@ export function isBrowserScanCleanupWorkerResult<K extends TBrowserScanCleanupWo
 ): value is IBrowserScanCleanupWorkerResultMap[K] {
     if (type === 'assemble-raster') return isRecord(value) && value.ppm instanceof Uint8Array;
     if (type === 'encode-png') return isRecord(value) && value.png instanceof Uint8Array;
+    if (type === 'identify-engine') return isRecord(value) && (value.sha256 === null || isSha256Hex(value.sha256));
     return v.safeParse(outcomeSchema, value, {abortEarly: true}).success;
 }
