@@ -4,10 +4,8 @@ import {
     it,
 } from 'vitest';
 import {buildScanCleanupSourceMrcForegroundPdfMatrix} from '@evb/scan-cleanup/core/buildScanCleanupSourceMrcForegroundPdfMatrix';
-import {
-    sourceMrcForegroundPdfMatrix,
-    type IRenderedCleanupOutputPage,
-} from '@evb/scan-cleanup/core/assembleCompactScanCleanupPages';
+import type {IRenderedCleanupOutputPage} from '@evb/scan-cleanup/core/assembleCompactScanCleanupPages';
+import {sourceMrcForegroundPdfMatrix} from '@evb/scan-cleanup/core/scanCleanupOutputComposition';
 
 function output(overrides: Partial<IRenderedCleanupOutputPage['metadata']> = {}) {
     return {

@@ -15,7 +15,7 @@ import type {
 } from '@contracts/scan-cleanup/electronApiScanCleanup';
 import { requirePageNumber } from '@contracts/pageNumbers';
 import {createFileBackedScanCleanupDetectionResultStore} from '@evb/scan-cleanup/core/fileBackedResultStore';
-import {readDetectionResultsForPageNumbers} from '@evb/scan-cleanup/core/runScanCleanupConversion';
+import {readDetectionResultsForPageNumbers} from '@evb/scan-cleanup/core/scanCleanupConversionPlan';
 import {buildScanCleanupPlacementAnchorSummary} from '@evb/scan-cleanup/core/placementAnchors';
 import {
     PDFDocument, PDFHexString, PDFName,

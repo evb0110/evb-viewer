@@ -46,8 +46,8 @@ import {createFileBackedScanCleanupResultStore} from '@evb/scan-cleanup/core/fil
 import {decodeScanCleanupProvenanceStampHex} from '@evb/scan-cleanup/core/provenanceStamp';
 import {mergeScanCleanupPdfPathSidecar} from '@evb/scan-cleanup/core/streamingSidecars';
 import {overlayScanCleanupTextLayerAndMeasure} from '@evb/scan-cleanup/core/overlayScanCleanupTextLayerAndMeasure';
+import {readDetectionResultsForPageNumbers} from '@evb/scan-cleanup/core/scanCleanupConversionPlan';
 import {
-    readDetectionResultsForPageNumbers,
     runScanCleanupConversion,
     validateScanCleanupBatchSummarySidecar,
     validateScanCleanupStreamingReport,

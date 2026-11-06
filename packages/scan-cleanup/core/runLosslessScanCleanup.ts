@@ -52,8 +52,8 @@ import {
     buildScanCleanupProvenanceStamp,
     encodeScanCleanupProvenanceStampHex,
     materializeScanCleanupStampOptions,
-    sha256ScanCleanupFile,
 } from '@evb/scan-cleanup/core/provenanceStamp';
+import {sha256ScanCleanupFile} from '@evb/scan-cleanup/core/sha256ScanCleanupFile';
 import {
     addScanCleanupDocumentCanvasPage,
     createScanCleanupDocumentCanvasAccumulator,

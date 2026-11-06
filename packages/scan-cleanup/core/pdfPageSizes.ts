@@ -17,9 +17,11 @@ import {
     decodePdfPageSizeFinite as decodeFinite,
     decodePdfPageSizeRecord as decodePageSizeRecord,
     invalidPdfPageNumbering as invalidPageNumbering,
+    PDF_PAGE_SIZE_STORE_MAX_READ_PAGES,
 } from '@evb/scan-cleanup/core/policy/scanCleanupRasterPolicy';
 
 export {
+    PDF_PAGE_SIZE_STORE_MAX_READ_PAGES,
     isCropBoxOrientationMismatch,
     isMateriallySmallerCropBox,
     toCropBoxPageSize,
@@ -39,7 +41,6 @@ const PDF_PAGE_OPS_STDOUT_BYTES = 64 * 1024;
 export const PDF_PAGE_SIZE_SIDECAR_MAX_CHUNK_BYTES = 4 * 1024 * 1024;
 const PDF_PAGE_SIZE_SIDECAR_MAX_LINE_BYTES = PDF_PAGE_SIZE_SIDECAR_MAX_CHUNK_BYTES;
 export const PDF_PAGE_SIZE_SIDECAR_READ_WINDOW_BYTES = 512 * 1024;
-export const PDF_PAGE_SIZE_STORE_MAX_READ_PAGES = 1_024;
 const PDF_PAGE_SIZE_SIDECAR_MIN_CHUNK_BYTES = 64;
 export const PDF_PAGE_SIZE_SIDECAR_FORMAT = 'evb-pdf-page-sizes';
 export const PDF_PAGE_SIZE_SIDECAR_SCHEMA_VERSION = 1;

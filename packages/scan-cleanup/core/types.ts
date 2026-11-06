@@ -21,19 +21,26 @@ export type TScanCleanupLog = (
     message: string,
 ) => void;
 
-export type TScanCleanupAssemblerBackend =
-    | 'native-pdf-image-combine'
-    | 'native-pdf-page-ops'
-    | 'cli-wasm-pdf-image-combine'
-    | 'cli-fallback-img2pdf-qpdf'
-    | 'cli-fallback-wasm-or-img2pdf-qpdf'
-    | 'cli-fallback-qpdf-page-ops'
-    | 'source-preserved';
+export const SCAN_CLEANUP_ASSEMBLER_BACKENDS = [
+    'native-pdf-image-combine',
+    'native-pdf-page-ops',
+    'cli-wasm-pdf-image-combine',
+    'cli-fallback-img2pdf-qpdf',
+    'cli-fallback-wasm-or-img2pdf-qpdf',
+    'cli-fallback-qpdf-page-ops',
+    'source-preserved',
+    'browser-wasm-pdf-image-combine',
+    'browser-wasm-pdf-page-ops',
+] as const;
+export type TScanCleanupAssemblerBackend = typeof SCAN_CLEANUP_ASSEMBLER_BACKENDS[number];
 
-export type TScanCleanupTransportMode =
-    | 'file-ppm'
-    | 'file-png'
-    | 'source-preserved';
+export const SCAN_CLEANUP_TRANSPORT_MODES = [
+    'file-ppm',
+    'file-png',
+    'source-preserved',
+    'browser-wasm-encoded',
+] as const;
+export type TScanCleanupTransportMode = typeof SCAN_CLEANUP_TRANSPORT_MODES[number];
 
 export interface IPdfPageSize {
     pageNumber: number;

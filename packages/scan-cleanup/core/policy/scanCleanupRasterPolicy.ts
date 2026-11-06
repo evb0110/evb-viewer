@@ -196,6 +196,9 @@ export function decodePdfPageSizeFinite(value: unknown) {
     return typeof value === 'number' && Number.isFinite(value) ? value : null;
 }
 
+/** The most page records one bounded page-size or detection read returns. */
+export const PDF_PAGE_SIZE_STORE_MAX_READ_PAGES = 1_024;
+
 export function toCropBoxPageSize(page: IPdfPageSize): IPdfPageSize {
     if (
         page.cropXPoints === undefined

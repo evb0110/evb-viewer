@@ -14,6 +14,7 @@ export * from '@evb/scan-cleanup/core/compactManifest';
 export * from '@evb/scan-cleanup/core/errors';
 export * from '@evb/scan-cleanup/core/assertScanCleanupPathWithinRoot';
 export * from '@evb/scan-cleanup/core/provenanceStamp';
+export * from '@evb/scan-cleanup/core/sha256ScanCleanupFile';
 export * from '@evb/scan-cleanup/core/scratchCleanup';
 export * from '@evb/scan-cleanup/core/types';
 export * from '@evb/scan-cleanup/core/fileBackedResultStore';
