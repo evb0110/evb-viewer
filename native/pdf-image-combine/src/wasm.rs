@@ -15,6 +15,9 @@ const REQUEST_VERSION_V2: u32 = 2;
 const REQUEST_VERSION_V3: u32 = 3;
 const REQUEST_VERSION_V4: u32 = 4;
 const REQUEST_VERSION_V5: u32 = REQUEST_VERSION_V4 + 1;
+// V6 pages are compact manifest lines, the grammar desktop Scan Cleanup
+// writes, whose planes name attachments carried in the request.
+const REQUEST_VERSION_V6: u32 = 6;
 const PAGE_KIND_IMAGE: u32 = 1;
 const PAGE_KIND_MASK: u32 = 2;
 const PAGE_KIND_LAYERED: u32 = 3;
@@ -150,13 +153,15 @@ fn parse_request(request: &[u8]) -> Result<(Vec<PdfPageSpec<'_>>, PdfBuildOption
         return Err("Invalid image-combine WASM request magic".into());
     }
     let version = read_u32_le(request, &mut offset)?;
-    if !(REQUEST_VERSION_V1..=REQUEST_VERSION_V5).contains(&version) {
+    if !(REQUEST_VERSION_V1..=REQUEST_VERSION_V6).contains(&version) {
         return Err(format!("Unsupported image-combine WASM request version: {version}").into());
     }
 
     let header = parse_request_header(request, &mut offset)?;
     let page_specs = if version <= REQUEST_VERSION_V2 {
         parse_v1_v2_page_specs(request, &mut offset, header.item_count, version)?
+    } else if version == REQUEST_VERSION_V6 {
+        parse_v6_page_specs(request, &mut offset, header.item_count)?
     } else {
         parse_v3_v5_page_specs(request, &mut offset, header.item_count, version)?
     };
@@ -393,6 +398,49 @@ fn parse_v3_v5_page_specs<'a>(
     Ok(page_specs)
 }
 
+// V6: an attachment count, the attachments as named inputs, then one
+// length-prefixed UTF-8 compact manifest line per page.
+fn parse_v6_page_specs<'a>(
+    request: &'a [u8],
+    offset: &mut usize,
+    page_count: usize,
+) -> Result<Vec<PdfPageSpec<'a>>> {
+    let attachment_count = read_usize_le(request, offset, "attachment_count")?;
+    let mut attachments: Vec<(&'a str, &'a [u8])> = Vec::new();
+    for _ in 0..attachment_count {
+        let InputSource::Bytes { file_name, data } = read_input_source(request, offset)? else {
+            unreachable!("WASM inputs are bytes");
+        };
+        if attachments.iter().any(|(name, _)| *name == file_name) {
+            return Err(format!("Duplicate image-combine WASM attachment: {file_name}").into());
+        }
+        attachments.push((file_name, data));
+    }
+    let resolve = |name: &str, line_number: usize| -> Result<InputSource<'a>> {
+        attachments
+            .iter()
+            .find(|(file_name, _)| *file_name == name)
+            .map(|&(file_name, data)| InputSource::Bytes { file_name, data })
+            .ok_or_else(|| {
+                format!("Compact manifest line {line_number} names no attachment: {name}").into()
+            })
+    };
+    let mut page_specs = Vec::with_capacity(page_count);
+    for page_index in 0..page_count {
+        let line_len = read_usize_le(request, offset, "line_len")?;
+        let line = str::from_utf8(take_bytes(request, offset, line_len)?)?;
+        page_specs.push(
+            crate::compact_manifest_line::parse_compact_manifest_line_with(
+                line,
+                page_index + 1,
+                page_index + 1,
+                &resolve,
+            )?,
+        );
+    }
+    Ok(page_specs)
+}
+
 fn read_page_size(request: &[u8], offset: &mut usize) -> Result<PdfPageSize> {
     let width_points = read_f64_le(request, offset)?;
     let height_points = read_f64_le(request, offset)?;
@@ -500,6 +548,57 @@ mod tests {
 
     const PPM: &[u8] = b"P6\n1 1\n255\n\x10\x20\x30";
     const PBM: &[u8] = b"P4\n8 1\n\x80";
+
+    fn v6_request(attachments: &[(&str, &[u8])], lines: &[&str]) -> Vec<u8> {
+        let mut request = REQUEST_MAGIC.to_vec();
+        for value in [REQUEST_VERSION_V6, 0, 16, 80_000_000, 1, lines.len() as u32] {
+            request.extend_from_slice(&value.to_le_bytes());
+        }
+        request.extend_from_slice(&(attachments.len() as u32).to_le_bytes());
+        for (name, data) in attachments {
+            request.extend_from_slice(&(name.len() as u32).to_le_bytes());
+            request.extend_from_slice(&(data.len() as u32).to_le_bytes());
+            request.extend_from_slice(name.as_bytes());
+            request.extend_from_slice(data);
+        }
+        for line in lines {
+            request.extend_from_slice(&(line.len() as u32).to_le_bytes());
+            request.extend_from_slice(line.as_bytes());
+        }
+        request
+    }
+
+    #[test]
+    fn v6_builds_desktop_manifest_lines_from_named_attachments() {
+        let request = v6_request(
+            &[("mask.pbm", PBM), ("photo.ppm", PPM)],
+            &[
+                "image-bilevel\t72\t72\tmask.pbm",
+                "image-jpeg\t72\t72\t85\tphoto.ppm\t0\t0\t36\t36",
+                "layered-jpeg\t72\t72\t85\tphoto.ppm\tmask.pbm",
+            ],
+        );
+        let pdf = build_pdf_from_request(&request).unwrap();
+        assert!(pdf.starts_with(b"%PDF-"));
+        assert!(pdf.windows(8).any(|window| window == b"/Count 3"));
+    }
+
+    #[test]
+    fn v6_rejects_unknown_and_duplicate_attachments() {
+        let unknown = v6_request(&[("mask.pbm", PBM)], &["image-bilevel\t72\t72\tother.pbm"]);
+        assert!(build_pdf_from_request(&unknown)
+            .unwrap_err()
+            .to_string()
+            .contains("names no attachment: other.pbm"));
+        let duplicate = v6_request(
+            &[("mask.pbm", PBM), ("mask.pbm", PBM)],
+            &["image-bilevel\t72\t72\tmask.pbm"],
+        );
+        assert!(build_pdf_from_request(&duplicate)
+            .unwrap_err()
+            .to_string()
+            .contains("Duplicate image-combine WASM attachment"));
+    }
 
     #[test]
     fn allocator_requires_one_exact_live_pointer_and_length() {

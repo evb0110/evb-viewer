@@ -113,6 +113,11 @@ const imagePreprocessingSchema = v.object({
     ppiCap: v.optional(ppiCapSchema),
     pageSizes: v.optional(v.array(pageSizeSchema)),
     pageSpecs: v.optional(v.pipe(v.array(pageSpecSchema), v.minLength(1))),
+    // Desktop compact manifest lines, one page each; their planes name inputs.
+    compactManifestLines: v.optional(v.pipe(
+        v.array(v.pipe(v.string(), v.minLength(1), v.check(value => !/[\r\n]/u.test(value)))),
+        v.minLength(1),
+    )),
 });
 const combinePayloadSchema = v.pipe(v.object({
     inputs: v.array(inputSchema),

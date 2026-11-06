@@ -42,6 +42,7 @@ const REQUEST_MAGIC = 'EPIC';
 const REQUEST_VERSION = 1;
 const REQUEST_VERSION_PAGE_SPECS = 4;
 const REQUEST_VERSION_PAGE_TRANSFORMS = 5;
+const REQUEST_VERSION_COMPACT_MANIFEST = 6;
 const WASM_PAGE_KIND_CODES: Record<TBrowserPdfCombineWasmPageKind, number> = {
     image: 1,
     mask: 2,
@@ -272,6 +273,10 @@ function canUsePdfImageCombineWasm(
     if (typeof WebAssembly === 'undefined' || typeof fetch !== 'function') {
         return false;
     }
+    if (options?.compactManifestLines !== undefined) {
+        return options.compactManifestLines.length > 0
+            && new Set(inputs.map(input => input.fileName)).size === inputs.length;
+    }
     const pageSpecs = resolveRequestPageSpecs(inputs, options);
     if (pageSpecs) {
         return pageSpecs.length > 0 && pageSpecs.every(canUsePageSpec);
@@ -358,6 +363,12 @@ function getWasmRequestLength(
     inputs: IBrowserPdfCombineInput[],
     options: IBrowserPdfCombineWasmImagePreprocessing | undefined,
 ) {
+    if (options?.compactManifestLines !== undefined) {
+        const encoder = new TextEncoder();
+        return getV1RequestLength(inputs, inputs.map(input => getEncodedName(input, encoder)))
+            + 4
+            + options.compactManifestLines.reduce((total, line) => total + 4 + encoder.encode(line).byteLength, 0);
+    }
     const pageSpecs = resolveRequestPageSpecs(inputs, options);
     if (pageSpecs) {
         const encoder = new TextEncoder();
@@ -539,10 +550,44 @@ function buildV3WasmRequest(
     return request;
 }
 
+/**
+ * Version 6: the desktop compact manifest lines, one page each, whose planes
+ * name the inputs carried as attachments.
+ */
+function buildCompactManifestWasmRequest(inputs: IBrowserPdfCombineInput[], lines: readonly string[]) {
+    const encoder = new TextEncoder();
+    const encodedNames = inputs.map(input => getEncodedName(input, encoder));
+    const encodedLines = lines.map(line => encoder.encode(line));
+    const request = new Uint8Array(getV1RequestLength(inputs, encodedNames)
+        + 4
+        + encodedLines.reduce((total, line) => total + 4 + line.byteLength, 0));
+    const view = new DataView(request.buffer);
+    let offset = writeRequestHeader(request, view, REQUEST_VERSION_COMPACT_MANIFEST, lines.length);
+    offset = writeU32(view, offset, inputs.length);
+    for (const [
+        index,
+        input,
+    ] of inputs.entries()) {
+        offset = writeInput(request, view, offset, {
+            input,
+            name: encodedNames[index]!,
+        });
+    }
+    for (const line of encodedLines) {
+        offset = writeU32(view, offset, line.byteLength);
+        request.set(line, offset);
+        offset += line.byteLength;
+    }
+    return request;
+}
+
 function buildWasmRequest(
     inputs: IBrowserPdfCombineInput[],
     options?: IBrowserPdfCombineWasmImagePreprocessing,
 ) {
+    if (options?.compactManifestLines !== undefined) {
+        return buildCompactManifestWasmRequest(inputs, options.compactManifestLines);
+    }
     const pageSpecs = resolveRequestPageSpecs(inputs, options);
     if (pageSpecs) {
         return buildV3WasmRequest(pageSpecs, options);

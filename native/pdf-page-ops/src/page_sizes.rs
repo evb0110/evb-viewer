@@ -117,6 +117,12 @@ impl Matrix {
         }
     }
 
+    /// This matrix applied inside `outer`: the CTM after `outer` concatenates it.
+    #[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
+    fn concat_onto(self, outer: Self) -> Self {
+        outer.concat(self)
+    }
+
     fn transform(self, x: f64, y: f64) -> (f64, f64) {
         (
             self.a * x + self.c * y + self.e,
@@ -401,6 +407,327 @@ fn page_size_entry(
     })
 }
 
+/// One image a page paints, as `pdfimages -list` reports it: an image or
+/// stencil, or the soft or explicit mask attached to an image, which carries
+/// its parent image's object number. Resolution is the image's pixels over
+/// the placement it is painted at.
+#[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
+#[derive(Serialize, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+struct RasterUse {
+    kind: &'static str,
+    width_px: i64,
+    height_px: i64,
+    bits_per_component: i64,
+    object_number: u32,
+    x_ppi: i64,
+    y_ppi: i64,
+}
+
+#[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
+const MAX_FORM_XOBJECT_DEPTH: usize = 12;
+
+#[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
+struct RasterInventory {
+    uses: Vec<RasterUse>,
+    /// False when the page paints images this walk cannot measure: inline
+    /// images, unresolvable names or forms nested past the depth bound.
+    complete: bool,
+}
+
+#[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
+fn merged_xobjects<'a>(
+    document: &'a Document,
+    resources: impl Iterator<Item = &'a Dictionary>,
+) -> HashMap<Vec<u8>, &'a Object> {
+    let mut xobjects = HashMap::new();
+    for resources in resources {
+        if let Some(dictionary) = resources
+            .get(b"XObject")
+            .ok()
+            .and_then(|object| resolved_dictionary(document, object))
+        {
+            for (name, object) in dictionary {
+                xobjects.insert(name.clone(), object);
+            }
+        }
+    }
+    xobjects
+}
+
+#[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
+fn image_ppi(pixels: i64, matrix_x: f64, matrix_y: f64) -> i64 {
+    let points = matrix_x.hypot(matrix_y);
+    if points <= 0.0 || !points.is_finite() {
+        return 0;
+    }
+    (pixels as f64 * 72.0 / points).round() as i64
+}
+
+#[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
+fn push_raster_use(
+    uses: &mut Vec<RasterUse>,
+    kind: &'static str,
+    dictionary: &Dictionary,
+    bits_per_component: i64,
+    object_number: u32,
+    matrix: Matrix,
+) {
+    let width_px = dictionary
+        .get(b"Width")
+        .and_then(Object::as_i64)
+        .unwrap_or(0);
+    let height_px = dictionary
+        .get(b"Height")
+        .and_then(Object::as_i64)
+        .unwrap_or(0);
+    if width_px <= 0 || height_px <= 0 {
+        return;
+    }
+    uses.push(RasterUse {
+        kind,
+        width_px,
+        height_px,
+        bits_per_component,
+        object_number,
+        x_ppi: image_ppi(width_px, matrix.a, matrix.b),
+        y_ppi: image_ppi(height_px, matrix.c, matrix.d),
+    });
+}
+
+#[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
+fn record_image_use(
+    document: &Document,
+    uses: &mut Vec<RasterUse>,
+    dictionary: &Dictionary,
+    object_number: u32,
+    matrix: Matrix,
+) {
+    let stencil = dictionary
+        .get(b"ImageMask")
+        .and_then(Object::as_bool)
+        .unwrap_or(false);
+    let bits = dictionary
+        .get(b"BitsPerComponent")
+        .and_then(Object::as_i64)
+        .unwrap_or(if stencil { 1 } else { 8 });
+    push_raster_use(
+        uses,
+        if stencil { "stencil" } else { "image" },
+        dictionary,
+        if stencil { 1 } else { bits },
+        object_number,
+        matrix,
+    );
+    for (key, kind) in [(b"SMask".as_slice(), "smask"), (b"Mask".as_slice(), "mask")] {
+        let Some(mask) = dictionary
+            .get(key)
+            .ok()
+            .and_then(|object| document.resolved(object).ok())
+            .and_then(|object| object.as_stream().ok())
+        else {
+            continue;
+        };
+        let mask_bits = if mask
+            .dict
+            .get(b"ImageMask")
+            .and_then(Object::as_bool)
+            .unwrap_or(false)
+        {
+            1
+        } else {
+            mask.dict
+                .get(b"BitsPerComponent")
+                .and_then(Object::as_i64)
+                .unwrap_or(1)
+        };
+        push_raster_use(uses, kind, &mask.dict, mask_bits, object_number, matrix);
+    }
+}
+
+#[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
+#[allow(clippy::too_many_arguments)]
+fn walk_raster_uses(
+    document: &Document,
+    operations: &[Operation],
+    xobjects: &HashMap<Vec<u8>, &Object>,
+    base: Matrix,
+    form_path: &mut Vec<ObjectId>,
+    max_decompressed_bytes: usize,
+    inventory: &mut RasterInventory,
+) -> Result<()> {
+    let mut matrix = base;
+    let mut stack = Vec::new();
+    for operation in operations {
+        match operation.operator.as_str() {
+            "q" => stack.push(matrix),
+            "Q" => matrix = stack.pop().unwrap_or(base),
+            "cm" if operation.operands.len() == 6 => {
+                if let Some(values) = operation
+                    .operands
+                    .iter()
+                    .map(object_number)
+                    .collect::<Option<Vec<_>>>()
+                {
+                    matrix = Matrix {
+                        a: values[0],
+                        b: values[1],
+                        c: values[2],
+                        d: values[3],
+                        e: values[4],
+                        f: values[5],
+                    }
+                    .concat_onto(matrix);
+                }
+            }
+            "BI" | "ID" | "EI" => inventory.complete = false,
+            "Do" if operation.operands.len() == 1 => {
+                let Ok(name) = operation.operands[0].as_name() else {
+                    continue;
+                };
+                let Some(&object) = xobjects.get(name) else {
+                    inventory.complete = false;
+                    continue;
+                };
+                let object_id = object.as_reference().ok();
+                let Some(stream) = document
+                    .resolved(object)
+                    .ok()
+                    .and_then(|object| object.as_stream().ok())
+                else {
+                    inventory.complete = false;
+                    continue;
+                };
+                match stream.dict.get(b"Subtype").and_then(Object::as_name).ok() {
+                    Some(b"Image") => record_image_use(
+                        document,
+                        &mut inventory.uses,
+                        &stream.dict,
+                        object_id.map_or(0, |id| id.0),
+                        matrix,
+                    ),
+                    Some(b"Form") => {
+                        // A cycle is a repeat along the current path, not a
+                        // form painted twice: both uses are real images.
+                        if object_id.is_some_and(|id| form_path.contains(&id))
+                            || form_path.len() >= MAX_FORM_XOBJECT_DEPTH
+                        {
+                            inventory.complete = false;
+                            continue;
+                        }
+                        let form_matrix = stream
+                            .dict
+                            .get(b"Matrix")
+                            .ok()
+                            .and_then(|object| object.as_array().ok())
+                            .and_then(|values| {
+                                values.iter().map(object_number).collect::<Option<Vec<_>>>()
+                            })
+                            .filter(|values| values.len() == 6)
+                            .map_or(Matrix::IDENTITY, |values| Matrix {
+                                a: values[0],
+                                b: values[1],
+                                c: values[2],
+                                d: values[3],
+                                e: values[4],
+                                f: values[5],
+                            });
+                        let form_resources = stream
+                            .dict
+                            .get(b"Resources")
+                            .ok()
+                            .and_then(|object| resolved_dictionary(document, object));
+                        let form_xobjects;
+                        let scope = match form_resources {
+                            Some(resources) => {
+                                form_xobjects =
+                                    merged_xobjects(document, std::iter::once(resources));
+                                &form_xobjects
+                            }
+                            None => xobjects,
+                        };
+                        let bytes = crate::load_policy::plain_stream_with_limit(
+                            stream,
+                            max_decompressed_bytes,
+                        )
+                        .map_err(|error| {
+                            domain_error(
+                                NativeErrorCode::CorruptXref,
+                                format!("Failed to decode a PDF form XObject: {error}"),
+                            )
+                        })?;
+                        let content = parse_content(&bytes)?.map_err(|error| {
+                            domain_error(
+                                NativeErrorCode::CorruptXref,
+                                format!("Failed to parse a PDF form XObject: {error}"),
+                            )
+                        })?;
+                        form_path.extend(object_id);
+                        walk_raster_uses(
+                            document,
+                            &content.operations,
+                            scope,
+                            form_matrix.concat_onto(matrix),
+                            form_path,
+                            max_decompressed_bytes,
+                            inventory,
+                        )?;
+                        if object_id.is_some() {
+                            form_path.pop();
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            _ => {}
+        }
+    }
+    Ok(())
+}
+
+#[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
+fn page_raster_inventory(
+    document: &Document,
+    page_id: ObjectId,
+    max_decompressed_bytes: usize,
+) -> Result<RasterInventory> {
+    let (direct_resources, resource_ids) = document
+        .get_page_resources(page_id)
+        .map_err(|error| reclassify_domain_error(error.into(), NativeErrorCode::CorruptXref))?;
+    // Inherited resources are the fallback; nearer page resources override them.
+    let inherited = resource_ids
+        .into_iter()
+        .rev()
+        .filter_map(|id| document.get_dictionary(id).ok());
+    let xobjects = merged_xobjects(document, inherited.chain(direct_resources));
+    let mut inventory = RasterInventory {
+        uses: Vec::new(),
+        complete: true,
+    };
+    let content = decode_page_content_with_limit(document, page_id, max_decompressed_bytes)?;
+    walk_raster_uses(
+        document,
+        &content.operations,
+        &xobjects,
+        Matrix::IDENTITY,
+        &mut Vec::new(),
+        max_decompressed_bytes,
+        &mut inventory,
+    )?;
+    Ok(inventory)
+}
+
+#[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
+fn page_has_annotations(document: &Document, page_id: ObjectId) -> bool {
+    document
+        .get_dictionary(page_id)
+        .ok()
+        .and_then(|page| page.get(b"Annots").ok())
+        .and_then(|annotations| document.resolved(annotations).ok())
+        .and_then(|annotations| annotations.as_array().ok())
+        .is_some_and(|annotations| !annotations.is_empty())
+}
+
 /// Scan cleanup's page facts for the browser, which has no sidecar file: the
 /// requested pages' records exactly as `write_page_sizes_sidecar_document` writes them,
 /// under the document's page count. No requested pages lists every page.
@@ -408,9 +735,19 @@ fn page_size_entry(
 pub(crate) fn inspect_scan_cleanup_pdf_bytes(data: &[u8], page_numbers: &[u32]) -> Result<Vec<u8>> {
     #[derive(Serialize)]
     #[serde(rename_all = "camelCase")]
+    struct InspectedPage {
+        #[serde(flatten)]
+        entry: PageSizeEntry,
+        raster_uses: Vec<RasterUse>,
+        raster_inventory_complete: bool,
+        has_annotations: bool,
+    }
+
+    #[derive(Serialize)]
+    #[serde(rename_all = "camelCase")]
     struct InspectedPages {
         page_count: u32,
-        pages: Vec<PageSizeEntry>,
+        pages: Vec<InspectedPage>,
     }
 
     let document = crate::load_browser_pdf(data)?;
@@ -419,14 +756,21 @@ pub(crate) fn inspect_scan_cleanup_pdf_bytes(data: &[u8], page_numbers: &[u32]) 
         let page_view = resolve_page_view(&document, page_id)?;
         let rotation = resolve_page_rotation(&document, page_id)?;
         let dominant_image = dominant_full_page_image(&document, page_id, page_view)?;
-        page_size_entry(
-            &document,
-            page_number,
-            page_id,
-            rotation,
-            page_view,
-            dominant_image,
-        )
+        let inventory =
+            page_raster_inventory(&document, page_id, MAX_DECOMPRESSED_PDF_STREAM_BYTES)?;
+        Ok::<_, Box<dyn std::error::Error>>(InspectedPage {
+            entry: page_size_entry(
+                &document,
+                page_number,
+                page_id,
+                rotation,
+                page_view,
+                dominant_image,
+            )?,
+            raster_uses: inventory.uses,
+            raster_inventory_complete: inventory.complete,
+            has_annotations: page_has_annotations(&document, page_id),
+        })
     };
     let mut pages = Vec::new();
     if page_numbers.is_empty() {
@@ -973,6 +1317,123 @@ mod tests {
     }
 
     #[test]
+    fn inventories_masked_layers_inside_forms_like_pdfimages() {
+        let (mut document, page_id) = create_test_document();
+        let mask_id = document.add_object(Stream::new(
+            dictionary! {
+                "Type" => "XObject",
+                "Subtype" => "Image",
+                "Width" => 2000,
+                "Height" => 1000,
+                "ImageMask" => true,
+            },
+            Vec::new(),
+        ));
+        let foreground_id = document.add_object(Stream::new(
+            dictionary! {
+                "Type" => "XObject",
+                "Subtype" => "Image",
+                "Width" => 100,
+                "Height" => 50,
+                "ColorSpace" => "DeviceRGB",
+                "BitsPerComponent" => 8,
+                "Mask" => mask_id,
+            },
+            Vec::new(),
+        ));
+        let background_id = document.add_object(Stream::new(
+            dictionary! {
+                "Type" => "XObject",
+                "Subtype" => "Image",
+                "Width" => 500,
+                "Height" => 250,
+                "ColorSpace" => "DeviceRGB",
+                "BitsPerComponent" => 8,
+            },
+            Vec::new(),
+        ));
+        let form_id = document.add_object(Stream::new(
+            dictionary! {
+                "Type" => "XObject",
+                "Subtype" => "Form",
+                "BBox" => vec![0.into(), 0.into(), 1.into(), 1.into()],
+                "Matrix" => vec![2.into(), 0.into(), 0.into(), 2.into(), 0.into(), 0.into()],
+                "Resources" => dictionary! {"XObject" => dictionary! {"Fg" => foreground_id}},
+            },
+            b"/Fg Do".to_vec(),
+        ));
+        let content_id = document.add_object(Stream::new(
+            Dictionary::new(),
+            b"q 200 0 0 100 0 0 cm /Bg Do Q q 100 0 0 50 0 0 cm /Layer Do /Layer Do Q".to_vec(),
+        ));
+        let page = document.get_dictionary_mut(page_id).unwrap();
+        page.set(
+            "Resources",
+            dictionary! {"XObject" => dictionary! {"Bg" => background_id, "Layer" => form_id}},
+        );
+        page.set("Contents", content_id);
+        page.set("Annots", vec![]);
+
+        let inventory = page_raster_inventory(&document, page_id, 1 << 20).unwrap();
+
+        assert!(inventory.complete);
+        assert!(!page_has_annotations(&document, page_id));
+        let row = |kind, width_px, height_px, bits_per_component, object_number, ppi| RasterUse {
+            kind,
+            width_px,
+            height_px,
+            bits_per_component,
+            object_number,
+            x_ppi: ppi,
+            y_ppi: ppi,
+        };
+        let foreground = row("image", 100, 50, 8, foreground_id.0, 36);
+        let mask = row("mask", 2000, 1000, 1, foreground_id.0, 720);
+        assert_eq!(
+            inventory.uses,
+            vec![
+                row("image", 500, 250, 8, background_id.0, 180),
+                foreground,
+                mask,
+                row("image", 100, 50, 8, foreground_id.0, 36),
+                row("mask", 2000, 1000, 1, foreground_id.0, 720),
+            ],
+        );
+    }
+
+    #[test]
+    fn marks_inline_images_and_form_cycles_as_unmeasured() {
+        let (mut document, page_id) = create_test_document();
+        let form_id = document.new_object_id();
+        document.objects.insert(
+            form_id,
+            Object::Stream(Stream::new(
+                dictionary! {
+                    "Type" => "XObject",
+                    "Subtype" => "Form",
+                    "BBox" => vec![0.into(), 0.into(), 1.into(), 1.into()],
+                    "Resources" => dictionary! {"XObject" => dictionary! {"Self" => form_id}},
+                },
+                b"/Self Do".to_vec(),
+            )),
+        );
+        let content_id = document.add_object(Stream::new(Dictionary::new(), b"/Loop Do".to_vec()));
+        let page = document.get_dictionary_mut(page_id).unwrap();
+        page.set(
+            "Resources",
+            dictionary! {"XObject" => dictionary! {"Loop" => form_id}},
+        );
+        page.set("Contents", content_id);
+        page.set("Annots", vec![dictionary! {"Subtype" => "Link"}.into()]);
+
+        let inventory = page_raster_inventory(&document, page_id, 1 << 20).unwrap();
+
+        assert!(!inventory.complete);
+        assert!(inventory.uses.is_empty());
+        assert!(page_has_annotations(&document, page_id));
+    }
+
+    #[test]
     fn reports_a_raster_that_covers_the_page() {
         let (mut document, page_id) = create_test_document();
         let image_id = document.add_object(Stream::new(
@@ -1015,7 +1476,24 @@ mod tests {
     #[test]
     fn inspects_the_pages_a_browser_asks_for_as_the_sidecar_records_them() {
         let mut document = create_test_document_with_pages(3);
-        let sidecar = serde_json::to_value(collect_page_sizes(&document).unwrap().pages).unwrap();
+        // The browser record is the sidecar record plus the facts desktop
+        // reads from pdfimages and the annotation index.
+        let sidecar = serde_json::Value::Array(
+            serde_json::to_value(collect_page_sizes(&document).unwrap().pages)
+                .unwrap()
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|page| {
+                    let mut page = page.clone();
+                    let record = page.as_object_mut().unwrap();
+                    record.insert("rasterUses".into(), serde_json::json!([]));
+                    record.insert("rasterInventoryComplete".into(), true.into());
+                    record.insert("hasAnnotations".into(), false.into());
+                    page
+                })
+                .collect(),
+        );
         let mut bytes = Vec::new();
         document.save_to(&mut bytes).unwrap();
 
