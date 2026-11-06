@@ -170,6 +170,15 @@ export async function renderPageRaster(
     };
 }
 
+/** The page's compact-layer facts, as desktop reads them from pdfimages. */
+export function sourceLayerFacts(source: IBrowserScanCleanupSource, pageNumber: number) {
+    const raster = source.rasterFacts.rasterByPage.get(pageNumber);
+    return {
+        sourceHasBilevelLayer: raster?.hasBilevelLayer === true,
+        ...(raster?.backgroundDpi === undefined ? {} : {sourceBackgroundDpi: raster.backgroundDpi}),
+    };
+}
+
 /** A copy for the worker, which takes over every buffer it is sent. */
 function copy(bytes: Uint8Array): Uint8Array<ArrayBuffer> {
     return new Uint8Array(bytes);
@@ -406,7 +415,7 @@ async function renderBase(
         pageNumber: request.pageNumber,
         dpi: plan.lossless ? analysisDpi : plan.renderDpi,
         sourceDpi: plan.sourceDpi,
-        sourceHasBilevelLayer: false,
+        ...sourceLayerFacts(source, request.pageNumber),
         requestedRenderDpi: plan.renderDpi,
         ...(plan.resolvedOutputMode === undefined ? {} : {resolvedOutputMode: plan.resolvedOutputMode}),
         ...(request.softAlphaForegroundRecommendation === undefined
