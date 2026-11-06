@@ -1,4 +1,7 @@
-import {spawnSync} from 'node:child_process';
+import {
+    execFileSync,
+    spawnSync,
+} from 'node:child_process';
 import {existsSync} from 'node:fs';
 import {homedir} from 'node:os';
 import path from 'node:path';
@@ -36,6 +39,7 @@ export function readBuildEnvironment(env = process.env) {
         SENTRY_BROWSER_DSN: env.SENTRY_BROWSER_DSN,
         VERCEL: env.VERCEL,
         VERCEL_ENV: env.VERCEL_ENV,
+        VERCEL_GIT_COMMIT_SHA: env.VERCEL_GIT_COMMIT_SHA,
         // scripts/build-electron.mjs
         EVB_ELECTRON_SOURCEMAP: env.EVB_ELECTRON_SOURCEMAP,
         EVB_RELEASE_TARGET_ARCH: env.EVB_RELEASE_TARGET_ARCH,
@@ -50,6 +54,48 @@ export function readBuildEnvironment(env = process.env) {
         TARGET_ARCH: env.TARGET_ARCH,
         npm_config_arch: env.npm_config_arch,
     };
+}
+
+// Keep in sync with SCAN_CLEANUP_GIT_SHA_HEX_PATTERN in packages/scan-cleanup/core/provenanceStamp.ts.
+const GIT_SHA_PATTERN = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u;
+
+/**
+ * The source revision a build embeds for provenance: HEAD of a clean
+ * checkout, the CI or Vercel commit where git is unavailable, otherwise none.
+ * @param {ReturnType<typeof readBuildEnvironment>} buildEnv
+ */
+export function resolveBuildGitSha(buildEnv) {
+    const gitOptions = {
+        encoding: /** @type {const} */ ('utf8'),
+        stdio: /** @type {['ignore', 'pipe', 'ignore']} */ ([
+            'ignore',
+            'pipe',
+            'ignore',
+        ]),
+    };
+    let status;
+    try {
+        status = execFileSync('git', [
+            'status',
+            '--porcelain',
+        ], gitOptions).trim();
+    } catch {
+        const ciSha = (buildEnv.GITHUB_SHA ?? buildEnv.VERCEL_GIT_COMMIT_SHA)?.trim().toLowerCase() ?? '';
+        return GIT_SHA_PATTERN.test(ciSha) ? ciSha : null;
+    }
+    if (status !== '') {
+        return null;
+    }
+    try {
+        const sha = execFileSync('git', [
+            'rev-parse',
+            '--verify',
+            'HEAD',
+        ], gitOptions).trim().toLowerCase();
+        return GIT_SHA_PATTERN.test(sha) ? sha : null;
+    } catch {
+        return null;
+    }
 }
 
 /** @param {ReturnType<typeof readBuildEnvironment>} buildEnv */
