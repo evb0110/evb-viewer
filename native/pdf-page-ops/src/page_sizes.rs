@@ -13,7 +13,7 @@ use std::{
 
 use crate::{
     assert_plaintext_base, classify_pdf_load_error, domain_error, intersect_rect, load_pdf_path,
-    load_readonly_metadata_pdf_path, parse_content, reclassify_domain_error, resolve_inherited_box,
+    load_readonly_metadata_pdf_path, reclassify_domain_error, resolve_inherited_box,
     resolve_page_rotation, resolve_page_user_unit, resolve_page_view, AppendedRevision,
     NativeErrorCode, PageTreeResolver, PdfObjectSource, PdfRect, QpdfMetadataPurpose, Result,
     MAX_DECOMPRESSED_PDF_STREAM_BYTES, MAX_ENCODED_PDF_BYTES,
@@ -236,6 +236,17 @@ fn decode_page_content_with_limit(
     page_id: ObjectId,
     max_decompressed_bytes: usize,
 ) -> Result<Content<Vec<Operation>>> {
+    Ok(decode_page_content_with_inline_images(document, page_id, max_decompressed_bytes)?.0)
+}
+
+/// Each inline image's declared facts, in content order.
+type InlineImages = Vec<crate::content_parse::TInlineImageFacts>;
+
+fn decode_page_content_with_inline_images(
+    document: &Document,
+    page_id: ObjectId,
+    max_decompressed_bytes: usize,
+) -> Result<(Content<Vec<Operation>>, InlineImages)> {
     let bytes = crate::page_content_with_limit(document, page_id, max_decompressed_bytes)
         .map_err(|error| {
             if matches!(
@@ -255,12 +266,14 @@ fn decode_page_content_with_limit(
                 )
             }
         })?;
-    parse_content(&bytes)?.map_err(|error| {
+    let (content, inline_images) = crate::content_parse::parse_content_with_inline_images(&bytes)?;
+    let content = content.map_err(|error| {
         domain_error(
             NativeErrorCode::CorruptXref,
             format!("Failed to parse PDF page content: {error}"),
         )
-    })
+    })?;
+    Ok((content, inline_images))
 }
 
 fn dominant_full_page_image_with_limit(
@@ -701,9 +714,11 @@ impl InventoryWalk<'_> {
     fn walk(
         &mut self,
         operations: &[Operation],
+        inline_images: &[crate::content_parse::TInlineImageFacts],
         scope: &ResourceScope<'_>,
         base: Matrix,
     ) -> Result<()> {
+        let mut inline_images = inline_images.iter();
         let document = self.document;
         let mut matrix = base;
         let mut stack = Vec::new();
@@ -753,9 +768,19 @@ impl InventoryWalk<'_> {
                     hidden.pop();
                 }
                 _ if is_hidden => {}
-                "BI" => match operation.operands.first() {
-                    Some(Object::Stream(inline)) => {
-                        record_image_use(document, &mut self.inventory, &inline.dict, 0, matrix)
+                // The dictionary's declared facts, as pdfimages lists them,
+                // whether or not lopdf could decode the image itself.
+                "BI" => match inline_images.next() {
+                    Some(&Some((width, height, bits, stencil))) => {
+                        self.inventory.uses.push(RasterUse {
+                            kind: if stencil { "stencil" } else { "image" },
+                            width_px: i64::from(width),
+                            height_px: i64::from(height),
+                            bits_per_component: i64::from(bits),
+                            object_number: 0,
+                            x_ppi: image_ppi(i64::from(width), matrix.a, matrix.b),
+                            y_ppi: image_ppi(i64::from(height), matrix.c, matrix.d),
+                        })
                     }
                     _ => self.inventory.complete = false,
                 },
@@ -834,7 +859,9 @@ impl InventoryWalk<'_> {
                         format!("Failed to decode a PDF form XObject: {error}"),
                     )
                 })?;
-        let content = parse_content(&bytes)?.map_err(|error| {
+        let (content, inline_images) =
+            crate::content_parse::parse_content_with_inline_images(&bytes)?;
+        let content = content.map_err(|error| {
             domain_error(
                 NativeErrorCode::CorruptXref,
                 format!("Failed to parse a PDF form XObject: {error}"),
@@ -843,6 +870,7 @@ impl InventoryWalk<'_> {
         self.form_path.extend(object_id);
         let walked = self.walk(
             &content.operations,
+            &inline_images,
             own_scope.as_ref().unwrap_or(parent_scope),
             form_matrix.concat_onto(outer),
         );
@@ -898,9 +926,11 @@ impl InventoryWalk<'_> {
             let appearance = match document.resolved(normal).ok() {
                 Some(Object::Stream(_)) => normal,
                 Some(Object::Dictionary(states)) => {
-                    let Some(state) = annotation.get(b"AS").and_then(Object::as_name).ok() else {
-                        continue;
-                    };
+                    // Without a state, viewers such as Poppler show the Off appearance.
+                    let state = annotation
+                        .get(b"AS")
+                        .and_then(Object::as_name)
+                        .unwrap_or(b"Off");
                     let Ok(appearance) = states.get(state) else {
                         continue;
                     };
@@ -998,8 +1028,14 @@ fn page_raster_inventory(
             complete: true,
         },
     };
-    let content = decode_page_content_with_limit(document, page_id, max_decompressed_bytes)?;
-    walk.walk(&content.operations, &scope, Matrix::IDENTITY)?;
+    let (content, inline_images) =
+        decode_page_content_with_inline_images(document, page_id, max_decompressed_bytes)?;
+    walk.walk(
+        &content.operations,
+        &inline_images,
+        &scope,
+        Matrix::IDENTITY,
+    )?;
     if let Ok(page) = document.get_dictionary(page_id) {
         walk.walk_annotations(page, &scope)?;
     }
@@ -1808,6 +1844,84 @@ mod tests {
                 // 2 pixels over 1,440 points prints below one, parsed as zero.
                 inline,
                 row("image", 8, stamp_image.0, 20),
+            ],
+        );
+    }
+
+    #[test]
+    fn lists_inline_images_lopdf_cannot_decode_and_off_appearances() {
+        let (mut document, page_id) = create_test_document();
+        let image = |document: &mut Document, width: i64| {
+            document.add_object(Stream::new(
+                dictionary! {
+                    "Type" => "XObject",
+                    "Subtype" => "Image",
+                    "Width" => width,
+                    "Height" => 10,
+                    "ColorSpace" => "DeviceGray",
+                    "BitsPerComponent" => 8,
+                },
+                Vec::new(),
+            ))
+        };
+        let form = |document: &mut Document, image_id: ObjectId| {
+            document.add_object(Stream::new(
+                dictionary! {
+                    "Type" => "XObject",
+                    "Subtype" => "Form",
+                    "BBox" => vec![0.into(), 0.into(), 1.into(), 1.into()],
+                    "Resources" => dictionary! {"XObject" => dictionary! {"S" => image_id}},
+                },
+                b"/S Do".to_vec(),
+            ))
+        };
+        let on_image = image(&mut document, 20);
+        let off_image = image(&mut document, 30);
+        let on = form(&mut document, on_image);
+        let off = form(&mut document, off_image);
+        // An abbreviated colour space and a filter: lopdf skips this image.
+        let content_id = document.add_object(Stream::new(
+            Dictionary::new(),
+            b"q 72 0 0 72 0 0 cm BI /W 3 /H 4 /BPC 8 /CS /G /F /DCT ID \xff\xd8\xff\xd9 EI Q"
+                .to_vec(),
+        ));
+        let page = document.get_dictionary_mut(page_id).unwrap();
+        page.set("Contents", content_id);
+        page.set(
+            "Annots",
+            vec![dictionary! {
+                "Subtype" => "Widget",
+                "Rect" => vec![0.into(), 0.into(), 72.into(), 72.into()],
+                "AP" => dictionary! {"N" => dictionary! {"On" => on, "Off" => off}},
+            }
+            .into()],
+        );
+
+        let inventory = page_raster_inventory(&document, page_id, 1 << 20).unwrap();
+
+        assert!(inventory.complete);
+        assert_eq!(
+            inventory.uses,
+            vec![
+                RasterUse {
+                    kind: "image",
+                    width_px: 3,
+                    height_px: 4,
+                    bits_per_component: 8,
+                    object_number: 0,
+                    x_ppi: 3,
+                    y_ppi: 4,
+                },
+                // Without /AS the Off appearance is the one shown.
+                RasterUse {
+                    kind: "image",
+                    width_px: 30,
+                    height_px: 10,
+                    bits_per_component: 8,
+                    object_number: off_image.0,
+                    x_ppi: 30,
+                    y_ppi: 10,
+                },
             ],
         );
     }
