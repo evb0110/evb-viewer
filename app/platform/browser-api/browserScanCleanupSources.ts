@@ -66,14 +66,14 @@ async function openSource(ref: string, revision: string, signal: AbortSignal): P
     }
     const rasterRows: IScanCleanupRasterRow[] = [];
     const annotatedPages = new Set<number>();
-    let rasterInventoryComplete = true;
+    const incompleteRasterPages = new Set<number>();
     for (const [
         index,
         record,
     ] of inspected.pages.entries()) {
         const facts = v.parse(INSPECTED_PAGE_FACTS_SCHEMA, record);
         const pageNumber = index + 1;
-        rasterInventoryComplete &&= facts.rasterInventoryComplete;
+        if (!facts.rasterInventoryComplete) incompleteRasterPages.add(pageNumber);
         if (facts.hasAnnotations) annotatedPages.add(pageNumber);
         for (const use of facts.rasterUses) {
             rasterRows.push({
@@ -101,10 +101,9 @@ async function openSource(ref: string, revision: string, signal: AbortSignal): P
         ref,
         revision,
         pageSizes,
-        rasterFacts: {
-            ...reduceScanCleanupRasterRows(rasterRows),
-            complete: rasterInventoryComplete,
-        },
+        rasterRows,
+        incompleteRasterPages,
+        rasterFacts: reduceScanCleanupRasterRows(rasterRows),
         annotatedPages,
         pdf,
     };

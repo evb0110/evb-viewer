@@ -42,6 +42,7 @@ import {
     describeScanCleanupFinalPage,
     planScanCleanupFinalPages,
     planScanCleanupRunQuality,
+    resolveScanCleanupSourceMrcCandidacy,
     readDetectionResultsForPageNumbers,
     buildBoundedDetectionRequestFields,
     withBoundedDetectionFields,
@@ -65,7 +66,10 @@ import {
     encodeScanCleanupProvenanceStampHex,
     materializeScanCleanupStampOptions,
 } from '@evb/scan-cleanup/core/provenanceStamp';
-import {toScanCleanupPageRasterSource} from '@evb/scan-cleanup/core/sourceRasterFacts';
+import {
+    reduceScanCleanupRasterRows,
+    toScanCleanupPageRasterSource,
+} from '@evb/scan-cleanup/core/sourceRasterFacts';
 import {
     buildScanCleanupTextLayerPlanFromPageSizeMap,
     reduceScanCleanupSourceTextOmission,
@@ -98,6 +102,7 @@ import {
 import {
     ScanCleanupContractError,
     ScanCleanupPdfValidationError,
+    ScanCleanupStreamingEvidenceError,
 } from '@evb/scan-cleanup/core/errors';
 import {createPagePlanResolver} from '@evb/scan-cleanup/core/createPagePlanResolver';
 import {runBrowserScanCleanupWorkerRequest} from '@app/platform/browser-api/browserScanCleanupWorkerClient';
@@ -105,7 +110,6 @@ import {runBrowserPdfCombineWorkerRequest} from '@app/platform/browser-api/brows
 import {runBrowserPageOpsWorkerRequest} from '@app/platform/browser-api/browserPageOpsWorkerClient';
 import {isBrowserPageOpsWasmFailure} from '@contracts/browserPageOpsWorker';
 import {
-    mergePdfPages,
     overlayPdfTextLayers,
     splitPdfPages,
 } from '@app/platform/browser-api/browserPageOpsCore';
@@ -251,15 +255,52 @@ export async function runBrowserScanCleanupConversion({
         }, warn);
     };
     emitProgress('normalizing', 1, 1);
-    const pageSizeStore = createArrayBackedPdfPageSizeStore(source.pageSizes);
+    const largeRun = documentPageCount > SCAN_CLEANUP_STREAMING_BATCH_PAGES;
+    // Detection's page records are the geometry a small run renders: they
+    // carry the page view detection chose, MediaBox included, as on desktop.
+    const metadataPages: IPdfPageSize[] = [];
+    for (let pageNumber = 1; !largeRun && pageNumber <= documentPageCount; pageNumber += 1) {
+        const page = request.sourcePageMetadataByPage?.[String(pageNumber)];
+        if (page?.pageNumber !== pageNumber) break;
+        metadataPages.push(page);
+    }
+    const pageSizeStore = createArrayBackedPdfPageSizeStore(
+        metadataPages.length === documentPageCount ? metadataPages : source.pageSizes,
+    );
     emitProgress('probing', 0, documentPageCount, []);
-    // The inventory answers what desktop's pdfimages probe does; page geometry
-    // stands in, as on desktop, where it found no raster at all.
-    const structural = toScanCleanupPageRasterSource(source.rasterFacts, source.rasterFacts.complete);
-    const rasterSource = structural.detected
+    // The inventory answers what desktop's pdfimages probe does, over the
+    // pages desktop would probe; page geometry stands in where it found no
+    // raster at all, without hiding an incomplete inventory.
+    const probesWholeDocument = request.options.matchPageSize
+        || (request.sourcePageNumbers === undefined && request.sourcePageRange === undefined)
+        || pageCount > SCAN_CLEANUP_STREAMING_BATCH_PAGES;
+    const probedPages = probesWholeDocument ? null : new Set(pageNumbers);
+    const inScope = (pageNumber: number) => probedPages === null || probedPages.has(pageNumber);
+    const structural = toScanCleanupPageRasterSource(
+        reduceScanCleanupRasterRows(source.rasterRows.filter(row => inScope(row.pageNumber))),
+        ![...source.incompleteRasterPages].some(inScope),
+    );
+    const geometry = structural.detected
+        ? null
+        : await createPageGeometryRasterSource(pageSizeStore, documentPageCount, signal);
+    const rasterSource = geometry === null
         ? structural
-        : await createPageGeometryRasterSource(pageSizeStore, documentPageCount, signal) ?? structural;
+        : {
+            ...geometry,
+            compactLayeredPageCountComplete: structural.compactLayeredPageCountComplete !== false,
+        };
     emitProgress('probing', documentPageCount, documentPageCount);
+    // An Auto run over the whole document budgets its output against the
+    // source's compact pages; unknown pages make that budget unknown.
+    const fullDocumentRun = request.sourcePageNumbers === undefined && request.sourcePageRange === undefined;
+    if (fullDocumentRun && request.options.outputMode === 'auto' && rasterSource.compactLayeredPageCountComplete === false) {
+        throw new ScanCleanupStreamingEvidenceError(
+            'browser-raster-inventory',
+            'Automatic scan cleanup could not establish a bounded compact-source budget for the full document; '
+            + 'source raster probing was incomplete, so publication was refused',
+        );
+    }
+    const geometryRecords: IPdfPageSize[] = [];
     const quality = await planScanCleanupRunQuality({
         request,
         documentPageCount,
@@ -269,7 +310,13 @@ export async function runBrowserScanCleanupConversion({
         signal,
         warn,
         warnEvent,
+        // A long run renders the page views its geometry pass settled on.
+        ...(largeRun ? {onGeometryPage: page => {
+            geometryRecords.push(page);
+            return Promise.resolve();
+        }} : {}),
     });
+    const finalPageSizeStore = largeRun ? createArrayBackedPdfPageSizeStore(geometryRecords) : pageSizeStore;
     losslessRun = quality.losslessRun;
     const [
         sourceBytes,
@@ -297,8 +344,8 @@ export async function runBrowserScanCleanupConversion({
         engines,
     };
     const pdf = losslessRun
-        ? await runLosslessConversion(context, rasterSource)
-        : await runRasterConversion(context, rasterSource, pageSizeStore);
+        ? await runLosslessConversion(context, rasterSource, finalPageSizeStore)
+        : await runRasterConversion(context, rasterSource, finalPageSizeStore);
     emitProgress('handoff', 0, pageCount, []);
     signal.throwIfAborted();
     const check = await runBrowserQpdfCommand('check', new Uint8Array(pdf), {signal});
@@ -347,15 +394,23 @@ async function rasterizePage(
     }
 }
 
-/** The rolling output: each page's PDF merged onto the pages before it. */
-function createRollingOutput() {
+/** The rolling output: each page's PDF merged onto the pages before it, in the page-ops worker. */
+function createRollingOutput(signal: AbortSignal) {
     let merged: Uint8Array | null = null;
     return {
         async append(pagePdf: Uint8Array) {
-            merged = merged === null ? pagePdf : (await mergePdfPages([
+            if (merged === null) {
+                merged = pagePdf;
+                return;
+            }
+            const result = await runBrowserPageOpsWorkerRequest('mergePages', {documents: [
                 merged,
                 pagePdf,
-            ])).data;
+            ]}, {signal});
+            if (isBrowserPageOpsWasmFailure(result)) {
+                throw new ScanCleanupContractError(`Scan cleanup could not merge its output pages: ${result.error.message}`);
+            }
+            merged = result.data;
         },
         get pdf() {
             return merged;
@@ -371,7 +426,7 @@ async function runRasterConversion(
     const {
         request, signal, summary, emitProgress, pageNumbers, pageCount, options, documentCanvas,
     } = context;
-    const output = createRollingOutput();
+    const output = createRollingOutput(signal);
     const outputPages: TRenderedOutput[] = [];
     const emptyOutputMappings: IScanCleanupOutputMapping[] = [];
     const nativeOptionsBySource = new Map<number, NonNullable<ReturnType<typeof buildShapeOnlyNativeScanCleanupManifest>['pages'][number]['options']>>();
@@ -381,6 +436,7 @@ async function runRasterConversion(
     const skippedNonAffine: number[] = [];
     const fittedMarginBoxPages = new Set<number>();
     const completedPageNumbers = new Set<number>();
+    let sourceMrcFallbackReported = false;
     const detectedRasterByPage = new Map<number, NonNullable<Awaited<ReturnType<typeof rasterSource.getPageRaster>>>>();
     for (const batch of iterateScanCleanupPageBatches(pageCount)) {
         signal.throwIfAborted();
@@ -414,6 +470,17 @@ async function runRasterConversion(
             pageNumber,
             raster,
         ] of planned.detectedRasterByPage) detectedRasterByPage.set(pageNumber, raster);
+        // Desktop reuses an eligible page's compact source layers; the
+        // browser reconstructs it from its raster and says so once.
+        if (!sourceMrcFallbackReported && planned.rasterPlans.some(plan => resolveScanCleanupSourceMrcCandidacy(
+            batchRequest,
+            plan,
+            planned.pageGeometryByNumber.get(plan.pageNumber)!,
+            planned.detectedRasterByPage.get(plan.pageNumber),
+        ).eligible)) {
+            sourceMrcFallbackReported = true;
+            context.warn('Compact source layers are not reused in the browser; using raster reconstruction');
+        }
         const manifest = buildShapeOnlyNativeScanCleanupManifest({
             operation: 'render',
             renderMode: 'final',
@@ -664,7 +731,17 @@ function collectRenderedPage(context: IConversionContext, input: ICollectRendere
             planes.set(name(found), found.data);
             return found;
         };
-        const composite = plane('composite', 'composite output');
+        // The engine publishes a composite only where neither primary
+        // representation was written, or as the fallback for invalid layers.
+        const composite = output.planes.find(candidate => candidate.role === 'composite');
+        const requireComposite = (description: string) => {
+            if (composite === undefined) {
+                throw new ScanCleanupContractError(
+                    `Scan cleanup page ${String(pageNumber)} published no ${description}`,
+                );
+            }
+            planes.set(name(composite), composite.data);
+        };
         let layers: Pick<TRenderedOutput, 'bilevelPath' | 'backgroundPath' | 'foregroundMaskPath' | 'foregroundAlphaPath' | 'backgroundIsColor'> = {};
         if (metadata.layeredWritten) {
             const background = plane('background', 'mixed background layer');
@@ -682,17 +759,27 @@ function collectRenderedPage(context: IConversionContext, input: ICollectRendere
                     ...(foreground.role === 'foreground-alpha'
                         ? {foregroundAlphaPath: name(foreground)}
                         : {foregroundMaskPath: name(foreground)}),
-                    backgroundIsColor: background.kind === 'rgb8',
+                    // Desktop reads this from the background file's header,
+                    // and the background destination is always a PPM.
+                    backgroundIsColor: background.encoding === 'ppm',
                 };
             } else {
-                summary.warnings.push(`Page ${String(pageNumber)} mixed layer dimensions do not match metadata ${mismatch}; using the non-MRC composite path`);
+                planes.delete(name(background));
+                planes.delete(name(foreground));
+                requireComposite('non-MRC composite fallback after invalid mixed layers');
+                context.warn(
+                    `Page ${String(pageNumber)} mixed layer dimensions do not match metadata ${mismatch}; using the non-MRC composite path`,
+                    'error',
+                );
             }
         } else if (metadata.bilevelWritten) {
             layers = {bilevelPath: name(plane('bilevel', 'bilevel output'))};
+        } else {
+            requireComposite('composite output');
         }
         const renderedOutput: TRenderedOutput = {
             sourcePageNumber: pageNumber,
-            path: name(composite),
+            path: composite === undefined ? `p${String(pageNumber)}-${String(outputIndex)}-composite.png` : name(composite),
             ...layers,
             dpi: metadata.renderDpi ?? input.plan.dpi,
             // The engine reports the mode it rendered with once Auto resolves.
@@ -745,12 +832,12 @@ async function inspectOmittedSourceText(context: IConversionContext, skippedNonA
 async function runLosslessConversion(
     context: IConversionContext,
     rasterSource: Parameters<typeof planScanCleanupFinalPages>[0]['rasterSource'],
+    pageSizeStore: ReturnType<typeof createArrayBackedPdfPageSizeStore>,
 ) {
     const {
         request, signal, summary, emitProgress, pageNumbers, pageCount, documentCanvas,
     } = context;
     const documentDpi = resolveSourceDpi(rasterSource.documentDpi);
-    const pagePlanResolver = createPagePlanResolver(request, () => undefined, 'lossless');
     const analyzedPages: Array<{
         sourcePageIndex: number;
         rotationQuarterTurns: number;
@@ -772,8 +859,10 @@ async function runLosslessConversion(
                 await readDetectionResultsForPageNumbers(request.detectionResultStore, batchPageNumbers, signal),
                 batchPageNumbers,
             ));
+        // Each batch resolves its pinned plans from its own bounded decisions.
+        const pagePlanResolver = createPagePlanResolver(batchRequest, () => undefined, 'lossless');
         const facts = await Promise.all(batchPageNumbers.map(async pageNumber => {
-            const view = context.source.pageSizes[pageNumber - 1]!;
+            const view = await pageSizeStore.getPage(pageNumber);
             const detected = await rasterSource.getPageRaster(pageNumber);
             return {
                 pageNumber,
@@ -816,6 +905,7 @@ async function runLosslessConversion(
                 pageMetadataPath: `/browser/analysis-${String(page.pageNumber)}.json`,
             })),
         });
+        pagePlanResolver.report();
         const pages = facts.map((page, index) => {
             const options = manifest.pages[index]!.options;
             nativeOptionsBySource.set(page.pageNumber, options);
@@ -912,7 +1002,6 @@ async function runLosslessConversion(
             });
         }
     }
-    pagePlanResolver.report();
     // A lossless page placed at another scale keeps its own pixels; the run
     // names those pages, and every page the canvas had to fit.
     const scaledRasterPages = new Set<number>();

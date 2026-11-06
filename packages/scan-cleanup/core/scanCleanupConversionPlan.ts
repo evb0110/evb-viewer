@@ -54,6 +54,10 @@ import {
 } from '@evb/scan-cleanup/core/policy/scanCleanupRasterPolicy';
 import {createPagePlanResolver} from '@evb/scan-cleanup/core/createPagePlanResolver';
 import {
+    resolveSourceMrcReuseRejection,
+    shouldExtractTrustedMrcForeground,
+} from '@evb/scan-cleanup/core/policy/scanCleanupRepresentationPolicy';
+import {
     describePageNumbers,
     toScanCleanupDpiThousandths,
 } from '@evb/scan-cleanup/core/policy/scanCleanupWarningEvents';
@@ -732,4 +736,44 @@ export function describeScanCleanupFinalPage(
             : {documentPrior: request.documentPriorByPage[pageKey]}),
         ...resolvedPagePlan,
     };
+}
+
+/**
+ * Whether a page's compact source layers are candidates for reuse: its
+ * settings leave the source foreground intact and its geometry proves the
+ * layers map onto the page. A rejected geometry is named for the run's log.
+ */
+export function resolveScanCleanupSourceMrcCandidacy(
+    request: IRunScanCleanupPipelineRequest,
+    plan: Pick<TScanCleanupFinalPagePlan, 'pageNumber' | 'resolvedOutputMode'>,
+    pageGeometry: IPdfPageSize,
+    detectedRaster: IDetectedPageRaster | undefined,
+): {
+    eligible: boolean;
+    geometryRejection?: string
+} {
+    const geometryRejection = resolveSourceMrcReuseRejection(pageGeometry, detectedRaster);
+    if (geometryRejection !== undefined) {
+        return {
+            eligible: false,
+            geometryRejection,
+        };
+    }
+    const pageOverride = getScanCleanupPageOverride(
+        request.options.pageOverrides,
+        requirePageNumber(plan.pageNumber),
+        request.options.pageOverrideDefaults,
+        request.options.marginsMm,
+    );
+    return {eligible: shouldExtractTrustedMrcForeground(
+        request.options.outputMode,
+        pageOverride.outputModeOverride,
+    )
+        && request.options.thickness === 0
+        && request.options.autoDewarp !== true
+        && pageOverride.rotationDegrees === 0
+        && (pageOverride.manualZones?.picture.length ?? 0) === 0
+        && (pageOverride.manualZones?.fill.length ?? 0) === 0
+        && detectedRaster?.hasBilevelLayer === true
+        && (plan.resolvedOutputMode === 'bw' || plan.resolvedOutputMode === 'mixed')};
 }

@@ -35,7 +35,6 @@ import {
 import type { IScanCleanupRuntimePolicy } from '@contracts/resourcePolicies';
 import { getErrorMessage } from '@contracts/getErrorMessage';
 import { isRecord } from '@contracts/runtimeGuards';
-import {getScanCleanupPageOverride} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
 import {
     resolveSourceDpi,
     type IRunScanCleanupPipelineDependencies,
@@ -110,8 +109,6 @@ import {
     assertScanCleanupCompactSourceBudget,
     resolveScanCleanupCompactSourceBudget,
     resolveSourceMrcLayerRejection,
-    resolveSourceMrcReuseRejection,
-    shouldExtractTrustedMrcForeground,
 } from '@evb/scan-cleanup/core/policy/scanCleanupRepresentationPolicy';
 import {
     readPbmDimensions,
@@ -146,6 +143,7 @@ import {
     createPageGeometryRasterSource,
     describeScanCleanupFinalPage,
     planScanCleanupFinalPages,
+    resolveScanCleanupSourceMrcCandidacy,
     planScanCleanupRunQuality,
     readDetectionResultsForPageNumbers,
     withBoundedDetectionFields,
@@ -1543,38 +1541,20 @@ async function executeScanCleanupBatch({
     const pageDpi = new Map<number, number>();
     const trustedMrcLayersByPage = new Map<number, IPdfMrcLayers>();
     const trustedForegroundCandidates = rasterPlans.filter(plan => {
-        const pageOverride = getScanCleanupPageOverride(
-            request.options.pageOverrides,
-            requirePageNumber(plan.pageNumber),
-            request.options.pageOverrideDefaults,
-            request.options.marginsMm,
-        );
-        const geometryRejection = resolveSourceMrcReuseRejection(
+        const candidacy = resolveScanCleanupSourceMrcCandidacy(
+            request,
+            plan,
             pageGeometryByNumber.get(plan.pageNumber)!,
             detectedRasterByPage.get(plan.pageNumber),
         );
-        if (geometryRejection !== undefined) {
+        if (candidacy.geometryRejection !== undefined) {
             log(
                 'debug',
                 `Page ${String(plan.pageNumber)} will use raster reconstruction; `
-                + `source MRC reuse is not proven (${geometryRejection})`,
+                + `source MRC reuse is not proven (${candidacy.geometryRejection})`,
             );
-            return false;
         }
-        return shouldExtractTrustedMrcForeground(
-            request.options.outputMode,
-            pageOverride.outputModeOverride,
-        )
-            && request.options.thickness === 0
-            && request.options.autoDewarp !== true
-            && pageOverride.rotationDegrees === 0
-            && (pageOverride.manualZones?.picture.length ?? 0) === 0
-            && (pageOverride.manualZones?.fill.length ?? 0) === 0
-            && detectedRasterByPage.get(plan.pageNumber)?.hasBilevelLayer === true
-            && (
-                plan.resolvedOutputMode === 'bw'
-                || plan.resolvedOutputMode === 'mixed'
-            );
+        return candidacy.eligible;
     });
     if (trustedForegroundCandidates.length > 0) {
         emitProgress('extracting', 0, trustedForegroundCandidates.length, []);
