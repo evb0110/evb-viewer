@@ -5,9 +5,7 @@ import type {
     IScanCleanupPreviewRequest,
     TScanCleanupDetectionJobState,
     TScanCleanupDetectionStartResult,
-    TScanCleanupErrorCode,
 } from '@contracts/scan-cleanup/electronApiScanCleanup';
-import {SCAN_CLEANUP_ERROR_CODES} from '@contracts/scan-cleanup/ipc';
 import {SCAN_CLEANUP_STREAMING_BATCH_PAGES} from '@contracts/scan-cleanup/inputLimits';
 import {projectScanCleanupDetectionStateForRenderer} from '@contracts/scan-cleanup/projectScanCleanupDetectionStateForRenderer';
 import {attachScanCleanupPageOverrideDefaults} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
@@ -26,6 +24,7 @@ import {
 } from '@evb/scan-cleanup/core/scanCleanupDetectionJobState';
 import {getErrorMessage} from '@app/utils/error';
 import {createBrowserScanCleanupJobRegistry} from '@app/platform/browser-api/createBrowserScanCleanupJobRegistry';
+import {classifyBrowserScanCleanupError} from '@app/platform/browser-api/classifyBrowserScanCleanupError';
 import {createIndexedDbScanCleanupDetectionResultStore} from '@app/platform/browser-api/createIndexedDbScanCleanupDetectionResultStore';
 import {runBrowserScanCleanupDetection} from '@app/platform/browser-api/runBrowserScanCleanupDetection';
 import {
@@ -54,13 +53,6 @@ interface IActiveDetection {
     jobId: string;
     request: IScanCleanupDetectionRequest;
     signature: string;
-}
-
-function classifyBrowserScanCleanupError(error: unknown): TScanCleanupErrorCode {
-    const code = typeof error === 'object' && error !== null && 'code' in error ? error.code : undefined;
-    return typeof code === 'string' && (SCAN_CLEANUP_ERROR_CODES as readonly string[]).includes(code)
-        ? code as TScanCleanupErrorCode
-        : 'internal';
 }
 
 const isLiveStatus = (status: TScanCleanupDetectionJobState['status']) => status === 'queued'

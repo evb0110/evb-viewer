@@ -426,7 +426,6 @@ export default {
             'invalidMargins': 'Les marges doivent être comprises entre 0 et 25 mm.',
             'unavailable': 'Le nettoyage des scans n’est pas disponible sur ce système.',
             'otherDocumentRunning': 'Un autre document est en cours de nettoyage. Lancez celui-ci une fois terminé.',
-            'browserPreviewOnly': 'Dans le navigateur, le nettoyage des scans affiche un aperçu des pages mais ne peut pas encore nettoyer le document. Utilisez l’application de bureau pour le nettoyer.',
         },
         'completedTitle': 'Nettoyage des scans terminé',
         'completedPartialTitle': 'Pages sélectionnées nettoyées',

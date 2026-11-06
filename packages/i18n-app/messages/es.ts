@@ -426,7 +426,6 @@ export default {
             'invalidMargins': 'Los márgenes deben estar entre 0 y 25 mm.',
             'unavailable': 'La limpieza de escaneos no está disponible en este sistema.',
             'otherDocumentRunning': 'Se está limpiando otro documento. Inicia este cuando termine.',
-            'browserPreviewOnly': 'En el navegador, la limpieza de escaneos muestra una vista previa de las páginas, pero todavía no puede limpiar el documento. Usa la aplicación de escritorio para limpiarlo.',
         },
         'completedTitle': 'Limpieza del escaneo completada',
         'completedPartialTitle': 'Páginas seleccionadas limpiadas',

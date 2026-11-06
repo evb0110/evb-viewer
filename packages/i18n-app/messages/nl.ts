@@ -426,7 +426,6 @@ export default {
             'invalidMargins': 'De marges moeten tussen 0 en 25 mm liggen.',
             'unavailable': 'Scanopschoning is niet beschikbaar op dit systeem.',
             'otherDocumentRunning': 'Er wordt een ander document opgeschoond. Start dit document wanneer dat klaar is.',
-            'browserPreviewOnly': 'In de browser toont Scanopschoning een voorbeeld van de pagina’s, maar kan het document nog niet opschonen. Gebruik de desktop-app om het op te schonen.',
         },
         'completedTitle': 'Scanopschoning voltooid',
         'completedPartialTitle': 'Geselecteerde pagina\'s opgeschoond',
