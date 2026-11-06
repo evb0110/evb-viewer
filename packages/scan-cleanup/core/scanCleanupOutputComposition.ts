@@ -6,6 +6,7 @@
  * paths, the browser passes in-memory planes.
  */
 import type {
+    TScanCleanupSummary,
     INativeScanCleanupOutputMetadataV3,
     INativeScanCleanupPageMetadataV3,
     INativeScanCleanupPdfPlacementV3,
@@ -21,6 +22,7 @@ import type {
     IScanCleanupOutputPageForSummary,
     IScanCleanupRepresentationReport,
 } from '@evb/scan-cleanup/core/types';
+import {reportScanCleanupSummaryWarningEvent} from '@evb/scan-cleanup/core/createScanCleanupProgressReporter';
 import {buildScanCleanupSourceMrcForegroundPdfMatrix} from '@evb/scan-cleanup/core/buildScanCleanupSourceMrcForegroundPdfMatrix';
 import {
     resolveTonalJpegQuality,
@@ -641,4 +643,31 @@ export function buildScanCleanupRepresentationPage<TPlane>(
         },
         ...(streamBytes === undefined ? {} : {streamBytes}),
     };
+}
+
+/** One output's engine warnings into the run summary; fitted pages are gathered for one aggregate. */
+export function reportScanCleanupNativeWarnings(
+    summary: TScanCleanupSummary,
+    metadata: Pick<INativeScanCleanupOutputMetadataV3, 'half' | 'warnings' | 'warningEvents'>,
+    pageNumber: number,
+    fittedMarginBoxPages: Set<number>,
+    report: (message: string) => void,
+) {
+    for (const event of metadata.warningEvents ?? []) {
+        // One aggregate names every page the document's scale could not
+        // hold; per-page lines would bury it.
+        if (event.code === 'matched-canvas-content-fitted') {
+            fittedMarginBoxPages.add(pageNumber);
+            continue;
+        }
+        reportScanCleanupSummaryWarningEvent(summary, {
+            event,
+            pageNumber: requirePageNumber(pageNumber),
+            ...(metadata.half === undefined ? {} : {half: metadata.half}),
+        }, report);
+    }
+    // Diagnostics the engine carries no structure for.
+    for (const warning of metadata.warnings ?? []) {
+        report(`Page ${String(pageNumber)}: ${warning}`);
+    }
 }

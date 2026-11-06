@@ -1,10 +1,7 @@
 // Public because document opening must distinguish managed cleanup outputs from user files.
 import type { App } from 'electron';
 import * as electron from 'electron';
-import {
-    createHash,
-    randomUUID,
-} from 'crypto';
+import {randomUUID} from 'crypto';
 import {realpathSync} from 'fs';
 import {
     mkdir,
@@ -32,10 +29,11 @@ import {
 } from '@contracts/documentRef';
 import {atomicReplace} from '@electron/utils/atomicReplace';
 import { getLegacyAppTempDirPath } from '@electron/utils/appTempDir';
+import {formatScanCleanupOutputName} from '@evb/scan-cleanup/core/formatScanCleanupOutputName';
 
 export const SCAN_CLEANUP_OUTPUT_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
-export const SCAN_CLEANUP_OUTPUT_LEAF_MAX_BYTES = 255;
-const OUTPUT_NAME_HASH_HEX_LENGTH = 12;
+
+export {SCAN_CLEANUP_OUTPUT_LEAF_MAX_BYTES} from '@evb/scan-cleanup/core/formatScanCleanupOutputName';
 const COMPLETED_OUTPUT_JOURNAL_VERSION = 1;
 export const SCAN_CLEANUP_COMPLETED_OUTPUT_JOURNAL_NAME = '.evb-scan-cleanup-completed-outputs.json';
 
@@ -261,36 +259,8 @@ function isPathInsideOutputRoot(outputPath: string, baseDir: string) {
         && extname(segments[1] ?? '').toLowerCase() === '.pdf';
 }
 
-function utf8Prefix(value: string, maxBytes: number) {
-    let bytes = 0;
-    let prefix = '';
-    for (const character of value) {
-        const characterBytes = Buffer.byteLength(character, 'utf8');
-        if (bytes + characterBytes > maxBytes) {
-            break;
-        }
-        prefix += character;
-        bytes += characterBytes;
-    }
-    return prefix;
-}
-
 function humanOutputName(originalPdfPath: string, partial: boolean) {
-    const sourceName = basename(originalPdfPath, extname(originalPdfPath)).trim() || 'document';
-    const suffix = ` — cleaned${partial ? ' selection' : ''}.pdf`;
-    const fullName = `${sourceName}${suffix}`;
-    if (Buffer.byteLength(fullName, 'utf8') <= SCAN_CLEANUP_OUTPUT_LEAF_MAX_BYTES) {
-        return fullName;
-    }
-    const sourceHash = createHash('sha256')
-        .update(sourceName, 'utf8')
-        .digest('hex')
-        .slice(0, OUTPUT_NAME_HASH_HEX_LENGTH);
-    const disambiguator = `…-${sourceHash}`;
-    const prefixBytes = SCAN_CLEANUP_OUTPUT_LEAF_MAX_BYTES
-        - Buffer.byteLength(`${disambiguator}${suffix}`, 'utf8');
-    const truncatedSourceName = utf8Prefix(sourceName, prefixBytes).trimEnd();
-    return `${truncatedSourceName}${disambiguator}${suffix}`;
+    return formatScanCleanupOutputName(basename(originalPdfPath, extname(originalPdfPath)), partial);
 }
 
 export async function createScanCleanupGeneratedOutputPath(

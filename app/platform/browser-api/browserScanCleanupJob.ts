@@ -62,6 +62,7 @@ import {
     resolveScanCleanupProvisionalDocumentCanvasFromAccumulator,
 } from '@evb/scan-cleanup/core/policy/documentCanvas';
 import {resolveReusablePagePlan} from '@evb/scan-cleanup/core/policy/effectiveOptions';
+import type {IPageRasterDetectionResult} from '@evb/scan-cleanup/core/sourceRasterFacts';
 
 /**
  * One immutable revision of a source document, opened once for every page a
@@ -72,6 +73,10 @@ export interface IBrowserScanCleanupSource {
     ref: string;
     revision: string;
     pageSizes: readonly IPdfPageSize[];
+    /** Each page's source raster facts, as desktop reduces its pdfimages listing. */
+    rasterFacts: IPageRasterDetectionResult & {complete: boolean};
+    /** Pages carrying any annotation, links and widgets included. */
+    annotatedPages: ReadonlySet<number>;
     pdf: IPdfDocument;
 }
 

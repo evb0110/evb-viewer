@@ -277,7 +277,8 @@ async function handleCombinePdfsRequest(request: TBrowserPdfCombineWorkerRequest
     }
 
     let flatWasmPreprocessing = wasmImagePreprocessing;
-    if (!flatWasmPreprocessing?.pageSpecs) {
+    // Pages from manifest lines or page specs carry their own placement.
+    if (!flatWasmPreprocessing?.pageSpecs && !flatWasmPreprocessing?.compactManifestLines) {
         flatWasmPreprocessing = buildExifRotationPreprocessing(inputs);
     }
     const wasmResult = await tryCombineImageInputsWithWasm(inputs, flatWasmPreprocessing);

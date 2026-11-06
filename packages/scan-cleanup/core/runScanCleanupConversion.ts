@@ -20,7 +20,6 @@ import {
 } from 'path';
 import type {
     INativeScanCleanupPageV3,
-    INativeScanCleanupOutputMetadataV3,
     INativeScanCleanupPageMetadataV3,
     IScanCleanupSourcePageMetadata,
     TNativeScanCleanupProgressV3,
@@ -161,6 +160,7 @@ import {
     type IRenderedCleanupOutputPage,
 } from '@evb/scan-cleanup/core/assembleCompactScanCleanupPages';
 import {
+    reportScanCleanupNativeWarnings,
     buildScanCleanupOutputMappings,
     buildScanCleanupRepresentationPage,
     collectScanCleanupPageOutputs,
@@ -180,6 +180,7 @@ import {
     mergeScanCleanupPdfPathSidecar,
     readJsonLines,
 } from '@evb/scan-cleanup/core/streamingSidecars';
+export {reportScanCleanupNativeWarnings} from '@evb/scan-cleanup/core/scanCleanupOutputComposition';
 export type {
     IRunScanCleanupPipelineDependencies,
     IRunScanCleanupPipelineRequest,
@@ -187,31 +188,6 @@ export type {
     IScanCleanupWorkerPaths,
 } from '@evb/scan-cleanup/core/types';
 
-export function reportScanCleanupNativeWarnings(
-    summary: TScanCleanupSummary,
-    metadata: Pick<INativeScanCleanupOutputMetadataV3, 'half' | 'warnings' | 'warningEvents'>,
-    pageNumber: number,
-    fittedMarginBoxPages: Set<number>,
-    report: (message: string) => void,
-) {
-    for (const event of metadata.warningEvents ?? []) {
-        // One aggregate names every page the document's scale could not
-        // hold; per-page lines would bury it.
-        if (event.code === 'matched-canvas-content-fitted') {
-            fittedMarginBoxPages.add(pageNumber);
-            continue;
-        }
-        reportScanCleanupSummaryWarningEvent(summary, {
-            event,
-            pageNumber: requirePageNumber(pageNumber),
-            ...(metadata.half === undefined ? {} : {half: metadata.half}),
-        }, report);
-    }
-    // Diagnostics the engine carries no structure for.
-    for (const warning of metadata.warnings ?? []) {
-        report(`Page ${String(pageNumber)}: ${warning}`);
-    }
-}
 
 const FALLBACK_MIXED_LAYER_PPM = Uint8Array.from([
     0x50,

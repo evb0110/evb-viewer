@@ -361,6 +361,15 @@ export function createBrowserScanCleanupDetectionOwner() {
                 lease.release();
             }
         },
+        /** A kept detection store, leased by a conversion that reads its decisions. */
+        leaseResultStore(storeId: string, request: Pick<IScanCleanupDetectionRequest, 'ownerId' | 'sourcePdfPath' | 'documentRevision' | 'options'>) {
+            return leaseStore(storeId, {
+                ownerId: request.ownerId,
+                sourceRef: request.sourcePdfPath,
+                documentRevision: request.documentRevision,
+                detectionSignature: createScanCleanupDetectionSignature(request.options),
+            });
+        },
         /** A closed document ends its detection and drops its kept evidence. */
         closeSource(ref: TDocumentRef) {
             for (const [

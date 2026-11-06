@@ -2,7 +2,12 @@ import {requireDocumentRevisionToken} from '@contracts/documentRevision';
 import {BROWSER_PAGE_OPS_MAX_REQUEST_BYTES} from '@contracts/browserPageOpsLimits';
 import {isBrowserPageOpsWasmFailure} from '@contracts/browserPageOpsWorker';
 import {REQUEST_HEADER} from '@contracts/browserPageOpsWasm.generated';
+import * as v from 'valibot';
 import {decodePdfPageSizeRecord} from '@evb/scan-cleanup/core/policy/scanCleanupRasterPolicy';
+import {
+    reduceScanCleanupRasterRows,
+    type IScanCleanupRasterRow,
+} from '@evb/scan-cleanup/core/sourceRasterFacts';
 import {browserDocumentStore} from '@app/platform/browserDocumentStore';
 import {loadBrowserPdfjsDocument} from '@app/platform/browser-api/loadBrowserPdfjsDocument';
 import {runBrowserPageOpsWorkerRequest} from '@app/platform/browser-api/browserPageOpsWorkerClient';
@@ -15,6 +20,27 @@ interface ISourceEntry {
 }
 
 const sources = new Map<string, ISourceEntry>();
+
+const count = v.pipe(v.number(), v.safeInteger(), v.minValue(0));
+/** What browser inspection adds to a page record: the facts desktop reads from pdfimages and the annotation index. */
+const INSPECTED_PAGE_FACTS_SCHEMA = v.object({
+    rasterUses: v.array(v.object({
+        kind: v.picklist([
+            'image',
+            'stencil',
+            'mask',
+            'smask',
+        ]),
+        widthPx: count,
+        heightPx: count,
+        bitsPerComponent: count,
+        objectNumber: count,
+        xPpi: count,
+        yPpi: count,
+    })),
+    rasterInventoryComplete: v.boolean(),
+    hasAnnotations: v.boolean(),
+});
 
 /**
  * Opens one revision of a source: its page records, read once by the same
@@ -38,6 +64,30 @@ async function openSource(ref: string, revision: string, signal: AbortSignal): P
     if (pageSizes.length !== inspected.pageCount || pageSizes.some((page, index) => page.pageNumber !== index + 1)) {
         throw new Error('Scan cleanup page geometry does not cover the document in page order');
     }
+    const rasterRows: IScanCleanupRasterRow[] = [];
+    const annotatedPages = new Set<number>();
+    let rasterInventoryComplete = true;
+    for (const [
+        index,
+        record,
+    ] of inspected.pages.entries()) {
+        const facts = v.parse(INSPECTED_PAGE_FACTS_SCHEMA, record);
+        const pageNumber = index + 1;
+        rasterInventoryComplete &&= facts.rasterInventoryComplete;
+        if (facts.hasAnnotations) annotatedPages.add(pageNumber);
+        for (const use of facts.rasterUses) {
+            rasterRows.push({
+                pageNumber,
+                type: use.kind,
+                width: use.widthPx,
+                height: use.heightPx,
+                bitsPerComponent: use.bitsPerComponent,
+                objectId: use.objectNumber,
+                xPpi: use.xPpi,
+                yPpi: use.yPpi,
+            });
+        }
+    }
     signal.throwIfAborted();
     const pdf = await loadBrowserPdfjsDocument(ref);
     try {
@@ -51,6 +101,11 @@ async function openSource(ref: string, revision: string, signal: AbortSignal): P
         ref,
         revision,
         pageSizes,
+        rasterFacts: {
+            ...reduceScanCleanupRasterRows(rasterRows),
+            complete: rasterInventoryComplete,
+        },
+        annotatedPages,
         pdf,
     };
 }
