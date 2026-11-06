@@ -3,6 +3,13 @@ import {writeFile} from 'node:fs/promises';
 import {
     join, resolve,
 } from 'node:path';
+import {
+    PDFDict, PDFDocument, PDFHexString, PDFName, PDFRawStream, PDFString,
+} from 'pdf-lib';
+import {getDocument} from 'pdfjs-dist/legacy/build/pdf.mjs';
+import {
+    decodeScanCleanupProvenanceStampHex, verifyScanCleanupProvenanceStampHex,
+} from '@evb/scan-cleanup/core/provenanceStamp';
 import type {
     Locator, Page,
 } from 'playwright';
@@ -182,8 +189,8 @@ export async function assertBrowserScope(page: Page) {
         exact: true,
     }).isDisabled()).toBe(false);
     await expect.poll(() => page.getByText(provisionalPageSizeNotice, {exact: true}).count(), {timeout: 30_000}).toBe(0);
-    expect(await page.locator('.scan-cleanup-toolbar button').filter({hasText: /^Clean up/u}).isDisabled()).toBe(true);
-    expect(await page.locator('[data-run-disabled-reason]').innerText()).toBe(browserOnlyReason);
+    expect(await page.locator('.scan-cleanup-toolbar button').filter({hasText: /^Clean up/u}).isDisabled(), 'browser Scan Cleanup conversion must enable Clean up').toBe(false);
+    expect(await page.getByText(browserOnlyReason, {exact: true}).count()).toBe(0);
     expect(await page.getByText('Aligning page placement', {exact: true}).count()).toBe(0);
     expect(await page.evaluate(`(async () => {
         const {getPlatformAPI} = await import('/_nuxt/utils/platform.ts');
@@ -192,11 +199,307 @@ export async function assertBrowserScope(page: Page) {
         preview: true,
         detection: true,
         calibration: true,
-        conversion: false,
+        conversion: true,
     });
     const inputs = await page.evaluate(() => (Reflect.get(window, '__sc3bProbe') as IProbe).inputs);
     expect(inputs.length).toBeGreaterThan(0);
     expect(inputs.every(input => input.trusted), 'all pointer and keyboard input is trusted').toBe(true);
+}
+
+export const conversionModes = [
+    {
+        name: 'B&W',
+        radio: 'Black and white',
+        outputMode: 'bw',
+    },
+    {
+        name: 'Gray',
+        radio: 'Grayscale',
+        outputMode: 'grayscale',
+    },
+    {
+        name: 'Color',
+        radio: 'Color',
+        outputMode: 'color',
+    },
+    {
+        name: 'Auto',
+        radio: 'Auto — recommended per page',
+        outputMode: 'auto',
+    },
+    {
+        name: 'Keep original images',
+        radio: 'Auto — recommended per page',
+        outputMode: 'auto',
+    },
+] as const;
+
+export type TConversionMode = typeof conversionModes[number];
+
+/** Pin geometry through the controls, including the lossless no-resample path. */
+export async function chooseConversionOptions(page: Page, mode: TConversionMode) {
+    for (const name of [
+        'Crop each output page to its content',
+        'Match page size with other pages',
+        'Skip blank pages',
+        'Keep original images',
+    ]) {
+        await page.getByRole('checkbox', {
+            name,
+            exact: true,
+        }).setChecked(false);
+    }
+    await select(page, 'Page layout', 'Force single pages');
+    await page.getByRole('radio', {
+        name: 'Left to right',
+        exact: true,
+    }).click();
+    const linked = page.getByRole('switch', {
+        name: 'Link margins',
+        exact: true,
+    });
+    if (await linked.getAttribute('aria-checked') !== 'true') await linked.click();
+    const margins = page.getByRole('spinbutton', {
+        name: 'All sides (mm)',
+        exact: true,
+    });
+    await margins.click();
+    await margins.press('ControlOrMeta+a');
+    await margins.press('0');
+    await margins.press('Tab');
+    expect(await margins.inputValue()).toBe('0');
+    const advanced = page.getByRole('button', {
+        name: 'Advanced',
+        exact: true,
+    });
+    if (await advanced.getAttribute('aria-expanded') !== 'true') await advanced.click();
+    await page.getByRole('checkbox', {
+        name: 'Normalize uneven illumination',
+        exact: true,
+    }).setChecked(false);
+    await page.getByRole('checkbox', {
+        name: 'Automatically correct page curvature (experimental)',
+        exact: true,
+    }).setChecked(false);
+    await page.getByRole('radio', {
+        name: mode.radio,
+        exact: true,
+    }).click();
+    await page.getByRole('checkbox', {
+        name: 'Keep original images',
+        exact: true,
+    }).setChecked(mode.name === 'Keep original images');
+    // Layout changes invalidate detection; use its durable terminal state.
+    await expect.poll(() => page.locator('.scan-cleanup-surface').getAttribute('data-detection-status'), {timeout: 60_000}).toBe('completed');
+}
+
+interface IImageInventory {
+    bits: string | null;
+    colorSpace: string | null;
+    filter: string | null;
+    width: string | null;
+    height: string | null;
+    imageMask: string | null;
+    mask: string | null;
+    softMask: IImageInventory | null;
+    streamSha256: string;
+}
+
+/** Inspect reachable image streams, including images nested in Form XObjects. */
+function pageImages(pdf: PDFDocument, resources: PDFDict | undefined) {
+    const images: IImageInventory[] = [];
+    const seen = new Set<PDFRawStream>();
+    const imageInfo = (image: PDFRawStream): IImageInventory => {
+        const value = (key: string) => image.dict.lookup(PDFName.of(key))?.toString() ?? null;
+        const softMask = image.dict.lookup(PDFName.of('SMask'));
+        return {
+            bits: value('BitsPerComponent'),
+            colorSpace: value('ColorSpace'),
+            filter: value('Filter'),
+            width: value('Width'),
+            height: value('Height'),
+            imageMask: value('ImageMask'),
+            mask: value('Mask'),
+            softMask: softMask instanceof PDFRawStream ? imageInfo(softMask) : null,
+            streamSha256: sha256(image.getContents()),
+        };
+    };
+    const visit = (dictionary: PDFDict | undefined) => {
+        const objects = dictionary?.lookup(PDFName.of('XObject'));
+        if (!(objects instanceof PDFDict)) return;
+        for (const ref of objects.values()) {
+            const object = pdf.context.lookup(ref);
+            if (!(object instanceof PDFRawStream) || seen.has(object)) continue;
+            seen.add(object);
+            const subtype = object.dict.lookup(PDFName.of('Subtype'))?.toString();
+            if (subtype === '/Image') images.push(imageInfo(object));
+            if (subtype === '/Form') {
+                const nested = object.dict.lookup(PDFName.of('Resources'));
+                visit(nested instanceof PDFDict ? nested : dictionary);
+            }
+        }
+    };
+    visit(resources);
+    return images.sort((a, b) => a.streamSha256.localeCompare(b.streamSha256));
+}
+
+export async function inspectConversionPdf(bytes: Uint8Array) {
+    const pdf = await PDFDocument.load(bytes);
+    const task = getDocument({
+        data: Uint8Array.from(bytes),
+        useSystemFonts: true,
+    });
+    try {
+        const textPdf = await task.promise;
+        const pages = await Promise.all(pdf.getPages().map(async (page, index) => {
+            const rendered = await textPdf.getPage(index + 1);
+            const text = (await rendered.getTextContent()).items.flatMap(item => 'str' in item ? [item.str] : []).join('');
+            return {
+                mediaBox: page.getMediaBox(),
+                cropBox: page.getCropBox(),
+                rotation: page.getRotation().angle,
+                images: pageImages(pdf, page.node.Resources()),
+                text,
+                annotationCount: page.node.Annots()?.size() ?? 0,
+            };
+        }));
+        const info = pdf.context.lookup(pdf.context.trailerInfo.Info);
+        const stamps = [
+            pdf.catalog,
+            info,
+        ].flatMap(dictionary => {
+            if (!(dictionary instanceof PDFDict)) return [];
+            const value = dictionary.lookup(PDFName.of('EVBScanCleanup'));
+            return value instanceof PDFString || value instanceof PDFHexString ? [value.decodeText()] : [];
+        });
+        return {
+            pages,
+            stamps,
+        };
+    } finally {
+        await task.destroy();
+    }
+}
+
+export function assertConversionPdf(
+    source: Awaited<ReturnType<typeof inspectConversionPdf>>,
+    output: Awaited<ReturnType<typeof inspectConversionPdf>>,
+    sourceBytes: Uint8Array,
+    mode: TConversionMode,
+) {
+    expect(source.pages).toHaveLength(4);
+    expect(output.pages).toHaveLength(4);
+    for (const [
+        index,
+        page,
+    ] of output.pages.entries()) {
+        const original = source.pages[index]!;
+        for (const box of [
+            'mediaBox',
+            'cropBox',
+        ] as const) {
+            for (const dimension of [
+                'x',
+                'y',
+                'width',
+                'height',
+            ] as const) {
+                // Existing desktop oracle geometry tolerance: 0.5 pt.
+                expect(Math.abs(page[box][dimension] - original[box][dimension]), `page ${String(index + 1)} ${box}.${dimension}`).toBeLessThanOrEqual(0.5);
+            }
+        }
+        expect(page.rotation).toBe(original.rotation);
+        // This primary fixture has neither OCR nor annotations. Conversion
+        // must not invent either; preservation fixtures have their own lane.
+        expect(original.text).toBe('');
+        expect(original.annotationCount).toBe(0);
+        expect(page.text).toBe(original.text);
+        expect(page.annotationCount).toBe(original.annotationCount);
+        expect(page.images.length).toBeGreaterThan(0);
+        if (mode.name === 'Keep original images') {
+            expect(page.images, 'lossless mode preserves each original compressed image stream').toEqual(original.images);
+        } else {
+            expect(page.images.every(image => image.softMask === null && image.mask === null)).toBe(true);
+            for (const image of page.images) {
+                if (mode.name === 'B&W') expect(image.bits).toBe('1');
+                if (mode.name === 'Gray') {
+                    expect(image.bits).toBe('8');
+                    expect(image.colorSpace).toBe('/DeviceGray');
+                }
+                if (mode.name === 'Color') {
+                    expect(image.bits).toBe('8');
+                    // Desktop retains DeviceGray for an achromatic scan.
+                    expect([
+                        '/DeviceRGB',
+                        '/DeviceGray',
+                    ]).toContain(image.colorSpace);
+                }
+                if (mode.name === 'Auto') {
+                    expect([
+                        '1',
+                        '8',
+                    ]).toContain(image.bits);
+                    expect([
+                        '/DeviceGray',
+                        '/DeviceRGB',
+                    ]).toContain(image.colorSpace);
+                }
+            }
+        }
+    }
+    expect(output.stamps, 'one run-level PDF provenance stamp').toHaveLength(1);
+    const hex = output.stamps[0]!;
+    expect(verifyScanCleanupProvenanceStampHex(hex, {expectedSourceSha256: sha256(sourceBytes)}).status).toBe('valid');
+    const stamp = decodeScanCleanupProvenanceStampHex(hex);
+    expect(stamp.effectiveOptions.perSourcePage.map(record => record.sourcePage)).toEqual([
+        1,
+        2,
+        3,
+        4,
+    ]);
+    expect(stamp.pagePlanDigests.map(record => record.sourcePage)).toEqual([
+        1,
+        2,
+        3,
+        4,
+    ]);
+    expect(stamp.outputMappings.map(mapping => ({
+        sourcePage: mapping.sourcePage,
+        ordinal: mapping.outputOrdinal,
+        excluded: mapping.excluded,
+        blank: mapping.blank,
+    }))).toEqual(
+        [
+            1,
+            2,
+            3,
+            4,
+        ].map(sourcePage => ({
+            sourcePage,
+            ordinal: sourcePage,
+            excluded: false,
+            blank: false,
+        })),
+    );
+    for (const {options} of stamp.effectiveOptions.perSourcePage) {
+        expect(options).toMatchObject({
+            preserveOriginalQuality: mode.name === 'Keep original images',
+            layoutMode: 'force-single',
+            cropContent: false,
+            matchPageSize: false,
+            normalizeIllumination: false,
+        });
+        if (mode.name === 'Auto') expect([
+            'auto',
+            'bw',
+            'grayscale',
+            'color',
+            'mixed',
+        ]).toContain(options.outputMode);
+        else expect(options.outputMode).toBe(mode.name === 'Keep original images' ? 'color' : mode.outputMode);
+        expect(options.experimental.autoDewarp).toBe(false);
+    }
+    return stamp;
 }
 
 export async function select(page: Page, name: string, option: string) {
