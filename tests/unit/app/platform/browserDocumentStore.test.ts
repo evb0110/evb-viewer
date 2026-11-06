@@ -7,7 +7,6 @@ import {
 } from 'vitest';
 import {
     BROWSER_MAX_FULL_READ_BYTES,
-    BROWSER_MAX_RECENT_FILES_PERSISTED_BYTES,
     BrowserDocumentStore,
 } from '@app/platform/browserDocumentStore';
 import {
@@ -16,6 +15,7 @@ import {
     MemoryStorage,
 } from '@tests/unit/app/platform/browserPlatformTestDoubles';
 import {onBrowserDocumentPersistenceWarning} from '@app/platform/browser/browserDocumentPersistenceWarnings';
+import {RECENT_FILES_LIMIT} from '@contracts/shared';
 import {
     DB_NAME,
     DOCUMENTS_STORE,
@@ -724,65 +724,43 @@ describe('BrowserDocumentStore', () => {
         await expect(store.read(ref)).resolves.toEqual(bytes);
     });
 
-    it('evicts old recent blobs once the persisted recent-file budget is exceeded', async () => {
-        const firstHandle = createFileSystemFileHandle({name: 'first.pdf'});
-        const secondHandle = createFileSystemFileHandle({name: 'second.pdf'});
-        const thirdHandle = createFileSystemFileHandle({name: 'third.pdf'});
-        const fileSize = Math.floor(BROWSER_MAX_RECENT_FILES_PERSISTED_BYTES / 2) + 1;
+    it('keeps a large recent document until ten newer ones push it out', async () => {
+        const largeHandle = createFileSystemFileHandle({name: 'large.pdf'});
         const store = new BrowserDocumentStore();
-
-        const firstRef = await store.createStoredDocument(
-            'first.pdf',
+        const largeRef = await store.createStoredDocument(
+            'large.pdf',
             new Uint8Array(),
             {
                 ...PDF_SOURCE_OPTIONS,
-                saveHandle: firstHandle,
+                saveHandle: largeHandle,
                 storageMode: 'handle',
             },
         );
-        await store.replaceWithHandleBackedDocument(firstRef, {
-            fileSize,
-            saveHandle: firstHandle,
-            saveName: 'first.pdf',
+        await store.replaceWithHandleBackedDocument(largeRef, {
+            fileSize: 2 * 1024 * 1024 * 1024,
+            saveHandle: largeHandle,
+            saveName: 'large.pdf',
         });
-        await store.touchRecentFile(firstRef);
+        await store.touchRecentFile(largeRef);
+        const newestFirst = [largeRef];
+        for (let index = 1; index < RECENT_FILES_LIMIT; index += 1) {
+            const ref = await store.createStoredDocument(`${String(index)}.pdf`, new Uint8Array([index]), PDF_SOURCE_OPTIONS);
+            await store.touchRecentFile(ref);
+            newestFirst.unshift(ref);
+        }
 
-        const secondRef = await store.createStoredDocument(
-            'second.pdf',
-            new Uint8Array(),
-            {
-                ...PDF_SOURCE_OPTIONS,
-                saveHandle: secondHandle,
-                storageMode: 'handle',
-            },
-        );
-        await store.replaceWithHandleBackedDocument(secondRef, {
-            fileSize,
-            saveHandle: secondHandle,
-            saveName: 'second.pdf',
-        });
-        await store.touchRecentFile(secondRef);
+        // Its size is no budget: the full list keeps it.
+        expect(store.getRecentFiles().map(file => file.originalPath)).toEqual(newestFirst);
+        await expect(store.exists(largeRef)).resolves.toBe(true);
 
-        const thirdRef = await store.createStoredDocument(
-            'third.pdf',
-            new Uint8Array(),
-            {
-                ...PDF_SOURCE_OPTIONS,
-                saveHandle: thirdHandle,
-                storageMode: 'handle',
-            },
-        );
-        await store.replaceWithHandleBackedDocument(thirdRef, {
-            fileSize,
-            saveHandle: thirdHandle,
-            saveName: 'third.pdf',
-        });
-        await store.touchRecentFile(thirdRef);
+        const newestRef = await store.createStoredDocument('newest.pdf', new Uint8Array([99]), PDF_SOURCE_OPTIONS);
+        await store.touchRecentFile(newestRef);
 
-        expect(store.getRecentFiles().map((file) => file.originalPath)).toEqual([thirdRef]);
-        await expect(store.exists(firstRef)).resolves.toBe(false);
-        await expect(store.exists(secondRef)).resolves.toBe(false);
-        await expect(store.exists(thirdRef)).resolves.toBe(true);
+        expect(store.getRecentFiles().map(file => file.originalPath)).toEqual([
+            newestRef,
+            ...newestFirst.slice(0, RECENT_FILES_LIMIT - 1),
+        ]);
+        await expect(store.exists(largeRef)).resolves.toBe(false);
     });
 
     it('removes a detached generated source after its working copy is cleaned up', async () => {
