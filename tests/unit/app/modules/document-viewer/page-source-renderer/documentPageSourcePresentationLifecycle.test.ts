@@ -344,6 +344,11 @@ describe('document page-source presentation lifecycle', () => {
         expect(render).toHaveBeenCalledTimes(3);
         expect(capture).toHaveBeenCalledOnce();
         expect(harness.emit).toHaveBeenCalledWith('loadError', expect.any(Error));
+
+        render.mockReturnValue(new Promise(() => {}));
+        harness.presentation.retryPage(1);
+        expect(harness.presentation.getVisual(1)).not.toBe('error');
+        expect(harness.presentation.pageStates.get(1)?.retryCount).toBe(0);
     });
 
     it('presents a raster-limit refusal and keeps the page failed on another render request', async () => {
