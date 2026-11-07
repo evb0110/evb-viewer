@@ -961,6 +961,9 @@ fn scan_paint_program(
                 {
                     return Ok(Err("page draws a form or other XObject"));
                 }
+                if stream.dict.has(b"OC") {
+                    return Ok(Err("page uses optional content"));
+                }
                 let placement = [
                     state.ctm.a,
                     state.ctm.b,
@@ -1788,6 +1791,45 @@ mod tests {
     /// Every measured pdftoppm vector, from its PDF through the page's paint
     /// program, decoding and the scan kernel: exact pixels for every filter
     /// except JPEG, which is reported as near.
+    #[test]
+    fn leaves_an_image_under_optional_content_to_the_general_renderer() {
+        let input = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../scan-cleanup/tests/fixtures/source-raster/gray8-false/input.pdf"
+        );
+        let mut document = Document::load_mem(&std::fs::read(input).unwrap()).unwrap();
+        let request = || ScanRasterRequest {
+            page_number: 1,
+            dpi: 72.0,
+            scale_to: None,
+            render_box: ScanRasterBox::CropBox,
+            include_annotations: false,
+            slice: None,
+            max_pixels: 1 << 20,
+        };
+        assert!(matches!(
+            render_scan_cleanup_raster(&document, request()),
+            Ok(ScanRaster::Raster { .. })
+        ));
+        // Poppler hides the image when its group is off; only a general
+        // renderer evaluates the group.
+        let group = document
+            .add_object(dictionary! {"Type" => "OCG", "Name" => Object::string_literal("Scan")});
+        for object in document.objects.values_mut() {
+            if let Ok(stream) = object.as_stream_mut() {
+                if stream.dict.get(b"Subtype").and_then(Object::as_name).ok()
+                    == Some(b"Image".as_slice())
+                {
+                    stream.dict.set("OC", group);
+                }
+            }
+        }
+        assert!(matches!(
+            render_scan_cleanup_raster(&document, request()),
+            Ok(ScanRaster::Unsupported("page uses optional content"))
+        ));
+    }
+
     #[test]
     fn renders_every_measured_vector_pdf_as_pdftoppm_does() {
         let fixtures = concat!(

@@ -5,7 +5,10 @@ import {
     renderBrowserPdfRaster,
 } from '@app/platform/browser-api/browserPdfRaster';
 import {runBrowserScanCleanupWorkerRequest} from '@app/platform/browser-api/browserScanCleanupWorkerClient';
-import {runBrowserPageOpsWorkerRequest} from '@app/platform/browser-api/browserPageOpsWorkerClient';
+import {
+    BrowserPageOpsWorkerUnavailableError,
+    runBrowserPageOpsWorkerRequest,
+} from '@app/platform/browser-api/browserPageOpsWorkerClient';
 import {isBrowserPageOpsWasmFailure} from '@contracts/browserPageOpsWorker';
 import {createPpmRaster} from '@ocr-core/ppmRaster';
 import type {
@@ -172,8 +175,12 @@ export async function renderPageRaster(
         signal,
         requireWorker: true,
         ...(onEngineIdentity === undefined ? {} : {onEngineIdentity}),
+    }).catch((error: unknown) => {
+        // Without a page-ops worker, PDF.js paints the page.
+        if (error instanceof BrowserPageOpsWorkerUnavailableError) return null;
+        throw error;
     });
-    if (!isBrowserPageOpsWasmFailure(rendered) && 'width' in rendered.report) {
+    if (rendered !== null && !isBrowserPageOpsWasmFailure(rendered) && 'width' in rendered.report) {
         const {
             width, height,
         } = rendered.report;
