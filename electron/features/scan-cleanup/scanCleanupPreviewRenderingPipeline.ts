@@ -202,6 +202,7 @@ export async function runDetailPreview(
             },
             'raster',
             'preview',
+            baseRaw.view,
         );
         sourceCrop.width = renderedSource.width;
         sourceCrop.height = renderedSource.height;
