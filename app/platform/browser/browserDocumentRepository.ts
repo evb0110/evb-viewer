@@ -67,7 +67,6 @@ import {
 } from '@contracts/documentRevision';
 import {
     createBrowserFileContentWitness,
-    matchesBrowserFileContentWitness,
     createBrowserStoredBytesWitness,
 } from '@app/platform/browser/createBrowserFileContentWitness';
 import {runBrowserLock} from '@app/platform/browser/runBrowserLock';
@@ -851,17 +850,11 @@ export class BrowserDocumentStore extends BrowserDocumentRecordStore {
     private async assertPhysicalSourceBaseCurrent(workingRef: string, sourceRef: string) {
         const workingEntry = await this.requireEntry(workingRef);
         const sourceEntry = await this.requireEntry(sourceRef);
-        if (!workingEntry.sourceBaseWitness || !sourceEntry.saveHandle) {
-            return;
-        }
-        const metadata = await readFileHandleMetadata(sourceEntry.saveHandle);
-        const currentWitness = await createBrowserFileContentWitness(metadata.file);
-        if (await matchesBrowserFileContentWitness(metadata.file, workingEntry.sourceBaseWitness, currentWitness)) {
-            if (workingEntry.sourceBaseWitness !== currentWitness) {
-                workingEntry.sourceBaseWitness = currentWitness;
-                await this.persistEntry(workingEntry);
-            }
-            return;
+        if (!sourceEntry.saveHandle) return;
+        // A sampled or missing baseline cannot prove that all opening bytes survived.
+        if (workingEntry.sourceBaseWitness?.startsWith('content-v2:')) {
+            const metadata = await readFileHandleMetadata(sourceEntry.saveHandle);
+            if (await createBrowserFileContentWitness(metadata.file) === workingEntry.sourceBaseWitness) return;
         }
         throw new Error(`Browser physical source changed since this working copy opened: ${sourceRef}`);
     }

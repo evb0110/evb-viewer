@@ -2553,6 +2553,33 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
         expect(writes.length).toBeGreaterThan(1);
     });
 
+    it('preserves externally changed bytes when saving a byte-created snapshot', async () => {
+        let physicalBytes = Uint8Array.of(37, 80, 68, 70);
+        const handle = createFileSystemFileHandle({
+            name: 'snapshot.pdf',
+            getFile: async () => new File([physicalBytes], 'snapshot.pdf'),
+            createWritable: async () => createFileSystemWritableFileStream({write: async chunk => {
+                physicalBytes = new Uint8Array(requireArrayBufferChunk(chunk));
+            }}),
+        });
+        const {
+            capability, browserDocumentStore,
+        } = await loadBrowserDocumentsFileCapability();
+        const sourceRef = await browserDocumentStore.createStoredDocument('snapshot.pdf', physicalBytes, {
+            ...PDF_SOURCE_OPTIONS,
+            saveHandle: handle,
+        });
+        const snapshot = await capability.createWorkingCopyFromData('snapshot.pdf', Uint8Array.of(37, 80, 68, 70, 9), sourceRef);
+        physicalBytes = Uint8Array.of(37, 80, 68, 70, 8);
+        await expect(capability.saveFileStructured(snapshot, await getRevisionOptions(browserDocumentStore, snapshot)))
+            .resolves.toMatchObject({
+                ok: false,
+                reason: 'write-failed',
+            });
+        expect(physicalBytes).toEqual(Uint8Array.of(37, 80, 68, 70, 8));
+        await expect(browserDocumentStore.read(snapshot)).resolves.toEqual(Uint8Array.of(37, 80, 68, 70, 9));
+    });
+
     it('serializes regular saves from working copies that share one source', async () => {
         const firstWriteStarted = Promise.withResolvers<undefined>();
         const releaseFirstWrite = Promise.withResolvers<undefined>();

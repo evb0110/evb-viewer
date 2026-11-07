@@ -211,40 +211,47 @@ describe('BrowserDocumentStore source registration', () => {
     it.each([
         'file',
         'bytes',
-    ] as const)('migrates persisted legacy %s baselines only after matching the old content witness', async kind => {
+    ] as const)('refuses an unsampled external edit before legacy %s migration', async kind => {
         const openingBytes = new Uint8Array(17 * 1024 * 1024).fill(32);
-        let physicalFile = new File([openingBytes], 'legacy.pdf', {lastModified: 200});
-        const handle = createFileSystemFileHandle({
-            name: physicalFile.name,
-            getFile: async () => physicalFile,
-        });
+        const changedBytes = openingBytes.slice();
+        changedBytes[1024 * 1024] = 88;
+        const file = new File([changedBytes], 'legacy.pdf', {lastModified: 200});
         const store = new BrowserDocumentStore();
-        const sourceRef = await store.registerFile(physicalFile, {saveHandle: handle});
-        // Fixed old first/middle/last-sample hash; file tokens also embedded mtime 100.
+        const sourceRef = await store.registerFile(file, {saveHandle: createFileSystemFileHandle({
+            name: file.name,
+            getFile: async () => file,
+        })});
         const legacy = `${kind}:${openingBytes.length}:${kind === 'file' ? '100:' : ''}1bb89dc5-211a6485`;
         const dirtyBytes = Uint8Array.of(37, 80, 68, 70, 9);
-        const workingRef = await store.createStoredDocument('legacy.pdf', dirtyBytes, {
+        const workingRef = await store.createStoredDocument(file.name, dirtyBytes, {
             mimeType: 'application/pdf',
-            retention: 'durable',
             kind: 'working',
             sourceRef,
             sourceBaseWitness: legacy,
         });
-        const revision = (await store.getDocumentRevision(workingRef)).token;
-        const openingWitness = await createBrowserFileContentWitness(physicalFile);
-        await store.runDocumentMutationWithSource(workingRef, sourceRef, revision, async mutation => {
-            await mutation.assertPhysicalSourceBaseCurrent();
-        });
-        // A failed later write must not require another sampled migration.
-        expect(await loadRecord(workingRef)).toMatchObject({sourceBaseWitness: openingWitness});
-        expect(openingWitness).toMatch(/^content-v2:/u);
-        // An edit outside every legacy sample is now caught by the upgraded baseline.
-        openingBytes[1024 * 1024] = 88;
-        physicalFile = new File([openingBytes], physicalFile.name, {lastModified: 200});
-        await expect(store.runDocumentMutationWithSource(workingRef, sourceRef, revision, async mutation => {
-            await mutation.assertPhysicalSourceBaseCurrent();
-        })).rejects.toThrow('physical source changed');
+        await expect(store.runDocumentMutationWithSource(workingRef, sourceRef,
+            (await store.getDocumentRevision(workingRef)).token, mutation => mutation.assertPhysicalSourceBaseCurrent(),
+        )).rejects.toThrow('physical source changed');
         await expect(store.read(workingRef)).resolves.toEqual(dirtyBytes);
+        expect(new Uint8Array(await file.arrayBuffer())[1024 * 1024]).toBe(88);
+    });
+
+    it('refuses a byte-created working copy with no physical baseline', async () => {
+        const file = new File([Uint8Array.of(1, 2, 3)], 'source.pdf');
+        const store = new BrowserDocumentStore();
+        const sourceRef = await store.registerFile(file, {saveHandle: createFileSystemFileHandle({
+            name: file.name,
+            getFile: async () => file,
+        })});
+        const workingRef = await store.createStoredDocument(file.name, Uint8Array.of(9), {
+            mimeType: 'application/pdf',
+            kind: 'working',
+            sourceRef,
+        });
+        await expect(store.runDocumentMutationWithSource(workingRef, sourceRef,
+            (await store.getDocumentRevision(workingRef)).token, mutation => mutation.assertPhysicalSourceBaseCurrent(),
+        )).rejects.toThrow('physical source changed');
+        await expect(store.read(workingRef)).resolves.toEqual(Uint8Array.of(9));
     });
 
     it.each([
