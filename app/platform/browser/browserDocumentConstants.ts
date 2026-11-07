@@ -11,6 +11,4 @@ export const BROWSER_DOCUMENT_CHUNK_SIZE = 4 * 1024 * 1024;
 // Default byte-returning budget. Viewing uses ranges; whole-input WASM
 // operations admit their reads against their own transport budget.
 export const BROWSER_MAX_FULL_READ_BYTES = PDF_COMBINE_MAX_OUTPUT_BYTES;
-export const BROWSER_MAX_RECENT_FILES = 30;
-export const BROWSER_MAX_RECENT_FILES_PERSISTED_BYTES = 512 * 1024 * 1024;
 export const BROWSER_CHUNK_WRITE_YIELD_EVERY = 2;
