@@ -1,7 +1,8 @@
 import {createHash} from 'node:crypto';
 import {
-    mkdirSync, readFileSync, writeFileSync,
+    mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync,
 } from 'node:fs';
+import {tmpdir} from 'node:os';
 import {resolve} from 'node:path';
 import {
     createCanvas, loadImage,
@@ -12,12 +13,561 @@ import {
 import {
     describe, expect, it,
 } from 'vitest';
+import type {
+    Page, Locator,
+} from 'playwright';
 import type {IBrowserLifecycleTestApi} from './documentLifecycleTestHelpers';
 import {
     lifecycle, waitForOpenFileReady, collectConsoleProblems, keepFileChooserInterceptionEnabled, readRecoveries, openPdfFromChooser, readPersistedDocumentBytes, addNote, noteTexts, settleActiveOpen,
 } from './documentLifecycleTestHelpers';
 
+// C11/C12 expectations are deliberately literal: the rendered reference and
+// native browser clipboard are the public interfaces, not the shortcut registry.
+// Evidence is kept only when a run asks for it.
+const parityEvidenceDir = process.env.EVB_C11_C12_EVIDENCE_DIR ? resolve(process.env.EVB_C11_C12_EVIDENCE_DIR) : null;
+
+async function parityScreenshot(page: Page, name: string) {
+    if (parityEvidenceDir === null) return;
+    mkdirSync(parityEvidenceDir, {recursive: true});
+    await page.screenshot({
+        path: resolve(parityEvidenceDir, `${name}.png`),
+        fullPage: true,
+    });
+}
+
+async function openParitySettings(page: Page) {
+    await page.addInitScript(() => {
+        Reflect.set(window, '__allowRendererFileOpenForAutomation', () => true);
+    });
+    await page.goto(lifecycle.origin, {waitUntil: 'domcontentloaded'});
+    await waitForOpenFileReady(page);
+    await page.locator('nav[aria-label="Workspace"]').getByRole('button', {
+        name: 'Settings',
+        exact: true,
+    }).click();
+    await page.locator('.settings-grid[aria-busy="false"]').waitFor();
+}
+
+function parityMenuItem(page: Page, name: string) {
+    return page.getByRole('menuitem').filter({has: page.getByText(name, {exact: true})});
+}
+
+async function openParityEditMenu(page: Page, keyboard = false) {
+    const trigger = page.getByRole('button', {
+        name: 'Menu',
+        exact: true,
+    });
+    if (keyboard) await trigger.press('Enter');
+    else await trigger.click();
+    await page.getByRole('menu').first().waitFor();
+    await parityScreenshot(page, 'c12-edit-menu');
+    // The baseline must fail on the omission before testing the new behavior.
+    for (const name of [
+        'Cut',
+        'Copy',
+        'Paste',
+        'Select All',
+    ]) {
+        expect(await parityMenuItem(page, name).count(), `C12 Edit must expose ${name}`).toBe(1);
+    }
+}
+
+async function parityEdit(page: Page, name: string, keyboard = false) {
+    await openParityEditMenu(page, keyboard);
+    const item = parityMenuItem(page, name);
+    expect(await item.getAttribute('aria-disabled'), `${name} is enabled for the captured target`).not.toBe('true');
+    if (keyboard) {
+        // Traverse the real menu's roving focus, including disabled entries.
+        const limit = await page.getByRole('menuitem').count() + 1;
+        for (let step = 0; step < limit; step += 1) {
+            if (await item.evaluate(element => element.contains(document.activeElement))) break;
+            await page.keyboard.press('ArrowDown');
+        }
+        expect(await item.evaluate(element => element.contains(document.activeElement))).toBe(true);
+        expect(await page.locator('[role="menuitem"][data-highlighted]').count()).toBe(1);
+        await page.keyboard.press('Enter');
+    } else await item.click();
+    await page.getByRole('menu').first().waitFor({state: 'hidden'});
+}
+
+async function selectParityTail(page: Page, field: Locator, count: number) {
+    await field.press('ControlOrMeta+A');
+    await page.keyboard.press('ArrowRight');
+    await page.keyboard.down('Shift');
+    for (let index = 0; index < count; index += 1) await page.keyboard.press('ArrowLeft');
+    await page.keyboard.up('Shift');
+}
+
+async function parityPdf() {
+    const pdf = await PDFDocument.create();
+    pdf.setCreationDate(new Date('2026-01-01T00:00:00Z'));
+    pdf.setModificationDate(new Date('2026-01-01T00:00:00Z'));
+    for (const text of [
+        'C12 selectable PDF text',
+        'C12 second page',
+    ]) {
+        pdf.addPage([
+            600,
+            800,
+        ]).drawText(text, {
+            x: 60,
+            y: 720,
+            size: 18,
+        });
+    }
+    const buffer = Buffer.from(await pdf.save());
+    if (parityEvidenceDir !== null) {
+        mkdirSync(parityEvidenceDir, {recursive: true});
+        writeFileSync(resolve(parityEvidenceDir, 'c12-fixture.pdf'), buffer);
+        writeFileSync(resolve(parityEvidenceDir, 'environment.json'), JSON.stringify({
+            fixtureSha256: createHash('sha256').update(buffer).digest('hex'),
+            browser: await lifecycle.browser.version(),
+            platform: process.platform,
+            node: process.version,
+        }, null, 2));
+    }
+    return {
+        name: 'c12-edit.pdf',
+        mimeType: 'application/pdf',
+        buffer,
+    };
+}
+
 describe('browser document lifecycle UI', () => {
+    it('C11 hides browser update controls while keeping About reachable', async () => {
+        const page = await lifecycle.browser.newPage({viewport: {
+            width: 900,
+            height: 700,
+        }});
+        const problems = collectConsoleProblems(page);
+        try {
+            // Observe insertion as well as the settled UI, so a transient no-op
+            // update button cannot pass by disappearing after initialization.
+            await page.addInitScript(() => {
+                Reflect.set(window, '__c11UpdateCardSeen', false);
+                new MutationObserver(() => {
+                    if (Array.from(document.querySelectorAll('button, legend')).some(element =>
+                        /^(Updates|Check for Updates)$/u.test(element.textContent?.trim() ?? ''))) {
+                        Reflect.set(window, '__c11UpdateCardSeen', true);
+                    }
+                }).observe(document, {
+                    childList: true,
+                    subtree: true,
+                });
+            });
+            await openParitySettings(page);
+            const about = page.getByRole('link', {
+                name: 'Open About and Acknowledgements',
+                exact: true,
+            });
+            await about.scrollIntoViewIfNeeded();
+            await parityScreenshot(page, 'c11-settings-900');
+            expect(await page.getByRole('button', {
+                name: 'Check for Updates',
+                exact: true,
+            }).count()).toBe(0);
+            expect(await page.getByText('Updates', {exact: true}).count()).toBe(0);
+            expect(await page.evaluate(() => Reflect.get(window, '__c11UpdateCardSeen'))).toBe(false);
+            await page.setViewportSize({
+                width: 1280,
+                height: 900,
+            });
+            await page.getByText('Large', {exact: true}).click();
+            await about.scrollIntoViewIfNeeded();
+            await parityScreenshot(page, 'c11-settings-large');
+            expect(await page.getByRole('button', {
+                name: 'Check for Updates',
+                exact: true,
+            }).count()).toBe(0);
+            await about.click();
+            await page.waitForURL('**/about');
+            expect(await page.getByRole('heading', {
+                name: 'About EVB Viewer',
+                exact: true,
+            }).isVisible()).toBe(true);
+            expect(await page.locator('main').innerText()).toMatch(/\d+\.\d+\.\d+/u);
+            expect(problems).toEqual([]);
+        } finally {
+            await page.context().close();
+        }
+    }, 90_000);
+
+    for (const platform of [
+        'mac',
+        'linux',
+    ] as const) {
+        it(`C12 shows complete, unique shortcut help with ${platform} keycaps`, async () => {
+            const page = await lifecycle.browser.newPage({viewport: {
+                width: 1280,
+                height: 900,
+            }});
+            const problems = collectConsoleProblems(page);
+            try {
+                // Presentation-only platform fixture; actual editing below uses
+                // this host's native keyboard mapping and unmodified navigator.
+                await page.addInitScript((mac) => {
+                    Object.defineProperties(navigator, {
+                        platform: {get: () => mac ? 'MacIntel' : 'Linux x86_64'},
+                        userAgent: {get: () => mac ? 'Mozilla/5.0 (Macintosh)' : 'Mozilla/5.0 (X11; Linux x86_64)'},
+                        userAgentData: {get: () => ({platform: mac ? 'macOS' : 'Linux'})},
+                    });
+                }, platform === 'mac');
+                await openParitySettings(page);
+                await page.getByRole('button', {
+                    name: 'Keyboard Shortcuts',
+                    exact: true,
+                }).click();
+                const rows = page.locator('.settings-shortcut-row');
+                await rows.first().scrollIntoViewIfNeeded();
+                await parityScreenshot(page, `c12-help-${platform}-top`);
+                await rows.last().scrollIntoViewIfNeeded();
+                await parityScreenshot(page, `c12-help-${platform}-bottom`);
+                const mod = platform === 'mac' ? '⌘' : 'Ctrl';
+                const saveAs = platform === 'mac' ? [
+                    '⇧',
+                    '⌘',
+                    'S',
+                ] : [
+                    'Ctrl',
+                    'Shift',
+                    'S',
+                ];
+                const expected = [
+                    {
+                        label: 'Open File',
+                        keys: [
+                            mod,
+                            'O',
+                        ],
+                    },
+                    {
+                        label: 'Save',
+                        keys: [
+                            mod,
+                            'S',
+                        ],
+                    },
+                    {
+                        label: 'Save As...',
+                        keys: saveAs,
+                    },
+                    {
+                        label: 'Search document',
+                        keys: [
+                            mod,
+                            'F',
+                        ],
+                    },
+                    {
+                        label: 'Zoom In',
+                        keys: [
+                            mod,
+                            '=',
+                        ],
+                    },
+                    {
+                        label: 'Zoom Out',
+                        keys: [
+                            mod,
+                            '−',
+                        ],
+                    },
+                    {
+                        label: 'Actual Size',
+                        keys: [
+                            mod,
+                            '0',
+                        ],
+                    },
+                    {
+                        label: 'Fit Width',
+                        keys: [
+                            mod,
+                            '1',
+                        ],
+                    },
+                    {
+                        label: 'Fit Height',
+                        keys: [
+                            mod,
+                            '2',
+                        ],
+                    },
+                    {
+                        label: 'Cut',
+                        keys: [
+                            mod,
+                            'X',
+                        ],
+                    },
+                    {
+                        label: 'Copy',
+                        keys: [
+                            mod,
+                            'C',
+                        ],
+                    },
+                    {
+                        label: 'Paste',
+                        keys: [
+                            mod,
+                            'V',
+                        ],
+                    },
+                    {
+                        label: 'Select All',
+                        keys: [
+                            mod,
+                            'A',
+                        ],
+                    },
+                ];
+                expect(await rows.evaluateAll(elements => elements.map(element => ({
+                    label: element.querySelector('.settings-shortcut-label')?.textContent?.trim(),
+                    keys: Array.from(element.querySelectorAll('kbd')).map(key => key.textContent?.trim()),
+                })))).toEqual(expect.arrayContaining(expected));
+                expect(await rows.count()).toBe(expected.length);
+                expect(problems).toEqual([]);
+            } finally {
+                await page.context().close();
+            }
+        }, 90_000);
+    }
+
+    it('C12 Edit preserves a real input selection for Copy, Cut, Paste, Select All and native undo', async () => {
+        const page = await lifecycle.browser.newPage({permissions: [
+            'clipboard-read',
+            'clipboard-write',
+        ]});
+        const problems = collectConsoleProblems(page);
+        try {
+            await openParitySettings(page);
+            const field = page.getByRole('textbox', {
+                name: 'Author Name',
+                exact: true,
+            });
+            await field.click();
+            await page.keyboard.type('Alpha Beta');
+            await selectParityTail(page, field, 4);
+            await parityEdit(page, 'Copy');
+            expect(await page.evaluate(() => navigator.clipboard.readText())).toBe('Beta');
+            await expect.poll(() => field.evaluate(element => element === document.activeElement)).toBe(true);
+            expect(await field.inputValue()).toBe('Alpha Beta');
+            await field.press('ArrowRight');
+            await parityEdit(page, 'Paste', true);
+            await expect.poll(() => field.inputValue()).toBe('Alpha BetaBeta');
+            await field.press('ControlOrMeta+Z');
+            expect(await field.inputValue()).toBe('Alpha Beta');
+            await selectParityTail(page, field, 4);
+            await parityEdit(page, 'Cut', true);
+            expect(await field.inputValue()).toBe('Alpha ');
+            expect(await page.evaluate(() => navigator.clipboard.readText())).toBe('Beta');
+            await parityEdit(page, 'Paste');
+            await expect.poll(() => field.inputValue()).toBe('Alpha Beta');
+            await parityEdit(page, 'Select All', true);
+            await page.keyboard.type('Replacement author');
+            expect(await field.inputValue()).toBe('Replacement author');
+            await parityScreenshot(page, 'c12-input-edited');
+            expect(problems).toEqual([]);
+        } finally {
+            await page.context().close();
+        }
+    }, 90_000);
+
+    it('C12 Edit denied clipboard paste warns once and leaves the input unchanged', async () => {
+        const page = await lifecycle.browser.newPage({permissions: ['clipboard-write']});
+        const problems = collectConsoleProblems(page);
+        try {
+            await openParitySettings(page);
+            const field = page.getByRole('textbox', {
+                name: 'Author Name',
+                exact: true,
+            });
+            await field.click();
+            await page.keyboard.type('Keep this');
+            await selectParityTail(page, field, 4);
+            await page.evaluate(() => navigator.clipboard.writeText('native paste'));
+            expect(await page.evaluate(async () => (await navigator.permissions.query({name: 'clipboard-read' as PermissionName})).state)).toBe('denied');
+            await parityEdit(page, 'Paste');
+            const warning = page.getByRole('region').getByText(/^Paste from the menu is unavailable\./u);
+            await warning.waitFor();
+            expect(await warning.count()).toBe(1);
+            expect(await field.inputValue()).toBe('Keep this');
+            await parityScreenshot(page, 'c12-denied-paste');
+            await expect.poll(() => field.evaluate(element => element === document.activeElement)).toBe(true);
+            await page.keyboard.press('ControlOrMeta+V');
+            await expect.poll(() => field.inputValue()).toBe('Keep native paste');
+            expect(problems).toEqual([]);
+        } finally {
+            await page.context().close();
+        }
+    }, 90_000);
+
+    it('C12 Edit refuses a paste when its input target changes during clipboard reading', async () => {
+        const page = await lifecycle.browser.newPage({permissions: [
+            'clipboard-read',
+            'clipboard-write',
+        ]});
+        const problems = collectConsoleProblems(page);
+        try {
+            await openParitySettings(page);
+            const field = page.getByRole('textbox', {
+                name: 'Author Name',
+                exact: true,
+            });
+            await field.click();
+            await page.keyboard.type('Keep this');
+            await selectParityTail(page, field, 4);
+            await page.evaluate(() => navigator.clipboard.writeText('stale clipboard'));
+            // Controlled async boundary: read the actual clipboard, holding only
+            // its completion. No application command or clipboard result is faked.
+            await page.evaluate(() => {
+                const clipboard = navigator.clipboard;
+                const original = clipboard.readText.bind(clipboard);
+                clipboard.readText = async () => {
+                    const text = await original();
+                    Reflect.set(window, '__c12ClipboardRead', true);
+                    await new Promise<void>((release) => {Reflect.set(window, '__c12ReleaseClipboard', release);});
+                    return text;
+                };
+            });
+            await parityEdit(page, 'Paste');
+            await page.waitForFunction(() => Reflect.get(window, '__c12ClipboardRead') === true);
+            await field.press('ControlOrMeta+A');
+            await page.keyboard.type('Changed while reading');
+            await page.evaluate(() => Reflect.get(window, '__c12ReleaseClipboard')());
+            const warning = page.getByRole('region').getByText('The editing target changed. Choose Paste again.', {exact: true});
+            await warning.waitFor();
+            expect(await warning.count()).toBe(1);
+            expect(await field.inputValue()).toBe('Changed while reading');
+            await parityScreenshot(page, 'c12-target-changed');
+            expect(problems).toEqual([]);
+        } finally {
+            await page.context().close();
+        }
+    }, 90_000);
+
+    it('C12 Edit keeps a live inline text-box draft through pointer and keyboard menus and Save As', async () => {
+        const page = await lifecycle.browser.newPage({
+            viewport: {
+                width: 1280,
+                height: 900,
+            },
+            permissions: [
+                'clipboard-read',
+                'clipboard-write',
+            ],
+        });
+        const problems = collectConsoleProblems(page);
+        try {
+            await openPdfFromChooser(page, await parityPdf());
+            await settleActiveOpen(page);
+            // Assert the omission before doing any new editing acceptance on base.
+            await openParityEditMenu(page);
+            await page.keyboard.press('Escape');
+            await page.keyboard.press('Escape');
+            await page.getByRole('button', {
+                name: 'Toggle Sidebar',
+                exact: true,
+            }).click();
+            await page.getByRole('tab', {
+                name: 'Annotations',
+                exact: true,
+            }).click();
+            await page.locator('.tool-button[data-tool="text"]').click();
+            await page.locator('.workspace-host[data-workspace-active="true"] .page_container[data-page="1"]').click({position: {
+                x: 230,
+                y: 240,
+            }});
+            const editor = page.locator('.pdf-annotation-editor-text-box [contenteditable="true"]');
+            await editor.waitFor();
+            await page.keyboard.type('Draft Beta');
+            await selectParityTail(page, editor, 4);
+            await parityEdit(page, 'Copy');
+            expect(await editor.isVisible()).toBe(true);
+            expect(await editor.innerText()).toBe('Draft Beta');
+            expect(await page.evaluate(() => navigator.clipboard.readText())).toBe('Beta');
+            await parityEdit(page, 'Cut', true);
+            expect(await editor.isVisible()).toBe(true);
+            expect(await editor.innerText()).toBe('Draft ');
+            await parityEdit(page, 'Paste');
+            await expect.poll(() => editor.innerText()).toBe('Draft Beta');
+            await parityEdit(page, 'Select All', true);
+            await page.keyboard.type('Saved C12 edited text');
+            expect(await editor.innerText()).toBe('Saved C12 edited text');
+            await parityScreenshot(page, 'c12-inline-draft');
+            await editor.press('ControlOrMeta+Enter');
+            await editor.waitFor({state: 'hidden'});
+            const downloaded = page.waitForEvent('download');
+            await page.keyboard.press('ControlOrMeta+Shift+S');
+            const savedDirectory = mkdtempSync(resolve(tmpdir(), 'evb-c12-'));
+            try {
+                const savedPath = resolve(savedDirectory, 'c12-edited.pdf');
+                await (await downloaded).saveAs(savedPath);
+                const saved = await PDFDocument.load(readFileSync(savedPath));
+                expect(saved.getPageCount()).toBe(2);
+                const annots = saved.getPage(0).node.lookup(PDFName.of('Annots'), PDFArray);
+                expect(Array.from({length: annots.size()}, (_, index) => annots.lookup(index, PDFDict)
+                    .lookupMaybe(PDFName.of('Contents'), PDFString, PDFHexString)?.decodeText())).toContain('Saved C12 edited text');
+                const reopened = await lifecycle.browser.newPage();
+                try {
+                    await openPdfFromChooser(reopened, savedPath);
+                    await settleActiveOpen(reopened);
+                    expect(await reopened.locator('.pdf-annotation-editor-text-box').getAttribute('aria-label')).toBe('Saved C12 edited text');
+                } finally {
+                    await reopened.context().close();
+                }
+            } finally {
+                rmSync(savedDirectory, {
+                    recursive: true,
+                    force: true,
+                });
+            }
+            expect(problems).toEqual([]);
+        } finally {
+            await page.context().close();
+        }
+    }, 120_000);
+
+    it('C12 Edit copies a real PDF text selection', async () => {
+        const page = await lifecycle.browser.newPage({
+            viewport: {
+                width: 1280,
+                height: 900,
+            },
+            permissions: [
+                'clipboard-read',
+                'clipboard-write',
+            ],
+        });
+        const problems = collectConsoleProblems(page);
+        try {
+            await openPdfFromChooser(page, await parityPdf());
+            await settleActiveOpen(page);
+            await openParityEditMenu(page);
+            await page.keyboard.press('Escape');
+            await page.keyboard.press('Escape');
+            await page.getByRole('button', {
+                name: 'Text Select',
+                exact: true,
+            }).click();
+            const text = page.locator('.workspace-host[data-workspace-active="true"] .text-layer span').filter({hasText: /^C12 selectable PDF text$/u});
+            await text.waitFor();
+            const box = await text.boundingBox();
+            expect(box).not.toBeNull();
+            await page.mouse.move(box!.x + 1, box!.y + box!.height / 2);
+            await page.mouse.down();
+            await page.mouse.move(box!.x + box!.width - 1, box!.y + box!.height / 2, {steps: 12});
+            await page.mouse.up();
+            expect(await page.evaluate(() => window.getSelection()?.toString())).toBe('C12 selectable PDF text');
+            await parityEdit(page, 'Copy');
+            expect(await page.evaluate(() => navigator.clipboard.readText())).toBe('C12 selectable PDF text');
+            expect(problems).toEqual([]);
+        } finally {
+            await page.context().close();
+        }
+    }, 90_000);
+
     it('keeps the viewport center document point through fit changes and view rotation (R3)', async () => {
         const pdf = await PDFDocument.create();
         for (let index = 0; index < 16; index += 1) {

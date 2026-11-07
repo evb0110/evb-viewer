@@ -8,6 +8,7 @@ export function getUpdatesCapability(): IUpdatesCapability | undefined {
     return getPlatformAPI().updates;
 }
 
+/** A platform without an updater, such as the hosted web app, has nothing to check. */
 export function isUpdatesCapabilitySupported(status: IAppUpdateStatus) {
-    return status.phase !== 'unsupported';
+    return getUpdatesCapability() !== undefined && status.phase !== 'unsupported';
 }

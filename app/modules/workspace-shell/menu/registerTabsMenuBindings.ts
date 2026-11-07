@@ -11,6 +11,7 @@ import type { IDjvuCapability } from '@contracts/djvuPlatformFeature';
 import type { IWindowTabsCapability } from '@contracts/windowTabsPlatformFeature';
 import { isMacClientPlatform } from '@app/utils/clientPlatform';
 import { BrowserLogger } from '@app/utils/browserLogger';
+import { subscribeBrowserMenuEvent } from '@app/platform/browserMenuBar';
 
 // Menu items that run a command on the active tab's workspace:
 // [menu registration, command, action name, capability].
@@ -316,12 +317,7 @@ export function registerTabsMenuBindings(
             });
     };
 
-    const handleSelectAllKeyDown = (event: KeyboardEvent) => {
-        if (!(isMacClientPlatform() ? event.metaKey : event.ctrlKey) || event.altKey || event.shiftKey || event.key.toLowerCase() !== 'a') {
-            return;
-        }
-        event.preventDefault();
-        event.stopPropagation();
+    const selectAll = () => {
         const element = document.activeElement;
         const annotationFocused = element instanceof HTMLElement
             && !element.isContentEditable
@@ -340,6 +336,14 @@ export function registerTabsMenuBindings(
             window.getSelection()?.selectAllChildren(editable);
         }
     };
+    const handleSelectAllKeyDown = (event: KeyboardEvent) => {
+        if (!deps.isActive.value || !(isMacClientPlatform() ? event.metaKey : event.ctrlKey) || event.altKey || event.shiftKey || event.key.toLowerCase() !== 'a') {
+            return;
+        }
+        event.preventDefault();
+        event.stopPropagation();
+        selectAll();
+    };
 
     const cleanups = [
         useEventListener(
@@ -348,6 +352,9 @@ export function registerTabsMenuBindings(
             handleSelectAllKeyDown,
             { capture: true },
         ),
+        subscribeBrowserMenuEvent('onMenuSelectAll')(() => {
+            if (deps.isActive.value) selectAll();
+        }),
         documentMenu?.onMenuOpenPdf?.(() => {
             runMenuAction('open-pdf', () => deps.handleFallbackToolbarOpenFile());
         }),
