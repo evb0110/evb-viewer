@@ -709,8 +709,9 @@ pub(crate) fn inspect_scan_cleanup_pdf_bytes(data: &[u8], page_numbers: &[u32]) 
 }
 
 /// How closely a page's source raster matches desktop's: `Exact` when every
-/// image decodes to the samples Poppler decodes, `Near` when a JPEG or JPEG
-/// 2000 image went through a decoder not proven sample-identical.
+/// image decodes to the samples Poppler decodes, `Near` when a JPEG 2000
+/// image, or a JPEG outside the browser's libjpeg path, went through a
+/// decoder not proven sample-identical.
 #[derive(Serialize, Debug, Clone, Copy, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub(crate) enum SampleCompatibility {
@@ -1281,7 +1282,8 @@ fn image_samples(
     compatibility: &mut SampleCompatibility,
 ) -> Result<Option<evb_pdf_image_combine::pdf_image_samples::DecodedSamples>> {
     use evb_pdf_image_combine::pdf_image_samples::{
-        decode_ccitt_g4, decode_dct, decode_jbig2_generic, decode_jpx, DecodedSamples,
+        decode_ccitt_g4, decode_dct, decode_dct_rust, decode_jbig2_generic, decode_jpx,
+        DecodedSamples, DCT_MATCHES_LIBJPEG,
     };
 
     let dictionary = &stream.dict;
@@ -1389,8 +1391,17 @@ fn image_samples(
             decode_jbig2_generic(&stream.content, width, height, max_pixels).ok()
         }
         [b"DCTDecode" | b"DCT"] if bits == 8 => {
-            *compatibility = SampleCompatibility::Near;
-            decode_dct(&stream.content, width, height, components as u8, max_pixels)?
+            // libjpeg applies the stream's own color transform; a PDF
+            // override of it is decoded without that guarantee.
+            if components == 3 && parameter(b"ColorTransform").is_some() {
+                *compatibility = SampleCompatibility::Near;
+                decode_dct_rust(&stream.content, width, height, 3, max_pixels)?
+            } else {
+                if !DCT_MATCHES_LIBJPEG {
+                    *compatibility = SampleCompatibility::Near;
+                }
+                decode_dct(&stream.content, width, height, components as u8, max_pixels)?
+            }
         }
         [b"JPXDecode"] if bits == 8 => {
             *compatibility = SampleCompatibility::Near;

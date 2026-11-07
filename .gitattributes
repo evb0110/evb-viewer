@@ -16,6 +16,7 @@
 *.webp binary
 *.zip binary
 
+*.a binary
 *.dll binary
 *.dylib binary
 *.node binary

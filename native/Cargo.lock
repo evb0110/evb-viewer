@@ -289,6 +289,7 @@ dependencies = [
  "scan-primitives",
  "serde",
  "serde_json",
+ "sha2",
  "tiff",
  "zune-jpeg",
 ]
@@ -362,6 +363,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "evb-windows-job-launcher"
+version = "0.1.0"
+dependencies = [
+ "windows-sys",
+]
+
+[[package]]
 name = "fax"
 version = "0.2.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -372,13 +380,6 @@ name = "fax"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "70ed8646f3993cad0585c6669ffba6f7e5440a0bfb0a1f16600cae33ce7cf307"
-
-[[package]]
-name = "evb-windows-job-launcher"
-version = "0.1.0"
-dependencies = [
- "windows-sys",
-]
 
 [[package]]
 name = "fdeflate"

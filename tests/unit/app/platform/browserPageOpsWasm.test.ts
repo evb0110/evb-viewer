@@ -915,6 +915,21 @@ describe('browser page-ops WASM fast path', () => {
                 renderBox: 'cropBox',
             },
         ],
+        // JPEG samples come from the libjpeg-turbo the engine links, as Poppler's.
+        [
+            'jpeg-gray',
+            {
+                dpi: 72,
+                renderBox: 'cropBox',
+            },
+        ],
+        [
+            'jpeg-rgb',
+            {
+                dpi: 72,
+                renderBox: 'cropBox',
+            },
+        ],
     ] as const)('rasterizes the %s scan page with the RGB bytes pdftoppm wrote for it', async (vector, request) => {
         const fixture = join(process.cwd(), 'native/scan-cleanup/tests/fixtures/source-raster', vector);
         const expected = new Uint8Array(await readFile(join(fixture, 'expected.ppm')));
@@ -937,6 +952,72 @@ describe('browser page-ops WASM fast path', () => {
             compatibility: 'exact',
         });
         expect(rendered.data).toEqual(expected.subarray(header[0].length));
+    });
+
+    it('keeps an RGB JPEG near when its PDF overrides the stream\'s color transform', async () => {
+        const fixture = join(process.cwd(), 'native/scan-cleanup/tests/fixtures/source-raster/jpeg-rgb');
+        const pdfDocument = await PDFDocument.load(await readFile(join(fixture, 'input.pdf')));
+        for (const [
+            ,
+            object,
+        ] of pdfDocument.context.enumerateIndirectObjects()) {
+            if (object instanceof PDFRawStream && object.dict.get(PDFName.of('Subtype')) === PDFName.of('Image')) {
+                object.dict.set(PDFName.of('DecodeParms'), pdfDocument.context.obj({ColorTransform: 1}));
+            }
+        }
+        const wasm = await loadWasmRunner();
+
+        const rendered = await wasm.run('renderScanCleanupRaster', {
+            data: new Uint8Array(await pdfDocument.save()),
+            request: {
+                pageNumber: 1,
+                dpi: 72,
+                renderBox: 'cropBox',
+                maxPixels: 1_000_000,
+            },
+        });
+
+        if (rendered === null || 'status' in rendered) throw new Error('raster failed');
+        expect(rendered.report).toMatchObject({compatibility: 'near'});
+    });
+
+    it('fails a scan raster whose JPEG libjpeg rejects, and paints the next page with a fresh engine', async () => {
+        const fixture = join(process.cwd(), 'native/scan-cleanup/tests/fixtures/source-raster/jpeg-gray');
+        const valid = new Uint8Array(await readFile(join(fixture, 'input.pdf')));
+        // The same page with its JPEG's start-of-image marker broken.
+        const broken = valid.slice();
+        const start = Buffer.from(broken).indexOf(Buffer.from([
+            0xff,
+            0xd8,
+            0xff,
+        ]));
+        expect(start).toBeGreaterThan(0);
+        broken[start + 1] = 0x00;
+        const wasm = await loadWasmRunner();
+        const request = {
+            pageNumber: 1,
+            dpi: 72,
+            renderBox: 'cropBox',
+            maxPixels: 1_000_000,
+        } as const;
+
+        const failed = await wasm.run('renderScanCleanupRaster', {
+            data: broken,
+            request,
+        });
+        const rendered = await wasm.run('renderScanCleanupRaster', {
+            data: valid,
+            request,
+        });
+
+        // libjpeg's fatal error traps; the bridge reports a trap as the engine
+        // running out and loads a fresh one.
+        expect(failed).toMatchObject({
+            status: 'failed',
+            error: {code: 'too-large'},
+        });
+        if (rendered === null || 'status' in rendered) throw new Error('raster failed');
+        expect(rendered.report).toMatchObject({compatibility: 'exact'});
     });
 
     it('reports a page with vector content unsupported, for PDF.js to paint', async () => {
