@@ -29,6 +29,10 @@ import { encode as encodePng } from 'fast-png';
 import { isErrnoException } from '@contracts/runtimeGuards';
 import type { TImageExportProgressPhase } from '@contracts/imageExportPlatformFeature';
 import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
+import {getPdfPageCount} from '@electron/pdf/pdfPageCount';
+import {
+    fsyncFile, fsyncDirectory,
+} from '@electron/utils/fsyncPath';
 import {runQpdfCommand} from '@electron/features/page-ops/publicNative';
 import {
     buildPopplerEnv,
@@ -109,6 +113,7 @@ import {
     resolveImageExportFormat,
     type TImageExportFormat,
 } from '@pdf-core/imageExportFileName';
+export {getPdfPageCount} from '@electron/pdf/pdfPageCount';
 export type {TImageExportFormat} from '@pdf-core/imageExportFileName';
 interface IRenderedPageFile {
     page: number;
@@ -491,10 +496,12 @@ export async function promoteStagedFiles(
                 });
             }
             const file = stagedFiles[index]!;
+            if (!file.allowOverwrite) await fsyncFile(file.stagedPath);
             for (;;) {
                 throwIfAborted(signal);
                 try {
                     await (file.allowOverwrite ? atomicReplace : moveFileToMissingPath)(file.stagedPath, promotedFile.targetPath);
+                    if (!file.allowOverwrite) await fsyncDirectory(dirname(promotedFile.targetPath));
                     break;
                 } catch (error) {
                     if (file.allowOverwrite || !isErrnoException(error) || error.code !== 'EEXIST') throw error;
@@ -623,28 +630,6 @@ async function detectExportRenderDpi(
     };
 }
 
-export async function getPdfPageCount(
-    pdfPath: string,
-    options: {
-        cancelGroup?: string;
-        signal?: AbortSignal;
-    } = {},
-) {
-    const result = await runNativeToolCommand(getPdfNativeToolPaths().qpdf, [
-        '--show-npages',
-        pdfPath,
-    ], {
-        timeoutMs: QPDF_TIMEOUT_MS,
-        commandLabel: 'qpdf(export-page-count)',
-        ...(options.signal ? { signal: options.signal } : {}),
-        ...(options.cancelGroup ? { cancelGroup: options.cancelGroup } : {}),
-    });
-    const pageCount = Number.parseInt(result.stdout.trim(), 10);
-    if (!Number.isSafeInteger(pageCount) || pageCount < 1) {
-        throw new Error('Failed to read PDF page count');
-    }
-    return pageCount;
-}
 
 function emitExportProgress(options: IExportPdfOptions, progress: IImageExportProgressUpdate) {
     const total = Math.max(1, Math.trunc(progress.total));

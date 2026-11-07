@@ -6867,8 +6867,11 @@ describe('Electron E2E - Document Output', () => {
         await expect(readFile(fixturePath)).resolves.toEqual(sourceBytes);
     }, 120_000);
 
-    it('exports a page as a decodable image of the page from the thumbnail menu', async () => {
+    it('exports a page with a repaired cross-reference table as a decodable image', async () => {
         const fixturePath = await createMultiPageTextFixturePdf(`viewer-smoke-export-image-${Date.now()}.pdf`, 2);
+        const fixtureBytes = await readFile(fixturePath);
+        // qpdf reconstructs this readable source and reports warning-success (3).
+        await writeFile(fixturePath, fixtureBytes.toString('latin1').replace(/startxref\s+\d+/u, 'startxref\n0'), 'latin1');
         const sourceBytes = await readFile(fixturePath);
         const exportDirectory = resolve(process.cwd(), '.devkit', 'tmp', `viewer-smoke-export-image-${Date.now()}`);
         await mkdir(exportDirectory, {recursive: true});
