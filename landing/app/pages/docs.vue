@@ -172,7 +172,7 @@
               tag="li"
               scope="global"
             >
-              <template #command><code>sudo apt install ./evb-viewer-*.deb</code></template>
+              <template #command><code>sudo apt install ./EVB-Viewer-*.deb</code></template>
             </i18n-t>
             <li>{{ t('docs.unsigned.linuxLi3') }}</li>
           </ul>
