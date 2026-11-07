@@ -1,5 +1,6 @@
 use crate::adapters::manifest_publication::{
-    run_manifest_transaction, run_publication_transaction,
+    publication_journal_path, recover_direct_publication, run_manifest_transaction,
+    run_publication_transaction,
 };
 use crate::adapters::single_ocr_cli::{invalid, parse_options};
 use crate::engine::batch_reconciliation::{
@@ -240,7 +241,13 @@ fn run_inner(
         input_paths: vec![page.input_path.clone()],
         destination_paths,
     };
-    preflight_paths(&paths)?;
+    let mut admission = paths.clone();
+    admission
+        .destination_paths
+        .push(publication_journal_path(&output));
+    preflight_paths(&admission)?;
+    recover_direct_publication(&output, &page.input_path)?;
+    preflight_paths(&admission)?;
     run_publication_transaction(&output, paths.destination_paths, true, || {
         run_page(
             &page,
