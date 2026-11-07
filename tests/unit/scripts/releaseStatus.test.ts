@@ -104,18 +104,32 @@ describe('release status', () => {
     });
 
     it('keeps status incomplete when the manifest serves only its first asset', async () => {
-        const status = await summarizeReleaseStatus('v1.2.3', deps(assets, false, {verifyMirrorObjectsFn: options => verifyMirrorObjects({
-            ...options,
-            fetchFn: async (url) => {
-                const requestUrl = String(url);
-                if (requestUrl.endsWith('/stable.json')) return Response.json({release: {tag: 'v1.2.3'}});
-                if (requestUrl.endsWith('/manifest.json')) return Response.json({
-                    release: {tag: 'v1.2.3'},
-                    assets: assets.map(name => ({name})),
-                });
-                return new Response(null, {status: requestUrl.endsWith(`/${assets[0]}`) ? 200 : 404});
+        const status = await summarizeReleaseStatus('v1.2.3', {
+            ...deps(assets, false, {verifyMirrorObjectsFn: options => verifyMirrorObjects({
+                ...options,
+                fetchFn: async (url) => {
+                    const requestUrl = String(url);
+                    if (requestUrl.endsWith('/stable.json')) return Response.json({release: {tag: 'v1.2.3'}});
+                    if (requestUrl.endsWith('/manifest.json')) return Response.json({
+                        release: {tag: 'v1.2.3'},
+                        assets: assets.map(name => ({name})),
+                    });
+                    return new Response(null, {status: requestUrl.endsWith(`/${assets[0]}`) ? 200 : 404});
+                },
+            })}),
+            env: {
+                MIRROR_S3_ENDPOINT: 'fixture',
+                MIRROR_S3_BUCKET: 'fixture',
+                MIRROR_S3_ACCESS_KEY_ID: 'fixture',
+                MIRROR_S3_SECRET_KEY: 'fixture',
             },
-        })}));
+            runCommand: (command: string) => JSON.stringify(command === 'aws'
+                ? {release: {tag: 'v1.2.3'}}
+                : {
+                    assets: assets.map(name => ({name})),
+                    isDraft: false,
+                }),
+        });
         expect(status.missing).toEqual([]);
         expect(status.complete).toBe(false);
         expect(status.mirror).toContain(`${assets[1]} returned HTTP 404`);
