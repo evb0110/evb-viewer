@@ -123,7 +123,6 @@ export const useScanCleanupDocumentSettings = (options: IUseScanCleanupDocumentS
     let defaultsIntent: Partial<IScanCleanupPageOverride> = {};
     const overrideIntents = new Map<string, Partial<IScanCleanupPageOverride> | null>();
     let overridesReset: IScanCleanupDocumentPreferencePatch | null = null;
-    // The document's settings as this view last read them from the store.
     let lastStored: ReturnType<typeof readStored> | null = null;
     let previousDocumentContext: IPreviousDocumentContext | null = null;
 
@@ -137,11 +136,11 @@ export const useScanCleanupDocumentSettings = (options: IUseScanCleanupDocumentS
             return;
         }
         const generation = documentLoadGeneration;
-        const reset = patch.resetOverrides ? overridesReset = patch : null;
+        const reset = patch.resetOverrides ? overridesReset = cloneScanCleanupPreferenceValue(patch) : null;
         const write = reset ? saveScanCleanupDocumentPreferencesInStore : scheduleScanCleanupDocumentPreferencesInStore;
         void write(documentSha256, documentKey, patch).then(() => {
             if (!reset || overridesReset !== reset || generation !== documentLoadGeneration || !lastStored) return;
-            lastStored.overrides = cloneScanCleanupPreferenceValue(reset.overrides ?? {});
+            lastStored.overrides = reset.overrides ?? {};
             lastStored.pageOverrideDefaults = createScanCleanupPageOverride(reset.pageOverrideDefaults ?? {});
             overridesReset = null;
             rereadStoredSettings();

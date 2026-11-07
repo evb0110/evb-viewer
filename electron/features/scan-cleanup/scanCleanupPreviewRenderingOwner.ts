@@ -324,7 +324,7 @@ export function scanCleanupPreviewRenderingOwner(
             entry,
         ] of active) {
             if (key.startsWith(documentPrefix) && !retained.has(entry.pageNumber)) {
-                if (request.invalidateRawCache === false) entry.canceledAsResult = true;
+                entry.canceledAsResult = request.invalidateRawCache === false;
                 canceledEntries.push(entry);
                 entry.cancel(reason);
                 canceled = true;
@@ -445,9 +445,7 @@ export function scanCleanupPreviewRenderingOwner(
                         : 'prefetch',
             };
             const entryStateRef: {current?: IPreviewEntry} = {};
-            // Canceled resources are released when the job settles, not when
-            // cancel is asked: a native reader may still hold them until then,
-            // and one whose stop is unproven keeps them for the process lifetime.
+            // Native readers retain their inputs until termination is proven.
             const jobSettledRef: {current?: Promise<unknown>} = {};
             let unprovenTermination = false;
             const jobId = createJobId('scan-cleanup-preview');
@@ -476,7 +474,7 @@ export function scanCleanupPreviewRenderingOwner(
                     mainFrameNavigation: 'cancel',
                 },
                 onCancel: () => void (jobSettledRef.current ?? Promise.resolve()).then(() => {
-                    if (unprovenTermination) return;
+                    if (unprovenTermination || entryStateRef.current?.canceledAsResult) return;
                     releaseCanceledPreviewResources(
                         request,
                         claimId,

@@ -528,7 +528,7 @@ async function runRendererCancellation(eventName: 'destroyed' | 'render-process-
     await expect(readdir(dir)).resolves.toHaveLength(0);
 }
 
-export async function scenarioReleasesPreviewArtifactsAfterExplicitCancellation(): Promise<void> {
+export async function scenarioReleasesPreviewArtifactsAfterExplicitCancellation(retainRawCache = false): Promise<void> {
     const {
         dir,
         deps,
@@ -549,11 +549,15 @@ export async function scenarioReleasesPreviewArtifactsAfterExplicitCancellation(
     const pending = previewOf(service, owner, request);
     await entered.promise;
 
-    expect(service.cancel(owner, request)).toBe(true);
+    expect(service.cancel(owner, {
+        ...request,
+        invalidateRawCache: !retainRawCache,
+    })).toBe(true);
     await expect(pending).rejects.toMatchObject({name: 'AbortError'});
     await vi.waitFor(async () => {
         const entries = await readdir(dir, {recursive: true});
-        expect(entries.filter(entry => entry.endsWith('.png'))).toHaveLength(0);
+        if (retainRawCache) expect(entries.some(entry => entry.endsWith('.png'))).toBe(true);
+        else expect(entries.filter(entry => entry.endsWith('.png'))).toHaveLength(0);
         expect(entries.some(entry => entry.includes('scan-cleanup-preview-'))).toBe(false);
     });
     await service.dispose();
@@ -2043,7 +2047,11 @@ describe('parameterized fixture executions', () => {
         ],
         [
             'release artifacts after explicit cancellation',
-            scenarioReleasesPreviewArtifactsAfterExplicitCancellation,
+            () => scenarioReleasesPreviewArtifactsAfterExplicitCancellation(),
+        ],
+        [
+            'retain raw pixels after navigation cancellation',
+            () => scenarioReleasesPreviewArtifactsAfterExplicitCancellation(true),
         ],
         [
             'release artifacts when working copy closes',
