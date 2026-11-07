@@ -9,7 +9,9 @@ import {
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {parseEnv} from 'node:util';
-import {chunk} from 'es-toolkit';
+import {
+    chunk, pick,
+} from 'es-toolkit';
 import * as v from 'valibot';
 import {getCliErrorMessage} from './lib/cli-error.mjs';
 import {getWebDeployVendorDependencies} from './check-web-deploy-source.mjs';
@@ -255,7 +257,28 @@ async function deploy() {
             source,
         ]);
         const env: NodeJS.ProcessEnv = {
-            ...Object.fromEntries(Object.entries(process.env).filter(([name]) => !/^(?:YANDEX_S3_|MIRROR_S3_)/u.test(name))),
+            ...pick(process.env, [
+                'PATH',
+                'HOME',
+                'TMPDIR',
+                'TMP',
+                'TEMP',
+                'CI',
+                'LANG',
+                'LC_ALL',
+                'TZ',
+                'HTTP_PROXY',
+                'HTTPS_PROXY',
+                'ALL_PROXY',
+                'NO_PROXY',
+                'http_proxy',
+                'https_proxy',
+                'all_proxy',
+                'no_proxy',
+                'SSL_CERT_FILE',
+                'SSL_CERT_DIR',
+                'NODE_EXTRA_CA_CERTS',
+            ]),
             VERCEL: '1',
             NODE_ENV: 'production',
             EVB_APP_VERSION: version,
@@ -402,7 +425,7 @@ async function deploy() {
         // hashed assets so already-open workspaces can finish their requests.
         await batches([
             ...assets.filter(asset => asset.key.endsWith('.wasm')),
-            ...assets.filter(asset => asset.key.endsWith('.js')).slice(0, 1),
+            ...assets.filter(asset => asset.key.endsWith('.js') && asset.key.startsWith('_nuxt/')),
         ], async asset => {
             if (digest(await publicBytes(`${url}/${asset.key}`)) !== asset.sha256) throw new Error(`Public asset mismatch: ${asset.key}`);
         });

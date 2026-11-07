@@ -28,6 +28,8 @@ ln -s ../mss-backend/backend/.env .env.yandex.local
 
 Create that link only if the local file does not already exist. Credentials
 are used by the upload process and are never passed to the frontend build.
+The build receives only explicitly allowed process, locale, proxy and TLS
+certificate variables; shell tokens such as `GH_TOKEN` and `NPM_TOKEN` stay out.
 Do not commit the configuration or put keys in command-line arguments.
 
 To publish a separate mirror, use `--bucket=another-bucket-name`. Names must
@@ -48,7 +50,7 @@ mirror through `mirror-manifest.json`; the command refuses unrelated buckets.
   The staged browser build downloads them from the mirror's own origin.
 
 Application assets upload before the home page. Existing hashed assets remain
-available for open sessions. Public WASM and JavaScript bytes are verified
+available for open sessions. All public WASM and Nuxt JavaScript bytes are verified
 before the home page changes, and the published home page is checked afterward.
 If that final check fails, an existing previous home page is restored. This is
 not a transactional rollback of every asset: unversioned assets may already have
