@@ -1,7 +1,8 @@
 import {createHash} from 'node:crypto';
 import {
-    mkdirSync, readFileSync, writeFileSync,
+    mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync,
 } from 'node:fs';
+import {tmpdir} from 'node:os';
 import {resolve} from 'node:path';
 import {
     createCanvas, loadImage,
@@ -22,9 +23,11 @@ import {
 
 // C11/C12 expectations are deliberately literal: the rendered reference and
 // native browser clipboard are the public interfaces, not the shortcut registry.
-const parityEvidenceDir = resolve(process.env.EVB_C11_C12_EVIDENCE_DIR ?? `.devkit/browser-c11-c12-${process.pid}`);
+// Evidence is kept only when a run asks for it.
+const parityEvidenceDir = process.env.EVB_C11_C12_EVIDENCE_DIR ? resolve(process.env.EVB_C11_C12_EVIDENCE_DIR) : null;
 
 async function parityScreenshot(page: Page, name: string) {
+    if (parityEvidenceDir === null) return;
     mkdirSync(parityEvidenceDir, {recursive: true});
     await page.screenshot({
         path: resolve(parityEvidenceDir, `${name}.png`),
@@ -113,14 +116,16 @@ async function parityPdf() {
         });
     }
     const buffer = Buffer.from(await pdf.save());
-    mkdirSync(parityEvidenceDir, {recursive: true});
-    writeFileSync(resolve(parityEvidenceDir, 'c12-fixture.pdf'), buffer);
-    writeFileSync(resolve(parityEvidenceDir, 'environment.json'), JSON.stringify({
-        fixtureSha256: createHash('sha256').update(buffer).digest('hex'),
-        browser: await lifecycle.browser.version(),
-        platform: process.platform,
-        node: process.version,
-    }, null, 2));
+    if (parityEvidenceDir !== null) {
+        mkdirSync(parityEvidenceDir, {recursive: true});
+        writeFileSync(resolve(parityEvidenceDir, 'c12-fixture.pdf'), buffer);
+        writeFileSync(resolve(parityEvidenceDir, 'environment.json'), JSON.stringify({
+            fixtureSha256: createHash('sha256').update(buffer).digest('hex'),
+            browser: await lifecycle.browser.version(),
+            platform: process.platform,
+            node: process.version,
+        }, null, 2));
+    }
     return {
         name: 'c12-edit.pdf',
         mimeType: 'application/pdf',
@@ -495,7 +500,8 @@ describe('browser document lifecycle UI', () => {
             await editor.waitFor({state: 'hidden'});
             const downloaded = page.waitForEvent('download');
             await page.keyboard.press('ControlOrMeta+Shift+S');
-            const savedPath = resolve(parityEvidenceDir, 'c12-edited.pdf');
+            const savedDirectory = mkdtempSync(resolve(tmpdir(), 'evb-c12-'));
+            const savedPath = resolve(savedDirectory, 'c12-edited.pdf');
             await (await downloaded).saveAs(savedPath);
             const saved = await PDFDocument.load(readFileSync(savedPath));
             expect(saved.getPageCount()).toBe(2);
@@ -509,6 +515,10 @@ describe('browser document lifecycle UI', () => {
                 expect(await reopened.locator('.pdf-annotation-editor-text-box').getAttribute('aria-label')).toBe('Saved C12 edited text');
             } finally {
                 await reopened.context().close();
+                rmSync(savedDirectory, {
+                    recursive: true,
+                    force: true,
+                });
             }
             expect(problems).toEqual([]);
         } finally {

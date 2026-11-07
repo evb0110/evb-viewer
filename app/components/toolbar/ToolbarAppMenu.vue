@@ -9,11 +9,12 @@
         >
             <button
                 type="button"
-                :class="['app-menu-trigger text-edit-menu', { 'is-open': menuOpen }]"
+                :class="['app-menu-trigger', TEXT_EDIT_MENU_CLASS, { 'is-open': menuOpen }]"
                 :aria-label="t('toolbar.appMenu')"
                 aria-haspopup="menu"
                 :aria-expanded="menuOpen"
                 @pointerdown.capture="captureTextEditSource()"
+                @mousedown.prevent
             >
                 <UIcon name="i-ph-list" class="app-menu-trigger-icon" />
                 <span class="app-menu-trigger-label">{{ t('toolbar.appMenu') }}</span>
@@ -57,7 +58,7 @@ import {
     keepMenuFocusWhenItemsChange,
     keepMovedFocus,
 } from '@app/utils/menuFocus';
-import {TEXT_EDIT_MENU_SELECTOR as TEXT_EDIT_MENU} from '@app/constants/textEditMenuSelector';
+import {TEXT_EDIT_MENU_CLASS} from '@app/constants/textEditMenuClass';
 import { useRecentFiles } from '@app/composables/useRecentFiles';
 import {
     dispatchBrowserMenuEvent,
@@ -182,12 +183,13 @@ const menuContentOptions = {
     align: 'start' as const,
     sideOffset: 8,
     collisionPadding: 8,
+    onPointerDownOutside: (event: CustomEvent<{originalEvent: Event}>) => inTextEditMenu(event.detail.originalEvent.target) || (textEditSource.value = null),
     onCloseAutoFocus: (event: Event) => {
         // Dismissing the menu returns to the text it was opened over.
         const source = textEditSource.value;
         textEditSource.value = null;
         const active = document.activeElement;
-        if (source !== null && (active === document.body || active?.closest(TEXT_EDIT_MENU)) && restoreTextEditSource(source)) {
+        if (source !== null && (active === document.body || inTextEditMenu(active)) && restoreTextEditSource(source)) {
             event.preventDefault();
             return;
         }
@@ -195,17 +197,14 @@ const menuContentOptions = {
     },
 };
 
-// Cut, Copy, Paste and Select All act on the field, selection or annotation
-// that had input before the menu opened, borrowed for this opening only. The
-// menu is not modal: a modal focus trap would take focus back from the source
-// it restores inside the user's activation. The class reaches both the trigger
-// and the portalled panel, so the inline editor keeps its draft across them.
+// Cut, Copy, Paste and Select All act on what had input before the menu opened,
+// borrowed for this opening only, in an active workspace. The menu is not modal,
+// as a focus trap would take back the focus they restore; its trigger takes none.
+const inTextEditMenu = (node: EventTarget | null) => node instanceof Element && node.closest(`.${TEXT_EDIT_MENU_CLASS}`) !== null;
 interface ITextEditSource {
     element: HTMLElement;
     /** The element had focus, so restoring it must regain focus. */
     focused: boolean;
-    /** The workspace the source belongs to; an inactive one is no longer the user's target. */
-    workspace: Element | null;
     selection: {
         start: number;
         end: number;
@@ -237,7 +236,7 @@ function currentRanges() {
 }
 
 function readTextEditSource(focused: Element | null): ITextEditSource | null {
-    const owner = focused instanceof HTMLElement && focused !== document.body && !focused.closest(TEXT_EDIT_MENU) ? focused : null;
+    const owner = focused instanceof HTMLElement && focused !== document.body && !inTextEditMenu(focused) ? focused : null;
     const control = textControl(owner);
     const host = editingHost(owner);
     // A focused annotation keeps its own selection routing, with or without selected text.
@@ -248,11 +247,10 @@ function readTextEditSource(focused: Element | null): ITextEditSource | null {
     const container = selected[0]?.commonAncestorContainer;
     const focusedSource = control ?? host ?? annotation;
     const element = focusedSource ?? (container instanceof HTMLElement ? container : container?.parentElement ?? null);
-    if (element === null || element.closest(TEXT_EDIT_MENU)) return null;
+    if (element === null || inTextEditMenu(element)) return null;
     return {
         element,
         focused: focusedSource !== null,
-        workspace: element.closest('[data-workspace-active]'),
         selection: control === null ? host === null ? selected : ranges : {
             start: control.selectionStart ?? 0,
             end: control.selectionEnd ?? 0,
@@ -268,15 +266,14 @@ function captureTextEditSource(focused: Element | null = document.activeElement)
 
 // Keyboard entry: focus leaving a source for this menu names the source.
 useEventListener(typeof document === 'undefined' ? undefined : document, 'focusout', (event: FocusEvent) => {
-    if (event.relatedTarget instanceof Element && event.relatedTarget.closest(TEXT_EDIT_MENU)
-        && event.target instanceof Element && !event.target.closest(TEXT_EDIT_MENU)) {
+    if (inTextEditMenu(event.relatedTarget) && event.target instanceof Element && !inTextEditMenu(event.target)) {
         captureTextEditSource(event.target);
     }
 }, {capture: true});
 
 function isTextEditSourceCurrent(source: ITextEditSource) {
     return source.element.isConnected
-        && source.workspace?.getAttribute('data-workspace-active') !== 'false'
+        && source.element.closest('[data-workspace-active]')?.getAttribute('data-workspace-active') !== 'false'
         && (!Array.isArray(source.selection) || source.selection.every(range => range.startContainer.isConnected && range.endContainer.isConnected));
 }
 
@@ -394,7 +391,7 @@ function selectAllText() {
     dispatchBrowserMenuEvent('onMenuSelectAll');
 }
 const appMenuUi = {
-    content: 'app-menu toolbar-menu-panel text-edit-menu',
+    content: `app-menu toolbar-menu-panel ${TEXT_EDIT_MENU_CLASS}`,
     viewport: 'divide-y-0 p-1',
     group: 'app-menu-section toolbar-menu-section p-0',
     label: 'app-menu-section-header toolbar-menu-section-header',
@@ -432,6 +429,7 @@ const appMenuItems = computed((): TToolbarAppMenuItem[][] => [
 keepMenuFocusWhenItemsChange(() => menuOpen.value, () => appMenuItems.value, '.app-menu.toolbar-menu-panel');
 
 function buildFileItems(): TToolbarAppMenuItem[] {
+    const writeBlocked = !hasInteractiveDocument.value || isAnySaving || isHistoryBusy;
     const items: TToolbarAppMenuItem[] = [
         {
             type: 'label',
@@ -440,13 +438,13 @@ function buildFileItems(): TToolbarAppMenuItem[] {
         createMenuEventItem('onMenuOpenPdf', t('menu.openFile'), getReaderCommandMenuIcon('open-file'), {shortcut: shortcutLabels.value.openFile}),
         createSubmenu(t('menu.openRecent'), 'i-ph-clock', buildOpenRecentItems()),
         createMenuEventItem('onMenuSave', t('menu.save'), getReaderCommandMenuIcon('save'), {
-            disabled: !hasInteractiveDocument.value || !canSave || isAnySaving || isHistoryBusy || isDjvuMode,
+            disabled: writeBlocked || !canSave || isDjvuMode,
             shortcut: shortcutLabels.value.save,
         }),
-        createMenuEventItem('onMenuRepairSave', t('menu.repairAndSave'), 'i-ph-magic-wand', {disabled: !hasInteractiveDocument.value || !canRepairSave || isAnySaving || isHistoryBusy || isDjvuMode}),
-        createMenuEventItem('onMenuOptimizePdfForInteraction', t('menu.optimizePdfForInteraction'), 'i-ph-gauge', {disabled: !hasInteractiveDocument.value || !canOptimizePdf || isAnySaving || isHistoryBusy || isDjvuMode}),
+        createMenuEventItem('onMenuRepairSave', t('menu.repairAndSave'), 'i-ph-magic-wand', {disabled: writeBlocked || !canRepairSave || isDjvuMode}),
+        createMenuEventItem('onMenuOptimizePdfForInteraction', t('menu.optimizePdfForInteraction'), 'i-ph-gauge', {disabled: writeBlocked || !canOptimizePdf || isDjvuMode}),
         createMenuEventItem('onMenuSaveAs', t('menu.saveAs'), getReaderCommandMenuIcon('save-as'), {
-            disabled: !hasInteractiveDocument.value || !canSaveAs || isAnySaving || isHistoryBusy,
+            disabled: writeBlocked || !canSaveAs,
             shortcut: shortcutLabels.value.saveAs,
         }),
         createMenuEventItem(
@@ -511,6 +509,8 @@ function buildFileItems(): TToolbarAppMenuItem[] {
 }
 
 function buildEditItems(): TToolbarAppMenuItem[] {
+    const editDisabled = !hasInteractiveDocument.value || isDjvuMode;
+    const historyDisabled = editDisabled || isAnySaving || isHistoryBusy;
     return [
         { type: 'separator' },
         {
@@ -518,18 +518,18 @@ function buildEditItems(): TToolbarAppMenuItem[] {
             label: t('menu.edit'),
         },
         createMenuEventItem('onMenuUndo', t('menu.undo'), getReaderCommandMenuIcon('undo'), {
-            disabled: !hasInteractiveDocument.value || !canUndo || isHistoryBusy || isAnySaving || isDjvuMode,
+            disabled: historyDisabled || !canUndo,
             shortcut: shortcutLabels.value.undo,
         }),
         createMenuEventItem('onMenuRedo', t('menu.redo'), getReaderCommandMenuIcon('redo'), {
-            disabled: !hasInteractiveDocument.value || !canRedo || isHistoryBusy || isAnySaving || isDjvuMode,
+            disabled: historyDisabled || !canRedo,
             shortcut: shortcutLabels.value.redo,
         }),
         { type: 'separator' },
         ...buildTextEditItems(),
         { type: 'separator' },
-        createMenuEventItem('onMenuInsertImageFromFile', t('menu.insertImageFromFile'), 'i-ph-image', {disabled: !hasInteractiveDocument.value || isDjvuMode}),
-        createMenuEventItem('onMenuPasteImageFromClipboard', t('menu.pasteImageFromClipboard'), 'i-ph-clipboard-text', {disabled: !hasInteractiveDocument.value || isDjvuMode}),
+        createMenuEventItem('onMenuInsertImageFromFile', t('menu.insertImageFromFile'), 'i-ph-image', {disabled: editDisabled}),
+        createMenuEventItem('onMenuPasteImageFromClipboard', t('menu.pasteImageFromClipboard'), 'i-ph-clipboard-text', {disabled: editDisabled}),
         { type: 'separator' },
     ];
 }

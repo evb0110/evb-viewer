@@ -7,7 +7,7 @@ import {
     normalizeAnnotationText,
     type ITextBoxEntity,
 } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
-import {TEXT_EDIT_MENU_SELECTOR} from '@app/constants/textEditMenuSelector';
+import {TEXT_EDIT_MENU_CLASS} from '@app/constants/textEditMenuClass';
 
 interface ITextBoxInlineEditOptions {
     entity: ComputedRef<ITextBoxEntity>;
@@ -155,7 +155,7 @@ export const useTextBoxInlineEdit = (
     function isEditingContextTarget(target: EventTarget | null | undefined) {
         return typeof HTMLElement !== 'undefined'
             && target instanceof HTMLElement
-            && Boolean(target.closest(`[data-annotation-inspector], ${TEXT_EDIT_MENU_SELECTOR}`));
+            && Boolean(target.closest(`[data-annotation-inspector], .${TEXT_EDIT_MENU_CLASS}`));
     }
 
     function handleContextFocusOut(event: FocusEvent) {
