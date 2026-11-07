@@ -1,3 +1,4 @@
+import type {IPdfNativeTextBoxSourceDescriptor} from '@contracts/nativePdfTextBoxAppearance';
 import type {TPageIndex} from '@contracts/pageNumbers';
 
 import {
@@ -94,6 +95,7 @@ import type {
     IPdfSaveAsWarning,
     IPdfSerializedSaveOptions,
 } from '@contracts/documentsPersistenceSchemas';
+export type {IPdfNativeTextBoxSourceDescriptor};
 export type {
     IOpenDjvuResult,
     IOpenPdfResult,
@@ -382,6 +384,7 @@ export interface IPdfNativeFreeTextNote {
 }
 
 export interface IPdfNativeTextBoxMutation {
+    source?: IPdfNativeTextBoxSourceDescriptor;
     /** Explicit original-paint restoration, authorized by loaded-source provenance. */
     originalAppearance?: {
         recoveryData: string;
@@ -404,15 +407,6 @@ export interface IPdfNativeTextBoxMutation {
     modifiedAt?: number | null;
 }
 /** Exact source primitives from the current native writer parse revision. */
-export interface IPdfNativeTextBoxSourceDescriptor {
-    version: 1;
-    settlementRect?: [number, number, number, number];
-    rawRD?: [number, number, number, number];
-    borderWidth: number;
-    borderColor?: number[];
-    background?: number[];
-    staleFill: boolean;
-}
 export interface IPdfNativeTextBoxAppearanceRequest {
     page: {
         view: [number, number, number, number];

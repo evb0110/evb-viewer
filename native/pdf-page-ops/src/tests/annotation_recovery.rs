@@ -747,3 +747,29 @@ fn recovery_semantic_object(
         value => value.clone(),
     })
 }
+
+#[test]
+fn saved_deleted_edited_text_box_retains_frame_in_both_writers() {
+    for append in [false, true] {
+        let (mut document, page) = create_test_document();
+        let root = document.add_object(dictionary! {"Type" => "Annot", "Subtype" => "FreeText", "P" => page, "NM" => Object::string_literal("framed-history"), "Contents" => Object::string_literal("Original"), "Rect" => vec![10.into(),20.into(),150.into(),70.into()], "DA" => Object::string_literal("/Helv 18 Tf 1 0 0 RG 0 g"), "Border" => vec![0.into(),0.into(),2.into()], "C" => vec![1.into(),1.into(),0.into()], "RD" => vec![3.into(),4.into(),5.into(),6.into()]});
+        document.get_dictionary_mut(page).unwrap().set("Annots", vec![Object::Reference(root)]);
+        let parsed = collect_parsed_annotations(&document, "").unwrap();
+        let PdfAnnotationParseEntry::TextBox(original) = &parsed[0] else { panic!("expected text box") };
+        let source = original.source.clone().unwrap();
+        let mut edit = serde_json::json!({"pageIndex":0,"stableKey":"framed-history","annotationId":format!("{}R{}",root.0,root.1),"text":"Edited","rect":[10,20,150,70],"rotation":0,"fontSize":18,"color":[0,0,0]});
+        document = recovery_save(document, &NativeMutationsFile {text_boxes:vec![serde_json::from_value(edit.clone()).unwrap()], ..Default::default()}, append);
+        document = recovery_save(document, &NativeMutationsFile {deletes:vec![AnnotationDelete {page_index:0, object_number:Some(root.0), generation_number:Some(root.1), stable_key:Some("framed-history".into()), created_at:None}], ..Default::default()}, append);
+        edit.as_object_mut().unwrap().remove("annotationId");
+        edit["source"] = serde_json::to_value(&source).unwrap();
+        document = recovery_save(document, &NativeMutationsFile {text_boxes:vec![serde_json::from_value(edit).unwrap()], ..Default::default()}, append);
+        let parsed = collect_parsed_annotations(&document, "").unwrap();
+        let PdfAnnotationParseEntry::TextBox(restored) = &parsed[0] else { panic!("expected restored text box") };
+        assert_eq!(restored.text, "Edited");
+        let restored_source = restored.source.as_ref().unwrap();
+        assert_eq!(restored_source.border_width, source.border_width);
+        assert_eq!(restored_source.border_color, source.border_color);
+        assert_eq!(restored_source.background, source.background);
+        assert_eq!(restored_source.raw_rd, source.raw_rd);
+    }
+}

@@ -650,7 +650,13 @@ pub(crate) fn upsert_text_boxes_with_counter(
         }
         let existing = target
             .map(|id| existing_text_box_values(document, id, editor, &mut rect))
-            .transpose()?;
+            .transpose()?
+            .or_else(|| {
+                editor
+                    .source
+                    .as_ref()
+                    .map(|source| (None, None, Some(source.frame(rect))))
+            });
         let frame = existing.as_ref();
         let appearance =
             build_text_box_appearance(document, editor, rect, page_rotation, &mut fonts, frame)?;
@@ -664,12 +670,16 @@ pub(crate) fn upsert_text_boxes_with_counter(
                 modified_at,
                 appearance,
                 page_rotation,
+                false,
                 existing,
             );
             continue;
         }
         let annotation_ref = document.new_object_id();
         let mut dict = dictionary! {"Type" => "Annot", "Subtype" => "FreeText", "F" => 4};
+        if let Some(source) = &editor.source {
+            source.write_frame(&mut dict);
+        }
         set_text_box_fields(
             &mut dict,
             editor,
@@ -678,7 +688,8 @@ pub(crate) fn upsert_text_boxes_with_counter(
             modified_at,
             appearance,
             page_rotation,
-            None,
+            true,
+            existing,
         );
         document.set_object(annotation_ref, Object::Dictionary(dict));
         report_annotation_identity_binding(identity_bindings, &editor.stable_key, annotation_ref);
@@ -757,7 +768,13 @@ pub(crate) fn upsert_text_boxes_incremental_with_counter(
         }
         let existing = target
             .map(|id| existing_text_box_values(&revision, id, editor, &mut rect))
-            .transpose()?;
+            .transpose()?
+            .or_else(|| {
+                editor
+                    .source
+                    .as_ref()
+                    .map(|source| (None, None, Some(source.frame(rect))))
+            });
         let (frame, document) = (existing.as_ref(), &mut incremental.new_document);
         let appearance =
             build_text_box_appearance(document, editor, rect, page_rotation, &mut fonts, frame)?;
@@ -774,12 +791,16 @@ pub(crate) fn upsert_text_boxes_incremental_with_counter(
                 modified_at,
                 appearance,
                 page_rotation,
+                false,
                 existing,
             );
             continue;
         }
         let annotation_ref = incremental.new_document.new_object_id();
         let mut dict = dictionary! {"Type" => "Annot", "Subtype" => "FreeText", "F" => 4};
+        if let Some(source) = &editor.source {
+            source.write_frame(&mut dict);
+        }
         set_text_box_fields(
             &mut dict,
             editor,
@@ -788,7 +809,8 @@ pub(crate) fn upsert_text_boxes_incremental_with_counter(
             modified_at,
             appearance,
             page_rotation,
-            None,
+            true,
+            existing,
         );
         incremental
             .new_document
@@ -1060,6 +1082,7 @@ pub(crate) fn set_text_box_fields(
     modified_at: &str,
     appearance: TextBoxAppearance,
     page_rotation: i64,
+    is_new: bool,
     existing: Option<ExistingTextBox>,
 ) {
     let TextBoxAppearance {
@@ -1067,7 +1090,6 @@ pub(crate) fn set_text_box_fields(
         font_size,
         ..
     } = appearance;
-    let is_new = existing.is_none();
     let (existing_appearance, existing_default_appearance, frame) = existing.unwrap_or_default();
     crate::text_box_font::write_editor_geometry(
         dict,
@@ -1085,7 +1107,7 @@ pub(crate) fn set_text_box_fields(
     if read_annotation_name(dict).is_none() {
         write_annotation_name(dict, name);
     }
-    if is_new {
+    if is_new && editor.source.is_none() {
         dict.set("Border", vec![0.into(), 0.into(), 0.into()]);
     }
     let color = editor.color.map(|component| f64::from(component) / 255.0);
