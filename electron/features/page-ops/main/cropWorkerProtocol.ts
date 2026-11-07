@@ -1,4 +1,5 @@
 import type { ICropMargins } from '@contracts/shared';
+import { normalizeCropMargins } from '@contracts/shared';
 import type { IWorkerTaskErrorFrame } from '@electron/utils/workerTask';
 import { isRecord } from '@contracts/runtimeGuards';
 
@@ -28,37 +29,11 @@ function decodePageNumbers(value: unknown) {
 }
 
 function decodeCropMargins(value: unknown): ICropMargins | null {
-    if (!isRecord(value)) {
+    try {
+        return normalizeCropMargins(value);
+    } catch {
         return null;
     }
-    const {
-        top,
-        bottom,
-        left,
-        right,
-    } = value;
-    if (
-        typeof top !== 'number'
-        || !Number.isFinite(top)
-        || top < 0
-        || typeof bottom !== 'number'
-        || !Number.isFinite(bottom)
-        || bottom < 0
-        || typeof left !== 'number'
-        || !Number.isFinite(left)
-        || left < 0
-        || typeof right !== 'number'
-        || !Number.isFinite(right)
-        || right < 0
-    ) {
-        return null;
-    }
-    return {
-        top,
-        bottom,
-        left,
-        right,
-    };
 }
 
 function decodeSenderWebContentsId(value: unknown) {
