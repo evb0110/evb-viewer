@@ -59,7 +59,9 @@ pub(crate) enum Operation {
     },
     ValidatePageStructure,
     /// Rebuilds a qpdf page subset's form fields from its retained widgets.
-    FinalizeSubsetForms,
+    FinalizeSubsetForms {
+        print: bool,
+    },
     ReadCatalog,
     ReadDocumentCatalog(Option<PathBuf>),
     PrintLayout {
@@ -295,7 +297,9 @@ pub(crate) fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Confi
         },
         "page-sizes" => Operation::PageSizes { metadata_only },
         "validate-page-structure" => Operation::ValidatePageStructure,
-        "finalize-subset-forms" => Operation::FinalizeSubsetForms,
+        "finalize-subset-forms" | "finalize-print-subset-forms" => Operation::FinalizeSubsetForms {
+            print: command == "finalize-print-subset-forms",
+        },
         "read-catalog" => Operation::ReadCatalog,
         "read-document-catalog" => Operation::ReadDocumentCatalog(mutations_file),
         "print-layout" if pages_file.is_some() => {
@@ -404,12 +408,13 @@ pub(crate) fn mutate_pdf(config: Config) -> Result<()> {
         .ok_or("Missing --output value")?;
 
     match &config.operation {
-        Operation::FinalizeSubsetForms => {
+        Operation::FinalizeSubsetForms { print } => {
             return crate::split_catalog::split_forms::write_subset_form_path(
                 &config.input_path,
                 output_path,
                 config.qpdf_path.as_deref(),
-            );
+                *print,
+            )
         }
         Operation::TextBoxAppearance { metadata_file } => {
             use evb_native_support::output::AtomicOutput;
@@ -464,10 +469,6 @@ pub(crate) fn mutate_pdf(config: Config) -> Result<()> {
                 config.qpdf_path.as_deref(),
             );
         }
-        _ => {}
-    }
-
-    match &config.operation {
         Operation::SplitPages { instructions_file } => {
             let instructions = read_split_pages_file(instructions_file)
                 .map_err(|error| reclassify_domain_error(error, NativeErrorCode::InvalidRequest))?;
@@ -522,10 +523,6 @@ pub(crate) fn mutate_pdf(config: Config) -> Result<()> {
                 config.qpdf_path.as_deref(),
             );
         }
-        _ => {}
-    }
-
-    match &config.operation {
         Operation::AnnotationNameIndex => {
             return write_annotation_name_index_path(
                 &config.input_path,
@@ -575,17 +572,17 @@ pub(crate) fn mutate_pdf(config: Config) -> Result<()> {
         _ => {}
     }
 
+    let identity_bindings_path = match &config.operation {
+        Operation::SaveMutations {
+            identity_bindings_file,
+            ..
+        } => identity_bindings_file.as_deref(),
+        _ => None,
+    };
     let appended = read_append_mutations(&config.operation)
         .map_err(|error| reclassify_domain_error(error, NativeErrorCode::InvalidRequest))?;
     if let Some((mut mutations, modified_at)) = appended {
         hydrate_save_original_appearance_source(&config, &mut mutations)?;
-        let identity_bindings_path = match &config.operation {
-            Operation::SaveMutations {
-                identity_bindings_file,
-                ..
-            } => identity_bindings_file.as_deref(),
-            _ => None,
-        };
         let append_in_place = match &config.operation {
             Operation::SaveMutations {
                 append_in_place, ..
@@ -616,13 +613,6 @@ pub(crate) fn mutate_pdf(config: Config) -> Result<()> {
         .map_err(|error| reclassify_domain_error(error, NativeErrorCode::InvalidRequest))?
     {
         hydrate_save_original_appearance_source(&config, &mut mutations)?;
-        let identity_bindings_path = match &config.operation {
-            Operation::SaveMutations {
-                identity_bindings_file,
-                ..
-            } => identity_bindings_file.as_deref(),
-            _ => None,
-        };
         return write_native_mutations_path(
             &config.input_path,
             output_path,

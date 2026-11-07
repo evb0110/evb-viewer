@@ -270,16 +270,16 @@ export async function verifyPdfStructureStrict(pdfPath: string, options: IQpdfOp
         timeoutMs: QPDF_TIMEOUT_MS,
         allowedExitCodes: [0],
         commandLabel: 'qpdf(strict-structure-check)',
-        ...(options.signal ? {signal: options.signal} : {}),
-        ...(options.cancelGroup ? {cancelGroup: options.cancelGroup} : {}),
+        ...options,
     });
 }
 
-async function finalizeSubsetForms(pdfPath: string, options: IQpdfOperationOptions) {
+async function finalizeSubsetForms(pdfPath: string, options: IQpdfOperationOptions, printSubset = false) {
+    const command = printSubset ? 'finalize-print-subset-forms' : 'finalize-subset-forms';
     const binary = resolveNativePageOpsPath();
     if (!binary) throw new Error('Native page structure finalization is unavailable');
     await runNativeToolCommand(binary, [
-        'finalize-subset-forms',
+        command,
         '--input',
         pdfPath,
         '--output',
@@ -288,9 +288,8 @@ async function finalizeSubsetForms(pdfPath: string, options: IQpdfOperationOptio
         getQpdfBinary(),
     ], {
         timeoutMs: QPDF_TIMEOUT_MS,
-        commandLabel: 'pdf-page-ops(finalize-subset-forms)',
-        ...(options.signal ? {signal: options.signal} : {}),
-        ...(options.cancelGroup ? {cancelGroup: options.cancelGroup} : {}),
+        commandLabel: `pdf-page-ops(${command})`,
+        ...options,
     });
 }
 
@@ -355,6 +354,7 @@ async function extractPageList(
     pageList: string,
     commandLabel: string,
     options: IQpdfOperationOptions = {},
+    printSubset = false,
 ) {
     const physicalReadPath = getWorkingCopyBackingEntry(srcPath, options.senderWebContentsId)
         ? await materializePageOperationWorkingCopy(
@@ -377,12 +377,11 @@ async function extractPageList(
             timeoutMs: QPDF_TIMEOUT_MS,
             allowedExitCodes: QPDF_OUTPUT_SUCCESS_EXIT_CODES,
             commandLabel,
-            pageStructureSources: [physicalReadPath],
-            ...(options.signal ? { signal: options.signal } : {}),
-            ...(options.cancelGroup ? { cancelGroup: options.cancelGroup } : {}),
+            pageStructureSources: printSubset ? [] : [physicalReadPath],
+            ...options,
         });
         await assertNonEmptyPdfOutput(qpdfOutput.outputPath, 'Extracting pages');
-        await finalizeSubsetForms(qpdfOutput.outputPath, options);
+        await finalizeSubsetForms(qpdfOutput.outputPath, options, printSubset);
         await copyFile(qpdfOutput.outputPath, finalTempPath);
         await assertNonEmptyPdfOutput(finalTempPath, 'Extracting pages');
         await replaceTempOutput(finalTempPath, destPath);
@@ -401,13 +400,17 @@ export async function extractPages(
     pages: number[],
     options: IQpdfOperationOptions = {},
 ) {
-    return extractPageList(
-        srcPath,
-        destPath,
-        formatPageList(pages),
-        'qpdf(extract-pages)',
-        options,
-    );
+    return extractPageList(srcPath, destPath, formatPageList(pages), 'qpdf(extract-pages)', options);
+}
+
+/** Creates an ephemeral subset for printing, where tag structure is not published. */
+export async function extractPagesForPrint(
+    srcPath: string,
+    destPath: string,
+    pages: number[],
+    options: IQpdfOperationOptions = {},
+) {
+    return extractPageList(srcPath, destPath, formatPageList(pages), 'qpdf(extract-pages)', options, true);
 }
 
 /** Extracts validated page ranges without expanding them into a dense page array. */
@@ -482,8 +485,7 @@ async function deletePageSelection(
             allowedExitCodes: QPDF_OUTPUT_SUCCESS_EXIT_CODES,
             commandLabel: 'qpdf(delete-pages)',
             pageStructureSources: [materializedPath],
-            ...(options.signal ? { signal: options.signal } : {}),
-            ...(options.cancelGroup ? { cancelGroup: options.cancelGroup } : {}),
+            ...options,
         });
         await assertNonEmptyPdfOutput(tempPath, 'Deleting pages');
         await finalizeSubsetForms(tempPath, options);
@@ -543,8 +545,7 @@ export async function reorderPages(
             allowedExitCodes: QPDF_OUTPUT_SUCCESS_EXIT_CODES,
             commandLabel: 'qpdf(reorder-pages)',
             pageStructureSources: [materializedPath],
-            ...(options.signal ? { signal: options.signal } : {}),
-            ...(options.cancelGroup ? { cancelGroup: options.cancelGroup } : {}),
+            ...options,
         });
         await assertNonEmptyPdfOutput(tempPath, 'Reordering pages');
         await replaceTempOutput(tempPath, materializedPath);
@@ -598,8 +599,7 @@ export async function movePages(
             allowedExitCodes: QPDF_OUTPUT_SUCCESS_EXIT_CODES,
             commandLabel: 'qpdf(move-pages)',
             pageStructureSources: [materializedPath],
-            ...(options.signal ? { signal: options.signal } : {}),
-            ...(options.cancelGroup ? { cancelGroup: options.cancelGroup } : {}),
+            ...options,
         });
         await assertNonEmptyPdfOutput(tempPath, 'Moving pages');
         await replaceTempOutput(tempPath, materializedPath);
@@ -652,8 +652,7 @@ export async function movePageRanges(
             allowedExitCodes: QPDF_OUTPUT_SUCCESS_EXIT_CODES,
             commandLabel: 'qpdf(move-page-ranges)',
             pageStructureSources: [materializedPath],
-            ...(options.signal ? { signal: options.signal } : {}),
-            ...(options.cancelGroup ? { cancelGroup: options.cancelGroup } : {}),
+            ...options,
         });
         await assertNonEmptyPdfOutput(tempPath, 'Moving page ranges');
         await replaceTempOutput(tempPath, materializedPath);
@@ -727,8 +726,7 @@ export async function rotatePages(
         ], {
             timeoutMs: QPDF_TIMEOUT_MS,
             commandLabel: 'evb-pdf-page-ops(page-rotation)',
-            ...(options.signal ? {signal: options.signal} : {}),
-            ...(options.cancelGroup ? {cancelGroup: options.cancelGroup} : {}),
+            ...options,
         });
         await assertNonEmptyPdfOutput(targetPath, 'Rotating pages');
         if (!appendInPlace) {

@@ -2,6 +2,7 @@ export {
     assertNonEmptyPdfOutput,
     deletePageRanges,
     extractPages,
+    extractPagesForPrint,
     getPdfPageCount,
     movePageRange,
     movePageRanges,

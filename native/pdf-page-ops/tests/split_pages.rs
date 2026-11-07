@@ -3875,3 +3875,107 @@ fn r9_identity_tags_drop_when_an_objr_annotation_is_cropped_away() {
         let _ = remove_file(file);
     }
 }
+
+#[test]
+fn tagged_subset_is_accepted_only_for_print_finalization() {
+    let input = path("tagged-print-subset", "pdf");
+    let saved = path("tagged-saved-subset", "pdf");
+    let printed = path("tagged-printed-subset", "pdf");
+    let fixture = include_bytes!("../../../tests/fixtures/electron/pdf-preservation/tagged.pdf");
+    std::fs::write(&input, fixture).unwrap();
+    let subset = Command::new(qpdf_path())
+        .arg(&input)
+        .args(["--pages"])
+        .arg(&input)
+        .args(["1", "--"])
+        .arg(&printed)
+        .output()
+        .unwrap();
+    assert!(
+        subset.status.success(),
+        "{}",
+        String::from_utf8_lossy(&subset.stderr)
+    );
+    let invoke = |command: &str, output: &Path| {
+        Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"))
+            .arg(command)
+            .arg("--input")
+            .arg(&printed)
+            .arg("--output")
+            .arg(output)
+            .arg("--qpdf")
+            .arg(qpdf_path())
+            .output()
+            .unwrap()
+    };
+    let refused = invoke("finalize-subset-forms", &saved);
+    assert!(!refused.status.success());
+    assert!(String::from_utf8_lossy(&refused.stderr).contains("ERR_PDF_STRUCTURE_PRESERVATION"));
+    assert!(!saved.exists());
+    let accepted = invoke("finalize-print-subset-forms", &input);
+    assert!(
+        accepted.status.success(),
+        "{}",
+        String::from_utf8_lossy(&accepted.stderr)
+    );
+    assert_eq!(Document::load(&input).unwrap().get_pages().len(), 1);
+    // A tagged source with a form must retain the selected page's widget in
+    // the repaired field graph, not merely pass the tag policy.
+    let mut form_source = review_catalog_source();
+    let page = form_source
+        .get_pages()
+        .keys()
+        .copied()
+        .find(|page| {
+            split_page_annotations(&form_source, *page)
+                .iter()
+                .any(|(_, annotation)| {
+                    annotation.get(b"Subtype").and_then(Object::as_name).ok() == Some(b"Widget")
+                })
+        })
+        .unwrap();
+    form_source.save(&input).unwrap();
+    let subset = Command::new(qpdf_path())
+        .arg(&input)
+        .arg("--pages")
+        .arg(&input)
+        .arg(page.to_string())
+        .arg("--")
+        .arg(&printed)
+        .output()
+        .unwrap();
+    assert!(
+        subset.status.success(),
+        "{}",
+        String::from_utf8_lossy(&subset.stderr)
+    );
+    let accepted = invoke("finalize-print-subset-forms", &input);
+    assert!(
+        accepted.status.success(),
+        "{}",
+        String::from_utf8_lossy(&accepted.stderr)
+    );
+    let result = Document::load(&input).unwrap();
+    let widget = split_page_annotations(&result, 1)
+        .into_iter()
+        .find(|(_, annotation)| {
+            annotation.get(b"Subtype").and_then(Object::as_name).ok() == Some(b"Widget")
+        })
+        .unwrap()
+        .0;
+    let form = result
+        .dereference(result.catalog().unwrap().get(b"AcroForm").unwrap())
+        .unwrap()
+        .1
+        .as_dict()
+        .unwrap();
+    assert_eq!(
+        form.get(b"Fields").unwrap().as_array().unwrap()[0]
+            .as_reference()
+            .unwrap(),
+        widget
+    );
+    for file in [&input, &saved, &printed] {
+        let _ = remove_file(file);
+    }
+}
