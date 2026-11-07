@@ -76,14 +76,8 @@ pub(crate) struct PageSizeEntry {
     crop_width_points: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     crop_height_points: Option<f64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    dominant_image_width_px: Option<i64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    dominant_image_height_px: Option<i64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    dominant_image_width_points: Option<f64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    dominant_image_height_points: Option<f64>,
+    #[serde(flatten)]
+    dominant_image: Option<FullPageImage>,
 }
 
 #[derive(Clone, Copy)]
@@ -123,6 +117,7 @@ impl Matrix {
         outer.concat(self)
     }
 
+    #[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
     pub(crate) fn transform(self, x: f64, y: f64) -> (f64, f64) {
         (
             self.a * x + self.c * y + self.e,
@@ -131,12 +126,18 @@ impl Matrix {
     }
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Serialize)]
 pub(crate) struct FullPageImage {
+    #[serde(rename = "dominantImageWidthPx")]
     width_px: i64,
+    #[serde(rename = "dominantImageHeightPx")]
     height_px: i64,
+    #[serde(rename = "dominantImageWidthPoints")]
     width_points: f64,
+    #[serde(rename = "dominantImageHeightPoints")]
     height_points: f64,
+    #[serde(rename = "allImagesPageAligned")]
+    all_images_page_aligned: bool,
 }
 
 pub(crate) fn resolved_dictionary<'a>(
@@ -159,12 +160,12 @@ fn collect_image_dimensions(
         return;
     };
     for (name, object) in xobjects {
-        let stream = match object {
-            Object::Reference(id) => document.get_object(*id).and_then(Object::as_stream).ok(),
-            Object::Stream(stream) => Some(stream),
-            _ => None,
-        };
-        let Some(stream) = stream else {
+        images.remove(name);
+        let Some(stream) = document
+            .resolved(object)
+            .ok()
+            .and_then(|value| value.as_stream().ok())
+        else {
             continue;
         };
         if stream.dict.get(b"Subtype").and_then(Object::as_name).ok() != Some(b"Image") {
@@ -204,49 +205,22 @@ pub(crate) fn object_number(object: &Object) -> Option<f64> {
 }
 
 fn covers_page(matrix: Matrix, page_view: PdfRect) -> bool {
-    let corners = [
-        matrix.transform(0.0, 0.0),
-        matrix.transform(1.0, 0.0),
-        matrix.transform(0.0, 1.0),
-        matrix.transform(1.0, 1.0),
-    ];
-    let min_x = corners
-        .iter()
-        .map(|(x, _)| *x)
-        .fold(f64::INFINITY, f64::min);
-    let max_x = corners
-        .iter()
-        .map(|(x, _)| *x)
-        .fold(f64::NEG_INFINITY, f64::max);
-    let min_y = corners
-        .iter()
-        .map(|(_, y)| *y)
-        .fold(f64::INFINITY, f64::min);
-    let max_y = corners
-        .iter()
-        .map(|(_, y)| *y)
-        .fold(f64::NEG_INFINITY, f64::max);
-    let overlap_width = (max_x.min(page_view.x2) - min_x.max(page_view.x1)).max(0.0);
-    let overlap_height = (max_y.min(page_view.y2) - min_y.max(page_view.y1)).max(0.0);
-    overlap_width >= page_view.width() * 0.98 && overlap_height >= page_view.height() * 0.98
+    let min_x = matrix.e + matrix.a.min(0.0) + matrix.c.min(0.0);
+    let min_y = matrix.f + matrix.b.min(0.0) + matrix.d.min(0.0);
+    let max_x = matrix.e + matrix.a.max(0.0) + matrix.c.max(0.0);
+    let max_y = matrix.f + matrix.b.max(0.0) + matrix.d.max(0.0);
+    max_x.min(page_view.x2) - min_x.max(page_view.x1) >= page_view.width() * 0.98
+        && max_y.min(page_view.y2) - min_y.max(page_view.y1) >= page_view.height() * 0.98
 }
-
-fn decode_page_content_with_limit(
-    document: &Document,
-    page_id: ObjectId,
-    max_decompressed_bytes: usize,
-) -> Result<Content<Vec<Operation>>> {
-    Ok(decode_page_content_with_inline_images(document, page_id, max_decompressed_bytes)?.0)
-}
-
-/// Each inline image's declared facts, in content order.
-pub(crate) type InlineImages = Vec<crate::content_parse::TInlineImageFacts>;
 
 pub(crate) fn decode_page_content_with_inline_images(
     document: &Document,
     page_id: ObjectId,
     max_decompressed_bytes: usize,
-) -> Result<(Content<Vec<Operation>>, InlineImages)> {
+) -> Result<(
+    Content<Vec<Operation>>,
+    Vec<crate::content_parse::TInlineImageFacts>,
+)> {
     let bytes = crate::page_content_with_limit(document, page_id, max_decompressed_bytes)
         .map_err(|error| {
             if matches!(
@@ -287,15 +261,19 @@ fn dominant_full_page_image_with_limit(
     if images.is_empty() {
         return Ok(None);
     }
-    let content = decode_page_content_with_limit(document, page_id, max_decompressed_bytes)?;
+    let (content, inline_images) =
+        decode_page_content_with_inline_images(document, page_id, max_decompressed_bytes)?;
+    let mut aligned = inline_images.is_empty();
     let mut matrix = Matrix::IDENTITY;
     let mut stack = Vec::new();
     let mut dominant: Option<FullPageImage> = None;
-
     for operation in content.operations {
         match operation.operator.as_str() {
-            "q" => stack.push(matrix),
-            "Q" => matrix = stack.pop().unwrap_or(Matrix::IDENTITY),
+            "q" if operation.operands.is_empty() => stack.push(matrix),
+            "Q" if operation.operands.is_empty() => match stack.pop() {
+                Some(saved) => matrix = saved,
+                None => aligned = false,
+            },
             "cm" if operation.operands.len() == 6 => {
                 let values = operation
                     .operands
@@ -311,13 +289,31 @@ fn dominant_full_page_image_with_limit(
                         e: values[4],
                         f: values[5],
                     });
+                } else {
+                    aligned = false;
                 }
             }
-            "Do" if operation.operands.len() == 1 && covers_page(matrix, page_view) => {
+            "cm" => aligned = false,
+            "Do" => {
+                let same = |a: f64, b: f64| (a - b).abs() <= 0.001;
+                aligned &= operation.operands.len() == 1
+                    && matrix.a > 0.0
+                    && matrix.d > 0.0
+                    && same(matrix.b, 0.0)
+                    && same(matrix.c, 0.0)
+                    && same(matrix.a, page_view.width())
+                    && same(matrix.d, page_view.height())
+                    && same(matrix.e, page_view.x1)
+                    && same(matrix.f, page_view.y1);
+                if operation.operands.len() != 1 || !covers_page(matrix, page_view) {
+                    continue;
+                }
                 let Ok(name) = operation.operands[0].as_name() else {
+                    aligned = false;
                     continue;
                 };
                 let Some(&(width_px, height_px)) = images.get(name) else {
+                    aligned = false;
                     continue;
                 };
                 let candidate = FullPageImage {
@@ -325,24 +321,25 @@ fn dominant_full_page_image_with_limit(
                     height_px,
                     width_points: matrix.a.hypot(matrix.b),
                     height_points: matrix.c.hypot(matrix.d),
+                    all_images_page_aligned: false,
                 };
-                if candidate.width_points <= 0.0 || candidate.height_points <= 0.0 {
-                    continue;
-                }
                 let candidate_area = candidate.width_px.saturating_mul(candidate.height_px);
-                let dominant_area = dominant
-                    .map(|image| image.width_px.saturating_mul(image.height_px))
-                    .unwrap_or(0);
-                if candidate_area > dominant_area {
+                if candidate_area
+                    > dominant.map_or(0, |image| image.width_px.saturating_mul(image.height_px))
+                {
                     dominant = Some(candidate);
                 }
             }
-            _ => {}
+            "w" | "J" | "j" | "M" | "d" | "ri" | "i" | "g" | "G" | "rg" | "RG" | "k" | "K"
+            | "cs" | "CS" | "sc" | "SC" | "scn" | "SCN" | "BMC" | "BDC" | "EMC" => {}
+            _ => aligned = false,
         }
+    }
+    if let Some(image) = &mut dominant {
+        image.all_images_page_aligned = aligned && stack.is_empty();
     }
     Ok(dominant)
 }
-
 pub(crate) fn dominant_full_page_image(
     document: &Document,
     page_id: ObjectId,
@@ -394,7 +391,6 @@ pub(crate) fn page_size_entry(
     let crop_box = resolve_inherited_box(document, page_id, b"CropBox")
         .ok()
         .and_then(|crop_box| intersect_rect(crop_box, media_box));
-
     Ok(PageSizeEntry {
         page_number,
         x_points: page_view.x1,
@@ -413,10 +409,7 @@ pub(crate) fn page_size_entry(
         crop_y_points: crop_box.map(|rect| rect.y1),
         crop_width_points: crop_box.map(PdfRect::width),
         crop_height_points: crop_box.map(PdfRect::height),
-        dominant_image_width_px: dominant_image.map(|image| image.width_px),
-        dominant_image_height_px: dominant_image.map(|image| image.height_px),
-        dominant_image_width_points: dominant_image.map(|image| image.width_points),
-        dominant_image_height_points: dominant_image.map(|image| image.height_points),
+        dominant_image,
     })
 }
 
@@ -939,7 +932,7 @@ pub(crate) mod tests {
         assert_eq!(output.width_points, 200.0);
         assert_eq!(output.height_points, 100.0);
         assert_eq!(output.rotation, 270);
-        assert_eq!(output.dominant_image_width_px, None);
+        assert_eq!(output.dominant_image.map(|image| image.width_px), None);
     }
 
     #[test]
@@ -976,10 +969,16 @@ pub(crate) mod tests {
         let output = collect_page_sizes(&document).unwrap();
         let page = &output.pages[0];
 
-        assert_eq!(page.dominant_image_width_px, Some(1000));
-        assert_eq!(page.dominant_image_height_px, Some(500));
-        assert_eq!(page.dominant_image_width_points, Some(200.0));
-        assert_eq!(page.dominant_image_height_points, Some(100.0));
+        assert_eq!(page.dominant_image.map(|image| image.width_px), Some(1000));
+        assert_eq!(page.dominant_image.map(|image| image.height_px), Some(500));
+        assert_eq!(
+            page.dominant_image.map(|image| image.width_points),
+            Some(200.0)
+        );
+        assert_eq!(
+            page.dominant_image.map(|image| image.height_points),
+            Some(100.0)
+        );
     }
 
     #[test]
@@ -1014,8 +1013,8 @@ pub(crate) mod tests {
         let output = collect_page_sizes(&document).unwrap();
         let page = &output.pages[0];
 
-        assert_eq!(page.dominant_image_width_px, None);
-        assert_eq!(page.dominant_image_height_px, None);
+        assert_eq!(page.dominant_image.map(|image| image.width_px), None);
+        assert_eq!(page.dominant_image.map(|image| image.height_px), None);
     }
 
     #[test]

@@ -134,6 +134,9 @@ export function resolveSourceMrcReuseRejection(
         && page.cropYPoints !== undefined
         && page.cropWidthPoints !== undefined
         && page.cropHeightPoints !== undefined;
+    if (page.allImagesPageAligned !== true) {
+        return 'source image placement is not proven';
+    }
     if (page.rotation % 360 !== 0) {
         return 'source page rotation is not zero';
     }

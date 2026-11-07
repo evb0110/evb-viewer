@@ -153,6 +153,7 @@ const PPM = Buffer.concat([
 ]);
 
 const mrcPageGeometry = {
+    allImagesPageAligned: true,
     mediaXPoints: 0,
     mediaYPoints: 0,
     mediaWidthPoints: 240,
@@ -3588,6 +3589,13 @@ describe('scan cleanup pipeline', () => {
     });
 
     it.each([
+        [
+            'unproven image placement',
+            {allImagesPageAligned: false},
+            {},
+            {},
+            0,
+        ],
         [
             'rotated source page',
             {rotation: 90},

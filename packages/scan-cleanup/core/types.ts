@@ -68,6 +68,7 @@ export interface IPdfPageSize {
     cropHeightPoints?: number;
     /** The rectangle the caller must ask Poppler to render for this page. */
     renderBox?: 'cropbox' | 'mediabox';
+    allImagesPageAligned?: boolean;
     dominantImageWidthPx?: number;
     dominantImageHeightPx?: number;
     dominantImageWidthPoints?: number;
