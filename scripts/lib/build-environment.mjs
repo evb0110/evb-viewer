@@ -5,6 +5,7 @@ import {
 import {existsSync} from 'node:fs';
 import {homedir} from 'node:os';
 import path from 'node:path';
+import {getCargoRustcLauncher} from './cargo-rustc-launcher.mjs';
 
 // The environment values the viewer build reads. nuxt.config.ts and the build
 // scripts take their values from readBuildEnvironment, and the release build
@@ -209,7 +210,11 @@ export function getCargoBuildEnvironment({
     return {
         env: {
             ...env,
-            RUSTC_WRAPPER: path.join(projectRoot, 'scripts', 'lib', platform === 'win32' ? 'cargo-rustc-wrapper.cmd' : 'cargo-rustc-wrapper.mjs'),
+            RUSTC_WRAPPER: platform === 'win32'
+                ? getCargoRustcLauncher(projectRoot, env)
+                : path.join(projectRoot, 'scripts', 'lib', 'cargo-rustc-wrapper.mjs'),
+            EVB_CARGO_NODE: process.execPath,
+            EVB_CARGO_WRAPPER_SCRIPT: path.join(projectRoot, 'scripts', 'lib', 'cargo-rustc-wrapper.mjs'),
             EVB_CARGO_INNER_WRAPPER: inner,
             EVB_CARGO_RUSTFLAGS: JSON.stringify(getCargoRustflags({
                 env,

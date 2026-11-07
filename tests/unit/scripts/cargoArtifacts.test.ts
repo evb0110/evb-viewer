@@ -1,3 +1,4 @@
+import { spawnSync } from 'node:child_process';
 import {
     mkdir,
     mkdtemp,
@@ -244,10 +245,42 @@ describe('Cargo artifact staging', () => {
         ]);
     });
 
+    it.skipIf(process.platform !== 'win32')('forwards long Windows compiler arguments intact', async () => {
+        const directory = await mkdtemp(path.join(tmpdir(), 'cargo-long-args-'));
+        try {
+            const output = path.join(directory, 'args.json');
+            const capture = path.join(directory, 'capture.cjs');
+            await writeFile(capture, 'require(\'node:fs\').writeFileSync(process.env.ARG_OUTPUT, JSON.stringify(process.argv.slice(2)))');
+            const args = Array.from({length: 150}, (_, index) => `arg ${index} ${'x'.repeat(80)} "quoted"`);
+            const {env} = getCargoBuildEnvironment({projectRoot: process.cwd()});
+            const result = spawnSync(env.RUSTC_WRAPPER, [
+                process.execPath,
+                capture,
+                ...args,
+            ], {
+                env: {
+                    ...env,
+                    ARG_OUTPUT: output,
+                },
+                encoding: 'utf8',
+            });
+            expect(result.stderr).toBe('');
+            expect(result.status).toBe(0);
+            expect(JSON.parse(await readFile(output, 'utf8')).slice(0, args.length)).toEqual(args);
+            expect(args.join(' ').length).toBeGreaterThan(8191);
+        } finally {
+            await rm(directory, {
+                recursive: true,
+                force: true,
+            });
+        }
+    });
+
     it('uses an existing Rust wrapper, probes sccache, and safely degrades when unavailable', () => {
         const existing = {RUSTC_WRAPPER: '/custom/wrapper'};
         const configured = getCargoBuildEnvironment({
             env: existing,
+            platform: 'linux',
             projectRoot: '/repo',
             runCommand: vi.fn(),
         });
@@ -260,6 +293,7 @@ describe('Cargo artifact staging', () => {
         }));
         const cached = getCargoBuildEnvironment({
             env: {EVB_RUST_SCCACHE: '1'},
+            platform: 'linux',
             projectRoot: '/repo',
             runCommand: probe,
         });
@@ -267,6 +301,7 @@ describe('Cargo artifact staging', () => {
         expect(cached.sccache).toBe('sccache 0.10.0');
         expect(getCargoBuildEnvironment({
             env: {EVB_RUST_SCCACHE: '1'},
+            platform: 'linux',
             projectRoot: '/repo',
             runCommand: vi.fn(() => ({
                 status: null,
@@ -275,6 +310,7 @@ describe('Cargo artifact staging', () => {
         }).sccache).toBe('unavailable');
         expect(getCargoBuildEnvironment({
             env: {},
+            platform: 'linux',
             projectRoot: '/repo',
             runCommand: vi.fn(),
         }).sccache).toBe('disabled');

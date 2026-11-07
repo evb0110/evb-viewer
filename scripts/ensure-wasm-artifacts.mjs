@@ -55,7 +55,8 @@ export function computeWasmBuildIdentity(root, artifact, env = process.env) {
         }),
         path.join(root, 'native', 'rust-toolchain.toml'),
         path.join(root, 'scripts', 'lib', 'cargo-rustc-wrapper.mjs'),
-        path.join(root, 'scripts', 'lib', 'cargo-rustc-wrapper.cmd'),
+        path.join(root, 'scripts', 'lib', 'cargo-rustc-wrapper.rs'),
+        path.join(root, 'scripts', 'lib', 'cargo-rustc-launcher.mjs'),
     ]) {
         if (!existsSync(input)) continue;
         hash.update(`${path.relative(root, input)}\0`).update(readFileSync(input)).update('\0');
