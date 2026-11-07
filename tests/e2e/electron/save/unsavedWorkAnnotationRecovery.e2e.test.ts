@@ -1352,7 +1352,7 @@ if(process.type==='browser'){
         }
     }, 240_000);
 
-    it('protects another document after an admitted image exceeds the recovery budget', async () => {
+    it('recovers and saves an admitted large image alongside another dirty document', async () => {
         outputDirectory = mkdtempSync(join(tmpdir(), 'evb-recovery-isolation-'));
         const imagePath = join(outputDirectory, 'accepted-large-image.png');
         const pixels = new Uint8Array(1200 * 1000 * 3);
@@ -1422,17 +1422,16 @@ if(process.type==='browser'){
             const imageTab = checkpoint?.tabs.find(tab => tab.fileName === basename(imageDocumentPath));
             const noteTab = checkpoint?.tabs.find(tab => tab.fileName === basename(noteDocumentPath));
             const artifact = noteTab?.annotationRecovery;
-            if (!imageTab?.annotationRecoveryFailure || !artifact) return null;
+            if (!imageTab?.annotationRecovery || imageTab.annotationRecoveryFailure || !artifact) return null;
             const payload = JSON.parse(readFileSync(join(electronUserDataPath(session!.name), 'workspace-annotation-recovery', `${artifact.artifactId}.json`), 'utf8')) as {payload?: {entities?: Array<{text?: string}>}};
             return {
-                rejected: imageTab.annotationRecoveryFailure.reason,
+                imageProtected: true,
                 notePresent: payload.payload?.entities?.some(entity => entity.text === marker) ?? false,
             };
         }, {timeout: 20_000}).toEqual({
-            rejected: 'capture-rejected',
+            imageProtected: true,
             notePresent: true,
         });
-        await session.page.waitForFunction(() => document.body.textContent?.includes('Latest edits are not protected'), {timeout: 5_000});
         expect(readFileSync(noteDocumentPath)).toEqual(sourceBytes);
         const crashed = session;
         await crashed.browser.disconnect();
@@ -1452,6 +1451,15 @@ if(process.type==='browser'){
         await clickVisibleToolbarButton(session.page, 'Save');
         await expect.poll(() => readPdfTextAnnotationRecords(noteDocumentPath), {timeout: 30_000})
             .toEqual(expect.arrayContaining([expect.objectContaining({contents: marker})]));
+        await clickTab(basename(imageDocumentPath));
+        await waitForActiveDocumentSource(session.page, imageDocumentPath, 30_000);
+        await waitForViewerInteractive(session.page, 30_000);
+        await session.page.waitForSelector('.editor-pane.is-active .pdf-annotation-editor-stamp[data-annotation-kind="placed-image"]', {visible: true});
+        await saveViaVisibleToolbarWithDeadline(session.page, 30_000, imageDocumentPath);
+        const saved = await PDFDocument.load(readFileSync(imageDocumentPath));
+        const annotations = saved.getPage(0).node.Annots()?.asArray() ?? [];
+        expect(annotations.map(ref => saved.context.lookup(ref, PDFDict))
+            .filter(annotation => annotation.get(PDFName.of('EVBPlacedImage'))?.toString() === 'true')).toHaveLength(1);
     }, 180_000);
 
     it('keeps admitted bookmark edits on the shared undo timeline and saves the final redo', async () => {

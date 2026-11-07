@@ -1,5 +1,14 @@
 import { getErrorMessage } from '@electron/utils/error';
 import {
+    admitAnnotationRecovery,
+    getAnnotationRecoveryRefs,
+    readAnnotationRecoveryArtifact,
+    removeAnnotationRecoveryArtifact,
+    removeAnnotationRecoveryArtifacts,
+    writeAnnotationRecoveryArtifact,
+    type IAnnotationRecoveryArtifact,
+} from '@electron/workspaceAnnotationRecoveryArtifacts';
+import {
     app,
     webContents,
 } from 'electron';
@@ -19,7 +28,6 @@ import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import {
     type IWorkspaceCheckpoint,
-    type IWorkspaceCheckpointAnnotationRecovery,
     workspaceCheckpointSchema,
 } from '@contracts/workspaceCheckpoint';
 import {
@@ -228,60 +236,6 @@ class WorkspaceCheckpointReadError extends Error {
     }
 }
 
-
-function getAnnotationRecoveryDirectory() {
-    return join(app.getPath('userData'), 'workspace-annotation-recovery');
-}
-
-function getAnnotationRecoveryPath(artifactId: string) {
-    return join(getAnnotationRecoveryDirectory(), `${artifactId}.json`);
-}
-
-
-const annotationRecoveryArtifactSchema = v.pipe(v.object({
-    version: v.literal(1),
-    ref: v.object({
-        artifactId: v.pipe(v.string(), v.regex(/^[a-zA-Z0-9_-]{1,128}$/u)),
-        documentInstanceId: v.pipe(v.string(), v.minLength(1), v.maxLength(512)),
-        workingCopyRef: v.nullable(v.pipe(v.string(), v.check(value => parseDocumentRef(value) !== null), v.transform(value => parseDocumentRef(value)!))),
-        workingByteRevision: v.pipe(v.string(), v.minLength(1), v.maxLength(512)),
-        annotationMutationGeneration: v.pipe(safeIntegerSchema, v.minValue(0)),
-    }),
-    payload: v.unknown(),
-}), v.check(value => value.payload !== undefined));
-type IAnnotationRecoveryArtifact = v.InferOutput<typeof annotationRecoveryArtifactSchema>;
-
-async function writeAnnotationRecoveryArtifact(artifact: IAnnotationRecoveryArtifact) {
-    const {ref} = artifact;
-    const path = getAnnotationRecoveryPath(ref.artifactId);
-    await mkdir(getAnnotationRecoveryDirectory(), {recursive: true});
-    await writeJsonAtomic(path, artifact);
-}
-
-async function readAnnotationRecoveryArtifact(ref: IWorkspaceCheckpointAnnotationRecovery) {
-    const raw = await readFile(getAnnotationRecoveryPath(ref.artifactId), 'utf-8');
-    const parsed = v.safeParse(annotationRecoveryArtifactSchema, JSON.parse(raw), {abortEarly: true});
-    const artifact = parsed.success ? parsed.output : null;
-    if (!artifact
-        || artifact.ref.artifactId !== ref.artifactId
-        || artifact.ref.documentInstanceId !== ref.documentInstanceId
-        || artifact.ref.workingByteRevision !== ref.workingByteRevision
-        || artifact.ref.annotationMutationGeneration !== ref.annotationMutationGeneration
-        || artifact.ref.workingCopyRef !== ref.workingCopyRef) {
-        throw new Error(`Annotation recovery artifact metadata mismatch: ${ref.artifactId}`);
-    }
-    return artifact.payload;
-}
-
-function getAnnotationRecoveryRefs(checkpoint: IWorkspaceCheckpoint | null) {
-    return checkpoint?.tabs.flatMap(tab => tab.annotationRecovery ? [tab.annotationRecovery] : []) ?? [];
-}
-
-async function removeAnnotationRecoveryArtifacts(checkpoint: IWorkspaceCheckpoint | null) {
-    await Promise.all(getAnnotationRecoveryRefs(checkpoint).map(ref => (
-        rm(getAnnotationRecoveryPath(ref.artifactId), {force: true})
-    )));
-}
 
 // The recovery identity belongs to the WebContents and survives a reload, which
 // the automation checkpoint reset relies on. Once that WebContents' load has
@@ -809,21 +763,23 @@ async function commitSave(save: Omit<IPendingSave, 'timer'>) {
         if (!discardedOwners.has(save.stored.ownerRecoveryId)) {
             const previous = durableRecords.get(save.stored.ownerRecoveryId);
             // Artifacts go first, so the record never names a missing one.
-            await Promise.all(save.artifacts.map(artifact => (
-                writeAnnotationRecoveryArtifact(artifact)
-            )));
             try {
+                for (const artifact of save.artifacts) await writeAnnotationRecoveryArtifact(artifact);
                 await writeRecord(save.stored);
             } catch (error) {
-                await Promise.all(save.artifacts.map(artifact => (
-                    rm(getAnnotationRecoveryPath(artifact.ref.artifactId), {force: true})
-                )));
+                // Publication may have reached disk before a flush failed. Never remove a referenced artifact.
+                const durable = await readRecordFile(save.stored.ownerRecoveryId).catch(() => undefined);
+                if (durable !== undefined) {
+                    const retained = new Set(getAnnotationRecoveryRefs(durable?.checkpoint ?? null).map(ref => ref.artifactId));
+                    await Promise.all(save.artifacts.filter(artifact => !retained.has(artifact.ref.artifactId))
+                        .map(artifact => removeAnnotationRecoveryArtifact(artifact.ref)));
+                }
                 throw error;
             }
             const currentArtifactIds = new Set(getAnnotationRecoveryRefs(save.stored.checkpoint).map(ref => ref.artifactId));
             await Promise.all(getAnnotationRecoveryRefs(previous?.checkpoint ?? null)
                 .filter(ref => !currentArtifactIds.has(ref.artifactId))
-                .map(ref => rm(getAnnotationRecoveryPath(ref.artifactId), {force: true})));
+                .map(removeAnnotationRecoveryArtifact));
         }
         for (const waiter of save.waiters) {
             waiter.resolve(!discardedOwners.has(save.stored.ownerRecoveryId));
@@ -888,42 +844,6 @@ export async function flushPendingWorkspaceCheckpointSave() {
     await serialize(flushPendingSaves);
 }
 
-function admitAnnotationRecovery(checkpoint: IWorkspaceCheckpoint) {
-    const artifacts: IAnnotationRecoveryArtifact[] = [];
-    const admittedCheckpoint: IWorkspaceCheckpoint = {
-        ...checkpoint,
-        tabs: checkpoint.tabs.map((tab) => {
-            const capture = tab.annotationRecovery;
-            if (!capture || capture.payload === undefined) {
-                return tab;
-            }
-            const serialized = JSON.stringify(capture.payload);
-            if (serialized.length > 8 * 1024 * 1024) {
-                throw new Error('Canonical annotation recovery exceeds the checkpoint artifact budget');
-            }
-            const ref: IWorkspaceCheckpointAnnotationRecovery = {
-                artifactId: randomUUID().replaceAll('-', ''),
-                documentInstanceId: capture.documentInstanceId,
-                workingCopyRef: capture.workingCopyRef,
-                workingByteRevision: capture.workingByteRevision,
-                annotationMutationGeneration: capture.annotationMutationGeneration,
-            };
-            artifacts.push({
-                version: 1,
-                ref,
-                payload: capture.payload,
-            });
-            return {
-                ...tab,
-                annotationRecovery: ref,
-            };
-        }),
-    };
-    return {
-        checkpoint: admittedCheckpoint,
-        artifacts,
-    };
-}
 
 function retainUnresolvedCheckpointTabs(
     checkpoint: IWorkspaceCheckpoint,
@@ -1178,7 +1098,13 @@ export async function claimWorkspaceCheckpoint(
                     const {
                         annotationRecovery: _unavailable, ...tabWithoutAnnotationRecovery
                     } = tab;
-                    return tabWithoutAnnotationRecovery;
+                    return {
+                        ...tabWithoutAnnotationRecovery,
+                        annotationRecoveryFailure: {
+                            reason: 'capture-rejected' as const,
+                            message: getErrorMessage(error).slice(0, 4096),
+                        },
+                    };
                 }
             })),
         };

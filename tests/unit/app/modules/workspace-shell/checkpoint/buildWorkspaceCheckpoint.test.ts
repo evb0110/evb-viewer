@@ -45,7 +45,7 @@ describe('buildWorkspaceCheckpoint', () => {
             zoomMode: 'custom' as const,
             continuousScroll: false,
             viewMode: 'facing' as const,
-            viewRotation: 90,
+            viewRotation: 90 as const,
         };
         view.restoreView({
             toolbarSnapshot: toolbar,

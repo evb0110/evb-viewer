@@ -11,6 +11,41 @@ import {
 import {parseEpochMs} from '@contracts/timestamps';
 import {PDF_BOOKMARK_RECOVERY_ENTRY_SCHEMA} from '@contracts/pdfBookmarkEntry';
 import {PDF_PAGE_LABEL_STYLE_VALUES} from '@contracts/pdfPageLabels';
+import {isRecord} from '@contracts/runtimeGuards';
+
+export const ANNOTATION_RASTER_MAX_BYTES = 128 * 1024 * 1024;
+const recoveryRasterSchema = v.object({
+    kind: v.literal('raster'),
+    mimeType: v.picklist([
+        'image/png',
+        'image/jpeg',
+    ]),
+    dataBase64: v.pipe(v.string(), v.maxLength(Math.ceil(ANNOTATION_RASTER_MAX_BYTES / 3) * 4)),
+    byteLength: v.pipe(v.number(), v.safeInteger(), v.minValue(1), v.maxValue(ANNOTATION_RASTER_MAX_BYTES)),
+    sha256: v.pipe(v.string(), v.regex(/^[a-f0-9]{64}$/u)),
+    width: v.pipe(v.number(), v.safeInteger(), v.minValue(1), v.maxValue(32_768)),
+    height: v.pipe(v.number(), v.safeInteger(), v.minValue(1), v.maxValue(32_768)),
+});
+export type IWorkspaceRecoveryRaster = v.InferOutput<typeof recoveryRasterSchema>;
+
+/** Raster bytes have their own durable storage; only their metadata consumes the JSON budget. */
+export function mapWorkspaceRecoveryRasters(
+    payload: unknown,
+    transform: (image: IWorkspaceRecoveryRaster, entityIndex: number) => IWorkspaceRecoveryRaster,
+): unknown {
+    if (!isRecord(payload) || !Array.isArray(payload.entities)) return payload;
+    return {
+        ...payload,
+        entities: payload.entities.map((entity: unknown, index: number) => {
+            if (!isRecord(entity) || entity.kind !== 'placed-image'
+                || !isRecord(entity.image) || entity.image.kind !== 'raster') return entity;
+            return {
+                ...entity,
+                image: transform(v.parse(recoveryRasterSchema, entity.image), index),
+            };
+        }),
+    };
+}
 
 const editRevisionSchema = v.pipe(v.number(), v.safeInteger(), v.minValue(0));
 
@@ -66,12 +101,15 @@ function createLayoutNodeSchema(depth: number): v.GenericSchema<unknown, TEditor
 }
 const layoutSchema: v.GenericSchema<unknown, TEditorLayoutNode | null> = v.lazy(() => v.nullable(createLayoutNodeSchema(0)));
 
-const annotationRecoverySchema = v.object({
+export const workspaceAnnotationRecoveryRefSchema = v.object({
     artifactId: v.pipe(v.string(), v.regex(/^[a-zA-Z0-9_-]{1,128}$/u)),
     documentInstanceId: v.pipe(v.string(), v.minLength(1), v.maxLength(512)),
     workingCopyRef: v.nullable(documentRefSchema),
     workingByteRevision: v.pipe(v.string(), v.minLength(1), v.maxLength(512)),
     annotationMutationGeneration: v.pipe(v.number(), v.check(value => Number.isSafeInteger(value)), v.minValue(0)),
+});
+const annotationRecoverySchema = v.object({
+    ...workspaceAnnotationRecoveryRefSchema.entries,
     payload: v.optional(v.unknown()),
 });
 

@@ -17,6 +17,7 @@ import {AnnotationStore} from '@app/modules/pdf-viewer/annotations/domain/annota
 import {restoreCanonicalAnnotationRecovery} from '@app/modules/pdf-viewer/annotations/domain/annotationRecovery';
 import type * as NodeFsPromises from 'node:fs/promises';
 import { EventEmitter } from 'node:events';
+import {createHash} from 'node:crypto';
 import {
     dirname,
     join,
@@ -97,6 +98,7 @@ const state = vi.hoisted(() => ({
     restoredOptions: new Map<string, unknown>(),
     recoveryClaims: new Map<string, Set<number>>(),
     failNextCheckpointWrite: false,
+    failAfterCheckpointWrite: false,
     blockCleanup: vi.fn(),
     failNextCheckpointRead: false,
     holdCheckpointRead: null as null | (() => Promise<void>),
@@ -255,7 +257,11 @@ vi.mock('@electron/utils/atomicReplace', async importOriginal => {
                 state.failNextCheckpointWrite = false;
                 throw Object.assign(new Error('injected checkpoint publication failure'), {code: 'EACCES'});
             }
-            return actual.writeJsonAtomic(...args);
+            await actual.writeJsonAtomic(...args);
+            if (state.failAfterCheckpointWrite && dirname(args[0]) === join(state.userDataPath, 'workspace-recovery')) {
+                state.failAfterCheckpointWrite = false;
+                throw new Error('injected checkpoint post-publication failure');
+            }
         },
     };
 });
@@ -381,6 +387,51 @@ async function artifactBuffers() {
     })));
 }
 
+function rasterRecoveryCheckpoint() {
+    const bytes = Buffer.alloc(7 * 1024 * 1024, 90);
+    const payload = {
+        version: 1,
+        annotationMutationGeneration: 1,
+        entities: [{
+            kind: 'placed-image',
+            identity: {id: 'large-image'},
+            pageIndex: 0,
+            revision: 1,
+            persistedRevision: -1,
+            deleted: false,
+            createdAt: null,
+            modifiedAt: null,
+            author: null,
+            rect: {
+                left: 0.1,
+                top: 0.1,
+                width: 0.5,
+                height: 0.5,
+            },
+            rotation: 0,
+            image: {
+                kind: 'raster',
+                mimeType: 'image/png',
+                dataBase64: bytes.toString('base64'),
+                byteLength: bytes.length,
+                sha256: createHash('sha256').update(bytes).digest('hex'),
+                width: 1500,
+                height: 1500,
+            },
+        }],
+        foreign: [],
+        drafts: [],
+    };
+    const recoveryCheckpoint = noteCheckpoint();
+    recoveryCheckpoint.tabs[0]!.annotationRecovery!.payload = payload;
+    return {
+        bytes,
+        payload,
+        recoveryCheckpoint,
+    };
+}
+
+
 describe('workspace checkpoint store', () => {
     beforeAll(() => vi.useFakeTimers({toFake: ['Date']}));
     afterAll(() => vi.useRealTimers());
@@ -396,6 +447,7 @@ describe('workspace checkpoint store', () => {
         state.restoredOptions.clear();
         state.recoveryClaims.clear();
         state.failNextCheckpointWrite = false;
+        state.failAfterCheckpointWrite = false;
         state.blockCleanup.mockReset();
         state.failNextCheckpointRead = false;
         state.holdCheckpointRead = null;
@@ -830,6 +882,98 @@ describe('workspace checkpoint store', () => {
         await flushPendingWorkspaceCheckpointSave();
         reloadRenderer(window);
         await expect(claimWorkspaceCheckpoint(11, window)).resolves.toMatchObject({capturedAt: 125});
+    });
+
+    it('recovers large raster bytes through a bounded artifact and retires its assets', async () => {
+        const {
+            bytes, payload, recoveryCheckpoint,
+        } = rasterRecoveryCheckpoint();
+        // Restore exercises the renderer's metadata admission as well as main's artifact admission.
+        expect(() => restoreCanonicalAnnotationRecovery(new AnnotationStore(), payload)).not.toThrow();
+        state.owners.set(workingCopyRef, 11);
+        state.originalPaths.set(workingCopyRef, '/documents/draft.pdf');
+        await saveWorkspaceCheckpoint(recoveryCheckpoint, 11);
+        const ref = (await readRecoveryRecord()).checkpoint.tabs[0].annotationRecovery;
+        const directory = join(state.userDataPath, 'workspace-annotation-recovery');
+        const artifact = await readFile(join(directory, `${ref.artifactId}.json`), 'utf8');
+        expect(Buffer.byteLength(artifact)).toBeLessThan(8 * 1024 * 1024);
+        expect(artifact).not.toContain(bytes.toString('base64'));
+        const claimed = await claimWorkspaceCheckpoint(22);
+        expect(claimed?.tabs[0]?.annotationRecovery?.payload).toEqual(payload);
+        await clearWorkspaceCheckpoint();
+        expect(await readdir(directory)).toEqual([]);
+    });
+
+    it.each([
+        'missing',
+        'tampered',
+    ])('reports a %s raster asset without silently restoring a partial annotation', async failure => {
+        const {
+            bytes, recoveryCheckpoint,
+        } = rasterRecoveryCheckpoint();
+        state.owners.set(workingCopyRef, 11);
+        state.originalPaths.set(workingCopyRef, '/documents/draft.pdf');
+        await saveWorkspaceCheckpoint(recoveryCheckpoint, 11);
+        const ref = (await readRecoveryRecord()).checkpoint.tabs[0].annotationRecovery;
+        const asset = join(state.userDataPath, 'workspace-annotation-recovery', `${ref.artifactId}.json.assets`, '0.bin');
+        if (failure === 'missing') await rm(asset);
+        else {
+            bytes[0] = bytes[0]! ^ 1;
+            await writeFile(asset, bytes);
+        }
+        const restored = await claimWorkspaceCheckpoint(22);
+        expect(restored?.tabs[0]?.annotationRecovery?.payload).toBeUndefined();
+        expect(restored?.tabs[0]?.annotationRecoveryFailure?.message).toMatch(/ENOENT|integrity mismatch/u);
+        expect(restored?.tabs[0]?.workingCopyRef).toBe(workingCopyRef);
+        // The original record retains the recovery identity for diagnosis/recovery.
+        expect((await readRecoveryRecord()).checkpoint.tabs[0].annotationRecovery.artifactId).toBe(ref.artifactId);
+    });
+
+    it.each([
+        'asset',
+        'record',
+    ])('keeps the previous raster recovery after failed %s publication', async failure => {
+        const {recoveryCheckpoint} = rasterRecoveryCheckpoint();
+        state.owners.set(workingCopyRef, 11);
+        state.originalPaths.set(workingCopyRef, '/documents/draft.pdf');
+        await saveWorkspaceCheckpoint(recoveryCheckpoint, 11);
+        const ref = (await readRecoveryRecord()).checkpoint.tabs[0].annotationRecovery;
+        await claimWorkspaceCheckpoint(22);
+        if (failure === 'record') state.failNextCheckpointWrite = true;
+        else {
+            const {payload} = rasterRecoveryCheckpoint();
+            payload.entities[0]!.image.sha256 = '0'.repeat(64);
+            recoveryCheckpoint.tabs[0]!.annotationRecovery!.payload = payload;
+        }
+        await expect(saveWorkspaceCheckpoint(recoveryCheckpoint, 22)).rejects.toThrow(/publication failure|integrity mismatch/u);
+        expect((await readRecoveryRecord()).checkpoint.tabs[0].annotationRecovery.artifactId).toBe(ref.artifactId);
+        const directory = join(state.userDataPath, 'workspace-annotation-recovery');
+        expect((await readdir(directory)).sort()).toEqual([
+            `${ref.artifactId}.json`,
+            `${ref.artifactId}.json.assets`,
+        ]);
+        expect((await readFile(join(directory, `${ref.artifactId}.json.assets`, '0.bin'))).length).toBe(7 * 1024 * 1024);
+    });
+
+    it('retains raster assets referenced by a checkpoint when its final flush reports failure', async () => {
+        const {
+            payload, recoveryCheckpoint,
+        } = rasterRecoveryCheckpoint();
+        state.owners.set(workingCopyRef, 11);
+        state.originalPaths.set(workingCopyRef, '/documents/draft.pdf');
+        await saveWorkspaceCheckpoint(recoveryCheckpoint, 11);
+        const previous = (await readRecoveryRecord()).checkpoint.tabs[0].annotationRecovery;
+        await claimWorkspaceCheckpoint(22);
+        state.failAfterCheckpointWrite = true;
+        await expect(saveWorkspaceCheckpoint(recoveryCheckpoint, 22)).rejects.toThrow('post-publication failure');
+        const published = (await readRecoveryRecord()).checkpoint.tabs[0].annotationRecovery;
+        expect(published.artifactId).not.toBe(previous.artifactId);
+        const directory = join(state.userDataPath, 'workspace-annotation-recovery');
+        expect(await readdir(directory)).toEqual(expect.arrayContaining([
+            `${previous.artifactId}.json.assets`,
+            `${published.artifactId}.json.assets`,
+        ]));
+        expect((await claimWorkspaceCheckpoint(33))?.tabs[0]?.annotationRecovery?.payload).toEqual(payload);
     });
 
     it('publishes annotation recovery as a fenced artifact and retains it after dirty acknowledgement', async () => {
