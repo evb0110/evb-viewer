@@ -199,6 +199,7 @@ export { ChunkedStream, indexObjectsBounded, sendRange };
                 JSON.stringify({version: '9.8.7'}),
             );
             await writeFile(path.join(pdfjsRoot, 'build', 'pdf.worker.mjs'), workerSource);
+            await writeFile(path.join(pdfjsRoot, 'LICENSE_BROTLI'), 'Brotli copyright and MIT permission notice\n');
             for (const directory of [
                 'standard_fonts',
                 'cmaps',
@@ -230,6 +231,8 @@ export { ChunkedStream, indexObjectsBounded, sendRange };
             const [firstId = ''] = await readIds();
             expect(await readIds()).toEqual([firstId]);
             expect(firstId).toMatch(/^[a-f0-9]{64}$/u);
+            expect(await readFile(path.join(targetRoot, 'LICENSE_BROTLI'), 'utf8')).toBe('Brotli copyright and MIT permission notice\n');
+            expect(await readFile(path.join(targetRoot, firstId, 'LICENSE_BROTLI'), 'utf8')).toBe('Brotli copyright and MIT permission notice\n');
             expect(await readFile(path.join(targetRoot, firstId, 'pdf.worker.min.mjs'), 'utf8')).toBe(publicWorkerSource);
             expect(await readFile(path.join(targetRoot, firstId, '.pdfjs-version'), 'utf8')).toBe('9.8.7\n');
             expect(await readFile(path.join(targetRoot, firstId, 'images', 'annotation-note.svg'), 'utf8')).toBe('<svg/>');
