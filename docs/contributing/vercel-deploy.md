@@ -1,5 +1,7 @@
 # Vercel Deployment
 
+For the Russia mirror, use the separate [Yandex deployment command](yandex-deploy.md).
+
 ## Project
 
 - Vercel project name: `evb-viewer-web`
