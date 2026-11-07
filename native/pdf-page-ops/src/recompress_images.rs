@@ -344,6 +344,7 @@ struct JpegCandidate {
     bytes: Vec<u8>,
     /// Its color space reads one component.
     gray_space: bool,
+    icc_space: bool,
 }
 
 /// The image's stored bytes when it is a JPEG this pass can rewrite without
@@ -370,7 +371,9 @@ fn jpeg_candidate(
         }
         _ => false,
     };
-    let components = match resolved(b"ColorSpace") {
+    let color_space = resolved(b"ColorSpace");
+    let icc_space = matches!(&color_space, Some(Object::Array(space)) if space.first().and_then(|name| name.as_name().ok()) == Some(b"ICCBased"));
+    let components = match color_space {
         Some(Object::Name(name)) if name == b"DeviceRGB" => Some(3),
         Some(Object::Name(name)) if name == b"DeviceGray" => Some(1),
         Some(Object::Array(space))
@@ -386,10 +389,6 @@ fn jpeg_candidate(
         _ => None,
     };
     let matte = resolved(b"SMask")
-        .and_then(|mask| match mask {
-            Object::Reference(mask_id) => document.get_object(mask_id).ok().cloned(),
-            other => Some(other),
-        })
         .and_then(|mask| mask.as_stream().ok().map(|mask| mask.dict.has(b"Matte")))
         .unwrap_or(false);
     let supported = filter_is_dct
@@ -422,6 +421,7 @@ fn jpeg_candidate(
     Ok(Some(JpegCandidate {
         bytes,
         gray_space: components == Some(1),
+        icc_space,
     }))
 }
 
@@ -572,10 +572,10 @@ fn recompress_image(
     );
     // A gray color space over a color JPEG is read differently by viewers;
     // such an image keeps its bytes.
-    let Some(recompressed) = recompressed
-        .ok()
-        .filter(|jpeg| jpeg.grayscale || !source.gray_space)
-    else {
+    let Some(recompressed) = recompressed.ok().filter(|jpeg| {
+        (!source.gray_space || jpeg.grayscale)
+            && (source.gray_space || !source.icc_space || !jpeg.grayscale)
+    }) else {
         return Ok((ImageOutcome::Unsupported, source_bytes, 0));
     };
     let new_bytes = recompressed.data.len() as u64;
@@ -586,10 +586,7 @@ fn recompress_image(
     let mut dict = stream.dict.clone();
     dict.set("Width", i64::from(recompressed.width));
     dict.set("Height", i64::from(recompressed.height));
-    dict.set("Filter", Object::Name(b"DCTDecode".to_vec()));
-    // A color space that names three components cannot read one; a neutral
-    // image the encoder stored as gray says so plainly.
-    if recompressed.grayscale {
+    if recompressed.grayscale && !source.gray_space {
         dict.set("ColorSpace", Object::Name(b"DeviceGray".to_vec()));
     }
     let mut replacement = Stream::new(dict, recompressed.data);
