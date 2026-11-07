@@ -14,7 +14,10 @@ import {
     type TDocumentRef,
 } from '@contracts/documentRef';
 import type { IDocumentRevisionInfo } from '@contracts/documentRevision';
-import type { IPdfPageLabelRange } from '@contracts/pdfPageLabels';
+import {
+    PAGE_LABEL_MAX_NATIVE_START_NUMBER,
+    type IPdfPageLabelRange,
+} from '@contracts/pdfPageLabels';
 import type { TPdfViewMode } from '@contracts/shared';
 import {
     createRangePageSelection,
@@ -357,8 +360,18 @@ describe('createDocumentWorkspaceAgent', () => {
         },
         {
             style: 'D',
+            startNumber: PAGE_LABEL_MAX_NATIVE_START_NUMBER,
+            admitted: PAGE_LABEL_MAX_NATIVE_START_NUMBER,
+        },
+        {
+            style: 'D',
+            startNumber: PAGE_LABEL_MAX_NATIVE_START_NUMBER + 1,
+            admitted: PAGE_LABEL_MAX_NATIVE_START_NUMBER,
+        },
+        {
+            style: 'D',
             startNumber: 1e21,
-            admitted: Number.MAX_SAFE_INTEGER,
+            admitted: PAGE_LABEL_MAX_NATIVE_START_NUMBER,
         },
     ])('admits the same numbering through apply_range and apply_plan: $style $startNumber', async ({
         style, startNumber, admitted,
