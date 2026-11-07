@@ -24,13 +24,6 @@ import {
     type IScanCleanupManifestPageFacts,
 } from '@evb/scan-cleanup/core/policy/scanCleanupManifestPagePolicy';
 import {ScanCleanupContractError} from '@evb/scan-cleanup/core/errors';
-import {
-    assertScanCleanupPathWithinCanonicalRoot,
-    canonicalizeScanCleanupAllowedRoot,
-    createScanCleanupPathResolutionCache,
-    type IScanCleanupAllowedRoot,
-    type IScanCleanupPathResolutionCache,
-} from '@evb/scan-cleanup/core/assertScanCleanupPathWithinRoot';
 
 export {serializeNativeScanCleanupOptions} from '@evb/scan-cleanup/core/policy/scanCleanupManifestPagePolicy';
 
@@ -110,7 +103,7 @@ function defineManifestPathFields<T>() {
  * page list is defined over both the emitted page and the builder input, so
  * neither side can grow a path the other does not know about.
  */
-const MANIFEST_PAGE_PATH_FIELDS = defineManifestPathFields<TManifestPage & IScanCleanupManifestPageInput>()([
+export const MANIFEST_PAGE_PATH_FIELDS = defineManifestPathFields<TManifestPage & IScanCleanupManifestPageInput>()([
     {
         field: 'inputPath',
         label: 'input path',
@@ -133,7 +126,7 @@ const MANIFEST_PAGE_PATH_FIELDS = defineManifestPathFields<TManifestPage & IScan
     },
 ]);
 
-const MANIFEST_OUTPUT_PATH_FIELDS = defineManifestPathFields<INativeScanCleanupOutputV3>()([
+export const MANIFEST_OUTPUT_PATH_FIELDS = defineManifestPathFields<INativeScanCleanupOutputV3>()([
     {
         field: 'outputPath',
         label: 'output path',
@@ -168,7 +161,7 @@ const MANIFEST_OUTPUT_PATH_FIELDS = defineManifestPathFields<INativeScanCleanupO
     },
 ]);
 
-const MANIFEST_DETAIL_RENDER_PLAN_PATH_FIELDS = defineManifestPathFields<TManifestDetailRenderPlan>()([
+export const MANIFEST_DETAIL_RENDER_PLAN_PATH_FIELDS = defineManifestPathFields<TManifestDetailRenderPlan>()([
     {
         field: 'baseMetadataPath',
         label: 'detail base metadata path',
@@ -182,100 +175,6 @@ const MANIFEST_DETAIL_RENDER_PLAN_PATH_FIELDS = defineManifestPathFields<TManife
         label: 'detail base cleaned raster path',
     },
 ]);
-
-function assertManifestPagePaths(
-    page: IScanCleanupManifestPageInput,
-    pageIndex: number,
-    allowedRoot: IScanCleanupAllowedRoot,
-    checkedPathTrails: Map<string, string>,
-    pathResolutionCache: IScanCleanupPathResolutionCache,
-) {
-    const pageLabel = `page ${String(pageIndex + 1)}`;
-    const pageTrail = `pages.${String(pageIndex)}`;
-    const check = (path: string | undefined, trail: string, label: string) => {
-        if (path === undefined) {
-            return;
-        }
-        assertScanCleanupPathWithinCanonicalRoot(path, allowedRoot, label, pathResolutionCache);
-        // Keyed by the field trail the manifest emits, not by the path value: a
-        // slot this list never judged cannot borrow the verdict of a checked
-        // slot that happens to carry the same string.
-        checkedPathTrails.set(trail, path);
-    };
-    for (const {
-        field,
-        label,
-    } of MANIFEST_PAGE_PATH_FIELDS) check(page[field], `${pageTrail}.${field}`, `${pageLabel} ${label}`);
-    for (const [
-        outputIndex,
-        output,
-    ] of (page.outputs ?? []).entries()) {
-        for (const {
-            field,
-            label,
-        } of MANIFEST_OUTPUT_PATH_FIELDS) {
-            check(
-                output[field] ?? undefined,
-                `${pageTrail}.outputs.${String(outputIndex)}.${field}`,
-                `${pageLabel} output ${String(outputIndex)} ${label}`,
-            );
-        }
-    }
-    const detailRenderPlan = page.detailRenderPlan;
-    if (detailRenderPlan == null) {
-        return;
-    }
-    for (const {
-        field,
-        label,
-    } of MANIFEST_DETAIL_RENDER_PLAN_PATH_FIELDS) {
-        check(
-            detailRenderPlan[field] ?? undefined,
-            `${pageTrail}.detailRenderPlan.${field}`,
-            `${pageLabel} ${label}`,
-        );
-    }
-}
-
-/**
- * Last word on coverage: a runnable manifest may not carry a path string that
- * containment never judged. Descriptor lists say what is checked; this says
- * that nothing else reached the wire, including a slot copied verbatim from
- * caller input.
- *
- * Coverage is matched per emitted field trail, so an unlabelled path slot fails
- * even when it repeats a string some other slot was cleared for.
- */
-function assertNoUncheckedManifestPaths(
-    manifest: INativeScanCleanupManifestV3,
-    checkedPathTrails: ReadonlyMap<string, string>,
-) {
-    const visit = (value: unknown, trail: string) => {
-        if (Array.isArray(value)) {
-            for (const [
-                index,
-                entry,
-            ] of value.entries()) visit(entry, `${trail}.${String(index)}`);
-            return;
-        }
-        if (value === null || typeof value !== 'object') {
-            return;
-        }
-        for (const [
-            key,
-            entry,
-        ] of Object.entries(value)) {
-            const fieldTrail = trail === '' ? key : `${trail}.${key}`;
-            if (key.endsWith('Path') && typeof entry === 'string' && checkedPathTrails.get(fieldTrail) !== entry) {
-                throw new ScanCleanupContractError(
-                    `manifest field ${fieldTrail} was not checked against the allowed root`,
-                );
-            }
-            visit(entry, fieldTrail);
-        }
-    };
-    visit(manifest, '');
-}
 
 function assertManifestOutputContract(
     page: IScanCleanupManifestPageInput,
@@ -298,7 +197,17 @@ function assertManifestOutputContract(
     }
 }
 
-function assembleNativeScanCleanupManifest({
+/**
+ * Judges a runnable manifest's paths: each page's slots as it is assembled,
+ * then the whole manifest. Desktop supplies one; the browser's WASM requests
+ * carry planes, not paths, and build shape-only.
+ */
+export interface IScanCleanupManifestPathCheck {
+    page: (page: IScanCleanupManifestPageInput, pageIndex: number) => void;
+    manifest: (manifest: INativeScanCleanupManifestV3) => void;
+}
+
+export function assembleNativeScanCleanupManifest({
     operation,
     analysisPurpose,
     renderMode,
@@ -312,19 +221,12 @@ function assembleNativeScanCleanupManifest({
     stagedInputWindow,
     stagedInputPeakPixels,
     rasterMaxPixels,
-}: IBuildNativeScanCleanupManifestInput, allowedPathRoot: string | null): INativeScanCleanupManifestV3 {
+}: IBuildNativeScanCleanupManifestInput, pathCheck: IScanCleanupManifestPathCheck | null): INativeScanCleanupManifestV3 {
     if (pages.length > SCAN_CLEANUP_NATIVE_MANIFEST_MAX_PAGES) {
         throw new ScanCleanupContractError(
             `One native scan-cleanup manifest may contain at most ${String(SCAN_CLEANUP_NATIVE_MANIFEST_MAX_PAGES)} page records; replay bounded batches for longer documents`,
         );
     }
-    // One canonical root per manifest: every field is judged against the same
-    // resolved directory instead of re-resolving the root for each path.
-    const allowedRoot = allowedPathRoot === null ? null : canonicalizeScanCleanupAllowedRoot(allowedPathRoot);
-    const pathResolutionCache = allowedRoot === null
-        ? null
-        : createScanCleanupPathResolutionCache(allowedRoot);
-    const checkedPathTrails = new Map<string, string>();
     const manifest: INativeScanCleanupManifestV3 = {
         version: SCAN_CLEANUP_NATIVE_PROTOCOL_VERSION,
         operation,
@@ -358,9 +260,7 @@ function assembleNativeScanCleanupManifest({
                     `page ${String(pageIndex + 1)} fixed analysis input requires a positive analysisDpi`,
                 );
             }
-            if (allowedRoot !== null && pathResolutionCache !== null) {
-                assertManifestPagePaths(page, pageIndex, allowedRoot, checkedPathTrails, pathResolutionCache);
-            }
+            pathCheck?.page(page, pageIndex);
             const pageOptions = resolveScanCleanupManifestPageOptions({
                 options,
                 ...(analysisPurpose === undefined ? {} : {analysisPurpose}),
@@ -395,25 +295,16 @@ function assembleNativeScanCleanupManifest({
             };
         }),
     };
-    if (allowedRoot !== null) assertNoUncheckedManifestPaths(manifest, checkedPathTrails);
+    pathCheck?.manifest(manifest);
     return manifest;
-}
-
-/**
- * Build a manifest that will be handed to the native binary. Every path is
- * checked against the caller's process-owned root before the manifest exists.
- */
-export function buildRunnableNativeScanCleanupManifest(
-    input: IBuildRunnableNativeScanCleanupManifestInput,
-): INativeScanCleanupManifestV3 {
-    return assembleNativeScanCleanupManifest(input, input.allowedPathRoot);
 }
 
 /**
  * Build a shape-only manifest for geometry and protocol tests.
  *
- * This wrapper deliberately fixes path validation to `null` and must never be
- * used for a manifest passed to a native sidecar. Runnable callers use
+ * This wrapper deliberately skips path validation and must never be used for a
+ * manifest passed to a native sidecar; the browser uses it for WASM requests,
+ * which carry no paths. Runnable callers use
  * {@link buildRunnableNativeScanCleanupManifest}, which requires its allowed
  * path root and validates every emitted path.
  */

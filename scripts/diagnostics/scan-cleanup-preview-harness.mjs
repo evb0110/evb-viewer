@@ -101,7 +101,7 @@ const [
 ] = await Promise.all([
     importTs('../../packages/scan-cleanup/core/detection.ts'),
     importTs('../../packages/scan-cleanup/core/policy/documentCanvas.ts'),
-    importTs('../../packages/scan-cleanup/core/policy/buildNativeScanCleanupManifest.ts'),
+    importTs('../../packages/scan-cleanup/core/policy/buildRunnableNativeScanCleanupManifest.ts'),
     importTs('../../packages/scan-cleanup/core/policy/effectiveOptions.ts'),
     importTs('../../packages/scan-cleanup/adapters/createScanCleanupRenderers.ts'),
     importTs('../scanCleanupCliAdapters.ts'),

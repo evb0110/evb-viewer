@@ -1,4 +1,26 @@
 const DEFAULT_WASM_STALL_TIMEOUT_MS = 30_000;
+
+// The SHA-256 of each module this context compiled, by URL path, so
+// provenance can name the bytes that actually run rather than a later download.
+const loadedWasmDigests = new Map<string, Promise<string>>();
+
+async function sha256Hex(chunks: readonly Uint8Array[]) {
+    const bytes = new Uint8Array(chunks.reduce((total, chunk) => total + chunk.byteLength, 0));
+    let offset = 0;
+    for (const chunk of chunks) {
+        bytes.set(chunk, offset);
+        offset += chunk.byteLength;
+    }
+    const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', bytes));
+    return Array.from(digest, byte => byte.toString(16).padStart(2, '0')).join('');
+}
+
+const wasmPath = (url: string) => new URL(url, globalThis.location?.href ?? 'file:///').pathname;
+
+/** The SHA-256 of the module last compiled from `url` in this context, if any. */
+export function readLoadedWasmDigest(url: string) {
+    return loadedWasmDigests.get(wasmPath(url)) ?? null;
+}
 const WASM_CONTENT_TYPE = 'application/wasm';
 
 function servesWasmContentType(response: Response) {
@@ -63,13 +85,18 @@ export async function loadWasmWithDeadline(
                 // its URL for streaming compilation and the browser's code cache.
                 const reader = response.clone().body?.getReader() ?? null;
                 watch.reader = reader;
+                let observed: Promise<string> | null = null;
                 if (reader) {
-                    void (async () => {
+                    observed = (async () => {
+                        const chunks: Uint8Array[] = [];
                         for (let chunk = await reader.read(); !chunk.done; chunk = await reader.read()) {
+                            chunks.push(chunk.value);
                             arm();
                         }
                         disarm();
-                    })().catch(() => undefined);
+                        return sha256Hex(chunks);
+                    })();
+                    observed.catch(() => undefined);
                 } else {
                     disarm();
                 }
@@ -77,17 +104,24 @@ export async function loadWasmWithDeadline(
                 // on it up front avoids a doomed streaming attempt whose failure could
                 // otherwise leave the body consumed before the buffered fallback reads it.
                 if (typeof WebAssembly.instantiateStreaming === 'function' && servesWasmContentType(response)) {
-                    return WebAssembly.instantiateStreaming(response, imports);
+                    const instantiated = await WebAssembly.instantiateStreaming(response, imports);
+                    if (observed !== null) loadedWasmDigests.set(wasmPath(url), observed);
+                    return instantiated;
                 }
                 const bytes = await response.arrayBuffer();
-                return WebAssembly.instantiate(bytes, imports);
+                const instantiated = await WebAssembly.instantiate(bytes, imports);
+                loadedWasmDigests.set(wasmPath(url), sha256Hex([new Uint8Array(bytes)]));
+                return instantiated;
             })(),
             stalled,
         ]);
+    } catch (error) {
+        // Release the observing branch; a failed load leaves it unread. A
+        // successful load lets it finish, as it is the module's digest.
+        void watch.reader?.cancel().catch(() => undefined);
+        throw error;
     } finally {
         watch.settled = true;
         disarm();
-        // Release the observing branch; a failed load leaves it unread.
-        void watch.reader?.cancel().catch(() => undefined);
     }
 }

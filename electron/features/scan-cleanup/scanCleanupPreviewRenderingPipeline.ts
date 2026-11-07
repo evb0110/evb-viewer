@@ -18,7 +18,7 @@ import {
 import {renderScanCleanupRasterToDisk as renderRasterToDisk} from '@evb/scan-cleanup/core/rasterValidation';
 import { getErrorMessage } from '@electron/utils/error';
 import {createLogger} from '@electron/utils/createLogger';
-import { buildRunnableNativeScanCleanupManifest } from '@evb/scan-cleanup/core/policy/buildNativeScanCleanupManifest';
+import { buildRunnableNativeScanCleanupManifest } from '@evb/scan-cleanup/core/policy/buildRunnableNativeScanCleanupManifest';
 import {SCAN_CLEANUP_MAX_DIMENSION_PX} from '@evb/scan-cleanup/core/policy/effectiveOptions';
 import type {
     IRawPreview,

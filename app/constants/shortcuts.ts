@@ -1,3 +1,4 @@
+import type { TTranslationKey } from '@i18n-app';
 import { isMacClientPlatform } from '@app/utils/clientPlatform';
 
 export { isMacPlatformHint } from '@app/utils/clientPlatform';
@@ -11,23 +12,28 @@ interface IShortcutDef {
         key: string;
         modifiers: TModifier[] 
     };
+    /** Listed in Settings' shortcut reference under this label. */
+    helpLabelKey?: TTranslationKey;
 }
 
 const SHORTCUTS = {
     openFile: {
         key: 'O',
-        modifiers: ['mod'], 
+        modifiers: ['mod'],
+        helpLabelKey: 'toolbar.openPdf',
     },
     save: {
         key: 'S',
-        modifiers: ['mod'], 
+        modifiers: ['mod'],
+        helpLabelKey: 'toolbar.save',
     },
     saveAs: {
         key: 'S',
         modifiers: [
             'mod',
             'shift',
-        ], 
+        ],
+        helpLabelKey: 'toolbar.saveAs',
     },
     print: {
         key: 'P',
@@ -39,7 +45,8 @@ const SHORTCUTS = {
     },
     search: {
         key: 'F',
-        modifiers: ['mod'], 
+        modifiers: ['mod'],
+        helpLabelKey: 'documentSourceSidebar.searchPlaceholder',
     },
     undo: {
         key: 'Z',
@@ -79,23 +86,48 @@ const SHORTCUTS = {
     },
     fitWidth: {
         key: '1',
-        modifiers: ['mod'], 
+        modifiers: ['mod'],
+        helpLabelKey: 'zoom.fitWidth',
     },
     fitHeight: {
         key: '2',
-        modifiers: ['mod'], 
+        modifiers: ['mod'],
+        helpLabelKey: 'zoom.fitHeight',
     },
     zoomIn: {
         key: '=',
-        modifiers: ['mod'], 
+        modifiers: ['mod'],
+        helpLabelKey: 'zoom.zoomIn',
     },
     zoomOut: {
         key: '\u2212',
-        modifiers: ['mod'], 
+        modifiers: ['mod'],
+        helpLabelKey: 'zoom.zoomOut',
     },
     actualSize: {
         key: '0',
         modifiers: ['mod'],
+        helpLabelKey: 'settings.actualSize',
+    },
+    cut: {
+        key: 'X',
+        modifiers: ['mod'],
+        helpLabelKey: 'menu.cut',
+    },
+    copy: {
+        key: 'C',
+        modifiers: ['mod'],
+        helpLabelKey: 'menu.copy',
+    },
+    paste: {
+        key: 'V',
+        modifiers: ['mod'],
+        helpLabelKey: 'menu.paste',
+    },
+    selectAll: {
+        key: 'A',
+        modifiers: ['mod'],
+        helpLabelKey: 'menu.selectAll',
     },
     newPaneRight: {
         key: '\\',
@@ -136,27 +168,46 @@ function getOrderedModifiers(modifiers: TModifier[], isMac: boolean) {
     return [...modifiers].sort((a, b) => macModifierOrder.indexOf(a) - macModifierOrder.indexOf(b));
 }
 
-function formatShortcutLabel(def: IShortcutDef, isMac: boolean) {
+function shortcutKeyParts(def: IShortcutDef, isMac: boolean) {
     const activeDef = (!isMac && def.nonMacOverride) ? def.nonMacOverride : def;
-    const parts = getOrderedModifiers(activeDef.modifiers, isMac)
-        .map(m => resolveModifierLabel(m, isMac));
-    parts.push(activeDef.key);
-
-    if (!isMac) {
-        return parts.join('+');
-    }
-
-    return parts.join('');
+    return [
+        ...getOrderedModifiers(activeDef.modifiers, isMac).map(m => resolveModifierLabel(m, isMac)),
+        activeDef.key,
+    ];
 }
 
 export function getShortcutLabels(isMac = isMacClientPlatform()) {
-    return createShortcutRecord((_, def) => formatShortcutLabel(def, isMac));
+    return createShortcutRecord((_, def) => shortcutKeyParts(def, isMac).join(isMac ? '' : '+'));
 }
 
-export const useShortcutLabels = () => {
+/** The labels Settings' shortcut reference uses, each one without parameters. */
+type TShortcutHelpLabelKey = {
+    [TName in TShortcutName]: (typeof SHORTCUTS)[TName] extends {helpLabelKey: infer TKey} ? TKey : never
+}[TShortcutName];
+
+/** Settings' shortcut reference: the shortcuts with a help label, in registry order. */
+export function getShortcutHelpItems(isMac = isMacClientPlatform()) {
+    return Object.values<IShortcutDef>(SHORTCUTS).flatMap(def => (def.helpLabelKey === undefined ? [] : [{
+        labelKey: def.helpLabelKey as TShortcutHelpLabelKey,
+        keys: shortcutKeyParts(def, isMac),
+    }]));
+}
+
+/** The client platform, known once mounted, so server and first render agree. */
+function useMountedIsMac() {
     const isMac = ref(false);
     onMounted(() => {
         isMac.value = isMacClientPlatform();
     });
+    return isMac;
+}
+
+export const useShortcutHelpItems = () => {
+    const isMac = useMountedIsMac();
+    return computed(() => getShortcutHelpItems(isMac.value));
+};
+
+export const useShortcutLabels = () => {
+    const isMac = useMountedIsMac();
     return computed(() => getShortcutLabels(isMac.value));
 };

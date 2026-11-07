@@ -8,8 +8,13 @@ import type {
     IScanCleanupRunCommandOptions,
 } from '@evb/scan-cleanup/core/types';
 import {getErrorMessage} from '@contracts/getErrorMessage';
-import {SCAN_CLEANUP_STREAMING_BATCH_PAGES} from '@evb/scan-cleanup/core/pageBatches';
 import {isScanCleanupCompactLayeredRaster} from '@evb/scan-cleanup/core/types';
+import {SCAN_CLEANUP_STREAMING_BATCH_PAGES} from '@evb/scan-cleanup/core/pageBatches';
+import {
+    reduceScanCleanupRasterRows,
+    toScanCleanupPageRasterSource,
+    type IPageRasterDetectionResult,
+} from '@evb/scan-cleanup/core/sourceRasterFacts';
 
 export type TSourceDpiLog = (level: 'debug' | 'warn' | 'error', message: string) => void;
 export type {
@@ -37,10 +42,6 @@ interface IPdfImagesProbe {
     pageUnits: number;
 }
 
-interface IPageRasterDetectionResult {
-    documentDpi: number | null;
-    rasterByPage: Map<number, IDetectedPageRaster>;
-}
 
 function getUniqueValidPages(pages: readonly number[] | undefined) {
     return Array.from(new Set((pages ?? []).filter(pageNumber =>
@@ -119,170 +120,23 @@ function buildPdfImagesProbes(pdfPath: string, pages: readonly number[] | undefi
 }
 
 function parsePdfImagesListOutput(output: string): IPageRasterDetectionResult {
-    const rasterByPage = new Map<number, IDetectedPageRaster>();
-    const bilevelPages = new Set<number>();
-    const largestBilevelRasterByPage = new Map<number, {
-        dpi: number;
-        height: number;
-        width: number
-    }>();
-    const maskObjectIdsByPage = new Map<number, Set<number>>();
-    const continuousImagesByPage = new Map<number, Array<{
-        dpi: number;
-        height: number;
-        objectId: number;
-        width: number
-    }>>();
     const lines = output.split(/\r?\n/u).map(line => line.trim()).filter(Boolean);
-
-    for (const line of lines) {
+    return reduceScanCleanupRasterRows(lines.flatMap(line => {
         const parts = line.split(/\s+/);
-        if (parts.length < 14) {
-            continue;
-        }
-        const pageNumber = parseInt(parts[0] ?? '', 10);
-        const type = parts[2];
-        const width = parseInt(parts[3] ?? '', 10);
-        const height = parseInt(parts[4] ?? '', 10);
-        const bitsPerComponent = parseInt(parts[7] ?? '', 10);
-        const objectId = parseInt(parts[10] ?? '', 10);
-        const xPpi = parseInt(parts[12] ?? '', 10);
-        const yPpi = parseInt(parts[13] ?? '', 10);
-        const dpi = Math.max(
-            Number.isFinite(xPpi) ? xPpi : 0,
-            Number.isFinite(yPpi) ? yPpi : 0,
-        );
-        const pixelArea = width * height;
-        if (!Number.isFinite(pageNumber) || pageNumber <= 0) {
-            continue;
-        }
-        if (
-            bitsPerComponent === 1
-            && (type === 'image' || type === 'mask' || type === 'smask' || type === 'stencil')
-        ) {
-            bilevelPages.add(pageNumber);
-            if (Number.isSafeInteger(pixelArea) && pixelArea > 0 && dpi > 0) {
-                const previous = largestBilevelRasterByPage.get(pageNumber);
-                const previousArea = previous === undefined ? 0 : previous.width * previous.height;
-                if (pixelArea > previousArea || (pixelArea === previousArea && dpi > (previous?.dpi ?? 0))) {
-                    largestBilevelRasterByPage.set(pageNumber, {
-                        dpi,
-                        height,
-                        width,
-                    });
-                }
-            }
-            if (Number.isSafeInteger(objectId) && objectId > 0) {
-                const ids = maskObjectIdsByPage.get(pageNumber) ?? new Set<number>();
-                ids.add(objectId);
-                maskObjectIdsByPage.set(pageNumber, ids);
-            }
-        }
-        if (
-            type === 'image'
-            && bitsPerComponent > 1
-            && Number.isSafeInteger(objectId)
-            && objectId > 0
-            && Number.isSafeInteger(pixelArea)
-            && pixelArea > 0
-            && dpi > 0
-        ) {
-            const images = continuousImagesByPage.get(pageNumber) ?? [];
-            images.push({
-                dpi,
-                height,
-                objectId,
-                width,
-            });
-            continuousImagesByPage.set(pageNumber, images);
-        }
-        if (
-            type !== 'image'
-            || pageNumber <= 0
-            || !Number.isSafeInteger(pixelArea)
-            || pixelArea <= 0
-            || dpi <= 0
-        ) {
-            continue;
-        }
-
-        const dominant = rasterByPage.get(pageNumber);
-        const dominantArea = dominant === undefined ? 0 : dominant.width * dominant.height;
-        if (pixelArea > dominantArea || (pixelArea === dominantArea && dpi > dominant!.dpi)) {
-            rasterByPage.set(pageNumber, {
-                dpi,
-                width,
-                height,
-            });
-        }
-    }
-    for (const pageNumber of bilevelPages) {
-        const raster = rasterByPage.get(pageNumber);
-        if (!raster) continue;
-        raster.hasBilevelLayer = true;
-        const dominantArea = raster.width * raster.height;
-        const largestBilevelRaster = largestBilevelRasterByPage.get(pageNumber);
-        const largestBilevelArea = largestBilevelRaster === undefined
-            ? 0
-            : largestBilevelRaster.width * largestBilevelRaster.height;
-        if (largestBilevelRaster !== undefined && largestBilevelArea >= dominantArea * 0.95) {
-            raster.hasDominantBilevelLayer = true;
-            // A PDF mask can be finer than the lower-DPI tonal image it selects.
-            // Retaining the binary source grid must retain that finer grid, not
-            // accidentally adopt the background's resolution merely because
-            // pdfimages spells the mask as mask/smask/stencil instead of image.
-            if (largestBilevelRaster.dpi > raster.dpi) {
-                raster.dpi = largestBilevelRaster.dpi;
-                raster.width = largestBilevelRaster.width;
-                raster.height = largestBilevelRaster.height;
-            }
-        }
-        const maskedObjectIds = maskObjectIdsByPage.get(pageNumber) ?? new Set<number>();
-        const background = (continuousImagesByPage.get(pageNumber) ?? [])
-            .filter(image => !maskedObjectIds.has(image.objectId))
-            .sort((left, right) =>
-                right.width * right.height - left.width * left.height
-                || right.dpi - left.dpi,
-            )[0];
-        if (background) raster.backgroundDpi = background.dpi;
-    }
-
-    return withDerivedPageDpi({
-        documentDpi: null,
-        rasterByPage,
-    });
-}
-
-function withDerivedPageDpi(
-    result: IPageRasterDetectionResult,
-): IPageRasterDetectionResult {
-    let documentDpi = 0;
-    for (const [
-        , raster,
-    ] of result.rasterByPage) {
-        documentDpi = Math.max(documentDpi, raster.dpi);
-    }
-    return {
-        documentDpi: documentDpi > 0 ? documentDpi : result.documentDpi,
-        rasterByPage: result.rasterByPage,
-    };
-}
-
-function toPageRasterSource(
-    result: IPageRasterDetectionResult,
-    compactLayeredPageCountComplete: boolean,
-): ISourceDpiDetectionResult {
-    let compactLayeredPageCount = 0;
-    for (const raster of result.rasterByPage.values()) {
-        if (isScanCleanupCompactLayeredRaster(raster)) compactLayeredPageCount += 1;
-    }
-    return {
-        detected: result.rasterByPage.size > 0,
-        documentDpi: result.documentDpi,
-        compactLayeredPageCount,
-        compactLayeredPageCountComplete,
-        getPageRaster: pageNumber => result.rasterByPage.get(pageNumber),
-    };
+        // An inline image prints `[inline]` in place of the object and
+        // generation columns, so its resolution columns start one earlier.
+        const inline = parts[10] === '[inline]';
+        return parts.length < (inline ? 13 : 14) ? [] : [{
+            pageNumber: parseInt(parts[0] ?? '', 10),
+            type: parts[2] ?? '',
+            width: parseInt(parts[3] ?? '', 10),
+            height: parseInt(parts[4] ?? '', 10),
+            bitsPerComponent: parseInt(parts[7] ?? '', 10),
+            objectId: inline ? 0 : parseInt(parts[10] ?? '', 10),
+            xPpi: parseInt(parts[inline ? 11 : 12] ?? '', 10),
+            yPpi: parseInt(parts[inline ? 12 : 13] ?? '', 10),
+        }];
+    }));
 }
 
 /** Shared bounded raster facts for detection and conversion. */
@@ -403,7 +257,7 @@ export async function detectSourceDpiDetails(
     runCommand?: TScanCleanupRunCommand,
 ): Promise<ISourceDpiDetectionResult> {
     if (!pdfimagesBinary) {
-        return toPageRasterSource({
+        return toScanCleanupPageRasterSource({
             documentDpi: null,
             rasterByPage: new Map(),
         }, false);
@@ -473,7 +327,7 @@ export async function detectSourceDpiDetails(
     if (failures.length === 1) {
         throw failures[0];
     }
-    return toPageRasterSource(combinedResult, pages === undefined);
+    return toScanCleanupPageRasterSource(combinedResult, pages === undefined);
 }
 
 export async function detectSourceDpi(

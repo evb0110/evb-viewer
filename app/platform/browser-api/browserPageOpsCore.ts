@@ -203,7 +203,7 @@ type TWriterResult<K extends 'splitPages' | 'overlayText' | 'recompressImages' |
 export function splitPdfPages(
     data: Uint8Array,
     instructions: ISplitPagesInstructions,
-    options: {signal?: AbortSignal} = {},
+    options: Pick<IRunBrowserPageOpsWorkerRequestOptions, 'signal' | 'requireWorker' | 'onEngineIdentity'> = {},
 ): Promise<TWriterResult<'splitPages'>> {
     return requireBrowserPageOpsWasmResult('page split', () => runBrowserPageOpsWorkerRequest(
         'splitPages',
@@ -223,7 +223,7 @@ export function overlayPdfTextLayers(
     data: Uint8Array,
     sourceData: Uint8Array,
     instructions: IOverlayTextInstructions,
-    options: {signal?: AbortSignal} = {},
+    options: Pick<IRunBrowserPageOpsWorkerRequestOptions, 'signal' | 'requireWorker' | 'onEngineIdentity'> = {},
 ): Promise<TWriterResult<'overlayText'>> {
     return requireBrowserPageOpsWasmResult('text overlay', () => runBrowserPageOpsWorkerRequest(
         'overlayText',

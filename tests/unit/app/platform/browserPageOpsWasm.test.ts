@@ -7,6 +7,7 @@ import {
     PDFHexString,
     degrees,
     decodePDFRawStream,
+    drawObject,
     PDFName,
     PDFNumber,
     PDFRef,
@@ -847,6 +848,43 @@ describe('browser page-ops WASM fast path', () => {
         });
         if (selected === null || 'status' in selected) throw new Error('inspection failed');
         expect(selected.pages.map(page => decodePdfPageSizeRecord(page, selected.pageCount, 'page'))).toEqual([pages[1]]);
+    });
+
+    it('inspects past a form it cannot read, marking only that page\'s raster inventory incomplete', async () => {
+        const wasm = await loadWasmRunner();
+        const pdfDocument = await PDFDocument.create();
+        const unreadable = pdfDocument.addPage([
+            100,
+            100,
+        ]);
+        pdfDocument.addPage([
+            100,
+            100,
+        ]);
+        // A form whose content declares an inline image of zero width, which
+        // the content reader refuses to parse; pdfimages skips such a form.
+        const form = pdfDocument.context.register(pdfDocument.context.stream('BI /W 0 /H 2 /BPC 8 /CS /G ID \x00\x00 EI', {
+            Type: 'XObject',
+            Subtype: 'Form',
+            BBox: [
+                0,
+                0,
+                1,
+                1,
+            ],
+        }));
+        unreadable.pushOperators(drawObject(unreadable.node.newXObject('F', form)));
+        const data = await pdfDocument.save({useObjectStreams: false});
+
+        const inspected = await wasm.run('inspectScanCleanupPdf', {
+            data,
+            pages: [],
+        });
+        if (inspected === null || 'status' in inspected) throw new Error('inspection failed');
+        expect(inspected.pages.map(page => Reflect.get(page, 'rasterInventoryComplete'))).toEqual([
+            false,
+            true,
+        ]);
     });
 
     it('decrypts an encrypted PDF through WASM operation 9 with the correct password', async () => {

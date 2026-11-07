@@ -9,6 +9,7 @@
 
 mod binary;
 mod ccitt;
+pub mod compact_manifest_line;
 mod flate;
 mod image;
 mod jpeg;

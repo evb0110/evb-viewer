@@ -1,6 +1,8 @@
 /// <reference lib="webworker" />
 
 import {encode as encodePng} from 'fast-png';
+import {readLoadedWasmDigest} from '@app/platform/browser-api/loadWasmWithDeadline';
+import {BROWSER_SCAN_CLEANUP_WASM_PATH} from '@contracts/scan-cleanup/browserScanCleanupWasm';
 import {
     getBrowserScanCleanupWorkerRequestId,
     parseBrowserScanCleanupWorkerRequest,
@@ -99,12 +101,15 @@ self.addEventListener('message', (event: MessageEvent<unknown>) => {
         }
         return;
     }
-    void handle(request).then(data => {
+    void handle(request).then(async (data) => {
+        // A success names the engine module that produced it.
+        const engineSha256 = await readLoadedWasmDigest(BROWSER_SCAN_CLEANUP_WASM_PATH)?.catch(() => null);
         self.postMessage({
             id: request.id,
             type: request.type,
             ok: true,
             data,
+            ...(typeof engineSha256 === 'string' ? {engineSha256} : {}),
         }, [...transferablesOf(data)]);
     }, (error: unknown) => {
         self.postMessage({

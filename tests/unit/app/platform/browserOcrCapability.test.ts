@@ -180,6 +180,9 @@ function mockScanCleanupPreviewSource() {
             widthPoints: 612,
             heightPoints: 792,
             rotation: 0,
+            rasterUses: [],
+            rasterInventoryComplete: true,
+            hasAnnotations: false,
         })),
     }))}));
     vi.doMock('@app/platform/browser-api/loadBrowserPdfjsDocument', () => ({loadBrowserPdfjsDocument: vi.fn(async () => ({

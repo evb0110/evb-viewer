@@ -11,6 +11,8 @@ import {
 export interface IPendingBrowserWorkerRequest {
     requestType: string;
     resolveData: (data: unknown) => boolean;
+    /** Receives the digest of the engine module that served the request. */
+    onEngineIdentity?: ((sha256: string) => void) | undefined;
     reject: (error: Error) => void;
     timeoutTimer?: ReturnType<typeof setTimeout> | null;
 }
@@ -21,6 +23,7 @@ export interface ITypedPendingBrowserWorkerRequest<
 > {
     requestType: TRequestType;
     resolveData: (data: TResultData) => boolean;
+    onEngineIdentity?: ((sha256: string) => void) | undefined;
     reject: (error: Error) => void;
     timeoutTimer?: ReturnType<typeof setTimeout> | null;
 }
@@ -64,6 +67,11 @@ export function settleBrowserWorkerResult<
             pending.reject(new Error('Browser worker returned an invalid response'));
             onSettled();
             return;
+        }
+        // A worker that ran an engine module names it beside the result.
+        const engineSha256: unknown = Reflect.get(response, 'engineSha256');
+        if (typeof engineSha256 === 'string' && /^[0-9a-f]{64}$/u.test(engineSha256)) {
+            pending.onEngineIdentity?.(engineSha256);
         }
         if (!pending.resolveData(response.data as TResultData)) {
             pending.reject(new Error('Browser worker returned an invalid result'));

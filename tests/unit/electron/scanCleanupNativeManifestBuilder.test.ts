@@ -31,7 +31,7 @@ import {
     serializeNativeScanCleanupOptions,
     type IBuildNativeScanCleanupManifestInput,
     type IScanCleanupManifestPageInput,
-} from '@evb/scan-cleanup/core/policy/buildNativeScanCleanupManifest';
+} from '@evb/scan-cleanup/core/policy/buildRunnableNativeScanCleanupManifest';
 
 import {
     assertScanCleanupPathWithinCanonicalRoot,

@@ -4,7 +4,7 @@ import {getIcons} from '@iconify/utils';
 import {DEFAULT_LOCALE} from './packages/i18n-core/localeCodes';
 import {LOCALE_DEFINITIONS} from './packages/i18n-core/localeDefinitions';
 import {isPdfjsPackageId} from './scripts/lib/pdfjs-package-path.mjs';
-import {isVercelBuildOutput, nuxtOutputDirectory, readBuildEnvironment} from './scripts/lib/build-environment.mjs';
+import {isVercelBuildOutput, nuxtOutputDirectory, readBuildEnvironment, resolveBuildGitSha} from './scripts/lib/build-environment.mjs';
 
 const requireFromConfig = createRequire(import.meta.url);
 
@@ -507,6 +507,8 @@ export default defineNuxtConfig({
         'ph:square',
         'ph:circle',
         'ph:clipboard-text',
+        'ph:scissors',
+        'ph:selection-all',
         'ph:minus',
         'ph:arrow-up-right',
         'ph:arrow-line-right',
@@ -534,6 +536,8 @@ export default defineNuxtConfig({
 
     vite: {
         ...(isolatedNuxtViteCacheDir ? {cacheDir: isolatedNuxtViteCacheDir} : {}),
+        // Scan Cleanup provenance names the source revision, as desktop does.
+        define: {__EVB_BUILD_GIT_SHA__: JSON.stringify(resolveBuildGitSha(buildEnv))},
         $client: {
             build: {
                 rollupOptions: {

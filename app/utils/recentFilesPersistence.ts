@@ -1,4 +1,7 @@
-import type { IRecentFile } from '@contracts/shared';
+import {
+    RECENT_FILES_LIMIT,
+    type IRecentFile,
+} from '@contracts/shared';
 import { take } from 'es-toolkit/array';
 import {
     inferDocumentRefBackend,
@@ -15,7 +18,11 @@ import { BROWSER_RECENT_FILES_STORAGE_KEY } from '@app/utils/browserRuntimePersi
 import * as v from 'valibot';
 
 export const RECENT_FILES_COOKIE_KEY = 'evb_viewer_recent_files';
-export const RECENT_FILES_LIMIT = 30;
+export {RECENT_FILES_LIMIT};
+// Browser lists written before Recent kept desktop's ten held up to 30. They
+// are read whole, so their documents stay protected until a change to the
+// list trims it and releases the rest.
+const RECENT_FILES_STORED_LIMIT = 30;
 
 interface IRecentFilesCookieSnapshot {
     recentFiles: IRecentFile[];
@@ -155,7 +162,7 @@ function normalizeRecentFilesCollection(value: unknown) {
 
         seenPaths.add(candidate.originalPath);
         recentFiles.push(candidate);
-        if (recentFiles.length >= RECENT_FILES_LIMIT) {
+        if (recentFiles.length >= RECENT_FILES_STORED_LIMIT) {
             break;
         }
     }
@@ -234,7 +241,7 @@ function normalizeNormalizedRecentFiles(value: TNormalizedRecentFile[]) {
         }
         seenPaths.add(candidate.originalPath);
         recentFiles.push(candidate);
-        if (recentFiles.length >= RECENT_FILES_LIMIT) {
+        if (recentFiles.length >= RECENT_FILES_STORED_LIMIT) {
             break;
         }
     }
@@ -385,5 +392,5 @@ export function readBrowserRecentFilesSnapshot(): IRecentFilesCookieSnapshot {
 }
 
 export function serializeRecentFilesPayload(recentFiles: IRecentFile[]) {
-    return JSON.stringify(take(recentFiles, RECENT_FILES_LIMIT));
+    return JSON.stringify(take(recentFiles, RECENT_FILES_STORED_LIMIT));
 }

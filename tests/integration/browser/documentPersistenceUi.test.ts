@@ -2,8 +2,9 @@ import {
     createHash, randomBytes,
 } from 'node:crypto';
 import {
-    readFileSync, writeFileSync, mkdirSync,
+    readFileSync, writeFileSync, mkdirSync, mkdtempSync, openSync, rmSync, writeSync, closeSync,
 } from 'node:fs';
+import {tmpdir} from 'node:os';
 import {
     basename, resolve,
 } from 'node:path';
@@ -81,6 +82,241 @@ async function openReadingBook(page: Page, label: string, name: string) {
 }
 
 describe('browser document lifecycle UI', () => {
+    // T6: Recent follows desktop's ten-document MRU, without a browser byte budget.
+    it('C07 retains two large books and the ten newest distinct Recent documents', async () => {
+        const evidence = resolve(process.env.EVB_C07_EVIDENCE_DIR ?? '.devkit/c07-verify/run');
+        mkdirSync(evidence, {recursive: true});
+        // About 540 MiB of books per run, removed when the run ends.
+        const fixtures = mkdtempSync(resolve(tmpdir(), 'evb-c07-'));
+        const books = [
+            'Amber',
+            'Cobalt',
+        ].map(label => {
+            // A valid one-page PDF with a referenced, incompressible embedded file.
+            // Stream it to disk so neither the runner nor chooser needs a 270 MiB buffer.
+            const path = resolve(fixtures, `c07-${label.toLowerCase()}.pdf`);
+            const file = openSync(path, 'w');
+            const hash = createHash('sha256');
+            const offsets = [0];
+            let size = 0;
+            const write = (bytes: string | Buffer) => {
+                const buffer = typeof bytes === 'string' ? Buffer.from(bytes) : bytes;
+                writeSync(file, buffer);
+                hash.update(buffer);
+                size += buffer.length;
+            };
+            const object = (id: number, body: string) => {
+                offsets[id] = size;
+                write(`${id} 0 obj\n${body}\nendobj\n`);
+            };
+            try {
+                write('%PDF-1.7\n');
+                object(1, '<< /Type /Catalog /Pages 2 0 R /Names << /EmbeddedFiles << /Names [(payload.bin) 6 0 R] >> >> >>');
+                object(2, '<< /Type /Pages /Kids [3 0 R] /Count 1 >>');
+                object(3, '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 400 600] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>');
+                const content = `BT /F1 24 Tf 40 500 Td (${label} page 1) Tj ET\n`;
+                object(4, `<< /Length ${Buffer.byteLength(content)} >>\nstream\n${content}endstream`);
+                object(5, '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>');
+                object(6, '<< /Type /Filespec /F (payload.bin) /EF << /F 7 0 R >> >>');
+                offsets[7] = size;
+                write(`7 0 obj\n<< /Type /EmbeddedFile /Length ${270 * 1024 * 1024} >>\nstream\n`);
+                for (let chunk = 0; chunk < 270; chunk += 1) write(randomBytes(1024 * 1024));
+                write('\nendstream\nendobj\n');
+                const xref = size;
+                write(`xref\n0 8\n0000000000 65535 f \n${offsets.slice(1).map(offset => `${String(offset).padStart(10, '0')} 00000 n \n`).join('')}trailer\n<< /Size 8 /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`);
+            } finally {
+                closeSync(file);
+            }
+            return {
+                label,
+                path,
+                name: basename(path),
+                size,
+                sha256: hash.digest('hex'),
+            };
+        });
+        writeFileSync(resolve(evidence, 'fixtures.json'), JSON.stringify(books, null, 2));
+        try {
+            for (const journey of [
+                'large',
+                'count',
+            ] as const) {
+                const context = await lifecycle.browser.newContext({viewport: {
+                    width: 1280,
+                    height: 900,
+                }});
+                const page = await context.newPage();
+                const problems = collectConsoleProblems(page);
+                const paintings = new Map<string, string>();
+                const recentNames = () => page.locator('.recent-file-name').allTextContents().then(names => names.map(name => name.trim()));
+                const paintedText = async (label: string) => {
+                    await settleActiveOpen(page);
+                    await page.locator('.page_container--rendered canvas').first().waitFor();
+                    await expect.poll(async () => (await readReadingView(page)).visibleText).toBe(`${label} page 1`);
+                    // Verify painted ink as well as the text layer: an empty canvas is not a reopen.
+                    const painting = await page.locator('.page_container--rendered canvas').first().evaluate(async (canvas: HTMLCanvasElement) => {
+                        const pixels = canvas.getContext('2d')!.getImageData(0, 0, canvas.width, canvas.height).data;
+                        const ink = pixels.some((channel, index) => index % 4 !== 3 && channel < 100 && pixels[index - index % 4 + 3]! > 0);
+                        const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', pixels));
+                        return {
+                            ink,
+                            hash: Array.from(digest, byte => byte.toString(16).padStart(2, '0')).join(''),
+                        };
+                    });
+                    expect(painting.ink).toBe(true);
+                    if (paintings.has(label)) expect(painting.hash).toBe(paintings.get(label));
+                    else {
+                        expect(Array.from(paintings.values())).not.toContain(painting.hash);
+                        paintings.set(label, painting.hash);
+                    }
+                };
+                const close = async () => {
+                    await page.getByRole('button', {
+                        name: 'Close Tab',
+                        exact: true,
+                    }).click();
+                    await page.locator('.workspace-host[data-workspace-active="true"] .workspace-host__start').waitFor();
+                };
+                const assertRecent = async (names: string[]) => {
+                    await expect.poll(recentNames).toEqual(names);
+                    await page.getByRole('button', {
+                        name: 'Menu',
+                        exact: true,
+                    }).click();
+                    await page.getByRole('menuitem', {
+                        name: 'Open Recent',
+                        exact: true,
+                    }).click();
+                    await expect.poll(() => page.getByRole('menuitem').filter({hasText: /^c07-.*\.pdf$/u}).allTextContents().then(items => items.map(item => item.trim()))).toEqual(names);
+                    await page.screenshot({
+                        animations: 'disabled',
+                        path: resolve(evidence, `${journey}-open-recent.png`),
+                    });
+                    await page.keyboard.press('Escape');
+                    await page.keyboard.press('Escape');
+                    await page.keyboard.press('Escape');
+                };
+                try {
+                    if (journey === 'large') {
+                        for (const book of books) {
+                            await openPdfFromChooser(page, book.path);
+                            await paintedText(book.label);
+                            await close();
+                        }
+                        await page.reload({waitUntil: 'domcontentloaded'});
+                        await waitForOpenFileReady(page);
+                        // Inspect actual retained chunks, never inflate fileSize metadata.
+                        const storedBytes = await page.evaluate(async () => {
+                            const db = await new Promise<IDBDatabase>((resolveDb, rejectDb) => {
+                                const request = indexedDB.open('evb-viewer-browser-documents');
+                                request.onsuccess = () => resolveDb(request.result);
+                                request.onerror = () => rejectDb(request.error);
+                            });
+                            try {
+                                return await new Promise<number>((resolveBytes, rejectBytes) => {
+                                    let bytes = 0;
+                                    const request = db.transaction('document-chunks').objectStore('document-chunks').openCursor();
+                                    request.onsuccess = () => {
+                                        const cursor = request.result;
+                                        if (!cursor) return resolveBytes(bytes);
+                                        bytes += (cursor.value as {data: Uint8Array}).data.byteLength;
+                                        cursor.continue();
+                                    };
+                                    request.onerror = () => rejectBytes(request.error);
+                                });
+                            } finally {db.close();}
+                        });
+                        writeFileSync(resolve(evidence, 'storage.json'), JSON.stringify({
+                            storedBytes,
+                            estimate: await page.evaluate(() => navigator.storage.estimate()),
+                            browser: lifecycle.browser.version(),
+                        }, null, 2));
+                        // This is the baseline's reported symptom: the older large book disappears.
+                        await assertRecent([
+                            'c07-cobalt.pdf',
+                            'c07-amber.pdf',
+                        ]);
+                        expect(storedBytes).toBeGreaterThan(512 * 1024 * 1024);
+                        for (const book of books) {
+                            if (book.label === 'Amber') {
+                                await page.locator('[data-recent-open-actionable="true"] .recent-open').filter({hasText: book.name}).click();
+                            } else {
+                                await page.getByRole('button', {
+                                    name: 'Menu',
+                                    exact: true,
+                                }).click();
+                                await page.getByRole('menuitem', {
+                                    name: 'Open Recent',
+                                    exact: true,
+                                }).click();
+                                await page.getByRole('menuitem', {
+                                    name: book.name,
+                                    exact: true,
+                                }).click();
+                            }
+                            await paintedText(book.label);
+                            await page.screenshot({
+                                animations: 'disabled',
+                                path: resolve(evidence, `${book.label.toLowerCase()}-reopened.png`),
+                            });
+                            await close();
+                        }
+                    } else {
+                        for (let index = 1; index <= 11; index += 1) {
+                            await openPdfFromChooser(page, await createReadingBook(`Small ${index}`, `c07-small-${index}.pdf`));
+                            await paintedText(`Small ${index}`);
+                            await close();
+                        }
+                        await page.reload({waitUntil: 'domcontentloaded'});
+                        await waitForOpenFileReady(page);
+                        await assertRecent([
+                            'c07-small-11.pdf',
+                            'c07-small-10.pdf',
+                            'c07-small-9.pdf',
+                            'c07-small-8.pdf',
+                            'c07-small-7.pdf',
+                            'c07-small-6.pdf',
+                            'c07-small-5.pdf',
+                            'c07-small-4.pdf',
+                            'c07-small-3.pdf',
+                            'c07-small-2.pdf',
+                        ]);
+                        await page.locator('[data-recent-open-actionable="true"] .recent-open').filter({hasText: 'c07-small-4.pdf'}).click();
+                        await paintedText('Small 4');
+                        await close();
+                        await assertRecent([
+                            'c07-small-4.pdf',
+                            'c07-small-11.pdf',
+                            'c07-small-10.pdf',
+                            'c07-small-9.pdf',
+                            'c07-small-8.pdf',
+                            'c07-small-7.pdf',
+                            'c07-small-6.pdf',
+                            'c07-small-5.pdf',
+                            'c07-small-3.pdf',
+                            'c07-small-2.pdf',
+                        ]);
+                    }
+                    expect(problems).toEqual([]);
+                } finally {
+                    writeFileSync(resolve(evidence, `${journey}-console.json`), JSON.stringify(problems, null, 2));
+                    writeFileSync(resolve(evidence, `${journey}-paintings.json`), JSON.stringify(Object.fromEntries(paintings), null, 2));
+                    writeFileSync(resolve(evidence, `${journey}-recent.json`), JSON.stringify(await recentNames(), null, 2));
+                    await page.screenshot({
+                        animations: 'disabled',
+                        path: resolve(evidence, `${journey}-final.png`),
+                    });
+                    await context.close();
+                }
+            }
+        } finally {
+            rmSync(fixtures, {
+                recursive: true,
+                force: true,
+            });
+        }
+    }, 120_000);
+
     // T2/C1: accepted independent settings survive an interleaved latest-read/write.
     it('serializes Scan Cleanup document and global intents with real cross-page IndexedDB', async () => {
         const bundle = await build({

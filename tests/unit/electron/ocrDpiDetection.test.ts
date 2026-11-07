@@ -141,6 +141,25 @@ describe('ocr dpi detection', () => {
         expect(result.compactLayeredPageCountComplete).toBe(true);
     });
 
+    it('reads an inline image row, whose object columns print as one', async () => {
+        mocks.runOcrCommand.mockResolvedValueOnce({
+            stdout: [
+                'page num type width height color comp bpc enc interp object ID x-ppi y-ppi size ratio',
+                '1 0 image 300 300 gray 1 8 image no [inline] 150 150 88K 100%',
+            ].join('\n'),
+            stderr: '',
+            exitCode: 0,
+        });
+
+        const result = await detectSourceDpiDetails('/tmp/input.pdf', '/bin/pdfimages', vi.fn());
+
+        expect(await result.getPageRaster(1)).toEqual({
+            dpi: 150,
+            width: 300,
+            height: 300,
+        });
+    });
+
     it('does not treat an incidental small one-bit image as the dominant source grid', async () => {
         mocks.runOcrCommand.mockResolvedValueOnce({
             stdout: [

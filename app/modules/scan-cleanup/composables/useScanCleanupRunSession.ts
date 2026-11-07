@@ -342,12 +342,8 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
         if (isInkPlacementAnchorMissing()) {
             return t('scanCleanup.errors.inkPlacementMissing');
         }
-        if (getScanCleanupCapability() === null) {
-            return t('scanCleanup.runDisabled.unavailable');
-        }
-        // Temporary: removed once the browser converts documents.
         if (!resolveScanCleanupSupport(getScanCleanupCapability()).conversion) {
-            return t('scanCleanup.runDisabled.browserPreviewOnly');
+            return t('scanCleanup.runDisabled.unavailable');
         }
         if (otherDocumentRunning.value) {
             return t('scanCleanup.runDisabled.otherDocumentRunning');

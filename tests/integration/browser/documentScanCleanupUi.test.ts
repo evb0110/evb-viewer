@@ -1,20 +1,25 @@
 import {
     mkdir, readFile, writeFile,
 } from 'node:fs/promises';
-import {join} from 'node:path';
+import {
+    join, resolve,
+} from 'node:path';
 import {encode} from 'fast-png';
 import {PDFDocument} from 'pdf-lib';
-import type {Page} from 'playwright';
+import type {
+    BrowserContext, Page,
+} from 'playwright';
 import {
-    describe, expect, it,
+    afterAll, describe, expect, it,
 } from 'vitest';
 import {
-    collectConsoleProblems, lifecycle, waitForOpenFileReady,
+    collectConsoleProblems, lifecycle, readPersistedDocumentBytes, settleActiveOpen, waitForOpenFileReady,
 } from './documentLifecycleTestHelpers';
 import type {IBrowserLifecycleTestApi} from './documentLifecycleTestHelpers';
 import type {IProbe} from './scanCleanupUiTestHelpers';
 import {
     evidenceRoot, scanCleanupUiTimeoutMs, previewImage, cleanedImage, sha256, installProbe, openWorkspace, showWorkspace, waitForPixels, pixels, cleanedPixels, assertBrowserScope, select, drag, undoRedo,
+    conversionModes, prepareConversionSource, inspectConversionPdf, assertConversionPdf,
 } from './scanCleanupUiTestHelpers';
 
 async function createFixture(pageScale = 1) {
@@ -94,6 +99,183 @@ const newDocumentRef = async (page: Page, previous: string | undefined) => {
 
 
 describe('browser Scan Cleanup workspace', () => {
+    // One source journey, five independently timed output contracts. Keep the
+    // source surface mounted so layout analysis belongs to the document once.
+    describe('conversion modes', {concurrent: false}, () => {
+        let context: BrowserContext;
+        let page: Page;
+        let problems: string[];
+        let sourceBytes: Buffer;
+        let source: Awaited<ReturnType<typeof inspectConversionPdf>>;
+        let sourceRef: string;
+        let sourceTabId: string;
+        let tabCount: number;
+
+        afterAll(async () => {
+            await context?.close();
+        });
+
+        // Saved PDF bytes are the outcome; a successful preview is insufficient.
+        it.each(conversionModes)('converts $name scans into a new tab and preserves the source document', async (mode) => {
+            // Existing UI helpers use expect.poll, which belongs inside a
+            // test. The first mode prepares the one source shared by the suite.
+            if (!context) {
+                const setupStartedAt = performance.now();
+                context = await lifecycle.browser.newContext({viewport: {
+                    width: 1440,
+                    height: 1000,
+                }});
+                page = await context.newPage();
+                problems = collectConsoleProblems(page);
+                await installProbe(page);
+                const sourcePath = resolve('tests/fixtures/release/scan-cleanup-four-page-grayscale.pdf');
+                sourceBytes = await readFile(sourcePath);
+                source = await inspectConversionPdf(sourceBytes);
+                expect(source.pages).toHaveLength(4);
+                await openWorkspace(page, sourcePath);
+                // Set geometry before waiting for detection, rather than waiting
+                // for default geometry and immediately invalidating its analysis.
+                await prepareConversionSource(page);
+                await assertBrowserScope(page);
+                sourceRef = (await documentRef(page))!;
+                expect(sourceRef).toBeTypeOf('string');
+                sourceTabId = (await page.locator('.tab.is-active[data-tab-id]').getAttribute('data-tab-id'))!;
+                expect(sourceTabId).toBeTruthy();
+                tabCount = await page.locator('.tab[data-tab-id]').count();
+                const setupMs = Math.round(performance.now() - setupStartedAt);
+                console.info('Scan Cleanup conversion setup timing', JSON.stringify({setupMs}));
+                await mkdir(evidenceRoot, {recursive: true});
+                await writeFile(join(evidenceRoot, 'conversion-setup.json'), JSON.stringify({setupMs}, null, 2));
+            }
+            const modeDirectory = join(evidenceRoot, `conversion-${mode.name.toLowerCase().replaceAll(' ', '-')}`);
+            await mkdir(modeDirectory, {recursive: true});
+            const startedAt = performance.now();
+            const timings: Record<string, number> = {};
+            const observations: Record<string, unknown> = {
+                mode: mode.name,
+                timings,
+            };
+            try {
+                observations.sourceSha256 = sha256(sourceBytes);
+                await page.getByRole('radio', {
+                    name: mode.radio,
+                    exact: true,
+                }).click();
+                await page.getByRole('checkbox', {
+                    name: 'Keep original images',
+                    exact: true,
+                }).setChecked(mode.name === 'Keep original images');
+                timings.optionsMs = Math.round(performance.now() - startedAt);
+                const cleanUp = page.locator('.scan-cleanup-toolbar button').filter({hasText: /^Clean up/u});
+                observations.beforeRun = {
+                    detection: await page.locator('.scan-cleanup-surface').getAttribute('data-detection-status'),
+                    selectedMode: mode.name,
+                    cleanUpDisabled: await cleanUp.isDisabled(),
+                    disabledReason: await page.locator('[data-run-disabled-reason]').allTextContents(),
+                    sourceRef,
+                    sourceTabId,
+                    tabCount,
+                };
+                await page.screenshot({path: join(modeDirectory, 'before-run.png')});
+                console.info('Browser Scan Cleanup conversion ready', JSON.stringify(observations.beforeRun));
+                await assertBrowserScope(page);
+                await cleanUp.click();
+                const meter = page.locator('.scan-cleanup-run-meter [role="progressbar"]');
+                await meter.waitFor({state: 'visible'});
+                observations.progress = {
+                    text: await meter.getAttribute('aria-valuetext'),
+                    cancelOrFinishing: await page.locator('.scan-cleanup-toolbar-primary-action').innerText(),
+                };
+                expect(observations.progress).toMatchObject({cancelOrFinishing: expect.stringMatching(/Cancel|Finishing/u)});
+                await page.screenshot({path: join(modeDirectory, 'progress.png')});
+                await expect.poll(() => page.locator('.tab[data-tab-id]').count(), {timeout: 60_000}).toBe(tabCount + 1);
+                await expect.poll(() => newDocumentRef(page, sourceRef), {timeout: 30_000}).toBe(true);
+                await settleActiveOpen(page);
+                timings.outputReadyMs = Math.round(performance.now() - startedAt);
+                const outputTab = page.locator('.tab.is-active[data-tab-id]');
+                const outputTabId = await outputTab.getAttribute('data-tab-id');
+                expect(outputTabId).not.toBe(sourceTabId);
+                expect(await outputTab.innerText()).toContain('cleaned');
+                const outputRef = await documentRef(page);
+                // Compare the same persisted bytes by digest in the browser,
+                // avoiding a large number[] transfer through Playwright.
+                const persistedSha256 = Buffer.from(await readPersistedDocumentBytes(page, outputRef!, true)).toString('hex');
+                timings.persistedReadMs = Math.round(performance.now() - startedAt);
+                // Exercise the user's normal Save As/download route as well as IDB.
+                const downloading = page.waitForEvent('download');
+                await page.getByRole('button', {
+                    name: 'Save options',
+                    exact: true,
+                }).click();
+                await page.getByRole('menuitem', {name: /^Save As/u}).click();
+                const download = await downloading;
+                expect(download.suggestedFilename()).toMatch(/cleaned.*\.pdf$/u);
+                const outputPath = join(modeDirectory, 'output.pdf');
+                await download.saveAs(outputPath);
+                const savedBytes = await readFile(outputPath);
+                timings.savedMs = Math.round(performance.now() - startedAt);
+                expect(savedBytes.byteLength).toBeGreaterThan(0);
+                expect(sha256(savedBytes), 'Save As downloads the completed conversion bytes').toBe(persistedSha256);
+                const output = await inspectConversionPdf(savedBytes);
+                const stamp = assertConversionPdf(source, output, sourceBytes, mode);
+                observations.output = {
+                    outputRef,
+                    outputTabId,
+                    bytes: savedBytes.byteLength,
+                    sha256: sha256(savedBytes),
+                    ...output,
+                    stamp,
+                };
+                await page.screenshot({path: join(modeDirectory, 'output-tab.png')});
+                // Closing the saved result returns to the still-mounted source.
+                // Done would unmount Scan Cleanup and needlessly detect it again.
+                await page.locator(`.tab[data-tab-id="${outputTabId}"] .tab-close`).click();
+                await expect.poll(() => page.locator('.tab[data-tab-id]').count()).toBe(tabCount);
+                await expect.poll(() => documentRef(page), {timeout: 30_000}).toBe(sourceRef);
+                await page.locator('.scan-cleanup-surface').waitFor({state: 'visible'});
+                // Exercise the source controls after every result, including the
+                // final mode, without tearing down its completed detection.
+                const advanced = page.getByRole('button', {
+                    name: 'Advanced',
+                    exact: true,
+                });
+                await advanced.click();
+                expect(await advanced.getAttribute('aria-expanded')).toBe('false');
+                await advanced.click();
+                expect(await advanced.getAttribute('aria-expanded')).toBe('true');
+                expect(Buffer.from(await readPersistedDocumentBytes(page, sourceRef, true)).toString('hex'), 'source bytes stay unchanged').toBe(sha256(sourceBytes));
+                await assertBrowserScope(page);
+                if (mode.name === 'Keep original images') {
+                    // Finish the journey by reading the source again. Earlier
+                    // modes leave its settled Scan Cleanup surface mounted.
+                    await page.getByRole('button', {
+                        name: 'Done',
+                        exact: true,
+                    }).click();
+                    await settleActiveOpen(page);
+                    await page.locator('.page_container[data-page="1"][data-page-raster="current"] canvas').first().waitFor({state: 'visible'});
+                }
+                await page.screenshot({path: join(modeDirectory, 'source-still-usable.png')});
+                expect(problems).toEqual([]);
+                timings.totalMs = Math.round(performance.now() - startedAt);
+                console.info('Scan Cleanup conversion timing', JSON.stringify({
+                    mode: mode.name,
+                    ...timings,
+                }));
+            } catch (error) {
+                observations.failure = error instanceof Error ? error.message : String(error);
+                // A failed capture must not replace the failure it records.
+                await page.screenshot({path: join(modeDirectory, 'failure.png')}).catch(() => undefined);
+                throw error;
+            } finally {
+                await writeFile(join(modeDirectory, 'observations.json'), JSON.stringify(observations, null, 2));
+                await writeFile(join(modeDirectory, 'console.json'), JSON.stringify(problems, null, 2));
+                const inputs = await page.evaluate(() => (Reflect.get(window, '__sc3bProbe') as IProbe | undefined)?.inputs ?? []);
+                await writeFile(join(modeDirectory, 'input.json'), JSON.stringify(inputs, null, 2));
+            }
+        }, scanCleanupUiTimeoutMs);
+    });
+
     // T1/T6: Save As retains document settings and Recent reopens the saved identity.
     it('retains the page override after Save As and reopening the saved Recent document', async () => {
         const startedAt = performance.now();

@@ -14,7 +14,9 @@ import {
 import esbuild from 'esbuild';
 import {fileURLToPath} from 'node:url';
 import {computeNativeBuildIds} from './native-build-id.mjs';
-import {readBuildEnvironment} from './lib/build-environment.mjs';
+import {
+    readBuildEnvironment, resolveBuildGitSha,
+} from './lib/build-environment.mjs';
 
 const { WORKER_BUNDLES } = await import(new URL('../packages/electron-worker-bundles/electronWorkerBundles.js', import.meta.url).href);
 
@@ -22,7 +24,7 @@ const { WORKER_BUNDLES } = await import(new URL('../packages/electron-worker-bun
 // them to Sentry (scripts/upload-sentry-sourcemaps.mjs deletes them).
 const buildEnv = readBuildEnvironment(process.env);
 const emitSourceMaps = buildEnv.EVB_ELECTRON_SOURCEMAP === '1' || Boolean(buildEnv.SENTRY_AUTH_TOKEN);
-const buildGitSha = resolveBuildGitSha();
+const buildGitSha = resolveBuildGitSha(buildEnv);
 const buildGitShaDefine = {
     '__EVB_BUILD_GIT_SHA__': JSON.stringify(buildGitSha),
     'process.env.EVB_BUILD_GIT_SHA': JSON.stringify(buildGitSha ?? ''),
@@ -69,41 +71,6 @@ if (process.platform === 'darwin') {
     execFileSync('bash', ['scripts/build-macos-pdf-print-dialog.sh'], {stdio: 'inherit'});
 }
 
-function resolveBuildGitSha() {
-    const gitOptions = {
-        encoding: 'utf8',
-        stdio: [
-            'ignore',
-            'pipe',
-            'ignore',
-        ],
-    };
-    let status;
-    try {
-        status = execFileSync('git', [
-            'status',
-            '--porcelain',
-        ], gitOptions).trim();
-    } catch {
-        const ciSha = buildEnv.GITHUB_SHA?.trim().toLowerCase() ?? '';
-        // Keep in sync with SCAN_CLEANUP_GIT_SHA_HEX_PATTERN in packages/scan-cleanup/core/provenanceStamp.ts.
-        return /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u.test(ciSha) ? ciSha : null;
-    }
-    if (status !== '') {
-        return null;
-    }
-    try {
-        const sha = execFileSync('git', [
-            'rev-parse',
-            '--verify',
-            'HEAD',
-        ], gitOptions).trim().toLowerCase();
-        // Keep in sync with SCAN_CLEANUP_GIT_SHA_HEX_PATTERN in packages/scan-cleanup/core/provenanceStamp.ts.
-        return /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u.test(sha) ? sha : null;
-    } catch {
-        return null;
-    }
-}
 const builds = [
     {
         entryPoints: {main: 'electron/main.ts'},

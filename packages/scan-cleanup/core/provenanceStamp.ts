@@ -1,5 +1,9 @@
-import {createHash} from 'node:crypto';
-import {createReadStream} from 'node:fs';
+/**
+ * The platform-neutral provenance stamp: schema, canonical JSON, digests,
+ * validation and hex transport. Whole-file source hashing is each platform's:
+ * sha256ScanCleanupFile on Node, WebCrypto in the browser.
+ */
+import {sha256Utf8Hex} from '@evb/scan-cleanup/core/sha256Utf8Hex';
 import type {
     INativeScanCleanupOptionsV3,
     IScanCleanupManualZones,
@@ -30,11 +34,14 @@ import {
     SCAN_CLEANUP_NORMALIZED_BOUNDS_EPSILON,
 } from '@contracts/scan-cleanup/geometry';
 import {getErrorMessage} from '@contracts/getErrorMessage';
-import type {
-    IScanCleanupOutputMapping,
-    TScanCleanupAssemblerBackend,
-    TScanCleanupTransportMode,
+import {
+    SCAN_CLEANUP_ASSEMBLER_BACKENDS,
+    SCAN_CLEANUP_TRANSPORT_MODES,
+    type IScanCleanupOutputMapping,
+    type TScanCleanupAssemblerBackend,
+    type TScanCleanupTransportMode,
 } from '@evb/scan-cleanup/core/types';
+import {embeddedScanCleanupBuildGitSha} from '@evb/scan-cleanup/core/buildGitSha';
 import type {
     IEffectiveNativeScanCleanupOptionsV3,
     TScanCleanupQualityPath,
@@ -173,18 +180,45 @@ export function canonicalScanCleanupJson(value: unknown): string {
 }
 
 function sha256ScanCleanupJson(value: unknown): string {
-    return sha256Utf8(canonicalScanCleanupJson(value));
+    return sha256Utf8Hex(canonicalScanCleanupJson(value));
 }
 
-export async function sha256ScanCleanupFile(path: string): Promise<string> {
-    const hash = createHash('sha256');
-    for await (const chunk of createReadStream(path)) {
-        if (typeof chunk !== 'string' && !Buffer.isBuffer(chunk)) {
-            throw new Error(`Scan cleanup source stream produced an unsupported chunk: ${path}`);
+/** A content digest for a role whose executable identity is a backend name, not a file. */
+export function hashScanCleanupBackendMarker(role: string, backend: TScanCleanupAssemblerBackend) {
+    return sha256Utf8Hex(`${role}:${backend}`);
+}
+
+/**
+ * The build identities a run stamps: the shared core, the native engines it
+ * actually executed and the embedded source revision when the build has one.
+ */
+export function composeScanCleanupStampBuildIds({
+    nativeBinarySha256s, assemblerBackend, transportMode,
+}: {
+    nativeBinarySha256s: Readonly<Record<string, string>>;
+    assemblerBackend: TScanCleanupAssemblerBackend;
+    transportMode: TScanCleanupTransportMode;
+}): TScanCleanupStampBuildIds {
+    const sha = embeddedScanCleanupBuildGitSha?.trim().toLowerCase() ?? '';
+    const gitSha = SCAN_CLEANUP_GIT_SHA_HEX_PATTERN.test(sha) ? sha : null;
+    const legacyBuildIds = {
+        coreBuildId: SCAN_CLEANUP_CORE_BUILD_ID,
+        nativeBinarySha256s: Object.keys(nativeBinarySha256s).length === 0
+            ? {assembler: sha256Utf8Hex(`assembler:${assemblerBackend}`)}
+            : {...nativeBinarySha256s},
+        assemblerBackend,
+        transportMode,
+    };
+    return gitSha === null
+        ? {
+            ...legacyBuildIds,
+            coreSchemaId: SCAN_CLEANUP_STAMP_SCHEMA_ID_V1,
         }
-        hash.update(chunk);
-    }
-    return hash.digest('hex');
+        : {
+            ...legacyBuildIds,
+            coreSchemaId: SCAN_CLEANUP_STAMP_SCHEMA_ID,
+            gitSha,
+        };
 }
 
 export function materializeScanCleanupStampOptions({
@@ -305,16 +339,27 @@ export function encodeScanCleanupProvenanceStampHex(
     payload: TScanCleanupProvenanceStamp,
 ): string {
     assertScanCleanupProvenanceStamp(payload);
-    return Buffer.from(canonicalScanCleanupJson(payload), 'utf8').toString('hex');
+    return Array.from(
+        new TextEncoder().encode(canonicalScanCleanupJson(payload)),
+        byte => byte.toString(16).padStart(2, '0'),
+    ).join('');
 }
 
 export function decodeScanCleanupProvenanceStampHex(hex: string): TScanCleanupProvenanceStamp {
     if (!/^[0-9a-f]+$/u.test(hex) || hex.length % 2 !== 0) {
         throw new Error('provenance stamp must be lowercase hexadecimal');
     }
-    const bytes = Buffer.from(hex, 'hex');
-    const json = bytes.toString('utf8');
-    if (Buffer.from(json, 'utf8').compare(bytes) !== 0) {
+    const bytes = new Uint8Array(hex.length / 2);
+    for (let index = 0; index < bytes.length; index += 1) {
+        bytes[index] = Number.parseInt(hex.slice(index * 2, index * 2 + 2), 16);
+    }
+    let json: string;
+    try {
+        json = new TextDecoder('utf-8', {
+            fatal: true,
+            ignoreBOM: true,
+        }).decode(bytes);
+    } catch {
         throw new Error('provenance stamp is not valid UTF-8');
     }
     let parsed: unknown;
@@ -577,10 +622,6 @@ function compareOutputMapping(left: IScanCleanupOutputMapping, right: IScanClean
 function requiredNumber(value: number | undefined, name: string) {
     if (value === undefined || !Number.isFinite(value) || value <= 0) throw new Error(`Missing finite positive ${name}`);
     return value;
-}
-
-function sha256Utf8(value: string) {
-    return createHash('sha256').update(value, 'utf8').digest('hex');
 }
 
 function sortJsonValue(value: unknown): unknown {
@@ -855,20 +896,12 @@ function assertBuildIds(
         if (/path|timestamp|username|basename/iu.test(role)) fail('native binary role is invalid');
         assertSha256(hash, `nativeBinarySha256s.${role}`);
     }
-    if (![
-        'native-pdf-image-combine',
-        'native-pdf-page-ops',
-        'cli-wasm-pdf-image-combine',
-        'cli-fallback-img2pdf-qpdf',
-        'cli-fallback-wasm-or-img2pdf-qpdf',
-        'cli-fallback-qpdf-page-ops',
-        'source-preserved',
-    ].includes(value.assemblerBackend as string)) fail('assemblerBackend is invalid');
-    if (![
-        'file-ppm',
-        'file-png',
-        'source-preserved',
-    ].includes(value.transportMode as string)) fail('transportMode is invalid');
+    if (!(SCAN_CLEANUP_ASSEMBLER_BACKENDS as readonly unknown[]).includes(value.assemblerBackend)) {
+        fail('assemblerBackend is invalid');
+    }
+    if (!(SCAN_CLEANUP_TRANSPORT_MODES as readonly unknown[]).includes(value.transportMode)) {
+        fail('transportMode is invalid');
+    }
     if (
         schemaVersion === SCAN_CLEANUP_STAMP_SCHEMA_VERSION
         && 'gitSha' in value

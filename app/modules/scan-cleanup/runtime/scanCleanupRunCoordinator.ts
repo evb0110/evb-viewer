@@ -757,8 +757,10 @@ async function handleTerminalState(state: TScanCleanupJobState) {
                     : omission.pages.join(', '),
             }));
             if (state.summary.accessibilityTagsRemoved) notices.push(t('scanCleanup.accessibilityTagsRemoved'));
+            if (state.summary.sourceLayersReconstructed) notices.push(t('scanCleanup.sourceLayersReconstructed'));
             terminalDependencies.toast.add({
-                color: state.summary.sourceTextOmission?.count || state.summary.accessibilityTagsRemoved ? 'warning' : 'success',
+                color: state.summary.sourceTextOmission?.count || state.summary.accessibilityTagsRemoved
+                    || state.summary.sourceLayersReconstructed ? 'warning' : 'success',
                 title: terminalDependencies.t(state.partial
                     ? 'scanCleanup.completedPartialTitle'
                     : 'scanCleanup.completedTitle'),
