@@ -214,6 +214,10 @@ export function computeReleaseBuildState({
     const contract = {
         nativeConfiguration: createHash('sha256')
             .update(JSON.stringify(getCargoFingerprintEnvironment(nativeEnv)))
+            .update(fingerprintPaths(projectRoot, [
+                'scripts/lib/cargo-rustc-wrapper.mjs',
+                'scripts/lib/cargo-rustc-wrapper.cmd',
+            ]))
             .update(fingerprintPaths(projectRoot, getCargoConfigurationInputs({
                 env: nativeEnv,
                 projectRoot,

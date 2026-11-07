@@ -1,6 +1,6 @@
 import { getCliErrorMessage } from './lib/cli-error.mjs';
 import {
-    CARGO_ENCODED_RUSTFLAGS_SEPARATOR,
+    getCargoBuildEnvironment,
     getCargoRustflags,
 } from './lib/build-environment.mjs';
 import { spawnSync } from 'node:child_process';
@@ -107,10 +107,10 @@ export async function runWasmToolBuilder(argv = process.argv.slice(2)) {
     });
     const result = spawnSync('cargo', plan.cargoArgs, {
         cwd: projectRoot,
-        env: {
-            ...process.env,
-            CARGO_ENCODED_RUSTFLAGS: plan.rustflags.join(CARGO_ENCODED_RUSTFLAGS_SEPARATOR),
-        },
+        env: getCargoBuildEnvironment({
+            projectRoot,
+            extraRustflags: artifact.rustflags,
+        }).env,
         stdio: 'inherit',
     });
     if (result.status !== 0) {
