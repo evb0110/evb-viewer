@@ -709,9 +709,9 @@ pub(crate) fn inspect_scan_cleanup_pdf_bytes(data: &[u8], page_numbers: &[u32]) 
 }
 
 /// How closely a page's source raster matches desktop's: `Exact` when every
-/// image decodes to the samples Poppler decodes, `Near` when a JPEG 2000
-/// image, or a JPEG outside the browser's libjpeg path, went through a
-/// decoder not proven sample-identical.
+/// image decodes to the samples Poppler decodes, `Near` when a JPEG or JPEG
+/// 2000 image went through a decoder not proven sample-identical: native
+/// builds' Rust decoders, or a variant the browser's C decoders leave to them.
 #[derive(Serialize, Debug, Clone, Copy, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub(crate) enum SampleCompatibility {
@@ -1283,7 +1283,7 @@ fn image_samples(
 ) -> Result<Option<evb_pdf_image_combine::pdf_image_samples::DecodedSamples>> {
     use evb_pdf_image_combine::pdf_image_samples::{
         decode_ccitt_g4, decode_dct, decode_dct_rust, decode_jbig2_generic, decode_jpx,
-        DecodedSamples, DCT_MATCHES_LIBJPEG,
+        DecodedSamples,
     };
 
     let dictionary = &stream.dict;
@@ -1348,6 +1348,7 @@ fn image_samples(
                 components: components as u8,
                 bits_per_component: bits,
                 data: data[..stride * height as usize].to_vec(),
+                matches_poppler: true,
             })
         }
         [b"CCITTFaxDecode" | b"CCF"] => {
@@ -1394,21 +1395,22 @@ fn image_samples(
             // libjpeg applies the stream's own color transform; a PDF
             // override of it is decoded without that guarantee.
             if components == 3 && parameter(b"ColorTransform").is_some() {
-                *compatibility = SampleCompatibility::Near;
                 decode_dct_rust(&stream.content, width, height, 3, max_pixels)?
             } else {
-                if !DCT_MATCHES_LIBJPEG {
-                    *compatibility = SampleCompatibility::Near;
-                }
                 decode_dct(&stream.content, width, height, components as u8, max_pixels)?
             }
         }
         [b"JPXDecode"] if bits == 8 => {
-            *compatibility = SampleCompatibility::Near;
-            decode_jpx(&stream.content, width, height, max_pixels)?
+            decode_jpx(&stream.content, width, height, components as u8, max_pixels)?
         }
         _ => None,
     };
+    if samples
+        .as_ref()
+        .is_some_and(|samples| !samples.matches_poppler)
+    {
+        *compatibility = SampleCompatibility::Near;
+    }
     // A codec that decoded a different component count does not match the dictionary.
     Ok(samples.filter(|samples| usize::from(samples.components) == components))
 }

@@ -67,6 +67,18 @@ texts are included in the `licenses/` directory alongside this file.
   WebAssembly engine `evb-pdf-page-ops.wasm`, unmodified.
 - This software is based in part on the work of the Independent JPEG Group.
 
+## OpenJPEG 2.5.4 and wasi-libc (browser page tool engine)
+
+- Upstream: https://www.openjpeg.org/, https://github.com/WebAssembly/wasi-libc
+- License: BSD 2-Clause (`licenses/OpenJPEG-2.5.4.txt`); wasi-libc under
+  MIT (`licenses/wasi-libc.txt`), its musl parts under MIT
+  (`licenses/musl.txt`).
+- Bundled as: OpenJPEG's decoder and the wasi-libc members `strcmp`, `atoi`,
+  `lrintf`, `qsort` and `fmaf`, statically linked into the page tool
+  WebAssembly engine `evb-pdf-page-ops.wasm`. OpenJPEG carries one change, the
+  patch `native/pdf-image-combine/src/jpx_wasm/openjpeg-2.5.4-dwt-fma.patch`
+  in the EVB Viewer repository.
+
 ## Microsoft Visual C++ runtime (Windows)
 
 - Upstream: https://learn.microsoft.com/cpp/windows/latest-supported-vc-redist

@@ -25,6 +25,9 @@ pub struct DecodedSamples {
     pub components: u8,
     pub bits_per_component: u8,
     pub data: Vec<u8>,
+    /// Whether these are the samples Poppler decodes from the stream, not a
+    /// near decoder's.
+    pub matches_poppler: bool,
 }
 
 fn admit(width: u32, height: u32, components: u8, max_pixels: u64) -> Result<()> {
@@ -36,11 +39,6 @@ fn admit(width: u32, height: u32, components: u8, max_pixels: u64) -> Result<()>
     }
     Ok(())
 }
-
-/// Whether [`decode_dct`] returns libjpeg's samples, which Poppler draws. The
-/// browser engines link libjpeg-turbo; native builds decode with zune-jpeg,
-/// whose IDCT and upsampling round differently.
-pub const DCT_MATCHES_LIBJPEG: bool = cfg!(target_arch = "wasm32");
 
 /// An 8-bit gray or three-component JPEG at full resolution, with the
 /// stream's default color transform, as libjpeg decodes it where it is linked.
@@ -57,13 +55,14 @@ pub fn decode_dct(
             return Ok(None);
         }
         admit(width, height, components, max_pixels)?;
-        let data = libjpeg::decode(bytes, width, height, components)?;
+        let data = c_decoders::decode_jpeg(bytes, width, height, components)?;
         Ok(data.map(|data| DecodedSamples {
             width,
             height,
             components,
             bits_per_component: 8,
             data,
+            matches_poppler: true,
         }))
     }
     #[cfg(not(target_arch = "wasm32"))]
@@ -102,20 +101,32 @@ pub fn decode_dct_rust(
         components,
         bits_per_component: 8,
         data,
+        matches_poppler: false,
     }))
 }
 
-/// The libjpeg-turbo adapter `src/jpeg_wasm/evb_jpeg.c`, linked by `build.rs`.
-/// A fatal libjpeg error traps; the browser then discards the engine.
+/// The C decoders the browser engines link (`build.rs`): libjpeg-turbo
+/// through `src/jpeg_wasm/evb_jpeg.c` and OpenJPEG through
+/// `src/jpx_wasm/evb_jpx.c`. Both allocate through [`Allocator`]; a fatal
+/// libjpeg error traps, and the browser then discards the engine.
 #[cfg(target_arch = "wasm32")]
-mod libjpeg {
-    use std::alloc::{alloc, dealloc, Layout};
+mod c_decoders {
+    use std::alloc::{alloc, dealloc, realloc, Layout};
 
+    /// The callbacks each adapter allocates through. The libjpeg adapter
+    /// declares the first two fields only.
     #[repr(C)]
     struct Allocator {
         allocate: extern "C" fn(usize) -> *mut u8,
         release: extern "C" fn(*mut u8),
+        reallocate: extern "C" fn(*mut u8, usize) -> *mut u8,
     }
+
+    const ALLOCATOR: Allocator = Allocator {
+        allocate,
+        release,
+        reallocate,
+    };
 
     extern "C" {
         fn evb_jpeg_decode(
@@ -127,11 +138,21 @@ mod libjpeg {
             components: u32,
             pixels: *mut u8,
         ) -> i32;
+        fn evb_jpx_decode(
+            allocator: *const Allocator,
+            input: *const u8,
+            length: usize,
+            width: u32,
+            height: u32,
+            components: u32,
+            pixels: *mut u8,
+        ) -> i32;
     }
 
-    /// Each C allocation keeps its size in a 16-byte prefix, so `release`
-    /// can rebuild its layout.
-    const PREFIX: usize = 16;
+    /// Each C block keeps its size in a 32-byte prefix, so `release` and
+    /// `reallocate` can rebuild its layout; blocks are 32-byte aligned, as
+    /// OpenJPEG's aligned allocations require.
+    const PREFIX: usize = 32;
 
     fn layout(size: usize) -> Option<Layout> {
         size.checked_add(PREFIX)
@@ -155,8 +176,8 @@ mod libjpeg {
     }
 
     extern "C" fn release(pointer: *mut u8) {
-        // SAFETY: `pointer` came from `allocate`, which wrote its size into
-        // the prefix the layout below is rebuilt from.
+        // SAFETY: `pointer` came from `allocate` or `reallocate`, which wrote
+        // its size into the prefix the layout below is rebuilt from.
         unsafe {
             let block = pointer.sub(PREFIX);
             let size = block.cast::<usize>().read();
@@ -164,28 +185,54 @@ mod libjpeg {
         }
     }
 
-    pub(super) fn decode(
+    /// A null `pointer` allocates; a failed growth leaves the block intact.
+    extern "C" fn reallocate(pointer: *mut u8, size: usize) -> *mut u8 {
+        if pointer.is_null() {
+            return allocate(size);
+        }
+        let Some(grown) = layout(size) else {
+            return std::ptr::null_mut();
+        };
+        // SAFETY: `pointer` came from `allocate` or `reallocate`; its prefix
+        // holds the size its current layout was built from.
+        unsafe {
+            let block = pointer.sub(PREFIX);
+            let current = layout(block.cast::<usize>().read()).expect("allocated layout");
+            let moved = realloc(block, current, grown.size());
+            if moved.is_null() {
+                return moved;
+            }
+            moved.cast::<usize>().write(size);
+            moved.add(PREFIX)
+        }
+    }
+
+    fn output(width: u32, height: u32, components: u8) -> crate::Result<Vec<u8>> {
+        let length = (width as usize)
+            .checked_mul(height as usize)
+            .and_then(|pixels| pixels.checked_mul(usize::from(components)))
+            .ok_or("image size overflows")?;
+        let mut pixels = Vec::new();
+        pixels
+            .try_reserve_exact(length)
+            .map_err(|_| "image exceeds available memory")?;
+        pixels.resize(length, 0);
+        Ok(pixels)
+    }
+
+    pub(super) fn decode_jpeg(
         bytes: &[u8],
         width: u32,
         height: u32,
         components: u8,
     ) -> crate::Result<Option<Vec<u8>>> {
-        let length = (width as usize)
-            .checked_mul(height as usize)
-            .and_then(|pixels| pixels.checked_mul(usize::from(components)))
-            .ok_or("JPEG image size overflows")?;
-        let mut pixels = Vec::new();
-        pixels
-            .try_reserve_exact(length)
-            .map_err(|_| "JPEG image exceeds available memory")?;
-        pixels.resize(length, 0);
-        let allocator = Allocator { allocate, release };
+        let mut pixels = output(width, height, components)?;
         // SAFETY: the input and the output buffer outlive the call, the
         // output holds width * height * components bytes, and the adapter
-        // allocates only through `allocator`, releasing everything it took.
+        // allocates only through the allocator, releasing all it took.
         let status = unsafe {
             evb_jpeg_decode(
-                &allocator,
+                &ALLOCATOR,
                 bytes.as_ptr(),
                 bytes.len(),
                 width,
@@ -200,25 +247,71 @@ mod libjpeg {
             _ => Ok(None),
         }
     }
+
+    pub(super) fn decode_jpx(
+        bytes: &[u8],
+        width: u32,
+        height: u32,
+        components: u8,
+    ) -> crate::Result<Option<Vec<u8>>> {
+        let mut pixels = output(width, height, components)?;
+        // SAFETY: as for `decode_jpeg`.
+        let status = unsafe {
+            evb_jpx_decode(
+                &ALLOCATOR,
+                bytes.as_ptr(),
+                bytes.len(),
+                width,
+                height,
+                u32::from(components),
+                pixels.as_mut_ptr(),
+            )
+        };
+        match status {
+            0 => Ok(Some(pixels)),
+            2 => Ok(None),
+            3 => Err("JPEG 2000 image does not match its image dictionary".into()),
+            _ => Err("JPEG 2000 image is not decodable".into()),
+        }
+    }
 }
 
-/// An 8-bit gray or RGB JPEG 2000 image without alpha.
+/// An 8-bit gray or RGB JPEG 2000 image without alpha, with `components`
+/// components. The browser engines decode it with OpenJPEG, as Poppler does,
+/// and other variants with hayro; native builds decode with hayro.
 pub fn decode_jpx(
     bytes: &[u8],
     width: u32,
     height: u32,
+    components: u8,
     max_pixels: u64,
 ) -> Result<Option<DecodedSamples>> {
+    if !matches!(components, 1 | 3) {
+        return Ok(None);
+    }
+    admit(width, height, components, max_pixels)?;
+    #[cfg(target_arch = "wasm32")]
+    if let Some(data) = c_decoders::decode_jpx(bytes, width, height, components)? {
+        return Ok(Some(DecodedSamples {
+            width,
+            height,
+            components,
+            bits_per_component: 8,
+            data,
+            matches_poppler: true,
+        }));
+    }
     let image = Image::new(bytes, &DecodeSettings::default())
         .map_err(|error| format!("JPEG 2000 image is not decodable: {error}"))?;
-    let components = image.color_space().num_channels();
-    if image.has_alpha() || image.original_bit_depth() != 8 || !matches!(components, 1 | 3) {
+    if image.has_alpha()
+        || image.original_bit_depth() != 8
+        || image.color_space().num_channels() != components
+    {
         return Ok(None);
     }
     if (image.width(), image.height()) != (width, height) {
         return Err("JPEG 2000 image does not match its image dictionary".into());
     }
-    admit(width, height, components, max_pixels)?;
     let data = image
         .decode()
         .map_err(|error| format!("JPEG 2000 image is not decodable: {error}"))?;
@@ -228,6 +321,7 @@ pub fn decode_jpx(
         components,
         bits_per_component: 8,
         data,
+        matches_poppler: false,
     }))
 }
 
@@ -258,6 +352,7 @@ pub fn decode_ccitt_g4(
         components: 1,
         bits_per_component: 1,
         data,
+        matches_poppler: true,
     })
 }
 
@@ -288,6 +383,7 @@ pub fn decode_jbig2_generic(
         components: 1,
         bits_per_component: 1,
         data,
+        matches_poppler: true,
     })
 }
 

@@ -1,0 +1,51 @@
+Explicit fused multiply-add in the inverse 9/7 lifting step. Clang contracts
+these assignments into fmadd on arm64, and the desktop's bundled Poppler
+decodes with that rounding; wasm32 has no fused instruction, so fmaf keeps
+the same rounding there.
+--- a/src/lib/openjp2/dwt.c
++++ b/src/lib/openjp2/dwt.c
+@@ -3320,28 +3320,28 @@
+     }
+     /* To be adapted if NB_ELTS_V8 changes */
+     for (i = start; i < imax; ++i) {
+-        fw[-8] = fw[-8] + ((fl[0] + fw[0]) * c);
+-        fw[-7] = fw[-7] + ((fl[1] + fw[1]) * c);
+-        fw[-6] = fw[-6] + ((fl[2] + fw[2]) * c);
+-        fw[-5] = fw[-5] + ((fl[3] + fw[3]) * c);
+-        fw[-4] = fw[-4] + ((fl[4] + fw[4]) * c);
+-        fw[-3] = fw[-3] + ((fl[5] + fw[5]) * c);
+-        fw[-2] = fw[-2] + ((fl[6] + fw[6]) * c);
+-        fw[-1] = fw[-1] + ((fl[7] + fw[7]) * c);
++        fw[-8] = fmaf(fl[0] + fw[0], c, fw[-8]);
++        fw[-7] = fmaf(fl[1] + fw[1], c, fw[-7]);
++        fw[-6] = fmaf(fl[2] + fw[2], c, fw[-6]);
++        fw[-5] = fmaf(fl[3] + fw[3], c, fw[-5]);
++        fw[-4] = fmaf(fl[4] + fw[4], c, fw[-4]);
++        fw[-3] = fmaf(fl[5] + fw[5], c, fw[-3]);
++        fw[-2] = fmaf(fl[6] + fw[6], c, fw[-2]);
++        fw[-1] = fmaf(fl[7] + fw[7], c, fw[-1]);
+         fl = fw;
+         fw += 2 * NB_ELTS_V8;
+     }
+     if (m < end) {
+         assert(m + 1 == end);
+         c += c;
+-        fw[-8] = fw[-8] + fl[0] * c;
+-        fw[-7] = fw[-7] + fl[1] * c;
+-        fw[-6] = fw[-6] + fl[2] * c;
+-        fw[-5] = fw[-5] + fl[3] * c;
+-        fw[-4] = fw[-4] + fl[4] * c;
+-        fw[-3] = fw[-3] + fl[5] * c;
+-        fw[-2] = fw[-2] + fl[6] * c;
+-        fw[-1] = fw[-1] + fl[7] * c;
++        fw[-8] = fmaf(fl[0], c, fw[-8]);
++        fw[-7] = fmaf(fl[1], c, fw[-7]);
++        fw[-6] = fmaf(fl[2], c, fw[-6]);
++        fw[-5] = fmaf(fl[3], c, fw[-5]);
++        fw[-4] = fmaf(fl[4], c, fw[-4]);
++        fw[-3] = fmaf(fl[5], c, fw[-3]);
++        fw[-2] = fmaf(fl[6], c, fw[-2]);
++        fw[-1] = fmaf(fl[7], c, fw[-1]);
+     }
+ }
+ 

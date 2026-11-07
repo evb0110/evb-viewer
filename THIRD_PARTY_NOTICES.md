@@ -11,6 +11,8 @@ This file is a practical index of the major third-party components and assets th
 
 - The browser page tool engine, `public/wasm/evb-pdf-page-ops.wasm`, statically includes the 8-bit decompressor of libjpeg-turbo 3.1.2 (IJG and Modified BSD licenses), which it decodes scanned pages' JPEG images with. This software is based in part on the work of the Independent JPEG Group. `scripts/build-libjpeg-wasm32.sh` compiles it from the release tarball pinned by SHA-256 there, unmodified, into `native/pdf-image-combine/src/jpeg_wasm/libevb_jpeg.a`, whose receipt is `SOURCE.json` beside it. License texts: `resources/third-party-notices/licenses/libjpeg-turbo-3.1.2.txt` and `libjpeg-turbo-3.1.2-README.ijg.txt`.
 
+- The browser page tool engine also statically includes the decoder of OpenJPEG 2.5.4 (BSD-2-Clause), the release the desktop's bundled Poppler links, which it decodes scanned pages' JPEG 2000 images with, together with the wasi-libc 27 members `strcmp`, `atoi`, `lrintf`, `qsort` and `fmaf` (MIT; musl, MIT). `scripts/build-openjpeg-wasm32.sh` compiles it from the release tarball pinned by SHA-256 there, with one change, `native/pdf-image-combine/src/jpx_wasm/openjpeg-2.5.4-dwt-fma.patch` (fused rounding in the inverse 9/7 wavelet step), into `native/pdf-image-combine/src/jpx_wasm/libevb_jpx.a`, whose receipt is `SOURCE.json` beside it. License texts: `resources/third-party-notices/licenses/OpenJPEG-2.5.4.txt`, `wasi-libc.txt` and `musl.txt`.
+
 ## Desktop Native Resources
 
 - Tesseract OCR binaries, the `tessdata_best` language models, and Tesseract's glyphless PDF font are bundled under `resources/tesseract/`. The exact `pdf.ttf` source and SHA-256 are recorded in `resources/third-party-notices/Tesseract-pdf-source.txt`.
