@@ -1,3 +1,4 @@
+import {requireDocumentInstanceId} from '@contracts/documentInstanceId';
 import { ref } from 'vue';
 import type { IPdfBookmarkEntry } from '@contracts/pdfBookmarkEntry';
 import { requirePageIndex } from '@contracts/pageNumbers';
@@ -616,6 +617,7 @@ describe('processMcpRequest', () => {
             documentRef: requireDocumentRef('/tmp/Grammar.pdf'),
             sessionRevision: 1,
             documentRevisionToken: requireDocumentRevisionToken('rev-1'),
+            documentInstanceId: requireDocumentInstanceId('document-1'),
         };
         const next = {
             ...target,

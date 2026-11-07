@@ -432,6 +432,7 @@ async function startElectronE2ESessionWithAutomationEnv(
         owner: 'e2e' as const,
         ...(options?.initialOpenPaths ? { initialOpenPaths: options.initialOpenPaths } : {}),
     };
+    const deviceScaleFactor = resolveAutomationDeviceScaleFactor(startOptions.env) ?? 1;
     let connection: {
         browser: Browser;
         page: Page
@@ -485,7 +486,6 @@ async function startElectronE2ESessionWithAutomationEnv(
         );
         await installPageEvaluationShims(connection.page);
         await waitForRendererReady(connection.page);
-        const deviceScaleFactor = resolveAutomationDeviceScaleFactor(startOptions.env) ?? 1;
         if (launch.userEnvironment) {
             const environment = await establishUserEnvironment(connection.page, deviceScaleFactor);
             console.log(`[E2E environment] ${scopedSessionName} ${process.platform}: ${formatUserEnvironment(environment)}`);
