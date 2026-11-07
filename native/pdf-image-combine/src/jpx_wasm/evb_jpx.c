@@ -87,9 +87,19 @@ static OPJ_BOOL seek_source(OPJ_OFF_T position, void *context) {
   return OPJ_TRUE;
 }
 
-/* 0 decoded; 1 not decodable; 2 a variant this path does not decode (not
- * 8-bit unsigned, subsampled, alpha, a YCC color space, or another component
- * count); 3 the image's size differs from the PDF image's. `pixels` holds
+/* A component sample as Poppler draws it, measured from its output: signed
+ * 8-bit offset by 128, 16-bit rounded to its high byte, 1-bit scaled by 128. */
+static unsigned char poppler_sample(const opj_image_comp_t *component, int value) {
+  if (component->sgnd) value += 128;
+  if (component->prec == 16) value = (value + 128) >> 8;
+  else if (component->prec == 1) value *= 128;
+  return (unsigned char)(value < 0 ? 0 : value > 255 ? 255 : value);
+}
+
+/* 0 decoded; 1 not decodable; 2 a variant this path does not decode
+ * (subsampled, another precision, e-sYCC, alpha other than a trailing
+ * component, or another component count); 3 the image's size differs from
+ * the PDF image's. `pixels` holds
  * width * height * components bytes; the header is checked before any tile
  * is decoded. */
 int evb_jpx_decode(const evb_jpx_allocator *allocator, const unsigned char *input,
@@ -115,16 +125,20 @@ int evb_jpx_decode(const evb_jpx_allocator *allocator, const unsigned char *inpu
   opj_stream_set_skip_function(stream, skip_source);
   opj_stream_set_seek_function(stream, seek_source);
   if (!opj_read_header(stream, codec, &image)) goto done;
-  /* A YCC color space would need a conversion this path does not apply. */
-  if (image->numcomps != components || image->color_space == OPJ_CLRSPC_SYCC ||
+  /* Poppler draws the color components as decoded: a trailing alpha
+   * component is left out, and sYCC is not converted. e-sYCC is unmeasured.
+   * OpenJPEG marks alpha only while decoding, so an extra trailing component
+   * is admitted here and checked once decoded. */
+  if ((image->numcomps != components && image->numcomps != components + 1) ||
       image->color_space == OPJ_CLRSPC_EYCC) {
     status = 2;
     goto done;
   }
   for (unsigned index = 0; index < components; ++index) {
     const opj_image_comp_t *component = &image->comps[index];
-    if (component->prec != 8 || component->sgnd || component->alpha || component->dx != 1 ||
-        component->dy != 1) {
+    if (component->alpha || component->dx != 1 || component->dy != 1 ||
+        !(component->prec == 8 || component->prec == 16 || component->prec == 1) ||
+        (component->sgnd && component->prec != 8)) {
       status = 2;
       goto done;
     }
@@ -134,6 +148,10 @@ int evb_jpx_decode(const evb_jpx_allocator *allocator, const unsigned char *inpu
     goto done;
   }
   if (!opj_decode(codec, stream, image) || !opj_end_decompress(codec, stream)) goto done;
+  if (image->numcomps != components && !image->comps[components].alpha) {
+    status = 2;
+    goto done;
+  }
   for (unsigned index = 0; index < components; ++index) {
     if (image->comps[index].w != width || image->comps[index].h != height ||
         !image->comps[index].data) {
@@ -143,8 +161,8 @@ int evb_jpx_decode(const evb_jpx_allocator *allocator, const unsigned char *inpu
   }
   for (size_t pixel = 0; pixel < (size_t)width * height; ++pixel) {
     for (unsigned index = 0; index < components; ++index) {
-      int value = image->comps[index].data[pixel];
-      pixels[pixel * components + index] = (unsigned char)(value < 0 ? 0 : value > 255 ? 255 : value);
+      pixels[pixel * components + index] =
+          poppler_sample(&image->comps[index], image->comps[index].data[pixel]);
     }
   }
   status = 0;

@@ -1134,6 +1134,13 @@ fn image_paint(
 
     let dictionary = &stream.dict;
     let (stencil, bits) = image_bits(document, dictionary, 8);
+    // A JPEG 2000 stream carries its own precision, which its decoder maps to
+    // 8-bit samples; the dictionary's BitsPerComponent is optional and unused.
+    let jpx = matches!(
+        dictionary_value(document, dictionary, &[b"Filter", b"F"]),
+        Some(Object::Name(name)) if name == b"JPXDecode"
+    );
+    let bits = if jpx && !stencil { 8 } else { bits };
     if stencil {
         let Some(fill) = fill else {
             return Ok(Err("stencil fill color is not gray or RGB"));
