@@ -249,6 +249,24 @@ fn keeps_an_authored_frame_rule_and_picture_pixels_short_of_the_full_height() {
 }
 
 #[test]
+fn keeps_a_frame_beside_a_full_height_scanner_strip() {
+    let mut page = GrayImage::new(400, 400, 255);
+    fill(&mut page, 10..18, 50..350, 80);
+    fill(&mut page, 0..8, 0..400, 120);
+    whiten_unmarked_paper(&mut page, None, calibration(), 150.0);
+    for y in 0..400 {
+        for x in 0..8 {
+            assert_eq!(page.get(x, y), 255, "strip at ({x}, {y})");
+        }
+    }
+    for y in 50..350 {
+        for x in 10..18 {
+            assert_eq!(page.get(x, y), 80, "frame at ({x}, {y})");
+        }
+    }
+}
+
+#[test]
 fn whitens_paper_away_from_marks_and_keeps_every_mark_pixel() {
     let mut page = GrayImage::new(400, 400, 238);
     // A soft paper cloud far from any mark.
