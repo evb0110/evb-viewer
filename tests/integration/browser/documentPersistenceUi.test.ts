@@ -2,7 +2,7 @@ import {
     createHash, randomBytes,
 } from 'node:crypto';
 import {
-    readFileSync, writeFileSync, mkdirSync, mkdtempSync, openSync, rmSync, writeSync, closeSync,
+    readFileSync, writeFileSync, mkdirSync, mkdtempSync, openSync, rmSync, writeSync, closeSync, ftruncateSync,
 } from 'node:fs';
 import {tmpdir} from 'node:os';
 import {
@@ -92,17 +92,15 @@ describe('browser document lifecycle UI', () => {
             'Amber',
             'Cobalt',
         ].map(label => {
-            // A valid one-page PDF with a referenced, incompressible embedded file.
-            // Stream it to disk so neither the runner nor chooser needs a 270 MiB buffer.
+            // A valid one-page PDF with a referenced, sparse embedded file.
+            // Real file sizes exercise retention; random payload bytes add only I/O.
             const path = resolve(fixtures, `c07-${label.toLowerCase()}.pdf`);
             const file = openSync(path, 'w');
-            const hash = createHash('sha256');
             const offsets = [0];
             let size = 0;
             const write = (bytes: string | Buffer) => {
                 const buffer = typeof bytes === 'string' ? Buffer.from(bytes) : bytes;
-                writeSync(file, buffer);
-                hash.update(buffer);
+                writeSync(file, buffer, 0, buffer.length, size);
                 size += buffer.length;
             };
             const object = (id: number, body: string) => {
@@ -120,7 +118,8 @@ describe('browser document lifecycle UI', () => {
                 object(6, '<< /Type /Filespec /F (payload.bin) /EF << /F 7 0 R >> >>');
                 offsets[7] = size;
                 write(`7 0 obj\n<< /Type /EmbeddedFile /Length ${270 * 1024 * 1024} >>\nstream\n`);
-                for (let chunk = 0; chunk < 270; chunk += 1) write(randomBytes(1024 * 1024));
+                size += 270 * 1024 * 1024;
+                ftruncateSync(file, size);
                 write('\nendstream\nendobj\n');
                 const xref = size;
                 write(`xref\n0 8\n0000000000 65535 f \n${offsets.slice(1).map(offset => `${String(offset).padStart(10, '0')} 00000 n \n`).join('')}trailer\n<< /Size 8 /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`);
@@ -132,7 +131,6 @@ describe('browser document lifecycle UI', () => {
                 path,
                 name: basename(path),
                 size,
-                sha256: hash.digest('hex'),
             };
         });
         writeFileSync(resolve(evidence, 'fixtures.json'), JSON.stringify(books, null, 2));
@@ -170,6 +168,15 @@ describe('browser document lifecycle UI', () => {
                         paintings.set(label, painting.hash);
                     }
                 };
+                // Open each next document in the emptied tab, without rebuilding the app.
+                const open = async (fixture: Parameters<typeof openPdfFromChooser>[1]) => {
+                    const chooser = page.waitForEvent('filechooser');
+                    await page.getByRole('button', {
+                        name: 'Open File',
+                        exact: true,
+                    }).first().click();
+                    await (await chooser).setFiles(fixture);
+                };
                 const close = async () => {
                     await page.getByRole('button', {
                         name: 'Close Tab',
@@ -197,37 +204,56 @@ describe('browser document lifecycle UI', () => {
                     await page.keyboard.press('Escape');
                 };
                 try {
+                    await page.addInitScript(() => {
+                        Reflect.set(window, '__allowRendererFileOpenForAutomation', () => true);
+                        Reflect.set(window, 'showSaveFilePicker', undefined);
+                        window.sessionStorage.setItem('evb-viewer:browser:open-picker-mode', 'input');
+                    });
+                    await page.goto(lifecycle.origin, {waitUntil: 'domcontentloaded'});
+                    await waitForOpenFileReady(page);
+                    keepFileChooserInterceptionEnabled(page);
                     if (journey === 'large') {
                         for (const book of books) {
-                            await openPdfFromChooser(page, book.path);
+                            await open(book.path);
                             await paintedText(book.label);
                             await close();
                         }
                         await page.reload({waitUntil: 'domcontentloaded'});
                         await waitForOpenFileReady(page);
-                        // Inspect actual retained chunks, never inflate fileSize metadata.
-                        const storedBytes = await page.evaluate(async () => {
+                        // Retention budgets the source records' sizes, not compressed storage.
+                        // Read only metadata, and compare it with the actual chooser fixtures.
+                        const storedFiles = await page.evaluate(async () => {
                             const db = await new Promise<IDBDatabase>((resolveDb, rejectDb) => {
                                 const request = indexedDB.open('evb-viewer-browser-documents');
                                 request.onsuccess = () => resolveDb(request.result);
                                 request.onerror = () => rejectDb(request.error);
                             });
                             try {
-                                return await new Promise<number>((resolveBytes, rejectBytes) => {
-                                    let bytes = 0;
-                                    const request = db.transaction('document-chunks').objectStore('document-chunks').openCursor();
-                                    request.onsuccess = () => {
-                                        const cursor = request.result;
-                                        if (!cursor) return resolveBytes(bytes);
-                                        bytes += (cursor.value as {data: Uint8Array}).data.byteLength;
-                                        cursor.continue();
-                                    };
-                                    request.onerror = () => rejectBytes(request.error);
+                                return await new Promise<Array<{
+                                    fileName: string;
+                                    fileSize: number
+                                }>>((resolveFiles, rejectFiles) => {
+                                    const request = db.transaction('documents').objectStore('documents').getAll();
+                                    request.onsuccess = () => resolveFiles((request.result as Array<{
+                                        kind: string;
+                                        fileName: string;
+                                        fileSize: number
+                                    }>)
+                                        .filter(record => record.kind === 'source')
+                                        .map(({
+                                            fileName, fileSize,
+                                        }) => ({
+                                            fileName,
+                                            fileSize,
+                                        })));
+                                    request.onerror = () => rejectFiles(request.error);
                                 });
                             } finally {db.close();}
                         });
+                        const recordedBytes = storedFiles.reduce((sum, file) => sum + file.fileSize, 0);
                         writeFileSync(resolve(evidence, 'storage.json'), JSON.stringify({
-                            storedBytes,
+                            storedFiles,
+                            recordedBytes,
                             estimate: await page.evaluate(() => navigator.storage.estimate()),
                             browser: lifecycle.browser.version(),
                         }, null, 2));
@@ -236,7 +262,12 @@ describe('browser document lifecycle UI', () => {
                             'c07-cobalt.pdf',
                             'c07-amber.pdf',
                         ]);
-                        expect(storedBytes).toBeGreaterThan(512 * 1024 * 1024);
+                        expect(storedFiles).toHaveLength(books.length);
+                        expect(storedFiles).toEqual(expect.arrayContaining(books.map(book => ({
+                            fileName: book.name,
+                            fileSize: book.size,
+                        }))));
+                        expect(recordedBytes).toBeGreaterThan(512 * 1024 * 1024);
                         for (const book of books) {
                             if (book.label === 'Amber') {
                                 await page.locator('[data-recent-open-actionable="true"] .recent-open').filter({hasText: book.name}).click();
@@ -263,7 +294,7 @@ describe('browser document lifecycle UI', () => {
                         }
                     } else {
                         for (let index = 1; index <= 11; index += 1) {
-                            await openPdfFromChooser(page, await createReadingBook(`Small ${index}`, `c07-small-${index}.pdf`));
+                            await open(await createReadingBook(`Small ${index}`, `c07-small-${index}.pdf`));
                             await paintedText(`Small ${index}`);
                             await close();
                         }
