@@ -514,6 +514,8 @@ export async function select(page: Page, name: string, option: string) {
 }
 
 export async function drag(page: Page, locator: Locator, dx: number, dy: number) {
+    // A preview editor shown over a refreshing frame takes no input until the frame is current.
+    await expect.poll(() => locator.evaluate(element => element.closest('[inert]') === null)).toBe(true);
     const box = await locator.boundingBox();
     expect(box).not.toBeNull();
     await page.mouse.move(box!.x + box!.width / 2, box!.y + box!.height / 2);
