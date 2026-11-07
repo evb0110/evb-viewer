@@ -103,6 +103,30 @@ describe('annotationNoteWindowBounds', () => {
         });
     });
 
+    it('carries the retained window offset when a note marker moves', () => {
+        const page = {
+            left: 200,
+            top: 300,
+            width: 800,
+            height: 1000,
+        };
+        const marker = {
+            left: 0.2,
+            top: 0.3,
+            width: 0.02,
+            height: 0.02,
+        };
+        const anchor = captureAnnotationNoteWindowPageAnchor(500, 700, page, marker);
+        expect(resolveAnnotationNoteWindowPagePosition(anchor, page, {
+            ...marker,
+            left: 0.3,
+            top: 0.35,
+        })).toEqual({
+            x: 580,
+            y: 750,
+        });
+    });
+
     it('keeps the note available while any part of its page intersects the viewer pane', () => {
         expect(isAnnotationNoteWindowPageVisible({
             left: -200,

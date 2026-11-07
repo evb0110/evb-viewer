@@ -1,11 +1,14 @@
 import type { IAnnotationNoteWindowBounds } from '@app/modules/pdf-viewer/engine/annotation-note-window-bounds/annotationNoteWindowBounds';
 
+import type { IAnnotationMarkerRect } from '@app/types/annotations';
+
 type TPageRect = Pick<DOMRect, 'left' | 'top' | 'width' | 'height'>;
 
 /** Window top-left corner as a fraction of its page box, so scroll and zoom both carry the window with the page. */
 export interface IAnnotationNoteWindowPageAnchor {
     u: number;
     v: number;
+    marker: IAnnotationMarkerRect | null;
 }
 
 const NOTE_WINDOW_SHADOW_REACH = 24;
@@ -14,20 +17,25 @@ export function captureAnnotationNoteWindowPageAnchor(
     x: number,
     y: number,
     pageRect: TPageRect,
+    marker: IAnnotationMarkerRect | null = null,
 ): IAnnotationNoteWindowPageAnchor {
     return {
         u: (x - pageRect.left) / pageRect.width,
         v: (y - pageRect.top) / pageRect.height,
+        marker,
     };
 }
 
 export function resolveAnnotationNoteWindowPagePosition(
     anchor: IAnnotationNoteWindowPageAnchor,
     pageRect: TPageRect,
+    marker: IAnnotationMarkerRect | null = null,
 ) {
+    const dx = marker && anchor.marker ? marker.left + marker.width - anchor.marker.left - anchor.marker.width : 0;
+    const dy = marker && anchor.marker ? marker.top - anchor.marker.top : 0;
     return {
-        x: Math.round(pageRect.left + anchor.u * pageRect.width),
-        y: Math.round(pageRect.top + anchor.v * pageRect.height),
+        x: Math.round(pageRect.left + (anchor.u + dx) * pageRect.width),
+        y: Math.round(pageRect.top + (anchor.v + dy) * pageRect.height),
     };
 }
 
