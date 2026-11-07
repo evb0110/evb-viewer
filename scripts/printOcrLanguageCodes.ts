@@ -15,9 +15,9 @@ if (codes.length === 0) {
     throw new Error('No OCR language codes are registered.');
 }
 
-process.stdout.write(process.argv.includes('--sha256')
+process.stdout.write((process.argv.includes('--sha256')
     ? codes.map((code) => {
         const sha256 = OCR_LANGUAGE_MODEL_SHA256[code];
         return `${code} ${sha256} ${getOcrModelSourcePath(code)}`;
     }).join('\n')
-    : codes.join(separator));
+    : codes.join(separator)) + '\n');
