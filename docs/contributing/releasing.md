@@ -36,7 +36,7 @@ Check a release with:
 pnpm run release:status vX.Y.Z
 ```
 
-The command reports the tag, draft or public state, expected assets, checksums, the release workflow run, and the mirror pointer. For a failed run, fix the cause and re-run the workflow for the same existing tag.
+The command reports the tag, draft or public state, expected assets, checksums, the release workflow run, and the mirror pointer. For a failed run, fix the cause and re-run the workflow for the same existing tag. While the release is still a draft, use GitHub's "Re-run failed jobs": the gate's outputs still describe the draft, and the publish job reuses the packaged artifacts. Once the release is public, dispatch `Release` with `tag` set to it instead (`gh workflow run release.yml --ref main -f tag=vX.Y.Z`): a re-run of failed jobs keeps the first attempt's gate outputs, which still describe a draft, so the publish job takes the draft path and stops at "Refusing to edit an existing public release."
 
 - While the GitHub release is still a draft, a re-run rebuilds the packages, reuses matching immutable uploads, and stops if any byte differs.
 - Once the release is public, a re-run does not rebuild packages or edit the GitHub release. It downloads the published assets, verifies them against the published `SHA256SUMS`, and completes the mirror from those exact bytes: missing objects are uploaded, existing matching objects are reused, and the stable channel moves to the tag. Use this when a mirror transfer failed after promotion.
