@@ -9,6 +9,7 @@ use std::{
 pub mod pbm;
 pub mod png;
 pub mod raster;
+pub mod source_raster;
 
 pub(crate) const MAX_COMPRESSED_BYTES: usize = 512 * 1024 * 1024;
 const ATOMIC_TEMP_ATTEMPTS: usize = 16;

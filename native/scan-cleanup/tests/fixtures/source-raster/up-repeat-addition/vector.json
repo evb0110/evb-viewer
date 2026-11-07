@@ -1,0 +1,80 @@
+{
+ "id": "up-repeat-addition",
+ "purpose": "8/13 and 5/9 binary64 repeated-addition phase witness",
+ "mediabox": [
+  0,
+  0,
+  12,
+  8
+ ],
+ "cropbox": [
+  0,
+  0,
+  12,
+  8
+ ],
+ "rotation": 0,
+ "command_flags": [
+  "-hide-annotations",
+  "-singlefile",
+  "-cropbox",
+  "-r",
+  "72"
+ ],
+ "requested_dpi": 72,
+ "scale_to": null,
+ "requested_region": null,
+ "geometry": {
+  "page_ctm": [
+   1.0,
+   0.0,
+   0.0,
+   -1.0,
+   -0.0,
+   8.0
+  ],
+  "output_size": [
+   12,
+   8
+  ]
+ },
+ "layers": [
+  {
+   "width": 8,
+   "height": 5,
+   "components": 3,
+   "color_space": "DeviceRGB",
+   "image_mask": false,
+   "decode": [
+    0,
+    1,
+    0,
+    1,
+    0,
+    1
+   ],
+   "interpolate": false,
+   "content_ctm": [
+    12,
+    0,
+    0,
+    8,
+    0,
+    0
+   ],
+   "fill_rgb": [
+    0,
+    0,
+    0
+   ],
+   "decoded_samples": "layer0.decoded",
+   "integer_rectangle": [
+    0,
+    0,
+    13,
+    9
+   ],
+   "scale_path": "bilinear-up-both"
+  }
+ ]
+}

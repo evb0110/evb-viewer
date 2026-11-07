@@ -1,0 +1,76 @@
+{
+ "id": "paper-division-boundary",
+ "purpose": "coverage 2 over untouched paper distinguishes exact page-end division from mathematical round-to-nearest",
+ "mediabox": [
+  0,
+  0,
+  1,
+  1
+ ],
+ "cropbox": [
+  0,
+  0,
+  1,
+  1
+ ],
+ "rotation": 0,
+ "command_flags": [
+  "-hide-annotations",
+  "-singlefile",
+  "-cropbox",
+  "-r",
+  "72"
+ ],
+ "requested_dpi": 72,
+ "scale_to": null,
+ "requested_region": null,
+ "geometry": {
+  "page_ctm": [
+   1.0,
+   0.0,
+   0.0,
+   -1.0,
+   -0.0,
+   1.0
+  ],
+  "output_size": [
+   1,
+   1
+  ]
+ },
+ "layers": [
+  {
+   "width": 254,
+   "height": 3,
+   "components": 1,
+   "color_space": null,
+   "image_mask": true,
+   "decode": [
+    0,
+    1
+   ],
+   "interpolate": false,
+   "content_ctm": [
+    1,
+    0,
+    0,
+    1,
+    0,
+    0
+   ],
+   "fill_rgb": [
+    64,
+    128,
+    192
+   ],
+   "decoded_coverage": "layer0.coverage",
+   "integer_rectangle": [
+    0,
+    0,
+    2,
+    2
+   ],
+   "scale_path": "stencil-down"
+  }
+ ]
+}
