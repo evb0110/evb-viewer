@@ -1,9 +1,6 @@
 //! Recompresses the JPEG images that pages draw, leaving everything else as it
-//! is. Each image is sized from the largest place a page or a Form XObject on
-//! it draws it: an image stored above the target resolution there is shrunk to
-//! it, and every candidate is encoded again at the target quality. An image
-//! keeps its stream unless the new encoding saves enough bytes, and its object
-//! number never changes, so whatever refers to it still does.
+//! is. Images are sized from their largest placement and retain their object
+//! number and stream unless a new encoding saves enough bytes.
 //!
 //! Only images whose size is known from page content are touched. An image
 //! that an annotation appearance, a pattern or a Type 3 glyph also draws
@@ -85,9 +82,9 @@ impl ImageWalk<'_> {
         &self.incremental.previous_document
     }
 
-    fn decoded_stream(&self, id: ObjectId) -> Option<Vec<u8>> {
+    fn decoded_stream(&self, id: ObjectId, limit: usize) -> Option<Vec<u8>> {
         self.incremental
-            .read_base_stream_bounded(self.structural, id, MAX_CONTENT_BYTES)
+            .read_base_stream_bounded(self.structural, id, limit)
             .ok()
             .flatten()
     }
@@ -190,22 +187,23 @@ impl ImageWalk<'_> {
         let xobjects = page_xobjects(self.document(), page_id)?;
         let mut bytes = Vec::new();
         for id in self.document().get_page_contents(page_id) {
-            let Some(content) = self.decoded_stream(id) else {
+            let Some(content) = MAX_CONTENT_BYTES
+                .checked_sub(bytes.len() + 1)
+                .and_then(|remaining| self.decoded_stream(id, remaining))
+            else {
                 self.pin_all(xobjects.as_ref());
                 return Ok(());
             };
             bytes.extend_from_slice(&content);
             bytes.push(b'\n');
         }
-        let mut forms = Vec::new();
-        // A UserUnit page draws each unit that many points large.
         let unit = resolve_page_user_unit(self.document(), page_id)?;
         self.walk_content(
             page_number,
             &bytes,
             xobjects.as_ref(),
             PdfMatrix::from_values([unit, 0.0, 0.0, unit, 0.0, 0.0]),
-            &mut forms,
+            &mut Vec::new(),
         )
     }
 
@@ -317,7 +315,8 @@ impl ImageWalk<'_> {
             .unwrap_or(Some(PdfMatrix::IDENTITY))
             .filter(|_| forms.len() < MAX_FORM_DEPTH);
         self.pin_patterns_and_fonts(resources.as_ref());
-        let (Some(matrix), Some(content)) = (matrix, self.decoded_stream(id)) else {
+        let (Some(matrix), Some(content)) = (matrix, self.decoded_stream(id, MAX_CONTENT_BYTES))
+        else {
             self.pin_all(xobjects.as_ref());
             return Ok(());
         };

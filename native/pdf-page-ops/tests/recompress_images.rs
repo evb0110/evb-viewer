@@ -416,6 +416,43 @@ fn form_without_resources_draws_from_the_resources_of_its_page() {
 }
 
 #[test]
+fn photo_on_page_with_oversized_aggregate_content_keeps_its_bytes() {
+    let scratch = Scratch::new("aggregate-content");
+    let mut pdf = Pdf::new();
+    let pinned = pdf.image(1200, 900, 96, false, false);
+    let eligible = pdf.image(1200, 900, 96, false, false);
+    pdf.page(
+        dictionary! { "Photo" => pinned, "Other" => eligible },
+        "q 144 0 0 108 40 500 cm /Photo Do Q q 144 0 0 108 220 500 cm /Other Do Q",
+    );
+    let page = pdf.page(dictionary! { "Photo" => pinned }, "");
+    // Two individually legal streams exceed the 64 MiB page budget together.
+    let mut part = Stream::new(dictionary! {}, vec![b' '; 32 * 1024 * 1024 + 1]);
+    part.compress().unwrap();
+    let first = pdf.document.add_object(part.clone());
+    let second = pdf.document.add_object(part);
+    pdf.document.get_dictionary_mut(page).unwrap().set(
+        "Contents",
+        vec![Object::Reference(first), Object::Reference(second)],
+    );
+    pdf.save(&scratch.path("source.pdf"));
+
+    let report = run(&scratch, &[]);
+    image_report(&report, eligible, "recompressed");
+    assert!(
+        report["images"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|row| row["objectNumber"] != pinned.0),
+        "{report}"
+    );
+    let output = Document::load(scratch.path("output.pdf")).unwrap();
+    assert_stream_kept(&pdf.document, &output, pinned);
+    assert_dimensions(&output, eligible, 400, 300);
+}
+
+#[test]
 fn photo_inside_a_form_that_cannot_be_read_keeps_its_bytes() {
     let scratch = Scratch::new("form-unread");
     let mut pdf = Pdf::new();
