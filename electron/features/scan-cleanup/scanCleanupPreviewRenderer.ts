@@ -708,7 +708,7 @@ export async function scanCleanupPreviewRenderer(
         unprovenTermination = getUnprovenNativeTerminationDetail(error) !== undefined;
         throw error;
     } finally {
-        if (detailAnalysisKey !== null) {
+        if (detailAnalysisKey !== null && !unprovenTermination) {
             if (releaseBaseAnalysisPin) releaseBaseAnalysisPin(detailAnalysisKey);
             else {
                 const pins = baseAnalysisPins.get(detailAnalysisKey) ?? 0;

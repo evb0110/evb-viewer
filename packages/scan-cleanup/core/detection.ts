@@ -1,3 +1,4 @@
+import {getUnprovenNativeTerminationDetail} from '@contracts/nativeErrors';
  
 
 import {randomUUID} from 'node:crypto';
@@ -637,7 +638,7 @@ async function runBatchedScanCleanupDetection<TDocument>(
                     }
                 }
             } catch (error) {
-                await Promise.allSettled(pageNumbers.flatMap(pageNumber => [
+                if (getUnprovenNativeTerminationDetail(error) === undefined) await Promise.allSettled(pageNumbers.flatMap(pageNumber => [
                     fileSystem.rm(scratchPathByPage.get(pageNumber)!, {force: true}),
                     retention.releaseRaster(document, pageNumber, analysisDpi(pageNumber)),
                 ]));
@@ -698,7 +699,7 @@ async function runBatchedScanCleanupDetection<TDocument>(
                         );
                     }
                 } catch (error) {
-                    await fileSystem.rm(scratchPath, {force: true}).catch((cleanupError: unknown) => {
+                    if (getUnprovenNativeTerminationDetail(error) === undefined) await fileSystem.rm(scratchPath, {force: true}).catch((cleanupError: unknown) => {
                         log(
                             'warn',
                             `Scan cleanup could not drop the partial detection raster at ${scratchPath}: ${getErrorMessage(cleanupError)}`,
@@ -782,8 +783,8 @@ async function runBatchedScanCleanupDetection<TDocument>(
                     }
                 }
             } catch (error) {
-                await stagedWindow.dispose();
-                await releasePreStaged(new Set());
+                await stagedWindow.dispose({retainStaged: getUnprovenNativeTerminationDetail(error) !== undefined});
+                if (getUnprovenNativeTerminationDetail(error) === undefined) await releasePreStaged(new Set());
                 throw error;
             }
             recorder.markProgress();
@@ -821,6 +822,7 @@ async function runBatchedScanCleanupDetection<TDocument>(
                 )),
             };
         };
+        let batchFailure: unknown;
         try {
             await stagedWindow.prime();
             await dependencies.runSidecar(
@@ -899,21 +901,23 @@ async function runBatchedScanCleanupDetection<TDocument>(
             }
             batchCompleted = true;
         } catch (error) {
-            throw stagingError ?? error;
+            batchFailure = stagingError === undefined ? error : new AggregateError([
+                stagingError,
+                error,
+            ], getErrorMessage(stagingError));
+            throw batchFailure;
         } finally {
             // Detection results do not need to keep every source raster in the
             // preview cache. Only the final successful batch hands its window
             // to the cache. Releasing earlier batches keeps both file and
             // in-memory raster residency bounded across the whole document.
-            const retainPreStaged = batchCompleted && batch.endOffsetExclusive >= pageScope.length;
-            try {
-                await stagedWindow.dispose({retainStaged: retainPreStaged});
-            } finally {
-                const cachePreStagedPages = retainPreStaged
-                    ? new Set(rasterScope.slice(-Math.max(1, admission.windowPages)))
-                    : new Set<number>();
-                await releasePreStaged(cachePreStagedPages);
-            }
+            const unproven = getUnprovenNativeTerminationDetail(batchFailure) !== undefined;
+            const retainPreStaged = unproven || (batchCompleted && batch.endOffsetExclusive >= pageScope.length);
+            await stagedWindow.dispose({retainStaged: retainPreStaged});
+            const cachePreStagedPages = retainPreStaged
+                ? new Set(rasterScope.slice(-Math.max(1, admission.windowPages)))
+                : new Set<number>();
+            if (!unproven) await releasePreStaged(cachePreStagedPages);
         }
     }
 
@@ -971,6 +975,7 @@ async function runBatchedScanCleanupDetection<TDocument>(
             width: number;
             height: number;
         }> = [];
+        let retryFailure: unknown;
         try {
             for (const candidate of candidates) {
                 signal.throwIfAborted();
@@ -1000,7 +1005,7 @@ async function runBatchedScanCleanupDetection<TDocument>(
                     );
                     recorder.markRechecked();
                 } catch (error) {
-                    if (signal.aborted) throw error;
+                    if (signal.aborted || getUnprovenNativeTerminationDetail(error) !== undefined) throw error;
                     log(
                         'warn',
                         `Scan cleanup kept the first-pass classification for page ${String(candidate.pageNumber)} because its optional MediaBox retry failed: ${getErrorMessage(error)}`,
@@ -1114,8 +1119,11 @@ async function runBatchedScanCleanupDetection<TDocument>(
                     );
                 }
             }
+        } catch (error) {
+            retryFailure = error;
+            throw error;
         } finally {
-            await fileSystem.rm(retryRoot, {
+            if (getUnprovenNativeTerminationDetail(retryFailure) === undefined) await fileSystem.rm(retryRoot, {
                 recursive: true,
                 force: true,
             });
@@ -1143,6 +1151,7 @@ export async function runScanCleanupDetection<TDocument>(
     // nothing to release if opening throws, and only this function removes it.
     const document = await retention.openDocument(request);
     let scratchDir: string | null = null;
+    let failure: unknown;
     try {
         const scratch = join(
             dependencies.getTempDir(),
@@ -1199,14 +1208,17 @@ export async function runScanCleanupDetection<TDocument>(
                 });
             }
         }
+    } catch (error) {
+        failure = error;
+        throw error;
     } finally {
-        await retention.release(document).catch(error => {
+        if (getUnprovenNativeTerminationDetail(failure) === undefined) await retention.release(document).catch(error => {
             log(
                 'warn',
                 `Could not release scan-cleanup document: ${getErrorMessage(error)}`,
             );
         });
-        if (scratchDir !== null) {
+        if (scratchDir !== null && getUnprovenNativeTerminationDetail(failure) === undefined) {
             await preserveScanCleanupJsonEvidence(scratchDir, log, dependencies.evidenceDirectory, fileSystem).catch(error => {
                 log(
                     'warn',

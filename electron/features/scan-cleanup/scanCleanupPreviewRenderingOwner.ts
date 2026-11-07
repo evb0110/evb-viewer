@@ -13,7 +13,9 @@ import {
 import { createStableJobBrokerOwnerId } from '@electron/resources/jobBroker';
 import { getErrorMessage } from '@electron/utils/error';
 import {getUnprovenNativeTerminationDetail} from '@electron/utils/nativeTerminationProof';
-import {quarantineWorkingCopy} from '@electron/file-access/workingCopyQuarantine';
+import {
+    isWorkingCopyQuarantined, quarantineWorkingCopy,
+} from '@electron/file-access/workingCopyQuarantine';
 import {
     decodeSerializableErrorEnvelope,
     encodeSerializableErrorEnvelope,
@@ -23,7 +25,6 @@ import {createJobId} from '@contracts/shared';
 import {
     createMainJobRegistry,
     RENDERER_DESTROYED_CANCELLATION_REASON,
-    RENDER_PROCESS_GONE_CANCELLATION_REASON,
 } from '@electron/operation-lifecycle/createMainJobRegistry';
 
 import type {
@@ -88,13 +89,13 @@ export function scanCleanupPreviewRenderingOwner(
     resolvePreviewRequest?: (sender: IScanCleanupDetectionSubscriber, request: IScanCleanupPreviewRequest) => Promise<IScanCleanupPreviewRequest>,
 ): IScanCleanupPreviewRenderingOwner {
     const active = new Map<string, IPreviewEntry>();
-    const manuallyCanceled = new WeakSet<IPreviewEntry>();
     const baseAnalysisCache = new Map<string, IBasePreviewAnalysis>();
     const baseAnalysisPins = new Map<string, number>();
     const pendingBaseAnalysisRemovals = new Map<string, IBasePreviewAnalysis[]>();
     const deferredBaseAnalysisInvalidations = new Set<string>();
     const baseAnalysisCleanupPromises = new Set<Promise<void>>();
     const scheduleBaseAnalysisRemoval = (analysis: IBasePreviewAnalysis, analysisKey?: string) => {
+        if (isWorkingCopyQuarantined(analysis.sourcePdfPath)) return Promise.resolve();
         if (analysisKey !== undefined && (baseAnalysisPins.get(analysisKey) ?? 0) > 0) {
             const pending = pendingBaseAnalysisRemovals.get(analysisKey) ?? [];
             pending.push(analysis);
@@ -325,7 +326,6 @@ export function scanCleanupPreviewRenderingOwner(
             if (key.startsWith(documentPrefix) && !retained.has(entry.pageNumber)) {
                 if (request.invalidateRawCache === false) entry.canceledAsResult = true;
                 canceledEntries.push(entry);
-                manuallyCanceled.add(entry);
                 entry.cancel(reason);
                 canceled = true;
             }
@@ -335,25 +335,11 @@ export function scanCleanupPreviewRenderingOwner(
         // cancellation forgets which page that is.
         if (request.retainPages === undefined) visiblePages.delete(documentPrefix);
         if (request.invalidateRawCache !== false) {
-            const claims = canceledEntries.map(entry => ({
-                claimId: entry.claimId,
-                sourcePdfPath: entry.sourcePdfPath ?? request.sourcePdfPath,
-            }));
-            if (claims.length === 0 && !otherOwnerHasWork) {
+            if (canceledEntries.length === 0 && !otherOwnerHasWork) {
                 rawRasterRetention.invalidate(request.sourcePdfPath, request.documentRevision);
-            } else {
-                for (const {
-                    claimId, sourcePdfPath,
-                } of claims) {
-                    rawRasterRetention.invalidate(
-                        sourcePdfPath,
-                        request.documentRevision,
-                        claimId,
-                    );
-                }
             }
             const documentKey = baseAnalysisDocumentKey(request.sourcePdfPath, request.documentRevision);
-            if (otherOwnerHasWork) {
+            if (otherOwnerHasWork || canceledEntries.length > 0) {
                 deferredBaseAnalysisInvalidations.add(documentKey);
             } else {
                 removeBaseAnalysisForDocument(request.sourcePdfPath, request.documentRevision);
@@ -489,13 +475,8 @@ export function scanCleanupPreviewRenderingOwner(
                     renderProcessGone: 'cancel',
                     mainFrameNavigation: 'cancel',
                 },
-                onCancel: reason => void (jobSettledRef.current ?? Promise.resolve()).then(() => {
+                onCancel: () => void (jobSettledRef.current ?? Promise.resolve()).then(() => {
                     if (unprovenTermination) return;
-                    if (reason === RENDERER_DESTROYED_CANCELLATION_REASON
-                        || reason === RENDER_PROCESS_GONE_CANCELLATION_REASON) {
-                        rawRasterRetention.invalidateSender(sender.id);
-                    }
-                    if (entryStateRef.current && manuallyCanceled.has(entryStateRef.current)) return;
                     releaseCanceledPreviewResources(
                         request,
                         claimId,

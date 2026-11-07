@@ -1,3 +1,5 @@
+import {getUnprovenNativeTerminationDetail} from '@contracts/nativeErrors';
+import {quarantineWorkingCopy} from '@electron/file-access/workingCopyQuarantine';
 import {isAbsolute} from 'path';
 import type {
     IScanCleanupDetectionRequest,
@@ -436,6 +438,7 @@ export function scanCleanupDetectionOwner(
                 },
                 run: async job => {
                     let lease: {release: () => boolean} | null = null;
+                    let sourcePdfPath = request.sourcePdfPath;
                     try {
                         const acquire = dependencies.acquireDetectionLease;
                         if (!acquire) throw new Error('Scan cleanup detection requires injected admission capability');
@@ -452,6 +455,7 @@ export function scanCleanupDetectionOwner(
                             job.signal,
                             dependencies,
                         );
+                        sourcePdfPath = materializedRequest.sourcePdfPath;
                         attachScanCleanupPageOverrideDefaults(
                             materializedRequest.options.pageOverrides,
                             materializedRequest.options.pageOverrideDefaults,
@@ -550,6 +554,10 @@ export function scanCleanupDetectionOwner(
                             };
                         }
                         return detection;
+                    } catch (error) {
+                        const detail = getUnprovenNativeTerminationDetail(error);
+                        if (detail !== undefined) quarantineWorkingCopy(sourcePdfPath, detail);
+                        throw error;
                     } finally {
                         lease?.release();
                     }

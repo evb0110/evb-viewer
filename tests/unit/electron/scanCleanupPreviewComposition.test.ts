@@ -111,7 +111,11 @@ afterEach(async () => {
     })));
 });
 
-it('preserves preview inputs and quarantines the source when close cannot prove native termination', async () => {
+it.each([
+    'close',
+    'cancel',
+    'render-process-gone',
+] as const)('preserves preview inputs when %s cannot prove native termination', async action => {
     const {
         dir, deps,
     } = await previewDependencies();
@@ -140,13 +144,19 @@ it('preserves preview inputs and quarantines the source when close cannot prove 
     try {
         const inputPath = await entered.promise;
         const inputBytes = await readFile(inputPath);
-        const operations = cancelMainOperationsForClosingWorkingCopy(
-            previewRequest.sourcePdfPath,
-            'Document closed during preview',
-            {isRegistrationCurrent: () => true},
-        );
-        expect(operations).toHaveLength(1);
-        await Promise.all(operations!.map(operation => operation.settled));
+        if (action === 'close') {
+            const operations = cancelMainOperationsForClosingWorkingCopy(
+                previewRequest.sourcePdfPath,
+                'Document closed during preview',
+                {isRegistrationCurrent: () => true},
+            );
+            expect(operations).toHaveLength(1);
+            await Promise.all(operations!.map(operation => operation.settled));
+        } else if (action === 'cancel') {
+            expect(service.cancel(owner, previewRequest)).toBe(true);
+        } else {
+            owner.emit(action);
+        }
         await pending;
 
         expect.soft(isWorkingCopyQuarantined(previewRequest.sourcePdfPath), 'close must preserve a source with an unproven native reader').toBe(true);

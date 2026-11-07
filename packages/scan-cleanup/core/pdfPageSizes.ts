@@ -1,3 +1,4 @@
+import {getUnprovenNativeTerminationDetail} from '@contracts/nativeErrors';
  
 
 import { createReadStream } from 'fs';
@@ -343,6 +344,7 @@ export async function* readPdfPageSizeChunks(
         options.tempDir,
         `page-sizes-${String(process.pid)}-${randomUUID()}.jsonl`,
     );
+    let failure: unknown;
     try {
         const args = [
             'page-sizes',
@@ -372,8 +374,11 @@ export async function* readPdfPageSizeChunks(
                 : new Error('Page-size read aborted');
         }
         yield* readPdfPageSizeSidecarChunks(outputPath, options.signal);
+    } catch (error) {
+        failure = error;
+        throw error;
     } finally {
-        await rm(outputPath, {force: true}).catch(() => undefined);
+        if (getUnprovenNativeTerminationDetail(failure) === undefined) await rm(outputPath, {force: true}).catch(() => undefined);
     }
 }
 

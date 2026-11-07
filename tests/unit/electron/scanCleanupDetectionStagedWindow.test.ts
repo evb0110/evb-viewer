@@ -1,3 +1,4 @@
+import {markUnprovenNativeTermination} from '@electron/utils/nativeTerminationProof';
 import {
     copyFile,
     mkdir,
@@ -737,6 +738,36 @@ describe('runScanCleanupDetection staged raster window', () => {
             progress,
         ]) => (progress as {stage: string}).stage !== 'completed')).toBe(true);
         expect(harness.retention.release).toHaveBeenCalledOnce();
+    });
+
+    it('keeps staged raster bytes when the native reader cannot be proven stopped', async () => {
+        const tempDir = await mkdtemp(join(tmpdir(), 'scan-cleanup-window-'));
+        dirs.push(tempDir);
+        const harness = createHarness(tempDir, {
+            pageSizes: [{
+                pageNumber: 1,
+                xPoints: 0,
+                yPoints: 0,
+                widthPoints: 480,
+                heightPoints: 480,
+                rotation: 0,
+            }],
+            availableScratchBytes: 4_096 * MIB,
+            rasterConcurrency: 1,
+        });
+        let inputPath = '';
+        let manifest = '';
+        const error = markUnprovenNativeTermination(new Error('reader remains alive'), 'stop unproven');
+        await expect(runScanCleanupDetection(
+            createRequest(), new AbortController().signal, harness.retention,
+            harness.dependencies(async (_binary, manifestPath) => {
+                manifest = manifestPath;
+                inputPath = JSON.parse(await readFile(manifestPath, 'utf8')).pages[0].inputPath;
+                throw error;
+            }), {rasterConcurrency: 1}, () => undefined,
+        )).rejects.toBe(error);
+        expect((await readFile(inputPath)).byteLength).toBeGreaterThan(0);
+        expect((await readFile(manifest)).byteLength).toBeGreaterThan(0);
     });
 
     it('rolls the staged window back when a page render fails', async () => {
