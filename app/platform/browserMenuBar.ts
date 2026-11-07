@@ -22,7 +22,8 @@ export type TBrowserMenuEventArgs = {
     [TName in TDocumentMenuEventName]: TMenuCallbackArgs<IDocumentsMenuCapability[TName]>;
 } & {
     [TName in TWindowTabsMenuEventName]: TMenuCallbackArgs<IWindowTabsCapability[TName]>;
-};
+} & {onMenuSelectAll: []};
+// onMenuSelectAll is page-local: desktop's Edit > Select All sends real key input instead.
 export type TBrowserMenuEventName = keyof TBrowserMenuEventArgs;
 type TBrowserMenuListener<TName extends TBrowserMenuEventName> = (...args: TBrowserMenuEventArgs[TName]) => void;
 type TBrowserMenuDocumentStateListener = (state: IApplicationMenuDocumentState | null) => void;

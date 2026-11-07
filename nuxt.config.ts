@@ -507,6 +507,8 @@ export default defineNuxtConfig({
         'ph:square',
         'ph:circle',
         'ph:clipboard-text',
+        'ph:scissors',
+        'ph:selection-all',
         'ph:minus',
         'ph:arrow-up-right',
         'ph:arrow-line-right',

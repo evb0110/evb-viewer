@@ -156,7 +156,7 @@ import SettingsPrivacyPanel from '@app/components/settings/SettingsPrivacyPanel.
 import SettingsShortcutsPanel from '@app/components/settings/SettingsShortcutsPanel.vue';
 import SettingsUpdatesPanel from '@app/components/settings/SettingsUpdatesPanel.vue';
 import SettingsViewerDefaultsPanel from '@app/components/settings/SettingsViewerDefaultsPanel.vue';
-import { isMacClientPlatform } from '@app/utils/clientPlatform';
+import { useShortcutHelpItems } from '@app/constants/shortcuts';
 import { setRendererDiagnosticsPreference } from '@app/utils/failureReporter';
 
 const { isDesktopRuntime } = useRuntimeEnvironment();
@@ -358,86 +358,11 @@ const tabMemoryPolicyItems = computed(() => TAB_MEMORY_POLICY_OPTION_DEFINITIONS
     label: t(option.labelKey),
 })));
 
-const isMac = isMacClientPlatform();
-const mod = isMac ? '\u2318' : 'Ctrl';
-const shift = isMac ? '\u21E7' : 'Shift';
-
-const shortcutItems = computed(() => {
-    const browserItems = [
-        {
-            label: t('toolbar.save'),
-            keys: [
-                mod,
-                'S',
-            ],
-        },
-        {
-            label: t('documentSourceSidebar.searchPlaceholder'),
-            keys: [
-                mod,
-                'F',
-            ],
-        },
-        {
-            label: t('zoom.zoomIn'),
-            keys: [
-                mod,
-                '=',
-            ],
-        },
-        {
-            label: t('zoom.zoomOut'),
-            keys: [
-                mod,
-                '\u2212',
-            ],
-        },
-        {
-            label: t('settings.actualSize'),
-            keys: [
-                mod,
-                '0',
-            ],
-        },
-    ];
-
-    if (!isDesktopRuntime.value) {
-        return browserItems;
-    }
-
-    return [
-        {
-            label: t('toolbar.openPdf'),
-            keys: [
-                mod,
-                'O',
-            ],
-        },
-        ...browserItems,
-        {
-            label: t('toolbar.saveAs'),
-            keys: [
-                mod,
-                shift,
-                'S',
-            ],
-        },
-        {
-            label: t('zoom.fitWidth'),
-            keys: [
-                mod,
-                '1',
-            ],
-        },
-        {
-            label: t('zoom.fitHeight'),
-            keys: [
-                mod,
-                '2',
-            ],
-        },
-    ];
-});
+const shortcutHelpItems = useShortcutHelpItems();
+const shortcutItems = computed(() => shortcutHelpItems.value.map(item => ({
+    label: t(item.labelKey),
+    keys: item.keys,
+})));
 
 async function retrySettingsLoad() {
     if (settingsLoadPending.value) {
