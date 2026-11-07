@@ -3,7 +3,11 @@ import type {
     IBookmarkDropTarget,
     IBookmarkItem,
 } from '@app/types/pdfOutline';
-import {findBookmarkLocation} from '@app/utils/pdfOutlineHelpers';
+import {
+    findBookmarkLocation,
+    resolveMaxBookmarkDepth,
+} from '@app/utils/pdfOutlineHelpers';
+import {PDF_NATIVE_MUTATION_LIMITS} from '@contracts/nativePdfMutationAdmission';
 
 type TBookmarkDropDestination =
     | { kind: 'root-end' }
@@ -260,11 +264,11 @@ export const usePdfOutlineDragDrop = (
                 kind: 'target',
                 payload,
             });
-            if (result.moved) {
+            if (result.moved && resolveMaxBookmarkDepth(result.bookmarks) < PDF_NATIVE_MUTATION_LIMITS.bookmarkDepth) {
                 bookmarks.value = result.bookmarks;
                 moved = true;
             }
-            if (result.expandedBookmarkId) {
+            if (moved && result.expandedBookmarkId) {
                 expandedBookmarkIds.value = new Set([
                     ...expandedBookmarkIds.value,
                     result.expandedBookmarkId,

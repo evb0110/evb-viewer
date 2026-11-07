@@ -199,7 +199,7 @@ const outlinePersistenceRefusal = computed<{
     reason: TDocumentBookmarkPersistenceRefusal;
 } | null>(() => {
     const count = flatBookmarks.value.length;
-    if (resolveMaxBookmarkDepth(bookmarks.value) > nativeBookmarkDepthLimit) {
+    if (resolveMaxBookmarkDepth(bookmarks.value) >= nativeBookmarkDepthLimit) {
         return {
             count,
             limit: nativeBookmarkDepthLimit,
@@ -538,7 +538,9 @@ function addChildBookmark(id: string) {
     if (isBookmarkGrowthRefused()) {
         return;
     }
-    editing.addChildBookmark(id);
+    let depth = 0;
+    for (let parent = parentBookmarkIdMap.value.get(id); parent; parent = parentBookmarkIdMap.value.get(parent)) depth += 1;
+    if (depth + 1 < nativeBookmarkDepthLimit) editing.addChildBookmark(id);
 }
 
 function toggleBookmarkBold(id: string) {
@@ -798,7 +800,6 @@ function handleOutlineLoadError(
     bookmarks.value = [];
     activeItemId.value = null;
     selection.clearSelection();
-    setBookmarkBaseline();
 }
 
 function finishOutlineLoading(runId: number) {
