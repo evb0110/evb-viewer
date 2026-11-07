@@ -6,7 +6,11 @@ import {
     shouldPreferDesktopPlatform,
     waitForDesktopPlatformBridge,
 } from '@app/utils/platform';
-import {readBrowserRecentFilesSnapshot} from '@app/utils/recentFilesPersistence';
+import {take} from 'es-toolkit/array';
+import {
+    readBrowserRecentFilesSnapshot,
+    RECENT_FILES_LIMIT,
+} from '@app/utils/recentFilesPersistence';
 import { usePlatformHydratedState } from '@app/composables/usePlatformHydratedState';
 import { useFailureToast } from '@app/composables/useFailureToast';
 import { BrowserLogger } from '@app/utils/browserLogger';
@@ -69,7 +73,7 @@ export const useRecentFiles = () => {
         clearRetryTimer,
     } = usePlatformHydratedState<IRecentFile[]>({
         key: 'recentFiles',
-        initialValue: () => initialCookieSnapshot.recentFiles,
+        initialValue: () => take(initialCookieSnapshot.recentFiles, RECENT_FILES_LIMIT),
         initialResolved: !isDesktopRuntime.value && hasResolvedCookieSnapshot,
         async loadValue() {
             return (await getDocumentRecentFilesCapability()).recentFiles.get();

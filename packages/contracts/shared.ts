@@ -129,6 +129,9 @@ export function normalizeNonEmptyStringPaths(paths: readonly unknown[]): string[
     return normalizedPaths;
 }
 
+/** How many documents Recent lists, newest first, on desktop and in the browser. */
+export const RECENT_FILES_LIMIT = 10;
+
 export interface IRecentFile {
     originalPath: TDocumentRef;
     backend?: TDocumentBackend;
