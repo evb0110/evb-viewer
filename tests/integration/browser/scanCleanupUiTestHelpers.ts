@@ -237,7 +237,7 @@ export const conversionModes = [
 export type TConversionMode = typeof conversionModes[number];
 
 /** Pin geometry through the controls, including the lossless no-resample path. */
-export async function chooseConversionOptions(page: Page, mode: TConversionMode) {
+export async function prepareConversionSource(page: Page) {
     for (const name of [
         'Crop each output page to its content',
         'Match page size with other pages',
@@ -281,14 +281,6 @@ export async function chooseConversionOptions(page: Page, mode: TConversionMode)
         name: 'Automatically correct page curvature (experimental)',
         exact: true,
     }).setChecked(false);
-    await page.getByRole('radio', {
-        name: mode.radio,
-        exact: true,
-    }).click();
-    await page.getByRole('checkbox', {
-        name: 'Keep original images',
-        exact: true,
-    }).setChecked(mode.name === 'Keep original images');
     // Layout changes invalidate detection; use its durable terminal state.
     await expect.poll(() => page.locator('.scan-cleanup-surface').getAttribute('data-detection-status'), {timeout: 60_000}).toBe('completed');
 }
