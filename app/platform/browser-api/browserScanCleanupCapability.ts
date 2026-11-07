@@ -5,10 +5,7 @@ import type {
     TScanCleanupPreviewWireResult,
 } from '@contracts/scan-cleanup/electronApiScanCleanup';
 import type {IScanCleanupSupport} from '@contracts/scan-cleanup/scanCleanupPlatformFeature';
-import {
-    createJobId,
-    type TRequestId,
-} from '@contracts/shared';
+import type {TRequestId} from '@contracts/shared';
 import {
     createDefaultScanCleanupSettingsFile,
     isScanCleanupSourceSha256,
@@ -17,6 +14,8 @@ import {
     type IScanCleanupSettingsReadRequest,
 } from '@contracts/scan-cleanup/scanCleanupSettings';
 import {canUseBrowserScanCleanupWorker} from '@app/platform/browser-api/browserScanCleanupWorkerClient';
+import {canUseBrowserPdfCombineWorker} from '@app/platform/browser-api/browserPdfCombineWorkerClient';
+import {createBrowserScanCleanupConversionOwner} from '@app/platform/browser-api/createBrowserScanCleanupConversionOwner';
 import {
     awaitScanCleanupSource,
     borrowBrowserScanCleanupSource,
@@ -38,8 +37,6 @@ import type {
     IBrowserScanCleanupPreviewRendering,
 } from '@app/platform/browser-api/browserScanCleanupJob';
 
-const BROWSER_SCAN_CLEANUP_OPERATION_UNAVAILABLE = 'This Scan Cleanup operation is not available in the browser yet; use the desktop app.';
-
 /**
  * What the browser can run: the operations whose methods are implemented
  * here, on a runtime that can host the cleanup engine in a worker.
@@ -50,7 +47,7 @@ export function getBrowserScanCleanupSupport(): IScanCleanupSupport {
         preview: engine,
         detection: engine,
         calibration: engine,
-        conversion: false,
+        conversion: engine && canUseBrowserPdfCombineWorker(),
     };
 }
 
@@ -96,10 +93,12 @@ function admitPreview<T>(claim: () => Promise<T> | T): Promise<T> {
 }
 
 const detection = createBrowserScanCleanupDetectionOwner();
+const conversion = createBrowserScanCleanupConversionOwner(detection);
 // A closed document ends its detection and releases what its previews hold:
 // their work, the base a detail would refine, and its source snapshot.
 onBrowserWorkingCopyClose(async ref => {
     detection.closeSource(ref);
+    conversion.closeSource(ref);
     const retiring = await admitPreview(() => {
         const claimed = [
             base,
@@ -270,15 +269,6 @@ function announceSettings(settings: IScanCleanupGlobalPreferences, requestId: TR
     }
 }
 
-function unavailableStart() {
-    return Promise.resolve({
-        started: false as const,
-        jobId: createJobId('browser-scan-cleanup-unavailable'),
-        error: BROWSER_SCAN_CLEANUP_OPERATION_UNAVAILABLE,
-        errorCode: 'tools-unavailable' as const,
-    });
-}
-
 export const browserScanCleanupCapability: IScanCleanupCapability = {
     getSupport: getBrowserScanCleanupSupport,
     preview(request) {
@@ -325,19 +315,11 @@ export const browserScanCleanupCapability: IScanCleanupCapability = {
     cancelDetection: (jobId, owner) => detection.cancelDetection(jobId, owner),
     getDetectionJobState: (jobId, owner) => detection.getDetectionJobState(jobId, owner),
     subscribeDetectionJob: (jobId, owner) => detection.subscribeDetectionJob(jobId, owner),
-    start: unavailableStart,
-    cancel() {
-        return Promise.resolve(false);
-    },
-    getJobState() {
-        return Promise.resolve(null);
-    },
-    subscribeJob() {
-        return Promise.resolve(null);
-    },
-    reconnectJob() {
-        return Promise.resolve(null);
-    },
+    start: request => conversion.start(request),
+    cancel: (jobId, owner) => conversion.cancel(jobId, owner),
+    getJobState: (jobId, owner) => conversion.getJobState(jobId, owner),
+    subscribeJob: (jobId, owner) => conversion.getJobState(jobId, owner),
+    reconnectJob: (jobId, owner) => conversion.getJobState(jobId, owner),
     pruneGeneratedOutputs() {
         return Promise.resolve(0);
     },
@@ -374,9 +356,7 @@ export const browserScanCleanupCapability: IScanCleanupCapability = {
             previewRawListeners.delete(listener);
         };
     },
-    onJobState() {
-        return () => undefined;
-    },
+    onJobState: listener => conversion.onJobState(listener),
     onDetectionJobState: listener => detection.onDetectionJobState(listener),
     onSettingsChanged(listener) {
         settingsListeners.add(listener);

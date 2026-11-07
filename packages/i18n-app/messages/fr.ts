@@ -426,7 +426,6 @@ export default {
             'invalidMargins': 'Les marges doivent être comprises entre 0 et 25 mm.',
             'unavailable': 'Le nettoyage des scans n’est pas disponible sur ce système.',
             'otherDocumentRunning': 'Un autre document est en cours de nettoyage. Lancez celui-ci une fois terminé.',
-            'browserPreviewOnly': 'Dans le navigateur, le nettoyage des scans affiche un aperçu des pages mais ne peut pas encore nettoyer le document. Utilisez l’application de bureau pour le nettoyer.',
         },
         'completedTitle': 'Nettoyage des scans terminé',
         'completedPartialTitle': 'Pages sélectionnées nettoyées',
@@ -525,6 +524,7 @@ export default {
         'sourceTextOmitted': 'Le texte source a été omis dans les résultats de {count} page(s) source : {pages}. La recherche et la copie sont indisponibles sur les pages de sortie concernées. Lancez l’OCR du PDF nettoyé pour rétablir la recherche de texte.',
         'sourceTextOmittedMorePages': '{pages} et {remaining} autres',
         'accessibilityTagsRemoved': 'Les balises d’accessibilité ont été supprimées, car les pages nettoyées ne correspondent plus à la structure d’origine du document.',
+        'sourceLayersReconstructed': 'Les calques de texte compacts d’origine ont été reconstruits à partir des images des pages ; le fichier peut donc être plus volumineux qu’avec l’application de bureau.',
     },
     'app': {
         'title': 'EVB Viewer',

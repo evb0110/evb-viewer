@@ -107,8 +107,9 @@ import {
 } from '@evb/scan-cleanup/core/policy/effectiveOptions';
 import {createPagePlanResolver} from '@evb/scan-cleanup/core/createPagePlanResolver';
 import {
-    assembleWithCompactSourcePages, overlayScanCleanupTextLayer, resolveCompactSourcePreservation,
+    assembleWithCompactSourcePages, overlayScanCleanupTextLayer,
 } from '@evb/scan-cleanup/core/assembleCompactScanCleanupPages';
+import {resolveCompactSourcePreservation} from '@evb/scan-cleanup/core/scanCleanupOutputComposition';
 import {
     buildScanCleanupPageOpsInstructions,
     serializeLegacyScanCleanupPageOpsInstructions,

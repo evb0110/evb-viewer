@@ -33,6 +33,7 @@ import {resolveScanCleanupPageScopeLazy} from '@evb/scan-cleanup/core/pageScope'
 import {runBrowserScanCleanupWorkerRequest} from '@app/platform/browser-api/browserScanCleanupWorkerClient';
 import {
     renderPageRaster,
+    sourceLayerFacts,
     unwrapBrowserScanCleanupOutcome,
     type IBrowserScanCleanupSource,
     type IPageRaster,
@@ -121,7 +122,7 @@ export async function runBrowserScanCleanupDetection({
                         pageNumber: page.pageNumber,
                         dpi: page.dpi,
                         sourceDpi: page.manifestSourceDpi,
-                        sourceHasBilevelLayer: false,
+                        ...sourceLayerFacts(source, page.pageNumber),
                     },
                 }),
                 sourcePageIndex: page.pageNumber - 1,

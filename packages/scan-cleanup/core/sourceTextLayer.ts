@@ -18,6 +18,23 @@ import {getErrorMessage} from '@contracts/getErrorMessage';
  * source PDF. Native parses once, with its existing page/content limits; no
  * recognized text is requested and the fixed-size report has a byte budget.
  */
+/** Source pages whose text a non-affine output omitted, from their visibility report. */
+export function reduceScanCleanupSourceTextOmission(
+    report: ReturnType<typeof decodePdfOcrTextVisibilityReport>,
+): TScanCleanupSummary['sourceTextOmission'] {
+    let count = 0;
+    const pages: NonNullable<TScanCleanupSummary['sourceTextOmission']>['pages'] = [];
+    for (const page of report.pages) {
+        if (!page.evbOcrLayer && !page.paintedText && !page.hiddenText) continue;
+        count += 1;
+        if (pages.length < 20) pages.push(requirePageNumber(page.pageNumber));
+    }
+    return count === 0 ? undefined : {
+        count,
+        pages,
+    };
+}
+
 export async function inspectScanCleanupSourceTextOmission(input: {
     pdfPath: string;
     pagesPath: string;
@@ -46,18 +63,7 @@ export async function inspectScanCleanupSourceTextOmission(input: {
         log: input.log,
     });
     try {
-        const report = decodePdfOcrTextVisibilityReport(JSON.parse(result.stdout));
-        let count = 0;
-        const pages: NonNullable<TScanCleanupSummary['sourceTextOmission']>['pages'] = [];
-        for (const page of report.pages) {
-            if (!page.evbOcrLayer && !page.paintedText && !page.hiddenText) continue;
-            count += 1;
-            if (pages.length < 20) pages.push(requirePageNumber(page.pageNumber));
-        }
-        return count === 0 ? undefined : {
-            count,
-            pages,
-        };
+        return reduceScanCleanupSourceTextOmission(decodePdfOcrTextVisibilityReport(JSON.parse(result.stdout)));
     } catch (error) {
         input.signal.throwIfAborted();
         // Only successful-command evidence is optional. Command failures must

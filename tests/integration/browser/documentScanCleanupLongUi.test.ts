@@ -12,7 +12,7 @@ import {
     collectConsoleProblems, lifecycle,
 } from './documentLifecycleTestHelpers';
 import {
-    browserOnlyReason, cleanedInkTop, evidenceRoot, installProbe, openWorkspace, sha256, waitForPixels,
+    cleanedInkTop, evidenceRoot, installProbe, openWorkspace, sha256, waitForPixels,
 } from './scanCleanupUiTestHelpers';
 
 /** One more page than a renderer keeps results for in its detection state. */
@@ -112,9 +112,9 @@ describe('browser Scan Cleanup workspace, long document', () => {
                 name: 'Keep where the ink is',
                 exact: true,
             }).click();
-            // Calibration over the kept store settles: the run is held back
-            // only by the browser's missing conversion, not by placement.
-            await expect.poll(() => page.locator('[data-run-disabled-reason]').innerText(), {timeout: 60_000}).toBe(browserOnlyReason);
+            // Calibration over the kept store settles: placement no longer
+            // holds the run back, so Clean up is offered.
+            await expect.poll(() => page.locator('.scan-cleanup-toolbar button').filter({hasText: /^Clean up/u}).isDisabled(), {timeout: 60_000}).toBe(false);
             await page.locator('.scan-thumbnail-rail [data-thumbnail-page="1"]').click();
             await page.keyboard.press('End');
             await waitForPixels(page, LONG_DOCUMENT_PAGES, LONG_DOCUMENT_PAGES);

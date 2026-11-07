@@ -13,7 +13,7 @@ import {decodeNativeScanCleanupPageMetadataJson} from '@contracts/scan-cleanup/n
 import {getErrorMessage} from '@contracts/getErrorMessage';
 import type {IScanCleanupRuntimePolicy} from '@contracts/resourcePolicies';
 import {SCAN_CLEANUP_MAX_STAGED_INPUT_WINDOW} from '@contracts/scan-cleanup/stagedInputWindow';
-import {buildRunnableNativeScanCleanupManifest} from '@evb/scan-cleanup/core/policy/buildNativeScanCleanupManifest';
+import {buildRunnableNativeScanCleanupManifest} from '@evb/scan-cleanup/core/policy/buildRunnableNativeScanCleanupManifest';
 import {
     ScanCleanupContractError,
     ScanCleanupInsufficientScratchError,

@@ -426,7 +426,6 @@ export default {
             'invalidMargins': 'Los márgenes deben estar entre 0 y 25 mm.',
             'unavailable': 'La limpieza de escaneos no está disponible en este sistema.',
             'otherDocumentRunning': 'Se está limpiando otro documento. Inicia este cuando termine.',
-            'browserPreviewOnly': 'En el navegador, la limpieza de escaneos muestra una vista previa de las páginas, pero todavía no puede limpiar el documento. Usa la aplicación de escritorio para limpiarlo.',
         },
         'completedTitle': 'Limpieza del escaneo completada',
         'completedPartialTitle': 'Páginas seleccionadas limpiadas',
@@ -525,6 +524,7 @@ export default {
         'sourceTextOmitted': 'Se omitió el texto original en la salida de {count} página(s) de origen: {pages}. La búsqueda y la copia no están disponibles en las páginas de salida afectadas. Ejecute OCR en el PDF limpio para recuperar el texto buscable.',
         'sourceTextOmittedMorePages': '{pages} y {remaining} más',
         'accessibilityTagsRemoved': 'Se eliminaron las etiquetas de accesibilidad porque las páginas limpiadas ya no coinciden con la estructura original del documento.',
+        'sourceLayersReconstructed': 'Las capas de texto compactas originales se reconstruyeron a partir de las imágenes de las páginas, por lo que el archivo puede ser más grande que en la aplicación de escritorio.',
     },
     'app': {
         'title': 'EVB Viewer',

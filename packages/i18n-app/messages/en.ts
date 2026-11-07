@@ -908,7 +908,6 @@ export default {
             'invalidMargins': 'Margins must be between 0 and 25 mm.',
             'unavailable': 'Scan cleanup is unavailable on this system.',
             'otherDocumentRunning': 'Another document is being cleaned up. Start this one when it finishes.',
-            'browserPreviewOnly': 'In the browser, scan cleanup previews pages but cannot clean up the document yet. Use the desktop app to clean it up.',
         },
         'completedTitle': 'Scan cleanup complete',
         'completedPartialTitle': 'Selected pages cleaned',
@@ -1007,6 +1006,7 @@ export default {
         'sourceTextOmitted': 'Source text was omitted from outputs of {count} source page(s): {pages}. Search and copy are unavailable on the affected output pages. Run OCR on the cleaned PDF to restore searchable text.',
         'sourceTextOmittedMorePages': '{pages} and {remaining} more',
         'accessibilityTagsRemoved': 'Accessibility tags were removed because the cleaned pages no longer match the original document structure.',
+        'sourceLayersReconstructed': 'The original compact text layers were rebuilt from the page images, so the file may be larger than the desktop app makes it.',
     },
     'djvu': {
         'sourceTextOmitted': 'Source text was not included. This compact PDF contains page images. Run OCR to add searchable text for search and copy.',

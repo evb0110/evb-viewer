@@ -43,7 +43,7 @@ import {
     resolveFallbackDetailDpi,
 } from '@evb/scan-cleanup/core/policy/scanCleanupPreviewPolicy';
 import { resolveReusablePagePlan } from '@evb/scan-cleanup/core/policy/effectiveOptions';
-import { buildRunnableNativeScanCleanupManifest } from '@evb/scan-cleanup/core/policy/buildNativeScanCleanupManifest';
+import { buildRunnableNativeScanCleanupManifest } from '@evb/scan-cleanup/core/policy/buildRunnableNativeScanCleanupManifest';
 import {
     resolveScanCleanupDocumentCanvasDpi,
     resolveScanCleanupDocumentCanvasFromAccumulator,

@@ -452,6 +452,45 @@ describe('tryCombineImageInputsWithWasm', () => {
         });
     });
 
+    it('builds Scan Cleanup pages from the desktop manifest lines and named planes', async () => {
+        await stubSuccessfulImageCombineWasmFetch();
+        const {tryCombineImageInputsWithWasm} = await import('@app/platform/browser-api/tryCombineImageInputsWithWasm');
+        const page = createNetpbmBytes(1, 96, 96, (x, y) => (x >= 24 && x < 72 && y >= 24 && y < 72 ? 20 : 235));
+        const bilevel = new Uint8Array([
+            ...new TextEncoder().encode('P4\n8 1\n'),
+            0x80,
+        ]);
+
+        const outcome = await tryCombineImageInputsWithWasm([
+            {
+                fileName: 'p1-0.pbm',
+                data: bilevel,
+            },
+            {
+                fileName: 'p2-0.pgm',
+                data: page,
+            },
+        ], {compactManifestLines: [
+            'image-bilevel\t72.000000\t36.000000\tp1-0.pbm',
+            'image-jpeg\t72.000000\t72.000000\t85\tp2-0.pgm\t0.000000\t0.000000\t36.000000\t36.000000',
+        ]});
+
+        if (outcome.status !== 'success') throw new Error(`Expected PDF bytes, got ${outcome.status}`);
+        const text = Buffer.from(outcome.data).toString('latin1');
+        expect(text).toContain('/BitsPerComponent 1');
+        const pdf = await PDFDocument.load(outcome.data);
+        expect(pdf.getPages().map(pdfPage => pdfPage.getSize())).toEqual([
+            {
+                width: 72,
+                height: 36,
+            },
+            {
+                width: 72,
+                height: 72,
+            },
+        ]);
+    });
+
     it('keeps the Optimize kinds to the renders desktop gives them', async () => {
         await stubSuccessfulImageCombineWasmFetch();
         const {tryCombineImageInputsWithWasm} = await import('@app/platform/browser-api/tryCombineImageInputsWithWasm');

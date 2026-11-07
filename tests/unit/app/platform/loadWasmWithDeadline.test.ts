@@ -5,7 +5,11 @@ import {
     it,
     vi,
 } from 'vitest';
-import { loadWasmWithDeadline } from '@app/platform/browser-api/loadWasmWithDeadline';
+import {createHash} from 'node:crypto';
+import {
+    loadWasmWithDeadline,
+    readLoadedWasmDigest,
+} from '@app/platform/browser-api/loadWasmWithDeadline';
 
 const WASM_HEADER = Uint8Array.of(0, 97, 115, 109);
 
@@ -65,6 +69,19 @@ describe('loadWasmWithDeadline', () => {
         await expect(loadWasmWithDeadline('/streamed.wasm')).resolves.toBe(compiled);
         expect(instantiateStreaming).toHaveBeenCalledWith(response, {});
         expect(instantiate).not.toHaveBeenCalled();
+    });
+
+    it('names the bytes each path compiled by their SHA-256', async () => {
+        stubWebAssembly();
+        const expected = createHash('sha256').update(WASM_HEADER).digest('hex');
+        stubFetch(new Response(WASM_HEADER, {headers: {'content-type': 'application/wasm'}}));
+        await loadWasmWithDeadline('/digest-streamed.wasm');
+        stubFetch(new Response(WASM_HEADER, {headers: {'content-type': 'application/octet-stream'}}));
+        await loadWasmWithDeadline('/digest-buffered.wasm');
+
+        await expect(readLoadedWasmDigest('/digest-streamed.wasm')).resolves.toBe(expected);
+        await expect(readLoadedWasmDigest('/digest-buffered.wasm')).resolves.toBe(expected);
+        expect(readLoadedWasmDigest('/never-loaded.wasm')).toBeNull();
     });
 
     it('falls back to the buffered path when the content type is not WASM', async () => {

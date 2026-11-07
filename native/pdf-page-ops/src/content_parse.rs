@@ -22,12 +22,24 @@ const STEP_FLOOR: usize = 1 << 16;
 /// Parses a content stream. The outer error refuses an inline image whose
 /// size lopdf cannot compute; the inner result is lopdf's own.
 pub(crate) fn parse_content(bytes: &[u8]) -> Result<lopdf::Result<Content>> {
+    Ok(parse_content_with_inline_images(bytes)?.0)
+}
+
+/// An inline image as its dictionary declares it, even where lopdf cannot
+/// decode it: width, height, bits per component and whether it is a stencil.
+pub(crate) type TInlineImageFacts = Option<(u32, u32, u32, bool)>;
+
+/// [`parse_content`], with each read inline image's declared facts in order.
+pub(crate) fn parse_content_with_inline_images(
+    bytes: &[u8],
+) -> Result<(lopdf::Result<Content>, Vec<TInlineImageFacts>)> {
     let mut reader = CandidateReader {
         bytes,
         steps: bytes
             .len()
             .saturating_mul(STEPS_PER_BYTE)
             .saturating_add(STEP_FLOOR),
+        inline_images: Vec::new(),
     };
     // Walk the stream token by token, as lopdf does, so a `BI` inside a
     // string, a comment or an image's data is never read as an image.
@@ -54,7 +66,7 @@ pub(crate) fn parse_content(bytes: &[u8]) -> Result<lopdf::Result<Content>> {
         };
         position = reader.space(position)?;
     }
-    Ok(Content::decode(bytes))
+    Ok((Content::decode(bytes), reader.inline_images))
 }
 
 fn refusal(detail: &str) -> Box<dyn Error> {
@@ -80,6 +92,7 @@ fn is_regular(byte: u8) -> bool {
 struct CandidateReader<'a> {
     bytes: &'a [u8],
     steps: usize,
+    inline_images: Vec<TInlineImageFacts>,
 }
 
 impl<'a> CandidateReader<'a> {
@@ -343,11 +356,19 @@ impl<'a> CandidateReader<'a> {
                     .ok_or_else(|| refusal("whose size is not a positive 32-bit integer"))?;
             }
         }
+        let stencil = matches!(entry(b"IM", b"ImageMask"), Some(Value::Boolean(true)));
+        let bits = match (stencil, sizes[2]) {
+            (true, _) => 1,
+            (false, 0) => 8,
+            (false, bits) => bits,
+        };
+        self.inline_images
+            .push((sizes[0] > 0 && sizes[1] > 0).then_some((sizes[0], sizes[1], bits, stencil)));
         if sizes.contains(&0) {
             // lopdf stops at a size that is absent or not an integer.
             return self.after_image_data(data);
         }
-        let components = if matches!(entry(b"IM", b"ImageMask"), Some(Value::Boolean(true))) {
+        let components = if stencil {
             1
         } else {
             match entry(b"CS", b"ColorSpace") {

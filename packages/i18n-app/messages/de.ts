@@ -426,7 +426,6 @@ export default {
             'invalidMargins': 'Die Ränder müssen zwischen 0 und 25 mm liegen.',
             'unavailable': 'Die Scanbereinigung ist auf diesem System nicht verfügbar.',
             'otherDocumentRunning': 'Ein anderes Dokument wird gerade bereinigt. Starten Sie dieses, wenn es fertig ist.',
-            'browserPreviewOnly': 'Im Browser zeigt die Scanbereinigung eine Vorschau der Seiten, kann das Dokument aber noch nicht bereinigen. Verwenden Sie dafür die Desktop-App.',
         },
         'completedTitle': 'Scanbereinigung abgeschlossen',
         'completedPartialTitle': 'Ausgewählte Seiten bereinigt',
@@ -525,6 +524,7 @@ export default {
         'sourceTextOmitted': 'Der Quelltext wurde bei der Ausgabe von {count} Quellseite(n) weggelassen: {pages}. Auf den betroffenen Ausgabeseiten sind Textsuche und Kopieren nicht verfügbar. Führen Sie OCR für die bereinigte PDF aus, um durchsuchbaren Text wiederherzustellen.',
         'sourceTextOmittedMorePages': '{pages} und {remaining} weitere',
         'accessibilityTagsRemoved': 'Barrierefreiheits-Tags wurden entfernt, weil die bereinigten Seiten nicht mehr zur ursprünglichen Dokumentstruktur passen.',
+        'sourceLayersReconstructed': 'Die ursprünglichen kompakten Textebenen wurden aus den Seitenbildern neu erstellt, daher kann die Datei größer sein als in der Desktop-App.',
     },
     'app': {
         'title': 'EVB Viewer',

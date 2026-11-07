@@ -25,6 +25,7 @@ import {
 import {
     tryRunBrowserPageOpsWithWasm, isBrowserPageOpsWasmFailure,
 } from '@app/platform/browser-api/tryRunBrowserPageOpsWithWasm';
+import {readLoadedWasmDigest} from '@app/platform/browser-api/loadWasmWithDeadline';
 import { getErrorMessage } from '@app/utils/error';
 function toTransferableUint8Array(data: Uint8Array) {
     if (
@@ -197,12 +198,21 @@ async function handleRequest(
     }
 }
 
+/** Posts a response; a success names the engine module that produced it. */
+async function postResponse(message: Record<string, unknown> & {ok: boolean}, transfer: Transferable[] = []) {
+    const engineSha256 = message.ok ? await readLoadedWasmDigest('/wasm/evb-pdf-page-ops.wasm')?.catch(() => null) : null;
+    self.postMessage(typeof engineSha256 === 'string' ? {
+        ...message,
+        engineSha256,
+    } : message, transfer);
+}
+
 self.addEventListener('message', async (event: MessageEvent<unknown>) => {
     const request = parseBrowserPageOpsWorkerRequest(event.data);
     if (request === null) {
         const id = getBrowserPageOpsWorkerRequestId(event.data);
         if (id !== null) {
-            self.postMessage({
+            await postResponse({
                 id,
                 ok: false,
                 error: 'Invalid browser page operation worker request',
@@ -214,7 +224,7 @@ self.addEventListener('message', async (event: MessageEvent<unknown>) => {
     try {
         const data = await handleRequest(request);
         if (request.type === 'ocrTextVisibility' || request.type === 'inspectScanCleanupPdf') {
-            self.postMessage({
+            await postResponse({
                 id: request.id,
                 type: request.type,
                 ok: true,
@@ -230,11 +240,11 @@ self.addEventListener('message', async (event: MessageEvent<unknown>) => {
                 data,
             } as TBrowserPageOpsWorkerResponse;
             if (isBrowserPageOpsWasmFailure(data)) {
-                self.postMessage(response);
+                await postResponse(response);
             } else {
                 const result = data as Exclude<IBrowserPageOpsWorkerResultMap[TWasmWriterRequestType], {status: 'failed'}>;
                 const transferableData = toTransferableUint8Array(result.data);
-                self.postMessage({
+                await postResponse({
                     ...response,
                     data: {
                         ...result,
@@ -251,7 +261,7 @@ self.addEventListener('message', async (event: MessageEvent<unknown>) => {
                 ok: true,
                 data: data as IBrowserPageOpsWorkerResultMap['getPageGeometry'],
             } satisfies TBrowserPageOpsWorkerResponse;
-            self.postMessage(response);
+            await postResponse(response);
             return;
         }
 
@@ -264,7 +274,7 @@ self.addEventListener('message', async (event: MessageEvent<unknown>) => {
                 ok: true,
                 data: {data: transferableData},
             } satisfies TBrowserPageOpsWorkerResponse;
-            self.postMessage(response, [transferableData.buffer]);
+            await postResponse(response, [transferableData.buffer]);
             return;
         }
 
@@ -275,7 +285,7 @@ self.addEventListener('message', async (event: MessageEvent<unknown>) => {
                 ok: true,
                 data: data as IBrowserPageOpsWorkerResultMap['readCatalog'],
             } satisfies TBrowserPageOpsWorkerResponse;
-            self.postMessage(response);
+            await postResponse(response);
             return;
         }
 
@@ -286,7 +296,7 @@ self.addEventListener('message', async (event: MessageEvent<unknown>) => {
                 ok: true,
                 data: data as IBrowserPageOpsWorkerResultMap['conformance'],
             } satisfies TBrowserPageOpsWorkerResponse;
-            self.postMessage(response);
+            await postResponse(response);
             return;
         }
 
@@ -301,14 +311,14 @@ self.addEventListener('message', async (event: MessageEvent<unknown>) => {
                 data: transferableData,
             },
         } satisfies TBrowserPageOpsWorkerResponse;
-        self.postMessage(response, [transferableData.buffer]);
+        await postResponse(response, [transferableData.buffer]);
     } catch (error) {
         const response = {
             id: request.id,
             ok: false,
             error: getErrorMessage(error),
         } satisfies TBrowserPageOpsWorkerResponse;
-        self.postMessage(response);
+        await postResponse(response);
     } finally {
         if (request.type === 'decrypt') {
             request.payload.password = '';

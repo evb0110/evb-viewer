@@ -289,6 +289,8 @@ fn browser_page_label_rewrites_preserve_text_encoding_and_pdf_alphabetic_sequenc
     source.save_to(&mut source_bytes).unwrap();
     let selected_pages = [1, 26, 27, 28, 52, 53, 55, 80, 81, 82, 106, 107, 108];
     let result = extract_browser_pdf_pages(&source_bytes, &selected_pages).unwrap();
+    // Poppler reports a cross-reference section without object 0 as invalid.
+    assert!(result.data.windows(18).any(|entry| entry == b"0000000000 65535 f"));
     let output = Document::load_mem(&result.data).unwrap();
     let page_labels = resolve_dictionary_object(
         &output,

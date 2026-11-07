@@ -9,7 +9,7 @@ import type {IPdfMrcLayers} from '@evb/scan-cleanup/core/types';
  */
 export function buildScanCleanupSourceMrcForegroundPdfMatrix(
     metadata: INativeScanCleanupOutputMetadataV3,
-    layers: IPdfMrcLayers,
+    layers: Pick<IPdfMrcLayers, 'foregroundWidth' | 'foregroundHeight'>,
     pageWidthPoints: number,
     pageHeightPoints: number,
 ) {

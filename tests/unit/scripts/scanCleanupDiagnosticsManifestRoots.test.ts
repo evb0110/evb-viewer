@@ -17,7 +17,7 @@ import {
     relative,
 } from 'node:path';
 import type {IScanCleanupOptions} from '@contracts/scan-cleanup/electronApiScanCleanup';
-import {buildRunnableNativeScanCleanupManifest} from '@evb/scan-cleanup/core/policy/buildNativeScanCleanupManifest';
+import {buildRunnableNativeScanCleanupManifest} from '@evb/scan-cleanup/core/policy/buildRunnableNativeScanCleanupManifest';
 import {ScanCleanupContractError} from '@evb/scan-cleanup/core/errors';
 import * as corpusVerifier from '@scripts/diagnostics/scan-cleanup-corpus-verify.mjs';
 import {createScanCleanupDiagnosticsManifestScope} from '@scripts/diagnostics/scan-cleanup-diagnostics-manifest.mjs';

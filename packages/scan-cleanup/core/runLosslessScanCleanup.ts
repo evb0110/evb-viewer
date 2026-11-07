@@ -39,7 +39,7 @@ import {
 } from '@evb/scan-cleanup/core/pdfPageSizes';
 import {resolveScanCleanupAnalysisDpi} from '@evb/scan-cleanup/core/detection';
 import {resolveScanCleanupRasterRenderLimits} from '@evb/scan-cleanup/core/rasterValidation';
-import {buildRunnableNativeScanCleanupManifest} from '@evb/scan-cleanup/core/policy/buildNativeScanCleanupManifest';
+import {buildRunnableNativeScanCleanupManifest} from '@evb/scan-cleanup/core/policy/buildRunnableNativeScanCleanupManifest';
 import {
     buildScanCleanupPageOpsInstructions,
     isScanCleanupCliFallbackSentinel,
@@ -52,8 +52,8 @@ import {
     buildScanCleanupProvenanceStamp,
     encodeScanCleanupProvenanceStampHex,
     materializeScanCleanupStampOptions,
-    sha256ScanCleanupFile,
 } from '@evb/scan-cleanup/core/provenanceStamp';
+import {sha256ScanCleanupFile} from '@evb/scan-cleanup/core/sha256ScanCleanupFile';
 import {
     addScanCleanupDocumentCanvasPage,
     createScanCleanupDocumentCanvasAccumulator,

@@ -427,7 +427,6 @@ export default {
             'invalidMargins': 'As margens devem estar entre 0 e 25 mm.',
             'unavailable': 'A limpeza de digitalização não está disponível neste sistema.',
             'otherDocumentRunning': 'Outro documento está sendo limpo. Inicie este quando terminar.',
-            'browserPreviewOnly': 'No navegador, a limpeza de digitalizações mostra a prévia das páginas, mas ainda não consegue limpar o documento. Use o aplicativo para computador para limpá-lo.',
         },
         'completedTitle': 'Limpeza de digitalização concluída',
         'completedPartialTitle': 'Páginas selecionadas limpas',
@@ -526,6 +525,7 @@ export default {
         'sourceTextOmitted': 'O texto original foi omitido na saída de {count} página(s) de origem: {pages}. A pesquisa e a cópia não estão disponíveis nas páginas de saída afetadas. Execute OCR no PDF limpo para restaurar o texto pesquisável.',
         'sourceTextOmittedMorePages': '{pages} e mais {remaining}',
         'accessibilityTagsRemoved': 'As tags de acessibilidade foram removidas porque as páginas limpas não correspondem mais à estrutura original do documento.',
+        'sourceLayersReconstructed': 'As camadas de texto compactas originais foram reconstruídas a partir das imagens das páginas, então o arquivo pode ficar maior do que no aplicativo para computador.',
     },
     'app': {
         'title': 'EVB Viewer',

@@ -10,24 +10,12 @@ import {
 } from 'fs/promises';
 import {join} from 'path';
 import type {
-    INativeScanCleanupOutputMetadataV3,
-    INativeScanCleanupPageMetadataV3,
-    INativeScanCleanupPdfPlacementV3,
-    TScanCleanupOutputMode,
-} from '@contracts/scan-cleanup/electronApiScanCleanup';
-import {getScanCleanupPageOverride} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
-import { requirePageNumber } from '@contracts/pageNumbers';
-import type {
-    IDetectedPageRaster,
-    IPdfMrcLayers,
-    IPdfPageSize,
     TScanCleanupLog,
     IRunScanCleanupPipelineDependencies,
-    IRunScanCleanupPipelineRequest,
     IScanCleanupWorkerPaths,
     IScanCleanupRunCommandOptions,
 } from '@evb/scan-cleanup/core/types';
-import {buildScanCleanupSourceMrcForegroundPdfMatrix} from '@evb/scan-cleanup/core/buildScanCleanupSourceMrcForegroundPdfMatrix';
+import type {IScanCleanupRenderedOutput} from '@evb/scan-cleanup/core/scanCleanupOutputComposition';
 import {
     buildScanCleanupPageOpsInstructions,
     serializeLegacyScanCleanupPageOpsInstructions,
@@ -40,159 +28,7 @@ import {
     ScanCleanupContractError, ScanCleanupNativeToolUnavailableError,
 } from '@evb/scan-cleanup/core/errors';
 
-export interface IRenderedCleanupOutputPage {
-    sourcePageNumber: number;
-    path: string;
-    bilevelPath?: string;
-    backgroundPath?: string;
-    foregroundMaskPath?: string;
-    foregroundAlphaPath?: string;
-    backgroundIsColor?: boolean;
-    dpi: number;
-    resolvedOutputMode: TScanCleanupOutputMode;
-    metadata: INativeScanCleanupOutputMetadataV3;
-    preservedSource?: {
-        reason:
-            | 'auto-color-compact-layered-no-raster-change'
-            | 'auto-mixed-trusted-mrc-tone-preserved'
-            | 'mixed-layer-validation-fallback';
-        sourcePageIndex: number;
-        rotationQuarterTurns: number;
-        cropRect: INativeScanCleanupPdfPlacementV3['cropRect'];
-        contentTransform: NonNullable<INativeScanCleanupPdfPlacementV3['contentTransform']>;
-    };
-}
-
-export function sourceMrcForegroundPdfMatrix(
-    output: IRenderedCleanupOutputPage,
-    layers: IPdfMrcLayers,
-    pageWidthPoints: number,
-    pageHeightPoints: number,
-) {
-    const metadata = output.metadata;
-    const matrix = metadata.forwardTransform?.matrix;
-    if (
-        matrix === undefined
-        || metadata.inputWidthPx === undefined
-        || metadata.inputHeightPx === undefined
-        || metadata.outputWidthPx <= 0
-        || metadata.outputHeightPx <= 0
-        || (metadata.intrinsicRasterWidthPx !== undefined && metadata.intrinsicRasterWidthPx <= 0)
-        || (metadata.intrinsicRasterHeightPx !== undefined && metadata.intrinsicRasterHeightPx <= 0)
-        || metadata.rotationDegrees !== 0
-        || metadata.dewarpMapping != null
-    ) {
-        throw new Error(
-            `Page ${String(output.sourcePageNumber)} cannot preserve its source MRC foreground `
-            + 'because its cleanup geometry is not affine in the source orientation',
-        );
-    }
-    const pdfMatrix = buildScanCleanupSourceMrcForegroundPdfMatrix(
-        metadata,
-        layers,
-        pageWidthPoints,
-        pageHeightPoints,
-    );
-    if (!pdfMatrix.every(Number.isFinite)) {
-        throw new Error(
-            `Page ${String(output.sourcePageNumber)} produced a non-finite source MRC transform`,
-        );
-    }
-    return pdfMatrix;
-}
-
-export function resolveCompactSourcePreservation(
-    request: IRunScanCleanupPipelineRequest,
-    sourcePageNumber: number,
-    pageMetadata: INativeScanCleanupPageMetadataV3,
-    output: Omit<IRenderedCleanupOutputPage, 'preservedSource'>,
-    pageSize: IPdfPageSize | undefined,
-    sourceRaster: IDetectedPageRaster | undefined,
-) {
-    const pageOverride = getScanCleanupPageOverride(
-        request.options.pageOverrides,
-        requirePageNumber(sourcePageNumber),
-        request.options.pageOverrideDefaults,
-        request.options.marginsMm,
-    );
-    // Auto is allowed to retain a compact source page when cleanup made no
-    // raster change. JPX/JBIG2 are supported by EVB Viewer's configured PDF.js
-    // runtime and by the reference desktop renderers; transcoding them merely
-    // for a separate no-WASM review surface adds no quality and can multiply
-    // the document size. That review surface is classified separately by the
-    // generated-PDF verifier.
-    const configuredMode = pageOverride.outputModeOverride ?? request.options.outputMode;
-    const manualZones = pageOverride.manualZones;
-    const preservesTrustedMrcTone = output.resolvedOutputMode === 'mixed'
-        && output.metadata.trustedMrcBackgroundPreserved === true;
-    if (
-        configuredMode !== 'auto'
-        || (output.resolvedOutputMode !== 'color' && !preservesTrustedMrcTone)
-        || sourceRaster?.hasBilevelLayer !== true
-        || sourceRaster.backgroundDpi === undefined
-        || !Number.isFinite(sourceRaster.backgroundDpi)
-        || sourceRaster.backgroundDpi <= 0
-        || pageSize === undefined
-        || pageSize.rotation !== 0
-        || pageOverride.rotationDegrees !== 0
-        || pageMetadata.layoutClassification !== 'single-uncut-page'
-        || pageMetadata.outputCount !== 1
-        || output.metadata.half !== 'full'
-        || output.metadata.skewApplied
-        || output.metadata.dewarpModel != null
-        || (!preservesTrustedMrcTone && output.metadata.illuminationNormalized === true)
-        || (!preservesTrustedMrcTone && output.metadata.textToneDiagnostics?.applied === true)
-        || (!preservesTrustedMrcTone && output.metadata.binarizationMode != null)
-        || pageOverride.manualSkewDegrees !== undefined
-        || (manualZones?.picture.length ?? 0) > 0
-        || (manualZones?.fill.length ?? 0) > 0
-        || output.metadata.sourcePdfPlacement?.contentTransform === undefined
-    ) {
-        return undefined;
-    }
-    return {
-        reason: preservesTrustedMrcTone
-            ? 'auto-mixed-trusted-mrc-tone-preserved' as const
-            : 'auto-color-compact-layered-no-raster-change' as const,
-        sourcePageIndex: sourcePageNumber - 1,
-        rotationQuarterTurns: 0,
-        cropRect: output.metadata.sourcePdfPlacement.cropRect,
-        contentTransform: output.metadata.sourcePdfPlacement.contentTransform,
-    };
-}
-
-export function resolveFullSourcePagePreservation(
-    sourcePageNumber: number,
-    pageSize: IPdfPageSize | undefined,
-) {
-    if (
-        pageSize === undefined
-        || !Number.isFinite(pageSize.xPoints)
-        || !Number.isFinite(pageSize.yPoints)
-        || !Number.isFinite(pageSize.widthPoints)
-        || pageSize.widthPoints <= 0
-        || !Number.isFinite(pageSize.heightPoints)
-        || pageSize.heightPoints <= 0
-    ) {
-        return undefined;
-    }
-    return {
-        reason: 'mixed-layer-validation-fallback' as const,
-        sourcePageIndex: sourcePageNumber - 1,
-        rotationQuarterTurns: 0,
-        cropRect: {
-            x: pageSize.xPoints,
-            y: pageSize.yPoints,
-            width: pageSize.widthPoints,
-            height: pageSize.heightPoints,
-        },
-        contentTransform: {
-            scale: 1,
-            translateX: 0,
-            translateY: 0,
-        },
-    };
-}
+export type IRenderedCleanupOutputPage = IScanCleanupRenderedOutput<string>;
 
 function appendQpdfPageSelection(
     args: string[],
