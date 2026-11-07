@@ -11,7 +11,6 @@ const PDF_ENCRYPT_PATTERN = /\/Encrypt\b/u;
 export const PDF_ENCRYPT_SCAN_REGION_BYTES = 32 * 1024;
 const pdfBinaryDecoder = new TextDecoder('latin1');
 
-type TPdfConformanceFallbackOverrides = Partial<Omit<TPdfConformanceProfileBase, 'canIncrementalSave'>>;
 type TPdfStructuralConformanceFacts = Pick<
     TPdfConformanceProfileBase,
     'isSigned' | 'isEncrypted' | 'isTagged' | 'hasAcroForm' | 'hasXfa'
@@ -79,21 +78,6 @@ export function createPdfConformanceProfile(
         hasAcroForm: structuralFacts.hasAcroForm,
         hasXfa: structuralFacts.hasXfa,
         canIncrementalSave: !(isEncrypted || structuralFacts.hasXfa),
-    };
-
-    return {
-        ...profileBase,
-        saveRestrictions: buildPdfSaveRestrictions(profileBase),
-    };
-}
-
-export function createConservativePdfConformanceFallbackProfile(
-    overrides: TPdfConformanceFallbackOverrides = {},
-): IPdfConformanceProfile {
-    const profileBase = {
-        ...createDefaultPdfConformanceProfile(),
-        ...overrides,
-        canIncrementalSave: false,
     };
 
     return {
