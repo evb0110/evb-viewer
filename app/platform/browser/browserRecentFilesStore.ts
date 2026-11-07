@@ -7,7 +7,10 @@ import {
 } from '@contracts/recentReadingView';
 import {isRecord} from '@contracts/runtimeGuards';
 import {safeJsonParse} from '@contracts/safeJsonParse';
-import type { IRecentFile } from '@contracts/shared';
+import {
+    RECENT_FILES_LIMIT,
+    type IRecentFile,
+} from '@contracts/shared';
 import { createEpochMs } from '@contracts/timestamps';
 import {
     readLocalStorageItem,
@@ -20,11 +23,7 @@ import {
     parseRecentFilesStorageSnapshot,
     serializeRecentFilesPayload,
 } from '@app/utils/recentFilesPersistence';
-import {
-    BROWSER_MAX_RECENT_FILES,
-    BROWSER_MAX_RECENT_FILES_PERSISTED_BYTES,
-    DOCUMENTS_STORE,
-} from '@app/platform/browser/browserDocumentConstants';
+import {DOCUMENTS_STORE} from '@app/platform/browser/browserDocumentConstants';
 import {runObjectStoreTransaction} from '@app/platform/browser/browserDocumentIdb';
 import { buildRecentFilesFromPersistedRecords } from '@app/platform/browser/buildRecentFilesFromPersistedRecords';
 import type { IBrowserPersistedDocumentRecordsLoadResult } from '@app/platform/browser/browserPersistedDocumentRecordsLoadResult';
@@ -187,35 +186,26 @@ function normalizeRecentFileSize(fileSize: number | undefined) {
     return Math.floor(fileSize);
 }
 
+/**
+ * Desktop's Recent: the newest distinct documents, as many as its limit. A
+ * document's size is shown, never budgeted; storage admission governs bytes.
+ */
 export function pruneRecentFiles(recentFiles: IRecentFile[]) {
     const keptRecentFiles: IRecentFile[] = [];
-    const evictedRefs = new Set<string>();
     const keptRefs = new Set<string>();
-    let totalBytes = 0;
-
+    const evictedRefs = new Set<string>();
     for (const recentFile of recentFiles) {
-        if (keptRefs.has(recentFile.originalPath)) {
+        if (keptRefs.has(recentFile.originalPath)) continue;
+        if (keptRecentFiles.length >= RECENT_FILES_LIMIT) {
             evictedRefs.add(recentFile.originalPath);
             continue;
         }
-
-        const fileSize = normalizeRecentFileSize(recentFile.fileSize);
-        const exceedsCountLimit = keptRecentFiles.length >= BROWSER_MAX_RECENT_FILES;
-        const exceedsByteLimit = keptRecentFiles.length > 0
-            && (totalBytes + fileSize) > BROWSER_MAX_RECENT_FILES_PERSISTED_BYTES;
-
-        if (exceedsCountLimit || exceedsByteLimit) {
-            evictedRefs.add(recentFile.originalPath);
-            continue;
-        }
-
         keptRecentFiles.push({
             ...recentFile,
             backend: 'browser',
-            fileSize,
+            fileSize: normalizeRecentFileSize(recentFile.fileSize),
         });
         keptRefs.add(recentFile.originalPath);
-        totalBytes += fileSize;
     }
 
     return {
@@ -277,7 +267,7 @@ export class BrowserRecentFilesStore {
 
     public getRecentFiles() {
         expireLegacyRecentFilesCookie();
-        return readRecentFilesFromStorage();
+        return readRecentFilesFromStorage().slice(0, RECENT_FILES_LIMIT);
     }
 
     public async recoverRecentFilesIfStorageMissing() {

@@ -9,7 +9,7 @@ import {
     BrowserRecentFilesStorageUnavailableError,
     BrowserRecentFilesStore,
 } from '@app/platform/browser/browserRecentFilesStore';
-import { BROWSER_MAX_RECENT_FILES } from '@app/platform/browser/browserDocumentConstants';
+import { RECENT_FILES_LIMIT } from '@contracts/shared';
 import { BROWSER_RECENT_FILES_STORAGE_KEY } from '@app/utils/browserRuntimePersistence';
 
 describe('BrowserRecentFilesStore', () => {
@@ -105,7 +105,7 @@ describe('BrowserRecentFilesStore', () => {
     });
 
     it('does not evict durable records when the recent-file write fails', async () => {
-        const existingRecentFiles = Array.from({length: BROWSER_MAX_RECENT_FILES}, (_, index) => ({
+        const existingRecentFiles = Array.from({length: RECENT_FILES_LIMIT}, (_, index) => ({
             originalPath: `browser://documents/${index}.pdf`,
             backend: 'browser' as const,
             fileName: `${index}.pdf`,
