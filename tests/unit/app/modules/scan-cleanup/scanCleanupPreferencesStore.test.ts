@@ -1180,6 +1180,47 @@ describe('scan cleanup renderer preference store', () => {
         }
     });
 
+    it('refreshes another view’s saved settings after a durable reset', async () => {
+        const {store} = await createDurableSettingsStore();
+        connectMainProcessSettings(store);
+        const sourceSha256 = 'b'.repeat(64);
+        const active = ref(false);
+        let settings!: ReturnType<typeof useScanCleanupDocumentSettings>;
+        const host = document.createElement('div');
+        const app = createApp(defineComponent({setup() {
+            settings = useScanCleanupDocumentSettings({
+                documentLifecycleKey: computed(() => sourceSha256),
+                sourceSha256: computed(() => sourceSha256),
+                active: () => active.value,
+            });
+            return () => h('output', JSON.stringify(settings.values.pageOverrides));
+        }}));
+        app.mount(host);
+        try {
+            await vi.waitFor(() => expect(settings.documentSettingsReady.value).toBe(true));
+            settings.resetPageOverrides();
+            await flushScanCleanupDocumentPreferencesStore();
+            settings.values.pageOverrides['3'] = createScanCleanupPageOverride({rotationDegrees: 180});
+            await nextTick();
+            await store.update({document: {
+                sourceSha256,
+                patch: {
+                    overrideEdits: {'2': createScanCleanupPageOverride({rotationDegrees: 90})},
+                    outputMode: 'bw',
+                },
+            }});
+            active.value = true;
+            await vi.waitFor(() => expect(JSON.parse(host.textContent ?? '{}')).toMatchObject({
+                '2': {rotationDegrees: 90},
+                '3': {rotationDegrees: 180},
+            }));
+            expect(settings.values.outputMode).toBe('bw');
+        } finally {
+            app.unmount();
+            await flushScanCleanupDocumentPreferencesStore();
+        }
+    });
+
     it('takes the document-wide settings another view saved when it comes on screen, keeping its own edit', async () => {
         const {store} = await createDurableSettingsStore();
         connectMainProcessSettings(store);

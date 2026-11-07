@@ -725,7 +725,7 @@ export function saveScanCleanupDocumentPreferencesInStore(
         return Promise.resolve();
     }
     const previous = pendingDocumentUpdates.get(key);
-    const usablePrevious = previous && isScanCleanupDocumentPersistenceTokenCurrent(previous.token)
+    const usablePrevious = previous && !previous.queued && isScanCleanupDocumentPersistenceTokenCurrent(previous.token)
         ? previous
         : undefined;
     const previousDocument = usablePrevious?.request.document;
@@ -783,7 +783,7 @@ export function scheduleScanCleanupDocumentPreferencesInStore(
     }
     const key = documentUpdateKey(request)!;
     const previous = pendingDocumentUpdates.get(key);
-    const usablePrevious = previous && isScanCleanupDocumentPersistenceTokenCurrent(previous.token)
+    const usablePrevious = previous && !previous.queued && isScanCleanupDocumentPersistenceTokenCurrent(previous.token)
         ? previous
         : undefined;
     const version = ++nextDocumentUpdateVersion;
