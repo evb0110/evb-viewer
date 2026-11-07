@@ -74,7 +74,8 @@
     4,
     3
    ],
-   "scale_path": "replication-up-both"
+   "scale_path": "replication-up-both",
+   "filter": "FlateDecode"
   },
   {
    "width": 11,
@@ -107,7 +108,8 @@
     4,
     3
    ],
-   "scale_path": "stencil-down"
+   "scale_path": "stencil-down",
+   "filter": "FlateDecode"
   }
  ]
 }

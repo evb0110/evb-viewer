@@ -83,6 +83,10 @@ abi! {
         // REPORTED_HEADER layout: the appended revision, empty when the pass
         // changed nothing, and its CLI command's JSON report.
         RESPONSE_REPORTED_INCREMENT: u32 = 9;
+        // REPORTED_HEADER layout: a page's RGB rows, top-down, and a JSON report
+        // of their width, height and sample compatibility, or no rows and the
+        // reason the page has no scan raster.
+        RESPONSE_REPORTED_RASTER: u32 = 10;
         NATIVE_MUTATION_POSTCONDITIONS_VERIFIED: u32 = 1;
     }
     operations {
@@ -121,6 +125,9 @@ abi! {
         // REQUEST_HEADER framing; the page list selects pages, none for every
         // page. Answers RESPONSE_JSON with each page's page-size record.
         OP_INSPECT_SCAN_CLEANUP_PDF = 23 => "inspectScanCleanupPdf";
+        // No attachments; the instructions are the raster request. Answers
+        // RESPONSE_REPORTED_RASTER.
+        OP_RENDER_SCAN_CLEANUP_RASTER = 24 => "renderScanCleanupRaster";
     }
     layouts {
         REQUEST_HEADER: RequestHeader {
@@ -354,7 +361,7 @@ pub(crate) fn parse_instructed_request(request: &[u8]) -> Result<ParsedInstructe
             usize::from(operation == OP_OCR_TEXT_LAYER)..=usize::MAX
         }
         OP_OVERLAY_TEXT => 1..=1,
-        OP_SPLIT_PAGES | OP_RECOMPRESS_IMAGES => 0..=0,
+        OP_SPLIT_PAGES | OP_RECOMPRESS_IMAGES | OP_RENDER_SCAN_CLEANUP_RASTER => 0..=0,
         _ => {
             return Err(
                 format!("Page-op WASM operation {operation} takes no instructed framing").into(),

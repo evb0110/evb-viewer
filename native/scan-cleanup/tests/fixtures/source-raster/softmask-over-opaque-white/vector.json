@@ -74,7 +74,8 @@
     4,
     3
    ],
-   "scale_path": "replication-up-both"
+   "scale_path": "replication-up-both",
+   "filter": "FlateDecode"
   },
   {
    "width": 11,
@@ -103,7 +104,8 @@
     ],
     "interpolate": false,
     "decoded_samples": "layer1-mask.decoded",
-    "scale_path": "down-both"
+    "scale_path": "down-both",
+    "filter": "FlateDecode"
    },
    "content_ctm": [
     3,
@@ -125,7 +127,8 @@
     4,
     3
    ],
-   "scale_path": "down-both"
+   "scale_path": "down-both",
+   "filter": "FlateDecode"
   }
  ]
 }

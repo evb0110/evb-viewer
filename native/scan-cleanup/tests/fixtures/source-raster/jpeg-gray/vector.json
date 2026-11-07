@@ -70,7 +70,8 @@
     6,
     5
    ],
-   "scale_path": "down-both"
+   "scale_path": "down-both",
+   "filter": "DCTDecode"
   }
  ]
 }

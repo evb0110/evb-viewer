@@ -70,7 +70,8 @@
     2,
     2
    ],
-   "scale_path": "stencil-down"
+   "scale_path": "stencil-down",
+   "filter": "FlateDecode"
   }
  ]
 }

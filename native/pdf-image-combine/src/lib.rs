@@ -16,6 +16,7 @@ mod jpeg;
 mod jpx;
 mod netpbm;
 mod pdf;
+pub mod pdf_image_samples;
 mod tiff_io;
 
 #[cfg(any(

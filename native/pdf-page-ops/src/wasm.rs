@@ -305,6 +305,10 @@ fn run_instructed_request(parsed: ParsedInstructedRequest<'_>) -> Result<Vec<u8>
             RESPONSE_REPORTED_INCREMENT,
             crate::replace_page_images_bytes(data, instructions, &attachments)?,
         ),
+        OP_RENDER_SCAN_CLEANUP_RASTER => encode_reported(
+            RESPONSE_REPORTED_RASTER,
+            crate::render_scan_cleanup_raster_bytes(data, instructions)?,
+        ),
         _ => Err(format!("Unsupported page-op WASM instructed operation {operation}").into()),
     }
 }

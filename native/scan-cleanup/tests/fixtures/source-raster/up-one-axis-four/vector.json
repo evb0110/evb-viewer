@@ -74,7 +74,8 @@
     12,
     4
    ],
-   "scale_path": "replication-up-both"
+   "scale_path": "replication-up-both",
+   "filter": "FlateDecode"
   }
  ]
 }

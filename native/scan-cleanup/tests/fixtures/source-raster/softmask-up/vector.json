@@ -66,7 +66,8 @@
     ],
     "interpolate": false,
     "decoded_samples": "layer0-mask.decoded",
-    "scale_path": "bilinear-up-both"
+    "scale_path": "bilinear-up-both",
+    "filter": "FlateDecode"
    },
    "content_ctm": [
     6,
@@ -88,7 +89,8 @@
     7,
     5
    ],
-   "scale_path": "bilinear-up-both"
+   "scale_path": "bilinear-up-both",
+   "filter": "FlateDecode"
   }
  ]
 }

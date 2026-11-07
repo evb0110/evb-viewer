@@ -74,7 +74,8 @@
     12,
     8
    ],
-   "scale_path": "bilinear-up-both"
+   "scale_path": "bilinear-up-both",
+   "filter": "FlateDecode"
   }
  ]
 }

@@ -70,7 +70,8 @@
     4,
     3
    ],
-   "scale_path": "down-both"
+   "scale_path": "down-both",
+   "filter": "CCITTFaxDecode"
   }
  ]
 }
