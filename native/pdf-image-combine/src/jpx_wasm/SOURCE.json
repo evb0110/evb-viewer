@@ -6,13 +6,13 @@
   },
   "wasiSdk": "27.0",
   "inputs": {
-    "src/jpx_wasm/evb_jpx.c": "6fa223f3c2b25cc884179c24d570a66d512c474d385893f750b7c6b6883cb3a8",
+    "src/jpx_wasm/evb_jpx.c": "10d42bcc0b6ade50d479ce9b3f08baed4b6b10976f842d8a202701703458d315",
     "src/jpx_wasm/opj_config.h": "b4262e2ef377271f152aeb3ba14a1a29603b6da1eff6445dc8cd027141e65558",
     "src/jpx_wasm/opj_config_private.h": "94b6d1c4761f02aef20b27eec650fb5561eaa4d806e3a2ebadaec9ffd0416b4b",
     "src/jpx_wasm/openjpeg-2.5.4-dwt-fma.patch": "fdd1c158e4e2291cefb0f6b072be3351508ee3d9e96c8c2b2b7375cbe3913d01",
     "../../scripts/build-openjpeg-wasm32.sh": "fbe4bd7ca4a62d7d71a312af6b10a1e29905b23c048b026d4d24bc66ff5aebeb"
   },
   "archive": {
-    "src/jpx_wasm/libevb_jpx.a": "d41a27f8a4c9482b67078cea61d65808cb64f4ee318033a3b1f99ce14070a594"
+    "src/jpx_wasm/libevb_jpx.a": "ed901e0ed98706e4d296f3aaaa8ac446efcfa342dad4b60404a97ffe2705f6b8"
   }
 }

@@ -954,15 +954,24 @@ describe('browser page-ops WASM fast path', () => {
         expect(rendered.data).toEqual(expected.subarray(header[0].length));
     });
 
-    // Lossy 9/7 JPEG 2000 pages, gray and with the color transform, and the RGB
-    // bytes bundled Poppler 26.02.0 `pdftoppm -cropbox -hide-annotations -r 96`
-    // wrote for them. The engine decodes JPX with OpenJPEG, as Poppler does.
+    // JPEG 2000 pages and the RGB bytes bundled Poppler 26.02.0 `pdftoppm
+    // -cropbox -hide-annotations -r 96` wrote for them: lossy 9/7 gray and RGB
+    // (with the color transform), 16-bit, 1-bit, signed, alpha and sYCC
+    // components. The engine decodes JPX with OpenJPEG, as Poppler does.
     it.each([
         'gray',
         'rgb',
+        'gray16',
+        'rgb16',
+        'gray1',
+        'gray-signed',
+        'gray-alpha',
+        'rgb-alpha',
+        'sycc444',
     ] as const)('rasterizes a %s JPEG 2000 scan page with the RGB bytes pdftoppm wrote for it', async (name) => {
         const fixture = join(process.cwd(), 'native/pdf-page-ops/tests/fixtures/scan-raster-jpx');
         const expected = new Uint8Array(await readFile(join(fixture, `${name}-expected.ppm`)));
+        const header = /^P6\s+(\d+)\s+(\d+)\s+255\s/u.exec(new TextDecoder().decode(expected.subarray(0, 32)))!;
         const wasm = await loadWasmRunner();
 
         const rendered = await wasm.run('renderScanCleanupRaster', {
@@ -977,11 +986,11 @@ describe('browser page-ops WASM fast path', () => {
 
         if (rendered === null || 'status' in rendered) throw new Error('raster failed');
         expect(rendered.report).toEqual({
-            width: 96,
-            height: 64,
+            width: Number(header[1]),
+            height: Number(header[2]),
             compatibility: 'exact',
         });
-        expect(rendered.data).toEqual(expected.subarray(expected.length - 96 * 64 * 3));
+        expect(rendered.data).toEqual(expected.subarray(header[0].length));
     });
 
     it('keeps an RGB JPEG near when its PDF overrides the stream\'s color transform', async () => {
