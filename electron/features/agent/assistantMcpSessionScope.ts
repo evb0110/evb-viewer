@@ -46,7 +46,7 @@ export function syncAssistantMcpSessionScope(
     clearAssistantMcpSessionScope(sessionKey);
 }
 
-type TAssistantTurnSuccessorListener = (binding: IAssistantSessionScopeBinding, successor: IAgentCommandSuccessor) => void;
+type TAssistantTurnSuccessorListener = (binding: IAssistantSessionScopeBinding, successor: IAgentCommandSuccessor) => boolean;
 let turnSuccessorListener: TAssistantTurnSuccessorListener | null = null;
 
 /** The session owner adopts a successor its turn's own command committed. */
@@ -55,7 +55,7 @@ export function setAssistantTurnSuccessorListener(listener: TAssistantTurnSucces
 }
 
 export function adoptAssistantTurnSuccessor(binding: IAssistantSessionScopeBinding, successor: IAgentCommandSuccessor) {
-    turnSuccessorListener?.(binding, successor);
+    return turnSuccessorListener?.(binding, successor) === true;
 }
 
 export function resolveAssistantMcpSessionScope(explicitWindowId?: number) {

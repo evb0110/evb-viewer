@@ -359,7 +359,10 @@ function resolveInternalAssistantWindow(
     windowId?: number,
     requestBinding?: IAssistantSessionScopeBinding | null,
 ) {
-    const binding = requestBinding ?? resolveAssistantMcpSessionScope(windowId);
+    const binding = requestBinding === undefined ? resolveAssistantMcpSessionScope(windowId) : requestBinding;
+    if (!binding) {
+        throw new Error('No active assistant turn is bound to the internal EVB MCP session.');
+    }
     if (windowId !== undefined && windowId !== binding.windowId) {
         throw new Error('Internal EVB MCP request targeted a different window than the bound assistant turn.');
     }
@@ -416,7 +419,12 @@ function createDefaultMcpRequestOptions(
                     undefined,
                     scope,
                     signal,
-                    successor => adoptAssistantTurnSuccessor(binding, successor),
+                    successor => {
+                        if (adoptAssistantTurnSuccessor(binding, successor) && requestBinding) {
+                            requestBinding.commandTarget = {...successor.commandTarget};
+                            requestBinding.documentIdentity = successor.documentIdentity && {...successor.documentIdentity};
+                        }
+                    },
                 );
             },
             inspectDocumentText: async (input, windowId, signal) => {
