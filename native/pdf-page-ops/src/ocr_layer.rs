@@ -257,11 +257,6 @@ pub(crate) fn ocr_layer_matrix(
 
 const OCR_TEXT_VISIBILITY_FORMAT: &str = "evb-pdf-ocr-text-visibility";
 const OCR_TEXT_VISIBILITY_SCHEMA_VERSION: u32 = 3;
-/// Form XObjects nest; deeper drawing is unusual and is reported as uncertain.
-const MAX_OCR_VISIBILITY_FORM_DEPTH: usize = 16;
-/// Decoded Form XObject content one page inspection reads before it stops
-/// and reports the rest of the page as uncertain.
-const MAX_OCR_VISIBILITY_FORM_BYTES: usize = MAX_OCR_CONTENT_STREAM_BYTES;
 
 /// `ocr-text-visibility` stdout; `@contracts/pdfOcrTextVisibility` decodes it.
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
@@ -308,97 +303,6 @@ pub(crate) struct OcrLayerLine {
     size: f64,
 }
 
-/// What one page shows beyond the scan of its own content: text in the Form
-/// XObjects it draws, and content that could not be read. The writer leaves
-/// forms alone, so their text decides whether the page paints text, and
-/// hidden text in a form is text a replacement would keep beside the new layer.
-struct PageTextInspection<'a> {
-    structural: Option<StructuralSource<'a>>,
-    /// Forms read so far, with the rendering mode each draw passed in: the
-    /// same form drawn under another mode shows its text differently.
-    visited: HashSet<(ObjectId, i64)>,
-    decoded_bytes: usize,
-    painted: bool,
-    uncertain: Option<&'static str>,
-}
-
-impl PageTextInspection<'_> {
-    fn doubt(&mut self, reason: &'static str) {
-        self.uncertain.get_or_insert(reason);
-    }
-
-    fn inspect(
-        &mut self,
-        incremental: &mut IncrementalDocument,
-        resources: &Dictionary,
-        name: &Object,
-        mode: i64,
-        depth: usize,
-    ) -> Result<()> {
-        let document = &incremental.previous_document;
-        let Some(form_id) = name.as_name().ok().and_then(|name| {
-            let xobjects = resources.get(b"XObject").ok()?;
-            let (_, xobjects) = document.dereference(xobjects).ok()?;
-            xobjects.as_dict().ok()?.get(name).ok()?.as_reference().ok()
-        }) else {
-            return Ok(());
-        };
-        let Ok(Object::Stream(stream)) = document.get_object(form_id) else {
-            return Ok(());
-        };
-        if stream.dict.get(b"Subtype").and_then(Object::as_name).ok() != Some(b"Form") {
-            return Ok(());
-        }
-        if !self.visited.insert((form_id, mode)) {
-            return Ok(());
-        }
-        if depth >= MAX_OCR_VISIBILITY_FORM_DEPTH {
-            self.doubt("Form XObjects are nested too deeply to inspect");
-            return Ok(());
-        }
-        // A form without its own resources uses those of the content drawing it.
-        let form_resources = stream
-            .dict
-            .get(b"Resources")
-            .ok()
-            .and_then(|object| document.dereference(object).ok())
-            .and_then(|(_, object)| object.as_dict().ok())
-            .unwrap_or(resources)
-            .clone();
-        let Some(bytes) = read_content_stream(incremental, self.structural, form_id)? else {
-            self.doubt("a Form XObject's content could not be read");
-            return Ok(());
-        };
-        self.decoded_bytes = self.decoded_bytes.saturating_add(bytes.len());
-        if self.decoded_bytes > MAX_OCR_VISIBILITY_FORM_BYTES {
-            self.doubt("the page's Form XObjects exceed the inspection budget");
-            return Ok(());
-        }
-        let Ok(Ok(content)) = parse_content(&bytes) else {
-            self.doubt("a Form XObject's content could not be parsed");
-            return Ok(());
-        };
-        // A form starts from the graphics state at its `Do` and cannot change
-        // the state of the content that draws it.
-        let mut scan = PageTextScan {
-            mode,
-            ..PageTextScan::default()
-        };
-        let mut draws = Vec::new();
-        scan.scan_stream(&content.operations, |name, mode| {
-            draws.push((name.clone(), mode))
-        });
-        self.painted |= scan.painted;
-        if scan.hidden {
-            self.doubt("hidden text inside a Form XObject is not removed by OCR replacement");
-        }
-        for (name, mode) in draws {
-            self.inspect(incremental, &form_resources, &name, mode, depth + 1)?;
-        }
-        Ok(())
-    }
-}
-
 fn inspect_page_text_visibility(
     incremental: &mut IncrementalDocument,
     inspection: &mut PageTextInspection,
@@ -434,7 +338,13 @@ fn inspect_page_text_visibility(
             draws.push((name.clone(), mode))
         });
         for (name, mode) in draws {
-            inspection.inspect(incremental, &resources, &name, mode, 0)?;
+            inspection.inspect(
+                &mut FormInspectionSource::Incremental(incremental),
+                &resources,
+                &name,
+                mode,
+                0,
+            )?;
         }
     }
     Ok(OcrPageTextVisibility {

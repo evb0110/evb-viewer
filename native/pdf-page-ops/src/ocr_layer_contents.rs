@@ -272,3 +272,190 @@ pub(crate) fn replace_page_ocr_text(
     );
     Ok(())
 }
+
+/// Form XObjects nest; deeper drawing is unusual and is reported as uncertain.
+const MAX_OCR_VISIBILITY_FORM_DEPTH: usize = 16;
+/// Decoded Form XObject content one page inspection reads before it stops
+/// and reports the rest of the page as uncertain.
+const MAX_OCR_VISIBILITY_FORM_BYTES: usize = MAX_OCR_CONTENT_STREAM_BYTES;
+
+/// What one page shows beyond the scan of its own content: text in the Form
+/// XObjects it draws, and content that could not be read. The writer leaves
+/// forms alone, so their text decides whether the page paints text, and
+/// hidden text in a form is text a replacement would keep beside the new layer.
+pub(crate) struct PageTextInspection<'a> {
+    pub(crate) structural: Option<StructuralSource<'a>>,
+    /// Forms read so far, with the rendering mode each draw passed in: the
+    /// same form drawn under another mode shows its text differently.
+    pub(crate) visited: HashSet<(ObjectId, i64)>,
+    pub(crate) decoded_bytes: usize,
+    pub(crate) painted: bool,
+    pub(crate) uncertain: Option<&'static str>,
+}
+
+impl PageTextInspection<'_> {
+    pub(crate) fn doubt(&mut self, reason: &'static str) {
+        self.uncertain.get_or_insert(reason);
+    }
+
+    pub(crate) fn inspect(
+        &mut self,
+        source: &mut FormInspectionSource<'_>,
+        resources: &Dictionary,
+        name: &Object,
+        mode: i64,
+        depth: usize,
+    ) -> Result<()> {
+        let document = source.document();
+        let Some(form_id) = name.as_name().ok().and_then(|name| {
+            let xobjects = resources.get(b"XObject").ok()?;
+            let (_, xobjects) = document.dereference(xobjects).ok()?;
+            xobjects.as_dict().ok()?.get(name).ok()?.as_reference().ok()
+        }) else {
+            self.doubt("a drawn XObject could not be resolved");
+            return Ok(());
+        };
+        let Ok(Object::Stream(stream)) = document.get_object(form_id) else {
+            self.doubt("a drawn XObject could not be read");
+            return Ok(());
+        };
+        match stream.dict.get(b"Subtype").and_then(Object::as_name).ok() {
+            Some(b"Form") => {}
+            Some(b"Image") => return Ok(()),
+            _ => {
+                self.doubt("a drawn XObject has an unknown subtype");
+                return Ok(());
+            }
+        }
+        if !self.visited.insert((form_id, mode)) {
+            return Ok(());
+        }
+        if depth >= MAX_OCR_VISIBILITY_FORM_DEPTH {
+            self.doubt("Form XObjects are nested too deeply to inspect");
+            return Ok(());
+        }
+        // A form without its own resources uses those of the content drawing it.
+        let form_resources = match stream.dict.get(b"Resources") {
+            Ok(object) => match document
+                .dereference(object)
+                .ok()
+                .and_then(|(_, obj)| obj.as_dict().ok())
+            {
+                Some(resources) => resources,
+                None => {
+                    self.doubt("a Form XObject's resources could not be read");
+                    return Ok(());
+                }
+            },
+            Err(_) => resources,
+        }
+        .clone();
+        let Some(bytes) = source.read(self.structural, form_id)? else {
+            self.doubt("a Form XObject's content could not be read");
+            return Ok(());
+        };
+        self.decoded_bytes = self.decoded_bytes.saturating_add(bytes.len());
+        if self.decoded_bytes > MAX_OCR_VISIBILITY_FORM_BYTES {
+            self.doubt("the page's Form XObjects exceed the inspection budget");
+            return Ok(());
+        }
+        let Ok(Ok(content)) = parse_content(&bytes) else {
+            self.doubt("a Form XObject's content could not be parsed");
+            return Ok(());
+        };
+        if content.operations.iter().any(|op| {
+            op.operator == "Do" && (op.operands.len() != 1 || op.operands[0].as_name().is_err())
+        }) {
+            self.doubt("a Form XObject has a malformed draw");
+        }
+        // A form starts from the graphics state at its `Do` and cannot change
+        // the state of the content that draws it.
+        let mut scan = PageTextScan {
+            mode,
+            ..PageTextScan::default()
+        };
+        let mut draws = Vec::new();
+        scan.scan_stream(&content.operations, |name, mode| {
+            draws.push((name.clone(), mode))
+        });
+        self.painted |= scan.painted;
+        if scan.unsupported.is_some() && !scan.painted {
+            self.doubt("text inside a Form XObject cannot be preserved");
+        }
+        if scan.hidden {
+            self.doubt("hidden text inside a Form XObject is not removed by OCR replacement");
+        }
+        for (name, mode) in draws {
+            self.inspect(source, &form_resources, &name, mode, depth + 1)?;
+        }
+        Ok(())
+    }
+}
+
+pub(crate) enum FormInspectionSource<'a> {
+    Incremental(&'a mut IncrementalDocument),
+    Document(&'a Document),
+}
+
+impl FormInspectionSource<'_> {
+    fn document(&self) -> &Document {
+        match self {
+            Self::Incremental(doc) => &doc.previous_document,
+            Self::Document(doc) => doc,
+        }
+    }
+
+    fn read(
+        &mut self,
+        structural: Option<StructuralSource<'_>>,
+        id: ObjectId,
+    ) -> Result<Option<Vec<u8>>> {
+        match self {
+            Self::Incremental(doc) => read_content_stream(doc, structural, id),
+            Self::Document(doc) => Ok(doc
+                .get_object(id)
+                .ok()
+                .and_then(|object| object.as_stream().ok())
+                .and_then(|stream| {
+                    crate::plain_stream_with_limit(stream, MAX_OCR_CONTENT_STREAM_BYTES).ok()
+                })),
+        }
+    }
+}
+
+pub(crate) fn form_text_omission(source: &Document, page_id: ObjectId) -> Result<()> {
+    let bytes = crate::page_content_with_limit(source, page_id, MAX_OCR_CONTENT_STREAM_BYTES)?;
+    let content = parse_content(&bytes)??;
+    let resources = page_resources(source, page_id)?;
+    if content.operations.iter().any(|op| {
+        op.operator == "Do" && (op.operands.len() != 1 || op.operands[0].as_name().is_err())
+    }) {
+        return Err("overlay-text cannot inspect a malformed XObject draw".into());
+    }
+    let mut scan = PageTextScan::default();
+    let mut draws = Vec::new();
+    scan.scan_stream(&content.operations, |name, mode| {
+        draws.push((name.clone(), mode))
+    });
+    let mut inspection = PageTextInspection {
+        structural: None,
+        visited: HashSet::new(),
+        decoded_bytes: 0,
+        painted: false,
+        uncertain: None,
+    };
+    let mut source = FormInspectionSource::Document(source);
+    for (name, mode) in draws {
+        inspection.inspect(&mut source, &resources, &name, mode, 0)?;
+    }
+    if inspection.painted || inspection.uncertain.is_some() {
+        return Err(format!(
+            "overlay-text cannot preserve Form XObject text: {}",
+            inspection
+                .uncertain
+                .unwrap_or("text is drawn inside a Form XObject")
+        )
+        .into());
+    }
+    Ok(())
+}
