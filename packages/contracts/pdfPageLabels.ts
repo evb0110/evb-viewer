@@ -24,6 +24,7 @@ export interface IPdfPageLabelsMutation {
 }
 
 /** New numbering starts are bounded; imported ranges and continuations are lossless. */
+export const PAGE_LABEL_MAX_NATIVE_START_NUMBER = 4_294_967_295;
 export const PAGE_LABEL_MAX_ALPHABETIC_START_NUMBER = 26 * 4;
 export const PAGE_LABEL_MAX_ROMAN_START_NUMBER = 3999;
 
@@ -34,7 +35,7 @@ export function getPageLabelStartNumberMax(style: TPdfPageLabelStyle): number {
     if (style === 'R' || style === 'r') {
         return PAGE_LABEL_MAX_ROMAN_START_NUMBER;
     }
-    return Number.MAX_SAFE_INTEGER;
+    return PAGE_LABEL_MAX_NATIVE_START_NUMBER;
 }
 
 export function admitPdfPageLabelStartNumber(style: TPdfPageLabelStyle, startNumber: number): number {

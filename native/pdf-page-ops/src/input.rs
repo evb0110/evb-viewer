@@ -424,10 +424,19 @@ pub(crate) fn validate_markup_mutation(markup: &MarkupMutation) -> Result<()> {
                 validate_marker_rect(*rect)?;
             }
         }
+        if hint
+            .contents
+            .as_ref()
+            .is_some_and(|value| value.len() > 3 * 65_536)
+        {
+            return Err(domain_error(
+                NativeErrorCode::TooLarge,
+                "Text-markup hint string is too long",
+            ));
+        }
         for value in [
             hint.annotation_id.as_deref(),
             hint.color.as_deref(),
-            hint.contents.as_deref(),
             hint.id.as_deref(),
             hint.source.as_deref(),
         ]

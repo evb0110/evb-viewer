@@ -1925,6 +1925,17 @@ fn validates_each_distinct_new_markup_identity_after_save() {
 }
 
 #[test]
+fn accepts_editor_sized_multilingual_markup_contents() {
+    let mut hint = test_markup_hint(0);
+    hint.contents = Some("я".repeat(1_025));
+    validate_markup_mutation(&MarkupMutation { hints: vec![hint.clone()] }).unwrap();
+    hint.contents = Some("界".repeat(65_536));
+    validate_markup_mutation(&MarkupMutation { hints: vec![hint.clone()] }).unwrap();
+    hint.contents = Some(format!("{}a", "界".repeat(65_536)));
+    assert!(validate_markup_mutation(&MarkupMutation { hints: vec![hint] }).is_err());
+}
+
+#[test]
 fn caps_text_markup_hints_before_matching() {
     let hints = (0..=MAX_MARKUP_SUBTYPE_HINTS)
         .map(test_markup_hint)

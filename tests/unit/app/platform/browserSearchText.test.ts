@@ -557,6 +557,14 @@ describe('word boxes from real PDF operators', () => {
         ]);
     });
 
+    it('separates words relocated far backward on the same baseline', async () => {
+        const words = await wordBoxes('BT /F1 10 Tf 1 0 0 1 150 170 Tm (RIGHT) Tj 1 0 0 1 20 170 Tm (LEFT) Tj ET');
+        expect(words.map(word => word.text)).toEqual([
+            'RIGHT',
+            'LEFT',
+        ]);
+    });
+
     it('splits words a wide TJ gap separates and keeps kerned letters together', async () => {
         const words = await wordBoxes('BT /F1 10 Tf 1 0 0 1 10 170 Tm [(he) -40 (llo) -600 (world)] TJ ET');
 
