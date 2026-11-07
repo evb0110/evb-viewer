@@ -1,3 +1,4 @@
+import {createHash} from 'node:crypto';
 import {
     access,
     copyFile,
@@ -44,6 +45,7 @@ import {
 } from '@evb/scan-cleanup/core/pdfPageSizes';
 import {createFileBackedScanCleanupResultStore} from '@evb/scan-cleanup/core/fileBackedResultStore';
 import {decodeScanCleanupProvenanceStampHex} from '@evb/scan-cleanup/core/provenanceStamp';
+import {sha256Utf8Hex} from '@evb/scan-cleanup/core/sha256Utf8Hex';
 import {mergeScanCleanupPdfPathSidecar} from '@evb/scan-cleanup/core/streamingSidecars';
 import {overlayScanCleanupTextLayerAndMeasure} from '@evb/scan-cleanup/core/overlayScanCleanupTextLayerAndMeasure';
 import {readDetectionResultsForPageNumbers} from '@evb/scan-cleanup/core/scanCleanupConversionPlan';
@@ -535,6 +537,22 @@ afterEach(async () => {
 });
 
 describe('scan-cleanup-core conversion coverage', () => {
+    it('hashes stamp text as SHA-256 across padding boundaries and multi-byte text', () => {
+        // 55 and 56 bytes straddle the length field's block, 63 and 64 a full
+        // block, 119 two blocks; the last input is 3-byte UTF-8 characters.
+        for (const text of [
+            '',
+            'a'.repeat(55),
+            'a'.repeat(56),
+            'a'.repeat(63),
+            'a'.repeat(64),
+            'a'.repeat(119),
+            '\u043f\u0440\u043e\u0432\u0435\u0440\u043a\u0430 \u2014 \u4e2d\u6587',
+        ]) {
+            expect(sha256Utf8Hex(text)).toBe(createHash('sha256').update(text, 'utf8').digest('hex'));
+        }
+    });
+
     it('gives the final overlay the run provenance and every merged page as a link target', async () => {
         // A qpdf merge keeps neither batch's Info stamp nor its catalog. The run
         // records one stamp for the whole document and rebuilds navigation in

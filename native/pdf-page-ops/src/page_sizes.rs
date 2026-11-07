@@ -444,9 +444,8 @@ const MAX_FORM_XOBJECT_DEPTH: usize = 12;
 #[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
 struct RasterInventory {
     uses: Vec<RasterUse>,
-    /// False when the page paints images this walk cannot measure:
-    /// unreadable inline images or image facts, unresolvable names,
-    /// optional-content expressions or forms nested past the depth bound.
+    /// False where the page may paint images this walk could not read or
+    /// measure, as where pdfimages skips content.
     complete: bool,
 }
 
@@ -852,15 +851,14 @@ impl InventoryWalk<'_> {
             .ok()
             .and_then(|object| resolved_dictionary(document, object))
             .map(|resources| resource_scope(document, std::iter::once(resources)));
-        // pdfimages skips a form it cannot read.
         let Ok(bytes) =
             crate::load_policy::plain_stream_with_limit(stream, self.max_decompressed_bytes)
         else {
             self.inventory.complete = false;
             return Ok(());
         };
-        let (Ok(content), inline_images) =
-            crate::content_parse::parse_content_with_inline_images(&bytes)?
+        let Ok((Ok(content), inline_images)) =
+            crate::content_parse::parse_content_with_inline_images(&bytes)
         else {
             self.inventory.complete = false;
             return Ok(());
@@ -1026,14 +1024,12 @@ fn page_raster_inventory(
             complete: true,
         },
     };
-    let (content, inline_images) =
-        decode_page_content_with_inline_images(document, page_id, max_decompressed_bytes)?;
-    walk.walk(
-        &content.operations,
-        &inline_images,
-        &scope,
-        Matrix::IDENTITY,
-    )?;
+    match decode_page_content_with_inline_images(document, page_id, max_decompressed_bytes) {
+        Ok((content, images)) => {
+            walk.walk(&content.operations, &images, &scope, Matrix::IDENTITY)?
+        }
+        Err(_) => walk.inventory.complete = false,
+    }
     if let Ok(page) = document.get_dictionary(page_id) {
         walk.walk_annotations(page, &scope)?;
     }

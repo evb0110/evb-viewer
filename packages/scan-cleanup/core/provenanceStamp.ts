@@ -349,7 +349,10 @@ export function decodeScanCleanupProvenanceStampHex(hex: string): TScanCleanupPr
     if (!/^[0-9a-f]+$/u.test(hex) || hex.length % 2 !== 0) {
         throw new Error('provenance stamp must be lowercase hexadecimal');
     }
-    const bytes = Uint8Array.from(hex.match(/../gu) ?? [], pair => Number.parseInt(pair, 16));
+    const bytes = new Uint8Array(hex.length / 2);
+    for (let index = 0; index < bytes.length; index += 1) {
+        bytes[index] = Number.parseInt(hex.slice(index * 2, index * 2 + 2), 16);
+    }
     let json: string;
     try {
         json = new TextDecoder('utf-8', {
