@@ -11,6 +11,7 @@ import {
 import {requireDocumentRef} from '@contracts/documentRef';
 import {requireRequestId} from '@contracts/shared';
 import {requirePageNumber} from '@contracts/pageNumbers';
+import {createScanCleanupPageOverride} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
 import type {
     IScanCleanupDetectionResult,
     IScanCleanupPreviewRequest,
@@ -406,6 +407,99 @@ describe('browser scan cleanup preview plan', () => {
             '@app/platform/browser-api/browserScanCleanupSources',
             '@app/platform/browser-api/runBrowserScanCleanupDetection',
         ]) vi.doUnmock(path);
+    });
+
+    it.each([
+        2,
+        1025,
+    ])('retains the selected page evidence for an unmatched preview of %s pages', async pageCount => {
+        vi.resetModules();
+        const {createMemoryScanCleanupDetectionResultStore} = await import('@evb/scan-cleanup/core/createMemoryScanCleanupDetectionResultStore');
+        const store = createMemoryScanCleanupDetectionResultStore(pageCount);
+        const pageNumber = requirePageNumber(1);
+        const record = cast<IScanCleanupDetectionResult>({
+            pageNumber,
+            classification: 'two-page-spread',
+            confidence: 1,
+            cutterXPx: 877,
+            tier1Verdict: 'two-page-spread',
+            reconciled: true,
+            clusterAgreement: 1,
+            documentPrior: {agreementStrength: 0.8},
+            recommendedOutputMode: 'mixed',
+            softAlphaForegroundRecommendation: true,
+            pagePlanEvidence: {
+                pageNumber,
+                rotationDegrees: 0,
+                layoutClassification: 'two-page-spread',
+                outputs: {},
+            },
+            sourcePageMetadata: {
+                pageNumber,
+                xPoints: 0,
+                yPoints: 0,
+                widthPoints: 842,
+                heightPoints: 634,
+                rotation: 0,
+                sourceDpi: 150,
+                renderBox: 'mediabox',
+            },
+        });
+        vi.doMock('@app/platform/browser-api/createIndexedDbScanCleanupDetectionResultStore', () => ({createIndexedDbScanCleanupDetectionResultStore: async () => store}));
+        vi.doMock('@app/platform/browser-api/browserScanCleanupSources', () => ({
+            borrowBrowserScanCleanupSource: () => ({
+                opened: Promise.resolve({pageSizes: Array.from({length: pageCount})}),
+                release() {},
+            }),
+            awaitScanCleanupSource: (promise: Promise<unknown>) => promise,
+        }));
+        vi.doMock('@app/platform/browser-api/runBrowserScanCleanupDetection', () => ({runBrowserScanCleanupDetection: async ({resultStore}: {resultStore: typeof store}) => {
+            await resultStore.append(record);
+            return {
+                resultStore,
+                results: [record],
+                blankPageCount: 0,
+            };
+        }}));
+        const {createBrowserScanCleanupDetectionOwner} = await import('@app/platform/browser-api/createBrowserScanCleanupDetectionOwner');
+        const {narrowScanCleanupPreviewRequestToPage} = await import('@contracts/scan-cleanup/narrowScanCleanupPreviewRequestToPage');
+        const owner = createBrowserScanCleanupDetectionOwner();
+        const detection = request({options: {
+            ...scanCleanupPreviewOptions,
+            matchPageSize: false,
+            pageOverrides: {'2': cast({rotationDegrees: 90})},
+        }});
+        const job = await owner.detectAll(detection);
+        await vi.waitFor(async () => expect((await owner.getDetectionJobState(job.jobId, detection))?.status).toBe('completed'));
+        const preview = narrowScanCleanupPreviewRequestToPage(detection);
+        const planned = await owner.resolvePreviewPagePlan(preview);
+        expect(planned).toMatchObject({
+            layoutByPage: {'1': 'two-page-spread'},
+            pagePlanEvidence: record.pagePlanEvidence,
+            sourcePageMetadata: record.sourcePageMetadata,
+            documentPrior: record.documentPrior,
+            outputModeRecommendation: 'mixed',
+            softAlphaForegroundRecommendation: true,
+        });
+        const explicitOutput = await owner.resolvePreviewPagePlan({
+            ...preview,
+            options: {
+                ...preview.options,
+                pageOverrideDefaults: createScanCleanupPageOverride({outputModeOverride: 'bw'}),
+            },
+        });
+        expect(explicitOutput.pagePlanEvidence).toEqual(record.pagePlanEvidence);
+        expect(explicitOutput.outputModeRecommendation).toBeUndefined();
+        expect(explicitOutput.softAlphaForegroundRecommendation).toBeUndefined();
+        const changed = await owner.resolvePreviewPagePlan({
+            ...preview,
+            options: {
+                ...preview.options,
+                crop: false,
+            },
+        });
+        expect(changed.pagePlanEvidence).toBeUndefined();
+        owner.closeSource(requireDocumentRef(detection.sourcePdfPath));
     });
 
     it('keeps a live preview page plan and all layouts in one snapshot during reconciliation', async () => {
