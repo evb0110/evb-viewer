@@ -23,6 +23,7 @@
     "dev:web": "node scripts/ensure-wasm-artifacts.mjs && pnpm exec nuxi dev --host 127.0.0.1 --port 3235",
     "deploy:web": "node scripts/deployVercelPrivate.mjs",
     "deploy:web:prod": "node scripts/deployVercelPrivate.mjs --prod --logs",
+    "deploy:web:yandex:prod": "node --import tsx scripts/deployYandex.ts",
     "deploy:landing": "node scripts/deployVercelPrivate.mjs --target=landing",
     "deploy:landing:prod": "node scripts/deployVercelPrivate.mjs --target=landing --prod --logs",
     "build": "node scripts/ensure-wasm-artifacts.mjs && pnpm run generate:build-artifacts && pnpm exec nuxi build && node scripts/upload-sentry-sourcemaps.mjs && node scripts/prune-build-artifacts.mjs && node scripts/check-web-deploy-assets.mjs",
