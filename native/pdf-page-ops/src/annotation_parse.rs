@@ -756,10 +756,7 @@ fn parse_highlight_entry(
     subtype: &str,
     name: &str,
 ) -> std::result::Result<PdfAnnotationParseHighlight, String> {
-    // Keep restricted markup foreign so the reader owns its visibility and permissions.
-    if read_optional(document, dict, b"F", Object::as_i64)?.unwrap_or(0) & (2 | 32 | 64 | 128 | 512)
-        != 0
-    {
+    if annotation_is_restricted(document, dict)? {
         return Err("Text markup has visibility or edit restrictions".to_string());
     }
     let quad_points = parse_highlight_quad_points(document, dict, page_view, page_rotation)?;
@@ -1093,6 +1090,17 @@ fn stamp_image_reference(
     })
 }
 
+fn annotation_is_restricted(
+    document: &impl PdfObjectSource,
+    dict: &Dictionary,
+) -> std::result::Result<bool, String> {
+    Ok(
+        read_optional(document, dict, b"F", Object::as_i64)?.unwrap_or(0)
+            & (2 | 32 | 64 | 128 | 512)
+            != 0,
+    )
+}
+
 /// Delegate shapes to the embedded shape index parser so the two read paths
 /// cannot drift. A shape the app cannot represent returns a reason string and
 /// is reported as foreign by the caller.
@@ -1107,6 +1115,9 @@ fn parse_shape_entry(
     subtype: &str,
     name: &str,
 ) -> std::result::Result<PdfAnnotationParseShape, String> {
+    if annotation_is_restricted(document, dict)? {
+        return Err("Shape has visibility or edit restrictions".to_string());
+    }
     let entry = parse_shape_index_entry(
         document,
         dict,
@@ -1116,6 +1127,21 @@ fn parse_shape_entry(
         page_view,
         page_rotation,
     )?;
+    if matches!(subtype, "Line" | "PolyLine")
+        && [
+            entry.line_start_style.as_deref(),
+            entry.line_end_style.as_deref(),
+        ]
+        .contains(&Some("closedArrow"))
+    {
+        let color = dict.get(b"C").ok().and_then(|v| document.resolved(v).ok());
+        let interior = dict.get(b"IC").ok().and_then(|v| document.resolved(v).ok());
+        if read_annotation_color(document, dict).is_none() || color != interior {
+            return Err(
+                "Closed arrow interior color is not representable by the editor".to_string(),
+            );
+        }
+    }
     let convert_points = |points: Option<&[EmbeddedShapeIndexPoint]>| {
         points.map(|points| {
             points
@@ -2305,6 +2331,41 @@ mod tests {
                 other => panic!("expected foreign, got {other:?}"),
             };
             assert!(foreign.reason.contains("JPEG"), "{}", foreign.reason);
+        }
+    }
+
+    #[test]
+    fn restricted_shapes_and_two_color_closed_arrows_stay_foreign() {
+        for flags in [2, 32, 36, 64, 128, 132, 512, 644, 4] {
+            let square = dictionary! {
+                "Type" => "Annot", "Subtype" => "Square",
+                "Rect" => rect(20.0, 20.0, 120.0, 60.0), "F" => flags,
+            };
+            let document = single_page_document(vec![(square, true)]);
+            let entries = collect_parsed_annotations(&document, "").unwrap();
+            assert_eq!(
+                matches!(entries[0], PdfAnnotationParseEntry::Foreign(_)),
+                flags != 4,
+                "/F {flags}"
+            );
+        }
+        for (interior, foreign) in [
+            (vec![0.into(), 0.into(), 1.into()], true),
+            (vec![1.into(), 0.into(), 0.into()], false),
+        ] {
+            let line = dictionary! {
+                "Type" => "Annot", "Subtype" => "Line",
+                "Rect" => rect(10.0, 10.0, 190.0, 90.0),
+                "L" => vec![20.into(), 80.into(), 120.into(), 20.into()],
+                "C" => vec![1.into(), 0.into(), 0.into()], "IC" => interior,
+                "LE" => vec![Object::Name(b"None".to_vec()), Object::Name(b"ClosedArrow".to_vec())],
+            };
+            let document = single_page_document(vec![(line, true)]);
+            let entries = collect_parsed_annotations(&document, "").unwrap();
+            assert_eq!(
+                matches!(entries[0], PdfAnnotationParseEntry::Foreign(_)),
+                foreign
+            );
         }
     }
 
