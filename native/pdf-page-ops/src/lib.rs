@@ -1,4 +1,6 @@
 mod page_sizes;
+#[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
+mod scan_cleanup_pdf;
 
 use evb_native_support::{
     bounded_io::{deserialize_bounded_vec, deserialize_json_file_bounded, read_file_bounded},
@@ -8,9 +10,9 @@ use evb_native_support::{
 use lopdf::dictionary;
 use lopdf::{Dictionary, Document, Object, ObjectId, Stream, StringFormat};
 use page_geometry::write_page_geometry;
-#[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
-use page_sizes::inspect_scan_cleanup_pdf_bytes;
 use page_sizes::write_page_sizes_path;
+#[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
+use scan_cleanup_pdf::inspect_scan_cleanup_pdf_bytes;
 use serde::de::DeserializeOwned;
 use serde::Deserialize;
 use std::{
