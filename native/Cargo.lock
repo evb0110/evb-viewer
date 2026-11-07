@@ -300,6 +300,7 @@ dependencies = [
  "base64",
  "evb-native-support",
  "evb-pdf-image-combine",
+ "evb-scan-cleanup",
  "getrandom",
  "harfrust",
  "jpeg-encoder",

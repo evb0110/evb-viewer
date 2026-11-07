@@ -92,6 +92,37 @@ const OCR_TEXT_LAYER_INSTRUCTIONS_SCHEMA = v.object({pages: v.pipe(v.array(v.obj
 })), v.minLength(1))});
 export type IOcrTextLayerInstructions = v.InferOutput<typeof OCR_TEXT_LAYER_INSTRUCTIONS_SCHEMA>;
 
+/** A Scan Cleanup source raster, requested as desktop asks `pdftoppm` for one. */
+export const SCAN_CLEANUP_RASTER_REQUEST_SCHEMA = v.strictObject({
+    pageNumber: positiveIntegerSchema,
+    dpi: v.pipe(v.number(), v.finite(), v.minValue(1)),
+    renderBox: v.picklist([
+        'cropBox',
+        'mediaBox',
+    ]),
+    slice: v.optional(v.strictObject({
+        x: nonNegativeIntegerSchema,
+        y: nonNegativeIntegerSchema,
+        width: nonNegativeIntegerSchema,
+        height: nonNegativeIntegerSchema,
+    })),
+    maxPixels: positiveIntegerSchema,
+});
+export type TScanCleanupRasterRequest = v.InferOutput<typeof SCAN_CLEANUP_RASTER_REQUEST_SCHEMA>;
+
+/** A page's raster size and how closely its samples match desktop's, or why it has no scan raster. */
+const SCAN_CLEANUP_RASTER_REPORT_SCHEMA = v.union([
+    v.strictObject({
+        width: positiveIntegerSchema,
+        height: positiveIntegerSchema,
+        compatibility: v.picklist([
+            'exact',
+            'near',
+        ]),
+    }),
+    v.strictObject({unsupported: v.string()}),
+]);
+
 const workerRequestPayloadSchemas = {
     textBoxAppearance: v.pipe(v.unknown(), v.transform(value => normalizePdfNativeTextBoxAppearanceRequest(value))),
     deletePages: v.object({
@@ -170,6 +201,10 @@ const workerRequestPayloadSchemas = {
     inspectScanCleanupPdf: v.object({
         data: pdfBytesSchema,
         pages: v.array(positiveIntegerSchema),
+    }),
+    renderScanCleanupRaster: v.object({
+        data: pdfBytesSchema,
+        request: SCAN_CLEANUP_RASTER_REQUEST_SCHEMA,
     }),
     ocrTextLayer: v.object({
         data: pdfBytesSchema,
@@ -287,6 +322,11 @@ const workerRequestSchema = v.union([
         id: workerRequestIdSchema,
         type: v.literal('inspectScanCleanupPdf'),
         payload: workerRequestPayloadSchemas.inspectScanCleanupPdf,
+    }),
+    v.object({
+        id: workerRequestIdSchema,
+        type: v.literal('renderScanCleanupRaster'),
+        payload: workerRequestPayloadSchemas.renderScanCleanupRaster,
     }),
     v.object({
         id: workerRequestIdSchema,
@@ -412,6 +452,14 @@ const workerResultSchemas = {
         v.object({
             pageCount: nonNegativeIntegerSchema,
             pages: v.array(v.custom<Record<string, unknown>>(isRecord)),
+        }),
+        BROWSER_PAGE_OPS_WASM_FAILURE_SCHEMA,
+    ]),
+    // `data` is the page's RGB rows, top-down, empty when it has no scan raster.
+    renderScanCleanupRaster: v.union([
+        v.object({
+            data: pdfBytesSchema,
+            report: SCAN_CLEANUP_RASTER_REPORT_SCHEMA,
         }),
         BROWSER_PAGE_OPS_WASM_FAILURE_SCHEMA,
     ]),
@@ -546,6 +594,12 @@ const workerSuccessResponseSchema = v.union([
         type: v.literal('inspectScanCleanupPdf'),
         ok: v.literal(true),
         data: workerResultSchemas.inspectScanCleanupPdf,
+    }),
+    v.object({
+        id: workerRequestIdSchema,
+        type: v.literal('renderScanCleanupRaster'),
+        ok: v.literal(true),
+        data: workerResultSchemas.renderScanCleanupRaster,
     }),
     v.object({
         id: workerRequestIdSchema,

@@ -1,0 +1,94 @@
+{
+ "id": "crop-region",
+ "purpose": "slice translation clips scaled 7x5 image, never scales source into 3x2",
+ "mediabox": [
+  0,
+  0,
+  6,
+  4
+ ],
+ "cropbox": [
+  0,
+  0,
+  6,
+  4
+ ],
+ "rotation": 0,
+ "command_flags": [
+  "-hide-annotations",
+  "-singlefile",
+  "-cropbox",
+  "-r",
+  "72",
+  "-x",
+  "2",
+  "-y",
+  "1",
+  "-W",
+  "3",
+  "-H",
+  "2"
+ ],
+ "requested_dpi": 72,
+ "scale_to": null,
+ "requested_region": [
+  2,
+  1,
+  3,
+  2
+ ],
+ "geometry": {
+  "page_ctm": [
+   1.0,
+   0.0,
+   0.0,
+   -1.0,
+   -2.0,
+   3.0
+  ],
+  "output_size": [
+   3,
+   2
+  ]
+ },
+ "layers": [
+  {
+   "width": 11,
+   "height": 9,
+   "components": 3,
+   "color_space": "DeviceRGB",
+   "image_mask": false,
+   "decode": [
+    0,
+    1,
+    0,
+    1,
+    0,
+    1
+   ],
+   "interpolate": false,
+   "content_ctm": [
+    6,
+    0,
+    0,
+    4,
+    0,
+    0
+   ],
+   "fill_rgb": [
+    0,
+    0,
+    0
+   ],
+   "decoded_samples": "layer0.decoded",
+   "integer_rectangle": [
+    -2,
+    -1,
+    7,
+    5
+   ],
+   "scale_path": "down-both",
+   "filter": "FlateDecode"
+  }
+ ]
+}

@@ -1,0 +1,94 @@
+{
+ "id": "scale-to-crop",
+ "purpose": "crop phase under scale-to",
+ "mediabox": [
+  0,
+  0,
+  6,
+  4
+ ],
+ "cropbox": [
+  0,
+  0,
+  6,
+  4
+ ],
+ "rotation": 0,
+ "command_flags": [
+  "-hide-annotations",
+  "-singlefile",
+  "-cropbox",
+  "-scale-to",
+  "9",
+  "-x",
+  "2",
+  "-y",
+  "1",
+  "-W",
+  "4",
+  "-H",
+  "3"
+ ],
+ "requested_dpi": 72,
+ "scale_to": 9,
+ "requested_region": [
+  2,
+  1,
+  4,
+  3
+ ],
+ "geometry": {
+  "page_ctm": [
+   1.5,
+   0.0,
+   0.0,
+   -1.5,
+   -2.0,
+   5.0
+  ],
+  "output_size": [
+   4,
+   3
+  ]
+ },
+ "layers": [
+  {
+   "width": 11,
+   "height": 9,
+   "components": 3,
+   "color_space": "DeviceRGB",
+   "image_mask": false,
+   "decode": [
+    0,
+    1,
+    0,
+    1,
+    0,
+    1
+   ],
+   "interpolate": false,
+   "content_ctm": [
+    6,
+    0,
+    0,
+    4,
+    0,
+    0
+   ],
+   "fill_rgb": [
+    0,
+    0,
+    0
+   ],
+   "decoded_samples": "layer0.decoded",
+   "integer_rectangle": [
+    -2,
+    -1,
+    10,
+    7
+   ],
+   "scale_path": "down-both",
+   "filter": "FlateDecode"
+  }
+ ]
+}

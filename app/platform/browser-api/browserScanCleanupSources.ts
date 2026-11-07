@@ -113,6 +113,7 @@ async function openSource(ref: string, revision: string, signal: AbortSignal): P
         pageOpsEngineSha256,
         rasterFacts: reduceScanCleanupRasterRows(rasterRows),
         annotatedPages,
+        data,
         pdf,
     };
 }

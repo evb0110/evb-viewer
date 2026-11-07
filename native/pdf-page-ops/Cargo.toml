@@ -32,6 +32,7 @@ subsetter = { version = "0.2.6", default-features = false }
 # Optimizing images reuses the image combiner's JPEG codec. Without its
 # `wasm-exports` feature the browser module carries only the page-op ABI.
 evb-pdf-image-combine = { version = "0.1.0", path = "../pdf-image-combine", default-features = false }
+evb-scan-cleanup = { version = "0.1.0", path = "../scan-cleanup", default-features = false }
 
 [target.'cfg(unix)'.dependencies]
 libc.workspace = true

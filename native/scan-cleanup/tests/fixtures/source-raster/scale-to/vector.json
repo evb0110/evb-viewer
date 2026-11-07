@@ -1,0 +1,81 @@
+{
+ "id": "scale-to",
+ "purpose": "scale-to 9 changes DPI to 108, image rectangle to 10x7",
+ "mediabox": [
+  0,
+  0,
+  6,
+  4
+ ],
+ "cropbox": [
+  0,
+  0,
+  6,
+  4
+ ],
+ "rotation": 0,
+ "command_flags": [
+  "-hide-annotations",
+  "-singlefile",
+  "-cropbox",
+  "-scale-to",
+  "9"
+ ],
+ "requested_dpi": 72,
+ "scale_to": 9,
+ "requested_region": null,
+ "geometry": {
+  "page_ctm": [
+   1.5,
+   0.0,
+   0.0,
+   -1.5,
+   -0.0,
+   6.0
+  ],
+  "output_size": [
+   9,
+   6
+  ]
+ },
+ "layers": [
+  {
+   "width": 11,
+   "height": 9,
+   "components": 3,
+   "color_space": "DeviceRGB",
+   "image_mask": false,
+   "decode": [
+    0,
+    1,
+    0,
+    1,
+    0,
+    1
+   ],
+   "interpolate": false,
+   "content_ctm": [
+    6,
+    0,
+    0,
+    4,
+    0,
+    0
+   ],
+   "fill_rgb": [
+    0,
+    0,
+    0
+   ],
+   "decoded_samples": "layer0.decoded",
+   "integer_rectangle": [
+    0,
+    0,
+    10,
+    7
+   ],
+   "scale_path": "down-both",
+   "filter": "FlateDecode"
+  }
+ ]
+}

@@ -1,0 +1,77 @@
+{
+ "id": "stencil-down-false",
+ "purpose": "1-bit coverage divisor differs from 8-bit gray averaging; polarity and colored fill",
+ "mediabox": [
+  0,
+  0,
+  3,
+  2
+ ],
+ "cropbox": [
+  0,
+  0,
+  3,
+  2
+ ],
+ "rotation": 0,
+ "command_flags": [
+  "-hide-annotations",
+  "-singlefile",
+  "-cropbox",
+  "-r",
+  "72"
+ ],
+ "requested_dpi": 72,
+ "scale_to": null,
+ "requested_region": null,
+ "geometry": {
+  "page_ctm": [
+   1.0,
+   0.0,
+   0.0,
+   -1.0,
+   -0.0,
+   2.0
+  ],
+  "output_size": [
+   3,
+   2
+  ]
+ },
+ "layers": [
+  {
+   "width": 11,
+   "height": 9,
+   "components": 1,
+   "color_space": null,
+   "image_mask": true,
+   "decode": [
+    0,
+    1
+   ],
+   "interpolate": false,
+   "content_ctm": [
+    3,
+    0,
+    0,
+    2,
+    0,
+    0
+   ],
+   "fill_rgb": [
+    31,
+    127,
+    223
+   ],
+   "decoded_coverage": "layer0.coverage",
+   "integer_rectangle": [
+    0,
+    0,
+    4,
+    3
+   ],
+   "scale_path": "stencil-down",
+   "filter": "FlateDecode"
+  }
+ ]
+}

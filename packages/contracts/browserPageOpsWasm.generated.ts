@@ -18,6 +18,7 @@ export const RESPONSE_TEXT_BOX_APPEARANCE = 6;
 export const RESPONSE_INCREMENT = 7;
 export const RESPONSE_REPORTED_PDF = 8;
 export const RESPONSE_REPORTED_INCREMENT = 9;
+export const RESPONSE_REPORTED_RASTER = 10;
 export const NATIVE_MUTATION_POSTCONDITIONS_VERIFIED = 1;
 export const MAX_U32 = 4294967295;
 export const MAX_CATALOG_ENTRIES = 100000;
@@ -46,6 +47,7 @@ export const OPERATION_CODES = {
     recompressImages: 21,
     replacePageImages: 22,
     inspectScanCleanupPdf: 23,
+    renderScanCleanupRaster: 24,
 } as const;
 
 export const REQUEST_HEADER = {

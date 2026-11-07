@@ -131,14 +131,7 @@ export async function runBrowserScanCleanupDetection({
                 ...(documentPrior === undefined ? {} : {documentPrior}),
             },
         }, signal));
-        const rasterize = async (page: IAnalysisPage) => {
-            const pdfPage = await source.pdf.getPage(page.pageNumber);
-            try {
-                return await renderPageRaster(pdfPage, page.view, page.dpi, SCAN_CLEANUP_RASTER_MAX_PIXELS, signal);
-            } finally {
-                pdfPage.cleanup();
-            }
-        };
+        const rasterize = (page: IAnalysisPage) => renderPageRaster(source, page.view, page.dpi, SCAN_CLEANUP_RASTER_MAX_PIXELS, signal);
 
         /**
          * One analyze manifest's work, as the engine runs it: every page's first

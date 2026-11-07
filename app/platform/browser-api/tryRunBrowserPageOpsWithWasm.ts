@@ -28,6 +28,7 @@ import {
     RESPONSE_NATIVE_MUTATIONS,
     RESPONSE_REPORTED_INCREMENT,
     RESPONSE_REPORTED_PDF,
+    RESPONSE_REPORTED_RASTER,
     U32_BYTES,
 } from '@contracts/browserPageOpsWasm.generated';
 import {
@@ -236,6 +237,7 @@ function getRequestPages(request: TBrowserPageOpsWasmRequest): number[] {
             return request.payload.pages;
         case 'ocrTextLayer':
         case 'splitPages':
+        case 'renderScanCleanupRaster':
         case 'overlayText':
         case 'recompressImages':
         case 'replacePageImages':
@@ -273,6 +275,7 @@ function getRequestData(request: TBrowserPageOpsWasmRequest): Uint8Array {
         case 'inspectScanCleanupPdf':
         case 'ocrTextLayer':
         case 'splitPages':
+        case 'renderScanCleanupRaster':
         case 'overlayText':
         case 'recompressImages':
         case 'replacePageImages':
@@ -369,6 +372,7 @@ function getDocumentList(request: TBrowserPageOpsWasmRequest): Uint8Array[] | nu
         case 'inspectScanCleanupPdf':
         case 'ocrTextLayer':
         case 'splitPages':
+        case 'renderScanCleanupRaster':
         case 'overlayText':
         case 'recompressImages':
         case 'replacePageImages':
@@ -396,6 +400,12 @@ function getInstructedRequest(request: TBrowserPageOpsWasmRequest): IInstructedW
             return {
                 data: request.payload.data,
                 instructions: request.payload.instructions,
+                attachments: [],
+            };
+        case 'renderScanCleanupRaster':
+            return {
+                data: request.payload.data,
+                instructions: request.payload.request,
                 attachments: [],
             };
         case 'overlayText':
@@ -667,6 +677,7 @@ const REPORTED_RESPONSE_KINDS = {
     overlayText: RESPONSE_REPORTED_PDF,
     recompressImages: RESPONSE_REPORTED_INCREMENT,
     replacePageImages: RESPONSE_REPORTED_INCREMENT,
+    renderScanCleanupRaster: RESPONSE_REPORTED_RASTER,
 } as const;
 type TReportedWriterType = keyof typeof REPORTED_RESPONSE_KINDS;
 

@@ -1,0 +1,94 @@
+{
+ "id": "scale-to-awkward",
+ "purpose": "non-binary-exact scale-to and crop slice reconstruction",
+ "mediabox": [
+  0,
+  0,
+  5,
+  3
+ ],
+ "cropbox": [
+  0,
+  0,
+  5,
+  3
+ ],
+ "rotation": 0,
+ "command_flags": [
+  "-hide-annotations",
+  "-singlefile",
+  "-cropbox",
+  "-scale-to",
+  "7",
+  "-x",
+  "1",
+  "-y",
+  "1",
+  "-W",
+  "4",
+  "-H",
+  "3"
+ ],
+ "requested_dpi": 72,
+ "scale_to": 7,
+ "requested_region": [
+  1,
+  1,
+  4,
+  3
+ ],
+ "geometry": {
+  "page_ctm": [
+   1.4,
+   0.0,
+   0.0,
+   -1.4,
+   -1.0,
+   3.1999999999999997
+  ],
+  "output_size": [
+   4,
+   3
+  ]
+ },
+ "layers": [
+  {
+   "width": 11,
+   "height": 9,
+   "components": 3,
+   "color_space": "DeviceRGB",
+   "image_mask": false,
+   "decode": [
+    0,
+    1,
+    0,
+    1,
+    0,
+    1
+   ],
+   "interpolate": false,
+   "content_ctm": [
+    5,
+    0,
+    0,
+    3,
+    0,
+    0
+   ],
+   "fill_rgb": [
+    0,
+    0,
+    0
+   ],
+   "decoded_samples": "layer0.decoded",
+   "integer_rectangle": [
+    -1,
+    -1,
+    8,
+    5
+   ],
+   "scale_path": "down-both",
+   "filter": "FlateDecode"
+  }
+ ]
+}

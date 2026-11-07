@@ -1,0 +1,134 @@
+{
+ "id": "softmask-over-opaque-white",
+ "purpose": "painted opaque white uses truncation, unlike final rounded paper flattening",
+ "mediabox": [
+  0,
+  0,
+  3,
+  2
+ ],
+ "cropbox": [
+  0,
+  0,
+  3,
+  2
+ ],
+ "rotation": 0,
+ "command_flags": [
+  "-hide-annotations",
+  "-singlefile",
+  "-cropbox",
+  "-r",
+  "72"
+ ],
+ "requested_dpi": 72,
+ "scale_to": null,
+ "requested_region": null,
+ "geometry": {
+  "page_ctm": [
+   1.0,
+   0.0,
+   0.0,
+   -1.0,
+   -0.0,
+   2.0
+  ],
+  "output_size": [
+   3,
+   2
+  ]
+ },
+ "layers": [
+  {
+   "width": 1,
+   "height": 1,
+   "components": 3,
+   "color_space": "DeviceRGB",
+   "image_mask": false,
+   "decode": [
+    0,
+    1,
+    0,
+    1,
+    0,
+    1
+   ],
+   "interpolate": false,
+   "content_ctm": [
+    3,
+    0,
+    0,
+    2,
+    0,
+    0
+   ],
+   "fill_rgb": [
+    0,
+    0,
+    0
+   ],
+   "decoded_samples": "layer0.decoded",
+   "integer_rectangle": [
+    0,
+    0,
+    4,
+    3
+   ],
+   "scale_path": "replication-up-both",
+   "filter": "FlateDecode"
+  },
+  {
+   "width": 11,
+   "height": 9,
+   "components": 3,
+   "color_space": "DeviceRGB",
+   "image_mask": false,
+   "decode": [
+    0,
+    1,
+    0,
+    1,
+    0,
+    1
+   ],
+   "interpolate": false,
+   "soft_mask": {
+    "width": 11,
+    "height": 9,
+    "components": 1,
+    "color_space": "DeviceGray",
+    "image_mask": false,
+    "decode": [
+     1,
+     0
+    ],
+    "interpolate": false,
+    "decoded_samples": "layer1-mask.decoded",
+    "scale_path": "down-both",
+    "filter": "FlateDecode"
+   },
+   "content_ctm": [
+    3,
+    0,
+    0,
+    2,
+    0,
+    0
+   ],
+   "fill_rgb": [
+    0,
+    0,
+    0
+   ],
+   "decoded_samples": "layer1.decoded",
+   "integer_rectangle": [
+    0,
+    0,
+    4,
+    3
+   ],
+   "scale_path": "down-both",
+   "filter": "FlateDecode"
+  }
+ ]
+}
