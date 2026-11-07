@@ -999,12 +999,12 @@ describe('browser document lifecycle UI', () => {
             page: Page;
             bytes: Uint8Array
         } | undefined;
-        const evidence = resolve('.devkit/c10-verify/signature-save', `${kind}-${paddingBytes}`);
+        const evidenceRoot = process.env.EVB_C10_EVIDENCE_DIR;
+        const evidence = evidenceRoot ? resolve(evidenceRoot, `${kind}-${paddingBytes}`) : undefined;
         const signed = kind !== 'unsigned-signature-field';
         const sha256 = (bytes: Uint8Array) => createHash('sha256').update(bytes).digest('hex');
 
         beforeAll(async () => {
-            mkdirSync(evidence, {recursive: true});
             const context = await lifecycle.browser.newContext({viewport: {
                 width: 1280,
                 height: 900,
@@ -1016,13 +1016,16 @@ describe('browser document lifecycle UI', () => {
                 bytes,
             };
             if (paddingBytes) expect(bytes.byteLength).toBeGreaterThan(24 * 1024 * 1024);
-            writeFileSync(resolve(evidence, 'source.pdf'), bytes);
-            page.on('console', message => {
-                writeFileSync(resolve(evidence, 'console.log'), `${message.type()}: ${message.text()}\n`, {flag: 'a'});
-            });
-            page.on('pageerror', error => {
-                writeFileSync(resolve(evidence, 'console.log'), `pageerror: ${error.message}\n`, {flag: 'a'});
-            });
+            if (evidence) {
+                mkdirSync(evidence, {recursive: true});
+                writeFileSync(resolve(evidence, 'source.pdf'), bytes);
+                page.on('console', message => {
+                    writeFileSync(resolve(evidence, 'console.log'), `${message.type()}: ${message.text()}\n`, {flag: 'a'});
+                });
+                page.on('pageerror', error => {
+                    writeFileSync(resolve(evidence, 'console.log'), `pageerror: ${error.message}\n`, {flag: 'a'});
+                });
+            }
             await page.addInitScript(() => {
                 Reflect.set(window, '__allowRendererFileOpenForAutomation', () => true);
             });
@@ -1030,6 +1033,8 @@ describe('browser document lifecycle UI', () => {
             await waitForOpenFileReady(page);
             // Seed real OPFS files through a binary response, avoiding a large
             // JSON number array over CDP. Only picker handles are substituted.
+            // Keep routing until context disposal: disabling interception here
+            // can strand in-flight viewer module requests before the first paint.
             const fixtureUrl = `${lifecycle.origin}/c10-signature-source.pdf`;
             await page.route(fixtureUrl, route => route.fulfill({
                 contentType: 'application/pdf',
@@ -1070,7 +1075,6 @@ describe('browser document lifecycle UI', () => {
                     return destinationHandle;
                 });
             }, fixtureUrl);
-            await page.unroute(fixtureUrl);
             await page.getByRole('button', {
                 name: 'Open File',
                 exact: true,
@@ -1138,31 +1142,33 @@ describe('browser document lifecycle UI', () => {
             const pickerRequests = await saveAsPicks();
             const rewritten = Buffer.compare(original, Buffer.from(bytes)) !== 0;
             const destinationRotation = destination.length ? (await PDFDocument.load(destination)).getPage(0).getRotation().angle : null;
-            const result = {
-                kind,
-                paddingBytes,
-                saveAsPickerRequests: pickerRequests,
-                originalRewritten: rewritten,
-                originalPage1Rotation: rotation,
-                destinationPage1Rotation: destinationRotation,
-                source: {
-                    size: bytes.length,
-                    sha256: sha256(bytes),
-                },
-                original: {
-                    size: original.length,
-                    sha256: sha256(original),
-                },
-                destination: {
-                    size: destination.length,
-                    sha256: sha256(destination),
-                },
-            };
-            console.info('Signature Save evidence', JSON.stringify(result));
-            writeFileSync(resolve(evidence, 'result.json'), JSON.stringify(result, null, 2));
-            writeFileSync(resolve(evidence, 'original-after-save.pdf'), original);
-            writeFileSync(resolve(evidence, 'destination.pdf'), destination);
-            await page.screenshot({path: resolve(evidence, 'after-save.png')});
+            if (evidence) {
+                const result = {
+                    kind,
+                    paddingBytes,
+                    saveAsPickerRequests: pickerRequests,
+                    originalRewritten: rewritten,
+                    originalPage1Rotation: rotation,
+                    destinationPage1Rotation: destinationRotation,
+                    source: {
+                        size: bytes.length,
+                        sha256: sha256(bytes),
+                    },
+                    original: {
+                        size: original.length,
+                        sha256: sha256(original),
+                    },
+                    destination: {
+                        size: destination.length,
+                        sha256: sha256(destination),
+                    },
+                };
+                console.info('Signature Save evidence', JSON.stringify(result));
+                writeFileSync(resolve(evidence, 'result.json'), JSON.stringify(result, null, 2));
+                writeFileSync(resolve(evidence, 'original-after-save.pdf'), original);
+                writeFileSync(resolve(evidence, 'destination.pdf'), destination);
+                await page.screenshot({path: resolve(evidence, 'after-save.png')});
+            }
             expect(pickerRequests, `${kind}: Save As picker requests`).toBe(signed ? 1 : 0);
             expect(rewritten, `${kind}: original file rewritten`).toBe(!signed);
             expect(rotation, `${kind}: saved page 1 rotation`).toBe(signed ? 0 : 90);
@@ -1178,7 +1184,7 @@ describe('browser document lifecycle UI', () => {
                 const rect = element.getBoundingClientRect();
                 return rect.width > rect.height;
             })).toBe(true);
-            await reopened.screenshot({path: resolve(evidence, 'reopened.png')});
+            if (evidence) await reopened.screenshot({path: resolve(evidence, 'reopened.png')});
             await reopened.close();
         }, 90_000);
     });
