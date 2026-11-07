@@ -20,6 +20,7 @@ const registry = useDocumentContextRegistry();
 const context = createDocumentContext({controller: documentController});
 registry.set(documentController, context);
 const {file} = context;
+watch(context.save.hasPendingUnsavedChanges, dirty => documentController.setDirty(dirty), {flush: 'sync'});
 // Keep the assigned identity until the hosted file changes, then publish it
 // for every view from this one document lifetime.
 watch(() => {

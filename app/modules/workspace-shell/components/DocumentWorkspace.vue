@@ -426,7 +426,6 @@ const documentLifecycle = useWorkspaceDocumentLifecycle({
     openSurface: documentOpenSurface,
     isShown: () => isActive || isRenderActive,
     isDjvuMode: file.isDjvuMode,
-    isDirty: save.hasPendingUnsavedChanges,
     openBatchProgress: file.openBatchProgress,
     documentOpenSettled: presentation.documentOpenSettled,
     documentOpenAccepted: presentation.documentOpenAccepted,
