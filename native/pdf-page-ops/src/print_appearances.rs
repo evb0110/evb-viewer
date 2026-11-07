@@ -201,7 +201,7 @@ fn read_font_programs(
 /// appearance the one a stock reader would draw, with the annotation's opacity
 /// and blend mode inside it, as readers expect of a stored appearance. Without
 /// `every_subtype` only the subtypes EVB draws get one; composition flattens
-/// every subtype and draws the rest as a plain rectangle. Returns the objects it
+/// other subtypes where supported. Returns the objects it
 /// rewrote: indirect annotations, or the page or /Annots array holding a direct
 /// one. An annotation with no drawable geometry is unchanged. A FreeText draws
 /// with the print job's fonts, which the caller embeds after its last page.
@@ -221,45 +221,76 @@ pub(crate) fn materialize_print_appearances(
     let mut changed = Vec::new();
     let mut direct_changed = false;
     for item in &mut items {
-        let Some(mut annotation) = match &*item {
+        let Some(mut annotation) = (match &*item {
             Object::Reference(id) => document.get_dictionary(*id).ok().cloned(),
             Object::Dictionary(annotation) => Some(annotation.clone()),
             _ => None,
-        }
-        .filter(|annotation| {
-            let subtype = annotation.get(b"Subtype").and_then(Object::as_name);
-            is_printed(document, annotation)
-                && (every_subtype || subtype.is_ok_and(|s| EVB_DRAWN_SUBTYPES.contains(&s)))
-                && annotation_normal_appearance(document, annotation).is_none()
         }) else {
             continue;
         };
-        let free_text =
-            annotation.get(b"Subtype").and_then(Object::as_name).ok() == Some(b"FreeText");
-        let Some(appearance) = free_text
-            .then(|| missing_free_text_appearance(document, &annotation, page_id, fonts).ok())
-            .flatten()
-            .or_else(|| synthesized_appearance(document, &mut annotation))
-        else {
+        if !is_printed(document, &annotation) {
             continue;
-        };
-        if let Some(state) = annotation_graphics_state(document, &annotation) {
-            let stream = document.get_object_mut(appearance)?.as_stream_mut()?;
-            if let Ok(Object::Dictionary(resources)) = stream.dict.get_mut(b"Resources") {
-                resources.set(
-                    "ExtGState",
-                    Dictionary::from_iter([("PrintAnnot", Object::Dictionary(state))]),
-                );
-            }
-            let content = [b"/PrintAnnot gs\n".as_slice(), &stream.content].concat();
-            stream.set_content(content);
         }
-        annotation.remove(b"CA");
-        annotation.remove(b"BM");
-        annotation.set(
-            "AP",
-            Dictionary::from_iter([("N", Object::Reference(appearance))]),
-        );
+        let subtype = annotation
+            .get(b"Subtype")
+            .and_then(Object::as_name)
+            .ok()
+            .map(<[u8]>::to_vec);
+        let needs_flag =
+            !annotation.has(b"F") && read_managed_shape_stable_key(&annotation).is_some();
+        let needs_appearance = (every_subtype
+            || subtype
+                .as_deref()
+                .is_some_and(|s| EVB_DRAWN_SUBTYPES.contains(&s)))
+            && annotation_normal_appearance(document, &annotation).is_none();
+        if !needs_flag && !needs_appearance {
+            continue;
+        }
+        if needs_flag {
+            set_print_flag(&mut annotation, ANNOTATION_FLAG_PRINT);
+        }
+        if needs_appearance {
+            if every_subtype
+                && subtype.as_deref().is_some_and(|s| {
+                    matches!(
+                        s,
+                        b"Widget" | b"Highlight" | b"Underline" | b"StrikeOut" | b"Squiggly"
+                    )
+                })
+            {
+                return Err(format!(
+                    "Cannot compose printable {} annotation without its appearance",
+                    String::from_utf8_lossy(subtype.as_deref().unwrap_or_default())
+                )
+                .into());
+            }
+            let free_text = subtype.as_deref() == Some(b"FreeText");
+            if let Some(appearance) = free_text
+                .then(|| missing_free_text_appearance(document, &annotation, page_id, fonts).ok())
+                .flatten()
+                .or_else(|| synthesized_appearance(document, &mut annotation))
+            {
+                if let Some(state) = annotation_graphics_state(document, &annotation) {
+                    let stream = document.get_object_mut(appearance)?.as_stream_mut()?;
+                    if let Ok(Object::Dictionary(resources)) = stream.dict.get_mut(b"Resources") {
+                        resources.set(
+                            "ExtGState",
+                            Dictionary::from_iter([("PrintAnnot", Object::Dictionary(state))]),
+                        );
+                    }
+                    let content = [b"/PrintAnnot gs\n".as_slice(), &stream.content].concat();
+                    stream.set_content(content);
+                }
+                annotation.remove(b"CA");
+                annotation.remove(b"BM");
+                annotation.set(
+                    "AP",
+                    Dictionary::from_iter([("N", Object::Reference(appearance))]),
+                );
+            } else if !needs_flag {
+                continue;
+            }
+        }
         if let Object::Reference(id) = item {
             changed.push(*id);
             document.objects.insert(*id, Object::Dictionary(annotation));
@@ -282,7 +313,7 @@ pub(crate) fn materialize_print_appearances(
 /// Auto printing keeps every page, box, rotation and content stream: one
 /// incremental revision adds only the missing appearances and the objects that
 /// name them, so memory follows those annotations rather than the document.
-/// Nothing is written when no printed annotation lacks an appearance; the
+/// Nothing is written when no printed annotation needs an appearance or flag; the
 /// caller then prints the source itself.
 pub(crate) fn write_print_appearances_path(
     input_path: &Path,
