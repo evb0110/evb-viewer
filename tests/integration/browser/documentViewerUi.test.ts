@@ -501,20 +501,23 @@ describe('browser document lifecycle UI', () => {
             const downloaded = page.waitForEvent('download');
             await page.keyboard.press('ControlOrMeta+Shift+S');
             const savedDirectory = mkdtempSync(resolve(tmpdir(), 'evb-c12-'));
-            const savedPath = resolve(savedDirectory, 'c12-edited.pdf');
-            await (await downloaded).saveAs(savedPath);
-            const saved = await PDFDocument.load(readFileSync(savedPath));
-            expect(saved.getPageCount()).toBe(2);
-            const annots = saved.getPage(0).node.lookup(PDFName.of('Annots'), PDFArray);
-            expect(Array.from({length: annots.size()}, (_, index) => annots.lookup(index, PDFDict)
-                .lookupMaybe(PDFName.of('Contents'), PDFString, PDFHexString)?.decodeText())).toContain('Saved C12 edited text');
-            const reopened = await lifecycle.browser.newPage();
             try {
-                await openPdfFromChooser(reopened, savedPath);
-                await settleActiveOpen(reopened);
-                expect(await reopened.locator('.pdf-annotation-editor-text-box').getAttribute('aria-label')).toBe('Saved C12 edited text');
+                const savedPath = resolve(savedDirectory, 'c12-edited.pdf');
+                await (await downloaded).saveAs(savedPath);
+                const saved = await PDFDocument.load(readFileSync(savedPath));
+                expect(saved.getPageCount()).toBe(2);
+                const annots = saved.getPage(0).node.lookup(PDFName.of('Annots'), PDFArray);
+                expect(Array.from({length: annots.size()}, (_, index) => annots.lookup(index, PDFDict)
+                    .lookupMaybe(PDFName.of('Contents'), PDFString, PDFHexString)?.decodeText())).toContain('Saved C12 edited text');
+                const reopened = await lifecycle.browser.newPage();
+                try {
+                    await openPdfFromChooser(reopened, savedPath);
+                    await settleActiveOpen(reopened);
+                    expect(await reopened.locator('.pdf-annotation-editor-text-box').getAttribute('aria-label')).toBe('Saved C12 edited text');
+                } finally {
+                    await reopened.context().close();
+                }
             } finally {
-                await reopened.context().close();
                 rmSync(savedDirectory, {
                     recursive: true,
                     force: true,
