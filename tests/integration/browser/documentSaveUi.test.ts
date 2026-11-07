@@ -973,74 +973,110 @@ describe('browser document lifecycle UI', () => {
         }
     }, 180_000);
 
-    // T3: Save publishes a page edit to the original unsigned form; a populated
-    // signature requires Save As and leaves the original file untouched.
+    // T3/T6: a populated signature requires Save As for a rewrite, including
+    // above 16 MiB when the signature is compressed. An empty field saves in place.
     describe.each([
-        'signed',
-        'unsigned-signature-field',
-    ] as const)('signature-field Save after a page edit (%s)', kind => {
+        {
+            kind: 'signed',
+            paddingBytes: 0,
+        },
+        {
+            kind: 'unsigned-signature-field',
+            paddingBytes: 0,
+        },
+        {
+            kind: 'signed-object-stream',
+            paddingBytes: 24 * 1024 * 1024,
+        },
+        {
+            kind: 'unsigned-signature-field',
+            paddingBytes: 24 * 1024 * 1024,
+        },
+    ] as const)('signature-field Save after a page edit ($kind, $paddingBytes bytes padding)', ({
+        kind, paddingBytes,
+    }) => {
         let fixture: {
             page: Page;
             bytes: Uint8Array
         } | undefined;
+        const evidence = resolve('.devkit/c10-verify/signature-save', `${kind}-${paddingBytes}`);
+        const signed = kind !== 'unsigned-signature-field';
+        const sha256 = (bytes: Uint8Array) => createHash('sha256').update(bytes).digest('hex');
 
         beforeAll(async () => {
+            mkdirSync(evidence, {recursive: true});
             const context = await lifecycle.browser.newContext({viewport: {
                 width: 1280,
                 height: 900,
             }});
             const page = await context.newPage();
-            const bytes = await createPdfConformanceFixture(kind);
+            const bytes = await createPdfConformanceFixture(kind, {padding: paddingBytes ? new Uint8Array(paddingBytes) : undefined});
             fixture = {
                 page,
                 bytes,
             };
+            if (paddingBytes) expect(bytes.byteLength).toBeGreaterThan(24 * 1024 * 1024);
+            writeFileSync(resolve(evidence, 'source.pdf'), bytes);
+            page.on('console', message => {
+                writeFileSync(resolve(evidence, 'console.log'), `${message.type()}: ${message.text()}\n`, {flag: 'a'});
+            });
+            page.on('pageerror', error => {
+                writeFileSync(resolve(evidence, 'console.log'), `pageerror: ${error.message}\n`, {flag: 'a'});
+            });
             await page.addInitScript(() => {
                 Reflect.set(window, '__allowRendererFileOpenForAutomation', () => true);
             });
             await page.goto(lifecycle.origin, {waitUntil: 'domcontentloaded'});
             await waitForOpenFileReady(page);
-            // Reuse the shared picker handle fixture around a real OPFS
-            // file and writable stream. Materialize the open snapshot so
-            // Chromium need not persist an OPFS-backed Blob in IndexedDB.
+            // Seed real OPFS files through a binary response, avoiding a large
+            // JSON number array over CDP. Only picker handles are substituted.
+            const fixtureUrl = `${lifecycle.origin}/c10-signature-source.pdf`;
+            await page.route(fixtureUrl, route => route.fulfill({
+                contentType: 'application/pdf',
+                body: Buffer.from(bytes),
+            }));
             await page.evaluate(`(async () => {
                 const {createFileSystemFileHandle} = await import(${JSON.stringify(`${lifecycle.origin}/_nuxt/@fs${process.cwd()}/tests/unit/app/platform/browserPlatformTestDoubles.ts`)});
                 window.__createSignatureFileHandle = createFileSystemFileHandle;
             })()`);
-            await page.evaluate(async (bytes) => {
+            await page.evaluate(async fixtureUrl => {
                 const createFileSystemFileHandle = Reflect.get(window, '__createSignatureFileHandle') as typeof createFixtureFileHandle;
                 const directory = await navigator.storage.getDirectory();
                 const original = await directory.getFileHandle('original.pdf', {create: true});
+                const destination = await directory.getFileHandle('signed-copy.pdf', {create: true});
                 const writable = await original.createWritable();
-                await writable.write(Uint8Array.from(bytes));
+                await writable.write(await (await fetch(fixtureUrl)).arrayBuffer());
                 await writable.close();
-                const handle = Object.assign(createFileSystemFileHandle({
-                    name: original.name,
-                    getFile: async () => {
-                        const file = await original.getFile();
-                        return new File([await file.arrayBuffer()], file.name, {
-                            type: file.type,
-                            lastModified: file.lastModified,
-                        });
-                    },
-                    isSameEntry: async (other: FileSystemHandle): Promise<boolean> => other === handle,
-                }), {createWritable: () => original.createWritable()});
+                const wrap = (fileHandle: FileSystemFileHandle) => {
+                    const handle = Object.assign(createFileSystemFileHandle({
+                        name: fileHandle.name,
+                        getFile: async () => {
+                            const file = await fileHandle.getFile();
+                            return new File([await file.arrayBuffer()], file.name, {
+                                type: file.type,
+                                lastModified: file.lastModified,
+                            });
+                        },
+                        isSameEntry: async (other: FileSystemHandle): Promise<boolean> => other === handle,
+                    }), {createWritable: () => fileHandle.createWritable()});
+                    return handle;
+                };
+                const originalHandle = wrap(original);
+                const destinationHandle = wrap(destination);
                 Reflect.set(window, '__signatureSaveAsPicks', 0);
-                Reflect.set(window, 'showOpenFilePicker', async () => [handle]);
+                Reflect.set(window, 'showOpenFilePicker', async () => [originalHandle]);
                 Reflect.set(window, 'showSaveFilePicker', async () => {
                     Reflect.set(window, '__signatureSaveAsPicks', Number(Reflect.get(window, '__signatureSaveAsPicks')) + 1);
-                    throw new DOMException('The user aborted a request.', 'AbortError');
+                    return destinationHandle;
                 });
-            }, Array.from(bytes));
+            }, fixtureUrl);
+            await page.unroute(fixtureUrl);
             await page.getByRole('button', {
                 name: 'Open File',
                 exact: true,
             }).first().click();
             await page.locator('.page_container--rendered canvas').first().waitFor();
-            await page.evaluate(async () => {
-                const api = Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi;
-                if (!await api.waitForActiveDocumentOpenSettled?.()) throw new Error('Signature fixture did not finish opening');
-            });
+            await settleActiveOpen(page);
         }, 90_000);
 
         afterAll(async () => {
@@ -1052,11 +1088,16 @@ describe('browser document lifecycle UI', () => {
             const {
                 page, bytes,
             } = fixture;
-            const readOriginal = () => page.evaluate(async () => {
+            const readFile = async (name: string) => Buffer.from(await page.evaluate(async name => {
                 const directory = await navigator.storage.getDirectory();
-                const handle = await directory.getFileHandle('original.pdf');
-                return Array.from(new Uint8Array(await (await handle.getFile()).arrayBuffer()));
-            });
+                const file = await (await directory.getFileHandle(name)).getFile();
+                return new Promise<string>((resolveBytes, reject) => {
+                    const reader = new FileReader();
+                    reader.onload = () => resolveBytes(String(reader.result).split(',')[1]!);
+                    reader.onerror = () => reject(reader.error);
+                    reader.readAsDataURL(file);
+                });
+            }, name), 'base64');
             const saveAsPicks = () => page.evaluate(() => Number(Reflect.get(window, '__signatureSaveAsPicks')));
             if (!await page.locator('[data-thumbnail-page="1"]').first().isVisible()) {
                 await page.getByRole('button', {
@@ -1086,24 +1127,59 @@ describe('browser document lifecycle UI', () => {
                 exact: true,
             });
             await save.click();
-            // Observe either publication or the picker before checking the
-            // settled result. This also gives the defect a direct failure.
+            // Either file publication or Save As is a completion signal on both
+            // revisions, so the baseline fails on routing, not on a timeout.
             await expect.poll(async () => await saveAsPicks() > 0
-                || (await PDFDocument.load(Uint8Array.from(await readOriginal()))).getPage(0).getRotation().angle === 90).toBe(true);
+                || sha256(await readFile('original.pdf')) !== sha256(bytes)).toBe(true);
             await expect.poll(() => save.getAttribute('aria-busy')).toBe('false');
-            const original = Uint8Array.from(await readOriginal());
+            const original = await readFile('original.pdf');
+            const destination = await readFile('signed-copy.pdf');
             const rotation = (await PDFDocument.load(original)).getPage(0).getRotation().angle;
             const pickerRequests = await saveAsPicks();
-            const rewritten = Buffer.compare(Buffer.from(original), Buffer.from(bytes)) !== 0;
-            console.info('Signature Save evidence', JSON.stringify({
+            const rewritten = Buffer.compare(original, Buffer.from(bytes)) !== 0;
+            const destinationRotation = destination.length ? (await PDFDocument.load(destination)).getPage(0).getRotation().angle : null;
+            const result = {
                 kind,
+                paddingBytes,
                 saveAsPickerRequests: pickerRequests,
                 originalRewritten: rewritten,
                 originalPage1Rotation: rotation,
-            }));
-            expect(pickerRequests, `${kind}: Save As picker requests`).toBe(kind === 'signed' ? 1 : 0);
-            expect(rewritten, `${kind}: original file rewritten`).toBe(kind !== 'signed');
-            expect(rotation, `${kind}: saved page 1 rotation`).toBe(kind === 'signed' ? 0 : 90);
+                destinationPage1Rotation: destinationRotation,
+                source: {
+                    size: bytes.length,
+                    sha256: sha256(bytes),
+                },
+                original: {
+                    size: original.length,
+                    sha256: sha256(original),
+                },
+                destination: {
+                    size: destination.length,
+                    sha256: sha256(destination),
+                },
+            };
+            console.info('Signature Save evidence', JSON.stringify(result));
+            writeFileSync(resolve(evidence, 'result.json'), JSON.stringify(result, null, 2));
+            writeFileSync(resolve(evidence, 'original-after-save.pdf'), original);
+            writeFileSync(resolve(evidence, 'destination.pdf'), destination);
+            await page.screenshot({path: resolve(evidence, 'after-save.png')});
+            expect(pickerRequests, `${kind}: Save As picker requests`).toBe(signed ? 1 : 0);
+            expect(rewritten, `${kind}: original file rewritten`).toBe(!signed);
+            expect(rotation, `${kind}: saved page 1 rotation`).toBe(signed ? 0 : 90);
+            expect(destinationRotation, `${kind}: destination page 1 rotation`).toBe(signed ? 90 : null);
+            const reopened = await page.context().newPage();
+            await openPdfFromChooser(reopened, {
+                name: signed ? 'signed-copy.pdf' : 'original.pdf',
+                mimeType: 'application/pdf',
+                buffer: signed ? destination : original,
+            });
+            await expect.poll(() => reopened.locator('.textLayer').first().innerText()).toContain(`Conformance fixture ${kind}`);
+            await expect.poll(() => reopened.locator('.page_container--rendered[data-page="1"]').first().evaluate(element => {
+                const rect = element.getBoundingClientRect();
+                return rect.width > rect.height;
+            })).toBe(true);
+            await reopened.screenshot({path: resolve(evidence, 'reopened.png')});
+            await reopened.close();
         }, 90_000);
     });
 
