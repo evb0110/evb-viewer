@@ -122,13 +122,13 @@ async function sanitizeSource(source: string) {
     async function visit(directory: string): Promise<void> {
         for (const entry of await readdir(directory, {withFileTypes: true})) {
             const name = path.join(directory, entry.name);
-            if (!shouldCopyPrivateDeployPath(name, source, 'viewer', vendors)) {
+            if (entry.isDirectory()) {
+                await visit(name);
+            } else if (!shouldCopyPrivateDeployPath(name, source, 'viewer', vendors)) {
                 await rm(name, {
                     recursive: true,
                     force: true,
                 });
-            } else if (entry.isDirectory()) {
-                await visit(name);
             } else if (entry.isSymbolicLink()) {
                 throw new Error(`Deployment source contains a symbolic link: ${name}`);
             }
