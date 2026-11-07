@@ -58,7 +58,8 @@ export function selectOcrPagesByExistingText<TPage extends IOcrSelectablePage>(i
                 skipUnsupportedPage(page.pageNumber, unsupported);
                 continue;
             }
-            if (canReplaceWithoutTextProbe) {
+            if (canReplaceWithoutTextProbe && !pageVisibility?.paintedText
+                && (pageVisibility?.uncertain ?? null) === null) {
                 const message = `Scheduled page ${page.pageNumber}: existing-text probe was unavailable under ${input.supersessionPolicy} policy`;
                 input.log?.('warn', message);
                 warnings.push(message);
