@@ -267,10 +267,27 @@ fn record_image_use(
     }
 }
 
+/// A PDF number as the double Poppler parses from its text. lopdf keeps
+/// reals as `f32`, which turns 418.08 into 418.0799865...; the shortest
+/// decimal naming that `f32` is the number its producer wrote, for any number
+/// written with up to seven significant digits.
+fn written_real(value: f64) -> f64 {
+    let single = value as f32;
+    if f64::from(single) != value {
+        return value;
+    }
+    single.to_string().parse().unwrap_or(value)
+}
+
 fn read_matrix(object: Option<&Object>) -> Option<Matrix> {
     object
         .and_then(|object| object.as_array().ok())
-        .and_then(|values| values.iter().map(object_number).collect::<Option<Vec<_>>>())
+        .and_then(|values| {
+            values
+                .iter()
+                .map(|value| object_number(value).map(written_real))
+                .collect::<Option<Vec<_>>>()
+        })
         .filter(|values| values.len() == 6)
         .map(|values| Matrix {
             a: values[0],
@@ -782,7 +799,7 @@ pub(crate) fn render_scan_cleanup_raster(
         height: slice.height,
     });
     let page = PageBox {
-        rect: [rect.x1, rect.y1, rect.x2, rect.y2],
+        rect: [rect.x1, rect.y1, rect.x2, rect.y2].map(written_real),
         rotation,
     };
     let resolution = request
@@ -1828,6 +1845,42 @@ mod tests {
             render_scan_cleanup_raster(&document, request()),
             Ok(ScanRaster::Unsupported("page uses optional content"))
         ));
+    }
+
+    #[test]
+    fn places_an_image_by_the_reals_its_producer_wrote() {
+        // A 576 x 418.08 pt page scales its 8 x 6 image to 1201 x 872 at
+        // 150 DPI only when 418.08 is read as the double Poppler parses; its
+        // f32 neighbour gives 871 rows and moves the row boundary at 436.
+        // `expected.ppm` is bundled Poppler 26.02.0 `pdftoppm -cropbox
+        // -hide-annotations -r 150 -x 0 -y 433 -W 2 -H 6`.
+        let fixture = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/fixtures/scan-raster-written-real"
+        );
+        let document =
+            Document::load_mem(&std::fs::read(format!("{fixture}/input.pdf")).unwrap()).unwrap();
+        let expected = std::fs::read(format!("{fixture}/expected.ppm")).unwrap();
+        let request = ScanRasterRequest {
+            page_number: 1,
+            dpi: 150.0,
+            scale_to: None,
+            render_box: ScanRasterBox::CropBox,
+            include_annotations: false,
+            slice: Some(ScanRasterSlice {
+                x: 0,
+                y: 433,
+                width: 2,
+                height: 6,
+            }),
+            max_pixels: 1 << 20,
+        };
+        let ScanRaster::Raster { rgb, .. } =
+            render_scan_cleanup_raster(&document, request).unwrap()
+        else {
+            panic!("the page is a scan the kernel paints");
+        };
+        assert_eq!(rgb, expected[expected.len() - 2 * 6 * 3..]);
     }
 
     #[test]
