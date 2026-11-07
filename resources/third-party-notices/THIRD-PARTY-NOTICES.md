@@ -58,6 +58,15 @@ texts are included in the `licenses/` directory alongside this file.
 - libtiff's LZW codec includes software developed by the University of
   California, Berkeley.
 
+## libjpeg-turbo 3.1.2 (browser page tool engine)
+
+- Upstream: https://libjpeg-turbo.org/
+- License: IJG and Modified (3-clause) BSD licenses
+  (`licenses/libjpeg-turbo-3.1.2.txt`, `licenses/libjpeg-turbo-3.1.2-README.ijg.txt`)
+- Bundled as: its 8-bit decompressor, statically linked into the page tool
+  WebAssembly engine `evb-pdf-page-ops.wasm`, unmodified.
+- This software is based in part on the work of the Independent JPEG Group.
+
 ## Microsoft Visual C++ runtime (Windows)
 
 - Upstream: https://learn.microsoft.com/cpp/windows/latest-supported-vc-redist

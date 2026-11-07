@@ -37,8 +37,42 @@ fn admit(width: u32, height: u32, components: u8, max_pixels: u64) -> Result<()>
     Ok(())
 }
 
-/// A baseline 8-bit gray or three-component JPEG, at full resolution.
+/// Whether [`decode_dct`] returns libjpeg's samples, which Poppler draws. The
+/// browser engines link libjpeg-turbo; native builds decode with zune-jpeg,
+/// whose IDCT and upsampling round differently.
+pub const DCT_MATCHES_LIBJPEG: bool = cfg!(target_arch = "wasm32");
+
+/// An 8-bit gray or three-component JPEG at full resolution, with the
+/// stream's default color transform, as libjpeg decodes it where it is linked.
 pub fn decode_dct(
+    bytes: &[u8],
+    width: u32,
+    height: u32,
+    components: u8,
+    max_pixels: u64,
+) -> Result<Option<DecodedSamples>> {
+    #[cfg(target_arch = "wasm32")]
+    {
+        if !matches!(components, 1 | 3) {
+            return Ok(None);
+        }
+        admit(width, height, components, max_pixels)?;
+        let data = libjpeg::decode(bytes, width, height, components)?;
+        Ok(data.map(|data| DecodedSamples {
+            width,
+            height,
+            components,
+            bits_per_component: 8,
+            data,
+        }))
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    decode_dct_rust(bytes, width, height, components, max_pixels)
+}
+
+/// [`decode_dct`] through zune-jpeg, for a stream whose PDF `/ColorTransform`
+/// overrides the default libjpeg applies.
+pub fn decode_dct_rust(
     bytes: &[u8],
     width: u32,
     height: u32,
@@ -69,6 +103,103 @@ pub fn decode_dct(
         bits_per_component: 8,
         data,
     }))
+}
+
+/// The libjpeg-turbo adapter `src/jpeg_wasm/evb_jpeg.c`, linked by `build.rs`.
+/// A fatal libjpeg error traps; the browser then discards the engine.
+#[cfg(target_arch = "wasm32")]
+mod libjpeg {
+    use std::alloc::{alloc, dealloc, Layout};
+
+    #[repr(C)]
+    struct Allocator {
+        allocate: extern "C" fn(usize) -> *mut u8,
+        release: extern "C" fn(*mut u8),
+    }
+
+    extern "C" {
+        fn evb_jpeg_decode(
+            allocator: *const Allocator,
+            input: *const u8,
+            length: usize,
+            width: u32,
+            height: u32,
+            components: u32,
+            pixels: *mut u8,
+        ) -> i32;
+    }
+
+    /// Each C allocation keeps its size in a 16-byte prefix, so `release`
+    /// can rebuild its layout.
+    const PREFIX: usize = 16;
+
+    fn layout(size: usize) -> Option<Layout> {
+        size.checked_add(PREFIX)
+            .and_then(|size| Layout::from_size_align(size, PREFIX).ok())
+    }
+
+    extern "C" fn allocate(size: usize) -> *mut u8 {
+        let Some(layout) = layout(size) else {
+            return std::ptr::null_mut();
+        };
+        // SAFETY: the layout has a nonzero size; the prefix holds the
+        // requested size and the caller receives the bytes after it.
+        unsafe {
+            let block = alloc(layout);
+            if block.is_null() {
+                return block;
+            }
+            block.cast::<usize>().write(size);
+            block.add(PREFIX)
+        }
+    }
+
+    extern "C" fn release(pointer: *mut u8) {
+        // SAFETY: `pointer` came from `allocate`, which wrote its size into
+        // the prefix the layout below is rebuilt from.
+        unsafe {
+            let block = pointer.sub(PREFIX);
+            let size = block.cast::<usize>().read();
+            dealloc(block, layout(size).expect("allocated layout"));
+        }
+    }
+
+    pub(super) fn decode(
+        bytes: &[u8],
+        width: u32,
+        height: u32,
+        components: u8,
+    ) -> crate::Result<Option<Vec<u8>>> {
+        let length = (width as usize)
+            .checked_mul(height as usize)
+            .and_then(|pixels| pixels.checked_mul(usize::from(components)))
+            .ok_or("JPEG image size overflows")?;
+        let mut pixels = Vec::new();
+        pixels
+            .try_reserve_exact(length)
+            .map_err(|_| "JPEG image exceeds available memory")?;
+        pixels.resize(length, 0);
+        let allocator = Allocator { allocate, release };
+        // SAFETY: the input and the output buffer outlive the call, the
+        // output holds width * height * components bytes, and the adapter
+        // allocates only through `allocator`, releasing everything it took.
+        let status = unsafe {
+            evb_jpeg_decode(
+                &allocator,
+                bytes.as_ptr(),
+                bytes.len(),
+                width,
+                height,
+                u32::from(components),
+                pixels.as_mut_ptr(),
+            )
+        };
+        match status {
+            0 => Ok(Some(pixels)),
+            1 => Err("JPEG image does not match its image dictionary".into()),
+            _ => Ok(None),
+        }
+    }
 }
 
 /// An 8-bit gray or RGB JPEG 2000 image without alpha.

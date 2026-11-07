@@ -1,0 +1,11 @@
+{
+  "libjpegTurbo": {
+    "version": "3.1.2",
+    "url": "https://github.com/libjpeg-turbo/libjpeg-turbo/releases/download/3.1.2/libjpeg-turbo-3.1.2.tar.gz",
+    "sha256": "8f0012234b464ce50890c490f18194f913a7b1f4e6a03d6644179fa0f867d0cf"
+  },
+  "wasiSdk": "27.0",
+  "adapterSha256": "77099e0abb59279801a0588d6c45604cf224c9c1c8cba1607f9c3e071fd5ceea",
+  "archiveSha256": "ae37fe46359daccae1bcc8b147177ba286bdf424027af2ae585ee54b6e241188",
+  "buildScript": "scripts/build-libjpeg-wasm32.sh"
+}
