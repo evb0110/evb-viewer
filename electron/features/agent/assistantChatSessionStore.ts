@@ -247,15 +247,20 @@ export function createAssistantChatSessionStore(options: IAssistantChatSessionSt
             ...(recovered.session.lastError === undefined ? {} : { lastError: recovered.session.lastError }),
         });
     };
-    const ready = persistence
-        ? persistence.recoverSessions().then(recovered => {
-            for (const session of recovered) {
-                addRecoveredSession(session);
-            }
-            pruneSessions();
-        })
-        : Promise.resolve();
-
+    let initialization: Promise<void> | null = null;
+    function initialize() {
+        return initialization ??= (persistence
+            ? persistence.recoverSessions().then(recovered => {
+                for (const session of recovered) {
+                    addRecoveredSession(session);
+                }
+                pruneSessions();
+            })
+            : Promise.resolve()).catch(error => {
+            initialization = null;
+            throw error;
+        });
+    }
     function getRememberedScope() {
         return lastStateScope;
     }
@@ -423,7 +428,7 @@ export function createAssistantChatSessionStore(options: IAssistantChatSessionSt
         selection: IAssistantSelection = lastSelection,
         getOptions: {create?: boolean} = {},
     ) {
-        await ready;
+        await initialize();
         const normalizedScope = normalizeAssistantScope(scope);
         if (!normalizedScope) {
             return null;
@@ -607,7 +612,7 @@ export function createAssistantChatSessionStore(options: IAssistantChatSessionSt
         removeMessage,
         resolveRequestedScope,
         resetSessionTranscript,
-        ready,
+        get ready() { return initialize(); },
         setActiveSession,
         touchSession,
         updateRememberedSelection,
