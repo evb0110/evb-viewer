@@ -374,6 +374,7 @@ export function createPdfPageRasterScheduler(
     function takeNextWork() {
         let next: IRasterWork | null = null;
         for (const work of queued.values()) {
+            if (inFlight.has(work.key)) continue;
             if (next === null || compareWork(work, next) < 0) {
                 next = work;
             }
@@ -686,10 +687,8 @@ export function createPdfPageRasterScheduler(
             return key;
         }
         const existing = getIndexedWork(key);
-        if (existing) {
-            // Republished authoritative demand with the same render key is
-            // still the same work. Advance its generation in place so the
-            // current-demand guard does not cancel and restart that raster.
+        if (existing && !existing.controller.signal.aborted) {
+            // Reuse live work; an aborted predecessor must settle before its queued successor starts.
             existing.demand = demand;
             if (resolve) {
                 const previousResolve = existing.resolve;

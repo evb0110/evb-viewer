@@ -1221,13 +1221,14 @@ describe('PdfPageRasterScheduler', () => {
         await scheduler.dispose();
     });
 
-    it('holds lease and reservation through timeout, replacement, and exact task settlement', async () => {
+    it('retains cancelled resources until settlement and renders renewed same-key demand', async () => {
         vi.useFakeTimers();
         const budget = createWorkspaceSurfaceBudgetController(1_000);
         const leaseRelease = vi.fn();
         const render = Promise.withResolvers<undefined>();
         const cancel = vi.fn();
         const onRenderStall = vi.fn();
+        let attempts = 0;
         const scheduler = createPdfPageRasterScheduler({
             documentFence,
             leasePage: async pageNumber => ({
@@ -1239,10 +1240,10 @@ describe('PdfPageRasterScheduler', () => {
         const target: IPdfRasterRenderTarget<{pageNumber: number}> = {
             id: 'watchdog-resource-ownership',
             prepare: async demand => ({pageNumber: demand.pageNumber}),
-            start: () => cast<IPdfRenderTask>({
+            start: () => ++attempts === 1 ? cast<IPdfRenderTask>({
                 cancel,
                 promise: render.promise,
-            }),
+            }) : createTask(),
             commit: () => true,
             discard: vi.fn(),
             onRenderStall,
@@ -1273,12 +1274,18 @@ describe('PdfPageRasterScheduler', () => {
         expect(leaseRelease).not.toHaveBeenCalled();
         expect(budget.getSnapshot().reservedBytes).toBe(400);
 
+        setDemand([createDemand(1, 'viewport-visible')]);
+        await flush();
+        expect(leaseRelease).not.toHaveBeenCalled();
+        expect(budget.getSnapshot().reservedBytes).toBe(400);
+
         const cancellation = new Error('late cancellation settlement');
         cancellation.name = 'RenderingCancelledException';
         render.reject(cancellation);
-        await flush();
-        expect(leaseRelease).toHaveBeenCalledOnce();
-        expect(budget.getSnapshot().reservedBytes).toBe(0);
+        await vi.advanceTimersByTimeAsync(0);
+        expect(scheduler.snapshot().residentPages).toHaveLength(1);
+        expect(leaseRelease).toHaveBeenCalledTimes(2);
+        expect(budget.getSnapshot().reservedBytes).toBe(400);
 
         await scheduler.dispose();
     });
