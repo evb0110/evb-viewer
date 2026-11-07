@@ -5,7 +5,13 @@
     "sha256": "8f0012234b464ce50890c490f18194f913a7b1f4e6a03d6644179fa0f867d0cf"
   },
   "wasiSdk": "27.0",
-  "adapterSha256": "77099e0abb59279801a0588d6c45604cf224c9c1c8cba1607f9c3e071fd5ceea",
-  "archiveSha256": "ae37fe46359daccae1bcc8b147177ba286bdf424027af2ae585ee54b6e241188",
-  "buildScript": "scripts/build-libjpeg-wasm32.sh"
+  "inputs": {
+    "src/jpeg_wasm/evb_jpeg.c": "77099e0abb59279801a0588d6c45604cf224c9c1c8cba1607f9c3e071fd5ceea",
+    "src/jpeg_wasm/jconfig.h": "209c212ba61c2eba179f06540ceef8b8ea0483eecfcc7de4096aca9d9c1625c2",
+    "src/jpeg_wasm/jconfigint.h": "ca7fb159a1d91c5a74f4faffbd4ad925e4ec10e995b406419106e727abd5bdd0",
+    "../../scripts/build-libjpeg-wasm32.sh": "90ad7eb1f14a12fb504c2859c7400f0a347281245cb05428cb83ee5289a9cb78"
+  },
+  "archive": {
+    "src/jpeg_wasm/libevb_jpeg.a": "ae37fe46359daccae1bcc8b147177ba286bdf424027af2ae585ee54b6e241188"
+  }
 }

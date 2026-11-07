@@ -75,8 +75,9 @@ done
 rm -f "$OUT_DIR/libevb_jpeg.a"
 "$WASI_SDK/bin/llvm-ar" crsD "$OUT_DIR/libevb_jpeg.a" "${objects[@]}"
 
-archive_sha256="$(shasum -a 256 "$OUT_DIR/libevb_jpeg.a" | cut -d ' ' -f 1)"
-adapter_sha256="$(shasum -a 256 "$OUT_DIR/evb_jpeg.c" | cut -d ' ' -f 1)"
+digest() { shasum -a 256 "$1" | cut -d ' ' -f 1; }
+# pdf-image-combine's build script refuses an archive whose inputs changed
+# after it was built: each input's hash, relative to the crate.
 cat > "$OUT_DIR/SOURCE.json" <<JSON
 {
   "libjpegTurbo": {
@@ -85,9 +86,15 @@ cat > "$OUT_DIR/SOURCE.json" <<JSON
     "sha256": "$LIBJPEG_TURBO_SHA256"
   },
   "wasiSdk": "$WASI_SDK_VERSION",
-  "adapterSha256": "$adapter_sha256",
-  "archiveSha256": "$archive_sha256",
-  "buildScript": "scripts/build-libjpeg-wasm32.sh"
+  "inputs": {
+    "src/jpeg_wasm/evb_jpeg.c": "$(digest "$OUT_DIR/evb_jpeg.c")",
+    "src/jpeg_wasm/jconfig.h": "$(digest "$OUT_DIR/jconfig.h")",
+    "src/jpeg_wasm/jconfigint.h": "$(digest "$OUT_DIR/jconfigint.h")",
+    "../../scripts/build-libjpeg-wasm32.sh": "$(digest "$SCRIPT_DIR/build-libjpeg-wasm32.sh")"
+  },
+  "archive": {
+    "src/jpeg_wasm/libevb_jpeg.a": "$(digest "$OUT_DIR/libevb_jpeg.a")"
+  }
 }
 JSON
-echo "Built $OUT_DIR/libevb_jpeg.a ($archive_sha256)"
+echo "Built $OUT_DIR/libevb_jpeg.a ($(digest "$OUT_DIR/libevb_jpeg.a"))"
