@@ -2,7 +2,13 @@ import {
     describe,
     expect,
     it,
+    vi,
 } from 'vitest';
+import * as detachedSession from '@scripts/electron-run/startSessionDetached';
+import * as sessionArtifacts from '@scripts/electron-run/electronRunSessionArtifacts';
+import * as sessionCommands from '@scripts/electron-run/sendCommand';
+import * as sessionStop from '@scripts/electron-run/stopSession';
+import {startElectronE2ESession} from '@tests/e2e/electron/helpers/startElectronE2ESession';
 import {spawn} from 'node:child_process';
 import {join} from 'node:path';
 import {
@@ -19,6 +25,27 @@ import {
 } from '@tests/e2e/electron/helpers/electronE2ESessionFailure';
 
 describe('Electron E2E session failure classification', () => {
+    it('stops an acquired session when application health fails before the outer deadline', async () => {
+        vi.useFakeTimers();
+        let sessionRunning = false;
+        vi.spyOn(detachedSession, 'startSessionDetached').mockImplementation(async () => { sessionRunning = true; });
+        vi.spyOn(sessionArtifacts, 'waitForSessionReady').mockResolvedValue(true);
+        vi.spyOn(sessionCommands, 'sendCommand').mockResolvedValue({ready: false});
+        vi.spyOn(sessionStop, 'stopSingleSession').mockImplementation(async () => { sessionRunning = false; });
+        try {
+            const failure = startElectronE2ESession(`e2e-unit-health-failure-${process.pid}`, {clean: false})
+                .catch((error: unknown) => error);
+            await vi.advanceTimersByTimeAsync(0);
+            expect(sessionRunning).toBe(true);
+            await vi.advanceTimersByTimeAsync(detachedSession.E2E_SESSION_START_TIMEOUT_MS);
+            expect(await failure).toMatchObject({message: expect.stringContaining('did not become ready')});
+            expect(sessionRunning).toBe(false);
+        } finally {
+            vi.restoreAllMocks();
+            vi.useRealTimers();
+        }
+    });
+
     it.each([
         'process-launch',
         'transport',

@@ -60,6 +60,7 @@ import {
     ElectronE2EInfrastructureError,
     runElectronE2EInfrastructureStage,
     runElectronE2EProcessLaunchStage,
+    runElectronE2ETeardown,
     runWithElectronE2EDeadline,
 } from '@tests/e2e/electron/helpers/electronE2ESessionFailure';
 import {
@@ -431,87 +432,84 @@ async function startElectronE2ESessionWithAutomationEnv(
         owner: 'e2e' as const,
         ...(options?.initialOpenPaths ? { initialOpenPaths: options.initialOpenPaths } : {}),
     };
-    await runElectronE2EProcessLaunchStage(
-        `Starting Electron E2E session '${scopedSessionName}'`,
-        async () => withSessionTimeout(
-            scopedSessionName,
+    let connection: {
+        browser: Browser;
+        page: Page
+    } | undefined;
+    try {
+        await runElectronE2EProcessLaunchStage(
             `Starting Electron E2E session '${scopedSessionName}'`,
-            SESSION_READY_TIMEOUT_MS,
-            () => startSessionDetached(startOptions),
-            { cleanupOnTimeout: true },
-        ),
-    );
-
-    await runElectronE2EInfrastructureStage(
-        'session-runner',
-        `Waiting for Electron E2E session '${scopedSessionName}' metadata`,
-        async () => {
-            const ready = await withSessionTimeout(
+            async () => withSessionTimeout(
                 scopedSessionName,
-                `Waiting for Electron E2E session '${scopedSessionName}' metadata`,
+                `Starting Electron E2E session '${scopedSessionName}'`,
                 SESSION_READY_TIMEOUT_MS,
-                signal => waitForSessionReady(SESSION_READY_TIMEOUT_MS, signal),
+                () => startSessionDetached(startOptions),
                 { cleanupOnTimeout: true },
-            );
-            if (!ready) {
-                throw new Error(`Session '${scopedSessionName}' was not ready within ${Math.round(SESSION_READY_TIMEOUT_MS / 1000)}s.\n${createSessionDiagnostics(scopedSessionName)}`);
-            }
-        },
-    );
+            ),
+        );
 
-    await withSessionTimeout(
-        scopedSessionName,
-        `Waiting for Electron E2E session '${scopedSessionName}' health`,
-        SESSION_READY_TIMEOUT_MS + 5_000,
-        signal => waitForHealthReady(scopedSessionName, SESSION_READY_TIMEOUT_MS, signal),
-        { cleanupOnTimeout: true },
-    );
-    const {
-        browser,
-        page,
-    } = await runElectronE2EInfrastructureStage(
-        'cdp-connection',
-        `Connecting to Electron E2E session '${scopedSessionName}' renderer`,
-        async () => withSessionTimeout(
+        await runElectronE2EInfrastructureStage(
+            'session-runner',
+            `Waiting for Electron E2E session '${scopedSessionName}' metadata`,
+            async () => {
+                const ready = await withSessionTimeout(
+                    scopedSessionName,
+                    `Waiting for Electron E2E session '${scopedSessionName}' metadata`,
+                    SESSION_READY_TIMEOUT_MS,
+                    signal => waitForSessionReady(SESSION_READY_TIMEOUT_MS, signal),
+                    { cleanupOnTimeout: true },
+                );
+                if (!ready) {
+                    throw new Error(`Session '${scopedSessionName}' was not ready within ${Math.round(SESSION_READY_TIMEOUT_MS / 1000)}s.\n${createSessionDiagnostics(scopedSessionName)}`);
+                }
+            },
+        );
+
+        await withSessionTimeout(
             scopedSessionName,
-            `Connecting to Electron E2E session '${scopedSessionName}' renderer`,
-            RENDERER_READY_TIMEOUT_MS + 20_000,
-            signal => connectToSessionPage(scopedSessionName, signal),
+            `Waiting for Electron E2E session '${scopedSessionName}' health`,
+            SESSION_READY_TIMEOUT_MS + 5_000,
+            signal => waitForHealthReady(scopedSessionName, SESSION_READY_TIMEOUT_MS, signal),
             { cleanupOnTimeout: true },
-        ),
-    );
-    await installPageEvaluationShims(page);
-    await waitForRendererReady(page);
-    const deviceScaleFactor = resolveAutomationDeviceScaleFactor(startOptions.env) ?? 1;
-    if (launch.userEnvironment) {
-        try {
-            const environment = await establishUserEnvironment(page, deviceScaleFactor);
+        );
+        connection = await runElectronE2EInfrastructureStage(
+            'cdp-connection',
+            `Connecting to Electron E2E session '${scopedSessionName}' renderer`,
+            async () => withSessionTimeout(
+                scopedSessionName,
+                `Connecting to Electron E2E session '${scopedSessionName}' renderer`,
+                RENDERER_READY_TIMEOUT_MS + 20_000,
+                signal => connectToSessionPage(scopedSessionName, signal),
+                { cleanupOnTimeout: true },
+            ),
+        );
+        await installPageEvaluationShims(connection.page);
+        await waitForRendererReady(connection.page);
+        const deviceScaleFactor = resolveAutomationDeviceScaleFactor(startOptions.env) ?? 1;
+        if (launch.userEnvironment) {
+            const environment = await establishUserEnvironment(connection.page, deviceScaleFactor);
             console.log(`[E2E environment] ${scopedSessionName} ${process.platform}: ${formatUserEnvironment(environment)}`);
-        } catch (error) {
-            // Each cleanup step runs even when the one before it fails, and
-            // every failure is reported with the environment error.
-            const cleanupErrors: unknown[] = [];
-            try {
-                await browser.disconnect();
-            } catch (disconnectError) {
-                cleanupErrors.push(disconnectError);
-            }
-            try {
-                await stopSingleSession(scopedSessionName);
-            } catch (stopError) {
-                cleanupErrors.push(stopError);
-            } finally {
-                releaseCurrentSessionName(scopedSessionName);
-            }
-            if (cleanupErrors.length > 0) {
-                throw new AggregateError([
-                    error,
-                    ...cleanupErrors,
-                ], 'The E2E renderer environment failed and its session could not be cleaned up');
-            }
-            throw error;
         }
+    } catch (error) {
+        try {
+            await runElectronE2ETeardown(error, [
+                {
+                    label: 'startup browser disconnect',
+                    run: async () => { await connection?.browser.disconnect(); },
+                },
+                {
+                    label: 'startup session stop',
+                    run: () => stopSingleSession(scopedSessionName),
+                },
+            ]);
+        } finally {
+            releaseCurrentSessionName(scopedSessionName);
+        }
+        throw error;
     }
+    const {
+        browser, page,
+    } = connection;
 
     const command = async <T = unknown>(
         nextCommand: TElectronRunCommand,
