@@ -144,6 +144,7 @@ const WASM_WRITER_REQUEST_TYPES = [
     'printLayout',
     'ocrTextLayer',
     'splitPages',
+    'renderScanCleanupRaster',
     'overlayText',
     'recompressImages',
     'replacePageImages',
@@ -167,6 +168,7 @@ async function handleRequest(
         case 'ocrTextVisibility':
         case 'inspectScanCleanupPdf':
         case 'splitPages':
+        case 'renderScanCleanupRaster':
         case 'overlayText':
         case 'recompressImages':
         case 'replacePageImages':

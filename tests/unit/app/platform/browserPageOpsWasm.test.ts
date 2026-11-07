@@ -887,6 +887,85 @@ describe('browser page-ops WASM fast path', () => {
         ]);
     });
 
+    it.each([
+        [
+            'rotation-90',
+            {
+                dpi: 72,
+                renderBox: 'cropBox',
+            },
+        ],
+        [
+            'crop-region',
+            {
+                dpi: 72,
+                renderBox: 'cropBox',
+                slice: {
+                    x: 2,
+                    y: 1,
+                    width: 3,
+                    height: 2,
+                },
+            },
+        ],
+        [
+            'softmask-over-background',
+            {
+                dpi: 72,
+                renderBox: 'cropBox',
+            },
+        ],
+    ] as const)('rasterizes the %s scan page with the RGB bytes pdftoppm wrote for it', async (vector, request) => {
+        const fixture = join(process.cwd(), 'native/scan-cleanup/tests/fixtures/source-raster', vector);
+        const expected = new Uint8Array(await readFile(join(fixture, 'expected.ppm')));
+        const header = /^P6\s+(\d+)\s+(\d+)\s+255\s/u.exec(new TextDecoder().decode(expected.subarray(0, 32)))!;
+        const wasm = await loadWasmRunner();
+
+        const rendered = await wasm.run('renderScanCleanupRaster', {
+            data: new Uint8Array(await readFile(join(fixture, 'input.pdf'))),
+            request: {
+                pageNumber: 1,
+                maxPixels: 1_000_000,
+                ...request,
+            },
+        });
+
+        if (rendered === null || 'status' in rendered) throw new Error('raster failed');
+        expect(rendered.report).toEqual({
+            width: Number(header[1]),
+            height: Number(header[2]),
+            compatibility: 'exact',
+        });
+        expect(rendered.data).toEqual(expected.subarray(header[0].length));
+    });
+
+    it('reports a page with vector content unsupported, for PDF.js to paint', async () => {
+        const pdfDocument = await PDFDocument.create();
+        pdfDocument.addPage([
+            200,
+            100,
+        ]).drawRectangle({
+            x: 10,
+            y: 10,
+            width: 50,
+            height: 20,
+        });
+        const wasm = await loadWasmRunner();
+        const rendered = await wasm.run('renderScanCleanupRaster', {
+            data: new Uint8Array(await pdfDocument.save()),
+            request: {
+                pageNumber: 1,
+                dpi: 72,
+                renderBox: 'cropBox',
+                maxPixels: 1_000_000,
+            },
+        });
+
+        if (rendered === null || 'status' in rendered) throw new Error('raster failed');
+        expect(rendered.report).toHaveProperty('unsupported');
+        expect(rendered.data.byteLength).toBe(0);
+    });
+
     it('decrypts an encrypted PDF through WASM operation 9 with the correct password', async () => {
         const encryptedPdf = await readPasswordProtectedPdf();
         const wasm = await loadWasmRunner();

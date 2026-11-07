@@ -389,19 +389,8 @@ interface IConversionContext {
     engines: ReturnType<typeof createEngineIdentities>;
 }
 
-async function rasterizePage(
-    context: IConversionContext,
-    pageSize: IPdfPageSize,
-    pageNumber: number,
-    dpi: number,
-    maxPixels: number,
-) {
-    const page = await context.source.pdf.getPage(pageNumber);
-    try {
-        return await renderPageRaster(page, pageSize, dpi, maxPixels, context.signal);
-    } finally {
-        page.cleanup();
-    }
+function rasterizePage(context: IConversionContext, pageSize: IPdfPageSize, dpi: number, maxPixels: number) {
+    return renderPageRaster(context.source, pageSize, dpi, maxPixels, context.signal, undefined, context.engines.observe('pdfPageOps'));
 }
 
 /** The output pages' PDFs, joined once in the page-ops worker, as on desktop. */
@@ -465,8 +454,8 @@ async function runRasterConversion(
             log: () => undefined,
             signal,
             warnEvent: context.warnEvent,
-            probeGuardrail: async (pageNumber, page) => {
-                const probe = await rasterizePage(context, page, pageNumber, SCAN_CLEANUP_SIZE_PROBE_DPI, SCAN_CLEANUP_RASTER_MAX_PIXELS);
+            probeGuardrail: async (_pageNumber, page) => {
+                const probe = await rasterizePage(context, page, SCAN_CLEANUP_SIZE_PROBE_DPI, SCAN_CLEANUP_RASTER_MAX_PIXELS);
                 return {
                     dpi: SCAN_CLEANUP_SIZE_PROBE_DPI,
                     width: probe.width,
@@ -524,7 +513,7 @@ async function runRasterConversion(
             pageGeometryByNumber.set(pageNumber, pageGeometry);
             nativeOptionsBySource.set(pageNumber, manifestPage.options);
             const maxPixels = resolveScanCleanupPipelineMaxPixels(plan.resolvedOutputMode, undefined);
-            const raster = await rasterizePage(context, pageGeometry, pageNumber, plan.dpi, maxPixels);
+            const raster = await rasterizePage(context, pageGeometry, plan.dpi, maxPixels);
             const analysisDpi = planned.analysisDpiByPage.get(pageNumber)!;
             const analysisMaxPixels = Math.min(maxPixels, SCAN_CLEANUP_RASTER_MAX_PIXELS);
             // At the same resolution the canonical analysis raster is this
@@ -539,7 +528,7 @@ async function runRasterConversion(
                 }
                 : {
                     source: 'raster',
-                    raster: (await rasterizePage(context, pageGeometry, pageNumber, analysisDpi, analysisMaxPixels)).ppm,
+                    raster: (await rasterizePage(context, pageGeometry, analysisDpi, analysisMaxPixels)).ppm,
                     dpi: analysisDpi,
                 };
             const rendered = unwrapBrowserScanCleanupOutcome(await runBrowserScanCleanupWorkerRequest('render-page', {
@@ -948,7 +937,7 @@ async function runLosslessConversion(
             };
         });
         const analyze = async (page: typeof pages[number], documentPrior?: unknown) => {
-            const raster: IPageRaster = await rasterizePage(context, page.view, page.pageNumber, page.analysisDpi, SCAN_CLEANUP_RASTER_MAX_PIXELS);
+            const raster: IPageRaster = await rasterizePage(context, page.view, page.analysisDpi, SCAN_CLEANUP_RASTER_MAX_PIXELS);
             return unwrapBrowserScanCleanupOutcome(await runBrowserScanCleanupWorkerRequest('analyze-page', {
                 input: raster.ppm,
                 page: {
