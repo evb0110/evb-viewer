@@ -1,0 +1,40 @@
+{
+    "manifest_version": 3,
+    "name": "__MSG_extensionName__",
+    "description": "__MSG_extensionDescription__",
+    "default_locale": "en",
+    "version": "0.0.0",
+    "minimum_chrome_version": "128",
+    "icons": {
+        "16": "icons/icon-16.png",
+        "32": "icons/icon-32.png",
+        "48": "icons/icon-48.png",
+        "128": "icons/icon-128.png"
+    },
+    "action": {
+        "default_title": "__MSG_openViewer__",
+        "default_icon": {
+            "16": "icons/icon-16.png",
+            "32": "icons/icon-32.png"
+        }
+    },
+    "background": {
+        "service_worker": "service-worker.js",
+        "type": "module"
+    },
+    "incognito": "split",
+    "permissions": [
+        "declarativeNetRequestWithHostAccess",
+        "storage",
+        "unlimitedStorage",
+        "webNavigation"
+    ],
+    "host_permissions": ["<all_urls>"],
+    "content_security_policy": {
+        "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"
+    },
+    "web_accessible_resources": [{
+        "resources": ["open.html"],
+        "matches": ["<all_urls>"]
+    }]
+}

@@ -29,3 +29,9 @@ export async function layoutPdfForBrowserPrint(...args: Parameters<typeof layout
     const core = await import('@app/platform/browser-api/browserPageOpsCore');
     return core.layoutPdfForPrint(...args);
 }
+
+/** Opens the document the Chrome extension launched this page with (packages/chrome-extension). */
+export async function openBrowserExtensionLaunchDocument() {
+    const launch = await import('@app/platform/browser-api/openBrowserExtensionDocument');
+    return launch.openBrowserExtensionDocument();
+}

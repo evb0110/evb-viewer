@@ -1,3 +1,5 @@
+import { BrowserLogger } from '@app/utils/browserLogger';
+import { isBrowserExtensionPage } from '@app/utils/isBrowserExtensionPage';
 import {
     loadBrowserPlatformApi,
     shouldPreferDesktopPlatform,
@@ -11,6 +13,14 @@ export default defineNuxtPlugin({
     async setup() {
         if (!shouldPreferDesktopPlatform(useRoute().path)) {
             await loadBrowserPlatformApi();
+            // The extension's document downloads while the workspace mounts.
+            if (isBrowserExtensionPage()) {
+                void import('@app/platform/browser-api/public')
+                    .then(browserApi => browserApi.openBrowserExtensionLaunchDocument())
+                    .catch((error: unknown) => {
+                        BrowserLogger.warn('browser-platform', 'The extension could not open its document', error);
+                    });
+            }
         }
     },
 });

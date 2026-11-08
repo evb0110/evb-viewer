@@ -30,6 +30,7 @@
     "build:desktop": "pnpm run build && pnpm run build:electron && pnpm run build:native",
     "build:strict": "node scripts/run-build-strict.mjs",
     "build:electron": "node scripts/build-electron.mjs",
+    "build:chrome-extension": "node scripts/build-browser-extension.mjs",
     "build:native": "node scripts/build-native-tool.mjs --all",
     "build:native:e2e": "node scripts/build-native-tool.mjs pdf-image-combine pdf-page-ops pdf-search scan-cleanup",
     "build:pdf-image-combine": "node scripts/build-native-tool.mjs pdf-image-combine",

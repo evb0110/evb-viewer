@@ -534,6 +534,10 @@ export default {
         'installDesktop': 'Desktop-App installieren',
         'dismissInstallDesktop': 'Hinweis zur Installation der Desktop-App ausblenden',
     },
+    'browserExtension': {
+        'description': 'PDF- und DjVu-Dateien in EVB Viewer öffnen: lesen, annotieren, Seiten bearbeiten, Texterkennung und Scans bereinigen.',
+        'openViewer': 'EVB Viewer öffnen',
+    },
     'assistant': {
         'title': 'EVB Assistant',
         'open': 'EVB Assistant öffnen',

@@ -9,6 +9,10 @@ export default {
         'installDesktop': 'Install desktop app',
         'dismissInstallDesktop': 'Dismiss install desktop app hint',
     },
+    'browserExtension': {
+        'description': 'Open PDF and DjVu files in EVB Viewer: read, annotate, edit pages, run OCR and clean up scans.',
+        'openViewer': 'Open EVB Viewer',
+    },
     'assistant': {
         'title': 'EVB Assistant',
         'open': 'Open EVB Assistant',

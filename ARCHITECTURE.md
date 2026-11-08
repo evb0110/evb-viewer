@@ -144,6 +144,17 @@ revision is rejected rather than silently applied.
 records why the providers are thin adapters over shared chat, tool, and
 persistence code, and why the runtime never loads on ordinary startup.
 
+## The Chrome extension
+
+`packages/chrome-extension` packages the browser workspace as Chrome's viewer
+for PDF and DjVu. Its service worker redirects a top-level PDF or DjVu response
+to the extension's viewer page, a client-only build of the same workspace, which
+fetches the document and opens it as a dropped file. Anything it cannot open
+goes back to Chrome. The extension adds no document code of its own: whatever
+the browser workspace can do, the extension does.
+[Its README](packages/chrome-extension/README.md) covers the build, the
+permissions and the rules an extension page imposes.
+
 ## Boundaries
 
 The module graph is enforced, not documented. `pnpm run check:architecture`
@@ -170,7 +181,7 @@ rules in the existing custom plugin.
 app/          Shared Nuxt renderer: viewer, workspace shell, modules
 electron/     Main process: features, native-tool runners, MCP server
 native/       Rust crates and the macOS print-dialog helper
-packages/     Contracts, i18n, release selection, shared scan-cleanup code
+packages/     Contracts, i18n, release selection, shared scan-cleanup code, Chrome extension
 server/       SSR routes for the browser build
 landing/      Separate Nuxt site: downloads, docs, marketing
 resources/    Bundled native binaries and OCR language data

@@ -6,6 +6,7 @@ __pycache__/
 .nuxt/
 nuxt-output/
 dist-electron/
+dist-chrome-extension/
 dist/
 coverage/
 /release/

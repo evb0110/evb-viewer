@@ -95,6 +95,10 @@ const nitroOutput = isVercelBuildOutput(buildEnv)
 
 const isDev = buildEnv.NODE_ENV !== 'production';
 const isolatedNuxtBuildDir = buildEnv.EVB_NUXT_BUILD_DIR?.trim();
+// The Chrome extension ships the browser workspace as a client-only page at
+// /index.html (scripts/build-browser-extension.mjs). Chrome reserves file names
+// that start with "_", and an extension serves no route but its own files.
+const isBrowserExtensionBuild = buildEnv.EVB_BROWSER_EXTENSION_BUILD === '1';
 const isolatedNuxtViteCacheDir = buildEnv.EVB_NUXT_VITE_CACHE_DIR?.trim();
 const enableNuxtCompatibilityV5 = buildEnv.EVB_NUXT_COMPATIBILITY_VERSION === '5';
 const appShellCacheHeaders = {
@@ -161,6 +165,7 @@ export default defineNuxtConfig({
     ...(enableNuxtCompatibilityV5 ? {future: {compatibilityVersion: 5 as const}} : {}),
 
     app: {
+        ...(isBrowserExtensionBuild ? {buildAssetsDir: '/assets/'} : {}),
         head: {
             meta: [
                 { charset: 'utf-8' },
@@ -207,7 +212,9 @@ export default defineNuxtConfig({
                     crossorigin: 'anonymous',
                 },
             ],
-            script: [
+            // An extension page always has sessionStorage, and the client
+            // head would add this script again as an inline one it may not run.
+            script: isBrowserExtensionBuild ? [] : [
                 {
                     innerHTML: `(()=>{try{void window.sessionStorage}catch{Object.defineProperty(window,'sessionStorage',{configurable:true,value:{getItem(){return null},setItem(){},removeItem(){}}})}})();`,
                 },
@@ -257,7 +264,12 @@ export default defineNuxtConfig({
     // Keep Nuxt's server renderer available for prerender/build-time output and
     // Nitro endpoints. Personalized browser state is client-seeded, not
     // request-time SSR-rendered.
-    ssr: true,
+    ssr: !isBrowserExtensionBuild,
+    // An extension page runs no inline script, and an inline import map counts as one.
+    ...(isBrowserExtensionBuild ? {
+        router: {options: {hashMode: true}},
+        experimental: {entryImportMap: false},
+    } : {}),
 
     // Disable SPA loading template - causes jerky size changes due to scrollbar appearance
     spaLoadingTemplate: false,
