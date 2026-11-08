@@ -1,7 +1,9 @@
 import {
+    afterEach,
     describe,
     expect,
     it,
+    vi,
 } from 'vitest';
 import {
     formatWebTitleTemplate,
@@ -9,6 +11,21 @@ import {
 } from '@app/utils/appWindowTitle';
 
 describe('resolveAppWindowTitle', () => {
+    afterEach(() => {
+        vi.unstubAllGlobals();
+    });
+
+    it('names the app, not its website, in the Chrome extension', () => {
+        vi.stubGlobal('location', new URL('chrome-extension://abcdefghijklmnopabcdefghijklmnop/index.html#/'));
+
+        expect(resolveAppWindowTitle({
+            appTitle: 'EVB Viewer',
+            webTitle: 'EVB Viewer Web',
+            fileName: 'notes.pdf',
+            isBrowserRuntime: true,
+        })).toBe('notes.pdf - EVB Viewer');
+    });
+
     it('falls back to the desktop app title when no document is open', () => {
         expect(resolveAppWindowTitle({
             appTitle: 'EVB Viewer',

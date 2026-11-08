@@ -1,6 +1,7 @@
 # Electron build output
 dist/
 dist-electron/
+dist-chrome-extension/
 release/
 
 # Native resources (Electron-only)

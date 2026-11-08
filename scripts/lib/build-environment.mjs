@@ -27,6 +27,7 @@ export function readBuildEnvironment(env = process.env) {
     return {
         // nuxt.config.ts
         EVB_APP_VERSION: env.EVB_APP_VERSION,
+        EVB_BROWSER_EXTENSION_BUILD: env.EVB_BROWSER_EXTENSION_BUILD,
         EVB_NUXT_BUILD_DIR: env.EVB_NUXT_BUILD_DIR,
         EVB_NUXT_COMPATIBILITY_VERSION: env.EVB_NUXT_COMPATIBILITY_VERSION,
         EVB_NUXT_OUTPUT_DIR: env.EVB_NUXT_OUTPUT_DIR,

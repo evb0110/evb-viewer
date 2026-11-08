@@ -1,3 +1,5 @@
+import { isBrowserExtensionPage } from '@app/utils/isBrowserExtensionPage';
+
 interface IResolveAppWindowTitleOptions {
     appTitle: string;
     webTitle: string;
@@ -41,7 +43,8 @@ function truncateWindowTitleFileName(value: string) {
 
 export function resolveAppWindowTitle(options: IResolveAppWindowTitleOptions) {
     const appTitle = normalizeTitle(options.appTitle);
-    const webTitle = normalizeTitle(options.webTitle);
+    // The extension is EVB Viewer itself, not its website.
+    const webTitle = isBrowserExtensionPage() ? appTitle : normalizeTitle(options.webTitle);
     const fileName = truncateWindowTitleFileName(normalizeTitle(options.fileName));
 
     if (!fileName) {

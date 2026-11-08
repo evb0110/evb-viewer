@@ -29,6 +29,9 @@
         "electron/features/scan-cleanup/worker/main.ts",
         "electron/features/search/worker.ts",
         "packages/*/index.ts",
+        // The Chrome extension's service worker and open page load as their own scripts.
+        "packages/chrome-extension/src/serviceWorker.ts",
+        "packages/chrome-extension/src/openPage.ts",
         // The package export map exposes nested diagnostics contracts as
         // public subpath entry points, not only through the root barrel.
         "packages/contracts/diagnostics/**/*.{ts,js}",
@@ -51,7 +54,10 @@
         "landing/**",
         "nuxt-output/**",
         "public/**",
-        "dist-electron/**"
+        "dist-electron/**",
+        "dist-chrome-extension/**",
+        // Its script is the bundled openPage.ts, written beside it at build time.
+        "packages/chrome-extension/static/**"
     ],
     "ignoreDependencies": [
         "@aws-sdk/client-s3",

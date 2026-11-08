@@ -52,8 +52,9 @@ for (const [source, allowed] of [
     ['packages/release-selection', ['release-selection', 'contracts']],
     ['packages/electron-worker-bundles', ['electron-worker-bundles']],
     ['packages/scan-cleanup', ['scan-cleanup', 'contracts']],
+    ['packages/chrome-extension', ['chrome-extension', 'contracts']],
 ]) addZone(source, 'packages', allowed.map(name => `./${name}`));
-addZone('packages/!(contracts|pdf-core|ocr-core|agent-core|release-selection|scan-cleanup)/**/*', 'packages/contracts');
+addZone('packages/!(contracts|pdf-core|ocr-core|agent-core|release-selection|scan-cleanup|chrome-extension)/**/*', 'packages/contracts');
 
 for (const [prefix, allowed] of [
     ['app/modules', moduleEntrypoints],

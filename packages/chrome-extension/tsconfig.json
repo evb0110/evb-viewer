@@ -1,0 +1,18 @@
+{
+    "extends": [
+        "../../tsconfig.base.json"
+    ],
+    "compilerOptions": {
+        "target": "ESNext",
+        "module": "ESNext",
+        "moduleResolution": "Bundler",
+        "lib": ["ESNext", "DOM"],
+        "noEmit": true,
+        "types": [
+            "chrome"
+        ]
+    },
+    "include": [
+        "./**/*.ts"
+    ]
+}

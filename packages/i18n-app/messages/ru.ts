@@ -9,6 +9,10 @@ export default {
         'installDesktop': 'Установить настольное приложение',
         'dismissInstallDesktop': 'Скрыть подсказку об установке настольного приложения',
     },
+    'browserExtension': {
+        'description': 'Открывайте PDF и DjVu в EVB Viewer: чтение, аннотации, правка страниц, распознавание текста и очистка сканов.',
+        'openViewer': 'Открыть EVB Viewer',
+    },
     'assistant': {
         'title': 'EVB Assistant',
         'open': 'Открыть EVB Assistant',

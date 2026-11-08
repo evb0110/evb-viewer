@@ -9,6 +9,7 @@ import {
     setBrowserMenuDocumentState,
     subscribeBrowserMenuEvent,
 } from '@app/platform/browserMenuBar';
+import { onBrowserExternalPaths } from '@app/platform/browser-api/browserExternalOpenQueue';
 
 const openDocumentDirectBatchProgressListeners =
     new Set<(progress: IOpenPdfDirectBatchProgress) => void>();
@@ -83,7 +84,7 @@ export const browserDocumentsMenuCapability = {
     onMenuRotateCcw: subscribeBrowserMenuEvent('onMenuRotateCcw'),
     onMenuInsertPages: subscribeBrowserMenuEvent('onMenuInsertPages'),
     onMenuOpenRecentFile: subscribeBrowserMenuEvent('onMenuOpenRecentFile'),
-    onMenuOpenExternalPaths: subscribeBrowserMenuEvent('onMenuOpenExternalPaths'),
+    onMenuOpenExternalPaths: onBrowserExternalPaths,
     onMenuClearRecentFiles: subscribeBrowserMenuEvent('onMenuClearRecentFiles'),
 } satisfies IDocumentsMenuCapability
     & TFeatureBrowserBindings<typeof DOCUMENT_MENU_PLATFORM_FEATURE>;

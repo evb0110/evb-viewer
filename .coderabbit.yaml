@@ -21,6 +21,7 @@ reviews:
     - "!**/.nuxt/**"
     - "!dist/**"
     - "!dist-electron/**"
+    - "!dist-chrome-extension/**"
     - "!release/**"
     - "!coverage/**"
     - "!test-results/**"

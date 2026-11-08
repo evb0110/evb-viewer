@@ -56,6 +56,7 @@ export const WEB_DEPLOY_SOURCE_EXCLUDED_DIRECTORY_NAMES = [
     'coverage',
     'dist',
     'dist-electron',
+    'dist-chrome-extension',
     'docs',
     'electron',
     'landing',
