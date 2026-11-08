@@ -316,7 +316,7 @@ describe('viewer invariant checker against real Chromium layout', () => {
                             h('output', { id: 'indicator', 'data-lifecycle': authority.openSurface.viewportSession.value.lifecycle }, String(props.currentPage)),
                             h('div', { id: 'track', style: { position: 'relative', ...runtime.surfaceStyle } },
                                 runtime.mountedPages.map(pageNumber => {
-                                    const surface = runtime.getSurface(pageNumber);
+                                    const surface = runtime.presentation.getSurface(pageNumber);
                                     return h('section', { key: pageNumber,
                                         ref: element => {
                                             runtime.setPageElement(pageNumber, element);
@@ -330,10 +330,10 @@ describe('viewer invariant checker against real Chromium layout', () => {
                                         style: { position: 'absolute', background: 'white', ...runtime.getPageStyle(pageNumber) } }, [
                                         h('span', 'DjVu page ' + pageNumber),
                                         surface ? h('img', { 'data-testid': 'document-page-source-image', src: surface, style: { width: '100%', height: '100%' },
-                                            'data-page-render-generation': runtime.getRenderGeneration(pageNumber),
+                                            'data-page-render-generation': runtime.presentation.getRenderGeneration(pageNumber),
                                             'data-document-load-generation': runtime.loadGeneration,
                                             'data-open-surface-generation': runtime.activeOpenSurfaceGeneration ?? '',
-                                            onLoad: event => runtime.handleSurfaceLoad(pageNumber, surface, event),
+                                            onLoad: event => runtime.presentation.handleSurfaceLoad(pageNumber, surface, event),
                                         }) : null,
                                     ]);
                                 })),
