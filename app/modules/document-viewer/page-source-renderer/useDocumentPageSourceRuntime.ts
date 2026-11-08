@@ -1249,7 +1249,6 @@ export const useDocumentPageSourceRuntime = (options: {
             }),
             readViewport: () => viewerContainer.value,
             renderPage,
-            resetMetricPublication: metricPublication.clear,
             scheduleRender: scheduleRender.schedule,
             positionPage: (page) => {
                 if (!chassisAuthority?.openSurface.navigationTicket.value) {
@@ -1392,13 +1391,7 @@ export const useDocumentPageSourceRuntime = (options: {
         activeOpenSurfaceGeneration: transitions.openSurfaceGeneration,
         getChassisOpeningShellTarget,
         getPageStyle,
-        getRenderGeneration: presentation.getRenderGeneration,
-        getSurface: presentation.getSurface,
-        getVisual: presentation.getVisual,
-        getVisualError: presentation.getVisualError,
-        getVisualFailurePresentation: presentation.getVisualFailurePresentation,
-        handleSurfaceError: presentation.handleSurfaceError,
-        handleSurfaceLoad: presentation.handleSurfaceLoad,
+        presentation,
         loadGeneration: transitions.loadGeneration,
         mountedPages,
         pageLayouts,

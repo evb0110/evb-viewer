@@ -19,8 +19,6 @@ use std::sync::{Mutex, OnceLock};
 static CACHE: OnceLock<PathBuf> = OnceLock::new();
 /// The snapshot of the input this process read, for the successor its save writes.
 static INPUT: Mutex<Option<OwnershipSnapshot>> = Mutex::new(None);
-/// Bytes hashed at each end of a file, with its length, as its identity.
-const IDENTITY_SPAN: u64 = 64 * 1024;
 const MAX_SNAPSHOT_BYTES: u64 = 64 * 1024 * 1024;
 const KEPT_SNAPSHOTS: usize = 8;
 const FIELDS: [&[u8]; 6] = [
@@ -298,21 +296,19 @@ impl Field {
     }
 }
 
-/// The length and both ends of the first `length` bytes of `path`. Working
-/// copies change only by appending a revision or by rewriting the whole file,
-/// and either changes this identity.
+/// The complete first `length` bytes, including an input prefix of an output revision.
 fn identity(path: &Path, length: u64) -> Result<PathBuf> {
     let directory = CACHE.get().ok_or("No annotation ownership cache")?;
     let mut file = File::open(path)?;
     let mut hasher = Sha256::new();
     hasher.update(length.to_le_bytes());
-    for start in [0, length.saturating_sub(IDENTITY_SPAN)] {
-        let mut bytes = Vec::new();
-        file.seek(SeekFrom::Start(start))?;
-        (&mut file)
-            .take(IDENTITY_SPAN.min(length))
-            .read_to_end(&mut bytes)?;
-        hasher.update(&bytes);
+    let mut remaining = length;
+    let mut bytes = [0_u8; 64 * 1024];
+    while remaining > 0 {
+        let count = remaining.min(bytes.len() as u64) as usize;
+        file.read_exact(&mut bytes[..count])?;
+        hasher.update(&bytes[..count]);
+        remaining -= count as u64;
     }
     let hex = hasher
         .finalize()
@@ -397,4 +393,39 @@ pub(crate) fn record_annotation_ownership(incremental: &IncrementalDocument, out
         }
         Ok(())
     })();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ownership_cache_rejects_equal_length_middle_change() {
+        let directory =
+            std::env::temp_dir().join(format!("ownership-identity-{}", std::process::id()));
+        fs::create_dir_all(&directory).unwrap();
+        set_annotation_ownership_cache(directory.clone());
+        let original = directory.join("original.pdf");
+        let changed = directory.join("changed.pdf");
+        let mut bytes = vec![b' '; 3 * 64 * 1024];
+        bytes[96 * 1024..96 * 1024 + 10].copy_from_slice(b"/IRT 1 0 R");
+        fs::write(&original, &bytes).unwrap();
+        let snapshot = OwnershipSnapshot {
+            pages: vec![(1, 0)],
+            owners: vec![],
+            fields: vec![],
+        };
+        let length = bytes.len() as u64;
+        fs::write(
+            identity(&original, length).unwrap(),
+            serde_json::to_vec(&snapshot).unwrap(),
+        )
+        .unwrap();
+        fs::write(&changed, &bytes).unwrap();
+        assert_eq!(read_snapshot(&changed, length), Some(snapshot));
+        bytes[96 * 1024 + 5] = b'2';
+        fs::write(&changed, &bytes).unwrap();
+        assert_eq!(read_snapshot(&changed, length), None);
+        fs::remove_dir_all(directory).unwrap();
+    }
 }

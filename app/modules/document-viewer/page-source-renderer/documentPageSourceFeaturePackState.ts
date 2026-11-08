@@ -223,7 +223,6 @@ export async function openDocumentPageSource(
         };
         readViewport: () => HTMLElement | null;
         renderPage: (pageNumber: number) => Promise<void>;
-        resetMetricPublication: () => void;
         scheduleRender: () => void;
         positionPage: (pageNumber: number) => void;
         setSource: (source: IDocumentPageSource | null) => void;
@@ -399,8 +398,6 @@ export async function openDocumentPageSource(
                 if (!metrics || !transition.isCurrent()) {
                     return;
                 }
-                context.resetMetricPublication();
-                context.layoutLifecycle.preserveLayoutMutation(() => context.publishPageMetrics(metrics));
                 context.scheduleRender();
             } catch (error) {
                 if (transition.isCurrent() && !(error instanceof DOMException && error.name === 'AbortError')) {

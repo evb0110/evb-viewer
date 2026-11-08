@@ -225,10 +225,10 @@ export function scanCleanupRasterRetention(
             refresh,
         });
     };
-    const discard = (document: IRetainedDocument, force = false) => {
+    const discard = (document: IRetainedDocument) => {
         documentGenerations.set(document, (documentGenerations.get(document) ?? 0) + 1);
         document.removeWhenIdle = true;
-        if (document.pinned > 0 && !force) {
+        if (document.pinned > 0) {
             return;
         }
         removeDocumentWhenIdle(document);
@@ -1032,22 +1032,19 @@ export function scanCleanupRasterRetention(
             documentsToDiscard.forEach(document => discard(document));
         },
         invalidateSender(senderId: number) {
-            const claimPrefix = `scan-cleanup:${String(senderId)}:`;
             for (const document of [...documents.values()]) {
-                const claimIds = [...document.claims.keys()].filter(claimId => claimId.startsWith(claimPrefix));
-                if (!document.rendererOwners.has(senderId) && claimIds.length === 0) continue;
-                document.rendererOwners.delete(senderId);
-                for (const claimId of claimIds) invalidateDocumentClaim(document, claimId);
+                if (!document.rendererOwners.delete(senderId)) continue;
+                // Native leases outlive their renderer until the job settles.
                 if (document.rendererOwners.size === 0) {
-                    document.removeWhenIdle = true;
-                    documentGenerations.set(document, (documentGenerations.get(document) ?? 0) + 1);
+                    document.retireWhenIdle = true;
                     if (document.pinned === 0) discard(document);
                 }
             }
         },
         async dispose() {
             disposed = true;
-            for (const document of [...documents.values()]) discard(document, true);
+            const hasNativeReaders = [...documents.values()].some(document => document.pinned > 0);
+            for (const document of [...documents.values()]) discard(document);
             documents.clear();
             const pendingOpenings = [...opening.values()];
             opening.clear();
@@ -1066,7 +1063,7 @@ export function scanCleanupRasterRetention(
             adoptedRasters.clear();
             retainedBytes = 0;
             const rootPath = await root?.catch(() => null);
-            if (rootPath !== null && rootPath !== undefined) {
+            if (!hasNativeReaders && rootPath !== null && rootPath !== undefined) {
                 await fileSystem.rm(rootPath, {
                     recursive: true,
                     force: true,

@@ -951,10 +951,10 @@ impl LayerPlan {
             } else {
                 Cow::Borrowed(color)
             };
-            let file = if self.background_file == BackgroundFile::Ppm {
-                PlaneFile::Ppm
-            } else {
-                PlaneFile::Png
+            let file = match self.background_file {
+                BackgroundFile::Ppm => PlaneFile::Ppm,
+                BackgroundFile::Pgm => PlaneFile::Pgm,
+                BackgroundFile::Png => PlaneFile::Png,
             };
             (PlanePixels::Rgb(pixels), file)
         } else {
@@ -1901,6 +1901,31 @@ mod moved_tests {
             2,
         );
         assert_eq!(too_large_error.code, NativeErrorCode::TooLarge);
+    }
+
+    #[test]
+    fn rgb_background_rejects_pgm_encoding() {
+        let layers = MixedLayers {
+            foreground_mask: BinaryImage::new(2, 1),
+            foreground_alpha: None,
+            background: GrayImage::new(2, 1, 127),
+            color_background: Some(scan_primitives::RgbImage::new(2, 1, [1, 2, 3])),
+            source_mrc: false,
+        };
+        let plan = LayerPlan {
+            background_file: BackgroundFile::Pgm,
+            background_width: 2,
+            background_height: 1,
+            background_dpi: 300.0,
+            foreground_alpha_size: None,
+            foreground_kind: LayeredForegroundKind::Stencil,
+            foreground_dpi: None,
+        };
+        assert!(plan
+            .background_plane(&layers)
+            .encode()
+            .unwrap_err()
+            .contains("Pgm"));
     }
 
     #[test]

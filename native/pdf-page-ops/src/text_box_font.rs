@@ -380,6 +380,7 @@ mod tests {
                     };
                     let source = centred(340.0, 440.0, width, height);
                     let mut editor = TextBoxMutation {
+                        source: None,
                         original_appearance: None,
                         page_index: 0,
                         stable_key: "page-rotated-text".to_string(),

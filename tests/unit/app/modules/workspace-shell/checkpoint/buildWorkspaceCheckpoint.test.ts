@@ -28,6 +28,51 @@ import { cast } from '@tests/helpers/cast';
 import { createWorkspaceExposeFixture } from '@tests/unit/app/modules/workspace-shell/workspaceTestFixtures';
 
 describe('buildWorkspaceCheckpoint', () => {
+    it('retains an unopened restored tab\'s reader state in the next checkpoint', () => {
+        const paneId = requirePaneId('pane-1');
+        const tabId = requireTabId('tab-1');
+        const pane: IEditorPaneState = {
+            paneId,
+            tabIds: [tabId],
+            activeTabId: tabId,
+        };
+        const session = createWorkspaceDocumentController({tabId});
+        const view = session.getView(tabId)!;
+        const toolbar = {
+            ...createDefaultWorkspaceToolbarSnapshot(),
+            currentPage: 7,
+            zoom: 2,
+            zoomMode: 'custom' as const,
+            continuousScroll: false,
+            viewMode: 'facing' as const,
+            viewRotation: 90 as const,
+        };
+        view.restoreView({
+            toolbarSnapshot: toolbar,
+            viewState: createTabViewSessionState(toolbar),
+        });
+        const checkpoint = buildWorkspaceCheckpoint({
+            panes: ref([pane]),
+            tabs: ref([{id: tabId}]),
+            layout: ref({
+                type: 'leaf',
+                paneId,
+            }),
+            activePaneId: ref(paneId),
+            activeTabId: ref(tabId),
+            documentSessionsByTabId: shallowRef({[tabId]: session}),
+            getPaneByTabId: () => pane,
+        });
+        expect(view.toolbarSnapshot.value.hasPdf).toBe(false);
+        expect(checkpoint.tabs[0]).toMatchObject({
+            currentPage: 7,
+            zoom: 2,
+            zoomMode: 'custom',
+            continuousScroll: false,
+            viewMode: 'facing',
+            viewRotation: 90,
+        });
+    });
     it('keeps another document recoverable when one document rejects its annotation capture', () => {
         const paneId = requirePaneId('pane-1');
         const tabIds = [

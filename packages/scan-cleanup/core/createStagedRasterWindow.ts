@@ -1,3 +1,4 @@
+import {getUnprovenNativeTerminationDetail} from '@contracts/nativeErrors';
 import {getErrorMessage} from '@contracts/getErrorMessage';
 import type {TScanCleanupLog} from '@evb/scan-cleanup/core/types';
 
@@ -62,7 +63,7 @@ export function createStagedRasterWindow(dependencies: IStagedRasterWindowDepend
     let cursorIndex = -1;
     const inFlight = new Map<number, Promise<void>>();
     const admitted = new Set<number>();
-    const prefetchFailures = new Set<number>();
+    const prefetchFailures = new Map<number, unknown>();
     const slotWaiters = new Set<() => void>();
     /** Advances on every slot change, so a waiter cannot miss one that raced its check. */
     let slotVersion = 0;
@@ -259,7 +260,7 @@ export function createStagedRasterWindow(dependencies: IStagedRasterWindowDepend
                     }
                     void stageSinglePage(next).catch((error: unknown) => {
                         if (closed) return;
-                        prefetchFailures.add(next);
+                        prefetchFailures.set(next, error);
                         log(
                             'debug',
                             `Scan cleanup could not stage page ${next} ahead of its lease: ${getErrorMessage(error)}`,
@@ -289,6 +290,8 @@ export function createStagedRasterWindow(dependencies: IStagedRasterWindowDepend
             if (closed) throw new Error('Scan cleanup staged raster window is closed');
             leased.add(pageNumber);
             released.delete(pageNumber);
+            const failure = prefetchFailures.get(pageNumber);
+            if (getUnprovenNativeTerminationDetail(failure) !== undefined) throw failure;
             prefetchFailures.delete(pageNumber);
             cursorIndex = Math.max(cursorIndex, readingIndexByPage.get(pageNumber) ?? cursorIndex);
             try {
@@ -321,10 +324,16 @@ export function createStagedRasterWindow(dependencies: IStagedRasterWindowDepend
         async dispose({retainStaged} = {retainStaged: false}) {
             closed = true;
             notifySlotWaiters();
-            await Promise.allSettled([
+            const outcomes = await Promise.allSettled([
                 ...inFlight.values(),
                 ...(prefetchTask === null ? [] : [prefetchTask]),
             ]);
+            const failures = [
+                ...prefetchFailures.values(),
+                ...outcomes.flatMap(outcome => outcome.status === 'rejected' ? [outcome.reason] : []),
+            ]
+                .filter(error => getUnprovenNativeTerminationDetail(error) !== undefined);
+            if (failures.length > 0) throw new AggregateError(failures, 'Native staged reader was not proven stopped');
             if (retainStaged) {
                 admitted.clear();
                 held.clear();

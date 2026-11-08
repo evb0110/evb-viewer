@@ -718,7 +718,7 @@ jobs:
       - name: Validate final updater artifacts
         if: ${{ needs.package.result == 'success' || needs.gate.outputs.public_release == 'true' }}
         env:
-          EVB_RELEASE_HAS_MAC_SIGNING: ${{ secrets.CSC_LINK != '' && secrets.CSC_KEY_PASSWORD != '' }}
+          EVB_RELEASE_HAS_MAC_SIGNING: ${{ needs.gate.outputs.public_release == 'true' || (secrets.CSC_LINK != '' && secrets.CSC_KEY_PASSWORD != '') }}
         run: node scripts/release/assert-final-release-assets.mjs artifacts "${{ needs.gate.outputs.version }}" "$EVB_RELEASE_HAS_MAC_SIGNING"
       - name: Create or reuse draft release and upload immutable assets
         if: ${{ needs.package.result == 'success' }}

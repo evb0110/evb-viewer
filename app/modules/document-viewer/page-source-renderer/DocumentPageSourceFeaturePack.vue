@@ -27,7 +27,7 @@
                     :style="runtime.getPageStyle(pageNumber)"
                     :data-page-number="pageNumber"
                     :data-document-page-number="pageNumber"
-                    :data-page-source-visual="runtime.getVisual(pageNumber)"
+                    :data-page-source-visual="runtime.presentation.getVisual(pageNumber)"
                     data-testid="document-page-source-page"
                 >
                     <DocumentPageSourcePageVisual
@@ -95,17 +95,18 @@ function getPageVisualProps(pageNumber: number, hostOwnsSkeleton = false) {
         currentSearchResultIndex,
         deferSkeleton: shouldDeferSkeleton(pageNumber),
         documentLoadGeneration: runtime.loadGeneration,
-        errorMessage: runtime.getVisualError(pageNumber),
-        errorPresentation: runtime.getVisualFailurePresentation(pageNumber),
+        errorMessage: runtime.presentation.getVisualError(pageNumber),
+        errorPresentation: runtime.presentation.getVisualFailurePresentation(pageNumber),
         hostOwnsSkeleton,
-        onSurfaceError: (surface: string, event: Event) => runtime.handleSurfaceError(pageNumber, surface, event),
-        onSurfaceLoad: (surface: string, event: Event) => runtime.handleSurfaceLoad(pageNumber, surface, event),
+        onRetry: () => runtime.presentation.retryPage(pageNumber),
+        onSurfaceError: (surface: string, event: Event) => runtime.presentation.handleSurfaceError(pageNumber, surface, event),
+        onSurfaceLoad: (surface: string, event: Event) => runtime.presentation.handleSurfaceLoad(pageNumber, surface, event),
         openSurfaceGeneration: runtime.activeOpenSurfaceGeneration,
         pageNumber,
-        renderGeneration: runtime.getRenderGeneration(pageNumber),
+        renderGeneration: runtime.presentation.getRenderGeneration(pageNumber),
         searchResults,
-        surface: runtime.getSurface(pageNumber),
-        visual: runtime.getVisual(pageNumber),
+        surface: runtime.presentation.getSurface(pageNumber),
+        visual: runtime.presentation.getVisual(pageNumber),
     };
 }
 

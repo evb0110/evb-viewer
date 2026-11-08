@@ -344,7 +344,9 @@ setAssistantTurnSuccessorListener((binding, successor) => {
     const session = sessionStore.listSessions().find(candidate => sessionStore.keyForSession(candidate) === binding.sessionKey);
     if (session && adoptSessionTurnSuccessor(session, binding.turnGeneration, successor)) {
         publishState(session.scope, session);
+        return true;
     }
+    return false;
 });
 
 const codexAssistantAdapter = createCodexAssistantAdapter({

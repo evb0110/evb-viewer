@@ -1074,6 +1074,7 @@ export async function scenarioDoesNotTurnACanceledTrustedLayerExtractionIntoARas
         mediaYPoints: 0,
         mediaWidthPoints: 480,
         mediaHeightPoints: 672,
+        allImagesPageAligned: true,
         dominantImageWidthPx: 1_000,
         dominantImageHeightPx: 1_400,
         dominantImageWidthPoints: 480,

@@ -1,3 +1,5 @@
+#[cfg(test)]
+mod mrc_geometry_tests;
 mod page_sizes;
 #[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
 mod scan_cleanup_pdf;

@@ -142,7 +142,10 @@ const {
     isDragging: isReordering,
     dragIndex: reorderDragIndex,
     onPointerDown: onReorderPointerDown,
+    cancel: cancelReorder,
 } = useListDragReorder(listRef, '[data-combine-row]', handleReorder);
+
+watch(() => virtualRows.value[0]?.index, cancelReorder, {flush: 'sync'});
 
 function handleReorder(fromVisibleIndex: number, toVisibleIndex: number) {
     const fromRow = virtualRows.value[fromVisibleIndex];

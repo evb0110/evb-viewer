@@ -7,7 +7,6 @@ import {listWorkflowRuns} from './github-workflow-run.mjs';
 import {run} from './shared.mjs';
 import {verifyMirrorObjects} from './verifyReleaseMirror.mjs';
 
-const MIRROR_CHANNEL_KEY = 'evb-viewer/channels/stable.json';
 /** @param {string} version */
 const REQUIRED_ASSETS = version => [
     `EVB-Viewer-${version}-arm64.dmg`,
@@ -47,35 +46,13 @@ export async function summarizeReleaseStatus(tag, {
     // `Release v1.2.3` only: a substring would also take `Release v1.2.30`.
     const workflow = runs.find(item => item.displayTitle === `Release ${tag}`) ?? null;
     let mirror = 'not checked';
-    if (env.MIRROR_S3_ENDPOINT && env.MIRROR_S3_BUCKET && env.MIRROR_S3_ACCESS_KEY_ID && env.MIRROR_S3_SECRET_KEY) {
-        try {
-            const channel = JSON.parse(runCommand('aws', [
-                's3',
-                'cp',
-                `s3://${env.MIRROR_S3_BUCKET}/${MIRROR_CHANNEL_KEY}`,
-                '-',
-                '--endpoint-url',
-                env.MIRROR_S3_ENDPOINT,
-                '--region',
-                env.MIRROR_S3_REGION || 'ru-central1',
-            ], {env: {
-                ...env,
-                AWS_ACCESS_KEY_ID: env.MIRROR_S3_ACCESS_KEY_ID,
-                AWS_SECRET_ACCESS_KEY: env.MIRROR_S3_SECRET_KEY,
-            }}));
-            mirror = (channel.release?.tag ?? channel.tag) === tag ? `matches ${tag}` : `points at ${channel.release?.tag ?? channel.tag ?? 'no tag'}`;
-        } catch (error) { mirror = `error: ${error instanceof Error ? error.message : String(error)}`; }
-    } else {
-        // Without mirror credentials, the updater's public route is the proof:
-        // a publication that never reached it is not complete.
-        try {
-            await verifyMirrorObjectsFn({
-                tag,
-                env,
-            });
-            mirror = `matches ${tag}`;
-        } catch (error) { mirror = `error: ${error instanceof Error ? error.message : String(error)}`; }
-    }
+    try {
+        await verifyMirrorObjectsFn({
+            tag,
+            env,
+        });
+        mirror = `matches ${tag}`;
+    } catch (error) { mirror = `error: ${error instanceof Error ? error.message : String(error)}`; }
     const isPublic = release.isDraft !== true;
     const mirrorOk = mirror === `matches ${tag}`;
     const complete = isPublic && missing.length === 0 && mirrorOk;

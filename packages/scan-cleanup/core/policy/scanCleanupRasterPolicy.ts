@@ -364,6 +364,7 @@ export function decodePdfPageSizeRecord(
         ...(media ?? {}),
         ...(crop ?? {}),
         ...(renderBox === undefined ? {} : {renderBox}),
+        ...(typeof page.allImagesPageAligned === 'boolean' ? {allImagesPageAligned: page.allImagesPageAligned} : {}),
         ...(hasDominantImage ? {
             dominantImageWidthPx,
             dominantImageHeightPx,

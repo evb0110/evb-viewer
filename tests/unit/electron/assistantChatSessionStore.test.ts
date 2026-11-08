@@ -129,7 +129,26 @@ afterEach(async () => {
 });
 
 describe('assistant chat session store persistence', () => {
-    it('hydrates persisted sessions asynchronously after construction', async () => {
+    it('recovers retained history after a transient initialization failure in the same store', async () => {
+        const persistence = createPersistence();
+        const writer = createAssistantChatSessionStore({persistence});
+        await writer.ready;
+        const session = writer.getSession(scope, selection, {create: true});
+        writer.addMessage(session, {
+            role: 'user',
+            text: 'retained history',
+        });
+        await writer.flushPersistenceForTests();
+        rmSync(persistence.indexPath, {force: true});
+        mkdirSync(persistence.indexPath);
+        const store = createAssistantChatSessionStore({persistence: createPersistence(persistence.rootDir)});
+        await expect(store.ready).rejects.toBeInstanceOf(AssistantChatPersistenceError);
+        rmSync(persistence.indexPath, {recursive: true});
+        await store.ready;
+        expect(store.getMessages(scope, selection).map(message => message.text)).toEqual(['retained history']);
+    });
+
+    it('hydrates persisted sessions asynchronously when requested', async () => {
         const rootDir = createTempRoot();
         const persistence = createPersistence(rootDir);
         const writer = createAssistantChatSessionStore({persistence});
@@ -143,9 +162,10 @@ describe('assistant chat session store persistence', () => {
         const recoverSessions = vi.spyOn(persistence, 'recoverSessions');
         const recoveredStore = createAssistantChatSessionStore({persistence});
 
+        const ready = recoveredStore.ready;
         expect(recoverSessions).toHaveBeenCalledOnce();
         expect(recoverSessions.mock.results[0]?.value).toBeInstanceOf(Promise);
-        await recoveredStore.ready;
+        await ready;
         expect(recoveredStore.getMessages(scope, selection).map(message => message.text)).toEqual(['async history']);
     });
 

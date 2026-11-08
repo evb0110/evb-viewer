@@ -141,6 +141,7 @@ fn append_overlay_pages(
     let remap = crate::split_navigation::split_destination_mapper(source, &pages);
     let mut copied = HashMap::new();
     for &(source_id, target_id, instruction, _) in pages.iter().filter(|p| !p.2.link_only) {
+        crate::ocr_layer_contents::form_text_omission(source, source_id)?;
         // The new-document object map already owns materialization.
         if let Some(base) = base.filter(|_| !target.has_object(target_id)) {
             prepare_overlay_page(base, target, target_id)?;

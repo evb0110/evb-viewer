@@ -789,6 +789,37 @@ describe('native PDF mutation contracts', () => {
         }
     });
 
+    it('accepts multilingual markup comments within the editor limit', () => {
+        const mutation = {markup: {hints: [{
+            subtype: 'Highlight',
+            pageIndex: 0,
+            markerRect: {
+                left: 0.1,
+                top: 0.2,
+                width: 0.3,
+                height: 0.1,
+            },
+            contents: 'я'.repeat(1_025),
+        }]}};
+        expect(normalizePdfNativeMutationSet(mutation, 'mutations').markup?.hints[0]?.contents).toBe(mutation.markup.hints[0]?.contents);
+        mutation.markup.hints[0]!.contents = '界'.repeat(65_536);
+        expect(normalizePdfNativeMutationSet(mutation, 'mutations').markup?.hints[0]?.contents).toBe(mutation.markup.hints[0]?.contents);
+        mutation.markup.hints[0]!.contents += 'a';
+        expect(() => normalizePdfNativeMutationSet(mutation, 'mutations')).toThrow();
+    });
+
+    it('admits native page-label starts only within the unsigned 32-bit wire range', () => {
+        const labels = (startNumber: number) => ({pageLabels: {
+            totalPages: 1,
+            ranges: [{
+                ...validPageLabelRange,
+                startNumber,
+            }],
+        }});
+        expect(normalizePdfNativeMutationSet(labels(4_294_967_295), 'mutations').pageLabels?.ranges[0]?.startNumber).toBe(4_294_967_295);
+        expect(() => normalizePdfNativeMutationSet(labels(4_294_967_296), 'mutations')).toThrow();
+    });
+
     it('normalizes every native mutation family for preload and native-tool payloads', () => {
         const rawMutations = {
             updates: [validNoteTextUpdate],

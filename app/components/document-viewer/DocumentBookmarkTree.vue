@@ -1,5 +1,6 @@
 <template>
     <div ref="treeRef" class="document-bookmark-tree" @focusin="handleFocusIn" @focusout="handleFocusOut" @keydown="handleKeydown">
+        <div ref="rowMeasureRef" class="document-bookmark-tree__row-measure" aria-hidden="true" />
         <div
             v-bind="containerProps"
             class="document-bookmark-tree__list app-scrollbar app-scroll-region--balanced"
@@ -11,7 +12,7 @@
                     :key="row.data.item.id"
                     :item="row.data.item"
                     :depth="row.data.depth"
-                    :style="row.pinned ? {position: 'absolute', top: `${(row.index - (virtualRows[0]?.index ?? 0)) * BOOKMARK_ROW_HEIGHT_PX}px`, insetInline: 0} : undefined"
+                    :style="row.pinned ? {position: 'absolute', top: `${(row.index - (virtualRows[0]?.index ?? 0)) * rowHeight}px`, insetInline: 0} : undefined"
                     :is-expanded="row.data.isExpanded"
                     :is-active="row.data.item.id === activeId"
                     :edit-mode="editMode"
@@ -39,7 +40,10 @@
 </template>
 
 <script setup lang="ts">
-import {useVirtualList} from '@vueuse/core';
+import {
+    useElementSize,
+    useVirtualList,
+} from '@vueuse/core';
 import type {
     IBookmarkDropPayload,
     IBookmarkDropTarget,
@@ -82,8 +86,9 @@ const emit = defineEmits<{
 }>();
 const treeRef = ref<HTMLElement | null>(null);
 
-// Must match the fixed row height in DocumentBookmarkTreeItem.vue.
-const BOOKMARK_ROW_HEIGHT_PX = 42;
+const rowMeasureRef = ref<HTMLElement | null>(null);
+const {height: measuredRowHeight} = useElementSize(rowMeasureRef);
+const rowHeight = computed(() => measuredRowHeight.value || 42);
 
 const visibleRows = computed(() => getDocumentBookmarkVisibleRows(props.items, {
     displayMode: props.displayMode,
@@ -97,7 +102,7 @@ const {
     wrapperProps,
     scrollTo: scrollToRow,
 } = useVirtualList(visibleRows, {
-    itemHeight: BOOKMARK_ROW_HEIGHT_PX,
+    itemHeight: () => rowHeight.value,
     overscan: 12,
 });
 
@@ -333,11 +338,20 @@ watch(
 
 <style scoped>
 .document-bookmark-tree {
+    --bookmark-row-height: calc(var(--app-sidebar-action-size) + 2 * var(--app-sidebar-row-padding-block) + 2px);
+
+    position: relative;
     display: flex;
     flex: 1;
     min-height: 0;
     flex-direction: column;
     user-select: none;
+}
+
+.document-bookmark-tree__row-measure {
+    position: absolute;
+    height: var(--bookmark-row-height);
+    visibility: hidden;
 }
 
 .document-bookmark-tree__list {

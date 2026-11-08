@@ -92,14 +92,6 @@ export async function copyPdfjsAssets({
     targetRoot = publicPdfRoot,
 } = {}) {
     await mkdir(targetRoot, { recursive: true });
-    for (const directory of ASSET_DIRECTORIES) {
-        await rm(join(targetRoot, directory), {
-            recursive: true,
-            force: true,
-        });
-        await mkdir(join(targetRoot, directory), { recursive: true });
-    }
-
     // EVB patches the readable worker bundle to keep path-backed PDFs sparse.
     // The stable root also serves packaged Node search. The renderer binds to
     // the retained snapshot below, including lazy worker and companion loads.
@@ -109,7 +101,12 @@ export async function copyPdfjsAssets({
         await minifyPdfjsWorker(workerSource),
     );
 
+    await cp(join(root, 'LICENSE_BROTLI'), join(targetRoot, 'LICENSE_BROTLI'));
     for (const directory of ASSET_DIRECTORIES) {
+        await rm(join(targetRoot, directory), {
+            recursive: true,
+            force: true,
+        });
         await cp(
             join(root, directory),
             join(targetRoot, directory),
@@ -142,6 +139,7 @@ export async function copyPdfjsAssets({
     const assets = new Map();
     for (const file of [
         'pdf.worker.min.mjs',
+        'LICENSE_BROTLI',
         PDFJS_VERSION_STAMP_FILE,
     ]) {
         assets.set(file, await readFile(join(targetRoot, file)));

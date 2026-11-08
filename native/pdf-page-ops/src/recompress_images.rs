@@ -1,9 +1,6 @@
 //! Recompresses the JPEG images that pages draw, leaving everything else as it
-//! is. Each image is sized from the largest place a page or a Form XObject on
-//! it draws it: an image stored above the target resolution there is shrunk to
-//! it, and every candidate is encoded again at the target quality. An image
-//! keeps its stream unless the new encoding saves enough bytes, and its object
-//! number never changes, so whatever refers to it still does.
+//! is. Images are sized from their largest placement and retain their object
+//! number and stream unless a new encoding saves enough bytes.
 //!
 //! Only images whose size is known from page content are touched. An image
 //! that an annotation appearance, a pattern or a Type 3 glyph also draws
@@ -85,9 +82,9 @@ impl ImageWalk<'_> {
         &self.incremental.previous_document
     }
 
-    fn decoded_stream(&self, id: ObjectId) -> Option<Vec<u8>> {
+    fn decoded_stream(&self, id: ObjectId, limit: usize) -> Option<Vec<u8>> {
         self.incremental
-            .read_base_stream_bounded(self.structural, id, MAX_CONTENT_BYTES)
+            .read_base_stream_bounded(self.structural, id, limit)
             .ok()
             .flatten()
     }
@@ -190,22 +187,23 @@ impl ImageWalk<'_> {
         let xobjects = page_xobjects(self.document(), page_id)?;
         let mut bytes = Vec::new();
         for id in self.document().get_page_contents(page_id) {
-            let Some(content) = self.decoded_stream(id) else {
+            let Some(content) = MAX_CONTENT_BYTES
+                .checked_sub(bytes.len() + 1)
+                .and_then(|remaining| self.decoded_stream(id, remaining))
+            else {
                 self.pin_all(xobjects.as_ref());
                 return Ok(());
             };
             bytes.extend_from_slice(&content);
             bytes.push(b'\n');
         }
-        let mut forms = Vec::new();
-        // A UserUnit page draws each unit that many points large.
         let unit = resolve_page_user_unit(self.document(), page_id)?;
         self.walk_content(
             page_number,
             &bytes,
             xobjects.as_ref(),
             PdfMatrix::from_values([unit, 0.0, 0.0, unit, 0.0, 0.0]),
-            &mut forms,
+            &mut Vec::new(),
         )
     }
 
@@ -317,7 +315,8 @@ impl ImageWalk<'_> {
             .unwrap_or(Some(PdfMatrix::IDENTITY))
             .filter(|_| forms.len() < MAX_FORM_DEPTH);
         self.pin_patterns_and_fonts(resources.as_ref());
-        let (Some(matrix), Some(content)) = (matrix, self.decoded_stream(id)) else {
+        let (Some(matrix), Some(content)) = (matrix, self.decoded_stream(id, MAX_CONTENT_BYTES))
+        else {
             self.pin_all(xobjects.as_ref());
             return Ok(());
         };
@@ -345,6 +344,7 @@ struct JpegCandidate {
     bytes: Vec<u8>,
     /// Its color space reads one component.
     gray_space: bool,
+    icc_space: bool,
 }
 
 /// The image's stored bytes when it is a JPEG this pass can rewrite without
@@ -371,7 +371,9 @@ fn jpeg_candidate(
         }
         _ => false,
     };
-    let components = match resolved(b"ColorSpace") {
+    let color_space = resolved(b"ColorSpace");
+    let icc_space = matches!(&color_space, Some(Object::Array(space)) if space.first().and_then(|name| name.as_name().ok()) == Some(b"ICCBased"));
+    let components = match color_space {
         Some(Object::Name(name)) if name == b"DeviceRGB" => Some(3),
         Some(Object::Name(name)) if name == b"DeviceGray" => Some(1),
         Some(Object::Array(space))
@@ -387,10 +389,6 @@ fn jpeg_candidate(
         _ => None,
     };
     let matte = resolved(b"SMask")
-        .and_then(|mask| match mask {
-            Object::Reference(mask_id) => document.get_object(mask_id).ok().cloned(),
-            other => Some(other),
-        })
         .and_then(|mask| mask.as_stream().ok().map(|mask| mask.dict.has(b"Matte")))
         .unwrap_or(false);
     let supported = filter_is_dct
@@ -423,6 +421,7 @@ fn jpeg_candidate(
     Ok(Some(JpegCandidate {
         bytes,
         gray_space: components == Some(1),
+        icc_space,
     }))
 }
 
@@ -573,10 +572,10 @@ fn recompress_image(
     );
     // A gray color space over a color JPEG is read differently by viewers;
     // such an image keeps its bytes.
-    let Some(recompressed) = recompressed
-        .ok()
-        .filter(|jpeg| jpeg.grayscale || !source.gray_space)
-    else {
+    let Some(recompressed) = recompressed.ok().filter(|jpeg| {
+        (!source.gray_space || jpeg.grayscale)
+            && (source.gray_space || !source.icc_space || !jpeg.grayscale)
+    }) else {
         return Ok((ImageOutcome::Unsupported, source_bytes, 0));
     };
     let new_bytes = recompressed.data.len() as u64;
@@ -587,10 +586,7 @@ fn recompress_image(
     let mut dict = stream.dict.clone();
     dict.set("Width", i64::from(recompressed.width));
     dict.set("Height", i64::from(recompressed.height));
-    dict.set("Filter", Object::Name(b"DCTDecode".to_vec()));
-    // A color space that names three components cannot read one; a neutral
-    // image the encoder stored as gray says so plainly.
-    if recompressed.grayscale {
+    if recompressed.grayscale && !source.gray_space {
         dict.set("ColorSpace", Object::Name(b"DeviceGray".to_vec()));
     }
     let mut replacement = Stream::new(dict, recompressed.data);

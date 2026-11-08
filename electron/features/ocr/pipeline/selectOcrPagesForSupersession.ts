@@ -1,3 +1,4 @@
+import {getUnprovenNativeTerminationDetail} from '@contracts/nativeErrors';
 import type {TOcrTextSupersessionPolicy} from '@contracts/electronApiOcr';
 import type {
     IOcrPdfPageRequest,
@@ -72,7 +73,7 @@ async function extractPageTextForClassification(input: {
                     texts.set(firstPage + index, rangeTexts[index] ?? '');
                 }
             } catch (err) {
-                if (isAbortError(err)) {
+                if (isAbortError(err) || getUnprovenNativeTerminationDetail(err) !== undefined) {
                     throw err;
                 }
                 failClosed(firstPage, lastPage, getErrorMessage(err));

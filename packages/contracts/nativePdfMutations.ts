@@ -47,7 +47,10 @@ import {
     isPdfNativeNormalizedRectInsidePageBounds,
 } from '@contracts/nativePdfPageBounds';
 import { requirePageIndex } from '@contracts/pageNumbers';
-import { PDF_PAGE_LABEL_STYLE_VALUES } from '@contracts/pdfPageLabels';
+import {
+    PAGE_LABEL_MAX_NATIVE_START_NUMBER,
+    PDF_PAGE_LABEL_STYLE_VALUES,
+} from '@contracts/pdfPageLabels';
 import {
     isOneOf,
     isRecord,
@@ -531,8 +534,8 @@ function normalizePageLabelRange(
     if (typeof prefix !== 'string') {
         fail(`${label}.prefix must be a string`, options);
     }
-    if (typeof startNumber !== 'number' || !Number.isSafeInteger(startNumber) || startNumber < 1) {
-        fail(`${label}.startNumber must be a positive safe integer`, options);
+    if (typeof startNumber !== 'number' || !Number.isSafeInteger(startNumber) || startNumber < 1 || startNumber > PAGE_LABEL_MAX_NATIVE_START_NUMBER) {
+        fail(`${label}.startNumber must be a positive unsigned 32-bit integer`, options);
     }
     return {
         startPage,
@@ -875,11 +878,7 @@ function normalizeMarkupSubtype(
 }
 
 function normalizeMarkupOptionalString(value: unknown, label: string, options: IPdfNativeValidationOptions) {
-    const normalized = normalizeOptionalString(value, label, options);
-    if (normalized !== null && normalized.length > PDF_NATIVE_MUTATION_LIMITS.markupTextLength) {
-        fail(`${label} is too long`, options);
-    }
-    return normalized;
+    return normalizeOptionalString(value, label, options, PDF_NATIVE_MUTATION_LIMITS.markupTextLength);
 }
 
 function normalizeMarkupOptionalIndex(value: unknown, label: string, options: IPdfNativeValidationOptions) {
@@ -928,7 +927,7 @@ function normalizeMarkupHint(
         color: normalizeMarkupOptionalString(value.color, `${label}.color`, options),
         ...(value.contents === undefined
             ? {}
-            : {contents: normalizeMarkupOptionalString(value.contents, `${label}.contents`, options)}),
+            : {contents: normalizeOptionalString(value.contents, `${label}.contents`, options, 3 * PDF_NATIVE_MUTATION_LIMITS.noteTextLength)}),
         ...(value.createdAt === undefined ? {} : {createdAt: normalizeOptionalTimestamp(value.createdAt, `${label}.createdAt`, options)}),
         ...(value.modifiedAt === undefined ? {} : {modifiedAt: normalizeOptionalTimestamp(value.modifiedAt, `${label}.modifiedAt`, options)}),
         id: normalizeOptionalString(value.id, `${label}.id`, options, PDF_NATIVE_IDENTITY_BINDING_LIMITS.annotationIdBytes),

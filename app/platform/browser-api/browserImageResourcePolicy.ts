@@ -1,4 +1,5 @@
 import { readBrowserRasterImageMetadata } from '@app/platform/browser-api/browserRasterImageMetadata';
+import {ANNOTATION_RASTER_MAX_BYTES} from '@contracts/workspaceCheckpoint';
 
 export interface IBrowserImageResourceLimits {
     maxEncodedBytes: number;
@@ -20,7 +21,7 @@ export interface IProbedBrowserImage {
 }
 
 export const PDF_IMAGE_PLACEMENT_RESOURCE_LIMITS: Readonly<IBrowserImageResourceLimits> = {
-    maxEncodedBytes: 128 * 1024 * 1024,
+    maxEncodedBytes: ANNOTATION_RASTER_MAX_BYTES,
     maxPixels: 80_000_000,
     maxEdge: 32_768,
     maxFrames: 10_000,

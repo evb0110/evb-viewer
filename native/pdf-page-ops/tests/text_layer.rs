@@ -5724,3 +5724,84 @@ fn overlay_text_preserves_source_actual_text_and_refuses_partial_semantic_spans(
         }
     }
 }
+
+#[test]
+fn overlay_rejects_form_text_without_publishing() {
+    let source = path("form-source", "pdf");
+    let input = path("form-input", "pdf");
+    let output = path("form-output", "pdf");
+    let instructions = path("form-plan", "json");
+    let mut doc = save_single_page(&source, b"/Outer Do".to_vec(), Dictionary::new());
+    let inner = doc.add_object(Stream::new(dictionary! {"Subtype" => "Form", "BBox" => vec![0.into(), 0.into(), 100.into(), 100.into()]}, b"BT (Form text) Tj ET".to_vec()));
+    let outer = doc.add_object(Stream::new(dictionary! {"Subtype" => "Form", "BBox" => vec![0.into(), 0.into(), 100.into(), 100.into()], "Resources" => dictionary! {"XObject" => dictionary! {"Inner" => inner}}}, b"/Inner Do".to_vec()));
+    let page = doc.get_pages()[&1];
+    doc.get_dictionary_mut(page).unwrap().set(
+        "Resources",
+        dictionary! {"XObject" => dictionary! {"Outer" => outer, "Inner" => inner}},
+    );
+    doc.save(&source).unwrap();
+    save_single_page(&input, b"0 0 20 20 re f".to_vec(), Dictionary::new());
+    write(&instructions, r#"{"pages":[{"sourcePageIndex":0,"outputPageIndex":0,"matrix":[1,0,0,1,0,0],"filterToOutputPage":true}]}"#).unwrap();
+    for content in [b"/Outer Do".as_slice(), b"/Inner Do".as_slice()] {
+        let contents = doc.get_page_contents(page)[0];
+        doc.get_object_mut(contents)
+            .unwrap()
+            .as_stream_mut()
+            .unwrap()
+            .set_content(content.to_vec());
+        doc.save(&source).unwrap();
+        write(&output, b"unchanged").unwrap();
+        let result = run_overlay_text(&input, &source, &output, &instructions);
+        assert!(!result.status.success());
+        assert!(String::from_utf8_lossy(&result.stderr).contains("Form XObject"));
+        assert_eq!(fs::read(&output).unwrap(), b"unchanged");
+    }
+    doc.get_object_mut(inner)
+        .unwrap()
+        .as_stream_mut()
+        .unwrap()
+        .dict
+        .set("Filter", Object::Name(b"UnknownFilter".to_vec()));
+    doc.save(&source).unwrap();
+    write(&output, b"unchanged").unwrap();
+    let result = run_overlay_text(&input, &source, &output, &instructions);
+    assert!(!result.status.success());
+    assert_eq!(fs::read(&output).unwrap(), b"unchanged");
+    doc.get_object_mut(inner)
+        .unwrap()
+        .as_stream_mut()
+        .unwrap()
+        .dict
+        .remove(b"Filter");
+    doc.get_object_mut(inner)
+        .unwrap()
+        .as_stream_mut()
+        .unwrap()
+        .set_content(b"0 0 10 10 re f".to_vec());
+    doc.save(&source).unwrap();
+    let result = run_overlay_text(&input, &source, &output, &instructions);
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    assert!(Document::load(&output).is_ok());
+    let image = doc.add_object(Stream::new(dictionary! {"Subtype" => "Image", "Width" => 1, "Height" => 1, "ColorSpace" => "DeviceGray", "BitsPerComponent" => 8}, vec![128]));
+    let form = doc.get_object_mut(inner).unwrap().as_stream_mut().unwrap();
+    form.dict.set(
+        "Resources",
+        dictionary! {"XObject" => dictionary! {"Im" => image}},
+    );
+    form.set_content(b"/Im Do".to_vec());
+    doc.save(&source).unwrap();
+    let result = run_overlay_text(&input, &source, &output, &instructions);
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    assert!(Document::load(&output).is_ok());
+    for file in [source, input, output, instructions] {
+        remove_file(file).unwrap();
+    }
+}

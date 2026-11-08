@@ -1,3 +1,4 @@
+import {markUnprovenNativeTermination} from '@electron/utils/nativeTerminationProof';
 import {
     mkdtemp,
     readdir,
@@ -53,6 +54,22 @@ function nativePageSizesCommand(pageSizes: unknown[]) {
 }
 
 describe('OCR worker native page-size probe', () => {
+    it('fails without deleting geometry a surviving native reader still owns', async () => {
+        tempDir = await mkdtemp(join(tmpdir(), 'evb-ocr-page-size-probe-'));
+        const error = markUnprovenNativeTermination(new Error('native reader alive'), 'stop unproven');
+        const source = createOcrPageSizeSource({
+            pdfPageOpsBinary: '/native/evb-pdf-page-ops',
+            tempDir,
+            runCommand: async (_command, args) => {
+                await writeFile(args[args.indexOf('--output') + 1]!, 'native partial geometry');
+                throw error;
+            },
+        });
+        await expect(source.read(join(tempDir, 'source.pdf'), [1])).rejects.toBe(error);
+        await source.close();
+        expect(await readdir(tempDir)).toHaveLength(1);
+    });
+
     it('reads every request batch of a job from one metadata-only native sidecar', async () => {
         const probeTempDir = await mkdtemp(join(tmpdir(), 'evb-ocr-page-size-probe-'));
         tempDir = probeTempDir;

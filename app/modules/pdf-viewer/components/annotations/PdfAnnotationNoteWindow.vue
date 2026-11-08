@@ -66,6 +66,7 @@ import {
     useEventListener,
     useResizeObserver,
 } from '@vueuse/core';
+import type { IAnnotationMarkerRect } from '@app/types/annotations';
 import type { IAnnotationNotePosition } from '@app/types/annotationNoteWindow';
 import { NOTE_WINDOW } from '@app/constants/pdfLayout';
 import type { IAnnotationNoteWindowBounds } from '@app/modules/pdf-viewer/engine/annotation-note-window-bounds/annotationNoteWindowBounds';
@@ -94,6 +95,7 @@ interface IProps {
     zIndex?: number;
     paneBounds?: IAnnotationNoteWindowBounds | null;
     pageRect?: IAnnotationNoteWindowBounds | null;
+    markerRect?: IAnnotationMarkerRect | null;
 }
 
 const {
@@ -109,6 +111,7 @@ const {
     zIndex = NOTE_WINDOW.DEFAULT_Z_INDEX,
     paneBounds = null,
     pageRect = null,
+    markerRect = null,
 } = defineProps<IProps>();
 
 const emit = defineEmits<{
@@ -332,7 +335,7 @@ function placeClamped(
     if (captureAnchor) {
         isPageOffscreen.value = false;
         if (pageRect) {
-            pageAnchor = captureAnnotationNoteWindowPageAnchor(clamped.x, clamped.y, pageRect);
+            pageAnchor = captureAnnotationNoteWindowPageAnchor(clamped.x, clamped.y, pageRect, markerRect);
         } else if (!pageAnchor) {
             isPageOffscreen.value = true;
         }
@@ -357,14 +360,14 @@ function followPage() {
         return;
     }
 
-    pageAnchor ??= captureAnnotationNoteWindowPageAnchor(offsetX.value, offsetY.value, pageRect);
+    pageAnchor ??= captureAnnotationNoteWindowPageAnchor(offsetX.value, offsetY.value, pageRect, markerRect);
     if (!isAnnotationNoteWindowPageVisible(pageRect, bounds)) {
         isPageOffscreen.value = true;
         clipPath.value = undefined;
         return;
     }
 
-    const next = resolveAnnotationNoteWindowPagePosition(pageAnchor, pageRect);
+    const next = resolveAnnotationNoteWindowPagePosition(pageAnchor, pageRect, markerRect);
     const clamped = clampPosition(next.x, next.y, width.value, height.value);
     isPageOffscreen.value = false;
     offsetX.value = clamped.x;
@@ -524,6 +527,10 @@ watch(
     [
         () => paneBounds,
         () => pageRect,
+        () => markerRect?.left,
+        () => markerRect?.top,
+        () => markerRect?.width,
+        () => markerRect?.height,
     ],
     ([bounds], [previousBounds]) => {
         if (bounds?.width !== previousBounds?.width || bounds?.height !== previousBounds?.height) {

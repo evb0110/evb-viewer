@@ -1,3 +1,4 @@
+import {requireDocumentInstanceId} from '@contracts/documentInstanceId';
 import { ref } from 'vue';
 import type { IPdfBookmarkEntry } from '@contracts/pdfBookmarkEntry';
 import { requirePageIndex } from '@contracts/pageNumbers';
@@ -22,6 +23,15 @@ import {requireDocumentRef} from '@contracts/documentRef';
 import {requirePaneId} from '@contracts/editorPanes';
 import {requireIsoTimestamp} from '@contracts/timestamps';
 import {requireTabId} from '@contracts/windowTabs';
+import {
+    clearAssistantMcpSessionScope, setActiveAssistantMcpSessionScope, setAssistantTurnSuccessorListener,
+} from '@electron/features/agent/assistantMcpSessionScope';
+import {
+    requestAgentCommand, requestAgentWorkspaceSnapshot,
+} from '@electron/features/agent/workspaceBridge';
+import { getWindowByIdFromRegistry } from '@electron/window/registry';
+import {requireSessionId} from '@contracts/shared';
+import {requireDocumentRevisionToken} from '@contracts/documentRevision';
 import { ASSISTANT_MCP_TOKEN_ENV } from '@electron/features/agent/codexAssistantConfig';
 import {
     createLocalMcpServerIdentity,
@@ -60,7 +70,7 @@ vi.mock('electron', () => ({
 vi.mock('@electron/window/registry', () => ({
     getAllRegisteredAppWindows: () => [],
     getRegisteredMainWindow: () => null,
-    getWindowByIdFromRegistry: () => null,
+    getWindowByIdFromRegistry: vi.fn(() => null),
 }));
 
 vi.mock('@electron/features/agent/workspaceBridge', () => ({
@@ -450,6 +460,9 @@ describe('processMcpRequest', () => {
 
     afterEach(async () => {
         await shutdownEmbeddedMcpServer();
+        clearAssistantMcpSessionScope();
+        setAssistantTurnSuccessorListener(null);
+        vi.clearAllMocks();
         await shutdownLocalMcpServer();
         await rm(join(userDataPath, 'agent-mcp'), {
             recursive: true,
@@ -543,6 +556,149 @@ describe('processMcpRequest', () => {
 
         expect(Date.now() - startedAt).toBeLessThan(1_500);
         request.destroy();
+    });
+
+    it('keeps an unbound partial HTTP request unbound when a turn starts', async () => {
+        const {
+            descriptor, token,
+        } = await startEmbeddedMcpServer();
+        const body = JSON.stringify({
+            jsonrpc: '2.0',
+            id: 1,
+            method: 'tools/call',
+            params: {
+                name: 'evb_workspace_snapshot',
+                arguments: {},
+            },
+        });
+        const response = Promise.withResolvers<string>();
+        const started = Promise.withResolvers<undefined>();
+        const req = createHttpRequest(descriptor.url, {
+            method: 'POST',
+            headers: {
+                Authorization: `Bearer ${token}`,
+                'Content-Length': Buffer.byteLength(body),
+                Expect: '100-continue',
+            },
+        } , res => {
+            let data = '';
+            res.on('data', chunk => { data += String(chunk); });
+            res.on('end', () => response.resolve(data));
+        });
+        req.on('error', response.reject);
+        req.on('continue', () => { req.write(body.slice(0, 1)); started.resolve(undefined); });
+        req.flushHeaders();
+        await started.promise;
+        setActiveAssistantMcpSessionScope({
+            sessionKey: 's',
+            scopeKey: 's',
+            provider: 'codex',
+            turnGeneration: 1,
+            windowId: 42,
+            tabId: requireTabId('tab-1'),
+            documentRef: requireDocumentRef('/tmp/Grammar.pdf'),
+            documentIdentity: null,
+        });
+        vi.mocked(getWindowByIdFromRegistry).mockReturnValue({id: 42} as never);
+        vi.mocked(requestAgentWorkspaceSnapshot).mockResolvedValue(workspaceSnapshot);
+        req.end(body.slice(1));
+        expect(await response.promise).toContain('No active assistant turn');
+        expect(requestAgentWorkspaceSnapshot).not.toHaveBeenCalled();
+    });
+
+    it.each([
+        true,
+        false,
+    ])('only reads a saved revision in the same HTTP batch when its turn accepts it: %s', async accepted => {
+        const target = {
+            kind: 'revision' as const,
+            tabId: requireTabId('tab-1'),
+            sessionId: requireSessionId('session-1'),
+            documentRef: requireDocumentRef('/tmp/Grammar.pdf'),
+            sessionRevision: 1,
+            documentRevisionToken: requireDocumentRevisionToken('rev-1'),
+            documentInstanceId: requireDocumentInstanceId('document-1'),
+        };
+        const next = {
+            ...target,
+            sessionRevision: 2,
+            documentRevisionToken: requireDocumentRevisionToken('rev-2'),
+        };
+        const binding = {
+            sessionKey: 's',
+            scopeKey: 's',
+            provider: 'codex' as const,
+            turnGeneration: 1,
+            windowId: 42,
+            tabId: target.tabId,
+            documentRef: target.documentRef,
+            documentIdentity: null,
+            commandTarget: target,
+        };
+        setActiveAssistantMcpSessionScope(binding);
+        setAssistantTurnSuccessorListener((current, successor) => {
+            if (!accepted || current.turnGeneration !== 1) return false;
+            setActiveAssistantMcpSessionScope({
+                ...binding,
+                commandTarget: successor.commandTarget,
+            });
+            return true;
+        });
+        vi.mocked(getWindowByIdFromRegistry).mockReturnValue({id: 42} as never);
+        let saved = false;
+        vi.mocked(requestAgentWorkspaceSnapshot).mockImplementation(async () => ({
+            ...workspaceSnapshot,
+            tabs: workspaceSnapshot.tabs.map(tab => tab.tabId === target.tabId ? {
+                ...tab,
+                commandTarget: saved ? next : target,
+            } : tab),
+        }));
+        vi.mocked(requestAgentCommand).mockImplementation(async (_window, _command, _timeout, _scope, _signal, onSuccessor) => {
+            saved = true;
+            onSuccessor?.({
+                commandTarget: next,
+                documentIdentity: null,
+            });
+            return {ok: true};
+        });
+        const {
+            descriptor, token,
+        } = await startEmbeddedMcpServer();
+        const response = await fetch(descriptor.url, {
+            method: 'POST',
+            headers: {
+                Authorization: `Bearer ${token}`,
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify([
+                {
+                    jsonrpc: '2.0',
+                    id: 1,
+                    method: 'tools/call',
+                    params: {
+                        name: 'evb_run_action',
+                        arguments: {id: 'file.save'},
+                    },
+                },
+                {
+                    jsonrpc: '2.0',
+                    id: 2,
+                    method: 'tools/call',
+                    params: {
+                        name: 'evb_workspace_snapshot',
+                        arguments: {},
+                    },
+                },
+            ]),
+        });
+        const result = await response.json();
+        expect(saved).toBe(true);
+        if (accepted) {
+            expect(result[1].result.isError).not.toBe(true);
+            expect(JSON.stringify(result[1])).toContain('rev-2');
+        } else {
+            expect(result[1].result.isError).toBe(true);
+        }
     });
 
     it('cancels an embedded startup before allowing a later restart to publish', async () => {

@@ -2632,3 +2632,50 @@ fn print_collapsed_lines_keep_geometric_endings() {
         );
     }
 }
+
+#[test]
+fn print_legacy_shape_flag_and_refuse_missing_composed_appearances() {
+    let temp = TempPaths::new("print-legacy-and-unsupported");
+    let printed = temp.root.join("printed.pdf");
+    let write = |annotation: &str| {
+        write_pdf_objects(&temp.pdf, &[
+            "<< /Type /Catalog /Pages 2 0 R >>".to_string(),
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_string(),
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << >> /Annots [4 0 R] >>".to_string(),
+            annotation.to_string(),
+        ]);
+    };
+    write("<< /Type /Annot /Subtype /Square /Rect [30 120 150 180] /C [1 0 0] /EVBShapeKey (evb-shape:legacy) >>");
+    let source = fs::read(&temp.pdf).unwrap();
+    print_annotation_pdf(&temp.pdf, &printed);
+    let output = fs::read(&printed).unwrap();
+    assert!(output.starts_with(&source));
+    assert_eq!(
+        Document::load_mem(&output)
+            .unwrap()
+            .get_dictionary((4, 0))
+            .unwrap()
+            .get(b"F")
+            .unwrap()
+            .as_i64()
+            .unwrap(),
+        4
+    );
+    for subtype in ["Widget", "Highlight", "Underline", "StrikeOut", "Squiggly"] {
+        write(&format!(
+            "<< /Type /Annot /Subtype /{subtype} /Rect [30 120 150 180] /F 4 >>"
+        ));
+        let output = Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"))
+            .args(["print-layout", "--input"])
+            .arg(&temp.pdf)
+            .arg("--output")
+            .arg(&printed)
+            .args(["--view-mode", "single", "--orientation", "portrait"])
+            .output()
+            .unwrap();
+        assert!(
+            !output.status.success(),
+            "{subtype} must not print as a rectangle"
+        );
+    }
+}

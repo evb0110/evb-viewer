@@ -3118,6 +3118,55 @@ fn direct_ocr_rejects_output_metadata_alias_before_publishing_any_bytes() {
 }
 
 #[test]
+fn direct_ocr_reserves_publication_journal_path() {
+    let scratch = Scratch::new("ocr-journal-alias");
+    let input = scratch.path("input.png");
+    direct_ocr_fixture(&input);
+    let output = scratch.path("output.png");
+    let journal = scratch.path("output.png.evb-publication-journal.json");
+    let result = run_direct_ocr(&input, &output, &journal);
+    assert!(!result.status.success());
+    assert!(!output.exists());
+    assert!(!journal.exists());
+}
+
+#[test]
+fn direct_ocr_recovers_interrupted_publication_before_next_run() {
+    let scratch = Scratch::new("ocr-recovery");
+    let input = scratch.path("input.png");
+    direct_ocr_fixture(&input);
+    let output = scratch.path("output.png");
+    let backup = scratch.path("output.png.evb-tmp-test");
+    let unused = scratch.path("output-left.png");
+    let unused_backup = scratch.path("output-left.png.evb-tmp-test");
+    let journal = scratch.path("output.png.evb-publication-journal.json");
+    fs::write(&output, b"partial new output").unwrap();
+    fs::write(&backup, b"old output").unwrap();
+    fs::write(&unused_backup, b"old unused output").unwrap();
+    fs::write(
+        &journal,
+        serde_json::to_vec(&serde_json::json!({
+            "version": 1, "manifestPath": output, "committed": false,
+            "entries": [
+                {"original": output, "backup": backup, "remove": false},
+                {"original": unused, "backup": unused_backup, "remove": false}
+            ]
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    let metadata = scratch.path("metadata-directory");
+    fs::create_dir(&metadata).unwrap();
+    let result = run_direct_ocr(&input, &output, &metadata);
+    assert!(!result.status.success());
+    assert_eq!(fs::read(&output).unwrap(), b"old output");
+    assert_eq!(fs::read(&unused).unwrap(), b"old unused output");
+    assert!(!journal.exists());
+    assert!(!backup.exists());
+    assert!(!unused_backup.exists());
+}
+
+#[test]
 fn batch_spread_png_writes_two_output_images_and_per_half_metadata() {
     let scratch = Scratch::new("spread");
     let input = scratch.path("spread-input.png");

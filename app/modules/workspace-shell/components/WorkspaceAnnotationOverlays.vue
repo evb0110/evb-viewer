@@ -18,6 +18,7 @@
         )"
         :pane-bounds="viewportDomSnapshot?.bounds ?? null"
         :page-rect="viewportDomSnapshot?.pageContainers.get(note.pageNumber)?.rect ?? null"
+        :marker-rect="note.markerRect ?? null"
         @update:text="updateAnnotationNoteText(note.annotationId, $event)"
         @update:position="handleNotePositionUpdate(note.annotationId, $event)"
         @minimize="handleNoteMinimize(note.annotationId, $event)"

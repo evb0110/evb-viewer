@@ -225,6 +225,10 @@ describe('DocumentPageSourceFeaturePack concurrent open surfaces', () => {
         document.body.append(root);
         const app = createApp(createFeaturePackHost(surface, documentRef, errors, settle, ref(false)));
         app.component('USkeleton', defineComponent({setup: () => () => h('span')}));
+        app.component('UButton', defineComponent({
+            props: ['label'],
+            setup: props => () => h('button', props.label),
+        }));
         app.mount(root);
         const image = () => root.querySelector<HTMLImageElement>('[data-testid="document-page-source-image"]:not([data-page-source-candidate])')!;
         const readPageLayout = () => {
@@ -319,6 +323,10 @@ describe('DocumentPageSourceFeaturePack concurrent open surfaces', () => {
         document.body.append(root);
         const app = createApp(Host);
         app.component('USkeleton', defineComponent({setup: () => () => h('span')}));
+        app.component('UButton', defineComponent({
+            props: ['label'],
+            setup: props => () => h('button', props.label),
+        }));
         app.mount(root);
         const unmount = () => {
             app.unmount();
@@ -363,6 +371,10 @@ describe('DocumentPageSourceFeaturePack concurrent open surfaces', () => {
             ref(false),
         ));
         app.component('USkeleton', defineComponent({setup: () => () => h('span')}));
+        app.component('UButton', defineComponent({
+            props: ['label'],
+            setup: props => () => h('button', props.label),
+        }));
         app.mount(root);
         const unmount = () => {
             stop();
@@ -396,6 +408,10 @@ describe('DocumentPageSourceFeaturePack concurrent open surfaces', () => {
         document.body.append(root);
         const app = createApp(createFeaturePackHost(surface, documentRef, errors, settle, ref(false)));
         app.component('USkeleton', defineComponent({setup: () => () => h('span')}));
+        app.component('UButton', defineComponent({
+            props: ['label'],
+            setup: props => () => h('button', props.label),
+        }));
         app.mount(root);
         const unmount = () => {
             app.unmount();
@@ -497,6 +513,10 @@ describe('DocumentPageSourceFeaturePack concurrent open surfaces', () => {
             showSecondWorkspace.value ? h(SecondHost) : null,
         ])}));
         app.component('USkeleton', defineComponent({setup: () => () => h('span')}));
+        app.component('UButton', defineComponent({
+            props: ['label'],
+            setup: props => () => h('button', props.label),
+        }));
         app.mount(root);
         const unmount = () => {
             app.unmount();
@@ -620,6 +640,10 @@ describe('DocumentPageSourceFeaturePack concurrent open surfaces', () => {
                 : showSuccessor.value ? h(SuccessorHost) : null
         )}));
         app.component('USkeleton', defineComponent({setup: () => () => h('span')}));
+        app.component('UButton', defineComponent({
+            props: ['label'],
+            setup: props => () => h('button', props.label),
+        }));
         app.mount(root);
         const unmount = () => {
             app.unmount();

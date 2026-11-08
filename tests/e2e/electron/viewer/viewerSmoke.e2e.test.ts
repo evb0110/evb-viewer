@@ -6813,6 +6813,51 @@ describe('Electron E2E - Document Output', () => {
         expect(printedPages[1]).toContain('Page 3 sample text');
     }, 120_000);
 
+    it('prints a selected page of a tagged PDF', async () => {
+        const fixturePath = resolve('tests/fixtures/electron/pdf-preservation/tagged.pdf');
+        const sourceBytes = await readFile(fixturePath);
+        const printDirectory = resolve(process.cwd(), '.devkit', 'tmp', `viewer-smoke-tagged-print-${Date.now()}`);
+        const printedPath = join(printDirectory, 'printed.pdf');
+        await mkdir(printDirectory, {recursive: true});
+        onTestFinished(() => rm(printDirectory, {
+            force: true,
+            recursive: true,
+        }));
+        const session = await sessionFixture.restart({
+            clean: true,
+            sessionName: () => `e2e-viewer-smoke-tagged-print-${Date.now()}`,
+            extraEnv: {
+                EVB_PRINT_DIALOG_TEST_MODE: 'print-to-pdf',
+                EVB_PRINT_DIALOG_TEST_OUTPUT_PATH: printedPath,
+            },
+        });
+        await openPdfInApp(session.page, fixturePath, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await waitForPdfLoaded(session.page, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await waitForViewerInteractive(session.page, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await clickVisibleToolbarButton(session.page, 'Print');
+        const rangeInput = await session.page.waitForSelector('[role="dialog"] input[aria-label="Page range"]', {
+            timeout: 15_000,
+            visible: true,
+        });
+        await clickAsUser(session.page, rangeInput!);
+        await session.page.keyboard.type('1');
+        const submit = await session.page.waitForSelector(
+            '::-p-xpath(//*[@role="dialog"]//button[normalize-space(.)="Print..."][not(@disabled)])',
+            {
+                timeout: 15_000,
+                visible: true,
+            },
+        );
+        await clickAsUser(session.page, submit!);
+        await expect.poll(async () => {
+            try { return (await PDFDocument.load(await readFile(printedPath))).getPageCount(); } catch { return null; }
+        }, {timeout: 60_000}).toBe(1);
+        expect(await readFile(fixturePath)).toEqual(sourceBytes);
+        if (process.env.EVB_SELECTED_PRINT_EVIDENCE) {
+            await copyFile(printedPath, process.env.EVB_SELECTED_PRINT_EVIDENCE);
+        }
+    }, 120_000);
+
     it('extracts a page from the thumbnail menu into a new document', async () => {
         const fixturePath = await createMultiPageTextFixturePdf(`viewer-smoke-extract-${Date.now()}.pdf`, 3);
         const sourceBytes = await readFile(fixturePath);
@@ -6867,8 +6912,11 @@ describe('Electron E2E - Document Output', () => {
         await expect(readFile(fixturePath)).resolves.toEqual(sourceBytes);
     }, 120_000);
 
-    it('exports a page as a decodable image of the page from the thumbnail menu', async () => {
+    it('exports a page with a repaired cross-reference table as a decodable image', async () => {
         const fixturePath = await createMultiPageTextFixturePdf(`viewer-smoke-export-image-${Date.now()}.pdf`, 2);
+        const fixtureBytes = await readFile(fixturePath);
+        // qpdf reconstructs this readable source and reports warning-success (3).
+        await writeFile(fixturePath, fixtureBytes.toString('latin1').replace(/startxref\s+\d+/u, 'startxref\n0'), 'latin1');
         const sourceBytes = await readFile(fixturePath);
         const exportDirectory = resolve(process.cwd(), '.devkit', 'tmp', `viewer-smoke-export-image-${Date.now()}`);
         await mkdir(exportDirectory, {recursive: true});

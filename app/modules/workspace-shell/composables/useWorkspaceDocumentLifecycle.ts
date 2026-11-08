@@ -38,7 +38,6 @@ interface IUseWorkspaceDocumentLifecycleOptions {
     openSurface: IDocumentOpenSurfaceSession;
     isShown: () => boolean;
     isDjvuMode: TReadableRef<boolean>;
-    isDirty: TReadableRef<boolean>;
     openBatchProgress: TReadableRef<{
         processed: number;
         total: number
@@ -84,7 +83,6 @@ export const useWorkspaceDocumentLifecycle = (options: IUseWorkspaceDocumentLife
     let checkingOpenSource = false;
     const recent = useRecentFiles();
 
-    watch(options.isDirty, dirty => session.setDirty(dirty));
     watch(options.toolbarSnapshot, toolbar => view.publishToolbarSnapshot(toolbar), {immediate: true});
     watch(options.openBatchProgress, (progress) => {
         session.setOpeningLabel(progress && progress.total > 0

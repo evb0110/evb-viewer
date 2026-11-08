@@ -353,6 +353,7 @@ const sourcePageMetadataSchema = v.message(v.pipe(
             'cropbox',
             'mediabox',
         ])),
+        allImagesPageAligned: v.exactOptional(v.boolean()),
         dominantImageWidthPx: v.exactOptional(positiveSafeFinite),
         dominantImageHeightPx: v.exactOptional(positiveSafeFinite),
         dominantImageWidthPoints: v.exactOptional(positiveSafeFinite),

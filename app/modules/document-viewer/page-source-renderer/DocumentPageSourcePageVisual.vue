@@ -21,7 +21,8 @@
         data-document-page-visual="error"
         role="alert"
     >
-        {{ errorPresentation ? formatFailurePresentationDescription(errorPresentation, t) : errorMessage }}
+        <span>{{ errorPresentation ? formatFailurePresentationDescription(errorPresentation, t) : errorMessage }}</span>
+        <UButton color="neutral" variant="outline" :label="t('common.retry')" @click="emit('retry')" />
     </div>
     <img
         v-if="surface"
@@ -89,6 +90,7 @@ const {
 }>();
 
 const emit = defineEmits<{
+    retry: [];
     surfaceLoad: [surface: string, event: Event];
     surfaceError: [surface: string, event: Event];
 }>();

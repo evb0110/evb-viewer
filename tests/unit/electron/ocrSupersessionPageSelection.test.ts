@@ -360,6 +360,36 @@ describe('OCR supersession page selection', () => {
         ]);
     });
 
+    it('preserves known native and uncertain text when extraction fails', async () => {
+        const sourcePdfPath = await createSourcePdf(3);
+        probe.state.fail = true;
+        probe.state.visibilityByPage = new Map([
+            [
+                1,
+                {paintedText: true},
+            ],
+            [
+                2,
+                {uncertain: 'hidden text in a Form cannot be removed'},
+            ],
+            [
+                3,
+                {hiddenText: true},
+            ],
+        ]);
+
+        const selection = await runSelection(sourcePdfPath, [
+            1,
+            2,
+            3,
+        ], [], 'replace-all');
+        expect(selection.pages.map(page => page.pageNumber)).toEqual([3]);
+        expect(selection.diagnostics.map(diagnostic => diagnostic.pageNumber)).toEqual([
+            1,
+            2,
+        ]);
+    });
+
     it('reports degraded text visibility analysis instead of swallowing it', async () => {
         const sourcePdfPath = await createSourcePdf(1);
         probe.state.textByPage = new Map([[

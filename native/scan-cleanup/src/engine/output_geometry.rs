@@ -2243,7 +2243,7 @@ pub(crate) fn plan_document_canvas_placements(
     let mut by_dpi = BTreeMap::<u64, Vec<(usize, &GeometryOutput)>>::new();
     for (index, output) in eligible {
         by_dpi
-            .entry(output.options.dpi.to_bits())
+            .entry(output.options.placement_dpi().to_bits())
             .or_default()
             .push((index, output));
     }
@@ -2432,6 +2432,35 @@ mod tests {
         assert_eq!(canvas.height_px, 1_650);
         assert_eq!(canvas.width_points, document_canvas.width_points);
         assert_eq!(canvas.height_points, document_canvas.height_points);
+    }
+
+    #[test]
+    fn deferred_canvas_uses_each_placement_dpi_in_both_orders() {
+        let canvas = DocumentCanvas {
+            width_points: 612.0,
+            height_points: 792.0,
+            width_px: 2550,
+            height_px: 3300,
+        };
+        let mut scan = deferred_output(0, PageHalf::Full, 1000, None);
+        scan.options.match_page_size = true;
+        scan.options.dpi = 300.0;
+        let mut placeholder = scan.clone();
+        placeholder.options.placement_scale = 300.0 / 72.0;
+        for outputs in [[&scan, &placeholder], [&placeholder, &scan]] {
+            let inputs = outputs.map(|output| (output, false));
+            let placements = plan_document_canvas_placements(&inputs, Some(canvas)).unwrap();
+            for (index, _, actual) in placements {
+                let dpi = outputs[index].options.placement_dpi();
+                assert_eq!(
+                    (actual.width_px, actual.height_px),
+                    (
+                        (612.0 * dpi / 72.0).round() as usize,
+                        (792.0 * dpi / 72.0).round() as usize
+                    )
+                );
+            }
+        }
     }
 
     #[test]

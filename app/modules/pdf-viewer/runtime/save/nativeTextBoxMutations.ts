@@ -448,6 +448,7 @@ export async function collectNativeTextBoxMutationsForSave(
             return null;
         }
         const entry = parsedAnnotationForEntity(entity, original ?? null);
+        if (!entity.identity.pdfRef && entry?.kind === 'text-box' && entry.source) mutation.source = entry.source;
         if (entry?.kind === 'text-box' && matchesParsed(entity, entry)) {
             mutation.originalAppearance = entry.recoveryData
                 ? {recoveryData: entry.recoveryData}

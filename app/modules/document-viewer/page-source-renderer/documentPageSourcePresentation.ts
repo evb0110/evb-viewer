@@ -803,6 +803,18 @@ export function createDocumentPageSourcePresentation(options: {
         releasePage,
         renderControllers,
         renderPage,
+        retryPage(pageNumber: number) {
+            const state = pageStates.get(pageNumber);
+            if (!state?.error) return;
+            state.error = null;
+            state.failurePresentation = null;
+            state.retryCount = 0;
+            const openSurface = options.chassisAuthority?.openSurface;
+            if (openSurface?.viewportSession.value.requestedPage === pageNumber) {
+                openSurface.requestNavigation(pageNumber);
+            }
+            void renderPage(pageNumber);
+        },
         restore,
     };
 }

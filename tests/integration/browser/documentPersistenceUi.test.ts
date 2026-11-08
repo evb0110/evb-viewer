@@ -502,6 +502,7 @@ describe('browser document lifecycle UI', () => {
         'legacy-bytes-unchanged',
         'legacy-file-changed',
         'legacy-bytes-changed',
+        'missing-baseline',
     ] as const)('preserves physical-source Save authority after %s', async scenario => {
         const context = await lifecycle.browser.newContext({viewport: {
             width: 1280,
@@ -513,7 +514,7 @@ describe('browser document lifecycle UI', () => {
         const book = await createReadingBook('Physical authority', name);
         // A valid PDF with trailing comments; offset 1 MiB is outside all old witness samples.
         const legacyKind = scenario.startsWith('legacy-file') ? 'file' : scenario.startsWith('legacy-bytes') ? 'bytes' : null;
-        const changed = scenario === 'unsampled-edit' || scenario.endsWith('-changed');
+        const changed = scenario === 'unsampled-edit' || scenario.endsWith('-changed') || scenario === 'missing-baseline';
         const bytes = scenario === 'unsampled-edit' || legacyKind
             ? Buffer.concat([
                 book.buffer,
@@ -593,6 +594,19 @@ describe('browser document lifecycle UI', () => {
                     }
                 })()`);
             }
+            if (scenario === 'missing-baseline') {
+                await page.evaluate(`(async () => {
+                    const {browserDocumentStore: store} = await import('/_nuxt/platform/browser/browserDocumentRepository.ts');
+                    const {loadAllRecordKeys, loadRecord, persistRecord} = await import('/_nuxt/platform/browser/browserDocumentIdb.ts');
+                    for (const ref of await loadAllRecordKeys()) {
+                        const record = await loadRecord(ref);
+                        if (record?.kind !== 'working') continue;
+                        delete record.sourceBaseWitness;
+                        await persistRecord(record);
+                        delete (await store.requireEntry(ref)).sourceBaseWitness;
+                    }
+                })()`);
+            }
             await page.evaluate(async ({
                 fileName, changeBytes, position,
             }) => {
@@ -610,7 +624,7 @@ describe('browser document lifecycle UI', () => {
             }, {
                 fileName: name,
                 changeBytes: changed,
-                position: legacyKind ? bytes.length - 1 : 1024 * 1024,
+                position: legacyKind ? 1024 * 1024 : scenario === 'missing-baseline' ? bytes.length - 1 : 1024 * 1024,
             });
             const save = page.locator('.save-split-primary').first();
             await save.click();
@@ -627,8 +641,8 @@ describe('browser document lifecycle UI', () => {
                 });
             }, name);
             const saved = Buffer.from(savedBase64, 'base64');
-            if (changed) {
-                expect(saved[legacyKind ? bytes.length - 1 : 1024 * 1024]).toBe(88);
+            if (changed || legacyKind) {
+                if (changed) expect(saved[legacyKind ? 1024 * 1024 : scenario === 'missing-baseline' ? bytes.length - 1 : 1024 * 1024]).toBe(88);
                 expect(noteTexts(await PDFDocument.load(Uint8Array.from(saved)))).not.toContain(note);
                 expect(await save.isDisabled()).toBe(false);
                 // Save As still contains the reader's independent authored work.

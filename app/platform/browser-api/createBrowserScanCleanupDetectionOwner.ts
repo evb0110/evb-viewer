@@ -8,8 +8,11 @@ import type {
 } from '@contracts/scan-cleanup/electronApiScanCleanup';
 import {SCAN_CLEANUP_STREAMING_BATCH_PAGES} from '@contracts/scan-cleanup/inputLimits';
 import {projectScanCleanupDetectionStateForRenderer} from '@contracts/scan-cleanup/projectScanCleanupDetectionStateForRenderer';
-import {attachScanCleanupPageOverrideDefaults} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
+import {
+    attachScanCleanupPageOverrideDefaults, getScanCleanupPageOverride,
+} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
 import {createScanCleanupDetectionSignature} from '@contracts/scan-cleanup/createScanCleanupDetectionSignature';
+import {narrowScanCleanupPreviewRequestToPage} from '@contracts/scan-cleanup/narrowScanCleanupPreviewRequestToPage';
 import {createJobId} from '@contracts/shared';
 import {createEpochMs} from '@contracts/timestamps';
 import type {TDocumentRef} from '@contracts/documentRef';
@@ -34,12 +37,11 @@ import {
 
 type TDetectionListener = Parameters<IScanCleanupCapability['onDetectionJobState']>[0];
 
-/** What a detection store holds evidence about; a reader must match it exactly. */
 interface IStoreIdentity {
     ownerId: string;
     sourceRef: string;
     documentRevision: string;
-    detectionSignature: string;
+    options: IScanCleanupDetectionRequest['options'];
 }
 
 interface IStoreEntry {
@@ -59,14 +61,6 @@ const isLiveStatus = (status: TScanCleanupDetectionJobState['status']) => status
     || status === 'running'
     || status === 'canceling';
 
-/**
- * The window's Scan Cleanup detection, as desktop's detection owner runs it:
- * one live job per document owner, joined by an identical request and
- * superseded by another; its states delivered to listeners, a small run's
- * results once each; the store of a long document's results kept after the
- * job for placement calibration and previews, until the owner detects again
- * or closes the document.
- */
 export function createBrowserScanCleanupDetectionOwner() {
     const listeners = new Set<TDetectionListener>();
     const deliveredByJob = new Map<string, Map<number, number | string>>();
@@ -108,13 +102,8 @@ export function createBrowserScanCleanupDetectionOwner() {
     const active = new Map<string, IActiveDetection>();
     const calibrations = createScanCleanupPlacementAnchorCalibrations();
 
-    // Every store is leased while read; a retired store closes once its last
-    // reader is done. A live job's store answers previews while it runs; a
-    // long document's completed store is its owner's current store.
     const stores = new Map<string, IStoreEntry>();
     const liveStoreByJob = new Map<string, string>();
-    // A store its job does not keep retires once the job has settled, after
-    // its completed state has read the store's counts.
     const unkeptStoreByJob = new Map<string, string>();
     const ownerStore = new Map<string, string>();
     const closeIfIdle = (entry: IStoreEntry) => {
@@ -128,14 +117,24 @@ export function createBrowserScanCleanupDetectionOwner() {
         calibrations.retire(storeId);
         closeIfIdle(entry);
     };
-    const leaseStore = (storeId: string | undefined, identity?: IStoreIdentity) => {
+    const leaseStore = (storeId: string | undefined, identity?: IStoreIdentity, pageNumber?: IScanCleanupPreviewRequest['pageNumber']) => {
         const entry = storeId === undefined ? undefined : stores.get(storeId);
         if (entry === undefined || entry.retired) return null;
         if (identity !== undefined && (
             entry.identity.ownerId !== identity.ownerId
             || entry.identity.sourceRef !== identity.sourceRef
             || entry.identity.documentRevision !== identity.documentRevision
-            || entry.identity.detectionSignature !== identity.detectionSignature
+            || createScanCleanupDetectionSignature(pageNumber === undefined ? entry.identity.options : narrowScanCleanupPreviewRequestToPage({
+                pageNumber,
+                options: {
+                    ...entry.identity.options,
+                    matchPageSize: identity.options.matchPageSize,
+                },
+            }).options)
+                !== createScanCleanupDetectionSignature(pageNumber === undefined ? identity.options : narrowScanCleanupPreviewRequestToPage({
+                    pageNumber,
+                    options: identity.options,
+                }).options)
         )) return null;
         entry.leases += 1;
         let released = false;
@@ -179,7 +178,7 @@ export function createBrowserScanCleanupDetectionOwner() {
                     ownerId: request.ownerId,
                     sourceRef: request.sourcePdfPath,
                     documentRevision: request.documentRevision,
-                    detectionSignature: createScanCleanupDetectionSignature(request.options),
+                    options: structuredClone(request.options),
                 },
                 leases: 0,
                 retired: false,
@@ -196,11 +195,7 @@ export function createBrowserScanCleanupDetectionOwner() {
                         context.publish(runningScanCleanupDetectionJobState(context.latest().jobId, results, progress, documentCanvasSignature));
                     },
                 });
-                // A small document's results travel in its completed state; a
-                // long one's stay in its store, kept for its owner unless the
-                // job lost its place while it ran.
-                if (totalPages <= SCAN_CLEANUP_STREAMING_BATCH_PAGES
-                    || context.signal.aborted
+                if (context.signal.aborted
                     || active.get(request.ownerId)?.jobId !== jobId) {
                     return outcome;
                 }
@@ -209,7 +204,7 @@ export function createBrowserScanCleanupDetectionOwner() {
                 unkeptStoreByJob.delete(jobId);
                 return {
                     ...outcome,
-                    resultStoreId: storeId,
+                    ...(totalPages > SCAN_CLEANUP_STREAMING_BATCH_PAGES ? {resultStoreId: storeId} : {}),
                 };
             } finally {
                 liveStoreByJob.delete(jobId);
@@ -231,7 +226,6 @@ export function createBrowserScanCleanupDetectionOwner() {
             const previous = active.get(request.ownerId);
             if (previous !== undefined && jobs.isLive(previous.jobId)) {
                 if (previous.signature === signature) {
-                    // Joining is subscribing: the caller rebuilds from a full snapshot.
                     deliveredByJob.delete(previous.jobId);
                     return Promise.resolve({
                         started: true,
@@ -269,8 +263,6 @@ export function createBrowserScanCleanupDetectionOwner() {
             const state = jobs.get(jobId, owner);
             if (state === null || !isLiveStatus(state.status)) return Promise.resolve(false);
             const canceled = jobs.cancel(jobId, owner, 'Scan cleanup detection canceled') === 'canceled';
-            // An identical request after the cancel starts afresh instead of
-            // joining the job that is winding down.
             if (canceled && active.get(owner.ownerId)?.jobId === jobId) active.delete(owner.ownerId);
             return Promise.resolve(canceled);
         },
@@ -294,7 +286,7 @@ export function createBrowserScanCleanupDetectionOwner() {
                 ownerId: request.ownerId,
                 sourceRef: request.sourcePdfPath,
                 documentRevision: request.documentRevision,
-                detectionSignature: createScanCleanupDetectionSignature(request.options),
+                options: request.options,
             });
             if (lease === null) {
                 calibrations.retire(request.detectionResultStoreId);
@@ -306,22 +298,16 @@ export function createBrowserScanCleanupDetectionOwner() {
                 lease.release();
             }
         },
-        /**
-         * A preview request with the page plan its detection measured, as
-         * desktop previews read it: from the running job's store, or the
-         * owner's kept store, when either is evidence about this request.
-         */
         async resolvePreviewPagePlan(request: IScanCleanupPreviewRequest): Promise<IScanCleanupPreviewRequest> {
-            const detectionSignature = createScanCleanupDetectionSignature(request.options);
             const running = active.get(request.ownerId);
             const identity: IStoreIdentity = {
                 ownerId: request.ownerId,
                 sourceRef: request.sourcePdfPath,
                 documentRevision: request.documentRevision,
-                detectionSignature,
+                options: request.options,
             };
-            const live = running === undefined ? null : leaseStore(liveStoreByJob.get(running.jobId), identity);
-            const lease = live ?? leaseStore(ownerStore.get(request.ownerId), identity);
+            const live = running === undefined ? null : leaseStore(liveStoreByJob.get(running.jobId), identity, request.pageNumber);
+            const lease = live ?? leaseStore(ownerStore.get(request.ownerId), identity, request.pageNumber);
             if (lease === null) return request;
             try {
                 const {
@@ -329,40 +315,47 @@ export function createBrowserScanCleanupDetectionOwner() {
                 } = await lease.store.readPreviewSnapshot(
                     request.pageNumber, request.options.matchPageSize,
                 );
-                const layouts = request.options.matchPageSize
-                    ? {layoutByPage: {
+                if (result === undefined) return {
+                    ...request,
+                    layoutByPage: {
                         ...request.layoutByPage,
                         ...layoutByPage,
-                    }}
-                    : {};
-                // The plan travels with the page view it was measured on.
-                return result?.pagePlanEvidence === undefined
-                    ? {
-                        ...request,
-                        ...layouts,
-                    }
-                    : {
-                        ...request,
-                        ...layouts,
-                        pagePlanEvidence: result.pagePlanEvidence,
-                        ...(result.sourcePageMetadata?.renderBox === 'mediabox'
-                            ? {sourcePageMetadata: result.sourcePageMetadata}
-                            : {}),
-                    };
+                    },
+                };
+                const {
+                    pagePlanEvidence: _plan, sourcePageMetadata: _source, documentPrior: _prior,
+                    outputModeRecommendation: _output, softAlphaForegroundRecommendation: _alpha, ...rest
+                } = request;
+                const autoOutput = !request.options.preserveOriginalQuality && request.options.outputMode === 'auto'
+                    && getScanCleanupPageOverride(
+                        request.options.pageOverrides, request.pageNumber, request.options.pageOverrideDefaults,
+                    ).outputModeOverride === undefined;
+                return {
+                    ...rest,
+                    layoutByPage: {
+                        ...request.layoutByPage,
+                        ...layoutByPage,
+                        [String(request.pageNumber)]: result.classification,
+                    },
+                    ...(result?.pagePlanEvidence === undefined ? {} : {pagePlanEvidence: result.pagePlanEvidence}),
+                    ...(result?.sourcePageMetadata === undefined ? {} : {sourcePageMetadata: result.sourcePageMetadata}),
+                    ...(result?.documentPrior == null ? {} : {documentPrior: result.documentPrior}),
+                    ...(autoOutput && result.recommendedOutputMode !== undefined ? {outputModeRecommendation: result.recommendedOutputMode} : {}),
+                    ...(autoOutput && result.recommendedOutputMode === 'mixed' && result.softAlphaForegroundRecommendation !== undefined
+                        ? {softAlphaForegroundRecommendation: result.softAlphaForegroundRecommendation} : {}),
+                };
             } finally {
                 lease.release();
             }
         },
-        /** A kept detection store, leased by a conversion that reads its decisions. */
         leaseResultStore(storeId: string, request: Pick<IScanCleanupDetectionRequest, 'ownerId' | 'sourcePdfPath' | 'documentRevision' | 'options'>) {
             return leaseStore(storeId, {
                 ownerId: request.ownerId,
                 sourceRef: request.sourcePdfPath,
                 documentRevision: request.documentRevision,
-                detectionSignature: createScanCleanupDetectionSignature(request.options),
+                options: request.options,
             });
         },
-        /** A closed document ends its detection and drops its kept evidence. */
         closeSource(ref: TDocumentRef) {
             for (const [
                 ownerId,

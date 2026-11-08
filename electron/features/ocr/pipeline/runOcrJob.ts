@@ -1009,6 +1009,7 @@ export async function runOcrJob(job: IOcrJob): Promise<TOcrJobResult> {
         };
     } catch (caughtError) {
         jobFailure = caughtError;
+        if (getUnprovenNativeTerminationDetail(caughtError) !== undefined) throw caughtError;
         const error = storageBudget?.violation
             ?? (storageBudget && isOcrStorageFailure(caughtError)
                 ? storageBudget.fail(caughtError)

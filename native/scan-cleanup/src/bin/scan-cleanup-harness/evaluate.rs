@@ -349,36 +349,7 @@ pub fn evaluate_corpus(
         &binarization_metrics,
         &dewarp_metrics,
     );
-    catastrophes.insert(
-        "composed".into(),
-        BTreeMap::from([
-            (
-                "erasedPages".into(),
-                composed
-                    .iter()
-                    .map(|page| page.metrics.despeckle.erased_pages as u64)
-                    .sum(),
-            ),
-            (
-                "lostPunctuationMarkers".into(),
-                composed
-                    .iter()
-                    .map(|page| {
-                        (page.metrics.despeckle.punctuation_markers
-                            - page.metrics.despeckle.retained_punctuation_markers)
-                            as u64
-                    })
-                    .sum(),
-            ),
-            (
-                "brokenStrokeExplosions".into(),
-                composed
-                    .iter()
-                    .map(|page| page.metrics.binarization.broken_stroke_explosions as u64)
-                    .sum(),
-            ),
-        ]),
-    );
+    catastrophes.insert("composed".into(), composed_catastrophes(&composed));
     let total_wall_time_ms = timings
         .iter()
         .map(|timing| timing.wall_time_ms)
@@ -443,6 +414,43 @@ pub fn evaluate_corpus(
             },
         },
     })
+}
+
+fn composed_catastrophes(composed: &[ComposedPageMetrics]) -> BTreeMap<String, u64> {
+    BTreeMap::from([
+        (
+            "blankRegionFloods".into(),
+            composed
+                .iter()
+                .map(|page| page.metrics.binarization.blank_region_floods as u64)
+                .sum(),
+        ),
+        (
+            "erasedPages".into(),
+            composed
+                .iter()
+                .map(|page| page.metrics.despeckle.erased_pages as u64)
+                .sum(),
+        ),
+        (
+            "lostPunctuationMarkers".into(),
+            composed
+                .iter()
+                .map(|page| {
+                    (page.metrics.despeckle.punctuation_markers
+                        - page.metrics.despeckle.retained_punctuation_markers)
+                        as u64
+                })
+                .sum(),
+        ),
+        (
+            "brokenStrokeExplosions".into(),
+            composed
+                .iter()
+                .map(|page| page.metrics.binarization.broken_stroke_explosions as u64)
+                .sum(),
+        ),
+    ])
 }
 
 pub fn compare_catastrophes(
@@ -1441,7 +1449,7 @@ mod tests {
         let corpus = crate::corpus::build_corpus().unwrap();
         let entry = corpus
             .iter()
-            .find(|entry| !entry.truth.punctuation.is_empty() && entry.truth.content_mask.is_some())
+            .find(|entry| entry.id == "synthetic-faint-pencil")
             .unwrap();
         let truth = entry.truth.content_mask.as_ref().unwrap();
         let correct = evaluate_composed_pixels(entry, truth);
@@ -1468,6 +1476,17 @@ mod tests {
             "white composed output must be an erased page"
         );
         assert_eq!(erased.despeckle.retained_punctuation_markers, 0);
+        let black = BinaryImage::from_fn_parallel(truth.width(), truth.height(), |_, _| true);
+        let flooded = evaluate_composed_pixels(entry, &black);
+        assert!(flooded.binarization.blank_region_floods > 0);
+        let counters = composed_catastrophes(&[ComposedPageMetrics {
+            id: entry.id.clone(),
+            metrics: flooded,
+        }]);
+        assert_eq!(
+            counters["blankRegionFloods"], 1,
+            "black composed output must fail the catastrophe gate"
+        );
         let fragments = BinaryImage::from_fn_parallel(truth.width(), truth.height(), |x, y| {
             x % 4 == 0 && y % 4 == 0
         });

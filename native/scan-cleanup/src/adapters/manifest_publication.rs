@@ -3,7 +3,7 @@ use crate::{
     protocol::manifest_v3::ManifestV3,
 };
 use evb_native_support::{NativeError, NativeErrorCode};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::{
     collections::HashSet,
     error::Error,
@@ -14,7 +14,7 @@ use std::{
 const PUBLICATION_JOURNAL_VERSION: u32 = 1;
 const PUBLICATION_JOURNAL_SUFFIX: &str = ".evb-publication-journal.json";
 
-#[derive(Clone, Serialize)]
+#[derive(Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct PublicationJournalEntry {
     original: PathBuf,
@@ -22,7 +22,7 @@ struct PublicationJournalEntry {
     remove: bool,
 }
 
-#[derive(Serialize)]
+#[derive(Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct PublicationJournal {
     version: u32,
@@ -31,10 +31,88 @@ struct PublicationJournal {
     entries: Vec<PublicationJournalEntry>,
 }
 
-fn publication_journal_path(manifest_path: &Path) -> PathBuf {
+pub(super) fn publication_journal_path(manifest_path: &Path) -> PathBuf {
     let mut journal_path = manifest_path.as_os_str().to_os_string();
     journal_path.push(PUBLICATION_JOURNAL_SUFFIX);
     PathBuf::from(journal_path)
+}
+
+/// Replay direct CLI transactions. Manifest transactions remain owned by the
+/// sidecar host, which uses the same persisted journal representation.
+pub(super) fn recover_direct_publication(
+    anchor: &Path,
+    input: &Path,
+) -> Result<(), Box<dyn Error>> {
+    let journal_path = publication_journal_path(anchor);
+    let bytes = match fs::read(&journal_path) {
+        Ok(bytes) => bytes,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(error.into()),
+    };
+    let journal: PublicationJournal = serde_json::from_slice(&bytes)?;
+    if journal.version != PUBLICATION_JOURNAL_VERSION || journal.manifest_path != anchor {
+        return Err("invalid direct publication recovery journal".into());
+    }
+    // Refuse to recover over the next invocation's input or the journal itself.
+    let mut paths = crate::engine::staged_input::StagedPathPlan {
+        input_paths: vec![input.to_path_buf(), journal_path.clone()],
+        destination_paths: journal
+            .entries
+            .iter()
+            .map(|entry| entry.original.clone())
+            .collect(),
+    };
+    for entry in &journal.entries {
+        if let Some(backup) = &entry.backup {
+            let mut prefix = entry.original.as_os_str().to_os_string();
+            prefix.push(".evb-tmp-");
+            if !backup
+                .as_os_str()
+                .to_string_lossy()
+                .starts_with(&*prefix.to_string_lossy())
+            {
+                return Err("invalid publication backup path".into());
+            }
+            paths.destination_paths.push(backup.clone());
+        } else if !entry.remove {
+            return Err("publication recovery entry has no backup".into());
+        }
+    }
+    crate::engine::staged_input::preflight_paths(&paths)?;
+    for entry in journal.entries.iter().rev() {
+        if let Some(backup) = &entry.backup {
+            match fs::symlink_metadata(backup) {
+                Ok(metadata) if metadata.is_file() => {
+                    if journal.committed {
+                        fs::remove_file(backup)?;
+                    } else {
+                        match fs::remove_file(&entry.original) {
+                            Ok(()) => {}
+                            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                            Err(error) => return Err(error.into()),
+                        }
+                        fs::rename(backup, &entry.original)?;
+                    }
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                    if !journal.committed && !entry.original.is_file() {
+                        return Err(
+                            format!("publication backup is missing: {}", backup.display()).into(),
+                        );
+                    }
+                }
+                Ok(_) => return Err("publication backup is not a regular file".into()),
+                Err(error) => return Err(error.into()),
+            }
+        } else if !journal.committed && entry.remove {
+            match fs::remove_file(&entry.original) {
+                Ok(()) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => return Err(error.into()),
+            }
+        }
+    }
+    remove_publication_journal(&journal_path).map_err(Into::into)
 }
 
 fn remove_publication_journal(path: &Path) -> Result<(), String> {

@@ -665,6 +665,51 @@ describe('Electron E2E - Blocking PDF Save Smoke', () => {
         expect(queueState.mountedRowCount).toBeLessThan(100);
         expect(queueState.scrollHeight).toBeGreaterThan(30_000);
         expect(queueState.firstRowIndex).toBe('0');
+
+        // A wheel during a drag must not move a different file when the
+        // virtual window changes. Compare the queue order after returning.
+        const list = await page.$('.combine-file-list');
+        const listBox = await list!.boundingBox();
+        expect(listBox).not.toBeNull();
+        await page.mouse.move(listBox!.x + listBox!.width / 2, listBox!.y + listBox!.height / 2);
+        await page.mouse.wheel({deltaY: 1200});
+        await page.waitForFunction(() => Number(document.querySelector<HTMLElement>('[data-combine-row]')?.dataset.combineRowIndex) > 0);
+        const before = await page.evaluate(() => Array.from(document.querySelectorAll<HTMLElement>('[data-combine-row]'))
+            .map(row => ({
+                index: row.dataset.combineRowIndex,
+                name: row.querySelector('strong')?.textContent,
+            })));
+        const handle = await page.$('.combine-file-list .combine-drag-handle');
+        // Pick a row within the visible viewport rather than the overscan.
+        const point = await page.evaluate(() => {
+            const listRect = document.querySelector('.combine-file-list')!.getBoundingClientRect();
+            const handles = Array.from(document.querySelectorAll<HTMLElement>('.combine-drag-handle'));
+            const target = handles.find(element => {
+                const rect = element.getBoundingClientRect();
+                return rect.top > listRect.top && rect.bottom + rect.height * 2 < listRect.bottom;
+            });
+            const rect = target!.getBoundingClientRect();
+            return {
+                x: rect.left + rect.width / 2,
+                y: rect.top + rect.height / 2,
+            };
+        });
+        expect(handle).not.toBeNull();
+        await page.mouse.move(point.x, point.y);
+        await page.mouse.down();
+        await page.mouse.move(point.x, point.y + 65);
+        const firstIndex = before[0]!.index;
+        await page.mouse.wheel({deltaY: 100});
+        await page.waitForFunction(index => document.querySelector<HTMLElement>('[data-combine-row]')?.dataset.combineRowIndex !== index, {}, firstIndex);
+        await page.mouse.up();
+        await page.mouse.wheel({deltaY: -100});
+        await page.waitForFunction(index => document.querySelector<HTMLElement>('[data-combine-row]')?.dataset.combineRowIndex === index, {}, firstIndex);
+        const after = await page.evaluate(() => Array.from(document.querySelectorAll<HTMLElement>('[data-combine-row]'))
+            .map(row => ({
+                index: row.dataset.combineRowIndex,
+                name: row.querySelector('strong')?.textContent,
+            })));
+        expect(after).toEqual(before);
     }, BLOCKING_SMOKE_TIMEOUT_MS);
 
     it('returns an empty tab to Start and tells the failure when a launch path cannot be opened', async () => {

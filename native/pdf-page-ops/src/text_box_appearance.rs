@@ -105,6 +105,22 @@ impl TextBoxSourceDescriptor {
             .map(|g| g.bounds)
     }
 
+    pub(crate) fn write_frame(&self, dict: &mut Dictionary) {
+        dict.set(
+            "Border",
+            vec![0.into(), 0.into(), number_object(self.border_width)],
+        );
+        if let Some(rd) = self.raw_rd {
+            dict.set("RD", rd.map(number_object).to_vec());
+        }
+        if let Some(color) = &self.background {
+            dict.set(
+                "C",
+                color.iter().map(|n| number_object(*n)).collect::<Vec<_>>(),
+            );
+        }
+    }
+
     pub(crate) fn frame(&self, rect: PdfRect) -> FreeTextFrame {
         let source = Document::new();
         let mut dict = dictionary! {"Rect" => rect_object(rect), "Border" => vec![0.into(), 0.into(), number_object(self.border_width)]};
@@ -328,6 +344,7 @@ pub(crate) fn build_text_box_appearance_pdf(
             "D:19700101000000Z",
             appearance,
             i64::from(rotation),
+            true,
             existing,
         );
         document.set_object(id, dict);
@@ -664,6 +681,9 @@ pub(crate) fn validate_text_boxes(editors: &[TextBoxMutation]) -> Result<()> {
         ));
     }
     for editor in editors {
+        if let Some(source) = &editor.source {
+            source.validate()?;
+        }
         if editor.stable_key.trim().is_empty() || editor.stable_key.len() > 512 {
             return Err("Invalid text box stable key".into());
         }
@@ -860,6 +880,8 @@ pub(crate) struct TextBoxOriginalAppearance {
 pub(crate) struct TextBoxMutation {
     #[serde(default)]
     pub(crate) original_appearance: Option<TextBoxOriginalAppearance>,
+    #[serde(default)]
+    pub(crate) source: Option<TextBoxSourceDescriptor>,
     pub(crate) page_index: u32,
     pub(crate) stable_key: String,
     #[serde(default)]

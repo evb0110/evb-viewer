@@ -138,6 +138,7 @@ export function buildWorkspaceCheckpoint(
                 ? capturedAnnotationRecovery.recovery
                 : null;
             const toolbar = view?.toolbarSnapshot.value ?? null;
+            const reader = toolbar && (toolbar.hasPdf || view?.restored) ? toolbar : null;
             return {
                 tabId: snapshot.tabId,
                 paneId: snapshot.paneId,
@@ -148,12 +149,12 @@ export function buildWorkspaceCheckpoint(
                 requiresSaveAsOnFirstSave: documentRefs.requiresSaveAsOnFirstSave,
                 isDirty: snapshot.isDirty,
                 isDjvu: snapshot.isDjvu,
-                currentPage: toolbar?.hasPdf ? toolbar.currentPage : null,
-                zoom: toolbar?.hasPdf ? toolbar.zoom : null,
-                zoomMode: toolbar?.hasPdf ? toolbar.zoomMode : null,
-                continuousScroll: toolbar?.hasPdf ? toolbar.continuousScroll : null,
-                viewMode: toolbar?.hasPdf ? toolbar.viewMode : null,
-                viewRotation: toolbar?.hasPdf ? toolbar.viewRotation : null,
+                currentPage: reader?.currentPage ?? null,
+                zoom: reader?.zoom ?? null,
+                zoomMode: reader?.zoomMode ?? null,
+                continuousScroll: reader?.continuousScroll ?? null,
+                viewMode: reader?.viewMode ?? null,
+                viewRotation: reader?.viewRotation ?? null,
                 // A cleanup surface is not restorable without its file-backed
                 // page mapping. Keep the checkpoint on the reader surface;
                 // completed outputs are recovered through the main journal.

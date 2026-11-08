@@ -1925,6 +1925,17 @@ fn validates_each_distinct_new_markup_identity_after_save() {
 }
 
 #[test]
+fn accepts_editor_sized_multilingual_markup_contents() {
+    let mut hint = test_markup_hint(0);
+    hint.contents = Some("я".repeat(1_025));
+    validate_markup_mutation(&MarkupMutation { hints: vec![hint.clone()] }).unwrap();
+    hint.contents = Some("界".repeat(65_536));
+    validate_markup_mutation(&MarkupMutation { hints: vec![hint.clone()] }).unwrap();
+    hint.contents = Some(format!("{}a", "界".repeat(65_536)));
+    assert!(validate_markup_mutation(&MarkupMutation { hints: vec![hint] }).is_err());
+}
+
+#[test]
 fn caps_text_markup_hints_before_matching() {
     let hints = (0..=MAX_MARKUP_SUBTYPE_HINTS)
         .map(test_markup_hint)
@@ -3088,6 +3099,46 @@ fn preserves_an_untouched_imported_appearance_when_a_sibling_shape_changes() {
                 "{route}: only the explicitly selected editable thread is deleted"
             );
             assert_regression_appearance(&document, &saved, appearances);
+        }
+    }
+}
+
+#[test]
+fn preserves_restricted_and_two_color_shapes_when_a_sibling_changes() {
+    let (mut document, page_id) = create_test_document();
+    let mut locked = shape_with_stale_appearance("Square");
+    locked.set("F", 132);
+    let locked_appearances = regression_appearance(&mut document, &mut locked);
+    let locked_id = document.add_object(locked);
+    let mut arrow = shape_with_stale_appearance("Line");
+    arrow.set("C", vec![1.into(), 0.into(), 0.into()]);
+    arrow.set("IC", vec![0.into(), 0.into(), 1.into()]);
+    arrow.set("LE", vec![Object::Name(b"None".to_vec()), Object::Name(b"ClosedArrow".to_vec())]);
+    let appearances = regression_appearance(&mut document, &mut arrow);
+    let arrow_id = document.add_object(arrow);
+    let mut editable = shape_with_stale_appearance("Square");
+    editable.remove(b"AP");
+    editable.set("NM", Object::string_literal("evb-shape:changed-square"));
+    let editable_id = document.add_object(editable);
+    document.get_dictionary_mut(page_id).unwrap().set("Annots", vec![locked_id.into(), arrow_id.into(), editable_id.into()]);
+    let parsed = collect_parsed_annotations(&document, "").unwrap();
+    for id in [locked_id, arrow_id] {
+        assert!(parsed.iter().any(|entry| matches!(entry, PdfAnnotationParseEntry::Foreign(value) if value.object_number == u64::from(id.0))));
+    }
+    let mut changed = imported_on_page_square("evb-shape:changed-square");
+    changed.annotation_id = Some(format!("{} 0 R", editable_id.0));
+    changed.color = "#112233".to_string();
+    for route in ["full", "path", "bytes"] {
+        for rewrite in [false, true] {
+            let mut mutation = shapes_mutation(vec![changed.clone()]);
+            mutation.shapes.as_mut().unwrap().rewrite_shape_state = rewrite;
+            let saved = saved_annotation_regression(&document, &mutation, route, "D:20261104000100Z");
+            assert_eq!(get_page_annots(&saved, page_id).unwrap(), get_page_annots(&document, page_id).unwrap(), "{route}, rewrite={rewrite}");
+            for id in [locked_id, arrow_id] {
+                assert_eq!(saved.get_dictionary(id).unwrap(), document.get_dictionary(id).unwrap(), "{route}, rewrite={rewrite}");
+            }
+            assert_regression_appearance(&document, &saved, appearances);
+            assert_regression_appearance(&document, &saved, locked_appearances);
         }
     }
 }

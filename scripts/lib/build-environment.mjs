@@ -5,6 +5,7 @@ import {
 import {existsSync} from 'node:fs';
 import {homedir} from 'node:os';
 import path from 'node:path';
+import {getCargoRustcLauncher} from './cargo-rustc-launcher.mjs';
 
 // The environment values the viewer build reads. nuxt.config.ts and the build
 // scripts take their values from readBuildEnvironment, and the release build
@@ -126,6 +127,7 @@ export function getCargoFingerprintEnvironment(env) {
     const prefixes = [
         'AR_',
         'CARGO_',
+        'EVB_CARGO_',
         'CC_',
         'CFLAGS_',
         'CXX_',
@@ -166,29 +168,15 @@ function getRustupHome(env, projectRoot) {
     return env.RUSTUP_HOME ? path.resolve(projectRoot, env.RUSTUP_HOME) : path.join(homedir(), '.rustup');
 }
 
-// CARGO_ENCODED_RUSTFLAGS separates flags with the Unit Separator. RUSTFLAGS splits
-// on whitespace, so a home folder with a space in it would become two arguments.
-export const CARGO_ENCODED_RUSTFLAGS_SEPARATOR = '\u001f';
-
 /**
- * The Rust flags of every native and WASM build. Rust records the source, registry and
- * toolchain paths it compiled from in panic locations, so the same commit built in
- * another folder or home gave other bytes and another provenance hash. These remaps
- * give those paths fixed names. Optimisation and features are unchanged.
- *
+ * Build-owned arguments, kept separate from Cargo's flag resolution.
  * @param {{env?: NodeJS.ProcessEnv, extraRustflags?: string[], projectRoot: string}} options
  * @returns {string[]}
  */
 export function getCargoRustflags({
-    env = process.env,
-    extraRustflags = [],
-    projectRoot,
+    env = process.env, extraRustflags = [], projectRoot,
 }) {
-    const inherited = env.CARGO_ENCODED_RUSTFLAGS === undefined
-        ? (env.RUSTFLAGS ?? '').split(/\s+/u)
-        : env.CARGO_ENCODED_RUSTFLAGS.split(CARGO_ENCODED_RUSTFLAGS_SEPARATOR);
     return [
-        ...inherited.filter(Boolean),
         `--remap-path-prefix=${getCargoHome(env, projectRoot)}=/cargo-home`,
         `--remap-path-prefix=${getRustupHome(env, projectRoot)}=/rustup-home`,
         `--remap-path-prefix=${projectRoot}=/evb-viewer`,
@@ -200,6 +188,7 @@ export function getCargoRustflags({
  * @param {{
  *   env?: NodeJS.ProcessEnv;
  *   platform?: NodeJS.Platform;
+ *   extraRustflags?: string[];
  *   projectRoot: string;
  *   runCommand?: (
  *     command: string,
@@ -211,48 +200,32 @@ export function getCargoRustflags({
 export function getCargoBuildEnvironment({
     env = process.env,
     platform = process.platform,
+    extraRustflags = [],
     projectRoot,
     runCommand = spawnSync,
 }) {
-    const remappedEnv = {
-        ...env,
-        CARGO_ENCODED_RUSTFLAGS: getCargoRustflags({
-            env,
-            // ld64 writes each object's path into the debug map before stripping, and
-            // LC_UUID hashes that map. The prefix keeps the build folder out of the UUID.
-            extraRustflags: platform === 'darwin'
-                ? [
-                    '-C',
-                    `link-arg=-Wl,-oso_prefix,${projectRoot}`,
-                ]
-                : [],
-            projectRoot,
-        }).join(CARGO_ENCODED_RUSTFLAGS_SEPARATOR),
-    };
-    if (env.RUSTC_WRAPPER) {
-        return {
-            env: remappedEnv,
-            sccache: `configured (${env.RUSTC_WRAPPER})`,
-        };
-    }
-    if (env.EVB_RUST_SCCACHE !== '1') {
-        return {
-            env: remappedEnv,
-            sccache: 'disabled',
-        };
-    }
-    const result = runCommand('sccache', ['--version'], {encoding: 'utf8'});
-    if (result.status === 0) {
-        return {
-            env: {
-                ...remappedEnv,
-                RUSTC_WRAPPER: 'sccache',
-            },
-            sccache: String(result.stdout).trim(),
-        };
-    }
+    const probe = !env.RUSTC_WRAPPER && env.EVB_RUST_SCCACHE === '1'
+        ? runCommand('sccache', ['--version'], {encoding: 'utf8'}) : null;
+    const inner = env.RUSTC_WRAPPER || (probe?.status === 0 ? 'sccache' : '');
     return {
-        env: remappedEnv,
-        sccache: 'unavailable',
+        env: {
+            ...env,
+            RUSTC_WRAPPER: platform === 'win32'
+                ? getCargoRustcLauncher(projectRoot, env)
+                : path.join(projectRoot, 'scripts', 'lib', 'cargo-rustc-wrapper.mjs'),
+            EVB_CARGO_NODE: process.execPath,
+            EVB_CARGO_WRAPPER_SCRIPT: path.join(projectRoot, 'scripts', 'lib', 'cargo-rustc-wrapper.mjs'),
+            EVB_CARGO_INNER_WRAPPER: inner,
+            EVB_CARGO_RUSTFLAGS: JSON.stringify(getCargoRustflags({
+                env,
+                projectRoot,
+            })),
+            EVB_CARGO_APPLE_RUSTFLAGS: JSON.stringify(platform === 'darwin' ? [
+                '-C',
+                `link-arg=-Wl,-oso_prefix,${projectRoot}`,
+            ] : []),
+            EVB_CARGO_WASM_RUSTFLAGS: JSON.stringify(extraRustflags),
+        },
+        sccache: env.RUSTC_WRAPPER ? `configured (${inner})` : inner ? String(probe?.stdout).trim() : (env.EVB_RUST_SCCACHE === '1' ? 'unavailable' : 'disabled'),
     };
 }

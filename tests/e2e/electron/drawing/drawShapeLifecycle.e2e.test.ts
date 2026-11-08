@@ -2260,7 +2260,7 @@ describe('Electron E2E - Draw Shape Lifecycle', () => {
         await waitForPdfLoaded(page);
         await waitForViewerInteractive(page);
         await clickAnnotationTool(page, 'Select');
-        await waitForShapeCount(page, 2);
+        await waitForShapeCount(page, 1);
         await page.screenshot({path: join(directory, 'opened.png')});
         const siblingSelector = '.editor-pane.is-active g[data-annotation-kind="shape"][data-annotation-id*="sibling"] [data-annotation-hit-target]';
         await clickAsUser(page, siblingSelector);
@@ -2317,7 +2317,7 @@ describe('Electron E2E - Draw Shape Lifecycle', () => {
         await expect.poll(async () => (await readWorkspaceStateValues<{originalPath?: string | null}>(page, ['originalPath'])).originalPath).toBeNull();
         await openPdfInApp(page, sourcePath);
         await waitForPdfLoaded(page);
-        await waitForShapeCount(page, 2);
+        await waitForShapeCount(page, 1);
         await page.waitForFunction(() => document.querySelector('.editor-pane.is-active .notes-list')?.textContent?.includes('Edited skewed comment with real input') === true);
         await page.screenshot({path: join(directory, 'reopened.png')});
         execFileSync(getPdfNativeToolPaths().qpdf, [

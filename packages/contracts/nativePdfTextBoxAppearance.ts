@@ -58,6 +58,8 @@ export const PDF_NATIVE_TEXT_BOX_SOURCE_DESCRIPTOR_SCHEMA = v.pipe(v.strictObjec
     staleFill: v.boolean(),
 }), v.check(value => (value.borderWidth > 0) === (value.borderColor !== undefined), 'border color must match a positive border width'));
 
+export type IPdfNativeTextBoxSourceDescriptor = v.InferOutput<typeof PDF_NATIVE_TEXT_BOX_SOURCE_DESCRIPTOR_SCHEMA>;
+
 export function normalizePdfNativeTextBoxAppearanceRequest(
     value: unknown,
     options: IPdfNativeValidationOptions = {},
@@ -180,6 +182,8 @@ export function normalizeTextBoxes(
                 fail(`${label}[${index}].originalAppearance must identify one bounded recovery graph or retained source annotation`, options);
             }
         }
+        const source = editor.source === undefined ? undefined : v.safeParse(PDF_NATIVE_TEXT_BOX_SOURCE_DESCRIPTOR_SCHEMA, editor.source);
+        if (source && !source.success) fail(`${label}[${index}].source must be a valid text box source descriptor`, options);
         const unsupportedCharacter = originalAppearance === undefined ? firstUnsupportedAnnotationCharacter(editor.text) : undefined;
         if (unsupportedCharacter !== undefined) {
             const codepoint = unsupportedCharacter.codePointAt(0)!.toString(16).toUpperCase().padStart(4, '0');
@@ -215,6 +219,7 @@ export function normalizeTextBoxes(
             pageIndex: requirePageIndex(editor.pageIndex),
             stableKey,
             ...(originalAppearance === undefined ? {} : {originalAppearance}),
+            ...(source === undefined ? {} : {source: source.output}),
             ...(editor.annotationId === undefined ? {} : {annotationId}),
             text: editor.text,
             rect,

@@ -19,6 +19,7 @@ describe('decodeCropWorkerInput', () => {
                 bottom: 2,
                 left: 3,
                 right: 4,
+                physical: true,
                 ignored: true,
             },
             senderWebContentsId: 9,
@@ -35,6 +36,7 @@ describe('decodeCropWorkerInput', () => {
                 bottom: 2,
                 left: 3,
                 right: 4,
+                physical: true,
             },
             senderWebContentsId: 9,
         });
@@ -94,6 +96,18 @@ describe('decodeCropWorkerInput', () => {
                 bottom: 0,
                 left: 0,
                 right: 0,
+            },
+        },
+        {
+            type: 'crop',
+            workingCopyPath: '/tmp/work.pdf',
+            pages: [1],
+            margins: {
+                top: 0,
+                bottom: 0,
+                left: 0,
+                right: 0,
+                physical: 'true',
             },
         },
         {

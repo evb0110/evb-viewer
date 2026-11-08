@@ -217,6 +217,11 @@ export async function runNativeToolBuilder(argv = process.argv.slice(2)) {
         );
         sourcePaths.push(...getNativeExternalBuildInputs(plan.tool.crateName)
             .map(input => path.join(projectRoot, input)));
+        sourcePaths.push(...[
+            'cargo-rustc-wrapper.mjs',
+            'cargo-rustc-wrapper.rs',
+            'cargo-rustc-launcher.mjs',
+        ].map(file => path.join(projectRoot, 'scripts', 'lib', file)));
         sourcePaths.push(...getCargoConfigurationInputs({
             env: cargoEnvironment.env,
             projectRoot,

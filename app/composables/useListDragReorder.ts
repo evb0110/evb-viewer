@@ -224,14 +224,12 @@ export const useListDragReorder = (
     useEventListener(activePointerTarget, 'pointerup', finishDrag);
     useEventListener(activePointerTarget, 'lostpointercapture', finishDrag);
 
-    onUnmounted(() => {
-        clearAllTransforms();
-        document.body.style.cursor = '';
-    });
+    onUnmounted(resetDragState);
 
     return {
         isDragging: readonly(isDragging),
         dragIndex: readonly(dragIndex),
         onPointerDown,
+        cancel: resetDragState,
     };
 };

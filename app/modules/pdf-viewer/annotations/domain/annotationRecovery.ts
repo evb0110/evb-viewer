@@ -8,6 +8,7 @@ import type {
     IPdfForeignAnnotationRecord,
 } from '@app/modules/pdf-viewer/annotations/domain/annotationStore';
 import {isRecord} from '@contracts/runtimeGuards';
+import {mapWorkspaceRecoveryRasters} from '@contracts/workspaceCheckpoint';
 
 export const CANONICAL_ANNOTATION_RECOVERY_VERSION = 1 as const;
 const MAX_RECOVERY_BYTES = 4 * 1024 * 1024;
@@ -107,7 +108,10 @@ function validateEntity(entity: unknown): asserts entity is AnnotationEntity {
 function assertRecoveryWithinBudget(recovery: ICanonicalAnnotationRecovery) {
     let encoded: string;
     try {
-        encoded = JSON.stringify(recovery);
+        encoded = JSON.stringify(mapWorkspaceRecoveryRasters(recovery, image => ({
+            ...image,
+            dataBase64: '',
+        })));
     } catch (error) {
         throw new AnnotationRecoveryAdmissionError(`Recovery state is not serializable: ${String(error)}`);
     }

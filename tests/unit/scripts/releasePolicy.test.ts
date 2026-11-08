@@ -1,3 +1,4 @@
+import {cast} from '@tests/helpers/cast';
 import {
     describe,
     expect,
@@ -851,6 +852,9 @@ describe('release policy', () => {
             return step;
         };
         // A public release is resumed without packaging, so it skips the signing step.
+        const finalize = cast<{jobs: {finalize: {steps: IWorkflowStep[]}}}>(getStaticYAMLValue(parseYAML(workflowSource))).jobs.finalize;
+        const validate = finalize.steps.find(step => step.name === 'Validate final updater artifacts');
+        expect(validate?.env?.EVB_RELEASE_HAS_MAC_SIGNING).toBe('${{ needs.gate.outputs.public_release == \'true\' || (secrets.CSC_LINK != \'\' && secrets.CSC_KEY_PASSWORD != \'\') }}');
         const signing = gateStep('Validate signing credentials');
         expect(signing.if).toBe('${{ steps.published.outputs.public != \'true\' }}');
         const mirror = gateStep('Validate mirror credentials');

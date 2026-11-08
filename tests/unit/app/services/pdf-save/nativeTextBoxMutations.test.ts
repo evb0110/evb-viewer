@@ -18,6 +18,7 @@ import {
     prepareNativeTextBoxPagePaint,
     type INativeTextBoxAppearance,
 } from '@app/modules/pdf-viewer/runtime/save/nativeTextBoxMutations';
+import type {IPdfAnnotationParseResult} from '@contracts/pdfAnnotationParseTypes';
 import {requireDocumentRevisionToken} from '@contracts/documentRevision';
 import {requirePageIndex} from '@contracts/pageNumbers';
 import {requireEpochMs} from '@contracts/timestamps';
@@ -173,6 +174,71 @@ describe('native canonical text-box mutations', () => {
         }]);
         expect(getPage).toHaveBeenCalledOnce();
         expect(getPage).toHaveBeenCalledWith(1);
+    });
+
+    it('retains the imported frame when recreating an edited deleted box', async () => {
+        const source = {
+            version: 1,
+            borderWidth: 2,
+            borderColor: [
+                1,
+                0,
+                0,
+            ],
+            background: [
+                1,
+                1,
+                0,
+            ],
+            rawRD: [
+                3,
+                4,
+                5,
+                6,
+            ],
+            staleFill: false,
+        };
+        const original = cast<IPdfAnnotationParseResult>({entities: [{
+            kind: 'text-box',
+            name: 'history-box',
+            objectNumber: 10,
+            generationNumber: 0,
+            pageIndex: 0,
+            text: 'Original',
+            rect: {
+                left: 0.1,
+                top: 0.2,
+                width: 0.25,
+                height: 0.1,
+            },
+            rotation: 0,
+            fontSize: 16,
+            color: '#112233',
+            author: null,
+            createdAt: null,
+            modifiedAt: null,
+            source,
+        }]});
+        const entity = textBox('history-box', {
+            text: 'Edited',
+            persistedRevision: -1,
+        });
+        const result = await collectNativeTextBoxMutationsForSave(
+            documentWithPages(async () => ({
+                rotate: 0,
+                view: [
+                    0,
+                    0,
+                    600,
+                    800,
+                ],
+            })), planFor([entity]), original,
+        );
+        expect(result?.[0]).toMatchObject({
+            text: 'Edited',
+            source,
+        });
+        expect(result?.[0]?.originalAppearance).toBeUndefined();
     });
 
     it('loads a page once for multiple changed text boxes on that page', async () => {

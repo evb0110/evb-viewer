@@ -1,3 +1,4 @@
+import {getUnprovenNativeTerminationDetail} from '@contracts/nativeErrors';
 import {randomUUID} from 'node:crypto';
 import {
     rm,
@@ -103,6 +104,7 @@ export async function inspectPdfPageTextVisibility(input: {
         };
     }
     const pagesPath = join(input.tempDir, `ocr-text-visibility-${randomUUID()}.txt`);
+    let failure: unknown;
     try {
         await writeFile(pagesPath, `${[...new Set(input.pageNumbers)].join('\n')}\n`);
         const result = await runNativeToolCommand(input.pdfPageOpsBinary, [
@@ -134,7 +136,8 @@ export async function inspectPdfPageTextVisibility(input: {
             ])),
         };
     } catch (error) {
-        if (isAbortError(error) || input.signal?.aborted) {
+        failure = error;
+        if (getUnprovenNativeTerminationDetail(error) !== undefined || isAbortError(error) || input.signal?.aborted) {
             throw error;
         }
         const message = `Existing OCR layers could not be inspected: ${getErrorMessage(error)}`;
@@ -157,6 +160,6 @@ export async function inspectPdfPageTextVisibility(input: {
             visibility: new Map(),
         };
     } finally {
-        await rm(pagesPath, {force: true}).catch(() => undefined);
+        if (getUnprovenNativeTerminationDetail(failure) === undefined) await rm(pagesPath, {force: true}).catch(() => undefined);
     }
 }

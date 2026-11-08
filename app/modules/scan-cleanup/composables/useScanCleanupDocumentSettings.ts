@@ -122,8 +122,7 @@ export const useScanCleanupDocumentSettings = (options: IUseScanCleanupDocumentS
     let marginIntent: Partial<IScanCleanupMarginsMm> = {};
     let defaultsIntent: Partial<IScanCleanupPageOverride> = {};
     const overrideIntents = new Map<string, Partial<IScanCleanupPageOverride> | null>();
-    let overridesReset = false;
-    // The document's settings as this view last read them from the store.
+    let overridesReset: IScanCleanupDocumentPreferencePatch | null = null;
     let lastStored: ReturnType<typeof readStored> | null = null;
     let previousDocumentContext: IPreviousDocumentContext | null = null;
 
@@ -136,8 +135,16 @@ export const useScanCleanupDocumentSettings = (options: IUseScanCleanupDocumentS
             || (isDesktopPlatformActive() && !isScanCleanupSourceSha256(documentSha256))) {
             return;
         }
-        void Promise.resolve(scheduleScanCleanupDocumentPreferencesInStore(documentSha256, documentKey, patch))
-            .catch(() => undefined);
+        const generation = documentLoadGeneration;
+        const reset = patch.resetOverrides ? overridesReset = cloneScanCleanupPreferenceValue(patch) : null;
+        const write = reset ? saveScanCleanupDocumentPreferencesInStore : scheduleScanCleanupDocumentPreferencesInStore;
+        void write(documentSha256, documentKey, patch).then(() => {
+            if (!reset || overridesReset !== reset || generation !== documentLoadGeneration || !lastStored) return;
+            lastStored.overrides = reset.overrides ?? {};
+            lastStored.pageOverrideDefaults = createScanCleanupPageOverride(reset.pageOverrideDefaults ?? {});
+            overridesReset = null;
+            rereadStoredSettings();
+        }).catch(() => undefined);
     }
 
     function readStored(snapshot: IScanCleanupDocumentSettingsSnapshot) {
@@ -284,7 +291,7 @@ export const useScanCleanupDocumentSettings = (options: IUseScanCleanupDocumentS
     function resetPageOverrides() {
         // Resetting every page is not undoable, and earlier page edits no longer replay onto it.
         commandSink?.reset('scan-cleanup');
-        overridesReset = true;
+        overridesReset = {};
         overrideIntents.clear();
         defaultsIntent = {};
         documentIntents.add('overrides');
@@ -422,7 +429,7 @@ export const useScanCleanupDocumentSettings = (options: IUseScanCleanupDocumentS
             marginIntent = {};
             defaultsIntent = {};
             overrideIntents.clear();
-            overridesReset = false;
+            overridesReset = null;
             if (previousDocumentContext !== null) {
                 applyingDocumentSettings = true;
                 values.pageOverrides = {};

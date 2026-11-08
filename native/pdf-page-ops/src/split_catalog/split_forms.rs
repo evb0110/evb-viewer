@@ -8,10 +8,13 @@ pub(crate) fn write_subset_form_path(
     input: &Path,
     output: &Path,
     qpdf: Option<&Path>,
+    print: bool,
 ) -> Result<()> {
     let mut incremental = load_dictionary_incremental_pdf_path(input, qpdf)?;
     let source = &incremental.previous_document;
-    assert_page_structure_supported(source)?;
+    if !print {
+        assert_page_structure_supported(source)?;
+    }
     if !source.catalog()?.has(b"AcroForm") {
         return if input == output {
             Ok(())
@@ -60,57 +63,57 @@ pub(crate) fn split_form_with_copy(
     annotations: &SplitAnnotationMap,
     copy: &mut impl FnMut(Object) -> Result<Object>,
 ) -> Result<Option<Dictionary>> {
-    if let Ok(form) = source.catalog()?.get(b"AcroForm") {
-        let source_form = source.resolved(form)?.as_dict()?;
-        let mut form = source_form.clone();
-        form.remove(b"Fields");
-        form.remove(b"CO");
-        let mut form = copy(Object::Dictionary(form))?.as_dict()?.clone();
-        let mut state = CatalogWalkState::new();
-        let mut fields = HashMap::new();
-        let mut roots = Vec::new();
-        for field in source_form
-            .get(b"Fields")
-            .ok()
-            .and_then(|fields| source.resolved(fields).ok())
-            .and_then(|fields| fields.as_array().ok())
-            .map(Vec::as_slice)
-            .unwrap_or_default()
-        {
-            for field in split_form_field(
-                source,
-                target,
-                field,
-                (None, None),
-                annotations,
-                &mut fields,
-                &mut state,
-                copy,
-                0,
-            )? {
-                roots.push(field.into());
-            }
+    let Ok(form) = source.catalog()?.get(b"AcroForm") else {
+        return Ok(None);
+    };
+    let source_form = source.resolved(form)?.as_dict()?;
+    let mut form = source_form.clone();
+    form.remove(b"Fields");
+    form.remove(b"CO");
+    let mut form = copy(Object::Dictionary(form))?.as_dict()?.clone();
+    let mut state = CatalogWalkState::new();
+    let mut fields = HashMap::new();
+    let mut roots = Vec::new();
+    for field in source_form
+        .get(b"Fields")
+        .ok()
+        .and_then(|fields| source.resolved(fields).ok())
+        .and_then(|fields| fields.as_array().ok())
+        .map(Vec::as_slice)
+        .unwrap_or_default()
+    {
+        for field in split_form_field(
+            source,
+            target,
+            field,
+            (None, None),
+            annotations,
+            &mut fields,
+            &mut state,
+            copy,
+            0,
+        )? {
+            roots.push(field.into());
         }
-        form.set("Fields", roots);
-        if let Ok(order) = source_form.get(b"CO") {
-            let order = source
-                .resolved(order)?
-                .as_array()?
-                .iter()
-                .filter_map(|field| {
-                    field
-                        .as_reference()
-                        .ok()
-                        .and_then(|id| fields.get(&id))
-                        .copied()
-                        .map(Object::Reference)
-                })
-                .collect::<Vec<_>>();
-            form.set("CO", order);
-        }
-        return Ok(Some(form));
     }
-    Ok(None)
+    form.set("Fields", roots);
+    if let Ok(order) = source_form.get(b"CO") {
+        let order = source
+            .resolved(order)?
+            .as_array()?
+            .iter()
+            .filter_map(|field| {
+                field
+                    .as_reference()
+                    .ok()
+                    .and_then(|id| fields.get(&id))
+                    .copied()
+                    .map(Object::Reference)
+            })
+            .collect::<Vec<_>>();
+        form.set("CO", order);
+    }
+    Ok(Some(form))
 }
 
 const FIELD_KEYS: &[&[u8]] = &[
@@ -183,13 +186,10 @@ fn split_form_field(
         // widget children, preserving its name and value exactly once.
         let id = target.new_object_id();
         let mut combined = Dictionary::new();
-        for key in FIELD_KEYS {
+        for key in FIELD_KEYS.iter().copied().chain([b"AA".as_slice()]) {
             if let Ok(value) = field.get(key) {
                 combined.set(key.to_vec(), value.clone());
             }
-        }
-        if let Ok(actions) = field.get(b"AA") {
-            combined.set("AA", actions.clone());
         }
         let mut kids = Vec::new();
         for (_, widget) in copies {

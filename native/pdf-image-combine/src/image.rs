@@ -414,20 +414,31 @@ fn png_composited_flate_page(
             max_compressed_bytes: bytes.len(),
         },
     )?;
+    let gray = matches!(
+        png.color_type,
+        PngColorType::Gray8 | PngColorType::GrayAlpha8
+    );
+    let pixels = decoded.into_data();
+    let pixels = if gray {
+        pixels.iter().step_by(3).copied().collect()
+    } else {
+        pixels
+    };
+    let colors = if gray { 1 } else { 3 };
     let compressed =
-        deflate_up_filtered_slices(decoded.data(), png.width as usize * 3, png.height as usize)?;
+        deflate_up_filtered_slices(&pixels, png.width as usize * colors, png.height as usize)?;
     let (dpi_x, dpi_y) = png_dpi(png.density, default_dpi);
     Ok(ImagePage {
         width: png.width,
         height: png.height,
         dpi_x,
         dpi_y,
-        color_space: "DeviceRGB",
+        color_space: if gray { "DeviceGray" } else { "DeviceRGB" },
         icc_profile: png.icc_profile,
         payload: ImagePayload::RawFlate {
             data: compressed,
             decode_params: format!(
-                "<< /Predictor 12 /Colors 3 /BitsPerComponent 8 /Columns {} >>",
+                "<< /Predictor 12 /Colors {colors} /BitsPerComponent 8 /Columns {} >>",
                 png.width
             ),
         },
@@ -588,7 +599,15 @@ fn read_png_jpeg_page(
                     max_compressed_bytes: bytes.len(),
                 },
             )?;
-            (3, Cow::Owned(decoded.into_data()))
+            let pixels = decoded.into_data();
+            if matches!(
+                png.color_type,
+                PngColorType::Gray8 | PngColorType::GrayAlpha8
+            ) {
+                (1, Cow::Owned(pixels.into_iter().step_by(3).collect()))
+            } else {
+                (3, Cow::Owned(pixels))
+            }
         }
     };
     let prepared = apply_jpeg_processing(
@@ -629,7 +648,15 @@ fn read_png_jpeg_page(
         dpi_x,
         dpi_y,
         color_space,
-        icc_profile: None,
+        icc_profile: if color_space == "DeviceGray"
+            && matches!(
+                png.color_type,
+                PngColorType::Gray8 | PngColorType::GrayAlpha8
+            ) {
+            png.icc_profile
+        } else {
+            None
+        },
         payload: ImagePayload::Jpeg { data },
     })
 }
@@ -1397,7 +1424,7 @@ mod tests {
                     data: &[0, 42],
                 },
                 b"\x00\x00".as_slice(),
-                vec![255, 255, 255, 42, 42, 42],
+                vec![255, 42],
             ),
             (
                 PixelBuffer::Rgb {
@@ -1427,7 +1454,14 @@ mod tests {
                 None,
             )
             .unwrap();
-            assert_eq!(page.color_space, "DeviceRGB");
+            assert_eq!(
+                page.color_space,
+                if expected.len() == 2 {
+                    "DeviceGray"
+                } else {
+                    "DeviceRGB"
+                }
+            );
             let ImagePayload::RawFlate { data, .. } = page.payload else {
                 panic!("expected composited flate payload")
             };
@@ -1437,6 +1471,41 @@ mod tests {
                 .unwrap();
             assert_eq!(decoded, [2].into_iter().chain(expected).collect::<Vec<_>>());
         }
+    }
+
+    #[test]
+    fn gray_icc_with_transparency_is_saved_with_one_component() {
+        let encoded = encode_png(PixelBuffer::Gray {
+            width: 2,
+            height: 1,
+            stride: 2,
+            data: &[0, 42],
+        })
+        .unwrap();
+        let profile = include_bytes!("../tests/fixtures/gray-gamma18.icc");
+        let mut compressed = ZlibEncoder::new(Vec::new(), Compression::default());
+        compressed.write_all(profile).unwrap();
+        let mut iccp = b"Gray\0\0".to_vec();
+        iccp.extend(compressed.finish().unwrap());
+        let mut png = encoded[..33].to_vec();
+        append_test_chunk(&mut png, b"iCCP", &iccp);
+        append_test_chunk(&mut png, b"tRNS", b"\0\0");
+        png.extend_from_slice(&encoded[33..]);
+        let page = read_image_page_from_bytes(
+            "gray.png",
+            &png,
+            &PdfBuildOptions::default(),
+            PdfImageCompression::Auto,
+            ImageProcessing::None,
+            None,
+            None,
+        )
+        .unwrap();
+        assert_eq!(page.color_space, "DeviceGray");
+        assert_eq!(page.icc_profile.as_deref(), Some(profile.as_slice()));
+        let pdf = crate::pdf::build_pdf(&[page]).unwrap();
+        assert!(pdf.windows(4).any(|part| part == b"/N 1"));
+        assert!(pdf.windows(profile.len()).any(|part| part == profile));
     }
 
     #[test]

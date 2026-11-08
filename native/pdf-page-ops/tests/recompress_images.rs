@@ -416,6 +416,43 @@ fn form_without_resources_draws_from_the_resources_of_its_page() {
 }
 
 #[test]
+fn photo_on_page_with_oversized_aggregate_content_keeps_its_bytes() {
+    let scratch = Scratch::new("aggregate-content");
+    let mut pdf = Pdf::new();
+    let pinned = pdf.image(1200, 900, 96, false, false);
+    let eligible = pdf.image(1200, 900, 96, false, false);
+    pdf.page(
+        dictionary! { "Photo" => pinned, "Other" => eligible },
+        "q 144 0 0 108 40 500 cm /Photo Do Q q 144 0 0 108 220 500 cm /Other Do Q",
+    );
+    let page = pdf.page(dictionary! { "Photo" => pinned }, "");
+    // Two individually legal streams exceed the 64 MiB page budget together.
+    let mut part = Stream::new(dictionary! {}, vec![b' '; 32 * 1024 * 1024 + 1]);
+    part.compress().unwrap();
+    let first = pdf.document.add_object(part.clone());
+    let second = pdf.document.add_object(part);
+    pdf.document.get_dictionary_mut(page).unwrap().set(
+        "Contents",
+        vec![Object::Reference(first), Object::Reference(second)],
+    );
+    pdf.save(&scratch.path("source.pdf"));
+
+    let report = run(&scratch, &[]);
+    image_report(&report, eligible, "recompressed");
+    assert!(
+        report["images"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|row| row["objectNumber"] != pinned.0),
+        "{report}"
+    );
+    let output = Document::load(scratch.path("output.pdf")).unwrap();
+    assert_stream_kept(&pdf.document, &output, pinned);
+    assert_dimensions(&output, eligible, 400, 300);
+}
+
+#[test]
 fn photo_inside_a_form_that_cannot_be_read_keeps_its_bytes() {
     let scratch = Scratch::new("form-unread");
     let mut pdf = Pdf::new();
@@ -678,7 +715,62 @@ fn four_component_jpeg_keeps_the_original_image_even_with_an_rgb_dictionary() {
 }
 
 #[test]
-fn neutral_icc_rgb_photo_is_saved_as_one_component_device_gray() {
+fn gray_icc_photo_keeps_its_color_space() {
+    let scratch = Scratch::new("gray-icc");
+    let mut pdf = Pdf::new();
+    let image = pdf.image(1200, 900, 96, true, false);
+    let pixels: Vec<u8> = (0..1200 * 900)
+        .map(|i| ((i * 17 + i / 1200) % 256) as u8)
+        .collect();
+    let mut jpeg = Vec::new();
+    Encoder::new(&mut jpeg, 96)
+        .encode(&pixels, 1200, 900, ColorType::Luma)
+        .unwrap();
+    let profile_bytes = include_bytes!("../../pdf-image-combine/tests/fixtures/gray-gamma18.icc");
+    let profile = pdf.document.add_object(Stream::new(
+        dictionary! { "N" => 1, "Alternate" => "DeviceGray" },
+        profile_bytes.to_vec(),
+    ));
+    let image_stream = pdf
+        .document
+        .get_object_mut(image)
+        .unwrap()
+        .as_stream_mut()
+        .unwrap();
+    image_stream.set_content(jpeg);
+    image_stream.dict.set(
+        "ColorSpace",
+        vec![
+            Object::Name(b"ICCBased".to_vec()),
+            Object::Reference(profile),
+        ],
+    );
+    pdf.page(
+        dictionary! { "Photo" => image },
+        "q 144 0 0 108 40 500 cm /Photo Do Q",
+    );
+    pdf.save(&scratch.path("source.pdf"));
+    let report = run(&scratch, &[]);
+    image_report(&report, image, "recompressed");
+    let output = Document::load(scratch.path("output.pdf")).unwrap();
+    let space = stream(&output, image)
+        .dict
+        .get(b"ColorSpace")
+        .unwrap()
+        .as_array()
+        .unwrap();
+    assert_eq!(space[0].as_name().unwrap(), b"ICCBased");
+    let stored = output
+        .get_object(space[1].as_reference().unwrap())
+        .unwrap()
+        .as_stream()
+        .unwrap();
+    assert_eq!(stored.dict.get(b"N").unwrap().as_i64().unwrap(), 1);
+    assert_eq!(stored.content, profile_bytes);
+}
+
+#[test]
+fn neutral_icc_rgb_photo_keeps_its_original_components() {
     let scratch = Scratch::new("icc-gray");
     let mut pdf = Pdf::new();
     let image = pdf.image(1200, 900, 96, true, false);
@@ -707,21 +799,20 @@ fn neutral_icc_rgb_photo_is_saved_as_one_component_device_gray() {
 
     let report = run(&scratch, &[]);
 
-    image_report(&report, image, "recompressed");
-    let output = Document::load(scratch.path("output.pdf")).unwrap();
-    assert_dimensions(&output, image, 400, 300);
-    let image = stream(&output, image);
+    image_report(&report, image, "unsupported");
+    let source = Document::load(scratch.path("source.pdf")).unwrap();
+    assert!(!scratch.path("output.pdf").exists());
     assert_eq!(
-        image.dict.get(b"ColorSpace").unwrap().as_name().unwrap(),
-        b"DeviceGray"
+        stream(&source, image)
+            .dict
+            .get(b"ColorSpace")
+            .unwrap()
+            .as_array()
+            .unwrap()[0]
+            .as_name()
+            .unwrap(),
+        b"ICCBased"
     );
-    // JPEG SOF0 stores precision, height, width, then component count.
-    let sof = image
-        .content
-        .windows(2)
-        .position(|bytes| bytes == [0xff, 0xc0])
-        .unwrap();
-    assert_eq!(image.content[sof + 9], 1);
 }
 
 #[test]

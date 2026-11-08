@@ -78,6 +78,7 @@ async function mountOutline(
     const host = document.createElement('div');
     document.body.append(host);
     const editModeUpdates: boolean[] = [];
+    const bookmarkChanges: unknown[] = [];
     const viewProps = reactive({
         // The document has not read its bookmarks yet: the outline reads its own.
         bookmarkItems: undefined as IPdfBookmarkEntry[] | undefined,
@@ -90,6 +91,7 @@ async function mountOutline(
     const app = createApp(defineComponent({setup: () => () => h(PdfOutline, {
         ...viewProps,
         'onUpdate:isEditMode': (value: boolean) => editModeUpdates.push(value),
+        'onBookmarks-change': (value: unknown) => bookmarkChanges.push(value),
     })}));
     app.component('UButton', defineComponent({setup: () => () => h('button')}));
     app.mount(host);
@@ -114,6 +116,7 @@ async function mountOutline(
             viewProps.bookmarksDirty = true;
         },
         editModeUpdates,
+        bookmarkChanges,
         host,
         setEditMode(value: boolean) {
             viewProps.isEditMode = value;
@@ -259,10 +262,10 @@ describe('PdfOutline bookmark toolbar state', () => {
         expect(outline.editModeUpdates).toEqual([]);
     });
 
-    it('keeps native bookmark depth 64 editable', async () => {
+    it('keeps 64 bookmark levels editable', async () => {
         const outline = await mountOutline(() => Promise.resolve([]));
         await outline.settle();
-        outline.applyExternalBookmarks(createDeepBookmarkEntries(65));
+        outline.applyExternalBookmarks(createDeepBookmarkEntries(64));
 
         await outline.settle();
 
@@ -273,7 +276,7 @@ describe('PdfOutline bookmark toolbar state', () => {
     it('surfaces a typed persistence refusal when native bookmark depth is exceeded', async () => {
         const outline = await mountOutline(() => Promise.resolve([]));
         await outline.settle();
-        outline.applyExternalBookmarks(createDeepBookmarkEntries(66));
+        outline.applyExternalBookmarks(createDeepBookmarkEntries(65));
 
         await outline.settle();
 
@@ -282,6 +285,13 @@ describe('PdfOutline bookmark toolbar state', () => {
         expect(refusal?.getAttribute('data-bookmark-persistence-reason')).toBe('depth');
         expect(refusal?.textContent).toContain('64');
         expect(refusal?.textContent).toMatch(/read-only|readonly/iu);
+    });
+
+    it('does not publish an empty baseline when reading the outline fails', async () => {
+        vi.spyOn(console, 'error').mockImplementation(() => undefined);
+        const outline = await mountOutline(() => Promise.reject(new Error('read failed')));
+        await outline.settle();
+        expect(outline.bookmarkChanges).toEqual([]);
     });
 
     it('recovers from a load error when external bookmarks arrive', async () => {
