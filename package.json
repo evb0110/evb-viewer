@@ -12,7 +12,7 @@
   "license": "MIT",
   "type": "module",
   "engines": {
-    "node": "24.x"
+    "node": "26.x"
   },
   "main": "dist-electron/main.js",
   "scripts": {
@@ -107,11 +107,11 @@
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "0.3.280",
-    "@valibot/to-json-schema": "1.8.0",
     "@napi-rs/canvas": "1.0.9",
     "@sentry/browser": "10.75.2",
     "@sentry/core": "10.75.2",
     "@sentry/electron": "7.20.0",
+    "@valibot/to-json-schema": "1.8.0",
     "@vercel/analytics": "2.0.1",
     "@vueuse/core": "^15.0.0",
     "@vueuse/math": "^15.0.0",
@@ -145,7 +145,7 @@
     "@nuxtjs/i18n": "10.5.0",
     "@sentry/cli": "3.8.0",
     "@stylistic/eslint-plugin": "^5.10.0",
-    "@types/node": "^24.13.6",
+    "@types/node": "^26.6.6",
     "@typescript-eslint/parser": "8.70.1",
     "@vitejs/plugin-vue": "6.0.9",
     "@vitest/coverage-v8": "5.0.5",

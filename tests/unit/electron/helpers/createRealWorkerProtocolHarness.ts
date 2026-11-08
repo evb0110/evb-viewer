@@ -96,7 +96,8 @@ export async function createRealWorkerProtocolHarness(options: {
         }
         request.resolve(message.value);
     });
-    worker.on('error', (error) => {
+    worker.on('error', (cause) => {
+        const error = cause instanceof Error ? cause : new Error(String(cause));
         rejectReady?.(error);
         for (const request of pending.values()) {
             request.reject(error);

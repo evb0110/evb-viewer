@@ -20,7 +20,7 @@ Linux native document-tool bundles, and then runs:
 pnpm run check:dev-env -- --strict
 ```
 
-Node.js 24.x with Corepack/pnpm must already be available.
+Node.js 26.x and pnpm must already be available.
 
 ## Environment Preflight
 
