@@ -20,7 +20,16 @@ async function readNativeTabs(): Promise<Record<string, unknown>> {
     return isRecord(stored) ? stored : {};
 }
 
-async function setNativeTab(tabId: number, url: string | null) {
+// Navigation, tab and message events overlap, so their writes run one at a time.
+let nativeTabWrites: Promise<unknown> = Promise.resolve();
+
+function setNativeTab(tabId: number, url: string | null) {
+    const write = nativeTabWrites.then(() => writeNativeTab(tabId, url));
+    nativeTabWrites = write.catch(() => undefined);
+    return write;
+}
+
+async function writeNativeTab(tabId: number, url: string | null) {
     const tabs = Object.fromEntries(Object.entries(await readNativeTabs()).filter(([id]) => id !== String(tabId)));
     await chrome.storage.session.set({[NATIVE_TABS_KEY]: url === null ? tabs : {
         ...tabs,

@@ -76,7 +76,9 @@ function run(command, args, {
         env,
         stdio: 'inherit',
     });
-    if (result.error) throw result.error;
+    if (result.error) {
+        throw new Error(`${command} could not run${'code' in result.error && result.error.code === 'ENOENT' ? ': it is not installed' : ''}`, { cause: result.error });
+    }
     if (result.status !== 0) {
         throw new Error(`${path.basename(command)} ${args.join(' ')} exited with ${String(result.status)}`);
     }
