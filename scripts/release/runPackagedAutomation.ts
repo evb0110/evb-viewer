@@ -120,7 +120,7 @@ export function resolvePackagedSourceRoot(executablePath: string, platform: Node
  * Whether `candidate` lies outside `root`. A different Windows drive makes
  * `relative` return an absolute path, which is outside, not a descendant.
  */
-export function isOutsideRoot(root: string, candidate: string, pathApi: path.PlatformPath = path) {
+export function isOutsideRoot(root: string, candidate: string, pathApi: Pick<typeof path, 'relative' | 'sep' | 'isAbsolute'> = path) {
     const fromRoot = pathApi.relative(root, candidate);
     return fromRoot === '..' || fromRoot.startsWith(`..${pathApi.sep}`) || pathApi.isAbsolute(fromRoot);
 }

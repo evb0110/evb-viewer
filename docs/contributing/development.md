@@ -56,7 +56,7 @@ docs/       Project-specific implementation and release notes
 
 ### Requirements
 
-- Node.js latest LTS, currently `24.x`
+- Node.js latest LTS, currently `26.x`
 - `pnpm` `10.x`
 - Rust through `rustup`, with the WebAssembly target that `pnpm dev`, `pnpm build`
   and `pnpm test:unit` use to build the browser WASM tools:

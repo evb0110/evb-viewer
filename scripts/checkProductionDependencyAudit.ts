@@ -168,7 +168,8 @@ function runProjectAudit(project: IAuditProject) {
     }
 
     if (shouldUseBulkAuditFallback(result.stdout)) {
-        result = spawnSync('corepack', [
+        result = spawnSync('pnpm', [
+            'dlx',
             `pnpm@${BULK_AUDIT_PNPM_VERSION}`,
             '--pm-on-fail=ignore',
             'audit',

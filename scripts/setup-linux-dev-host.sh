@@ -65,7 +65,7 @@ if ! command -v pnpm >/dev/null 2>&1; then
 fi
 
 if ! command -v pnpm >/dev/null 2>&1; then
-  echo "pnpm is required. Install Node.js 24.x with Corepack, then rerun this script." >&2
+  echo "pnpm is required. Install Node.js 26.x and pnpm, then rerun this script." >&2
   exit 1
 fi
 

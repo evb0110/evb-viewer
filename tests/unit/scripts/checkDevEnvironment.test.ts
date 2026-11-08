@@ -7,13 +7,13 @@ import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 interface ICheckDevEnvironmentModule {
-    isNode24: (version: string) => boolean;
+    isNode26: (version: string) => boolean;
     resolveHostTag: () => string | null;
     statusFromBoolean: (ok: boolean, missingStatus?: string) => string;
 }
 
 const {
-    isNode24,
+    isNode26,
     resolveHostTag,
     statusFromBoolean,
 } = await import(
@@ -21,12 +21,12 @@ const {
 ) as ICheckDevEnvironmentModule;
 
 describe('check-dev-environment helpers', () => {
-    it('recognizes only Node 24 version strings', () => {
-        expect(isNode24('v24.0.0')).toBe(true);
-        expect(isNode24('v24.11.2')).toBe(true);
-        expect(isNode24('v22.9.0')).toBe(false);
-        expect(isNode24('v20.0.0')).toBe(false);
-        expect(isNode24('24.0.0')).toBe(false);
+    it('recognizes only Node 26 version strings', () => {
+        expect(isNode26('v26.0.0')).toBe(true);
+        expect(isNode26('v26.13.0')).toBe(true);
+        expect(isNode26('v22.9.0')).toBe(false);
+        expect(isNode26('v20.0.0')).toBe(false);
+        expect(isNode26('26.0.0')).toBe(false);
     });
 
     it('maps ok state to a status token, falling back to the missing label', () => {

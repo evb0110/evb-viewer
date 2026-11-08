@@ -12,7 +12,7 @@ From a clean checkout of a commit whose `CI` workflow has passed:
 pnpm run deploy:web:yandex:prod
 ```
 
-Run this on macOS or Linux with Node 24, pnpm, Python 3, and an authenticated
+Run this on macOS or Linux with Node 26, pnpm, Python 3, and an authenticated
 GitHub CLI (`gh`). Wrap the command in `agent-env run --mem 4G --` when running
 as an agent, as for other builds. The deployment builds in an isolated directory
 under `.devkit/` and removes that directory on completion or failure.

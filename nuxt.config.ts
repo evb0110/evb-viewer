@@ -635,7 +635,7 @@ export default defineNuxtConfig({
     nitro: {
         sourceMap: false,
         // The server-only PDF.js runtime uses a top-level dynamic import. The
-        // desktop build runs on Node 24, so keep Nitro's final server transform
+        // desktop build runs on Node 26, so keep Nitro's final server transform
         // in an ESM target that preserves that syntax for prerendering.
         esbuild: {
             options: {

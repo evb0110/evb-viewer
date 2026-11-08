@@ -40,8 +40,8 @@ permissions:
   pull-requests: read
 
 env:
-  # Pin exact Node 24 patch level so CI does not drift independently of local verification.
-  NODE_VERSION: '24.21.0'
+  # Pin exact Node 26 patch level so CI does not drift independently of local verification.
+  NODE_VERSION: '26.13.0'
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
   EVB_E2E_PRESERVE_ARTIFACTS: '1'
 

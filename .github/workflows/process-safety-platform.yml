@@ -16,7 +16,7 @@ permissions:
   contents: read
 
 env:
-  NODE_VERSION: 24.x
+  NODE_VERSION: 26.13.0
 
 jobs:
   unix-cli:

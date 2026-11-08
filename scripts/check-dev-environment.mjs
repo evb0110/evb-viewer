@@ -67,8 +67,8 @@ function isDir(path) {
     return existsSync(path);
 }
 
-export function isNode24(version) {
-    return /^v24\./.test(version);
+export function isNode26(version) {
+    return /^v26\./.test(version);
 }
 
 export function resolveHostTag() {
@@ -146,10 +146,10 @@ Options:
     const nodeVersion = process.version;
     addCheck({
         detail: nodeVersion,
-        name: 'Node.js 24',
-        remedy: 'Install Node.js 24.x before running the app or build scripts.',
+        name: 'Node.js 26',
+        remedy: 'Install Node.js 26.x before running the app or build scripts.',
         required: true,
-        status: isNode24(nodeVersion) ? 'ok' : 'fail',
+        status: isNode26(nodeVersion) ? 'ok' : 'fail',
     });
 
     const pnpmResult = run('pnpm', ['--version'], { timeout: 10_000 });

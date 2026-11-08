@@ -1,7 +1,6 @@
 import {
     createHash, createHmac,
 } from 'node:crypto';
-import type {BinaryLike} from 'node:crypto';
 import {execFileSync} from 'node:child_process';
 import {
     mkdir, mkdtemp, readFile, readdir, rm, writeFile,
@@ -35,7 +34,7 @@ interface IAsset {
 
 const projectRoot = path.resolve(import.meta.dirname, '..');
 const endpoint = 'https://storage.yandexcloud.net';
-const digest = (bytes: BinaryLike) => createHash('sha256').update(bytes).digest('hex');
+const digest = (bytes: string | Buffer) => createHash('sha256').update(bytes).digest('hex');
 
 function command(executable: string, args: string[], cwd = projectRoot, env: NodeJS.ProcessEnv = process.env) {
     return execFileSync(executable, args, {
