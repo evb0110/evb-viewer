@@ -4,37 +4,29 @@ import {
     createBrowserExtensionViewerUrl,
     isBrowserExtensionOpenNativelyRequest,
 } from '@contracts/browserExtensionLaunch';
-import { isRecord } from '@contracts/runtimeGuards';
 import {
     createDocumentRedirectRules,
     createOpenNativelyRule,
 } from './documentRedirectRules';
 
-// Tabs the viewer handed back to Chrome, by tab id, with the document URL
-// Chrome opens there. The entry ends when the tab shows anything else.
-const NATIVE_TABS_KEY = 'nativeDocumentTabs';
+// Tabs the viewer handed back to Chrome, one session entry per tab holding the
+// document URL Chrome opens there. The entry ends when the tab shows anything
+// else. Separate keys let overlapping events write without reading each other.
 const LOCAL_DOCUMENT_URL_PATTERN = '(?i)\\.(pdf|djvu?)$';
 
-async function readNativeTabs(): Promise<Record<string, unknown>> {
-    const stored: unknown = (await chrome.storage.session.get(NATIVE_TABS_KEY))[NATIVE_TABS_KEY];
-    return isRecord(stored) ? stored : {};
+function nativeTabKey(tabId: number) {
+    return `nativeDocumentTab:${String(tabId)}`;
 }
 
-// Navigation, tab and message events overlap, so their writes run one at a time.
-let nativeTabWrites: Promise<unknown> = Promise.resolve();
-
-function setNativeTab(tabId: number, url: string | null) {
-    const write = nativeTabWrites.then(() => writeNativeTab(tabId, url));
-    nativeTabWrites = write.catch(() => undefined);
-    return write;
+async function readNativeTab(tabId: number) {
+    const url: unknown = (await chrome.storage.session.get(nativeTabKey(tabId)))[nativeTabKey(tabId)];
+    return typeof url === 'string' ? url : null;
 }
 
-async function writeNativeTab(tabId: number, url: string | null) {
-    const tabs = Object.fromEntries(Object.entries(await readNativeTabs()).filter(([id]) => id !== String(tabId)));
-    await chrome.storage.session.set({[NATIVE_TABS_KEY]: url === null ? tabs : {
-        ...tabs,
-        [tabId]: url,
-    }});
+async function setNativeTab(tabId: number, url: string | null) {
+    await (url === null
+        ? chrome.storage.session.remove(nativeTabKey(tabId))
+        : chrome.storage.session.set({[nativeTabKey(tabId)]: url}));
     await chrome.declarativeNetRequest.updateSessionRules({
         removeRuleIds: [tabId],
         addRules: url !== null && !url.startsWith('file:') ? [createOpenNativelyRule(tabId)] : [],
@@ -57,7 +49,7 @@ async function openNatively(tabId: number, url: string) {
 // A local file never reaches the network rules. Its tab is sent to the viewer
 // only when Chrome lets the extension read local files.
 async function openLocalDocument(tabId: number, url: string) {
-    if (!await chrome.extension.isAllowedFileSchemeAccess() || (await readNativeTabs())[tabId] === url) {
+    if (!await chrome.extension.isAllowedFileSchemeAccess() || await readNativeTab(tabId) === url) {
         return;
     }
     await chrome.tabs.update(tabId, {url: createBrowserExtensionViewerUrl(chrome.runtime.getURL(''), url)});
@@ -96,12 +88,11 @@ chrome.webNavigation.onCommitted.addListener((details) => {
     if (details.frameId !== 0) {
         return;
     }
-    void readNativeTabs().then((tabs) => {
-        const url = tabs[details.tabId];
-        return url !== undefined && url !== details.url ? setNativeTab(details.tabId, null) : undefined;
-    });
+    void readNativeTab(details.tabId).then(url => (
+        url !== null && url !== details.url ? setNativeTab(details.tabId, null) : undefined
+    ));
 });
 
 chrome.tabs.onRemoved.addListener((tabId) => {
-    void readNativeTabs().then(tabs => (tabId in tabs ? setNativeTab(tabId, null) : undefined));
+    void readNativeTab(tabId).then(url => (url !== null ? setNativeTab(tabId, null) : undefined));
 });

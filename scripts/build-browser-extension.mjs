@@ -77,7 +77,9 @@ function run(command, args, {
         stdio: 'inherit',
     });
     if (result.error) {
-        throw new Error(`${command} could not run${'code' in result.error && result.error.code === 'ENOENT' ? ': it is not installed' : ''}`, { cause: result.error });
+        const code = 'code' in result.error ? String(result.error.code) : '';
+        const detail = code === 'ENOENT' ? ': it is not installed' : code ? ` (${code})` : '';
+        throw new Error(`${command} could not run${detail}`, { cause: result.error });
     }
     if (result.status !== 0) {
         throw new Error(`${path.basename(command)} ${args.join(' ')} exited with ${String(result.status)}`);
@@ -91,21 +93,24 @@ function buildWorkspace() {
         'tsx',
         'scripts/generateBuildArtifacts.ts',
     ]);
-    run(process.execPath, [
-        path.join(projectRoot, 'node_modules/nuxt/bin/nuxt.mjs'),
-        'generate',
-    ], {env: {
-        ...process.env,
-        EVB_BROWSER_EXTENSION_BUILD: '1',
-        EVB_NUXT_BUILD_DIR: path.join(cacheRoot, 'nuxt-build'),
-        EVB_NUXT_OUTPUT_DIR: nuxtOutputRoot,
-        EVB_NUXT_VITE_CACHE_DIR: path.join(cacheRoot, 'vite'),
-    }});
-    // `nuxi generate` links dist/ to the static output it wrote.
-    const distLink = path.join(projectRoot, 'dist');
-    if (existsSync(distLink) && lstatSync(distLink).isSymbolicLink()
-        && path.resolve(projectRoot, readlinkSync(distLink)) === nuxtPublicRoot) {
-        rmSync(distLink);
+    try {
+        run(process.execPath, [
+            path.join(projectRoot, 'node_modules/nuxt/bin/nuxt.mjs'),
+            'generate',
+        ], {env: {
+            ...process.env,
+            EVB_BROWSER_EXTENSION_BUILD: '1',
+            EVB_NUXT_BUILD_DIR: path.join(cacheRoot, 'nuxt-build'),
+            EVB_NUXT_OUTPUT_DIR: nuxtOutputRoot,
+            EVB_NUXT_VITE_CACHE_DIR: path.join(cacheRoot, 'vite'),
+        }});
+    } finally {
+        // `nuxi generate` links dist/ to the static output it wrote.
+        const distLink = path.join(projectRoot, 'dist');
+        if (existsSync(distLink) && lstatSync(distLink).isSymbolicLink()
+            && path.resolve(projectRoot, readlinkSync(distLink)) === nuxtPublicRoot) {
+            rmSync(distLink);
+        }
     }
 }
 
