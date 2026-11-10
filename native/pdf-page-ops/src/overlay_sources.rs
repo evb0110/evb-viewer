@@ -731,6 +731,7 @@ pub(crate) fn write_overlay_text_layers_path(
 /// some output page. Output indices name the run's own instructions, which a
 /// rebased source batch does not renumber.
 fn omitted_source_pages(instructions: &TextLayerFile, omitted_outputs: &[usize]) -> Vec<usize> {
+    let omitted_outputs = omitted_outputs.iter().copied().collect::<HashSet<_>>();
     let mut pages = instructions
         .pages
         .iter()
