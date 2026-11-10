@@ -152,9 +152,27 @@ export function readPageSourceDpi(operatorList: IPdfOperatorList) {
  * Large pages render in tiles and are assembled into one raster, since
  * recognizing tiles separately would change Tesseract's layout analysis.
  */
-export function renderBrowserOcrRaster(page: IPdfPage, dpi: number, signal: AbortSignal): Promise<IBrowserOcrRaster> {
+function getBrowserOcrViewport(page: IPdfPage, dpi: number) {
     const userUnit = page.getViewport({scale: 1}).userUnit || 1;
-    return renderBrowserPdfRaster(page, page.getViewport({scale: dpi / 72 / userUnit}), signal, {
+    return page.getViewport({scale: dpi / 72 / userUnit});
+}
+
+/** The pixel size of the raster OCR reads at `dpi`, which its word rectangles are measured in. */
+export function getBrowserOcrRasterSize(page: IPdfPage, dpi: number) {
+    const viewport = getBrowserOcrViewport(page, dpi);
+    return {
+        width: Math.max(1, Math.ceil(viewport.width)),
+        height: Math.max(1, Math.ceil(viewport.height)),
+    };
+}
+
+export function renderBrowserOcrRaster(page: IPdfPage, dpi: number, signal: AbortSignal): Promise<IBrowserOcrRaster> {
+    return renderBrowserPdfRaster(page, getBrowserOcrViewport(page, dpi), signal, {
+        region: {
+            x: 0,
+            y: 0,
+            ...getBrowserOcrRasterSize(page, dpi),
+        },
         annotationMode: BROWSER_OCR_ANNOTATION_MODE,
         maxPixels: BROWSER_OCR_MAX_RASTER_PIXELS,
         maxDimensionPx: BROWSER_OCR_MAX_RASTER_DIMENSION_PX,

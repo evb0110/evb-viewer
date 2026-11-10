@@ -341,7 +341,7 @@ export default {
             },
             'primaryDescriptions': {
                 'missing-only': 'Skip pages that already contain usable selectable text; repair hidden OCR layers that do not.',
-                'repeat': 'Replace previous recognition results on the selected scanned pages. Original document text is preserved, and unusable hidden OCR is repaired.',
+                'repeat': 'Replace all hidden recognition on the selected scanned pages, including recognition from other apps. Original document text is preserved.',
             },
             'advanced': 'Advanced repeat options',
             'options': {
@@ -354,9 +354,7 @@ export default {
                 'replace-evb': 'Replace the active EVB OCR generation and repair unusable hidden OCR; visible native text stays untouched.',
                 'replace-all': 'Replace EVB and foreign hidden OCR layers; visible native text stays untouched.',
             },
-            'onlyEvb': 'Prefer EVB recognition; repair unusable hidden OCR',
-            'replaceAllAcknowledgement': 'Also replace recognition from other apps',
-            'replaceAllDescription': 'Recognition from other apps on the selected pages will also be replaced.',
+            'onlyEvb': 'Keep recognition from other apps; replace only EVB recognition',
         },
         'qualityProfile': {
             'label': 'Recognition mode',
@@ -1740,6 +1738,15 @@ export default {
         'file': {
             'open': 'Failed to open file',
             'openDescription': 'The file could not be opened. "Copy details" includes the technical reason.',
+
+            // DjVu content validation.
+            'notDjvuHtml': 'This file is not a DjVu document. It looks like a web page (HTML), perhaps a failed download. Download the document again from its source.',
+            'notDjvuPdf': 'This file is a PDF document with a .djvu extension. Rename a copy to .pdf and open it again.',
+            'notDjvuZip': 'This file is a ZIP archive with a .djvu extension. Extract the archive and open the document inside.',
+            'notDjvuEmpty': 'This file is empty, so it cannot be opened as a DjVu document. Download or copy the document again.',
+            'notDjvu': 'This file is not a DjVu document. Check the file type or download the document again from its source.',
+            'invalidDjvu': 'This DjVu document is incomplete or damaged. Download or copy the complete document again.',
+
             'pdfjsAssetMismatch': 'The PDF viewer needs its development dependencies synchronized before this file can open.',
             'pdfjsAssetRepairAction': 'Copy repair command',
             'pdfjsAssetRepairCopied': 'Repair command copied',

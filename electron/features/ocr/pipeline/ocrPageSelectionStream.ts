@@ -5,6 +5,9 @@ import {
 import {join} from 'node:path';
 import {isGreekOcrLanguage} from '@contracts/ocrLanguages';
 import * as v from 'valibot';
+import {
+    OCR_WORD_GEOMETRY_SCHEMA, type TOcrWordGeometry,
+} from '@contracts/browserPageOpsWorker';
 import type {
     IOcrDiagnostic,
     TOcrSearchablePdfPages,
@@ -26,6 +29,7 @@ export interface IOcrCheckpointPageResult {
     normalizeGreekMicroSign: boolean;
     /** Edits the recognized words carry that Tesseract's PDF at `pdfPath` does not. */
     wordEdits: IOcrWordEdit[];
+    wordGeometry?: TOcrWordGeometry;
     effectiveDpi?: number;
     diagnostics: IOcrDiagnostic[];
     /** Maps preprocessed raster pixels back to rendered raster pixels. */
@@ -60,6 +64,7 @@ function checkpointSchema(pageNumber: number) {
     return v.object({
         pageData: v.custom<IOcrPageWithWords>(value => isCheckpointPageData(value, pageNumber)),
         effectiveDpi: v.optional(v.unknown()),
+        wordGeometry: v.optional(OCR_WORD_GEOMETRY_SCHEMA),
         diagnostics: v.optional(v.custom<IOcrDiagnostic[]>(Array.isArray)),
         preprocessInverse: v.optional(v.unknown()),
         wordEdits: v.optional(v.array(v.strictObject({
@@ -107,6 +112,7 @@ export async function* iterateCheckpointPageResults(
                 pdfPath,
                 normalizeGreekMicroSign: page.languages.some(isGreekOcrLanguage),
                 wordEdits: checkpoint.wordEdits ?? [],
+                ...(checkpoint.wordGeometry ? {wordGeometry: checkpoint.wordGeometry} : {}),
                 ...(effectiveDpi === undefined ? {} : {effectiveDpi}),
                 diagnostics,
                 ...(isMatrix3(checkpoint.preprocessInverse) ? {preprocessInverse: checkpoint.preprocessInverse} : {}),

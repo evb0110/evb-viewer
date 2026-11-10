@@ -866,7 +866,7 @@ export default {
             },
             'primaryDescriptions': {
                 'missing-only': 'Seiten überspringen, die bereits auswählbaren Text enthalten.',
-                'repeat': 'Vorherige Erkennungsergebnisse auf den ausgewählten gescannten Seiten ersetzen. Originaler Dokumenttext bleibt erhalten.',
+                'repeat': 'Alle ausgeblendeten Erkennungsergebnisse auf den ausgewählten gescannten Seiten ersetzen, auch die anderer Programme. Originaler Dokumenttext bleibt erhalten.',
             },
             'advanced': 'Erweiterte Wiederholungsoptionen',
             'options': {
@@ -874,14 +874,12 @@ export default {
                 'replace-evb': 'EVB-Text erneut per OCR erfassen',
                 'replace-all': 'Alle ausgeblendeten OCR-Texte ersetzen',
             },
-            'onlyEvb': 'Nur von EVB Viewer durchgeführte Erkennung ersetzen',
-            'replaceAllDescription': 'Erkennung anderer Programme auf den ausgewählten Seiten wird ebenfalls ersetzt.',
+            'onlyEvb': 'Erkennung anderer Programme behalten; nur EVB-Erkennung ersetzen',
             'descriptions': {
                 'missing-only': 'Vorhandene Texte beibehalten und nur Seiten ohne Text per OCR erfassen.',
                 'replace-evb': 'Nur die aktive EVB-OCR-Generation ersetzen.',
                 'replace-all': 'EVB-OCR und fremde ausgeblendete OCR ersetzen; sichtbarer nativer Text bleibt unverändert.',
             },
-            'replaceAllAcknowledgement': 'Ich verstehe, dass fremde ausgeblendete OCR auf den ausgewählten Seiten entfernt und ersetzt wird.',
         },
         'qualityProfile': {
             'label': 'Erkennungsmodus',
@@ -1740,6 +1738,15 @@ export default {
         'file': {
             'open': 'Datei konnte nicht geöffnet werden',
             'openDescription': 'Die Datei konnte nicht geöffnet werden. „Details kopieren“ enthält den technischen Grund.',
+
+            // DjVu content validation.
+            'notDjvuHtml': 'Diese Datei ist kein DjVu-Dokument. Sie sieht wie eine Webseite (HTML) aus, möglicherweise wegen eines fehlgeschlagenen Downloads. Laden Sie das Dokument erneut von der Quelle herunter.',
+            'notDjvuPdf': 'Diese Datei ist ein PDF-Dokument mit der Endung .djvu. Benennen Sie eine Kopie in .pdf um und öffnen Sie sie erneut.',
+            'notDjvuZip': 'Diese Datei ist ein ZIP-Archiv mit der Endung .djvu. Entpacken Sie das Archiv und öffnen Sie das enthaltene Dokument.',
+            'notDjvuEmpty': 'Diese Datei ist leer und kann nicht als DjVu-Dokument geöffnet werden. Laden Sie das Dokument erneut herunter oder kopieren Sie es erneut.',
+            'notDjvu': 'Diese Datei ist kein DjVu-Dokument. Prüfen Sie den Dateityp oder laden Sie das Dokument erneut von der Quelle herunter.',
+            'invalidDjvu': 'Dieses DjVu-Dokument ist unvollständig oder beschädigt. Laden Sie das vollständige Dokument erneut herunter oder kopieren Sie es erneut.',
+
             'pdfjsAssetMismatch': 'Der PDF-Viewer muss seine Entwicklungsabhängigkeiten synchronisieren, bevor diese Datei geöffnet werden kann.',
             'pdfjsAssetRepairAction': 'Reparaturbefehl kopieren',
             'pdfjsAssetRepairCopied': 'Reparaturbefehl kopiert',

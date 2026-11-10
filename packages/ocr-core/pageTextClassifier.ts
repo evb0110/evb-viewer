@@ -135,7 +135,9 @@ export function classifyOcrPageText(input: {
     languages?: readonly string[];
 }): TOcrPageTextClassification {
     if (input.visibility?.evbOcrLayer) {
-        return isLikelyUsableOcrText(input.extractedText, input.languages)
+        // The writer reports legacy line-wide ActualText as hidden text to
+        // repair, even when its Unicode reads well: its selection boxes do not.
+        return !input.visibility.hiddenText && isLikelyUsableOcrText(input.extractedText, input.languages)
             ? 'evb-current-generation'
             : 'foreign-hidden-ocr';
     }

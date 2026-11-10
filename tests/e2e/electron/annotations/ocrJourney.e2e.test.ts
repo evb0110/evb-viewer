@@ -1,3 +1,4 @@
+import {execFileSync} from 'node:child_process';
 import {createHash} from 'node:crypto';
 import {createServer} from 'node:http';
 import {existsSync} from 'node:fs';
@@ -30,6 +31,8 @@ import {
     it,
     vi,
 } from 'vitest';
+import {getPdfNativeToolPaths} from '@electron/pdf/nativeToolPaths';
+import {buildPopplerEnv} from '@electron/native-tools/buildPopplerEnv';
 import type {IOcrCompleteResult} from '@contracts/electronApiOcr';
 import {OCR_LANGUAGE_MODEL_SHA256} from '@contracts/ocrLanguages';
 import {decodeWorkspaceCheckpoint} from '@contracts/workspaceCheckpoint';
@@ -761,6 +764,67 @@ if (process.versions.electron && process.type === 'browser') {
         console.info(`OCR metadata evidence: ${evidence}`);
     }, 420_000);
 
+    // Other readers (Acrobat, Chrome's PDFium, Preview) select the saved hidden
+    // text by its own glyph boxes. Line-wide ActualText over separately placed
+    // glyphs used to collapse each line into one box at its left edge.
+    it('saves each recognized word\'s selection box on its scanned ink', async () => {
+        const session = await sessionFixture.resetForE2E();
+        const {page} = session;
+        const sourcePath = await createScannedTextFixturePdf(
+            'ocr-word-geometry-scan.pdf',
+            SCANNED_TEXT,
+            '60px EvbOcrJourneySans',
+        );
+        await openPdfInApp(page, sourcePath, 90_000);
+        await waitForViewerInteractive(page, 90_000);
+        await completeOcrFromMenu(page);
+        await waitForTextLayerWord(page);
+        await saveViaVisibleToolbar(page, 90_000, sourcePath);
+
+        const tools = getPdfNativeToolPaths();
+        const bbox = execFileSync(tools.pdftotext, [
+            '-bbox',
+            sourcePath,
+            '-',
+        ], {
+            encoding: 'utf8',
+            env: {
+                ...process.env,
+                ...buildPopplerEnv(tools),
+            },
+        });
+        const boxes = Array.from(bbox.matchAll(/<word ([^>]+)>(.*?)<\/word>/gu));
+        expect(boxes.map(match => match[2])).toEqual(SCANNED_TEXT.split(' '));
+        const context = createCanvas(1200, 500).getContext('2d');
+        context.font = '60px EvbOcrJourneySans';
+        let scanX = 60;
+        for (const [
+            index,
+            word,
+        ] of SCANNED_TEXT.split(' ').entries()) {
+            const metrics = context.measureText(word);
+            const expected = [
+                scanX - metrics.actualBoundingBoxLeft,
+                270 - metrics.actualBoundingBoxAscent,
+                scanX + metrics.actualBoundingBoxRight,
+                270 + metrics.actualBoundingBoxDescent,
+            ].map(value => value / 2);
+            for (const [
+                coordinate,
+                key,
+            ] of [
+                    'xMin',
+                    'yMin',
+                    'xMax',
+                    'yMax',
+                ].entries()) {
+                const actual = Number(new RegExp(`${key}="([^"]+)"`, 'u').exec(boxes[index]![1]!)?.[1]);
+                expect(Math.abs(actual - expected[coordinate]!), `${word} ${key}`).toBeLessThan(2);
+            }
+            scanX += context.measureText(`${word} `).width;
+        }
+    }, 300_000);
+
     it('retains untouched remote, launch and named outline intent through OCR and Save', async () => {
         const {page} = await sessionFixture.resetForE2E();
         const sourcePath = await createScannedTextFixturePdf('ocr-source-intent.pdf', SCANNED_TEXT, '60px EvbOcrJourneySans');
@@ -1138,7 +1202,7 @@ if (process.versions.electron && process.type === 'browser') {
 
     // #928 F1: the pages OCR may replace are the pages whose existing text is
     // only hidden, read the way a PDF reader paints them.
-    it('keeps visible native text and repairs only a hidden-only foreign OCR layer', async () => {
+    it('by default recognizes every scanned page, replaces its hidden OCR and keeps born-digital text', async () => {
         const session = await sessionFixture.restart({
             clean: true,
             hard: true,
@@ -1155,11 +1219,16 @@ if (process.versions.electron && process.type === 'browser') {
 
         await clickVisibleButton(page, '#editor-global-toolbar-host', 'OCR');
         await page.waitForSelector('[role="dialog"]', {visible: true});
-        const allPagesOption = await page.waitForFunction(() => (
-            Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"] label'))
-                .find(label => label.textContent?.trim() === 'All pages (3)' && label.checkVisibility())
-        ), {timeout: 30_000});
-        await clickAsUser(page, allPagesOption.asElement() as ElementHandle<HTMLElement>);
+        // The user changes nothing: the whole document and a fresh recognition are the defaults.
+        // Each checked option by its accessible name: card options carry it as
+        // aria-label, list options in their label.
+        const checkedOptions = await page.$$eval('[role="dialog"] [role="radio"][aria-checked="true"]', radios => radios.map(radio => (
+            radio.getAttribute('aria-label') ?? document.querySelector(`label[for="${CSS.escape(radio.id)}"]`)?.textContent?.trim() ?? ''
+        )));
+        expect(checkedOptions).toEqual(expect.arrayContaining([
+            'All pages (3)',
+            'Recognize scanned text again',
+        ]));
         await clickVisibleButton(page, '[role="dialog"]', 'Start OCR');
         await waitForFunctionInPage(page, () => (
             document.querySelector('[role="dialog"]')?.textContent?.includes('OCR complete') === true

@@ -1,6 +1,12 @@
-import type { TTranslateFn } from '@i18n-app';
+import type {
+    TTranslateFn,
+    TTranslationKey,
+} from '@i18n-app';
 import type { TDocumentRef } from '@contracts/documentRef';
-import {DOCUMENT_OPEN_ERROR_ENVELOPE_SCHEMA} from '@contracts/documentOpenErrors';
+import {
+    DOCUMENT_OPEN_ERROR_ENVELOPE_SCHEMA,
+    type TDocumentOpenErrorEnvelope,
+} from '@contracts/documentOpenErrors';
 import {getFailureReceipt} from '@contracts/diagnostics/failureReceipt';
 import {NATIVE_ERROR_ENVELOPE_SCHEMA} from '@contracts/nativeErrors';
 import {findSerializableErrorEnvelope} from '@contracts/serializableError';
@@ -24,6 +30,15 @@ export function describeBrowserEngineLimit(error: unknown, t: TTranslateFn) {
     }
     return null;
 }
+
+/** What a file named .djvu turned out to hold, in the user's words. */
+const NOT_DJVU_MESSAGE_KEYS = {
+    html: 'errors.file.notDjvuHtml',
+    pdf: 'errors.file.notDjvuPdf',
+    zip: 'errors.file.notDjvuZip',
+    empty: 'errors.file.notDjvuEmpty',
+    unknown: 'errors.file.notDjvu',
+} as const satisfies Record<NonNullable<TDocumentOpenErrorEnvelope['detectedFormat']>, TTranslationKey>;
 
 export function classifyDocumentOpenError(
     error: unknown,
@@ -49,10 +64,18 @@ export function classifyDocumentOpenError(
         return t('errors.file.openNotFound', {name: openError?.fileName ?? (path ? getDocumentRefBaseName(path) ?? String(path) : '')});
     }
     if (openError) {
-        if (openError.code === 'djvu-components-required') {
-            return t('errors.file.djvuComponentsRequired');
+        switch (openError.code) {
+            case 'not-djvu': return t(NOT_DJVU_MESSAGE_KEYS[openError.detectedFormat ?? 'unknown']);
+            case 'invalid-djvu': return t('errors.file.invalidDjvu');
+            case 'djvu-components-required': return t('errors.file.djvuComponentsRequired');
+            case 'source-changed': return t('errors.file.changedWhileOpening');
+            case 'djvu-raster-limit': return t('errors.file.djvuRasterLimit');
+            case 'empty-pdf': return t('errors.file.emptyPdf');
+            // Missing files and browser byte limits are explained above.
+            case 'invalid-pdf':
+            case 'not-found':
+            case 'browser-byte-limit': return t('errors.file.invalid');
         }
-        return t(openError.code === 'source-changed' ? 'errors.file.changedWhileOpening' : openError.code === 'djvu-raster-limit' ? 'errors.file.djvuRasterLimit' : openError.code === 'empty-pdf' ? 'errors.file.emptyPdf' : 'errors.file.invalid');
     }
     return t(findSerializableErrorEnvelope(error, NATIVE_ERROR_ENVELOPE_SCHEMA)?.code === 'too-large' ? 'errors.file.encryptedTooLarge' : 'errors.file.openDescription');
 }

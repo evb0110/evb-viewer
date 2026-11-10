@@ -701,56 +701,6 @@ pub(crate) struct SplitPageOutput {
     pub(crate) content_transform: Option<SplitContentTransform>,
 }
 
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub(crate) struct OcrTextLayerFile<S> {
-    #[serde(
-        deserialize_with = "deserialize_collection",
-        bound(deserialize = "S: Deserialize<'de>")
-    )]
-    pub(crate) pages: Vec<OcrTextLayerPage<S>>,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub(crate) struct OcrTextLayerPage<S> {
-    /// One-based page number in the target document.
-    pub(crate) page_number: u32,
-    /// Tesseract's one-page text-only PDF for this page's raster: its path on
-    /// desktop, its index among the request's page PDFs in the browser.
-    pub(crate) source: S,
-    /// Present when OCR ran on a preprocessed raster whose pixels moved.
-    #[serde(default)]
-    pub(crate) preprocess_inverse: Option<OcrPreprocessInverse>,
-    #[serde(default)]
-    pub(crate) normalize_greek_micro_sign: bool,
-    /// Words whose recognized text changed after Tesseract wrote its PDF,
-    /// in ascending order of `word`.
-    #[serde(default)]
-    pub(crate) word_edits: Vec<OcrWordEdit>,
-}
-
-/// Replaces one word of Tesseract's page; the writer rescales the word's
-/// horizontal scaling to the new glyph count, so the word keeps its box.
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub(crate) struct OcrWordEdit {
-    /// Position among the page's text-show operators, which Tesseract
-    /// writes one per non-empty word in its TSV order.
-    pub(crate) word: usize,
-    pub(crate) from: String,
-    pub(crate) to: String,
-}
-
-#[derive(Clone, Copy, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub(crate) struct OcrPreprocessInverse {
-    pub(crate) raster_width_px: f64,
-    pub(crate) raster_height_px: f64,
-    /// Maps preprocessed raster pixels back to rendered raster pixels.
-    pub(crate) matrix: [[f64; 3]; 3],
-}
-
 /// Scales the source page's own content into the output page box, so a page
 /// that is physically smaller than the document it belongs to is enlarged
 /// rather than parked in a corner of an enlarged sheet. `cropRect` is read in

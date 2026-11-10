@@ -13,6 +13,7 @@ import {
     PDFDocument,
     PDFHexString,
     PDFName,
+    PDFRawStream,
     PDFString,
 } from 'pdf-lib';
 import {
@@ -45,16 +46,35 @@ import {
 import type { IE2EWindow } from '@tests/e2e/electron/helpers/e2EWindow';
 import {getActiveWorkspaceWorkingCopyPath} from '@tests/e2e/electron/helpers/electronApiHelpers';
 
-// T3/T4: unsupported tag graphs never become a structural page edit or an extracted output.
+// Tagged books remain editable; saved subsets retain only the selected pages and their tags.
 it.each([
     'delete',
     'extract',
     'insert-tagged-destination',
     'insert-tagged-source',
-])('refuses tagged %s through real page input without changing saved or working bytes', async operation => {
-    const evidence = resolve('.devkit/fixes16/evidence/tagged-electron', operation);
+])('preserves tagged pages through real %s input', async operation => {
+    const evidence = resolve('.devkit/extract-structure', process.env.EVB_STRUCTURE_PROOF_PHASE ?? 'after', operation);
     await mkdir(evidence, {recursive: true});
-    const tagged = await readFile(resolve('tests/fixtures/electron/pdf-preservation/tagged.pdf'));
+    const book = await PDFDocument.load(await readFile(resolve('tests/fixtures/electron/pdf-preservation/tagged.pdf')));
+    const scan = await book.embedPng(await readFile(resolve('tests/fixtures/browser/rtl-ocr/pointed-hebrew-scan.png')));
+    for (const [
+        index,
+        page,
+    ] of book.getPages().entries()) {
+        page.drawImage(scan, {
+            x: 0,
+            y: 0,
+            width: 200,
+            height: 200,
+        });
+        page.drawText(`Scanned book page ${index + 1}`, {
+            x: 10,
+            y: 10,
+            size: 10,
+            opacity: 0,
+        });
+    }
+    const tagged = await book.save();
     const ordinary = await readFile(resolve('tests/fixtures/electron/generated-text.pdf'));
     const inputPath = join(evidence, 'input.pdf');
     const insertPath = join(evidence, 'insert.pdf');
@@ -105,23 +125,35 @@ it.each([
             await clickFoundAsUser(page, (text: string) => Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]'))
                 .find(element => element.textContent?.trim() === text), label, {description: label});
         }
-        await page.waitForFunction((before: number) => document.querySelector('.app-toast-failure')
-            || document.querySelector('.page-controls-total')?.textContent?.trim() !== String(before), {}, baselinePdf.getPageCount());
-        await writeFile(join(evidence, 'working-after-operation.pdf'), await readFile(workingPath));
-        await page.screenshot({path: join(evidence, 'refused.png')});
-        expect(await page.$$eval('.app-toast-failure', elements => elements.map(element => element.textContent).join('\n'))).toContain(
-            'This operation was stopped because it cannot preserve the PDF’s accessibility tags or layers. No result was saved.',
-        );
-        expect(await page.$eval('.page-controls-total', element => element.textContent?.trim())).toBe(String(baselinePdf.getPageCount()));
-        expect(await readFile(workingPath)).toEqual(baseline);
+        await page.waitForFunction(() => (window as IE2EWindow).__evbTestApi
+            ?.readActiveWorkspaceStateValues(['isPageOperationInProgress']).isPageOperationInProgress === false);
+        expect(await page.$$eval('.app-toast-failure', elements => elements.map(element => element.textContent).join('\n'))).toBe('');
+        await waitForViewerInteractive(page);
+        await page.waitForSelector('.editor-pane.is-active .page_container--rendered canvas', {visible: true});
+        await page.screenshot({path: join(evidence, 'result.png')});
+        const saved = await PDFDocument.load(await readFile(operation === 'extract' ? extractedPath : workingPath));
+        expect(saved.getPageCount()).toBe(operation.startsWith('insert-')
+            ? baselinePdf.getPageCount() + (await PDFDocument.load(await readFile(insertPath))).getPageCount()
+            : 1);
         expect(await readFile(inputPath)).toEqual(original);
-        expect(await readFile(extractedPath)).toEqual(ordinary);
-        const saved = await PDFDocument.load(await readFile(workingPath));
-        expect(saved.getPageCount()).toBe(baselinePdf.getPageCount());
+        if (operation === 'extract') expect(await readFile(workingPath)).toEqual(baseline);
+        const imageBytes = (pdf: PDFDocument) => pdf.context.enumerateIndirectObjects()
+            .map(([
+                , object,
+            ]) => object).filter((object): object is PDFRawStream => object instanceof PDFRawStream
+                && object.dict.get(PDFName.of('Subtype')) === PDFName.of('Image'))
+            .map(object => Buffer.from(object.getContents()).toString('base64'));
+        expect(imageBytes(saved)).toEqual(expect.arrayContaining(imageBytes(book)));
+        if (operation === 'delete' || operation === 'extract') {
+            // Nothing of the removed page may stay readable in an older revision.
+            const actualTexts = saved.context.enumerateIndirectObjects().flatMap(([
+                , object,
+            ]) => (object instanceof PDFDict ? [object.lookupMaybe(PDFName.of('ActualText'), PDFString, PDFHexString)?.decodeText()] : []));
+            expect(actualTexts).not.toContain(operation === 'delete' ? 'ORIGINAL-1' : 'ORIGINAL-2');
+        }
         if (operation !== 'insert-tagged-source') {
             const root = saved.catalog.lookup(PDFName.of('StructTreeRoot'), PDFDict);
-            expect(root.has(PDFName.of('ParentTree'))).toBe(true);
-            expect(root.has(PDFName.of('K'))).toBe(true);
+            expect(root.lookup(PDFName.of('K'), PDFArray).size()).toBe(operation.startsWith('insert-') ? 2 : 1);
         }
     } finally {
         await session?.stop();

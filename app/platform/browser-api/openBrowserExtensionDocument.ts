@@ -15,6 +15,9 @@ import {
 import { openBrowserExternalPaths } from '@app/platform/browser-api/browserExternalOpenQueue';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { isBrowserExtensionPage } from '@app/utils/isBrowserExtensionPage';
+import {
+    detectDocumentFormat, DOCUMENT_HEADER_BYTES,
+} from '@pdf-core/documentOpenFileTypes';
 
 // The Chrome extension's viewer page opens the document the extension
 // redirected here (packages/chrome-extension). Anything it cannot open as a
@@ -32,10 +35,6 @@ interface ILaunchResponse {
 // return to the entry shows it again without fetching it. A window the
 // workspace opens starts a new history and does not inherit it.
 const LAUNCHED_DOCUMENT_STATE_KEY = 'evbExtensionDocument';
-const PDF_SIGNATURE = '%PDF-';
-// A PDF reader accepts a header anywhere in the first kilobyte.
-const PDF_SIGNATURE_WINDOW = 1024;
-const DJVU_SIGNATURE = 'AT&TFORM';
 const FILE_EXTENSION: Record<TLaunchDocumentKind, string> = {
     pdf: '.pdf',
     djvu: '.djvu',
@@ -46,9 +45,10 @@ const FILE_EXTENSION_PATTERN: Record<TLaunchDocumentKind, RegExp> = {
 };
 
 async function detectDocumentKind(blob: Blob): Promise<TLaunchDocumentKind | null> {
-    const head = new TextDecoder('latin1').decode(await blob.slice(0, PDF_SIGNATURE_WINDOW).arrayBuffer());
-    if (head.startsWith(DJVU_SIGNATURE)) return 'djvu';
-    return head.includes(PDF_SIGNATURE) ? 'pdf' : null;
+    const format = detectDocumentFormat(new Uint8Array(await blob.slice(0, DOCUMENT_HEADER_BYTES).arrayBuffer()), blob.size);
+    // A truncated DjVu still goes to the DjVu decoder, which can show the pages it holds.
+    if (format === 'invalid-djvu') return 'djvu';
+    return format === 'pdf' || format === 'djvu' ? format : null;
 }
 
 function decodeFileName(value: string) {

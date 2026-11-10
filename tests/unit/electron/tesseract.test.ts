@@ -119,6 +119,30 @@ describe('Tesseract TSV geometry parsing', () => {
                 },
             ],
             text: 'First faint\nSecond',
+            // The saved text layer fits every word Tesseract's PDF shows to its own ink.
+            inkWords: [
+                {
+                    text: 'First',
+                    x: 10,
+                    y: 55,
+                    width: 70,
+                    height: 20,
+                },
+                {
+                    text: 'faint',
+                    x: 90,
+                    y: 65,
+                    width: 40,
+                    height: 12,
+                },
+                {
+                    text: 'Second',
+                    x: 10,
+                    y: 115,
+                    width: 80,
+                    height: 12,
+                },
+            ],
         });
     });
 

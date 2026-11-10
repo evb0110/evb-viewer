@@ -14,7 +14,7 @@ import {
 import { randomUUID } from 'crypto';
 import { cancelNativeCommandGroup } from '@electron/native-tools/runNativeCommand';
 import { registerMainOperation } from '@electron/operation-lifecycle/mainOperationLifecycle';
-import { extractPagesForPrint } from '@electron/features/page-ops/public';
+import { extractPages } from '@electron/features/page-ops/public';
 import type {
     IPdfDataPrintOptions,
     IPdfPathPrintOptions,
@@ -316,7 +316,7 @@ export async function handlePrintPdfPath(
         await assertPdfPathWithinSizeLimit(resolvedPath);
         operation.signal.throwIfAborted();
         if (normalizedPageNumbers) {
-            await extractPagesForPrint(resolvedPath, tempPath, normalizedPageNumbers, {
+            await extractPages(resolvedPath, tempPath, normalizedPageNumbers, {
                 cancelGroup,
                 signal: operation.signal,
             });

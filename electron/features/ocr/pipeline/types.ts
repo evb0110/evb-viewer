@@ -8,6 +8,7 @@ import type {
     TOcrSearchablePdfPages,
     TOcrCompletionOutcome,
 } from '@contracts/electronApiOcr';
+import type {TOcrWordGeometry} from '@contracts/browserPageOpsWorker';
 import type {TDocumentRevisionToken} from '@contracts/documentRevision';
 export type { IRunCommandResult } from '@electron/utils/runElectronCommand';
 
@@ -57,6 +58,7 @@ export interface IOcrFileResult {
     unsupportedOptions?: string[];
     /** Edits that pageData already carries and Tesseract's PDF does not. */
     wordEdits?: IOcrWordEdit[];
+    wordGeometry?: TOcrWordGeometry;
     /** Why a page that looks like early print was read without the early-print models. */
     earlyPrintUnavailable?: string;
 }

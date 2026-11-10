@@ -16,6 +16,7 @@ describe('parseTsvOutput', () => {
             'level\tpage_num\tblock_num\tpar_num\tline_num\tword_num\tleft\ttop\twidth\theight\tconf\ttext',
             '4\t1\t1\t1\t1\t0\t10\t0\t40\t12\t-1\t',
             '5\t1\t1\t1\t1\t1\t10\t2\t40\t8\t95\tHeader',
+            '5\t1\t1\t1\t1\t2\t10\t2\t40\t8\t95\t  ',
         ].join('\n');
 
         expect(parseTsvOutput(tsv)).toEqual([{
@@ -25,6 +26,13 @@ describe('parseTsvOutput', () => {
             width: 40,
             height: 12,
         }]);
+        expect(parseTsvOcrData(tsv).inkWords).toEqual([{
+            text: 'Header',
+            x: 10,
+            y: 2,
+            width: 40,
+            height: 8,
+        }]);
     });
 
     it('accepts a valid header-only TSV as an empty OCR result', () => {
@@ -33,6 +41,7 @@ describe('parseTsvOutput', () => {
         expect(parseTsvOcrData(tsv)).toEqual({
             words: [],
             text: '',
+            inkWords: [],
         });
     });
 
@@ -59,6 +68,13 @@ describe('parseTsvOutput', () => {
                 height: 8,
             }],
             text: 'Good',
+            inkWords: [{
+                text: 'Good',
+                x: 10,
+                y: 2,
+                width: 40,
+                height: 8,
+            }],
         });
     });
 
