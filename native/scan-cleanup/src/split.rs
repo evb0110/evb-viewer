@@ -3797,12 +3797,16 @@ mod tests {
         add_justified_glyph_lines(&mut gray, 100, 560);
         add_justified_glyph_lines(&mut gray, 740, 1200);
         let result = detect_split(&gray, 150.0, LayoutMode::Auto, None);
-        if let Some(cutter) = result.cutter_x {
-            assert!(
-                (cutter - 650.0).abs() <= 13.0,
-                "cut at {cutter}, not in the middle of the 560..740 gutter: {result:#?}"
-            );
-        }
+        assert_eq!(
+            result.classification,
+            LayoutClassification::TwoPageSpread,
+            "{result:#?}"
+        );
+        let cutter = result.cutter_x.expect("a spread has a cutter");
+        assert!(
+            (cutter - 650.0).abs() <= 13.0,
+            "cut at {cutter}, not in the middle of the 560..740 gutter: {result:#?}"
+        );
     }
 
     #[test]
