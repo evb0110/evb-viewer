@@ -479,6 +479,7 @@ export default {
         'processingPages': 'Обработка страниц: завершено {processed}/{total}',
         'complete': 'OCR завершён — PDF теперь доступен для поиска',
         'partialComplete': 'OCR завершён с предупреждениями',
+        'existingTextKept': 'Страниц, сохранивших прежний текст: {count}',
         'noPagesToProcess': 'OCR не требуется ни для одной страницы',
         'exportDocx': 'Экспорт DOCX',
         'start': 'Запустить OCR',

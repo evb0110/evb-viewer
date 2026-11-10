@@ -477,6 +477,7 @@ export default {
         'processingPages': 'Processing pages: {processed}/{total} completed',
         'complete': 'OCR complete - PDF is now searchable',
         'partialComplete': 'OCR complete with warnings',
+        'existingTextKept': 'Pages that kept their existing text: {count}',
         'noPagesToProcess': 'No pages needed OCR',
         'exportDocx': 'Export DOCX',
         'start': 'Start OCR',
