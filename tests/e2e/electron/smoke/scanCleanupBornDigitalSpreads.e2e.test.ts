@@ -66,7 +66,12 @@ function drawPageBody(page: PDFPage, font: PDFFont, left: number, marker: string
  * An exporter writes the font's glyph widths; without them the text of a split
  * half cannot be measured onto it.
  */
-async function createBornDigitalSpreadsPdf(path: string, {fontWidths}: {fontWidths: boolean}) {
+async function createBornDigitalSpreadsPdf(path: string, {
+    fontWidths, closingPage,
+}: {
+    fontWidths: boolean;
+    closingPage: boolean;
+}) {
     const doc = await PDFDocument.create();
     const font = await doc.embedFont(StandardFonts.TimesRoman);
     drawPageBody(doc.addPage([
@@ -83,6 +88,23 @@ async function createBornDigitalSpreadsPdf(path: string, {fontWidths}: {fontWidt
         PAGE_WIDTH * 2,
         PAGE_HEIGHT,
     ]), font, PAGE_WIDTH + 55, 'RECTO THREE');
+    if (closingPage) {
+        // Two more spreads and a lone last page, as an export of a whole book
+        // ends: its first and last pages are the only single ones.
+        for (const marker of [
+            'RECTO FOUR',
+            'RECTO FIVE',
+        ]) {
+            drawPageBody(doc.addPage([
+                PAGE_WIDTH * 2,
+                PAGE_HEIGHT,
+            ]), font, PAGE_WIDTH + 55, marker);
+        }
+        drawPageBody(doc.addPage([
+            PAGE_WIDTH,
+            PAGE_HEIGHT,
+        ]), font, 70, 'CLOSING PAGE');
+    }
     if (fontWidths) {
         await font.embed();
         const fontDictionary = doc.context.lookup(font.ref, PDFDict);
@@ -95,7 +117,7 @@ async function createBornDigitalSpreadsPdf(path: string, {fontWidths}: {fontWidt
 }
 
 /** Opens a fresh spread export in Scan cleanup and waits for detection. */
-async function openSpreadExportInScanCleanup(fontWidths: boolean) {
+async function openSpreadExportInScanCleanup(fontWidths: boolean, closingPage = false) {
     const session = sessionFixture.getSession();
     await session.command('windowResize', [
         1280,
@@ -107,7 +129,10 @@ async function openSpreadExportInScanCleanup(fontWidths: boolean) {
         force: true,
     }));
     const sourcePath = join(sourceDirectory, 'spread-export.pdf');
-    await createBornDigitalSpreadsPdf(sourcePath, {fontWidths});
+    await createBornDigitalSpreadsPdf(sourcePath, {
+        fontWidths,
+        closingPage,
+    });
     const observed: TScanCleanupDetectionJobState[] = [];
     // Each test registers its own recorder: a page keeps exposed functions.
     const recorderName = `__recordBornDigitalSpreadDetection${String(Date.now())}`;
@@ -204,5 +229,23 @@ describe('scan cleanup of a born-digital spread export', () => {
         expect(await session.page.evaluate(() => document.body.innerText)).toContain(
             'Source text was omitted from outputs of 2 source page(s): 2, 3. Search and copy are unavailable on the affected output pages.',
         );
+    }, 300_000);
+
+    it('shapes a spread export\'s thumbnail cards like its spreads', async () => {
+        const {session} = await openSpreadExportInScanCleanup(true, true);
+        const card = await session.page.$eval(
+            '.scan-thumbnail-list [data-document-thumbnail-item]:has(.scan-thumbnail-overlay[data-page-number="2"])',
+            item => {
+                const rect = item.getBoundingClientRect();
+                return {
+                    width: rect.width,
+                    height: rect.height,
+                    label: (item as HTMLElement).innerText.replace(/\s+/g, ' ').trim(),
+                };
+            },
+        );
+        expect(card.label).toContain('Spread');
+        // A portrait card around a landscape spread leaves most of it empty.
+        expect(card.height, JSON.stringify(card)).toBeLessThan(card.width);
     }, 300_000);
 });
