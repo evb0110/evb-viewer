@@ -67,11 +67,13 @@ describe('document thumbnail retained surfaces', () => {
         const target = await scrollToRenderedPage(harness, host, 10_000);
         await scrollAwayAndBack(host, 10_000);
         expect(countDocumentThumbnailCalls(harness.renderCalls, target)).toBe(1);
-        // The first, middle and last pages give the slot shape, once; the
-        // journey itself asks for no page's geometry.
+        // The first two, middle and last two pages give the slot shape, once;
+        // the journey itself asks for no page's geometry.
         expect([...harness.metricsCalls].sort((left, right) => left - right)).toEqual([
             1,
+            2,
             2500,
+            4999,
             5000,
         ]);
     });
