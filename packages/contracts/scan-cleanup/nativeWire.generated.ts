@@ -134,7 +134,13 @@ preferSoftAlphaForeground?: boolean | null, resolvedTextToneDiagnostics?: Resolv
  * OCR-only raster preparation: detect light text on a dark page and
  * otherwise pass the source raster through without scan cleanup.
  */
-ocrPolarityOnly?: boolean, layout: LayoutMode, manualSplit?: NormalizedSplit | null, automaticSplit?: NormalizedSplit | null, manualSkewDegrees?: number | null, manualContentBoxes: ManualContentBoxes, automaticSkewDegrees?: AutomaticSkewDegrees, automaticContentBoxes?: ManualContentBoxes, manualZones?: ManualZones, cropContent: boolean, matchPageSize: boolean, pageAlignment: PageAlignment, placementOverrides: PlacementOverrides, placementAnchors?: PlacementAnchors, margins?: MarginsMm | null, dewarp?: DewarpOptions | null, experimental: ExperimentalOptions, rotationDegrees: OrthogonalRotation, excluded: boolean, skipBlankPages: boolean, maxPixels: number, maxDimensionPx: number, };
+ocrPolarityOnly?: boolean, layout: LayoutMode, 
+/**
+ * The source PDF page is exactly two of the document's other pages side
+ * by side, as a spread export lays out facing pages. It holds for the
+ * page as authored, before any orthogonal rotation.
+ */
+facingPairGeometry?: boolean, manualSplit?: NormalizedSplit | null, automaticSplit?: NormalizedSplit | null, manualSkewDegrees?: number | null, manualContentBoxes: ManualContentBoxes, automaticSkewDegrees?: AutomaticSkewDegrees, automaticContentBoxes?: ManualContentBoxes, manualZones?: ManualZones, cropContent: boolean, matchPageSize: boolean, pageAlignment: PageAlignment, placementOverrides: PlacementOverrides, placementAnchors?: PlacementAnchors, margins?: MarginsMm | null, dewarp?: DewarpOptions | null, experimental: ExperimentalOptions, rotationDegrees: OrthogonalRotation, excluded: boolean, skipBlankPages: boolean, maxPixels: number, maxDimensionPx: number, };
 
 /**
  * Structured counterpart of `CleanupMetadata::warnings` for every condition

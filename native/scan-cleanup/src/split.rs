@@ -546,9 +546,12 @@ pub fn detect_split(
     mode: LayoutMode,
     manual_split_x: Option<f64>,
 ) -> SplitResult {
-    detect_split_impl(gray, dpi, mode, manual_split_x, false, None, None)
+    detect_split_impl(gray, dpi, mode, manual_split_x, false, None, None, false)
 }
 
+/// `facing_pair` says the source PDF declares this page as two of the
+/// document's own pages side by side (see `CleanupOptions::facing_pair_geometry`).
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn detect_split_at_analysis_level_with_threshold(
     gray: &GrayImage,
     dpi: f64,
@@ -556,6 +559,7 @@ pub(crate) fn detect_split_at_analysis_level_with_threshold(
     manual_split_x: Option<f64>,
     threshold: u8,
     document_prior: Option<DocumentPrior>,
+    facing_pair: bool,
 ) -> SplitResult {
     detect_split_impl(
         gray,
@@ -565,9 +569,11 @@ pub(crate) fn detect_split_at_analysis_level_with_threshold(
         true,
         Some(threshold),
         document_prior,
+        facing_pair,
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 fn detect_split_impl(
     gray: &GrayImage,
     dpi: f64,
@@ -576,6 +582,7 @@ fn detect_split_impl(
     already_bounded: bool,
     threshold: Option<u8>,
     document_prior: Option<DocumentPrior>,
+    facing_pair: bool,
 ) -> SplitResult {
     // A cutter needs at least one pixel on each side; a narrower raster has
     // no legal cutter position, and the clamp below would panic on min > max.
@@ -643,6 +650,11 @@ fn detect_split_impl(
     }
 
     let analysis = prepare_analysis(gray, dpi, already_bounded, threshold);
+    if facing_pair {
+        if let Some(result) = facing_pair_decision(gray, &analysis) {
+            return result;
+        }
+    }
     let prior_ratio = candidate_prior_ratio(document_prior);
     let whitespace = whitespace_candidate(&analysis.cleaned, true, prior_ratio);
     let offcut_whitespace = whitespace_candidate(&analysis.cleaned, false, None);
@@ -777,7 +789,23 @@ fn spread_decision(
     let decision_x = soft_gutter
         .filter(|candidate| candidate.score > gutter_darkness.max(fold_score))
         .map_or(line_decision_x, |candidate| candidate.x);
-    let decision_slope = selected_fold.map_or(0.0, |candidate| candidate.slope);
+    // A justified column ends in a vertical edge that votes like a fold line.
+    // In a gutter of flat paper, with no darkness or valley anywhere across
+    // it, a line where the blank run meets ink is that column edge, not where
+    // the pages meet: cutting there leaves one page without its inner margin.
+    let edge_reach = (analysis.gray.width() as f64 * 0.01).max(3.0);
+    let at_ink_edge = [whitespace.start, whitespace.end]
+        .iter()
+        .any(|&edge| (decision_x - edge as f64).abs() <= edge_reach);
+    let flat_gutter = soft_gutter.is_none() && flat_paper_between(&analysis.gray, whitespace, edge_reach);
+    let (decision_x, decision_slope) = if flat_gutter && at_ink_edge {
+        (whitespace.x, 0.0)
+    } else {
+        (
+            decision_x,
+            selected_fold.map_or(0.0, |candidate| candidate.slope),
+        )
+    };
     let agreement_score = if fold.is_some() && !agrees { 0.65 } else { 1.0 };
     let soft_gutter_score = soft_gutter.map_or(0.0, |candidate| candidate.score);
     let gutter_score = gutter_darkness.max(fold_score).max(soft_gutter_score) * agreement_score;
@@ -986,9 +1014,43 @@ fn spread_decision(
         (decision_x, confidence)
     };
 
-    // The cutter itself does not move: relocating it would hand the leaf on
-    // the far side material the other leaf used to own. Both leaves pull back
-    // to the near edge of the fold the cutter runs through.
+    let mut result = spread_at(original, analysis, decision_x, confidence, diagnostics);
+    result.split_seam =
+        refine_curved_seam(&analysis.gray, &analysis.binary, decision_x, decision_slope).map(
+            |seam| seam_in_source_coordinates(seam, analysis, original.width(), original.height()),
+        );
+    Some(result)
+}
+
+/// Whether the gutter's interior, away from the ink at both ends, is paper of
+/// one tone: what a born-digital raster shows, and what no photographed or
+/// scanned sheet does, since its paper carries texture and a fold carries
+/// shade.
+fn flat_paper_between(gray: &GrayImage, whitespace: Candidate, reach: f64) -> bool {
+    let left = whitespace.start + reach.ceil() as usize;
+    let right = whitespace.end.saturating_sub(reach.ceil() as usize);
+    if left >= right {
+        return false;
+    }
+    let (darkest, brightest) = (left..right)
+        .map(|x| mean_luminance(gray, x, x + 1))
+        .fold((f64::INFINITY, f64::NEG_INFINITY), |(low, high), mean| {
+            (low.min(mean), high.max(mean))
+        });
+    brightest - darkest <= 2.0
+}
+
+/// A spread cut at `decision_x` on the analysis raster. The cutter itself
+/// does not move: relocating it would hand the leaf on the far side material
+/// the other leaf used to own. Both leaves pull back to the near edge of the
+/// fold the cutter runs through.
+fn spread_at(
+    original: &GrayImage,
+    analysis: &AnalysisImage<'_>,
+    decision_x: f64,
+    confidence: f64,
+    diagnostics: &SplitDiagnostics,
+) -> SplitResult {
     let cutter = scale_x(decision_x, analysis.gray.width(), original.width());
     let gutter_band = gutter_shadow_band(&analysis.gray, decision_x).map(|(left, right)| {
         (
@@ -1000,7 +1062,7 @@ fn spread_decision(
         || fold_band_without_measurement(diagnostics),
         |(left, right)| FoldBand::measured(left, right),
     );
-    let mut result = split_at(
+    split_at(
         original.width(),
         original.height(),
         cutter,
@@ -1008,12 +1070,43 @@ fn spread_decision(
         LayoutClassification::TwoPageSpread,
         confidence,
         *diagnostics,
-    );
-    result.split_seam =
-        refine_curved_seam(&analysis.gray, &analysis.binary, decision_x, decision_slope).map(
-            |seam| seam_in_source_coordinates(seam, analysis, original.width(), original.height()),
-        );
-    Some(result)
+    )
+}
+
+/// A page the PDF declares as two of its document's pages side by side is cut
+/// at its exact middle, where the two pages meet, once the pixels confirm that
+/// no ink crosses that line. A born-digital spread export has no fold or
+/// shadow to observe, and one of its pages may be blank, so the declaration
+/// stands in for the gutter and both-bodies evidence a scan must show. Ink
+/// across the middle means the declaration does not describe this page (a
+/// fold-out drawing, a picture printed across both pages), and the ordinary
+/// observed-evidence policy decides.
+fn facing_pair_decision(original: &GrayImage, analysis: &AnalysisImage<'_>) -> Option<SplitResult> {
+    let cleaned = &analysis.cleaned;
+    if cleaned.width() < 8 || cleaned.width() < cleaned.height() {
+        return None;
+    }
+    let middle = cleaned.width() as f64 * 0.5;
+    let reach = (cleaned.width() as f64 * 0.005).round().max(2.0);
+    let left = (middle - reach) as usize;
+    let right = ((middle + reach) as usize).min(cleaned.width());
+    let quiet_limit = (cleaned.height() as f64 * 0.012).ceil() as usize;
+    if column_counts_range(cleaned, left, right)
+        .iter()
+        .any(|&ink| ink > quiet_limit)
+    {
+        return None;
+    }
+    let diagnostics = SplitDiagnostics {
+        analysis_dpi: analysis.dpi,
+        deskew_angle_degrees: analysis.deskew_angle_degrees,
+        deskew_confidence: analysis.deskew_confidence,
+        decision_x: middle,
+        aspect_ratio: cleaned.width() as f64 / cleaned.height().max(1) as f64,
+        evidence_product: 1.0,
+        ..SplitDiagnostics::default()
+    };
+    Some(spread_at(original, analysis, middle, 1.0, &diagnostics))
 }
 
 fn fold_band_without_measurement(diagnostics: &SplitDiagnostics) -> FoldBand {
@@ -3642,6 +3735,85 @@ mod tests {
         assert!(result.diagnostics.abstained, "{result:?}");
         assert_eq!(result.diagnostics.soft_gutter_score, 0.0, "{result:?}");
         assert!(result.diagnostics.aspect_spread_score > 0.0, "{result:?}");
+    }
+
+    fn facing_pair_split(gray: &GrayImage) -> SplitResult {
+        let threshold = otsu_threshold(gray);
+        detect_split_at_analysis_level_with_threshold(
+            gray,
+            150.0,
+            LayoutMode::Auto,
+            None,
+            threshold,
+            None,
+            true,
+        )
+    }
+
+    #[test]
+    fn a_declared_facing_pair_is_cut_at_its_middle_without_a_fold() {
+        // A born-digital spread: flat paper, no fold, and one blank page.
+        let mut gray = GrayImage::new(660, 420, 255);
+        add_text_lines(&mut gray, 380, 610);
+        let undeclared = detect_split(&gray, 150.0, LayoutMode::Auto, None);
+        assert_eq!(
+            undeclared.classification,
+            LayoutClassification::SingleUncutPage
+        );
+
+        let result = facing_pair_split(&gray);
+        assert_eq!(
+            result.classification,
+            LayoutClassification::TwoPageSpread,
+            "{result:#?}"
+        );
+        assert_eq!(result.cutter_x, Some(330.0));
+
+        // Two text bodies with a gap that is not at the middle still split
+        // where the PDF says the pages meet.
+        let mut offset = GrayImage::new(660, 420, 255);
+        add_text_lines(&mut offset, 40, 300);
+        add_text_lines(&mut offset, 345, 620);
+        assert_eq!(facing_pair_split(&offset).cutter_x, Some(330.0));
+    }
+
+    /// Justified lines of glyph stems: every line starts on the same column,
+    /// so the block's left edge is a full-height vertical edge.
+    fn add_justified_glyph_lines(gray: &mut GrayImage, x1: usize, x2: usize) {
+        for top in (40..gray.height().saturating_sub(40)).step_by(22) {
+            for y in top..top + 12 {
+                for x in (x1..x2).filter(|x| (x - x1) % 7 < 2 || x - x1 < 3) {
+                    gray.set(x, y, 15);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn a_justified_column_edge_does_not_place_the_cut() {
+        // A born-digital spread: flat paper between two justified pages.
+        let mut gray = GrayImage::new(1300, 950, 255);
+        add_justified_glyph_lines(&mut gray, 100, 560);
+        add_justified_glyph_lines(&mut gray, 740, 1200);
+        let result = detect_split(&gray, 150.0, LayoutMode::Auto, None);
+        if let Some(cutter) = result.cutter_x {
+            assert!(
+                (cutter - 650.0).abs() <= 13.0,
+                "cut at {cutter}, not in the middle of the 560..740 gutter: {result:#?}"
+            );
+        }
+    }
+
+    #[test]
+    fn ink_across_the_middle_overrides_a_declared_facing_pair() {
+        let mut gray = GrayImage::new(660, 420, 255);
+        add_text_lines(&mut gray, 40, 620);
+        let result = facing_pair_split(&gray);
+        assert_eq!(
+            result.classification,
+            LayoutClassification::SingleUncutPage,
+            "{result:#?}"
+        );
     }
 
     #[test]

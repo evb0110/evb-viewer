@@ -122,6 +122,7 @@ export async function runBrowserScanCleanupDetection({
                         pageNumber: page.pageNumber,
                         dpi: page.dpi,
                         sourceDpi: page.manifestSourceDpi,
+                        facingPairGeometry: recorder.isFacingPair(page.view),
                         ...sourceLayerFacts(source, page.pageNumber),
                     },
                 }),

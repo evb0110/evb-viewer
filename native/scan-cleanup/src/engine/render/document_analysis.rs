@@ -374,6 +374,13 @@ fn prepare_analysis_page_impl(
     let split_started = Instant::now();
     let analysis_threshold = analysis.analysis_threshold;
     let text_axis = analysis.text_axis;
+    // A quarter turn puts the authored pages above one another, where the
+    // declared side-by-side geometry no longer describes the raster.
+    let upright_facing_pair = options.facing_pair_geometry
+        && matches!(
+            options.rotation,
+            OrthogonalRotation::None | OrthogonalRotation::Clockwise180
+        );
     let split = cached_split.as_deref().cloned().unwrap_or_else(|| {
         let mut split_is_full_resolution = false;
         let mut split = match analysis_threshold {
@@ -389,6 +396,7 @@ fn prepare_analysis_page_impl(
                     None,
                     analysis_threshold,
                     None,
+                    false,
                 )
             }
             Some(analysis_threshold) => detect_split_at_analysis_level_with_threshold(
@@ -398,6 +406,7 @@ fn prepare_analysis_page_impl(
                 options.resolved_split_x(analysis.normalized.width()),
                 analysis_threshold,
                 applicable_prior,
+                upright_facing_pair,
             ),
         };
         if matches!(options.layout, crate::LayoutMode::Auto) && !options.has_split_evidence() {
@@ -444,6 +453,7 @@ fn prepare_analysis_page_impl(
                     None,
                     full_threshold,
                     applicable_prior,
+                    upright_facing_pair,
                 );
                 if confirmed.classification == LayoutClassification::PageWithOffcut {
                     split = confirmed;
