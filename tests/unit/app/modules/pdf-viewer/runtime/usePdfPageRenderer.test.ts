@@ -24,6 +24,7 @@ import type { TPdfViewportSession } from '@app/modules/pdf-viewer/runtime/sessio
 import { createPdfDocumentProxy } from '@tests/helpers/createPdfDocumentProxy';
 
 const rendererFixture = vi.hoisted(() => ({
+    canReuseTextLayer: vi.fn(() => false),
     renderTextLayer: vi.fn(),
     applyPageSearchHighlights: vi.fn(),
     cleanupTextLayerDom: vi.fn(),

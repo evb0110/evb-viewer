@@ -844,6 +844,14 @@ export const usePdfTextLayerRenderer = (deps: {
         );
     }
 
+    function canReuseTextLayer(pdfPage: IPdfPage, textLayerDiv: HTMLElement) {
+        const rendered = renderedTextLayers.get(textLayerDiv);
+        return Boolean(rendered
+            && rendered.pdfPage === pdfPage
+            && rendered.workingCopyPath === toValue(deps.workingCopyPath)
+            && rendered.documentRevisionToken === toValue(deps.documentRevisionToken));
+    }
+
     async function renderTextLayer(
         pdfPage: IPdfPage,
         textLayerDiv: HTMLElement,
@@ -860,12 +868,7 @@ export const usePdfTextLayerRenderer = (deps: {
         const currentDocumentRevisionToken = toValue(deps.documentRevisionToken);
 
         const rendered = renderedTextLayers.get(textLayerDiv);
-        if (
-            rendered
-            && rendered.pdfPage === pdfPage
-            && rendered.workingCopyPath === currentWorkingCopyPath
-            && rendered.documentRevisionToken === currentDocumentRevisionToken
-        ) {
+        if (rendered && canReuseTextLayer(pdfPage, textLayerDiv)) {
             rendered.textLayer.update({ viewport });
             rendered.viewport = viewport;
             return;
@@ -1427,6 +1430,7 @@ export const usePdfTextLayerRenderer = (deps: {
     }
 
     return {
+        canReuseTextLayer,
         renderTextLayer,
         setupTextLayerInteraction,
         applyPageSearchHighlights,
