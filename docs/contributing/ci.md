@@ -37,6 +37,15 @@ parallel and the verdict lands in about fifteen minutes; see
 A dispatched run has no pushed range, so it skips the publication policy and
 the classifier selects every job.
 
+Browser integration uses eight shards with one worker each. Vitest 5.0.5 assigns
+equal file counts after sorting the SHA-1 hashes of root-relative file paths;
+cached durations only order files inside a shard. Keep UI suites cohesive and
+small enough to distribute their measured cost, sharing the lifecycle harness
+in `tests/integration/browser/documentLifecycleTestHelpers.ts`. After moving or
+adding a file, check all eight assignments and recent per-file CI timings.
+`vitest list --shard` currently lists every file, so inspect the configured
+sequencer's `shard()` result to see the actual assignment.
+
 ### Electron E2E lanes
 
 A lane is a directory of `tests/e2e/electron`: `smoke/` is the project
