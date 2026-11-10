@@ -18,6 +18,7 @@ import {
 } from '@contracts/shared';
 import type { TFeatureBrowserBindings } from '@contracts/platformFeature';
 import { requirePageNumber } from '@contracts/pageNumbers';
+import { createEpochMs } from '@contracts/timestamps';
 import {
     browserDocumentStore,
     isBrowserDocumentRef,
@@ -58,9 +59,19 @@ async function openBrowserDjvuForViewing(djvuPath: TDocumentRef): Promise<IDjvuO
                 message: 'DjVu document has no pages',
             });
         }
+        // Like the desktop open, the result describes the first page and the
+        // source file, so the status bar can show the file size.
+        const stat = browserRef ? await browserDocumentStore.stat(djvuPath) : null;
         return {
             success: true,
             pageCount: pageSizes.length,
+            ...(stat ? {pageSourceInfo: {
+                pageCount: pageSizes.length,
+                pageNumber: requirePageNumber(1, pageSizes.length),
+                pageSize: pageSizes[0]!,
+                sourceSize: stat.size,
+                ...(stat.modifiedAt === undefined ? {} : {sourceModifiedAt: createEpochMs(stat.modifiedAt)}),
+            }} : {}),
         };
     } catch (error: unknown) {
         if (browserRef) {
