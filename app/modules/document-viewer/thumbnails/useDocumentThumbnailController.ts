@@ -100,12 +100,16 @@ function prepareSurface(lease: IDocumentRenderLease, signal: AbortSignal) {
     }).then(() => signal.throwIfAborted());
 }
 
-// The first, middle and last pages' displayed sizes give the document's slot
-// shape; a page that cannot report its size is left out.
+// The displayed sizes of the first two, middle and last two pages give the
+// document's slot shape; a page that cannot report its size is left out. A
+// spread export keeps its first and last pages at single size, so the second
+// and second-to-last pages outvote them for the spreads in between.
 async function measureSlotAspectRatio(source: IDocumentPageSource, signal: AbortSignal) {
     const pages = [...new Set([
         1,
+        2,
         Math.ceil(source.pageCount / 2),
+        source.pageCount - 1,
         source.pageCount,
     ])].filter(page => page >= 1);
     const sizes = await Promise.all(pages.map(async (page) => {

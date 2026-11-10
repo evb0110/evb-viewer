@@ -270,7 +270,9 @@ describe('DocumentThumbnailList render errors', () => {
         expect(countDocumentThumbnailCalls(harness.renderCalls, 3)).toBeGreaterThan(1);
         expect([...harness.metricsCalls].sort((left, right) => left - right)).toEqual([
             1,
+            2,
             6,
+            11,
             12,
         ]);
     });
