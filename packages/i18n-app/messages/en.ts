@@ -1017,6 +1017,7 @@ export default {
         'bannerHint': 'This DjVu file is view-only — convert it to PDF to edit',
         'convertToPdf': 'Convert to PDF...',
         'overlayConverting': 'Converting DjVu to PDF...',
+        'overlayAssembling': 'Assembling PDF...',
         'overlayBookmarks': 'Processing bookmarks...',
         'overlayOptimizing': 'Optimizing PDF for interaction...',
         'overlayPreparing': 'Preparing...',

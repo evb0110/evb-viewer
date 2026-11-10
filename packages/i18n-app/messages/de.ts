@@ -1017,6 +1017,7 @@ export default {
         'bannerHint': 'Diese DjVu-Datei ist schreibgeschützt – zum Bearbeiten in PDF konvertieren',
         'convertToPdf': 'In PDF konvertieren...',
         'overlayConverting': 'DjVu wird in PDF konvertiert...',
+        'overlayAssembling': 'PDF wird zusammengesetzt...',
         'overlayBookmarks': 'Lesezeichen werden verarbeitet...',
         'overlayOptimizing': 'PDF wird für Interaktion optimiert...',
         'overlayPreparing': 'Wird vorbereitet...',

@@ -1017,6 +1017,7 @@ export default {
         'bannerHint': 'Questo file DjVu è di sola lettura – convertilo in PDF per modificarlo',
         'convertToPdf': 'Converti in PDF...',
         'overlayConverting': 'Conversione DjVu in PDF...',
+        'overlayAssembling': 'Assemblaggio del PDF...',
         'overlayBookmarks': 'Elaborazione segnalibri...',
         'overlayOptimizing': 'Ottimizzazione PDF per l’interazione...',
         'overlayPreparing': 'Preparazione...',

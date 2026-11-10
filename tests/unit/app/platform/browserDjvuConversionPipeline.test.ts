@@ -13,11 +13,16 @@ import {
     resolveBrowserDjvuPdfRenderSettings,
     withBrowserDjvuWorker,
     cancelBrowserDjvuConversion,
+    onBrowserDjvuConversionProgress,
 } from '@app/platform/browser-api/browserDjvuConversionPipeline';
+import {runJob} from '@app/utils/jobs/runJob';
 import {browserDocumentStore} from '@app/platform/browserDocumentStore';
 import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
 import {requireDocumentRef} from '@contracts/documentRef';
-import {requireJobId} from '@contracts/shared';
+import {
+    createRequestId,
+    requireJobId,
+} from '@contracts/shared';
 import {requireEpochMs} from '@contracts/timestamps';
 import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
 import {SerializableError} from '@contracts/serializableError';
@@ -567,4 +572,82 @@ describe('browserDjvuConversionPipeline', () => {
         }
     });
 
+    it('reports each converted page and the PDF assembly to the job runner that started the conversion', async () => {
+        const stat = vi.spyOn(browserDocumentStore, 'stat').mockResolvedValue({
+            size: 1,
+            modifiedAt: 1,
+        });
+        // The conversion stops at the direct export's output sink, after every page has been reported.
+        const getSaveTarget = vi.spyOn(browserDocumentStore, 'getSaveTarget').mockRejectedValue(new Error('direct export output requested'));
+        const page = {
+            width: 100,
+            height: 100,
+            dpi: 300,
+        };
+        mocks.createWorker.mockResolvedValueOnce({terminate: vi.fn()});
+        mocks.getPageSizes.mockResolvedValueOnce([
+            page,
+            page,
+        ]);
+        mocks.buildCompactPage.mockResolvedValue({
+            route: 'photo',
+            spec: {
+                kind: 'image',
+                pageSize: {
+                    widthPoints: 72,
+                    heightPoints: 72,
+                },
+                image: {
+                    fileName: 'page.ppm',
+                    data: new Uint8Array([
+                        0x50,
+                        0x36,
+                    ]),
+                },
+            },
+        });
+        mocks.combineWorker.mockRejectedValueOnce(new SerializableError({
+            code: 'too-large',
+            message: 'Image combine WASM request exceeds the admission ceiling',
+        }));
+        const requestId = createRequestId('djvu-convert');
+        const shown: string[] = [];
+        const conversion = Promise.withResolvers<unknown>();
+        const run = runJob({
+            onProgress: onBrowserDjvuConversionProgress,
+            onComplete: () => () => {},
+            cancel: async () => null,
+        }, {
+            requestId,
+            onProgress: progress => shown.push(`${progress.phase} ${progress.percent}%`),
+            start: async () => {
+                void runBrowserDjvuConversion(
+                    requireDocumentRef('browser://documents/book.djvu'),
+                    requireDocumentRef('browser://documents/output.pdf'),
+                    {
+                        jobId: requireJobId('djvu-progress'),
+                        requestId,
+                        pdfStrategy: 'compact-djvu-aware',
+                        preserveBookmarks: false,
+                    },
+                ).then(conversion.resolve);
+            },
+        });
+
+        try {
+            await conversion.promise;
+            expect(shown).toEqual([
+                'loading 0%',
+                'converting 0%',
+                'converting 45%',
+                'converting 90%',
+                'assembling 90%',
+            ]);
+        } finally {
+            void run.cancel();
+            mocks.buildCompactPage.mockReset();
+            stat.mockRestore();
+            getSaveTarget.mockRestore();
+        }
+    });
 });
