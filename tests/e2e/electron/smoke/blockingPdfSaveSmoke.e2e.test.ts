@@ -523,8 +523,8 @@ describe('Electron E2E - Blocking PDF Save Smoke', () => {
     it.each([
         'StructTreeRoot',
         'OCProperties',
-    ])('refuses native Combine %s with localized feedback and no published tab', async key => {
-        const directory = join(process.cwd(), '.devkit/fixes16/evidence/combine-electron');
+    ])('combines PDFs carrying %s without a preservation refusal', async key => {
+        const directory = join(process.cwd(), '.devkit/extract-structure/after/combine-electron');
         mkdirSync(directory, {recursive: true});
         const featurePath = join(directory, `${key}.pdf`);
         const ordinaryPath = join(process.cwd(), 'tests/fixtures/electron/generated-text.pdf');
@@ -553,10 +553,9 @@ describe('Electron E2E - Blocking PDF Save Smoke', () => {
         await page.waitForFunction((before: number) => document.querySelector('.app-toast, .page_container')
             || document.querySelectorAll('[role="tab"]').length > before, {}, tabs);
         await page.screenshot({path: join(directory, `${key}.png`)});
-        expect(await page.$$eval('.app-toast', elements => elements.map(element => element.textContent).join('\n'))).toContain('This operation was stopped because it cannot preserve the PDF’s accessibility tags or layers. No result was saved.');
-        expect(await page.$$eval('[data-combine-row]', elements => elements.length)).toBe(2);
-        expect(await page.$$eval('[role="tab"]', elements => elements.length)).toBe(tabs);
-        expect(await page.$('.page_container')).toBeNull();
+        expect(await page.$$eval('.app-toast-failure', elements => elements.map(element => element.textContent).join('\n'))).toBe('');
+        await page.waitForSelector('.page_container', {visible: true});
+        expect(await page.$$eval('[role="tab"]', elements => elements.length)).toBeGreaterThan(tabs);
         expect([
             featurePath,
             ordinaryPath,

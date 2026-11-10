@@ -199,9 +199,9 @@ describe('browser document lifecycle UI', () => {
     describe.each([
         'StructTreeRoot',
         'OCProperties',
-    ])('browser Combine refusal for %s', key => {
+    ])('browser Combine with %s', key => {
         let page: Page;
-        let tabCount: number;
+        let expectedPageCount: number;
 
         beforeAll(async () => {
             const context = await lifecycle.browser.newContext();
@@ -231,21 +231,19 @@ describe('browser document lifecycle UI', () => {
                 },
             ]);
             await page.locator('[data-combine-row]').nth(1).waitFor();
-            tabCount = await page.getByRole('tab').count();
+            expectedPageCount = source.getPageCount() + (await PDFDocument.load(readFileSync(resolve('tests/fixtures/electron/generated-text.pdf')))).getPageCount();
         });
 
         afterAll(async () => {
             await page?.context().close();
         });
 
-        it('shows the localized refusal without saving a result or generating a tab', async () => {
+        it('opens the combined result without a preservation refusal', async () => {
             await page.locator('footer.combine-actions button').click();
-            await expect.poll(async () => await page.locator('.app-toast, .page_container').count() > 0
-                || await page.getByRole('tab').count() > tabCount).toBe(true);
-            expect((await page.locator('.app-toast').allTextContents()).join('\n')).toContain('This operation was stopped because it cannot preserve the PDF’s accessibility tags or layers. No result was saved.');
-            expect(await page.locator('[data-combine-row]').count()).toBe(2);
-            expect(await page.getByRole('tab').count()).toBe(tabCount);
-            expect(await page.locator('.page_container').count()).toBe(0);
+            await expect.poll(async () => await page.locator('.app-toast, .page_container').count() > 0).toBe(true);
+            await page.locator('.page_container').first().waitFor({state: 'visible'});
+            expect((await page.locator('.app-toast-failure').allTextContents()).join('\n')).toBe('');
+            expect(await page.locator('.page-controls-total').first().innerText()).toBe(String(expectedPageCount));
         });
     });
 

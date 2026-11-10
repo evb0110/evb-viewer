@@ -475,6 +475,7 @@ async function processOcrPage(
             checkpointPdfPath,
             checkpointData: {
                 pageData,
+                wordGeometry: ocrResult.wordGeometry,
                 ...(preprocessInverse === undefined ? {} : {preprocessInverse}),
                 ...(ocrResult.wordEdits === undefined ? {} : {wordEdits: ocrResult.wordEdits}),
                 effectiveDpi,

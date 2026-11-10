@@ -868,7 +868,7 @@ export default {
             },
             'primaryDescriptions': {
                 'missing-only': 'Ignorar páginas que já contêm texto selecionável.',
-                'repeat': 'Substituir resultados anteriores nas páginas digitalizadas selecionadas. O texto original do documento é preservado.',
+                'repeat': 'Substituir todo o reconhecimento oculto nas páginas digitalizadas selecionadas, incluindo o de outras aplicações. O texto original do documento é preservado.',
             },
             'advanced': 'Opções avançadas de repetição',
             'options': {
@@ -876,14 +876,12 @@ export default {
                 'replace-evb': 'Executar novamente o OCR do EVB',
                 'replace-all': 'Substituir todo o OCR oculto',
             },
-            'onlyEvb': 'Substituir apenas o reconhecimento feito pelo EVB Viewer',
-            'replaceAllDescription': 'O reconhecimento de outras aplicações nas páginas selecionadas também será substituído.',
+            'onlyEvb': 'Manter o reconhecimento de outras aplicações; substituir apenas o do EVB Viewer',
             'descriptions': {
                 'missing-only': 'Manter todas as camadas de texto existentes e executar OCR apenas nas páginas sem texto.',
                 'replace-evb': 'Substituir apenas a geração ativa de OCR do EVB; o texto nativo e o texto de outras origens permanecem inalterados.',
                 'replace-all': 'Substituir as camadas de OCR ocultas do EVB e de outras origens; o texto nativo visível permanece inalterado.',
             },
-            'replaceAllAcknowledgement': 'Compreendo que o texto OCR oculto de outras origens nas páginas selecionadas será removido e substituído.',
         },
         'qualityProfile': {
             'label': 'Modo de reconhecimento',
@@ -1752,6 +1750,15 @@ export default {
         'file': {
             'open': 'Falha ao abrir ficheiro',
             'openDescription': 'Não foi possível abrir o ficheiro. «Copiar detalhes» inclui o motivo técnico.',
+
+            // DjVu content validation.
+            'notDjvuHtml': 'Este ficheiro não é um documento DjVu. Parece uma página Web (HTML), talvez devido a uma transferência falhada. Transfira novamente o documento da origem.',
+            'notDjvuPdf': 'Este ficheiro é um documento PDF com a extensão .djvu. Altere a extensão de uma cópia para .pdf e abra-a novamente.',
+            'notDjvuZip': 'Este ficheiro é um arquivo ZIP com a extensão .djvu. Extraia o arquivo e abra o documento que contém.',
+            'notDjvuEmpty': 'Este ficheiro está vazio e não pode ser aberto como documento DjVu. Transfira ou copie novamente o documento.',
+            'notDjvu': 'Este ficheiro não é um documento DjVu. Verifique o tipo de ficheiro ou transfira novamente o documento da origem.',
+            'invalidDjvu': 'Este documento DjVu está incompleto ou danificado. Transfira ou copie novamente o documento completo.',
+
             'pdfjsAssetMismatch': 'O visualizador de PDF precisa de sincronizar as dependências de desenvolvimento antes de abrir este ficheiro.',
             'pdfjsAssetRepairAction': 'Copiar comando de reparação',
             'pdfjsAssetRepairCopied': 'Comando de reparação copiado',

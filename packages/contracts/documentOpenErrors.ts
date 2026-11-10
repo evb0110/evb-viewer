@@ -11,16 +11,25 @@ export const DOCUMENT_OPEN_ERROR_ENVELOPE_SCHEMA = v.object({
         'empty-pdf',
         'not-found',
         'invalid-djvu',
+        'not-djvu',
         'djvu-components-required',
         'djvu-raster-limit',
         'browser-byte-limit',
     ]),
     message: v.string(),
     fileName: v.optional(v.string()),
+    detectedFormat: v.optional(v.picklist([
+        'html',
+        'pdf',
+        'zip',
+        'empty',
+        'unknown',
+    ])),
     maxBytes: v.optional(v.pipe(v.number(), v.safeInteger(), v.minValue(1))),
 });
 
-export type TDocumentOpenErrorCode = v.InferOutput<typeof DOCUMENT_OPEN_ERROR_ENVELOPE_SCHEMA>['code'];
+export type TDocumentOpenErrorEnvelope = v.InferOutput<typeof DOCUMENT_OPEN_ERROR_ENVELOPE_SCHEMA>;
+export type TDocumentOpenErrorCode = TDocumentOpenErrorEnvelope['code'];
 
 /** A main-process open refusal whose code crosses IPC for the renderer to localize. */
 export class DocumentOpenRefusalError extends Error {

@@ -50,7 +50,6 @@ export function cloneOcrSettingsSnapshot(value: IOcrSettings | null | undefined)
             preprocessingMode: value.preprocessingMode,
             pageSegmentationMode: value.pageSegmentationMode,
             supersessionPolicy: value.supersessionPolicy,
-            replaceAllAcknowledged: value.replaceAllAcknowledged,
         }
         : null;
 }
@@ -81,11 +80,13 @@ export function applyAgentOcrOptionsToSettings(
     if (parsedOptions.pageSegmentationMode !== undefined) {
         nextSettings.pageSegmentationMode = parsedOptions.pageSegmentationMode;
     }
-    if (parsedOptions.supersessionPolicy !== undefined) {
-        nextSettings.supersessionPolicy = parsedOptions.supersessionPolicy;
-        nextSettings.replaceAllAcknowledged = parsedOptions.supersessionPolicy === 'replace-all'
-            && parsedOptions.replaceAllAcknowledged === true;
-    }
+    // An agent replaces other apps' hidden OCR only when it acknowledges that
+    // explicitly; asked for it, or inheriting it from the dialog, without
+    // acknowledging, it still repairs EVB's own recognition.
+    const supersessionPolicy = parsedOptions.supersessionPolicy ?? currentSettings.supersessionPolicy;
+    nextSettings.supersessionPolicy = supersessionPolicy === 'replace-all' && parsedOptions.replaceAllAcknowledged !== true
+        ? 'replace-evb'
+        : supersessionPolicy;
 
     const languages = normalizeAgentLanguages(parsedOptions.languages, availableLanguageCodes);
     if (languages !== null) {

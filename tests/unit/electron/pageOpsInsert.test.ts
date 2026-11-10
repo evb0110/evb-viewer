@@ -107,7 +107,7 @@ vi.mock('node:crypto', async (importOriginal) => {
 });
 vi.mock('@electron/features/page-ops/public/nativePageOpsPath', () => ({resolveNativePageOpsPath: () => '/mock/pdf-page-ops'}));
 vi.mock('@electron/native-tools/runNativeToolCommand', () => ({runNativeToolCommand: (...args: unknown[]) =>
-    Array.isArray(args[1]) && args[1][0] === 'validate-page-structure'
+    Array.isArray(args[1]) && args[1][0] === 'finalize-subset-forms'
         ? Promise.resolve({
             exitCode: 0,
             stdout: '{}',

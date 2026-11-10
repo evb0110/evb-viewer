@@ -494,7 +494,7 @@ describe('browser page-ops WASM fast path', () => {
     it.each([
         'StructTreeRoot',
         'OCProperties',
-    ])('refuses browser Combine %s in either source position', async key => {
+    ])('combines PDFs with %s in either source position', async key => {
         const source = await PDFDocument.load(await readFile(join(process.cwd(), 'tests/fixtures/electron/pdf-preservation/layers-and-tags.pdf')));
         source.catalog.delete(PDFName.of(key === 'StructTreeRoot' ? 'OCProperties' : 'StructTreeRoot'));
         const feature = new Uint8Array(await source.save());
@@ -511,15 +511,13 @@ describe('browser page-ops WASM fast path', () => {
             ],
         ]) {
             const result = await wasm.run('mergePages', {documents});
-            expect(result).toMatchObject({
-                status: 'failed',
-                error: {code: 'invalid-request'},
-            });
-            expect(result && 'status' in result ? result.error.message : '').toContain('ERR_PDF_STRUCTURE_PRESERVATION:');
+            expect(result).toMatchObject({pageCount: 2});
+            assertSuccessfulWasmMutation(result);
+            expect((await PDFDocument.load(result.data)).getPageCount()).toBe(2);
         }
     });
 
-    it('refuses tagged page subsets and insertion from either source', async () => {
+    it('preserves tagged page subsets and accepts insertion from either source', async () => {
         const data = new Uint8Array(await readFile(join(process.cwd(), 'tests/fixtures/electron/pdf-preservation/tagged.pdf')));
         const ordinary = await createPdf({pageWidths: [200]});
         const wasm = await loadWasmRunner();
@@ -555,13 +553,22 @@ describe('browser page-ops WASM fast path', () => {
                 afterPage: 1,
             }),
         ];
-        results.forEach(result => {
-            expect(result).toMatchObject({
-                status: 'failed',
-                error: {code: 'invalid-request'},
-            });
-            expect(result && 'status' in result ? result.error.message : '').toContain('ERR_PDF_STRUCTURE_PRESERVATION:');
-        });
+        for (const [
+            index,
+            result,
+        ] of results.entries()) {
+            const count = [
+                1,
+                1,
+                2,
+                3,
+                3,
+                4,
+            ][index];
+            expect(result).toMatchObject({pageCount: count});
+            assertSuccessfulWasmMutation(result);
+            expect((await PDFDocument.load(result.data)).getPageCount()).toBe(count);
+        }
     });
 
     it('judges only the live append-admission allocation with its matching pointer and length', async () => {

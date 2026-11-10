@@ -69,6 +69,20 @@ const cropMarginsSchema = v.object({
     right: finiteNonNegativeSchema,
 });
 
+/** Each word Tesseract's PDF shows, on its ink rectangle in the raster Tesseract read. */
+export const OCR_WORD_GEOMETRY_SCHEMA = v.object({
+    rasterWidthPx: v.pipe(v.number(), v.finite(), v.gtValue(0)),
+    rasterHeightPx: v.pipe(v.number(), v.finite(), v.gtValue(0)),
+    words: v.array(v.object({
+        text: v.string(),
+        x: finiteNonNegativeSchema,
+        y: finiteNonNegativeSchema,
+        width: v.pipe(v.number(), v.finite(), v.gtValue(0)),
+        height: v.pipe(v.number(), v.finite(), v.gtValue(0)),
+    })),
+});
+export type TOcrWordGeometry = v.InferOutput<typeof OCR_WORD_GEOMETRY_SCHEMA>;
+
 /**
  * What the Rust OCR writer appends for each recognized page: the target page,
  * the index of its Tesseract page PDF in `pagePdfs`, the edits early-print
@@ -78,6 +92,7 @@ const cropMarginsSchema = v.object({
 const OCR_TEXT_LAYER_INSTRUCTIONS_SCHEMA = v.object({pages: v.pipe(v.array(v.object({
     pageNumber: positiveIntegerSchema,
     source: nonNegativeIntegerSchema,
+    wordGeometry: v.optional(OCR_WORD_GEOMETRY_SCHEMA),
     preprocessInverse: v.optional(v.object({
         rasterWidthPx: v.pipe(v.number(), v.finite(), v.gtValue(0)),
         rasterHeightPx: v.pipe(v.number(), v.finite(), v.gtValue(0)),

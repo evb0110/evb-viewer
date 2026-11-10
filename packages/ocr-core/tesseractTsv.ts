@@ -19,6 +19,9 @@ interface ITsvLineBox {
 interface IParsedTsvWordRow {
     parts: string[];
     text: string;
+    /** The recognized text after word edits, before display normalization. */
+    recognizedText: string;
+    confidence: number;
     left: number;
     top: number;
     width: number;
@@ -55,9 +58,16 @@ export function parseTsvOcrData(tsvContent: string, limits: {
     maxWords?: number;
     maxTextCharacters?: number;
     maxInputCharacters?: number;
+    normalizeGreekMicroSign?: boolean;
 } = {}, wordEdits: readonly IOcrWordEdit[] = []): {
+    /** Confident words on their line's box, for the overlay and exports. */
     words: IOcrWord[];
     text: string;
+    /**
+     * Every word Tesseract's PDF shows, in its order, on the word's own ink
+     * rectangle and with its recognized text: what the saved text layer fits.
+     */
+    inkWords: IOcrWord[];
 } {
     const acceptedWordRows: IParsedTsvWordRow[] = [];
     const lineBoxes = new Map<string, ITsvLineBox>();
@@ -80,9 +90,11 @@ export function parseTsvOcrData(tsvContent: string, limits: {
     ]));
     for (const tsvRow of iterateTsvRows(tsvContent, maxRows)) {
         const edited = tsvRow.wordOrdinal === undefined ? undefined : editedText.get(tsvRow.wordOrdinal);
-        const row = edited === undefined ? tsvRow : {
+        const recognized = edited ?? tsvRow.text;
+        const text = limits.normalizeGreekMicroSign ? recognized.replace(/\u00B5/g, '\u03BC') : recognized;
+        const row = text === tsvRow.text ? tsvRow : {
             ...tsvRow,
-            text: edited,
+            text,
         };
         const level = parseInt(row.parts[0]!, 10);
         if (level === 4) {
@@ -96,7 +108,7 @@ export function parseTsvOcrData(tsvContent: string, limits: {
             }
             continue;
         }
-        if (level !== 5) continue;
+        if (level !== 5 || !row.text.trim()) continue;
 
         const left = parseNonNegativeTsvInt(row.parts[6]);
         const top = parseNonNegativeTsvInt(row.parts[7]);
@@ -105,13 +117,14 @@ export function parseTsvOcrData(tsvContent: string, limits: {
         const confidence = parseNonNegativeTsvInt(row.parts[10]);
         if (left === null || top === null || width === null || height === null || confidence === null) continue;
         appendTsvTextRow(textState, row, maxTextCharacters);
-        if (confidence < 20) continue;
         if (acceptedWordRows.length >= maxWords) {
             throw new Error(`Tesseract TSV output exceeds the ${maxWords}-word limit`);
         }
         acceptedWordRows.push({
             parts: row.parts,
             text: row.text,
+            recognizedText: recognized,
+            confidence,
             left,
             top,
             width,
@@ -122,7 +135,7 @@ export function parseTsvOcrData(tsvContent: string, limits: {
     flushTsvTextLine(textState.outputLines, textState.currentWords);
 
     return {
-        words: acceptedWordRows.map((row) => {
+        words: acceptedWordRows.filter(row => row.confidence >= 20).map((row) => {
             const lineBox = lineBoxes.get(getTsvLineKey(row.parts));
             return {
                 text: row.text,
@@ -133,6 +146,13 @@ export function parseTsvOcrData(tsvContent: string, limits: {
             };
         }),
         text: textState.outputLines.join('\n').trim(),
+        inkWords: acceptedWordRows.map(row => ({
+            text: row.recognizedText,
+            x: row.left,
+            y: row.top,
+            width: row.width,
+            height: row.height,
+        })),
     };
 }
 

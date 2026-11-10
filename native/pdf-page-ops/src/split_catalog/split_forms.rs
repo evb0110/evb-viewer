@@ -3,24 +3,16 @@ use super::*;
 use crate::catalog::CatalogWalkState;
 use crate::split_output::SplitAnnotationMap;
 
-/// Finalize qpdf's page subset with the same field owner as browser subsets.
 pub(crate) fn write_subset_form_path(
     input: &Path,
     output: &Path,
     qpdf: Option<&Path>,
-    print: bool,
 ) -> Result<()> {
     let mut incremental = load_dictionary_incremental_pdf_path(input, qpdf)?;
     let source = &incremental.previous_document;
-    if !print {
-        assert_page_structure_supported(source)?;
-    }
-    if !source.catalog()?.has(b"AcroForm") {
-        return if input == output {
-            Ok(())
-        } else {
-            with_staged_incremental_output(input, output, |_| Ok(()))
-        };
+    let updates = page_structure_updates(source)?;
+    if updates.is_empty() && !source.catalog()?.has(b"AcroForm") && input == output {
+        return Ok(());
     }
     let mut annotations = SplitAnnotationMap::new();
     for page in source.get_pages().values() {
@@ -34,12 +26,16 @@ pub(crate) fn write_subset_form_path(
             }
         }
     }
+    incremental.new_document.objects.extend(updates);
     if let Some(form) = split_form(source, &mut incremental.new_document, &annotations)? {
-        let mut catalog = source.catalog()?.clone();
-        catalog.set("AcroForm", form);
-        incremental
+        let root = source.trailer.get(b"Root")?.as_reference()?;
+        let mut catalog = incremental
             .new_document
-            .set_object(source.trailer.get(b"Root")?.as_reference()?, catalog);
+            .catalog()
+            .unwrap_or(source.catalog()?)
+            .clone();
+        catalog.set("AcroForm", form);
+        incremental.new_document.set_object(root, catalog);
     }
     incremental.new_document.version = source.version.clone();
     let revision = build_incremental_revision(&mut incremental)?;

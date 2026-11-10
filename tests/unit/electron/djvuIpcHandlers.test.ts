@@ -1265,8 +1265,8 @@ describe('native DjVu open admission', async () => {
         const directory = mkdtempSync(join(tmpdir(), 'djvu-open-admission-'));
         const djvuPath = join(directory, 'book.djvu');
         writeFileSync(djvuPath, source);
-        mocks.getDjvuPageSourceInfoForViewing.mockRejectedValueOnce(pageCountFailure);
-        mocks.getDjvuPageCount.mockImplementationOnce(() => {
+        mocks.getDjvuPageSourceInfoForViewing.mockReset().mockRejectedValueOnce(pageCountFailure);
+        mocks.getDjvuPageCount.mockReset().mockImplementationOnce(() => {
             // A directory has no bytes to read on any platform or as any user.
             if (options.unreadableAfterProbe) {
                 rmSync(djvuPath);
@@ -1286,18 +1286,72 @@ describe('native DjVu open admission', async () => {
 
     beforeEach(() => {
         vi.clearAllMocks();
+        mocks.getDjvuPageSourceInfoForViewing.mockReset();
+        mocks.getDjvuPageCount.mockReset();
+    });
+
+    it.each([
+        [
+            'HTML',
+            '<html><head><title>Сайт временно недоступен</title></head></html>',
+            'html',
+        ],
+        [
+            'HTML with a BOM and comments',
+            '\ufeff  <!-- failed download -->\n<!doctype html>',
+            'html',
+        ],
+        [
+            'PDF',
+            '%PDF-1.7\n%%EOF\n',
+            'pdf',
+        ],
+        [
+            'ZIP',
+            'PK\x03\x04archive',
+            'zip',
+        ],
+        [
+            'empty',
+            '',
+            'empty',
+        ],
+        [
+            'unknown',
+            'not a document',
+            'unknown',
+        ],
+    ])('refuses %s bytes named .djvu before invoking a native probe', async (_label, bytes, detectedFormat) => {
+        const result = await openWithProbeFailure(new Error('Native probe must not run'), bytes);
+        expect(result).toMatchObject({
+            success: false,
+            errorEnvelope: {
+                code: 'not-djvu',
+                detectedFormat,
+            },
+        });
+        expect(result.error).not.toContain('Native probe must not run');
+        expect(mocks.getDjvuPageSourceInfoForViewing).not.toHaveBeenCalled();
+        expect(mocks.getDjvuPageCount).not.toHaveBeenCalled();
     });
 
     it('classifies a djvused refusal of a truncated DjVu as invalid and keeps the native message as diagnostics', async () => {
         const truncated = readFileSync(join(DJVU_FIXTURE_SOURCES, 'corrupt-truncated.djvu'));
-        await expect(openWithProbeFailure(new NativeProcessError('exit-code', 10, null, nativeRejection), truncated)).resolves.toEqual({
-            success: false,
-            error: nativeRejection,
-            errorEnvelope: {
-                code: 'invalid-djvu',
-                message: nativeRejection,
-            },
-        });
+        for (const bytes of [
+            truncated,
+            truncated.subarray(4),
+            Buffer.from('AT&TFORM'),
+        ]) {
+            await expect(openWithProbeFailure(new NativeProcessError('exit-code', 10, null, nativeRejection), bytes)).resolves.toEqual({
+                success: false,
+                error: nativeRejection,
+                errorEnvelope: {
+                    code: 'invalid-djvu',
+                    message: nativeRejection,
+                },
+            });
+            expect(mocks.getDjvuPageCount).toHaveBeenCalledOnce();
+        }
     });
 
     it('does not call a killed, failed or unavailable native tool an invalid DjVu', async () => {
@@ -1322,32 +1376,22 @@ describe('native DjVu open admission', async () => {
             success: false,
             error: denied,
         });
-        await expect(openWithProbeFailure(failure, readFileSync(join(DJVU_FIXTURE_SOURCES, 'corrupt-truncated.djvu')), {unreadableAfterProbe: true}))
+        await expect(openWithProbeFailure(failure, undefined, {unreadableAfterProbe: true}))
             .resolves.toEqual({
                 success: false,
                 error: denied,
             });
     });
 
-    it('preserves an unknown-header native refusal as unclassified', async () => {
+    it('keeps native diagnostics for supported legacy FORM and SDJV containers', async () => {
         const layered = readFileSync(join(DJVU_FIXTURE_SOURCES, 'layered.djvu'));
         const failure = new NativeProcessError('exit-code', 10, null, nativeRejection);
-        const truncatedForm = (prefix: string, type: string) => {
-            const header = Buffer.from(`${prefix}FORM\0\0\0\0${type}`, 'latin1');
-            header.writeUInt32BE(18100, prefix.length + 4);
-            return header;
-        };
         for (const source of [
             layered.subarray(4),
             Buffer.concat([
                 Buffer.from('SDJV', 'latin1'),
                 layered.subarray(4),
             ]),
-            truncatedForm('', 'DJVU'),
-            truncatedForm('SDJV', 'DJVU'),
-            truncatedForm('AT&T', 'PM44'),
-            truncatedForm('AT&T', 'BM44'),
-            Buffer.from('AT&TFORM', 'latin1'),
         ]) {
             await expect(openWithProbeFailure(failure, source)).resolves.toEqual({
                 success: false,
@@ -1374,8 +1418,8 @@ describe('native DjVu open admission', async () => {
 
     it('returns a canceled open as expected, without falling back to the page-count probe', async () => {
         const controller = new AbortController();
-        controller.abort();
         const abort = Object.assign(new Error('The operation was aborted'), {name: 'AbortError'});
+        controller.abort(abort);
         mocks.getDjvuPageSourceInfoForViewing.mockRejectedValueOnce(abort);
 
         await expect(handleDjvuOpenForViewing(createIpcEvent(93) as never, '/tmp/canceled.djvu' as never, controller.signal, false))
@@ -1393,7 +1437,7 @@ describe('native DjVu open admission', async () => {
     it('keeps the page-count fallback when only the page-source probe fails', async () => {
         const directory = mkdtempSync(join(tmpdir(), 'djvu-open-admission-'));
         const djvuPath = join(directory, 'book.djvu');
-        writeFileSync(djvuPath, 'AT&TFORM');
+        writeFileSync(djvuPath, readFileSync(join(DJVU_FIXTURE_SOURCES, 'layered.djvu')));
         mocks.getDjvuPageSourceInfoForViewing.mockRejectedValueOnce(new Error('page size probe failed'));
         mocks.getDjvuPageCount.mockResolvedValueOnce(12);
         try {
@@ -1402,7 +1446,7 @@ describe('native DjVu open admission', async () => {
                     success: true,
                     pageCount: 12,
                     source: {
-                        sourceSize: 8,
+                        sourceSize: readFileSync(join(DJVU_FIXTURE_SOURCES, 'layered.djvu')).length,
                         sourceModifiedAt: Math.trunc(statSync(djvuPath).mtimeMs),
                     },
                 });
@@ -1420,7 +1464,7 @@ describe('native DjVu open admission', async () => {
         );
         const directory = mkdtempSync(join(tmpdir(), 'djvu-open-durable-'));
         const djvuPath = join(directory, 'book.djvu');
-        writeFileSync(djvuPath, 'AT&TFORM');
+        writeFileSync(djvuPath, readFileSync(join(DJVU_FIXTURE_SOURCES, 'layered.djvu')));
         const openDurably = async (senderId: number, requestId: string) => {
             const context = {
                 ...createIpcEvent(senderId),
@@ -1448,7 +1492,7 @@ describe('native DjVu open admission', async () => {
             mocks.getDjvuPageSourceInfoForViewing.mockRejectedValueOnce(new Error('page size probe failed'));
             mocks.getDjvuPageCount.mockResolvedValueOnce(12);
             const source = {
-                sourceSize: 8,
+                sourceSize: readFileSync(join(DJVU_FIXTURE_SOURCES, 'layered.djvu')).length,
                 sourceModifiedAt: Math.trunc(statSync(djvuPath).mtimeMs),
             };
             await expect(openDurably(97, 'durable-unchanged')).resolves.toMatchObject({
@@ -1485,14 +1529,14 @@ describe('native DjVu open admission', async () => {
             ...createIpcEvent(95),
             senderId: 95,
         };
-        writeFileSync(djvuPath, 'AT&TFORM');
+        writeFileSync(djvuPath, readFileSync(join(DJVU_FIXTURE_SOURCES, 'layered.djvu')));
         try {
             mocks.getDjvuPageSourceInfoForViewing.mockRejectedValueOnce(new Error('page size probe failed'));
             mocks.getDjvuPageCount.mockResolvedValueOnce(12);
             await expect(handleDjvuOpenForViewing(context as never, djvuPath as never)).resolves.toMatchObject({success: true});
             await expect(getAdmittedDjvuViewingSource(djvuPath, 95)).resolves.toMatchObject({
                 originalPath: djvuPath,
-                sourceSize: 8,
+                sourceSize: readFileSync(join(DJVU_FIXTURE_SOURCES, 'layered.djvu')).length,
             });
             await expect(getAdmittedDjvuViewingSource(djvuPath, 96)).resolves.toBeNull();
             releaseDjvuViewingPath(context as never, djvuPath);

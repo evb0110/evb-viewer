@@ -16,6 +16,7 @@ import {
 } from '@app/platform/browser-api/browserOcrModels';
 import {
     BROWSER_OCR_ANNOTATION_MODE,
+    getBrowserOcrRasterSize,
     readPageSourceDpi,
     renderBrowserOcrRaster,
 } from '@app/platform/browser-api/browserOcrRaster';
@@ -28,6 +29,7 @@ import {getErrorMessage} from '@app/utils/error';
 import {
     isBrowserPageOpsWasmFailure,
     type IOcrTextLayerInstructions,
+    type TOcrWordGeometry,
 } from '@contracts/browserPageOpsWorker';
 import {
     canReadEarlyPrint,
@@ -114,6 +116,7 @@ interface IRecognizedPage {
     pdf: Uint8Array;
     languages: readonly string[];
     wordEdits: IOcrWordEdit[];
+    wordGeometry: TOcrWordGeometry;
     preprocessInverse?: TOcrPreprocessInverse;
 }
 
@@ -458,11 +461,12 @@ export async function runBrowserOcrJob(input: IBrowserOcrJobInput): Promise<TBro
                 longS: readHocrLines(decodeBoundedText(longS!.outputs[0], TESSERACT_MAX_HOCR_BYTES, 'hOCR')),
                 ligatures: readHocrLines(decodeBoundedText(ligatures!.outputs[0], TESSERACT_MAX_HOCR_BYTES, 'hOCR')),
             }, await dictionary, {latin: languages.includes('lat')});
-            parseTsvOcrData(rereadTsv, {}, wordEdits);
+            const words = parseTsvOcrData(rereadTsv, {}, wordEdits).inkWords;
             return {
                 pdf: requireTesseractPdf(pdf),
                 wordEdits,
                 raster,
+                words,
             };
         };
         const recognizePage = async (request: IOcrSearchablePdfPage) => {
@@ -499,8 +503,8 @@ export async function runBrowserOcrJob(input: IBrowserOcrJobInput): Promise<TBro
                     tsv,
                 ] = pass!.outputs;
                 const tsvText = decodeBoundedText(tsv, TESSERACT_MAX_TSV_BYTES, 'TSV').trim();
-                // The words are not stored; parsing applies the desktop's TSV bounds.
-                parseTsvOcrData(tsvText);
+                // The desktop parser applies its TSV bounds and keeps each word's ink rectangle.
+                let words = parseTsvOcrData(tsvText).inkWords;
                 let pagePdf = requireTesseractPdf(firstPdf);
                 let wordEdits: IOcrWordEdit[] = [];
                 if (canReadEarlyPrint(request.languages) && hasLongSSignature(readWordsOrNone(tsvText))) {
@@ -508,6 +512,7 @@ export async function runBrowserOcrJob(input: IBrowserOcrJobInput): Promise<TBro
                         const early = await readEarlyPrint(page, dpi, request.languages, request.pageNumber);
                         pagePdf = early.pdf;
                         wordEdits = early.wordEdits;
+                        words = early.words;
                         // The reread PDF was recognized on this raster; one diagnostic per page.
                         if (early.raster.diagnostic && !raster.diagnostic) diagnostics.push(early.raster.diagnostic);
                         raster = early.raster;
@@ -530,11 +535,17 @@ export async function runBrowserOcrJob(input: IBrowserOcrJobInput): Promise<TBro
                         message: `Tesseract rejected ${unsupported.join(', ')}; the page was recognized without them`,
                     });
                 }
+                const rasterSize = getBrowserOcrRasterSize(page, dpi);
                 recognized.push({
                     pageNumber: request.pageNumber,
                     pdf: pagePdf,
                     languages: request.languages,
                     wordEdits,
+                    wordGeometry: {
+                        rasterWidthPx: rasterSize.width,
+                        rasterHeightPx: rasterSize.height,
+                        words,
+                    },
                     ...(raster.preprocessInverse ? {preprocessInverse: raster.preprocessInverse} : {}),
                 });
             } catch (error) {
@@ -574,6 +585,7 @@ export async function runBrowserOcrJob(input: IBrowserOcrJobInput): Promise<TBro
         const instructions: IOcrTextLayerInstructions = {pages: recognized.map((page, source) => ({
             pageNumber: page.pageNumber,
             source,
+            wordGeometry: page.wordGeometry,
             ...(shouldNormalizeGreekMicroSign(page.languages) ? {normalizeGreekMicroSign: true} : {}),
             ...(page.wordEdits.length > 0 ? {wordEdits: page.wordEdits} : {}),
             ...(page.preprocessInverse ? {preprocessInverse: page.preprocessInverse} : {}),

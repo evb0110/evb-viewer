@@ -63,6 +63,7 @@ vi.mock('@app/utils/platform', () => ({getPlatformAPI: () => platformApi}));
 vi.mock('@app/utils/browserLogger', () => ({BrowserLogger: {warn: browserLoggerWarnMock}}));
 
 const { useOcrPopupPresenter } = await import('@app/modules/ocr-panel/runtime/useOcrPopupPresenter');
+const { applyAgentOcrOptionsToSettings } = await import('@app/modules/ocr-panel/runtime/ocrPopupSettings');
 
 function createSettings(): IOcrSettings {
     return {
@@ -73,7 +74,6 @@ function createSettings(): IOcrSettings {
         preprocessingMode: 'off',
         pageSegmentationMode: null,
         supersessionPolicy: 'missing-only',
-        replaceAllAcknowledged: false,
     };
 }
 
@@ -358,7 +358,6 @@ describe('useOcrPopupPresenter', () => {
                 preprocessingMode: 'clean',
                 pageSegmentationMode: 6,
                 supersessionPolicy: 'replace-all',
-                replaceAllAcknowledged: true,
             });
             expect(harness.ocr.runOcr).toHaveBeenCalledWith(
                 5,
@@ -685,69 +684,59 @@ describe('useOcrPopupPresenter', () => {
         }
     });
 
-    it('uses missing-only by default and requires acknowledgement before replacing foreign hidden OCR', async () => {
+    it('switches existing-text policy from the dialog choices and accepts agent replace-all only with acknowledgement', async () => {
         const harness = createPresenterHarness();
 
         try {
-            expect(harness.ocr.settings.value.supersessionPolicy).toBe('missing-only');
-            expect(harness.presenter.supersessionChoiceModel.value).toBe('missing-only');
-            expect(harness.presenter.canRunOcr.value).toBe(true);
-
             harness.presenter.supersessionChoiceModel.value = 'repeat';
             await nextTick();
+            expect(harness.ocr.settings.value.supersessionPolicy).toBe('replace-all');
+            expect(harness.presenter.replaceOnlyEvbModel.value).toBe(false);
+            expect(harness.presenter.canRunOcr.value).toBe(true);
+
+            harness.presenter.replaceOnlyEvbModel.value = true;
+            await nextTick();
             expect(harness.ocr.settings.value.supersessionPolicy).toBe('replace-evb');
-            expect(harness.presenter.replaceOnlyEvbModel.value).toBe(true);
-            expect(harness.presenter.canRunOcr.value).toBe(true);
+            expect(harness.presenter.supersessionChoiceModel.value).toBe('repeat');
 
-            harness.ocr.settings.value = {
-                ...harness.ocr.settings.value,
-                supersessionPolicy: 'replace-all',
-                replaceAllAcknowledged: false,
-            };
+            harness.presenter.replaceOnlyEvbModel.value = false;
             await nextTick();
-            expect(harness.presenter.canRunOcr.value).toBe(false);
-            expect(harness.presenter.getAgentOcrSnapshot()).toMatchObject({
-                supersessionPolicy: 'replace-all',
-                replaceAllAcknowledged: false,
-            });
-
-            harness.ocr.settings.value = {
-                ...harness.ocr.settings.value,
-                replaceAllAcknowledged: true,
-            };
-            await nextTick();
-            expect(harness.presenter.canRunOcr.value).toBe(true);
+            expect(harness.ocr.settings.value.supersessionPolicy).toBe('replace-all');
 
             harness.isOpen.value = true;
             await nextTick();
             harness.isOpen.value = false;
             await nextTick();
-            expect(harness.ocr.settings.value).toMatchObject({
-                supersessionPolicy: 'replace-all',
-                replaceAllAcknowledged: false,
-            });
-            expect(harness.presenter.canRunOcr.value).toBe(false);
-
-            harness.ocr.settings.value = {
-                ...harness.ocr.settings.value,
-                supersessionPolicy: 'replace-evb',
-            };
-            await nextTick();
-            expect(harness.ocr.settings.value.replaceAllAcknowledged).toBe(false);
-
-            harness.presenter.replaceOnlyEvbModel.value = false;
-            await nextTick();
-            expect(harness.ocr.settings.value).toMatchObject({
-                supersessionPolicy: 'replace-all',
-                replaceAllAcknowledged: false,
-            });
+            expect(harness.ocr.settings.value.supersessionPolicy).toBe('replace-all');
+            expect(harness.presenter.canRunOcr.value).toBe(true);
 
             harness.presenter.supersessionChoiceModel.value = 'missing-only';
             await nextTick();
-            expect(harness.ocr.settings.value).toMatchObject({
-                supersessionPolicy: 'missing-only',
-                replaceAllAcknowledged: false,
-            });
+            expect(harness.ocr.settings.value.supersessionPolicy).toBe('missing-only');
+
+            const languages = new Set(['eng']);
+            expect(applyAgentOcrOptionsToSettings(
+                harness.ocr.settings.value,
+                {supersessionPolicy: 'replace-all'},
+                languages,
+            ).supersessionPolicy).toBe('replace-evb');
+            // An agent that names no policy does not inherit the dialog's replace-all.
+            expect(applyAgentOcrOptionsToSettings(
+                {
+                    ...harness.ocr.settings.value,
+                    supersessionPolicy: 'replace-all',
+                },
+                {pageRange: 'all'},
+                languages,
+            ).supersessionPolicy).toBe('replace-evb');
+            expect(applyAgentOcrOptionsToSettings(
+                harness.ocr.settings.value,
+                {
+                    supersessionPolicy: 'replace-all',
+                    replaceAllAcknowledged: true,
+                },
+                languages,
+            ).supersessionPolicy).toBe('replace-all');
         } finally {
             stopHarness(harness.scope);
         }

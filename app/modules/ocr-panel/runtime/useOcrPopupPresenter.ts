@@ -399,8 +399,7 @@ export const useOcrPopupPresenter = ({
         set: choice => {
             settings.value = {
                 ...settings.value,
-                supersessionPolicy: choice === 'missing-only' ? 'missing-only' : 'replace-evb',
-                replaceAllAcknowledged: false,
+                supersessionPolicy: choice === 'missing-only' ? 'missing-only' : 'replace-all',
             };
         },
     });
@@ -410,7 +409,6 @@ export const useOcrPopupPresenter = ({
             settings.value = {
                 ...settings.value,
                 supersessionPolicy: onlyEvb ? 'replace-evb' : 'replace-all',
-                replaceAllAcknowledged: false,
             };
         },
     });
@@ -431,11 +429,7 @@ export const useOcrPopupPresenter = ({
         !toValue(context.busy)
         && !progress.value.isRunning
         && hasSelectedAvailableLanguage.value
-        && Boolean(workingCopyPath.value)
-        && (
-            settings.value.supersessionPolicy !== 'replace-all'
-            || settings.value.replaceAllAcknowledged
-        ),
+        && Boolean(workingCopyPath.value),
     );
 
     const showCustomRange = computed(() => settings.value.pageRange === 'custom');
@@ -551,7 +545,6 @@ export const useOcrPopupPresenter = ({
             preprocessingMode: settings.value.preprocessingMode,
             pageSegmentationMode: settings.value.pageSegmentationMode,
             supersessionPolicy: settings.value.supersessionPolicy,
-            replaceAllAcknowledged: settings.value.replaceAllAcknowledged,
             hasWorkingCopy: Boolean(workingCopyPath.value),
             error: error.value,
             outcome: lastRunOutcome.value,
@@ -597,7 +590,6 @@ export const useOcrPopupPresenter = ({
             `activeRunPageSegmentationMode=${activeRunSettings.value?.pageSegmentationMode ?? '-'}`,
             `lastCompletedPageSegmentationMode=${lastCompletedRunSettings.value?.pageSegmentationMode ?? '-'}`,
             `draftSupersessionPolicy=${settings.value.supersessionPolicy}`,
-            `draftReplaceAllAcknowledged=${settings.value.replaceAllAcknowledged}`,
             `activeSupersessionPolicy=${activeRunSettings.value?.supersessionPolicy ?? '-'}`,
             `completedSupersessionPolicy=${lastCompletedRunSettings.value?.supersessionPolicy ?? '-'}`,
             `uiError=${error.value ?? ''}`,
@@ -751,12 +743,6 @@ export const useOcrPopupPresenter = ({
     /** The dialog closed while no run was going: the finished run is dismissed. */
     function handleDialogClosed() {
         resetCompletedOcrState();
-        if (settings.value.replaceAllAcknowledged) {
-            settings.value = {
-                ...settings.value,
-                replaceAllAcknowledged: false,
-            };
-        }
     }
 
     /**
@@ -824,15 +810,6 @@ export const useOcrPopupPresenter = ({
         );
         if (nextSettings !== settings.value) {
             settings.value = nextSettings;
-        }
-    });
-
-    watch(() => settings.value.supersessionPolicy, (policy) => {
-        if (policy !== 'replace-all' && settings.value.replaceAllAcknowledged) {
-            settings.value = {
-                ...settings.value,
-                replaceAllAcknowledged: false,
-            };
         }
     });
 

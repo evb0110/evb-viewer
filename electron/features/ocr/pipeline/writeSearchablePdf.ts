@@ -24,6 +24,7 @@ export async function writeSearchablePdf(input: {
             pageNumber: page.pageData.pageNumber,
             source: page.pdfPath,
             normalizeGreekMicroSign: page.normalizeGreekMicroSign,
+            ...(page.wordGeometry ? {wordGeometry: page.wordGeometry} : {}),
             ...(page.wordEdits.length === 0 ? {} : {wordEdits: page.wordEdits}),
             ...(page.preprocessInverse === undefined ? {} : {preprocessInverse: {
                 rasterWidthPx: page.pageData.imageWidth,
