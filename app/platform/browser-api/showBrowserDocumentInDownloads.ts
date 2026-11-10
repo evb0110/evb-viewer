@@ -53,7 +53,7 @@ function getChromeDownloads(): IChromeDownloadsApi | null {
 }
 
 function toDownloadFileName(name: string) {
-    return name.replaceAll(UNSAFE_FILE_NAME_CHARACTERS, '_').replace(/^[\s.]+/u, '') || 'document';
+    return name.replaceAll(UNSAFE_FILE_NAME_CHARACTERS, '_').replaceAll(/^[\s.]+|[\s.]+$/gu, '') || 'document';
 }
 
 /** Resolves true once Chrome finished writing the download, false when it was interrupted. */
