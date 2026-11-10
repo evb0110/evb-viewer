@@ -1,15 +1,15 @@
-import {randomUUID} from 'node:crypto';
 import {
     mkdir,
     readFile,
     readdir,
-    rename,
     rm,
     stat,
-    writeFile,
 } from 'node:fs/promises';
 import {join} from 'node:path';
 import * as v from 'valibot';
+import {
+    recoverWindowsAtomicReplace, writeJsonAtomic,
+} from '@electron/utils/atomicReplace';
 
 const OCR_JOB_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const OCR_DAG_NODE_STATES = [
@@ -50,12 +50,6 @@ function decodeManifest(value: unknown, fingerprint: string): IOcrDurableJobMani
         : null;
 }
 
-async function writeManifestAtomic(path: string, manifest: IOcrDurableJobManifest) {
-    const tempPath = `${path}.${process.pid}.${randomUUID()}.tmp`;
-    await writeFile(tempPath, JSON.stringify(manifest), 'utf8');
-    await rename(tempPath, path);
-}
-
 export async function cleanupStaleOcrJobDirectories(rootDir: string, now = Date.now()) {
     const entries = await readdir(rootDir, {withFileTypes: true}).catch(() => []);
     await Promise.all(entries.filter(entry => entry.isDirectory()).map(async entry => {
@@ -73,6 +67,7 @@ export async function cleanupStaleOcrJobDirectories(rootDir: string, now = Date.
 export async function createOcrJobManifestController(jobDir: string, fingerprint: string) {
     await mkdir(jobDir, {recursive: true});
     const manifestPath = join(jobDir, 'manifest.json');
+    if (process.platform === 'win32') await recoverWindowsAtomicReplace(manifestPath);
     const loaded: unknown = await readFile(manifestPath, 'utf8')
         .then(raw => JSON.parse(raw) as unknown)
         .catch(() => null);
@@ -88,7 +83,8 @@ export async function createOcrJobManifestController(jobDir: string, fingerprint
     let writeTail = Promise.resolve();
     const persist = () => {
         manifest.updatedAt = Date.now();
-        writeTail = writeTail.then(() => writeManifestAtomic(manifestPath, manifest));
+        // A failed write rejects for its own caller; the next one still runs.
+        writeTail = writeTail.catch(() => undefined).then(() => writeJsonAtomic(manifestPath, manifest, {markMutationCommitStarted: false}));
         return writeTail;
     };
     await persist();

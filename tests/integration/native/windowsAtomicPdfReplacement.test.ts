@@ -1,6 +1,7 @@
 import {execFile} from 'node:child_process';
 import {
     access,
+    chmod,
     mkdir,
     mkdtemp,
     readFile,
@@ -24,6 +25,7 @@ import {
     it,
 } from 'vitest';
 import {atomicReplace} from '@electron/utils/atomicReplace';
+import {createOcrJobManifestController} from '@electron/features/ocr/pipeline/ocrJobManifest';
 
 const holdFileHandleScript = resolve('tests/integration/native/hold-file-handle.ps1');
 const publicationHarness = resolve('tests/integration/native/windowsAtomicPdfPublicationHarness.cjs');
@@ -125,6 +127,39 @@ describe.skipIf(process.platform !== 'win32')('Windows atomic PDF replacement', 
             force: true,
             recursive: true,
         })));
+    });
+
+    it('publishes and resumes OCR checkpoints when Windows refuses replacement of a read-only manifest', async () => {
+        const root = await mkdtemp(join(runtimeRoot, 'evb-ocr-manifest-'));
+        rootPaths.push(root);
+        const manifestPath = join(root, 'manifest.json');
+        const first = await createOcrJobManifestController(root, 'fingerprint');
+        await first.markPageVerified(1);
+        // Windows allows moving this file aside but rejects rename-overwrite
+        // with EPERM. Exercise that OS behavior without mocking the writer.
+        await chmod(manifestPath, 0o444);
+        try {
+            await first.markPageVerified(2);
+            await first.setTerminal('cancelled');
+            await chmod(manifestPath, 0o444);
+            const resumed = await createOcrJobManifestController(root, 'fingerprint');
+            expect([...resumed.verifiedPages]).toEqual([
+                1,
+                2,
+            ]);
+            await resumed.markPageVerified(3);
+            await resumed.setTerminal('completed');
+            expect(JSON.parse(await readFile(manifestPath, 'utf8'))).toMatchObject({
+                state: 'completed',
+                verifiedPages: [
+                    1,
+                    2,
+                    3,
+                ],
+            });
+        } finally {
+            await chmod(manifestPath, 0o666);
+        }
     });
 
     it('keeps the original pathname on complete old or new PDF bytes', async () => {
