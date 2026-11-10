@@ -1,5 +1,6 @@
 import {isRecord} from '@contracts/runtimeGuards';
 import * as v from 'valibot';
+import {SCAN_CLEANUP_PAGE_OPS_REPORT_SCHEMA} from '@contracts/browserPageOpsWriters';
 import {
     SCAN_CLEANUP_BINARIZATION_METHODS,
     SCAN_CLEANUP_CANVAS_POLICIES,
@@ -599,5 +600,5 @@ export function decodeNativeScanCleanupPreviewOutputMetadataJson(text: string): 
 
 /** PDF page operations emit a document-wide loss result on successful output. */
 export function decodeScanCleanupPageOpsResult(text: string) {
-    return v.parse(v.object({accessibilityTagsRemoved: v.optional(v.boolean())}), text.trim().length === 0 ? {} : JSON.parse(text));
+    return v.parse(SCAN_CLEANUP_PAGE_OPS_REPORT_SCHEMA, text.trim().length === 0 ? {} : JSON.parse(text));
 }

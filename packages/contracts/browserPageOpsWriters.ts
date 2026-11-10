@@ -89,7 +89,14 @@ export const REPLACE_PAGE_IMAGES_INSTRUCTIONS_SCHEMA = v.strictObject({
 export type IReplacePageImagesInstructions = v.InferOutput<typeof REPLACE_PAGE_IMAGES_INSTRUCTIONS_SCHEMA>;
 
 /** What `split-pages` and `overlay-text` print; scan cleanup reads the same line on desktop. */
-export const SCAN_CLEANUP_PAGE_OPS_REPORT_SCHEMA = v.object({accessibilityTagsRemoved: v.optional(v.boolean())});
+/**
+ * A document-wide loss result: a dropped tag tree, and the one-based source
+ * pages whose text an overlay could not place on some output page.
+ */
+export const SCAN_CLEANUP_PAGE_OPS_REPORT_SCHEMA = v.object({
+    accessibilityTagsRemoved: v.optional(v.boolean()),
+    textOmittedSourcePages: v.optional(v.array(v.pipe(v.number(), v.safeInteger(), v.minValue(1))), []),
+});
 
 const byteCountSchema = nonNegativeIntegerSchema;
 

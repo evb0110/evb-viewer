@@ -211,11 +211,12 @@ export function collectSourceText(sink: IScanCleanupSourceTextSink, plan: IScanC
 }
 
 /**
- * Inspects the source pages no overlay could place. The pages file is the
- * native inspection's input, so nothing is written when every page was placed.
+ * Inspects the source pages whose text no overlay could place, one-based. The
+ * pages file is the native inspection's input, so nothing is written when
+ * every page was placed.
  */
 export async function inspectSkippedScanCleanupSourceText(input: {
-    skippedNonAffine: readonly number[];
+    pages: readonly number[];
     pdfPath: string;
     scratch: string;
     pdfPageOpsBinary: string | undefined;
@@ -224,9 +225,9 @@ export async function inspectSkippedScanCleanupSourceText(input: {
     runCommand: TScanCleanupRunCommand;
     log: TScanCleanupLog;
 }): Promise<TScanCleanupSummary['sourceTextOmission']> {
-    if (input.skippedNonAffine.length === 0 || input.pdfPageOpsBinary === undefined) return undefined;
+    if (input.pages.length === 0 || input.pdfPageOpsBinary === undefined) return undefined;
     const pagesPath = join(input.scratch, 'source-text-omission-pages.txt');
-    await writeFile(pagesPath, `${input.skippedNonAffine.join('\n')}\n`);
+    await writeFile(pagesPath, `${input.pages.join('\n')}\n`);
     return inspectScanCleanupSourceTextOmission({
         pdfPath: input.pdfPath,
         pagesPath,
