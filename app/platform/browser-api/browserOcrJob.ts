@@ -222,7 +222,7 @@ export async function runBrowserOcrJob(input: IBrowserOcrJobInput): Promise<TBro
     } = input;
     const errors = new BoundedMessages<string>();
     const diagnostics = new BoundedMessages<IOcrDiagnostic>();
-    const totalPages = input.pages.length;
+    let totalPages = input.pages.length;
     let processedCount = 0;
     const activePages = new Set<number>();
     const stage = (phase: TOcrProgressPhase, extra: Partial<IOcrProgress> = {}) => emit({
@@ -307,7 +307,8 @@ export async function runBrowserOcrJob(input: IBrowserOcrJobInput): Promise<TBro
                 page?.cleanup();
             }
         }
-        processedCount = totalPages - queue.length;
+        // Progress counts the pages being recognized; a kept page is not one of them.
+        totalPages = queue.length;
         const extractionDpi = resolveOcrExtractionDpi(renderDpi ?? finestSourceDpi);
         const recognized: IRecognizedPage[] = [];
         const enginePass = (
