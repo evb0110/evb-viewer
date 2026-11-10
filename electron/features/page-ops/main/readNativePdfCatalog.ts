@@ -18,7 +18,7 @@ interface INativePdfCatalogReadOptions {
 }
 
 async function readCatalogJson(
-    operation: 'read-catalog' | 'read-document-catalog' | 'validate-page-structure',
+    operation: 'read-catalog' | 'read-document-catalog',
     binaryPath: string,
     inputPath: string,
     options: INativePdfCatalogReadOptions,
@@ -75,10 +75,4 @@ export async function readNativePdfCatalogPart(
         throw new Error(typeof error === 'string' ? error : `Native PDF catalog read returned no ${part}`);
     }
     return value as unknown[];
-}
-
-export async function assertNativePageStructureSupported(
-    binaryPath: string, inputPath: string, options: INativePdfCatalogReadOptions,
-) {
-    await readCatalogJson('validate-page-structure', binaryPath, inputPath, options);
 }

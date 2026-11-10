@@ -14,8 +14,10 @@ import {
     type IDjvuSourceRevision,
 } from '@electron/features/djvu/main/djvuPageSourceInfoCache';
 import { isAllowedDjvuTempPdfPath } from '@electron/features/djvu/main/isAllowedDjvuTempPdfPath';
-import { NativeProcessError } from '@electron/native-tools/processResult';
-import { isAbortError } from '@electron/utils/abort';
+import {
+    abortErrorFromSignal,
+    isAbortError,
+} from '@electron/utils/abort';
 import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
 import { onSenderLifetimeEnd } from '@electron/utils/onSenderLifetimeEnd';
@@ -27,15 +29,13 @@ import type {
     IDjvuOpenSource,
 } from '@contracts/electronApiDjvu';
 import {isEqual} from 'es-toolkit/predicate';
-import type { TDocumentOpenErrorCode } from '@contracts/documentOpenErrors';
-
-const DJVU_IFF_HEADER_BYTES = 16;
-const DJVU_FORM_TYPES = new Set([
-    'DJVU',
-    'DJVM',
-    'DJVI',
-    'THUM',
-]);
+import type {
+    TDocumentOpenErrorCode,
+    TDocumentOpenErrorEnvelope,
+} from '@contracts/documentOpenErrors';
+import {
+    detectDocumentFormat, DOCUMENT_HEADER_BYTES,
+} from '@pdf-core/documentOpenFileTypes';
 
 const logger = createLogger('djvu-viewing');
 interface IDjvuOperationContext extends IPlatformMainSenderContext<WebContents> {}
@@ -223,40 +223,17 @@ export async function getAdmittedDjvuViewingSource(djvuPath: string, senderId: n
         : null;
 }
 
-/**
- * Whether the source's own bytes prove it is a truncated DjVu container: a
- * recognized `AT&TFORM` DjVu header whose FORM chunk is longer than the file.
- * DjVuLibre also opens other prefixes and chunk types, so any other header
- * proves nothing. A source the app cannot read proves nothing and throws.
- */
-async function isMalformedDjvuContainer(djvuPath: string) {
+/** Read only the header before admitting a source to any DjVuLibre probe. */
+async function readDjvuInputFormat(djvuPath: string) {
     const handle = await open(djvuPath, 'r');
     try {
         const {size} = await handle.stat();
-        const header = Buffer.alloc(DJVU_IFF_HEADER_BYTES);
-        const {bytesRead} = await handle.read(header, 0, DJVU_IFF_HEADER_BYTES, 0);
-        return bytesRead === DJVU_IFF_HEADER_BYTES
-            && header.toString('latin1', 0, 8) === 'AT&TFORM'
-            && DJVU_FORM_TYPES.has(header.toString('latin1', 12, 16))
-            && 12 + header.readUInt32BE(8) > size;
+        const header = Buffer.alloc(DOCUMENT_HEADER_BYTES);
+        const {bytesRead} = await handle.read(header, 0, header.length, 0);
+        return detectDocumentFormat(header.subarray(0, bytesRead), size);
     } finally {
         await handle.close();
     }
-}
-
-/**
- * Why an open probe failed, when the failure proves it. djvused exits 10 for
- * every exception, including an unreadable source and bad usage, so a native
- * refusal is an invalid DjVu only when the source bytes prove it malformed.
- */
-async function classifyDjvuOpenFailure(error: unknown, djvuPath: string): Promise<TDocumentOpenErrorCode | null> {
-    if (isErrnoException(error) && error.code === 'ENOENT') {
-        return 'not-found';
-    }
-    if (!(error instanceof NativeProcessError && error.kind === 'exit-code')) {
-        return null;
-    }
-    return await isMalformedDjvuContainer(djvuPath).catch(() => false) ? 'invalid-djvu' : null;
 }
 
 function isDjvuOpenCanceled(error: unknown, signal: AbortSignal | undefined) {
@@ -270,7 +247,17 @@ export async function handleDjvuOpenForViewing(
     adoptViewingPath = true,
 ): Promise<IDjvuOpenResult> {
     const probeOptions = signal ? {signal} : {};
+    let format: ReturnType<typeof detectDocumentFormat> | null = null;
     try {
+        if (signal?.aborted) throw abortErrorFromSignal(signal);
+        format = await readDjvuInputFormat(djvuPath);
+        if (signal?.aborted) throw abortErrorFromSignal(signal);
+        if (format !== 'djvu' && format !== 'invalid-djvu') {
+            return failDjvuOpen(new Error(`This file is not a DjVu document (${format})`), 'not-djvu', format);
+        }
+        // A DjVu header whose container is shorter than it declares still goes
+        // to DjVuLibre, which can show the pages it holds; only a failure
+        // below is reported as a damaged document.
         // The page-source probe can fail on a file the plain page count still
         // reads, so a genuine probe failure falls back; cancellation does not.
         const pageSourceInfo = await getDjvuPageSourceInfoForViewing(djvuPath, 1, probeOptions)
@@ -317,13 +304,14 @@ export async function handleDjvuOpenForViewing(
                 },
             };
         }
-        return failDjvuOpen(error, await classifyDjvuOpenFailure(error, djvuPath));
+        if (isErrnoException(error) && error.code === 'ENOENT') return failDjvuOpen(error, 'not-found');
+        return failDjvuOpen(error, format === 'invalid-djvu' ? 'invalid-djvu' : null);
     }
 }
 
 // The message stays diagnostic; the renderer localizes the code and shows the
 // message only as technical details next to the logged failure receipt.
-function failDjvuOpen(error: unknown, code: TDocumentOpenErrorCode | null): IDjvuOpenResult {
+function failDjvuOpen(error: unknown, code: TDocumentOpenErrorCode | null, detectedFormat?: TDocumentOpenErrorEnvelope['detectedFormat']): IDjvuOpenResult {
     const message = getErrorMessage(error);
     const failure = logger.error(`DjVu open failed: ${message}`, {
         code: 'MAIN_DJVU_VIEWING_FAILED',
@@ -335,6 +323,7 @@ function failDjvuOpen(error: unknown, code: TDocumentOpenErrorCode | null): IDjv
         ...(code === null ? {} : {errorEnvelope: {
             code,
             message,
+            ...(detectedFormat ? {detectedFormat} : {}),
         }}),
         ...(failure === undefined ? {} : {failure}),
     };

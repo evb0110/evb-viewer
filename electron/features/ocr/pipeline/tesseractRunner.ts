@@ -286,7 +286,7 @@ export async function runOcrFileBased(
         ...(signal === undefined ? {} : {signal}),
         ...(options === undefined ? {} : {options}),
     };
-    const failure = async (error: string): Promise<IOcrFileResult> => {
+    const failure = async (error: string) => {
         await Promise.all([
             safeUnlink(tsvPath),
             safeUnlink(pdfPath),
@@ -311,15 +311,9 @@ export async function runOcrFileBased(
                 wordEdits: [],
             }
             : await readEarlyPrint(run, outputBase, languages, tsvContent, prepareEarlyPrintModels);
-        const parsedTsv = parseTsvOcrData(earlyPrint.tsvContent, {}, earlyPrint.wordEdits);
-        const {words} = parsedTsv;
-        let pageText = parsedTsv.text;
-        if (shouldNormalizeGreekMicroSign(languages)) {
-            for (const word of words) {
-                word.text = word.text.replace(/\u00B5/g, '\u03BC');
-            }
-            pageText = pageText.replace(/\u00B5/g, '\u03BC');
-        }
+        const {
+            words, text, inkWords,
+        } = parseTsvOcrData(earlyPrint.tsvContent, {normalizeGreekMicroSign: shouldNormalizeGreekMicroSign(languages)}, earlyPrint.wordEdits);
         if (!(await stat(pdfPath).catch(() => null))?.isFile()) {
             return await failure('Tesseract did not produce PDF output');
         }
@@ -333,9 +327,14 @@ export async function runOcrFileBased(
             pageData: {
                 pageNumber: 0,
                 words,
-                text: pageText,
+                text,
                 imageWidth,
                 imageHeight,
+            },
+            wordGeometry: {
+                rasterWidthPx: imageWidth,
+                rasterHeightPx: imageHeight,
+                words: inkWords,
             },
             pdfPath,
         };

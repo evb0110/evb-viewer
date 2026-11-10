@@ -22,7 +22,8 @@ export type IPdfOcrLayerLine = v.InferOutput<typeof PDF_OCR_LAYER_LINE_SCHEMA>;
 /**
  * One page of `evb-pdf-page-ops ocr-text-visibility` stdout: the existing text
  * the OCR writer would find on the page, read with the scan it replaces text
- * through. `hiddenText` is hidden text the writer removes; `uncertain` names
+ * through. `hiddenText` is hidden text needing replacement, including legacy
+ * EVB line-wide ActualText with unusable word geometry; `uncertain` names
  * text the inspection could not read or the writer keeps; `unsupported` names
  * why the writer refuses to replace the page. `evbOcrLines` are the EVB
  * layer's lines in recognition order, when the caller asked for them.

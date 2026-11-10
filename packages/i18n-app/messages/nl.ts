@@ -866,7 +866,7 @@ export default {
             },
             'primaryDescriptions': {
                 'missing-only': 'Pagina’s overslaan die al selecteerbare tekst bevatten.',
-                'repeat': 'Eerdere herkenningsresultaten op de geselecteerde gescande pagina’s vervangen. De oorspronkelijke documenttekst blijft behouden.',
+                'repeat': 'Alle verborgen herkenning op de geselecteerde gescande pagina’s vervangen, ook die van andere apps. De oorspronkelijke documenttekst blijft behouden.',
             },
             'advanced': 'Geavanceerde opties voor opnieuw herkennen',
             'options': {
@@ -874,14 +874,12 @@ export default {
                 'replace-evb': 'EVB-tekst opnieuw met OCR verwerken',
                 'replace-all': 'Alle verborgen OCR vervangen',
             },
-            'onlyEvb': 'Alleen herkenning vervangen die door EVB Viewer is uitgevoerd',
-            'replaceAllDescription': 'Herkenning van andere apps op de geselecteerde pagina’s wordt ook vervangen.',
+            'onlyEvb': 'Herkenning van andere apps behouden; alleen herkenning van EVB Viewer vervangen',
             'descriptions': {
                 'missing-only': 'Alle bestaande tekstlagen behouden en alleen pagina\'s zonder tekst met OCR verwerken.',
                 'replace-evb': 'De actieve EVB-OCR-generatie vervangen; oorspronkelijke en externe tekst blijven behouden.',
                 'replace-all': 'EVB- en externe verborgen OCR-lagen vervangen; zichtbare oorspronkelijke tekst blijft behouden.',
             },
-            'replaceAllAcknowledgement': 'Ik begrijp dat verborgen externe OCR-lagen op de geselecteerde pagina\'s worden verwijderd en vervangen.',
         },
         'qualityProfile': {
             'label': 'Herkenningsmodus',
@@ -1741,6 +1739,15 @@ export default {
         'file': {
             'open': 'Kan bestand niet openen',
             'openDescription': 'Het bestand kon niet worden geopend. „Details kopiëren” bevat de technische oorzaak.',
+
+            // DjVu content validation.
+            'notDjvuHtml': 'Dit bestand is geen DjVu-document. Het lijkt op een webpagina (HTML), mogelijk door een mislukte download. Download het document opnieuw van de oorspronkelijke bron.',
+            'notDjvuPdf': 'Dit bestand is een PDF-document met de extensie .djvu. Wijzig de extensie van een kopie in .pdf en open deze opnieuw.',
+            'notDjvuZip': 'Dit bestand is een ZIP-archief met de extensie .djvu. Pak het archief uit en open het document erin.',
+            'notDjvuEmpty': 'Dit bestand is leeg en kan niet als DjVu-document worden geopend. Download of kopieer het document opnieuw.',
+            'notDjvu': 'Dit bestand is geen DjVu-document. Controleer het bestandstype of download het document opnieuw van de oorspronkelijke bron.',
+            'invalidDjvu': 'Dit DjVu-document is onvolledig of beschadigd. Download of kopieer het volledige document opnieuw.',
+
             'pdfjsAssetMismatch': 'De PDF-viewer moet de ontwikkelafhankelijkheden synchroniseren voordat dit bestand kan worden geopend.',
             'pdfjsAssetRepairAction': 'Reparatieopdracht kopiëren',
             'pdfjsAssetRepairCopied': 'Reparatieopdracht gekopieerd',

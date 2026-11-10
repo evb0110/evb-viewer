@@ -435,16 +435,13 @@ pub(crate) fn build_browser_page_subset_pdf(
         return Err("Browser page subset must contain at least one page".into());
     }
 
-    for source in sources {
-        crate::split_catalog::assert_page_structure_supported(*source)?;
-    }
-    let version = sources
-        .iter()
-        .map(|document| document.version.as_str())
-        .max()
-        .unwrap_or("1.4")
-        .to_string();
-    let mut target = Document::with_version(version);
+    let mut target = Document::with_version(
+        sources
+            .iter()
+            .map(|document| document.version.as_str())
+            .max()
+            .unwrap_or("1.4"),
+    );
     // lopdf's xref streams omit object 0, which readers report.
     target.reference_table.cross_reference_type = lopdf::xref::XrefType::CrossReferenceTable;
     let pages_id = target.new_object_id();
@@ -485,14 +482,7 @@ pub(crate) fn build_browser_page_subset_pdf(
         "Type" => "Catalog",
         "Pages" => pages_id,
     };
-    if !sources.is_empty() {
-        preserve_single_source_document_metadata(
-            &mut clone_context,
-            0,
-            page_sequence,
-            &mut catalog,
-        )?;
-    }
+    preserve_single_source_document_metadata(&mut clone_context, 0, page_sequence, &mut catalog)?;
     if sources.len() == 1 {
         let source = sources[0];
         let mut annotations = crate::split_output::SplitAnnotationMap::new();
@@ -541,6 +531,9 @@ pub(crate) fn build_browser_page_subset_pdf(
     }
     let catalog_id = clone_context.target.add_object(catalog);
     clone_context.target.trailer.set("Root", catalog_id);
+    for (id, object) in crate::split_catalog::page_structure_updates(&clone_context.target)? {
+        clone_context.target.set_object(id, object);
+    }
     clone_context.target.prune_objects();
 
     Ok(PageMutationBytes {

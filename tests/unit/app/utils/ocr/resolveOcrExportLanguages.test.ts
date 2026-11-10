@@ -15,7 +15,6 @@ function settings(selectedLanguages: string[]): IOcrSettings {
         preprocessingMode: 'off',
         pageSegmentationMode: null,
         supersessionPolicy: 'missing-only',
-        replaceAllAcknowledged: false,
     };
 }
 

@@ -51,6 +51,10 @@ impl CatalogWalkState {
         self.nodes += 1;
         true
     }
+
+    pub(crate) fn exhausted(&self) -> bool {
+        self.nodes >= CATALOG_WALK_NODE_LIMIT
+    }
 }
 
 const MAX_OC_GRAPH_DEPTH: usize = 64;
@@ -249,11 +253,6 @@ fn validate_pdf_combine_catalog(
     document: &impl PdfObjectSource,
     catalog: &Dictionary,
 ) -> Result<()> {
-    crate::split_catalog::assert_page_structure_supported(document)?;
-    if catalog.has(b"OCProperties") {
-        return Err(domain_error(NativeErrorCode::InvalidRequest,
-            "ERR_PDF_STRUCTURE_PRESERVATION: PDF combine cannot preserve optional-content layers; operation refused"));
-    }
     if catalog.has(b"AcroForm") {
         return Err("PDF combine does not support source forms".into());
     }

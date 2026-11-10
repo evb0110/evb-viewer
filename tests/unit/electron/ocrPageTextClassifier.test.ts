@@ -143,6 +143,19 @@ describe('OCR page text classification and supersession', () => {
         expect(shouldOcrClassifiedPage(latinGarbage, 'missing-only')).toBe(true);
     });
 
+    it('repairs legacy EVB geometry even when its recognized text is readable', () => {
+        const classification = classifyOcrPageText({
+            extractedText: 'СОТЕРИОЛОГИЯ СВЯТОГО ИРИНЕЯ ЛИОНСКОГО',
+            visibility: visibility({
+                evbOcrLayer: true,
+                hiddenText: true,
+            }),
+            languages: ['rus'],
+        });
+        expect(classification).toBe('foreign-hidden-ocr');
+        expect(shouldOcrClassifiedPage(classification, 'missing-only')).toBe(true);
+    });
+
     it('keeps known non-Latin scripts and does not guess Latin for unknown models', () => {
         for (const languages of [
             ['chi_sim'],

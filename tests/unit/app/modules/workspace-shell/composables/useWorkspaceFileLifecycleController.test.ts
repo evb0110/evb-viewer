@@ -284,12 +284,12 @@ describe('useWorkspaceFileLifecycleController', () => {
 
         expect(outcome).toEqual({
             status: 'failed',
-            error: 'errors.file.invalid',
+            error: 'errors.file.invalidDjvu',
         });
-        expect(state.pdfError.value).toBe('errors.file.invalid');
+        expect(state.pdfError.value).toBe('errors.file.invalidDjvu');
         expect(state.pdfFailurePresentation.value).toMatchObject({
             failure: receipt,
-            description: 'errors.file.invalid',
+            description: 'errors.file.invalidDjvu',
             technicalDetails: nativeCause,
         });
     });

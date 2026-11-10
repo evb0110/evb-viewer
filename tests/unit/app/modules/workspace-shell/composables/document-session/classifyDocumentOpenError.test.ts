@@ -45,6 +45,38 @@ describe('classifyDocumentOpenError', () => {
             .toBe('errors.browser.documentToolsUnavailable');
     });
 
+    it.each([
+        [
+            'html',
+            'errors.file.notDjvuHtml',
+        ],
+        [
+            'pdf',
+            'errors.file.notDjvuPdf',
+        ],
+        [
+            'zip',
+            'errors.file.notDjvuZip',
+        ],
+        [
+            'empty',
+            'errors.file.notDjvuEmpty',
+        ],
+        [
+            'unknown',
+            'errors.file.notDjvu',
+        ],
+    ])('explains %s content in a file named .djvu through the serialized open envelope', (detectedFormat, key) => {
+        const envelope = {
+            code: 'not-djvu',
+            detectedFormat,
+            message: 'Content does not match the extension',
+        };
+        const error = new Error(encodeSerializableErrorEnvelope(envelope));
+        const t: TTranslateFn = (translationKey, ..._args) => String(translationKey);
+        expect(classifyDocumentOpenError(error, null, t)).toBe(key);
+    });
+
     it('names the actual browser operation limit instead of the desktop encrypted-file limit', () => {
         const envelope = {
             code: 'browser-byte-limit',
@@ -82,7 +114,7 @@ describe('classifyDocumentOpenError', () => {
         ],
         [
             'invalid-djvu',
-            'errors.file.invalid',
+            'errors.file.invalidDjvu',
         ],
         [
             'djvu-components-required',

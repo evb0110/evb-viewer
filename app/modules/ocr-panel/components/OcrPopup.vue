@@ -154,17 +154,6 @@
                                             v-model="replaceOnlyEvbModel"
                                             :label="t('ocr.supersession.onlyEvb')"
                                         />
-                                        <div
-                                            v-if="!replaceOnlyEvbModel"
-                                            class="supersession-acknowledgement"
-                                            role="alert"
-                                        >
-                                            <p>{{ t('ocr.supersession.replaceAllDescription') }}</p>
-                                            <UCheckbox
-                                                v-model="settings.replaceAllAcknowledged"
-                                                :label="t('ocr.supersession.replaceAllAcknowledgement')"
-                                            />
-                                        </div>
                                     </div>
                                 </template>
                             </UCollapsible>
@@ -488,8 +477,8 @@ const ocrPreprocessingModeOptions = [
 ] as const satisfies readonly TOcrPreprocessingMode[];
 
 const ocrSupersessionChoices = [
-    'missing-only',
     'repeat',
+    'missing-only',
 ] as const satisfies readonly TOcrSupersessionChoice[];
 
 const ocrPageSegmentationOptions = [
@@ -620,12 +609,6 @@ function handleCancelDocxExport() {
 }
 
 const repeatAdvancedOpen = ref(false);
-
-watch(() => settings.value.supersessionPolicy, policy => {
-    if (policy === 'replace-all') {
-        repeatAdvancedOpen.value = true;
-    }
-});
 
 const triggerIcon = computed(() => (
     showSuccessState.value ? 'ph:check-circle' : getReaderCommandToolbarIcon('ocr')
@@ -805,17 +788,6 @@ function getLanguageModelStateIcon(state: string) {
 
 .custom-input {
     width: 100%;
-}
-
-.supersession-acknowledgement {
-    display: flex;
-    flex-direction: column;
-    gap: var(--app-space-sm);
-    margin-top: var(--app-space-3xl);
-    padding: var(--app-space-lg);
-    border: 1px solid var(--ui-warning);
-    border-radius: var(--app-radius-md);
-    background: color-mix(in srgb, var(--ui-warning) 8%, transparent);
 }
 
 .policy-option-description {

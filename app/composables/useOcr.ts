@@ -66,13 +66,12 @@ export const useOcr = () => {
     const availableLanguages = ref<IOcrLanguage[]>([]);
     const languageLoadState = ref<'idle' | 'loading' | 'ready' | 'error'>('idle');
     const settings = ref<IOcrSettings>({
-        pageRange: 'current',
+        pageRange: 'all',
         customRange: '',
         selectedLanguages: ['eng'],
         ...DEFAULT_OCR_RECOGNITION_OPTIONS,
         pageSegmentationMode: null,
-        supersessionPolicy: 'missing-only',
-        replaceAllAcknowledged: false,
+        supersessionPolicy: 'replace-all',
     });
     const progress = ref<IOcrUiProgress>({
         isRunning: false,
@@ -155,7 +154,6 @@ export const useOcr = () => {
             preprocessingMode: source.preprocessingMode,
             pageSegmentationMode: source.pageSegmentationMode,
             supersessionPolicy: source.supersessionPolicy,
-            replaceAllAcknowledged: source.replaceAllAcknowledged,
         };
     }
 
@@ -172,7 +170,6 @@ export const useOcr = () => {
             preprocessingMode: source.preprocessingMode,
             pageSegmentationMode: source.pageSegmentationMode,
             supersessionPolicy: source.supersessionPolicy,
-            replaceAllAcknowledged: source.replaceAllAcknowledged,
         };
     }
 
@@ -288,8 +285,9 @@ export const useOcr = () => {
             qualityProfile: runSettings.qualityProfile,
             preprocessingMode: runSettings.preprocessingMode,
             supersessionPolicy: runSettings.supersessionPolicy,
+            // Choosing replace-all in the popup is the user's acknowledgement.
             ...(runSettings.supersessionPolicy === 'replace-all'
-                ? {replaceAllAcknowledged: runSettings.replaceAllAcknowledged}
+                ? {replaceAllAcknowledged: true}
                 : {}),
         };
         if (runSettings.pageSegmentationMode !== null) {
