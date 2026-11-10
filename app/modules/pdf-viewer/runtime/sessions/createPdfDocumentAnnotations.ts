@@ -11,7 +11,10 @@ import {
 } from '@app/utils/platformDocuments';
 import {BrowserLogger} from '@app/utils/browserLogger';
 import {useFailureToast} from '@app/composables/useFailureToast';
-import {isBrowserFullReadTooLargeError} from '@app/platform/browser-api/public';
+import {
+    isBrowserFullReadTooLargeError,
+    isBrowserWorkerResetError,
+} from '@app/platform/browser-api/public';
 import type {
     InjectionKey,
     Ref,
@@ -218,7 +221,10 @@ export const createPdfDocumentAnnotations = (options: ICreatePdfDocumentAnnotati
                         description: t('errors.browser.annotationsTooLarge'),
                     });
                 } else if (isCurrent()) {
-                    BrowserLogger.warn('annotations', 'Failed to import writer PDF annotations', error);
+                    // A worker reset means the page is leaving; nothing failed.
+                    if (!isBrowserWorkerResetError(error)) {
+                        BrowserLogger.warn('annotations', 'Failed to import writer PDF annotations', error);
+                    }
                     cancelWriterParse();
                 }
                 return false;
