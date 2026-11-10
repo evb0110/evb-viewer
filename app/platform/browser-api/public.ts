@@ -1,6 +1,7 @@
 import type { layoutPdfForPrint } from '@app/platform/browser-api/browserPageOpsCore';
 export {isBrowserFullReadTooLargeError} from '@app/platform/browser/browserDocumentReadError';
 export {isBrowserQpdfEngineUnavailableError} from '@app/platform/browser-api/browserQpdfEngineClient';
+export {isBrowserWorkerResetError} from '@app/platform/browser-api/browserWorkerClientLifecycle';
 export { browserAgentCapability } from '@app/platform/browser-api/browserAgentCapability';
 export { browserDjvuCapability } from '@app/platform/browser-api/browserDjvuCapability';
 export { browserHostCapability } from '@app/platform/browser-api/browserHostCapability';

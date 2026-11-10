@@ -7,6 +7,14 @@ export class BrowserWorkerResetError extends Error {
     }
 }
 
+/**
+ * A worker request the page's own departure ended: `pagehide` resets every
+ * browser worker, so nothing failed and nothing is worth reporting.
+ */
+export function isBrowserWorkerResetError(error: unknown) {
+    return error instanceof BrowserWorkerResetError;
+}
+
 export class BrowserWorkerClientLifecycle {
     private registered = false;
     private targetWindow: Window | null = null;
