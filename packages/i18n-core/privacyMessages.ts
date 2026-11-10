@@ -19,6 +19,7 @@ export interface IPrivacyMessages {
     assistant: IPrivacySectionMessages;
     diagnostics: IPrivacySectionMessages;
     analytics: IPrivacySectionMessages;
+    extension: IPrivacySectionMessages;
     settings: IPrivacySectionMessages;
     storage: IPrivacySectionMessages;
     retention: IPrivacySectionMessages;
@@ -37,7 +38,7 @@ export const PRIVACY_MESSAGES = {
         hero: {
             title: 'Privacy Policy',
             subtitle: 'How EVB Viewer handles documents, settings, analytics, and optional assistant features.',
-            effectiveDate: 'Effective September 4, 2026',
+            effectiveDate: 'Effective November 11, 2026',
         },
         documents: {
             heading: 'Documents and local processing',
@@ -54,6 +55,10 @@ export const PRIVACY_MESSAGES = {
         analytics: {
             heading: 'Analytics and technical information',
             body: 'The EVB Viewer website and browser app use Vercel Web Analytics. It records page paths without query strings, the referrer, country, browser, operating system, and device type, plus a few feature events such as the type of document opened or an installer download. Visitors are counted with a hash that resets daily; no cookies are set, and document names, paths, and contents are never included. The desktop app sends no analytics.',
+        },
+        extension: {
+            heading: 'Chrome extension',
+            body: 'The EVB Viewer Chrome extension opens PDF and DjVu documents in its own viewer instead of Chrome’s. When you open such a document, the extension downloads it from the site that serves it, with your browser’s cookies for that site, as Chrome would. Chrome tells the extension the address of each page a tab opens; the extension uses it only to recognize PDF and DjVu documents and never stores or sends it. Documents are processed and kept in the extension’s storage in your browser, and Save to Downloads writes a copy to your Downloads folder. OCR language models are downloaded from GitHub the first time you use a language. The extension sends no analytics; error reports follow the Sentry section above and are sent only with your consent. Removing the extension deletes its stored documents and settings.',
         },
         settings: {
             heading: 'Settings, recent files, and updates',
@@ -80,7 +85,7 @@ export const PRIVACY_MESSAGES = {
         hero: {
             title: 'Datenschutzerklärung',
             subtitle: 'Wie EVB Viewer Dokumente, Einstellungen, Analysedaten und optionale Assistentenfunktionen behandelt.',
-            effectiveDate: 'Gültig ab 4. September 2026',
+            effectiveDate: 'Gültig ab 11. November 2026',
         },
         documents: {
             heading: 'Dokumente und lokale Verarbeitung',
@@ -97,6 +102,10 @@ export const PRIVACY_MESSAGES = {
         analytics: {
             heading: 'Analyse- und technische Informationen',
             body: 'Die EVB-Viewer-Website und die Browser-App verwenden Vercel Web Analytics. Erfasst werden Seitenpfade ohne Abfrageparameter, Referrer, Land, Browser, Betriebssystem und Gerätetyp sowie einige Funktionsereignisse, etwa der Typ eines geöffneten Dokuments oder ein Installer-Download. Besucher werden über einen täglich neu erzeugten Hash gezählt; es werden keine Cookies gesetzt, und Dokumentnamen, Pfade und Inhalte werden nie übermittelt. Die Desktop-App sendet keine Analysedaten.',
+        },
+        extension: {
+            heading: 'Chrome-Erweiterung',
+            body: 'Die Chrome-Erweiterung von EVB Viewer öffnet PDF- und DjVu-Dokumente in ihrem eigenen Viewer statt in dem von Chrome. Wenn Sie ein solches Dokument öffnen, lädt die Erweiterung es von der Website, die es bereitstellt, mit den Cookies Ihres Browsers für diese Website herunter, so wie Chrome es tun würde. Chrome teilt der Erweiterung die Adresse jeder Seite mit, die ein Tab öffnet; die Erweiterung nutzt sie nur, um PDF- und DjVu-Dokumente zu erkennen, und speichert oder sendet sie nie. Dokumente werden im Speicher der Erweiterung in Ihrem Browser verarbeitet und aufbewahrt, und „In Downloads speichern“ legt eine Kopie in Ihrem Download-Ordner ab. OCR-Sprachmodelle werden bei der ersten Verwendung einer Sprache von GitHub heruntergeladen. Die Erweiterung sendet keine Analysedaten; Fehlerberichte folgen dem Sentry-Abschnitt oben und werden nur mit Ihrer Einwilligung gesendet. Wenn Sie die Erweiterung entfernen, werden ihre gespeicherten Dokumente und Einstellungen gelöscht.',
         },
         settings: {
             heading: 'Einstellungen, zuletzt verwendete Dateien und Updates',
@@ -123,7 +132,7 @@ export const PRIVACY_MESSAGES = {
         hero: {
             title: 'Política de privacidad',
             subtitle: 'Cómo gestiona EVB Viewer los documentos, la configuración, los datos analíticos y las funciones opcionales de asistente.',
-            effectiveDate: 'En vigor desde el 4 de septiembre de 2026',
+            effectiveDate: 'En vigor desde el 11 de noviembre de 2026',
         },
         documents: {
             heading: 'Documentos y procesamiento local',
@@ -140,6 +149,10 @@ export const PRIVACY_MESSAGES = {
         analytics: {
             heading: 'Datos analíticos e información técnica',
             body: 'El sitio y la aplicación web de EVB Viewer usan Vercel Web Analytics. Registra rutas de páginas sin parámetros de consulta, sitio de referencia, país, navegador, sistema operativo y tipo de dispositivo, además de algunos eventos de funciones, como el tipo de documento abierto o la descarga de un instalador. Los visitantes se cuentan con un hash que se renueva cada día; no se instalan cookies y nunca se incluyen nombres, rutas ni contenido de documentos. La aplicación de escritorio no envía datos analíticos.',
+        },
+        extension: {
+            heading: 'Extensión de Chrome',
+            body: 'La extensión de Chrome de EVB Viewer abre documentos PDF y DjVu en su propio visor en lugar del de Chrome. Cuando abres uno de estos documentos, la extensión lo descarga del sitio que lo ofrece, con las cookies de tu navegador para ese sitio, igual que lo haría Chrome. Chrome comunica a la extensión la dirección de cada página que abre una pestaña; la extensión la usa solo para reconocer documentos PDF y DjVu y nunca la guarda ni la envía. Los documentos se procesan y se conservan en el almacenamiento de la extensión en tu navegador, y Guardar en Descargas escribe una copia en tu carpeta de descargas. Los modelos de idioma de OCR se descargan de GitHub la primera vez que usas un idioma. La extensión no envía analíticas; los informes de errores siguen la sección de Sentry anterior y solo se envían con tu consentimiento. Al quitar la extensión se eliminan sus documentos y ajustes guardados.',
         },
         settings: {
             heading: 'Configuración, archivos recientes y actualizaciones',
@@ -166,7 +179,7 @@ export const PRIVACY_MESSAGES = {
         hero: {
             title: 'Politique de confidentialité',
             subtitle: 'Comment EVB Viewer traite les documents, les réglages, les données analytiques et les fonctions d’assistant optionnelles.',
-            effectiveDate: 'En vigueur le 4 septembre 2026',
+            effectiveDate: 'En vigueur le 11 novembre 2026',
         },
         documents: {
             heading: 'Documents et traitement local',
@@ -183,6 +196,10 @@ export const PRIVACY_MESSAGES = {
         analytics: {
             heading: 'Données analytiques et techniques',
             body: 'Le site et l’application web EVB Viewer utilisent Vercel Web Analytics. Il enregistre les chemins de pages sans paramètres de requête, le site référent, le pays, le navigateur, le système d’exploitation et le type d’appareil, ainsi que quelques événements de fonctionnalités, comme le type de document ouvert ou le téléchargement d’un programme d’installation. Les visiteurs sont comptés au moyen d’un hachage renouvelé chaque jour ; aucun cookie n’est déposé et les noms, chemins et contenus des documents ne sont jamais inclus. L’application de bureau n’envoie aucune donnée analytique.',
+        },
+        extension: {
+            heading: 'Extension Chrome',
+            body: 'L’extension Chrome d’EVB Viewer ouvre les documents PDF et DjVu dans sa propre visionneuse au lieu de celle de Chrome. Lorsque vous ouvrez un tel document, l’extension le télécharge depuis le site qui le fournit, avec les cookies de votre navigateur pour ce site, comme le ferait Chrome. Chrome communique à l’extension l’adresse de chaque page qu’un onglet ouvre ; l’extension s’en sert uniquement pour reconnaître les documents PDF et DjVu et ne la conserve ni ne l’envoie jamais. Les documents sont traités et conservés dans le stockage de l’extension, dans votre navigateur, et « Enregistrer dans Téléchargements » écrit une copie dans votre dossier Téléchargements. Les modèles de langue OCR sont téléchargés depuis GitHub la première fois que vous utilisez une langue. L’extension n’envoie aucune donnée d’analyse ; les rapports d’erreur suivent la section Sentry ci-dessus et ne sont envoyés qu’avec votre consentement. Supprimer l’extension efface ses documents et réglages enregistrés.',
         },
         settings: {
             heading: 'Réglages, fichiers récents et mises à jour',
@@ -209,7 +226,7 @@ export const PRIVACY_MESSAGES = {
         hero: {
             title: 'Informativa sulla privacy',
             subtitle: 'Come EVB Viewer gestisce documenti, impostazioni, dati analitici e funzionalità opzionali dell’assistente.',
-            effectiveDate: 'In vigore dal 4 settembre 2026',
+            effectiveDate: 'In vigore dall’11 novembre 2026',
         },
         documents: {
             heading: 'Documenti ed elaborazione locale',
@@ -226,6 +243,10 @@ export const PRIVACY_MESSAGES = {
         analytics: {
             heading: 'Dati analitici e informazioni tecniche',
             body: 'Il sito e l’app browser di EVB Viewer usano Vercel Web Analytics. Registra i percorsi delle pagine senza parametri di query, il referrer, il paese, il browser, il sistema operativo e il tipo di dispositivo, oltre ad alcuni eventi delle funzionalità, come il tipo di documento aperto o il download di un programma di installazione. I visitatori vengono conteggiati con un hash che si rinnova ogni giorno; non vengono impostati cookie e nomi, percorsi e contenuti dei documenti non vengono mai inclusi. L’app desktop non invia dati analitici.',
+        },
+        extension: {
+            heading: 'Estensione per Chrome',
+            body: 'L’estensione per Chrome di EVB Viewer apre i documenti PDF e DjVu nel proprio visualizzatore invece che in quello di Chrome. Quando apri uno di questi documenti, l’estensione lo scarica dal sito che lo fornisce, con i cookie del tuo browser per quel sito, come farebbe Chrome. Chrome comunica all’estensione l’indirizzo di ogni pagina aperta in una scheda; l’estensione lo usa solo per riconoscere i documenti PDF e DjVu e non lo salva né lo invia mai. I documenti vengono elaborati e conservati nello spazio di archiviazione dell’estensione nel tuo browser, e Salva in Download ne scrive una copia nella cartella Download. I modelli linguistici OCR vengono scaricati da GitHub la prima volta che usi una lingua. L’estensione non invia dati analitici; le segnalazioni di errore seguono la sezione Sentry qui sopra e vengono inviate solo con il tuo consenso. Rimuovendo l’estensione si eliminano i documenti e le impostazioni salvati.',
         },
         settings: {
             heading: 'Impostazioni, file recenti e aggiornamenti',
@@ -252,7 +273,7 @@ export const PRIVACY_MESSAGES = {
         hero: {
             title: 'Privacybeleid',
             subtitle: 'Hoe EVB Viewer omgaat met documenten, instellingen, analysegegevens en optionele assistentfuncties.',
-            effectiveDate: 'Van kracht vanaf 4 september 2026',
+            effectiveDate: 'Van kracht vanaf 11 november 2026',
         },
         documents: {
             heading: 'Documenten en lokale verwerking',
@@ -269,6 +290,10 @@ export const PRIVACY_MESSAGES = {
         analytics: {
             heading: 'Analyse- en technische gegevens',
             body: 'De website en browser-app van EVB Viewer gebruiken Vercel Web Analytics. Dit registreert paginapaden zonder queryparameters, de verwijzende site, het land, de browser, het besturingssysteem en het apparaattype, plus enkele functiegebeurtenissen, zoals het type geopend document of het downloaden van een installatieprogramma. Bezoekers worden geteld met een hash die dagelijks wordt vernieuwd; er worden geen cookies geplaatst en documentnamen, paden en inhoud worden nooit meegestuurd. De desktop-app verstuurt geen analysegegevens.',
+        },
+        extension: {
+            heading: 'Chrome-extensie',
+            body: 'De Chrome-extensie van EVB Viewer opent PDF- en DjVu-documenten in een eigen viewer in plaats van die van Chrome. Wanneer je zo’n document opent, downloadt de extensie het van de site die het aanbiedt, met de cookies van je browser voor die site, zoals Chrome dat zou doen. Chrome geeft de extensie het adres van elke pagina die een tabblad opent; de extensie gebruikt dat alleen om PDF- en DjVu-documenten te herkennen en slaat het nooit op of verstuurt het nooit. Documenten worden verwerkt en bewaard in de opslag van de extensie in je browser, en Opslaan in Downloads schrijft een kopie naar je map Downloads. OCR-taalmodellen worden van GitHub gedownload wanneer je een taal voor het eerst gebruikt. De extensie verstuurt geen analysegegevens; foutrapporten volgen de Sentry-sectie hierboven en worden alleen met je toestemming verstuurd. Als je de extensie verwijdert, worden de opgeslagen documenten en instellingen gewist.',
         },
         settings: {
             heading: 'Instellingen, recente bestanden en updates',
@@ -295,7 +320,7 @@ export const PRIVACY_MESSAGES = {
         hero: {
             title: 'Política de privacidade',
             subtitle: 'Como o EVB Viewer trata documentos, definições, dados analíticos e funcionalidades opcionais do assistente.',
-            effectiveDate: 'Em vigor desde 4 de setembro de 2026',
+            effectiveDate: 'Em vigor desde 11 de novembro de 2026',
         },
         documents: {
             heading: 'Documentos e processamento local',
@@ -312,6 +337,10 @@ export const PRIVACY_MESSAGES = {
         analytics: {
             heading: 'Dados analíticos e informações técnicas',
             body: 'O site e a aplicação no navegador do EVB Viewer utilizam o Vercel Web Analytics. Este regista caminhos de páginas sem parâmetros de consulta, o referenciador, o país, o navegador, o sistema operativo e o tipo de dispositivo, além de alguns eventos de funcionalidades, como o tipo de documento aberto ou a transferência de um instalador. Os visitantes são contados com um hash renovado diariamente; não são definidos cookies e os nomes, caminhos e conteúdos dos documentos nunca são incluídos. A aplicação para computador não envia dados analíticos.',
+        },
+        extension: {
+            heading: 'Extensão para o Chrome',
+            body: 'A extensão do EVB Viewer para o Chrome abre documentos PDF e DjVu no seu próprio visualizador em vez do visualizador do Chrome. Quando abre um destes documentos, a extensão transfere-o do site que o disponibiliza, com os cookies do seu navegador para esse site, tal como o Chrome faria. O Chrome comunica à extensão o endereço de cada página que um separador abre; a extensão usa-o apenas para reconhecer documentos PDF e DjVu e nunca o guarda nem o envia. Os documentos são processados e mantidos no armazenamento da extensão no seu navegador, e Guardar em Transferências escreve uma cópia na sua pasta de transferências. Os modelos de idioma de OCR são transferidos do GitHub da primeira vez que usa um idioma. A extensão não envia dados de análise; os relatórios de erros seguem a secção do Sentry acima e só são enviados com o seu consentimento. Remover a extensão apaga os documentos e as definições guardados.',
         },
         settings: {
             heading: 'Definições, ficheiros recentes e atualizações',
@@ -338,7 +367,7 @@ export const PRIVACY_MESSAGES = {
         hero: {
             title: 'Política de privacidade',
             subtitle: 'Como o EVB Viewer trata documentos, configurações, dados analíticos e recursos opcionais do assistente.',
-            effectiveDate: 'Em vigor desde 4 de setembro de 2026',
+            effectiveDate: 'Em vigor desde 11 de novembro de 2026',
         },
         documents: {
             heading: 'Documentos e processamento local',
@@ -355,6 +384,10 @@ export const PRIVACY_MESSAGES = {
         analytics: {
             heading: 'Dados analíticos e informações técnicas',
             body: 'O site e o aplicativo web do EVB Viewer usam o Vercel Web Analytics. Ele registra caminhos de páginas sem parâmetros de consulta, o referenciador, o país, o navegador, o sistema operacional e o tipo de dispositivo, além de alguns eventos de recursos, como o tipo de documento aberto ou o download de um instalador. Os visitantes são contados com um hash renovado diariamente; nenhum cookie é definido e nomes, caminhos e conteúdos de documentos nunca são incluídos. O aplicativo para desktop não envia dados analíticos.',
+        },
+        extension: {
+            heading: 'Extensão para o Chrome',
+            body: 'A extensão do EVB Viewer para o Chrome abre documentos PDF e DjVu no próprio visualizador em vez do visualizador do Chrome. Quando você abre um desses documentos, a extensão o baixa do site que o fornece, com os cookies do seu navegador para esse site, como o Chrome faria. O Chrome informa à extensão o endereço de cada página que uma guia abre; a extensão o usa apenas para reconhecer documentos PDF e DjVu e nunca o armazena nem o envia. Os documentos são processados e mantidos no armazenamento da extensão no seu navegador, e Salvar em Downloads grava uma cópia na sua pasta de downloads. Os modelos de idioma de OCR são baixados do GitHub na primeira vez que você usa um idioma. A extensão não envia dados de análise; os relatórios de erros seguem a seção do Sentry acima e só são enviados com o seu consentimento. Remover a extensão apaga os documentos e as configurações armazenados.',
         },
         settings: {
             heading: 'Configurações, arquivos recentes e atualizações',
@@ -381,7 +414,7 @@ export const PRIVACY_MESSAGES = {
         hero: {
             title: 'Политика конфиденциальности',
             subtitle: 'Как EVB Viewer обрабатывает документы, настройки, аналитику и данные опциональных функций ассистента.',
-            effectiveDate: 'Действует с 4 сентября 2026 года',
+            effectiveDate: 'Действует с 11 ноября 2026 года',
         },
         documents: {
             heading: 'Документы и локальная обработка',
@@ -398,6 +431,10 @@ export const PRIVACY_MESSAGES = {
         analytics: {
             heading: 'Аналитика и техническая информация',
             body: 'Сайт и браузерная версия EVB Viewer используют Vercel Web Analytics. Сервис учитывает пути страниц без параметров запроса, источник перехода, страну, браузер, операционную систему и тип устройства, а также несколько событий функций, например тип открытого документа или скачивание установщика. Посетители учитываются по хешу, который обновляется каждый день; файлы cookie не устанавливаются, а имена, пути и содержимое документов никогда не передаются. Настольное приложение не отправляет аналитику.',
+        },
+        extension: {
+            heading: 'Расширение для Chrome',
+            body: 'Расширение EVB Viewer для Chrome открывает документы PDF и DjVu в собственном просмотрщике вместо встроенного в Chrome. Когда вы открываете такой документ, расширение загружает его с сайта, который его отдаёт, с cookie вашего браузера для этого сайта — так же, как это сделал бы сам Chrome. Chrome сообщает расширению адрес каждой страницы, открываемой во вкладке; расширение использует его только для того, чтобы распознать документы PDF и DjVu, и никогда не сохраняет и не отправляет его. Документы обрабатываются и хранятся в хранилище расширения в вашем браузере, а «Сохранить в „Загрузки“» записывает копию в папку загрузок. Языковые модели OCR загружаются с GitHub при первом использовании языка. Расширение не отправляет аналитику; отчёты об ошибках подчиняются разделу о Sentry выше и отправляются только с вашего согласия. При удалении расширения его сохранённые документы и настройки удаляются.',
         },
         settings: {
             heading: 'Настройки, недавние файлы и обновления',
