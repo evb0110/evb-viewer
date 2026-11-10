@@ -63,9 +63,10 @@ function drawPageBody(page: PDFPage, font: PDFFont, left: number, marker: string
 /**
  * An InDesign-style spread export: a lone first page at page size, then pages
  * two pages wide with a blank paper gutter, one of them with a blank verso.
- * Its font carries glyph widths, as an exporter writes them.
+ * An exporter writes the font's glyph widths; without them the text of a split
+ * half cannot be measured onto it.
  */
-async function createBornDigitalSpreadsPdf(path: string) {
+async function createBornDigitalSpreadsPdf(path: string, {fontWidths}: {fontWidths: boolean}) {
     const doc = await PDFDocument.create();
     const font = await doc.embedFont(StandardFonts.TimesRoman);
     drawPageBody(doc.addPage([
@@ -82,54 +83,87 @@ async function createBornDigitalSpreadsPdf(path: string) {
         PAGE_WIDTH * 2,
         PAGE_HEIGHT,
     ]), font, PAGE_WIDTH + 55, 'RECTO THREE');
-    await font.embed();
-    const fontDictionary = doc.context.lookup(font.ref, PDFDict);
-    const codes = Array.from({length: 95}, (_, index) => 32 + index);
-    fontDictionary.set(PDFName.of('FirstChar'), PDFNumber.of(32));
-    fontDictionary.set(PDFName.of('LastChar'), PDFNumber.of(126));
-    fontDictionary.set(PDFName.of('Widths'), doc.context.obj(codes.map(code => Math.round(font.widthOfTextAtSize(String.fromCharCode(code), 1000)))));
+    if (fontWidths) {
+        await font.embed();
+        const fontDictionary = doc.context.lookup(font.ref, PDFDict);
+        const codes = Array.from({length: 95}, (_, index) => 32 + index);
+        fontDictionary.set(PDFName.of('FirstChar'), PDFNumber.of(32));
+        fontDictionary.set(PDFName.of('LastChar'), PDFNumber.of(126));
+        fontDictionary.set(PDFName.of('Widths'), doc.context.obj(codes.map(code => Math.round(font.widthOfTextAtSize(String.fromCharCode(code), 1000)))));
+    }
     writeFileSync(path, await doc.save());
+}
+
+/** Opens a fresh spread export in Scan cleanup and waits for detection. */
+async function openSpreadExportInScanCleanup(fontWidths: boolean) {
+    const session = sessionFixture.getSession();
+    await session.command('windowResize', [
+        1280,
+        900,
+    ]);
+    const sourceDirectory = mkdtempSync(join(tmpdir(), 'evb-e2e-born-digital-spreads-'));
+    onTestFinished(() => rm(sourceDirectory, {
+        recursive: true,
+        force: true,
+    }));
+    const sourcePath = join(sourceDirectory, 'spread-export.pdf');
+    await createBornDigitalSpreadsPdf(sourcePath, {fontWidths});
+    const observed: TScanCleanupDetectionJobState[] = [];
+    // Each test registers its own recorder: a page keeps exposed functions.
+    const recorderName = `__recordBornDigitalSpreadDetection${String(Date.now())}`;
+    await session.page.exposeFunction(recorderName, (state: TScanCleanupDetectionJobState) => observed.push(state));
+    await session.page.evaluate((name: string) => {
+        const record: unknown = Reflect.get(window, name);
+        if (typeof record !== 'function') throw new Error(`Detection recorder ${name} is not exposed`);
+        window.electronAPI?.scanCleanup?.onDetectionJobState(state => {void record(state);});
+    }, recorderName);
+    await openPdfInApp(session.page, sourcePath, 90_000);
+    await waitForPdfLoaded(session.page, 90_000);
+    await waitForViewerInteractive(session.page, 90_000);
+    for (const toast of await session.page.$$('button[aria-label="Dismiss"]')) {
+        if (await toast.isVisible()) await clickAsUser(session.page, toast);
+    }
+
+    await clickAsUser(session.page, 'button[aria-label="Scan cleanup"]');
+    await session.page.waitForSelector('.scan-cleanup-surface', {
+        visible: true,
+        timeout: 20_000,
+    });
+    await waitForFunctionInPage(session.page, () => {
+        const action = document.querySelector<HTMLButtonElement>('.scan-cleanup-toolbar-primary-action');
+        return action !== null && !action.disabled
+            && document.querySelector('.scan-cleanup-surface')?.getAttribute('data-detection-status') === 'completed'
+            && !/Building cleanup preview|Preview updating|Updating preview|Reading page images/i.test(document.body.innerText);
+    }, {timeout: 120_000});
+    return {
+        session,
+        sourcePath,
+        observed,
+    };
+}
+
+/** Runs Clean up and returns the output's leading text per page. */
+async function cleanUp(session: ReturnType<typeof sessionFixture.getSession>, sourcePath: string) {
+    await clickAsUser(session.page, '.scan-cleanup-toolbar-primary-action');
+    await waitForFunctionInPage(session.page, (source: string) => {
+        const active = (window as IWorkspaceExposeProbeWindow)
+            .__evbTestApi
+            ?.readActiveWorkspaceStateValues?.(['originalPath']);
+        return typeof active?.originalPath === 'string'
+            && active.originalPath !== source
+            && active.originalPath.endsWith('— cleaned.pdf');
+    }, {timeout: 180_000}, sourcePath);
+    const {originalPath: outputPath} = await readWorkspaceStateValues(session.page, ['originalPath']);
+    expect(typeof outputPath).toBe('string');
+    return (await readPdfPageSnapshots(outputPath as string))
+        .map(page => page.textSnippet.match(/^(?:TITLE PAGE|VERSO TWO|RECTO TWO|RECTO THREE)/)?.[0] ?? page.textSnippet);
 }
 
 describe('scan cleanup of a born-digital spread export', () => {
     it('cuts every facing pair where its pages meet and keeps each page\'s text', async () => {
-        const session = sessionFixture.getSession();
-        await session.command('windowResize', [
-            1280,
-            900,
-        ]);
-        const sourceDirectory = mkdtempSync(join(tmpdir(), 'evb-e2e-born-digital-spreads-'));
-        onTestFinished(() => rm(sourceDirectory, {
-            recursive: true,
-            force: true,
-        }));
-        const sourcePath = join(sourceDirectory, 'spread-export.pdf');
-        await createBornDigitalSpreadsPdf(sourcePath);
-        const observed: TScanCleanupDetectionJobState[] = [];
-        await session.page.exposeFunction('__recordBornDigitalSpreadDetection', (state: TScanCleanupDetectionJobState) => observed.push(state));
-        await session.page.evaluate(() => {
-            const probe = window as Window & {__recordBornDigitalSpreadDetection?: (state: TScanCleanupDetectionJobState) => Promise<void>};
-            window.electronAPI?.scanCleanup?.onDetectionJobState(state => {void probe.__recordBornDigitalSpreadDetection?.(state);});
-        });
-        await openPdfInApp(session.page, sourcePath, 90_000);
-        await waitForPdfLoaded(session.page, 90_000);
-        await waitForViewerInteractive(session.page, 90_000);
-        for (const toast of await session.page.$$('button[aria-label="Dismiss"]')) {
-            if (await toast.isVisible()) await clickAsUser(session.page, toast);
-        }
-
-        await clickAsUser(session.page, 'button[aria-label="Scan cleanup"]');
-        await session.page.waitForSelector('.scan-cleanup-surface', {
-            visible: true,
-            timeout: 20_000,
-        });
-        await waitForFunctionInPage(session.page, () => {
-            const action = document.querySelector<HTMLButtonElement>('.scan-cleanup-toolbar-primary-action');
-            return action !== null && !action.disabled
-                && document.querySelector('.scan-cleanup-surface')?.getAttribute('data-detection-status') === 'completed'
-                && !/Building cleanup preview|Preview updating|Updating preview|Reading page images/i.test(document.body.innerText);
-        }, {timeout: 120_000});
-
+        const {
+            session, sourcePath, observed,
+        } = await openSpreadExportInScanCleanup(true);
         const labels = await session.page.$$eval(
             '.scan-thumbnail-list [data-document-thumbnail-item]',
             items => items.map(item => (item as HTMLElement).innerText.replace(/\s+/g, ' ').trim()),
@@ -146,25 +180,29 @@ describe('scan cleanup of a born-digital spread export', () => {
             0.5,
         ]);
 
-        await clickAsUser(session.page, '.scan-cleanup-toolbar-primary-action');
-        await waitForFunctionInPage(session.page, (source: string) => {
-            const active = (window as IWorkspaceExposeProbeWindow)
-                .__evbTestApi
-                ?.readActiveWorkspaceStateValues?.(['originalPath']);
-            return typeof active?.originalPath === 'string'
-                && active.originalPath !== source
-                && active.originalPath.endsWith('— cleaned.pdf');
-        }, {timeout: 180_000}, sourcePath);
-        const {originalPath: outputPath} = await readWorkspaceStateValues(session.page, ['originalPath']);
-        expect(typeof outputPath).toBe('string');
-        const outputMarkers = (await readPdfPageSnapshots(outputPath as string))
-            .map(page => page.textSnippet.match(/^(?:TITLE PAGE|VERSO TWO|RECTO TWO|RECTO THREE)/)?.[0] ?? page.textSnippet);
-        expect(outputMarkers).toEqual([
+        expect(await cleanUp(session, sourcePath)).toEqual([
             'TITLE PAGE',
             'VERSO TWO',
             'RECTO TWO',
             '',
             'RECTO THREE',
         ]);
+    }, 300_000);
+
+    it('names the source pages whose text a split could not keep', async () => {
+        const {
+            session, sourcePath,
+        } = await openSpreadExportInScanCleanup(false);
+        expect(await cleanUp(session, sourcePath)).toEqual([
+            'TITLE PAGE',
+            '',
+            '',
+            '',
+            '',
+        ]);
+        await waitForFunctionInPage(session.page, () => document.body.innerText.includes('source pages became'), {timeout: 20_000});
+        expect(await session.page.evaluate(() => document.body.innerText)).toContain(
+            'Source text was omitted from outputs of 2 source page(s): 2, 3. Search and copy are unavailable on the affected output pages.',
+        );
     }, 300_000);
 });

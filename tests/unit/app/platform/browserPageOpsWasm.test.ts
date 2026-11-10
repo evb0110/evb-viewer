@@ -2007,7 +2007,7 @@ describe('browser page-ops WASM fast path', () => {
             ],
         });
         expect(split.pageCount).toBe(3);
-        expect(split.report).toEqual({});
+        expect(split.report).toEqual({textOmittedSourcePages: []});
         expect((await summarizePdf(split.data)).map(page => Math.round((page.cropBox ?? page.mediaBox).width)))
             .toEqual([
                 100,
@@ -2051,7 +2051,7 @@ describe('browser page-ops WASM fast path', () => {
             ],
         });
         expect(overlaid.pageCount).toBe(3);
-        expect(overlaid.report).toEqual({});
+        expect(overlaid.report).toEqual({textOmittedSourcePages: []});
         const output = await PDFDocument.load(overlaid.data);
         const info = output.context.lookup(output.context.trailerInfo.Info, PDFDict);
         expect(info.lookup(PDFName.of('EVBScanCleanup'), PDFString).decodeText()).toBe('54455354');

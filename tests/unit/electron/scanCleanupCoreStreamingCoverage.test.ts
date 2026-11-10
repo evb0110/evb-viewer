@@ -2007,18 +2007,21 @@ describe('scan-cleanup-core conversion coverage', () => {
             getAvailableScratchBytes: vi.fn(async () => null),
         };
         const overlay = () => overlayScanCleanupTextLayerAndMeasure(
-            [{
-                sourcePageIndex: 0,
-                outputPageIndex: 0,
-                matrix: [
-                    1,
-                    0,
-                    0,
-                    1,
-                    0,
-                    0,
-                ],
-            }],
+            {
+                skippedNonAffine: [],
+                pages: [{
+                    sourcePageIndex: 0,
+                    outputPageIndex: 0,
+                    matrix: [
+                        1,
+                        0,
+                        0,
+                        1,
+                        0,
+                        0,
+                    ],
+                }],
+            },
             paths(root),
             join(root, 'source.pdf'),
             stagedPdfPath,
@@ -2030,7 +2033,11 @@ describe('scan-cleanup-core conversion coverage', () => {
 
         await writeFile(stagedPdfPath, '%PDF-1.7\n%%EOF\n');
         await writeReport(1_000);
-        await expect(overlay()).resolves.toEqual({accessibilityTagsRemoved: true});
+        await expect(overlay()).resolves.toEqual({
+            accessibilityTagsRemoved: true,
+            textOmittedSourcePages: [],
+            omittedSourcePages: [],
+        });
         const report = JSON.parse(await readFile(reportPath, 'utf8')) as {outputBytes: number};
         expect(report.outputBytes).toBe(statSync(stagedPdfPath).size);
 
@@ -2039,7 +2046,11 @@ describe('scan-cleanup-core conversion coverage', () => {
         await utimes(stagedPdfPath, 1_700_000_000, 1_700_000_000);
         const staged = statSync(stagedPdfPath);
         await writeReport(1_000);
-        await expect(overlay()).resolves.toEqual({accessibilityTagsRemoved: true});
+        await expect(overlay()).resolves.toEqual({
+            accessibilityTagsRemoved: true,
+            textOmittedSourcePages: [],
+            omittedSourcePages: [],
+        });
         expect(statSync(stagedPdfPath).size).toBe(staged.size);
         expect(statSync(stagedPdfPath).mtimeMs).toBe(staged.mtimeMs);
         const sameSizeReport = JSON.parse(await readFile(reportPath, 'utf8')) as {outputBytes: number};

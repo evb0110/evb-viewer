@@ -1424,6 +1424,8 @@ fn split_text_filter_skips_an_unbalanced_graphics_state_without_aborting_cleanup
     let warning = String::from_utf8_lossy(&result.stderr);
     assert!(warning.contains("scan_cleanup_text_overlay_skipped"));
     assert!(warning.contains("unmatched Q"));
+    let report: serde_json::Value = serde_json::from_slice(&result.stdout).unwrap();
+    assert_eq!(report["textOmittedSourcePages"], serde_json::json!([1]));
     let text = pdftotext_page(&output, 1, &[]);
     assert!(text.status.success());
     assert!(!String::from_utf8_lossy(&text.stdout).contains("MUST_NOT_LEAK"));

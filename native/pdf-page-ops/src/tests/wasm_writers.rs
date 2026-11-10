@@ -258,9 +258,11 @@ fn overlay_text_returns_the_file_the_desktop_command_writes() {
             "overlay-text bytes differ: {instructions}"
         );
         assert_eq!(browser.page_count, 3);
+        // The filtered page's font has no widths, so its text stays off the
+        // output page and the report names its source page.
         assert_eq!(
             browser.report,
-            serde_json::json!({"accessibilityTagsRemoved": true})
+            serde_json::json!({"accessibilityTagsRemoved": true, "textOmittedSourcePages": [1]})
         );
         let raw = String::from_utf8_lossy(&browser.data);
         assert!(raw.contains("EVBScanCleanup") == stamp.is_some());

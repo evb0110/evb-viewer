@@ -636,7 +636,7 @@ async function runRasterConversion(
             pageMetadataBySource.get(record.sourcePage) ?? {excluded: true},
         )),
         buildIds: composeScanCleanupStampBuildIds({
-            nativeBinarySha256s: settledEngines(context, [
+            nativeBinarySha256s: context.engines.settled([
                 'scanCleanup',
                 'pdfImageCombine',
                 'pdfPageOps',
@@ -663,7 +663,10 @@ async function runRasterConversion(
         'pdfImageCombine',
         'pdfPageOps',
     ]);
-    summary.sourceTextOmission = await inspectOmittedSourceText(context, skippedNonAffine);
+    summary.sourceTextOmission = await inspectOmittedSourceText(context, [
+        ...skippedNonAffine,
+        ...overlaid.report.textOmittedSourcePages,
+    ]);
     const budget = resolveScanCleanupCompactSourceBudget({
         documentPageCount: context.documentPageCount,
         options: request.options,
@@ -824,20 +827,11 @@ function collectRenderedPage(context: IConversionContext, input: ICollectRendere
     };
 }
 
-/**
- * The engines a route stamps, settled before the writer that embeds the
- * stamp runs; page-ops is known from the source's inspection, and every later
- * page-ops step must match it.
- */
-function settledEngines(context: IConversionContext, roles: readonly TEngineRole[]) {
-    return context.engines.settled(roles);
-}
-
-async function inspectOmittedSourceText(context: IConversionContext, skippedNonAffine: readonly number[]) {
-    if (skippedNonAffine.length === 0) return undefined;
+async function inspectOmittedSourceText(context: IConversionContext, pages: readonly number[]) {
+    if (pages.length === 0) return undefined;
     const report = await runBrowserPageOpsWorkerRequest('ocrTextVisibility', {
         data: new Uint8Array(context.sourceBytes),
-        pages: [...skippedNonAffine],
+        pages: [...new Set(pages)],
         withEvbOcrText: true,
     }, {
         signal: context.signal,
@@ -1091,7 +1085,7 @@ async function runLosslessConversion(
             pageMetadataBySource.get(record.sourcePage) ?? {excluded: true},
         )),
         buildIds: composeScanCleanupStampBuildIds({
-            nativeBinarySha256s: settledEngines(context, [
+            nativeBinarySha256s: context.engines.settled([
                 'scanCleanup',
                 'pdfPageOps',
             ]),
