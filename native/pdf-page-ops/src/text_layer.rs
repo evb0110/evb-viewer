@@ -107,7 +107,10 @@ enum FontMetrics {
     Simple {
         first_char: u8,
         widths: Vec<f64>,
-        missing_width: Option<f64>,
+        /// The width of a code outside `FirstChar..=LastChar`: the
+        /// descriptor's MissingWidth, which the PDF specification defaults
+        /// to zero and viewers lay such codes out with.
+        missing_width: f64,
     },
     IdentityH {
         default_width: f64,
@@ -144,7 +147,7 @@ impl FontMetrics {
             } => code
                 .checked_sub(u16::from(*first_char))
                 .and_then(|index| widths.get(usize::from(index)).copied())
-                .or(*missing_width),
+                .or(Some(*missing_width)),
             Self::IdentityH {
                 default_width,
                 widths,
@@ -475,7 +478,7 @@ fn parse_font_metrics(document: &Document, font: &Object) -> Result<FontMetrics>
         return Ok(FontMetrics::Simple {
             first_char: 0,
             widths: vec![600.0; 256],
-            missing_width: None,
+            missing_width: 0.0,
         });
     }
     let first = dictionary
@@ -504,7 +507,8 @@ fn parse_font_metrics(document: &Document, font: &Object) -> Result<FontMetrics>
         .get(b"FontDescriptor")
         .ok()
         .and_then(|value| resolved_dictionary(document, value))
-        .and_then(|descriptor| dictionary_number(document, descriptor, b"MissingWidth"));
+        .and_then(|descriptor| dictionary_number(document, descriptor, b"MissingWidth"))
+        .unwrap_or(0.0);
     Ok(FontMetrics::Simple {
         first_char: first,
         widths,
