@@ -4062,3 +4062,81 @@ fn tagged_subset_preserves_selected_structure_for_saved_and_printed_outputs() {
         let _ = remove_file(file);
     }
 }
+
+#[test]
+fn subset_keeps_an_annotation_struct_parent_only_for_the_annotation_its_element_marks() {
+    let input = path("struct-parent-collision", "pdf");
+    let output = path("struct-parent-collision-out", "pdf");
+    let mut document = Document::with_version("1.7");
+    let pages = document.new_object_id();
+    let page = document.new_object_id();
+    let marked = document.add_object(dictionary! {
+        "Type" => "Annot", "Subtype" => "Link", "StructParent" => 1, "P" => page,
+        "Rect" => vec![10.into(), 10.into(), 50.into(), 30.into()],
+    });
+    // Imported from another source, this link reuses the same ParentTree key.
+    let colliding = document.add_object(dictionary! {
+        "Type" => "Annot", "Subtype" => "Link", "StructParent" => 1, "P" => page,
+        "Rect" => vec![60.into(), 10.into(), 90.into(), 30.into()],
+    });
+    let element = document.add_object(dictionary! {
+        "Type" => "StructElem", "S" => "Link", "Pg" => page,
+        "K" => dictionary! {"Type" => "OBJR", "Obj" => marked, "Pg" => page},
+    });
+    let content = document.add_object(Stream::new(dictionary! {}, b"q Q".to_vec()));
+    document.objects.insert(
+        page,
+        Object::Dictionary(dictionary! {
+            "Type" => "Page", "Parent" => pages, "Contents" => content,
+            "MediaBox" => vec![0.into(), 0.into(), 100.into(), 100.into()],
+            "Annots" => vec![marked.into(), colliding.into()],
+        }),
+    );
+    document.objects.insert(
+        pages,
+        Object::Dictionary(
+            dictionary! {"Type" => "Pages", "Kids" => vec![page.into()], "Count" => 1},
+        ),
+    );
+    let root = document.add_object(dictionary! {
+        "Type" => "StructTreeRoot", "K" => vec![element.into()],
+        "ParentTree" => dictionary! {"Nums" => vec![1.into(), element.into()]},
+    });
+    let catalog = document.add_object(dictionary! {
+        "Type" => "Catalog", "Pages" => pages, "StructTreeRoot" => root,
+        "MarkInfo" => dictionary! {"Marked" => true},
+    });
+    document.trailer.set("Root", catalog);
+    document.save(&input).unwrap();
+
+    let result = Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"))
+        .arg("finalize-subset-forms")
+        .arg("--input")
+        .arg(&input)
+        .arg("--output")
+        .arg(&output)
+        .arg("--qpdf")
+        .arg(qpdf_path())
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let saved = Document::load(&output).unwrap();
+    assert!(saved.catalog().unwrap().has(b"StructTreeRoot"));
+    let struct_parent = |id| {
+        saved
+            .get_dictionary(id)
+            .unwrap()
+            .get(b"StructParent")
+            .and_then(Object::as_i64)
+            .ok()
+    };
+    assert_eq!(struct_parent(marked), Some(1));
+    assert_eq!(struct_parent(colliding), None);
+    for file in [input, output] {
+        let _ = remove_file(file);
+    }
+}

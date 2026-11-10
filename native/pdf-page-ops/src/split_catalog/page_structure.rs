@@ -281,15 +281,17 @@ pub(crate) fn page_structure_updates(source: &Document) -> Result<Vec<(ObjectId,
         .as_ref()
         .and_then(|tree| tree.get(b"K").ok())
         .and_then(|kids| subset.kid(kids, None, 0));
-    // A tree larger than the walk may visit is dropped whole, never saved in part.
-    let kids = kids.filter(|_| !subset.state.exhausted());
-    if let (Some(tree), Some(kids)) = (tree.as_mut(), kids) {
+    // A tree larger than any of its walks may visit is dropped whole, never
+    // saved in part.
+    let mut complete = kids.is_some() && !subset.state.exhausted();
+    if let (Some(tree), Some(kids), true) = (tree.as_mut(), kids, complete) {
         tree.set("K", kids);
         let mut nums = BTreeMap::new();
         subset.state = CatalogWalkState::new();
         if let Ok(parent_tree) = tree.get(b"ParentTree") {
             subset.parent_tree(parent_tree, 0, &keys, &mut nums);
         }
+        complete &= !subset.state.exhausted();
         // Imported pages may reuse a primary source's ParentTree key. Only
         // pages actually owning that structure may advertise its membership.
         for id in &subset.pages {
@@ -337,6 +339,7 @@ pub(crate) fn page_structure_updates(source: &Document) -> Result<Vec<(ObjectId,
             subset.state = CatalogWalkState::new();
             subset.names(ids, 0, &mut names);
             tree.set("IDTree", lopdf::dictionary! { "Names" => names });
+            complete &= !subset.state.exhausted();
         }
         for (_, object) in &mut subset.updates {
             if let Ok(dictionary) = object.as_dict_mut() {
@@ -353,24 +356,26 @@ pub(crate) fn page_structure_updates(source: &Document) -> Result<Vec<(ObjectId,
                 }
             }
         }
-        if let Ok(id) = root.as_reference() {
-            subset.updates.push((id, Object::Dictionary(tree.clone())));
-        } else {
-            catalog.set("StructTreeRoot", tree.clone());
-        }
-    } else {
-        catalog.remove(b"StructTreeRoot");
-        catalog.remove(b"MarkInfo");
-        for id in &subset.pages {
-            let mut page = source.get_dictionary(*id)?.clone();
-            if page.remove(b"StructParents").is_some() {
-                subset.updates.push((*id, Object::Dictionary(page)));
+        if complete {
+            if let Ok(id) = root.as_reference() {
+                subset.updates.push((id, Object::Dictionary(tree.clone())));
+            } else {
+                catalog.set("StructTreeRoot", tree.clone());
             }
         }
-        for id in &subset.annotations {
-            let mut annotation = source.get_dictionary(*id)?.clone();
-            if annotation.remove(b"StructParent").is_some() {
-                subset.updates.push((*id, Object::Dictionary(annotation)));
+    }
+    if !complete {
+        catalog.remove(b"StructTreeRoot");
+        catalog.remove(b"MarkInfo");
+        for (ids, key) in [
+            (&subset.pages, b"StructParents".as_slice()),
+            (&subset.annotations, b"StructParent".as_slice()),
+        ] {
+            for id in ids {
+                let mut dictionary = source.get_dictionary(*id)?.clone();
+                if dictionary.remove(key).is_some() {
+                    subset.updates.push((*id, Object::Dictionary(dictionary)));
+                }
             }
         }
     }
