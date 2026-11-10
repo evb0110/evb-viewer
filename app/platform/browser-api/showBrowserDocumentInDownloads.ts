@@ -42,6 +42,9 @@ const INTERRUPTED = 'interrupted';
 const UNSAFE_FILE_NAME_CHARACTERS = /[\p{Cc}"*/:<>?\\|]/gu;
 
 const downloadsByDocument = new Map<TDocumentRef, IDocumentDownload>();
+// A click while a document is being saved waits for that save, so quick
+// clicks never leave a second copy in Downloads.
+const savesInProgress = new Map<TDocumentRef, Promise<boolean>>();
 
 // Extension pages see the downloads API that the manifest's permission grants.
 function getChromeDownloads(): IChromeDownloadsApi | null {
@@ -81,16 +84,7 @@ async function isDownloadOnDisk(downloads: IChromeDownloadsApi, id: number) {
     return item?.exists === true && item.state === COMPLETE;
 }
 
-/**
- * Shows a stored document in the Downloads folder, saving its current
- * revision there first. False outside the Chrome extension or when Chrome
- * did not save the file.
- */
-export async function showBrowserDocumentInDownloads(ref: TDocumentRef) {
-    const downloads = getChromeDownloads();
-    if (!downloads) {
-        return false;
-    }
+async function saveAndShowInDownloads(downloads: IChromeDownloadsApi, ref: TDocumentRef) {
     const {token: revisionToken} = await browserDocumentStore.getDocumentRevision(ref);
     const previous = downloadsByDocument.get(ref);
     if (previous?.revisionToken === revisionToken && await isDownloadOnDisk(downloads, previous.id)) {
@@ -118,4 +112,23 @@ export async function showBrowserDocumentInDownloads(ref: TDocumentRef) {
     } finally {
         URL.revokeObjectURL(href);
     }
+}
+
+/**
+ * Shows a stored document in the Downloads folder, saving its current
+ * revision there first. False outside the Chrome extension or when Chrome
+ * did not save the file.
+ */
+export function showBrowserDocumentInDownloads(ref: TDocumentRef) {
+    const downloads = getChromeDownloads();
+    if (!downloads) {
+        return Promise.resolve(false);
+    }
+    const inProgress = savesInProgress.get(ref);
+    if (inProgress) {
+        return inProgress;
+    }
+    const save = saveAndShowInDownloads(downloads, ref).finally(() => savesInProgress.delete(ref));
+    savesInProgress.set(ref, save);
+    return save;
 }
