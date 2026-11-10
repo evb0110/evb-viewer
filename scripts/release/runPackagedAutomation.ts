@@ -58,7 +58,10 @@ async function stopOwnedProcessGroup(pid: number) {
         try {
             process.kill(-pid, signal);
         } catch (error) {
-            if ((error as NodeJS.ErrnoException).code !== 'ESRCH') throw error;
+            // The group can turn into unreaped zombies between the check and
+            // the signal; macOS then reports EPERM, as isProcessGroupAlive allows.
+            const code = (error as NodeJS.ErrnoException).code;
+            if (code !== 'ESRCH' && code !== 'EPERM') throw error;
         }
         const deadline = Date.now() + 1_500;
         while (Date.now() < deadline && isProcessGroupAlive(pid)) await delay(50);
