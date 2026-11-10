@@ -513,7 +513,7 @@ fn inspect_page_text_visibility(
     with_evb_ocr_text: bool,
 ) -> Result<OcrPageTextVisibility> {
     let resources = page_resources(&incremental.previous_document, page_id)?;
-    let mut scan = PageTextScan::default();
+    let mut scan = PageTextScan::for_page(&incremental.previous_document, page_id);
     let mut evb_ocr_layer = false;
     let mut evb_ocr_lines: Option<Vec<OcrLayerLine>> = None;
     for content_id in incremental.previous_document.get_page_contents(page_id) {
@@ -1240,6 +1240,129 @@ BT\n/F 34 Tf\n1 0 0 1 1000 2863 Tm\n<017F0069> Tj\nET\nQ\n% EVB_VIEWER_OCR_LAYER
             ),
             None
         );
+    }
+
+    /// A one-page PDF whose content draws `/Im0`, an image with `image` added
+    /// to its dictionary, and `/F1` text, on a 600 x 800 page.
+    fn scanned_page_pdf(content: &[u8], image: Dictionary) -> Vec<u8> {
+        let mut document = Document::with_version("1.5");
+        let mut image_dict = dictionary! {
+            "Type" => "XObject",
+            "Subtype" => "Image",
+            "Width" => 1,
+            "Height" => 1,
+            "ColorSpace" => "DeviceGray",
+            "BitsPerComponent" => 8,
+        };
+        image_dict.extend(&image);
+        let image_id = document.add_object(Stream::new(image_dict, vec![0]));
+        let font_id = document.add_object(dictionary! {
+            "Type" => "Font",
+            "Subtype" => "Type1",
+            "BaseFont" => "Helvetica",
+        });
+        let content_id = document.add_object(Stream::new(dictionary! {}, content.to_vec()));
+        let pages_id = document.new_object_id();
+        let page_id = document.add_object(dictionary! {
+            "Type" => "Page",
+            "Parent" => pages_id,
+            "MediaBox" => vec![0.into(), 0.into(), 600.into(), 800.into()],
+            "Resources" => dictionary! {
+                "XObject" => dictionary! { "Im0" => image_id },
+                "Font" => dictionary! { "F1" => font_id },
+            },
+            "Contents" => content_id,
+        });
+        document.objects.insert(
+            pages_id,
+            Object::Dictionary(dictionary! {
+                "Type" => "Pages",
+                "Kids" => vec![page_id.into()],
+                "Count" => 1,
+            }),
+        );
+        let catalog_id = document.add_object(dictionary! {
+            "Type" => "Catalog",
+            "Pages" => pages_id,
+        });
+        document.trailer.set("Root", catalog_id);
+        let mut bytes = Vec::new();
+        document.save_to(&mut bytes).unwrap();
+        bytes
+    }
+
+    /// What the visibility report says of the page: (painted text, hidden text).
+    fn painted_and_hidden(pdf: &[u8]) -> (bool, bool) {
+        let report: serde_json::Value =
+            serde_json::from_slice(&ocr_text_visibility_bytes(pdf, &[1], false).unwrap()).unwrap();
+        let page = &report["pages"][0];
+        (
+            page["paintedText"].as_bool().unwrap(),
+            page["hiddenText"].as_bool().unwrap(),
+        )
+    }
+
+    /// The operators the writer leaves on the page after removing earlier OCR text.
+    fn operators_after_strip(pdf: &[u8]) -> Vec<String> {
+        let mut incremental = incremental_from_bytes(pdf).unwrap();
+        let page_id = PageTreeResolver::new(&incremental.previous_document)
+            .unwrap()
+            .page_id(&incremental.previous_document, 1)
+            .unwrap();
+        prepare_incremental_overlay_page(&mut incremental, page_id).unwrap();
+        strip_previous_ocr_text(&mut incremental, None, page_id).unwrap();
+        incremental
+            .new_document
+            .get_page_contents(page_id)
+            .into_iter()
+            .flat_map(|id| {
+                let bytes = read_content_stream(&mut incremental, None, id)
+                    .unwrap()
+                    .unwrap();
+                Content::decode(&bytes).unwrap().operations
+            })
+            .map(|operation| operation.operator)
+            .collect()
+    }
+
+    const UNDER_SCAN: &[u8] =
+        b"BT 1 1 1 rg /F1 14 Tf 1 0 0 1 76 700 Tm (temps-la) Tj ET q 600 0 0 800 0 0 cm /Im0 Do Q";
+
+    #[test]
+    fn text_under_an_opaque_full_page_scan_is_hidden_ocr_and_removed() {
+        let pdf = scanned_page_pdf(UNDER_SCAN, Dictionary::new());
+        assert_eq!(painted_and_hidden(&pdf), (false, true));
+        let operators = operators_after_strip(&pdf);
+        assert!(!operators.iter().any(|operator| operator == "Tj"));
+        assert!(operators.iter().any(|operator| operator == "Do"));
+    }
+
+    #[test]
+    fn text_a_scan_does_not_fully_hide_stays_the_pages_own() {
+        let partial = b"BT /F1 14 Tf 1 0 0 1 76 700 Tm (a) Tj ET q 300 0 0 800 0 0 cm /Im0 Do Q";
+        let after = b"q 600 0 0 800 0 0 cm /Im0 Do Q BT /F1 14 Tf 1 0 0 1 76 700 Tm (a) Tj ET";
+        let clipped = b"BT /F1 14 Tf 1 0 0 1 76 700 Tm (a) Tj ET q 0 0 300 300 re W n 600 0 0 800 0 0 cm /Im0 Do Q";
+        let optional = b"BT /F1 14 Tf 1 0 0 1 76 700 Tm (a) Tj ET /OC /L0 BDC q 600 0 0 800 0 0 cm /Im0 Do Q EMC";
+        for content in [&partial[..], &after[..], &clipped[..], &optional[..]] {
+            let pdf = scanned_page_pdf(content, Dictionary::new());
+            assert_eq!(
+                painted_and_hidden(&pdf),
+                (true, false),
+                "{}",
+                String::from_utf8_lossy(content)
+            );
+            assert!(operators_after_strip(&pdf)
+                .iter()
+                .any(|operator| operator == "Tj"));
+        }
+        for image in [
+            dictionary! { "SMask" => Object::Null },
+            dictionary! { "Mask" => vec![0.into(), 0.into()] },
+            dictionary! { "ImageMask" => true },
+        ] {
+            let pdf = scanned_page_pdf(UNDER_SCAN, image);
+            assert_eq!(painted_and_hidden(&pdf), (true, false));
+        }
     }
 
     #[test]

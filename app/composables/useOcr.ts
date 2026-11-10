@@ -316,6 +316,16 @@ export const useOcr = () => {
             return;
         }
 
+        // A page whose own text the run kept is not a recognized one; say how many there were.
+        const keptPages = response.diagnostics?.filter(diagnostic => diagnostic.code === 'OCR_EXISTING_TEXT_SKIPPED'
+            && diagnostic.severity === 'info').length ?? 0;
+        if (response.success && keptPages > 0) {
+            toast.add({
+                color: 'info',
+                title: t('ocr.existingTextKept', {count: keptPages}),
+            });
+        }
+
         const diagnosticWarnings = response.diagnostics?.filter(diagnostic => diagnostic.severity === 'warning') ?? [];
         if (response.errors.length === 0 && response.errorEnvelope === undefined && diagnosticWarnings.length === 0) {
             return;

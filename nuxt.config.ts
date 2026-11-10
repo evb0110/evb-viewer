@@ -283,6 +283,9 @@ export default defineNuxtConfig({
         'resources/poppler/**',
         'resources/qpdf/**',
         'resources/tesseract/**',
+        // The extension sends no web analytics, and the Chrome Web Store
+        // refuses code that can load the analytics script from Vercel.
+        ...(isBrowserExtensionBuild ? ['**/plugins/webAnalytics.client.ts'] : []),
     ],
 
     colorMode: {

@@ -31,6 +31,11 @@
             </section>
 
             <section>
+                <h2>{{ privacyCopy.extension.heading }}</h2>
+                <p>{{ privacyCopy.extension.body }}</p>
+            </section>
+
+            <section>
                 <h2>{{ privacyCopy.settings.heading }}</h2>
                 <p>{{ privacyCopy.settings.body }}</p>
             </section>

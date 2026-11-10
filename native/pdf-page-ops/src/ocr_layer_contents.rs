@@ -3,6 +3,7 @@
 //! earlier OCR layer or hidden producer text left, keeping every other operator.
 
 use super::*;
+use crate::page_geometry::{intersect_rect, resolve_inherited_box};
 use lopdf::content::{Content, Operation as ContentOperation};
 
 pub(crate) const EVB_OCR_LAYER_BEGIN: &[u8] = b"% EVB_VIEWER_OCR_LAYER_BEGIN\n";
@@ -49,15 +50,101 @@ fn rendering_mode(operation: &ContentOperation) -> Option<i64> {
         .map(|value| value as i64)
 }
 
+const IDENTITY: [f64; 6] = [1.0, 0.0, 0.0, 1.0, 0.0, 0.0];
+/// How far, in default user space units, a covering image may fall short of
+/// the page's edge: scans are placed at whole points, boxes need not be.
+const PAGE_COVER_TOLERANCE: f64 = 1.0;
+
+/// What on a page hides text drawn before it. A scanned page from some
+/// producers (Gallica, for one) paints its OCR text in a visible mode and then
+/// draws the opaque scan over the whole page; that text is as hidden as `3 Tr`
+/// text and is OCR from another app, not the document's own.
+pub(crate) struct PageCover {
+    /// Resource names of the page's opaque images: no soft mask, no mask, no stencil.
+    images: HashSet<Vec<u8>>,
+    /// The visible page box, the crop box within the media box.
+    visible: PdfRect,
+}
+
+impl PageCover {
+    pub(crate) fn read(document: &Document, page_id: ObjectId) -> Option<Self> {
+        let media = resolve_inherited_box(document, page_id, b"MediaBox").ok()?;
+        let visible = resolve_inherited_box(document, page_id, b"CropBox")
+            .ok()
+            .and_then(|crop| intersect_rect(crop, media))
+            .unwrap_or(media);
+        let resources = page_resources(document, page_id).ok()?;
+        let (_, xobjects) = document.dereference(resources.get(b"XObject").ok()?).ok()?;
+        let images = xobjects
+            .as_dict()
+            .ok()?
+            .iter()
+            .filter(|(_, object)| {
+                let Ok((_, Object::Stream(image))) = document.dereference(object) else {
+                    return false;
+                };
+                let dict = &image.dict;
+                dict.get(b"Subtype").and_then(Object::as_name).ok() == Some(b"Image")
+                    && !dict
+                        .get(b"ImageMask")
+                        .and_then(Object::as_bool)
+                        .unwrap_or(false)
+                    && !dict.has(b"SMask")
+                    && !dict.has(b"Mask")
+                    && dict
+                        .get(b"SMaskInData")
+                        .and_then(Object::as_i64)
+                        .unwrap_or(0)
+                        == 0
+            })
+            .map(|(name, _)| name.clone())
+            .collect::<HashSet<_>>();
+        (!images.is_empty()).then_some(Self { images, visible })
+    }
+
+    /// Whether drawing `name` under `ctm` paints an opaque image over the whole visible page.
+    fn covers(&self, name: &Object, ctm: [f64; 6]) -> bool {
+        let [a, b, c, d, e, f] = ctm;
+        // An image fills the unit square; only an axis-aligned one fills its bounds.
+        if !(b == 0.0 && c == 0.0 || a == 0.0 && d == 0.0) {
+            return false;
+        }
+        let xs = [e, e + a + c];
+        let ys = [f, f + b + d];
+        name.as_name().is_ok_and(|name| self.images.contains(name))
+            && xs[0].min(xs[1]) <= self.visible.x1.min(self.visible.x2) + PAGE_COVER_TOLERANCE
+            && xs[0].max(xs[1]) >= self.visible.x1.max(self.visible.x2) - PAGE_COVER_TOLERANCE
+            && ys[0].min(ys[1]) <= self.visible.y1.min(self.visible.y2) + PAGE_COVER_TOLERANCE
+            && ys[0].max(ys[1]) >= self.visible.y1.max(self.visible.y2) - PAGE_COVER_TOLERANCE
+    }
+}
+
+/// The graphics state `q` saves and `Q` restores that decides what text shows.
+#[derive(Clone, Copy)]
+pub(crate) struct TextPaintState {
+    pub(crate) mode: i64,
+    /// The current transformation matrix, `None` once a `cm` could not be read.
+    ctm: Option<[f64; 6]>,
+    /// No clip or `gs` is in effect, so an image draws as its dictionary says.
+    plain: bool,
+}
+
 /// One page's text read the way a PDF consumer paints it. The rendering mode
 /// is graphics state: `q` saves it and `Q` restores it, across the page's
 /// content streams as a consumer concatenates them. The writer removes text
 /// through this scan and the OCR eligibility inspection reports through it,
 /// so a page the inspection offers for replacement is one the writer accepts.
-#[derive(Default)]
 pub(crate) struct PageTextScan {
     pub(crate) mode: i64,
-    pub(crate) saved_modes: Vec<i64>,
+    ctm: Option<[f64; 6]>,
+    plain: bool,
+    saved: Vec<TextPaintState>,
+    /// Open marked-content sequences, each true when it names optional content.
+    marked_optional: Vec<bool>,
+    /// Painted text shows of this stream that a later opaque scan may still cover.
+    uncovered: Vec<usize>,
+    /// The page's opaque images; without it no text counts as covered.
+    cover: Option<PageCover>,
     pub(crate) painted: bool,
     pub(crate) hidden: bool,
     /// What the open text object has shown so far. A text object may span
@@ -66,6 +153,58 @@ pub(crate) struct PageTextScan {
     pub(crate) object_other: bool,
     /// Why removing this page's hidden text could change what it paints.
     pub(crate) unsupported: Option<&'static str>,
+}
+
+impl Default for PageTextScan {
+    fn default() -> Self {
+        Self {
+            mode: 0,
+            ctm: Some(IDENTITY),
+            plain: true,
+            saved: Vec::new(),
+            marked_optional: Vec::new(),
+            uncovered: Vec::new(),
+            cover: None,
+            painted: false,
+            hidden: false,
+            object_hidden: false,
+            object_other: false,
+            unsupported: None,
+        }
+    }
+}
+
+impl PageTextScan {
+    /// A scan of a page's own content, which knows the opaque scans that can cover its text.
+    pub(crate) fn for_page(document: &Document, page_id: ObjectId) -> Self {
+        Self {
+            cover: PageCover::read(document, page_id),
+            ..Self::default()
+        }
+    }
+}
+
+/// `matrix` applied before `ctm`, as `cm` concatenates it.
+fn concatenate(matrix: [f64; 6], ctm: [f64; 6]) -> [f64; 6] {
+    let [a, b, c, d, e, f] = matrix;
+    let [ca, cb, cc, cd, ce, cf] = ctm;
+    [
+        a * ca + b * cc,
+        a * cb + b * cd,
+        c * ca + d * cc,
+        c * cb + d * cd,
+        e * ca + f * cc + ce,
+        e * cb + f * cd + cf,
+    ]
+}
+
+fn read_matrix(operation: &ContentOperation) -> Option<[f64; 6]> {
+    let values = operation
+        .operands
+        .iter()
+        .map(|value| object_to_f64(value).ok().filter(|value| value.is_finite()))
+        .collect::<Option<Vec<_>>>()?;
+    <[f64; 6]>::try_from(values).ok()
 }
 
 impl PageTextScan {
@@ -80,8 +219,33 @@ impl PageTextScan {
         let mut hidden = Vec::new();
         for (index, operation) in operations.iter().enumerate() {
             match operation.operator.as_str() {
-                "q" => self.saved_modes.push(self.mode),
-                "Q" => self.mode = self.saved_modes.pop().unwrap_or(self.mode),
+                "q" => self.saved.push(TextPaintState {
+                    mode: self.mode,
+                    ctm: self.ctm,
+                    plain: self.plain,
+                }),
+                "Q" => {
+                    if let Some(state) = self.saved.pop() {
+                        (self.mode, self.ctm, self.plain) = (state.mode, state.ctm, state.plain);
+                    }
+                }
+                "cm" => {
+                    self.ctm = self
+                        .ctm
+                        .zip(read_matrix(operation))
+                        .map(|(ctm, matrix)| concatenate(matrix, ctm));
+                }
+                "W" | "W*" | "gs" => self.plain = false,
+                "BDC" => self.marked_optional.push(
+                    operation
+                        .operands
+                        .first()
+                        .is_some_and(|tag| tag.as_name().is_ok_and(|tag| tag == b"OC")),
+                ),
+                "BMC" => self.marked_optional.push(false),
+                "EMC" => {
+                    self.marked_optional.pop();
+                }
                 "BT" => (self.object_hidden, self.object_other) = (false, false),
                 "Tr" => match rendering_mode(operation) {
                     Some(mode) => self.mode = mode,
@@ -89,6 +253,16 @@ impl PageTextScan {
                 },
                 "Do" => {
                     if let Some(name) = operation.operands.first() {
+                        let covers = self.plain
+                            && !self.marked_optional.contains(&true)
+                            && self
+                                .ctm
+                                .zip(self.cover.as_ref())
+                                .is_some_and(|(ctm, cover)| cover.covers(name, ctm));
+                        if covers && !self.uncovered.is_empty() {
+                            hidden.append(&mut self.uncovered);
+                            self.hidden = true;
+                        }
                         on_draw(name, self.mode);
                     }
                 }
@@ -99,7 +273,11 @@ impl PageTextScan {
                         self.object_hidden = true;
                     } else {
                         // Modes 4 to 6 paint and clip; mode 7 only clips.
-                        self.painted |= self.mode != 7;
+                        if (0..=2).contains(&self.mode) {
+                            self.uncovered.push(index);
+                        } else {
+                            self.painted |= self.mode != 7;
+                        }
                         self.object_other = true;
                     }
                     if self.mode >= 4 {
@@ -113,6 +291,10 @@ impl PageTextScan {
                 _ => {}
             }
         }
+        // Text no scan covered by the end of its stream stays the page's own.
+        self.painted |= !self.uncovered.is_empty();
+        self.uncovered.clear();
+        hidden.sort_unstable();
         if !hidden.is_empty()
             && operations
                 .iter()
@@ -176,7 +358,8 @@ pub(crate) fn strip_previous_ocr_text(
     let content_ids = incremental.new_document.get_page_contents(page_id);
     let mut kept = Vec::with_capacity(content_ids.len());
     let mut changed = false;
-    let mut scan = PageTextScan::default();
+    // The page's images and boxes are those the inspection read.
+    let mut scan = PageTextScan::for_page(&incremental.previous_document, page_id);
     for content_id in content_ids {
         let Some(bytes) = read_content_stream(incremental, structural, content_id)? else {
             kept.push(content_id);

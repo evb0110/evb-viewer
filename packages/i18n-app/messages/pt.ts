@@ -1004,6 +1004,7 @@ export default {
         'processingPages': 'A processar páginas: {processed}/{total} concluídas',
         'complete': 'OCR concluído - o PDF é agora pesquisável',
         'partialComplete': 'OCR concluído com avisos',
+        'existingTextKept': 'Páginas que mantiveram o texto existente: {count}',
         'noPagesToProcess': 'Nenhuma página precisava de OCR',
         'exportDocx': 'Exportar DOCX',
         'start': 'Iniciar OCR',

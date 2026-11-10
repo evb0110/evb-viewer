@@ -37,6 +37,11 @@
       </div>
 
       <div>
+        <h2>{{ privacy.extension.heading }}</h2>
+        <p>{{ privacy.extension.body }}</p>
+      </div>
+
+      <div>
         <h2>{{ privacy.settings.heading }}</h2>
         <p>{{ privacy.settings.body }}</p>
       </div>
