@@ -103,27 +103,40 @@ function sdkOptions() {
 }
 
 async function loadSdk() {
+    // Only the SDK functions used here are named, so the bundle leaves out the
+    // rest, including the integration loader that fetches scripts from
+    // Sentry's CDN, which a Chrome Web Store review treats as remote code.
     if (isElectronRenderer()) {
-        const Sentry = await import('@sentry/electron/renderer');
-        Sentry.init(sdkOptions());
-        sdk = Sentry;
+        const {
+            captureException, getClient, init,
+        } = await import('@sentry/electron/renderer');
+        init(sdkOptions());
+        sdk = {
+            captureException,
+            getClient,
+        };
         flushPendingCaptures();
         return;
     }
     if (hostedConfig?.dsn) {
-        const Sentry = await import('@sentry/browser');
-        Sentry.init({
+        const {
+            captureException, getClient, init, makeFetchTransport,
+        } = await import('@sentry/browser');
+        init({
             ...sdkOptions(),
             ...hostedConfig,
             transport: options => {
-                const transport = Sentry.makeFetchTransport(options);
+                const transport = makeFetchTransport(options);
                 return {
                     send: envelope => preference === 'granted' ? transport.send(envelope) : Promise.resolve({}),
                     flush: timeout => transport.flush(timeout),
                 };
             },
         });
-        sdk = Sentry;
+        sdk = {
+            captureException,
+            getClient,
+        };
         flushPendingCaptures();
     }
 }

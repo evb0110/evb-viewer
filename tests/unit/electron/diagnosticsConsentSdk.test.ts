@@ -176,6 +176,7 @@ describe('renderer diagnostics SDK loading', () => {
             captureException: vi.fn(),
             getClient: vi.fn(() => ({getOptions: () => ({enabled: true})})),
             init: vi.fn(),
+            makeFetchTransport: vi.fn(),
         };
         vi.doMock('@sentry/browser', async () => {
             await gate.promise;
@@ -209,6 +210,7 @@ describe('renderer diagnostics SDK loading', () => {
             captureException: vi.fn(),
             getClient: vi.fn(() => ({getOptions: () => ({enabled: true})})),
             init: vi.fn(),
+            makeFetchTransport: vi.fn(),
         };
         vi.doMock('@sentry/browser', async () => {
             await gate.promise;
