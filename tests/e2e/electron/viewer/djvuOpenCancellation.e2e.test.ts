@@ -9,6 +9,7 @@ import {
     mkdtemp,
     rm,
     truncate,
+    writeFile,
 } from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {
@@ -32,6 +33,32 @@ const nativePreviewSourcePath = resolve('tests/fixtures/djvu/sources/browser-bou
 
 describe('Electron E2E - DjVu Open Cancellation', () => {
     const sessionFixture = createElectronE2ESessionFixture({sessionName: () => `e2e-djvu-open-cancellation-${Date.now()}`});
+
+    it('explains an HTML download named .djvu when Open File picks it', async () => {
+        const directory = await mkdtemp(join(tmpdir(), 'djvu-html-open-'));
+        const fixture = join(directory, 'download.djvu');
+        try {
+            await writeFile(fixture, '<!DOCTYPE html><html><title>Сайт временно недоступен</title></html>');
+            const session = await sessionFixture.restart({
+                clean: true,
+                extraEnv: {EVB_E2E_OPEN_DIALOG_PATH: fixture},
+                sessionName: () => `e2e-djvu-html-open-${Date.now()}`,
+            });
+            await session.page.waitForSelector('.start-open-panel .open-panel-cta', {visible: true});
+            await clickAsUser(session.page, '.start-open-panel .open-panel-cta');
+            await session.page.waitForSelector('.app-toast-failure', {visible: true});
+            const message = await session.page.$eval('.app-toast-failure', element => element.textContent ?? '');
+            expect(message).toContain('This file is not a DjVu document');
+            expect(message).toContain('web page (HTML)');
+            expect(message).not.toContain('djvused');
+            expect(message).not.toContain('djvu-export-');
+        } finally {
+            await rm(directory, {
+                force: true,
+                recursive: true,
+            });
+        }
+    }, 120_000);
 
     it('renders the first page on the native preview path for a sparse 97 MiB DjVu', async () => {
         const fixtureDirectory = await mkdtemp(join(tmpdir(), 'djvu-native-preview-'));

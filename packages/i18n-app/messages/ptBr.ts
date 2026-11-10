@@ -1750,6 +1750,15 @@ export default {
         'file': {
             'open': 'Falha ao abrir arquivo',
             'openDescription': 'Não foi possível abrir o arquivo. "Copiar detalhes" inclui o motivo técnico.',
+
+            // DjVu content validation.
+            'notDjvuHtml': 'Este arquivo não é um documento DjVu. Parece uma página da web (HTML), talvez devido a uma falha no download. Baixe o documento novamente da origem.',
+            'notDjvuPdf': 'Este arquivo é um documento PDF com a extensão .djvu. Altere a extensão de uma cópia para .pdf e abra-a novamente.',
+            'notDjvuZip': 'Este arquivo é um arquivo ZIP com a extensão .djvu. Extraia seu conteúdo e abra o documento que ele contém.',
+            'notDjvuEmpty': 'Este arquivo está vazio e não pode ser aberto como documento DjVu. Baixe ou copie o documento novamente.',
+            'notDjvu': 'Este arquivo não é um documento DjVu. Verifique o tipo de arquivo ou baixe o documento novamente da origem.',
+            'invalidDjvu': 'Este documento DjVu está incompleto ou danificado. Baixe ou copie o documento completo novamente.',
+
             'pdfjsAssetMismatch': 'O visualizador de PDF precisa sincronizar as dependências de desenvolvimento antes de abrir este arquivo.',
             'pdfjsAssetRepairAction': 'Copiar comando de reparo',
             'pdfjsAssetRepairCopied': 'Comando de reparo copiado',
