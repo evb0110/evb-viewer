@@ -192,6 +192,18 @@ function formatComplementPageList(pagesToRemove: number[], totalPages: number) {
     };
 }
 
+/**
+ * A page operation's `--pages` output, reconciled with the tags, layers and
+ * form fields of the pages it keeps before anything publishes it.
+ */
+export async function runQpdfPageOperation(args: string[], options: TRunQpdfCommandOptions) {
+    await runQpdfCommand(args, options);
+    await finalizeSubsetForms(args.at(-1)!, {
+        ...(options.signal ? {signal: options.signal} : {}),
+        ...(options.cancelGroup ? {cancelGroup: options.cancelGroup} : {}),
+    });
+}
+
 export async function runQpdfCommand(
     args: string[],
     options: TRunQpdfCommandOptions,
@@ -236,12 +248,6 @@ export async function runQpdfCommand(
             ...nativeOptions,
             ...(onSpawn ? {onSpawn} : {}),
         });
-        if (args.includes('--pages')) {
-            await finalizeSubsetForms(args.at(-1)!, {
-                ...(nativeOptions.signal ? {signal: nativeOptions.signal} : {}),
-                ...(nativeOptions.cancelGroup ? {cancelGroup: nativeOptions.cancelGroup} : {}),
-            });
-        }
     };
     if (scratchDirectory === undefined) {
         await usingManagedScratchScope('qpdfArgs-', getAppTempDir(), runWithArguments);
@@ -359,7 +365,7 @@ async function extractPageList(
     const qpdfOutput = await createManagedQpdfOutputPath();
     const finalTempPath = makeTempPdfOutputPath(destPath);
     try {
-        await runQpdfCommand([
+        await runQpdfPageOperation([
             physicalReadPath,
             '--pages',
             physicalReadPath,
@@ -464,7 +470,7 @@ async function deletePageSelection(
     const tempPath = makeTempPdfOutputPath(materializedPath);
 
     try {
-        await runQpdfCommand([
+        await runQpdfPageOperation([
             materializedPath,
             '--pages',
             materializedPath,
@@ -522,7 +528,7 @@ export async function reorderPages(
     const tempPath = makeTempPdfOutputPath(materializedPath);
 
     try {
-        await runQpdfCommand([
+        await runQpdfPageOperation([
             materializedPath,
             '--pages',
             materializedPath,
@@ -575,7 +581,7 @@ export async function movePages(
 
     const tempPath = makeTempPdfOutputPath(materializedPath);
     try {
-        await runQpdfCommand([
+        await runQpdfPageOperation([
             materializedPath,
             '--pages',
             materializedPath,
@@ -627,7 +633,7 @@ export async function movePageRanges(
 
     const tempPath = makeTempPdfOutputPath(materializedPath);
     try {
-        await runQpdfCommand([
+        await runQpdfPageOperation([
             materializedPath,
             '--pages',
             materializedPath,

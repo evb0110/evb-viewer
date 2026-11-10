@@ -23,7 +23,7 @@ import {
     getPdfPageCount,
     QPDF_OUTPUT_SUCCESS_EXIT_CODES,
     QPDF_TIMEOUT_MS,
-    runQpdfCommand,
+    runQpdfPageOperation,
 } from '@electron/features/page-ops/main/qpdf';
 import type { TOpenPath } from '@electron/file-access/openPathCapabilities';
 
@@ -134,7 +134,7 @@ export async function insertPagesFromSourcePaths(
             '--',
             tempPath,
         ];
-        await runQpdfCommand(args, {
+        await runQpdfPageOperation(args, {
             timeoutMs: QPDF_TIMEOUT_MS,
             allowedExitCodes: QPDF_OUTPUT_SUCCESS_EXIT_CODES,
             commandLabel: 'qpdf(insert-pages)',
