@@ -866,7 +866,7 @@ export default {
             },
             'primaryDescriptions': {
                 'missing-only': 'Seiten überspringen, die bereits auswählbaren Text enthalten.',
-                'repeat': 'Vorherige Erkennungsergebnisse auf den ausgewählten gescannten Seiten ersetzen. Originaler Dokumenttext bleibt erhalten.',
+                'repeat': 'Alle ausgeblendeten Erkennungsergebnisse auf den ausgewählten gescannten Seiten ersetzen, auch die anderer Programme. Originaler Dokumenttext bleibt erhalten.',
             },
             'advanced': 'Erweiterte Wiederholungsoptionen',
             'options': {
@@ -874,14 +874,12 @@ export default {
                 'replace-evb': 'EVB-Text erneut per OCR erfassen',
                 'replace-all': 'Alle ausgeblendeten OCR-Texte ersetzen',
             },
-            'onlyEvb': 'Nur von EVB Viewer durchgeführte Erkennung ersetzen',
-            'replaceAllDescription': 'Erkennung anderer Programme auf den ausgewählten Seiten wird ebenfalls ersetzt.',
+            'onlyEvb': 'Erkennung anderer Programme behalten; nur EVB-Erkennung ersetzen',
             'descriptions': {
                 'missing-only': 'Vorhandene Texte beibehalten und nur Seiten ohne Text per OCR erfassen.',
                 'replace-evb': 'Nur die aktive EVB-OCR-Generation ersetzen.',
                 'replace-all': 'EVB-OCR und fremde ausgeblendete OCR ersetzen; sichtbarer nativer Text bleibt unverändert.',
             },
-            'replaceAllAcknowledgement': 'Ich verstehe, dass fremde ausgeblendete OCR auf den ausgewählten Seiten entfernt und ersetzt wird.',
         },
         'qualityProfile': {
             'label': 'Erkennungsmodus',

@@ -1138,7 +1138,7 @@ if (process.versions.electron && process.type === 'browser') {
 
     // #928 F1: the pages OCR may replace are the pages whose existing text is
     // only hidden, read the way a PDF reader paints them.
-    it('keeps visible native text and repairs only a hidden-only foreign OCR layer', async () => {
+    it('by default recognizes every scanned page, replaces its hidden OCR and keeps born-digital text', async () => {
         const session = await sessionFixture.restart({
             clean: true,
             hard: true,
@@ -1155,11 +1155,16 @@ if (process.versions.electron && process.type === 'browser') {
 
         await clickVisibleButton(page, '#editor-global-toolbar-host', 'OCR');
         await page.waitForSelector('[role="dialog"]', {visible: true});
-        const allPagesOption = await page.waitForFunction(() => (
-            Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"] label'))
-                .find(label => label.textContent?.trim() === 'All pages (3)' && label.checkVisibility())
-        ), {timeout: 30_000});
-        await clickAsUser(page, allPagesOption.asElement() as ElementHandle<HTMLElement>);
+        // The user changes nothing: the whole document and a fresh recognition are the defaults.
+        // Each checked option by its accessible name: card options carry it as
+        // aria-label, list options in their label.
+        const checkedOptions = await page.$$eval('[role="dialog"] [role="radio"][aria-checked="true"]', radios => radios.map(radio => (
+            radio.getAttribute('aria-label') ?? document.querySelector(`label[for="${CSS.escape(radio.id)}"]`)?.textContent?.trim() ?? ''
+        )));
+        expect(checkedOptions).toEqual(expect.arrayContaining([
+            'All pages (3)',
+            'Recognize scanned text again',
+        ]));
         await clickVisibleButton(page, '[role="dialog"]', 'Start OCR');
         await waitForFunctionInPage(page, () => (
             document.querySelector('[role="dialog"]')?.textContent?.includes('OCR complete') === true

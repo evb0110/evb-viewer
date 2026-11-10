@@ -19,7 +19,6 @@ export interface IOcrSettings {
     preprocessingMode: TOcrPreprocessingMode;
     pageSegmentationMode: number | null;
     supersessionPolicy: TOcrTextSupersessionPolicy;
-    replaceAllAcknowledged: boolean;
 }
 
 export interface IOcrUiProgress {

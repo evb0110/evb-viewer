@@ -867,7 +867,7 @@ export default {
             },
             'primaryDescriptions': {
                 'missing-only': 'Ignorer les pages qui contiennent déjà du texte sélectionnable.',
-                'repeat': 'Remplacer les résultats précédents sur les pages numérisées sélectionnées. Le texte original du document est conservé.',
+                'repeat': 'Remplacer toute la reconnaissance masquée sur les pages numérisées sélectionnées, y compris celle d’autres applications. Le texte original du document est conservé.',
             },
             'advanced': 'Options avancées de répétition',
             'options': {
@@ -875,14 +875,12 @@ export default {
                 'replace-evb': 'Relancer l’OCR du texte EVB',
                 'replace-all': 'Remplacer toutes les couches OCR masquées',
             },
-            'onlyEvb': 'Remplacer uniquement la reconnaissance effectuée par EVB Viewer',
-            'replaceAllDescription': 'La reconnaissance des autres applications sur les pages sélectionnées sera également remplacée.',
+            'onlyEvb': 'Conserver la reconnaissance d’autres applications ; remplacer uniquement celle d’EVB Viewer',
             'descriptions': {
                 'missing-only': 'Conserver tous les calques de texte existants et lancer l’OCR uniquement sur les pages sans texte.',
                 'replace-evb': 'Remplacer uniquement la couche OCR EVB active ; le texte natif et le texte provenant d’autres outils restent inchangés.',
                 'replace-all': 'Remplacer les couches OCR masquées d’EVB et d’autres outils ; le texte natif visible reste inchangé.',
             },
-            'replaceAllAcknowledgement': 'Je comprends que le texte OCR masqué provenant d’autres outils sera supprimé et remplacé sur les pages sélectionnées.',
         },
         'qualityProfile': {
             'label': 'Mode de reconnaissance',

@@ -50,7 +50,6 @@ export function cloneOcrSettingsSnapshot(value: IOcrSettings | null | undefined)
             preprocessingMode: value.preprocessingMode,
             pageSegmentationMode: value.pageSegmentationMode,
             supersessionPolicy: value.supersessionPolicy,
-            replaceAllAcknowledged: value.replaceAllAcknowledged,
         }
         : null;
 }
@@ -81,10 +80,10 @@ export function applyAgentOcrOptionsToSettings(
     if (parsedOptions.pageSegmentationMode !== undefined) {
         nextSettings.pageSegmentationMode = parsedOptions.pageSegmentationMode;
     }
-    if (parsedOptions.supersessionPolicy !== undefined) {
+    // An agent replaces other apps' hidden OCR only when it acknowledges that explicitly.
+    if (parsedOptions.supersessionPolicy !== undefined
+        && (parsedOptions.supersessionPolicy !== 'replace-all' || parsedOptions.replaceAllAcknowledged === true)) {
         nextSettings.supersessionPolicy = parsedOptions.supersessionPolicy;
-        nextSettings.replaceAllAcknowledged = parsedOptions.supersessionPolicy === 'replace-all'
-            && parsedOptions.replaceAllAcknowledged === true;
     }
 
     const languages = normalizeAgentLanguages(parsedOptions.languages, availableLanguageCodes);

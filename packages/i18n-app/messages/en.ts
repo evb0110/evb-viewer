@@ -341,7 +341,7 @@ export default {
             },
             'primaryDescriptions': {
                 'missing-only': 'Skip pages that already contain usable selectable text; repair hidden OCR layers that do not.',
-                'repeat': 'Replace previous recognition results on the selected scanned pages. Original document text is preserved, and unusable hidden OCR is repaired.',
+                'repeat': 'Replace all hidden recognition on the selected scanned pages, including recognition from other apps. Original document text is preserved.',
             },
             'advanced': 'Advanced repeat options',
             'options': {
@@ -354,9 +354,7 @@ export default {
                 'replace-evb': 'Replace the active EVB OCR generation and repair unusable hidden OCR; visible native text stays untouched.',
                 'replace-all': 'Replace EVB and foreign hidden OCR layers; visible native text stays untouched.',
             },
-            'onlyEvb': 'Prefer EVB recognition; repair unusable hidden OCR',
-            'replaceAllAcknowledgement': 'Also replace recognition from other apps',
-            'replaceAllDescription': 'Recognition from other apps on the selected pages will also be replaced.',
+            'onlyEvb': 'Keep recognition from other apps; replace only EVB recognition',
         },
         'qualityProfile': {
             'label': 'Recognition mode',
