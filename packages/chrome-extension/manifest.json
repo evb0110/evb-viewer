@@ -25,6 +25,7 @@
     "incognito": "split",
     "permissions": [
         "declarativeNetRequestWithHostAccess",
+        "downloads",
         "storage",
         "unlimitedStorage",
         "webNavigation"

@@ -454,13 +454,12 @@ function downloadBlob(blob: Blob, fileName: string, signal?: AbortSignal) {
 }
 
 /**
- * Downloads a stored document. Its bytes are read a chunk at a time into a
- * Blob, which the browser may keep on disk, so no single buffer bounds the
- * size of the download.
+ * A stored document as a Blob. Its bytes are read a chunk at a time into
+ * Blob parts, which the browser may keep on disk, so no single buffer bounds
+ * the document's size.
  */
-export async function downloadBrowserDocument(
+export async function readBrowserDocumentBlob(
     ref: TDocumentRef,
-    fileName: string,
     mimeType: string,
     signal?: AbortSignal,
 ) {
@@ -478,7 +477,17 @@ export async function downloadBrowserDocument(
             await yieldToBrowser();
         }
     }
-    downloadBlob(new Blob(parts, { type: mimeType }), fileName, signal);
+    return new Blob(parts, { type: mimeType });
+}
+
+/** Downloads a stored document without holding it in one buffer. */
+export async function downloadBrowserDocument(
+    ref: TDocumentRef,
+    fileName: string,
+    mimeType: string,
+    signal?: AbortSignal,
+) {
+    downloadBlob(await readBrowserDocumentBlob(ref, mimeType, signal), fileName, signal);
 }
 
 /** Downloads bytes already in hand. It never opens a picker. */

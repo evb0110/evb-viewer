@@ -34,19 +34,28 @@ no extension that access by itself.
 3. The viewer page is the workspace build (`EVB_BROWSER_EXTENSION_BUILD=1` in
    `nuxt.config.ts`). `app/platform/browser-api/openBrowserExtensionDocument.ts`
    fetches the document with the site's cookies, checks its signature, and
-   opens it as a dropped file would be. The page's history entry keeps the
-   stored document, so a reload shows it again without fetching it.
+   opens it as a dropped file would be. The `file` parameter stays readable in
+   the address bar, so it shows where the document came from and a bookmark
+   opens it again. The page's history entry keeps the stored document, so a
+   reload shows it again without fetching it; a window the workspace opens
+   leaves the parameter out.
 4. When the response is not a PDF or DjVu document, or cannot be fetched, the
    viewer asks the service worker to let Chrome open that URL in the tab.
 
 Local files never reach the network rules: the service worker sends a `file:`
 navigation to the viewer page when the user allowed file access.
 
+A stored document has no folder of its own, so the status bar's folder button
+saves it to the Downloads folder through Chrome's downloads and shows it there
+(`app/platform/browser-api/showBrowserDocumentInDownloads.ts`). Each revision
+is saved once; a later click shows the same download.
+
 ## Permissions
 
 | Permission | Why |
 | --- | --- |
 | `declarativeNetRequestWithHostAccess`, host access to all sites | Redirect PDF and DjVu responses from any site, and fetch them again with the site's cookies. |
+| `downloads` | Save a document to the Downloads folder and show it there when the status bar's folder button is clicked. |
 | `webNavigation` | Send local PDF and DjVu files to the viewer, and end a tab's hand-back to Chrome when it navigates on. |
 | `storage` | Remember, for the browser session, which tabs Chrome opens itself. |
 | `unlimitedStorage` | Keep opened documents, OCR models and recovery data, as the website does. |
