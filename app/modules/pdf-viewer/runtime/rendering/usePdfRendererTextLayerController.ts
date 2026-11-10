@@ -14,8 +14,6 @@ import { PDF_PAGE_TEXT_LAYER_TIMEOUT_MS } from '@app/constants/timeouts';
 import { isPageRenderTimeoutError } from '@app/modules/pdf-viewer/engine/pdf-page-render-timeout/isPageRenderTimeoutError';
 import { withPageStageTimeout } from '@app/modules/pdf-viewer/engine/pdf-page-render-timeout/withPageStageTimeout';
 import { clearPdfSelectionForLayerTeardown } from '@app/modules/pdf-viewer/engine/pdf-selection-cleanup/clearPdfSelectionForLayerTeardown';
-import { isEqual } from 'es-toolkit';
-import { getTextLayerTextMapping } from '@app/modules/pdf-viewer/engine/search/pdfSearchHighlightDom';
 import { isRenderCancellation } from '@app/modules/pdf-viewer/runtime/rendering/usePdfRendererAnnotationLayerController';
 import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
 
@@ -192,32 +190,6 @@ export const usePdfRendererTextLayerController = (options: IUsePdfRendererTextLa
         }
 
         if (getRenderVersion() !== version || !shouldContinue()) return false;
-        const outgoing = container.querySelector<HTMLDivElement>('.text-layer');
-        const selection = outgoing !== textLayerDiv ? container.ownerDocument.getSelection() : null;
-        const previous = outgoing && getTextLayerTextMapping(outgoing);
-        const incoming = getTextLayerTextMapping(textLayerDiv);
-        const remap = (node: Node | null, offset: number) => {
-            if (!node || !outgoing?.contains(node)) return [
-                node,
-                offset,
-            ] as const;
-            const index = previous?.textDivs.findIndex(span => span.contains(node)) ?? -1;
-            const span = previous?.textDivs[index];
-            const target = incoming?.textDivs[index]?.firstChild;
-            if (!span || !(target instanceof Text)) return null;
-            const prefix = span.ownerDocument.createRange();
-            prefix.selectNodeContents(span);
-            prefix.setEnd(node, offset);
-            return [
-                target,
-                prefix.toString().length,
-            ] as const;
-        };
-        const anchor = selection && previous && incoming
-            && (outgoing?.contains(selection.anchorNode) || outgoing?.contains(selection.focusNode))
-            && isEqual(previous.textContentItemsStr, incoming.textContentItemsStr)
-            ? remap(selection.anchorNode, selection.anchorOffset) : null;
-        const focus = anchor && selection ? remap(selection.focusNode, selection.focusOffset) : null;
         if (!publish()) {
             textLayerRenderer.cleanupTextLayerDom(textLayerDiv);
             return false;
@@ -243,7 +215,6 @@ export const usePdfRendererTextLayerController = (options: IUsePdfRendererTextLa
         }
 
         if (!isTextLayerRendered) return failure ?? false;
-        if (anchor?.[0] && focus?.[0]) selection?.setBaseAndExtent(anchor[0], anchor[1], focus[0], focus[1]);
 
         try {
             textLayerRenderer.applyPageSearchHighlights(
