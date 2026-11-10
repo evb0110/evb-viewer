@@ -219,6 +219,7 @@ export const djvuProgressSchema = v.pipe(v.object({
     documentRef: v.optional(documentRefSchema),
     phase: v.picklist([
         'converting',
+        'assembling',
         'bookmarks',
         'optimizing',
         'loading',
@@ -348,6 +349,7 @@ const djvuJobStateProgressSchema = v.pipe(v.object({
     documentRef: v.optional(documentRefSchema),
     phase: v.picklist([
         'converting',
+        'assembling',
         'bookmarks',
         'optimizing',
         'loading',
