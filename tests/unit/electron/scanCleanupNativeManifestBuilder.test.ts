@@ -40,6 +40,7 @@ import {
 } from '@evb/scan-cleanup/core/assertScanCleanupPathWithinRoot';
 import {resolveEffectiveScanCleanupOptions} from '@evb/scan-cleanup/core/policy/effectiveOptions';
 import {resolveScanCleanupManifestPageOptions} from '@evb/scan-cleanup/core/policy/scanCleanupManifestPagePolicy';
+import {createScanCleanupFacingPairGeometry} from '@evb/scan-cleanup/core/policy/createScanCleanupFacingPairGeometry';
 import {ScanCleanupContractError} from '@evb/scan-cleanup/core/errors';
 import {
     afterAll,
@@ -142,6 +143,56 @@ const cases: IGoldenCase[] = [
 ];
 
 describe('native scan-cleanup manifest builder', () => {
+    it('declares a page as wide as two of its document\'s pages a facing pair to the engine', () => {
+        const single = {
+            pageNumber: 1,
+            xPoints: 0,
+            yPoints: 0,
+            widthPoints: 464.882,
+            heightPoints: 680.315,
+            rotation: 0,
+        };
+        const spread = {
+            ...single,
+            pageNumber: 2,
+            widthPoints: 929.764,
+        };
+        const landscape = {
+            ...single,
+            pageNumber: 3,
+            widthPoints: 680.315,
+            heightPoints: 464.882,
+        };
+        const turnedSpread = {
+            ...spread,
+            pageNumber: 4,
+            widthPoints: 680.315,
+            heightPoints: 929.764,
+            rotation: 90,
+        };
+        const geometry = createScanCleanupFacingPairGeometry();
+        for (const page of [
+            single,
+            spread,
+            landscape,
+            turnedSpread,
+        ]) geometry.add(page);
+        const pageOptions = (page: typeof single) => resolveScanCleanupManifestPageOptions({
+            options,
+            analysisPurpose: 'page-plan',
+            qualityPath: 'raster',
+            page: {
+                pageNumber: page.pageNumber,
+                dpi: 150,
+                facingPairGeometry: geometry.isFacingPair(page),
+            },
+        });
+        expect(pageOptions(spread).facingPairGeometry).toBe(true);
+        expect(pageOptions(turnedSpread).facingPairGeometry).toBe(true);
+        expect(pageOptions(single).facingPairGeometry).toBeUndefined();
+        expect(pageOptions(landscape).facingPairGeometry).toBeUndefined();
+    });
+
     it('keeps manual crops, exclusion and output mode out of automatic page-plan evidence but retains them for rendering', () => {
         const manualContentBoxes = {right: {
             xNormalized: 0.55,

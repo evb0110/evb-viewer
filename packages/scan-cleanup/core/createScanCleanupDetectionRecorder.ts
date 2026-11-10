@@ -27,6 +27,7 @@ import {
 } from '@evb/scan-cleanup/core/policy/scanCleanupRasterPolicy';
 import {buildScanCleanupPlacementAnchorSummary} from '@evb/scan-cleanup/core/placementAnchors';
 import {usesScanCleanupInkAlignment} from '@evb/scan-cleanup/core/policy/scanCleanupPagePolicy';
+import {createScanCleanupFacingPairGeometry} from '@evb/scan-cleanup/core/policy/createScanCleanupFacingPairGeometry';
 import {
     completedPageProgress,
     isStrongMediaBoxSpread,
@@ -116,6 +117,7 @@ export function createScanCleanupDetectionRecorder({
         publishFrame(results, progress, documentCanvasSignature);
     };
     const canvasAccumulator = createScanCleanupDocumentCanvasAccumulator();
+    const facingPairGeometry = createScanCleanupFacingPairGeometry();
     // Keep the provisional summary used while reconciliation is still open
     // separate from the resolved summary. The former contains every automatic
     // page as unclassified geometry; the latter receives each page once its
@@ -271,8 +273,11 @@ export function createScanCleanupDetectionRecorder({
         /** Adds one CropBox page view to the document geometry, in page order. */
         addGeometryPage(page: IPdfPageSize, sourceDpi: number | undefined) {
             addScanCleanupDocumentCanvasPage(canvasAccumulator, page, request.options);
+            facingPairGeometry.add(page);
             matchedPreviewDpi = Math.min(matchedPreviewDpi, resolveScanCleanupPagePreviewDpi(page, sourceDpi));
         },
+        /** Whether a CropBox page view is two of the document's pages side by side; final once geometry is sealed. */
+        isFacingPair: facingPairGeometry.isFacingPair,
         /** Fixes the baseline canvas once every geometry page is added, and publishes the first frame. */
         sealGeometry() {
             if (!Number.isFinite(matchedPreviewDpi)) matchedPreviewDpi = PREVIEW_DPI;

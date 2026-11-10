@@ -38,7 +38,10 @@ import type {
     IScanCleanupDocumentCanvasAccumulator,
     resolveScanCleanupDocumentCanvasFromAccumulator,
 } from '@evb/scan-cleanup/core/policy/documentCanvas';
-import {scanCleanupPageNeedsMatchedResample} from '@evb/scan-cleanup/core/policy/scanCleanupPreviewPolicy';
+import {
+    type IScanCleanupPreviewDocumentFacts,
+    scanCleanupPageNeedsMatchedResample,
+} from '@evb/scan-cleanup/core/policy/scanCleanupPreviewPolicy';
 
 import type { atomicReplace } from '@electron/utils/atomicReplace';
 import type {
@@ -143,7 +146,7 @@ export interface IRetainedDocument {
     // Every preview needs the document's preview DPI and whether all of its
     // pages carry raster metadata. Both are revision facts: one geometry pass
     // per retained document, not one per preview.
-    previewDocumentFacts: Promise<IPreviewDocumentFacts> | null;
+    previewDocumentFacts: Promise<IScanCleanupPreviewDocumentFacts> | null;
     // A matched preview also needs the document canvas summary, which the
     // settings and detected layouts shape. Keep the few most recent ones.
     previewCanvasBySignature: Map<string, Promise<IScanCleanupDocumentCanvasAccumulator>>;
@@ -308,16 +311,14 @@ export interface IPreviewEntry {
 
 
 /** Facts about every page of one document revision that each preview needs. */
-export interface IPreviewDocumentFacts {
-    previewDpi: number;
-    allPagesHaveRasterMetadata: boolean;
-}
 
 export interface IBoundedPreviewGeometry {
     accumulator: IScanCleanupDocumentCanvasAccumulator;
     pageSize: IPdfPageSize | undefined;
     previewDpi: number;
     pageSourceDpi: number | undefined;
+    /** The previewed page is two of the document's pages side by side. */
+    facingPair: boolean;
 }
 export function isScanCleanupSignalAborted(signal: AbortSignal) {
     return signal.aborted;

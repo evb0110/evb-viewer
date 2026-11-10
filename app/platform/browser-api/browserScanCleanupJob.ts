@@ -42,6 +42,7 @@ import {
     SCAN_CLEANUP_RASTER_MAX_PIXELS,
 } from '@evb/scan-cleanup/core/policy/scanCleanupRasterPolicy';
 import {
+    createScanCleanupPreviewDocumentFacts,
     DEFAULT_SOURCE_DPI,
     planScanCleanupDetailPreview,
     projectScanCleanupDetailOutputMetadata,
@@ -49,6 +50,7 @@ import {
     projectScanCleanupPreviewOutputMetadata,
     projectScanCleanupPreviewPageMetadata,
     resolveFallbackDetailDpi,
+    resolveScanCleanupPreviewPageFacts,
     scanCleanupPageNeedsMatchedResample,
     type TScanCleanupPreviewBaseOutputs,
 } from '@evb/scan-cleanup/core/policy/scanCleanupPreviewPolicy';
@@ -243,31 +245,11 @@ function copy(bytes: Uint8Array): Uint8Array<ArrayBuffer> {
     return new Uint8Array(bytes);
 }
 
-interface IDocumentFacts {
-    previewDpi: number;
-    pageSourceDpi: number | undefined;
-}
-
-/**
- * The document resolution a preview starts from, as desktop measures it over
- * the page records: the finest scan, when every page records one.
- */
-function readDocumentFacts(source: IBrowserScanCleanupSource, pageSize: IPdfPageSize | undefined): IDocumentFacts {
-    let allPagesHaveRasterMetadata = true;
-    let documentDpi = 0;
-    for (const page of source.pageSizes) {
-        const raster = detectPageRasterFromPageSize(page);
-        if (raster === undefined) {
-            allPagesHaveRasterMetadata = false;
-        } else {
-            documentDpi = Math.max(documentDpi, raster.dpi);
-        }
-    }
-    const pageRaster = pageSize === undefined ? undefined : detectPageRasterFromPageSize(pageSize);
-    return {
-        previewDpi: allPagesHaveRasterMetadata && documentDpi > 0 ? Math.min(PREVIEW_DPI, documentDpi) : PREVIEW_DPI,
-        pageSourceDpi: allPagesHaveRasterMetadata ? pageRaster?.dpi : undefined,
-    };
+/** The document facts a preview of one recorded page starts from, as desktop measures them. */
+function readDocumentFacts(source: IBrowserScanCleanupSource, pageSize: IPdfPageSize | undefined) {
+    const facts = createScanCleanupPreviewDocumentFacts();
+    for (const page of source.pageSizes) facts.add(page);
+    return resolveScanCleanupPreviewPageFacts(facts.seal(), pageSize);
 }
 
 function provisionalCanvasAccumulator(source: IBrowserScanCleanupSource, request: IScanCleanupPreviewRequest) {
@@ -367,7 +349,7 @@ export async function renderBrowserScanCleanupWorkspacePreview(
         ? pagePreviewRenderDpi
         : Math.min(pagePreviewRenderDpi, Math.max(1, Math.floor(resolveScanCleanupDocumentCanvasDpi(documentCanvas))));
     if (request.detail !== undefined) {
-        return renderDetail(input, pageSize, documentCanvas, sourceDpiCandidate);
+        return renderDetail(input, pageSize, documentCanvas, sourceDpiCandidate, facts.facingPair);
     }
     const baseRaw = await renderPageRaster(source, pageSize, basePreviewDpi, SCAN_CLEANUP_RASTER_MAX_PIXELS, signal);
     const {png} = await runBrowserScanCleanupWorkerRequest('encode-png', {ppm: copy(baseRaw.ppm)}, signal);
@@ -418,6 +400,7 @@ export async function renderBrowserScanCleanupWorkspacePreview(
         sourceDpiCandidate,
         documentCanvas,
         lossless: request.options.preserveOriginalQuality && !rasterizedByMatching,
+        facingPair: facts.facingPair,
         resolvedOutputMode: request.outputModeRecommendation,
         retainBase: true,
     });
@@ -435,6 +418,8 @@ interface IBaseRenderPlan {
     sourceDpiCandidate: number | undefined;
     documentCanvas: IScanCleanupDocumentCanvasPlan | null;
     lossless: boolean;
+    /** The page is two of the document's pages side by side. */
+    facingPair: boolean;
     resolvedOutputMode: IScanCleanupPreviewRequest['outputModeRecommendation'];
     /** A fallback detail renders a base it does not keep. */
     retainBase: boolean;
@@ -469,6 +454,7 @@ async function renderBase(
         dpi: plan.lossless ? analysisDpi : plan.renderDpi,
         sourceDpi: plan.sourceDpi,
         ...sourceLayerFacts(source, request.pageNumber),
+        facingPairGeometry: plan.facingPair,
         requestedRenderDpi: plan.renderDpi,
         ...(plan.resolvedOutputMode === undefined ? {} : {resolvedOutputMode: plan.resolvedOutputMode}),
         ...(request.softAlphaForegroundRecommendation === undefined
@@ -613,6 +599,7 @@ async function renderDetail(
     pageSize: IPdfPageSize,
     documentCanvas: IScanCleanupDocumentCanvasPlan | null,
     sourceDpiCandidate: number | undefined,
+    facingPair: boolean,
 ): Promise<IBrowserScanCleanupPreviewRendering> {
     const {
         request, base, signal,
@@ -641,6 +628,7 @@ async function renderDetail(
             sourceDpiCandidate,
             documentCanvas,
             lossless: false,
+            facingPair,
             resolvedOutputMode: detail.outputMode,
             retainBase: false,
         });

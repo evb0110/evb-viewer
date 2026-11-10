@@ -270,14 +270,6 @@ export interface IScanCleanupDetectionDependencies {
     runSidecar: TScanCleanupRunSidecar;
 }
 
-async function resolveDetectionPageSizeStore<TDocument>(
-    retention: IScanCleanupDetectionRetention<TDocument>,
-    document: TDocument,
-    signal: AbortSignal,
-) {
-    return retention.pageSizeStore(document, signal);
-}
-
 async function readDetectionPageSizeBatch(
     pageSizeStore: IPdfPageSizeStore,
     pageNumbers: readonly number[],
@@ -740,6 +732,7 @@ async function runBatchedScanCleanupDetection<TDocument>(
                 sourceDpi: sourceDpi ?? analysisDpi(pageNumber),
                 sourceHasBilevelLayer: sourceRaster?.hasBilevelLayer ?? false,
                 ...(sourceBackgroundDpi === undefined ? {} : {sourceBackgroundDpi}),
+                facingPairGeometry: sourcePage !== undefined && recorder.isFacingPair(sourcePage),
                 pageMetadataPath: join(scratch, `page-${pageNumber}.json`),
             };
         });
@@ -1161,7 +1154,7 @@ export async function runScanCleanupDetection<TDocument>(
         scratchDir = scratch;
         const totalPages = await retention.pageCount(document, signal);
         const pageScope = resolveScanCleanupPageScopeLazy(undefined, totalPages);
-        const pageSizeStore = await resolveDetectionPageSizeStore(retention, document, signal);
+        const pageSizeStore = await retention.pageSizeStore(document, signal);
         let resultStore: IScanCleanupDetectionResultStore | null = null;
         let recorder: IScanCleanupDetectionRecorder | null = null;
         let resultStoreTransferred = false;

@@ -31,6 +31,8 @@ export interface IScanCleanupManifestPageFacts {
     sourceDpi?: number;
     sourceHasBilevelLayer?: boolean;
     sourceBackgroundDpi?: number;
+    /** The page is two of the document's own pages side by side (see facingPairGeometry). */
+    facingPairGeometry?: boolean;
     requestedRenderDpi?: number;
     renderCrop?: TManifestPageOptions['renderCrop'];
     resolvedOutputMode?: TScanCleanupOutputMode;
@@ -120,6 +122,7 @@ export function resolveScanCleanupManifestPageOptions({
             ...(page.sourceBackgroundDpi === undefined
                 ? {}
                 : {sourceBackgroundDpi: page.sourceBackgroundDpi}),
+            ...(page.facingPairGeometry === undefined ? {} : {facingPairGeometry: page.facingPairGeometry}),
             ...(page.requestedRenderDpi === undefined
                 ? {}
                 : {requestedRenderDpi: page.requestedRenderDpi}),
