@@ -1786,9 +1786,12 @@ describe.skipIf(process.platform === 'win32')('private Vercel deployment source'
             expect(existsSync(path.join(prepared.sourceRoot, 'vendor/pdfjs-dist/README.md'))).toBe(false);
             expect(readFileSync(path.join(prepared.sourceRoot, 'public/vendor/djvujs/djvu.js'), 'utf8'))
                 .toBe('runtime vendor');
-            expect(readFileSync(path.join(prepared.sourceRoot, '.vercelignore'), 'utf8')).toContain(
-                '!vendor/\n!vendor/pdfjs-dist/\n!vendor/pdfjs-dist/current.tgz',
-            );
+            // Nothing in the uploaded ignore file may exclude the declared archive:
+            // the native Vercel CLI does not honor re-includes under an excluded directory.
+            const ignoreLines = readFileSync(path.join(prepared.sourceRoot, '.vercelignore'), 'utf8')
+                .split('\n')
+                .map(line => line.trim());
+            expect(ignoreLines.filter(line => /^\/?vendor\/?$|^\*\.tgz$/u.test(line))).toEqual([]);
         } finally {
             prepared?.cleanup();
             rmSync(projectRoot, {
