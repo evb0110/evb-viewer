@@ -1,3 +1,4 @@
+import {execFileSync} from 'node:child_process';
 import {createHash} from 'node:crypto';
 import {createServer} from 'node:http';
 import {existsSync} from 'node:fs';
@@ -30,6 +31,8 @@ import {
     it,
     vi,
 } from 'vitest';
+import {getPdfNativeToolPaths} from '@electron/pdf/nativeToolPaths';
+import {buildPopplerEnv} from '@electron/native-tools/buildPopplerEnv';
 import type {IOcrCompleteResult} from '@contracts/electronApiOcr';
 import {OCR_LANGUAGE_MODEL_SHA256} from '@contracts/ocrLanguages';
 import {decodeWorkspaceCheckpoint} from '@contracts/workspaceCheckpoint';
@@ -760,6 +763,67 @@ if (process.versions.electron && process.type === 'browser') {
         await page.screenshot({path: join(evidence, 'reopened.png')});
         console.info(`OCR metadata evidence: ${evidence}`);
     }, 420_000);
+
+    // Other readers (Acrobat, Chrome's PDFium, Preview) select the saved hidden
+    // text by its own glyph boxes. Line-wide ActualText over separately placed
+    // glyphs used to collapse each line into one box at its left edge.
+    it('saves each recognized word\'s selection box on its scanned ink', async () => {
+        const session = await sessionFixture.resetForE2E();
+        const {page} = session;
+        const sourcePath = await createScannedTextFixturePdf(
+            'ocr-word-geometry-scan.pdf',
+            SCANNED_TEXT,
+            '60px EvbOcrJourneySans',
+        );
+        await openPdfInApp(page, sourcePath, 90_000);
+        await waitForViewerInteractive(page, 90_000);
+        await completeOcrFromMenu(page);
+        await waitForTextLayerWord(page);
+        await saveViaVisibleToolbar(page, 90_000, sourcePath);
+
+        const tools = getPdfNativeToolPaths();
+        const bbox = execFileSync(tools.pdftotext, [
+            '-bbox',
+            sourcePath,
+            '-',
+        ], {
+            encoding: 'utf8',
+            env: {
+                ...process.env,
+                ...buildPopplerEnv(tools),
+            },
+        });
+        const boxes = Array.from(bbox.matchAll(/<word ([^>]+)>(.*?)<\/word>/gu));
+        expect(boxes.map(match => match[2])).toEqual(SCANNED_TEXT.split(' '));
+        const context = createCanvas(1200, 500).getContext('2d');
+        context.font = '60px EvbOcrJourneySans';
+        let scanX = 60;
+        for (const [
+            index,
+            word,
+        ] of SCANNED_TEXT.split(' ').entries()) {
+            const metrics = context.measureText(word);
+            const expected = [
+                scanX - metrics.actualBoundingBoxLeft,
+                270 - metrics.actualBoundingBoxAscent,
+                scanX + metrics.actualBoundingBoxRight,
+                270 + metrics.actualBoundingBoxDescent,
+            ].map(value => value / 2);
+            for (const [
+                coordinate,
+                key,
+            ] of [
+                    'xMin',
+                    'yMin',
+                    'xMax',
+                    'yMax',
+                ].entries()) {
+                const actual = Number(new RegExp(`${key}="([^"]+)"`, 'u').exec(boxes[index]![1]!)?.[1]);
+                expect(Math.abs(actual - expected[coordinate]!), `${word} ${key}`).toBeLessThan(2);
+            }
+            scanX += context.measureText(`${word} `).width;
+        }
+    }, 300_000);
 
     it('retains untouched remote, launch and named outline intent through OCR and Save', async () => {
         const {page} = await sessionFixture.resetForE2E();

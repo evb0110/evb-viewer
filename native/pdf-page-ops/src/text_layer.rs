@@ -514,6 +514,37 @@ fn parse_font_metrics(document: &Document, font: &Object) -> Result<FontMetrics>
 
 use crate::split_pages::PdfMatrix as TextMatrix;
 
+/// Advances and vertical extents in PDF's 1000-unit font space. OCR fits the
+/// existing word show to its ink rectangle without changing its Unicode/font.
+pub(crate) fn ocr_word_metrics(
+    document: &Document,
+    font: &Object,
+    bytes: &[u8],
+) -> Result<(f64, f64, f64)> {
+    let metrics = parse_font_metrics(document, font)?;
+    let width = metrics
+        .glyphs(bytes)?
+        .iter()
+        .try_fold(0.0, |sum, (code, _)| {
+            metrics.width(*code).map(|width| sum + width)
+        })?;
+    let font = document.resolved(font)?.as_dict()?;
+    let descendant = resolved_array(document, font.get(b"DescendantFonts")?)
+        .and_then(|fonts| fonts.first())
+        .and_then(|font| resolved_dictionary(document, font))
+        .ok_or("OCR word font has no descendant")?;
+    let descriptor = resolved_dictionary(document, descendant.get(b"FontDescriptor")?)
+        .ok_or("OCR word font has no descriptor")?;
+    let ascent = resolved_number(document, descriptor.get(b"Ascent")?)
+        .ok_or("OCR word font has no ascent")?;
+    let descent = resolved_number(document, descriptor.get(b"Descent")?)
+        .ok_or("OCR word font has no descent")?;
+    if width <= 0.0 || !ascent.is_finite() || !descent.is_finite() || ascent <= descent {
+        return Err("OCR word font has unusable metrics".into());
+    }
+    Ok((width, ascent, descent))
+}
+
 #[derive(Clone)]
 struct TextFilterState {
     line_matrix: Option<TextMatrix>,
@@ -823,8 +854,15 @@ fn repair_show_string(
             .iter()
             .filter_map(|glyph| glyph.character)
             .collect::<String>();
-        let has_rtl = contains_rtl(&source);
-        let ordered = if has_rtl && line_matrix.a >= 0.0 {
+        // Keep ordinary word shows intact. Splitting them into glyph runs and
+        // adding line-wide ActualText destroys word selection in PDF readers.
+        // Only RTL visual-order repair needs separately positioned glyphs;
+        // filtered LTR shows use the existing advance-preserving TJ filter.
+        if !contains_rtl(&source) {
+            *text = original.clone();
+            return Ok(None);
+        }
+        let ordered = if line_matrix.a >= 0.0 {
             let Some(reordered) = reorder_glyphs(&glyphs, &font) else {
                 return Ok(None);
             };
@@ -838,7 +876,7 @@ fn repair_show_string(
             line_matrix,
             final_matrix,
             format,
-            has_rtl && line_matrix.a < 0.0,
+            line_matrix.a < 0.0,
             visible,
         )
     })();
@@ -846,184 +884,6 @@ fn repair_show_string(
         *text = original;
     }
     result
-}
-
-fn same_text_line(left: TextMatrix, right: TextMatrix) -> bool {
-    let Some(offset) = right.local_horizontal_offset(left) else {
-        return false;
-    };
-    let determinant = left.a * left.d - left.b * left.c;
-    if determinant.abs() <= f64::EPSILON {
-        return false;
-    }
-    let delta_x = right.e - left.e;
-    let delta_y = right.f - left.f;
-    let perpendicular = (left.a * delta_y - left.b * delta_x) / determinant;
-    offset.is_finite() && perpendicular.abs() <= 0.01
-}
-
-fn marked_ltr_text_object(
-    source: &Document,
-    source_fonts: &Option<BTreeMap<Vec<u8>, Object>>,
-    parsed_fonts: &mut HashMap<Vec<u8>, Rc<TextFont>>,
-    block: &[ContentOperation],
-) -> Result<Option<Vec<ContentOperation>>> {
-    let mut text = TextFilterState::new();
-    let mut lines: Vec<(usize, TextMatrix, String)> = Vec::new();
-    let mut previous_end: Option<TextMatrix> = None;
-    for (index, operation) in block.iter().enumerate() {
-        if operation.operator == "Tf" && operation.operands.len() == 2 {
-            let Ok(name) = operation.operands[0].as_name() else {
-                return Ok(None);
-            };
-            if text.font_name.as_deref() != Some(name) {
-                let Some(source_font) = source_fonts.as_ref().and_then(|fonts| fonts.get(name))
-                else {
-                    return Ok(None);
-                };
-                let Ok(font) = parsed_font(parsed_fonts, source, name, source_font) else {
-                    return Ok(None);
-                };
-                text.font = Some(font);
-                text.font_name = Some(name.to_vec());
-            }
-            text.font_size = object_to_f64(&operation.operands[1])?;
-        } else if operation.operands.len() == 1 {
-            match operation.operator.as_str() {
-                "Tc" => text.char_spacing = object_to_f64(&operation.operands[0])?,
-                "Tw" => text.word_spacing = object_to_f64(&operation.operands[0])?,
-                "Tz" => text.horizontal_scale = object_to_f64(&operation.operands[0])? / 100.0,
-                _ => {}
-            }
-        }
-        if operation.operator != "Tj" {
-            if operation.operator == "TJ"
-                && operation.operands.iter().any(|operand| {
-                    operand.as_array().is_ok_and(|values| {
-                        values
-                            .iter()
-                            .any(|value| matches!(value, Object::String(..)))
-                    })
-                })
-            {
-                return Ok(None);
-            }
-            continue;
-        }
-        let Some(matrix) = index.checked_sub(1).and_then(|index| block.get(index)) else {
-            return Ok(None);
-        };
-        if matrix.operator != "Tm" || operation.operands.len() != 1 {
-            return Ok(None);
-        }
-        let Some(matrix) = TextMatrix::from_operation(matrix) else {
-            return Ok(None);
-        };
-        if matrix.a < 0.0 {
-            return Ok(None);
-        }
-        let Object::String(bytes, _) = &operation.operands[0] else {
-            return Ok(None);
-        };
-        text.set_matrix(Some(matrix));
-        let Ok(glyphs) = text.measure_glyphs(bytes) else {
-            return Ok(None);
-        };
-        let Some(characters) = glyphs
-            .iter()
-            .map(|glyph| glyph.character)
-            .collect::<Option<String>>()
-        else {
-            return Ok(None);
-        };
-        if contains_rtl(&characters) {
-            return Ok(None);
-        }
-        if lines
-            .last()
-            .is_none_or(|line| !same_text_line(line.1, matrix))
-        {
-            lines.push((index - 1, matrix, String::new()));
-            previous_end = None;
-        }
-        let line = &mut lines.last_mut().unwrap().2;
-        if previous_end
-            .and_then(|end| matrix.local_horizontal_offset(end))
-            .is_some_and(|gap| gap > 0.01)
-            && !line.ends_with(char::is_whitespace)
-            && !characters.starts_with(char::is_whitespace)
-        {
-            return Ok(None);
-        }
-        line.push_str(&characters);
-        previous_end = text.text_matrix;
-    }
-    if lines.is_empty() {
-        return Ok(None);
-    }
-    // Give geometry-sorting extractors a complete logical line without moving
-    // the glyphs or changing their font sizes and horizontal scaling.
-    let mut rewritten = Vec::with_capacity(block.len() + lines.len() * 2);
-    rewritten.extend_from_slice(&block[..lines[0].0]);
-    for (index, (start, _, characters)) in lines.iter().enumerate() {
-        let end = lines.get(index + 1).map_or(block.len() - 1, |line| line.0);
-        let mut actual_text = vec![0xfe, 0xff];
-        for unit in characters.encode_utf16() {
-            actual_text.extend_from_slice(&unit.to_be_bytes());
-        }
-        rewritten.push(ContentOperation::new(
-            "BDC",
-            vec![
-                Object::Name(b"Span".to_vec()),
-                Object::Dictionary(dictionary! {
-                    "ActualText" => Object::String(actual_text, lopdf::StringFormat::Hexadecimal),
-                }),
-            ],
-        ));
-        rewritten.extend_from_slice(&block[*start..end]);
-        rewritten.push(ContentOperation::new("EMC", Vec::new()));
-    }
-    rewritten.push(block.last().unwrap().clone());
-    Ok(Some(rewritten))
-}
-
-fn mark_ltr_text_objects(
-    source: &Document,
-    source_fonts: &Option<BTreeMap<Vec<u8>, Object>>,
-    parsed_fonts: &mut HashMap<Vec<u8>, Rc<TextFont>>,
-    operations: Vec<ContentOperation>,
-) -> Result<Vec<ContentOperation>> {
-    if operations
-        .iter()
-        .any(|operation| operation.operator == "BDC")
-    {
-        return Ok(operations);
-    }
-    let mut rewritten = Vec::with_capacity(operations.len());
-    let mut index = 0;
-    while index < operations.len() {
-        if operations[index].operator == "BT" {
-            if let Some(relative_end) = operations[index + 1..]
-                .iter()
-                .position(|operation| operation.operator == "ET")
-            {
-                let end = index + relative_end + 1;
-                if let Some(block) = marked_ltr_text_object(
-                    source,
-                    source_fonts,
-                    parsed_fonts,
-                    &operations[index..=end],
-                )? {
-                    rewritten.extend(block);
-                    index = end + 1;
-                    continue;
-                }
-            }
-        }
-        rewritten.push(operations[index].clone());
-        index += 1;
-    }
-    Ok(rewritten)
 }
 
 fn filter_string(
@@ -1568,10 +1428,7 @@ pub(crate) fn text_operations(
     if strict && !graphics_stack.is_empty() {
         return Err("overlay-text source has an unmatched q operator".into());
     }
-    Ok((
-        mark_ltr_text_objects(source, &source_fonts, &mut parsed_fonts, operations)?,
-        fonts,
-    ))
+    Ok((operations, fonts))
 }
 
 fn unique_font_name(existing: &Dictionary, source_name: &[u8]) -> Vec<u8> {

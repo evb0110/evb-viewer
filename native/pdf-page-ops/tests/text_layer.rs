@@ -1700,10 +1700,23 @@ fn save_ocr_page(
 }
 
 fn run_ocr_text_layer(input: &Path, output: &Path, source: &Path) -> std::process::Output {
+    run_ocr_text_layer_geometry(input, output, source, serde_json::Value::Null)
+}
+
+fn run_ocr_text_layer_geometry(
+    input: &Path,
+    output: &Path,
+    source: &Path,
+    geometry: serde_json::Value,
+) -> std::process::Output {
     let instructions = path("ocr-instructions", "json");
+    let mut page = serde_json::json!({"pageNumber": 1, "source": source});
+    if !geometry.is_null() {
+        page["wordGeometry"] = geometry;
+    }
     fs::write(
         &instructions,
-        serde_json::json!({"pages": [{"pageNumber": 1, "source": source}]}).to_string(),
+        serde_json::json!({"pages": [page]}).to_string(),
     )
     .unwrap();
     let result = Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"))
@@ -1732,6 +1745,149 @@ fn pdftotext_all(pdf: &Path, extra_args: &[&str]) -> String {
     .expect("pdftotext must be installed for OCR text-layer integration tests");
     assert!(output.status.success());
     String::from_utf8(output.stdout).unwrap()
+}
+
+#[test]
+fn ocr_keeps_separate_word_boxes_at_both_compressed_and_stretched_scales() {
+    let source = path("ocr-word-box-source", "pdf");
+    let input = path("ocr-word-box-input", "pdf");
+    let output = path("ocr-word-box-output", "pdf");
+    let mut document = save_identity_text_source(
+        &source,
+        "",
+        Some(Stream::new(dictionary! {}, FULL_RANGE_CMAP.to_vec())),
+    );
+    let page = document.get_pages()[&1];
+    let descendant = document.get_page_fonts(page).unwrap()[b"F1".as_slice()]
+        .get(b"DescendantFonts")
+        .unwrap()
+        .as_array()
+        .unwrap()[0]
+        .as_reference()
+        .unwrap();
+    let descriptor = document.add_object(dictionary! {
+        "Type" => "FontDescriptor", "FontName" => "TestOCR", "Flags" => 4,
+        "FontBBox" => vec![0.into(), (-200).into(), 1000.into(), 800.into()],
+        "Ascent" => 800, "Descent" => -200, "CapHeight" => 700, "ItalicAngle" => 0, "StemV" => 80
+    });
+    document
+        .get_dictionary_mut(descendant)
+        .unwrap()
+        .set("FontDescriptor", descriptor);
+    document
+        .get_dictionary_mut(page)
+        .unwrap()
+        .set("MediaBox", vec![0.into(), 0.into(), 400.into(), 120.into()]);
+    let content = format!(
+        "BT 3 Tr /F1 10 Tf 1 0 0 1 10 80 Tm 90 Tz [<{}>] TJ 55 0 Td 280 Tz [<{}>] TJ 115 0 Td 140 Tz [<{}>] TJ ET",
+        identity_pdf_text("One "), identity_pdf_text("Two "), identity_pdf_text("Три"),
+    );
+    let content = document.add_object(Stream::new(dictionary! {}, content.into_bytes()));
+    document
+        .get_dictionary_mut(page)
+        .unwrap()
+        .set("Contents", content);
+    document.save(&source).unwrap();
+    save_ocr_page(&input, [0, 0, 400, 120], None, vec![], dictionary! {});
+
+    let result = run_ocr_text_layer(&input, &output, &source);
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let expected = pdftotext_all(&source, &["-bbox"]);
+    let actual = pdftotext_all(&output, &["-bbox"]);
+    for (word, x, width) in [
+        ("One", 10.0, 27.0),
+        ("Two", 65.0, 84.0),
+        ("Три", 180.0, 42.0),
+    ] {
+        let word_box = |xml: &str| {
+            let tag = xml
+                .lines()
+                .find(|line| line.ends_with(&format!(">{word}</word>")))
+                .unwrap_or_else(|| panic!("missing separate word {word}: {xml}"));
+            ["xMin", "yMin", "xMax", "yMax"].map(|key| {
+                tag.split(&format!("{key}=\""))
+                    .nth(1)
+                    .unwrap()
+                    .split('"')
+                    .next()
+                    .unwrap()
+                    .parse::<f64>()
+                    .unwrap()
+            })
+        };
+        let before = word_box(&expected);
+        let after = word_box(&actual);
+        assert!(
+            (after[0] - x).abs() < 0.01 && (after[2] - after[0] - width).abs() < 0.01,
+            "{word}: {after:?}"
+        );
+        for (expected, actual) in before.into_iter().zip(after) {
+            assert!(
+                (expected - actual).abs() < 0.01,
+                "{word}: {before:?} != {after:?}"
+            );
+        }
+    }
+    // The raster word ink bounds can have different heights and baselines
+    // within the same line. Saved reader boxes must follow those rectangles.
+    let boxes = [
+        ("One", 10.0, 8.0, 27.0, 9.0),
+        ("Two", 65.0, 10.0, 84.0, 7.0),
+        ("Три", 180.0, 9.0, 42.0, 12.0),
+    ];
+    let geometry = serde_json::json!({"rasterWidthPx": 400, "rasterHeightPx": 120, "words": boxes.iter().map(|(text,x,y,width,height)| serde_json::json!({"text":text,"x":x,"y":y,"width":width,"height":height})).collect::<Vec<_>>()});
+    let fitted = run_ocr_text_layer_geometry(&input, &output, &source, geometry);
+    assert!(
+        fitted.status.success(),
+        "{}",
+        String::from_utf8_lossy(&fitted.stderr)
+    );
+    let actual = pdftotext_all(&output, &["-bbox"]);
+    for (word, x, y, width, height) in boxes {
+        let tag = actual
+            .lines()
+            .find(|line| line.ends_with(&format!(">{word}</word>")))
+            .unwrap_or_else(|| panic!("missing {word}: {actual}"));
+        for (key, expected) in
+            ["xMin", "yMin", "xMax", "yMax"]
+                .into_iter()
+                .zip([x, y, x + width, y + height])
+        {
+            let value: f64 = tag
+                .split(&format!("{key}=\""))
+                .nth(1)
+                .unwrap()
+                .split('"')
+                .next()
+                .unwrap()
+                .parse()
+                .unwrap();
+            assert!(
+                (value - expected).abs() < 0.01,
+                "{word} {key}: {value} != {expected}"
+            );
+        }
+    }
+    // Rectangles that do not pair one-to-one with Tesseract's shows fit none
+    // of them: a partial fit would misplace every later word on the page.
+    let mismatched = serde_json::json!({"rasterWidthPx": 400, "rasterHeightPx": 120, "words": [
+        {"text": "One", "x": 10.0, "y": 8.0, "width": 27.0, "height": 9.0},
+        {"text": "Три", "x": 180.0, "y": 9.0, "width": 42.0, "height": 12.0},
+    ]});
+    let unfitted = run_ocr_text_layer_geometry(&input, &output, &source, mismatched);
+    assert!(
+        unfitted.status.success(),
+        "{}",
+        String::from_utf8_lossy(&unfitted.stderr)
+    );
+    assert_eq!(pdftotext_all(&output, &["-bbox"]), expected);
+    for file in [source, input, output] {
+        remove_file(file).unwrap();
+    }
 }
 
 fn page_content(pdf: &Path) -> String {
@@ -2086,7 +2242,7 @@ const FORM_HIDDEN: &str = "hidden text inside a Form XObject is not removed by O
 
 #[test]
 fn reports_existing_page_text_the_way_a_reader_paints_it() {
-    let cases: [(&str, Vec<&[u8]>, serde_json::Value); 7] = [
+    let cases: [(&str, Vec<&[u8]>, serde_json::Value); 8] = [
         (
             "Q restores visible text after a hidden object",
             vec![b"q BT /F1 12 Tf 3 Tr 10 90 Td (a) Tj ET Q BT /F1 12 Tf 10 30 Td (b) Tj ET"],
@@ -2122,6 +2278,11 @@ fn reports_existing_page_text_the_way_a_reader_paints_it() {
                 b"% EVB_VIEWER_OCR_LAYER_BEGIN\nq\nBT /F1 12 Tf 3 Tr (x) Tj ET\nQ\n% EVB_VIEWER_OCR_LAYER_END\n",
             ],
             visibility(true, false, false, None, None),
+        ),
+        (
+            "legacy EVB line ActualText needs hidden OCR repair",
+            vec![b"% EVB_VIEWER_OCR_LAYER_BEGIN\nq\nBT /F1 12 Tf 3 Tr /Span << /ActualText (Readable words) >> BDC 1 0 0 1 10 30 Tm (R) Tj 1 0 0 1 18 30 Tm (e) Tj EMC ET\nQ\n% EVB_VIEWER_OCR_LAYER_END\n"],
+            visibility(true, false, true, None, None),
         ),
         (
             "a comment naming the marker is not an EVB layer",

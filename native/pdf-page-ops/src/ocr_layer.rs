@@ -19,6 +19,77 @@ use std::path::{Path, PathBuf};
 /// unexpected sidecar from being loaded eagerly.
 const MAX_OCR_SOURCE_PDF_BYTES: u64 = 16 * 1024 * 1024;
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct OcrTextLayerFile<S> {
+    #[serde(
+        deserialize_with = "deserialize_collection",
+        bound(deserialize = "S: Deserialize<'de>")
+    )]
+    pub(crate) pages: Vec<OcrTextLayerPage<S>>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct OcrTextLayerPage<S> {
+    /// One-based page number in the target document.
+    pub(crate) page_number: u32,
+    /// Tesseract's one-page text-only PDF for this page's raster: its path on
+    /// desktop, its index among the request's page PDFs in the browser.
+    pub(crate) source: S,
+    /// Present when OCR ran on a preprocessed raster whose pixels moved.
+    #[serde(default)]
+    pub(crate) preprocess_inverse: Option<OcrPreprocessInverse>,
+    #[serde(default)]
+    pub(crate) normalize_greek_micro_sign: bool,
+    /// Words whose recognized text changed after Tesseract wrote its PDF,
+    /// in ascending order of `word`.
+    #[serde(default)]
+    pub(crate) word_edits: Vec<OcrWordEdit>,
+    /// Word rectangles in the raster Tesseract read, before preprocessing inverse.
+    #[serde(default)]
+    pub(crate) word_geometry: Option<OcrWordGeometry>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct OcrWordGeometry {
+    pub(crate) raster_width_px: f64,
+    pub(crate) raster_height_px: f64,
+    pub(crate) words: Vec<OcrWordBox>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct OcrWordBox {
+    pub(crate) text: String,
+    pub(crate) x: f64,
+    pub(crate) y: f64,
+    pub(crate) width: f64,
+    pub(crate) height: f64,
+}
+
+/// Replaces one word of Tesseract's page; the writer rescales the word's
+/// horizontal scaling to the new glyph count, so the word keeps its box.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct OcrWordEdit {
+    /// Position among the page's text-show operators, which Tesseract
+    /// writes one per non-empty word in its TSV order.
+    pub(crate) word: usize,
+    pub(crate) from: String,
+    pub(crate) to: String,
+}
+
+#[derive(Clone, Copy, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct OcrPreprocessInverse {
+    pub(crate) raster_width_px: f64,
+    pub(crate) raster_height_px: f64,
+    /// Maps preprocessed raster pixels back to rendered raster pixels.
+    pub(crate) matrix: [[f64; 3]; 3],
+}
+
 type Matrix3 = [[f64; 3]; 3];
 
 fn multiply(left: Matrix3, right: Matrix3) -> Matrix3 {
@@ -86,6 +157,28 @@ fn validate_ocr_text_layer<S>(instructions: &OcrTextLayerFile<S>) -> Result<()> 
             }
         }
         let mut previous_word = None;
+        if let Some(geometry) = &page.word_geometry {
+            let positive =
+                |value: f64| crate::split_pages::is_instruction_number(value) && value > 0.0;
+            if !positive(geometry.raster_width_px)
+                || !positive(geometry.raster_height_px)
+                || geometry.words.iter().any(|word| {
+                    word.text.trim().is_empty()
+                        || !positive(word.width)
+                        || !positive(word.height)
+                        || !crate::split_pages::is_instruction_number(word.x)
+                        || word.x < 0.0
+                        || !crate::split_pages::is_instruction_number(word.y)
+                        || word.y < 0.0
+                        || word.x + word.width > geometry.raster_width_px
+                        || word.y + word.height > geometry.raster_height_px
+                })
+            {
+                return Err(
+                    "ocr-text-layer word rectangles must fit the recognition raster".into(),
+                );
+            }
+        }
         for edit in &page.word_edits {
             if previous_word.is_some_and(|previous| edit.word <= previous) {
                 return Err("ocr-text-layer word edits must be in ascending word order".into());
@@ -185,6 +278,115 @@ fn apply_ocr_word_edits(
     Ok(())
 }
 
+/// Tesseract's PDF retains word widths but uses a line font height, often much
+/// taller than the word's ink. Fit the same word shows to the recognizer's own
+/// rectangles before the shared page/preprocessing transform is applied.
+fn fit_ocr_word_geometry(
+    source: &mut Document,
+    page_id: ObjectId,
+    geometry: &OcrWordGeometry,
+) -> Result<()> {
+    use lopdf::content::Operation;
+    let view = resolve_page_view(source, page_id)?;
+    let scale_x = view.width() / geometry.raster_width_px;
+    let scale_y = view.height() / geometry.raster_height_px;
+    let fonts = page_fonts(source, page_id)?;
+    let bytes = source.get_page_content_with_limit(page_id, MAX_OCR_CONTENT_STREAM_BYTES)?;
+    let content = parse_content(&bytes)??;
+    // Tesseract writes one show per non-empty TSV word, in TSV order. Fit only
+    // when every show pairs with its word: a fitted show changes the text
+    // state the next one inherits, so a partial fit would misplace the rest.
+    let shows = content
+        .operations
+        .iter()
+        .filter_map(|operation| {
+            match (operation.operator.as_str(), operation.operands.as_slice()) {
+                ("TJ", [Object::Array(values)]) => match values.as_slice() {
+                    [Object::String(bytes, _)] => Some(word_text(bytes).to_vec()),
+                    _ => None,
+                },
+                _ => None,
+            }
+        })
+        .collect::<Vec<_>>();
+    let mut words = (shows.len() == geometry.words.len()
+        && shows
+            .iter()
+            .zip(&geometry.words)
+            .all(|(show, word)| utf16be(&word.text) == *show))
+    .then(|| geometry.words.iter());
+    let mut operations = Vec::with_capacity(content.operations.len());
+    let mut font_name = None;
+    let mut direction = 1.0;
+    for mut operation in content.operations {
+        if operation.operator == "Tf" {
+            font_name = operation
+                .operands
+                .first()
+                .and_then(|font| font.as_name().ok())
+                .map(<[u8]>::to_vec);
+        }
+        if operation.operator == "Tm" {
+            direction = operation
+                .operands
+                .first()
+                .and_then(|value| object_to_f64(value).ok())
+                .unwrap_or(1.0)
+                .signum();
+        }
+        if let ("TJ", [Object::Array(values)]) =
+            (operation.operator.as_str(), operation.operands.as_slice())
+        {
+            if let [Object::String(bytes, _)] = values.as_slice() {
+                let text = word_text(bytes);
+                if let Some(word) = words.as_mut().and_then(Iterator::next) {
+                    let name = font_name.as_ref().ok_or("OCR word has no selected font")?;
+                    let font = fonts.get(name).ok_or("OCR word font is missing")?;
+                    let (advance, ascent, descent) =
+                        crate::text_layer::ocr_word_metrics(source, font, text)?;
+                    let size = word.height * scale_y * 1000.0 / (ascent - descent);
+                    let x = view.x1
+                        + (word.x + if direction < 0.0 { word.width } else { 0.0 }) * scale_x;
+                    let y = view.y2 - (word.y + word.height) * scale_y - descent * size / 1000.0;
+                    operations.push(Operation::new(
+                        "Tf",
+                        vec![Object::Name(name.clone()), number_object(size)],
+                    ));
+                    operations.push(Operation::new(
+                        "Tz",
+                        vec![number_object(
+                            word.width * scale_x * 100_000.0 / (advance * size),
+                        )],
+                    ));
+                    operations.push(Operation::new(
+                        "Tm",
+                        vec![
+                            number_object(direction),
+                            0.into(),
+                            0.into(),
+                            1.into(),
+                            number_object(x),
+                            number_object(y),
+                        ],
+                    ));
+                }
+                // A real space after each word lets every reader separate
+                // words; readers still join a line-end hyphen for search.
+                if let [Object::Array(values)] = operation.operands.as_mut_slice() {
+                    if let [Object::String(stored, _)] = values.as_mut_slice() {
+                        if !stored.ends_with(&[0x00, 0x20]) {
+                            stored.extend_from_slice(&[0x00, 0x20]);
+                        }
+                    }
+                }
+            }
+        }
+        operations.push(operation);
+    }
+    source.change_page_content(page_id, Content { operations }.encode()?)?;
+    Ok(())
+}
+
 /// Map Tesseract page space into the target page's user space. Tesseract saw
 /// the raster pdftoppm rendered from the displayed (rotated, cropped) page,
 /// so its page corresponds to the page view in display orientation.
@@ -276,7 +478,7 @@ pub(crate) struct OcrPageTextVisibility {
     evb_ocr_layer: bool,
     /// The page paints text, in its own content or in a Form XObject it draws.
     painted_text: bool,
-    /// The page's own content shows hidden (`3 Tr`) text, which the writer removes.
+    /// Hidden text needing replacement, including legacy EVB line-wide ActualText.
     hidden_text: bool,
     /// Text the inspection could not read, or hidden text the writer keeps.
     uncertain: Option<String>,
@@ -322,6 +524,19 @@ fn inspect_page_text_visibility(
         };
         if is_evb_ocr_layer_stream(&bytes) {
             evb_ocr_layer = true;
+            // Earlier writers wrapped positioned glyphs in line-wide ActualText.
+            // Readable Unicode alone cannot make those collapsed word boxes
+            // usable. Route them through the existing hidden-layer repair path.
+            if let Ok(Ok(content)) = parse_content(&bytes) {
+                scan.hidden |= content.operations.iter().any(|operation| {
+                    operation.operator == "BDC"
+                        && operation.operands.get(1).is_some_and(|properties| {
+                            properties
+                                .as_dict()
+                                .is_ok_and(|dict| dict.has(b"ActualText"))
+                        })
+                });
+            }
             if with_evb_ocr_text {
                 if let Some(lines) = evb_ocr_layer_lines(&bytes) {
                     evb_ocr_lines.get_or_insert_with(Vec::new).extend(lines);
@@ -360,9 +575,10 @@ fn inspect_page_text_visibility(
 
 /// The lines of an inline EVB OCR layer in content order. Tesseract writes one
 /// text object per block and steps `Td` down each line. The writer keeps those
-/// operators and places every glyph with `Tm`; Poppler layout breaks skewed
+/// word shows and spacing; Poppler layout breaks skewed
 /// baselines, so the writer reads recognition order from its own layer, and
-/// where each line stands from its glyphs' `Tm`.
+/// where each line stands from its `Tm` and `Td` positions. Older layers
+/// used a `Tm` per glyph and are read by the same positioning state.
 /// A layer drawn as a Form XObject by earlier versions has no inline text.
 fn evb_ocr_layer_lines(bytes: &[u8]) -> Option<Vec<OcrLayerLine>> {
     let content = parse_content(bytes).ok()?.ok()?;
@@ -371,7 +587,8 @@ fn evb_ocr_layer_lines(bytes: &[u8]) -> Option<Vec<OcrLayerLine>> {
     let mut block = 0u32;
     let mut blocks_seen = 0u32;
     let mut font_size = 1.0f64;
-    // Origin and scale of the next glyph, from the last `Tm`.
+    let mut matrix = crate::split_pages::PdfMatrix::IDENTITY;
+    // Origin and scale of the next word or legacy glyph.
     let mut origin = (0.0f64, 0.0f64, 1.0f64);
     let break_line = |line: &mut Option<OcrLayerLine>, lines: &mut Vec<OcrLayerLine>| {
         if let Some(mut done) = line.take() {
@@ -429,8 +646,7 @@ fn evb_ocr_layer_lines(bytes: &[u8]) -> Option<Vec<OcrLayerLine>> {
                 .map(f64::from)
         };
         match operation.operator.as_str() {
-            // The writer positions every glyph with its own `Tm`, so only
-            // Tesseract's text objects and line steps separate lines.
+            // Tesseract's text objects and vertical line steps separate lines.
             "BT" => {
                 break_line(&mut line, &mut lines);
                 block = blocks_seen;
@@ -443,14 +659,19 @@ fn evb_ocr_layer_lines(bytes: &[u8]) -> Option<Vec<OcrLayerLine>> {
                 }
             }
             "Tm" => {
-                if let (Some(a), Some(b), Some(e), Some(f)) =
-                    (number(0), number(1), number(4), number(5))
-                {
-                    origin = (e, f, a.hypot(b));
+                if let Some(next) = crate::split_pages::PdfMatrix::from_operation(operation) {
+                    matrix = next;
+                    origin = (matrix.e, matrix.f, matrix.a.hypot(matrix.b));
                 }
             }
-            "Td" | "TD" if number(1).is_some_and(|step| step.abs() > font_size * 0.5) => {
-                break_line(&mut line, &mut lines);
+            "Td" | "TD" => {
+                if let (Some(x), Some(y)) = (number(0), number(1)) {
+                    if y.abs() > font_size * 0.5 {
+                        break_line(&mut line, &mut lines);
+                    }
+                    matrix = matrix.concat(crate::split_pages::PdfMatrix::translation(x, y));
+                    origin = (matrix.e, matrix.f, matrix.a.hypot(matrix.b));
+                }
             }
             "Tj" | "TJ" => {
                 if let Some(text) = operation.operands.first() {
@@ -600,6 +821,9 @@ fn apply_ocr_text_layer<S>(
         }
         let source_page_id = source_resolver.page_id(&source, 1)?;
         apply_ocr_word_edits(&mut source, source_page_id, &page.word_edits)?;
+        if let Some(geometry) = &page.word_geometry {
+            fit_ocr_word_geometry(&mut source, source_page_id, geometry)?;
+        }
         let page_id = resolver.page_id(&incremental.previous_document, page.page_number)?;
         let view = resolve_page_view(&incremental.previous_document, page_id)?;
         let rotation = resolve_page_rotation(&incremental.previous_document, page_id)?;
