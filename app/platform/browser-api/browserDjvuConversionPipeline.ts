@@ -762,6 +762,8 @@ async function buildCompactDjvuPdfWithWasm(options: {
     outputPath: TDocumentRef;
     signal?: AbortSignal;
     onPageProcessed?: (processed: number, total: number) => void;
+    /** The WASM writer encodes every page into one PDF, a step with no page count. */
+    onAssembleStart?: () => void;
     onBookmarksStart?: () => void;
 }) {
     // Each page keeps the DjVu layers desktop's compact export keeps: a JB2
@@ -808,6 +810,7 @@ async function buildCompactDjvuPdfWithWasm(options: {
     });
 
     throwIfCanceled(options.signal);
+    options.onAssembleStart?.();
     try {
         const {data} = await runBrowserPdfCombineWorkerRequest('combinePdfs', {
             inputs: [],
@@ -972,6 +975,14 @@ export async function runBrowserDjvuConversion(
 ) {
     const jobId: TJobId = options.jobId ?? createJobId('djvu-convert');
     const abortController = createDjvuJob(jobId);
+    // The caller's job runner keeps only progress that names its request.
+    const reportProgress = (phase: IDjvuProgress['phase'], percent: number) => emitProgress({
+        jobId,
+        ...(options.requestId ? {requestId: options.requestId} : {}),
+        documentRef: djvuPath,
+        phase,
+        percent,
+    });
 
     try {
         assertBrowserDjvuSource(djvuPath, 'convert');
@@ -984,11 +995,7 @@ export async function runBrowserDjvuConversion(
             };
         }
 
-        emitProgress({
-            jobId,
-            phase: 'loading',
-            percent: 0,
-        });
+        reportProgress('loading', 0);
         const worker = await createDjvuWorkerFromPath(djvuPath, { signal: abortController.signal });
         attachDjvuJobWorker(jobId, worker);
         throwIfCanceled(abortController.signal);
@@ -1020,11 +1027,7 @@ export async function runBrowserDjvuConversion(
             metrics: pageSizes[pageNumber - 1]!,
         }));
 
-        emitProgress({
-            jobId,
-            phase: 'converting',
-            percent: 0,
-        });
+        reportProgress('converting', 0);
         let renderSettings: IBrowserDjvuPdfRenderSettings;
         try {
             renderSettings = resolveBrowserDjvuPdfRenderSettings(options);
@@ -1049,18 +1052,10 @@ export async function runBrowserDjvuConversion(
         });
         const preserveBookmarks = options.preserveBookmarks !== false;
         const reportPageProcessed = (processed: number, total: number) => {
-            emitProgress({
-                jobId,
-                phase: 'converting',
-                percent: Math.round((processed / total) * 90),
-            });
+            reportProgress('converting', Math.round((processed / total) * 90));
         };
         const reportBookmarksStart = () => {
-            emitProgress({
-                jobId,
-                phase: 'bookmarks',
-                percent: 95,
-            });
+            reportProgress('bookmarks', 95);
         };
         const buildDirectPdf = () => buildPdfWithOptionalBookmarks({
             worker,
@@ -1090,6 +1085,7 @@ export async function runBrowserDjvuConversion(
                     outputPath,
                     signal: abortController.signal,
                     onPageProcessed: reportPageProcessed,
+                    onAssembleStart: () => reportProgress('assembling', 90),
                     onBookmarksStart: reportBookmarksStart,
                 });
             } catch (error) {
@@ -1106,11 +1102,7 @@ export async function runBrowserDjvuConversion(
             pdfPath = await buildDirectPdf();
         }
 
-        emitProgress({
-            jobId,
-            phase: 'bookmarks',
-            percent: 100,
-        });
+        reportProgress('bookmarks', 100);
 
         return {
             success: true as const,

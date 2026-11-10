@@ -1033,6 +1033,7 @@ export default {
         'bannerHint': 'Файл DjVu доступен только для просмотра — конвертируйте в PDF для редактирования',
         'convertToPdf': 'Конвертировать в PDF...',
         'overlayConverting': 'Конвертация DjVu в PDF...',
+        'overlayAssembling': 'Сборка PDF...',
         'overlayBookmarks': 'Обработка закладок...',
         'overlayOptimizing': 'Оптимизация PDF для работы...',
         'overlayPreparing': 'Подготовка...',

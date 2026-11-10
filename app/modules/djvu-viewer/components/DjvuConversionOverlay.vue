@@ -26,18 +26,19 @@ const {
 } = defineProps<{
     isConverting: boolean;
     modal: boolean;
-    phase: 'converting' | 'bookmarks' | 'optimizing' | null;
+    phase: 'converting' | 'assembling' | 'bookmarks' | 'optimizing' | null;
     percent: number;
 }>();
 
 const emit = defineEmits<{cancel: [];}>();
 
-// Bookmarks and the interaction pass have no page count; their elapsed time
-// keeps the overlay moving on a long book.
+// Assembling, bookmarks and the interaction pass have no page count; their
+// elapsed time keeps the overlay moving on a long book.
 const stageClock = useStageElapsedClock(
     () => (isConverting ? phase ?? 'preparing' : null),
     new Set([
         'preparing',
+        'assembling',
         'bookmarks',
         'optimizing',
     ] as const),
@@ -46,6 +47,9 @@ const stageClock = useStageElapsedClock(
 const overlayTitle = computed(() => {
     if (phase === 'converting') {
         return t('djvu.overlayConverting');
+    }
+    if (phase === 'assembling') {
+        return t('djvu.overlayAssembling');
     }
     if (phase === 'bookmarks') {
         return t('djvu.overlayBookmarks');
