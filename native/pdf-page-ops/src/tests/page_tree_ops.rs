@@ -1258,7 +1258,7 @@ fn browser_subsets_prune_removed_form_values_and_rebuild_shared_widget_membershi
 }
 
 #[test]
-fn browser_structural_operations_refuse_tagged_sources_without_mutation_bytes() {
+fn browser_structural_operations_preserve_tagged_page_subsets() {
     let tagged = include_bytes!("../../../../tests/fixtures/electron/pdf-preservation/tagged.pdf");
     let inserted =
         include_bytes!("../../../../tests/fixtures/electron/pdf-preservation/tagged-insert.pdf");
@@ -1273,12 +1273,18 @@ fn browser_structural_operations_refuse_tagged_sources_without_mutation_bytes() 
         insert_browser_pdf_pages(&ordinary_bytes, inserted, 1),
         insert_browser_pdf_pages(tagged, inserted, 1),
     ];
-    for result in results {
-        let error = result
-            .err()
-            .expect("tagged operation must refuse")
-            .to_string();
-        assert!(error.contains("ERR_PDF_STRUCTURE_PRESERVATION:"), "{error}");
+    for (result, count) in results.into_iter().zip([1, 1, 2, 3, 2, 3]) {
+        let result = result.unwrap();
+        let output = Document::load_mem(&result.data).unwrap();
+        assert_eq!(output.get_pages().len(), count);
+        if let Ok(root) = output.catalog().unwrap().get(b"StructTreeRoot") {
+            let root = output.resolved(root).unwrap().as_dict().unwrap();
+            for kid in root.get(b"K").unwrap().as_array().unwrap() {
+                let paragraph = output.resolved(kid).unwrap().as_dict().unwrap();
+                let page = paragraph.get(b"Pg").unwrap().as_reference().unwrap();
+                assert!(output.get_pages().values().any(|id| *id == page));
+            }
+        }
     }
     assert!(rotate_browser_pdf_bytes(tagged, &[1], 90).is_ok());
 }

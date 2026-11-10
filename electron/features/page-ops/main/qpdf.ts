@@ -54,7 +54,6 @@ import type {
 } from '@contracts/pageNumbers';
 import { runWithWorkingCopyMutationCommitSignal } from '@electron/file-access/workingCopyMutationCommitSignal';
 import {runtimeConfig} from '@electron/runtimeConfig';
-import {assertNativePageStructureSupported} from '@electron/features/page-ops/main/readNativePdfCatalog';
 
 const log = createLogger('page-ops-qpdf');
 export {
@@ -78,7 +77,6 @@ type TRunQpdfCommandOptions = Parameters<typeof runNativeToolCommand>[2]
     & {
         workingCopyMaterialization?: IQpdfWorkingCopyMaterialization;
         scratchDirectory?: string;
-        pageStructureSources?: readonly string[];
     };
 
 const NON_COMMITTING_MATERIALIZATION_SIGNAL = {markCommitStarted: () => undefined};
@@ -201,7 +199,6 @@ export async function runQpdfCommand(
     const {
         workingCopyMaterialization,
         scratchDirectory,
-        pageStructureSources,
         ...nativeOptions
     } = options;
     if (workingCopyMaterialization) {
@@ -210,15 +207,6 @@ export async function runQpdfCommand(
             workingCopyMaterialization.senderWebContentsId,
             workingCopyMaterialization.signal,
         );
-    }
-    for (const inputPath of pageStructureSources ?? []) {
-        const binary = resolveNativePageOpsPath();
-        if (!binary) throw new Error('Native page structure validation is unavailable');
-        await assertNativePageStructureSupported(binary, inputPath, {
-            commandLabel: 'pdf-page-ops(validate-page-structure)',
-            ...(nativeOptions.signal ? {signal: nativeOptions.signal} : {}),
-            ...(nativeOptions.cancelGroup ? {cancelGroup: nativeOptions.cancelGroup} : {}),
-        });
     }
     const runWithArguments = async (tempDir: string) => {
         const argsPath = join(tempDir, 'args.txt');
@@ -248,6 +236,12 @@ export async function runQpdfCommand(
             ...nativeOptions,
             ...(onSpawn ? {onSpawn} : {}),
         });
+        if (args.includes('--pages')) {
+            await finalizeSubsetForms(args.at(-1)!, {
+                ...(nativeOptions.signal ? {signal: nativeOptions.signal} : {}),
+                ...(nativeOptions.cancelGroup ? {cancelGroup: nativeOptions.cancelGroup} : {}),
+            });
+        }
     };
     if (scratchDirectory === undefined) {
         await usingManagedScratchScope('qpdfArgs-', getAppTempDir(), runWithArguments);
@@ -274,8 +268,8 @@ export async function verifyPdfStructureStrict(pdfPath: string, options: IQpdfOp
     });
 }
 
-async function finalizeSubsetForms(pdfPath: string, options: IQpdfOperationOptions, printSubset = false) {
-    const command = printSubset ? 'finalize-print-subset-forms' : 'finalize-subset-forms';
+async function finalizeSubsetForms(pdfPath: string, options: IQpdfOperationOptions) {
+    const command = 'finalize-subset-forms';
     const binary = resolveNativePageOpsPath();
     if (!binary) throw new Error('Native page structure finalization is unavailable');
     await runNativeToolCommand(binary, [
@@ -354,7 +348,6 @@ async function extractPageList(
     pageList: string,
     commandLabel: string,
     options: IQpdfOperationOptions = {},
-    printSubset = false,
 ) {
     const physicalReadPath = getWorkingCopyBackingEntry(srcPath, options.senderWebContentsId)
         ? await materializePageOperationWorkingCopy(
@@ -377,11 +370,9 @@ async function extractPageList(
             timeoutMs: QPDF_TIMEOUT_MS,
             allowedExitCodes: QPDF_OUTPUT_SUCCESS_EXIT_CODES,
             commandLabel,
-            pageStructureSources: printSubset ? [] : [physicalReadPath],
             ...options,
         });
         await assertNonEmptyPdfOutput(qpdfOutput.outputPath, 'Extracting pages');
-        await finalizeSubsetForms(qpdfOutput.outputPath, options, printSubset);
         await copyFile(qpdfOutput.outputPath, finalTempPath);
         await assertNonEmptyPdfOutput(finalTempPath, 'Extracting pages');
         await replaceTempOutput(finalTempPath, destPath);
@@ -403,14 +394,14 @@ export async function extractPages(
     return extractPageList(srcPath, destPath, formatPageList(pages), 'qpdf(extract-pages)', options);
 }
 
-/** Creates an ephemeral subset for printing, where tag structure is not published. */
+/** Creates the same reconciled page subset for the print job. */
 export async function extractPagesForPrint(
     srcPath: string,
     destPath: string,
     pages: number[],
     options: IQpdfOperationOptions = {},
 ) {
-    return extractPageList(srcPath, destPath, formatPageList(pages), 'qpdf(extract-pages)', options, true);
+    return extractPageList(srcPath, destPath, formatPageList(pages), 'qpdf(extract-pages)', options);
 }
 
 /** Extracts validated page ranges without expanding them into a dense page array. */
@@ -484,11 +475,9 @@ async function deletePageSelection(
             timeoutMs: QPDF_TIMEOUT_MS,
             allowedExitCodes: QPDF_OUTPUT_SUCCESS_EXIT_CODES,
             commandLabel: 'qpdf(delete-pages)',
-            pageStructureSources: [materializedPath],
             ...options,
         });
         await assertNonEmptyPdfOutput(tempPath, 'Deleting pages');
-        await finalizeSubsetForms(tempPath, options);
         await replaceTempOutput(tempPath, materializedPath);
     } catch (err) {
         await cleanupQpdfTemp(tempPath);
@@ -544,7 +533,6 @@ export async function reorderPages(
             timeoutMs: QPDF_TIMEOUT_MS,
             allowedExitCodes: QPDF_OUTPUT_SUCCESS_EXIT_CODES,
             commandLabel: 'qpdf(reorder-pages)',
-            pageStructureSources: [materializedPath],
             ...options,
         });
         await assertNonEmptyPdfOutput(tempPath, 'Reordering pages');
@@ -598,7 +586,6 @@ export async function movePages(
             timeoutMs: QPDF_TIMEOUT_MS,
             allowedExitCodes: QPDF_OUTPUT_SUCCESS_EXIT_CODES,
             commandLabel: 'qpdf(move-pages)',
-            pageStructureSources: [materializedPath],
             ...options,
         });
         await assertNonEmptyPdfOutput(tempPath, 'Moving pages');
@@ -651,7 +638,6 @@ export async function movePageRanges(
             timeoutMs: QPDF_TIMEOUT_MS,
             allowedExitCodes: QPDF_OUTPUT_SUCCESS_EXIT_CODES,
             commandLabel: 'qpdf(move-page-ranges)',
-            pageStructureSources: [materializedPath],
             ...options,
         });
         await assertNonEmptyPdfOutput(tempPath, 'Moving page ranges');

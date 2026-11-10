@@ -3877,7 +3877,7 @@ fn r9_identity_tags_drop_when_an_objr_annotation_is_cropped_away() {
 }
 
 #[test]
-fn tagged_subset_is_accepted_only_for_print_finalization() {
+fn tagged_subset_preserves_selected_structure_for_saved_and_printed_outputs() {
     let input = path("tagged-print-subset", "pdf");
     let saved = path("tagged-saved-subset", "pdf");
     let printed = path("tagged-printed-subset", "pdf");
@@ -3908,17 +3908,86 @@ fn tagged_subset_is_accepted_only_for_print_finalization() {
             .output()
             .unwrap()
     };
-    let refused = invoke("finalize-subset-forms", &saved);
-    assert!(!refused.status.success());
-    assert!(String::from_utf8_lossy(&refused.stderr).contains("ERR_PDF_STRUCTURE_PRESERVATION"));
-    assert!(!saved.exists());
-    let accepted = invoke("finalize-print-subset-forms", &input);
-    assert!(
-        accepted.status.success(),
-        "{}",
-        String::from_utf8_lossy(&accepted.stderr)
-    );
-    assert_eq!(Document::load(&input).unwrap().get_pages().len(), 1);
+    for (command, destination) in [
+        ("finalize-subset-forms", &saved),
+        ("finalize-subset-forms", &input),
+    ] {
+        let accepted = invoke(command, destination);
+        assert!(
+            accepted.status.success(),
+            "{}",
+            String::from_utf8_lossy(&accepted.stderr)
+        );
+        let output = Document::load(destination).unwrap();
+        assert_eq!(output.get_pages().len(), 1);
+        let root = output
+            .dereference(output.catalog().unwrap().get(b"StructTreeRoot").unwrap())
+            .unwrap()
+            .1
+            .as_dict()
+            .unwrap();
+        let kids = root.get(b"K").unwrap().as_array().unwrap();
+        assert_eq!(kids.len(), 1);
+        let paragraph = output.dereference(&kids[0]).unwrap().1.as_dict().unwrap();
+        assert_eq!(
+            paragraph.get(b"ActualText").unwrap().as_str().unwrap(),
+            b"ORIGINAL-1"
+        );
+        assert_eq!(
+            paragraph.get(b"Pg").unwrap().as_reference().unwrap(),
+            output.get_pages()[&1]
+        );
+        let parents = output
+            .dereference(root.get(b"ParentTree").unwrap())
+            .unwrap()
+            .1
+            .as_dict()
+            .unwrap();
+        assert_eq!(parents.get(b"Nums").unwrap().as_array().unwrap().len(), 2);
+        assert_eq!(
+            output.get_page_content(output.get_pages()[&1]),
+            Document::load(&printed)
+                .unwrap()
+                .get_page_content(Document::load(&printed).unwrap().get_pages()[&1])
+        );
+        let check = Command::new(qpdf_path())
+            .arg("--check")
+            .arg(destination)
+            .output()
+            .unwrap();
+        assert!(
+            check.status.success(),
+            "{}",
+            String::from_utf8_lossy(&check.stderr)
+        );
+    }
+    for structure in [Object::Null, Object::Reference((999_999, 0))] {
+        let mut damaged = Document::load_mem(fixture).unwrap();
+        damaged
+            .catalog_mut()
+            .unwrap()
+            .set("StructTreeRoot", structure);
+        damaged.save(&printed).unwrap();
+        let accepted = invoke("finalize-subset-forms", &saved);
+        assert!(
+            accepted.status.success(),
+            "{}",
+            String::from_utf8_lossy(&accepted.stderr)
+        );
+        let output = Document::load(&saved).unwrap();
+        assert_eq!(output.get_pages().len(), 2);
+        assert!(!output.catalog().unwrap().has(b"StructTreeRoot"));
+        let check = Command::new(qpdf_path())
+            .arg("--check")
+            .arg(&saved)
+            .output()
+            .unwrap();
+        assert!(
+            check.status.success(),
+            "{}",
+            String::from_utf8_lossy(&check.stderr)
+        );
+    }
     // A tagged source with a form must retain the selected page's widget in
     // the repaired field graph, not merely pass the tag policy.
     let mut form_source = review_catalog_source();
@@ -3934,6 +4003,19 @@ fn tagged_subset_is_accepted_only_for_print_finalization() {
                 })
         })
         .unwrap();
+    // Its widget names a structure parent the untagged document lacks; the
+    // reconciled widget must not be replaced by the stale source copy.
+    let source_widget = split_page_annotations(&form_source, page)
+        .into_iter()
+        .find(|(_, annotation)| {
+            annotation.get(b"Subtype").and_then(Object::as_name).ok() == Some(b"Widget")
+        })
+        .unwrap()
+        .0;
+    form_source
+        .get_dictionary_mut(source_widget)
+        .unwrap()
+        .set("StructParent", 7);
     form_source.save(&input).unwrap();
     let subset = Command::new(qpdf_path())
         .arg(&input)
@@ -3949,7 +4031,7 @@ fn tagged_subset_is_accepted_only_for_print_finalization() {
         "{}",
         String::from_utf8_lossy(&subset.stderr)
     );
-    let accepted = invoke("finalize-print-subset-forms", &input);
+    let accepted = invoke("finalize-subset-forms", &input);
     assert!(
         accepted.status.success(),
         "{}",
@@ -3975,6 +4057,7 @@ fn tagged_subset_is_accepted_only_for_print_finalization() {
             .unwrap(),
         widget
     );
+    assert!(!result.get_dictionary(widget).unwrap().has(b"StructParent"));
     for file in [&input, &saved, &printed] {
         let _ = remove_file(file);
     }

@@ -3121,7 +3121,7 @@ fn existing_targets_keep_whole_fallback_for_ambiguous_names_and_missing_library(
 }
 
 #[test]
-fn lazy_catalog_admission_refuses_tags_and_layers_before_publication() {
+fn lazy_catalog_admission_allows_tags_and_layers() {
     for key in ["StructTreeRoot", "OCProperties"] {
         let input = temp_path("catalog-preservation", "pdf");
         let _cleanup = TempFiles::new(vec![input.clone()]);
@@ -3135,28 +3135,20 @@ fn lazy_catalog_admission_refuses_tags_and_layers_before_publication() {
             b"StructTreeRoot".as_slice()
         });
         document.save(&input).unwrap();
-        let commands = if key == "StructTreeRoot" {
-            vec!["read-catalog", "validate-page-structure"]
-        } else {
-            vec!["read-catalog"]
-        };
-        for command in commands {
-            let output = Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"))
-                .arg(command)
-                .arg("--input")
-                .arg(&input)
-                .arg("--qpdf")
-                .arg(qpdf_path())
-                .output()
-                .unwrap();
-            assert!(!output.status.success(), "{command} admitted {key}");
-            let envelope: Value = serde_json::from_slice(&output.stderr).unwrap();
-            assert_eq!(envelope["code"], "invalid-request");
-            assert!(envelope["message"]
-                .as_str()
-                .unwrap()
-                .contains("ERR_PDF_STRUCTURE_PRESERVATION:"));
-            assert!(output.stdout.is_empty());
-        }
+        let output = Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"))
+            .arg("read-catalog")
+            .arg("--input")
+            .arg(&input)
+            .arg("--qpdf")
+            .arg(qpdf_path())
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let catalog: Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert!(catalog["bookmarks"].is_array());
     }
 }

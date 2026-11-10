@@ -57,11 +57,8 @@ pub(crate) enum Operation {
     PageSizes {
         metadata_only: bool,
     },
-    ValidatePageStructure,
     /// Rebuilds a qpdf page subset's form fields from its retained widgets.
-    FinalizeSubsetForms {
-        print: bool,
-    },
+    FinalizeSubsetForms,
     ReadCatalog,
     ReadDocumentCatalog(Option<PathBuf>),
     PrintLayout {
@@ -296,10 +293,7 @@ pub(crate) fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Confi
             page_number: page_number.ok_or("Missing --page value")?,
         },
         "page-sizes" => Operation::PageSizes { metadata_only },
-        "validate-page-structure" => Operation::ValidatePageStructure,
-        "finalize-subset-forms" | "finalize-print-subset-forms" => Operation::FinalizeSubsetForms {
-            print: command == "finalize-print-subset-forms",
-        },
+        "finalize-subset-forms" => Operation::FinalizeSubsetForms,
         "read-catalog" => Operation::ReadCatalog,
         "read-document-catalog" => Operation::ReadDocumentCatalog(mutations_file),
         "print-layout" if pages_file.is_some() => {
@@ -318,7 +312,6 @@ pub(crate) fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Confi
             | Operation::OcrTextVisibility { .. }
             | Operation::PdfConformance
             | Operation::AppendAdmission
-            | Operation::ValidatePageStructure
             | Operation::ReadCatalog
             | Operation::ReadDocumentCatalog(..)
     );
@@ -353,9 +346,7 @@ pub(crate) fn mutate_pdf(config: Config) -> Result<()> {
                 &mut std::io::stdout().lock(),
             )
         }
-        Operation::ValidatePageStructure
-        | Operation::ReadCatalog
-        | Operation::ReadDocumentCatalog(..) => {
+        Operation::ReadCatalog | Operation::ReadDocumentCatalog(..) => {
             let incremental = load_readonly_metadata_pdf_path(
                 &config.input_path,
                 config.qpdf_path.as_deref(),
@@ -363,10 +354,6 @@ pub(crate) fn mutate_pdf(config: Config) -> Result<()> {
             )?;
             let source = AppendedRevision::new(&incremental);
             let catalog = match &config.operation {
-                Operation::ValidatePageStructure => {
-                    crate::split_catalog::assert_page_structure_supported(&source)?;
-                    serde_json::json!({})
-                }
                 Operation::ReadCatalog => serde_json::to_value(read_pdf_combine_catalog(&source)?)?,
                 Operation::ReadDocumentCatalog(Some(path)) => {
                     let mutations = read_native_mutations(path)?;
@@ -408,12 +395,11 @@ pub(crate) fn mutate_pdf(config: Config) -> Result<()> {
         .ok_or("Missing --output value")?;
 
     match &config.operation {
-        Operation::FinalizeSubsetForms { print } => {
+        Operation::FinalizeSubsetForms => {
             return crate::split_catalog::split_forms::write_subset_form_path(
                 &config.input_path,
                 output_path,
                 config.qpdf_path.as_deref(),
-                *print,
             )
         }
         Operation::TextBoxAppearance { metadata_file } => {

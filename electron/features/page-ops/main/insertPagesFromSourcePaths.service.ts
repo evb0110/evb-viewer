@@ -138,10 +138,6 @@ export async function insertPagesFromSourcePaths(
             timeoutMs: QPDF_TIMEOUT_MS,
             allowedExitCodes: QPDF_OUTPUT_SUCCESS_EXIT_CODES,
             commandLabel: 'qpdf(insert-pages)',
-            pageStructureSources: [
-                workingCopyPath,
-                sourcePdfPath,
-            ],
             ...(options.signal ? { signal: options.signal } : {}),
             ...(options.cancelGroup ? { cancelGroup: options.cancelGroup } : {}),
             workingCopyMaterialization: {
