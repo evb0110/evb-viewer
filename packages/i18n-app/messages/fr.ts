@@ -1513,6 +1513,7 @@ export default {
         'zoomValue': 'Zoom : {zoom}%',
         'preparingDocument': 'Préparation du document',
         'preparingDocumentProgress': 'Préparation du document · {progress}%',
+        'showInDownloads': 'Enregistrer dans Téléchargements et afficher',
         'showInFolder': 'Afficher dans le dossier',
         'showInFolderUnavailableWeb': 'Stocké dans ce navigateur',
     },

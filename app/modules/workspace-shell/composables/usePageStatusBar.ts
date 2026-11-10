@@ -12,6 +12,7 @@ import {
     isBrowserDocumentRef,
 } from '@app/utils/documentRef';
 import { formatBytes } from '@app/utils/formatters';
+import { isBrowserExtensionPage } from '@app/utils/isBrowserExtensionPage';
 import {
     getDocumentFilesCapability,
     getDocumentWindowCapability,
@@ -296,22 +297,25 @@ export const usePageStatusBar = (deps: IPageStatusBarDeps) => {
         }
         return t('status.noFileOpen');
     });
+    // A document the browser stores has no folder; the Chrome extension saves
+    // it to Downloads and shows it there instead.
+    const statusShowsInDownloads = computed(() => isBrowserDocumentRef(statusShowInFolderPath.value) && isBrowserExtensionPage());
     const statusCanShowInFolder = computed(() => {
         const path = statusShowInFolderPath.value;
-        return path !== null && !isBrowserDocumentRef(path);
+        return path !== null && (!isBrowserDocumentRef(path) || statusShowsInDownloads.value);
     });
-    const statusShowInFolderUnavailableLabel = computed(() => {
+    const statusShowInFolderLabel = computed(() => {
         const path = statusShowInFolderPath.value;
+        if (statusShowsInDownloads.value) {
+            return t('status.showInDownloads');
+        }
+        if (statusCanShowInFolder.value) {
+            return t('status.showInFolder');
+        }
         return path && isBrowserDocumentRef(path)
             ? t('status.showInFolderUnavailableWeb')
             : t('status.noFileOpen');
     });
-    const statusShowInFolderTooltip = computed(() => statusCanShowInFolder.value
-        ? t('status.showInFolder')
-        : statusShowInFolderUnavailableLabel.value);
-    const statusShowInFolderAriaLabel = computed(() => statusCanShowInFolder.value
-        ? t('status.showInFolder')
-        : statusShowInFolderUnavailableLabel.value);
 
     async function handleStatusSaveClick() {
         if (!statusSaveDotCanSave.value) {
@@ -340,8 +344,8 @@ export const usePageStatusBar = (deps: IPageStatusBarDeps) => {
         statusZoomLabel,
         statusMaterializationLabel,
         statusCanShowInFolder,
-        statusShowInFolderTooltip,
-        statusShowInFolderAriaLabel,
+        statusShowInFolderTooltip: statusShowInFolderLabel,
+        statusShowInFolderAriaLabel: statusShowInFolderLabel,
         statusSaveDotClass,
         statusSaveDotCanSave,
         statusSaveDotTooltip,

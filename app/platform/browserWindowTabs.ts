@@ -37,6 +37,7 @@ import {
 } from '@app/platform/browser/browserDocumentLeaseStore';
 import {browserDocumentStore} from '@app/platform/browser/browserDocumentRepository';
 import type { TDocumentRef } from '@contracts/documentRef';
+import { removeBrowserExtensionDocumentUrl } from '@contracts/browserExtensionLaunch';
 import * as v from 'valibot';
 const WINDOW_TABS_CHANNEL = 'evb-viewer:browserWindowTabs';
 const WINDOW_ID_QUERY_PARAM = 'evbWindowId';
@@ -875,7 +876,8 @@ function buildTransferWindowUrl(targetWindowId: number) {
         return null;
     }
 
-    const url = new URL(window.location.href);
+    // A launched document stays with the window that opened it.
+    const url = new URL(removeBrowserExtensionDocumentUrl(window.location.href));
     url.searchParams.set(WINDOW_ID_QUERY_PARAM, String(targetWindowId));
     return url.toString();
 }

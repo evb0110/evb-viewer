@@ -1506,6 +1506,7 @@ export default {
         'zoomValue': 'Zoom: {zoom}%',
         'preparingDocument': 'Dokument wird vorbereitet',
         'preparingDocumentProgress': 'Dokument wird vorbereitet · {progress}%',
+        'showInDownloads': 'In Downloads speichern und anzeigen',
         'showInFolder': 'Im Ordner anzeigen',
         'showInFolderUnavailableWeb': 'In diesem Browser gespeichert',
     },

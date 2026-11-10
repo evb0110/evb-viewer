@@ -59,6 +59,7 @@ import {
     pickSingleFile,
     type IBrowserOutputSink,
 } from '@app/platform/browser-api/browserFilePickerAdapter';
+import { showBrowserDocumentInDownloads } from '@app/platform/browser-api/showBrowserDocumentInDownloads';
 import {
     assertBrowserWorkingCopyDecrypted,
     createBrowserWorkingCopyFromBytes,
@@ -727,9 +728,7 @@ export function createBrowserDocumentsFileCapability(
             syncBrowserWindowTitle();
             return Promise.resolve();
         },
-        showItemInFolder(_path) {
-            return Promise.resolve(false);
-        },
+        showItemInFolder: showBrowserDocumentInDownloads,
         recentFiles: {
             async get() {
                 const recentFiles = await browserDocumentStore.recoverRecentFilesIfStorageMissing();

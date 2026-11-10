@@ -1,7 +1,6 @@
 import {
     BROWSER_EXTENSION_OPEN_NATIVELY_MESSAGE,
     readBrowserExtensionDocumentUrl,
-    removeBrowserExtensionDocumentUrl,
     type IBrowserExtensionOpenNativelyRequest,
 } from '@contracts/browserExtensionLaunch';
 import {
@@ -30,8 +29,8 @@ interface ILaunchResponse {
 }
 
 // The page's history entry remembers the document it opened, so a reload or a
-// return to the entry shows it again. A window the workspace opens starts a
-// new history and does not inherit it.
+// return to the entry shows it again without fetching it. A window the
+// workspace opens starts a new history and does not inherit it.
 const LAUNCHED_DOCUMENT_STATE_KEY = 'evbExtensionDocument';
 const PDF_SIGNATURE = '%PDF-';
 // A PDF reader accepts a header anywhere in the first kilobyte.
@@ -157,24 +156,32 @@ async function hasWindowRecovery() {
     return ownerId !== null && await browserWindowTabsCapability.browserRecovery?.load(ownerId) != null;
 }
 
+/** The document this history entry already opened, while the browser still stores it. */
+async function readLaunchedDocument() {
+    const launched = parseDocumentRef(readHistoryState()[LAUNCHED_DOCUMENT_STATE_KEY]);
+    return launched && (await browserDocumentStore.ensureEntryAvailability(launched)).available ? launched : null;
+}
+
 /**
- * Opens the document the page was launched with. The launch parameter leaves
- * the URL at once, because a window the workspace opens copies the URL; the
- * history entry keeps the stored document for a reload instead.
+ * Opens the document the page was launched with. The launch parameter stays
+ * in the URL, so the address bar shows the document's source and a bookmark
+ * opens it again; a reload reuses the copy this history entry stored.
  */
 export async function openBrowserExtensionDocument() {
     if (!isBrowserExtensionPage()) {
         return;
     }
-    const documentUrl = readBrowserExtensionDocumentUrl(location.href);
-    if (!documentUrl) {
-        const launched = parseDocumentRef(readHistoryState()[LAUNCHED_DOCUMENT_STATE_KEY]);
-        if (launched && !await hasWindowRecovery()) {
+    const launched = await readLaunchedDocument();
+    if (launched) {
+        if (!await hasWindowRecovery()) {
             openBrowserExternalPaths([launched]);
         }
         return;
     }
-    history.replaceState(history.state, '', removeBrowserExtensionDocumentUrl(location.href));
+    const documentUrl = readBrowserExtensionDocumentUrl(location.href);
+    if (!documentUrl) {
+        return;
+    }
     try {
         const ref = await fetchLaunchDocument(documentUrl);
         rememberLaunchedDocument(ref);
