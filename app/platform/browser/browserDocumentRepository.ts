@@ -314,7 +314,7 @@ export class BrowserDocumentStore extends BrowserDocumentRecordStore {
         }
     }
 
-    public async registerFile(file: File, options: IRegisterFileOptions = {}): Promise<TDocumentRef> {
+    public async registerFile(file: File, options: IRegisterFileOptions = {}) {
         return (await this.registerFileWithOwnership(file, options)).ref;
     }
 
@@ -371,7 +371,7 @@ export class BrowserDocumentStore extends BrowserDocumentRecordStore {
         }
         // A fresh selection owns a new source version; dirty dependents keep
         // their immutable opening bytes and overwrite authority.
-        const ref = createBrowserDocumentRef(file.name);
+        const ref = options.ref ?? createBrowserDocumentRef(file.name);
         const entry = createBrowserFileDocumentEntry(ref, file, options);
 
         this.attachEntry(entry);

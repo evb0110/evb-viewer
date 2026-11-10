@@ -11,6 +11,7 @@ import { browserDocumentStore } from '@app/platform/browserDocumentStore';
 import {
     browserWindowTabsCapability,
     getBrowserWindowRecoveryOwnerId,
+    reserveBrowserDocumentWorkingCopy,
 } from '@app/platform/browserWindowTabs';
 import { openBrowserExternalPaths } from '@app/platform/browser-api/browserExternalOpenQueue';
 import { BrowserLogger } from '@app/utils/browserLogger';
@@ -147,7 +148,13 @@ async function fetchLaunchDocument(documentUrl: string) {
     if (!kind) {
         throw new Error('The response is not a PDF or DjVu document');
     }
-    return browserDocumentStore.registerFile(new File([response.blob], resolveLaunchFileName(response, kind), {type: kind === 'pdf' ? 'application/pdf' : 'image/vnd.djvu'}));
+    const fileName = resolveLaunchFileName(response, kind);
+    // A page that replaces another viewer page in its tab inherits that page's
+    // window, and the startup collection of the previous page's documents can
+    // run while this one is stored. The window protects the ref before the
+    // document exists, for as long as this page shows it.
+    const ref = await reserveBrowserDocumentWorkingCopy(fileName);
+    return browserDocumentStore.registerFile(new File([response.blob], fileName, {type: kind === 'pdf' ? 'application/pdf' : 'image/vnd.djvu'}), {ref});
 }
 
 // A window with unsaved work restores its own tabs, the launched document among them.

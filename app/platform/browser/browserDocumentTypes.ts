@@ -92,6 +92,8 @@ export interface IBrowserDocumentEntry extends IBrowserPersistedDocumentRecord {
 }
 
 export interface IRegisterFileOptions {
+    /** A ref reserved for the file beforehand, so the window protects it from the moment it is stored. */
+    ref?: TDocumentRef;
     kind?: IBrowserDocumentEntry['kind'];
     retention?: IBrowserDocumentEntry['retention'];
     saveKind?: IBrowserDocumentEntry['saveKind'];
