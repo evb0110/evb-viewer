@@ -349,7 +349,7 @@ export async function renderBrowserScanCleanupWorkspacePreview(
         ? pagePreviewRenderDpi
         : Math.min(pagePreviewRenderDpi, Math.max(1, Math.floor(resolveScanCleanupDocumentCanvasDpi(documentCanvas))));
     if (request.detail !== undefined) {
-        return renderDetail(input, pageSize, documentCanvas, sourceDpiCandidate);
+        return renderDetail(input, pageSize, documentCanvas, sourceDpiCandidate, facts.facingPair);
     }
     const baseRaw = await renderPageRaster(source, pageSize, basePreviewDpi, SCAN_CLEANUP_RASTER_MAX_PIXELS, signal);
     const {png} = await runBrowserScanCleanupWorkerRequest('encode-png', {ppm: copy(baseRaw.ppm)}, signal);
@@ -400,6 +400,7 @@ export async function renderBrowserScanCleanupWorkspacePreview(
         sourceDpiCandidate,
         documentCanvas,
         lossless: request.options.preserveOriginalQuality && !rasterizedByMatching,
+        facingPair: facts.facingPair,
         resolvedOutputMode: request.outputModeRecommendation,
         retainBase: true,
     });
@@ -417,6 +418,8 @@ interface IBaseRenderPlan {
     sourceDpiCandidate: number | undefined;
     documentCanvas: IScanCleanupDocumentCanvasPlan | null;
     lossless: boolean;
+    /** The page is two of the document's pages side by side. */
+    facingPair: boolean;
     resolvedOutputMode: IScanCleanupPreviewRequest['outputModeRecommendation'];
     /** A fallback detail renders a base it does not keep. */
     retainBase: boolean;
@@ -451,7 +454,7 @@ async function renderBase(
         dpi: plan.lossless ? analysisDpi : plan.renderDpi,
         sourceDpi: plan.sourceDpi,
         ...sourceLayerFacts(source, request.pageNumber),
-        facingPairGeometry: readDocumentFacts(source, source.pageSizes[request.pageNumber - 1]).facingPair,
+        facingPairGeometry: plan.facingPair,
         requestedRenderDpi: plan.renderDpi,
         ...(plan.resolvedOutputMode === undefined ? {} : {resolvedOutputMode: plan.resolvedOutputMode}),
         ...(request.softAlphaForegroundRecommendation === undefined
@@ -596,6 +599,7 @@ async function renderDetail(
     pageSize: IPdfPageSize,
     documentCanvas: IScanCleanupDocumentCanvasPlan | null,
     sourceDpiCandidate: number | undefined,
+    facingPair: boolean,
 ): Promise<IBrowserScanCleanupPreviewRendering> {
     const {
         request, base, signal,
@@ -624,6 +628,7 @@ async function renderDetail(
             sourceDpiCandidate,
             documentCanvas,
             lossless: false,
+            facingPair,
             resolvedOutputMode: detail.outputMode,
             retainBase: false,
         });
