@@ -14,6 +14,10 @@ struct StructureSubset<'a> {
 
 impl StructureSubset<'_> {
     fn kid(&mut self, object: &Object, page: Option<ObjectId>, depth: usize) -> Option<Object> {
+        // A direct MCID is a value, not a node: it cannot cycle or grow the walk.
+        if let Object::Integer(mcid) = object {
+            return (*mcid >= 0 && page.is_some()).then(|| object.clone());
+        }
         if depth > CATALOG_WALK_DEPTH_LIMIT || !self.state.enter(object) {
             return None;
         }
@@ -178,12 +182,43 @@ impl StructureSubset<'_> {
 /// qpdf and the browser cloner keep stream/MCID identities. Reconcile their
 /// surviving structure nodes and number-tree keys with the new page membership.
 /// Malformed, cyclic or unrepresentable branches are omitted, never admission gates.
+fn dictionary_of(object: &Object) -> Option<&Dictionary> {
+    match object {
+        Object::Dictionary(dictionary) => Some(dictionary),
+        Object::Stream(stream) => Some(&stream.dict),
+        _ => None,
+    }
+}
+
+/// Whether the structure element names the annotation through an OBJR kid.
+fn element_marks_annotation(source: &Document, element: ObjectId, annotation: ObjectId) -> bool {
+    let Ok((_, kids)) = source
+        .get_dictionary(element)
+        .and_then(|element| element.get(b"K"))
+        .and_then(|kids| source.dereference(kids))
+    else {
+        return false;
+    };
+    let kids = match kids {
+        Object::Array(items) => items.as_slice(),
+        other => std::slice::from_ref(other),
+    };
+    kids.iter().any(|kid| {
+        source
+            .dereference(kid)
+            .ok()
+            .and_then(|(_, kid)| kid.as_dict().ok())
+            .and_then(|kid| kid.get(b"Obj").and_then(Object::as_reference).ok())
+            == Some(annotation)
+    })
+}
+
 pub(crate) fn page_structure_updates(source: &Document) -> Result<Vec<(ObjectId, Object)>> {
     let mut catalog = source.catalog()?.clone();
     if !catalog.has(b"StructTreeRoot")
         && !catalog.has(b"OCProperties")
         && !source.objects.values().any(|object| {
-            object.as_dict().is_ok_and(|dictionary| {
+            dictionary_of(object).is_some_and(|dictionary| {
                 dictionary.has(b"StructParents")
                     || dictionary.has(b"StructParent")
                     || dictionary.get(b"Type").and_then(Object::as_name).ok() == Some(b"OCG")
@@ -217,6 +252,17 @@ pub(crate) fn page_structure_updates(source: &Document) -> Result<Vec<(ObjectId,
             }
         }
     }
+    // Form XObjects carry their own ParentTree keys for the content they mark.
+    keys.extend(source.objects.values().filter_map(|object| {
+        match object {
+            Object::Stream(stream) => stream
+                .dict
+                .get(b"StructParents")
+                .and_then(Object::as_i64)
+                .ok(),
+            _ => None,
+        }
+    }));
     let mut subset = StructureSubset {
         source,
         pages,
@@ -235,6 +281,8 @@ pub(crate) fn page_structure_updates(source: &Document) -> Result<Vec<(ObjectId,
         .as_ref()
         .and_then(|tree| tree.get(b"K").ok())
         .and_then(|kids| subset.kid(kids, None, 0));
+    // A tree larger than the walk may visit is dropped whole, never saved in part.
+    let kids = kids.filter(|_| !subset.state.exhausted());
     if let (Some(tree), Some(kids)) = (tree.as_mut(), kids) {
         tree.set("K", kids);
         let mut nums = BTreeMap::new();
@@ -272,7 +320,10 @@ pub(crate) fn page_structure_updates(source: &Document) -> Result<Vec<(ObjectId,
                 let owned = nums
                     .get(&key)
                     .and_then(|value| value.as_reference().ok())
-                    .is_some_and(|element| subset.retained.contains(&element));
+                    .is_some_and(|element| {
+                        subset.retained.contains(&element)
+                            && element_marks_annotation(source, element, *id)
+                    });
                 if !owned {
                     let mut annotation = annotation.clone();
                     annotation.remove(b"StructParent");
@@ -360,4 +411,155 @@ pub(crate) fn page_structure_updates(source: &Document) -> Result<Vec<(ObjectId,
         ));
     }
     Ok(subset.updates)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use lopdf::dictionary;
+
+    /// One page whose tag tree has `elements` paragraph elements.
+    fn tagged_page(elements: usize) -> (Document, ObjectId, ObjectId) {
+        let mut document = Document::with_version("1.7");
+        let pages = document.new_object_id();
+        let page = document.add_object(dictionary! {
+            "Type" => "Page", "Parent" => pages, "StructParents" => 0,
+            "MediaBox" => vec![0.into(), 0.into(), 100.into(), 100.into()],
+        });
+        document.objects.insert(
+            pages,
+            Object::Dictionary(
+                dictionary! {"Type" => "Pages", "Kids" => vec![page.into()], "Count" => 1},
+            ),
+        );
+        let kids = (0..elements)
+            .map(|mcid| {
+                Object::Reference(document.add_object(dictionary! {
+                    "S" => "P", "Pg" => page, "K" => mcid as i64,
+                }))
+            })
+            .collect::<Vec<_>>();
+        let marks = kids.clone();
+        let root = document.add_object(dictionary! {
+            "Type" => "StructTreeRoot", "K" => kids,
+            "ParentTree" => dictionary! {"Nums" => vec![0.into(), Object::Array(marks)]},
+        });
+        let catalog = document.add_object(dictionary! {
+            "Type" => "Catalog", "Pages" => pages, "StructTreeRoot" => root,
+        });
+        document.trailer.set("Root", catalog);
+        (document, page, catalog)
+    }
+
+    fn updated_catalog(document: &Document, catalog: ObjectId) -> Dictionary {
+        page_structure_updates(document)
+            .unwrap()
+            .into_iter()
+            .find(|(id, _)| *id == catalog)
+            .map(|(_, object)| object.as_dict().unwrap().clone())
+            .unwrap_or_else(|| document.get_dictionary(catalog).unwrap().clone())
+    }
+
+    #[test]
+    fn a_tree_beyond_the_walk_limit_is_dropped_whole_not_saved_in_part() {
+        let (document, _, catalog) = tagged_page(500);
+        assert!(updated_catalog(&document, catalog).has(b"StructTreeRoot"));
+        let (document, _, catalog) = tagged_page(crate::catalog::CATALOG_WALK_NODE_LIMIT + 1);
+        assert!(!updated_catalog(&document, catalog).has(b"StructTreeRoot"));
+    }
+
+    #[test]
+    fn form_xobject_parent_tree_keys_survive_reconciliation() {
+        let (mut document, _, catalog) = tagged_page(1);
+        let element = document
+            .get_dictionary(catalog)
+            .unwrap()
+            .get(b"StructTreeRoot")
+            .unwrap()
+            .as_reference()
+            .unwrap();
+        let first = document
+            .get_dictionary(element)
+            .unwrap()
+            .get(b"K")
+            .unwrap()
+            .as_array()
+            .unwrap()[0]
+            .clone();
+        document.add_object(Stream::new(
+            dictionary! {"Type" => "XObject", "Subtype" => "Form", "StructParents" => 7},
+            Vec::new(),
+        ));
+        let root = document.get_dictionary_mut(element).unwrap();
+        root.set(
+            "ParentTree",
+            dictionary! {"Nums" => vec![0.into(), Object::Array(vec![first.clone()]), 7.into(), Object::Array(vec![first])]},
+        );
+        let updates = page_structure_updates(&document).unwrap();
+        let tree = updates
+            .iter()
+            .find(|(id, _)| *id == element)
+            .unwrap()
+            .1
+            .as_dict()
+            .unwrap();
+        let nums = tree
+            .get(b"ParentTree")
+            .unwrap()
+            .as_dict()
+            .unwrap()
+            .get(b"Nums")
+            .unwrap()
+            .as_array()
+            .unwrap();
+        assert!(
+            nums.iter().any(|key| key.as_i64().ok() == Some(7)),
+            "{nums:?}"
+        );
+    }
+
+    #[test]
+    fn an_annotation_keeps_struct_parent_only_when_its_element_marks_it() {
+        let (mut document, page, catalog) = tagged_page(1);
+        let annotation = document
+            .add_object(dictionary! {"Type" => "Annot", "Subtype" => "Link", "StructParent" => 1});
+        let other = document.add_object(dictionary! {"Type" => "Annot", "Subtype" => "Link"});
+        let element = document.add_object(dictionary! {
+            "S" => "Link", "Pg" => page,
+            "K" => dictionary! {"Type" => "OBJR", "Obj" => other, "Pg" => page},
+        });
+        document
+            .get_dictionary_mut(page)
+            .unwrap()
+            .set("Annots", vec![annotation.into(), other.into()]);
+        let root = document
+            .get_dictionary(catalog)
+            .unwrap()
+            .get(b"StructTreeRoot")
+            .unwrap()
+            .as_reference()
+            .unwrap();
+        let tree = document.get_dictionary_mut(root).unwrap();
+        tree.get_mut(b"K")
+            .unwrap()
+            .as_array_mut()
+            .unwrap()
+            .push(element.into());
+        let nums = tree
+            .get_mut(b"ParentTree")
+            .unwrap()
+            .as_dict_mut()
+            .unwrap()
+            .get_mut(b"Nums")
+            .unwrap()
+            .as_array_mut()
+            .unwrap();
+        nums.extend([1.into(), element.into()]);
+        let updates = page_structure_updates(&document).unwrap();
+        let updated = updates
+            .iter()
+            .find(|(id, _)| *id == annotation)
+            .map(|(_, object)| object.as_dict().unwrap());
+        assert!(updated.is_some_and(|annotation| !annotation.has(b"StructParent")));
+    }
 }

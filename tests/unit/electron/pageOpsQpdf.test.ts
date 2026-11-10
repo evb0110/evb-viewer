@@ -579,7 +579,8 @@ describe('page-ops qpdf working-copy mutations', () => {
 
             await expect(deletePages(workingCopyPath, [900_000], 1_000_000, 12))
                 .resolves.toEqual({pageCount: 999_999});
-            expect(runNativeToolCommandMock).toHaveBeenCalledTimes(2);
+            // Page count, the subset, and the rewrite that drops the removed pages' leftovers.
+            expect(runNativeToolCommandMock).toHaveBeenCalledTimes(3);
         } finally {
             await rm(workDir, {
                 recursive: true,
@@ -624,7 +625,8 @@ describe('page-ops qpdf working-copy mutations', () => {
                 startPage: 2,
                 endPage: 1_000_000,
             }], 1_000_000, 12)).resolves.toEqual({pageCount: 1});
-            expect(runNativeToolCommandMock).toHaveBeenCalledTimes(2);
+            // Page count, the subset, and the rewrite that drops the removed pages' leftovers.
+            expect(runNativeToolCommandMock).toHaveBeenCalledTimes(3);
             await expect(readFile(workingCopyPath, 'utf8')).resolves.toBe('%PDF-1.7\nkept');
         } finally {
             await rm(workDir, {

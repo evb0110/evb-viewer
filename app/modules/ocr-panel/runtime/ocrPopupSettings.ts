@@ -80,11 +80,13 @@ export function applyAgentOcrOptionsToSettings(
     if (parsedOptions.pageSegmentationMode !== undefined) {
         nextSettings.pageSegmentationMode = parsedOptions.pageSegmentationMode;
     }
-    // An agent replaces other apps' hidden OCR only when it acknowledges that explicitly.
-    if (parsedOptions.supersessionPolicy !== undefined
-        && (parsedOptions.supersessionPolicy !== 'replace-all' || parsedOptions.replaceAllAcknowledged === true)) {
-        nextSettings.supersessionPolicy = parsedOptions.supersessionPolicy;
-    }
+    // An agent replaces other apps' hidden OCR only when it acknowledges that
+    // explicitly; asked for it, or inheriting it from the dialog, without
+    // acknowledging, it still repairs EVB's own recognition.
+    const supersessionPolicy = parsedOptions.supersessionPolicy ?? currentSettings.supersessionPolicy;
+    nextSettings.supersessionPolicy = supersessionPolicy === 'replace-all' && parsedOptions.replaceAllAcknowledged !== true
+        ? 'replace-evb'
+        : supersessionPolicy;
 
     const languages = normalizeAgentLanguages(parsedOptions.languages, availableLanguageCodes);
     if (languages !== null) {

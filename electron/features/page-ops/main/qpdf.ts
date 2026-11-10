@@ -192,15 +192,24 @@ function formatComplementPageList(pagesToRemove: number[], totalPages: number) {
     };
 }
 
-/**
- * A page operation's `--pages` output, reconciled with the tags, layers and
- * form fields of the pages it keeps before anything publishes it.
- */
-export async function runQpdfPageOperation(args: string[], options: TRunQpdfCommandOptions) {
+// A page operation's `--pages` output, reconciled with the kept pages' tags, layers and forms.
+// Removing pages rewrites it so no old revision keeps their text.
+export async function runQpdfPageOperation(args: string[], options: TRunQpdfCommandOptions, removesPages = false) {
+    const output = args.at(-1)!;
+    const {
+        workingCopyMaterialization: _materialized, ...rewrite
+    } = options;
     await runQpdfCommand(args, options);
-    await finalizeSubsetForms(args.at(-1)!, {
+    await finalizeSubsetForms(output, {
         ...(options.signal ? {signal: options.signal} : {}),
         ...(options.cancelGroup ? {cancelGroup: options.cancelGroup} : {}),
+    });
+    if (removesPages) await runQpdfCommand([
+        output,
+        '--replace-input',
+    ], {
+        ...rewrite,
+        commandLabel: 'qpdf(compact-page-subset)',
     });
 }
 
@@ -377,7 +386,7 @@ async function extractPageList(
             allowedExitCodes: QPDF_OUTPUT_SUCCESS_EXIT_CODES,
             commandLabel,
             ...options,
-        });
+        }, true);
         await assertNonEmptyPdfOutput(qpdfOutput.outputPath, 'Extracting pages');
         await copyFile(qpdfOutput.outputPath, finalTempPath);
         await assertNonEmptyPdfOutput(finalTempPath, 'Extracting pages');
@@ -392,16 +401,6 @@ async function extractPageList(
 }
 
 export async function extractPages(
-    srcPath: string,
-    destPath: string,
-    pages: number[],
-    options: IQpdfOperationOptions = {},
-) {
-    return extractPageList(srcPath, destPath, formatPageList(pages), 'qpdf(extract-pages)', options);
-}
-
-/** Creates the same reconciled page subset for the print job. */
-export async function extractPagesForPrint(
     srcPath: string,
     destPath: string,
     pages: number[],
@@ -482,7 +481,7 @@ async function deletePageSelection(
             allowedExitCodes: QPDF_OUTPUT_SUCCESS_EXIT_CODES,
             commandLabel: 'qpdf(delete-pages)',
             ...options,
-        });
+        }, true);
         await assertNonEmptyPdfOutput(tempPath, 'Deleting pages');
         await replaceTempOutput(tempPath, materializedPath);
     } catch (err) {

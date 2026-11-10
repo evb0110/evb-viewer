@@ -144,6 +144,13 @@ it.each([
                 && object.dict.get(PDFName.of('Subtype')) === PDFName.of('Image'))
             .map(object => Buffer.from(object.getContents()).toString('base64'));
         expect(imageBytes(saved)).toEqual(expect.arrayContaining(imageBytes(book)));
+        if (operation === 'delete' || operation === 'extract') {
+            // Nothing of the removed page may stay readable in an older revision.
+            const actualTexts = saved.context.enumerateIndirectObjects().flatMap(([
+                , object,
+            ]) => (object instanceof PDFDict ? [object.lookupMaybe(PDFName.of('ActualText'), PDFString, PDFHexString)?.decodeText()] : []));
+            expect(actualTexts).not.toContain(operation === 'delete' ? 'ORIGINAL-1' : 'ORIGINAL-2');
+        }
         if (operation !== 'insert-tagged-source') {
             const root = saved.catalog.lookup(PDFName.of('StructTreeRoot'), PDFDict);
             expect(root.lookup(PDFName.of('K'), PDFArray).size()).toBe(operation.startsWith('insert-') ? 2 : 1);

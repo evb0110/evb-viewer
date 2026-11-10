@@ -719,7 +719,16 @@ describe('useOcrPopupPresenter', () => {
                 harness.ocr.settings.value,
                 {supersessionPolicy: 'replace-all'},
                 languages,
-            ).supersessionPolicy).toBe('missing-only');
+            ).supersessionPolicy).toBe('replace-evb');
+            // An agent that names no policy does not inherit the dialog's replace-all.
+            expect(applyAgentOcrOptionsToSettings(
+                {
+                    ...harness.ocr.settings.value,
+                    supersessionPolicy: 'replace-all',
+                },
+                {pageRange: 'all'},
+                languages,
+            ).supersessionPolicy).toBe('replace-evb');
             expect(applyAgentOcrOptionsToSettings(
                 harness.ocr.settings.value,
                 {

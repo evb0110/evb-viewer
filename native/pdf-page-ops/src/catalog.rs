@@ -51,6 +51,10 @@ impl CatalogWalkState {
         self.nodes += 1;
         true
     }
+
+    pub(crate) fn exhausted(&self) -> bool {
+        self.nodes >= CATALOG_WALK_NODE_LIMIT
+    }
 }
 
 const MAX_OC_GRAPH_DEPTH: usize = 64;

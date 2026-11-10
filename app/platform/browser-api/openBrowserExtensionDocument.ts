@@ -46,6 +46,8 @@ const FILE_EXTENSION_PATTERN: Record<TLaunchDocumentKind, RegExp> = {
 
 async function detectDocumentKind(blob: Blob): Promise<TLaunchDocumentKind | null> {
     const format = detectDocumentFormat(new Uint8Array(await blob.slice(0, DOCUMENT_HEADER_BYTES).arrayBuffer()), blob.size);
+    // A truncated DjVu still goes to the DjVu decoder, which can show the pages it holds.
+    if (format === 'invalid-djvu') return 'djvu';
     return format === 'pdf' || format === 'djvu' ? format : null;
 }
 
