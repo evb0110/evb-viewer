@@ -69,7 +69,7 @@ import {
 
 interface IDjvuConversionState {
     isConverting: boolean;
-    phase: 'converting' | 'bookmarks' | 'optimizing' | null;
+    phase: 'converting' | 'assembling' | 'bookmarks' | 'optimizing' | null;
     percent: number;
 }
 
@@ -345,7 +345,7 @@ export const useDjvu = (config: {
     }
 
     function toConversionPhase(phase: IDjvuProgress['phase']): IDjvuConversionState['phase'] {
-        return phase === 'converting' || phase === 'bookmarks' || phase === 'optimizing'
+        return phase === 'converting' || phase === 'assembling' || phase === 'bookmarks' || phase === 'optimizing'
             ? phase
             : null;
     }

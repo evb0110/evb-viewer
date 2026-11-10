@@ -1015,6 +1015,7 @@ export default {
         'bannerHint': 'Dit DjVu-bestand is alleen-lezen – converteer het naar PDF om te bewerken',
         'convertToPdf': 'Converteren naar PDF...',
         'overlayConverting': 'DjVu converteren naar PDF...',
+        'overlayAssembling': 'PDF samenstellen...',
         'overlayBookmarks': 'Bladwijzers verwerken...',
         'overlayOptimizing': 'PDF optimaliseren voor interactie...',
         'overlayPreparing': 'Voorbereiden...',
