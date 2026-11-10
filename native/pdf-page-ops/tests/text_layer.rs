@@ -1382,7 +1382,10 @@ fn split_text_filter_measures_a_code_outside_the_font_widths_at_missing_width() 
     let result = run_overlay_text(&input, &source, &output, &instructions);
     let warnings = String::from_utf8_lossy(&result.stderr);
     assert!(result.status.success(), "{warnings}");
-    assert!(!warnings.contains("scan_cleanup_text_overlay_skipped"), "{warnings}");
+    assert!(
+        !warnings.contains("scan_cleanup_text_overlay_skipped"),
+        "{warnings}"
+    );
     let text =
         |page| String::from_utf8_lossy(&pdftotext_page(&output, page, &[]).stdout).into_owned();
     let (left, right) = (text(1), text(2));

@@ -797,7 +797,8 @@ fn spread_decision(
     let at_ink_edge = [whitespace.start, whitespace.end]
         .iter()
         .any(|&edge| (decision_x - edge as f64).abs() <= edge_reach);
-    let flat_gutter = soft_gutter.is_none() && flat_paper_between(&analysis.gray, whitespace, edge_reach);
+    let flat_gutter =
+        soft_gutter.is_none() && flat_paper_between(&analysis.gray, whitespace, edge_reach);
     let (decision_x, decision_slope) = if flat_gutter && at_ink_edge {
         (whitespace.x, 0.0)
     } else {

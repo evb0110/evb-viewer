@@ -1229,7 +1229,8 @@ mod tests {
             let end = declaration[start..].find("*/").unwrap() + start + 2;
             declaration.replace_range(start..end, "");
         }
-        let body = &declaration[declaration.find('{').unwrap() + 1..declaration.rfind('}').unwrap()];
+        let body =
+            &declaration[declaration.find('{').unwrap() + 1..declaration.rfind('}').unwrap()];
         body.split(',')
             .filter_map(|field| field.split_once(':'))
             .map(|(name, _)| name.trim().trim_end_matches('?').to_string())
@@ -1249,7 +1250,10 @@ mod tests {
                 .iter()
                 .filter(|field| !allowed.contains(&field.as_str()))
                 .collect::<Vec<_>>();
-            assert!(dropped.is_empty(), "{kind} fields the parser would drop: {dropped:?}");
+            assert!(
+                dropped.is_empty(),
+                "{kind} fields the parser would drop: {dropped:?}"
+            );
         }
     }
 
