@@ -116,23 +116,22 @@ function sanitizeVercelIgnore(sourceRoot, deployTarget) {
 
     const content = readFileSync(vercelIgnorePath, 'utf8');
     const lines = content.split(/\r?\n/u);
+    // The staged vendor/ holds only the declared package archives, so excluding it
+    // would hide exactly them. The native Vercel CLI does not re-include files
+    // under an excluded directory, so the exclusion is dropped, not negated.
+    const keepsVendorArchives = getWebDeployVendorDependencies(sourceRoot).size > 0;
     const filteredLines = lines.filter((line) => {
         const normalizedLine = line.trim().replace(/^\/+|\/+$/gu, '');
 
         if (deployTarget === 'landing' && normalizedLine === 'landing') {
             return false;
         }
+        if (keepsVendorArchives && normalizedLine === 'vendor') {
+            return false;
+        }
 
         return shouldKeepVercelIgnoreLine(line, sourceRoot);
     });
-
-    for (const dependency of getWebDeployVendorDependencies(sourceRoot)) {
-        const segments = dependency.split('/');
-        for (let length = 1; length < segments.length; length += 1) {
-            filteredLines.push(`!${segments.slice(0, length).join('/')}/`);
-        }
-        filteredLines.push(`!${dependency}`);
-    }
     writeFileSync(vercelIgnorePath, filteredLines.join('\n'), 'utf8');
 }
 
