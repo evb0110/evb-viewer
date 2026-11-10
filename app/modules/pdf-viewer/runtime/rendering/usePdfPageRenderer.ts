@@ -432,12 +432,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         };
         const outgoingText = container.querySelector<HTMLDivElement>('.text-layer');
         const textHost = publishRaster ? container.cloneNode(false) as HTMLElement : null;
-        const incomingText = textHost && outgoingText ? outgoingText.cloneNode(false) as HTMLDivElement : outgoingText;
-        if (textHost && incomingText) {
-            const structureHost = document.createElement('div');
-            structureHost.className = 'page_canvas__render-layer';
-            textHost.append(structureHost, incomingText);
-        }
+        let incomingText = outgoingText;
         const outgoingAnnotations = container.querySelector<HTMLElement>('.annotation-layer');
         const incomingAnnotations = textHost && outgoingAnnotations ? outgoingAnnotations.cloneNode(false) as HTMLElement : null;
         if (textHost && incomingAnnotations) textHost.append(incomingAnnotations);
@@ -451,6 +446,15 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
             });
             if (!lease || !shouldContinue()) {
                 return;
+            }
+            // Keep the mounted spans on scale-only renders. Replacing them
+            // collapses every in-flight selection Range, even if the browser's
+            // visible selection is restored onto the replacement afterwards.
+            if (textHost && outgoingText && !textLayerRenderer.canReuseTextLayer(lease.page, outgoingText)) {
+                incomingText = outgoingText.cloneNode(false) as HTMLDivElement;
+                const structureHost = document.createElement('div');
+                structureHost.className = 'page_canvas__render-layer';
+                textHost.append(structureHost, incomingText);
             }
             const context = {
                 container,
@@ -478,7 +482,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
                 () => {
                     if (!shouldContinue() || publishRaster && !publishRaster()) return false;
                     if (incomingAnnotations && outgoingAnnotations) outgoingAnnotations.replaceWith(incomingAnnotations);
-                    if (textHost && outgoingText && incomingText) {
+                    if (textHost && outgoingText && incomingText && incomingText !== outgoingText) {
                         outgoingText.replaceWith(incomingText);
                         textLayerRenderer.cleanupTextLayerDom(outgoingText);
                         container.querySelector('.page_canvas__render-layer, .page_canvas')

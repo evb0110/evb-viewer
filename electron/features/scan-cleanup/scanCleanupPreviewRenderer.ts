@@ -579,6 +579,7 @@ export async function scanCleanupPreviewRenderer(
                 sourceDpi,
                 sourceHasBilevelLayer,
                 ...(sourceBackgroundDpi === undefined ? {} : {sourceBackgroundDpi}),
+                facingPairGeometry: boundedGeometry?.facingPair ?? false,
                 requestedRenderDpi,
                 ...(request.detail === undefined
                     ? (request.outputModeRecommendation === undefined

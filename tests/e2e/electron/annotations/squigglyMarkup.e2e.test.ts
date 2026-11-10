@@ -600,22 +600,77 @@ describe('Electron E2E - EVB text markup', () => {
         await openAnnotationsTab(page);
         await waitForViewerInteractive(page);
         await waitForRenderedTextSpans(page, [1]);
-        await requireWorkspaceCommand<boolean>(page, 'setCustomZoomFromDisplay', [1]);
-        await waitForWorkspaceToolbarSnapshot(page, {effectiveZoom: 1}, {timeoutMs: 20_000});
-        await waitForViewerInteractive(page);
-        const selectedText = await selectTextFromRenderedSpans(page, {
-            startPage: 1,
-            startSpan: 0,
-            endPage: 1,
-            endSpan: 2,
+        // Keep zoom's real worker requests pending until Highlight starts
+        // extracting text, then let text-layer publication finish first.
+        // The markup must still cover all three selected lines.
+        await page.evaluate(() => {
+            const pendingRenders: Array<() => void> = [];
+            let pendingGeometry: (() => void) | null = null;
+            let selectedLayer: Element | null = null;
+            const postMessage = Worker.prototype.postMessage;
+            const pageElement = document.querySelector('.page_container[data-page="1"]');
+            if (!pageElement) throw new Error('The selectable page is missing');
+            const observer = new MutationObserver(() => {
+                if (pendingGeometry && pageElement.querySelector('.text-layer') !== selectedLayer) {
+                    const resume = pendingGeometry;
+                    pendingGeometry = null;
+                    resume();
+                }
+            });
+            observer.observe(pageElement, {
+                childList: true,
+                subtree: true,
+            });
+            Worker.prototype.postMessage = function (message: unknown, transfer?: Transferable[] | StructuredSerializeOptions) {
+                const send = () => Reflect.apply(postMessage, this, [
+                    message,
+                    transfer,
+                ]);
+                if (message && typeof message === 'object' && 'action' in message && message.action === 'GetTextContent') {
+                    const highlightActive = document.querySelector('.notes-panel .tool-button[data-tool="highlight"].is-active');
+                    if (!highlightActive) {
+                        pendingRenders.push(send);
+                        return;
+                    }
+                    if (pendingRenders.length > 0) {
+                        selectedLayer = pageElement.querySelector('.text-layer');
+                        pendingGeometry = send;
+                        pendingRenders.splice(0).forEach(resume => resume());
+                        return;
+                    }
+                }
+                send();
+            };
+            Reflect.set(window, '__evbZoomSelectionCleanup', () => {
+                Worker.prototype.postMessage = postMessage;
+                observer.disconnect();
+                pendingRenders.splice(0).forEach(resume => resume());
+                pendingGeometry?.();
+            });
         });
-        expect(selectedText).toContain('third line 1');
-        await clickVisibleAnnotationControl(page, '.zoom-controls button[aria-label="Zoom Out"]');
-        await waitForWorkspaceToolbarSnapshot(page, {effectiveZoom: 0.75}, {timeoutMs: 20_000});
-        await waitForPageWidthAtZoom(page, 612, 0.75);
-        await waitForViewerInteractive(page);
-        await clickAnnotationTool(page, 'Highlight');
-        await waitForEvbTextMarkupVisualCount(page, 1);
+        try {
+            await requireWorkspaceCommand<boolean>(page, 'setCustomZoomFromDisplay', [1]);
+            await waitForWorkspaceToolbarSnapshot(page, {effectiveZoom: 1}, {timeoutMs: 20_000});
+            await waitForViewerInteractive(page);
+            const selectedText = await selectTextFromRenderedSpans(page, {
+                startPage: 1,
+                startSpan: 0,
+                endPage: 1,
+                endSpan: 2,
+            });
+            expect(selectedText).toContain('third line 1');
+            await clickVisibleAnnotationControl(page, '.zoom-controls button[aria-label="Zoom Out"]');
+            await waitForWorkspaceToolbarSnapshot(page, {effectiveZoom: 0.75}, {timeoutMs: 20_000});
+            await waitForPageWidthAtZoom(page, 612, 0.75);
+            await waitForViewerInteractive(page);
+            await clickAnnotationTool(page, 'Highlight');
+            await waitForEvbTextMarkupVisualCount(page, 1);
+        } finally {
+            await page.evaluate(() => {
+                Reflect.get(window, '__evbZoomSelectionCleanup')?.();
+                Reflect.deleteProperty(window, '__evbZoomSelectionCleanup');
+            });
+        }
         const basePageWidth = await page.$eval('.page_container[data-page="1"]', (element) => {
             const width = element.getBoundingClientRect().width;
             if (width <= 0) {

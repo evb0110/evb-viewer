@@ -140,6 +140,7 @@ export interface IResolveEffectiveScanCleanupOptionsInput {
     sourceDpi?: number;
     sourceHasBilevelLayer?: boolean;
     sourceBackgroundDpi?: number;
+    facingPairGeometry?: boolean;
     requestedRenderDpi?: number;
     renderCrop?: INativeScanCleanupOptionsV3['renderCrop'];
     resolvedOutputMode?: TScanCleanupOutputMode;
@@ -367,6 +368,7 @@ export function resolveEffectiveScanCleanupOptions({
     sourceDpi = dpi,
     sourceHasBilevelLayer = false,
     sourceBackgroundDpi,
+    facingPairGeometry = false,
     requestedRenderDpi = dpi,
     renderCrop,
     resolvedOutputMode,
@@ -436,6 +438,7 @@ export function resolveEffectiveScanCleanupOptions({
         // not repeat the same split classification. Explicit user choices and
         // manual cutters always win.
         layout,
+        ...(facingPairGeometry ? {facingPairGeometry: true} : {}),
         manualSplit: pageOverride.manualSplit,
         ...(automaticSplit === undefined ? {} : {automaticSplit}),
         ...(pageOverride.manualSkewDegrees === undefined

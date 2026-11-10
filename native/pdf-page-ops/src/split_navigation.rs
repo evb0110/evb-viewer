@@ -140,7 +140,7 @@ pub(crate) fn rebind_retained_destinations(
     source_path: &Path,
     instructions: &TextLayerFile,
     qpdf_path: Option<&Path>,
-) -> Result<()> {
+) -> Result<bool> {
     let mut incremental = load_incremental_pdf_path(output_path, qpdf_path)
         .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?;
     assert_plaintext_base(
@@ -149,11 +149,8 @@ pub(crate) fn rebind_retained_destinations(
     )?;
     let source = load_incremental_pdf_path(source_path, qpdf_path)?.previous_document;
     let rebind = rebind_retained_destinations_in(&mut incremental, source, instructions)?;
-    if rebind.accessibility_tags_removed {
-        println!("{}", serde_json::json!({"accessibilityTagsRemoved": true}));
-    }
     if !rebind.appends_revision {
-        return Ok(());
+        return Ok(rebind.accessibility_tags_removed);
     }
     let revision_bytes = build_incremental_revision(&mut incremental)?;
     let expected_object_ids = collect_incremental_append_object_ids(&incremental);
@@ -162,7 +159,8 @@ pub(crate) fn rebind_retained_destinations(
         &incremental,
         &revision_bytes,
         &expected_object_ids,
-    )
+    )?;
+    Ok(rebind.accessibility_tags_removed)
 }
 
 /// What the final overlay pass changed on top of the copied text layers.

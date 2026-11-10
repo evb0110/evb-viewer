@@ -5,7 +5,11 @@ import type {
 import {resolveScanCleanupRasterPageSizeStore} from '@electron/features/scan-cleanup/resolveScanCleanupRasterPageSizeStore';
 import {detectPageRasterFromPageSize} from '@evb/scan-cleanup/core/types';
 import type {IScanCleanupPreviewRequest} from '@contracts/scan-cleanup/electronApiScanCleanup';
-import {PREVIEW_DPI} from '@evb/scan-cleanup/core/detection';
+import {
+    createScanCleanupPreviewDocumentFacts,
+    type IScanCleanupPreviewDocumentFacts,
+    resolveScanCleanupPreviewPageFacts,
+} from '@evb/scan-cleanup/core/policy/scanCleanupPreviewPolicy';
 import {
     addScanCleanupDocumentCanvasPage,
     createScanCleanupDocumentCanvasAccumulator,
@@ -13,7 +17,6 @@ import {
 } from '@evb/scan-cleanup/core/policy/documentCanvas';
 import type {
     IBoundedPreviewGeometry,
-    IPreviewDocumentFacts,
     IRetainedDocument,
     IScanCleanupRasterDependencies,
 } from '@electron/features/scan-cleanup/scanCleanupPreviewShared';
@@ -204,7 +207,7 @@ export async function readBoundedPreviewGeometry(
     request: Pick<IScanCleanupPreviewRequest, 'pageNumber' | 'layoutByPage' | 'options'>,
     signal: AbortSignal,
 ): Promise<IBoundedPreviewGeometry> {
-    const facts = await resolveScanCleanupDocumentMeasurement<IPreviewDocumentFacts>(
+    const facts = await resolveScanCleanupDocumentMeasurement<IScanCleanupPreviewDocumentFacts>(
         {
             read: () => document.previewDocumentFacts,
             write: value => {
@@ -213,22 +216,9 @@ export async function readBoundedPreviewGeometry(
         },
         signal,
         async () => {
-            let allPagesHaveRasterMetadata = true as boolean;
-            let documentDpi = 0;
-            await forEachDocumentPage(store, totalPages, page => {
-                const raster = detectPageRasterFromPageSize(page);
-                if (raster === undefined) {
-                    allPagesHaveRasterMetadata = false;
-                } else {
-                    documentDpi = Math.max(documentDpi, raster.dpi);
-                }
-            });
-            return {
-                allPagesHaveRasterMetadata,
-                previewDpi: allPagesHaveRasterMetadata && documentDpi > 0
-                    ? Math.min(PREVIEW_DPI, documentDpi)
-                    : PREVIEW_DPI,
-            };
+            const documentFacts = createScanCleanupPreviewDocumentFacts();
+            await forEachDocumentPage(store, totalPages, page => documentFacts.add(page));
+            return documentFacts.seal();
         },
     );
     const accumulator = request.options.matchPageSize
@@ -237,12 +227,10 @@ export async function readBoundedPreviewGeometry(
     const pageSize = request.pageNumber >= 1 && request.pageNumber <= totalPages
         ? await store.getPage(request.pageNumber)
         : undefined;
-    const pageRaster = pageSize === undefined ? undefined : detectPageRasterFromPageSize(pageSize);
     return {
         accumulator,
         pageSize,
-        previewDpi: facts.previewDpi,
-        pageSourceDpi: facts.allPagesHaveRasterMetadata ? pageRaster?.dpi : undefined,
+        ...resolveScanCleanupPreviewPageFacts(facts, pageSize),
     };
 }
 

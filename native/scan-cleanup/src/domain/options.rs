@@ -606,6 +606,12 @@ pub struct CleanupOptions {
     pub ocr_polarity_only: bool,
     #[serde(default)]
     pub layout: LayoutMode,
+    /// The source PDF page is exactly two of the document's other pages side
+    /// by side, as a spread export lays out facing pages. It holds for the
+    /// page as authored, before any orthogonal rotation.
+    #[serde(default)]
+    #[cfg_attr(test, ts(optional = nullable))]
+    pub facing_pair_geometry: bool,
     #[serde(rename = "manualSplit")]
     #[cfg_attr(test, ts(optional = nullable))]
     pub manual_split_x: Option<NormalizedSplit>,
@@ -698,6 +704,7 @@ impl Default for CleanupOptions {
             ocr_mode: false,
             ocr_polarity_only: false,
             layout: LayoutMode::Auto,
+            facing_pair_geometry: false,
             manual_split_x: None,
             automatic_split: None,
             manual_skew_degrees: None,

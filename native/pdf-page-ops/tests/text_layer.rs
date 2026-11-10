@@ -1345,6 +1345,59 @@ fn split_text_filter_measures_each_source_page_with_its_own_font_of_a_shared_nam
 }
 
 #[test]
+fn split_text_filter_measures_a_code_outside_the_font_widths_at_missing_width() {
+    // InDesign exports carry helper fonts such as ZWAdobeF whose Widths cover
+    // one code and which show others; those take MissingWidth, zero by default.
+    let source = path("split-missing-width-source", "pdf");
+    let input = path("split-missing-width-input", "pdf");
+    let output = path("split-missing-width-output", "pdf");
+    let instructions = path("split-missing-width-instructions", "json");
+    let helper = dictionary! {
+        "Type" => "Font",
+        "Subtype" => "TrueType",
+        "BaseFont" => "ZWAdobeF",
+        "FirstChar" => 255,
+        "LastChar" => 255,
+        "Widths" => vec![Object::Integer(0)],
+    };
+    save_single_page(
+        &source,
+        b"BT /F2 10 Tf 3 Tr 1 0 0 1 80 90 Tm (1) Tj /F1 10 Tf (ABCD) Tj ET".to_vec(),
+        dictionary! { "Font" => dictionary! { "F1" => measurable_helvetica_font(), "F2" => helper } },
+    );
+    let mut target = save_pages(&input, (0..2).map(|_| Some(Vec::new())), Dictionary::new());
+    for page_id in target.get_pages().into_values() {
+        target
+            .get_dictionary_mut(page_id)
+            .unwrap()
+            .set("MediaBox", vec![0.into(), 0.into(), 100.into(), 120.into()]);
+    }
+    target.save(&input).unwrap();
+    write(
+        &instructions,
+        r#"{"pages":[{"sourcePageIndex":0,"outputPageIndex":0,"matrix":[1,0,0,1,0,0],"filterToOutputPage":true},{"sourcePageIndex":0,"outputPageIndex":1,"matrix":[1,0,0,1,-100,0],"filterToOutputPage":true}]}"#,
+    )
+    .unwrap();
+
+    let result = run_overlay_text(&input, &source, &output, &instructions);
+    let warnings = String::from_utf8_lossy(&result.stderr);
+    assert!(result.status.success(), "{warnings}");
+    assert!(
+        !warnings.contains("scan_cleanup_text_overlay_skipped"),
+        "{warnings}"
+    );
+    let text =
+        |page| String::from_utf8_lossy(&pdftotext_page(&output, page, &[]).stdout).into_owned();
+    let (left, right) = (text(1), text(2));
+    assert!(left.contains("AB") && !left.contains('C'), "{left}");
+    assert!(right.contains("CD") && !right.contains('B'), "{right}");
+
+    for path in [source, input, output, instructions] {
+        let _ = remove_file(path);
+    }
+}
+
+#[test]
 fn split_text_filter_skips_an_unbalanced_graphics_state_without_aborting_cleanup() {
     let source = path("split-malformed-source", "pdf");
     let input = path("split-malformed-input", "pdf");
@@ -1371,6 +1424,8 @@ fn split_text_filter_skips_an_unbalanced_graphics_state_without_aborting_cleanup
     let warning = String::from_utf8_lossy(&result.stderr);
     assert!(warning.contains("scan_cleanup_text_overlay_skipped"));
     assert!(warning.contains("unmatched Q"));
+    let report: serde_json::Value = serde_json::from_slice(&result.stdout).unwrap();
+    assert_eq!(report["textOmittedSourcePages"], serde_json::json!([1]));
     let text = pdftotext_page(&output, 1, &[]);
     assert!(text.status.success());
     assert!(!String::from_utf8_lossy(&text.stdout).contains("MUST_NOT_LEAK"));

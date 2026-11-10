@@ -113,12 +113,14 @@ pub(crate) struct TextLayerSourceRegion {
 
 pub(crate) type OverlayPage<'a> = (ObjectId, ObjectId, &'a TextLayerInstruction, PdfRect);
 
+/// Returns the output pages whose source text could not be measured onto
+/// them and was therefore left off.
 fn append_overlay_pages(
     target: &mut Document,
     source: &Document,
     instructions: &TextLayerFile,
     base: Option<&Document>,
-) -> Result<()> {
+) -> Result<Vec<usize>> {
     let source_resolver = PageTreeResolver::new(source)?;
     let target_resolver = PageTreeResolver::new(base.unwrap_or(target))?;
     let pages: Vec<OverlayPage<'_>> = instructions
@@ -140,6 +142,7 @@ fn append_overlay_pages(
         .collect::<Result<_>>()?;
     let remap = crate::split_navigation::split_destination_mapper(source, &pages);
     let mut copied = HashMap::new();
+    let mut omitted = Vec::new();
     for &(source_id, target_id, instruction, _) in pages.iter().filter(|p| !p.2.link_only) {
         crate::ocr_layer_contents::form_text_omission(source, source_id)?;
         // The new-document object map already owns materialization.
@@ -176,21 +179,22 @@ fn append_overlay_pages(
                     "reason": reason,
                 })
             );
+            omitted.push(instruction.output_page_index);
         }
     }
-    Ok(())
+    Ok(omitted)
 }
 
 pub(crate) fn overlay_text_layers(
     target: &mut Document,
     source: &Document,
     instructions: &TextLayerFile,
-) -> Result<()> {
-    append_overlay_pages(target, source, instructions, None)?;
+) -> Result<Vec<usize>> {
+    let omitted = append_overlay_pages(target, source, instructions, None)?;
     target.prune_objects();
     // Compress new OCR streams without changing already-compressed images.
     target.compress();
-    Ok(())
+    Ok(omitted)
 }
 
 /// Materialize only the target page dictionaries touched by an overlay. The
@@ -252,7 +256,7 @@ pub(crate) fn overlay_text_layers_incremental(
     incremental: &mut IncrementalDocument,
     source: &Document,
     instructions: &TextLayerFile,
-) -> Result<()> {
+) -> Result<Vec<usize>> {
     append_overlay_pages(
         &mut incremental.new_document,
         source,
@@ -507,6 +511,7 @@ fn try_write_overlay_source_batch(
     temp_dir: &OverlaySourceTempDir,
     batch_id: usize,
     destinations: &OverlayDestinations,
+    omitted: &mut Vec<usize>,
 ) -> std::result::Result<(), OverlaySourceBatchFailure> {
     let subset = destinations
         .subset_pages(pages)
@@ -550,14 +555,15 @@ fn try_write_overlay_source_batch(
             "Encrypted PDFs are not supported by native page ops",
         )
         .map_err(OverlaySourceBatchFailure::Failed)?;
-        if let Err(error) =
-            overlay_text_layers_incremental(&mut incremental, &source, &batch_instructions)
-        {
-            return Err(if is_too_large_error(error.as_ref()) {
-                OverlaySourceBatchFailure::TooLarge
-            } else {
-                OverlaySourceBatchFailure::Failed(error)
-            });
+        match overlay_text_layers_incremental(&mut incremental, &source, &batch_instructions) {
+            Ok(batch_omitted) => omitted.extend(batch_omitted),
+            Err(error) => {
+                return Err(if is_too_large_error(error.as_ref()) {
+                    OverlaySourceBatchFailure::TooLarge
+                } else {
+                    OverlaySourceBatchFailure::Failed(error)
+                });
+            }
         }
         incremental.new_document.version = incremental.get_prev_documents().version.clone();
         let revision_bytes = build_incremental_revision(&mut incremental)
@@ -584,6 +590,7 @@ fn write_overlay_source_batch_with_split(
     temp_dir: &OverlaySourceTempDir,
     next_batch_id: &mut usize,
     destinations: &OverlayDestinations,
+    omitted: &mut Vec<usize>,
 ) -> Result<()> {
     let batch_id = *next_batch_id;
     *next_batch_id = batch_id
@@ -598,6 +605,7 @@ fn write_overlay_source_batch_with_split(
         temp_dir,
         batch_id,
         destinations,
+        omitted,
     ) {
         Ok(()) => Ok(()),
         Err(OverlaySourceBatchFailure::Failed(error)) => Err(error),
@@ -612,6 +620,7 @@ fn write_overlay_source_batch_with_split(
                 temp_dir,
                 next_batch_id,
                 destinations,
+                omitted,
             )?;
             write_overlay_source_batch_with_split(
                 output_path,
@@ -622,6 +631,7 @@ fn write_overlay_source_batch_with_split(
                 temp_dir,
                 next_batch_id,
                 destinations,
+                omitted,
             )
         }
         Err(OverlaySourceBatchFailure::TooLarge) => {
@@ -665,7 +675,7 @@ pub(crate) fn overlay_text_bytes(
         &source,
         "Encrypted source PDFs are not supported by native page ops",
     )?;
-    overlay_text_layers(&mut target, &source, &instructions)?;
+    let omitted = overlay_text_layers(&mut target, &source, &instructions)?;
     let mut output = save_document_to_bytes(&mut target)?;
     drop(target);
     let mut incremental = incremental_from_bytes(&output)?;
@@ -686,6 +696,7 @@ pub(crate) fn overlay_text_bytes(
         data: output,
         report: crate::split_pages::scan_cleanup_page_ops_report(
             rebind.accessibility_tags_removed,
+            &omitted_source_pages(&instructions, &omitted),
         )?,
     })
 }
@@ -698,9 +709,38 @@ pub(crate) fn write_overlay_text_layers_path(
     qpdf_path: Option<&Path>,
 ) -> Result<()> {
     with_staged_incremental_output(input_path, output_path, |staged| {
-        write_overlay_text_layer_copies(input_path, source_path, staged, instructions, qpdf_path)?;
-        rebind_retained_destinations(staged, source_path, instructions, qpdf_path)
+        let omitted = write_overlay_text_layer_copies(
+            input_path,
+            source_path,
+            staged,
+            instructions,
+            qpdf_path,
+        )?;
+        let tags_removed =
+            rebind_retained_destinations(staged, source_path, instructions, qpdf_path)?;
+        let omitted = omitted_source_pages(instructions, &omitted);
+        if tags_removed || !omitted.is_empty() {
+            let report = crate::split_pages::scan_cleanup_page_ops_report(tags_removed, &omitted)?;
+            println!("{}", String::from_utf8(report)?);
+        }
+        Ok(())
     })
+}
+
+/// The source page numbers, one-based and ascending, whose text was left off
+/// some output page. Output indices name the run's own instructions, which a
+/// rebased source batch does not renumber.
+fn omitted_source_pages(instructions: &TextLayerFile, omitted_outputs: &[usize]) -> Vec<usize> {
+    let omitted_outputs = omitted_outputs.iter().copied().collect::<HashSet<_>>();
+    let mut pages = instructions
+        .pages
+        .iter()
+        .filter(|instruction| omitted_outputs.contains(&instruction.output_page_index))
+        .map(|instruction| instruction.source_page_index + 1)
+        .collect::<Vec<_>>();
+    pages.sort_unstable();
+    pages.dedup();
+    pages
 }
 
 fn write_overlay_text_layer_copies(
@@ -709,7 +749,7 @@ fn write_overlay_text_layer_copies(
     output_path: &Path,
     instructions: &TextLayerFile,
     qpdf_path: Option<&Path>,
-) -> Result<()> {
+) -> Result<Vec<usize>> {
     // Preserve the established rewrite semantics only when both documents fit
     // the byte-input compatibility budget. A large source is just as unsafe to
     // eagerly load as a large target, even when the target itself is small.
@@ -735,11 +775,11 @@ fn write_overlay_text_layer_copies(
             &source,
             "Encrypted source PDFs are not supported by native page ops",
         )?;
-        overlay_text_layers(&mut target, &source, instructions)?;
+        let omitted = overlay_text_layers(&mut target, &source, instructions)?;
         let mut output = AtomicOutput::create(output_path)?;
         target.save_to(output.file_mut()?)?;
         output.publish_if_unchanged()?;
-        return Ok(());
+        return Ok(omitted);
     }
 
     let qpdf_path = qpdf_path.ok_or_else(|| {
@@ -766,18 +806,19 @@ fn write_overlay_text_layer_copies(
             &source,
             "Encrypted source PDFs are not supported by native page ops",
         )?;
-        overlay_text_layers_incremental(&mut incremental, &source, instructions)?;
+        let omitted = overlay_text_layers_incremental(&mut incremental, &source, instructions)?;
         incremental.new_document.version = incremental.get_prev_documents().version.clone();
         let revision_bytes = build_incremental_revision(&mut incremental)?;
         let expected_object_ids = collect_incremental_append_object_ids(&incremental);
-        return with_staged_incremental_output(input_path, output_path, |staged_output_path| {
+        with_staged_incremental_output(input_path, output_path, |staged_output_path| {
             write_incremental_revision(
                 staged_output_path,
                 &incremental,
                 &revision_bytes,
                 &expected_object_ids,
             )
-        });
+        })?;
+        return Ok(omitted);
     }
 
     // Probe both path-backed documents through qpdf before extracting any
@@ -799,6 +840,7 @@ fn write_overlay_text_layer_copies(
     let source_pages = referenced_source_pages(instructions)?;
     let destinations = OverlayDestinations::new(source_probe.get_prev_documents(), instructions)?;
     let temp_dir = OverlaySourceTempDir::create()?;
+    let mut omitted = Vec::new();
     with_staged_incremental_output(input_path, output_path, |staged_output_path| {
         let mut next_batch_id = 0;
         for pages in source_pages.chunks(MAX_SOURCE_PAGE_BATCH_PAGES) {
@@ -811,8 +853,10 @@ fn write_overlay_text_layer_copies(
                 &temp_dir,
                 &mut next_batch_id,
                 &destinations,
+                &mut omitted,
             )?;
         }
         Ok(())
-    })
+    })?;
+    Ok(omitted)
 }

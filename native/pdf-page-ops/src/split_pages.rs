@@ -400,18 +400,27 @@ pub(crate) fn split_pages_bytes(data: &[u8], instructions: &[u8]) -> Result<Repo
     Ok(ReportedBytes {
         page_count: page_count(&document),
         data: save_document_to_bytes(&mut document)?,
-        report: scan_cleanup_page_ops_report(accessibility_tags_removed)?,
+        report: scan_cleanup_page_ops_report(accessibility_tags_removed, &[])?,
     })
 }
 
-/// What `split-pages` and `overlay-text` print: `{}` or the dropped tags.
-#[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
-pub(crate) fn scan_cleanup_page_ops_report(accessibility_tags_removed: bool) -> Result<Vec<u8>> {
-    Ok(serde_json::to_vec(&if accessibility_tags_removed {
-        serde_json::json!({"accessibilityTagsRemoved": true})
-    } else {
-        serde_json::json!({})
-    })?)
+/// What `split-pages` and `overlay-text` report: whether the tag tree was
+/// dropped, and the one-based source pages whose text some output page left off.
+pub(crate) fn scan_cleanup_page_ops_report(
+    accessibility_tags_removed: bool,
+    text_omitted_source_pages: &[usize],
+) -> Result<Vec<u8>> {
+    let mut report = serde_json::Map::new();
+    if accessibility_tags_removed {
+        report.insert("accessibilityTagsRemoved".into(), true.into());
+    }
+    if !text_omitted_source_pages.is_empty() {
+        report.insert(
+            "textOmittedSourcePages".into(),
+            text_omitted_source_pages.into(),
+        );
+    }
+    Ok(serde_json::to_vec(&report)?)
 }
 
 /// Split a path-backed PDF by appending a new page tree. Existing page and

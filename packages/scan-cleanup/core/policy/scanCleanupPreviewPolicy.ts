@@ -26,7 +26,10 @@ import {
     resolveScanCleanupCanvasFitScale,
     resolveScanCleanupOutputPageRect,
 } from '@evb/scan-cleanup/core/policy/documentCanvas';
-import type {IPdfPageSize} from '@evb/scan-cleanup/core/types';
+import {
+    detectPageRasterFromPageSize,
+    type IPdfPageSize,
+} from '@evb/scan-cleanup/core/types';
 import {
     resolveScanCleanupPipelineMaxPixels,
     resolveScanCleanupRequestedRenderDpi,
@@ -35,13 +38,68 @@ import {
     describeScanCleanupNativeWarnings,
     formatScanCleanupWarningEvent,
 } from '@evb/scan-cleanup/core/policy/scanCleanupWarningEvents';
-import {PREVIEW_DPI} from '@evb/scan-cleanup/core/policy/scanCleanupRasterPolicy';
+import {
+    PREVIEW_DPI,
+    toCropBoxPageSize,
+} from '@evb/scan-cleanup/core/policy/scanCleanupRasterPolicy';
+import {
+    createScanCleanupFacingPairGeometry,
+    type IScanCleanupFacingPairGeometry,
+} from '@evb/scan-cleanup/core/policy/createScanCleanupFacingPairGeometry';
 
 /*
  * What a preview renders and how its native metadata becomes the preview
  * result. Desktop runs the decisions through manifest files and the CLI, the
  * browser through the cleanup engine's WebAssembly build; both read them here.
  */
+
+export interface IScanCleanupPreviewDocumentFacts {
+    previewDpi: number;
+    allPagesHaveRasterMetadata: boolean;
+    facingPairGeometry: IScanCleanupFacingPairGeometry;
+}
+
+/**
+ * The document facts a preview starts from, measured over every page record:
+ * the finest scan resolution when every page records one, and the page sizes
+ * that declare facing pairs.
+ */
+export function createScanCleanupPreviewDocumentFacts() {
+    let allPagesHaveRasterMetadata = true;
+    let documentDpi = 0;
+    const facingPairGeometry = createScanCleanupFacingPairGeometry();
+    return {
+        add(page: IPdfPageSize) {
+            const raster = detectPageRasterFromPageSize(page);
+            if (raster === undefined) {
+                allPagesHaveRasterMetadata = false;
+            } else {
+                documentDpi = Math.max(documentDpi, raster.dpi);
+            }
+            facingPairGeometry.add(toCropBoxPageSize(page));
+        },
+        seal(): IScanCleanupPreviewDocumentFacts {
+            return {
+                allPagesHaveRasterMetadata,
+                previewDpi: allPagesHaveRasterMetadata && documentDpi > 0 ? Math.min(PREVIEW_DPI, documentDpi) : PREVIEW_DPI,
+                facingPairGeometry,
+            };
+        },
+    };
+}
+
+/** What one previewed page, as its document records it, reads from those facts. */
+export function resolveScanCleanupPreviewPageFacts(
+    facts: IScanCleanupPreviewDocumentFacts,
+    pageSize: IPdfPageSize | undefined,
+) {
+    const pageRaster = pageSize === undefined ? undefined : detectPageRasterFromPageSize(pageSize);
+    return {
+        previewDpi: facts.previewDpi,
+        pageSourceDpi: facts.allPagesHaveRasterMetadata ? pageRaster?.dpi : undefined,
+        facingPair: pageSize !== undefined && facts.facingPairGeometry.isFacingPair(toCropBoxPageSize(pageSize)),
+    };
+}
 
 /** A detail tile's pixel budget, apron included. */
 export const DETAIL_TILE_MAX_PIXELS = 4_000_000;

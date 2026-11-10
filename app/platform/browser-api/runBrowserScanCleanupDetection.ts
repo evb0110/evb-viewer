@@ -46,6 +46,8 @@ interface IAnalysisPage {
     dpi: number;
     /** The source resolution the engine's options are resolved with. */
     manifestSourceDpi: number;
+    /** Two of the document's pages side by side, as the CropBox view declares; never for a MediaBox retry. */
+    facingPair: boolean;
 }
 
 interface IFinishedAnalysis {
@@ -122,6 +124,7 @@ export async function runBrowserScanCleanupDetection({
                         pageNumber: page.pageNumber,
                         dpi: page.dpi,
                         sourceDpi: page.manifestSourceDpi,
+                        facingPairGeometry: page.facingPair,
                         ...sourceLayerFacts(source, page.pageNumber),
                     },
                 }),
@@ -239,6 +242,7 @@ export async function runBrowserScanCleanupDetection({
                     view,
                     dpi,
                     manifestSourceDpi: pageSourceDpi(view) ?? dpi,
+                    facingPair: recorder.isFacingPair(view),
                 };
             });
             const verdictInput = (finished: IFinishedAnalysis, index: number) => ({
@@ -276,6 +280,7 @@ export async function runBrowserScanCleanupDetection({
                     view,
                     dpi: resolveScanCleanupAnalysisDpi(view),
                     manifestSourceDpi: pageSourceDpi(candidate.sourcePage) ?? DETECTION_DPI,
+                    facingPair: false,
                 };
             });
             const retried = await analyzeBatch(retryPages, {

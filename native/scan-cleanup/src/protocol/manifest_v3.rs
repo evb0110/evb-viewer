@@ -454,6 +454,7 @@ fn allowed_manifest_fields(kind: &str) -> &'static [&'static str] {
             "ocrMode",
             "ocrPolarityOnly",
             "layout",
+            "facingPairGeometry",
             "manualSplit",
             "automaticSplit",
             "manualSkewDegrees",
@@ -1218,6 +1219,42 @@ mod tests {
         manifest.pages[0].options.max_dimension = crate::DEFAULT_MAX_DIMENSION + 1;
         let error = manifest.validate().unwrap_err();
         assert_eq!(error.code, NativeErrorCode::TooLarge);
+    }
+
+    /// The fields a type declares on the wire, read from its TypeScript
+    /// declaration so the list cannot drift from the Rust struct.
+    fn wire_fields<T: ts_rs::TS>() -> Vec<String> {
+        let mut declaration = T::decl(&ts_rs::Config::new());
+        while let Some(start) = declaration.find("/*") {
+            let end = declaration[start..].find("*/").unwrap() + start + 2;
+            declaration.replace_range(start..end, "");
+        }
+        let body =
+            &declaration[declaration.find('{').unwrap() + 1..declaration.rfind('}').unwrap()];
+        body.split(',')
+            .filter_map(|field| field.split_once(':'))
+            .map(|(name, _)| name.trim().trim_end_matches('?').to_string())
+            .filter(|name| !name.is_empty())
+            .collect()
+    }
+
+    #[test]
+    fn the_manifest_allowlist_admits_every_declared_field() {
+        for (kind, fields) in [
+            ("options", wire_fields::<crate::CleanupOptions>()),
+            ("page", wire_fields::<Page>()),
+            ("prior", wire_fields::<crate::split::DocumentPrior>()),
+        ] {
+            let allowed = allowed_manifest_fields(kind);
+            let dropped = fields
+                .iter()
+                .filter(|field| !allowed.contains(&field.as_str()))
+                .collect::<Vec<_>>();
+            assert!(
+                dropped.is_empty(),
+                "{kind} fields the parser would drop: {dropped:?}"
+            );
+        }
     }
 
     #[test]

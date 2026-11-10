@@ -1361,11 +1361,11 @@ export async function runScanCleanupConversion(
         }
         // One overlay over the merged output: a link may name another batch's page.
         const overlaid = await overlayScanCleanupTextLayerAndMeasure(
-            sourceText.pages, paths, prepared.pdfPath, stagedPdfPath, scratch, signal, log, dependencies,
+            sourceText, paths, prepared.pdfPath, stagedPdfPath, scratch, signal, log, dependencies,
             retainScratchUntilRecovery, sourceText.provenanceStampHex,
         );
         summary.sourceTextOmission = await inspectSkippedScanCleanupSourceText({
-            skippedNonAffine: sourceText.skippedNonAffine,
+            pages: overlaid.omittedSourcePages,
             pdfPath: prepared.pdfPath,
             scratch,
             pdfPageOpsBinary: paths.pdfPageOpsBinary,

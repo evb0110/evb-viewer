@@ -177,6 +177,7 @@ impl StageCacheKey {
                 &(
                     options.ocr_mode,
                     options.layout,
+                    options.facing_pair_geometry,
                     options.manual_split_x,
                     options.automatic_split,
                     document_prior,
