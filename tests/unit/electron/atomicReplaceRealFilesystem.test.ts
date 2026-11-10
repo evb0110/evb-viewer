@@ -7,6 +7,7 @@ import {
     readFile,
     readdir,
     readlink,
+    rename,
     rm,
     symlink,
     writeFile,
@@ -21,7 +22,11 @@ import {
     it,
     vi,
 } from 'vitest';
-import {atomicReplace} from '@electron/utils/atomicReplace';
+import {capturePathSaveWitness} from '@electron/file-access/originalPathSaveWitness';
+import {
+    atomicReplace,
+    recoverWindowsAtomicReplace,
+} from '@electron/utils/atomicReplace';
 
 vi.mock('fs/promises', {spy: true});
 
@@ -34,6 +39,45 @@ describe('atomicReplace real filesystem policy', () => {
             force: true,
             recursive: true,
         });
+    });
+
+    it('finishes a published Windows replacement whose cleanup removed the backup but not the journal', async () => {
+        root = await mkdtemp(join(tmpdir(), 'evb-atomic-replace-journal-'));
+        const destination = join(root, 'manifest.json');
+        const source = join(root, '.next.tmp');
+        await writeFile(destination, 'old manifest');
+        await writeFile(source, 'new manifest');
+        const [
+            destinationWitness,
+            sourceWitness,
+        ] = await Promise.all([
+            capturePathSaveWitness(destination),
+            capturePathSaveWitness(source),
+        ]);
+        const journal = `${destination}.evb-atomic-replace.json`;
+        const writeJournal = () => writeFile(journal, JSON.stringify({
+            version: 1,
+            sourcePath: source,
+            destinationPath: destination,
+            backupPath: `${destination}.bak-gone`,
+            destinationSnapshot: destinationWitness!.getSnapshotForJournal(),
+            sourceSnapshot: sourceWitness!.getSnapshotForJournal(),
+        }));
+        // The new file was published and its backup removed; only the journal remains.
+        await rm(destination);
+        await rename(source, destination);
+        await writeJournal();
+
+        await recoverWindowsAtomicReplace(destination);
+
+        expect(await readFile(destination, 'utf8')).toBe('new manifest');
+        expect(await readdir(root)).toEqual(['manifest.json']);
+
+        // A destination that is neither recorded file is still not overwritten.
+        await writeFile(destination, 'someone else');
+        await writeJournal();
+        await expect(recoverWindowsAtomicReplace(destination)).rejects.toThrow('refused to overwrite');
+        expect(await readFile(destination, 'utf8')).toBe('someone else');
     });
 
     it.skipIf(process.platform === 'win32')('rejects a symlink destination without replacing the link or referent', async () => {
