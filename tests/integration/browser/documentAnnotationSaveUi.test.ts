@@ -200,7 +200,7 @@ describe('browser document lifecycle UI', () => {
             await page.route('**/*usePdfRendererTextLayerController.ts*', async route => {
                 const response = await route.fetch();
                 const source = await response.text();
-                const publication = 'const outgoing = container.querySelector(".text-layer");';
+                const publication = 'if (!publish()) {';
                 const completed = 'if (!isTextLayerRendered) return failure ?? false;';
                 if (!source.includes(publication) || !source.includes(completed)) {
                     throw new Error('Initial text-layer publication seam was not found');
