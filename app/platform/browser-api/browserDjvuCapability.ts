@@ -27,6 +27,7 @@ import {
     releaseBrowserDjvuViewingWorker,
     resolveDjvuPreviewTargetWidth,
     retainBrowserDjvuViewingWorker,
+    getBrowserDjvuWorkerSource,
     getDjvuWorkerPageSizes,
 } from '@app/platform/browser-api/createDjvuWorkerFromPath';
 import { renderDjvuPagePreviewPng } from '@app/platform/browser-api/browserDjvuRasterizer';
@@ -50,8 +51,9 @@ import {
 async function openBrowserDjvuForViewing(djvuPath: TDocumentRef): Promise<IDjvuOpenResult> {
     const browserRef = isBrowserDocumentRef(djvuPath);
     try {
-        const pageSizes = browserRef
-            ? await getDjvuWorkerPageSizes(await retainBrowserDjvuViewingWorker(djvuPath))
+        const worker = browserRef ? await retainBrowserDjvuViewingWorker(djvuPath) : null;
+        const pageSizes = worker
+            ? await getDjvuWorkerPageSizes(worker)
             : await withBrowserDjvuWorker(djvuPath, getDjvuWorkerPageSizes, 'open');
         if (pageSizes.length <= 0) {
             throw new SerializableError({
@@ -60,17 +62,17 @@ async function openBrowserDjvuForViewing(djvuPath: TDocumentRef): Promise<IDjvuO
             });
         }
         // Like the desktop open, the result describes the first page and the
-        // source file, so the status bar can show the file size.
-        const stat = browserRef ? await browserDocumentStore.stat(djvuPath) : null;
+        // file the worker opened, so the status bar can show the file size.
+        const source = worker ? getBrowserDjvuWorkerSource(worker) : undefined;
         return {
             success: true,
             pageCount: pageSizes.length,
-            ...(stat ? {pageSourceInfo: {
+            ...(source ? {pageSourceInfo: {
                 pageCount: pageSizes.length,
                 pageNumber: requirePageNumber(1, pageSizes.length),
                 pageSize: pageSizes[0]!,
-                sourceSize: stat.size,
-                ...(stat.modifiedAt === undefined ? {} : {sourceModifiedAt: createEpochMs(stat.modifiedAt)}),
+                sourceSize: source.size,
+                sourceModifiedAt: createEpochMs(source.modifiedAt),
             }} : {}),
         };
     } catch (error: unknown) {

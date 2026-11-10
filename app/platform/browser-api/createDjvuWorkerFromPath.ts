@@ -120,6 +120,8 @@ function toOwnedArrayBuffer(bytes: Uint8Array) {
 
 interface IDjvuSourceReader {
     fileSize: number;
+    /** Set for a browser document: when the stored snapshot was written. */
+    modifiedAt?: number;
     /** Identifies this version of the file, so its page table can be reused. */
     versionKey: string;
     readRange: TDjvuRangeReader;
@@ -131,6 +133,7 @@ async function openBrowserDjvuSourceReader(path: TDocumentRef): Promise<IDjvuSou
     } = await browserDocumentStore.stat(path);
     return {
         fileSize: size,
+        modifiedAt,
         versionKey: `${path}\u0000${size}\u0000${modifiedAt}`,
         readRange: async (offset, length) => {
             const bytes = await browserDocumentStore.readRange(path, offset, length);
@@ -502,6 +505,19 @@ export async function searchDjvuWorkerText(
     };
 }
 
+const workerSources = new WeakMap<IDjvuWorker, {
+    size: number;
+    modifiedAt: number
+}>();
+
+/**
+ * The size and time of the stored file a browser worker opened. Every later
+ * read follows that snapshot, so these describe the pages the worker shows.
+ */
+export function getBrowserDjvuWorkerSource(worker: IDjvuWorker) {
+    return workerSources.get(worker);
+}
+
 export async function createDjvuWorkerFromPath(
     djvuPath: TDocumentRef,
     options: IDjvuWorkerReadOptions = {},
@@ -571,6 +587,12 @@ export async function createDjvuWorkerFromPath(
         );
         throwIfCanceled(options.signal);
         setDjvuWorkerPageSizes(openedWorker, pageTable);
+        if (source.modifiedAt !== undefined) {
+            workerSources.set(openedWorker, {
+                size: source.fileSize,
+                modifiedAt: source.modifiedAt,
+            });
+        }
         return openedWorker;
     } catch (error) {
         worker?.terminate();
