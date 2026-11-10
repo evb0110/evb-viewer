@@ -630,7 +630,7 @@ describe('browserDjvuConversionPipeline', () => {
                         pdfStrategy: 'compact-djvu-aware',
                         preserveBookmarks: false,
                     },
-                ).then(conversion.resolve);
+                ).then(conversion.resolve, conversion.reject);
             },
         });
 
