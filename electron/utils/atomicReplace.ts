@@ -161,27 +161,17 @@ export async function recoverWindowsAtomicReplace(destinationPath: string) {
     assertNoSymlinkPathSegments(journal.backupPath);
     const backupExists = await fileExists(journal.backupPath);
     if (await fileExists(destinationPath)) {
-        if (!backupExists) {
-            await assertPathMatchesSaveWitnessSnapshot(destinationPath, journal.destinationSnapshot);
-            await unlink(atomicReplaceJournalPath(destinationPath));
-            return;
-        }
-        await assertPathMatchesSaveWitnessSnapshot(journal.backupPath, journal.destinationSnapshot, {contentOnly: true});
-        try {
-            await assertPathMatchesSaveWitnessSnapshot(destinationPath, journal.sourceSnapshot);
-            await unlink(journal.backupPath);
-            await unlink(atomicReplaceJournalPath(destinationPath));
-            return;
-        } catch {
-            try {
-                await assertPathMatchesSaveWitnessSnapshot(destinationPath, journal.destinationSnapshot);
-                await unlink(journal.backupPath);
-                await unlink(atomicReplaceJournalPath(destinationPath));
-                return;
-            } catch {
+        if (backupExists) await assertPathMatchesSaveWitnessSnapshot(journal.backupPath, journal.destinationSnapshot, {contentOnly: true});
+        // The destination holds the recorded new file (renamed into place) or
+        // the old one, even when cleanup removed the backup but not this journal.
+        await assertPathMatchesSaveWitnessSnapshot(destinationPath, journal.sourceSnapshot, {allowBackupMetadataChange: true})
+            .catch(() => assertPathMatchesSaveWitnessSnapshot(destinationPath, journal.destinationSnapshot))
+            .catch(() => {
                 throw new Error(`Windows atomic replace recovery refused to overwrite destination "${destinationPath}"`);
-            }
-        }
+            });
+        if (backupExists) await unlink(journal.backupPath);
+        await unlink(atomicReplaceJournalPath(destinationPath));
+        return;
     }
 
     if (!backupExists) {
