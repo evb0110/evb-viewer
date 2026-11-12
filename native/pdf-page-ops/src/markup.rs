@@ -383,7 +383,7 @@ pub(crate) fn markup_hint_pdf_quads(
 }
 
 fn create_markup_annotation(
-    document: &mut Document,
+    document: &mut impl PdfObjectStore,
     page_id: ObjectId,
     page_view: PdfRect,
     page_rotation: i64,
@@ -455,7 +455,7 @@ fn create_markup_annotation(
     attach_markup_appearance(&mut dict, appearance_ref);
 
     let object_id = document.new_object_id();
-    document.set_object(object_id, Object::Dictionary(dict));
+    document.set_new_object(object_id, Object::Dictionary(dict));
     Ok(object_id)
 }
 
@@ -489,7 +489,7 @@ struct MarkupRewrite<'a> {
 }
 
 fn apply_markup_rewrite_to_object_with_options(
-    document: &mut Document,
+    document: &mut impl PdfObjectStore,
     candidate: &MarkupAnnotationCandidate,
     rewrite: MarkupRewrite<'_>,
 ) -> Result<bool> {
@@ -581,7 +581,7 @@ fn apply_markup_rewrite_to_object_with_options(
         .filter(|value| !value.is_empty());
     let identity_name_needs_write = identity_name.is_some()
         && document
-            .get_dictionary(candidate.object_id)
+            .dictionary(candidate.object_id)
             .ok()
             .and_then(read_annotation_name)
             .is_none();
@@ -624,7 +624,7 @@ fn apply_markup_rewrite_to_object_with_options(
         return Ok(false);
     }
 
-    let dict = document.get_dictionary_mut(candidate.object_id)?;
+    let dict = document.dictionary_mut(candidate.object_id)?;
     if let Some(author) = author {
         dict.set(
             "T",
@@ -677,13 +677,13 @@ fn apply_markup_rewrite_to_object_with_options(
 }
 
 pub(crate) fn create_markup_candidate(
-    document: &Document,
+    document: &impl PdfObjectSource,
     page_view: PdfRect,
     page_rotation: i64,
     object_id: ObjectId,
     page_markup_index: u32,
 ) -> Option<MarkupAnnotationCandidate> {
-    let dict = document.get_dictionary(object_id).ok()?;
+    let dict = document.dictionary(object_id).ok()?;
     let subtype = canonical_markup_subtype(dict)?;
     let rect = read_pdf_rect_from_dict(document, dict);
     Some(MarkupAnnotationCandidate {
@@ -762,7 +762,7 @@ fn resolve_markup_page_targets(
 }
 
 pub(crate) fn rewrite_page_markup_subtypes(
-    document: &mut Document,
+    document: &mut impl PdfObjectStore,
     candidates: &[MarkupAnnotationCandidate],
     page_hints: &mut [MarkupHintState],
     page_view: PdfRect,
@@ -872,7 +872,7 @@ pub(crate) fn rewrite_page_markup_subtypes(
 }
 
 fn create_new_markup_annotations(
-    document: &mut Document,
+    document: &mut impl PdfObjectStore,
     page_id: ObjectId,
     page_view: PdfRect,
     page_rotation: i64,
@@ -924,216 +924,8 @@ fn create_new_markup_annotations(
     Ok(true)
 }
 
-fn apply_markup_rewrite_to_incremental_object_with_options(
-    incremental: &mut IncrementalDocument,
-    candidate: &MarkupAnnotationCandidate,
-    rewrite: MarkupRewrite<'_>,
-) -> Result<bool> {
-    let MarkupRewrite {
-        target_subtype,
-        color,
-        opacity,
-        contents,
-        author,
-        identity_name,
-        modified_at,
-        geometry,
-    } = rewrite;
-    incremental.opt_clone_object_to_new_document(candidate.object_id)?;
-    let modified = apply_markup_rewrite_to_object_with_options(
-        &mut incremental.new_document,
-        candidate,
-        MarkupRewrite {
-            target_subtype,
-            color,
-            opacity,
-            contents: None,
-            author,
-            identity_name,
-            modified_at,
-            geometry,
-        },
-    )?;
-    if let Some(contents) = contents {
-        update_annotation_text_by_ref(incremental, candidate.object_id, contents, modified_at)?;
-    }
-    Ok(modified || contents.is_some())
-}
-
-pub(crate) fn rewrite_page_markup_subtypes_incremental(
-    incremental: &mut IncrementalDocument,
-    candidates: &[MarkupAnnotationCandidate],
-    page_hints: &mut [MarkupHintState],
-    page_view: PdfRect,
-    page_rotation: i64,
-    modified_at: &str,
-) -> Result<bool> {
-    let mut rewritten = false;
-    let mut unmatched_candidates = Vec::new();
-    let hints_by_ref = index_markup_hints_by_ref(page_hints);
-
-    for candidate in candidates {
-        // Deletes run before markup replay in the same incremental revision.
-        // Keep a live editor hint available to create a fresh annotation when
-        // its previous-revision candidate has already become a tombstone.
-        if matches!(
-            incremental.new_document.get_object(candidate.object_id),
-            Ok(Object::Null)
-        ) {
-            continue;
-        }
-        if let Some(hint_index) =
-            find_named_markup_hint_for_candidate(incremental, candidate, page_hints)
-        {
-            page_hints[hint_index].consumed = true;
-            let hint = page_hints[hint_index].hint.clone();
-            rewritten = apply_markup_rewrite_to_incremental_object_with_options(
-                incremental,
-                candidate,
-                MarkupRewrite {
-                    target_subtype: &hint.subtype,
-                    color: hint.color.as_deref(),
-                    opacity: hint.opacity,
-                    contents: hint.contents.as_deref(),
-                    author: hint.author.as_deref(),
-                    identity_name: markup_annotation_name(&hint).as_deref(),
-                    modified_at,
-                    geometry: Some((&hint, page_view, page_rotation)),
-                },
-            )? || rewritten;
-            continue;
-        }
-
-        if let Some(hint_index) =
-            find_exact_ref_highlight_preservation_hint(page_hints, candidate, &hints_by_ref)
-        {
-            let hint = page_hints[hint_index].hint.clone();
-            consume_exact_ref_hints(page_hints, candidate, &hints_by_ref);
-            rewritten = apply_markup_rewrite_to_incremental_object_with_options(
-                incremental,
-                candidate,
-                MarkupRewrite {
-                    target_subtype: &hint.subtype,
-                    color: hint.color.as_deref(),
-                    opacity: hint.opacity,
-                    contents: hint.contents.as_deref(),
-                    author: hint.author.as_deref(),
-                    identity_name: markup_annotation_name(&hint).as_deref(),
-                    modified_at,
-                    geometry: Some((&hint, page_view, page_rotation)),
-                },
-            )? || rewritten;
-            continue;
-        }
-
-        if let Some(hint_index) =
-            find_best_exact_ref_hint_for_candidate(page_hints, candidate, &hints_by_ref)
-        {
-            page_hints[hint_index].consumed = true;
-            let hint = page_hints[hint_index].hint.clone();
-            rewritten = apply_markup_rewrite_to_incremental_object_with_options(
-                incremental,
-                candidate,
-                MarkupRewrite {
-                    target_subtype: &hint.subtype,
-                    color: hint.color.as_deref(),
-                    opacity: hint.opacity,
-                    contents: hint.contents.as_deref(),
-                    author: hint.author.as_deref(),
-                    identity_name: markup_annotation_name(&hint).as_deref(),
-                    modified_at,
-                    geometry: Some((&hint, page_view, page_rotation)),
-                },
-            )? || rewritten;
-            continue;
-        }
-
-        unmatched_candidates.push(candidate.clone());
-    }
-
-    if page_hints.is_empty() || unmatched_candidates.is_empty() {
-        return Ok(rewritten);
-    }
-
-    for (candidate_index, hint_index) in
-        assign_subtype_hints_to_candidates(page_hints, &unmatched_candidates)?
-    {
-        page_hints[hint_index].consumed = true;
-        let hint = page_hints[hint_index].hint.clone();
-        let candidate = &unmatched_candidates[candidate_index];
-        rewritten = apply_markup_rewrite_to_incremental_object_with_options(
-            incremental,
-            candidate,
-            MarkupRewrite {
-                target_subtype: &hint.subtype,
-                color: hint.color.as_deref(),
-                opacity: hint.opacity,
-                contents: hint.contents.as_deref(),
-                author: hint.author.as_deref(),
-                identity_name: markup_annotation_name(&hint).as_deref(),
-                modified_at,
-                geometry: Some((&hint, page_view, page_rotation)),
-            },
-        )? || rewritten;
-    }
-    Ok(rewritten)
-}
-
-fn create_new_markup_annotations_incremental(
-    incremental: &mut IncrementalDocument,
-    page_id: ObjectId,
-    page_view: PdfRect,
-    page_rotation: i64,
-    page_hints: &mut [MarkupHintState],
-    modified_at: &str,
-    mut identity_bindings: Option<&mut Vec<AnnotationIdentityBinding>>,
-) -> Result<bool> {
-    let mut created = Vec::new();
-    for state in page_hints.iter_mut() {
-        if !is_new_markup_hint(state) {
-            continue;
-        }
-        let app_annotation_id = identity_bindings.as_ref().map(|_| {
-            state
-                .hint
-                .app_annotation_id
-                .as_deref()
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-                .ok_or("New text-markup annotation is missing canonical annotation identity")
-        });
-        let app_annotation_id = match app_annotation_id {
-            Some(result) => Some(result?),
-            None => None,
-        };
-        let object_id = create_markup_annotation(
-            &mut incremental.new_document,
-            page_id,
-            page_view,
-            page_rotation,
-            &state.hint,
-            modified_at,
-        )?;
-        state.consumed = true;
-        created.push(object_id);
-        if let Some(bindings) = identity_bindings.as_mut() {
-            bindings.push(AnnotationIdentityBinding {
-                annotation_id: app_annotation_id
-                    .expect("binding mode validates canonical annotation identity")
-                    .to_string(),
-                pdf_ref: format!("{} {} R", object_id.0, object_id.1),
-            });
-        }
-    }
-    if created.is_empty() {
-        return Ok(false);
-    }
-    append_annots_to_page(incremental, page_id, &created)?;
-    Ok(true)
-}
-
 pub(crate) fn apply_markup_mutations(
-    document: &mut Document,
+    document: &mut impl PdfObjectStore,
     markup: &MarkupMutation,
     modified_at: &str,
 ) -> Result<()> {
@@ -1141,7 +933,7 @@ pub(crate) fn apply_markup_mutations(
 }
 
 pub(crate) fn apply_markup_mutations_with_bindings(
-    document: &mut Document,
+    document: &mut impl PdfObjectStore,
     markup: &MarkupMutation,
     modified_at: &str,
     identity_bindings: &mut Vec<AnnotationIdentityBinding>,
@@ -1150,7 +942,7 @@ pub(crate) fn apply_markup_mutations_with_bindings(
 }
 
 pub(crate) fn apply_markup_mutations_internal(
-    document: &mut Document,
+    document: &mut impl PdfObjectStore,
     markup: &MarkupMutation,
     modified_at: &str,
     mut identity_bindings: Option<&mut Vec<AnnotationIdentityBinding>>,
@@ -1191,95 +983,6 @@ pub(crate) fn apply_markup_mutations_internal(
         )? || modified;
         modified = create_new_markup_annotations(
             document,
-            page_id,
-            page_view,
-            page_rotation,
-            &mut page_hints,
-            modified_at,
-            identity_bindings.as_deref_mut(),
-        )? || modified;
-    }
-
-    if !modified {
-        return Err("Text-markup mutation did not modify the document".into());
-    }
-    Ok(())
-}
-
-pub(crate) fn apply_markup_mutations_incremental(
-    incremental: &mut IncrementalDocument,
-    markup: &MarkupMutation,
-    modified_at: &str,
-) -> Result<()> {
-    apply_markup_mutations_incremental_internal(incremental, markup, modified_at, None)
-}
-
-pub(crate) fn apply_markup_mutations_incremental_with_bindings(
-    incremental: &mut IncrementalDocument,
-    markup: &MarkupMutation,
-    modified_at: &str,
-    identity_bindings: &mut Vec<AnnotationIdentityBinding>,
-) -> Result<()> {
-    apply_markup_mutations_incremental_internal(
-        incremental,
-        markup,
-        modified_at,
-        Some(identity_bindings),
-    )
-}
-
-pub(crate) fn apply_markup_mutations_incremental_internal(
-    incremental: &mut IncrementalDocument,
-    markup: &MarkupMutation,
-    modified_at: &str,
-    mut identity_bindings: Option<&mut Vec<AnnotationIdentityBinding>>,
-) -> Result<()> {
-    let hints_by_page = markup_hints_by_page(markup)?;
-    let page_targets = {
-        let document = incremental.get_prev_documents();
-        let page_resolver = PageLookup::new(document, incremental.located_pages.as_ref())?;
-        resolve_markup_page_targets(document, &page_resolver, hints_by_page)?
-    };
-    let mut modified = false;
-
-    for (page_id, mut page_hints) in page_targets {
-        let (candidates, page_view, page_rotation) = {
-            let document = incremental.get_prev_documents();
-            let page_view = resolve_page_view(document, page_id)?;
-            let page_rotation = resolve_page_rotation(document, page_id)?;
-            let annots = get_page_annots(document, page_id)?;
-            let mut candidates = Vec::new();
-            let mut page_markup_index = 0_u32;
-            for object_id in annots
-                .iter()
-                .filter_map(|object| object.as_reference().ok())
-            {
-                if let Some(candidate) = create_markup_candidate(
-                    document,
-                    page_view,
-                    page_rotation,
-                    object_id,
-                    page_markup_index,
-                ) {
-                    candidates.push(candidate);
-                    page_markup_index += 1;
-                }
-            }
-            (candidates, page_view, page_rotation)
-        };
-        modified = rewrite_page_markup_subtypes_incremental(
-            incremental,
-            &candidates,
-            &mut page_hints,
-            page_view,
-            page_rotation,
-            modified_at,
-        )? || modified;
-        let document = incremental.get_prev_documents();
-        let page_view = resolve_page_view(document, page_id)?;
-        let page_rotation = resolve_page_rotation(document, page_id)?;
-        modified = create_new_markup_annotations_incremental(
-            incremental,
             page_id,
             page_view,
             page_rotation,

@@ -488,14 +488,9 @@ fn apply_native_mutations_incremental_internal(
     if let Some(markup) = &mutations.markup {
         match identity_bindings.as_mut() {
             Some(bindings) => {
-                apply_markup_mutations_incremental_with_bindings(
-                    incremental,
-                    markup,
-                    modified_at,
-                    bindings,
-                )?;
+                apply_markup_mutations_with_bindings(incremental, markup, modified_at, bindings)?;
             }
-            None => apply_markup_mutations_incremental(incremental, markup, modified_at)?,
+            None => apply_markup_mutations(incremental, markup, modified_at)?,
         }
     }
     if !mutations.placed_images.is_empty() {

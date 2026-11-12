@@ -700,7 +700,7 @@ fn creates_new_text_markup_annotations_with_quad_geometry() {
     })
     .collect();
 
-    apply_markup_mutations_incremental(
+    apply_markup_mutations(
         &mut incremental,
         &MarkupMutation { hints },
         "D:20260829120500+04'00'",
@@ -793,7 +793,7 @@ fn recreates_markup_after_deleted_pdf_ref_in_the_same_revision() {
             opacity: None,
         }],
     };
-    apply_markup_mutations_incremental(&mut incremental, &mutation, "D:20260829120500+04'00'")
+    apply_markup_mutations(&mut incremental, &mutation, "D:20260829120500+04'00'")
         .unwrap();
 
     let revision = &incremental;
@@ -839,7 +839,7 @@ fn emits_exact_identity_binding_for_new_native_markup() {
         }],
     };
     let mut bindings = Vec::new();
-    apply_markup_mutations_incremental_with_bindings(
+    apply_markup_mutations_with_bindings(
         &mut incremental,
         &mutation,
         "D:20260609123456Z",
@@ -899,7 +899,7 @@ fn rejects_new_native_markup_without_a_canonical_identity_binding() {
             opacity: None,
         }],
     };
-    let error = apply_markup_mutations_incremental_with_bindings(
+    let error = apply_markup_mutations_with_bindings(
         &mut incremental,
         &mutation,
         "D:20260609123456Z",
@@ -1570,7 +1570,7 @@ fn rewrites_high_index_markup_by_page_hint_without_a_page_walk() {
     };
 
     reset_page_tree_node_read_count();
-    apply_markup_mutations_incremental(
+    apply_markup_mutations(
         &mut incremental,
         &mutation,
         "D:20260829120500+04'00'",
@@ -1625,7 +1625,7 @@ fn stale_markup_page_hint_uses_the_annotation_owner_without_a_page_walk() {
     };
 
     reset_page_tree_node_read_count();
-    apply_markup_mutations_incremental(
+    apply_markup_mutations(
         &mut incremental,
         &mutation,
         "D:20260829120500+04'00'",
@@ -1904,7 +1904,7 @@ fn validates_each_distinct_new_markup_identity_after_save() {
         hints: vec![first, second],
     };
 
-    apply_markup_mutations_incremental(&mut incremental, &mutation, "D:20260831130000Z")
+    apply_markup_mutations(&mut incremental, &mutation, "D:20260831130000Z")
         .expect("same-geometry markup annotations should be saved");
     let revision = &incremental;
     validate_markup_document_postconditions(revision, &mutation)
