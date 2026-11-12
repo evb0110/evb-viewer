@@ -11,9 +11,12 @@ const boundaryRules = [];
 // Use the same glob semantics as the former import-boundary zones. Exceptions
 // allow both an entrypoint file and descendants of an allowed public directory.
 const escapeRegex = value => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-const pathPattern = value => /[*!]/u.test(value)
-    ? makeRe(value).source
-    : `^${escapeRegex(value)}(?:/|$)`;
+const pathPattern = value => {
+    if (value instanceof RegExp) return value.source;
+    return /[*!]/u.test(value)
+        ? makeRe(value).source
+        : `^${escapeRegex(value)}(?:/|$)`;
+};
 const pathsPattern = values => `(?:${[].concat(values).map(pathPattern).join('|')})`;
 const addZone = (target, from, except = []) => boundaryRules.push({
     name: `boundary-${boundaryRules.length + 1}`,
@@ -132,7 +135,8 @@ for (const [target, from] of [
     ['app/modules/pdf-viewer/runtime/save', 'app/modules/pdf-viewer/runtime/annotations'],
     ['app/modules/pdf-viewer/runtime/save', 'app/modules/pdf-viewer/tools'],
 ]) addZone(target, from);
-addZone('app/!(modules/pdf-viewer)/**/*', 'app/modules/pdf-viewer/runtime/save');
+// A glob extglob cannot span "/", so the rest of the app is a regex.
+addZone(/^app\/(?!modules\/pdf-viewer\/)/u, 'app/modules/pdf-viewer/runtime/save');
 for (const target of ['electron', 'packages', 'scripts', 'server', 'landing']) addZone(target, 'app/modules/pdf-viewer/runtime/save');
 addZone('app/modules/pdf-viewer/engine', 'app/modules/pdf-viewer', ['./engine', './dom']);
 addZone(['app', 'packages'], 'packages/contracts/platformApi.ts');

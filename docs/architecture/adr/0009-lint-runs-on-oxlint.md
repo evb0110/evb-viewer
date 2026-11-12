@@ -14,7 +14,7 @@ formatting 14%.
 
 ## Decision
 
-Run OxLint 1.93.0 for JavaScript, TypeScript and Vue scripts. Select individual
+Run OxLint 1.91.0 for JavaScript, TypeScript and Vue scripts. Select individual
 rules that catch defects or protect documented architecture in `.oxlintrc.json`;
 formatting, naming and unsafe-any families are removed. TypeScript and vue-tsc
 remain the typechecking owners. Stylelint is unchanged.
