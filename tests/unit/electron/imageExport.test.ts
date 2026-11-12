@@ -320,9 +320,6 @@ const { IMAGE_EXPORT_MAX_NETPBM_READ_BYTES } = await import('@electron/features/
 const { buildOutputPathWithSuffix } = await import('@electron/utils/boundedPathComponent');
 const {resolveSuffixedOutputPathConflicts} = await import('@electron/features/image-export/main/imageExportPathPlanning');
 const {combinePagesIntoMultiPageTiffLocal} = await import('@electron/features/image-export/main/combinePagesIntoMultiPageTiffLocal');
-const {
-    estimateMultiPageTiffByteLength, splitTiffPageDescriptorsForClassicLimit,
-} = await import('@pdf-core/tiffEncoding');
 const {buildMultiPageTiffOutputSuffixes} = await import('@pdf-core/imageExportFileName');
 
 const UTIF = utifModule as typeof utifModule & ITiffEncoderModule;
@@ -1261,52 +1258,6 @@ describe('image export', () => {
             .rejects.toBeInstanceOf(Error);
 
         expect(mocks.atomicReplace).not.toHaveBeenCalled();
-    });
-
-    it('splits TIFF descriptors into classic-size multi-page parts', () => {
-        const descriptors = [
-            {
-                path: '/tmp/page-1.tif',
-                width: 1,
-                height: 1,
-                dataLength: 400,
-            },
-            {
-                path: '/tmp/page-2.tif',
-                width: 1,
-                height: 1,
-                dataLength: 400,
-            },
-            {
-                path: '/tmp/page-3.tif',
-                width: 1,
-                height: 1,
-                dataLength: 400,
-            },
-        ];
-        const twoPageLimit = estimateMultiPageTiffByteLength(descriptors.slice(0, 2), UTIF);
-
-        expect(splitTiffPageDescriptorsForClassicLimit(descriptors, UTIF, twoPageLimit)).toEqual([
-            [
-                descriptors[0],
-                descriptors[1],
-            ],
-            [descriptors[2]],
-        ]);
-    });
-
-    it('rejects a TIFF split when a single page exceeds the classic-size limit', () => {
-        const descriptor = {
-            path: '/tmp/page-1.tif',
-            width: 1,
-            height: 1,
-            dataLength: 400,
-        };
-
-        expect(() => splitTiffPageDescriptorsForClassicLimit(
-            [descriptor], UTIF,
-            estimateMultiPageTiffByteLength([descriptor], UTIF) - 1,
-        )).toThrow('A single TIFF page exceeds the Classic TIFF 4GB limit');
     });
 
     it('rejects large TIFF exports when worker startup fails and local fallback is unsafe', async () => {

@@ -217,9 +217,8 @@ const lastSaveStartedAtMs = new Map<string, number>();
 // A claimed restore that has not settled yet, by owner: the documents it
 // opens at once that can stay closed without losing work. A renderer that dies
 // before its restore settles was killed by one of them, so those documents are
-// not reopened again (#1264). A restore settles when its renderer acknowledges
-// it or saves again: the renderer saves only after its restore returns, and an
-// incomplete restore saves without acknowledging.
+// not reopened again (#1264). A restore settles only when its renderer
+// acknowledges it.
 const restoresInFlight = new Map<string, {
     tabIds: Set<string>;
     sourceRefs: Set<TDocumentRef>;
