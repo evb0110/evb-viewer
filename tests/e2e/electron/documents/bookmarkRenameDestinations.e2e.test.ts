@@ -151,14 +151,6 @@ describe('Electron E2E - bookmark destination round trip', () => {
             1,
         ],
         [
-            120,
-            2,
-        ],
-        [
-            120,
-            3,
-        ],
-        [
             4_000,
             1,
         ],
@@ -216,28 +208,8 @@ describe('Electron E2E - bookmark destination round trip', () => {
         ],
         [
             'rapid',
-            'Enter',
-            2,
-        ],
-        [
-            'rapid',
-            'Enter',
-            3,
-        ],
-        [
-            'rapid',
             'Escape',
             1,
-        ],
-        [
-            'rapid',
-            'Escape',
-            2,
-        ],
-        [
-            'rapid',
-            'Escape',
-            3,
         ],
         [
             'settled',

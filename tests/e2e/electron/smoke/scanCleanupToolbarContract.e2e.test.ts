@@ -33,6 +33,7 @@ import {
 import {waitForFunctionInPage} from '@tests/e2e/electron/helpers/pageRuntime';
 import {
     clickVisibleToolbarButton,
+    dismissScanCleanupFirstRunGuidance,
     openPdfInApp,
     waitForPdfLoaded,
     waitForViewerInteractive,
@@ -216,6 +217,10 @@ describe('scan cleanup toolbar contract', () => {
         const session = sessionFixture.getSession();
         expect(session).toBeTruthy();
 
+        const otherPath = await createLargeScannedFixturePdf('scan-cleanup-toolbar-other.pdf', 2, 0);
+        await openPdfInApp(session.page, otherPath);
+        await waitForPdfLoaded(session.page);
+
         // Enough pages that detection is reliably observable in flight.
         const sourcePath = await createLargeScannedFixturePdf(
             'scan-cleanup-toolbar-contract.pdf',
@@ -231,6 +236,7 @@ describe('scan cleanup toolbar contract', () => {
             timeout: 10_000,
             visible: true,
         });
+        await dismissScanCleanupFirstRunGuidance(session.page);
 
         // Detection in flight: counter exposes a completed/total pair, the
         // detection is cancellable, and the primary action stays enabled so
@@ -290,6 +296,12 @@ describe('scan cleanup toolbar contract', () => {
         }
         await session.command('windowResize', naturalSize);
 
+        const settingsPosition = () => session.page.evaluate(() => ({
+            surface: document.querySelector('.scan-cleanup-surface')!.getBoundingClientRect().top,
+            panel: document.querySelector('.scan-cleanup-settings-scroll')!.getBoundingClientRect().top,
+            layout: document.querySelector('[aria-label="Page layout"]')!.getBoundingClientRect().top,
+        }));
+        const analyzingPosition = await settingsPosition();
         // The cancel button beside the meter takes a person's click and stops
         // detection; Re-detect then starts it again for the queue checks below.
         await clickAsUser(session.page, SCAN_CLEANUP_TOOLBAR_CANCEL_DETECTION_SELECTOR);
@@ -299,8 +311,10 @@ describe('scan cleanup toolbar contract', () => {
                 && document.querySelector('.scan-cleanup-toolbar-error') === null
                 && redetect?.disabled === false;
         }, {timeout: 15_000}, SCAN_CLEANUP_TOOLBAR_CANCEL_DETECTION_SELECTOR);
+        expect(await settingsPosition()).toEqual(analyzingPosition);
         await clickAsUser(session.page, '.scan-thumbnail-redetect');
         await session.page.waitForSelector(SCAN_CLEANUP_TOOLBAR_CANCEL_DETECTION_SELECTOR, {timeout: 10_000});
+        expect(await settingsPosition()).toEqual(analyzingPosition);
 
         // Queue cleanup while detection is still running: the run meter must
         // appear and report the queued analysis phase as readable text,
@@ -360,6 +374,33 @@ describe('scan cleanup toolbar contract', () => {
         }, {timeout: 30_000}, SCAN_CLEANUP_TOOLBAR_PRIMARY_ACTION_SELECTOR,
         SCAN_CLEANUP_TOOLBAR_CANCEL_DETECTION_SELECTOR, SCAN_CLEANUP_RUN_METER_SELECTOR);
         await clickAsUser(session.page, SCAN_CLEANUP_TOOLBAR_PRIMARY_ACTION_SELECTOR);
+        // Detection has settled, so this is an executing cleanup, not queued
+        // analysis. Observe the other document's toolbar beside that live run.
+        await waitForFunctionInPage(session.page, (selector: string) => (
+            document.querySelector('.scan-cleanup-workspace[aria-busy="true"]') !== null
+                && document.querySelector(selector)?.getAttribute('data-phase') === 'clean'
+                && document.querySelector(selector)?.getAttribute('data-step') === 'clean'
+        ), {timeout: 30_000}, SCAN_CLEANUP_RUN_METER_SELECTOR);
+        await activateWorkspaceTab(session, 0);
+        await waitForPdfLoaded(session.page);
+        await clickAsUser(session.page, 'button[aria-label="More tools"]');
+        const command = await (await session.page.waitForFunction(() => {
+            const icon = [...document.querySelectorAll<HTMLElement>('.overflow-menu-scan-cleanup-icon')]
+                .find(element => element.checkVisibility());
+            const item = icon?.closest<HTMLElement>('[role^="menuitem"]');
+            if (!icon || !item) return null;
+            return {
+                label: (item.textContent ?? '').trim(),
+                runningDot: icon.querySelector('.overflow-menu-running-dot') !== null,
+                running: document.querySelector('.workspace-host[data-workspace-active="false"] .scan-cleanup-workspace[aria-busy="true"]') !== null,
+                runCompleted: [...document.querySelectorAll<HTMLElement>('[data-slot="title"]')]
+                    .some(title => (title.textContent ?? '').trim() === 'Scan cleanup complete'),
+            };
+        }, {timeout: 30_000})).jsonValue();
+        expect(command).toEqual({label: 'Scan cleanup', runningDot: false, running: true, runCompleted: false});
+        await session.page.keyboard.press('Escape');
+        await activateWorkspaceTab(session, 1);
+        await session.page.waitForSelector(SCAN_CLEANUP_RUN_METER_SELECTOR, {timeout: 30_000});
         await waitForFunctionInPage(session.page, (source: string) => {
             const active = (window as IWorkspaceExposeProbeWindow)
                 .__evbTestApi
