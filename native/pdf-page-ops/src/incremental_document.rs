@@ -521,8 +521,8 @@ impl PdfObjectStore for IncrementalDocument {
         self.new_document.new_object_id()
     }
 
-    fn set_new_object(&mut self, object_id: ObjectId, object: Object) {
-        self.new_document.set_new_object(object_id, object);
+    fn put_object(&mut self, object_id: ObjectId, object: Object) {
+        self.new_document.put_object(object_id, object);
     }
 }
 

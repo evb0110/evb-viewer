@@ -597,7 +597,7 @@ impl OutlineObjects {
 
     fn add_to(self, target: &mut impl PdfObjectStore) {
         for (id, dict) in self.objects {
-            target.set_new_object(id, Object::Dictionary(dict));
+            target.put_object(id, Object::Dictionary(dict));
         }
     }
 }

@@ -455,7 +455,7 @@ fn create_markup_annotation(
     attach_markup_appearance(&mut dict, appearance_ref);
 
     let object_id = document.new_object_id();
-    document.set_new_object(object_id, Object::Dictionary(dict));
+    document.put_object(object_id, Object::Dictionary(dict));
     Ok(object_id)
 }
 

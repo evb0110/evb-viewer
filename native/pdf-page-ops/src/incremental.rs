@@ -495,7 +495,7 @@ fn apply_native_mutations_incremental_internal(
     }
     if !mutations.placed_images.is_empty() {
         let image_bytes = take_or_validate_placed_image_payloads(mutations)?;
-        apply_placed_images_incremental(
+        apply_placed_images(
             incremental,
             &mutations.placed_images,
             image_bytes,
@@ -505,7 +505,7 @@ fn apply_native_mutations_incremental_internal(
         )?;
     }
     if !mutations.placed_image_geometry_updates.is_empty() {
-        apply_placed_image_geometry_updates_incremental(
+        apply_placed_image_geometry_updates(
             incremental,
             &mutations.placed_image_geometry_updates,
             modified_at,

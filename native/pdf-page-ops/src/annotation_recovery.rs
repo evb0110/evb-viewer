@@ -497,7 +497,7 @@ fn restore_recovery_graph<S: PdfObjectStore>(
         if let Some((_, page)) = members.iter().find(|(member, _)| *member == refs[id]) {
             object.as_dict_mut()?.set("P", Object::Reference(*page));
         }
-        document.set_new_object(refs[id], object);
+        document.put_object(refs[id], object);
     }
     Ok(members)
 }

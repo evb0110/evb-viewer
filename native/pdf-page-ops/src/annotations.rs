@@ -308,7 +308,7 @@ where
                 let mut popup_dict =
                     build_popup_annotation_dict(note, pdf_rect, modified_at, annot_id);
                 popup_dict.set("P", Object::Reference(page_id));
-                document.set_new_object(popup_ref, Object::Dictionary(popup_dict));
+                document.put_object(popup_ref, Object::Dictionary(popup_dict));
             } else {
                 let popup_dict = document.dictionary_mut(popup_ref)?;
                 set_popup_annotation_fields(popup_dict, note, pdf_rect, modified_at, annot_id);
@@ -480,7 +480,7 @@ pub(crate) fn upsert_text_boxes_with_counter(
             true,
             existing,
         );
-        document.set_new_object(annotation_ref, Object::Dictionary(dict));
+        document.put_object(annotation_ref, Object::Dictionary(dict));
         report_annotation_identity_binding(identity_bindings, &editor.stable_key, annotation_ref);
         annotation_indexes
             .get_mut(&page_id)
@@ -832,8 +832,8 @@ fn write_text_note_pair(
         .unwrap_or_else(|| build_popup_annotation_dict(note, pdf_rect, modified_at, annot_ref));
     set_popup_annotation_fields(&mut popup_dict, note, pdf_rect, modified_at, annot_ref);
     popup_dict.set("P", Object::Reference(page_id));
-    document.set_new_object(annot_ref, Object::Dictionary(annot_dict));
-    document.set_new_object(popup_ref, Object::Dictionary(popup_dict));
+    document.put_object(annot_ref, Object::Dictionary(annot_dict));
+    document.put_object(popup_ref, Object::Dictionary(popup_dict));
 }
 
 /// Populate the fields owned by the canonical sticky-note writer. The
@@ -1143,13 +1143,6 @@ pub(crate) fn build_page_annotation_index(
         },
         scanned,
     ))
-}
-
-pub(crate) fn build_incremental_page_annotation_index(
-    incremental: &IncrementalDocument,
-    page_id: ObjectId,
-) -> Result<(PageAnnotationIndex, usize)> {
-    build_page_annotation_index(incremental, page_id)
 }
 
 pub(crate) fn write_page_annotation_index(

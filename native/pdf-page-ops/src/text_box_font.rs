@@ -134,7 +134,7 @@ impl SharedFonts {
             let name = format!("{tag}+TextFont{index}");
             let font =
                 text_font_program::embed_font_program(document, programs[index], &name, &glyphs)?;
-            document.set_new_object(id, Object::Dictionary(font));
+            document.put_object(id, Object::Dictionary(font));
         }
         Ok(())
     }

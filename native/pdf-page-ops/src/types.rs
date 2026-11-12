@@ -679,12 +679,13 @@ pub(crate) trait PdfObjectStore: PdfObjectSource {
     /// Reserves the next object number past `max_id`.
     fn new_object_id(&mut self) -> ObjectId;
 
-    /// Stores a new object under a number past `max_id`.
-    fn set_new_object(&mut self, object_id: ObjectId, object: Object);
+    /// Stores `object` as `object_id`: a new number from `new_object_id`, or
+    /// one whose whole object it replaces.
+    fn put_object(&mut self, object_id: ObjectId, object: Object);
 
     fn add_object(&mut self, object: impl Into<Object>) -> ObjectId {
         let object_id = self.new_object_id();
-        self.set_new_object(object_id, object.into());
+        self.put_object(object_id, object.into());
         object_id
     }
 
@@ -714,7 +715,7 @@ impl PdfObjectStore for Document {
         Document::new_object_id(self)
     }
 
-    fn set_new_object(&mut self, object_id: ObjectId, object: Object) {
+    fn put_object(&mut self, object_id: ObjectId, object: Object) {
         self.max_id = self.max_id.max(object_id.0);
         self.objects.insert(object_id, object);
     }
