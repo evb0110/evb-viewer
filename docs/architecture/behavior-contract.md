@@ -200,10 +200,23 @@ the page, zoom, annotations, or responsiveness of another.
 
 **T2. Unsaved work is protected.** Closing a tab, a window or the app with
 unsaved changes asks first, and a crash or forced quit leaves recoverable work,
-also when the computer restarts before EVB does.
+also when the computer restarts before EVB does. An accepted edit, and the
+annotations and metadata not yet written into the PDF, are committed to the
+document's own working copy as one step before anything else happens to them,
+so a crash at any later moment finds them there and the next start offers them
+again. Recovery data and caches that versions before 2026-11 wrote are not
+read; the files those versions saved open and save as before. Restated
+2026-11-13 for the document store (#1588).
 
 **T3. Output is complete and usable.** A saved or exported file opens in this
 viewer and in a stock reader, with all pages and the saved annotations.
+
+Save takes four steps in this order. Commit: the pending edits go into the
+working copy, so the work is safe whatever happens next. Check: the PDF on disk
+must still hold the bytes EVB last read from it or wrote to it. Publish: the
+working copy's bytes replace the PDF in one step. Acknowledge: those bytes
+become the saved state the next check compares with. The PDF is never copied
+back into the working copy. Restated 2026-11-13 for the document store (#1588).
 
 On ext4, NTFS or APFS paths where hard links are unsupported, save and recovery
 use rename after displacement or a missing-path check. Another program can
@@ -214,12 +227,14 @@ baseline mismatch, but the recreated revision can be lost. Closing this window
 requires an OS-level no-replace rename that Node does not expose.
 
 After a crash or forced quit during a save, recovery puts the PDF back as it was
-before that save, or keeps the save if it had finished. EVB's own bytes count as
-unchanged when a sync client only touched their metadata or rewrote them
-identically, so they never become a kept copy. The next Save compares the PDF
-on disk with the last revision EVB read or wrote: identical bytes and a touch
-that only changes the modification time are admitted, and every byte change,
-including one made while EVB was stopped, is refused with an offer to Save As.
+before that save, or keeps the save if it had finished, and acknowledges the
+save only when the PDF holds exactly the bytes it published. EVB's own bytes
+count as unchanged when a sync client only touched their metadata or rewrote
+them identically, so they never become a kept copy. The check compares the
+content of the PDF on disk with the last revision EVB read or wrote: identical
+bytes and a touch that only changes the modification time are admitted, and
+every byte change, including one made while EVB was stopped, is refused with an
+offer to Save As.
 Recovery leaves no file of its own beside the PDF. When a save, or recovery
 after a crash, finds the PDF changed elsewhere after the save displaced it, the
 version that was on disk just before that save stays beside the PDF as
@@ -227,7 +242,7 @@ version that was on disk just before that save stays beside the PDF as
 an existing file. A live save's refusal names that file, and every later open
 of that PDF names it again and says to compare the two and keep one, until the
 person dismisses that notice. While another program holds the PDF after a
-crash, the document still opens with its last saved revision, and Save is
+crash, the document still opens with its working copy, and Save is
 refused, saying another program is using the file, until it lets go. If the
 person closes that document, reopens the PDF and saves it, that save stands and
 nothing more is kept beside it. While another program holds open a file a
