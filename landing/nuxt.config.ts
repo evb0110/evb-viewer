@@ -45,7 +45,6 @@ export default defineNuxtConfig({
     ...(enableNuxtCompatibilityV5 ? {future: {compatibilityVersion: 5 as const}} : {}),
 
     modules: [
-        '@nuxt/eslint',
         '@nuxt/ui',
         '@nuxtjs/i18n',
         '@nuxtjs/sitemap',

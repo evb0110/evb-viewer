@@ -19,7 +19,6 @@ import type {
 declare const annotationIdBrand: unique symbol;
 
 // Domain language from the annotation blueprint intentionally omits the T prefix.
-// eslint-disable-next-line @typescript-eslint/naming-convention
 export type AnnotationId = string & { readonly [annotationIdBrand]: 'AnnotationId' };
 
 export type TAnnotationRotation = 0 | 90 | 180 | 270;
@@ -220,7 +219,6 @@ export function toLegacyShapeAnnotation(entity: IShapeEntity): IShapeAnnotation 
     };
 }
 
-// eslint-disable-next-line @typescript-eslint/naming-convention
 export type AnnotationEntity =
     | ITextBoxEntity
     | INoteEntity

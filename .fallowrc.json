@@ -91,13 +91,7 @@
         "devalue",
         "entities",
         "estree-walker",
-        "eslint",
-        "eslint-import-resolver-typescript",
-        "eslint-plugin-import",
-        // ESLint's flat config and format-comparison policy parse source at
-        // runtime; these are repository tooling, not application imports.
-        "@typescript-eslint/parser",
-        "vue-eslint-parser",
+        "oxlint",
         "hookable",
         "iron-webcrypto",
         "@napi-rs/canvas",

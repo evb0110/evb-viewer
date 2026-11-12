@@ -1,4 +1,3 @@
-/* eslint-disable custom/file-naming -- Nuxt plugin filename is fixed by the WP6 contract. */
 
 import type { THostResourceTier } from '@contracts/hostResourceProfile';
 import { getPerformanceProfile } from '@app/utils/performanceProfile';

@@ -74,7 +74,6 @@ temp/
 *.swo
 *~
 *.log
-.eslintcache
 playwright-report/
 test-results/
 auto-imports.d.ts

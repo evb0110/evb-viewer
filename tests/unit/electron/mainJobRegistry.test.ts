@@ -1,4 +1,3 @@
-/* eslint-disable @stylistic/array-bracket-newline, @stylistic/array-element-newline, @stylistic/object-curly-newline, @stylistic/object-property-newline */
 import {EventEmitter} from 'node:events';
 import {existsSync, mkdtempSync, rmSync} from 'node:fs';
 import {writeFile} from 'node:fs/promises';

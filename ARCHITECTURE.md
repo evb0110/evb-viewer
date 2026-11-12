@@ -162,7 +162,7 @@ permissions and the rules an extension page imposes.
 ## Boundaries
 
 The module graph is enforced, not documented. `pnpm run check:architecture`
-runs ESLint import-boundary zones and dependency-cruiser cycle checks. The
+runs dependency-cruiser import-boundary and cycle checks. The
 rules worth knowing:
 
 - `electron/**`, `packages/**`, and `landing/**` must not import `app/**`, and
@@ -176,8 +176,10 @@ rules worth knowing:
 - Component directories contain Vue SFCs only, and PDF composables stay in
   feature modules.
 
-Platform-capability composition and other source-level policies are ESLint
-rules in the existing custom plugin.
+OxLint enforces defect checks and documented source-level invariants, including
+platform-capability composition. Its small JS plugin handles invariants that
+need an AST; `.oxlintrc.json` selects native rules. See
+[ADR 0009](docs/architecture/adr/0009-lint-runs-on-oxlint.md).
 
 ## Where things live
 

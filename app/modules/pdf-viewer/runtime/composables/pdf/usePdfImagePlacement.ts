@@ -35,7 +35,6 @@ interface IUsePdfImagePlacementOptions {
     } | null;
     // The editor session owns the placement transaction and reports whether
     // the draft can be released.
-    // eslint-disable-next-line @typescript-eslint/no-invalid-void-type
     finalizePlacement: (payload: IPdfPlacedImageFinalizePayload) => void | boolean | Promise<boolean>;
     probeImage?: typeof probeBrowserImageFile;
     createPreview?: typeof createStaticBrowserImagePreview;
@@ -345,7 +344,6 @@ export const usePdfImagePlacement = (options: IUsePdfImagePlacementOptions) => {
         const finalizationAbortController = new AbortController();
         imageFinalizationAbortController = finalizationAbortController;
         isPendingImagePlacementFinalizing.value = true;
-        // eslint-disable-next-line @typescript-eslint/no-invalid-void-type
         let result: void | boolean | Promise<boolean>;
         try {
             result = finalizePlacement({

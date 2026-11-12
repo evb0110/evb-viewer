@@ -198,7 +198,7 @@ artifact hashes still match. Standalone package verification builds normally.
 Select coverage reports and stress tests only when they answer
 a concrete question. Run native and
 platform checks when the changed behavior requires them. For local iteration, use file-scoped loops
-such as `pnpm exec eslint app/path/to/change.ts`,
+such as `pnpm exec oxlint app/path/to/change.ts --deny-warnings --report-unused-disable-directives`,
 `pnpm exec vitest run --project unit-policy tests/unit/scripts/releasePolicy.test.ts`, or
 `pnpm run test:electron-bundle-static-integrity:no-build` after
 `dist-electron/` already exists. Select

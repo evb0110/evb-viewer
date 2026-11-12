@@ -1,0 +1,369 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": [
+    "typescript",
+    "unicorn",
+    "oxc",
+    "import",
+    "promise",
+    "vue",
+    "vitest",
+    "node"
+  ],
+  "categories": {
+    "correctness": "off"
+  },
+  "ignorePatterns": [
+    "**/node_modules/**",
+    "**/.nuxt/**",
+    "**/.output/**",
+    "**/.vercel/**",
+    "**/.devkit/**",
+    "**/dist/**",
+    "**/nuxt-output/**",
+    "**/*.generated.ts",
+    "scripts/release/generated-release-targets.cjs"
+  ],
+  "rules": {
+    "array-callback-return": "error",
+    "constructor-super": "error",
+    "for-direction": "error",
+    "getter-return": "error",
+    "no-async-promise-executor": "error",
+    "no-caller": "error",
+    "no-class-assign": "error",
+    "no-compare-neg-zero": "error",
+    "no-cond-assign": "error",
+    "no-const-assign": "error",
+    "no-constant-binary-expression": "error",
+    "no-constant-condition": "error",
+    "no-constructor-return": "error",
+    "no-control-regex": "error",
+    "no-debugger": "error",
+    "no-delete-var": "error",
+    "no-dupe-class-members": "error",
+    "no-dupe-else-if": "error",
+    "no-dupe-keys": "error",
+    "no-duplicate-case": "error",
+    "no-empty-character-class": "error",
+    "no-empty-pattern": "error",
+    "no-empty-static-block": "error",
+    "no-eval": "error",
+    "no-ex-assign": "error",
+    "no-func-assign": "error",
+    "no-global-assign": "error",
+    "no-implied-eval": "error",
+    "no-import-assign": "error",
+    "no-invalid-regexp": "error",
+    "no-irregular-whitespace": "error",
+    "no-iterator": "error",
+    "no-loss-of-precision": "error",
+    "no-misleading-character-class": "error",
+    "no-new-native-nonconstructor": "error",
+    "no-new-wrappers": "error",
+    "no-nonoctal-decimal-escape": "error",
+    "no-obj-calls": "error",
+    "no-object-constructor": "error",
+    "no-self-assign": "error",
+    "no-self-compare": "error",
+    "no-setter-return": "error",
+    "no-shadow-restricted-names": "error",
+    "no-sparse-arrays": "error",
+    "no-this-before-super": "error",
+    "no-unassigned-vars": "error",
+    "no-unreachable": "error",
+    "no-unsafe-finally": "error",
+    "no-unsafe-negation": "error",
+    "no-unsafe-optional-chaining": "error",
+    "no-unused-expressions": "error",
+    "no-unused-labels": "error",
+    "no-unused-private-class-members": "error",
+    "no-unused-vars": [
+      "error",
+      {
+        "args": "none",
+        "varsIgnorePattern": "^_",
+        "caughtErrorsIgnorePattern": "^_",
+        "ignoreRestSiblings": true
+      }
+    ],
+    "no-useless-backreference": "error",
+    "no-with": "error",
+    "require-yield": "error",
+    "use-isnan": "error",
+    "valid-typeof": "error",
+    "import/default": "error",
+    "import/namespace": "error",
+    "node/no-exports-assign": "error",
+    "oxc/bad-array-method-on-arguments": "error",
+    "oxc/bad-char-at-comparison": "error",
+    "oxc/bad-comparison-sequence": "error",
+    "oxc/bad-match-all-arg": "error",
+    "oxc/bad-min-max-func": "error",
+    "oxc/bad-object-literal-comparison": "error",
+    "oxc/bad-replace-all-arg": "error",
+    "oxc/const-comparisons": "error",
+    "oxc/double-comparisons": "error",
+    "oxc/erasing-op": "error",
+    "oxc/missing-throw": "error",
+    "oxc/number-arg-out-of-range": "error",
+    "oxc/only-used-in-recursion": "error",
+    "oxc/uninvoked-array-callback": "error",
+    "promise/no-multiple-resolved": "error",
+    "promise/no-new-statics": "error",
+    "promise/valid-params": "error",
+    "typescript/no-duplicate-enum-values": "error",
+    "typescript/no-misused-new": "error",
+    "typescript/no-non-null-asserted-optional-chain": "error",
+    "typescript/no-unsafe-declaration-merging": "error",
+    "typescript/no-wrapper-object-types": "error",
+    "unicorn/no-accessor-recursion": "error",
+    "unicorn/no-array-fill-with-reference-type": "error",
+    "unicorn/no-await-in-promise-methods": "error",
+    "unicorn/no-invalid-remove-event-listener": "error",
+    "vitest/hoisted-apis-on-top": "error",
+    "vitest/no-focused-tests": "error",
+    "vitest/require-local-test-context-for-concurrent-snapshots": "error",
+    "vitest/valid-describe-callback": "error",
+    "vitest/valid-expect-in-promise": "error",
+    "vue/no-arrow-functions-in-watch": "error",
+    "vue/no-async-in-computed-properties": "error",
+    "vue/no-computed-properties-in-data": "error",
+    "vue/no-deprecated-data-object-declaration": "error",
+    "vue/no-deprecated-delete-set": "error",
+    "vue/no-deprecated-destroyed-lifecycle": "error",
+    "vue/no-deprecated-events-api": "error",
+    "vue/no-deprecated-model-definition": "error",
+    "vue/no-deprecated-props-default-this": "error",
+    "vue/no-deprecated-vue-config-keycodes": "error",
+    "vue/no-dupe-keys": "error",
+    "vue/no-export-in-script-setup": "error",
+    "vue/no-expose-after-await": "error",
+    "vue/no-lifecycle-after-await": "error",
+    "vue/no-reserved-component-names": "error",
+    "vue/no-reserved-keys": "error",
+    "vue/no-reserved-props": "error",
+    "vue/no-shared-component-data": "error",
+    "vue/no-side-effects-in-computed-properties": "error",
+    "vue/no-this-in-before-route-enter": "error",
+    "vue/no-watch-after-await": "error",
+    "vue/require-prop-type-constructor": "error",
+    "vue/require-render-return": "error",
+    "vue/require-slots-as-functions": "error",
+    "vue/return-in-computed-property": "error",
+    "vue/return-in-emits-validator": "error",
+    "vue/valid-define-emits": "error",
+    "vue/valid-define-options": "error",
+    "vue/valid-define-props": "error",
+    "vue/valid-next-tick": "error",
+    "invariants/annotation-storage-public-access": "error",
+    "invariants/platform-api-narrow-getter": "error",
+    "invariants/workspace-format-comparison": "error",
+    "invariants/component-directory-source": "error",
+    "invariants/top-level-pdf-composable": "error",
+    "invariants/no-raw-red-presentation": "error",
+    "invariants/no-core-correctness-timers": "error",
+    "no-restricted-imports": [
+      "error",
+      {
+        "patterns": [
+          {
+            "group": [
+              "@i18n-core/*",
+              "@i18n-app/*",
+              "@releaseSelection/*"
+            ],
+            "message": "Use shared package root entrypoints."
+          }
+        ]
+      }
+    ],
+    "typescript/no-unsafe-function-type": "error"
+  },
+  "jsPlugins": [
+    {
+      "name": "invariants",
+      "specifier": "./oxlint-plugin-invariants.mjs"
+    }
+  ],
+  "overrides": [
+    {
+      "files": [
+        "app/**/*.{ts,vue}"
+      ],
+      "rules": {
+        "no-restricted-globals": [
+          "error",
+          {
+            "name": "useI18n",
+            "message": "Use useTypedI18n() to keep localized messages typed."
+          }
+        ],
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              {
+                "group": [
+                  "@i18n-core/*",
+                  "@i18n-app/*",
+                  "@releaseSelection/*"
+                ],
+                "message": "Import shared packages through their root entrypoints."
+              }
+            ],
+            "paths": [
+              {
+                "name": "vue-i18n",
+                "importNames": [
+                  "useI18n"
+                ],
+                "message": "Use useTypedI18n()."
+              },
+              {
+                "name": "#imports",
+                "importNames": [
+                  "useI18n"
+                ],
+                "message": "Use useTypedI18n()."
+              },
+              {
+                "name": "#i18n",
+                "importNames": [
+                  "useI18n"
+                ],
+                "message": "Use useTypedI18n()."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "files": [
+        "app/composables/useTypedI18n.ts"
+      ],
+      "rules": {
+        "no-restricted-globals": "off",
+        "no-restricted-imports": "off"
+      }
+    },
+    {
+      "files": [
+        "app/**",
+        "electron/**",
+        "landing/**",
+        "server/**"
+      ],
+      "rules": {
+        "no-restricted-properties": [
+          "error",
+          {
+            "object": "console",
+            "property": "error",
+            "message": "Use the approved diagnostic logger or observer."
+          }
+        ]
+      }
+    },
+    {
+      "files": [
+        "app/**/*.{ts,vue}"
+      ],
+      "rules": {
+        "no-restricted-properties": [
+          "error",
+          {
+            "object": "console",
+            "property": "error",
+            "message": "Use the approved diagnostic logger or observer."
+          },
+          {
+            "object": "window",
+            "property": "electronAPI",
+            "message": "Use the platform capability helpers."
+          }
+        ]
+      }
+    },
+    {
+      "files": [
+        "app/utils/browserLogger.ts",
+        "app/utils/consoleErrorObserver.ts"
+      ],
+      "rules": {
+        "no-restricted-properties": [
+          "error",
+          {
+            "object": "window",
+            "property": "electronAPI",
+            "message": "Use the platform capability helpers."
+          }
+        ]
+      }
+    },
+    {
+      "files": [
+        "electron/preload/installDebugLogListener.ts"
+      ],
+      "rules": {
+        "no-restricted-properties": "off"
+      }
+    },
+    {
+      "files": [
+        "packages/contracts/**"
+      ],
+      "rules": {
+        "no-restricted-globals": [
+          "error",
+          {
+            "globals": [
+              "process",
+              "Buffer"
+            ],
+            "checkGlobalObject": true
+          }
+        ]
+      }
+    },
+    {
+      "files": [
+        "tests/**"
+      ],
+      "rules": {
+        "no-unsafe-optional-chaining": "off"
+      }
+    },
+    {
+      "files": [
+        "tests/e2e/**/*.ts"
+      ],
+      "rules": {
+        "invariants/e2e-click-as-user": "error"
+      }
+    },
+    {
+      "files": [
+        "tests/e2e/electron/drawing/annotationStrokeParity.e2e.test.ts"
+      ],
+      "rules": {
+        "invariants/e2e-click-as-user": "off"
+      }
+    },
+    {
+      "files": [
+        "packages/**",
+        "scripts/**",
+        "tests/**",
+        "vitest.config.ts",
+        "app/i18n/runtime-locales/**",
+        "electron/features/search/searchRequestPayload.ts",
+        "electron/features/documents/createDocumentsPreloadFileClient.ts"
+      ],
+      "rules": {
+        "no-restricted-imports": "off"
+      }
+    }
+  ]
+}

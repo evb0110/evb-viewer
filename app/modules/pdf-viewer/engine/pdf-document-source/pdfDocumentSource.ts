@@ -106,7 +106,7 @@ export interface IPdfRenderTask {
     readonly separateAnnots?: unknown;
     readonly promise: Promise<unknown>;
     cancel(extraDelay?: number): void;
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-function-type
+    // eslint-disable-next-line typescript/no-unsafe-function-type
     onContinue?: Function | undefined;
 }
 

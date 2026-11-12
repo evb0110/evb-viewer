@@ -60,12 +60,14 @@ function createUnitTestProject(
         processCss = false,
         exclude = [],
         setupFiles,
+        isolate = true,
     }: {
         autoImport?: boolean;
         vueComponents?: boolean;
         processCss?: boolean;
         exclude?: string[];
         setupFiles?: string[];
+        isolate?: boolean;
     } = {},
 ) {
     return {
@@ -83,6 +85,7 @@ function createUnitTestProject(
                 ...exclude,
             ],
             globals: false,
+            isolate,
             ...(name === vitestProjectNames.browserIntegration
                 ? {
                     expect: {poll: {timeout: 15_000}},
@@ -151,7 +154,9 @@ export const vitestProjects = [
             'tests/unit/pdf-viewer/**/*.test.ts',
             'tests/unit/server/**/*.test.ts',
         ],
-        { autoImport: true },
+        // These files change no process state (cwd, HOME, globals), so they
+        // share one module graph: about twice as fast as a fresh one per file.
+        { autoImport: true, isolate: false },
     ),
     createUnitTestProject(
         vitestProjectNames.nativeIntegration,

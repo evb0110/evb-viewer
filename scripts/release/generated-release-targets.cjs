@@ -1,4 +1,4 @@
-'use strict'; /* eslint-disable @stylistic/array-bracket-newline, @stylistic/array-element-newline, @stylistic/object-curly-newline, @stylistic/object-property-newline, @stylistic/indent */
+'use strict';
 /** @type {TManifest} */
 const manifest = JSON.parse(String.raw`{
     "electronBuilderPlatformKeys": {

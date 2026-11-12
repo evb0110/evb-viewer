@@ -202,7 +202,6 @@ describe('usePageShortcuts', () => {
             isContentEditable: false,
             closest: (selector: string) => selector.includes('input') ? fakeInput : null,
         };
-        // eslint-disable-next-line @typescript-eslint/no-extraneous-class
         vi.stubGlobal('HTMLElement', class HTMLElementStub {});
         Object.setPrototypeOf(fakeInput, HTMLElement.prototype);
 
@@ -376,7 +375,6 @@ describe('usePageShortcuts', () => {
             isContentEditable: false,
             closest: (selector: string) => selector.includes('input') ? fakeInput : null,
         };
-        // eslint-disable-next-line @typescript-eslint/no-extraneous-class
         vi.stubGlobal('HTMLElement', class HTMLElementStub {});
         Object.setPrototypeOf(fakeInput, HTMLElement.prototype);
 
@@ -402,7 +400,6 @@ describe('usePageShortcuts', () => {
             isContentEditable: false,
             closest: (selector: string) => selector.includes('input') ? fakeInput : null,
         };
-        // eslint-disable-next-line @typescript-eslint/no-extraneous-class
         vi.stubGlobal('HTMLElement', class HTMLElementStub {});
         Object.setPrototypeOf(fakeInput, HTMLElement.prototype);
 
@@ -456,7 +453,6 @@ describe('usePageShortcuts', () => {
             isContentEditable: true,
             closest: () => null,
         };
-        // eslint-disable-next-line @typescript-eslint/no-extraneous-class
         vi.stubGlobal('HTMLElement', class HTMLElementStub {});
         onTestFinished(() => { vi.unstubAllGlobals(); });
         Object.setPrototypeOf(fakeInput, HTMLElement.prototype);
@@ -545,7 +541,6 @@ describe('usePageShortcuts', () => {
             isContentEditable: false,
             closest: (selector: string) => selector.includes('input') ? fakeInput : null,
         };
-        // eslint-disable-next-line @typescript-eslint/no-extraneous-class
         vi.stubGlobal('HTMLElement', class HTMLElementStub {});
         Object.setPrototypeOf(fakeInput, HTMLElement.prototype);
         const { usePageShortcuts } = await import('@app/modules/workspace-shell/composables/usePageShortcuts');
@@ -574,7 +569,6 @@ describe('usePageShortcuts', () => {
     it('leaves Delete, paging, Cmd+S and Cmd+B pressed inside a dialog to the dialog', async () => {
         mocks.shouldHandleRendererMenuAccelerators.mockReturnValue(true);
         const deps = createDeps();
-        // eslint-disable-next-line @typescript-eslint/no-extraneous-class
         vi.stubGlobal('Element', class ElementStub {});
         const dialogButton = {closest: (selector: string) => selector.includes('dialog') ? dialogButton : null};
         Object.setPrototypeOf(dialogButton, Element.prototype);
@@ -781,7 +775,6 @@ describe('usePageShortcuts', () => {
             isContentEditable: false,
             closest: (selector: string) => selector.includes('input') ? fakeInput : null,
         };
-        // eslint-disable-next-line @typescript-eslint/no-extraneous-class
         vi.stubGlobal('HTMLElement', class HTMLElementStub {});
         Object.setPrototypeOf(fakeInput, HTMLElement.prototype);
         getCapturedOnEventFired()?.(createKeyboardEventFixture({
@@ -813,7 +806,6 @@ describe('usePageShortcuts', () => {
             isContentEditable: true,
             closest: () => fakeEditor,
         };
-        // eslint-disable-next-line @typescript-eslint/no-extraneous-class
         vi.stubGlobal('HTMLElement', class HTMLElementStub {});
         Object.setPrototypeOf(fakeEditor, HTMLElement.prototype);
         expect(paste(fakeEditor, [image])).toBe(false);
@@ -831,7 +823,6 @@ describe('usePageShortcuts', () => {
         usePageShortcuts(deps);
 
         const target = { closest: vi.fn(() => null) };
-        // eslint-disable-next-line @typescript-eslint/no-extraneous-class
         vi.stubGlobal('HTMLElement', class HTMLElementStub {});
         Object.setPrototypeOf(target, HTMLElement.prototype);
 
