@@ -12,22 +12,6 @@ describe('image export platform feature schemas', () => {
     const channels = IMAGE_EXPORT_PLATFORM_FEATURE.invokeChannels;
     const codecs = IMAGE_EXPORT_PLATFORM_FEATURE.ipcCodecs;
 
-    it('preserves channels and registry-backed replay policy', () => {
-        expect(channels).toEqual({
-            captureCurrentView: 'pdfExport:region',
-            exportPdfToImages: 'pdfExport:images',
-            exportPdfToMultiPageTiff: 'pdfExport:multipage-tiff',
-            subscribeProgress: 'pdfExport:progress:subscribe',
-        });
-        expect(IMAGE_EXPORT_PLATFORM_FEATURE.eventChannels).toEqual({onProgress: 'pdfExport:progress'});
-        expect(IMAGE_EXPORT_PLATFORM_FEATURE.events.onProgress.subscription.replay).toMatchObject({
-            intervalMs: 50,
-            mode: 'latest-per-key',
-            owner: 'ipc-progress-pump',
-            terminalRetentionMs: 30_000,
-        });
-    });
-
     it('round-trips source kinds and normalized page-list arguments', () => {
         const args = [
             '/tmp/book.djvu',

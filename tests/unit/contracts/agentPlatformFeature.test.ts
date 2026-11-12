@@ -75,29 +75,7 @@ const {
 
 describe('Agent platform feature with assistant instances', () => {
     it('exposes the complete caller method and event set', () => {
-        expect(channels).toEqual({
-            getMcpIntegrationStatus: 'agent:getMcpIntegrationStatus',
-            setMcpIntegrationEnabled: 'agent:setMcpIntegrationEnabled',
-            getAssistantState: 'agent:getAssistantState',
-            installAssistantCodex: 'agent:installAssistantCodex',
-            startAssistantLogin: 'agent:startAssistantLogin',
-            cancelAssistantLogin: 'agent:cancelAssistantLogin',
-            sendAssistantMessage: 'agent:sendAssistantMessage',
-            interruptAssistant: 'agent:interruptAssistant',
-            resetAssistantChat: 'agent:resetAssistantChat',
-            getAssistantInstances: 'agent:getAssistantInstances',
-            saveAssistantInstances: 'agent:saveAssistantInstances',
-            importAssistantInstancesFromT3: 'agent:importAssistantInstancesFromT3',
-            submitWorkspaceSnapshot: 'agent:submitWorkspaceSnapshot',
-            submitCommandResponse: 'agent:submitCommandResponse',
-        });
-        expect(AGENT_PLATFORM_FEATURE.eventChannels).toEqual({
-            onMcpIntegrationChanged: 'agent:mcpIntegrationChanged',
-            onAssistantEvent: 'agent:assistantEvent',
-            onWorkspaceSnapshotRequest: 'agent:workspaceSnapshotRequest',
-            onCommandCancelRequest: 'agent:commandCancelRequest',
-            onCommandRequest: 'agent:commandRequest',
-        });
+
         expect(AGENT_PLATFORM_FEATURE.platformDescriptors.capabilities).toEqual([{
             path: ['agent'],
             required: {

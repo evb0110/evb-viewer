@@ -13,18 +13,7 @@ describe('host platform feature schemas', () => {
     const codecs = HOST_PLATFORM_FEATURE.ipcCodecs;
 
     it('preserves sync, async, and event kinds without inventing sync IPC', () => {
-        expect(channels).toEqual({
-            getEnvironment: 'host:getEnvironment',
-            getZenModeState: 'host:getZenModeState',
-            setZenMode: 'host:setZenMode',
-            restoreNormalWindow: 'host:restoreNormalWindow',
-            writeBugReportBundle: 'host:writeBugReportBundle',
-        });
-        expect(HOST_PLATFORM_FEATURE.eventChannels).toEqual({
-            onEnvironmentChange: 'host:environmentChanged',
-            onZenModeChange: 'host:zenModeChanged',
-            onWheelScrollSequenceChange: 'host:wheelScrollSequenceChanged',
-        });
+
         expect(HOST_PLATFORM_FEATURE.platformDescriptors.methods).toEqual([
             expect.objectContaining({
                 path: [

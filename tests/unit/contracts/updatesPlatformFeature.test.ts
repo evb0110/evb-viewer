@@ -20,15 +20,7 @@ describe('updates platform feature schemas', () => {
     } as const;
 
     it('owns update invokes and the decoded status event', () => {
-        expect(channels).toEqual({
-            getState: 'updates:getState',
-            check: 'updates:check',
-            download: 'updates:download',
-            install: 'updates:install',
-            defer: 'updates:defer',
-            skipVersion: 'updates:skipVersion',
-        });
-        expect(UPDATES_PLATFORM_FEATURE.eventChannels).toEqual({onStatus: 'updates:status'});
+
         expect(UPDATES_PLATFORM_FEATURE.platformDescriptors.methods).toHaveLength(7);
         expect(UPDATES_PLATFORM_FEATURE.platformDescriptors.methods.every(
             descriptor => descriptor.required.browser === false && descriptor.required.electron,

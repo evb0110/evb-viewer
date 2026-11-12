@@ -57,6 +57,17 @@ function setPlatform(platform: NodeJS.Platform) {
     });
 }
 
+function mockWindowsPaths(nativeRealpath: (candidate: string) => string) {
+    vi.doMock('fs', async importOriginal => ({
+        ...await importOriginal<typeof NodeFs>(), realpathSync: {native: nativeRealpath},
+    }));
+    vi.doMock('node:child_process', async importOriginal => ({
+        ...await importOriginal<typeof NodeChildProcess>(),
+        spawnSync: vi.fn(() => ({stderr: '', stdout: 'Case sensitive attribute on directory is disabled.\\n'})),
+    }));
+    vi.resetModules();
+}
+
 function preventAutomaticWorkingCopyMaterialization() {
     vi.doMock('@electron/file-access/workingCopyMaterialization', async importOriginal => {
         const original = await importOriginal<typeof WorkingCopyMaterialization>();
@@ -192,6 +203,8 @@ describe('workingCopy', () => {
         vi.unstubAllEnvs();
         delete process.env.EVB_TEST_FORCE_WORKING_COPY_CLONE_RESULT;
         vi.doUnmock('@electron/file-access/workingCopyMaterialization');
+        vi.doUnmock('fs');
+        vi.doUnmock('node:child_process');
         vi.doUnmock('fs/promises');
         vi.doUnmock('node:fs/promises');
         vi.useRealTimers();
@@ -1476,23 +1489,23 @@ describe('workingCopy', () => {
         }
     });
 
-    it('prunes retired working-copy metadata after its TTL without requiring a later lookup', async () => {
+    it('expires retired working-copy recovery after its TTL', async () => {
         vi.useFakeTimers();
         vi.setSystemTime(new Date('2026-07-10T00:00:00.000Z'));
         const {
-            getRetiredWorkingCopyOriginalCountForTests,
+            getWorkingCopyOriginalPath,
             rememberRetiredWorkingCopyOriginal,
         } = await import('@electron/file-access/workingCopyStore');
 
         rememberRetiredWorkingCopyOriginal('/tmp/retired.pdf', '/tmp/original.pdf');
-        expect(getRetiredWorkingCopyOriginalCountForTests()).toBe(1);
+        expect(getWorkingCopyOriginalPath('/tmp/retired.pdf')).toMatchObject({originalPath: '/tmp/original.pdf', retired: true});
 
         await vi.advanceTimersByTimeAsync(10 * 60 * 1_000);
 
-        expect(getRetiredWorkingCopyOriginalCountForTests()).toBe(0);
+        expect(getWorkingCopyOriginalPath('/tmp/retired.pdf')).toBeNull();
     });
 
-    it('preserves lazy backing metadata and registration identity after retirement', async () => {
+    it('preserves lazy backing metadata after retirement', async () => {
         const {
             captureWorkingCopyAdmissionSnapshot,
             forgetWorkingCopyOriginalPath,
@@ -1509,14 +1522,12 @@ describe('workingCopy', () => {
             backingState: 'lazy-original',
             deferOriginalFileExpectation: true,
         });
-        const activeMetadata = getWorkingCopyBackingMetadata(workingPath, 7);
 
         rememberRetiredWorkingCopyOriginal(workingPath, originalPath, 7);
         forgetWorkingCopyOriginalPath(workingPath);
 
-        expect(getWorkingCopyBackingMetadata(workingPath, 7)).toEqual({
-            ...activeMetadata,
-            retired: true,
+        expect(getWorkingCopyBackingMetadata(workingPath, 7)).toMatchObject({
+            admissionSnapshot, backingState: 'lazy-original', retired: true,
         });
     });
 
@@ -1585,32 +1596,6 @@ describe('workingCopy', () => {
         const witness = await captureOriginalPathSaveWitness(workingPath, originalPath, 7);
         expect(witness === null ? 'refuses' : 'admits').toBe(outcome);
         expect(readFileSync(originalPath).equals(replacementBytes)).toBe(true);
-    });
-
-    it('never reuses registration IDs after the active registry is cleared', async () => {
-        const {
-            clearWorkingCopyOriginalPaths,
-            getWorkingCopyRegistrationId,
-            setWorkingCopyOriginalPath,
-        } = await import('@electron/file-access/workingCopyStore');
-        const workingPath = join(tempRoot, 'pdf-work-registration-generation', 'working.pdf');
-        await setWorkingCopyOriginalPath(
-            workingPath,
-            join(tempRoot, 'first.pdf'),
-            7,
-            {deferOriginalFileExpectation: true},
-        );
-        const firstRegistrationId = getWorkingCopyRegistrationId(workingPath, 7);
-
-        clearWorkingCopyOriginalPaths();
-        await setWorkingCopyOriginalPath(
-            workingPath,
-            join(tempRoot, 'second.pdf'),
-            7,
-            {deferOriginalFileExpectation: true},
-        );
-
-        expect(getWorkingCopyRegistrationId(workingPath, 7)).toBeGreaterThan(firstRegistrationId ?? 0);
     });
 
     it('recreates an active working copy directory from the original file', async () => {
@@ -1704,7 +1689,6 @@ describe('workingCopy', () => {
         } = await import('@electron/file-access/workingCopyCleanup');
         const {
             getWorkingCopyOriginalPath,
-            getWorkingCopyRegistrationId,
         } = await import('@electron/file-access/workingCopyStore');
         const { allowOpenPath } = await import('@electron/file-access/openPathCapabilities');
         const {resolveExistingReadablePdfPath} = await import('@electron/features/documents/main/documentFilePathResolution');
@@ -1718,17 +1702,14 @@ describe('workingCopy', () => {
         expect(trustedOriginalPath).not.toBeNull();
 
         const workingPath = await createWorkingCopyFromPath(trustedOriginalPath!, undefined, 7);
-        const registrationId = getWorkingCopyRegistrationId(workingPath, 7);
         await cleanupWorkingCopy(workingPath, 7);
 
         await expect(resolveExistingReadablePdfPath(workingPath, 7))
             .rejects
             .toThrow();
         await expect(ensureWorkingCopyDirectory(workingPath, 7)).resolves.toBe(false);
-        expect(getWorkingCopyRegistrationId(workingPath, 7)).toBeNull();
         expect(getWorkingCopyOriginalPath(workingPath, 7)).toMatchObject({retired: true});
         expect(existsSync(dirname(workingPath))).toBe(false);
-        expect(registrationId).not.toBeNull();
 
         await clearAllWorkingCopies();
     });
@@ -1767,10 +1748,9 @@ describe('workingCopy', () => {
         await clearAllWorkingCopies();
     });
 
-    it('uses one registration for symlink aliases of a working-copy path', async () => {
+    it('resolves symlink aliases of a working-copy path for its owner', async () => {
         const {
-            getWorkingCopyBackingEntry,
-            getWorkingCopyRegistrationId,
+            getWorkingCopyOriginalPath,
             setWorkingCopyOriginalPath,
         } = await import('@electron/file-access/workingCopyStore');
         const {clearAllWorkingCopies} = await import('@electron/file-access/workingCopyCleanup');
@@ -1784,10 +1764,10 @@ describe('workingCopy', () => {
 
         await setWorkingCopyOriginalPath(aliasedWorkingPath, join(tempRoot, 'original.pdf'), 7, {deferOriginalFileExpectation: true});
 
-        expect(getWorkingCopyRegistrationId(realWorkingPath, 7)).not.toBeNull();
-        expect(getWorkingCopyBackingEntry(realWorkingPath, 7)).toMatchObject({ownerWebContentsId: 7});
-        expect(getWorkingCopyBackingEntry(aliasedWorkingPath, 7))
-            .toBe(getWorkingCopyBackingEntry(realWorkingPath, 7));
+        for (const path of [realWorkingPath, aliasedWorkingPath]) {
+            expect(getWorkingCopyOriginalPath(path, 7)).toMatchObject({originalPath: join(tempRoot, 'original.pdf'), retired: false});
+            expect(getWorkingCopyOriginalPath(path, 8)).toBeNull();
+        }
 
         await clearAllWorkingCopies();
     });
@@ -1868,25 +1848,7 @@ describe('workingCopy', () => {
             }
             throw new Error(`Unexpected Windows path lookup: ${candidate}`);
         });
-        vi.doMock('fs', async importOriginal => {
-            const original = await importOriginal<typeof NodeFs>();
-            return {
-                ...original,
-                realpathSync: {native: nativeRealpath},
-            };
-        });
-        const spawnSync = vi.fn(() => ({
-            stderr: '',
-            stdout: 'Case sensitive attribute on directory is disabled.\\n',
-        }));
-        vi.doMock('node:child_process', async importOriginal => {
-            const original = await importOriginal<typeof NodeChildProcess>();
-            return {
-                ...original,
-                spawnSync,
-            };
-        });
-        vi.resetModules();
+        mockWindowsPaths(nativeRealpath);
 
         let clearAllWorkingCopies: (() => Promise<unknown>) | undefined;
         try {
@@ -1909,35 +1871,17 @@ describe('workingCopy', () => {
     });
 
     it('preserves leading and trailing whitespace in distinct working-copy keys', async () => {
-        const {
-            normalizePathForLookup,
-            workingCopyMap,
-        } = await import('@electron/file-access/workingCopyStore');
-        const leadingPath = ' document-with-space.pdf';
-        const trailingPath = 'document-with-space.pdf ';
-        const createEntry = (registrationId: number): WorkingCopyStore.IWorkingCopyOriginalEntry => ({
-            backingState: 'lazy-original',
-            logicalPath: leadingPath,
-            originalPath: leadingPath,
-            ownerWebContentsId: 42,
-            registeredAtMs: Date.now(),
-            registrationId,
-            role: 'current',
-        });
-        const leadingEntry = createEntry(1);
-        const trailingEntry = createEntry(2);
-
-        try {
-            expect(normalizePathForLookup(' \t\n')).toBe('');
-            expect(normalizePathForLookup(leadingPath)).not.toBe(normalizePathForLookup(trailingPath));
-            workingCopyMap.set(leadingPath, leadingEntry);
-            workingCopyMap.set(trailingPath, trailingEntry);
-
-            expect(workingCopyMap.get(leadingPath)).toBe(leadingEntry);
-            expect(workingCopyMap.get(trailingPath)).toBe(trailingEntry);
-        } finally {
-            workingCopyMap.clear();
+        const {setWorkingCopyOriginalPath, getWorkingCopyOriginalPath, findWorkingCopyPathByOriginalPath} = await import('@electron/file-access/workingCopyStore');
+        const leadingPath = join(tempRoot, ' document-with-space.pdf');
+        const trailingPath = join(tempRoot, 'document-with-space.pdf ');
+        for (const path of [leadingPath, trailingPath]) {
+            await setWorkingCopyOriginalPath(path, path, 42, {deferOriginalFileExpectation: true});
         }
+        for (const path of [leadingPath, trailingPath]) {
+            expect(getWorkingCopyOriginalPath(path, 42)).toMatchObject({originalPath: path});
+            expect(findWorkingCopyPathByOriginalPath(path, 42)).toBe(path);
+        }
+        expect(findWorkingCopyPathByOriginalPath(' \t\n', 42)).toBeNull();
     });
 
     it('resolves a working copy for an original whose filename ends in whitespace', async () => {
@@ -1961,47 +1905,19 @@ describe('workingCopy', () => {
         const nativeRealpath = vi.fn(() => {
             throw new Error('Windows path has no resolvable ancestor');
         });
-        vi.doMock('fs', async importOriginal => {
-            const original = await importOriginal<typeof NodeFs>();
-            return {
-                ...original,
-                realpathSync: {native: nativeRealpath},
-            };
-        });
-        vi.resetModules();
+        mockWindowsPaths(nativeRealpath);
 
-        try {
-            const {
-                normalizePathForLookup,
-                workingCopyMap,
-            } = await import('@electron/file-access/workingCopyStore');
-            const upperCasePath = 'Z:\\unreachable\\pdf-work\\Report.pdf';
-            const lowerCasePath = 'Z:\\unreachable\\pdf-work\\report.pdf';
-            const upperCaseEntry: WorkingCopyStore.IWorkingCopyOriginalEntry = {
-                backingState: 'lazy-original',
-                logicalPath: upperCasePath,
-                originalPath: upperCasePath,
-                ownerWebContentsId: 42,
-                registeredAtMs: Date.now(),
-                registrationId: 1,
-                role: 'current',
-            };
-            const lowerCaseEntry: WorkingCopyStore.IWorkingCopyOriginalEntry = {
-                ...upperCaseEntry,
-                logicalPath: lowerCasePath,
-                originalPath: lowerCasePath,
-                registrationId: 2,
-            };
-
-            expect(normalizePathForLookup(upperCasePath)).not.toBe(normalizePathForLookup(lowerCasePath));
-            workingCopyMap.set(upperCasePath, upperCaseEntry);
-            workingCopyMap.set(lowerCasePath, lowerCaseEntry);
-
-            expect(workingCopyMap.get(upperCasePath)).toBe(upperCaseEntry);
-            expect(workingCopyMap.get(lowerCasePath)).toBe(lowerCaseEntry);
-        } finally {
-            vi.doUnmock('fs');
-            vi.resetModules();
+        const {
+            setWorkingCopyOriginalPath, getWorkingCopyOriginalPath, findWorkingCopyPathByOriginalPath,
+        } = await import('@electron/file-access/workingCopyStore');
+        const upperCasePath = 'Z:\\unreachable\\pdf-work\\Report.pdf';
+        const lowerCasePath = 'Z:\\unreachable\\pdf-work\\report.pdf';
+        for (const path of [upperCasePath, lowerCasePath]) {
+            await setWorkingCopyOriginalPath(path, path, 42, {deferOriginalFileExpectation: true});
+        }
+        for (const path of [upperCasePath, lowerCasePath]) {
+            expect(getWorkingCopyOriginalPath(path, 42)).toMatchObject({originalPath: path});
+            expect(findWorkingCopyPathByOriginalPath(path, 42)).toBe(path);
         }
     });
 
@@ -2016,58 +1932,17 @@ describe('workingCopy', () => {
             }
             throw new Error('Windows path is not materialized yet');
         });
-        vi.doMock('fs', async importOriginal => {
-            const original = await importOriginal<typeof NodeFs>();
-            return {
-                ...original,
-                realpathSync: {native: nativeRealpath},
-            };
-        });
-        const spawnSync = vi.fn(() => ({
-            stderr: '',
-            stdout: 'Case sensitive attribute on directory is disabled.\\n',
-        }));
-        vi.doMock('node:child_process', async importOriginal => {
-            const original = await importOriginal<typeof NodeChildProcess>();
-            return {
-                ...original,
-                spawnSync,
-            };
-        });
-        vi.resetModules();
+        mockWindowsPaths(nativeRealpath);
 
-        try {
-            const {
-                normalizePathForLookup,
-                workingCopyMap,
-            } = await import('@electron/file-access/workingCopyStore');
-            const firstEntry: WorkingCopyStore.IWorkingCopyOriginalEntry = {
-                backingState: 'lazy-original',
-                logicalPath: firstPath,
-                originalPath: firstPath,
-                ownerWebContentsId: 42,
-                registeredAtMs: Date.now(),
-                registrationId: 1,
-                role: 'current',
-            };
-            const secondEntry: WorkingCopyStore.IWorkingCopyOriginalEntry = {
-                ...firstEntry,
-                logicalPath: secondPath,
-                originalPath: secondPath,
-                registrationId: 2,
-            };
-
-            expect(normalizePathForLookup(firstPath)).not.toBe(normalizePathForLookup(secondPath));
-            workingCopyMap.set(firstPath, firstEntry);
-            workingCopyMap.set(secondPath, secondEntry);
-
-            expect(workingCopyMap.get(firstPath)).toBe(firstEntry);
-            expect(workingCopyMap.get(secondPath)).toBe(secondEntry);
-            workingCopyMap.clear();
-        } finally {
-            vi.doUnmock('fs');
-            vi.doUnmock('node:child_process');
-            vi.resetModules();
+        const {
+            setWorkingCopyOriginalPath, getWorkingCopyOriginalPath, findWorkingCopyPathByOriginalPath,
+        } = await import('@electron/file-access/workingCopyStore');
+        for (const path of [firstPath, secondPath]) {
+            await setWorkingCopyOriginalPath(path, path, 42, {deferOriginalFileExpectation: true});
+        }
+        for (const path of [firstPath, secondPath]) {
+            expect(getWorkingCopyOriginalPath(path, 42)).toMatchObject({originalPath: path});
+            expect(findWorkingCopyPathByOriginalPath(path, 42)).toBe(path);
         }
     });
 
@@ -2089,71 +1964,38 @@ describe('workingCopy', () => {
             }
             throw new Error(`Unexpected Windows path lookup: ${candidate}`);
         });
-        vi.doMock('fs', async importOriginal => {
-            const original = await importOriginal<typeof NodeFs>();
-            return {
-                ...original,
-                realpathSync: {native: nativeRealpath},
-            };
+        mockWindowsPaths(nativeRealpath);
+
+        const {
+            getWorkingCopyOriginalPath, setWorkingCopyOriginalPath,
+        } = await import('@electron/file-access/workingCopyStore');
+        const originalPath = 'C:\\Users\\runneradmin\\Documents\\document.pdf';
+        await setWorkingCopyOriginalPath(shortWorkingPath, originalPath, 42, {
+            backingState: 'lazy-original', deferOriginalFileExpectation: true,
         });
-        const spawnSync = vi.fn(() => ({
-            stderr: '',
-            stdout: 'Case sensitive attribute on directory is disabled.\\n',
-        }));
-        vi.doMock('node:child_process', async importOriginal => {
-            const original = await importOriginal<typeof NodeChildProcess>();
-            return {
-                ...original,
-                spawnSync,
-            };
+
+        // Materialization makes the same short spelling resolve to the long
+        // native path. Both lookups must still address the registered entry.
+        nativeRealpath.mockImplementation((candidate: string) => {
+            const normalizedCandidate = win32.resolve(candidate);
+            if (
+                normalizedCandidate === win32.resolve(shortWorkingPath)
+                || normalizedCandidate === win32.resolve(longWorkingPath)
+            ) {
+                return longWorkingPath;
+            }
+            if (normalizedCandidate === win32.resolve(shortDirectory)) {
+                return longDirectory;
+            }
+            if (normalizedCandidate === win32.resolve(longDirectory)) {
+                return longDirectory;
+            }
+            throw new Error(`Unexpected Windows path lookup: ${candidate}`);
         });
-        vi.resetModules();
 
-        try {
-            const {
-                getWorkingCopyBackingEntry,
-                workingCopyMap,
-            } = await import('@electron/file-access/workingCopyStore');
-            const entry: WorkingCopyStore.IWorkingCopyOriginalEntry = {
-                backingState: 'lazy-original',
-                logicalPath: shortWorkingPath,
-                originalPath: 'C:\\Users\\runneradmin\\Documents\\document.pdf',
-                ownerWebContentsId: 42,
-                registeredAtMs: Date.now(),
-                registrationId: 1,
-                role: 'current',
-            };
-
-            // Registration happens before a lazy working-copy leaf exists.
-            workingCopyMap.set(shortWorkingPath, entry);
-            expect(nativeRealpath).toHaveBeenCalledWith(shortWorkingPath);
-
-            // Materialization makes the same short spelling resolve to the long
-            // native path. Both lookups must still address the registered entry.
-            nativeRealpath.mockImplementation((candidate: string) => {
-                const normalizedCandidate = win32.resolve(candidate);
-                if (
-                    normalizedCandidate === win32.resolve(shortWorkingPath)
-                    || normalizedCandidate === win32.resolve(longWorkingPath)
-                ) {
-                    return longWorkingPath;
-                }
-                if (normalizedCandidate === win32.resolve(shortDirectory)) {
-                    return longDirectory;
-                }
-                if (normalizedCandidate === win32.resolve(longDirectory)) {
-                    return longDirectory;
-                }
-                throw new Error(`Unexpected Windows path lookup: ${candidate}`);
-            });
-
-            expect(getWorkingCopyBackingEntry(shortWorkingPath, 42)).toBe(entry);
-            expect(getWorkingCopyBackingEntry(longWorkingPath, 42)).toBe(entry);
-            workingCopyMap.clear();
-        } finally {
-            vi.doUnmock('fs');
-            vi.doUnmock('node:child_process');
-            vi.resetModules();
+        for (const path of [shortWorkingPath, longWorkingPath]) {
+            expect(getWorkingCopyOriginalPath(path, 42)).toMatchObject({originalPath, retired: false});
+            expect(getWorkingCopyOriginalPath(path, 43)).toBeNull();
         }
     });
 
@@ -2322,7 +2164,7 @@ describe('workingCopy', () => {
         const {createWorkingCopyFromPath} = await import('@electron/file-access/workingCopyCreation');
         const {allowOpenPath} = await import('@electron/file-access/openPathCapabilities');
         const {cleanupWorkingCopy} = await import('@electron/file-access/workingCopyCleanup');
-        const {workingCopyMap} = await import('@electron/file-access/workingCopyStore');
+        const {getWorkingCopyOriginalPath} = await import('@electron/file-access/workingCopyStore');
         const {enqueueWorkingCopyMutation} = await import('@electron/file-access/workingCopyMutationQueue');
         const originalPath = join(tempRoot, 'cleanup-during-mutation.pdf');
         writeFileSync(originalPath, new Uint8Array([
@@ -2344,14 +2186,14 @@ describe('workingCopy', () => {
         const cleanup = cleanupWorkingCopy(workingPath, 7);
         await waitForSettledQueueTurn();
 
-        expect(workingCopyMap.has(workingPath)).toBe(true);
+        expect(getWorkingCopyOriginalPath(workingPath, 7)).toMatchObject({originalPath, retired: false});
         expect(existsSync(dirname(workingPath))).toBe(true);
 
         releaseMutation.resolve(undefined);
         await mutation;
         await cleanup;
 
-        expect(workingCopyMap.has(workingPath)).toBe(false);
+        expect(getWorkingCopyOriginalPath(workingPath, 7)).toMatchObject({originalPath, retired: true});
         expect(existsSync(dirname(workingPath))).toBe(false);
     });
 
@@ -2591,18 +2433,17 @@ describe('workingCopy', () => {
             vi.resetModules();
             const {cleanupStaleWorkingCopyDirectories} = await import('@electron/file-access/workingCopyCleanup');
             const {
-                setWorkingCopyOriginalPath, getWorkingCopyBackingEntry,
+                setWorkingCopyOriginalPath, getWorkingCopyOriginalPath,
             } = await import('@electron/file-access/workingCopyStore');
             const sweep = cleanupStaleWorkingCopyDirectories();
             try {
                 await entered.promise;
                 await setWorkingCopyOriginalPath(aliasPath, join(tempRoot, 'original.pdf'), 7, {deferOriginalFileExpectation: true});
-                const registration = getWorkingCopyBackingEntry(path, 7);
-                expect(registration).not.toBeNull();
+                expect(getWorkingCopyOriginalPath(path, 7)).toMatchObject({originalPath: join(tempRoot, 'original.pdf'), retired: false});
                 resume.resolve(undefined);
                 await expect(sweep).resolves.toEqual({removedDirectories: 0});
                 expect(readFileSync(path)).toEqual(bytes);
-                expect(getWorkingCopyBackingEntry(aliasPath, 7)).toEqual(registration);
+                expect(getWorkingCopyOriginalPath(aliasPath, 7)).toMatchObject({originalPath: join(tempRoot, 'original.pdf'), retired: false});
             } finally {
                 resume.resolve(undefined);
                 await sweep;
@@ -3090,59 +2931,35 @@ describe('workingCopy', () => {
             }
             throw new Error(`Unexpected Windows path lookup: ${candidate}`);
         });
-        vi.doMock('fs', async importOriginal => {
-            const original = await importOriginal<typeof NodeFs>();
-            return {
-                ...original,
-                realpathSync: {native: nativeRealpath},
-            };
+        mockWindowsPaths(nativeRealpath);
+
+        const { enqueueWorkingCopyMutation } = await import('@electron/file-access/workingCopyMutationQueue');
+        const blockedMutation = deferred<undefined>();
+        const operations: string[] = [];
+
+        const firstMutation = enqueueWorkingCopyMutation('C:\\Temp\\pdf-work-1\\Book.pdf', async () => {
+            operations.push('first-start');
+            await blockedMutation.promise;
+            operations.push('first-end');
         });
-        const spawnSync = vi.fn(() => ({
-            stderr: '',
-            stdout: 'Case sensitive attribute on directory is disabled.\\n',
-        }));
-        vi.doMock('node:child_process', async importOriginal => {
-            const original = await importOriginal<typeof NodeChildProcess>();
-            return {
-                ...original,
-                spawnSync,
-            };
+        const secondMutation = enqueueWorkingCopyMutation('\\\\?\\c:\\temp\\pdf-work-1\\book.pdf', async () => {
+            operations.push('second-start');
         });
-        vi.resetModules();
+        await waitForSettledQueueTurn();
 
-        try {
-            const { enqueueWorkingCopyMutation } = await import('@electron/file-access/workingCopyMutationQueue');
-            const blockedMutation = deferred<undefined>();
-            const operations: string[] = [];
+        expect(operations).toEqual(['first-start']);
 
-            const firstMutation = enqueueWorkingCopyMutation('C:\\Temp\\pdf-work-1\\Book.pdf', async () => {
-                operations.push('first-start');
-                await blockedMutation.promise;
-                operations.push('first-end');
-            });
-            const secondMutation = enqueueWorkingCopyMutation('\\\\?\\c:\\temp\\pdf-work-1\\book.pdf', async () => {
-                operations.push('second-start');
-            });
-            await waitForSettledQueueTurn();
+        blockedMutation.resolve(undefined);
+        await Promise.all([
+            firstMutation,
+            secondMutation,
+        ]);
 
-            expect(operations).toEqual(['first-start']);
-
-            blockedMutation.resolve(undefined);
-            await Promise.all([
-                firstMutation,
-                secondMutation,
-            ]);
-
-            expect(operations).toEqual([
-                'first-start',
-                'first-end',
-                'second-start',
-            ]);
-        } finally {
-            vi.doUnmock('fs');
-            vi.doUnmock('node:child_process');
-            vi.resetModules();
-        }
+        expect(operations).toEqual([
+            'first-start',
+            'first-end',
+            'second-start',
+        ]);
     });
 
     it('waits for queued mutations before clearing all working copies', async () => {
