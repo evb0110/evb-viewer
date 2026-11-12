@@ -27,6 +27,7 @@ import {
     type TRequestId,
 } from '@contracts/shared';
 import {requirePageNumber} from '@contracts/pageNumbers';
+import {until} from '@vueuse/core';
 import type {TScanCleanupPlacementAnchorsByPage} from '@evb/scan-cleanup/core/policy/scanCleanupPagePolicy';
 import {
     attachScanCleanupPageOverrideDefaults,
@@ -173,7 +174,7 @@ type TScanCleanupDetailDiagnostic =
 interface IUseScanCleanupPreviewSessionOptions {
     active: () => boolean;
     authoritativeLayoutByPage: ComputedRef<ReadonlyMap<number, TScanCleanupLayoutClassification>>;
-    documentCanvasSignature: Ref<string>;
+    documentCanvasSignature: Readonly<Ref<string>>;
     /** Detection's page records; a page's verdicts and plan are its `result`. */
     detectionRecords: Readonly<Ref<TScanCleanupDetectionRecords>>;
     documentRevision: ComputedRef<string>;
@@ -303,6 +304,18 @@ export function createScanCleanupDetailTileCacheKey(
     });
 }
 
+/**
+ * The cleaned preview the session publishes: a result together with the key it
+ * was rendered for. Replaced whole, so a reader never pairs a result with
+ * another request's key.
+ */
+export interface IScanCleanupPreviewFrame {
+    readonly key: string;
+    /** Changes only for a user, page or lifecycle transition, not a detection replan. */
+    readonly presentationKey: string;
+    readonly result: IScanCleanupPreviewResult;
+}
+
 function isCanceledPreview(value: TScanCleanupPreviewWireResult): value is {canceled: true} {
     return value.canceled === true;
 }
@@ -320,11 +333,16 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
     const detected = (pageNumber: number) => options.detectionRecords.value.get(pageNumber)?.result;
     const i18n = useTypedI18n();
     const {t} = i18n;
-    const result = shallowRef<IScanCleanupPreviewResult | null>(null);
+    const frame = shallowRef<IScanCleanupPreviewFrame | null>(null);
+    const result = computed(() => frame.value?.result ?? null);
     const rawResult = shallowRef<IScanCleanupRawPreviewResult | null>(null);
-    const resultKey = shallowRef<string | null>(null);
-    const resultPresentationKey = shallowRef('');
-    const detailResult = shallowRef<IScanCleanupPreviewResult | null>(null);
+    // A detail tile and the base preview it refines are one value: the tile is
+    // dropped whenever its source key stops being the displayed one.
+    const detail = shallowRef<{
+        result: IScanCleanupPreviewResult;
+        sourceKey: string
+    } | null>(null);
+    const detailResult = computed(() => detail.value?.result ?? null);
     const detailLoading = ref(false);
     const detailDiagnostic = ref<TScanCleanupDetailDiagnostic>(null);
     const loading = ref(false);
@@ -340,15 +358,13 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
         calibrationIdentity: string;
         anchors: IScanCleanupPreviewRequest['placementAnchors'] | undefined
     }>();
+    // Map order is retention order.
     const metadataByPage = reactive(new Map<number, IScanCleanupPreviewResult['pageMetadata']>());
-    const metadataPageOrder = new Set<number>();
     let sequence = 0;
     let detailSequence = 0;
-    let displayedDetailSourceKey: string | null = null;
     let timer: ReturnType<typeof setTimeout> | null = null;
     let detailRetryTimer: ReturnType<typeof setTimeout> | null = null;
-    const pauseWaitScopes = new Set<{stop: () => void}>();
-    const pauseWaitResolvers = new Set<() => void>();
+    const unmounted = ref(false);
     let detailRetriesRemaining = 0;
     let detailAttemptCount = 0;
     let scheduledPage: number | null = null;
@@ -399,14 +415,8 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
     ) {
         metadataByPage.delete(pageNumber);
         metadataByPage.set(pageNumber, metadata);
-        metadataPageOrder.delete(pageNumber);
-        metadataPageOrder.add(pageNumber);
-        while (metadataPageOrder.size > PREVIEW_METADATA_PAGE_CACHE_LIMIT) {
-            const oldest = metadataPageOrder.values().next().value;
-            if (oldest === undefined) {
-                break;
-            }
-            metadataPageOrder.delete(oldest);
+        for (const oldest of metadataByPage.keys()) {
+            if (metadataByPage.size <= PREVIEW_METADATA_PAGE_CACHE_LIMIT) break;
             metadataByPage.delete(oldest);
         }
     }
@@ -416,7 +426,16 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
         ?? Math.max(1, options.totalPages.value));
     const resolvedOptions = options.resolvedOptions
         ?? computed(() => toPlainScanCleanupOptions(options.settings));
-    const resultCurrent = computed(() => result.value !== null && resultKey.value === cacheKey());
+    const resultCurrent = computed(() => frame.value !== null && frame.value.key === cacheKey());
+    const resultPresentationKey = computed(() => frame.value?.presentationKey ?? '');
+
+    function showFrame(key: string, previewResult: IScanCleanupPreviewResult) {
+        frame.value = {
+            key,
+            presentationKey: presentationKey(key),
+            result: previewResult,
+        };
+    }
     const classificationDiffersByPage = computed<ReadonlyMap<number, boolean>>(() => {
         const differences = new Map<number, boolean>();
         for (const [
@@ -669,6 +688,60 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
         return createRequestId('scan-cleanup-preview');
     }
 
+    /**
+     * One page's preview request: the settings, plus what detection and the
+     * document plan know about the page now. Read when the request is sent, as
+     * the cache key it is stored under is, so the two never disagree.
+     */
+    function pageRequest(
+        requestId: TRequestId,
+        pageNumber: number,
+        previewOptions: IScanCleanupOptions,
+        previewSourcePath: TDocumentRef,
+        placementAnchors: IScanCleanupPreviewRequest['placementAnchors'] | undefined,
+    ): IScanCleanupPreviewRequest {
+        const documentPrior = detected(pageNumber)?.documentPrior ?? undefined;
+        const outputModeRecommendation = resolveOutputModeRecommendation(pageNumber);
+        const softAlphaForegroundRecommendation = resolveSoftAlphaForegroundRecommendation(pageNumber);
+        const pagePlanEvidence = detected(pageNumber)?.pagePlanEvidence;
+        return {
+            requestId,
+            sourcePdfPath: previewSourcePath,
+            ownerId: options.ownerId,
+            documentRevision: options.documentRevision.value,
+            pageNumber: requirePageNumber(pageNumber),
+            options: previewOptions,
+            ...(documentPrior === undefined ? {} : {documentPrior}),
+            ...(outputModeRecommendation === undefined ? {} : {outputModeRecommendation}),
+            ...(softAlphaForegroundRecommendation === undefined ? {} : {softAlphaForegroundRecommendation}),
+            ...(pagePlanEvidence === undefined ? {} : {pagePlanEvidence}),
+            ...(placementAnchors === undefined ? {} : {placementAnchors}),
+            layoutDetectionComplete: options.layoutDetectionComplete.value,
+            layoutByPage: layoutByPage.value,
+        };
+    }
+
+    /**
+     * Fetches one page's anchors from the main-process calibration. False when
+     * the calibration moved while they were being resolved.
+     */
+    async function retainStorePlacementAnchors(pageNumber: number) {
+        const resolved = await options.resolvePlacementAnchorsForPage?.(pageNumber);
+        if (resolved === undefined) {
+            return true;
+        }
+        const currentSummary = options.placementAnchorSummary?.value;
+        if (
+            currentSummary === null
+            || currentSummary === undefined
+            || placementAnchorCalibrationIdentity(resolved.summary) !== placementAnchorCalibrationIdentity(currentSummary)
+        ) {
+            return false;
+        }
+        retainResolvedPlacementAnchors(pageNumber, resolved.summary, resolved.placementAnchors);
+        return true;
+    }
+
     function cachePreview(key: string, previewResult: IScanCleanupPreviewResult) {
         if (!key.endsWith(
             `${SCAN_CLEANUP_PREVIEW_CACHE_KEY_SEPARATOR}lifecycle:${String(lifecycleGeneration.value)}`,
@@ -698,9 +771,7 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
 
     function clearDetail() {
         invalidateDetailRequest();
-        detailResult.value = null;
-        detailDiagnostic.value = null;
-        displayedDetailSourceKey = null;
+        detail.value = null;
     }
 
     function cancel(invalidateRawCache = true) {
@@ -733,7 +804,6 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
     }
 
     async function pauseForRun() {
-        const previewPending = () => !resultCurrent.value && loading.value;
         // Detection changes the cache identity from provisional to final. If
         // that change landed immediately before Clean Up, let its visible
         // generation finish once before canceling preview work; otherwise the
@@ -747,37 +817,7 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
             && getScanCleanupCapability()
         ) {
             schedule(true);
-            if (previewPending()) {
-                const waitScope = effectScope();
-                pauseWaitScopes.add(waitScope);
-                const waitPromise = waitScope.run(() => new Promise<void>(resolve => {
-                    let stop: (() => void) | null = null;
-                    const finish = () => {
-                        pauseWaitResolvers.delete(finish);
-                        stop?.();
-                        resolve();
-                    };
-                    pauseWaitResolvers.add(finish);
-                    stop = watch([
-                        resultCurrent,
-                        loading,
-                    ], ([
-                        current,
-                        previewLoading,
-                    ]) => {
-                        if (!current && previewLoading) {
-                            return;
-                        }
-                        finish();
-                    }, {flush: 'sync'});
-                }));
-                try {
-                    if (waitPromise) await waitPromise;
-                } finally {
-                    waitScope.stop();
-                    pauseWaitScopes.delete(waitScope);
-                }
-            }
+            await until(() => unmounted.value || resultCurrent.value || !loading.value).toBe(true);
         }
         cancel(false);
     }
@@ -794,59 +834,17 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
         ]
             .filter(pageNumber => pageNumber >= 1 && pageNumber <= previewResult.totalPages);
         const candidates = (await Promise.all(adjacentPages.map(async pageNumber => {
-            const documentPrior = detected(pageNumber)?.documentPrior ?? undefined;
-            const outputModeRecommendation = resolveOutputModeRecommendation(pageNumber);
-            const softAlphaForegroundRecommendation =
-                resolveSoftAlphaForegroundRecommendation(pageNumber);
-            const pagePlanEvidence = detected(pageNumber)?.pagePlanEvidence;
-            let placementAnchors = placementAnchorsFor(pageNumber);
-            let key = cacheKey(pageNumber, previewOptions, previewSourcePath, placementAnchors);
-            if (options.resolvePlacementAnchorsForPage !== undefined && !cache.has(key)) {
-                try {
-                    const resolved = await options.resolvePlacementAnchorsForPage(pageNumber);
-                    if (resolved !== undefined) {
-                        const currentSummary = options.placementAnchorSummary?.value;
-                        if (
-                            currentSummary === null
-                            || currentSummary === undefined
-                            || placementAnchorCalibrationIdentity(resolved.summary)
-                                !== placementAnchorCalibrationIdentity(currentSummary)
-                        ) {
-                            return null;
-                        }
-                        retainResolvedPlacementAnchors(
-                            pageNumber,
-                            resolved.summary,
-                            resolved.placementAnchors,
-                        );
-                    }
-                } catch {
-                    return null;
-                }
+            if (
+                options.resolvePlacementAnchorsForPage !== undefined
+                && !cache.has(cacheKey(pageNumber, previewOptions, previewSourcePath, placementAnchorsFor(pageNumber)))
+                && !await retainStorePlacementAnchors(pageNumber).catch(() => false)
+            ) {
+                return null;
             }
-            placementAnchors = placementAnchorsFor(pageNumber);
-            key = cacheKey(pageNumber, previewOptions, previewSourcePath, placementAnchors);
+            const placementAnchors = placementAnchorsFor(pageNumber);
             return {
-                key,
-                request: {
-                    requestId: nextRequestId(),
-                    sourcePdfPath: previewSourcePath,
-                    ownerId: options.ownerId,
-                    documentRevision: options.documentRevision.value,
-                    pageNumber: requirePageNumber(pageNumber),
-                    options: previewOptions,
-                    ...(documentPrior === undefined ? {} : {documentPrior}),
-                    ...(outputModeRecommendation === undefined
-                        ? {}
-                        : {outputModeRecommendation}),
-                    ...(softAlphaForegroundRecommendation === undefined
-                        ? {}
-                        : {softAlphaForegroundRecommendation}),
-                    ...(pagePlanEvidence === undefined ? {} : {pagePlanEvidence}),
-                    ...(placementAnchors === undefined ? {} : {placementAnchors}),
-                    layoutDetectionComplete: options.layoutDetectionComplete.value,
-                    layoutByPage: layoutByPage.value,
-                },
+                key: cacheKey(pageNumber, previewOptions, previewSourcePath, placementAnchors),
+                request: pageRequest(nextRequestId(), pageNumber, previewOptions, previewSourcePath, placementAnchors),
             };
         }))).filter((candidate): candidate is NonNullable<typeof candidate> => candidate !== null);
         if (requestSequence !== sequence) {
@@ -874,11 +872,6 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
         const requestPage = options.previewPage.value;
         const requestOptions = resolvedOptions.value;
         const requestSourcePath = options.sourcePath.value;
-        const documentPrior = detected(requestPage)?.documentPrior ?? undefined;
-        const outputModeRecommendation = resolveOutputModeRecommendation(requestPage);
-        const softAlphaForegroundRecommendation =
-            resolveSoftAlphaForegroundRecommendation(requestPage);
-        const pagePlanEvidence = detected(requestPage)?.pagePlanEvidence;
         const key = cacheKey(requestPage, requestOptions, requestSourcePath);
         const requestId = nextRequestId();
         activeVisibleRequestId = requestId;
@@ -899,12 +892,11 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
         scheduledPage = requestPage;
         scheduledKey = key;
         const activeDetailOutputMode = resolveDetailOutputMode(requestPage);
-        const activeDetailSourceKey = activeDetailOutputMode === undefined
-            ? null
-            : detailSourceKey(key, activeDetailOutputMode);
-        if (displayedDetailSourceKey !== activeDetailSourceKey) {
-            detailResult.value = null;
-            displayedDetailSourceKey = null;
+        if (
+            activeDetailOutputMode === undefined
+            || detail.value?.sourceKey !== detailSourceKey(key, activeDetailOutputMode)
+        ) {
+            detail.value = null;
         }
         // Look the page up before cancelling anything: a navigation that the
         // cache can answer has no reason to disturb work in flight at all.
@@ -915,9 +907,7 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
         // was just left while this page has no cached raster of its own.
         if (!cached && viewMode.value === 'original') rawResult.value = null;
         if (cached) {
-            resultKey.value = key;
-            resultPresentationKey.value = presentationKey(key);
-            result.value = cached;
+            showFrame(key, cached);
             rawResult.value = cached;
             loading.value = false;
             error.value = '';
@@ -958,24 +948,11 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
         const runPreview = async () => {
             timer = null;
             try {
-                const resolvedFromStore = options.resolvePlacementAnchorsForPage === undefined
-                    ? undefined
-                    : await options.resolvePlacementAnchorsForPage(requestPage);
-                if (resolvedFromStore !== undefined) {
-                    const currentSummary = options.placementAnchorSummary?.value;
-                    if (
-                        currentSummary === null
-                        || currentSummary === undefined
-                        || placementAnchorCalibrationIdentity(resolvedFromStore.summary)
-                            !== placementAnchorCalibrationIdentity(currentSummary)
-                    ) {
-                        return;
-                    }
-                    retainResolvedPlacementAnchors(
-                        requestPage,
-                        resolvedFromStore.summary,
-                        resolvedFromStore.placementAnchors,
-                    );
+                if (
+                    options.resolvePlacementAnchorsForPage !== undefined
+                    && !await retainStorePlacementAnchors(requestPage)
+                ) {
+                    return;
                 }
                 const resolvedPlacementAnchors = placementAnchorsFor(requestPage);
                 if (requestSequence !== sequence) {
@@ -989,9 +966,7 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
                 );
                 const resolvedCached = cache.get(resolvedKey);
                 if (resolvedCached) {
-                    resultKey.value = resolvedKey;
-                    resultPresentationKey.value = presentationKey(resolvedKey);
-                    result.value = resolvedCached;
+                    showFrame(resolvedKey, resolvedCached);
                     rawResult.value = resolvedCached;
                     loading.value = false;
                     void scheduleAdjacentPrefetch(resolvedCached, requestOptions, requestSourcePath, requestSequence);
@@ -1002,24 +977,8 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
                 // is displayed there; this promise settles with the cleaned
                 // result that supersedes it.
                 const previewResult = withStreamedRaw(await capability.preview(toBridgeSafeScanCleanupPayload(narrowScanCleanupPreviewRequestToPage({
-                    requestId,
-                    sourcePdfPath: requestSourcePath,
-                    ownerId: options.ownerId,
-                    documentRevision: options.documentRevision.value,
-                    pageNumber: requirePageNumber(requestPage),
-                    options: requestOptions,
+                    ...pageRequest(requestId, requestPage, requestOptions, requestSourcePath, resolvedPlacementAnchors),
                     visible: true,
-                    ...(documentPrior === undefined ? {} : {documentPrior}),
-                    ...(outputModeRecommendation === undefined
-                        ? {}
-                        : {outputModeRecommendation}),
-                    ...(softAlphaForegroundRecommendation === undefined
-                        ? {}
-                        : {softAlphaForegroundRecommendation}),
-                    ...(pagePlanEvidence === undefined ? {} : {pagePlanEvidence}),
-                    ...(resolvedPlacementAnchors === undefined ? {} : {placementAnchors: resolvedPlacementAnchors}),
-                    layoutDetectionComplete: options.layoutDetectionComplete.value,
-                    layoutByPage: layoutByPage.value,
                 }))), requestId);
                 // A cancelled request has no result to keep or display. When the
                 // page it was rendering is still the page the user is on, the
@@ -1058,9 +1017,7 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
                     return;
                 }
                 retainPageMetadata(previewResult.pageNumber, previewResult.pageMetadata);
-                resultKey.value = resolvedKey;
-                resultPresentationKey.value = presentationKey(resolvedKey);
-                result.value = previewResult;
+                showFrame(resolvedKey, previewResult);
                 void scheduleAdjacentPrefetch(previewResult, requestOptions, requestSourcePath, requestSequence);
             } catch (caught) {
                 if (requestSequence !== sequence || (caught instanceof Error && caught.name === 'AbortError')) {
@@ -1195,42 +1152,22 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
         const tileKey = createScanCleanupDetailTileCacheKey(sourceKey, viewports);
         const requestSequence = ++detailSequence;
         const cached = detailSourceCache.get(tileKey);
+        detail.value = cached ? {
+            result: cached,
+            sourceKey,
+        } : null;
+        detailLoading.value = !cached;
         if (cached) {
-            detailResult.value = cached;
-            displayedDetailSourceKey = sourceKey;
-            detailLoading.value = false;
             return;
         }
-        detailResult.value = null;
-        displayedDetailSourceKey = null;
-        detailLoading.value = true;
         if (!isRetry) detailAttemptCount = 0;
         detailAttemptCount += 1;
         try {
-            const documentPrior = detected(requestPage)?.documentPrior ?? undefined;
-            // The same recommendations its base was rendered with, so the
-            // detail refines that base rather than missing it.
-            const outputModeRecommendation = resolveOutputModeRecommendation(requestPage);
-            const softAlphaForegroundRecommendation = resolveSoftAlphaForegroundRecommendation(requestPage);
-            const pagePlanEvidence = detected(requestPage)?.pagePlanEvidence;
-            const placementAnchors = placementAnchorsFor(requestPage);
+            // The same page inputs its base was rendered with, so the detail
+            // refines that base rather than missing it.
             const requestId = nextRequestId();
             const wireResult = await capability.preview(toBridgeSafeScanCleanupPayload(narrowScanCleanupPreviewRequestToPage({
-                requestId,
-                sourcePdfPath: requestSourcePath,
-                ownerId: options.ownerId,
-                documentRevision: options.documentRevision.value,
-                pageNumber: requirePageNumber(requestPage),
-                options: requestOptions,
-                ...(documentPrior === undefined ? {} : {documentPrior}),
-                ...(outputModeRecommendation === undefined ? {} : {outputModeRecommendation}),
-                ...(softAlphaForegroundRecommendation === undefined
-                    ? {}
-                    : {softAlphaForegroundRecommendation}),
-                ...(pagePlanEvidence === undefined ? {} : {pagePlanEvidence}),
-                ...(placementAnchors === undefined ? {} : {placementAnchors}),
-                layoutDetectionComplete: options.layoutDetectionComplete.value,
-                layoutByPage: layoutByPage.value,
+                ...pageRequest(requestId, requestPage, requestOptions, requestSourcePath, placementAnchorsFor(requestPage)),
                 detail: {
                     viewports,
                     outputMode,
@@ -1255,8 +1192,10 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
                 return;
             }
             detailSourceCache.set(tileKey, next);
-            detailResult.value = next;
-            displayedDetailSourceKey = sourceKey;
+            detail.value = {
+                result: next,
+                sourceKey,
+            };
         } catch (caught) {
             const normalizedMessage = caught instanceof Error
                 ? stripIpcInvocationPrefix(getErrorMessage(caught))
@@ -1328,6 +1267,8 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
             // discarding the already streamed raster.
             return;
         }
+        // cancel() retires every request and its streamed rasters; what is
+        // left is what the retired document had published.
         cancel();
         lifecycleGeneration.value += 1;
         cancellationRetryKey = null;
@@ -1337,19 +1278,10 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
         cache.clear();
         detailSourceCache.clear();
         metadataByPage.clear();
-        metadataPageOrder.clear();
-        streamedRawByRequest.clear();
-        inFlightPreviewPages.clear();
-        inFlightPreviewRequestIds.clear();
         resolvedPlacementAnchorsByPage.clear();
-        activeVisibleRequestId = null;
-        result.value = null;
+        frame.value = null;
         rawResult.value = null;
-        resultKey.value = null;
-        resultPresentationKey.value = '';
-        detailResult.value = null;
-        detailDiagnostic.value = null;
-        displayedDetailSourceKey = null;
+        detail.value = null;
     });
     watch(
         () => {
@@ -1375,9 +1307,7 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
     );
     watch(cacheKey, () => schedule());
     onBeforeUnmount(() => {
-        for (const resolve of [...pauseWaitResolvers]) resolve();
-        for (const scope of [...pauseWaitScopes]) scope.stop();
-        pauseWaitScopes.clear();
+        unmounted.value = true;
         stopRawStream?.();
         cancel();
     });
@@ -1388,6 +1318,7 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
         clearDetail,
         error,
         errorCode,
+        frame,
         detailLoading,
         detailDiagnostic,
         detailResult,

@@ -32,6 +32,7 @@ import { createDisposalFlag } from '@app/utils/createDisposalFlag';
 import type { TJobId } from '@contracts/shared';
 import {requirePageNumber} from '@contracts/pageNumbers';
 import type {ComputedRef} from 'vue';
+import {until} from '@vueuse/core';
 import {
     scanCleanupAutoDetectionCanceledDocuments as autoDetectionCanceledDocuments,
     scanCleanupDetectionSessionCache as detectionSessionCache,
@@ -179,9 +180,11 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
     const {t} = i18n;
     const starting = ref(false);
     const autoPending = ref(false);
+    // The job this session follows. Its id, canvas plan and completeness are
+    // read from it; nothing else holds a copy.
     const jobState = shallowRef<TScanCleanupDetectionJobState | null>(null);
-    const hasDetectionJob = () => jobState.value !== null;
-    const documentCanvasSignature = shallowRef('');
+    const currentJobId = () => jobState.value?.jobId ?? null;
+    const documentCanvasSignature = computed(() => jobState.value?.documentCanvasSignature ?? '');
     const error = ref('');
     const errorCode = ref<TScanCleanupErrorCode | null>(null);
     // Map order is retention order: documents above the streaming limit keep
@@ -211,7 +214,10 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
     // published its own metadata. Keep that count with the detection evidence
     // so completion checks do not treat an uninitialized viewer count as zero.
     const detectionDocumentPageCount = ref(0);
-    const detectionEvidenceComplete = ref(false);
+    // A completed job that reported every page of the document it measured.
+    const detectionEvidenceComplete = computed(() => jobState.value?.status === 'completed'
+        && detectionDocumentPageCount.value > 0
+        && detectionResultCount.value >= detectionDocumentPageCount.value);
     const detectionResultStoreId = shallowRef<string | null>(null);
     const placementAnchorSummary = shallowRef<IScanCleanupPlacementAnchorSummary | null>(null);
     const placementAnchorCalibrationInFlight = ref(false);
@@ -240,7 +246,6 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
             ),
         );
     });
-    let jobId: TJobId | null = null;
     let jobDocumentKey: string | null = null;
     let jobDocumentRevision: string | null = null;
     // Bumped whenever the document lifecycle replaces the session. A pending
@@ -254,7 +259,6 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
     const terminalWaiters = new Map<TJobId, Set<() => void>>();
     const detectionRetirementTimeouts = new Set<ReturnType<typeof setTimeout>>();
     const detectionRetirementFinishes = new Set<() => void>();
-    const detectionWaitScopes = new Set<{stop: () => void}>();
     const detectionWaitResolvers = new Set<() => void>();
     // The native detection cache owns both aliases while a source hash is
     // being published. Keep only the current document's aliases so closing a
@@ -587,7 +591,6 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
         placementAnchorCalibrationGeneration += 1;
         detectionResultCount.value = 0;
         detectionDocumentPageCount.value = 0;
-        detectionEvidenceComplete.value = false;
         detectionResultStoreId.value = null;
         placementAnchorSummary.value = null;
         placementAnchorCalibrationInFlight.value = false;
@@ -607,7 +610,7 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
     }
 
     function invalidateDetectionEvidence() {
-        const previousJobId = jobId;
+        const previousJobId = currentJobId();
         const previousJobState = jobState.value;
         requestGeneration += 1;
         if (previousJobId && previousJobState && !detectionIsTerminal(previousJobState)) {
@@ -621,9 +624,7 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
             scheduledAutoDetection = null;
         }
         autoPending.value = false;
-        jobId = null;
         jobState.value = null;
-        documentCanvasSignature.value = '';
         error.value = '';
         errorCode.value = null;
         clearDetectionEvidence();
@@ -705,7 +706,7 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
             for (const settle of terminalWaiters.get(state.jobId) ?? []) settle();
             terminalWaiters.delete(state.jobId);
         }
-        if (lifecycle.isDisposed() || state.jobId !== jobId) {
+        if (lifecycle.isDisposed() || state.jobId !== currentJobId()) {
             return;
         }
         const current = jobState.value;
@@ -753,16 +754,11 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
             detectionDocumentPageCount.value = documentPageCount;
         }
         detectionResultCount.value = Math.max(detectionResultCount.value, reportedResultCount);
-        if (state.status === 'completed') {
-            detectionEvidenceComplete.value = documentPageCount > 0
-                && detectionResultCount.value >= documentPageCount;
-        }
         // The state payload carries the latest bounded window of results.
         // Large renderer projections omit completedPageNumbers, but every
         // result is still a settled page.
         recordResults(state.results, state.progress.completedPageNumbers ?? [], documentPageCount);
         jobState.value = state;
-        documentCanvasSignature.value = state.documentCanvasSignature ?? '';
         if (state.detectionResultStoreId !== undefined) {
             detectionResultStoreId.value = state.detectionResultStoreId;
         }
@@ -801,7 +797,6 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
         }
         if (!lifecycle.isDisposed() && state.status === 'completed' && !completedWithCurrentEvidence) {
             jobState.value = null;
-            documentCanvasSignature.value = '';
             scheduleAutoDetect();
         }
     }
@@ -833,9 +828,7 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
             || requestDocumentRevision !== options.documentRevision.value;
         jobDocumentKey = options.lifecycleDocumentKey.value;
         jobDocumentRevision = requestDocumentRevision;
-        jobId = null;
         jobState.value = null;
-        documentCanvasSignature.value = '';
         detectionResultStoreId.value = null;
         starting.value = true;
         let result;
@@ -873,7 +866,6 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
             return;
         }
         clearDetectionEvidence(keepLayouts);
-        jobId = result.jobId;
         jobState.value = {
             jobId: result.jobId,
             status: 'queued',
@@ -895,7 +887,7 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
         try {
             state = await capability.subscribeDetectionJob(result.jobId, owner);
         } catch (caught) {
-            const isCurrentJob = !isStale() && result.jobId === jobId;
+            const isCurrentJob = !isStale() && result.jobId === currentJobId();
             if (!isCurrentJob) {
                 void Promise.resolve()
                     .then(() => capability.cancelDetection(result.jobId, owner))
@@ -903,7 +895,7 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
                 return;
             }
             const reconciled = await reconcileDetectionJobState(capability, result.jobId, owner);
-            const stillCurrentJob = !isStale() && result.jobId === jobId;
+            const stillCurrentJob = !isStale() && result.jobId === currentJobId();
             if (!stillCurrentJob) {
                 return;
             }
@@ -918,10 +910,8 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
             await Promise.resolve()
                 .then(() => capability.cancelDetection(result.jobId, owner))
                 .catch(() => false);
-            if (!isStale() && result.jobId === jobId) {
-                jobId = null;
+            if (!isStale() && result.jobId === currentJobId()) {
                 jobState.value = null;
-                documentCanvasSignature.value = '';
                 error.value = formatScanCleanupErrorMessage(
                     t('scanCleanup.errors.detectionSubscriptionFailed'),
                     caught,
@@ -930,7 +920,7 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
             }
             return;
         }
-        if (isStale() || result.jobId !== jobId) {
+        if (isStale() || result.jobId !== currentJobId()) {
             return;
         }
         if (state) applyState(state);
@@ -1045,6 +1035,7 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
     }
 
     async function cancel() {
+        const jobId = currentJobId();
         if (!jobId || cancelRequested.value) {
             return;
         }
@@ -1061,39 +1052,30 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
     }
 
     async function settleCurrentDetection(cancelCurrent: boolean) {
-        const waitScope = effectScope();
-        detectionWaitScopes.add(waitScope);
-        const waitPromise = waitScope.run(() => new Promise<void>((resolve, reject) => {
-            const waitState: {settled: boolean} = {settled: false};
-            let stopStarting: (() => void) | null = null;
-            let resolveStartingWait: (() => void) | null = null;
-            let targetJobId: TJobId | null = null;
-            let terminalWaiter: (() => void) | null = null;
+        // Reactive so the wait for `starting` also ends when this wait is
+        // finished from outside (unmount, timeout).
+        const settled = ref(false);
+        let targetJobId: TJobId | null = null;
+        let terminalWaiter: (() => void) | null = null;
+        await new Promise<void>((resolve, reject) => {
             const timeout = cancelCurrent
                 ? setTimeout(() => {
                     finish(new Error(t('scanCleanup.detectAll.cancelTimeout')));
                 }, DETECTION_CANCELLATION_TIMEOUT_MS)
                 : null;
 
-            function cleanup() {
+            function finish(caught?: unknown) {
+                if (settled.value) {
+                    return;
+                }
+                settled.value = true;
+                detectionWaitResolvers.delete(finish);
                 if (timeout !== null) clearTimeout(timeout);
-                stopStarting?.();
-                resolveStartingWait?.();
-                resolveStartingWait = null;
                 if (targetJobId && terminalWaiter) {
                     const waiters = terminalWaiters.get(targetJobId);
                     waiters?.delete(terminalWaiter);
                     if (waiters?.size === 0) terminalWaiters.delete(targetJobId);
                 }
-            }
-
-            function finish(caught?: unknown) {
-                if (waitState.settled) {
-                    return;
-                }
-                waitState.settled = true;
-                detectionWaitResolvers.delete(finish);
-                cleanup();
                 if (caught === undefined) {
                     resolve();
                 } else {
@@ -1104,21 +1086,13 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
             detectionWaitResolvers.add(finish);
             void (async () => {
                 if (starting.value) {
-                    await new Promise<void>(resolveStarting => {
-                        resolveStartingWait = resolveStarting;
-                        stopStarting = watch(starting, value => {
-                            if (!value) resolveStarting();
-                        }, {flush: 'sync'});
-                    });
-                    const stopAfterStarting = stopStarting as (() => void) | null;
-                    stopAfterStarting?.();
-                    stopStarting = null;
-                    if (waitState.settled) {
+                    await until(() => settled.value || !starting.value).toBe(true);
+                    if (settled.value) {
                         return;
                     }
                     await nextTick();
                 }
-                targetJobId = jobId;
+                targetJobId = currentJobId();
                 const targetJobRevision = jobDocumentRevision ?? options.documentRevision.value;
                 if (!targetJobId || detectionIsTerminal(jobState.value)) {
                     finish();
@@ -1138,7 +1112,7 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
                         ownerId: options.ownerId,
                         documentRevision: targetJobRevision,
                     });
-                    if (waitState.settled) {
+                    if (settled.value) {
                         return;
                     }
                 }
@@ -1146,7 +1120,7 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
                     ownerId: options.ownerId,
                     documentRevision: targetJobRevision,
                 });
-                if (waitState.settled) {
+                if (settled.value) {
                     return;
                 }
                 if (!latest) {
@@ -1160,13 +1134,7 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
                 }
                 applyState(latest);
             })().catch(finish);
-        }));
-        try {
-            if (waitPromise) await waitPromise;
-        } finally {
-            waitScope.stop();
-            detectionWaitScopes.delete(waitScope);
-        }
+        });
     }
 
     async function cancelAndWaitForTerminal() {
@@ -1233,7 +1201,7 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
                 if (!belongsToWaitedDocument() || Boolean(terminalStatus.value)) {
                     return;
                 }
-                if (!hasDetectionJob()) {
+                if (jobState.value === null) {
                     const replacementScheduled = Boolean(scheduledAutoDetection)
                         || generation !== requestGeneration;
                     if (!replacementScheduled || error.value) {
@@ -1286,12 +1254,10 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
         jobDocumentKey = key;
         jobDocumentRevision = options.documentRevision.value;
         jobState.value = cached.state;
-        documentCanvasSignature.value = cached.state.documentCanvasSignature ?? '';
         placementAnchorSummary.value = cached.state.placementAnchorSummary ?? null;
         placementAnchorCalibrationError.value = '';
         detectionResultCount.value = cached.state.resultCount ?? cached.state.results.length;
         detectionDocumentPageCount.value = cached.totalPages;
-        detectionEvidenceComplete.value = detectionResultCount.value >= cached.totalPages;
         records.value = new Map();
         recordResults(cached.state.results, [], cached.totalPages);
         return true;
@@ -1394,17 +1360,16 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
         }
         retireSupersededScanCleanupDetectionState(key);
         requestGeneration += 1;
-        if (jobId && isDetecting.value) {
+        const retiredJobId = currentJobId();
+        if (retiredJobId && isDetecting.value) {
             void enqueueDetectionRetirement(
-                jobId,
+                retiredJobId,
                 jobDocumentRevision ?? options.documentRevision.value,
             );
         }
-        jobId = null;
         jobDocumentRevision = null;
         jobDocumentKey = options.lifecycleDocumentKey.value;
         jobState.value = null;
-        documentCanvasSignature.value = '';
         error.value = '';
         errorCode.value = null;
         clearDetectionEvidence();
@@ -1495,7 +1460,6 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
             if (key !== null) detectionSessionCache.delete(key);
             if (!isDetecting.value) {
                 jobState.value = null;
-                documentCanvasSignature.value = '';
                 scheduleAutoDetect();
             }
         },
@@ -1524,13 +1488,12 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
         for (const timeout of detectionRetirementTimeouts) clearTimeout(timeout);
         detectionRetirementTimeouts.clear();
         for (const finish of [...detectionWaitResolvers]) finish();
-        for (const scope of [...detectionWaitScopes]) scope.stop();
-        detectionWaitScopes.clear();
         if (scheduledAutoDetection !== null) {
             clearTimeout(scheduledAutoDetection);
             scheduledAutoDetection = null;
         }
         stopSubscription?.();
+        const jobId = currentJobId();
         if (jobId && isDetecting.value) {
             void getScanCleanupCapability()?.cancelDetection(jobId, {
                 ownerId: options.ownerId,
@@ -1550,7 +1513,7 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
         detectAllPages,
         invalidateDetectionEvidence,
         documentCanvasSignature,
-        detectionEvidenceComplete: computed(() => detectionEvidenceComplete.value),
+        detectionEvidenceComplete,
         detectionResultStoreId: computed(() => detectionResultStoreId.value),
         inkSheets,
         placementAnchorSummary: computed(() => placementAnchorSummary.value),

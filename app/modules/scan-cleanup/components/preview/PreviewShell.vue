@@ -165,7 +165,7 @@
             class="preview-surface"
             :class="{
                 'is-disabled': disabled,
-                'is-stale-page': staleContentVisible,
+                'is-stale-page': isStalePage,
                 'can-pan-preview': canPanPreview,
                 'is-panning-preview': panGesture !== null,
             }"
@@ -193,7 +193,7 @@
                 <div
                     v-if="presentationResult && presentationResult.outputs.length === 0 && effectiveViewMode === 'cleaned'"
                     class="preview-message"
-                    :class="{'is-stale-content': staleContentVisible}"
+                    :class="{'is-stale-content': isStalePage}"
                 >
                     <span>{{ presentationResult.pageMetadata.excluded
                         ? t('scanCleanup.preview.excluded')
@@ -203,7 +203,7 @@
                     <div
                         ref="cutterStage"
                         class="cutter-stage"
-                        :class="{'is-stale-content': staleContentVisible}"
+                        :class="{'is-stale-content': isStalePage}"
                         :style="previewTransformStyle"
                     >
                         <OriginalCanvas
@@ -278,7 +278,7 @@
                         </template>
                     </span>
                 </div>
-                <div v-if="loading && staleContentVisible" class="page-loading-overlay" role="status">
+                <div v-if="loading && isStalePage" class="page-loading-overlay" role="status">
                     <UIcon name="i-ph-circle-notch" class="size-6 is-spinning" />
                     <span>{{ t('scanCleanup.preview.loadingPage', {page: pageNumber}) }}</span>
                 </div>
@@ -639,7 +639,6 @@ const props = defineProps<{
     alignment: TScanCleanupPageAlignment;
     pageNumber: number;
     totalPages: number;
-    stalePage?: boolean;
     showMarginBoundary?: boolean;
     showFirstRunGuidance?: boolean;
     manualSplit: IScanCleanupNormalizedSplit | null;
@@ -685,10 +684,8 @@ const contentHandles: readonly TScanCleanupContentHandle[] = [
     'w',
     'nw',
 ];
-const cutterStageSize = reactive({
-    height: 0,
-    width: 0,
-});
+// The unscaled cutter stage, positioned in the preview surface; its width and
+// height are the stage size.
 const dragOverlayBounds = reactive<IScanCleanupDragRect>({
     x: 0,
     y: 0,
@@ -741,19 +738,20 @@ const effectiveError = computed(() => cleanedFrameError.value || props.error);
 const displayedPresentation = computed(
     () => displayedCleanedFrame.value?.presentation ?? captureFramePresentation(),
 );
+// The displayed frame is the live session frame: its result and its
+// presentation key are both the ones the session publishes now.
 const displayedFrameIdentityCurrent = computed(() => props.resultPresentationKey === undefined
     || displayedCleanedFrame.value?.transitionKey === props.resultPresentationKey);
-const displayedFrameResultCurrent = computed(() => props.resultPresentationKey === undefined
-    ? displayedCleanedFrame.value?.result.pageNumber === props.pageNumber
-    : displayedCleanedFrame.value?.result === toRaw(props.result));
 // This is the only renderer-facing presentation-current decision. The preview
 // request coordinator owns request freshness, while the image owner owns the
 // displayed frame; the pane combines those facts once for edits, notices, and
 // detail tiles.
-const previewPresentationCurrent = computed(() => (props.resultCurrent === undefined || props.resultCurrent === true)
-    && displayedFrameResultCurrent.value
-    && displayedFrameIdentityCurrent.value);
-const previewPresentationNoticeCurrent = computed(() => (props.resultCurrent === undefined || props.resultCurrent === true)
+const previewPresentationCurrent = computed(() => props.resultCurrent !== false
+    && displayedFrameIdentityCurrent.value
+    && (props.resultPresentationKey === undefined
+        ? displayedCleanedFrame.value?.result.pageNumber === props.pageNumber
+        : displayedCleanedFrameCurrent.value));
+const previewPresentationNoticeCurrent = computed(() => props.resultCurrent !== false
     && (props.resultPresentationKey === undefined
         || displayedPresentation.value.resultCurrent && displayedFrameIdentityCurrent.value));
 // The source-frame editors stay on screen while a same-page edit refreshes the
@@ -790,7 +788,6 @@ const {
     formatZoomLabel: zoom => t('scanCleanup.preview.zoomValue', {zoom}),
     overlayBounds: dragOverlayBounds,
     result: () => presentationResult.value ?? props.rawResult ?? null,
-    stageSize: cutterStageSize,
     surface: previewSurface,
     updateGeometry: () => updateOverlayGeometry(),
 });
@@ -813,7 +810,6 @@ const {
     previewPan,
     previewSurface,
     result: () => presentationResult.value,
-    stageSize: cutterStageSize,
     transformScale: previewTransformScale,
 });
 const effectiveViewMode = computed(() => props.lossless
@@ -858,8 +854,7 @@ const detailRegionStyles = computed<Partial<Record<TScanCleanupOutputHalf, CSSPr
     }
     return styles;
 });
-const isStalePage = computed(() => props.stalePage
-    || Boolean(props.result && props.result.pageNumber !== props.pageNumber));
+const isStalePage = computed(() => Boolean(props.result && props.result.pageNumber !== props.pageNumber));
 // A source sheet is not a cleaned output. Until this page's cleaned result
 // exists, Cleaned mode owns a topology-aware loading shell; the raw sheet is
 // available only through Original mode. This prevents an unsplit landscape
@@ -929,7 +924,6 @@ const canvasNotice = computed(() => {
         ? t('scanCleanup.preview.matchedCanvasProvisional')
         : '';
 });
-const staleContentVisible = computed(() => isStalePage.value);
 const viewModes = computed(() => props.lossless ? [{
     value: 'original' as const,
     label: t('scanCleanup.preview.preview'),
@@ -1069,14 +1063,14 @@ const showCutter = computed(() => props.zoneEditing !== true
         )
     ));
 const originalFitPlacement = computed(() => resolvePreviewFitPlacement(
-    cutterStageSize.width,
-    cutterStageSize.height,
+    dragOverlayBounds.width,
+    dragOverlayBounds.height,
     presentationResult.value?.rawWidthPx ?? 1,
     presentationResult.value?.rawHeightPx ?? 1,
 ));
 const cutterSourceFitPlacement = computed(() => resolvePreviewFitPlacement(
-    cutterStageSize.width,
-    cutterStageSize.height,
+    dragOverlayBounds.width,
+    dragOverlayBounds.height,
     analysisWidth.value,
     analysisHeight.value,
 ));
@@ -1643,8 +1637,8 @@ function scheduleDetailRequest() {
         || !detailDensityExceeded.value
         || panGesture.value !== null
         || dragTransaction.active.value
-        || cutterStageSize.width <= 0
-        || cutterStageSize.height <= 0
+        || dragOverlayBounds.width <= 0
+        || dragOverlayBounds.height <= 0
     ) {
         return;
     }
@@ -1827,10 +1821,7 @@ const contentOverlayOutputs = computed<IScanCleanupContentOverlayOutput[]>(() =>
     }
     const stageRect = activeStageRect();
     const draft = draftGeometry.value?.kind === 'content' ? draftGeometry.value : null;
-    const outputs = dragTransaction.active.value && dragOutputSnapshot.value
-        ? dragOutputSnapshot.value
-        : renderedOutputs.value;
-    return outputs.flatMap(output => {
+    return renderedOutputs.value.flatMap(output => {
         const canvasClientRect = outputCanvasRects[output.metadata.half] ?? {
             x: stageRect.x,
             y: stageRect.y,
@@ -1862,10 +1853,7 @@ const placementOverlayOutputs = computed<IScanCleanupPlacementOverlayOutput[]>((
         return [];
     }
     const draft = draftGeometry.value?.kind === 'placement' ? draftGeometry.value : null;
-    const outputs = dragTransaction.active.value && dragOutputSnapshot.value
-        ? dragOutputSnapshot.value
-        : renderedOutputs.value;
-    return outputs.flatMap(output => {
+    return renderedOutputs.value.flatMap(output => {
         const canvasClientRect = outputCanvasRects[output.metadata.half] ?? {
             x: stageRect.x,
             y: stageRect.y,
