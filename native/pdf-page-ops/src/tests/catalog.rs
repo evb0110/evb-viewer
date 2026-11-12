@@ -1010,7 +1010,7 @@ fn applies_sparse_shape_and_annotation_mutations_incrementally_without_a_full_pa
     };
 
     reset_page_tree_node_read_count();
-    apply_shape_annotations_incremental(
+    apply_shape_annotations(
         &mut incremental,
         &shape_mutation,
         "D:20260609123456Z",

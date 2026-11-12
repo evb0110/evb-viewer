@@ -206,14 +206,14 @@ pub(crate) struct EmbeddedShapeDeleteLookup {
 /// the page tree. The structural loader retains every indirect object, so a
 /// single ordered object scan can stop as soon as all requested keys resolve.
 pub(crate) fn lookup_embedded_shape_delete_targets(
-    document: &Document,
+    document: &impl PdfObjectStore,
     stable_keys: &HashSet<String>,
 ) -> EmbeddedShapeDeleteLookup {
     lookup_embedded_shape_delete_targets_inner(document, stable_keys).0
 }
 
 fn lookup_embedded_shape_delete_targets_inner(
-    document: &Document,
+    document: &impl PdfObjectStore,
     stable_keys: &HashSet<String>,
 ) -> (EmbeddedShapeDeleteLookup, usize) {
     let mut lookup = EmbeddedShapeDeleteLookup::default();
@@ -223,7 +223,7 @@ fn lookup_embedded_shape_delete_targets_inner(
 
     let mut pending = stable_keys.clone();
     let mut scanned_objects = 0;
-    for (object_id, object) in &document.objects {
+    for (object_id, object) in document.stored_objects() {
         if pending.is_empty() {
             break;
         }
@@ -243,10 +243,10 @@ fn lookup_embedded_shape_delete_targets_inner(
         if !pending.remove(&stable_key) {
             continue;
         }
-        lookup.object_ids.insert(*object_id);
+        lookup.object_ids.insert(object_id);
         lookup
             .page_ids
-            .extend(annotation_page_id(document, *object_id));
+            .extend(annotation_page_id(document, object_id));
     }
     (lookup, scanned_objects)
 }

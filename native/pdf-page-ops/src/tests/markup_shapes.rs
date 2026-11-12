@@ -2259,7 +2259,7 @@ fn deletes_explicit_shapes_without_page_backrefs_from_full_and_incremental_docum
         .unwrap()
         .set("Annots", vec![Object::Reference(shape_id)]);
     let mut incremental = IncrementalDocument::from_document(document, 0, None);
-    apply_shape_annotations_incremental(
+    apply_shape_annotations(
         &mut incremental,
         &ShapesMutation {
             total_pages: 1,
@@ -2451,7 +2451,7 @@ fn keeps_an_existing_creation_date_the_edit_does_not_know() {
 
     let (document, shape_id) = dated_document();
     let mut incremental = IncrementalDocument::from_document(document, 0, None);
-    apply_shape_annotations_incremental(
+    apply_shape_annotations(
         &mut incremental,
         &edit(shape_id),
         "D:20260831130000Z",
@@ -2545,7 +2545,7 @@ fn deletes_high_index_shapes_by_evb_key_or_managed_nm_without_a_page_walk() {
             .set("Annots", vec![Object::Reference(shape_id)]);
         let mut incremental = IncrementalDocument::from_document(document, 0, None);
 
-        apply_shape_annotations_incremental(
+        apply_shape_annotations(
             &mut incremental,
             &ShapesMutation {
                 total_pages: 1_000_000,

@@ -483,12 +483,7 @@ fn apply_native_mutations_incremental_internal(
         set_bookmarks(incremental, bookmarks, mutations.continuation.as_ref())?;
     }
     if let Some(shapes) = &mutations.shapes {
-        apply_shape_annotations_incremental(
-            incremental,
-            shapes,
-            modified_at,
-            &mut identity_bindings,
-        )?;
+        apply_shape_annotations(incremental, shapes, modified_at, &mut identity_bindings)?;
     }
     if let Some(markup) = &mutations.markup {
         match identity_bindings.as_mut() {
