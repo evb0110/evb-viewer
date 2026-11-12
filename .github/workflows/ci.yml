@@ -527,9 +527,11 @@ jobs:
             .tmp/pdf-image-combine
             .tmp/pdf-page-ops
             .tmp/pdf-search
-          key: electron-native-v2-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('native/**', 'packages/contracts/**', 'public/fonts/annotation/*.ttf', 'public/pdf/standard_fonts/LiberationSans-*.ttf', 'scripts/build-native-tool.mjs', 'scripts/native-build-id.mjs', 'scripts/cargo-artifacts.mjs', 'scripts/lib/build-environment.mjs', 'scripts/nativeResourceManifest.ts', 'scripts/native-rust-targets.mjs', 'rust-toolchain.toml', 'native/rust-toolchain.toml', 'pnpm-lock.yaml') }}
+          # The runner image is part of the key: native tools built on one Ubuntu
+          # image must not be restored on another. Update it with runs-on.
+          key: electron-native-v2-ubuntu-26.04-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('native/**', 'packages/contracts/**', 'public/fonts/annotation/*.ttf', 'public/pdf/standard_fonts/LiberationSans-*.ttf', 'scripts/build-native-tool.mjs', 'scripts/native-build-id.mjs', 'scripts/cargo-artifacts.mjs', 'scripts/lib/build-environment.mjs', 'scripts/nativeResourceManifest.ts', 'scripts/native-rust-targets.mjs', 'rust-toolchain.toml', 'native/rust-toolchain.toml', 'pnpm-lock.yaml') }}
           restore-keys: |
-            electron-native-v2-${{ runner.os }}-${{ runner.arch }}-
+            electron-native-v2-ubuntu-26.04-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Build renderer, Electron and native tools
         run: pnpm run build && pnpm run build:electron && pnpm run build:native:e2e
