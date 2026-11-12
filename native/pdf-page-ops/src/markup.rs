@@ -955,12 +955,7 @@ fn apply_markup_rewrite_to_incremental_object_with_options(
         },
     )?;
     if let Some(contents) = contents {
-        update_annotation_text_incremental_by_ref(
-            incremental,
-            candidate.object_id,
-            contents,
-            modified_at,
-        )?;
+        update_annotation_text_by_ref(incremental, candidate.object_id, contents, modified_at)?;
     }
     Ok(modified || contents.is_some())
 }

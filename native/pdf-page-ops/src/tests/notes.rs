@@ -1716,7 +1716,7 @@ fn text_edit_keeps_a_marker_when_the_note_icon_does_not_fit() {
 
     let (document, marker_id, popup_id) = build_document();
     let mut incremental = IncrementalDocument::from_document(document, 0, None);
-    assert!(update_annotation_text_incremental_by_ref(
+    assert!(update_annotation_text_by_ref(
         &mut incremental,
         marker_id,
         "edited",
@@ -2903,7 +2903,7 @@ fn appended_revision_reads_written_objects_over_the_untouched_base_revision() {
     write(&pdf_path, &original_bytes).unwrap();
 
     let mut incremental = IncrementalDocument::load(&pdf_path).unwrap();
-    update_note_text_incremental(
+    update_note_text(
         &mut incremental,
         &[NoteTextUpdate {
             object_number: target_id.0,
@@ -2951,7 +2951,7 @@ fn appended_revision_postconditions_reject_text_that_was_not_written() {
     write(&pdf_path, &original_bytes).unwrap();
 
     let mut incremental = IncrementalDocument::load(&pdf_path).unwrap();
-    update_note_text_incremental(
+    update_note_text(
         &mut incremental,
         &[NoteTextUpdate {
             object_number: target_id.0,

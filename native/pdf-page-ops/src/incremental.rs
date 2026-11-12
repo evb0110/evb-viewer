@@ -440,7 +440,7 @@ fn apply_native_mutations_incremental_internal(
     let mut annotation_visits = 0usize;
     validate_text_box_targets(incremental, mutations)?;
     if !mutations.updates.is_empty() {
-        update_note_text_incremental(incremental, &mutations.updates, modified_at)?;
+        update_note_text(incremental, &mutations.updates, modified_at)?;
     }
     if !mutations.geometry_updates.is_empty() {
         update_note_geometry_incremental(incremental, &mutations.geometry_updates, modified_at)?;
