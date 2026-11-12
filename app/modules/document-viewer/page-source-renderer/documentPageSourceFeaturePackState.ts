@@ -170,13 +170,12 @@ export interface IDocumentPageSourceFeaturePackProps {
     isActive?: boolean;
     isInteractionActive?: boolean;
     isResizing?: boolean;
-    currentPage?: number;
     searchResults?: readonly IDocumentSearchMatch[];
     currentSearchResultIndex?: number;
 }
 export type TDocumentPageSourceRuntimeProps = Required<Pick<
     IDocumentPageSourceFeaturePackProps,
-    'continuousScroll' | 'currentPage' | 'isActive' | 'isInteractionActive' | 'isResizing' | 'viewMode'
+    'continuousScroll' | 'isActive' | 'isInteractionActive' | 'isResizing' | 'viewMode'
 >> & Pick<IDocumentPageSourceFeaturePackProps, 'documentRevisionToken' | 'src'> & {
     zoom: number;
     zoomMode: TZoomMode;

@@ -14,7 +14,6 @@ import {
     createNativeDocumentRefValue,
     parseDocumentRef,
 } from '@contracts/documentRef';
-import { runGuardedTask } from '@app/utils/asyncGuard';
 import {
     createPdfPageSource,
     projectPdfPageMetricForView,
@@ -48,7 +47,6 @@ import { bindPdfOpenSurfaceRenderContext } from '@app/modules/pdf-viewer/engine/
 import { resolvePdfRasterSourceMaxPixels } from '@app/types/pdfRasterDisplayProfile';
 import { getPerformanceProfile } from '@app/utils/performanceProfile';
 import { usePdfViewerRenderStallRecovery } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerRenderStallRecovery';
-import { usePdfViewerActivationRestore } from '@app/modules/pdf-viewer/runtime/lifecycle/usePdfViewerActivationRestore';
 import { createPdfInitialVisualCommit } from '@app/modules/pdf-viewer/runtime/lifecycle/createPdfInitialVisualCommit';
 import { createPdfRasterQualityRefineGate } from '@app/modules/pdf-viewer/runtime/sessions/createPdfRasterQualityRefineGate';
 import { createPdfDetailRaster } from '@app/modules/pdf-viewer/runtime/sessions/createPdfDetailRaster';
@@ -1052,23 +1050,6 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
         viewerContainer: options.viewerContainer,
         summarizeViewerMetricsForLog: viewport.summarizeViewerMetricsForLog,
     });
-    const {
-        nextActivationRestoreRunId,
-        isActivationRunCurrent,
-        renderActiveDocumentAfterActivation,
-    } = usePdfViewerActivationRestore({
-        viewerContainer: options.viewerContainer,
-        pdfDocument: documentSession.pdfDocument,
-        isActive: options.isActive,
-        isLoading: documentSession.isLoading,
-        numPages: documentSession.numPages,
-        currentPage: viewport.currentPage,
-        visibleRange: viewport.visibleRange,
-        viewMode: options.viewMode,
-        getVisiblePageRange: viewport.scroll.getVisiblePageRange,
-        renderVisiblePages,
-        applySearchHighlights: pageRenderer.applySearchHighlights,
-    });
     function waitForLoadedDocument(signal: AbortSignal) {
         const isLoaded = () => documentSession.pdfDocument.value !== null && !documentSession.isLoading.value;
         if (isLoaded()) {
@@ -1180,16 +1161,6 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
             if (!transition.isSameDocumentRewrite) {
                 await cleanupRenderedPages();
             }
-        } else if (transition.phase === 'restore') {
-            const runId = nextActivationRestoreRunId();
-            if (!isActivationRunCurrent(runId)) {
-                return;
-            }
-            runGuardedTask(() => renderActiveDocumentAfterActivation(runId), {
-                category: 'user-visible-operation',
-                scope: 'pdf-viewer',
-                message: 'Failed to restore PDF rendering after tab activation',
-            });
         } else if (transition.phase === 'settled') {
             await nextTick();
             if (transition.isCurrent()) {

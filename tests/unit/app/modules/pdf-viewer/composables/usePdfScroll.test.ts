@@ -83,9 +83,9 @@ describe('usePdfScroll page layout fallback', () => {
         const { container } = createContainerStub();
         const scroll = usePdfScroll();
 
-        expect(scroll.getVisiblePageRange(container, 10)).toBeNull();
-        expect(scroll.getVisiblePageRange(null, 10)).toBeNull();
-        expect(scroll.getVisiblePageRange(container, 0)).toBeNull();
+        expect(scroll.getViewportVisibility(container, 10).range).toBeNull();
+        expect(scroll.getViewportVisibility(null, 10).range).toBeNull();
+        expect(scroll.getViewportVisibility(container, 0).range).toBeNull();
 
         scroll.setPageLayoutMetrics(buildPageLayoutMetrics({
             pageMetrics: Array.from({length: 10}, () => ({
@@ -100,13 +100,13 @@ describe('usePdfScroll page layout fallback', () => {
             paddingBottom: 0,
         }));
         container.scrollTop = 400;
-        expect(scroll.getVisiblePageRange(container, 10)).toEqual({
+        expect(scroll.getViewportVisibility(container, 10).range).toEqual({
             start: 5,
             end: 6,
         });
 
         scroll.setPageLayoutMetrics(null);
-        expect(scroll.getVisiblePageRange(container, 10)).toBeNull();
+        expect(scroll.getViewportVisibility(container, 10).range).toBeNull();
     });
 
     it('prefers mounted DOM visibility when layout metrics disagree during virtualization', () => {
@@ -135,7 +135,7 @@ describe('usePdfScroll page layout fallback', () => {
             paddingBottom: 0,
         }));
 
-        expect(scroll.getVisiblePageRange(container, 10)).toEqual({
+        expect(scroll.getViewportVisibility(container, 10).range).toEqual({
             start: 5,
             end: 5,
         });
@@ -160,7 +160,7 @@ describe('usePdfScroll page layout fallback', () => {
         });
         const scroll = usePdfScroll();
 
-        expect(scroll.getVisiblePageRange(container, 10)).toEqual({
+        expect(scroll.getViewportVisibility(container, 10).range).toEqual({
             start: 4,
             end: 4,
         });
@@ -191,7 +191,7 @@ describe('usePdfScroll page layout fallback', () => {
         });
         const scroll = usePdfScroll();
 
-        expect(scroll.getVisiblePageRange(container, 2)).toEqual({
+        expect(scroll.getViewportVisibility(container, 2).range).toEqual({
             start: 2,
             end: 2,
         });
@@ -223,7 +223,7 @@ describe('usePdfScroll page layout fallback', () => {
             paddingBottom: 0,
         }));
 
-        expect(scroll.getVisiblePageRange(container, 2)).toEqual({
+        expect(scroll.getViewportVisibility(container, 2).range).toEqual({
             start: 2,
             end: 2,
         });
@@ -262,7 +262,7 @@ describe('usePdfScroll page layout fallback', () => {
         container.scrollTop = 250;
 
         expect(getScrollTop()).toBe(250);
-        expect(scroll.getVisiblePageRange(container, 3)).toEqual({
+        expect(scroll.getViewportVisibility(container, 3).range).toEqual({
             start: 1,
             end: 1,
         });

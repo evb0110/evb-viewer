@@ -329,6 +329,8 @@ export const useDocumentPageSourceRuntime = (options: {
     const viewportScrollDirection = ref<-1 | 0 | 1>(0);
     const pagedWheelNavigation = createPageSourcePagedWheelNavigation(DOCUMENT_PAGE_GUTTER_PX);
     const chassisAuthority = injectDocumentViewerRuntime();
+    // The view's page is the page its surface reports, for every renderer.
+    const currentPage = computed(() => chassisAuthority?.currentPage.value ?? 1);
     const openSurfaceRenderOwner = chassisAuthority?.openSurface.claimRenderOwner();
     const viewportWritePort = chassisAuthority?.viewportWritePort ?? createDocumentViewportWritePort();
     const renderSession = chassisAuthority?.renderCoordinator.createSession(
@@ -346,7 +348,6 @@ export const useDocumentPageSourceRuntime = (options: {
         const target = chassisAuthority?.openSurface.navigationTicket.value?.request.target;
         return target && 'page' in target ? target.page : null;
     });
-    let loadSettled = Promise.resolve();
     let loadController: AbortController | null = null;
     let releaseViewportFeature: (() => void) | null = null;
     let inactiveLeaseReleaseTimer: ReturnType<typeof setTimeout> | null = null;
@@ -372,7 +373,7 @@ export const useDocumentPageSourceRuntime = (options: {
         props.value.continuousScroll,
     ));
     const effectiveZoom = computed(() => (
-        pageDisplayLayouts.value[props.value.currentPage - 1]?.scale
+        pageDisplayLayouts.value[currentPage.value - 1]?.scale
         ?? clampDocumentManualZoom(props.value.zoom)
     ));
     const handleWheelZoom = createDocumentWheelZoomHandler(
@@ -439,7 +440,7 @@ export const useDocumentPageSourceRuntime = (options: {
             ?? pageMetrics.value.length;
         const viewportPages = props.value.continuousScroll
             ? resolveDocumentContinuousScrollWindow({
-                currentPage: props.value.currentPage,
+                currentPage: currentPage.value,
                 geometry: {
                     pageHeights: pageHeights.value,
                     pageTops: pageTops.value,
@@ -455,7 +456,7 @@ export const useDocumentPageSourceRuntime = (options: {
             })?.pageNumbers ?? []
             : [];
         const pages = renderSession?.resolveMountedPages({
-            currentPage: navigationTargetPage.value ?? props.value.currentPage,
+            currentPage: navigationTargetPage.value ?? currentPage.value,
             destinationPage: navigationTargetPage.value
                 ?? ([
                     'opening',
@@ -476,7 +477,7 @@ export const useDocumentPageSourceRuntime = (options: {
             ? DOCUMENT_SOURCE_CONTINUOUS_MOUNT_RADIUS
             : rasterBufferProfile.pdfBufferPages,
         continuousScroll: props.value.continuousScroll,
-        currentPage: navigationTargetPage.value ?? props.value.currentPage,
+        currentPage: navigationTargetPage.value ?? currentPage.value,
         estimatePagePixels: (pageNumber) => {
             const layout = pageLayouts.value[pageNumber - 1];
             return layout ? layout.width * layout.height * pixelRatio.value ** 2 : 1;
@@ -508,7 +509,7 @@ export const useDocumentPageSourceRuntime = (options: {
     watch(
         () => [
             props.value.continuousScroll,
-            props.value.currentPage,
+            currentPage.value,
         ] as const,
         ([continuousScroll], previous) => {
             if (previous && continuousScroll !== previous[0]) {
@@ -538,7 +539,7 @@ export const useDocumentPageSourceRuntime = (options: {
                 ? (pageTops.value[pageNumber - 1] ?? DOCUMENT_PAGE_GUTTER_PX) - physicalScroll.origin.value
                 : DOCUMENT_PAGE_GUTTER_PX)}px`,
             left: `${String(resolvePageLeft(layout.width))}px`,
-            display: !props.value.continuousScroll && pageNumber !== props.value.currentPage
+            display: !props.value.continuousScroll && pageNumber !== currentPage.value
                 ? 'none'
                 : undefined,
         };
@@ -663,7 +664,7 @@ export const useDocumentPageSourceRuntime = (options: {
         isFenceCurrent: transitions.isCurrent,
         openSurfaceRenderOwner,
         readContinuousScroll: () => props.value.continuousScroll,
-        readCurrentPage: () => props.value.currentPage,
+        readCurrentPage: () => currentPage.value,
         readFence: transitions.readFence,
         readIsActive: () => props.value.isActive,
         readLoadSignal: () => loadController?.signal ?? null,
@@ -691,7 +692,7 @@ export const useDocumentPageSourceRuntime = (options: {
                 DOCUMENT_SOURCE_RENDER_CONCURRENCY,
                 renderDemand.value.visiblePages.length,
             ),
-            currentPage: navigationTargetPage.value ?? props.value.currentPage,
+            currentPage: navigationTargetPage.value ?? currentPage.value,
             guardRadius: DOCUMENT_SOURCE_CONTINUOUS_MOUNT_RADIUS,
             inFlightPages: [...presentation.renderControllers.keys()],
             mountedPages: mountedPages.value,
@@ -722,7 +723,7 @@ export const useDocumentPageSourceRuntime = (options: {
             modeTransitionPreferredPageIndex = null;
             return preferredPageIndex ?? (props.value.continuousScroll
                 ? null
-                : Math.max(0, props.value.currentPage - 1));
+                : Math.max(0, currentPage.value - 1));
         },
         isResizing: computed(() => props.value.isResizing),
         captureRestoreEpoch: captureLayoutRestoreEpoch,
@@ -765,7 +766,7 @@ export const useDocumentPageSourceRuntime = (options: {
             },
             zoomAnchorPageLayouts.value,
             undefined,
-            props.value.continuousScroll ? null : Math.max(0, props.value.currentPage - 1),
+            props.value.continuousScroll ? null : Math.max(0, currentPage.value - 1),
         );
     }
     function restoreSuspendedViewport(
@@ -851,7 +852,7 @@ export const useDocumentPageSourceRuntime = (options: {
             const viewportSession = chassisAuthority?.openSurface.viewportSession.value;
             if (
                 viewportSession
-                && viewportSession.requestedPage !== props.value.currentPage
+                && viewportSession.requestedPage !== currentPage.value
             ) {
                 // The scroll event can be delivered after the authored offset
                 // lands but before the shared navigation ready edge publishes
@@ -862,7 +863,7 @@ export const useDocumentPageSourceRuntime = (options: {
             }
             const hasStableCommittedPage = viewportSession?.lifecycle === 'ready'
                 && viewportSession.requestedPage === viewportSession.committedPage
-                && viewportSession.requestedPage === props.value.currentPage;
+                && viewportSession.requestedPage === currentPage.value;
             if (!hasStableCommittedPage) {
                 syncCurrentPageFromViewport();
             }
@@ -918,7 +919,7 @@ export const useDocumentPageSourceRuntime = (options: {
                 viewportSession.observedPage === null
                 || viewportSession.observedPage === viewportSession.requestedPage
             )
-            && viewportSession.requestedPage !== props.value.currentPage
+            && viewportSession.requestedPage !== currentPage.value
         ) {
             // A command may have committed its authored offset before the
             // surface names its page here. Preserve that shared semantic
@@ -930,7 +931,7 @@ export const useDocumentPageSourceRuntime = (options: {
             ?? chassisAuthority?.openSurface.snapshot.value.openingPageGeometry?.pageCount
             ?? pageMetrics.value.length;
         const visiblePage = resolveDocumentVisiblePageForIndicator({
-            currentPage: props.value.currentPage,
+            currentPage: currentPage.value,
             pageLayouts: zoomAnchorPageLayouts.value,
             scrollLeft: container.scrollLeft,
             scrollTop: physicalScroll.origin.value + container.scrollTop,
@@ -938,7 +939,7 @@ export const useDocumentPageSourceRuntime = (options: {
             viewportHeight: container.clientHeight,
             viewportWidth: container.clientWidth,
         });
-        if (visiblePage && (forceProjection || visiblePage !== props.value.currentPage)) {
+        if (visiblePage && (forceProjection || visiblePage !== currentPage.value)) {
             chassisAuthority?.observePage(visiblePage);
         }
     }
@@ -986,7 +987,7 @@ export const useDocumentPageSourceRuntime = (options: {
         const target = pagedWheelNavigation.handle(interaction.event, {
             container: viewerContainer.value,
             continuousScroll: props.value.continuousScroll,
-            currentPage: props.value.currentPage,
+            currentPage: currentPage.value,
             pageCount: source.value?.pageCount ?? 0,
             pageHeights: pageHeights.value,
             viewMode: props.value.viewMode,
@@ -1044,7 +1045,7 @@ export const useDocumentPageSourceRuntime = (options: {
                     && !(error instanceof DOMException && error.name === 'AbortError')
                 ) {
                     const message = presentation.commitTerminalError(targetPage, error);
-                    if (targetPage === props.value.currentPage) {
+                    if (targetPage === currentPage.value) {
                         emit('loadError', error instanceof Error
                             ? error
                             : presentation.createFailureError(targetPage, message));
@@ -1141,7 +1142,7 @@ export const useDocumentPageSourceRuntime = (options: {
                 .inactiveDjvuLeasePolicy === 'warm-grace',
             surfaceBudget.getSnapshot().pressureLevel,
         );
-        const retainedPageNumber = retainCurrentPage ? props.value.currentPage : null;
+        const retainedPageNumber = retainCurrentPage ? currentPage.value : null;
         for (const pageNumber of [...presentation.pageStates.keys()]) {
             if (pageNumber === retainedPageNumber) {
                 continue;
@@ -1196,7 +1197,7 @@ export const useDocumentPageSourceRuntime = (options: {
         if (!seedOpeningPageMetrics()) {
             pageMetrics.value = documentRef
                 ? createColdOpenProvisionalDocumentPageMetrics(Math.max(1, Math.trunc(
-                    chassisAuthority?.currentPage.value ?? props.value.currentPage,
+                    currentPage.value,
                 )))
                 : [];
         }
@@ -1206,7 +1207,7 @@ export const useDocumentPageSourceRuntime = (options: {
             return;
         }
         emit('initial-visual-pending');
-        loadSettled = openDocumentPageSource(transition, {
+        void openDocumentPageSource(transition, {
             chassisAuthority,
             commitPageTerminalError: presentation.commitTerminalError,
             createPageFailureError: presentation.createFailureError,
@@ -1220,14 +1221,14 @@ export const useDocumentPageSourceRuntime = (options: {
             publishPageMetrics: (metrics) => {
                 pageMetrics.value = metrics;
             },
-            readCurrentPage: () => chassisAuthority?.currentPage.value ?? props.value.currentPage,
+            readCurrentPage: () => currentPage.value,
             getPriorityPages: () => {
                 const demand = renderDemand.value;
                 return [...new Set([
                     ...demand.visiblePages,
                     ...demand.bufferPages,
                     ...demand.residentPages,
-                    props.value.currentPage,
+                    currentPage.value,
                 ])];
             },
             readPageMetric: pageNumber => pageMetrics.value[pageNumber - 1],
@@ -1256,7 +1257,7 @@ export const useDocumentPageSourceRuntime = (options: {
                 });
             }
             return false;
-        }).then(() => undefined);
+        });
     }
     function applySuspendTransition(transition: IDocumentPageSourceTransition) {
         const anchor = captureSuspendedViewportAnchor();
@@ -1277,7 +1278,7 @@ export const useDocumentPageSourceRuntime = (options: {
             clearTimeout(inactiveLeaseReleaseTimer);
             inactiveLeaseReleaseTimer = null;
         }
-        const retainedState = presentation.pageStates.get(props.value.currentPage);
+        const retainedState = presentation.pageStates.get(currentPage.value);
         retainedState?.lease?.setPriority?.('navigation');
         if (retainedState?.lease) {
             retainedState.priority = 'navigation';
@@ -1388,8 +1389,7 @@ export const useDocumentPageSourceRuntime = (options: {
         viewerExpose: {
             getViewerContainer: () => viewerContainer.value,
             getEffectiveZoom: () => effectiveZoom.value,
-            getCurrentPage: () => props.value.currentPage,
-            waitForViewerLoadSettled: () => loadSettled,
+            getCurrentPage: () => currentPage.value,
             scrollToPage,
             captureReadingAnchor: (): IPdfSemanticAnchor | null => {
                 const anchor = captureSuspendedViewportAnchor();
@@ -1403,7 +1403,7 @@ export const useDocumentPageSourceRuntime = (options: {
                 } : null;
             },
             invalidatePages: (pages: readonly number[]) => pages.forEach(page => void renderPage(page)),
-            requestScrollToCurrentResult: () => scrollToPage(props.value.currentPage),
+            requestScrollToCurrentResult: () => scrollToPage(currentPage.value),
         } satisfies IDocumentViewerExpose,
     };
 };

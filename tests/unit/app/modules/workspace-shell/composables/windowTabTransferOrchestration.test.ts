@@ -668,7 +668,6 @@ describe('window tab transfer orchestration helpers', () => {
             let reload: Promise<void> | null = null;
             const preparePdfReloadWaiter = (pageToRestore: number) => {
                 const waiter = createPdfReloadWaiter({
-                    pdfDocument: shallowRef(null),
                     pdfViewerRef: viewer,
                     openSurface: cast({
                         snapshot: surface,

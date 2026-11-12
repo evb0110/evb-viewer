@@ -38,7 +38,6 @@ export { createDocumentThumbnailScrollRestorer } from '@app/modules/document-vie
 export {
     createDocumentTransitionChannel, type IDocumentTransition,
 } from '@app/modules/document-viewer/lifecycle/createDocumentTransitionChannel';
-export { createDocumentViewerActivationRunGuard } from '@app/modules/document-viewer/lifecycle/createDocumentViewerActivationRunGuard';
 export {
     createDocumentViewerRuntime, documentViewerRuntimeKey, injectDocumentViewerRuntime, type IDocumentViewerRuntime,
 } from '@app/modules/document-viewer/runtime/documentViewerRuntime';
@@ -122,8 +121,8 @@ export { resolveDjvuPageSizeInPoints } from '@app/modules/document-viewer/source
 export { resolveDocumentPageSourceOpeningFrame } from '@app/modules/document-viewer/layout/resolveDocumentPageSourceOpeningFrame';
 export { resolveVirtualRowRevealScrollTop } from '@app/modules/document-viewer/virtualization/resolveVirtualRowRevealScrollTop';
 export {
-    runDocumentViewerActivationPresentation, waitForDocumentViewerVisibleLayout,
-} from '@app/modules/document-viewer/lifecycle/documentViewerActivationPresentation';
+    reportDocumentViewportPlacement, type IDocumentViewportPlacement,
+} from '@app/modules/document-viewer/runtime/reportDocumentViewportPlacement';
 export { toClientRect } from '@app/modules/document-viewer/region-geometry/toClientRect';
 export { toLocalRect } from '@app/modules/document-viewer/region-geometry/toLocalRect';
 export { type TPageSnapAnchor } from '@app/modules/document-viewer/single-page-wheel/singlePageWheelTypes';

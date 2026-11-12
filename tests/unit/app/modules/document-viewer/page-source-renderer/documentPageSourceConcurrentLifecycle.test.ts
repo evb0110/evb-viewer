@@ -135,7 +135,6 @@ function createFeaturePackHost(
                         'data-page-number': String(surface.viewportSession.value.requestedPage),
                     }),
                     h(DocumentPageSourceFeaturePack, {
-                        currentPage: 1,
                         documentRevisionToken: requireDocumentRevisionToken(`revision:${documentRef}`),
                         isActive: isActive.value,
                         isResizing: isResizing.value,

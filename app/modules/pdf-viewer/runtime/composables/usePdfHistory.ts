@@ -3,7 +3,6 @@ import type {
 } from '@contracts/documentRevision';
 import type {TDocumentOperationKind} from '@app/types/documentOperationKind';
 import {runWithoutDocumentOperationLease} from '@app/utils/runWithoutDocumentOperationLease';
-import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import type { IDocumentOpenSurfaceSession } from '@app/modules/document-viewer/public';
 import type { Ref } from 'vue';
 import type { TDocumentRef } from '@contracts/documentRef';
@@ -25,9 +24,8 @@ type THistoryRoute = (
 const HISTORY_LOG_SECTION = 'pdf-history';
 
 export const usePdfHistory = (deps: {
-    pdfDocument: Ref<IPdfDocument | null>;
     pdfViewerRef: Ref<IPdfReloadWaiterViewer | null>;
-    openSurface?: Pick<IDocumentOpenSurfaceSession, 'snapshot' | 'viewportSession'> | undefined;
+    openSurface: Pick<IDocumentOpenSurfaceSession, 'snapshot' | 'viewportSession'>;
     currentPage: Ref<number>;
     isAnySaving: Ref<boolean>;
     prepareHistory: () => void | Promise<void>;
@@ -46,7 +44,6 @@ export const usePdfHistory = (deps: {
     redoHistory: () => Promise<boolean>;
 }) => {
     const {
-        pdfDocument,
         pdfViewerRef,
         openSurface,
         currentPage,
@@ -75,9 +72,8 @@ export const usePdfHistory = (deps: {
         const normalizedPageToRestore = Math.max(1, Math.floor(pageToRestore));
 
         return createPdfReloadWaiter({
-            pdfDocument,
             pdfViewerRef,
-            ...(openSurface ? {openSurface} : {}),
+            openSurface,
             resetSearchCache,
             pageToRestore: normalizedPageToRestore,
         });
