@@ -238,7 +238,7 @@ fn with_staged_incremental_output_after_admission(
 }
 
 pub(crate) fn apply_native_mutations(
-    document: &mut Document,
+    document: &mut impl PdfObjectStore,
     mutations: &NativeMutationsFile,
     modified_at: &str,
 ) -> Result<()> {
@@ -246,7 +246,7 @@ pub(crate) fn apply_native_mutations(
 }
 
 pub(crate) fn apply_native_mutations_with_bindings(
-    document: &mut Document,
+    document: &mut impl PdfObjectStore,
     mutations: &NativeMutationsFile,
     modified_at: &str,
     identity_bindings: &mut Vec<AnnotationIdentityBinding>,
@@ -254,8 +254,10 @@ pub(crate) fn apply_native_mutations_with_bindings(
     apply_native_mutations_internal(document, mutations, modified_at, Some(identity_bindings))
 }
 
+/// Applies one mutation payload, in this order, to a loaded document for a
+/// full rewrite or to an incremental one for an append.
 fn apply_native_mutations_internal(
-    document: &mut Document,
+    document: &mut impl PdfObjectStore,
     mutations: &NativeMutationsFile,
     modified_at: &str,
     mut identity_bindings: Option<&mut Vec<AnnotationIdentityBinding>>,
@@ -266,18 +268,16 @@ fn apply_native_mutations_internal(
         update_note_text(document, &mutations.updates, modified_at)?;
     }
     update_note_geometry(document, &mutations.geometry_updates, modified_at)?;
-    if !mutations.notes.is_empty() || !mutations.free_text_notes.is_empty() {
-        upsert_text_notes_with_counter(
-            document,
-            mutations
-                .notes
-                .iter()
-                .chain(mutations.free_text_notes.iter()),
-            modified_at,
-            &mut annotation_visits,
-            &mut identity_bindings,
-        )?;
-    }
+    upsert_text_notes_with_counter(
+        document,
+        mutations
+            .notes
+            .iter()
+            .chain(mutations.free_text_notes.iter()),
+        modified_at,
+        &mut annotation_visits,
+        &mut identity_bindings,
+    )?;
     upsert_text_boxes_with_counter(
         document,
         &mutations.text_boxes,
@@ -325,7 +325,6 @@ fn apply_native_mutations_internal(
             &mut identity_bindings,
         )?;
     }
-    document.max_id = document.objects.keys().next_back().map_or(0, |id| id.0);
     Ok(())
 }
 
@@ -333,28 +332,6 @@ fn is_page_label_continuation(mutations: &NativeMutationsFile) -> bool {
     mutations.continuation.as_ref().is_some_and(|continuation| {
         continuation.family == NativeMutationContinuationFamily::PageLabels
     })
-}
-
-pub(crate) fn apply_native_mutations_incremental(
-    incremental: &mut IncrementalDocument,
-    mutations: &NativeMutationsFile,
-    modified_at: &str,
-) -> Result<()> {
-    apply_native_mutations_incremental_internal(incremental, mutations, modified_at, None)
-}
-
-pub(crate) fn apply_native_mutations_incremental_with_bindings(
-    incremental: &mut IncrementalDocument,
-    mutations: &NativeMutationsFile,
-    modified_at: &str,
-    identity_bindings: &mut Vec<AnnotationIdentityBinding>,
-) -> Result<()> {
-    apply_native_mutations_incremental_internal(
-        incremental,
-        mutations,
-        modified_at,
-        Some(identity_bindings),
-    )
 }
 
 #[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
@@ -388,7 +365,7 @@ pub(crate) fn append_native_mutations_to_bytes(
         input.last().copied(),
     );
     let mut identity_bindings = Vec::new();
-    apply_native_mutations_incremental_with_bindings(
+    apply_native_mutations_with_bindings(
         &mut incremental,
         mutations,
         modified_at,
@@ -429,90 +406,6 @@ pub(crate) fn append_native_mutations_to_bytes(
         page_count,
         identity_bindings,
     })
-}
-
-fn apply_native_mutations_incremental_internal(
-    incremental: &mut IncrementalDocument,
-    mutations: &NativeMutationsFile,
-    modified_at: &str,
-    mut identity_bindings: Option<&mut Vec<AnnotationIdentityBinding>>,
-) -> Result<()> {
-    let mut annotation_visits = 0usize;
-    validate_text_box_targets(incremental, mutations)?;
-    if !mutations.updates.is_empty() {
-        update_note_text(incremental, &mutations.updates, modified_at)?;
-    }
-    if !mutations.geometry_updates.is_empty() {
-        update_note_geometry(incremental, &mutations.geometry_updates, modified_at)?;
-    }
-    if !mutations.notes.is_empty() || !mutations.free_text_notes.is_empty() {
-        upsert_text_notes_with_counter(
-            incremental,
-            mutations
-                .notes
-                .iter()
-                .chain(mutations.free_text_notes.iter()),
-            modified_at,
-            &mut annotation_visits,
-            &mut identity_bindings,
-        )?;
-    }
-    if !mutations.text_boxes.is_empty() {
-        upsert_text_boxes_with_counter(
-            incremental,
-            &mutations.text_boxes,
-            modified_at,
-            &mut annotation_visits,
-            &mut identity_bindings,
-        )?;
-    }
-    if !mutations.deletes.is_empty() {
-        delete_annotations(incremental, &mutations.deletes)?;
-    }
-    if !mutations.page_rotations.is_empty() {
-        rotate_pages(incremental, &mutations.page_rotations)?;
-    }
-    if let Some(page_labels) = &mutations.page_labels {
-        set_page_labels(
-            incremental,
-            page_labels,
-            is_page_label_continuation(mutations),
-        )?;
-    }
-    if let Some(bookmarks) = &mutations.bookmarks {
-        set_bookmarks(incremental, bookmarks, mutations.continuation.as_ref())?;
-    }
-    if let Some(shapes) = &mutations.shapes {
-        apply_shape_annotations(incremental, shapes, modified_at, &mut identity_bindings)?;
-    }
-    if let Some(markup) = &mutations.markup {
-        match identity_bindings.as_mut() {
-            Some(bindings) => {
-                apply_markup_mutations_with_bindings(incremental, markup, modified_at, bindings)?;
-            }
-            None => apply_markup_mutations(incremental, markup, modified_at)?,
-        }
-    }
-    if !mutations.placed_images.is_empty() {
-        let image_bytes = take_or_validate_placed_image_payloads(mutations)?;
-        apply_placed_images(
-            incremental,
-            &mutations.placed_images,
-            image_bytes,
-            placed_image_chunk_index(mutations),
-            modified_at,
-            &mut identity_bindings,
-        )?;
-    }
-    if !mutations.placed_image_geometry_updates.is_empty() {
-        apply_placed_image_geometry_updates(
-            incremental,
-            &mutations.placed_image_geometry_updates,
-            modified_at,
-            &mut identity_bindings,
-        )?;
-    }
-    Ok(())
 }
 
 #[cfg(test)]
@@ -687,14 +580,14 @@ fn write_native_mutations_revision(
     incremental.new_document.version = incremental.get_prev_documents().version.clone();
     let mut identity_bindings = Vec::new();
     if identity_bindings_path.is_some() {
-        apply_native_mutations_incremental_with_bindings(
+        apply_native_mutations_with_bindings(
             incremental,
             mutations,
             modified_at,
             &mut identity_bindings,
         )?;
     } else {
-        apply_native_mutations_incremental(incremental, mutations, modified_at)?;
+        apply_native_mutations(incremental, mutations, modified_at)?;
     }
     let delete_effects = annotation_delete_effects(incremental)?;
     let identity_bindings_report = identity_bindings_path
@@ -789,6 +682,8 @@ pub(crate) fn write_native_mutations_path(
         let identity_bindings_report = identity_bindings_path
             .map(|_| serialize_annotation_identity_bindings_report(&identity_bindings))
             .transpose()?;
+        // The rewrite numbers its cross-reference to the last object it keeps.
+        document.max_id = document.objects.keys().next_back().map_or(0, |id| id.0);
         let mut staged = AtomicOutput::create(output_path)
             .map_err(|error| domain_error(NativeErrorCode::Io, error.to_string()))?;
         document
