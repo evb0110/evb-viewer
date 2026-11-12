@@ -682,6 +682,12 @@ pub(crate) trait PdfObjectStore: PdfObjectSource {
     /// Stores a new object under a number past `max_id`.
     fn set_new_object(&mut self, object_id: ObjectId, object: Object);
 
+    fn add_object(&mut self, object: impl Into<Object>) -> ObjectId {
+        let object_id = self.new_object_id();
+        self.set_new_object(object_id, object.into());
+        object_id
+    }
+
     fn dictionary_mut(&mut self, object_id: ObjectId) -> Result<&mut Dictionary> {
         Ok(self.object_mut(object_id)?.as_dict_mut()?)
     }

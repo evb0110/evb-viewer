@@ -93,7 +93,7 @@
             &mut Some(&mut bindings),
         )
         .unwrap();
-        upsert_text_boxes_incremental_with_counter(
+        upsert_text_boxes_with_counter(
             &mut incremental,
             &[binding_editor()],
             "D:20260830130000Z",

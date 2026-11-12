@@ -98,7 +98,11 @@ pub(crate) use text_font_program::simple_font_advances;
 pub(crate) struct SharedFonts(BTreeMap<usize, (ObjectId, std::collections::BTreeSet<u16>)>);
 
 impl SharedFonts {
-    pub(crate) fn resources(&mut self, document: &mut Document, lines: &[Line]) -> Dictionary {
+    pub(crate) fn resources(
+        &mut self,
+        document: &mut impl PdfObjectStore,
+        lines: &[Line],
+    ) -> Dictionary {
         let mut fonts = Dictionary::new();
         for glyph in lines.iter().flat_map(|line| &line.glyphs) {
             let (id, glyphs) = self
@@ -111,7 +115,11 @@ impl SharedFonts {
         fonts
     }
 
-    pub(crate) fn embed(self, document: &mut Document, programs: &[&[u8]]) -> Result<()> {
+    pub(crate) fn embed(
+        self,
+        document: &mut impl PdfObjectStore,
+        programs: &[&[u8]],
+    ) -> Result<()> {
         use sha2::{Digest, Sha256};
         for (index, (id, glyphs)) in self.0 {
             let mut digest = Sha256::new();
@@ -126,7 +134,7 @@ impl SharedFonts {
             let name = format!("{tag}+TextFont{index}");
             let font =
                 text_font_program::embed_font_program(document, programs[index], &name, &glyphs)?;
-            document.set_object(id, font);
+            document.set_new_object(id, Object::Dictionary(font));
         }
         Ok(())
     }

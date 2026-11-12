@@ -376,7 +376,7 @@ fn page_index<'a>(
 }
 
 pub(crate) fn upsert_text_boxes_with_counter(
-    document: &mut Document,
+    document: &mut impl PdfObjectStore,
     editors: &[TextBoxMutation],
     modified_at: &str,
     annotation_visits: &mut usize,
@@ -385,7 +385,8 @@ pub(crate) fn upsert_text_boxes_with_counter(
     if editors.is_empty() {
         return Ok(());
     }
-    let page_resolver = PageTreeResolver::new(document)?;
+    let located = document.located_pages().cloned();
+    let page_resolver = PageLookup::new(document, located.as_ref())?;
     let mut annotation_indexes = HashMap::new();
     let mut fonts = crate::text_box_font::SharedFonts::default();
     for editor in editors {
@@ -407,10 +408,13 @@ pub(crate) fn upsert_text_boxes_with_counter(
                 .and_then(|index| index.first_free_text_named(&name))
         });
         if let Some(original) = &editor.original_appearance {
-            let annotation_ref = target.unwrap_or_else(|| document.new_object_id());
             let current = target
-                .map(|id| document.get_dictionary(id).cloned())
+                .map(|id| document.dictionary(id).cloned())
                 .transpose()?;
+            let annotation_ref = match target {
+                Some(target) => target,
+                None => document.new_object_id(),
+            };
             restore_text_box_recovery(
                 document,
                 original,
@@ -446,7 +450,7 @@ pub(crate) fn upsert_text_boxes_with_counter(
         let appearance =
             build_text_box_appearance(document, editor, rect, page_rotation, &mut fonts, frame)?;
         if let Some(annotation_ref) = target {
-            let dict = document.get_dictionary_mut(annotation_ref)?;
+            let dict = document.dictionary_mut(annotation_ref)?;
             set_text_box_fields(
                 dict,
                 editor,
@@ -476,7 +480,7 @@ pub(crate) fn upsert_text_boxes_with_counter(
             true,
             existing,
         );
-        document.set_object(annotation_ref, Object::Dictionary(dict));
+        document.set_new_object(annotation_ref, Object::Dictionary(dict));
         report_annotation_identity_binding(identity_bindings, &editor.stable_key, annotation_ref);
         annotation_indexes
             .get_mut(&page_id)
@@ -486,129 +490,6 @@ pub(crate) fn upsert_text_boxes_with_counter(
     fonts.embed(document, &crate::text_box_font::FONTS)?;
     for (page_id, index) in annotation_indexes {
         write_page_annotation_index(document, page_id, index)?;
-    }
-    Ok(())
-}
-
-pub(crate) fn upsert_text_boxes_incremental_with_counter(
-    incremental: &mut IncrementalDocument,
-    editors: &[TextBoxMutation],
-    modified_at: &str,
-    annotation_visits: &mut usize,
-    identity_bindings: &mut Option<&mut Vec<AnnotationIdentityBinding>>,
-) -> Result<()> {
-    if editors.is_empty() {
-        return Ok(());
-    }
-    let located = incremental.located_pages.clone();
-    let page_resolver = PageLookup::new(incremental.get_prev_documents(), located.as_ref())?;
-    let mut annotation_indexes = HashMap::new();
-    let mut fonts = crate::text_box_font::SharedFonts::default();
-    for editor in editors {
-        let page_number = mutation_page_number(editor.page_index)?;
-        let page_id = page_resolver.page_id(incremental.get_prev_documents(), page_number)?;
-        let revision = &*incremental;
-        page_index(
-            &mut annotation_indexes,
-            revision,
-            page_id,
-            annotation_visits,
-        )?;
-        let page_view = resolve_page_view(incremental.get_prev_documents(), page_id)?;
-        let mut rect = validate_text_box_rect(editor, page_view)?;
-        let page_rotation = resolve_page_rotation(incremental.get_prev_documents(), page_id)?;
-        let name = text_box_name(editor);
-        let revision = &*incremental;
-        let target = resolve_text_box_target(revision, page_id, editor)?.or_else(|| {
-            annotation_indexes
-                .get(&page_id)
-                .and_then(|index| index.first_free_text_named(&name))
-        });
-        if let Some(original) = &editor.original_appearance {
-            let current = target
-                .map(|id| revision.dictionary(id).cloned())
-                .transpose()?;
-            let annotation_ref = target.unwrap_or_else(|| incremental.new_document.new_object_id());
-            restore_text_box_recovery(
-                &mut incremental.new_document,
-                original,
-                annotation_ref,
-                page_id,
-                current.as_ref(),
-                editor,
-                modified_at,
-            )?;
-            if target.is_none() {
-                report_annotation_identity_binding(
-                    identity_bindings,
-                    &editor.stable_key,
-                    annotation_ref,
-                );
-                annotation_indexes
-                    .get_mut(&page_id)
-                    .expect("Text box page is indexed")
-                    .append_free_text_without_popup(&name, annotation_ref);
-            }
-            continue;
-        }
-        let existing = target
-            .map(|id| existing_text_box_values(revision, id, editor, &mut rect))
-            .transpose()?
-            .or_else(|| {
-                editor
-                    .source
-                    .as_ref()
-                    .map(|source| (None, None, Some(source.frame(rect))))
-            });
-        let (frame, document) = (existing.as_ref(), &mut incremental.new_document);
-        let appearance =
-            build_text_box_appearance(document, editor, rect, page_rotation, &mut fonts, frame)?;
-        if let Some(annotation_ref) = target {
-            incremental.opt_clone_object_to_new_document(annotation_ref)?;
-            let dict = incremental
-                .new_document
-                .get_dictionary_mut(annotation_ref)?;
-            set_text_box_fields(
-                dict,
-                editor,
-                &name,
-                rect,
-                modified_at,
-                appearance,
-                page_rotation,
-                false,
-                existing,
-            );
-            continue;
-        }
-        let annotation_ref = incremental.new_document.new_object_id();
-        let mut dict = dictionary! {"Type" => "Annot", "Subtype" => "FreeText", "F" => 4};
-        if let Some(source) = &editor.source {
-            source.write_frame(&mut dict);
-        }
-        set_text_box_fields(
-            &mut dict,
-            editor,
-            &name,
-            rect,
-            modified_at,
-            appearance,
-            page_rotation,
-            true,
-            existing,
-        );
-        incremental
-            .new_document
-            .set_object(annotation_ref, Object::Dictionary(dict));
-        report_annotation_identity_binding(identity_bindings, &editor.stable_key, annotation_ref);
-        annotation_indexes
-            .get_mut(&page_id)
-            .expect("FreeText editor pages are indexed before mutation")
-            .append_free_text_without_popup(&name, annotation_ref);
-    }
-    fonts.embed(&mut incremental.new_document, &crate::text_box_font::FONTS)?;
-    for (page_id, index) in annotation_indexes {
-        write_page_annotation_index(incremental, page_id, index)?;
     }
     Ok(())
 }

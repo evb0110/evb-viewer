@@ -458,7 +458,7 @@ fn apply_native_mutations_incremental_internal(
         )?;
     }
     if !mutations.text_boxes.is_empty() {
-        upsert_text_boxes_incremental_with_counter(
+        upsert_text_boxes_with_counter(
             incremental,
             &mutations.text_boxes,
             modified_at,

@@ -612,7 +612,7 @@ pub(crate) fn text_box_content(
 }
 
 pub(crate) fn build_text_box_appearance(
-    document: &mut Document,
+    document: &mut impl PdfObjectStore,
     editor: &TextBoxMutation,
     rect: PdfRect,
     page_rotation: i64,

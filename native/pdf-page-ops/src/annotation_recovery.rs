@@ -276,7 +276,7 @@ pub(crate) const TEXT_BOX_METADATA_FIELDS: &[&[u8]] = &[
 ];
 
 pub(crate) fn restore_text_box_recovery(
-    document: &mut Document,
+    document: &mut impl PdfObjectStore,
     original: &TextBoxOriginalAppearance,
     root: ObjectId,
     page: ObjectId,
@@ -288,14 +288,14 @@ pub(crate) fn restore_text_box_recovery(
     let graph = original_text_box_graph(original)?;
     restore_recovery_graph(document, &graph, root, popup, |_, _| Ok(page))?;
     let contents = document
-        .get_dictionary(root)?
+        .dictionary(root)?
         .get(b"Contents")
         .ok()
         .and_then(|value| document.resolved(value).ok())
         .filter(|value| pdf_string_to_text(value).as_deref() == Some(editor.text.as_str()))
         .cloned()
         .unwrap_or_else(|| text_object(&editor.text));
-    let dict = document.get_dictionary_mut(root)?;
+    let dict = document.dictionary_mut(root)?;
     if annotation_subtype(dict) != "freetext" {
         return Err("Original appearance root is not FreeText".into());
     }
