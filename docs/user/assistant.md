@@ -20,30 +20,50 @@ use it.
 ## Turning it on
 
 1. Open Settings and enable the assistant panel.
-2. Pick a provider, and sign in. Neither provider uses a desktop app; both run a
-   command-line tool.
-   - **Codex** signs in through your system browser with a ChatGPT account. You
-     do not have to install anything: if no `codex` is on your `PATH`, the app
-     downloads a pinned release and verifies it against a checked-in checksum.
-   - **Claude** runs through the Claude Code CLI, so install Claude Code first
-     and sign in there. The app finds it on your `PATH`, or at
-     `CLAUDE_CODE_PATH` if you set one. A Claude subscription and an Anthropic
-     API key both work.
+2. Make sure a provider is signed in. EVB uses the command-line tools you
+   already have, with their own logins:
+   - **Codex** uses your `~/.codex` login. If no `codex` is on your `PATH`, the
+     app can download a pinned release and verify it against a checked-in
+     checksum. You can also sign in with ChatGPT from the panel.
+   - **Claude** uses Claude Code and your `~/.claude` login. Install Claude Code
+     and sign in there first. A Claude subscription and an Anthropic API key
+     both work.
 3. Open the panel from the toolbar, and open a document.
 
-Usage is billed to whichever account you signed in with.
+Usage is billed to whichever account the provider is signed in with.
 
 Disabling the setting hides the panel and shuts down the embedded runtime.
 
+## Provider instances
+
+Settings lists the provider instances the assistant can use. Out of the box
+there are two, Codex and Claude, each using your normal login. Add more when
+you run a provider more than one way, for example a second Codex account or a
+proxy:
+
+- **Executable**: the `codex` or `claude` to run. Empty means the one EVB finds.
+- **Home**: the directory that holds that instance's login and settings
+  (`CODEX_HOME` or `CLAUDE_CONFIG_DIR`). Codex can also use a **shadow home**,
+  which shares sessions and settings with the home but keeps its own login.
+- **Launch arguments** and **environment** variables, such as a proxy's
+  `model_provider` override or `ANTHROPIC_BASE_URL`. Mark a value secret and
+  EVB encrypts it with your system's credential store and never shows it again.
+
+**Import from T3 Code** copies the Codex and Claude instances you set up in T3
+Code, including proxies. EVB never copies a login: each instance signs in
+where its provider keeps the login, so your other tools stay signed in.
+
+Whatever the instance's own configuration adds, such as MCP servers, plugins
+or shell access, the assistant gets only EVB's document tools.
+
 ## Choosing a provider and a model
 
-The controls sit at the top of the assistant panel.
+The picker in the composer lists every enabled instance with its models.
 
-- **Provider.** Switch between Codex and Claude at any time. Each keeps its own
-  sign-in, so you can set up both and pick per task.
-- **Model.** The list is whatever your signed-in account offers. A cheaper model
-  is usually enough for navigation, search, and bookmark work; save the stronger
-  one for reading many pages and rebuilding structure.
+- **Instance and model.** Switch at any time. Each document keeps a separate
+  chat per instance. A cheaper model is usually enough for navigation, search,
+  and bookmark work; save the stronger one for reading many pages and
+  rebuilding structure.
 - **Reasoning effort** and **speed**, where the model supports them. Higher
   effort costs more and takes longer. Raise it for a task that has to read and
   compare a lot of pages, and leave it low for everything else.
@@ -69,24 +89,27 @@ You can paste or attach images to a message, which is the fastest way to ask
 about a page that is rendering oddly. Image attachments need a turn that is not
 already running.
 
-## When it will not start
+## When a provider does not answer
 
-The panel tells you what is missing instead of failing silently.
+The conversation and the composer stay on screen, and the panel says what is
+wrong with the selected instance, in that provider's own words:
 
-- **Set up EVB Assistant**: no Codex on this machine. The button installs a
-  pinned, verified release for you.
-- **Set up Claude**: install Claude Code, or point `CLAUDE_CODE_PATH` at a
-  `claude` executable, then refresh.
-- **Sign in with ChatGPT**: sign-in opens in your browser and returns here.
+- **Not installed**: the executable was not found. For Codex the panel can
+  install a pinned, verified release; otherwise set the executable in Settings.
+- **Sign in**: the instance has no login. Codex signs in with ChatGPT in your
+  browser; for Claude, sign in with Claude Code.
+- **Did not answer**: a provider that does not start within 10 seconds, or
+  does not finish its status check within 15, is reported as not answering. A
+  provider that refreshes an expired login cannot do so without network
+  access, so check the connection, or switch to another instance meanwhile.
 - **Desktop app required**: the browser build has no assistant. It uses local
   tools that a web page cannot run.
 
 After changing anything outside the app, an install, a sign-in, or an
-environment variable, use **Refresh assistant status**. The app does not watch
-your shell.
+environment variable, use **Refresh**. The app does not watch your shell.
 
-If a turn stops producing output, the panel says so and offers a retry. Stop
-the turn and send it again.
+If a reply fails, the message appears where the reply would be, with Retry
+when trying again can help.
 
 ## What to ask it
 
@@ -104,10 +127,10 @@ and add bookmarks.
 
 ## Where it runs
 
-The embedded assistant runs its provider in a sandboxed child process with an
-isolated home directory, and talks to the document over a private loopback
-server on a random port behind a bearer token. Each request is bound to one
+The embedded assistant runs the selected instance's provider as a child
+process limited to EVB's document tools, and talks to the document over a
+private loopback server on a random port behind a bearer token. Each request is bound to one
 window, one tab, one document, and one revision, so an assistant in one window
-cannot read or change a document in another. The design decision and its state
-owners are recorded in
-[ADR 0004](../architecture/adr/0004-assistant-is-optional-with-provider-adapters.md).
+cannot read or change a document in another. The design decisions are recorded in
+[ADR 0004](../architecture/adr/0004-assistant-is-optional-with-provider-adapters.md)
+and [ADR 0008](../architecture/adr/0008-assistant-runs-provider-instances.md).

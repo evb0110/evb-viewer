@@ -1,157 +1,64 @@
-import type {
-    IAgentAssistantProviderStatus,
-    TAgentAssistantProviderId,
-} from '@contracts/agent';
+import * as v from 'valibot';
 import {
-    CLAUDE_ASSISTANT_DEFAULT_MODEL,
-    CODEX_ASSISTANT_DEFAULT_MODEL,
-} from '@contracts/agentModels';
+    ASSISTANT_SELECTION_SCHEMA,
+    type IAssistantInstanceStatus,
+    type IAssistantSelection,
+} from '@contracts/assistant';
 import { STORAGE_KEYS } from '@app/constants/storageKeys';
-import {
-    normalizeModelValue,
-    providerDefaultModel,
-} from '@app/modules/agent-panel/utils/assistantSelectionState';
-import { BrowserLogger } from '@app/utils/browserLogger';
 
-type TAssistantModelPreferenceMap = Partial<Record<TAgentAssistantProviderId, string>>;
-
-export interface IAssistantSelectionPreference {
-    provider: TAgentAssistantProviderId;
-    modelsByProvider: TAssistantModelPreferenceMap;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-    return typeof value === 'object' && value !== null;
-}
-
-function normalizeStoredModelValue(value: unknown) {
-    const model = normalizeModelValue(value)?.trim();
-    return model && model.length > 0 ? model : null;
-}
-
-function normalizeStoredProviderValue(value: unknown): TAgentAssistantProviderId | null {
-    return value === 'codex' || value === 'claude' ? value : null;
-}
-
-function fallbackAssistantModel(provider: TAgentAssistantProviderId) {
-    return provider === 'claude'
-        ? CLAUDE_ASSISTANT_DEFAULT_MODEL
-        : CODEX_ASSISTANT_DEFAULT_MODEL;
-}
-
-function parseAssistantModelPreferences(value: unknown): TAssistantModelPreferenceMap {
-    if (!isRecord(value)) {
-        return {};
-    }
-
-    const modelsByProvider: TAssistantModelPreferenceMap = {};
-    for (const provider of [
-        'codex',
-        'claude',
-    ] as const) {
-        const model = normalizeStoredModelValue(value[provider]);
-        if (model) {
-            modelsByProvider[provider] = model;
+export function readAssistantSelectionPreference(storage: Storage | undefined): IAssistantSelection | null {
+    if (!storage) return null;
+    try {
+        const stored = storage.getItem(STORAGE_KEYS.ASSISTANT_SELECTION);
+        if (stored) {
+            const parsed = v.safeParse(ASSISTANT_SELECTION_SCHEMA, JSON.parse(stored));
+            if (parsed.success) return parsed.output;
         }
+        const old: unknown = JSON.parse(storage.getItem(STORAGE_KEYS.ASSISTANT_SELECTION_LEGACY) ?? 'null');
+        if (typeof old !== 'object' || old === null || !('provider' in old)) return null;
+        if (old.provider !== 'codex' && old.provider !== 'claude') return null;
+        const model: unknown = 'model' in old && typeof old.model === 'string' ? old.model
+            : 'modelsByProvider' in old && typeof old.modelsByProvider === 'object' && old.modelsByProvider !== null
+                && old.provider in old.modelsByProvider ? Reflect.get(old.modelsByProvider, old.provider) : '';
+        return {
+            instanceId: old.provider,
+            model: typeof model === 'string' ? model : '',
+            effort: 'medium',
+            speedMode: 'standard',
+        };
+    } catch {
+        return null;
     }
-
-    return modelsByProvider;
 }
 
-function parseAssistantSelectionPreference(value: unknown): IAssistantSelectionPreference | null {
-    if (!isRecord(value)) {
-        return null;
+export function persistAssistantSelection(storage: Storage | undefined, selection: IAssistantSelection) {
+    try {
+        storage?.setItem(STORAGE_KEYS.ASSISTANT_SELECTION, JSON.stringify(selection));
+    } catch {
+        // Storage can be unavailable; the in-memory selection remains usable.
     }
+}
 
-    const provider = normalizeStoredProviderValue(value.provider);
-    if (!provider) {
-        return null;
-    }
-
-    const modelsByProvider = parseAssistantModelPreferences(value.modelsByProvider);
-    const legacyModel = normalizeStoredModelValue(value.model);
-    if (legacyModel) {
-        modelsByProvider[provider] = legacyModel;
-    }
-
+export function resolveAssistantSelection(
+    selection: IAssistantSelection | null,
+    instances: IAssistantInstanceStatus[],
+    fallback: IAssistantSelection | null,
+): IAssistantSelection | null {
+    const instance = instances.find(item => item.id === selection?.instanceId)
+        ?? instances.find(item => item.id === fallback?.instanceId && item.enabled)
+        ?? instances.find(item => item.enabled);
+    if (!instance) return null;
+    const preferred = selection?.instanceId === instance.id ? selection : fallback;
+    const model = instance.models.find(item => item.id === preferred?.model)
+        ?? instance.models.find(item => item.id === instance.defaultModel);
+    const efforts = model?.reasoningEfforts ?? [];
+    const effort = efforts.find(item => item.id === preferred?.effort)?.id
+        ?? model?.defaultReasoningEffort ?? efforts.find(item => item.isDefault)?.id ?? efforts[0]?.id ?? preferred?.effort ?? 'medium';
     return {
-        provider,
-        modelsByProvider,
+        instanceId: instance.id,
+        model: model?.id ?? instance.defaultModel ?? '',
+        effort,
+        speedMode: preferred?.speedMode === 'fast' && model?.serviceTiers?.some(tier => tier.id === 'fast' || tier.id === 'priority')
+            ? 'fast' : 'standard',
     };
-}
-
-export function readAssistantSelectionPreference(storage: Storage | undefined): IAssistantSelectionPreference | null {
-    if (!storage) {
-        return null;
-    }
-
-    const rawPreference = storage.getItem(STORAGE_KEYS.ASSISTANT_SELECTION);
-    if (!rawPreference) {
-        return null;
-    }
-
-    try {
-        return parseAssistantSelectionPreference(JSON.parse(rawPreference));
-    } catch (error) {
-        BrowserLogger.warn('assistant', 'Failed to read assistant selection preference', { error });
-        return null;
-    }
-}
-
-export function preferredAssistantModel(
-    preference: IAssistantSelectionPreference | null,
-    provider: TAgentAssistantProviderId,
-) {
-    return normalizeStoredModelValue(preference?.modelsByProvider[provider])
-        ?? fallbackAssistantModel(provider);
-}
-
-export function persistAssistantSelection(
-    storage: Storage | undefined,
-    provider: TAgentAssistantProviderId,
-    model: string,
-) {
-    if (!storage) {
-        return;
-    }
-
-    const currentPreference = readAssistantSelectionPreference(storage);
-    const preference: IAssistantSelectionPreference = {
-        provider,
-        modelsByProvider: {
-            ...currentPreference?.modelsByProvider,
-            [provider]: normalizeStoredModelValue(model) ?? fallbackAssistantModel(provider),
-        },
-    };
-
-    try {
-        storage.setItem(STORAGE_KEYS.ASSISTANT_SELECTION, JSON.stringify(preference));
-    } catch (error) {
-        BrowserLogger.warn('assistant', 'Failed to persist assistant selection preference', { error });
-    }
-}
-
-function defaultAssistantModel(
-    provider: TAgentAssistantProviderId,
-    providers: readonly IAgentAssistantProviderStatus[],
-) {
-    const defaultModel = providerDefaultModel(providers, provider);
-    return defaultModel === 'default'
-        ? fallbackAssistantModel(provider)
-        : defaultModel;
-}
-
-export function selectedAssistantModelForProvider(
-    storage: Storage | undefined,
-    provider: TAgentAssistantProviderId,
-    providers: readonly IAgentAssistantProviderStatus[],
-    preference = readAssistantSelectionPreference(storage),
-) {
-    const preferred = normalizeStoredModelValue(preference?.modelsByProvider[provider]);
-    const providerStatus = providers.find(candidate => candidate.id === provider);
-    if (!providerStatus) {
-        return preferred ?? fallbackAssistantModel(provider);
-    }
-    return providerStatus.models.find(model => model.id === preferred || model.resolvedModel === preferred)?.id
-        ?? defaultAssistantModel(provider, providers);
 }

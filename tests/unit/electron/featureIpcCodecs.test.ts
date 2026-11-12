@@ -618,6 +618,17 @@ describe('feature IPC codec maps', () => {
     it('rejects oversized renderer collections before handler dispatch', () => {
         expect(() => agentCodec(AGENT_CHANNELS.sendAssistantMessage).decodeArgs([{
             text: 'inspect',
+            scope: {
+                kind: 'document',
+                key: 'document:a',
+                title: 'a.pdf',
+            },
+            selection: {
+                instanceId: 'codex',
+                model: 'gpt-5.4',
+                effort: 'high',
+                speedMode: 'standard',
+            },
             attachments: Array.from({length: 9}, () => ({})),
         }])).toThrow('assistant attachments exceeds maximum item count (8)');
 
@@ -646,14 +657,12 @@ describe('feature IPC codec maps', () => {
         const result = agentCodec(AGENT_CHANNELS.sendAssistantMessage).decodeResult({
             ok: false,
             state: createBrowserAssistantState(),
-            error: errorEnvelope.message,
-            errorEnvelope,
+            error: errorEnvelope,
         });
 
         expect(result).toMatchObject({
             ok: false,
-            error: errorEnvelope.message,
-            errorEnvelope,
+            error: errorEnvelope,
         });
     });
 });

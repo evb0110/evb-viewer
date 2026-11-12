@@ -18,42 +18,13 @@ export type TAssistantFailureAction =
     | 'load'
     | 'scope-refresh'
     | 'send'
+    | 'copy'
     | 'retry'
     | 'interrupt'
     | 'reset'
     | 'mcp-refresh'
     | 'mcp-update'
     | 'mcp-install';
-
-export type TAssistantActionErrorTarget = 'status' | 'composer' | 'none';
-
-export interface IAssistantActionErrorOptions {
-    action: TAssistantFailureAction;
-    title: string;
-    target?: TAssistantActionErrorTarget;
-    expected?: ExpectedOutcomeCode;
-    /** Not started by the user, such as a refresh when the window returns. */
-    automatic?: boolean;
-}
-
-export function createAssistantActionOptions(
-    action: TAssistantFailureAction,
-    title: string,
-    target?: TAssistantActionErrorTarget,
-    expected?: ExpectedOutcomeCode,
-): IAssistantActionErrorOptions {
-    const options: IAssistantActionErrorOptions = {
-        action,
-        title,
-    };
-    if (target !== undefined) {
-        options.target = target;
-    }
-    if (expected !== undefined) {
-        options.expected = expected;
-    }
-    return options;
-}
 
 const EXPECTED_ASSISTANT_ERROR_OUTCOMES: Readonly<Record<string, ExpectedOutcomeCode>> = {
     AUTH_REQUIRED: 'handled-absence',

@@ -1,8 +1,6 @@
+import type {IAssistantSendRequest} from '@contracts/assistant';
 import { randomUUID } from 'crypto';
-import type {
-    IAgentAssistantImageAttachment,
-    IAgentAssistantSendMessageRequest,
-} from '@contracts/agent';
+import type {IAgentAssistantImageAttachment} from '@contracts/agent';
 import {
     ASSISTANT_MAX_IMAGE_ATTACHMENTS,
     ASSISTANT_MAX_IMAGE_BYTES,
@@ -59,7 +57,7 @@ export function normalizeAssistantAttachmentName(name: string, index: number) {
 }
 
 export function normalizeOutgoingAttachments(
-    request: IAgentAssistantSendMessageRequest,
+    request: Pick<IAssistantSendRequest, 'text' | 'attachments'>,
     options: INormalizeOutgoingAttachmentsOptions = {},
 ) {
     const rawAttachments = Array.isArray(request.attachments) ? request.attachments : [];
@@ -85,7 +83,7 @@ export function normalizeOutgoingAttachments(
 }
 
 export function normalizeOutgoingMessageRequest(
-    request: IAgentAssistantSendMessageRequest,
+    request: Pick<IAssistantSendRequest, 'text' | 'attachments'>,
     options: INormalizeOutgoingAttachmentsOptions = {},
 ) {
     return {

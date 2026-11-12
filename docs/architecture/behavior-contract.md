@@ -306,6 +306,19 @@ main process is told by the operation it failed, never again as a separate
 report; one with no operation to tell it stays in the logs. Added 2026-10-02 on
 the owner's request.
 
+## Assistant
+
+**AS1. A provider never holds the panel.** Applies while the assistant is
+enabled and a document is open. The conversation and the composer stay on
+screen whatever state a provider instance is in. An instance that is checking,
+missing, signed out or failing says so in the panel with its own message and
+offers Refresh, and within 15 seconds of a start or status check a provider
+that does not answer is reported as not answering. Another instance remains
+selectable and usable meanwhile. A reply that fails shows its message in place
+of the reply, with Retry when retrying can help (C4: the reply is the region
+the failure took away). Proposed 2026-11-12 with the provider-instance rewrite
+([ADR 0008](adr/0008-assistant-runs-provider-instances.md)).
+
 ## Resolved contract questions
 
 The former R1, R3, A2, L2/R2 and L4 questions are settled by the statements

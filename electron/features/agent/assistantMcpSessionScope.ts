@@ -3,9 +3,32 @@ import type {
     IAgentCommandSuccessor,
     IAgentTabSnapshot,
     IAgentWorkspaceSnapshot,
+    TAgentAssistantProviderId,
     TAgentWorkspaceCommandTarget,
 } from '@contracts/agent';
-import type { IAssistantSessionScopeBinding } from '@electron/features/agent/assistantTurnLifecycle';
+import type {
+    TDocumentBackend,
+    TDocumentRef,
+} from '@contracts/documentRef';
+import type { IDocumentRevisionInfo } from '@contracts/documentRevision';
+import type { TDocumentInstanceId } from '@contracts/documentInstanceId';
+import type {TTabId} from '@contracts/windowTabs';
+
+/** The live document grant of the one running assistant turn. */
+export interface IAssistantSessionScopeBinding {
+    sessionKey: string;
+    scopeKey: string;
+    provider: TAgentAssistantProviderId;
+    turnGeneration: number;
+    windowId: number;
+    tabId: TTabId;
+    documentSessionKey?: string | null;
+    documentRef: TDocumentRef | null;
+    documentBackend?: TDocumentBackend;
+    documentInstanceId?: TDocumentInstanceId | null;
+    documentIdentity: IDocumentRevisionInfo | null;
+    commandTarget?: TAgentWorkspaceCommandTarget;
+}
 
 let activeAssistantMcpSessionScope: IAssistantSessionScopeBinding | null = null;
 

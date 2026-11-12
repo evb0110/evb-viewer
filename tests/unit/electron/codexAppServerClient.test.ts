@@ -38,6 +38,7 @@ async function createClient(process: FakeAssistantAppServerProcess) {
     const onExit = vi.fn();
     const client = new CodexAppServerClient(
         '/usr/bin/codex',
+        [],
         {},
         '/tmp',
         onNotification,

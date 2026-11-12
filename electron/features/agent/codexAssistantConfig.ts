@@ -40,36 +40,101 @@ function tomlString(value: string) {
     return JSON.stringify(value);
 }
 
-export function createAssistantCodexConfig(serverUrl: string, reasoningEffort = 'low') {
+const DISABLED_CODEX_FEATURES = [
+    'apps',
+    'memories',
+    'multi_agent',
+    'shell_tool',
+    'unified_exec',
+    'shell_snapshot',
+    'hooks',
+] as const;
+
+/** What an instance's own Codex configuration would add to EVB's tool surface. */
+export interface ICodexUserToolConfig {
+    mcpServers: string[];
+    plugins: string[];
+}
+
+const DOTTED_KEY_SEGMENT = /^[A-Za-z0-9_@-]+$/u;
+
+export function readCodexUserToolConfig(configReadResponse: unknown): ICodexUserToolConfig {
+    const config = typeof configReadResponse === 'object' && configReadResponse !== null
+        ? (configReadResponse as {config?: unknown}).config
+        : undefined;
+    const record = typeof config === 'object' && config !== null ? config as Record<string, unknown> : {};
+    const keys = (value: unknown) => typeof value === 'object' && value !== null ? Object.keys(value) : [];
+    return {
+        mcpServers: keys(record.mcp_servers).filter(name => name !== ASSISTANT_MCP_SERVER_NAME),
+        plugins: keys(record.plugins),
+    };
+}
+
+/**
+ * Per-process overrides that turn an instance's real Codex home into EVB's
+ * document assistant. Codex merges `-c` tables, so every MCP server and
+ * plugin of the user's own configuration is disabled by name before EVB's
+ * server is added. The runtime still verifies the result after startup.
+ */
+export function createCodexIsolationArgs(
+    serverUrl: string,
+    reasoningEffort: string,
+    userTools: ICodexUserToolConfig,
+) {
     const enabledTools = ASSISTANT_MCP_TOOLS.map(tomlString).join(', ');
-    return [
-        'cli_auth_credentials_store = "file"',
-        `model_reasoning_effort = ${tomlString(reasoningEffort)}`,
-        'web_search = "disabled"',
-        'sandbox_mode = "read-only"',
-        'approval_policy = "never"',
-        'default_permissions = "evb-mcp-only"',
-        '',
-        '[features]',
-        'shell_tool = false',
-        'unified_exec = false',
-        'shell_snapshot = false',
-        'multi_agent = false',
-        'apps = false',
-        'memories = false',
-        'hooks = false',
-        '',
-        '[permissions.evb-mcp-only.filesystem]',
-        '":minimal" = "read"',
-        '',
-        '[permissions.evb-mcp-only.network]',
-        'enabled = false',
-        '',
-        `[mcp_servers.${ASSISTANT_MCP_SERVER_NAME}]`,
-        `url = ${tomlString(serverUrl)}`,
-        `bearer_token_env_var = ${tomlString(ASSISTANT_MCP_TOKEN_ENV)}`,
-        `tool_timeout_sec = ${ASSISTANT_MCP_TOOL_TIMEOUT_SECONDS}`,
-        `enabled_tools = [${enabledTools}]`,
-        '',
-    ].join('\n');
+    const overrides = [
+        ...userTools.mcpServers
+            .filter(name => DOTTED_KEY_SEGMENT.test(name))
+            .map(name => `mcp_servers.${name}.enabled=false`),
+        ...userTools.plugins
+            .filter(name => DOTTED_KEY_SEGMENT.test(name))
+            .map(name => `plugins.${name}.enabled=false`),
+        ...DISABLED_CODEX_FEATURES.map(feature => `features.${feature}=false`),
+        `model_reasoning_effort=${tomlString(reasoningEffort)}`,
+        'web_search="disabled"',
+        'sandbox_mode="read-only"',
+        'approval_policy="never"',
+        'project_doc_max_bytes=0',
+        'default_permissions="evb-mcp-only"',
+        'permissions.evb-mcp-only.filesystem={":minimal"="read"}',
+        'permissions.evb-mcp-only.network={enabled=false}',
+        `mcp_servers.${ASSISTANT_MCP_SERVER_NAME}={url=${tomlString(serverUrl)},bearer_token_env_var=${tomlString(ASSISTANT_MCP_TOKEN_ENV)},tool_timeout_sec=${ASSISTANT_MCP_TOOL_TIMEOUT_SECONDS},enabled_tools=[${enabledTools}]}`,
+    ];
+    return overrides.flatMap(override => [
+        '-c',
+        override,
+    ]);
+}
+
+/**
+ * Reads one page of `mcpServerStatus/list`: the servers other than EVB's that
+ * still expose tools, and the cursor of the next page. A response that is not
+ * in the documented shape throws, so isolation fails closed.
+ */
+export function readCodexMcpStatusPage(response: unknown) {
+    const record = typeof response === 'object' && response !== null ? response as {
+        data?: unknown;
+        nextCursor?: unknown
+    } : null;
+    if (!record || !Array.isArray(record.data) || (record.nextCursor !== undefined && record.nextCursor !== null && typeof record.nextCursor !== 'string')) {
+        throw new Error('Codex returned an unreadable MCP server status, so EVB Assistant cannot confirm which tools are available.');
+    }
+    const leaks: string[] = [];
+    for (const server of record.data as unknown[]) {
+        const entry = typeof server === 'object' && server !== null ? server as {
+            name?: unknown;
+            tools?: unknown
+        } : null;
+        if (!entry || typeof entry.name !== 'string' || typeof entry.tools !== 'object' || entry.tools === null || Array.isArray(entry.tools)) {
+            throw new Error('Codex returned an unreadable MCP server status, so EVB Assistant cannot confirm which tools are available.');
+        }
+        const toolCount = Object.keys(entry.tools).length;
+        if (entry.name !== ASSISTANT_MCP_SERVER_NAME && toolCount > 0) {
+            leaks.push(entry.name);
+        }
+    }
+    return {
+        leaks,
+        nextCursor: typeof record.nextCursor === 'string' && record.nextCursor.length > 0 ? record.nextCursor : null,
+    };
 }

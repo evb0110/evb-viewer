@@ -10,7 +10,7 @@ import type { AddressInfo } from 'net';
 import { randomBytes } from 'node:crypto';
 import {join} from 'node:path';
 import type { IAgentTabSnapshot } from '@contracts/agent';
-import type { IAssistantSessionScopeBinding } from '@electron/features/agent/assistantTurnLifecycle';
+import type { IAssistantSessionScopeBinding } from '@electron/features/agent/assistantMcpSessionScope';
 import type {
     ILocalMcpServerDescriptor,
     ILocalMcpServerIdentity,

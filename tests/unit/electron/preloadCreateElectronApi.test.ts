@@ -762,12 +762,6 @@ describe('createElectronApi', () => {
     });
 
     it('forwards main-originated assistant events unchanged', async () => {
-        const binding = {
-            scopeFingerprint: 'codex:document-1',
-            sessionKey: 'codex:document-1',
-            turnGeneration: 1,
-            windowId: 1,
-        };
         const {
             api,
             listeners,
@@ -781,22 +775,19 @@ describe('createElectronApi', () => {
         }
 
         const stateEvent = {
-            type: 'state',
-            state: {
-                status: {provider: 'codex'},
-                messages: [],
-            },
+            type: 'instances',
+            instances: [],
         };
         const deltaEvent = {
-            type: 'message-delta',
-            messageId: ' message-1 ',
+            type: 'item-delta',
+            sessionKey: 'codex:document-1',
+            itemId: 'item-1',
             delta: 'hello',
-            binding,
         };
         const progressEvent = {
-            type: 'turn-progress',
-            progress: 'Still working',
-            binding,
+            type: 'turn',
+            sessionKey: 'codex:document-1',
+            turn: null,
         };
         listener({}, stateEvent);
         listener({}, deltaEvent);

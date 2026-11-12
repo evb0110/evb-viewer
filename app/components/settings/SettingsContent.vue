@@ -74,16 +74,9 @@
         <section v-if="isDesktopRuntime" class="settings-card settings-card--span">
             <SettingsAgentPanel
                 :assistant-panel-enabled="settings.assistantPanelEnabled"
-                :assistant-state="assistantState"
-                :assistant-device-code="assistantDeviceCode"
-                :is-assistant-busy="isAssistantBusy"
                 :status="agentMcpStatus"
                 :is-busy="isAgentMcpBusy"
                 @update:assistant-panel-enabled="updateAssistantPanelEnabled"
-                @refresh-assistant="refreshAssistantState"
-                @install-assistant="installAssistantCodex"
-                @start-assistant-login="startAssistantLogin"
-                @cancel-assistant-login="cancelAssistantLogin"
                 @set-enabled="setAgentMcpEnabled"
                 @refresh="refreshAgentMcpStatus"
                 @open-install="openAgentMcpInstall"
@@ -128,11 +121,7 @@ import type {
     TPdfViewMode,
 } from '@contracts/shared';
 import type { TPerformanceMode } from '@contracts/hostResourceProfile';
-import type {
-    IAgentAssistantEvent,
-    IAgentAssistantState,
-    IAgentMcpIntegrationStatus,
-} from '@contracts/agent';
+import type {IAgentMcpIntegrationStatus} from '@contracts/agent';
 import type { ExpectedOutcome } from '@contracts/diagnostics/failureReceipt';
 import { ANNOTATION_COLOR_SWATCHES } from '@app/constants/pdfColors';
 import type { FailurePresentation } from '@app/composables/useFailureToast';
@@ -148,7 +137,6 @@ import {
     getAssistantExpectedOutcome,
 } from '@app/modules/agent-panel/public/assistantFailure';
 import type { TAssistantFailureAction } from '@app/modules/agent-panel/public/assistantFailure';
-import { runSettingsAssistantAction } from '@app/modules/workspace-shell/public/settingsAssistant';
 import SettingsAgentPanel from '@app/components/settings/SettingsAgentPanel.vue';
 import SettingsGeneralPanel from '@app/components/settings/SettingsGeneralPanel.vue';
 import SettingsPerformancePanel from '@app/components/settings/SettingsPerformancePanel.vue';
@@ -287,10 +275,6 @@ const agentMcpStatus = computed(() => agentMcpRuntime.value && ({
     enabled: settings.value.agentMcpEnabled,
 }));
 const isAgentMcpBusy = ref(false);
-const assistantState = ref<IAgentAssistantState | null>(null);
-const assistantDeviceCode = ref('');
-const assistantAction = ref<'refresh' | 'install' | 'login' | 'cancel' | null>(null);
-const isAssistantBusy = computed(() => assistantAction.value !== null);
 const settingsLoadFailed = ref(false);
 const settingsLoadPending = ref(false);
 let assistantPanelPreferenceSave: Promise<boolean> | null = null;
@@ -320,7 +304,6 @@ watch(settingsLoadFailurePresentation, (presentation) => {
         presentFailureToast(presentation);
     }
 });
-let unsubscribeAssistantEvent: (() => void) | null = null;
 const lifecycle = createDisposalFlag();
 const shortcutsDescription = computed(() => isDesktopRuntime.value
     ? t('settings.shortcutsDescription')
@@ -523,69 +506,6 @@ function handleCheckForUpdates() {
     void checkForUpdates();
 }
 
-function applyAssistantState(nextState: IAgentAssistantState) {
-    if (lifecycle.isDisposed()) {
-        return;
-    }
-    assistantState.value = nextState;
-    if (nextState.status.authState !== 'login-pending') {
-        assistantDeviceCode.value = '';
-    }
-}
-
-function handleAssistantEvent(event: IAgentAssistantEvent) {
-    if (lifecycle.isDisposed() || !settings.value.assistantPanelEnabled) {
-        return;
-    }
-    if (event.state) {
-        applyAssistantState(event.state);
-    }
-}
-
-async function runAssistantAction(
-    action: 'refresh' | 'install' | 'login' | 'cancel',
-    callback: () => Promise<void>,
-) {
-    await runSettingsAssistantAction({
-        action,
-        activeAction: assistantAction,
-        isDesktopRuntime: isDesktopRuntime.value,
-        isActive: () => !lifecycle.isDisposed(),
-        run: callback,
-        t,
-        toast,
-    });
-}
-
-async function refreshAssistantState() {
-    await runAssistantAction('refresh', async () => {
-        const state = await getAgentCapability().getAssistantState();
-        applyAssistantState(state);
-    });
-}
-
-async function installAssistantCodex() {
-    await runAssistantAction('install', async () => {
-        const result = await getAgentCapability().installAssistantCodex();
-        applyAssistantState(result.state);
-    });
-}
-
-async function startAssistantLogin() {
-    await runAssistantAction('login', async () => {
-        const result = await getAgentCapability().startAssistantLogin({ mode: 'chatgpt' });
-        applyAssistantState(result.state);
-        assistantDeviceCode.value = result.userCode ?? '';
-    });
-}
-
-async function cancelAssistantLogin() {
-    await runAssistantAction('cancel', async () => {
-        applyAssistantState(await getAgentCapability().cancelAssistantLogin());
-        assistantDeviceCode.value = '';
-    });
-}
-
 async function updateAssistantPanelEnabled(enabled: boolean) {
     if (!isLoaded.value) {
         return;
@@ -594,24 +514,7 @@ async function updateAssistantPanelEnabled(enabled: boolean) {
     assistantPanelPreferenceSave = save().finally(() => {
         assistantPanelPreferenceSave = null;
     });
-    const saved = await assistantPanelPreferenceSave;
-
-    if (lifecycle.isDisposed()) {
-        return;
-    }
-
-    if (!enabled) {
-        assistantState.value = null;
-        assistantDeviceCode.value = '';
-    }
-
-    if (!saved) {
-        return;
-    }
-
-    if (enabled) {
-        await refreshAssistantState();
-    }
+    await assistantPanelPreferenceSave;
 }
 
 function showExpectedAssistantOutcome(
@@ -742,32 +645,12 @@ onMounted(() => {
     }
     void ensureUpdatesInitialized();
     if (isDesktopRuntime.value) {
-        unsubscribeAssistantEvent = getAgentCapability().onAssistantEvent(handleAssistantEvent);
         void refreshAgentMcpStatus();
-        if (settings.value.assistantPanelEnabled) {
-            void refreshAssistantState();
-        }
     }
-});
-
-watch(() => settings.value.assistantPanelEnabled, (enabled) => {
-    if (!isDesktopRuntime.value || assistantPanelPreferenceSave) {
-        return;
-    }
-    if (enabled) {
-        if (assistantState.value === null) {
-            void refreshAssistantState();
-        }
-        return;
-    }
-    assistantState.value = null;
-    assistantDeviceCode.value = '';
 });
 
 onBeforeUnmount(() => {
     lifecycle.dispose();
-    unsubscribeAssistantEvent?.();
-    unsubscribeAssistantEvent = null;
 });
 </script>
 

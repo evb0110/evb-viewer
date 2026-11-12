@@ -5,6 +5,7 @@ import {
 import { app } from 'electron';
 import { isRecord } from '@contracts/runtimeGuards';
 import { getErrorMessage } from '@electron/utils/error';
+import {te} from '@electron/te';
 import { createLogger } from '@electron/utils/createLogger';
 import { createTextChunkAccumulator } from '@electron/native-tools/createTextChunkAccumulator';
 import {
@@ -16,6 +17,8 @@ import { resolveCodexProcessLaunch } from '@electron/features/agent/codexProcess
 
 const logger = createLogger('agent-codex-assistant');
 const APP_SERVER_REQUEST_TIMEOUT_MS = 30_000;
+/** Spawn to `initialize` reply. Codex refreshes an expired login before it answers, so a blocked network otherwise hangs here. */
+export const CODEX_INITIALIZE_TIMEOUT_MS = 10_000;
 const APP_SERVER_MAX_STDOUT_RECORD_BYTES = 32 * 1024 * 1024;
 const APP_SERVER_MAX_STDERR_BYTES = 262_144;
 const APP_SERVER_SHUTDOWN_GRACE_MS = 1_000;
@@ -100,6 +103,7 @@ export class CodexAppServerClient {
 
     constructor(
         codexPath: string,
+        extraArgs: readonly string[],
         env: NodeJS.ProcessEnv,
         cwd: string,
         private readonly onNotification: (notification: ICodexAppServerNotification) => void,
@@ -112,6 +116,7 @@ export class CodexAppServerClient {
         try {
             const launch = resolveCodexProcessLaunch(codexPath, [
                 'app-server',
+                ...extraArgs,
                 '--listen',
                 'stdio://',
             ]);
@@ -154,16 +159,35 @@ export class CodexAppServerClient {
         });
     }
 
-    async initialize() {
-        await this.request('initialize', {
-            clientInfo: {
-                name: 'evb-viewer',
-                title: 'EVB Viewer',
-                version: app.getVersion(),
-            },
-            capabilities: { experimentalApi: true },
-        });
+    async initialize(timeoutMs = CODEX_INITIALIZE_TIMEOUT_MS) {
+        try {
+            await this.request('initialize', {
+                clientInfo: {
+                    name: 'evb-viewer',
+                    title: 'EVB Viewer',
+                    version: app.getVersion(),
+                },
+                capabilities: { experimentalApi: true },
+            }, timeoutMs);
+        } catch (error) {
+            if (!isCodexAppServerRequestTimeoutError(error)) {
+                throw error;
+            }
+            const detail = this.diagnostic();
+            const message = te('dialogs.agentAssistant.startTimeout', {seconds: Math.round(timeoutMs / 1000)});
+            throw new Error(detail ? `${message} ${te('dialogs.agentAssistant.providerReported', {
+                provider: 'Codex',
+                detail,
+            })}` : message, {cause: error});
+        }
         this.notify('initialized');
+    }
+
+    /** The last lines Codex wrote to stderr, without terminal colors. */
+    diagnostic(maxLength = 400) {
+        // eslint-disable-next-line no-control-regex
+        const text = this.stderrBuffer.text().replace(/\u001B\[[0-9;]*m/gu, '').trim();
+        return text.length > maxLength ? `…${text.slice(-maxLength)}` : text;
     }
 
     isClosed() {

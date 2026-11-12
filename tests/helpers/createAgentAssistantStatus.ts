@@ -1,147 +1,61 @@
-import type { IAgentAssistantStatus } from '@contracts/agent';
-import { requireIsoTimestamp } from '@contracts/timestamps';
+import type {
+    IAssistantInstanceStatus, IAssistantState,
+} from '@contracts/assistant';
 
-export function createAgentAssistantStatus(
-    overrides: Partial<IAgentAssistantStatus> = {},
-): IAgentAssistantStatus {
+export function createAssistantInstance(overrides: Partial<IAssistantInstanceStatus> = {}): IAssistantInstanceStatus {
+    return {
+        id: 'codex',
+        driver: 'codex',
+        label: 'Codex A',
+        enabled: true,
+        state: 'ready',
+        auth: 'authenticated',
+        binaryPath: '/bin/codex',
+        version: '0.133.0',
+        homePath: '/home/reader/.codex',
+        customEndpoint: false,
+        account: null,
+        models: [{
+            id: 'gpt',
+            label: 'GPT',
+            reasoningEfforts: [
+                {
+                    id: 'low',
+                    label: 'Low',
+                },
+                {
+                    id: 'high',
+                    label: 'High',
+                },
+            ],
+            defaultReasoningEffort: 'high',
+            serviceTiers: [{
+                id: 'priority',
+                label: 'Fast',
+            }],
+        }],
+        defaultModel: 'gpt',
+        checkedAt: null,
+        canInstall: false,
+        canSignIn: false,
+        loginPending: false,
+        ...overrides,
+    };
+}
+
+export function createAssistantState(overrides: Partial<IAssistantState> = {}): IAssistantState {
     return {
         supported: true,
-        platform: 'darwin',
-        provider: 'codex',
-        providerLabel: 'Codex',
-        providers: [
-            {
-                id: 'codex',
-                label: 'Codex',
-                installState: 'installed',
-                authState: 'signed-in',
-                runtimeState: 'ready',
-                models: [
-                    {
-                        id: 'default',
-                        label: 'Codex default',
-                    },
-                    {
-                        id: 'gpt-6-astra',
-                        label: 'GPT-6-Astra',
-                    },
-                ],
-                defaultModel: 'default',
-                activeModel: 'default',
-                modelSwitchMode: 'in-session',
-                availableEfforts: [
-                    'low',
-                    'medium',
-                    'high',
-                ],
-                defaultEffort: 'medium',
-                activeEffort: 'low',
-                availableSpeedModes: [
-                    'fast',
-                    'standard',
-                ],
-                defaultSpeedMode: 'fast',
-                activeSpeedMode: 'fast',
-                path: '/Applications/Codex.app/Contents/Resources/codex',
-                version: '0.133.0',
-                minimumVersion: '0.133.0',
-                versionSupported: true,
-                installUrl: 'https://developers.openai.com/codex/app',
-                account: {
-                    type: 'chatgpt',
-                    email: 'reader@example.com',
-                },
-            },
-            {
-                id: 'claude',
-                label: 'Claude',
-                installState: 'installed',
-                authState: 'signed-in',
-                runtimeState: 'ready',
-                models: [{
-                    id: 'default',
-                    label: 'Claude default',
-                }],
-                defaultModel: 'default',
-                activeModel: 'default',
-                modelSwitchMode: 'in-session',
-                availableEfforts: [
-                    'low',
-                    'medium',
-                    'high',
-                    'xhigh',
-                    'max',
-                ],
-                defaultEffort: 'medium',
-                activeEffort: 'low',
-                availableSpeedModes: [
-                    'fast',
-                    'standard',
-                ],
-                defaultSpeedMode: 'fast',
-                activeSpeedMode: 'fast',
-                path: '/usr/local/bin/claude',
-                version: '0.3.183',
-                minimumVersion: null,
-                versionSupported: true,
-                installUrl: 'https://code.claude.com/docs/en/agent-sdk/overview',
-                account: null,
-            },
-        ],
-        model: 'default',
-        modelLabel: 'Codex default',
-        models: [
-            {
-                id: 'default',
-                label: 'Codex default',
-            },
-            {
-                id: 'gpt-6-astra',
-                label: 'GPT-6-Astra',
-            },
-        ],
-        modelSwitchMode: 'in-session',
-        effort: 'low',
-        availableEfforts: [
-            'low',
-            'medium',
-            'high',
-        ],
-        speedMode: 'fast',
-        availableSpeedModes: [
-            'fast',
-            'standard',
-        ],
-        installState: 'installed',
-        codexInstalled: true,
-        codexPath: '/Applications/Codex.app/Contents/Resources/codex',
-        codexVersion: '0.133.0',
-        minimumCodexVersion: '0.133.0',
-        codexVersionSupported: true,
-        installUrl: 'https://developers.openai.com/codex/app',
-        installScriptUrl: 'https://chatgpt.com/codex/install.sh',
-        managedInstallDir: '/Users/test/Library/Application Support/EVB Viewer/codex/bin',
-        authState: 'signed-in',
-        account: {
-            type: 'chatgpt',
-            email: 'reader@example.com',
+        enabled: true,
+        instances: [createAssistantInstance()],
+        selection: {
+            instanceId: 'codex',
+            model: 'gpt',
+            effort: 'high',
+            speedMode: 'standard',
         },
-        runtimeState: 'ready',
-        mcp: {
-            serverName: 'evb_viewer_embedded',
-            serverUrl: 'http://127.0.0.1:1234',
-            serverRunning: true,
-            toolCount: 9,
-        },
-        turn: {
-            id: null,
-            phase: 'idle',
-            reasoning: '',
-            toolActivity: [],
-            lastEventAtMs: null,
-            usage: null,
-        },
-        lastCheckedAt: requireIsoTimestamp('2026-06-02T00:00:00.000Z'),
+        chat: null,
+        installProgress: null,
         ...overrides,
     };
 }

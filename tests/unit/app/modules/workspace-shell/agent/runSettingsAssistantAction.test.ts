@@ -1,87 +1,46 @@
 import {
-    describe,
-    expect,
-    it,
-    vi,
+    describe, expect, it,
 } from 'vitest';
 import { ref } from 'vue';
-import { runSettingsAssistantAction } from '@app/modules/workspace-shell/agent/runSettingsAssistantAction';
-import type { TTranslateFn } from '@i18n-app';
+import {
+    runSettingsAssistantAction, type TSettingsAssistantAction,
+} from '@app/modules/workspace-shell/agent/runSettingsAssistantAction';
 
-describe('runSettingsAssistantAction', () => {
-    it('returns one receipt to the feature presenter when an assistant action fails', async () => {
-        const toast = {add: vi.fn()};
-        const activeAction = ref<null | 'refresh' | 'install' | 'login' | 'cancel'>(null);
-        const onFailure = vi.fn();
-
-        const result = await runSettingsAssistantAction({
-            action: 'refresh',
+describe('settings assistant operation feedback', () => {
+    it('retains the original error as inline feedback and allows the next action', async () => {
+        const activeAction = ref<TSettingsAssistantAction | null>(null);
+        const error = ref('');
+        expect(await runSettingsAssistantAction({
+            action: 'save',
             activeAction,
-            isDesktopRuntime: true,
-            run: vi.fn(async () => {
-                throw new Error('assistant exploded');
-            }),
-            t: ((key: string) => key) as TTranslateFn,
-            toast,
-            onFailure,
-        });
-
-        expect(result).toBe(false);
+            error,
+            run: async () => { throw new Error('Cannot encrypt stored secret'); },
+        })).toBe(false);
+        expect(error.value).toBe('Cannot encrypt stored secret');
         expect(activeAction.value).toBeNull();
-        expect(toast.add).not.toHaveBeenCalled();
-        expect(onFailure).toHaveBeenCalledOnce();
-        expect(onFailure.mock.calls[0]?.[0]).toMatchObject({
-            failure: {code: 'ASSISTANT_ACTION_FAILED'},
-            title: 'settings.assistantPanel',
-        });
-    });
-
-    it('keeps an expected assistant refusal warning-only without a receipt', async () => {
-        const toast = {add: vi.fn()};
-        const activeAction = ref<null | 'refresh' | 'install' | 'login' | 'cancel'>(null);
-        const onFailure = vi.fn();
-
-        const result = await runSettingsAssistantAction({
-            action: 'refresh',
+        expect(await runSettingsAssistantAction({
+            action: 'save',
             activeAction,
-            isDesktopRuntime: true,
-            run: vi.fn(async () => {
-                throw {expected: {
-                    kind: 'expected',
-                    code: 'temporarily-unavailable',
-                }};
-            }),
-            t: ((key: string) => key) as TTranslateFn,
-            toast,
-            onFailure,
-        });
-
-        expect(result).toBe(false);
-        expect(onFailure).not.toHaveBeenCalled();
-        expect(toast.add).toHaveBeenCalledWith(expect.objectContaining({color: 'warning'}));
+            error,
+            run: async () => {},
+        })).toBe(true);
+        expect(error.value).toBe('');
     });
-
-    it('suppresses stale toast and state writes after its owner is disposed', async () => {
-        const action = Promise.withResolvers<never>();
-        const toast = {add: vi.fn()};
-        const activeAction = ref<null | 'refresh' | 'install' | 'login' | 'cancel'>(null);
+    it('does not publish a late error after settings is closed', async () => {
+        const pending = Promise.withResolvers<undefined>();
+        const activeAction = ref<TSettingsAssistantAction | null>(null);
+        const error = ref('');
         let active = true;
         const result = runSettingsAssistantAction({
             action: 'refresh',
             activeAction,
-            isDesktopRuntime: true,
+            error,
+            run: () => pending.promise,
             isActive: () => active,
-            run: () => action.promise,
-            t: ((key: string) => key) as TTranslateFn,
-            toast,
         });
-        expect(activeAction.value).toBe('refresh');
-
         active = false;
-        action.reject(new Error('late failure'));
-        await expect(result).resolves.toBe(false);
-
-        expect(toast.add).not.toHaveBeenCalled();
-        expect(activeAction.value).toBe('refresh');
+        pending.reject(new Error('Late error'));
+        await result;
+        expect(error.value).toBe('');
     });
 });

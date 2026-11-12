@@ -418,6 +418,9 @@ export default defineNuxtConfig({
     },
 
     icon: buildIconBundles([
+        'ph:brain',
+        'ph:terminal',
+        'ph:wrench',
         'ph:arrow-down',
         'ph:arrow-down-left',
         'ph:arrow-down-right',

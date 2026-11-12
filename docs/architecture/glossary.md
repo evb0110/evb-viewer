@@ -96,7 +96,7 @@ _Avoid_: surface handle, render token
 ## Assistant
 
 **Assistant session**:
-A conversation bound to one document scope and one assistant provider. Its
+A conversation bound to one document scope and one provider instance. Its
 durable transcript is the source of truth for the renderer's displayed chat.
 _Avoid_: panel state, chat component state, provider thread
 
@@ -104,6 +104,17 @@ _Avoid_: panel state, chat component state, provider thread
 A supported local execution backend that translates one assistant session to
 and from a vendor protocol while preserving the shared chat lifecycle.
 _Avoid_: plugin, model, assistant mode
+
+**Provider instance**:
+One configured way of running an assistant provider: its executable, home
+directory (which holds its login), launch arguments and environment. Two
+instances of one provider can use different accounts or a proxy.
+_Avoid_: profile, account, provider (when one configuration is meant)
+
+**Assistant timeline item**:
+One ordered entry of an assistant session: a user message, assistant reply,
+reasoning, tool call, or system notice.
+_Avoid_: message (for tool and reasoning entries), event
 
 **Assistant state projection**:
 The renderer's disposable view of assistant sessions, provider status, and

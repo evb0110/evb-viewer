@@ -1,84 +1,73 @@
 <template>
     <fieldset class="settings-section flex flex-col gap-2.5">
         <legend class="settings-section-title">{{ t('settings.assistantPanel') }}</legend>
-
-        <div class="settings-agent-card settings-agent-card--stack">
-            <div class="settings-agent-card-row">
-                <div class="settings-agent-main">
-                    <div class="settings-agent-status">
-                        <UIcon
-                            name="i-ph-chat-circle-dots"
-                            class="settings-agent-status-icon"
-                            :class="{ 'is-ready': assistantPanelEnabled }"
-                        />
-                        <span class="settings-agent-status-label">{{ assistantPanelStatusLabel }}</span>
-                    </div>
-                    <p class="settings-field-hint">{{ t('settings.assistantPanelDescription') }}</p>
-                </div>
-
-                <USwitch
-                    :model-value="assistantPanelEnabled"
-                    :label="t('settings.assistantPanelToggle')"
-                    size="sm"
-                    :ui="assistantSwitchUi"
-                    @update:model-value="emit('update:assistantPanelEnabled', $event)"
-                />
+        <div class="settings-agent-card settings-agent-card-row">
+            <div class="settings-agent-main">
+                <strong>{{ t(assistantPanelEnabled ? 'settings.assistantPanelStatusEnabled' : 'settings.assistantPanelStatusDisabled') }}</strong>
+                <p class="settings-field-hint">{{ t('settings.assistantPanelDescription') }}</p>
             </div>
-
-            <div
-                v-if="assistantPanelEnabled"
-                class="settings-agent-auth"
-            >
-                <div class="settings-agent-auth-main">
-                    <div class="settings-agent-status">
-                        <UIcon
-                            :name="assistantSetup.icon"
-                            class="settings-agent-status-icon"
-                            :class="assistantSetupIconClass"
-                        />
-                        <span class="settings-agent-status-label">{{ assistantSetupLabel }}</span>
-                    </div>
-                    <p class="settings-field-hint">{{ assistantSetupHint }}</p>
-                </div>
-
-                <div
-                    v-if="assistantDeviceCode"
-                    class="settings-agent-device-code"
-                >
-                    <span>{{ t('assistant.deviceCode') }}</span>
-                    <strong>{{ assistantDeviceCode }}</strong>
-                </div>
-
-                <div class="settings-agent-actions settings-agent-actions--assistant">
-                    <UButton
-                        v-if="assistantSetup.primaryAction"
-                        :label="assistantPrimaryActionLabel"
-                        :icon="assistantSetup.primaryActionIcon ?? undefined"
-                        color="primary"
-                        :loading="isAssistantBusy"
-                        :disabled="isAssistantBusy"
-                        @click="handleAssistantPrimaryAction"
-                    />
-                    <UButton
-                        v-if="assistantSetup.showCancelLogin"
-                        :label="t('assistant.cancelLogin')"
-                        icon="i-ph-x"
-                        color="neutral"
-                        variant="outline"
-                        :disabled="isAssistantBusy"
-                        @click="emit('cancelAssistantLogin')"
-                    />
-                    <UButton
-                        :aria-label="t('assistant.refresh')"
-                        icon="i-ph-arrows-clockwise"
-                        color="neutral"
-                        variant="ghost"
-                        :loading="isAssistantBusy"
-                        :disabled="isAssistantBusy"
-                        @click="emit('refreshAssistant')"
-                    />
-                </div>
+            <USwitch :model-value="assistantPanelEnabled" :label="t('settings.assistantPanelToggle')" size="sm" @update:model-value="emit('update:assistantPanelEnabled', $event)" />
+        </div>
+        <h3 class="settings-section-title">{{ t('assistant.providerInstances') }}</h3>
+        <p v-if="instanceError" class="instance-error" role="alert">{{ instanceError }}</p>
+        <p v-for="notice in notices" :key="notice" class="settings-field-hint" role="status">{{ notice }}</p>
+        <p v-if="liveState?.installProgress" class="settings-field-hint">{{ liveState.installProgress }}</p>
+        <article v-for="instance in instances" :key="instance.id" class="settings-agent-card settings-agent-card--stack">
+            <div class="instance-heading">
+                <UIcon :name="instance.driver === 'codex' ? 'i-ph-terminal' : 'i-ph-brain'" />
+                <strong>{{ instance.displayName }}</strong>
+                <span>{{ instance.id }}</span>
+                <USwitch v-model="instance.enabled" :label="t('assistant.instanceEnabled')" size="sm" />
             </div>
+            <p class="settings-field-hint">{{ t(instanceStatus(instance.id).label.key) }}</p>
+            <p v-if="instanceStatus(instance.id).message" class="instance-message">{{ instanceStatus(instance.id).message }}</p>
+            <dl class="settings-agent-details">
+                <div><dt>{{ t('assistant.binaryPath') }}</dt><dd>{{ liveInstance(instance.id)?.binaryPath || instance.binaryPath }}</dd></div>
+                <div><dt>{{ t('assistant.version') }}</dt><dd>{{ liveInstance(instance.id)?.version }}</dd></div>
+                <div><dt>{{ t('assistant.homePath') }}</dt><dd>{{ liveInstance(instance.id)?.homePath || instance.homePath }}</dd></div>
+            </dl>
+            <p v-if="loginCodes[instance.id]" class="instance-message">{{ t('assistant.deviceCode') }} {{ loginCodes[instance.id] }}</p>
+            <a v-if="loginUrls[instance.id]" :href="loginUrls[instance.id]" target="_blank" rel="noopener noreferrer">{{ loginUrls[instance.id] }}</a>
+            <div class="settings-agent-actions settings-agent-actions--assistant">
+                <UButton :label="t('assistant.refresh')" icon="i-ph-arrows-clockwise" color="neutral" variant="ghost" size="xs" :disabled="!!activeAction" @click="refreshInstance(instance.id)" />
+                <UButton v-if="liveInstance(instance.id)?.canInstall" :label="t('assistant.installCodex')" size="xs" :disabled="!!activeAction" @click="installInstance" />
+                <UButton v-if="liveInstance(instance.id)?.canSignIn && !liveInstance(instance.id)?.loginPending" :label="t('assistant.signIn')" size="xs" :disabled="!!activeAction" @click="loginInstance(instance.id, 'chatgpt')" />
+                <UButton v-if="liveInstance(instance.id)?.canSignIn && !liveInstance(instance.id)?.loginPending" :label="t('assistant.signInDeviceCode')" color="neutral" variant="ghost" size="xs" :disabled="!!activeAction" @click="loginInstance(instance.id, 'device-code')" />
+                <UButton v-if="liveInstance(instance.id)?.loginPending" :label="t('assistant.cancelLogin')" size="xs" :disabled="!!activeAction" @click="cancelInstanceLogin(instance.id)" />
+                <UButton :label="t('assistant.deleteInstance')" icon="i-ph-trash" color="error" variant="ghost" size="xs" :disabled="!!activeAction" @click="instances = instances.filter(item => item.id !== instance.id)" />
+            </div>
+            <details class="instance-editor">
+                <summary>{{ t('assistant.editInstance') }}</summary>
+                <div class="instance-fields">
+                    <UFormField :label="t('assistant.displayName')"><UInput v-model="instance.displayName" class="w-full" /></UFormField>
+                    <UFormField :label="t('assistant.binaryPath')"><UInput :model-value="instance.binaryPath ?? ''" class="w-full" @update:model-value="instance.binaryPath = String($event)" /></UFormField>
+                    <UFormField :label="t('assistant.homePath')"><UInput :model-value="instance.homePath ?? ''" class="w-full" @update:model-value="instance.homePath = String($event)" /></UFormField>
+                    <UFormField v-if="instance.driver === 'codex'" :label="t('assistant.shadowHomePath')"><UInput :model-value="instance.shadowHomePath ?? ''" class="w-full" @update:model-value="instance.shadowHomePath = String($event)" /></UFormField>
+                    <UFormField :label="t('assistant.launchArgs')" :hint="instance.launchArgsSecret && instance.launchArgsConfigured ? t('assistant.secretConfigured') : ''">
+                        <UInput :model-value="instance.launchArgs ?? ''" :type="instance.launchArgsSecret ? 'password' : 'text'" autocomplete="off" class="w-full" @update:model-value="instance.launchArgs = String($event)" />
+                    </UFormField>
+                    <UCheckbox v-model="instance.launchArgsSecret" :label="t('assistant.secret')" />
+                    <fieldset class="instance-fields">
+                        <legend>{{ t('assistant.environment') }}</legend>
+                        <div v-for="(entry, index) in instance.environment" :key="index" class="environment-row">
+                            <UInput v-model="entry.name" :aria-label="t('assistant.environmentName')" :placeholder="t('assistant.environmentName')" />
+                            <UInput v-model="entry.value" :aria-label="t('assistant.environmentValue')" :placeholder="entry.secret && entry.configured ? t('assistant.secretConfigured') : t('assistant.environmentValue')" :type="entry.secret ? 'password' : 'text'" autocomplete="off" />
+                            <UCheckbox v-model="entry.secret" :label="t('assistant.secret')" />
+                            <UButton :aria-label="t('assistant.removeEnvironment')" icon="i-ph-x" color="neutral" variant="ghost" @click="instance.environment?.splice(index, 1)" />
+                        </div>
+                        <UButton :label="t('assistant.addEnvironment')" icon="i-ph-plus" color="neutral" variant="outline" size="xs" @click="(instance.environment ??= []).push({ name: '', value: '', secret: false })" />
+                    </fieldset>
+                </div>
+            </details>
+        </article>
+        <div class="instance-add">
+            <USelect v-model="newDriver" :items="drivers" :aria-label="t('assistant.driver')" />
+            <UInput v-model="newId" :placeholder="t('assistant.instanceId')" :aria-label="t('assistant.instanceId')" />
+            <UButton :label="t('assistant.addInstance')" icon="i-ph-plus" color="neutral" variant="outline" :disabled="!!activeAction" @click="addInstance" />
+        </div>
+        <div class="settings-agent-actions settings-agent-actions--assistant">
+            <UButton :label="t('assistant.saveInstances')" :disabled="!!activeAction" @click="saveInstances" />
+            <UButton :label="t('assistant.importT3')" color="neutral" variant="outline" :disabled="!!activeAction" @click="importInstances" />
         </div>
     </fieldset>
 
@@ -260,38 +249,30 @@ import {
     useClipboard,
     useTimeoutFn,
 } from '@vueuse/core';
-import type {
-    IAgentAssistantState,
-    IAgentMcpIntegrationStatus,
-} from '@contracts/agent';
+import type {IAgentMcpIntegrationStatus} from '@contracts/agent';
 import {
     getSettingsAssistantStatusModel,
-    type TSettingsAssistantCopy,
+    runSettingsAssistantAction,
 } from '@app/modules/workspace-shell/public/settingsAssistant';
+import {
+    ASSISTANT_INSTANCE_ID_PATTERN, type IAssistantInstanceConfig, type IAssistantInstancesResult, type IAssistantOperationResult, type IAssistantState, type TAssistantDriver,
+} from '@contracts/assistant';
+import { getAgentCapability } from '@app/utils/getAgentCapability';
+import { useTypedI18n } from '@app/composables/useTypedI18n';
 import { BrowserLogger } from '@app/utils/browserLogger';
 
 const {
     assistantPanelEnabled,
-    assistantState,
-    assistantDeviceCode,
-    isAssistantBusy,
     status,
     isBusy,
 } = defineProps<{
     assistantPanelEnabled: boolean;
-    assistantState: IAgentAssistantState | null;
-    assistantDeviceCode: string;
-    isAssistantBusy: boolean;
     status: IAgentMcpIntegrationStatus | null;
     isBusy: boolean;
 }>();
 
 const emit = defineEmits<{
     'update:assistantPanelEnabled': [enabled: boolean];
-    refreshAssistant: [];
-    installAssistant: [];
-    startAssistantLogin: [];
-    cancelAssistantLogin: [];
     setEnabled: [enabled: boolean];
     refresh: [];
     openInstall: [];
@@ -300,12 +281,145 @@ const emit = defineEmits<{
 const { t } = useTypedI18n();
 const { copy: copyClipboardText } = useClipboard();
 const setupGuideOpen = ref(false);
-const assistantSwitchUi = {
-    root: 'settings-agent-switch-row',
-    container: 'order-2',
-    wrapper: 'order-1 ms-0',
-    label: 'settings-control-label',
-};
+const instances = ref<IAssistantInstanceConfig[]>([]);
+const liveState = ref<IAssistantState | null>(null);
+const instanceError = ref('');
+const notices = ref<string[]>([]);
+const activeAction = ref<'refresh' | 'install' | 'login' | 'cancel' | 'save' | 'import' | null>(null);
+const newDriver = ref<TAssistantDriver>('codex');
+const newId = ref('');
+const loginCodes = ref<Record<string, string>>({});
+const loginUrls = ref<Record<string, string>>({});
+const drivers = [
+    {
+        value: 'codex',
+        label: 'Codex',
+    },
+    {
+        value: 'claude',
+        label: 'Claude',
+    },
+];
+let disposed = false;
+function liveInstance(id: string) { return liveState.value?.instances.find(instance => instance.id === id) ?? null; }
+function instanceStatus(id: string) { return getSettingsAssistantStatusModel(liveInstance(id)); }
+function applyInstances(result: IAssistantInstancesResult) {
+    if (disposed) return;
+    notices.value = result.notices;
+    instanceError.value = result.error ?? '';
+    if (result.ok) instances.value = result.instances.map(instance => ({
+        ...instance,
+        environment: instance.environment?.map(entry => ({ ...entry })) ?? [],
+    }));
+}
+function applyOperation(result: IAssistantOperationResult) {
+    if (disposed) return;
+    liveState.value = result.state;
+    if (!result.ok) instanceError.value = result.error?.message ?? '';
+}
+function run(action: NonNullable<typeof activeAction.value>, callback: () => Promise<void>) {
+    return runSettingsAssistantAction({
+        action,
+        activeAction,
+        error: instanceError,
+        run: callback,
+        isActive: () => !disposed,
+    });
+}
+async function loadInstances() {
+    await run('refresh', async () => {
+        const [
+            config,
+            state,
+        ] = await Promise.all([
+            getAgentCapability().getAssistantInstances(),
+            getAgentCapability().getAssistantState(),
+        ]);
+        if (disposed) return;
+        applyInstances(config);
+        liveState.value = state;
+    });
+}
+function addInstance() {
+    const id = newId.value.trim();
+    if (!ASSISTANT_INSTANCE_ID_PATTERN.test(id) || instances.value.some(instance => instance.id === id)) {
+        instanceError.value = t('assistant.invalidInstanceId');
+        return;
+    }
+    instances.value.push({
+        id,
+        driver: newDriver.value,
+        displayName: id,
+        enabled: true,
+        environment: [],
+    });
+    newId.value = '';
+    instanceError.value = '';
+}
+function saveInstances() {
+    void run('save', async () => {
+        // IPC needs plain objects, not the reactive rows the editor binds to.
+        applyInstances(await getAgentCapability().saveAssistantInstances(instances.value.map(instance => ({
+            ...instance,
+            ...(instance.environment ? { environment: instance.environment.map(entry => ({ ...entry })) } : {}),
+        }))));
+        const state = await getAgentCapability().getAssistantState();
+        if (!disposed) liveState.value = state;
+    });
+}
+function importInstances() {
+    void run('import', async () => {
+        applyInstances(await getAgentCapability().importAssistantInstancesFromT3());
+        const state = await getAgentCapability().getAssistantState();
+        if (!disposed) liveState.value = state;
+    });
+}
+function refreshInstance(instanceId: string) {
+    void run('refresh', async () => {
+        const state = await getAgentCapability().getAssistantState({
+            selection: {
+                instanceId,
+                model: liveInstance(instanceId)?.defaultModel ?? '',
+                effort: 'medium',
+                speedMode: 'standard',
+            },
+            probe: true,
+        });
+        if (!disposed) liveState.value = state;
+    });
+}
+function installInstance() { void run('install', async () => applyOperation(await getAgentCapability().installAssistantCodex())); }
+function loginInstance(instanceId: string, mode: 'chatgpt' | 'device-code') {
+    void run('login', async () => {
+        const result = await getAgentCapability().startAssistantLogin({
+            instanceId,
+            mode,
+        });
+        applyOperation(result);
+        if (disposed) return;
+        loginCodes.value[instanceId] = result.userCode ?? '';
+        loginUrls.value[instanceId] = result.verificationUrl ?? result.authUrl ?? '';
+    });
+}
+function cancelInstanceLogin(instanceId: string) {
+    void run('cancel', async () => {
+        const state = await getAgentCapability().cancelAssistantLogin({ instanceId });
+        if (disposed) return;
+        liveState.value = state;
+        loginCodes.value[instanceId] = '';
+        loginUrls.value[instanceId] = '';
+    });
+}
+let unsubscribe: (() => void) | undefined;
+onMounted(() => {
+    unsubscribe = getAgentCapability().onAssistantEvent(event => {
+        if (!liveState.value || disposed) return;
+        if (event.type === 'instances') liveState.value.instances = event.instances;
+        if (event.type === 'install-progress') liveState.value.installProgress = event.progress;
+    });
+    void loadInstances();
+});
+onBeforeUnmount(() => { disposed = true; unsubscribe?.(); });
 type TSetupSnippetId = 'codex' | 'claude' | 'cursor';
 const copiedSetupSnippet = ref<TSetupSnippetId | null>(null);
 const {
@@ -347,23 +461,6 @@ const primaryActionIcon = computed(() => {
 });
 
 const showInstallCodex = computed(() => status !== null && !status.codexInstalled);
-const assistantPanelStatusLabel = computed(() => assistantPanelEnabled
-    ? t('settings.assistantPanelStatusEnabled')
-    : t('settings.assistantPanelStatusDisabled'));
-const assistantSetup = computed(() => getSettingsAssistantStatusModel(
-    assistantState?.status ?? null,
-    assistantState !== null,
-));
-const assistantSetupIconClass = computed(() => ({
-    'is-ready': assistantSetup.value.tone === 'ready',
-    'is-warning': assistantSetup.value.tone === 'warning',
-}));
-const assistantSetupLabel = computed(() => translateAssistantCopy(assistantSetup.value.label));
-const assistantSetupHint = computed(() => assistantState?.status.error
-    ?? translateAssistantCopy(assistantSetup.value.hint));
-const assistantPrimaryActionLabel = computed(() => assistantSetup.value.primaryActionLabelKey
-    ? t(assistantSetup.value.primaryActionLabelKey)
-    : '');
 const mcpServerName = computed(() => status?.serverName ?? t('settings.agentMcpUnavailable'));
 const mcpServerUrl = computed(() => status?.serverUrl.length
     ? status.serverUrl
@@ -469,45 +566,6 @@ const codexLocationLabel = computed(() => {
     return status.codexPath ?? t('settings.agentMcpUnavailable');
 });
 
-function translateAssistantCopy(copy: TSettingsAssistantCopy) {
-    switch (copy.key) {
-        case 'settings.assistantPanelNeedsUpdateHint':
-            return t(copy.key, copy.params);
-        case 'settings.assistantPanelStatusReadyAccount':
-            return t(copy.key, copy.params);
-        case 'assistant.loginPending':
-        case 'settings.assistantPanelCheckingHint':
-        case 'settings.assistantPanelErrorHint':
-        case 'settings.assistantPanelNeedsCodexHint':
-        case 'settings.assistantPanelReadyHint':
-        case 'settings.assistantPanelSignedOutHint':
-        case 'settings.assistantPanelStatusChecking':
-        case 'settings.assistantPanelStatusError':
-        case 'settings.assistantPanelStatusLoginPending':
-        case 'settings.assistantPanelStatusNeedsCodex':
-        case 'settings.assistantPanelStatusNeedsUpdate':
-        case 'settings.assistantPanelStatusReady':
-        case 'settings.assistantPanelStatusSignedOut':
-        case 'settings.assistantPanelStatusUnsupported':
-        case 'settings.assistantPanelUnsupportedHint':
-            return t(copy.key);
-    }
-}
-
-function handleAssistantPrimaryAction() {
-    switch (assistantSetup.value.primaryAction) {
-        case 'install':
-        case 'update':
-            emit('installAssistant');
-            return;
-        case 'sign-in':
-            emit('startAssistantLogin');
-            return;
-        case null:
-            return;
-    }
-}
-
 function copyButtonLabel(snippet: TSetupSnippetId) {
     return copiedSetupSnippet.value === snippet
         ? t('toolbar.captureCopied')
@@ -532,7 +590,7 @@ async function copySetupSnippet(snippet: TSetupSnippetId, value: string) {
 }
 </script>
 
-<style lang="scss" scoped>
+<style scoped>
 .settings-agent-card {
     display: flex;
     align-items: flex-start;
@@ -581,19 +639,7 @@ async function copySetupSnippet(snippet: TSetupSnippetId, value: string) {
     color: var(--ui-text);
 }
 
-.settings-agent-auth {
-    display: flex;
-    align-items: flex-start;
-    gap: var(--app-space-9xl);
-    width: 100%;
-    padding-top: var(--app-space-8xl);
-    border-top: 1px solid var(--ui-border);
-}
 
-.settings-agent-auth-main {
-    flex: 1 1 auto;
-    min-width: 0;
-}
 
 .settings-agent-status-label {
     font-size: var(--app-text-size-body);
@@ -612,34 +658,8 @@ async function copySetupSnippet(snippet: TSetupSnippetId, value: string) {
     justify-content: flex-end;
 }
 
-.settings-agent-device-code {
-    display: inline-flex;
-    align-items: center;
-    gap: var(--app-space-md);
-    flex: 0 0 auto;
-    max-width: 100%;
-    padding: 0.3rem var(--app-space-2xl);
-    border: 1px solid var(--ui-border);
-    border-radius: var(--ui-radius);
-    background: var(--ui-bg-muted);
-    color: var(--ui-text-muted);
-    font-size: var(--app-text-size-kicker);
-}
 
-.settings-agent-device-code strong {
-    color: var(--ui-text);
-    font-family: var(--app-font-mono);
-    font-weight: 700;
-    letter-spacing: 0.02em;
-}
 
-.settings-agent-switch-row {
-    display: inline-flex;
-    align-items: center;
-    gap: var(--app-space-5xl);
-    flex-shrink: 0;
-    cursor: pointer;
-}
 
 .settings-agent-details {
     display: grid;
@@ -684,12 +704,10 @@ async function copySetupSnippet(snippet: TSetupSnippetId, value: string) {
 
 @container (max-width: 42rem) {
     .settings-agent-card-row,
-    .settings-agent-auth,
     .settings-agent-install {
         flex-direction: column;
     }
 
-    .settings-agent-switch-row,
     .settings-agent-actions,
     .settings-agent-install {
         width: 100%;
@@ -774,12 +792,71 @@ async function copySetupSnippet(snippet: TSetupSnippetId, value: string) {
         flex-wrap: wrap;
     }
 
-    .settings-agent-switch-row {
-        justify-content: space-between;
-    }
 
     .settings-agent-copy-button {
         align-self: flex-start;
     }
 }
+
+.instance-heading {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--app-space-3xl);
+    width: 100%;
+}
+
+.instance-heading strong {
+    flex: 1;
+}
+
+.instance-heading span {
+    color: var(--ui-text-muted);
+    font-size: var(--app-text-size-kicker);
+}
+
+.instance-message {
+    margin: 0;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    user-select: text;
+    font-size: var(--app-text-size-body-sm);
+}
+
+.instance-error {
+    color: var(--ui-error);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    user-select: text;
+}
+
+.instance-editor {
+    width: 100%;
+}
+
+.instance-editor summary {
+    cursor: pointer;
+    color: var(--ui-text-muted);
+}
+
+.instance-fields {
+    display: flex;
+    flex-direction: column;
+    gap: var(--app-space-3xl);
+    padding-top: var(--app-space-3xl);
+}
+
+.environment-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--app-space-3xl);
+}
+
+.instance-add {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--app-space-3xl);
+}
+
 </style>
