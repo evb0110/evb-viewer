@@ -246,7 +246,7 @@ pub(crate) fn update_note_geometry(
 }
 
 pub(crate) fn upsert_text_notes_with_counter<'a, I>(
-    document: &mut Document,
+    document: &mut impl PdfObjectStore,
     notes: I,
     modified_at: &str,
     annotation_visits: &mut usize,
@@ -260,7 +260,8 @@ where
         return Ok(());
     }
 
-    let page_resolver = PageTreeResolver::new(document)?;
+    let located = document.located_pages().cloned();
+    let page_resolver = PageLookup::new(document, located.as_ref())?;
     let mut note_pages = Vec::with_capacity(notes.len());
     let mut annotation_indexes = HashMap::new();
     for note in &notes {
@@ -286,28 +287,30 @@ where
 
         if let Some(annot_id) = existing {
             let (subtype, popup_ref) = {
-                let annot_dict = document.get_dictionary(annot_id)?;
+                let annot_dict = document.dictionary(annot_id)?;
                 (
                     annotation_subtype(annot_dict),
                     annotation_related_ref(annot_dict, b"Popup"),
                 )
             };
-            let popup_ref = popup_ref.unwrap_or_else(|| document.new_object_id());
+            let popup_ref = match popup_ref {
+                Some(popup_ref) => popup_ref,
+                None => document.new_object_id(),
+            };
             let note_fields = (*note, note_name.as_str(), pdf_rect, modified_at);
-            let annot_dict = document.get_dictionary_mut(annot_id)?;
             rewrite_text_note(
-                annot_dict,
+                document.dictionary_mut(annot_id)?,
                 subtype == "freetext",
                 note_fields,
                 (page_id, popup_ref),
             );
-            if document.get_object(popup_ref).is_err() {
+            if document.stored_object(popup_ref).is_none() {
                 let mut popup_dict =
                     build_popup_annotation_dict(note, pdf_rect, modified_at, annot_id);
                 popup_dict.set("P", Object::Reference(page_id));
-                document.set_object(popup_ref, Object::Dictionary(popup_dict));
+                document.set_new_object(popup_ref, Object::Dictionary(popup_dict));
             } else {
-                let popup_dict = document.get_dictionary_mut(popup_ref)?;
+                let popup_dict = document.dictionary_mut(popup_ref)?;
                 set_popup_annotation_fields(popup_dict, note, pdf_rect, modified_at, annot_id);
                 popup_dict.set("P", Object::Reference(page_id));
             }
@@ -322,9 +325,8 @@ where
         let popup_ref = document.new_object_id();
         if let Some(data) = note.recovery_data.as_deref() {
             let number = mutation_page_number(note.page_index)?;
-            let page_of = |document: &Document, n| page_resolver.page_id(document, n);
             let notes = (annot_ref, popup_ref);
-            let members = restore_note_recovery(document, data, notes, number, page_of)?;
+            let members = restore_note_recovery(document, data, notes, number, &page_resolver)?;
             for (member, page) in members {
                 page_index(&mut annotation_indexes, document, page, annotation_visits)?
                     .append_missing_refs(&[member]);
@@ -371,129 +373,6 @@ fn page_index<'a>(
             entry.insert(index)
         }
     })
-}
-
-pub(crate) fn upsert_text_notes_incremental_with_counter<'a, I>(
-    incremental: &mut IncrementalDocument,
-    notes: I,
-    modified_at: &str,
-    annotation_visits: &mut usize,
-    identity_bindings: &mut Option<&mut Vec<AnnotationIdentityBinding>>,
-) -> Result<()>
-where
-    I: IntoIterator<Item = &'a TextNote>,
-{
-    let notes = notes.into_iter().collect::<Vec<_>>();
-    if notes.is_empty() {
-        return Ok(());
-    }
-
-    let located_pages = incremental.located_pages.clone();
-    let page_resolver = PageLookup::new(incremental.get_prev_documents(), located_pages.as_ref())?;
-    let mut note_pages = Vec::with_capacity(notes.len());
-    let mut annotation_indexes = HashMap::new();
-    for note in &notes {
-        let page_number = mutation_page_number(note.page_index)?;
-        let page_id = page_resolver.page_id(incremental.get_prev_documents(), page_number)?;
-        let revision = &*incremental;
-        page_index(
-            &mut annotation_indexes,
-            revision,
-            page_id,
-            annotation_visits,
-        )?;
-        note_pages.push(page_id);
-    }
-
-    for (note, page_id) in notes.iter().zip(note_pages) {
-        let page_view = resolve_page_view(incremental.get_prev_documents(), page_id)?;
-        let page_rotation = resolve_page_rotation(incremental.get_prev_documents(), page_id)?;
-        let pdf_rect = text_note_pdf_rect(note.marker_rect, page_view, page_rotation)?;
-        let note_name = replayable_free_text_note_name(note);
-        let existing = annotation_indexes
-            .get(&page_id)
-            .and_then(|index| index.first_text_note_named(&note_name));
-
-        if let Some(annot_id) = existing {
-            let (subtype, popup_ref) = {
-                let revision = &*incremental;
-                let annot_dict = revision.dictionary(annot_id)?;
-                (
-                    annotation_subtype(annot_dict),
-                    annotation_related_ref(annot_dict, b"Popup"),
-                )
-            };
-            let popup_ref = match popup_ref {
-                Some(popup_ref) => popup_ref,
-                None => incremental.new_document.new_object_id(),
-            };
-            incremental.opt_clone_object_to_new_document(annot_id)?;
-            let note_fields = (*note, note_name.as_str(), pdf_rect, modified_at);
-            let annot_dict = incremental.new_document.get_dictionary_mut(annot_id)?;
-            rewrite_text_note(
-                annot_dict,
-                subtype == "freetext",
-                note_fields,
-                (page_id, popup_ref),
-            );
-            if incremental
-                .get_prev_documents()
-                .get_object(popup_ref)
-                .is_ok()
-            {
-                incremental.opt_clone_object_to_new_document(popup_ref)?;
-            }
-            if incremental.new_document.get_object(popup_ref).is_err() {
-                let mut popup_dict =
-                    build_popup_annotation_dict(note, pdf_rect, modified_at, annot_id);
-                popup_dict.set("P", Object::Reference(page_id));
-                incremental
-                    .new_document
-                    .set_object(popup_ref, Object::Dictionary(popup_dict));
-            } else {
-                let popup_dict = incremental.new_document.get_dictionary_mut(popup_ref)?;
-                set_popup_annotation_fields(popup_dict, note, pdf_rect, modified_at, annot_id);
-                popup_dict.set("P", Object::Reference(page_id));
-            }
-            annotation_indexes
-                .get_mut(&page_id)
-                .expect("Text note pages are indexed before mutation")
-                .append_missing_refs(&[popup_ref]);
-            continue;
-        }
-
-        let annot_ref = incremental.new_document.new_object_id();
-        let popup_ref = incremental.new_document.new_object_id();
-        if let Some(data) = note.recovery_data.as_deref() {
-            let number = mutation_page_number(note.page_index)?;
-            let pages = &incremental.previous_document;
-            let page_of = |_: &Document, n| page_resolver.page_id(pages, n);
-            let notes = (annot_ref, popup_ref);
-            let restored = &mut incremental.new_document;
-            let members = restore_note_recovery(restored, data, notes, number, page_of)?;
-            let revision = &*incremental;
-            for (member, page) in members {
-                page_index(&mut annotation_indexes, revision, page, annotation_visits)?
-                    .append_missing_refs(&[member]);
-            }
-        }
-        let note_fields = (*note, note_name.as_str(), pdf_rect, modified_at);
-        write_text_note_pair(
-            &mut incremental.new_document,
-            note_fields,
-            page_id,
-            (annot_ref, popup_ref),
-        );
-        report_annotation_identity_binding(identity_bindings, &note.stable_key, annot_ref);
-        annotation_indexes
-            .get_mut(&page_id)
-            .expect("Text note pages are indexed before mutation")
-            .append_text_note(&note_name, annot_ref, popup_ref);
-    }
-    for (page_id, index) in annotation_indexes {
-        write_page_annotation_index_incremental(incremental, page_id, index)?;
-    }
-    Ok(())
 }
 
 pub(crate) fn upsert_text_boxes_with_counter(
@@ -729,7 +608,7 @@ pub(crate) fn upsert_text_boxes_incremental_with_counter(
     }
     fonts.embed(&mut incremental.new_document, &crate::text_box_font::FONTS)?;
     for (page_id, index) in annotation_indexes {
-        write_page_annotation_index_incremental(incremental, page_id, index)?;
+        write_page_annotation_index(incremental, page_id, index)?;
     }
     Ok(())
 }
@@ -1056,12 +935,12 @@ fn rewrite_text_note(
 
 /// Writes a note and its Popup in canonical form over any earlier ones on `page_id`.
 fn write_text_note_pair(
-    document: &mut Document,
+    document: &mut impl PdfObjectStore,
     (note, note_name, pdf_rect, modified_at): (&TextNote, &str, PdfRect, &str),
     page_id: ObjectId,
     (annot_ref, popup_ref): (ObjectId, ObjectId),
 ) {
-    let existing = |id| document.get_dictionary(id).ok().cloned();
+    let existing = |id| document.dictionary(id).ok().cloned();
     let mut annot_dict = existing(annot_ref)
         .unwrap_or_else(|| build_text_note_annotation_dict(note, note_name, pdf_rect, modified_at));
     convert_free_text_marker_to_text(&mut annot_dict, pdf_rect, modified_at);
@@ -1072,8 +951,8 @@ fn write_text_note_pair(
         .unwrap_or_else(|| build_popup_annotation_dict(note, pdf_rect, modified_at, annot_ref));
     set_popup_annotation_fields(&mut popup_dict, note, pdf_rect, modified_at, annot_ref);
     popup_dict.set("P", Object::Reference(page_id));
-    document.set_object(annot_ref, Object::Dictionary(annot_dict));
-    document.set_object(popup_ref, Object::Dictionary(popup_dict));
+    document.set_new_object(annot_ref, Object::Dictionary(annot_dict));
+    document.set_new_object(popup_ref, Object::Dictionary(popup_dict));
 }
 
 /// Populate the fields owned by the canonical sticky-note writer. The
@@ -1393,28 +1272,13 @@ pub(crate) fn build_incremental_page_annotation_index(
 }
 
 pub(crate) fn write_page_annotation_index(
-    document: &mut Document,
+    document: &mut impl PdfObjectStore,
     page_id: ObjectId,
     index: PageAnnotationIndex,
 ) -> Result<()> {
     if index.dirty {
         document
-            .get_dictionary_mut(page_id)?
-            .set("Annots", Object::Array(index.annots));
-    }
-    Ok(())
-}
-
-pub(crate) fn write_page_annotation_index_incremental(
-    incremental: &mut IncrementalDocument,
-    page_id: ObjectId,
-    index: PageAnnotationIndex,
-) -> Result<()> {
-    if index.dirty {
-        incremental.opt_clone_object_to_new_document(page_id)?;
-        incremental
-            .new_document
-            .get_dictionary_mut(page_id)?
+            .dictionary_mut(page_id)?
             .set("Annots", Object::Array(index.annots));
     }
     Ok(())

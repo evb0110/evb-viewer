@@ -676,6 +676,9 @@ pub(crate) trait PdfObjectStore: PdfObjectSource {
     /// The highest object number in use; new objects are numbered past it.
     fn max_id(&self) -> u32;
 
+    /// Reserves the next object number past `max_id`.
+    fn new_object_id(&mut self) -> ObjectId;
+
     /// Stores a new object under a number past `max_id`.
     fn set_new_object(&mut self, object_id: ObjectId, object: Object);
 
@@ -699,6 +702,10 @@ impl PdfObjectStore for Document {
 
     fn max_id(&self) -> u32 {
         self.max_id
+    }
+
+    fn new_object_id(&mut self) -> ObjectId {
+        Document::new_object_id(self)
     }
 
     fn set_new_object(&mut self, object_id: ObjectId, object: Object) {

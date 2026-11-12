@@ -2857,7 +2857,7 @@ fn incremental_same_batch_duplicate_note_reuses_the_indexed_annotation() {
         .collect();
     let mut annotation_visits = 0;
 
-    upsert_text_notes_incremental_with_counter(
+    upsert_text_notes_with_counter(
         &mut incremental,
         notes.iter(),
         "D:20260609123456Z",

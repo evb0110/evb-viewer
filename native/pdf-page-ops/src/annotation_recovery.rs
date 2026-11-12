@@ -458,27 +458,27 @@ fn remap_recovery_object(object: &mut Object, refs: &HashMap<ObjectId, ObjectId>
 /// Clone every object to fresh references, including reply /IRT and popup
 /// /Parent links. Retired PDF references are never resurrected as identities.
 /// Each annotation returns to its own page, as far from the note's page as it
-/// was; `page_id` resolves a page number in the document being written.
-pub(crate) fn restore_note_recovery(
-    document: &mut Document,
+/// was, found through `pages` in the document being written.
+pub(crate) fn restore_note_recovery<S: PdfObjectStore>(
+    document: &mut S,
     data: &str,
     (root, popup): (ObjectId, ObjectId),
     page_number: u32,
-    mut page_id: impl FnMut(&Document, u32) -> Result<ObjectId>,
+    pages: &PageLookup<'_>,
 ) -> Result<Vec<(ObjectId, ObjectId)>> {
     let graph = decode_note_recovery(data)?;
-    restore_recovery_graph(document, &graph, root, popup, |document, offset| {
+    restore_recovery_graph(document, &graph, root, popup, |document: &S, offset| {
         let number = u32::try_from(i64::from(page_number) + offset).unwrap_or(0);
-        page_id(document, number)
+        pages.page_id(document, number)
     })
 }
 
-fn restore_recovery_graph(
-    document: &mut Document,
+fn restore_recovery_graph<S: PdfObjectStore>(
+    document: &mut S,
     graph: &Document,
     root: ObjectId,
     popup: ObjectId,
-    mut page_of: impl FnMut(&Document, i64) -> Result<ObjectId>,
+    mut page_of: impl FnMut(&S, i64) -> Result<ObjectId>,
 ) -> Result<Vec<(ObjectId, ObjectId)>> {
     let old_root = graph.trailer.get(b"Root")?.as_reference()?;
     let old_popup = annotation_related_ref(graph.get_dictionary(old_root)?, b"Popup");
@@ -497,7 +497,7 @@ fn restore_recovery_graph(
         if let Some((_, page)) = members.iter().find(|(member, _)| *member == refs[id]) {
             object.as_dict_mut()?.set("P", Object::Reference(*page));
         }
-        document.set_object(refs[id], object);
+        document.set_new_object(refs[id], object);
     }
     Ok(members)
 }

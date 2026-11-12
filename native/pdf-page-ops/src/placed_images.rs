@@ -1099,7 +1099,7 @@ pub(crate) fn apply_placed_images_incremental(
         }
     }
     for (page_id, index) in annotation_indexes {
-        write_page_annotation_index_incremental(incremental, page_id, index)?;
+        write_page_annotation_index(incremental, page_id, index)?;
     }
     Ok(())
 }

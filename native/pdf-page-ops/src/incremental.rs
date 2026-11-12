@@ -446,7 +446,7 @@ fn apply_native_mutations_incremental_internal(
         update_note_geometry(incremental, &mutations.geometry_updates, modified_at)?;
     }
     if !mutations.notes.is_empty() || !mutations.free_text_notes.is_empty() {
-        upsert_text_notes_incremental_with_counter(
+        upsert_text_notes_with_counter(
             incremental,
             mutations
                 .notes
