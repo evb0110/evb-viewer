@@ -654,7 +654,7 @@ describe('DocumentWorkspace navigation command', () => {
                 pdfViewerRef: {value: unknown};
                 djvuViewerRef: {value: unknown};
                 documentViewerRef: {value: unknown};
-            }>(documentContext.views.commandView.value!.view);
+            }>(documentContext.views.soleView.value!.view);
             await vi.waitFor(() => expect(view.documentViewerRef.value).not.toBeNull());
             const chassis = view.documentViewerRef.value;
             const reader = expose.followReader!();
@@ -720,7 +720,7 @@ describe('DocumentWorkspace navigation command', () => {
             viewRotation: 0,
         });
 
-        await expect(documentContext.views.runDocumentOpen({
+        await expect(documentContext.views.runDocumentOpen(documentContext.views.soleView.value, {
             kind: 'open',
             target: {
                 fileName: 'remembered.pdf',

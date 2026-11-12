@@ -187,7 +187,6 @@ export interface IWorkspaceDocumentDriverOptions {
     pdfSrc: Ref<TPdfSource | null>;
     workingCopyPath: Ref<TDocumentRef | null>;
     pendingDocumentPath?: TReadableRef<TDocumentRef | null>;
-    pendingDocumentSize?: TReadableRef<number | null>;
     save?: IWorkspaceDocumentDriverSources['save'];
 }
 

@@ -26,7 +26,7 @@ export function createComment(overrides: Partial<IAnnotationCommentSummary> = {}
     };
 }
 
-export function createHarness(comment = createComment(), options: Pick<Parameters<typeof useAnnotationNoteWindows>[0], 'getViewInUse' | 'reportNoteFailure'> = {}) {
+export function createHarness(comment = createComment(), options: Pick<Parameters<typeof useAnnotationNoteWindows>[0], 'reportNoteFailure'> = {}) {
     const deps = {
         ...options,
         annotationComments: ref<IAnnotationCommentSummary[]>([comment]),

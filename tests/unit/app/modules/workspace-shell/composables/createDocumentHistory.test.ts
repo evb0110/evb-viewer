@@ -226,10 +226,6 @@ function createContentHistoryHarness(pathHistory: boolean, withSurface: boolean,
     ];
     const surface = createDocumentOpenSurfaceSession();
     const pdfDocument = shallowRef<IPdfDocument | null>(cast({id: 0}));
-    const viewer = {
-        scrollToPage: (page: number) => {pages[0]!.value = page;},
-        waitForViewerLoadSettled: async () => undefined,
-    };
     for (const [
         index,
         tabId,
@@ -240,16 +236,22 @@ function createContentHistoryHarness(pathHistory: boolean, withSurface: boolean,
         const detach = views.attachView(cast<IDocumentViewPort>({
             tabId,
             isActive: ref(index === 0),
-            openSurface: surface,
+            ...(withSurface ? {openSurface: surface} : {}),
             view: {
                 currentPage: pages[index],
+                pdfDocument,
                 pdfViewerRef: shallowRef({
-                    ...viewer,
+                    scrollToPage: (page: number) => {pages[index]!.value = page;},
+                    waitForViewerLoadSettled: async () => undefined,
                     preparePageMutationRevisionSwap: async () => {
                         await beforeRevisionPrepare?.();
                         return false;
                     },
                 }),
+            },
+            search: {
+                resetSearchCache: () => undefined,
+                adoptPageRotation: () => undefined,
             },
         }));
         onTestFinished(detach);
@@ -272,7 +274,7 @@ function createContentHistoryHarness(pathHistory: boolean, withSurface: boolean,
         ...(documentAnnotations ? {documentAnnotations} : {}),
         applyLoadedPdfState: (...args) => flow.applyLoadedPdfState(...args),
         prepareHistoryRevisionSwap: (token, delta) => prepareDocumentViewsForHistorySwap(
-            views, views.viewPorts.value.get('one')!.view.pdfViewerRef.value, 3, token, delta,
+            views, 3, token, delta,
         ),
         clearPdfConformanceProfile: () => undefined,
         clearOcrCache: () => undefined,
@@ -320,10 +322,7 @@ function createContentHistoryHarness(pathHistory: boolean, withSurface: boolean,
     };
     publishSurface();
     const ui = usePdfHistory({
-        pdfDocument,
-        pdfViewerRef: shallowRef(viewer),
-        ...(withSurface ? {openSurface: surface} : {}),
-        currentPage: pages[0]!,
+        prepareReload: views.prepareReload,
         isAnySaving: ref(false),
         prepareHistory: () => undefined,
         mapHistoryPage: (direction, page) => history.mapHistoryPage?.(direction, page) ?? page,
@@ -332,7 +331,6 @@ function createContentHistoryHarness(pathHistory: boolean, withSurface: boolean,
         nextUndoSource: ledger.nextUndoSource,
         nextRedoSource: ledger.nextRedoSource,
         workingCopyPath: state.workingCopyPath,
-        resetSearchCache: () => undefined,
         clearOcrCache: () => undefined,
         undoHistory: ledger.undoTimeline,
         redoHistory: ledger.redoTimeline,

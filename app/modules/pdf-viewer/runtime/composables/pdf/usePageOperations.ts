@@ -148,7 +148,6 @@ export const usePageOperations = (deps: {
     reloadWorkingCopyIntoHistory: (opts?: {pageIdentityDelta?: IPageIdentityDelta}) => Promise<boolean>;
     clearOcrCache: (path: TDocumentRef) => void;
     resetSearchCache: () => void;
-    onExtractedDocument?: (path: TDocumentRef) => Promise<void> | void;
     ensureWorkingCopyFreshForRead?: () => Promise<boolean>;
     runWithDocumentOperationLease?: <T>(
         kind: TDocumentOperationKind,
@@ -176,7 +175,6 @@ export const usePageOperations = (deps: {
         reloadWorkingCopyIntoHistory,
         clearOcrCache,
         resetSearchCache,
-        onExtractedDocument,
         ensureWorkingCopyFreshForRead,
         runWithDocumentOperationLease = runWithoutDocumentOperationLease,
         preparePageMutationRevisionSwap,
@@ -713,7 +711,11 @@ export const usePageOperations = (deps: {
         return didPageOperationSucceed(await deletePageRangesDetailed(ranges, totalPages), onCommitted);
     }
 
-    async function extractPagesDetailed(pages: number[] | TPageSelection) {
+    /** `onExtracted` receives the new document, for the view that asked to open it. */
+    async function extractPagesDetailed(
+        pages: number[] | TPageSelection,
+        onExtracted?: (path: TDocumentRef) => Promise<void> | void,
+    ) {
         const selectedPageCount = Array.isArray(pages)
             ? pages.length
             : pageSelectionCount(pages);
@@ -732,14 +734,17 @@ export const usePageOperations = (deps: {
             isSuccessful: result => result.success && !result.canceled,
             onSuccess: async (result) => {
                 if (result.destPath) {
-                    await onExtractedDocument?.(result.destPath);
+                    await onExtracted?.(result.destPath);
                 }
             },
         });
     }
 
-    async function extractPages(pages: number[] | TPageSelection) {
-        return didPageOperationSucceed(await extractPagesDetailed(pages));
+    async function extractPages(
+        pages: number[] | TPageSelection,
+        onExtracted?: (path: TDocumentRef) => Promise<void> | void,
+    ) {
+        return didPageOperationSucceed(await extractPagesDetailed(pages, onExtracted));
     }
 
     async function rotatePagesDetailed(pages: number[] | TPageSelection, totalPages: number, angle: TPageOpsRotation) {

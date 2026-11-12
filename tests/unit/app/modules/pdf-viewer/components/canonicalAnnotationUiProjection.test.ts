@@ -440,7 +440,7 @@ it('invalidates rendered order when an overlapping note is raised', () => {
     });
     const harness = noteWindows(application);
     try {
-        application.listCommentSummaries().forEach(harness.windows.handleOpenAnnotationNote);
+        application.listCommentSummaries().forEach(comment => harness.windows.handleOpenAnnotationNote(comment));
         expect(harness.windows.sortedAnnotationNoteWindows.value.map(window => window.annotationId)).toEqual([
             'note-1',
             'note-2',

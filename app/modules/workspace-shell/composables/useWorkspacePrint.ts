@@ -11,10 +11,7 @@ import {
     type TPdfViewMode,
     type TRequestId,
 } from '@contracts/shared';
-import type {
-    IPdfPageMetric,
-    TPdfSource,
-} from '@app/types/pdfUi';
+import type { TPdfSource } from '@app/types/pdfUi';
 import {
     buildBrowserPrintFrameMarkup,
     normalizePrintPageNumbers,
@@ -124,20 +121,20 @@ function registerNativePrintCancellation(
     return () => signal.removeEventListener('abort', cancelPendingNativePrint);
 }
 
+/** What the view that starts a print offers it: its selected pages. */
+export interface IPrintViewSelection {
+    selectedPages: readonly number[];
+    pageSelection: TPageSelection | null;
+}
+
 interface IWorkspacePrintDeps {
     totalPages: Readonly<Ref<number>>;
-    currentPage: Readonly<Ref<number>>;
-    selectedPages: Readonly<Ref<number[]>>;
-    selectedPageSelection?: Readonly<Ref<TPageSelection | null>>;
     sourcePdf: Readonly<Ref<TPdfSource | null>>;
     workingCopyPath: Readonly<Ref<string | null>>;
     printPath?: Readonly<Ref<TDocumentRef | null>>;
     fileName: Readonly<Ref<string | null>>;
     hasPendingUnsavedChanges: Readonly<Ref<boolean>>;
     hasPendingPrintSerializationChanges?: Readonly<Ref<boolean>>;
-    getCurrentPrintPage?: () => number | null | undefined;
-    getQuickPrintPageMetrics: () => Promise<IPdfPageMetric[] | null>;
-    isDriverOwnedQuickPrint?: () => boolean;
     ensurePrintReady?: () => Promise<boolean>;
     createPrintableSourcePath?: (options?: {signal?: AbortSignal}) => Promise<IPrintableSourcePath | null>;
     getPrintableSourceData: (options?: { signal?: AbortSignal }) => Promise<Uint8Array | null>;
@@ -432,27 +429,17 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
         printDialogOpen.value = false;
     }
 
-    function normalizeSelectedPages() {
-        return uniq(deps.selectedPages.value)
+    function normalizeSelectedPages(view: IPrintViewSelection) {
+        return uniq(view.selectedPages)
             .filter(page => Number.isInteger(page) && page >= 1 && page <= deps.totalPages.value)
             .sort((left, right) => left - right);
     }
 
-    function resolveCurrentPageSelection() {
-        const selection = deps.selectedPageSelection?.value;
-        if (selection?.pageCount === deps.totalPages.value) {
-            return selection;
+    function resolveCurrentPageSelection(view: IPrintViewSelection) {
+        if (view.pageSelection?.pageCount === deps.totalPages.value) {
+            return view.pageSelection;
         }
-        return createExplicitPageSelection(deps.totalPages.value, normalizeSelectedPages());
-    }
-
-    function normalizeCurrentPage() {
-        const page = deps.getCurrentPrintPage?.() ?? deps.currentPage.value;
-        if (!Number.isInteger(page) || page < 1 || page > deps.totalPages.value) {
-            return null;
-        }
-
-        return page;
+        return createExplicitPageSelection(deps.totalPages.value, normalizeSelectedPages(view));
     }
 
     function resolveBrowserPrintTitle(
@@ -469,73 +456,20 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
         });
     }
 
-    function handlePrint() {
+    /** Opens the print dialog with the selection of the view that asks. */
+    function handlePrint(view: IPrintViewSelection) {
         closeDialogForSystemPrint = false;
-        printDialogSelectedPages.value = normalizeSelectedPages();
-        printDialogPageSelection.value = resolveCurrentPageSelection();
+        printDialogSelectedPages.value = normalizeSelectedPages(view);
+        printDialogPageSelection.value = resolveCurrentPageSelection(view);
         printDialogOpen.value = true;
     }
 
-    async function handleQuickPrint() {
-        printDialogSelectedPages.value = normalizeSelectedPages();
-        printDialogPageSelection.value = resolveCurrentPageSelection();
-        const defaultPayload = {
-            viewMode: 'single',
-            orientation: 'auto',
-        } satisfies IPrintDialogSubmitPayload;
-        const printOwner = beginPrintRun(defaultPayload);
-        if (!printOwner) {
+    /** Prints `page`, the page of the view that asks. */
+    async function handlePrintCurrentPage(page: number) {
+        if (!Number.isInteger(page) || page < 1 || page > deps.totalPages.value) {
             return;
         }
-
-        if (deps.preparePrintSource && deps.isDriverOwnedQuickPrint?.() === true) {
-            await handlePrintDialogSubmit(defaultPayload, {
-                action: 'default',
-                reopenDialogOnError: false,
-                printOwner,
-            });
-            return;
-        }
-
-        if (isPathPdfSource(deps.sourcePdf.value)) {
-            await handlePrintDialogSubmit(defaultPayload, {
-                action: 'default',
-                reopenDialogOnError: false,
-                printOwner,
-            });
-            return;
-        }
-
-        try {
-            assertPrintRunCurrent(printOwner);
-            const { shouldPrintPageMetricsDirectly } = await import('@app/utils/pdfPrint');
-            assertPrintRunCurrent(printOwner);
-            const quickPrintPageMetrics = await deps.getQuickPrintPageMetrics();
-            assertPrintRunCurrent(printOwner);
-            const printSourceDirectly = quickPrintPageMetrics !== null
-                && shouldPrintPageMetricsDirectly(
-                    quickPrintPageMetrics,
-                    defaultPayload,
-                ) === true;
-
-            await handlePrintDialogSubmit(defaultPayload, {
-                action: 'default',
-                printSourceDirectly,
-                reopenDialogOnError: false,
-                printOwner,
-            });
-        } catch (error) {
-            reportPrintError(error, false, printOwner);
-        } finally {
-            finishPrintRun(printOwner);
-        }
-    }
-
-    async function handlePrintCurrentPage() {
-        const currentPrintPage = normalizeCurrentPage();
-        if (currentPrintPage === null) {
-            return;
-        }
+        const currentPrintPage = page;
 
         await handlePrintDialogSubmit({
             pageNumbers: [currentPrintPage],
@@ -1007,12 +941,10 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
         payload: IPrintDialogSubmitPayload,
         options: {
             action?: 'default' | 'current-page';
-            printSourceDirectly?: boolean;
             reopenDialogOnError?: boolean;
-            printOwner?: IPrintRunOwner;
         } = {},
     ) {
-        const printOwner = options.printOwner ?? beginPrintRun(payload, options.action ?? 'default');
+        const printOwner = beginPrintRun(payload, options.action ?? 'default');
         if (!printOwner) {
             return;
         }
@@ -1023,7 +955,10 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
             if (payload.pageSelection) {
                 const selection = payload.pageSelection.pageCount === deps.totalPages.value
                     ? payload.pageSelection
-                    : resolveCurrentPageSelection();
+                    : resolveCurrentPageSelection({
+                        selectedPages: printDialogSelectedPages.value,
+                        pageSelection: printDialogPageSelection.value,
+                    });
                 const selectedCount = pageSelectionCount(selection);
                 if (selectedCount > PRINT_SELECTION_MATERIALIZATION_LIMIT) {
                     BrowserLogger.warn('workspace-print', 'Print selection was rejected', {
@@ -1126,17 +1061,6 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
                 throw new Error('Missing printable PDF source data');
             }
 
-            if (options.printSourceDirectly === true) {
-                await printPdfDataWithNativeHandoff(
-                    sourceData,
-                    browserPrintTitle,
-                    signal,
-                    printRunId,
-                    printOwner,
-                );
-                return;
-            }
-
             if (
                 deps.totalPages.value > PRINT_LAYOUT_PAGE_COUNT_LIMIT
                 && payload.viewMode === 'single'
@@ -1211,7 +1135,6 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
         supportsAdvancedPrintOptions,
         supportsFirstPageSinglePrintLayout,
         handlePrint,
-        handleQuickPrint,
         handlePrintCurrentPage,
         handlePrintDialogOpenChange,
         handlePrintDialogSubmit,

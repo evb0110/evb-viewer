@@ -304,11 +304,7 @@ export interface IWorkspaceExpose extends IWorkspaceDocumentRecoveryPort {
     handlePageDelete: (pages: number[]) => void;
     handlePageReorder: (order: number[]) => void;
     handlePageMove: (move: TPageMoveOperation) => void;
-    pageOpsDelete: (pages: number[], totalPages: number) => Promise<boolean>;
     handlePageRotate: (pages: number[], angle: 90 | 270) => Promise<boolean>;
-    pageOpsInsert: (totalPages: number, afterPage: number) => Promise<boolean>;
-    pageOpsReorder: (order: number[]) => Promise<boolean>;
-    pageOpsMove: (move: TPageMoveOperation) => Promise<boolean>;
     handleCropPages: (pages: number[], margins: ICropMargins) => Promise<boolean>;
     handleConvertToPdf: () => void;
     handleOpenOcr: () => void;

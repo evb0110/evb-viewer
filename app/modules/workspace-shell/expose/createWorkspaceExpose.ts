@@ -21,7 +21,7 @@ import {createWorkspaceDocumentRecovery} from '@app/modules/workspace-shell/chec
 export interface IWorkspaceExposeOwners extends Pick<IWorkspaceExpose,
     | 'handleSave' | 'handleOptimizePdfForInteraction' | 'handleSaveAs' | 'handleExportDocx'
     | 'handleInsertImageFromFile' | 'handlePasteImageFromClipboard' | 'handleCrop'
-    | 'captureSplitPayload' | 'restoreSplitPayload' | 'waitForDocumentOpenSettled'
+    | 'waitForDocumentOpenSettled'
     | 'runAgentAction' | 'readAgentResource'> {
     handleGoToPage: (page: number, options?: IScrollToPageOptions) => void;
     ensurePdfProjectionForEdit: () => Promise<boolean>;
@@ -65,17 +65,18 @@ export function createWorkspaceExpose(
         metadata: {
             pageLabelState, bookmarkState,
         },
-        pageOps,
-        fileOps,
-        print,
         exportWorkflow,
     } = document;
+    // The document's commands as this view starts them, with its page and selection.
     const {
         view,
         search,
         navigation,
         openSurface,
         viewerDefaults,
+        pageOps,
+        fileOps,
+        print,
     } = viewContext;
     const viewerCapabilities = () => owners.viewerCapabilities.value;
     const hasOpenError = () => Boolean(file.pdfError.value) || Boolean(file.djvuError.value);
@@ -257,8 +258,8 @@ export function createWorkspaceExpose(
         handlePageMove: (move) => {
             void runPageOperation(() => pageOps.pageOpsMove(move));
         },
-        captureSplitPayload: (page, ownership) => owners.captureSplitPayload(page ?? view.currentPage.value, ownership),
-        restoreSplitPayload: owners.restoreSplitPayload,
+        captureSplitPayload: (page, ownership) => document.splitPayload.captureSplitPayload(page ?? view.currentPage.value, ownership),
+        restoreSplitPayload: (...args) => document.splitPayload.restoreSplitPayload(viewContext, ...args),
         closeAllDropdowns: view.closeAllDropdowns,
         waitForDocumentOpenSettled: owners.waitForDocumentOpenSettled,
         runAgentAction: async (...args) => {
@@ -270,11 +271,7 @@ export function createWorkspaceExpose(
             await document.ocr.applyResult(payload as Parameters<typeof document.ocr.applyResult>[0]);
         },
         ...createWorkspaceDocumentRecovery(document, pdfViewer),
-        pageOpsDelete: (pages, totalPages) => runPageOperation(() => pageOps.pageOpsDelete(pages, totalPages)),
         handlePageRotate: (pages, angle) => runPageOperation(() => pageOps.handlePageRotate(pages, angle)),
-        pageOpsInsert: (totalPages, afterPage) => runPageOperation(() => pageOps.pageOpsInsert(totalPages, afterPage)),
-        pageOpsReorder: order => runPageOperation(() => pageOps.pageOpsReorder(order)),
-        pageOpsMove: move => runPageOperation(() => pageOps.pageOpsMove(move)),
         handleCropPages: (pages, margins) => runPageOperation(() => pageOps.handleCropPages(pages, margins)),
         handleSave: handleSaveFromCommandSurface,
         handleSelectAll: () => { pdfViewer()?.selectAllAnnotations?.(); },

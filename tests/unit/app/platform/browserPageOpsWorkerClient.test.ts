@@ -893,13 +893,10 @@ describe('browserPageOpsWorkerClient', () => {
         try {
             const print = scope.run(() => useWorkspacePrint({
                 totalPages: ref(1),
-                currentPage: ref(1),
-                selectedPages: ref([]),
                 sourcePdf: ref(null),
                 workingCopyPath: ref(null),
                 fileName: ref('failed-print.pdf'),
                 hasPendingUnsavedChanges: ref(false),
-                getQuickPrintPageMetrics: async () => null,
                 getPrintableSourceData: async () => null,
                 renderLoadedPdfPagesForBrowserPrint: async (targetDocument) => {
                     rendered = true;
@@ -955,13 +952,10 @@ describe('browserPageOpsWorkerClient', () => {
         const scope = effectScope();
         const print = scope.run(() => useWorkspacePrint({
             totalPages: ref(2),
-            currentPage: ref(1),
-            selectedPages: ref([]),
             sourcePdf: ref(null),
             workingCopyPath: ref(null),
             fileName: ref('cancel-prepared.djvu'),
             hasPendingUnsavedChanges: ref(false),
-            getQuickPrintPageMetrics: async () => null,
             getPrintableSourceData: async () => null,
             preparePrintSource: async () => ({
                 status: 'printable-pdf',
@@ -1007,13 +1001,10 @@ describe('browserPageOpsWorkerClient', () => {
         ]);
         const print = scope.run(() => useWorkspacePrint({
             totalPages: ref(2),
-            currentPage: ref(1),
-            selectedPages: ref([]),
             sourcePdf: ref(null),
             workingCopyPath: ref(null),
             fileName: ref('cancel-print.pdf'),
             hasPendingUnsavedChanges: ref(false),
-            getQuickPrintPageMetrics: async () => null,
             getPrintableSourceData: async () => input,
         }));
         if (!print) throw new Error('Missing print owner');

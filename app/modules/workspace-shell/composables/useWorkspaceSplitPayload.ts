@@ -9,10 +9,8 @@ import type { TSplitPayload } from '@contracts/windowTabs';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { createWorkingCopySnapshotFromData } from '@app/services/pdf-file/createWorkingCopySnapshotFromData';
 import { readDocumentBytes } from '@app/utils/documentBytes';
-import type {
-    IWorkspaceDocumentViewerSplitPort,
-    IWorkspacePdfViewerSplitPort,
-} from '@app/modules/workspace-shell/types/workspaceOrchestration.types';
+import type { IWorkspacePdfViewerSplitPort } from '@app/modules/workspace-shell/types/workspaceOrchestration.types';
+import type { IDocumentViewPort } from '@app/modules/workspace-shell/document-sessions/createDocumentViews';
 import type { TPdfSource } from '@app/types/pdfUi';
 import {
     getDocumentFilesCapability,
@@ -44,18 +42,17 @@ interface IUseWorkspaceSplitPayloadOptions {
     pdfSrc: Ref<TPdfSource | null>;
     isDjvuMode: Ref<boolean>;
     djvuSourcePath: Ref<TDocumentRef | null>;
-    currentPage: Ref<number>;
-    totalPages: Ref<number>;
+    totalPages: Readonly<Ref<number>>;
     fileName: Ref<string | null>;
     originalPath: Ref<TDocumentRef | null>;
     workingCopyPath: Ref<TDocumentRef | null>;
     hasPendingTabChanges: Ref<boolean>;
     requiresSaveAsOnFirstSave: Ref<boolean>;
-    pdfViewerRef: Ref<IWorkspacePdfViewerSplitPort | null>;
-    documentViewerRef: Ref<IWorkspaceDocumentViewerSplitPort | null>;
+    pdfViewerRef: Readonly<Ref<IWorkspacePdfViewerSplitPort | null>>;
     pdfData: Ref<Uint8Array | null>;
     openFileWithViewerLifecycle: (result: TOpenFileResult, transactionId?: string) => Promise<TDocumentOpenOutcome>;
-    preparePdfReloadWaiter: (page: number) => {
+    /** Waits for the reload of the document in one view, which then returns to `page`. */
+    prepareViewReload: (view: IDocumentViewPort, page: number) => {
         promise: Promise<void>;
         cancel: () => void
     };
@@ -111,8 +108,8 @@ export const useWorkspaceSplitPayload = (options: IUseWorkspaceSplitPayloadOptio
             ? sourcePath : null;
     }
 
-    function createPdfSnapshotPayload(snapshotPath: TDocumentRef, isDirty: boolean): TPdfSnapshotSplitPayload {
-        const normalizedCurrentPage = normalizeSplitPayloadPage(options.currentPage.value) ?? 1;
+    function createPdfSnapshotPayload(snapshotPath: TDocumentRef, isDirty: boolean, page: number): TPdfSnapshotSplitPayload {
+        const normalizedCurrentPage = normalizeSplitPayloadPage(page) ?? 1;
         const originalBackend = resolveDocumentRefBackend(options.originalPath.value);
         const snapshotBackend = resolveDocumentRefBackend(snapshotPath);
         return {
@@ -129,7 +126,7 @@ export const useWorkspaceSplitPayload = (options: IUseWorkspaceSplitPayloadOptio
         };
     }
 
-    async function captureCleanWorkingCopySnapshot(): Promise<TPdfSnapshotSplitPayload | null> {
+    async function captureCleanWorkingCopySnapshot(page: number): Promise<TPdfSnapshotSplitPayload | null> {
         if (!options.workingCopyPath.value || options.hasPendingTabChanges.value) {
             return null;
         }
@@ -139,7 +136,7 @@ export const useWorkspaceSplitPayload = (options: IUseWorkspaceSplitPayloadOptio
                 options.workingCopyPath.value,
                 options.originalPath.value ?? undefined,
             );
-            return createPdfSnapshotPayload(snapshotPath, false);
+            return createPdfSnapshotPayload(snapshotPath, false, page);
         } catch (error) {
             BrowserLogger.warn('workspace', 'Failed to create split payload from working copy path', {
                 path: options.workingCopyPath.value,
@@ -291,8 +288,8 @@ export const useWorkspaceSplitPayload = (options: IUseWorkspaceSplitPayloadOptio
         });
     }
 
-    async function capturePdfSnapshotPayload(): Promise<TSplitPayload> {
-        const cleanWorkingCopySnapshot = await captureCleanWorkingCopySnapshot();
+    async function capturePdfSnapshotPayload(page: number): Promise<TSplitPayload> {
+        const cleanWorkingCopySnapshot = await captureCleanWorkingCopySnapshot(page);
         if (cleanWorkingCopySnapshot) {
             return cleanWorkingCopySnapshot;
         }
@@ -308,7 +305,7 @@ export const useWorkspaceSplitPayload = (options: IUseWorkspaceSplitPayloadOptio
                     detail: 'Native PDF split staging did not return a working copy',
                 });
             }
-            return createPdfSnapshotPayload(snapshotPath, true);
+            return createPdfSnapshotPayload(snapshotPath, true, page);
         }
 
         const snapshot = await resolvePdfSnapshotData();
@@ -324,10 +321,10 @@ export const useWorkspaceSplitPayload = (options: IUseWorkspaceSplitPayloadOptio
             files: getDocumentFilesCapability(),
             workingCopies: getDocumentWorkingCopyCapability(),
         });
-        return createPdfSnapshotPayload(snapshotPath, options.hasPendingTabChanges.value);
+        return createPdfSnapshotPayload(snapshotPath, options.hasPendingTabChanges.value, page);
     }
 
-    async function captureCommandViewPayload(): Promise<TSplitPayload> {
+    async function captureDocumentPayload(page: number): Promise<TSplitPayload> {
         const activeViewerAdapter = resolveWorkspaceViewerAdapter({
             djvuSourcePath: options.djvuSourcePath.value,
             isDjvuMode: options.isDjvuMode.value,
@@ -339,9 +336,7 @@ export const useWorkspaceSplitPayload = (options: IUseWorkspaceSplitPayloadOptio
         });
         // DjVu check must precede pdfSrc guard: DjVu mode has pdfSrc=null.
         if (activeViewerAdapter === DJVU_VIEWER_ADAPTER && activeViewerAdapter.capabilities.sidebar && options.djvuSourcePath.value) {
-            const normalizedCurrentPage = normalizeSplitPayloadPage(
-                options.documentViewerRef.value?.getCurrentPage?.() ?? options.currentPage.value,
-            ) ?? 1;
+            const normalizedCurrentPage = normalizeSplitPayloadPage(page) ?? 1;
             const sourceBackend = resolveDocumentRefBackend(options.djvuSourcePath.value);
             return {
                 kind: 'djvu',
@@ -356,19 +351,12 @@ export const useWorkspaceSplitPayload = (options: IUseWorkspaceSplitPayloadOptio
             return { kind: 'empty' };
         }
 
-        return capturePdfSnapshotPayload();
+        return capturePdfSnapshotPayload(page);
     }
 
     /** Captures the document at `viewPage`, the page of the view the caller addresses. */
-    function captureSplitPayload(viewPage?: number, ownership?: () => void): Promise<TSplitPayload> {
-        const capture = async () => {
-            const payload = await captureCommandViewPayload();
-            const page = normalizeSplitPayloadPage(viewPage);
-            return page && payload.kind !== 'empty' ? {
-                ...payload,
-                currentPage: page,
-            } : payload;
-        };
+    function captureSplitPayload(viewPage: number, ownership?: () => void): Promise<TSplitPayload> {
+        const capture = () => captureDocumentPayload(viewPage);
         if (ownership) {
             ownership();
             return capture();
@@ -376,7 +364,9 @@ export const useWorkspaceSplitPayload = (options: IUseWorkspaceSplitPayloadOptio
         return runWithDocumentOperationLease('split-capture', capture);
     }
 
+    /** Opens `payload` in `view`, the view of the tab it moved to, at its page. */
     async function restoreSplitPayload(
+        view: IDocumentViewPort,
         payload: TSplitPayload,
         transactionId?: string,
         captureOpenedTarget?: () => () => boolean,
@@ -388,8 +378,8 @@ export const useWorkspaceSplitPayload = (options: IUseWorkspaceSplitPayloadOptio
         if (isDjvuSplitPayload(payload) && DJVU_VIEWER_ADAPTER.capabilities.sidebar) {
             const pageToRestore = normalizeSplitPayloadPage(payload.currentPage);
             if (payload.totalPages && Number.isFinite(payload.totalPages)) {
-                options.totalPages.value = Math.max(
-                    options.totalPages.value,
+                view.view.totalPages.value = Math.max(
+                    view.view.totalPages.value,
                     Math.floor(payload.totalPages),
                     pageToRestore ?? 1,
                 );
@@ -408,7 +398,7 @@ export const useWorkspaceSplitPayload = (options: IUseWorkspaceSplitPayloadOptio
                 if (isCurrent?.() === false) {
                     return {status: 'cancelled'};
                 }
-                options.documentViewerRef.value?.scrollToPage(pageToRestore);
+                view.view.documentViewerRef.value?.scrollToPage(pageToRestore);
             }
             return isCurrent?.() === false ? {status: 'cancelled'} : outcome;
         }
@@ -418,10 +408,10 @@ export const useWorkspaceSplitPayload = (options: IUseWorkspaceSplitPayloadOptio
         }
         const pageToRestore = normalizeSplitPayloadPage(payload.currentPage);
         if (payload.totalPages && Number.isFinite(payload.totalPages)) {
-            options.totalPages.value = Math.max(options.totalPages.value, Math.floor(payload.totalPages));
+            view.view.totalPages.value = Math.max(view.view.totalPages.value, Math.floor(payload.totalPages));
         }
         const restorePageWaiter = pageToRestore && pageToRestore > 1
-            ? options.preparePdfReloadWaiter(pageToRestore)
+            ? options.prepareViewReload(view, pageToRestore)
             : null;
         const restorePagePromise = restorePageWaiter?.promise.catch((error: unknown) => {
             BrowserLogger.debug('workspace', 'Split payload page restore wait failed', {

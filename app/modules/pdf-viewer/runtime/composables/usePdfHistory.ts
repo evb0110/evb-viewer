@@ -3,13 +3,9 @@ import type {
 } from '@contracts/documentRevision';
 import type {TDocumentOperationKind} from '@app/types/documentOperationKind';
 import {runWithoutDocumentOperationLease} from '@app/utils/runWithoutDocumentOperationLease';
-import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
-import type { IDocumentOpenSurfaceSession } from '@app/modules/document-viewer/public';
 import type { Ref } from 'vue';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TWorkspaceUndoSource } from '@app/types/workspaceUndoSource';
-import type { IPdfReloadWaiterViewer } from '@app/modules/pdf-viewer/engine/pdf-reload-waiter/pdfReloadWaiterViewer';
-import { createPdfReloadWaiter } from '@app/modules/pdf-viewer/engine/pdf-reload-waiter/createPdfReloadWaiter';
 import { BrowserLogger } from '@app/utils/browserLogger';
 
 type THistoryDirection = 'undo' | 'redo';
@@ -25,10 +21,8 @@ type THistoryRoute = (
 const HISTORY_LOG_SECTION = 'pdf-history';
 
 export const usePdfHistory = (deps: {
-    pdfDocument: Ref<IPdfDocument | null>;
-    pdfViewerRef: Ref<IPdfReloadWaiterViewer | null>;
-    openSurface?: Pick<IDocumentOpenSurfaceSession, 'snapshot' | 'viewportSession'> | undefined;
-    currentPage: Ref<number>;
+    /** Waits for the reload in every view of the document, each kept on its page moved through `mapPage`. */
+    prepareReload: (mapPage: (page: number) => number) => {promise: Promise<void>; cancel: () => void};
     isAnySaving: Ref<boolean>;
     prepareHistory: () => void | Promise<void>;
     documentRevisionToken?: Ref<TDocumentRevisionToken | null>;
@@ -40,16 +34,12 @@ export const usePdfHistory = (deps: {
     nextUndoSource: Ref<TWorkspaceUndoSource | null>;
     nextRedoSource: Ref<TWorkspaceUndoSource | null>;
     workingCopyPath: Ref<TDocumentRef | null>;
-    resetSearchCache: () => void;
     clearOcrCache: (path: TDocumentRef) => void;
     undoHistory: () => Promise<boolean>;
     redoHistory: () => Promise<boolean>;
 }) => {
     const {
-        pdfDocument,
-        pdfViewerRef,
-        openSurface,
-        currentPage,
+        prepareReload,
         isAnySaving,
         prepareHistory,
         mapHistoryPage,
@@ -58,36 +48,10 @@ export const usePdfHistory = (deps: {
         nextUndoSource,
         nextRedoSource,
         workingCopyPath,
-        resetSearchCache,
         clearOcrCache,
         undoHistory,
         redoHistory,
     } = deps;
-
-    /**
-     * Starts watching for a PDF document instance swap and resolves when
-     * the reload completes (or times out). A cancel path is exposed so
-     * undo/redo no-op operations can tear the watcher down immediately.
-     */
-    function preparePdfReloadWaiter(
-        pageToRestore: number,
-    ) {
-        const normalizedPageToRestore = Math.max(1, Math.floor(pageToRestore));
-
-        return createPdfReloadWaiter({
-            pdfDocument,
-            pdfViewerRef,
-            ...(openSurface ? {openSurface} : {}),
-            resetSearchCache,
-            pageToRestore: normalizedPageToRestore,
-        });
-    }
-
-    function waitForPdfReload(
-        pageToRestore: number,
-    ) {
-        return preparePdfReloadWaiter(pageToRestore).promise;
-    }
 
     function resolveHistoryRoute(direction: THistoryDirection): THistoryRoute {
         if (isAnySaving.value || !(direction === 'undo' ? canUndo.value : canRedo.value)) {
@@ -130,9 +94,8 @@ export const usePdfHistory = (deps: {
         if (historySource === 'file' && workingCopyPath.value) {
             clearOcrCache(workingCopyPath.value);
         }
-        const pageToRestore = mapHistoryPage?.(direction, currentPage.value) ?? currentPage.value;
         const reloadWaiter = historySource === 'file'
-            ? preparePdfReloadWaiter(pageToRestore)
+            ? prepareReload(page => mapHistoryPage?.(direction, page) ?? page)
             : null;
         const didRun = await runHistory();
         if (didRun && reloadWaiter) {
@@ -153,8 +116,6 @@ export const usePdfHistory = (deps: {
     );
 
     return {
-        preparePdfReloadWaiter,
-        waitForPdfReload,
         canUndo,
         canRedo,
         isHistoryBusy: deps.isHistoryBusy ?? computed(() => false),

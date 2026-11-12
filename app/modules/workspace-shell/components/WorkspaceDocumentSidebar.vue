@@ -31,7 +31,7 @@
         :annotation-comments="annotations.annotationComments.value"
         :annotation-comments-status="annotations.annotationCommentsStatus.value"
         :annotation-inventory="annotations.annotationInventory.value"
-        :selected-annotations="annotations.selectedAnnotations.value"
+        :selected-annotations="context.selectedAnnotations.value"
         :can-rotate-annotations="pdfViewer?.canRotateSelectedAnnotations"
         :bookmark-edit-mode="bookmarkState.bookmarkEditMode.value"
         :bookmark-items="bookmarkState.bookmarksResolved.value ? bookmarkState.bookmarkItems.value : undefined"
@@ -121,7 +121,6 @@ const context = useDocumentViewContext();
 const {
     file,
     annotations,
-    pageOps,
     metadata: {
         pageLabelState,
         bookmarkState,
@@ -131,6 +130,7 @@ const {
     view,
     search,
     navigation,
+    pageOps,
     annotationActions,
     annotationTool,
     annotationToolState,
