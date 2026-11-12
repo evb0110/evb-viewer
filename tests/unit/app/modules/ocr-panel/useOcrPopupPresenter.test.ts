@@ -839,6 +839,7 @@ describe('useOcrPopupPresenter', () => {
             harness.busy.value = true;
             await nextTick();
 
+            expect(harness.presenter.canRunOcr.value).toBe(false);
             await expect(harness.presenter.runOcrForAgent({open: false})).resolves.toMatchObject({
                 ok: false,
                 error: 'errors.ocr.disabled',

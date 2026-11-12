@@ -425,10 +425,9 @@ export const useOcrPopupPresenter = ({
             return state === 'missing' || failedLanguageCodes.value.has(code);
         });
     });
-    // The view blocks document edits. A background recovery lease can still
-    // copy the source while recognition reads it; applying OCR takes the lease.
     const canRunOcr = computed(() =>
-        !progress.value.isRunning
+        !toValue(context.busy)
+        && !progress.value.isRunning
         && hasSelectedAvailableLanguage.value
         && Boolean(workingCopyPath.value),
     );

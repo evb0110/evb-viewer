@@ -57,6 +57,8 @@ type TFrontierStep = (assertCurrent: () => void) => Promise<void>;
 export interface IDocumentOperationLease {
     activeKind: ComputedRef<TDocumentOperationKind | null>;
     isBusy: ComputedRef<boolean>;
+    /** Busy with an operation other than a background recovery copy, which only reads the document. */
+    isForegroundBusy: ComputedRef<boolean>;
     runExclusive: <T>(kind: TDocumentOperationKind, operation: (ownership: IDocumentOperationOwnership) => Promise<T>) => Promise<T>;
 }
 
@@ -177,10 +179,13 @@ function createDocumentOperationLease(): IDocumentOperationLease {
         ownership: IDocumentOperationOwnership
     } | null>(null);
     const pendingCount = ref(0);
+    const pendingRecoveryCount = ref(0);
     let queueTail: Promise<void> = Promise.resolve();
 
     async function runExclusive<T>(kind: TDocumentOperationKind, operation: (ownership: IDocumentOperationOwnership) => Promise<T>) {
         pendingCount.value += 1;
+        const isRecovery = kind === 'recovery-snapshot';
+        if (isRecovery) pendingRecoveryCount.value += 1;
         const operationPromise = queueTail
             .catch(() => undefined)
             .then(async () => {
@@ -196,6 +201,7 @@ function createDocumentOperationLease(): IDocumentOperationLease {
                 } finally {
                     active.value = null;
                     pendingCount.value = Math.max(0, pendingCount.value - 1);
+                    if (isRecovery) pendingRecoveryCount.value = Math.max(0, pendingRecoveryCount.value - 1);
                 }
             });
 
@@ -206,6 +212,7 @@ function createDocumentOperationLease(): IDocumentOperationLease {
     return {
         activeKind: computed(() => active.value?.kind ?? null),
         isBusy: computed(() => pendingCount.value > 0),
+        isForegroundBusy: computed(() => pendingCount.value > pendingRecoveryCount.value),
         runExclusive,
     };
 }
