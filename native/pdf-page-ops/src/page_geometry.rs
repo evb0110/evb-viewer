@@ -273,12 +273,14 @@ impl<'a> PageLookup<'a> {
     }
 }
 
-fn resolve_page_rotation_targets(
-    document: &impl PdfObjectSource,
+/// Rotate pages by quarter turns. Only the selected leaf page dictionaries are
+/// rewritten; an inherited `/Pages` rotation is made explicit on the leaf so
+/// the resulting effective value is stable and normalized.
+pub(crate) fn rotate_pages(
+    document: &mut impl PdfObjectStore,
     rotations: &[PageRotationMutation],
-    located_pages: Option<&LocatedPages>,
-) -> Result<Vec<(ObjectId, i64)>> {
-    let pages = PageLookup::new(document, located_pages)?;
+) -> Result<()> {
+    let pages = PageLookup::new(document, document.located_pages())?;
     let mut targets = Vec::with_capacity(rotations.len());
     for rotation in rotations {
         let page_number = rotation
@@ -292,42 +294,9 @@ fn resolve_page_rotation_targets(
             normalize_page_rotation(current.saturating_add(rotation.angle)),
         ));
     }
-    Ok(targets)
-}
-
-/// Apply rotation mutations to a fully materialized document. Keeping this
-/// path alongside the incremental implementation preserves the native
-/// mutation contract for small/non-append callers as well.
-pub(crate) fn rotate_pages(
-    document: &mut Document,
-    rotations: &[PageRotationMutation],
-) -> Result<()> {
-    let targets = resolve_page_rotation_targets(document, rotations, None)?;
     for (page_id, rotation) in targets {
         document
-            .get_dictionary_mut(page_id)?
-            .set("Rotate", Object::Integer(rotation));
-    }
-    Ok(())
-}
-
-/// Rewrite only the selected leaf page dictionaries in a new incremental
-/// revision. Inherited `/Pages` rotations are made explicit on the leaf so
-/// the resulting effective value is stable and normalized.
-pub(crate) fn rotate_pages_incremental(
-    incremental: &mut IncrementalDocument,
-    rotations: &[PageRotationMutation],
-) -> Result<()> {
-    let targets = resolve_page_rotation_targets(
-        incremental.get_prev_documents(),
-        rotations,
-        incremental.located_pages.as_ref(),
-    )?;
-    for (page_id, rotation) in targets {
-        incremental.opt_clone_object_to_new_document(page_id)?;
-        incremental
-            .new_document
-            .get_dictionary_mut(page_id)?
+            .dictionary_mut(page_id)?
             .set("Rotate", Object::Integer(rotation));
     }
     Ok(())

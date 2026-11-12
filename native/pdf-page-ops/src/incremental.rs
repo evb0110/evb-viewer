@@ -470,7 +470,7 @@ fn apply_native_mutations_incremental_internal(
         delete_annotations_incremental(incremental, &mutations.deletes)?;
     }
     if !mutations.page_rotations.is_empty() {
-        rotate_pages_incremental(incremental, &mutations.page_rotations)?;
+        rotate_pages(incremental, &mutations.page_rotations)?;
     }
     if let Some(page_labels) = &mutations.page_labels {
         set_page_labels(

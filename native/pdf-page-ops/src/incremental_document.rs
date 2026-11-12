@@ -1673,7 +1673,7 @@ esac
             270
         );
 
-        rotate_pages_incremental(
+        rotate_pages(
             &mut incremental,
             &[PageRotationMutation {
                 page_index: 0,
