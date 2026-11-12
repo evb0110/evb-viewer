@@ -477,7 +477,6 @@ export const createDocumentViewContext = (deps: IDocumentViewContextDeps) => {
             onAnnotationCommentClick: annotationActions.handleAnnotationCommentClick,
             onAnnotationComments: handleAnnotationComments,
             onAnnotationInventory: annotations.applyAnnotationInventory,
-            onAnnotationEnrichmentState: annotations.applyAnnotationEnrichmentState,
             onAnnotationContextMenu: annotationActions.handleViewerAnnotationContextMenu,
             onAnnotationModified: annotationActions.handleAnnotationModified,
             onAnnotationFailure: failure.reportAnnotationFailure,

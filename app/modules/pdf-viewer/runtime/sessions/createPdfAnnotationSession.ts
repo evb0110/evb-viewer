@@ -47,7 +47,6 @@ import {
     type ITextBoxEntity,
 } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import { groupBy } from 'es-toolkit/array';
-import type { IAnnotationEnrichmentState } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/annotationEnrichmentPolicy';
 import { compareAnnotationCommentSummaries } from '@app/utils/pdfAnnotationComments';
 import { usePdfViewerSaveTransaction } from '@app/modules/pdf-viewer/runtime/save/usePdfViewerSaveTransaction';
 import {
@@ -128,7 +127,6 @@ export interface ICreatePdfAnnotationSessionOptions {
     emitAnnotationState: Parameters<typeof usePdfAppAnnotationHistory>[0]['emitAnnotationState'];
     emitAnnotationComments: (comments: IAnnotationCommentSummary[]) => void;
     emitAnnotationInventory: (completeness: IAnnotationInventoryCompleteness | null) => void;
-    emitAnnotationEnrichmentState: (state: IAnnotationEnrichmentState) => void;
     emitAnnotationOpenNote: (comment: IAnnotationCommentSummary) => void;
     emitAnnotationContextMenu: (payload: IAnnotationContextMenuPayload) => void;
     emitAnnotationToolAutoReset: () => void;
@@ -278,11 +276,6 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
     const linksByPage = computed<Record<number, ILinkAnnotation[]>>(() =>
         groupBy(linkAnnotations.value, link => link.pageNumber),
     );
-    options.emitAnnotationEnrichmentState({
-        status: 'enriched',
-        reason: null,
-        canRetry: false,
-    });
     const selectionMarkupStyle = (subtype: Parameters<typeof textMarkupStyle>[1]) => textMarkupStyle(options.annotationSettings.value, subtype);
     function emitAnnotationOpenNoteWithReconciliation(comment: IAnnotationCommentSummary) {
         emitCanonicalAnnotationOpenNote({

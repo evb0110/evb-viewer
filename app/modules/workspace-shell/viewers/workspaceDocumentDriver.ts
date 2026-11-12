@@ -25,7 +25,6 @@ import type {
     IAnnotationCreationFailureReport,
     IDocumentViewerExpose,
     IPdfViewerExpose,
-    IAnnotationEnrichmentState,
 } from '@app/modules/pdf-viewer/public';
 import {isPathPdfSource} from '@app/modules/pdf-viewer/public';
 import type { TPdfRasterDisplayProfile } from '@app/types/pdfRasterDisplayProfile';
@@ -75,17 +74,8 @@ export type TAnnotationInventoryListener = (
     completeness: IAnnotationInventoryCompleteness | null,
 ) => void;
 
-/**
- * Handler for the viewer's annotation-enrichment verdict, typed for the same
- * reason as the inventory listener above: the panel decides between "read
- * complete", "read skipped" and "read failed" from this payload, and an
- * `unknown` entry would let a mismatched shape reach it as a wrong notice.
- */
-export type TAnnotationEnrichmentStateListener = (state: IAnnotationEnrichmentState) => void;
-
 interface IActiveViewerListeners extends Record<string, unknown> {
     annotationInventory?: TAnnotationInventoryListener;
-    annotationEnrichmentState?: TAnnotationEnrichmentStateListener;
 }
 
 const PDF_SOURCE_CAPABILITIES: IDocumentSourceCapabilities = {
@@ -491,7 +481,6 @@ export interface IWorkspaceDocumentDriverBindingOptions {
     onAnnotationCommentClick: unknown;
     onAnnotationComments: unknown;
     onAnnotationInventory: TAnnotationInventoryListener;
-    onAnnotationEnrichmentState: TAnnotationEnrichmentStateListener;
     onAnnotationContextMenu: unknown;
     onAnnotationModified: unknown;
     onAnnotationFailure: (failure: IAnnotationCreationFailureReport) => void;
@@ -610,7 +599,6 @@ export const useWorkspaceDocumentDriverBinding = (options: IWorkspaceDocumentDri
             annotationModified: options.onAnnotationModified,
             annotationComments: options.onAnnotationComments,
             annotationInventory: options.onAnnotationInventory,
-            annotationEnrichmentState: options.onAnnotationEnrichmentState,
             annotationOpenNote: options.onAnnotationOpenNote,
             annotationCommentClick: options.onAnnotationCommentClick,
             annotationContextMenu: options.onAnnotationContextMenu,

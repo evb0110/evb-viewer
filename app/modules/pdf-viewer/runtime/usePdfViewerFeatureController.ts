@@ -270,7 +270,6 @@ export const usePdfViewerFeatureController = (
         emitAnnotationState: state => emit('annotation-state', state),
         emitAnnotationComments: comments => emit('annotation-comments', comments),
         emitAnnotationInventory: completeness => emit('annotation-inventory', completeness),
-        emitAnnotationEnrichmentState: state => emit('annotation-enrichment-state', state),
         emitAnnotationOpenNote: comment => emit('annotation-open-note', comment),
         emitAnnotationContextMenu: payload => emit('annotation-context-menu', payload),
         viewRotation,
