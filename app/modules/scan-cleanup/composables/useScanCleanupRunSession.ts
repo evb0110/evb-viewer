@@ -1,9 +1,7 @@
 import type {
-    IScanCleanupDocumentPrior,
     IScanCleanupOptions,
     IScanCleanupPagePlanEvidence,
     IScanCleanupPlacementAnchorSummary,
-    IScanCleanupSourcePageMetadata,
     TScanCleanupLayoutClassification,
     TScanCleanupErrorCode,
     TScanCleanupDetectionJobState,
@@ -11,6 +9,11 @@ import type {
 } from '@contracts/scan-cleanup/electronApiScanCleanup';
 import type {TDocumentRef} from '@contracts/documentRef';
 import {requirePageNumber} from '@contracts/pageNumbers';
+import {
+    selectScanCleanupDetectionByPage,
+    type IScanCleanupDetectionPageRecord,
+    type TScanCleanupDetectionRecords,
+} from '@app/modules/scan-cleanup/composables/useScanCleanupDetectionSession';
 import type {
     ComputedRef,
     Ref,
@@ -84,8 +87,9 @@ interface IUseScanCleanupRunSessionOptions {
      * completion cannot be inferred from the renderer's bounded page map.
      */
     detectionEvidenceComplete?: ComputedRef<boolean>;
+    /** Detection's page records; a page's verdicts and plan are its `result`. */
+    detectionRecords: Readonly<Ref<TScanCleanupDetectionRecords>>;
     documentRevision: ComputedRef<string>;
-    documentPriorByPage: ReadonlyMap<number, IScanCleanupDocumentPrior>;
     onCompleted: () => void;
     ownerId: string;
     placementAnchorsByPage: ComputedRef<TScanCleanupPlacementAnchorsByPage>;
@@ -93,10 +97,7 @@ interface IUseScanCleanupRunSessionOptions {
     resolvedOptions?: ComputedRef<IScanCleanupOptions>;
     resolvePagePlanEvidence: (pageNumbers: readonly number[] | null) => ReadonlyMap<number, IScanCleanupPagePlanEvidence>;
     sourcePageNumbers: ComputedRef<number[] | null>;
-    sourcePageMetadataByPage: ComputedRef<ReadonlyMap<number, IScanCleanupSourcePageMetadata>>;
     settings: IScanCleanupOptions;
-    recommendedOutputModeByPage: ReadonlyMap<number, 'bw' | 'mixed' | 'grayscale' | 'color'>;
-    softAlphaForegroundRecommendationByPage: ReadonlyMap<number, boolean>;
     sourcePath: ComputedRef<TDocumentRef | null>;
     totalPages: ComputedRef<number>;
     refreshDetection: () => Promise<void>;
@@ -415,24 +416,22 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
             const detectionResultStoreId = options.detectionResultStoreId?.value ?? null;
             const placementAnchorSummary = options.placementAnchorSummary?.value ?? null;
             const pagePlanEvidence = options.resolvePagePlanEvidence(requestedPageNumbers);
+            const byPage = <T>(select: (record: IScanCleanupDetectionPageRecord) => T | null | undefined) => {
+                const selected = selectScanCleanupDetectionByPage(options.detectionRecords.value, select);
+                return selected.size === 0 ? undefined : Object.fromEntries(selected);
+            };
+            const outputModeRecommendations = byPage(record => record.result?.recommendedOutputMode);
+            const softAlphaForegroundRecommendations = byPage(record => record.result?.softAlphaForegroundRecommendation);
+            const sourcePageMetadataByPage = byPage(record => record.sourcePageMetadata);
+            const documentPriorByPage = byPage(record => record.result?.documentPrior);
             const legacyDetectionFields = detectionResultStoreId === null
                 && runPageCount.value <= DETECTION_RESULT_ARRAY_COMPATIBILITY_LIMIT
                 ? {
-                    ...(options.recommendedOutputModeByPage.size === 0 ? {} : {outputModeRecommendations: Object.fromEntries(
-                        options.recommendedOutputModeByPage,
-                    )}),
-                    ...(options.softAlphaForegroundRecommendationByPage.size === 0
-                        ? {}
-                        : {softAlphaForegroundRecommendations: Object.fromEntries(
-                            options.softAlphaForegroundRecommendationByPage,
-                        )}),
+                    ...(outputModeRecommendations === undefined ? {} : {outputModeRecommendations}),
+                    ...(softAlphaForegroundRecommendations === undefined ? {} : {softAlphaForegroundRecommendations}),
                     layoutByPage: toScanCleanupLayoutByPage(options.authoritativeLayoutByPage.value),
-                    ...(options.sourcePageMetadataByPage.value.size === 0
-                        ? {}
-                        : {sourcePageMetadataByPage: Object.fromEntries(options.sourcePageMetadataByPage.value)}),
-                    ...(options.documentPriorByPage.size === 0
-                        ? {}
-                        : {documentPriorByPage: Object.fromEntries(options.documentPriorByPage)}),
+                    ...(sourcePageMetadataByPage === undefined ? {} : {sourcePageMetadataByPage}),
+                    ...(documentPriorByPage === undefined ? {} : {documentPriorByPage}),
                     ...(pagePlanEvidence.size === 0
                         ? {}
                         : {pagePlanEvidenceByPage: Object.fromEntries(pagePlanEvidence)}),
@@ -641,7 +640,7 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
                 if (
                     !pageOverride.excluded
                     && (pageOverride.outputModeOverride ?? requestOptions.outputMode) === 'auto'
-                    && !options.recommendedOutputModeByPage.has(pageNumber)
+                    && options.detectionRecords.value.get(pageNumber)?.result?.recommendedOutputMode === undefined
                 ) {
                     missingAutomaticModeDecisions = true;
                 }
@@ -655,7 +654,8 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
                 // Small compatibility callers without that scalar still use
                 // their complete page map as the proof of coverage.
                 const recommendationsComplete = options.detectionEvidenceComplete?.value
-                    ?? options.recommendedOutputModeByPage.size >= runPageCount.value;
+                    ?? [...options.detectionRecords.value.values()]
+                        .filter(record => record.result?.recommendedOutputMode !== undefined).length >= runPageCount.value;
                 missingAutomaticModeDecisions = !recommendationsComplete;
             } else {
                 for (const pageNumber of requestedPageNumbers) {

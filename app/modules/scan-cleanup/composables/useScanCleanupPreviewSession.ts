@@ -42,6 +42,7 @@ import type {
     Ref,
 } from 'vue';
 import {isScanCleanupLifecycleIdentityPromotion} from '@app/modules/scan-cleanup/runtime/scanCleanupDetectionSessionCache';
+import type {TScanCleanupDetectionRecords} from '@app/modules/scan-cleanup/composables/useScanCleanupDetectionSession';
 import {
     createScanCleanupPreviewCache,
     SCAN_CLEANUP_PREVIEW_CACHE_KEY_SEPARATOR,
@@ -173,13 +174,13 @@ interface IUseScanCleanupPreviewSessionOptions {
     active: () => boolean;
     authoritativeLayoutByPage: ComputedRef<ReadonlyMap<number, TScanCleanupLayoutClassification>>;
     documentCanvasSignature: Ref<string>;
+    /** Detection's page records; a page's verdicts and plan are its `result`. */
+    detectionRecords: Readonly<Ref<TScanCleanupDetectionRecords>>;
     documentRevision: ComputedRef<string>;
-    documentPriorByPage: ReadonlyMap<number, IScanCleanupDocumentPrior>;
     initialViewMode?: 'original' | 'cleaned' | undefined;
     layoutDetectionComplete: ComputedRef<boolean>;
     lifecycleDocumentKey: ComputedRef<string | null>;
     ownerId: string;
-    pagePlanEvidenceByPage: ReadonlyMap<number, IScanCleanupPagePlanEvidence>;
     /** A retained result store makes the main-process calibration the authority. */
     detectionResultStoreId?: Readonly<Ref<string | null>>;
     placementAnchorSummary?: Readonly<Ref<IScanCleanupPlacementAnchorSummary | null>>;
@@ -190,9 +191,7 @@ interface IUseScanCleanupPreviewSessionOptions {
     ) => Promise<IScanCleanupPlacementAnchorCalibration | undefined>;
     previewPage: Ref<number>;
     resolvedOptions?: ComputedRef<IScanCleanupOptions>;
-    recommendedOutputModeByPage: ReadonlyMap<number, TScanCleanupOutputMode>;
     sourceSha256?: ComputedRef<string | null>;
-    softAlphaForegroundRecommendationByPage: ReadonlyMap<number, boolean>;
     selectPage: (page: number, intent: TScanCleanupSelectionIntent, orderedPages: TScanCleanupOrderedPages) => void;
     settings: IScanCleanupOptions;
     sourcePath: ComputedRef<TDocumentRef | null>;
@@ -318,6 +317,7 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
         options.settings.pageOverrideDefaults,
         options.settings.marginsMm,
     );
+    const detected = (pageNumber: number) => options.detectionRecords.value.get(pageNumber)?.result;
     const i18n = useTypedI18n();
     const {t} = i18n;
     const result = shallowRef<IScanCleanupPreviewResult | null>(null);
@@ -519,13 +519,13 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
             previewOptions,
             previewSourcePath,
             options.documentRevision.value,
-            options.documentPriorByPage.get(pageNumber) ?? null,
+            detected(pageNumber)?.documentPrior ?? null,
             options.documentCanvasSignature.value,
             matchedCanvasOverridesSignature.value,
             resolveOutputModeRecommendation(pageNumber) ?? null,
             resolveSoftAlphaForegroundRecommendation(pageNumber) ?? null,
             unresolvedPageLayout,
-            options.pagePlanEvidenceByPage.get(pageNumber) ?? null,
+            detected(pageNumber)?.pagePlanEvidence ?? null,
             options.layoutDetectionComplete.value,
             resolvedPlacementAnchors ?? placementAnchorsFor(pageNumber) ?? null,
         ) + `${SCAN_CLEANUP_PREVIEW_CACHE_KEY_SEPARATOR}lifecycle:${String(lifecycleGeneration.value)}`;
@@ -633,13 +633,13 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
         return resolveScanCleanupEffectiveOutputMode({
             options: options.settings,
             pageOverride,
-            detectedOutputMode: options.recommendedOutputModeByPage.get(pageNumber),
+            detectedOutputMode: detected(pageNumber)?.recommendedOutputMode,
         });
     }
 
     function resolveSoftAlphaForegroundRecommendation(pageNumber: number) {
         return resolveOutputModeRecommendation(pageNumber) === 'mixed'
-            ? options.softAlphaForegroundRecommendationByPage.get(pageNumber)
+            ? detected(pageNumber)?.softAlphaForegroundRecommendation
             : undefined;
     }
 
@@ -794,11 +794,11 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
         ]
             .filter(pageNumber => pageNumber >= 1 && pageNumber <= previewResult.totalPages);
         const candidates = (await Promise.all(adjacentPages.map(async pageNumber => {
-            const documentPrior = options.documentPriorByPage.get(pageNumber);
+            const documentPrior = detected(pageNumber)?.documentPrior ?? undefined;
             const outputModeRecommendation = resolveOutputModeRecommendation(pageNumber);
             const softAlphaForegroundRecommendation =
                 resolveSoftAlphaForegroundRecommendation(pageNumber);
-            const pagePlanEvidence = options.pagePlanEvidenceByPage.get(pageNumber);
+            const pagePlanEvidence = detected(pageNumber)?.pagePlanEvidence;
             let placementAnchors = placementAnchorsFor(pageNumber);
             let key = cacheKey(pageNumber, previewOptions, previewSourcePath, placementAnchors);
             if (options.resolvePlacementAnchorsForPage !== undefined && !cache.has(key)) {
@@ -874,11 +874,11 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
         const requestPage = options.previewPage.value;
         const requestOptions = resolvedOptions.value;
         const requestSourcePath = options.sourcePath.value;
-        const documentPrior = options.documentPriorByPage.get(requestPage);
+        const documentPrior = detected(requestPage)?.documentPrior ?? undefined;
         const outputModeRecommendation = resolveOutputModeRecommendation(requestPage);
         const softAlphaForegroundRecommendation =
             resolveSoftAlphaForegroundRecommendation(requestPage);
-        const pagePlanEvidence = options.pagePlanEvidenceByPage.get(requestPage);
+        const pagePlanEvidence = detected(requestPage)?.pagePlanEvidence;
         const key = cacheKey(requestPage, requestOptions, requestSourcePath);
         const requestId = nextRequestId();
         activeVisibleRequestId = requestId;
@@ -1122,7 +1122,7 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
         return resolveScanCleanupEffectiveOutputMode({
             options: options.settings,
             pageOverride,
-            detectedOutputMode: options.recommendedOutputModeByPage.get(pageNumber),
+            detectedOutputMode: detected(pageNumber)?.recommendedOutputMode,
             renderedOutputMode,
         });
     }
@@ -1207,12 +1207,12 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
         if (!isRetry) detailAttemptCount = 0;
         detailAttemptCount += 1;
         try {
-            const documentPrior = options.documentPriorByPage.get(requestPage);
+            const documentPrior = detected(requestPage)?.documentPrior ?? undefined;
             // The same recommendations its base was rendered with, so the
             // detail refines that base rather than missing it.
             const outputModeRecommendation = resolveOutputModeRecommendation(requestPage);
             const softAlphaForegroundRecommendation = resolveSoftAlphaForegroundRecommendation(requestPage);
-            const pagePlanEvidence = options.pagePlanEvidenceByPage.get(requestPage);
+            const pagePlanEvidence = detected(requestPage)?.pagePlanEvidence;
             const placementAnchors = placementAnchorsFor(requestPage);
             const requestId = nextRequestId();
             const wireResult = await capability.preview(toBridgeSafeScanCleanupPayload(narrowScanCleanupPreviewRequestToPage({
