@@ -160,8 +160,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
     };
     const getRenderDocumentToken = () => `${String(options.workingCopyPath.value ?? '')}\0${String(options.documentRevisionToken.value ?? '')}`;
     const getMountedRasterTarget = (pageNumber: TPageNumber) => getMountedPdfRasterTarget(options.viewerContainer.value, pageNumber);
-    const isTextLayerReady = (pageNumber: TPageNumber) => pageResources.get(pageNumber).text
-        && getMountedRasterTarget(pageNumber)?.container.querySelector<HTMLElement>('.text-layer')?.dataset.pdfTextLayerReady === 'true';
+    const isTextLayerReady = (pageNumber: TPageNumber) => pageResources.get(pageNumber).text?.isConnected === true;
     const textLayerWaits = new Set<() => void>();
     // Resolves true once the page's text layer is ready, false on timeout or disposal.
     function waitForPageTextLayerReady(pageNumber: TPageNumber, signal: AbortSignal) {
@@ -294,15 +293,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
         async prepare(demand, page, signal, captureSettlement, reserveAdditionalBytes) {
             const job = pageResources.get(demand.pageNumber).job;
             const target = getMountedRasterTarget(demand.pageNumber);
-            if (
-                job?.demand.renderKey !== demand.renderKey
-                || !target
-                || !isRasterTargetCurrent(job)
-                || documentSession.pdfDocument.value === null
-            ) {
-                return null;
-            }
-            pageResources.beginRaster(demand.pageNumber, job, target.container);
+            if (job?.demand.renderKey !== demand.renderKey || !target || documentSession.pdfDocument.value === null) return null;
             const shouldContinue = () => (
                 !signal.aborted
                 && pageResources.get(demand.pageNumber).job === job
@@ -310,6 +301,10 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
                 && (job.renderOptions.annotationCommit?.isCurrent() ?? true)
                 && isViewportRasterDemanded(demand.pageNumber, job.demand.lane)
             );
+            // Declined up front on everything a start would check, so a
+            // cancellation the scheduler sees later is a coordinator pre-emption.
+            if (!shouldContinue()) return null;
+            pageResources.beginRaster(demand.pageNumber, job, target.container);
             const sourceMaxPixels = resolvePdfRasterSourceMaxPixels(options.rasterDisplayProfile.value, demand.pageNumber);
             const reserveAppearanceBytes = (bytes: number) => reserveAdditionalBytes(3 * bytes);
             const metric = documentSession.pageMetrics.value[demand.pageNumber - 1];
@@ -353,15 +348,17 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
         start: prepared => prepared.render.startRender(),
         additionalResourceBytes: prepared => prepared.render.additionalResourceBytes,
         onRenderStall: payload => handlePageRenderStall(payload),
-        // The scheduler reports exhaustion once; retain any old canvas for Retry.
-        onRenderExhausted(outcome) {
+        // A failed render stays failed, keeping any old canvas, until the next
+        // demand change or the user's Retry; a declined one waits for the
+        // change that made it stale, such as a mount, a zoom or a new revision.
+        onRenderUncommitted(outcome) {
             const demand = outcome.demand;
             const pageNumber = demand.pageNumber;
             const job = pageResources.get(pageNumber).job;
             if (job?.demand.renderKey !== demand.renderKey) return;
             pageResources.setJobState(pageNumber, job, outcome.status === 'failed' ? 'failed' : 'absent');
             renderedPageStateVersion.value += 1;
-            if (outcome.status !== 'failed') return queueFrame();
+            if (outcome.status !== 'failed') return;
             initialVisual.handlePageRasterFailed(canvasFence(job, demand), getErrorMessage(outcome.error));
             pageRenderer.presentPageRenderFailure(pageNumber, outcome.error, () => cancelInFlightRenders().then(() => renderVisiblePages(singlePageRange(pageNumber), {bufferOverride: 0})), () => demand.lane === 'navigation-target' || viewport.viewportWork.activeWorkKind.value !== 'navigation' && viewport.demand.value.requiredPages.includes(pageNumber));
         },
@@ -421,7 +418,6 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
             };
             await pageRenderer.renderCommittedPageLayers({
                 pageNumber,
-                scale: prepared.job.targetScale,
                 container: prepared.container,
                 renderResult: prepared.render,
                 signal: prepared.signal,

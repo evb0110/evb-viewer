@@ -1,38 +1,15 @@
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 
-export type TPdfRenderSupervisorWatchdogCause =
-    | 'page-stage-timeout'
-    | 'render-stall-recovery'
-    | 'render-cancelled-retry'
-    | 'navigation-paged-settle'
-    | 'navigation-search-settle'
-    | 'navigation-continuous-render'
-    | 'navigation-continuous-target-fallback'
-    | 'navigation-hold-ready-retry'
-    | 'navigation-hold-recovery'
-    | 'navigation-hold-abandon'
-    | 'navigation-hold-still-waiting'
-    | 'navigation-programmatic-release'
-    | 'text-markup-presentation-repair';
-
-export type TPdfRenderSupervisorExplicitCause =
-    | 'annotation-editor-layer-render-failed'
-    | 'annotation-editor-layer-quarantined'
-    | 'pdfjs-compatibility-unsupported';
-
-export type TPdfRenderSupervisorCause =
-    | TPdfRenderSupervisorWatchdogCause
-    | TPdfRenderSupervisorExplicitCause
-    | 'stale-superseded';
+/** The only watchdog: a render stage that made no progress for its window. */
+export type TPdfRenderSupervisorWatchdogCause = 'page-stage-timeout';
 
 export interface IPdfRenderSupervisorEvent {
-    cause: TPdfRenderSupervisorCause;
+    cause: TPdfRenderSupervisorWatchdogCause;
     delayMs: number;
     elapsedMs: number;
     firedAtMs: number;
     metadata?: Record<string, unknown> | undefined;
     ownerKey: string;
-    sourceCause?: TPdfRenderSupervisorWatchdogCause | undefined;
     token: number;
 }
 
@@ -49,21 +26,10 @@ export interface IArmPdfRenderSupervisorTimerOptions {
     key: string;
     metadata?: Record<string, unknown> | undefined;
     onFire: (event: IPdfRenderSupervisorEvent) => void;
-    replace?: boolean | undefined;
-}
-
-export interface IReportPdfRenderSupervisorEventOptions {
-    cause: TPdfRenderSupervisorExplicitCause;
-    key: string;
-    metadata?: Record<string, unknown> | undefined;
 }
 
 export interface IPdfRenderSupervisor {
     armTimer: (options: IArmPdfRenderSupervisorTimerOptions) => IPdfRenderSupervisorTimer;
-    clearTimer: (timer: IPdfRenderSupervisorTimer | null | undefined) => boolean;
-    clearTimers: (timers: Array<IPdfRenderSupervisorTimer | null | undefined>) => void;
-    isTimerCurrent: (timer: IPdfRenderSupervisorTimer | null | undefined) => boolean;
-    reportEvent: (options: IReportPdfRenderSupervisorEventOptions) => IPdfRenderSupervisorEvent;
 }
 
 interface ICreatePdfRenderSupervisorOptions {
@@ -75,159 +41,72 @@ interface ICreatePdfRenderSupervisorOptions {
 
 interface IActivePdfRenderSupervisorTimer {
     armedAtMs: number;
-    cause: TPdfRenderSupervisorWatchdogCause;
-    delayMs: number;
     handle: ReturnType<typeof setTimeout> | null;
-    key: string;
-    metadata?: Record<string, unknown> | undefined;
-    onFire: (event: IPdfRenderSupervisorEvent) => void;
+    options: IArmPdfRenderSupervisorTimerOptions;
     token: number;
 }
 
-function buildEvent(
-    activeTimer: IActivePdfRenderSupervisorTimer,
-    cause: TPdfRenderSupervisorCause,
-    now: () => number,
-): IPdfRenderSupervisorEvent {
-    const firedAtMs = now();
-    return {
-        cause,
-        delayMs: activeTimer.delayMs,
-        elapsedMs: Math.max(0, firedAtMs - activeTimer.armedAtMs),
-        firedAtMs,
-        metadata: activeTimer.metadata,
-        ownerKey: activeTimer.key,
-        sourceCause: cause === 'stale-superseded'
-            ? activeTimer.cause
-            : undefined,
-        token: activeTimer.token,
-    };
-}
-
-function buildExplicitEvent(
-    options: IReportPdfRenderSupervisorEventOptions,
-    now: () => number,
-    token: number,
-): IPdfRenderSupervisorEvent {
-    return {
-        cause: options.cause,
-        delayMs: 0,
-        elapsedMs: 0,
-        firedAtMs: now(),
-        metadata: options.metadata,
-        ownerKey: options.key,
-        token,
-    };
-}
-
+/** One timer per key: arming a key replaces its timer, whose callback then never runs. */
 export function createPdfRenderSupervisor(
     options: ICreatePdfRenderSupervisorOptions = {},
 ): IPdfRenderSupervisor {
     const activeTimers = new Map<string, IActivePdfRenderSupervisorTimer>();
-    // One counter for every timer and event: a token is never reused, so no
-    // history per key is kept and an old handle never matches a new timer.
     let lastToken = 0;
     const now = options.now ?? (() => Date.now());
     const setTimeoutFn = options.setTimeoutFn ?? ((callback, delayMs) => setTimeout(callback, delayMs));
     const clearTimeoutFn = options.clearTimeoutFn ?? (handle => clearTimeout(handle));
 
-    function emit(event: IPdfRenderSupervisorEvent) {
-        logPdfRenderTrace('pdf-render-supervisor-watchdog', { ...event });
-        options.onEvent?.(event);
-    }
-
-    function isActiveTimerCurrent(activeTimer: IActivePdfRenderSupervisorTimer) {
-        return activeTimers.get(activeTimer.key) === activeTimer;
-    }
-
-    function fireTimer(activeTimer: IActivePdfRenderSupervisorTimer) {
-        if (!isActiveTimerCurrent(activeTimer)) {
-            emit(buildEvent(activeTimer, 'stale-superseded', now));
-            return;
-        }
-
-        activeTimers.delete(activeTimer.key);
-        const event = buildEvent(activeTimer, activeTimer.cause, now);
-        emit(event);
-        activeTimer.onFire(event);
-    }
-
-    function clearTimerKey(key: string, token?: number) {
-        const activeTimer = activeTimers.get(key);
-        if (!activeTimer || (token !== undefined && activeTimer.token !== token)) {
+    function clearTimer(timer: IActivePdfRenderSupervisorTimer) {
+        if (activeTimers.get(timer.options.key) !== timer) {
             return false;
         }
-
-        if (activeTimer.handle !== null) {
-            clearTimeoutFn(activeTimer.handle);
+        if (timer.handle !== null) {
+            clearTimeoutFn(timer.handle);
         }
-        activeTimers.delete(key);
+        activeTimers.delete(timer.options.key);
         return true;
     }
 
-    function armTimer(armOptions: IArmPdfRenderSupervisorTimerOptions) {
-        if (armOptions.replace !== false) {
-            clearTimerKey(armOptions.key);
+    function fireTimer(timer: IActivePdfRenderSupervisorTimer) {
+        if (activeTimers.get(timer.options.key) !== timer) {
+            return;
         }
-
-        const token = ++lastToken;
-        const activeTimer: IActivePdfRenderSupervisorTimer = {
-            armedAtMs: now(),
-            cause: armOptions.cause,
-            delayMs: armOptions.delayMs,
-            handle: null,
-            key: armOptions.key,
-            metadata: armOptions.metadata,
-            onFire: armOptions.onFire,
-            token,
+        activeTimers.delete(timer.options.key);
+        const firedAtMs = now();
+        const event: IPdfRenderSupervisorEvent = {
+            cause: timer.options.cause,
+            delayMs: timer.options.delayMs,
+            elapsedMs: Math.max(0, firedAtMs - timer.armedAtMs),
+            firedAtMs,
+            metadata: timer.options.metadata,
+            ownerKey: timer.options.key,
+            token: timer.token,
         };
-        activeTimer.handle = setTimeoutFn(() => fireTimer(activeTimer), armOptions.delayMs);
-        activeTimers.set(armOptions.key, activeTimer);
+        logPdfRenderTrace('pdf-render-supervisor-watchdog', { ...event });
+        options.onEvent?.(event);
+        timer.options.onFire(event);
+    }
 
+    function armTimer(armOptions: IArmPdfRenderSupervisorTimerOptions): IPdfRenderSupervisorTimer {
+        const previous = activeTimers.get(armOptions.key);
+        if (previous) {
+            clearTimer(previous);
+        }
+        const timer: IActivePdfRenderSupervisorTimer = {
+            armedAtMs: now(),
+            handle: null,
+            options: armOptions,
+            token: ++lastToken,
+        };
+        timer.handle = setTimeoutFn(() => fireTimer(timer), armOptions.delayMs);
+        activeTimers.set(armOptions.key, timer);
         return {
             key: armOptions.key,
-            token,
-            clear: () => clearTimerKey(armOptions.key, token),
-            isCurrent: () => isActiveTimerCurrent(activeTimer),
+            token: timer.token,
+            clear: () => clearTimer(timer),
+            isCurrent: () => activeTimers.get(armOptions.key) === timer,
         };
     }
 
-    function clearTimer(timer: IPdfRenderSupervisorTimer | null | undefined) {
-        if (!timer) {
-            return false;
-        }
-
-        return clearTimerKey(timer.key, timer.token);
-    }
-
-    function clearTimers(timers: Array<IPdfRenderSupervisorTimer | null | undefined>) {
-        for (const timer of timers) {
-            clearTimer(timer);
-        }
-    }
-
-    function isTimerCurrent(timer: IPdfRenderSupervisorTimer | null | undefined) {
-        return Boolean(
-            timer
-            && activeTimers.get(timer.key)?.token === timer.token,
-        );
-    }
-
-    function reportEvent(reportOptions: IReportPdfRenderSupervisorEventOptions) {
-        const event = buildExplicitEvent(
-            reportOptions,
-            now,
-            ++lastToken,
-        );
-        emit(event);
-        return event;
-    }
-
-    return {
-        armTimer,
-        clearTimer,
-        clearTimers,
-        isTimerCurrent,
-        reportEvent,
-    };
+    return { armTimer };
 }

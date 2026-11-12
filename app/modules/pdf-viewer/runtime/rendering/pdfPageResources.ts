@@ -83,7 +83,8 @@ export interface IPdfPageResource {
     readonly job: IPdfRasterJob | null;
     readonly shown: IPdfShownRaster | null;
     readonly layers: TPdfPageLayers;
-    readonly text: boolean;
+    /** The mounted text layer of `shown`, once its page accepted it; text readiness keys on it. */
+    readonly text: HTMLElement | null;
     readonly hydration: IPdfLayerHydration | null;
     /** Promote this page's layers text-first as soon as it is idle. */
     readonly textFirst: boolean;
@@ -103,7 +104,7 @@ const EMPTY_RESOURCE: IPdfPageResource = {
     job: null,
     shown: null,
     layers: 'none',
-    text: false,
+    text: null,
     hydration: null,
     textFirst: false,
 };
@@ -124,6 +125,7 @@ export function createPdfPageResources() {
         if (next.shown && (next.layers !== previous.layers || next.shown.container !== previous.shown?.container)) {
             next.shown.container.dataset.pageLayerReadiness = next.layers;
         }
+        if (next.text !== previous.text) markTextLayerReady(previous.text, next.text);
         if (!next.job && !next.shown && !next.hydration) resources.delete(pageNumber);
         else resources.set(pageNumber, next);
         return next;
@@ -155,7 +157,7 @@ export function createPdfPageResources() {
                 ...dropHydration(current),
                 // A remounted page shows nothing until its raster publishes;
                 // the same container keeps its old pixels meanwhile.
-                ...(current.shown && current.shown.container !== container ? {shown: null, layers: 'none' as const, text: false} : {}),
+                ...(current.shown && current.shown.container !== container ? {shown: null, layers: 'none' as const, text: null} : {}),
             });
             logPdfRenderTrace('renderer-single-page-begin', {pageNumber, requestId: job.requestId, targetScale: job.targetScale});
             return true;
@@ -178,7 +180,7 @@ export function createPdfPageResources() {
                     targetViewRotation: job.targetViewRotation,
                 }),
                 layers: retain ? 'ready' : receipt.layers === 'hydrating' ? 'hydrating' : 'canvas-only',
-                text: retain && current.text,
+                text: retain ? current.text : null,
             });
             logPdfRenderTrace('renderer-canvas-mounted', {pageNumber, requestId: job.requestId, intent: receipt.quality.intent});
             return true;
@@ -194,13 +196,14 @@ export function createPdfPageResources() {
         beginLayers(pageNumber: TPageNumber, hydration: IPdfLayerHydration) {
             const current = get(pageNumber);
             if (current.hydration !== hydration || !current.shown) return false;
-            update(pageNumber, {layers: 'hydrating', text: false});
+            update(pageNumber, {layers: 'hydrating', text: null});
             return true;
         },
-        markText(pageNumber: TPageNumber, hydration: IPdfLayerHydration) {
+        /** The owner's text layer is mounted and complete. */
+        markText(pageNumber: TPageNumber, hydration: IPdfLayerHydration, textLayer: HTMLElement) {
             const current = get(pageNumber);
             if (current.hydration !== hydration || current.layers !== 'hydrating') return false;
-            update(pageNumber, {text: true});
+            update(pageNumber, {text: textLayer});
             return true;
         },
         settleHydration(pageNumber: TPageNumber, hydration: IPdfLayerHydration, outcome: 'ready' | 'canvas-only' | 'failed') {
@@ -228,11 +231,16 @@ export function createPdfPageResources() {
             }
         },
         release(pageNumber: TPageNumber) {
-            get(pageNumber).hydration?.controller.abort();
+            const resource = get(pageNumber);
+            resource.hydration?.controller.abort();
+            markTextLayerReady(resource.text, null);
             resources.delete(pageNumber);
         },
         clear() {
-            for (const resource of resources.values()) resource.hydration?.controller.abort();
+            for (const resource of resources.values()) {
+                resource.hydration?.controller.abort();
+                markTextLayerReady(resource.text, null);
+            }
             resources.clear();
         },
         isOriginalAppearance(pageNumber: TPageNumber, pdfRef: string | null | undefined) {
@@ -262,6 +270,12 @@ export function createPdfPageResources() {
 }
 
 export type TPdfPageResources = ReturnType<typeof createPdfPageResources>;
+
+// The text layer's DOM readiness mirrors the resource; nothing else writes it.
+function markTextLayerReady(previous: HTMLElement | null, next: HTMLElement | null) {
+    if (previous) delete previous.dataset.pdfTextLayerReady;
+    if (next) next.dataset.pdfTextLayerReady = 'true';
+}
 
 // A committed render's annotations by normalized PDF.js id, the first entry
 // for an id winning. Each marker of a dense page asks for its own, and

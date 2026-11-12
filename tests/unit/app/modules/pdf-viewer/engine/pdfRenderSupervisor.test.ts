@@ -153,15 +153,15 @@ describe('pdf render supervisor', () => {
         });
 
         supervisor.armTimer({
-            cause: 'navigation-hold-recovery',
+            cause: 'page-stage-timeout',
             delayMs: 10,
-            key: 'navigation-hold-recovery',
+            key: 'canvas-render',
             onFire: firstRecovery,
         });
         supervisor.armTimer({
-            cause: 'navigation-hold-abandon',
+            cause: 'page-stage-timeout',
             delayMs: 20,
-            key: 'navigation-hold-recovery',
+            key: 'canvas-render',
             onFire: secondRecovery,
         });
 
@@ -169,20 +169,16 @@ describe('pdf render supervisor', () => {
 
         expect(firstRecovery).not.toHaveBeenCalled();
         expect(secondRecovery).not.toHaveBeenCalled();
-        expect(events).toContainEqual(expect.objectContaining({
-            cause: 'stale-superseded',
-            sourceCause: 'navigation-hold-recovery',
-            ownerKey: 'navigation-hold-recovery',
-        }));
+        expect(events).toEqual([]);
 
         callbacks[1]?.();
 
         expect(firstRecovery).not.toHaveBeenCalled();
         expect(secondRecovery).toHaveBeenCalledOnce();
-        expect(events).toContainEqual(expect.objectContaining({
-            cause: 'navigation-hold-abandon',
-            ownerKey: 'navigation-hold-recovery',
-        }));
+        expect(events).toEqual([expect.objectContaining({
+            delayMs: 20,
+            ownerKey: 'canvas-render',
+        })]);
         handles.forEach(handle => clearTimeout(handle));
     });
 
@@ -276,34 +272,5 @@ describe('pdf render supervisor', () => {
                 payload: expect.objectContaining({callback: 'render-stall-recovery'}),
             }),
         ]));
-    });
-
-    it('reports explicit annotation editor layer events without arming timers', () => {
-        const events: IPdfRenderSupervisorEvent[] = [];
-        const supervisor = createPdfRenderSupervisor({
-            now: () => 789,
-            onEvent: event => events.push(event),
-        });
-
-        const event = supervisor.reportEvent({
-            cause: 'annotation-editor-layer-render-failed',
-            key: 'annotation-editor-layer:3',
-            metadata: {
-                pageNumber: 3,
-                retryable: true,
-            },
-        });
-
-        expect(event).toMatchObject({
-            cause: 'annotation-editor-layer-render-failed',
-            delayMs: 0,
-            firedAtMs: 789,
-            ownerKey: 'annotation-editor-layer:3',
-            metadata: {
-                pageNumber: 3,
-                retryable: true,
-            },
-        });
-        expect(events).toEqual([event]);
     });
 });
