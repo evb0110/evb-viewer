@@ -50,7 +50,9 @@ function nodeStoreFile(handle: fs.FileHandle): IStoreFile {
         async writeAt(offset, bytes) {
             let done = 0;
             while (done < bytes.byteLength) {
-                done += (await handle.write(bytes, done, bytes.byteLength - done, offset + done)).bytesWritten;
+                const { bytesWritten } = await handle.write(bytes, done, bytes.byteLength - done, offset + done);
+                if (bytesWritten === 0) throw new Error(`Short write at ${offset + done}`);
+                done += bytesWritten;
             }
         },
         truncate: length => handle.truncate(length),
@@ -96,9 +98,8 @@ export function createNodeStorePort(root: string): IStorePort {
             }
             await syncDirectory(path.dirname(target));
         },
-        async open(file, mode) {
+        async open(file) {
             const target = resolve(file);
-            if (mode === 'read') return nodeStoreFile(await fs.open(target, 'r'));
             try {
                 return nodeStoreFile(await fs.open(target, 'r+'));
             } catch (error) {

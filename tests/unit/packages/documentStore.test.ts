@@ -106,9 +106,9 @@ function crashingPort(port: IStorePort, at: (operation: string, target: string) 
         list: async dir => (check('list', dir), port.list(dir)),
         read: async target => (check('read', target), port.read(target)),
         writeAtomic: async (target, bytes) => (check('writeAtomic', target), port.writeAtomic(target, bytes)),
-        async open(target, mode) {
+        async open(target) {
             check('open', target);
-            const file = await port.open(target, mode);
+            const file = await port.open(target);
             opened.push(file);
             return wrap(file, target);
         },
@@ -292,8 +292,8 @@ describe('recovery after a crash', () => {
                 bytesRead += bytes.byteLength;
                 return bytes;
             },
-            open: async (target, mode) => {
-                const file = await port.open(target, mode);
+            open: async target => {
+                const file = await port.open(target);
                 return {
                     ...file,
                     readAt: async (offset, length) => {

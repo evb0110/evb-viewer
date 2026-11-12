@@ -188,7 +188,7 @@ export class DocumentDirectory {
         const dir = `${DOCUMENTS_DIR}/${id}`;
         const names = await port.list(dir);
         const manifest = decodeManifest(await port.read(`${dir}/${MANIFEST_NAME}`));
-        const file = manifest.current ? await port.open(`${dir}/${manifest.current.file}`, 'write') : null;
+        const file = manifest.current ? await port.open(`${dir}/${manifest.current.file}`) : null;
         try {
             return await DocumentDirectory.recover(store, id, names, manifest, file);
         } catch (error) {
@@ -262,7 +262,7 @@ export class DocumentDirectory {
             if (current?.id === revisionId) return { status: 'committed', revision: current };
             const target = manifest.history.find(revision => revision.id === revisionId);
             if (!current || !target) return { status: 'stale-revision', current: current ?? null };
-            const file = target.file === current.file ? this.file : await this.store.port.open(this.path(target.file), 'write');
+            const file = target.file === current.file ? this.file : await this.store.port.open(this.path(target.file));
             await this.commit({ ...manifest, current: target, history: [...manifest.history.filter(revision => revision !== target), current] }, file);
             return { status: 'committed', revision: target };
         });
@@ -417,7 +417,7 @@ export class DocumentDirectory {
         const path = this.path(name);
         try {
             if (typeof source !== 'function') await port.copyIn(source, path);
-            const file = await port.open(path, 'write');
+            const file = await port.open(path);
             try {
                 if (typeof source === 'function') {
                     await source(file);
