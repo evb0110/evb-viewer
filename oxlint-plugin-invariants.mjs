@@ -225,7 +225,7 @@ const architectureRules = {
             ].some(root => hasRepoPathPrefix(fileName, root))) return {};
             const source = context.sourceCode.text;
             const aliases = new Set(['annotationStorage']);
-            for (const match of source.matchAll(/\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*[^;\n]*\??\.\s*annotationStorage\b/gu)) {
+            for (const match of source.matchAll(/\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*[^;]*?\??\.\s*annotationStorage\b/gu)) {
                 if (match[1]) aliases.add(match[1]);
             }
             const members = '(?:serializable|modifiedIds|resetModified|resetModifiedIds)';
@@ -401,14 +401,18 @@ export default {rules: {
                 return {};
             }
 
+            const timers = new Set(['setTimeout', 'setInterval']);
+            const timerGlobals = new Set(['window', 'globalThis', 'self']);
             return {CallExpression(node) {
-                if (
-                    node.callee.type === 'Identifier'
-                    && (
-                        node.callee.name === 'setTimeout'
-                        || node.callee.name === 'setInterval'
-                    )
-                ) {
+                const {callee} = node;
+                const isBareTimer = callee.type === 'Identifier' && timers.has(callee.name);
+                const isGlobalTimer = callee.type === 'MemberExpression'
+                    && !callee.computed
+                    && callee.object.type === 'Identifier'
+                    && timerGlobals.has(callee.object.name)
+                    && callee.property.type === 'Identifier'
+                    && timers.has(callee.property.name);
+                if (isBareTimer || isGlobalTimer) {
                     context.report({
                         node,
                         message: 'New viewer-core coordination must use abortable state/epochs, not correctness timers.',

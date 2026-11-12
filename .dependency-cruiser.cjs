@@ -37,7 +37,7 @@ for (const [source, target] of [
     ['app/services', 'app/composables'], ['scripts', 'electron'], ['scripts', 'app'],
     ['app', 'scripts'], ['electron', 'scripts'], ['packages', 'scripts'], ['server', 'electron'],
     ['server', 'landing'], ['app', 'server'], ['electron', 'server'], ['landing', 'server'],
-    ['packages', 'server'],
+    ['packages', 'server'], ['landing', 'scripts'], ['server', 'scripts'],
 ]) {
     addZone(source, target);
     if (source === 'scripts' && target === 'electron') {

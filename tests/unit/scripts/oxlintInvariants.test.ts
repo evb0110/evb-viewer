@@ -9,11 +9,14 @@ const tester = new RuleTester({cwd: process.cwd()});
 
 tester.run('annotation-storage-public-access', rules['annotation-storage-public-access']!, {
     valid: [{code: 'annotationDiagnostics.snapshot();', filename: 'app/fixture.ts'}],
-    invalid: [{
-        code: 'const storage = document.annotationStorage; storage.resetModified();',
+    invalid: [
+        'const storage = document.annotationStorage; storage.resetModified();',
+        'const storage =\n    document\n        .annotationStorage;\nstorage.resetModified();',
+    ].map(code => ({
+        code,
         filename: 'app/fixture.ts',
         errors: [{message: 'PDF.js annotationStorage internals must be accessed through the public annotation diagnostics accessor.'}],
-    }],
+    })),
 });
 
 tester.run('platform-api-narrow-getter', rules['platform-api-narrow-getter']!, {
@@ -65,6 +68,10 @@ tester.run(
                         code: 'await abortableWait(signal);',
                         filename: 'app/modules/pdf-viewer/runtime/viewport/wait.ts',
                     },
+                    {
+                        code: 'scheduler.setTimeout(run, 10);',
+                        filename: 'app/modules/pdf-viewer/runtime/viewport/wait.ts',
+                    },
                 ],
                 invalid: [
                     {
@@ -75,6 +82,16 @@ tester.run(
                     {
                         code: 'setInterval(poll, 10);',
                         filename: 'app/modules/pdf-viewer/runtime/page-slots/wait.ts',
+                        errors: 1,
+                    },
+                    {
+                        code: 'window.setTimeout(run, 10);',
+                        filename: 'app/modules/document-viewer/viewport/wait.ts',
+                        errors: 1,
+                    },
+                    {
+                        code: 'globalThis.setInterval(poll, 10);',
+                        filename: 'app/modules/pdf-viewer/runtime/viewport/wait.ts',
                         errors: 1,
                     },
                 ],
