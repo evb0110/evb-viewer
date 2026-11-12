@@ -8,6 +8,7 @@ import {
 import {
     describe, expect, it,
 } from 'vitest';
+import {LOCALE_MESSAGES} from '@i18n-app';
 import type {IBrowserLifecycleTestApi} from './documentLifecycleTestHelpers';
 import {
     lifecycle, waitForOpenFileReady, collectConsoleProblems, keepFileChooserInterceptionEnabled, openPdfFromChooser,
@@ -118,6 +119,72 @@ describe('browser document lifecycle UI', () => {
                 name: 'Print',
                 exact: true,
             }).click();
+            // Measure the mounted dialog, including its modal gutter, font and
+            // button slots, for every shipped translation and an unbroken word.
+            for (const [locale, messages] of Object.entries(LOCALE_MESSAGES)) {
+                await page.evaluate(async ({locale, messages}) => {
+                    const app = Reflect.get(document.querySelector('#__nuxt')!, '__vue_app__');
+                    const i18n = app.$nuxt.$i18n;
+                    i18n.setLocaleMessage(locale, messages);
+                    await i18n.setLocale(locale);
+                    await document.fonts.ready;
+                }, {locale, messages});
+                const labels = [
+                    messages.print.layoutSingle, messages.print.layoutFacing, messages.print.layoutFacingFirstSingle,
+                    messages.print.orientationAuto, messages.print.orientationPortrait, messages.print.orientationLandscape,
+                ];
+                const options = page.getByRole('dialog').locator('button[aria-pressed]');
+                await expect.poll(() => options.allTextContents().then(labels => labels.map(label => label.trim()))).toEqual(labels);
+                const measure = () => options.evaluateAll(buttons => {
+                    const rects = buttons.map(button => button.getBoundingClientRect());
+                    const grid = buttons[0]!.parentElement!.parentElement!.parentElement!;
+                    const gridRect = grid.getBoundingClientRect();
+                    return {
+                        wrapped: buttons.filter(button => {
+                            const range = document.createRange();
+                            range.selectNodeContents(button);
+                            return new Set([...range.getClientRects()].map(rect => Math.round(rect.top))).size > 1;
+                        }).map(button => button.textContent?.trim()),
+                        clipped: buttons.filter(button => [button, ...button.querySelectorAll('*')]
+                            .some(element => element.clientWidth > 0 && element.scrollWidth > element.clientWidth + 1))
+                            .map(button => button.textContent?.trim()),
+                        overlap: Math.max(...rects.slice(0, 3).map(rect => rect.right)) - rects[3]!.left,
+                        escapes: Math.max(0, ...rects.map(rect => rect.right - gridRect.right)),
+                        aligns: buttons.map(button => getComputedStyle(button).textAlign),
+                        heights: rects.map(rect => rect.height),
+                        layoutWidth: buttons[0]!.parentElement!.getBoundingClientRect().width,
+                        gridWidth: gridRect.width,
+                    };
+                });
+                const geometry = await measure();
+                expect(geometry.wrapped, locale).toEqual([]);
+                expect(geometry.clipped, locale).toEqual([]);
+                expect(geometry.overlap, locale).toBeLessThan(0);
+                expect(geometry.escapes, locale).toBe(0);
+                expect(new Set(geometry.aligns), locale).toEqual(new Set(['start']));
+                expect(geometry.heights.every(height => height > 0), locale).toBe(true);
+                expect(geometry.layoutWidth, locale).toBeGreaterThan(geometry.gridWidth / 2);
+                if (locale === 'de') {
+                    const compound = 'Doppelseitenmitersterseiteeinzelndargestelltundnummeriert';
+                    await page.evaluate(({locale, messages, compound}) => {
+                        const app = Reflect.get(document.querySelector('#__nuxt')!, '__vue_app__');
+                        app.$nuxt.$i18n.setLocaleMessage(locale, {
+                            ...messages,
+                            print: {...messages.print, layoutFacingFirstSingle: compound},
+                        });
+                    }, {locale, messages, compound});
+                    await expect.poll(() => options.nth(2).textContent().then(text => text?.trim())).toBe(compound);
+                    const fallback = await measure();
+                    expect(fallback.wrapped).toEqual([compound]);
+                    expect(fallback.clipped).toEqual([]);
+                    expect(fallback.overlap).toBeLessThan(0);
+                    expect(fallback.escapes).toBe(0);
+                }
+            }
+            await page.evaluate(async () => {
+                const app = Reflect.get(document.querySelector('#__nuxt')!, '__vue_app__');
+                await app.$nuxt.$i18n.setLocale('en');
+            });
             await page.getByRole('button', {
                 name: 'Print...',
                 exact: true,

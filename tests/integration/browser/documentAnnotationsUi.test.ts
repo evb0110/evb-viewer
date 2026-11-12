@@ -12,6 +12,7 @@ import {
 import {
     describe, expect, it,
 } from 'vitest';
+import {resolveAnnotationCommentRowMetrics} from '@app/utils/pdfAnnotationCommentRowMetrics';
 import type {IBrowserLifecycleTestApi} from './documentLifecycleTestHelpers';
 import {
     lifecycle, waitForOpenFileReady, collectConsoleProblems, keepFileChooserInterceptionEnabled, readRecoveries, openPdfFromChooser,
@@ -427,7 +428,8 @@ describe('browser document lifecycle UI', () => {
                 0,
             ],
             CA: 0.3,
-            Contents: PDFString.of('Foreign highlight popup'),
+            T: PDFString.of('evb'),
+            Contents: PDFString.of('Genealogical Classification of Semitic'),
         }));
         const ink = pdf.context.register(pdf.context.obj({
             Type: 'Annot',
@@ -759,6 +761,91 @@ describe('browser document lifecycle UI', () => {
                 await expect.poll(() => savedHighlight.getAttribute('class')).not.toContain('is-selected');
                 await hit.click();
                 await expect.poll(() => savedHighlight.getAttribute('class')).toContain('is-selected');
+                // The live sidebar must paint the same stride it virtualizes,
+                // and its delete targets must follow UI scale and real resizing.
+                for (const scale of [0.85, 0.9, 1, 1.1, 1.25]) {
+                    await reopened.evaluate(value => document.documentElement.style.setProperty('--app-ui-scale', String(value)), scale);
+                    const metrics = resolveAnnotationCommentRowMetrics(16 * scale);
+                    const rows = reopened.locator('.note-item');
+                    await expect.poll(() => rows.first().evaluate(element => element.getBoundingClientRect().height)).toBe(metrics.rowHeightPx);
+                    for (const width of [200, 240, 320, 480]) {
+                        const resizer = reopened.locator('.sidebar-resizer');
+                        const handle = await resizer.boundingBox();
+                        const currentWidth = await reopened.locator('.sidebar-wrapper__content').evaluate(element => element.getBoundingClientRect().width);
+                        if (!handle) throw new Error('Sidebar resize handle is missing');
+                        await reopened.mouse.move(handle.x + handle.width / 2, handle.y + handle.height / 2);
+                        await reopened.mouse.down();
+                        await reopened.mouse.move(handle.x + handle.width / 2 + width - currentWidth, handle.y + handle.height / 2);
+                        await reopened.mouse.up();
+                        const geometry = await rows.evaluateAll(elements => {
+                            const rects = elements.map(element => element.getBoundingClientRect());
+                            const list = elements[0]!.closest('.notes-list')!;
+                            const wrapper = list.firstElementChild as HTMLElement;
+                            return {
+                                heights: rects.map(rect => rect.height),
+                                strides: rects.slice(1).map((rect, index) => rect.top - rects[index]!.top),
+                                firstTop: rects[0]!.top,
+                                wrapperTop: wrapper.getBoundingClientRect().top,
+                                extent: wrapper.getBoundingClientRect().height + Number.parseFloat(wrapper.style.marginTop),
+                                count: Number(list.closest('.notes-list-section')!.querySelector('.notes-count')!.textContent!.replace(/\D/gu, '')),
+                                active: list.querySelectorAll('.note-item.is-active').length,
+                                cards: elements.map(element => {
+                                    const header = element.querySelector('.note-item-top')!;
+                                    const chip = element.querySelector('.note-item-color-chip');
+                                    const preview = element.querySelector('.note-item-text');
+                                    const meta = element.querySelector('.note-item-meta')!;
+                                    const style = preview ? getComputedStyle(preview) : null;
+                                    return {
+                                        headerHeight: header.getBoundingClientRect().height,
+                                        headerLine: Number.parseFloat(getComputedStyle(header).lineHeight),
+                                        chipInside: !chip || chip.getBoundingClientRect().top < header.getBoundingClientRect().bottom,
+                                        lines: preview && style ? (preview.getBoundingClientRect().height - Number.parseFloat(style.paddingTop) - Number.parseFloat(style.paddingBottom)) / Number.parseFloat(style.lineHeight) : null,
+                                        previewInside: !preview || preview.getBoundingClientRect().bottom <= meta.getBoundingClientRect().top,
+                                        metaHeight: meta.getBoundingClientRect().height,
+                                        metaLine: Number.parseFloat(getComputedStyle(meta).lineHeight),
+                                        author: meta.firstElementChild!.textContent?.trim(),
+                                        authorClipped: meta.firstElementChild!.scrollWidth > meta.firstElementChild!.clientWidth,
+                                    };
+                                }),
+                            };
+                        });
+                        expect(geometry.heights.length).toBeGreaterThan(1);
+                        expect(new Set(geometry.heights)).toEqual(new Set([metrics.rowHeightPx]));
+                        expect(new Set(geometry.strides)).toEqual(new Set([metrics.rowStridePx]));
+                        expect(geometry.firstTop).toBeCloseTo(geometry.wrapperTop, 5);
+                        expect(geometry.extent).toBe(geometry.count * metrics.rowStridePx);
+                        expect(geometry.active).toBe(1);
+                        expect(geometry.cards.some(card => card.author === 'evb')).toBe(true);
+                        for (const card of geometry.cards) {
+                            expect(card.headerHeight).toBeCloseTo(card.headerLine, 1);
+                            expect(card.chipInside).toBe(true);
+                            if (card.lines !== null) {
+                                expect(card.lines).toBeGreaterThanOrEqual(1);
+                                expect(card.lines).toBeCloseTo(Math.round(card.lines), 2);
+                            }
+                            expect(card.previewInside).toBe(true);
+                            expect(card.metaHeight).toBeCloseTo(card.metaLine, 1);
+                            if (card.author === 'evb') expect(card.authorClipped).toBe(false);
+                        }
+                        const button = reopened.locator('.note-item-delete').first();
+                        await button.scrollIntoViewIfNeeded();
+                        const box = await button.boundingBox();
+                        if (!box) throw new Error('Sidebar delete target is missing');
+                        expect(box.width).toBeCloseTo(box.height, 1);
+                        for (const point of [
+                            {x: box.x + 2, y: box.y + 2},
+                            {x: box.x + box.width - 2, y: box.y + box.height - 2},
+                            {x: box.x + box.width / 2, y: box.y + box.height / 2},
+                        ]) {
+                            await reopened.mouse.move(point.x, point.y);
+                            expect(await button.evaluate((element, point) => ({
+                                hit: element.contains(document.elementFromPoint(point.x, point.y)),
+                                hovered: element.matches(':hover'),
+                            }), point)).toEqual({hit: true, hovered: true});
+                        }
+                    }
+                }
+                await reopened.evaluate(() => document.documentElement.style.removeProperty('--app-ui-scale'));
                 await reopened.getByRole('button', {
                     name: 'Text Select',
                     exact: true,
@@ -772,6 +859,21 @@ describe('browser document lifecycle UI', () => {
                 await reopened.mouse.up();
                 await expect.poll(() => reopened.evaluate(() => document.getSelection()?.toString())).toBe(foreignText);
                 expect(await reopened.locator('.popupAnnotation:visible, .popup:visible, .commentPopup:visible').count()).toBe(0);
+                // A markup tool selects through the existing highlight to create
+                // a stacked markup, while ordinary selection still hits markup.
+                await reopened.locator('.tool-button[data-tool="highlight"]').click();
+                const stackedLine = reopened.locator('.text-layer span').filter({hasText: ownText}).first();
+                const stackedBounds = await stackedLine.boundingBox();
+                if (!stackedBounds) throw new Error('Existing markup text is not visible');
+                expect(await stackedLine.evaluate(element => {
+                    const rect = element.getBoundingClientRect();
+                    return document.elementFromPoint(rect.left + 1, rect.top + rect.height / 2) === element;
+                })).toBe(true);
+                await reopened.mouse.move(stackedBounds.x + 1, stackedBounds.y + stackedBounds.height / 2);
+                await reopened.mouse.down();
+                await reopened.mouse.move(stackedBounds.x + stackedBounds.width - 1, stackedBounds.y + stackedBounds.height / 2, {steps: 20});
+                await reopened.mouse.up();
+                await expect.poll(() => reopened.locator('[data-markup-subtype="Highlight"]').count()).toBe(3);
                 await reopened.screenshot({path: resolve(process.cwd(), `.devkit/browser-annotation-saved-selection-${process.pid}.png`)});
                 expect(reopenedProblems).toEqual([]);
             } finally {
