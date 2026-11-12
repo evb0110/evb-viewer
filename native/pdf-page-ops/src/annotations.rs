@@ -170,7 +170,7 @@ fn set_annotation_geometry_dict(
 }
 
 fn remove_annotation_refs_from_page(
-    document: &mut Document,
+    document: &mut impl PdfObjectStore,
     page_id: ObjectId,
     refs: &[ObjectId],
 ) -> Result<bool> {
@@ -179,21 +179,22 @@ fn remove_annotation_refs_from_page(
     let (filtered, removed) = filter_annots_without_refs(annots, &refs_to_remove);
     if removed {
         document
-            .get_dictionary_mut(page_id)?
+            .dictionary_mut(page_id)?
             .set("Annots", Object::Array(filtered));
     }
     Ok(removed)
 }
 
 pub(crate) fn update_note_geometry(
-    document: &mut Document,
+    document: &mut impl PdfObjectStore,
     updates: &[NoteGeometryUpdate],
     modified_at: &str,
 ) -> Result<()> {
     if updates.is_empty() {
         return Ok(());
     }
-    let page_resolver = PageTreeResolver::new(document)?;
+    let located = document.located_pages().cloned();
+    let page_resolver = PageLookup::new(document, located.as_ref())?;
     for update in updates {
         let target_id = (update.object_number, update.generation_number);
         let target = resolve_note_target(document, target_id)?;
@@ -215,7 +216,7 @@ pub(crate) fn update_note_geometry(
         let marker_form = target.annotation_subtype == "freetext"
             && is_free_text_note_marker(
                 document,
-                document.get_dictionary(target.annotation_id)?,
+                document.dictionary(target.annotation_id)?,
                 source_page_view,
                 source_page_rotation,
             );
@@ -225,11 +226,11 @@ pub(crate) fn update_note_geometry(
             marker_rect_to_pdf_rect(update.marker_rect, page_view, page_rotation)?
         };
 
-        let target_dict = document.get_dictionary_mut(target.annotation_id)?;
+        let target_dict = document.dictionary_mut(target.annotation_id)?;
         let placement = (destination_page_id, pdf_rect, modified_at);
         let pdf_rect = place_note_target(target_dict, marker_form, placement, update);
         if let Some(popup_id) = target.popup_ref {
-            let popup_dict = document.get_dictionary_mut(popup_id)?;
+            let popup_dict = document.dictionary_mut(popup_id)?;
             set_annotation_geometry_dict(popup_dict, destination_page_id, pdf_rect, modified_at);
         }
 
@@ -240,101 +241,6 @@ pub(crate) fn update_note_geometry(
             remove_annotation_refs_from_page(document, source_page_id, &refs)?;
         }
         append_annots_to_page(document, destination_page_id, &refs)?;
-    }
-    Ok(())
-}
-
-fn get_incremental_page_annots(
-    incremental: &IncrementalDocument,
-    page_id: ObjectId,
-) -> Result<Vec<Object>> {
-    get_page_annots(&incremental.new_document, page_id)
-        .or_else(|_| get_page_annots(incremental.get_prev_documents(), page_id))
-}
-
-fn remove_annotation_refs_from_page_incremental(
-    incremental: &mut IncrementalDocument,
-    page_id: ObjectId,
-    refs: &[ObjectId],
-) -> Result<bool> {
-    let refs_to_remove: HashSet<ObjectId> = refs.iter().copied().collect();
-    let annots = get_incremental_page_annots(incremental, page_id)?;
-    let (filtered, removed) = filter_annots_without_refs(annots, &refs_to_remove);
-    if removed {
-        incremental.opt_clone_object_to_new_document(page_id)?;
-        incremental
-            .new_document
-            .get_dictionary_mut(page_id)?
-            .set("Annots", Object::Array(filtered));
-    }
-    Ok(removed)
-}
-
-pub(crate) fn update_note_geometry_incremental(
-    incremental: &mut IncrementalDocument,
-    updates: &[NoteGeometryUpdate],
-    modified_at: &str,
-) -> Result<()> {
-    if updates.is_empty() {
-        return Ok(());
-    }
-    let located_pages = incremental.located_pages.clone();
-    let page_resolver = PageLookup::new(incremental.get_prev_documents(), located_pages.as_ref())?;
-    for update in updates {
-        let target_id = (update.object_number, update.generation_number);
-        let target = resolve_note_target(incremental.get_prev_documents(), target_id)?;
-        if target.annotation_subtype != "text" && target.annotation_subtype != "freetext" {
-            return Err(format!(
-                "Note geometry target {}R{} is not a Text annotation",
-                target_id.0, target_id.1
-            )
-            .into());
-        }
-        let source_page_id = find_note_target_page(incremental.get_prev_documents(), &target)
-            .ok_or("Note geometry target is not referenced from page Annots")?;
-        let page_number = mutation_page_number(update.page_index)?;
-        let destination_page_id =
-            page_resolver.page_id(incremental.get_prev_documents(), page_number)?;
-        let page_view = resolve_page_view(incremental.get_prev_documents(), destination_page_id)?;
-        let page_rotation =
-            resolve_page_rotation(incremental.get_prev_documents(), destination_page_id)?;
-        let source_page_view = resolve_page_view(incremental.get_prev_documents(), source_page_id)?;
-        let source_page_rotation =
-            resolve_page_rotation(incremental.get_prev_documents(), source_page_id)?;
-        let marker_form = target.annotation_subtype == "freetext"
-            && is_free_text_note_marker(
-                incremental.get_prev_documents(),
-                incremental
-                    .get_prev_documents()
-                    .get_dictionary(target.annotation_id)?,
-                source_page_view,
-                source_page_rotation,
-            );
-        let pdf_rect = if target.annotation_subtype == "text" || marker_form {
-            text_note_pdf_rect(update.marker_rect, page_view, page_rotation)?
-        } else {
-            marker_rect_to_pdf_rect(update.marker_rect, page_view, page_rotation)?
-        };
-
-        incremental.opt_clone_object_to_new_document(target.annotation_id)?;
-        let target_dict = incremental
-            .new_document
-            .get_dictionary_mut(target.annotation_id)?;
-        let placement = (destination_page_id, pdf_rect, modified_at);
-        let pdf_rect = place_note_target(target_dict, marker_form, placement, update);
-        if let Some(popup_id) = target.popup_ref {
-            incremental.opt_clone_object_to_new_document(popup_id)?;
-            let popup_dict = incremental.new_document.get_dictionary_mut(popup_id)?;
-            set_annotation_geometry_dict(popup_dict, destination_page_id, pdf_rect, modified_at);
-        }
-
-        let refs: Vec<_> = std::iter::once(target.annotation_id)
-            .chain(target.popup_ref)
-            .collect();
-        if source_page_id != destination_page_id {
-            remove_annotation_refs_from_page_incremental(incremental, source_page_id, &refs)?;
-        }
-        append_annots_to_page_incremental(incremental, destination_page_id, &refs)?;
     }
     Ok(())
 }
@@ -1540,27 +1446,13 @@ fn append_missing(annots: &mut Vec<Object>, refs: &[ObjectId]) -> bool {
 
 /// Lists each of `refs` on the page once; a page that lists them all is unchanged.
 pub(crate) fn append_annots_to_page(
-    document: &mut Document,
+    document: &mut impl PdfObjectStore,
     page_id: ObjectId,
     refs: &[ObjectId],
 ) -> Result<()> {
     let mut annots = get_page_annots(document, page_id)?;
     if append_missing(&mut annots, refs) {
-        document.get_dictionary_mut(page_id)?.set("Annots", annots);
-    }
-    Ok(())
-}
-
-pub(crate) fn append_annots_to_page_incremental(
-    incremental: &mut IncrementalDocument,
-    page_id: ObjectId,
-    refs: &[ObjectId],
-) -> Result<()> {
-    let mut annots = get_incremental_page_annots(incremental, page_id)?;
-    if append_missing(&mut annots, refs) {
-        incremental.opt_clone_object_to_new_document(page_id)?;
-        let page = incremental.new_document.get_dictionary_mut(page_id)?;
-        page.set("Annots", annots);
+        document.dictionary_mut(page_id)?.set("Annots", annots);
     }
     Ok(())
 }

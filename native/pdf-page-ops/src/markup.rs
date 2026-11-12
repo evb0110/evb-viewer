@@ -1128,7 +1128,7 @@ fn create_new_markup_annotations_incremental(
     if created.is_empty() {
         return Ok(false);
     }
-    append_annots_to_page_incremental(incremental, page_id, &created)?;
+    append_annots_to_page(incremental, page_id, &created)?;
     Ok(true)
 }
 

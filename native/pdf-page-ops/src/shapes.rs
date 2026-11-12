@@ -1260,7 +1260,7 @@ pub(crate) fn append_remaining_shape_annotations_incremental(
             .new_document
             .add_object(Object::Dictionary(dict));
         report_shape_identity_binding(identity_bindings, &shape, object_id);
-        append_annots_to_page_incremental(incremental, page_id, &[object_id])?;
+        append_annots_to_page(incremental, page_id, &[object_id])?;
         modified = true;
     }
     Ok(modified)
