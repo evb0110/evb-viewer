@@ -2,11 +2,9 @@ import type { Ref } from 'vue';
 import type {
     IAnnotationCommentSummary,
     IAnnotationEditorState,
-    TAnnotationTool,
 } from '@app/types/annotations';
 import type { TPdfSource } from '@app/types/pdfUi';
 import type { TDocumentRef } from '@contracts/documentRef';
-import type { TPdfSidebarTab } from '@app/modules/workspace-shell/types/workspaceOrchestration.types';
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 import { annotationIdForSummary } from '@app/modules/pdf-viewer/public';
 
@@ -16,13 +14,8 @@ export interface IDocumentTransitionDeps {
     isDjvuMode: Ref<boolean>;
     djvuSourcePath: Ref<TDocumentRef | null>;
     pdfError: Ref<unknown>;
-    currentPage: Ref<number>;
-    totalPages: Ref<number>;
-    pdfDocument: Ref<unknown | null>;
-    dragMode: Ref<boolean>;
-    showSidebar: Ref<boolean>;
-    sidebarTab: Ref<TPdfSidebarTab>;
-    annotationTool: Ref<TAnnotationTool>;
+    /** Empties every view of the document: its pages, panels and tool. */
+    clearViews: () => void;
     annotationComments: Ref<IAnnotationCommentSummary[]>;
     markAnnotationCommentsLoading: () => void;
     clearAnnotationComments: () => void;
@@ -37,14 +30,12 @@ export interface IDocumentTransitionDeps {
     resetAnnotationTracking: () => void;
     resetSearchCache: () => void;
     closeSearch: () => void;
-    closeAnnotationContextMenu: () => void;
-    closePageContextMenu: () => void;
+    closeContextMenus: () => void;
     closeAllAnnotationNotes: (opts?: { saveIfDirty?: boolean }) => Promise<boolean>;
     loadRecentFiles: () => void;
     consumePreservedSourceReloadMetadata?: (() => boolean) | undefined;
 }
 
-type TBookmarkSidebarSnapshot = readonly [boolean, TPdfSidebarTab];
 type TDjvuSourceSnapshot = readonly [boolean, TDocumentRef | null];
 
 export const useDocumentTransitions = (deps: IDocumentTransitionDeps) => {
@@ -53,13 +44,7 @@ export const useDocumentTransitions = (deps: IDocumentTransitionDeps) => {
         workingCopyPath,
         isDjvuMode,
         djvuSourcePath,
-        currentPage,
-        totalPages,
-        pdfDocument,
-        dragMode,
-        showSidebar,
-        sidebarTab,
-        annotationTool,
+        clearViews,
         annotationComments,
         markAnnotationCommentsLoading,
         clearAnnotationComments,
@@ -74,44 +59,16 @@ export const useDocumentTransitions = (deps: IDocumentTransitionDeps) => {
         resetAnnotationTracking,
         resetSearchCache,
         closeSearch,
-        closeAnnotationContextMenu,
-        closePageContextMenu,
+        closeContextMenus,
         closeAllAnnotationNotes,
         loadRecentFiles,
         consumePreservedSourceReloadMetadata,
     } = deps;
 
-    watch(
-        () => [
-            showSidebar.value,
-            sidebarTab.value,
-        ] as const,
-        (snapshot: TBookmarkSidebarSnapshot) => {
-            const isOpen = snapshot[0];
-            const tab = snapshot[1];
-
-            if (!isOpen || tab !== 'bookmarks') {
-                bookmarkEditMode.value = false;
-            }
-        },
-    );
-
-    watch(dragMode, (enabled: boolean) => {
-        if (enabled) {
-            window.getSelection()?.removeAllRanges();
-            if (annotationTool.value !== 'none') {
-                annotationTool.value = 'none';
-            }
-        }
-    });
-
     watch(pdfSrc, (newSrc, oldSrc) => {
         if (newSrc && newSrc !== oldSrc) {
             const isReload = Boolean(oldSrc);
-            logPdfRenderTrace('workspace-document-transition-source-changed', {
-                isReload,
-                currentPageBefore: currentPage.value,
-            });
+            logPdfRenderTrace('workspace-document-transition-source-changed', {isReload});
             resetAnnotationTracking();
             markAnnotationCommentsLoading();
             if (!isReload) {
@@ -123,18 +80,14 @@ export const useDocumentTransitions = (deps: IDocumentTransitionDeps) => {
                 bookmarksDirty.value = false;
             }
             bookmarkEditMode.value = false;
-            closeAnnotationContextMenu();
-            closePageContextMenu();
+            closeContextMenus();
         }
         if (!newSrc) {
             // The PDF document session owns the document and destroys it once
             // its renders have settled.
-            totalPages.value = 0;
-            pdfDocument.value = null;
-            showSidebar.value = false;
+            clearViews();
             resetSearchCache();
             closeSearch();
-            annotationTool.value = 'none';
             clearAnnotationComments();
             annotationActiveCommentStableKey.value = null;
             pageLabels.value = null;
@@ -143,8 +96,7 @@ export const useDocumentTransitions = (deps: IDocumentTransitionDeps) => {
             bookmarkItems.value = [];
             bookmarksDirty.value = false;
             bookmarkEditMode.value = false;
-            closeAnnotationContextMenu();
-            closePageContextMenu();
+            closeContextMenus();
             void closeAllAnnotationNotes({ saveIfDirty: false });
             resetAnnotationTracking();
             annotationEditorState.value = {
@@ -168,7 +120,7 @@ export const useDocumentTransitions = (deps: IDocumentTransitionDeps) => {
         }
 
         annotationActiveCommentStableKey.value = null;
-        closeAnnotationContextMenu();
+        closeContextMenus();
         clearAnnotationComments();
         void closeAllAnnotationNotes({ saveIfDirty: false });
     });

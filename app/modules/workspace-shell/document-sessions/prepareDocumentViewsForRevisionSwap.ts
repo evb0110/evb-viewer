@@ -19,35 +19,28 @@ interface IDocumentRevisionSwap {
 /**
  * Stages a rewrite of the open document in every view before it reloads, so
  * each view keeps its picture and its reading point through the reload. A
- * view that cannot prepare reloads as a fresh open; only the failure of the
- * view in use reaches the caller. Returns what the view in use answered.
+ * view that cannot prepare reloads as a fresh open. Returns whether any view
+ * prepared.
  */
 export async function prepareDocumentViewsForRevisionSwap(
     views: Pick<TDocumentViews, 'viewPorts'>,
-    viewerInUse: unknown,
     swap: IDocumentRevisionSwap,
 ) {
     const {
         mapPageNumber, ...revisionSwap
     } = swap;
-    let didPrepare: boolean | undefined;
+    let didPrepare = false;
     for (const port of views.viewPorts.value.values()) {
         if (swap.rotationDelta !== undefined) {
             port.search.adoptPageRotation(swap.documentRevision, swap.invalidatedPages, swap.rotationDelta);
         }
-        const viewer = port.view.pdfViewerRef.value;
         try {
-            const prepared = await viewer?.preparePageMutationRevisionSwap?.({
+            didPrepare = await port.view.pdfViewerRef.value?.preparePageMutationRevisionSwap?.({
                 ...revisionSwap,
                 pageNumber: mapPageNumber?.(port.view.currentPage.value) ?? port.view.currentPage.value,
-            });
-            if (viewer === viewerInUse) {
-                didPrepare = prepared;
-            }
+            }) === true || didPrepare;
         } catch (error) {
-            if (viewer === viewerInUse) {
-                throw error;
-            }
+            BrowserLogger.warn('pdf-document', 'A view could not keep its surface through the revision swap', {error});
         }
     }
     return didPrepare;
@@ -60,13 +53,12 @@ export async function prepareDocumentViewsForRevisionSwap(
  */
 export async function prepareDocumentViewsForHistorySwap(
     views: Pick<TDocumentViews, 'viewPorts' | 'mapPageIdentity'>,
-    viewerInUse: unknown,
     totalPages: number,
     documentRevision: TDocumentRevisionToken,
     delta: IPageIdentityDelta | undefined,
 ) {
     const pageCount = (delta ? getPageIdentityDeltaNextPageCount(delta) : undefined) ?? totalPages;
-    await prepareDocumentViewsForRevisionSwap(views, viewerInUse, {
+    await prepareDocumentViewsForRevisionSwap(views, {
         documentRevision,
         invalidatedPages: Array.from({length: pageCount}, (_, index) => index + 1),
         ...(delta ? {
@@ -74,8 +66,6 @@ export async function prepareDocumentViewsForHistorySwap(
             mapPageNumber: (page: number) => mapPageNumberThroughPageIdentityDelta(delta, requirePageNumber(page))
                 ?? Math.max(1, Math.min(page, pageCount)),
         } : {}),
-    }).catch((error: unknown) => {
-        BrowserLogger.warn('pdf-history', 'Could not preserve the viewer surface for history reload', {error});
     });
     return () => {
         if (delta) views.mapPageIdentity(delta);

@@ -39,6 +39,8 @@ import {
     type IDocumentOpenSurfaceSession,
 } from '@app/modules/document-viewer/public';
 import { useDocumentSearchSession } from '@app/modules/workspace-shell/composables/useDocumentSearchSession';
+import { usePageFileOperations } from '@app/modules/workspace-shell/composables/usePageFileOperations';
+import type { TDocumentOpenOutcome } from '@app/types/documentOpenOutcome';
 import type { IPdfPageMatches } from '@app/types/pdfUi';
 import { emitAutomationEvent } from '@app/modules/workspace-shell/automation/automationReadinessEvents';
 import {
@@ -104,8 +106,7 @@ export const createDocumentViewContext = (deps: IDocumentViewContextDeps) => {
         pdfData,
         pdfSrc,
     } = file;
-    // What this view shows of the document, and its page count; the document
-    // reads them through the view whose tab is in use.
+    // What this view shows of the document: its page, zoom, panels and selection.
     const view = useWorkspaceViewerShellState(initialViewState, openSurface);
     const {
         pdfViewerRef,
@@ -170,6 +171,31 @@ export const createDocumentViewContext = (deps: IDocumentViewContextDeps) => {
         documentRevision: documentRevisionToken,
     });
     const pageContextMenu = usePageContextMenu();
+    // The document's page operations as this view starts them: on its
+    // selection and page context menu, extracting next to its tab.
+    const pageOps = {
+        ...document.pageOps,
+        ...document.pageOps.forView({
+            selectedThumbnailPages: view.selectedThumbnailPages,
+            setSelectedThumbnailPages: view.setSelectedThumbnailPages,
+            selectedPageSelection: view.selectedPageSelection,
+            setSelectedPageSelection: view.setSelectedPageSelection,
+            pageContextMenu: pageContextMenu.pageContextMenu,
+            closePageContextMenu: pageContextMenu.closePageContextMenu,
+            emitOpenInNewTab: deps.emitOpenInNewTab,
+        }),
+    };
+    // The document's print with this view's selection and page.
+    const viewPrint = {
+        ...print,
+        handlePrint: () => print.handlePrint({
+            selectedPages: view.selectedThumbnailPages.value,
+            pageSelection: view.selectedPageSelection.value,
+        }),
+        handlePrintCurrentPage: () => print.handlePrintCurrentPage(
+            documentViewerRef.value?.getCurrentPage?.() ?? currentPage.value,
+        ),
+    };
 
     const bookmarkNavigationIntentVersion = ref(0);
     // The page a new navigation command steps from: the in-flight target
@@ -213,6 +239,19 @@ export const createDocumentViewContext = (deps: IDocumentViewContextDeps) => {
         annotationTool,
         handleAnnotationToolChange,
     } = annotationToolState;
+    // Drag mode leaves this view's tool and text selection; hiding its
+    // bookmarks ends the document's bookmark editing.
+    watch(view.dragMode, (enabled) => {
+        if (enabled) {
+            window.getSelection()?.removeAllRanges();
+            annotationTool.value = 'none';
+        }
+    });
+    watch(() => view.showSidebar.value && view.sidebarTab.value === 'bookmarks', (showsBookmarks) => {
+        if (!showsBookmarks) {
+            metadata.bookmarkState.bookmarkEditMode.value = false;
+        }
+    });
     const navigation = useWorkspaceViewState({
         fitMode: view.fitMode,
         zoomMode: view.zoomMode,
@@ -258,7 +297,8 @@ export const createDocumentViewContext = (deps: IDocumentViewContextDeps) => {
         closeAnnotationContextMenu: annotationContextMenu.closeAnnotationContextMenu,
         showAnnotationContextMenu: annotationContextMenu.showAnnotationContextMenu,
         handleAnnotationToolChange,
-        openAnnotationNoteWindow: annotations.openAnnotationNoteWindow,
+        // A note opens in this view.
+        openAnnotationNoteWindow: comment => annotations.openAnnotationNoteWindow(comment, tabId),
         removeAnnotationNoteWindow: annotations.removeAnnotationNoteWindow,
         setAnnotationNoteWindowError: annotations.setAnnotationNoteWindowError,
         isSameAnnotationComment: annotations.isSameAnnotationComment,
@@ -356,7 +396,7 @@ export const createDocumentViewContext = (deps: IDocumentViewContextDeps) => {
                 message: 'Failed to save document',
             });
         },
-        handlePrint: print.handlePrint,
+        handlePrint: viewPrint.handlePrint,
         handleToggleSidebar: () => {
             view.showSidebar.value = !view.showSidebar.value;
         },
@@ -399,7 +439,7 @@ export const createDocumentViewContext = (deps: IDocumentViewContextDeps) => {
         openSurface,
         ensureProjection: file.ensureDjvuPdfProjection,
         saveAs: save.handleSaveAs,
-        exportDocx: document.docxExport.handleExportDocx,
+        exportDocx: languages => document.docxExport.handleExportDocx(languages, () => view.openDropdown('ocr')),
         isExportingDocx: document.docxExport.isExporting,
         cancelExportDocx: document.docxExport.cancel,
         handleDropdownOpen,
@@ -507,12 +547,56 @@ export const createDocumentViewContext = (deps: IDocumentViewContextDeps) => {
     }
 
     const detachDocumentView = inject(documentViewDetachKey, null);
+    const detachAndOpen = async (open: (workspace: IWorkspaceExpose) => Promise<boolean>) => {
+        await detachDocumentView?.(tabId, open);
+    };
+    // Opening another file in a view of a shared document detaches only this
+    // view (T4); the document stays with its other views, asking nothing. A
+    // hidden, unmounted view still shows it. A tab loading the document's own
+    // file, as a restored or cold tab does when shown, loads it for all views.
+    const sharesViews = computed(() => controller.views.value.size > 1);
+    function openInOwnDocument(open: (workspace: IWorkspaceExpose) => Promise<boolean>) {
+        void detachAndOpen(open);
+        return Promise.resolve<TDocumentOpenOutcome>({status: 'cancelled'});
+    }
+    const fileOps = usePageFileOperations({
+        tabId,
+        pdfSrc,
+        hasDocument: document.hasOpenDocument,
+        isAnySaving: saveService.isAnySaving,
+        isHistoryBusy: document.history.isHistoryBusy,
+        isExportingDocx: document.docx.isExportingDocx,
+        isAnyAnnotationNoteSaving: annotations.isAnyAnnotationNoteSaving,
+        isDocumentOperationInProgress: controller.operationLease.isBusy,
+        hasSaveFailure: saveService.hasSaveFailure,
+        annotationNoteWindows: annotations.annotationNoteWindows,
+        hasPendingUnsavedChanges: computed(() => !sharesViews.value && save.hasPendingUnsavedChanges.value),
+        annotationDirty: annotations.annotationDirty,
+        isDirty: file.isDirty,
+        recoveryDirtyBaseline: file.recoveryDirtyBaseline,
+        pageLabelsDirty: metadata.pageLabelState.pageLabelsDirty,
+        bookmarksDirty: metadata.bookmarkState.bookmarksDirty,
+        persistAllAnnotationNotes: annotations.persistAllAnnotationNotes,
+        handleSave: save.handleSave,
+        pickFileToOpen: file.pickFileToOpen,
+        openFile: result => (sharesViews.value
+            ? openInOwnDocument(workspace => (result ? workspace.handleOpenFileWithResult(result) : workspace.handleOpenFileFromUi()))
+            : file.openFileWithViewerLifecycle(result)),
+        openFileDirect: path => (sharesViews.value && (path !== controller.snapshot.value.identity.originalPath || save.hasPendingUnsavedChanges.value)
+            ? openInOwnDocument(workspace => workspace.handleOpenFileDirectWithPersist(path))
+            : file.openFileDirectWithViewerLifecycle(path)),
+        openFileDirectBatch: paths => (sharesViews.value
+            ? openInOwnDocument(workspace => workspace.handleOpenFileDirectBatchWithPersist(paths))
+            : file.openFileDirectBatchWithViewerLifecycle(paths)),
+        runDocumentOpen: (request, run) => document.views.runDocumentOpen(viewContext, request, run),
+        closeFile: file.closeFileWithViewerLifecycle,
+        closeAllDropdowns: view.closeAllDropdowns,
+        emitOpenInNewTab: deps.emitOpenInNewTab,
+    });
     const viewContext = {
         document,
         tabId,
-        detachAndOpen: async (open: (workspace: IWorkspaceExpose) => Promise<boolean>) => {
-            await detachDocumentView?.(tabId, open);
-        },
+        detachAndOpen,
         documentView,
         initialViewState,
         preserveInitialStateForFirstSource,
@@ -526,6 +610,9 @@ export const createDocumentViewContext = (deps: IDocumentViewContextDeps) => {
         navigation,
         bookmarkNavigationIntentVersion,
         pageContextMenu,
+        pageOps,
+        print: viewPrint,
+        fileOps,
         annotationContextMenu,
         closeAnnotationContextMenu: annotationContextMenu.closeAnnotationContextMenu,
         annotationTool,
@@ -533,6 +620,8 @@ export const createDocumentViewContext = (deps: IDocumentViewContextDeps) => {
         scanCleanup,
         scanCleanupSourceSha256,
         annotationActions,
+        // The annotations this view's viewer has selected.
+        selectedAnnotations: computed(() => pdfViewerRef.value?.selectedAnnotations ?? []),
         statusBar,
         viewerDefaults,
         crop,
@@ -541,8 +630,8 @@ export const createDocumentViewContext = (deps: IDocumentViewContextDeps) => {
         djvuProjection,
         bindDocumentView,
     };
-    // The document runs its commands in this view while its tab is the one
-    // in use, and resets this view's panels when its source changes.
+    // The document resets this view's panels when its source changes and
+    // keeps it on its page through its reloads.
     onScopeDispose(document.views.attachView(viewContext));
     provideDocumentContext(document);
     provideDocumentViewContext(viewContext);

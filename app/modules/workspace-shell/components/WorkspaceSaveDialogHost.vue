@@ -79,21 +79,21 @@ const {visible} = defineProps<{
 }>();
 
 const {
-    views,
     exportWorkflow,
     print,
-    pageOps,
     file,
     save: {optimizeDialog: optimize},
 } = useDocumentContext();
 const {
-    tabId,
+    isActive,
     view,
     crop,
+    pageOps,
 } = useDocumentViewContext();
-// The document's dialogs open in the view in use, with its page, selection
-// and layout; its other views would offer their own page for the same command.
-const presentsDocumentDialogs = computed(() => visible && views.commandView.value?.tabId === tabId);
+// The document's dialogs open in the active tab's view, the one whose command
+// opened them, with its page and layout; another view of the document would
+// offer its own page for the same command.
+const presentsDocumentDialogs = computed(() => visible && isActive.value);
 const {
     totalPages,
     currentPage,

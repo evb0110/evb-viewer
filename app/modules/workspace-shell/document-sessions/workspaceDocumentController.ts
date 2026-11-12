@@ -586,7 +586,10 @@ export function createWorkspaceDocumentController(options: {
 
     function runClose(request: IWorkspaceDocumentCloseRequest) {
         const onCloseCommit = async () => {
-            await rememberReadingView(controller);
+            // A document closes with its last view; that view's place is kept.
+            for (const tabId of views.value.keys()) {
+                await rememberReadingView(controller, tabId);
+            }
             supersedeActiveTransaction();
             resetToEmpty();
         };

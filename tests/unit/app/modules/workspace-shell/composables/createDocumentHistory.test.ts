@@ -224,9 +224,6 @@ function createContentHistoryHarness(pathHistory: boolean, beforeRevisionPrepare
         ref(2),
     ];
     const surface = createDocumentOpenSurfaceSession();
-    const viewer = {
-        scrollToPage: (page: number) => {pages[0]!.value = page;},
-    };
     for (const [
         index,
         tabId,
@@ -241,12 +238,16 @@ function createContentHistoryHarness(pathHistory: boolean, beforeRevisionPrepare
             view: {
                 currentPage: pages[index],
                 pdfViewerRef: shallowRef({
-                    ...viewer,
+                    scrollToPage: (page: number) => {pages[index]!.value = page;},
                     preparePageMutationRevisionSwap: async () => {
                         await beforeRevisionPrepare?.();
                         return false;
                     },
                 }),
+            },
+            search: {
+                resetSearchCache: () => undefined,
+                adoptPageRotation: () => undefined,
             },
         }));
         onTestFinished(detach);
@@ -269,7 +270,7 @@ function createContentHistoryHarness(pathHistory: boolean, beforeRevisionPrepare
         ...(documentAnnotations ? {documentAnnotations} : {}),
         applyLoadedPdfState: (...args) => flow.applyLoadedPdfState(...args),
         prepareHistoryRevisionSwap: (token, delta) => prepareDocumentViewsForHistorySwap(
-            views, views.viewPorts.value.get('one')!.view.pdfViewerRef.value, 3, token, delta,
+            views, 3, token, delta,
         ),
         clearPdfConformanceProfile: () => undefined,
         clearOcrCache: () => undefined,
@@ -317,9 +318,7 @@ function createContentHistoryHarness(pathHistory: boolean, beforeRevisionPrepare
     };
     publishSurface();
     const ui = usePdfHistory({
-        pdfViewerRef: shallowRef(viewer),
-        openSurface: surface,
-        currentPage: pages[0]!,
+        prepareReload: views.prepareReload,
         isAnySaving: ref(false),
         prepareHistory: () => undefined,
         mapHistoryPage: (direction, page) => history.mapHistoryPage?.(direction, page) ?? page,
@@ -328,7 +327,6 @@ function createContentHistoryHarness(pathHistory: boolean, beforeRevisionPrepare
         nextUndoSource: ledger.nextUndoSource,
         nextRedoSource: ledger.nextRedoSource,
         workingCopyPath: state.workingCopyPath,
-        resetSearchCache: () => undefined,
         clearOcrCache: () => undefined,
         undoHistory: ledger.undoTimeline,
         redoHistory: ledger.redoTimeline,

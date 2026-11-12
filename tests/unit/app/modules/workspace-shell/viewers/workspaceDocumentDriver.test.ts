@@ -96,14 +96,13 @@ vi.mock('@app/modules/document-viewer/public', async (importOriginal) => ({
     ensurePdfProjection: driverMocks.ensurePdfProjection,
 }));
 
-function selectPendingDocument(path: string, size: number | null) {
+function selectPendingDocument(path: string) {
     return useWorkspaceDocumentDriver({
         djvuSourcePath: ref<TDocumentRef | null>(null),
         isDjvuMode: ref(false),
         pdfSrc: ref<TPdfSource | null>(null),
         workingCopyPath: ref<TDocumentRef | null>(null),
         pendingDocumentPath: ref<TDocumentRef | null>(requireDocumentRef(path)),
-        pendingDocumentSize: ref<number | null>(size),
     });
 }
 
@@ -278,7 +277,7 @@ describe('WorkspaceDocumentDriver', () => {
         expect(saveAs).not.toHaveBeenCalled();
         expect(saveAsDjvuProjection).toHaveBeenCalledOnce();
 
-        await expect(selectPendingDocument('/managed/document.pdf', 1).activeDocumentDriver.value?.run({
+        await expect(selectPendingDocument('/managed/document.pdf').activeDocumentDriver.value?.run({
             kind: 'prepare-print',
             request: {
                 orientation: 'portrait',

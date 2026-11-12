@@ -666,7 +666,7 @@ describe('window tab transfer orchestration helpers', () => {
             }));
             const viewport = shallowRef(cast({lifecycle: 'empty'}));
             let reload: Promise<void> | null = null;
-            const preparePdfReloadWaiter = (pageToRestore: number) => {
+            const prepareViewReload = (_view: IDocumentViewPort, pageToRestore: number) => {
                 const waiter = createPdfReloadWaiter({
                     pdfViewerRef: viewer,
                     openSurface: cast({
@@ -695,8 +695,7 @@ describe('window tab transfer orchestration helpers', () => {
             const split = useWorkspaceSplitPayload(cast({
                 originalPath,
                 totalPages: ref(12),
-                currentPage: page,
-                preparePdfReloadWaiter,
+                prepareViewReload,
                 openFileWithViewerLifecycle: async (_result: TOpenFileResult, transactionId?: string) => {
                     const opened = await controller.runOpen({
                         kind: 'open',
@@ -728,7 +727,12 @@ describe('window tab transfer orchestration helpers', () => {
             controller.attachWorkspace('tab-1', createWorkspaceExposeFixture({
                 restoreViewState: state => {zoom.value = state.zoom ?? zoom.value;},
                 restoreSplitPayload: async (...args) => {
-                    outcome = await split.restoreSplitPayload(...args);
+                    outcome = await split.restoreSplitPayload(cast<IDocumentViewPort>({
+                        view: {
+                            totalPages: ref(12),
+                            documentViewerRef: ref(null),
+                        },
+                    }), ...args);
                     return outcome;
                 },
             }));
@@ -878,11 +882,9 @@ describe('window tab transfer orchestration helpers', () => {
             requiresSaveAsOnFirstSave: ref(false),
             isDjvuMode: ref(false),
             djvuSourcePath: ref(null),
-            currentPage: ref(1),
             totalPages: ref(1),
             fileName: ref('source.pdf'),
             pdfViewerRef: shallowRef({runSaveTransaction: transaction.runSaveTransaction}),
-            documentViewerRef: ref(null),
             // No native writer: the transaction refuses to materialize the note.
             getNativeSaveTransactionOptions: () => ({
                 nativeCapabilities: {
@@ -905,7 +907,7 @@ describe('window tab transfer orchestration helpers', () => {
             }),
         }));
 
-        await expect(split.captureSplitPayload()).rejects.toMatchObject({name: 'NativePdfSaveRequiredError'});
+        await expect(split.captureSplitPayload(1)).rejects.toMatchObject({name: 'NativePdfSaveRequiredError'});
         expect(application.store.hasChangesSinceSavedBaseline()).toBe(true);
     });
 
@@ -931,11 +933,9 @@ describe('window tab transfer orchestration helpers', () => {
             requiresSaveAsOnFirstSave: ref(false),
             isDjvuMode: ref(false),
             djvuSourcePath: ref(null),
-            currentPage: ref(1),
             totalPages: ref(1),
             fileName: ref('source.pdf'),
             pdfViewerRef: shallowRef(dirty ? null : {runSaveTransaction: transaction.runSaveTransaction}),
-            documentViewerRef: ref(null),
             getNativeSaveTransactionOptions: () => ({
                 nativeCapabilities: {
                     hasNativePdfMutationCapability: false,
@@ -959,11 +959,11 @@ describe('window tab transfer orchestration helpers', () => {
 
         if (dirty) {
             // Nothing can stand for its edits: the old bytes do not move.
-            await expect(split.captureSplitPayload()).rejects.toMatchObject({name: 'NativePdfSaveRequiredError'});
+            await expect(split.captureSplitPayload(1)).rejects.toMatchObject({name: 'NativePdfSaveRequiredError'});
             expect(createWorkingCopyFromDataMock).not.toHaveBeenCalled();
             return;
         }
-        await expect(split.captureSplitPayload()).resolves.toMatchObject({
+        await expect(split.captureSplitPayload(1)).resolves.toMatchObject({
             kind: 'pdfSnapshot',
             isDirty: false,
         });
@@ -1077,7 +1077,7 @@ describe('window tab transfer orchestration helpers', () => {
                 // These loaded views need no open, even if their pixels have
                 // been evicted. An inactive view cannot repaint for a merge.
                 waitForDocumentOpenSettled: () => Promise.withResolvers<undefined>().promise,
-                captureSplitPayload: (_page, ownership) => document.splitPayload.captureSplitPayload(pages.get(tabId)!.value, ownership),
+                captureSplitPayload: (_page, ownership) => document.splitPayload.captureSplitPayload(pages.get(tabId)!.value!, ownership),
             }));
         }
 

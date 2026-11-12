@@ -19,9 +19,9 @@ import type { TDocumentViews } from '@app/modules/workspace-shell/document-sessi
 const INVISIBLE_NOTE_PLACEHOLDER_RE = /[\u200B\uFEFF]/gu;
 
 interface IWorkspaceAnnotationSessionOptions {
-    /** The document's views: commands reach the viewer of the one in use. */
-    views: Pick<TDocumentViews, 'commandView' | 'commandTabId'>;
-    pdfDocument: Ref<IPdfDocument | null>;
+    /** The document's views: what a viewer answers about the shared annotation store. */
+    views: Pick<TDocumentViews, 'pdfViewer'>;
+    pdfDocument: Readonly<Ref<IPdfDocument | null>>;
     reportNoteFailure: TWorkspaceFailureSurface['reportNoteFailure'];
 }
 
@@ -30,7 +30,7 @@ export const useWorkspaceAnnotationSession = (options: IWorkspaceAnnotationSessi
         views,
         pdfDocument,
     } = options;
-    const pdfViewerRef = computed<IWorkspacePdfViewerAnnotationSessionPort | null>(() => views.commandView.value?.view.pdfViewerRef.value ?? null);
+    const pdfViewerRef = computed<IWorkspacePdfViewerAnnotationSessionPort | null>(() => views.pdfViewer.value);
 
     function clearAnnotationChanges() {}
 
@@ -100,10 +100,6 @@ export const useWorkspaceAnnotationSession = (options: IWorkspaceAnnotationSessi
         }) ?? null;
     }
 
-    function focusAnnotationNote(annotationId: string) {
-        return pdfViewerRef.value?.focusSelectedAnnotation?.(annotationId) ?? false;
-    }
-
     const {
         annotationNoteWindows,
         annotationNotePositions,
@@ -137,7 +133,6 @@ export const useWorkspaceAnnotationSession = (options: IWorkspaceAnnotationSessi
         },
         isAnnotationCommentSyncReady: () => Boolean(pdfDocument.value) && annotationCommentsStatus.value === 'ready',
         getDeletedCanonicalAnnotationIds: () => pdfViewerRef.value?.getDeletedCanonicalAnnotationIds?.() ?? [],
-        getViewInUse: () => views.commandTabId.value,
     });
 
     const hasOpenAnnotationNotes = ref(false);
@@ -173,11 +168,6 @@ export const useWorkspaceAnnotationSession = (options: IWorkspaceAnnotationSessi
     const appAnnotationUndoDepth = computed(() => (
         pendingEmbeddedAnnotationDeleteCount.value + (hasOpenEmptyEditorNote.value ? 1 : 0)
     ));
-    const selectedAnnotations = computed(() => pdfViewerRef.value?.selectedAnnotations ?? []);
-    const selectedTextBox = computed(() => (
-        pdfViewerRef.value?.selectedTextBox
-        ?? null
-    ));
 
     return {
         clearAnnotationChanges,
@@ -186,8 +176,6 @@ export const useWorkspaceAnnotationSession = (options: IWorkspaceAnnotationSessi
         pendingEmbeddedAnnotationDeleteCount,
         thumbnailHiddenAnnotationIds,
         appAnnotationUndoDepth,
-        selectedAnnotations,
-        selectedTextBox,
         annotationKeepActive,
         annotationSettings,
         annotationComments,
@@ -225,7 +213,6 @@ export const useWorkspaceAnnotationSession = (options: IWorkspaceAnnotationSessi
         discardAnnotationNote,
         closeAllAnnotationNotes,
         openAnnotationNoteWindow,
-        focusAnnotationNote,
         removeAnnotationNoteWindow,
         setAnnotationNoteWindowError,
         bringAnnotationNoteToFront,

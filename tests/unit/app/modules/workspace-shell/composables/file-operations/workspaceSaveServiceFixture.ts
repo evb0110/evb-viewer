@@ -6,11 +6,13 @@ import {
     ref,
     shallowRef,
     type Ref,
+    type ShallowRef,
 } from 'vue';
 import type {
     IAnnotationCommentSummary,
     IShapeAnnotation,
 } from '@app/types/annotations';
+import type { IPdfDocument } from '@app/modules/pdf-viewer/public';
 import type {IWorkspaceSaveDependencies} from '@app/modules/workspace-shell/composables/file-operations/useWorkspaceSaveService';
 import {useWorkspaceSaveService} from '@app/modules/workspace-shell/composables/file-operations/useWorkspaceSaveService';
 import { usePdfViewerSaveTransaction } from '@app/modules/pdf-viewer/runtime/save/usePdfViewerSaveTransaction';
@@ -70,7 +72,7 @@ type TFileOperationsSaveControllerTestDeps =
         getPageLabelsSaveStateToken?: IWorkspaceSaveDependencies['metadata']['getPageLabelsSaveStateToken'];
         markBookmarksSaved: IWorkspaceSaveDependencies['metadata']['markBookmarksSaved'];
         getBookmarksSaveStateToken?: IWorkspaceSaveDependencies['metadata']['getBookmarksSaveStateToken'];
-        pdfDocument: IWorkspaceSaveDependencies['pdf']['document'];
+        pdfDocument: ShallowRef<IPdfDocument | null>;
         pdfViewerRef?: IWorkspaceSaveDependencies['pdf']['viewer'];
         commitPdfEditorsForSave?: IWorkspaceSaveDependencies['pdf']['commitEditorsForSave'];
         runSaveTransaction: IWorkspaceSaveDependencies['pdf']['runSaveTransaction'];

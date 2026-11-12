@@ -250,14 +250,13 @@ const {
     statusBar,
     navigation,
     handleCaptureRegion,
+    fileOps,
+    print,
 } = context;
 const {
     file,
-    fileOps,
     history,
     save,
-    print,
-    splitPayload,
     docxExport,
 } = documentContext;
 // A cleanup started from this document keeps running after Done. While the
@@ -412,8 +411,6 @@ const workspaceExpose = createWorkspaceExpose(documentContext, context, {
     canOptimizePdf: presentation.canOptimizePdf,
     canExportDocx,
     viewerCapabilities,
-    captureSplitPayload: splitPayload.captureSplitPayload,
-    restoreSplitPayload: splitPayload.restoreSplitPayload,
     waitForDocumentOpenSettled: presentation.waitForDocumentOpenSettled,
     runAgentAction,
     readAgentResource,

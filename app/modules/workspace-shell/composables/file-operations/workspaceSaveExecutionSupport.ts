@@ -1,5 +1,5 @@
 import type {
-    ComputedRef, Ref, ShallowRef,
+    ComputedRef, Ref,
 } from 'vue';
 import type {TDocumentRef} from '@contracts/documentRef';
 import type {TDocumentRevisionToken} from '@contracts/documentRevision';
@@ -251,7 +251,7 @@ export interface IWorkspaceSaveDependencies {
         getNoteFailurePresentation?: () => Parameters<TWorkspaceFailureSurface['reportSaveFailure']>[3];
     };
     metadata: {
-        totalPages: Ref<number>;
+        totalPages: Readonly<Ref<number>>;
         pageLabelsDirty: Ref<boolean>;
         pageLabelRanges: Ref<IPdfPageLabelRange[]>;
         bookmarksDirty: Ref<boolean>;
@@ -263,11 +263,11 @@ export interface IWorkspaceSaveDependencies {
         getBookmarksSaveStateToken?: () => unknown;
     };
     pdf: {
-        document: ShallowRef<IPdfDocument | null>;
-        viewer: Ref<{
+        document: Readonly<Ref<IPdfDocument | null>>;
+        viewer: Readonly<Ref<{
             runSaveTransaction: IPdfViewerSaveExpose['runSaveTransaction'];
             getAnnotationDirtyEntityCount?: (() => number) | undefined
-        } | null>;
+        } | null>>;
         commitEditorsForSave?: () => Promise<void>;
         runSaveTransaction: IPdfViewerSaveExpose['runSaveTransaction'];
         getSourceData: () => Promise<Uint8Array | null>;
@@ -528,8 +528,8 @@ export function getNativeSaveTransactionOptions(
 
 export function createPageMutationWriterSave(deps: {
     save: IWorkspaceSaveDependencies;
-    currentPage: Readonly<Ref<number>>;
-    waitForPdfReload: (page: number) => Promise<unknown>;
+    /** Waits for the reload in every view, each kept on its own page. */
+    waitForPdfReload: () => Promise<unknown>;
     reloadWorkingCopyRevision?: () => Promise<unknown>;
 }) {
     return async function saveAnnotationsForPageMutation() {
@@ -544,7 +544,6 @@ export function createPageMutationWriterSave(deps: {
         const capturedWorkingCopyPath = saveDeps.document.workingCopyPath.value;
         const viewer = saveDeps.pdf.viewer.value;
         const capturedDocumentRevisionToken = saveDeps.document.revisionToken.value;
-        const capturedPage = deps.currentPage.value;
         if (!capturedWorkingCopyPath || !viewer) {
             return false;
         }
@@ -583,7 +582,7 @@ export function createPageMutationWriterSave(deps: {
             return false;
         }
         transaction.commitAnnotationSave?.(materializedIdentityBindings);
-        const reloadPromise = deps.waitForPdfReload(capturedPage);
+        const reloadPromise = deps.waitForPdfReload();
         await deps.reloadWorkingCopyRevision?.();
         await reloadPromise;
         return isCapturedTargetCurrent(false);
