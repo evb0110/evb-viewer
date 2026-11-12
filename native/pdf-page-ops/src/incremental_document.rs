@@ -512,6 +512,14 @@ impl PdfObjectStore for IncrementalDocument {
                 .map(|(id, object)| (*id, object)),
         )
     }
+
+    fn max_id(&self) -> u32 {
+        self.new_document.max_id
+    }
+
+    fn set_new_object(&mut self, object_id: ObjectId, object: Object) {
+        self.new_document.set_new_object(object_id, object);
+    }
 }
 
 const MAX_QPDF_PAGE_LIST_BYTES: usize = 64 * 1024 * 1024;

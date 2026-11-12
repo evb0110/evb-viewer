@@ -673,6 +673,12 @@ pub(crate) trait PdfObjectStore: PdfObjectSource {
     /// Every object a reader of this state finds, each once.
     fn stored_objects(&self) -> impl Iterator<Item = (ObjectId, &Object)>;
 
+    /// The highest object number in use; new objects are numbered past it.
+    fn max_id(&self) -> u32;
+
+    /// Stores a new object under a number past `max_id`.
+    fn set_new_object(&mut self, object_id: ObjectId, object: Object);
+
     fn dictionary_mut(&mut self, object_id: ObjectId) -> Result<&mut Dictionary> {
         Ok(self.object_mut(object_id)?.as_dict_mut()?)
     }
@@ -689,6 +695,15 @@ impl PdfObjectStore for Document {
 
     fn stored_objects(&self) -> impl Iterator<Item = (ObjectId, &Object)> {
         self.objects.iter().map(|(id, object)| (*id, object))
+    }
+
+    fn max_id(&self) -> u32 {
+        self.max_id
+    }
+
+    fn set_new_object(&mut self, object_id: ObjectId, object: Object) {
+        self.max_id = self.max_id.max(object_id.0);
+        self.objects.insert(object_id, object);
     }
 }
 

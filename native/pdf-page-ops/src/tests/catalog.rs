@@ -301,119 +301,87 @@ fn saves_and_reopens_10_001_bookmarks_across_path_addressed_fragments() {
     let input_path = temp_pdf_path("append-bookmark-subtree-input");
     let mut original_bytes = Vec::new();
     document.save_to(&mut original_bytes).unwrap();
-    write(&input_path, &original_bytes).unwrap();
 
-    let root = BookmarkEntry {
-        title: "Root".to_string(),
+    let entry = |title: String| BookmarkEntry {
+        title,
         page_index: Some(0),
         page_y_ratio: None,
         named_dest: None,
-                    original_destination: None,
-                    original_action: None,
-                    original_named_dest: None,
+        original_destination: None,
+        original_action: None,
+        original_named_dest: None,
         bold: false,
         italic: false,
         color: None,
         items: Vec::new(),
     };
-    append_native_mutations(
-        &input_path,
-        &input_path,
-        &NativeMutationsFile {
-            updates: Vec::new(),
-            geometry_updates: Vec::new(),
-            notes: Vec::new(),
-            free_text_notes: Vec::new(),
-            text_boxes: Vec::new(),
-            deletes: Vec::new(),
-            page_rotations: Vec::new(),
-            page_labels: None,
+    let save = |incremental: bool, items: Vec<BookmarkEntry>, chunk_index: Option<u32>| {
+        let mutations = NativeMutationsFile {
             bookmarks: Some(BookmarksMutation {
                 total_pages: 1,
                 untitled_label: "Untitled".to_string(),
-                items: vec![root],
+                items,
             }),
-            shapes: None,
-            markup: None,
-            placed_images: Vec::new(),
-            placed_image_geometry_updates: Vec::new(),
-            continuation: None,
-        },
-        "D:20260609123456+03'00'",
-    )
-    .unwrap();
-
-    let mut children = (0..10_000)
-        .map(|index| BookmarkEntry {
-            title: format!("Child {index}"),
-            page_index: Some(0),
-            page_y_ratio: None,
-            named_dest: None,
-                    original_destination: None,
-                    original_action: None,
-                    original_named_dest: None,
-            bold: false,
-            italic: false,
-            color: None,
-            items: Vec::new(),
-        })
-        .collect::<Vec<_>>();
-    for (chunk_index, chunk) in children.chunks_mut(5_000).enumerate() {
-        append_native_mutations(
-            &input_path,
-            &input_path,
-            &NativeMutationsFile {
-                updates: Vec::new(),
-                geometry_updates: Vec::new(),
-                notes: Vec::new(),
-                free_text_notes: Vec::new(),
-                text_boxes: Vec::new(),
-                deletes: Vec::new(),
-                page_rotations: Vec::new(),
-                page_labels: None,
-                bookmarks: Some(BookmarksMutation {
-                    total_pages: 1,
-                    untitled_label: "Untitled".to_string(),
-                    items: chunk.to_vec(),
-                }),
-                shapes: None,
-                markup: None,
-                placed_images: Vec::new(),
-                placed_image_geometry_updates: Vec::new(),
-                continuation: Some(NativeMutationContinuation {
-                    family: NativeMutationContinuationFamily::Bookmarks,
-                    chunk_index: u32::try_from(chunk_index + 1).unwrap(),
-                    chunk_count: 3,
-                    bookmark_path: vec![0],
-                }),
-            },
-            "D:20260609123456+03'00'",
-        )
-        .unwrap();
-    }
-
-    let loaded = Document::load(&input_path).unwrap();
-    let outlines_ref = catalog(&loaded)
-        .get(b"Outlines")
-        .unwrap()
-        .as_reference()
-        .unwrap();
-    let outlines = loaded.get_dictionary(outlines_ref).unwrap();
-    assert_eq!(outlines.get(b"Count").unwrap().as_i64().unwrap(), 10_001);
-    let root_ref = outlines.get(b"First").unwrap().as_reference().unwrap();
-    let root = loaded.get_dictionary(root_ref).unwrap();
-    assert_eq!(root.get(b"Count").unwrap().as_i64().unwrap(), 10_000);
-    let mut child_ref = root.get(b"First").unwrap().as_reference().unwrap();
-    for expected_index in 0..10_000 {
-        let child = loaded.get_dictionary(child_ref).unwrap();
-        assert_eq!(
-            pdf_string_to_text(child.get(b"Title").unwrap()).unwrap(),
-            format!("Child {expected_index}"),
-        );
-        if expected_index < 9_999 {
-            child_ref = child.get(b"Next").unwrap().as_reference().unwrap();
+            continuation: chunk_index.map(|chunk_index| NativeMutationContinuation {
+                family: NativeMutationContinuationFamily::Bookmarks,
+                chunk_index,
+                chunk_count: 3,
+                bookmark_path: vec![0],
+            }),
+            ..NativeMutationsFile::default()
+        };
+        let modified_at = "D:20260609123456+03'00'";
+        if incremental {
+            append_native_mutations(&input_path, &input_path, &mutations, modified_at)
         } else {
-            assert!(child.get(b"Next").is_err());
+            write_native_mutations_path(
+                &input_path,
+                &input_path,
+                &mutations,
+                modified_at,
+                None,
+                None,
+            )
+        }
+        .unwrap();
+    };
+    let children = (0..10_000)
+        .map(|index| entry(format!("Child {index}")))
+        .collect::<Vec<_>>();
+
+    // The incremental append and the full rewrite read back the same outline.
+    for incremental in [true, false] {
+        write(&input_path, &original_bytes).unwrap();
+        save(incremental, vec![entry("Root".to_string())], None);
+        for (chunk_index, chunk) in children.chunks(5_000).enumerate() {
+            let chunk_index = u32::try_from(chunk_index + 1).unwrap();
+            save(incremental, chunk.to_vec(), Some(chunk_index));
+        }
+
+        let loaded = Document::load(&input_path).unwrap();
+        let outlines_ref = catalog(&loaded)
+            .get(b"Outlines")
+            .unwrap()
+            .as_reference()
+            .unwrap();
+        let outlines = loaded.get_dictionary(outlines_ref).unwrap();
+        assert_eq!(outlines.get(b"Count").unwrap().as_i64().unwrap(), 10_001);
+        let root_ref = outlines.get(b"First").unwrap().as_reference().unwrap();
+        let root = loaded.get_dictionary(root_ref).unwrap();
+        assert_eq!(root.get(b"Count").unwrap().as_i64().unwrap(), 10_000);
+        let mut child_ref = root.get(b"First").unwrap().as_reference().unwrap();
+        for expected_index in 0..10_000 {
+            let child = loaded.get_dictionary(child_ref).unwrap();
+            assert_eq!(
+                pdf_string_to_text(child.get(b"Title").unwrap()).unwrap(),
+                format!("Child {expected_index}"),
+                "incremental: {incremental}",
+            );
+            if expected_index < 9_999 {
+                child_ref = child.get(b"Next").unwrap().as_reference().unwrap();
+            } else {
+                assert!(child.get(b"Next").is_err());
+            }
         }
     }
 
@@ -556,6 +524,7 @@ fn appends_metadata_removal_as_incremental_revision() {
                 items: Vec::new(),
             }],
         },
+        None,
     )
     .unwrap();
 
@@ -905,7 +874,7 @@ fn applies_labels_and_bookmarks_to_sparse_million_page_tree() {
             },
         ],
     };
-    set_bookmarks(&mut document, &bookmarks).unwrap();
+    set_bookmarks(&mut document, &bookmarks, None).unwrap();
 
     validate_page_labels_document_postconditions(&document, &page_labels).unwrap();
     validate_bookmarks_document_postconditions(&document, &bookmarks, None).unwrap();
@@ -1609,7 +1578,7 @@ fn saved_resolved_named_bookmark_keeps_source_name() {
     let mut input = Vec::new(); document.save_to(&mut input).unwrap();
     let output = append_native_mutations_to_bytes(&input, &mutations, "D:20261012000000Z").unwrap();
     for saved in [Document::load_mem(&output.data).unwrap(), {
-        set_bookmarks(&mut document, mutations.bookmarks.as_ref().unwrap()).unwrap(); document
+        set_bookmarks(&mut document, mutations.bookmarks.as_ref().unwrap(), None).unwrap(); document
     }] {
         let outlines = saved.get_dictionary(saved.catalog().unwrap().get(b"Outlines").unwrap().as_reference().unwrap()).unwrap();
         let bookmark = saved.get_dictionary(outlines.get(b"First").unwrap().as_reference().unwrap()).unwrap();
@@ -1629,7 +1598,7 @@ fn saved_bookmark_refuses_a_page_dictionary_outside_the_page_tree() {
     let mut input = Vec::new(); document.save_to(&mut input).unwrap();
     let error = append_native_mutations_to_bytes(&input, &mutations, "D:20261012000000Z").err().unwrap();
     assert!(error.to_string().contains("not in the current page tree"));
-    assert!(set_bookmarks(&mut document, mutations.bookmarks.as_ref().unwrap()).is_err());
+    assert!(set_bookmarks(&mut document, mutations.bookmarks.as_ref().unwrap(), None).is_err());
     }
 }
 
@@ -1807,7 +1776,7 @@ fn saved_outline_writes_untouched_actions_and_names_back_unchanged() {
             document.save_to(&mut input).unwrap();
             Document::load_mem(&append_native_mutations_to_bytes(&input, &mutations, "D:20261012000000Z").unwrap().data).unwrap()
         } else {
-            set_bookmarks(&mut document, mutations.bookmarks.as_ref().unwrap()).unwrap();
+            set_bookmarks(&mut document, mutations.bookmarks.as_ref().unwrap(), None).unwrap();
             document
         };
         let mut expected = source;
@@ -1838,7 +1807,7 @@ fn read_outline_bounds_and_refuses_unrepresentable_actions() {
     let error = read_native_mutations_bytes(&serde_json::to_vec(&serde_json::json!({"bookmarks": {
         "totalPages": 1, "untitledLabel": "Untitled", "items": [{"title": "Big", "pageIndex": null, "originalAction": oversized, "items": []}],
     }})).unwrap())
-    .and_then(|mutations| set_bookmarks(&mut document, mutations.bookmarks.as_ref().unwrap()));
+    .and_then(|mutations| set_bookmarks(&mut document, mutations.bookmarks.as_ref().unwrap(), None));
     assert!(error.unwrap_err().to_string().contains("size ceiling"));
 }
 
@@ -1884,7 +1853,7 @@ fn save_outline_entries(document: &mut Document, items: serde_json::Value, appen
         document.save_to(&mut input).unwrap();
         Document::load_mem(&append_native_mutations_to_bytes(&input, &mutations, "D:20261012000000Z").unwrap().data).unwrap()
     } else {
-        set_bookmarks(document, mutations.bookmarks.as_ref().unwrap()).unwrap();
+        set_bookmarks(document, mutations.bookmarks.as_ref().unwrap(), None).unwrap();
         document.clone()
     }
 }

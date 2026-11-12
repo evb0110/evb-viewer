@@ -68,6 +68,7 @@ fn incremental_rotation_normalizes_inherited_values_and_keeps_other_metadata() {
                 items: Vec::new(),
             }],
         },
+        None,
     )
     .unwrap();
     let original_catalog = source.catalog().unwrap();

@@ -293,7 +293,7 @@ fn apply_native_mutations_internal(
         set_page_labels(document, page_labels, is_page_label_continuation(mutations))?;
     }
     if let Some(bookmarks) = &mutations.bookmarks {
-        set_bookmarks(document, bookmarks)?;
+        set_bookmarks(document, bookmarks, mutations.continuation.as_ref())?;
     }
     if let Some(shapes) = &mutations.shapes {
         apply_shape_annotations(document, shapes, modified_at, &mut identity_bindings)?;
@@ -480,7 +480,7 @@ fn apply_native_mutations_incremental_internal(
         )?;
     }
     if let Some(bookmarks) = &mutations.bookmarks {
-        set_bookmarks_incremental(incremental, bookmarks, mutations.continuation.as_ref())?;
+        set_bookmarks(incremental, bookmarks, mutations.continuation.as_ref())?;
     }
     if let Some(shapes) = &mutations.shapes {
         apply_shape_annotations_incremental(
