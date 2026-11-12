@@ -275,10 +275,10 @@ describe('browser document lifecycle UI', () => {
             await page.route('**/*usePdfAnnotationLayerRenderer.ts*', async (route) => {
                 const response = await route.fetch();
                 const body = await response.text();
-                const marker = 'const renderToken = ++annotationLayerRenderToken;';
+                const marker = 'const annotations = await getParsedPageAnnotations(pdfPage);';
                 if (!body.includes(marker)) throw new Error('PDF.js layer hydration fault seam was not found');
                 const hold = readiness === 'hydrating'
-                    ? 'document.body.dataset.optionalHydrationFault = "held"; annotationLayerDiv.dataset.hydrationFault = "held"; try { await raceWithAnnotationAbort(new Promise(() => {}), pageNumber, options); } finally { annotationLayerDiv.dataset.hydrationFault = "settled"; }'
+                    ? 'document.body.dataset.optionalHydrationFault = "held"; annotationLayerDiv.dataset.hydrationFault = "held"; try { await new Promise((_, reject) => options.signal.addEventListener("abort", () => reject(options.signal.reason), {once: true})); } finally { annotationLayerDiv.dataset.hydrationFault = "settled"; }'
                     : 'document.body.dataset.optionalHydrationFault = "refused"; const refusal = new Error("Injected optional annotation hydration refusal"); refusal.name = "AbortError"; throw refusal;';
                 await route.fulfill({
                     response,
@@ -390,17 +390,17 @@ describe('browser document lifecycle UI', () => {
             await page.route('**/*usePdfAnnotationLayerRenderer.ts*', async (route) => {
                 const response = await route.fetch();
                 const body = await response.text();
-                const marker = 'const renderToken = ++annotationLayerRenderToken;';
+                const marker = 'const annotations = await getParsedPageAnnotations(pdfPage);';
                 if (!body.includes(marker)) throw new Error('Required annotation producer seam was not found');
                 const hold = `const faultRoot = document.querySelector('.page_container[data-page="' + pageNumber + '"]');
-                    const target = JSON.stringify([options?.documentVersion, viewport.width, viewport.height]);
+                    const target = JSON.stringify([deps.pdfDocument.value?.loadingTask.docId, viewport.width, viewport.height]);
                     if (faultRoot?.getAttribute('data-required-hydration-fault') === 'armed'
                         && viewport.width > Number(faultRoot.getAttribute('data-required-hydration-baseline-width'))) {
                         faultRoot.setAttribute('data-required-hydration-target', target);
                     }
                     if (faultRoot?.getAttribute('data-required-hydration-target') === target) {
                         faultRoot.setAttribute('data-required-hydration-fault', 'held');
-                        try { await raceWithAnnotationAbort(new Promise(() => {}), pageNumber, options); }
+                        try { await new Promise((_, reject) => options.signal.addEventListener("abort", () => reject(options.signal.reason), {once: true})); }
                         finally { faultRoot.setAttribute('data-required-hydration-fault', 'settled'); }
                     }`;
                 await route.fulfill({
