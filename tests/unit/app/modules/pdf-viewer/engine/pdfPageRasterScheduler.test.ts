@@ -102,60 +102,6 @@ function createHarness(options: {
     };
 }
 
-function createRetryingOneShotHarness() {
-    const budget = createWorkspaceSurfaceBudgetController(1_000);
-    const discard = vi.fn();
-    const leaseRelease = vi.fn();
-    const signals: AbortSignal[] = [];
-    const prepare = vi.fn(async (
-        _demand: IPdfRasterDemand,
-        _page: IPdfPage,
-        signal: AbortSignal,
-    ) => {
-        signals.push(signal);
-        return {pageNumber: 1};
-    });
-    const start = vi.fn(() => createTask());
-    const targetRelease = vi.fn();
-    let commitAttempts = 0;
-    const scheduler = createPdfPageRasterScheduler({
-        documentFence,
-        leasePage: async pageNumber => ({
-            page: cast<IPdfPage>({pageNumber}),
-            release: leaseRelease,
-        }),
-        surfaceBudget: budget,
-    });
-    const demand = createDemand(1, 'navigation-target');
-    const target: IPdfRasterRenderTarget<{pageNumber: number}> = {
-        id: 'retry-pending-navigation',
-        prepare,
-        start,
-        commit: () => {
-            commitAttempts += 1;
-            return commitAttempts > 1;
-        },
-        discard,
-        release: targetRelease,
-    };
-    return {
-        budget,
-        discard,
-        getCommitAttempts: () => commitAttempts,
-        leaseRelease,
-        request: () => scheduler.request({
-            sourceId: 'navigation',
-            demand,
-            target,
-        }),
-        scheduler,
-        prepare,
-        signals,
-        start,
-        targetRelease,
-    };
-}
-
 async function flush() {
     await Promise.resolve();
     await Promise.resolve();
@@ -331,11 +277,13 @@ describe('PdfPageRasterScheduler', () => {
         expect(budget.getSnapshot().reservedBytes).toBe(400);
     });
 
-    it('preempts lower-priority same-page work and waits for its PDF.js task to settle', async () => {
+    it('preempts lower-priority same-page work, waits for its PDF.js task to settle and then renders it again', async () => {
         const page = cast<IPdfPage>({pageNumber: 7});
         const lowTask = Promise.withResolvers<undefined>();
         const highTask = Promise.withResolvers<undefined>();
-        const cancelLow = vi.fn();
+        // PDF.js rejects a cancelled render task with this error.
+        const cancelLow = vi.fn(() => lowTask.reject(Object.assign(new Error('cancelled'), {name: 'RenderingCancelledException'})));
+        const lowCommits = vi.fn(() => true);
         const starts: string[] = [];
         const scheduler = createPdfPageRasterScheduler({
             documentFence,
@@ -351,12 +299,12 @@ describe('PdfPageRasterScheduler', () => {
             prepare: async () => ({kind: 'low'}),
             start: () => {
                 starts.push('low');
-                return cast<IPdfRenderTask>({
+                return starts.length === 1 ? cast<IPdfRenderTask>({
                     cancel: cancelLow,
                     promise: lowTask.promise,
-                });
+                }) : createTask();
             },
-            commit: () => true,
+            commit: lowCommits,
             discard: vi.fn(),
             release: vi.fn(),
         };
@@ -392,15 +340,20 @@ describe('PdfPageRasterScheduler', () => {
             target: highTarget,
         });
         await vi.waitFor(() => expect(cancelLow).toHaveBeenCalledOnce());
-        expect(starts).toEqual(['low']);
-
-        lowTask.resolve(undefined);
         await vi.waitFor(() => expect(starts).toEqual([
             'low',
             'high',
         ]));
+        expect(lowCommits).not.toHaveBeenCalled();
         highTask.resolve(undefined);
         await expect(highRun).resolves.toMatchObject({status: 'committed'});
+        // The pre-empted page is still wanted, so it renders once the page is free.
+        await vi.waitFor(() => expect(lowCommits).toHaveBeenCalledOnce());
+        expect(starts).toEqual([
+            'low',
+            'high',
+            'low',
+        ]);
     });
 
     it('releases a page lease exactly once and only after render settlement', async () => {
@@ -758,7 +711,7 @@ describe('PdfPageRasterScheduler', () => {
         expect(harness.discarded).toEqual([1]);
     });
 
-    it('releases a reservation when prepare fails and retries the demand', async () => {
+    it('releases a reservation when prepare fails and rasters the renewed demand', async () => {
         vi.useFakeTimers();
         let attempts = 0;
         const budget = createWorkspaceSurfaceBudgetController(1_000);
@@ -778,7 +731,7 @@ describe('PdfPageRasterScheduler', () => {
             maxConcurrency: 1,
             surfaceBudget: budget,
         });
-        scheduler.setDemand({
+        const publish = () => scheduler.setDemand({
             sourceId: 'viewport',
             input: [createDemand(1, 'viewport-visible')],
             policy: {
@@ -787,10 +740,12 @@ describe('PdfPageRasterScheduler', () => {
             },
             target: harness.target,
         });
-        await flush();
+        publish();
+        await vi.advanceTimersByTimeAsync(1_000);
+        expect(attempts).toBe(1);
         expect(budget.getSnapshot().reservedBytes).toBe(0);
 
-        await vi.advanceTimersByTimeAsync(16);
+        publish();
         await flush();
 
         expect(attempts).toBe(2);
@@ -802,20 +757,19 @@ describe('PdfPageRasterScheduler', () => {
         'lease',
         'prepare',
         'commit',
-        'cancelled',
-    ] as const)('settles a current page whose %s attempts are exhausted', async (stage) => {
+    ] as const)('settles a current page whose %s attempt ends without a raster, once', async (stage) => {
         vi.useFakeTimers();
         const harness = createHarness(stage === 'prepare' ? {prepare: async () => null} : {});
-        const failure = Object.assign(new Error('page render failed'), {name: stage === 'cancelled' ? 'RenderingCancelledException' : 'Error'});
-        const onRenderExhausted = vi.fn();
+        const failure = new Error('page render failed');
+        const onRenderUncommitted = vi.fn();
         const target: IPdfRasterRenderTarget<{pageNumber: number}> = {
             ...harness.target,
             start: (prepared) => {
                 harness.started.push(prepared.pageNumber);
-                return createTask(stage === 'render' || stage === 'cancelled' ? Promise.reject(failure) : Promise.resolve());
+                return createTask(stage === 'render' ? Promise.reject(failure) : Promise.resolve());
             },
             commit: stage === 'commit' ? () => false : harness.target.commit,
-            onRenderExhausted,
+            onRenderUncommitted,
         };
         const scheduler = stage === 'lease' ? createPdfPageRasterScheduler({
             documentFence,
@@ -836,14 +790,14 @@ describe('PdfPageRasterScheduler', () => {
         await vi.advanceTimersByTimeAsync(1_000);
 
         if (stage === 'render' || stage === 'lease') {
-            expect(onRenderExhausted).toHaveBeenCalledExactlyOnceWith({
+            expect(onRenderUncommitted).toHaveBeenCalledExactlyOnceWith({
                 status: 'failed',
                 demand,
                 error: failure,
             });
         } else {
-            expect(onRenderExhausted).toHaveBeenCalledExactlyOnceWith({
-                status: stage === 'cancelled' ? 'cancelled' : 'discarded',
+            expect(onRenderUncommitted).toHaveBeenCalledExactlyOnceWith({
+                status: 'discarded',
                 demand,
             });
             expect(harness.released).toEqual([1]);
@@ -851,28 +805,25 @@ describe('PdfPageRasterScheduler', () => {
         expect(harness.committed).toEqual([]);
 
         // A page the viewport no longer asks for is not a failure to report.
-        onRenderExhausted.mockClear();
-        const withdrawn = createDemand(2, 'viewport-visible');
-        publish([withdrawn]);
-        await vi.advanceTimersByTimeAsync(1);
-        if (stage !== 'lease' && stage !== 'prepare') expect(harness.started.at(-1)).toBe(2);
+        onRenderUncommitted.mockClear();
+        publish([createDemand(2, 'viewport-visible')]);
         publish([]);
         await vi.advanceTimersByTimeAsync(1_000);
-        expect(onRenderExhausted).not.toHaveBeenCalled();
+        expect(onRenderUncommitted).not.toHaveBeenCalled();
 
         // A report that throws stays the target's problem: rasters go on.
-        onRenderExhausted.mockImplementation(() => {
+        onRenderUncommitted.mockImplementation(() => {
             throw new Error('report failed');
         });
         publish([createDemand(3, 'viewport-visible')]);
         await vi.advanceTimersByTimeAsync(1_000);
-        expect(onRenderExhausted).toHaveBeenCalledOnce();
+        expect(onRenderUncommitted).toHaveBeenCalledOnce();
         publish([createDemand(4, 'viewport-visible')]);
         await vi.advanceTimersByTimeAsync(1);
         if (stage !== 'lease' && stage !== 'prepare') expect(harness.started.at(-1)).toBe(4);
     });
 
-    it('gives up on a permanently rejected commit without leaking a lease or reservation', async () => {
+    it('settles a rejected commit once without leaking a lease or reservation', async () => {
         vi.useFakeTimers();
         const budget = createWorkspaceSurfaceBudgetController(1_000);
         const release = vi.fn();
@@ -905,231 +856,13 @@ describe('PdfPageRasterScheduler', () => {
                 release: vi.fn(),
             },
         });
-        // A target that never accepts must settle rather than spin: once the bounded
-        // reattempt window has elapsed, the attempt count stops climbing.
-        await vi.advanceTimersByTimeAsync(400);
-        const settledAttempts = commitAttempts;
-        expect(settledAttempts).toBeGreaterThan(1);
-        await vi.advanceTimersByTimeAsync(300);
-        expect(commitAttempts).toBe(settledAttempts);
-
-        // Every attempt hands back exactly what it took.
-        expect(discard).toHaveBeenCalledTimes(settledAttempts);
-        expect(release).toHaveBeenCalledTimes(settledAttempts);
+        // A declined commit settles; only a demand change asks again.
+        await vi.advanceTimersByTimeAsync(1_000);
+        expect(commitAttempts).toBe(1);
+        expect(discard).toHaveBeenCalledOnce();
+        expect(release).toHaveBeenCalledOnce();
         expect(budget.getSnapshot().reservedBytes).toBe(0);
         expect(scheduler.snapshot().residentPages).toEqual([]);
-    });
-
-    // A target declines for reasons that pass: a canvas swapped by a re-render, a
-    // render key still settling. Settled work sits in neither the queue nor the
-    // resident set, so if the scheduler abandons it the surface stays blank until
-    // something republishes demand — which a settled pane never does.
-    it('rasters a still-current demand whose first commit was transiently rejected', async () => {
-        vi.useFakeTimers();
-        const budget = createWorkspaceSurfaceBudgetController(1_000);
-        let commitAttempts = 0;
-        const scheduler = createPdfPageRasterScheduler({
-            documentFence,
-            leasePage: async pageNumber => ({
-                page: cast<IPdfPage>({pageNumber}),
-                release: vi.fn(),
-            }),
-            surfaceBudget: budget,
-        });
-        scheduler.setDemand({
-            sourceId: 'thumbnails',
-            input: [createDemand(1, 'thumbnail-current')],
-            policy: {
-                expand: input => input,
-                compareWithinLane: () => 0,
-            },
-            target: {
-                id: 'transient-reject',
-                prepare: async () => ({pageNumber: 1}),
-                start: () => createTask(),
-                commit: () => {
-                    commitAttempts += 1;
-                    return commitAttempts > 1;
-                },
-                discard: vi.fn(),
-                release: vi.fn(),
-            },
-        });
-        await flush();
-        await vi.advanceTimersByTimeAsync(16);
-        await flush();
-
-        expect(commitAttempts).toBe(2);
-        expect(scheduler.snapshot().residentPages).toEqual([{
-            lane: 'thumbnail-current',
-            pageNumber: 1,
-            sourceId: 'thumbnails',
-            targetId: 'transient-reject',
-        }]);
-    });
-
-    it('cancels retry-pending one-shot work before it can commit or retain surface budget', async () => {
-        vi.useFakeTimers();
-        const harness = createRetryingOneShotHarness();
-        const outcome = harness.request();
-        await flush();
-        await flush();
-        expect(harness.getCommitAttempts()).toBe(1);
-        expect(harness.leaseRelease).toHaveBeenCalledOnce();
-
-        await harness.scheduler.cancelSource('navigation');
-        await vi.advanceTimersByTimeAsync(100);
-
-        await expect(outcome).resolves.toMatchObject({status: 'cancelled'});
-        expect(harness.getCommitAttempts()).toBe(1);
-        expect(harness.discard).toHaveBeenCalledOnce();
-        expect(harness.leaseRelease).toHaveBeenCalledOnce();
-        expect(harness.signals[0]?.aborted).toBe(true);
-        expect(harness.targetRelease).toHaveBeenCalledOnce();
-        expect(harness.scheduler.snapshot()).toMatchObject({
-            inFlightPages: [],
-            queueDepth: 0,
-            reservedPixels: 0,
-            residentPages: [],
-        });
-        expect(harness.budget.getSnapshot().reservedBytes).toBe(0);
-    });
-
-    it('invalidates retry-pending one-shot work by source and page', async () => {
-        vi.useFakeTimers();
-        const harness = createRetryingOneShotHarness();
-        const outcome = harness.request();
-        await flush();
-        await flush();
-
-        harness.scheduler.invalidate({
-            pages: [1],
-            reason: 'page-replaced',
-            sourceId: 'navigation',
-        });
-        await vi.advanceTimersByTimeAsync(100);
-
-        await expect(outcome).resolves.toMatchObject({status: 'cancelled'});
-        expect(harness.getCommitAttempts()).toBe(1);
-        expect(harness.leaseRelease).toHaveBeenCalledOnce();
-        expect(harness.signals[0]?.aborted).toBe(true);
-        expect(harness.targetRelease).toHaveBeenCalledOnce();
-        expect(harness.scheduler.snapshot()).toMatchObject({
-            inFlightPages: [],
-            queueDepth: 0,
-            reservedPixels: 0,
-            residentPages: [],
-        });
-        expect(harness.budget.getSnapshot().reservedBytes).toBe(0);
-    });
-
-    it('disposes retry-pending one-shot work without leaving a timer or allocation', async () => {
-        vi.useFakeTimers();
-        const harness = createRetryingOneShotHarness();
-        const outcome = harness.request();
-        await flush();
-        await flush();
-
-        await harness.scheduler.dispose();
-        await vi.advanceTimersByTimeAsync(100);
-
-        await expect(outcome).resolves.toMatchObject({status: 'cancelled'});
-        expect(harness.getCommitAttempts()).toBe(1);
-        expect(harness.leaseRelease).toHaveBeenCalledOnce();
-        expect(harness.signals[0]?.aborted).toBe(true);
-        expect(harness.targetRelease).toHaveBeenCalledOnce();
-        expect(harness.scheduler.snapshot()).toMatchObject({
-            accepting: false,
-            inFlightPages: [],
-            queueDepth: 0,
-            reservedPixels: 0,
-            residentPages: [],
-        });
-        expect(harness.budget.getSnapshot().reservedBytes).toBe(0);
-    });
-
-    it('cancels one-shot work after its retry timer fires but before the queued retry starts', async () => {
-        vi.useFakeTimers();
-        const harness = createRetryingOneShotHarness();
-        const outcome = harness.request();
-        await flush();
-        await flush();
-
-        vi.advanceTimersByTime(16);
-        await harness.scheduler.cancelSource('navigation');
-        await flush();
-
-        await expect(outcome).resolves.toMatchObject({status: 'cancelled'});
-        expect(harness.getCommitAttempts()).toBe(1);
-        expect(harness.prepare).toHaveBeenCalledOnce();
-        expect(harness.signals[0]?.aborted).toBe(true);
-        expect(harness.start).toHaveBeenCalledOnce();
-        expect(harness.scheduler.snapshot()).toMatchObject({
-            inFlightPages: [],
-            queueDepth: 0,
-            reservedPixels: 0,
-            residentPages: [],
-        });
-        expect(harness.budget.getSnapshot().reservedBytes).toBe(0);
-    });
-
-    it('does not start a retry before the previous attempt releases its coordinated page work', async () => {
-        vi.useFakeTimers();
-        const firstSettlement = Promise.withResolvers<undefined>();
-        const leaseReleases = [
-            vi.fn(),
-            vi.fn(),
-        ];
-        let leaseCalls = 0;
-        let prepareCalls = 0;
-        const scheduler = createPdfPageRasterScheduler({
-            documentFence,
-            leasePage: async (pageNumber) => ({
-                page: cast<IPdfPage>({pageNumber}),
-                release: leaseReleases[leaseCalls++]!,
-            }),
-            maxConcurrency: 2,
-            surfaceBudget: createWorkspaceSurfaceBudgetController(1_000),
-        });
-        const outcome = scheduler.request({
-            sourceId: 'navigation',
-            demand: createDemand(1, 'navigation-target'),
-            target: {
-                id: 'retry-after-settlement',
-                prepare: async (_demand, _page, _signal, captureSettlement) => {
-                    prepareCalls += 1;
-                    if (prepareCalls === 1) {
-                        captureSettlement(firstSettlement.promise);
-                        return null;
-                    }
-                    return {pageNumber: 1};
-                },
-                start: () => createTask(),
-                commit: () => true,
-                discard: vi.fn(),
-                release: vi.fn(),
-            },
-        });
-        await flush();
-        expect(prepareCalls).toBe(1);
-
-        await vi.advanceTimersByTimeAsync(16);
-        await flush();
-
-        expect(leaseCalls).toBe(1);
-        expect(prepareCalls).toBe(1);
-        expect(leaseReleases[0]).not.toHaveBeenCalled();
-
-        firstSettlement.resolve(undefined);
-        await flush();
-        expect(leaseReleases[0]).toHaveBeenCalledOnce();
-        await vi.advanceTimersByTimeAsync(16);
-        await flush();
-
-        await expect(outcome).resolves.toMatchObject({status: 'committed'});
-        expect(leaseCalls).toBe(2);
-        expect(prepareCalls).toBe(2);
-        expect(leaseReleases[1]).toHaveBeenCalledOnce();
     });
 
     it.each([
@@ -1141,7 +874,7 @@ describe('PdfPageRasterScheduler', () => {
             expectedStallCalls: 0,
             lane: 'prefetch' as const,
         },
-    ])('cancels a wedged $lane task and uses the bounded retry path', async ({
+    ])('cancels a wedged $lane task and reports it failed until demand renews', async ({
         expectedStallCalls,
         lane,
     }) => {
@@ -1157,6 +890,7 @@ describe('PdfPageRasterScheduler', () => {
             firstRender.reject(error);
         });
         let startCount = 0;
+        const onRenderUncommitted = vi.fn();
         const scheduler = createPdfPageRasterScheduler({
             documentFence,
             leasePage: async pageNumber => ({
@@ -1181,9 +915,10 @@ describe('PdfPageRasterScheduler', () => {
             commit: () => true,
             discard: vi.fn(),
             onRenderStall,
+            onRenderUncommitted,
             release: vi.fn(),
         };
-        scheduler.setDemand({
+        const publish = () => scheduler.setDemand({
             sourceId: 'viewport',
             input: [createDemand(1, lane)],
             policy: {
@@ -1192,6 +927,7 @@ describe('PdfPageRasterScheduler', () => {
             },
             target,
         });
+        publish();
         await flush();
         expect(startCount).toBe(1);
 
@@ -1212,8 +948,16 @@ describe('PdfPageRasterScheduler', () => {
             }),
         }));
 
-        await vi.advanceTimersByTimeAsync(16);
-        await flush();
+        expect(onRenderUncommitted).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+            status: 'failed',
+            error: expect.objectContaining({stage: 'canvas-render'}),
+        }));
+        await vi.advanceTimersByTimeAsync(1_000);
+        expect(startCount).toBe(1);
+        expect(scheduler.snapshot().residentPages).toEqual([]);
+
+        publish();
+        await vi.advanceTimersByTimeAsync(0);
         expect(startCount).toBe(2);
         expect(scheduler.snapshot().residentPages).toHaveLength(1);
         expect(leaseRelease).toHaveBeenCalledTimes(2);
@@ -1288,117 +1032,6 @@ describe('PdfPageRasterScheduler', () => {
         expect(budget.getSnapshot().reservedBytes).toBe(400);
 
         await scheduler.dispose();
-    });
-
-    it('awaits a retry execution admitted as its timer fires during source cancellation', async () => {
-        vi.useFakeTimers();
-        const budget = createWorkspaceSurfaceBudgetController(1_000);
-        const retryLease = Promise.withResolvers<{
-            page: IPdfPage;
-            release: () => void;
-        }>();
-        const firstLeaseRelease = vi.fn();
-        const retryLeaseRelease = vi.fn();
-        let leaseCalls = 0;
-        let commitAttempts = 0;
-        const scheduler = createPdfPageRasterScheduler({
-            documentFence,
-            leasePage: (pageNumber) => {
-                leaseCalls += 1;
-                if (leaseCalls === 2) {
-                    return retryLease.promise;
-                }
-                return Promise.resolve({
-                    page: cast<IPdfPage>({pageNumber}),
-                    release: firstLeaseRelease,
-                });
-            },
-            surfaceBudget: budget,
-        });
-        const outcome = scheduler.request({
-            sourceId: 'navigation',
-            demand: createDemand(1, 'navigation-target'),
-            target: {
-                id: 'retry-admission-race',
-                prepare: async () => ({pageNumber: 1}),
-                start: () => createTask(),
-                commit: () => {
-                    commitAttempts += 1;
-                    return false;
-                },
-                discard: vi.fn(),
-                release: vi.fn(),
-            },
-        });
-        await flush();
-        await flush();
-        expect(commitAttempts).toBe(1);
-
-        await vi.advanceTimersByTimeAsync(16);
-        await flush();
-        expect(leaseCalls).toBe(2);
-        const cancellationSettled = vi.fn();
-        const cancellation = scheduler.cancelSource('navigation');
-        void cancellation.then(cancellationSettled, cancellationSettled);
-        await flush();
-        expect(cancellationSettled).not.toHaveBeenCalled();
-
-        retryLease.resolve({
-            page: cast<IPdfPage>({pageNumber: 1}),
-            release: retryLeaseRelease,
-        });
-        await cancellation;
-
-        await expect(outcome).resolves.toMatchObject({status: 'cancelled'});
-        expect(commitAttempts).toBe(1);
-        expect(firstLeaseRelease).toHaveBeenCalledOnce();
-        expect(retryLeaseRelease).toHaveBeenCalledOnce();
-        expect(cancellationSettled).toHaveBeenCalledOnce();
-        expect(scheduler.snapshot()).toMatchObject({
-            inFlightPages: [],
-            queueDepth: 0,
-            reservedPixels: 0,
-            residentPages: [],
-        });
-        expect(budget.getSnapshot().reservedBytes).toBe(0);
-    });
-
-    it('joins duplicate one-shot requests while their shared retry is pending', async () => {
-        vi.useFakeTimers();
-        const harness = createRetryingOneShotHarness();
-        const firstOutcome = harness.request();
-        await flush();
-        await flush();
-
-        const duplicateOutcome = harness.request();
-        await vi.advanceTimersByTimeAsync(16);
-        await flush();
-
-        await expect(Promise.all([
-            firstOutcome,
-            duplicateOutcome,
-        ])).resolves.toEqual([
-            expect.objectContaining({status: 'committed'}),
-            expect.objectContaining({status: 'committed'}),
-        ]);
-        expect(harness.getCommitAttempts()).toBe(2);
-        expect(harness.prepare).toHaveBeenCalledTimes(2);
-        expect(harness.start).toHaveBeenCalledTimes(2);
-        expect(harness.scheduler.snapshot()).toMatchObject({
-            inFlightPages: [],
-            queueDepth: 0,
-            reservedPixels: 100,
-            residentPages: [{
-                lane: 'navigation-target',
-                pageNumber: 1,
-                sourceId: 'navigation',
-                targetId: 'retry-pending-navigation',
-            }],
-        });
-        expect(harness.budget.getSnapshot().reservedBytes).toBe(400);
-
-        await harness.scheduler.dispose();
-        expect(harness.budget.getSnapshot().reservedBytes).toBe(0);
     });
 
     it('evicts prefetch residency before required viewport residency', async () => {

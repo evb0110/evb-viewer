@@ -1012,7 +1012,7 @@ describe('PdfViewportSession behavior', () => {
             retained: true,
             publication: true,
         },
-    ])('settles exhausted annotation rendering with retained=$retained and publication=$publication', async ({
+    ])('settles failed annotation rendering once with retained=$retained and publication=$publication', async ({
         retained, publication,
     }) => {
         const projectionReady = ref(!retained);
@@ -1036,9 +1036,7 @@ describe('PdfViewportSession behavior', () => {
                 let promise = Promise.resolve();
                 if (failRender) {
                     failedAttempts += 1;
-                    promise = failedAttempts === 2
-                        ? new Promise<void>((_resolve, reject) => {rejectPendingAttempt = reject;})
-                        : Promise.reject(new Error('annotation appearance failed'));
+                    promise = new Promise<void>((_resolve, reject) => {rejectPendingAttempt = reject;});
                 }
                 return {
                     promise,
@@ -1099,11 +1097,12 @@ describe('PdfViewportSession behavior', () => {
                 start: 1,
                 end: 1,
             }, {forceRerender: true}).then(() => {settled = true;});
-            await expect.poll(() => failedAttempts).toBe(2);
+            await expect.poll(() => failedAttempts).toBe(1);
             expect(settled).toBe(false);
             rejectPendingAttempt(new Error('annotation appearance failed'));
-            await expect.poll(() => failedAttempts).toBe(4);
             await expect.poll(() => settled, {timeout: 1_000}).toBe(true);
+            // A failed render is not tried again until demand changes.
+            expect(failedAttempts).toBe(1);
             await wait;
             expect(rendering.isPageRenderFailed(requirePageNumber(1))).toBe(true);
             expect(fixture.container.querySelector('canvas')).toBe(oldCanvas);

@@ -129,7 +129,6 @@ function readTextLayers(page: Page) {
             pageNumber: Number(container.dataset.page),
             spans: layer?.querySelectorAll('span').length ?? 0,
             text: layer?.textContent ?? '',
-            rendering: layer?.dataset.pdfTextLayerRendering ?? null,
             ready: layer?.dataset.pdfTextLayerReady ?? null,
         };
     }));

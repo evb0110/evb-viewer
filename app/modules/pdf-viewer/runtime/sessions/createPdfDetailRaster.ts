@@ -236,7 +236,7 @@ export function createPdfDetailRaster(options: {
             if (reason === 'surface-budget-eviction' && evicted) refuse(pageNumber, evicted.demand.renderKey);
             removeShown(pageNumber);
         },
-        onRenderExhausted(outcome) {
+        onRenderUncommitted(outcome) {
             refuse(outcome.demand.pageNumber, outcome.demand.renderKey);
             jobs.delete(outcome.demand.renderKey);
             logPdfRenderTrace('renderer-detail-raster-exhausted', {

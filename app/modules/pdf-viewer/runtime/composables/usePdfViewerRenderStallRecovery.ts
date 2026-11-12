@@ -23,10 +23,8 @@ interface IUsePdfViewerRenderStallRecoveryOptions {
  * Reports a page render that made no progress for its stall window.
  *
  * The raster scheduler that owns the render has already cancelled that one
- * task; it retries the page with backoff while the page is still wanted and
- * reports the final outcome. Recovery here used to cancel every render in the
- * viewport and start a replacement pass, which made the scheduler's retry
- * stale and could settle without pixels, leaving the page blank for good.
+ * task and reports it as failed; the page keeps any old canvas and offers
+ * Retry until the next demand change.
  */
 export const usePdfViewerRenderStallRecovery = (options: IUsePdfViewerRenderStallRecoveryOptions) => {
     let pendingInvalidation: number[] | null = null;
@@ -47,7 +45,7 @@ export const usePdfViewerRenderStallRecovery = (options: IUsePdfViewerRenderStal
             return;
         }
         const upperBound = Math.max(1, options.numPages.value || payload.pageNumber);
-        BrowserLogger.warn('pdf-renderer', 'PDF page render made no progress; the scheduler retries it', {
+        BrowserLogger.warn('pdf-renderer', 'PDF page render made no progress', {
             page: clamp(payload.pageNumber, 1, upperBound),
             stage: payload.stage,
             timeoutMs: payload.timeoutMs,

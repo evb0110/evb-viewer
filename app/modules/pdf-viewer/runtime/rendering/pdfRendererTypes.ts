@@ -109,7 +109,3 @@ export interface IPdfLayerRenderResult {
         ownCanvases: ReadonlyArray<readonly [string, HTMLCanvasElement]>;
     }> | undefined;
 }
-
-export type TPdfTextLayerCleanup = () => void;
-
-export type TClearSelectionBeforePageLayerTeardown = (pageNumber: TPageNumber) => boolean;

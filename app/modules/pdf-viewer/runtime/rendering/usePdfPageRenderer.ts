@@ -59,7 +59,6 @@ interface IPdfAnnotationProjection {
 
 interface ICommittedPdfPageRaster {
     pageNumber: TPageNumber;
-    scale: number;
     container: HTMLElement;
     renderResult: IPdfLayerRenderResult;
     renderOptions: IRenderVisiblePagesOptions;
@@ -98,7 +97,6 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         currentSearchMatch,
         workingCopyPath: options.workingCopyPath ?? null,
         documentRevisionToken: options.documentRevisionToken ?? null,
-        effectiveScale: viewport.scale.effectiveScale,
         viewportWritePort: viewport.viewportWritePort,
     });
     const annotationLayerRenderer = usePdfAnnotationLayerRenderer({
@@ -114,7 +112,6 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
     });
     const resources = options.pageResources;
     const annotationPaintIdentities = computed(() => projection.value?.paintIdentities.value ?? new Map<number, string>());
-    const textLayerCleanupFns = new Map<TPageNumber, () => void>();
     const pendingHydrations = new Set<Promise<void>>();
     let disposed = false;
     async function promoteQueuedTextLayer(pageNumber: TPageNumber) {
@@ -197,10 +194,6 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
     watch(viewport.cancelPendingSearchRevision, (revision, previous) => {
         if (revision !== previous) searchController.invalidatePendingRequests();
     }, {flush: 'sync'});
-    function cleanupTextLayer(pageNumber: TPageNumber) {
-        textLayerCleanupFns.get(pageNumber)?.();
-        textLayerCleanupFns.delete(pageNumber);
-    }
     function releasePageLayers(pageNumber: TPageNumber) {
         const root = options.container.value;
         const container = getMountedPageContainer(pageNumber, root);
@@ -210,7 +203,6 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
             includeDetached: true,
             includeAnyPdfTextSelection: pageNumber === viewport.currentPage.value,
         });
-        cleanupTextLayer(pageNumber);
         const textLayer = container?.querySelector<HTMLDivElement>('.text-layer');
         const annotationLayer = container?.querySelector<HTMLElement>('.annotation-layer');
         if (textLayer) textLayerRenderer.cleanupTextLayerDom(textLayer);
@@ -228,10 +220,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
     }
     function cleanupAllLayers() {
         const pending = Promise.all(pendingHydrations).then(() => undefined);
-        for (const pageNumber of new Set([
-            ...textLayerCleanupFns.keys(),
-            ...resources.resources.keys(),
-        ])) {
+        for (const pageNumber of [...resources.resources.keys()]) {
             releasePageLayers(pageNumber);
         }
         annotationLayerRenderer.clearAllLayers();
@@ -282,9 +271,6 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
     }
     const renderTextLayerForPage = usePdfRendererTextLayerController({
         textLayerRenderer,
-        textLayerCleanupFns,
-        cleanupTextLayer,
-        clearSelectionBeforePageLayerTeardown,
         logNonCriticalStageError,
     });
 
@@ -370,7 +356,6 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
     ) {
         const {
             pageNumber,
-            scale,
             container,
             renderResult,
             renderOptions,
@@ -392,10 +377,6 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
             && options.document.isCurrent(documentFence)
             && container.isConnected !== false
             && container.dataset.page === String(pageNumber);
-        const owner = {
-            signal: hydration.controller.signal,
-            isSuperseded: () => ![null, hydration].includes(resources.get(pageNumber).hydration),
-        };
         const outgoingText = container.querySelector<HTMLDivElement>('.text-layer');
         const textHost = publishRaster ? container.cloneNode(false) as HTMLElement : null;
         let incomingText = outgoingText;
@@ -440,14 +421,15 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
             const textReady = await renderTextLayerForPage(
                 pageNumber,
                 context,
-                scale,
-                owner,
+                hydration.controller.signal,
                 shouldContinue,
                 () => {
                     if (!shouldContinue()) return false;
                     if (publishRaster ? !publishRaster('hydrating') : !resources.beginLayers(pageNumber, hydration)) return false;
                     if (incomingAnnotations && outgoingAnnotations) outgoingAnnotations.replaceWith(incomingAnnotations);
                     if (textHost && outgoingText && incomingText && incomingText !== outgoingText) {
+                        // Rebuilt spans replace the mounted ones; a selection on those ends here.
+                        clearSelectionBeforePageLayerTeardown(pageNumber);
                         outgoingText.replaceWith(incomingText);
                         textLayerRenderer.cleanupTextLayerDom(outgoingText);
                         container.querySelector('.page_canvas__render-layer, .page_canvas')
@@ -458,8 +440,13 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
                 },
             );
             if (!textReady) return;
-            if (typeof textReady !== 'object') {
-                if (!resources.markText(pageNumber, hydration)) return;
+            if (typeof textReady !== 'object' && incomingText) {
+                if (!resources.markText(pageNumber, hydration, incomingText)) return;
+                try {
+                    textLayerRenderer.applyPageSearchHighlights(container, incomingText, pageNumber, renderResult.viewport);
+                } catch (error) {
+                    logNonCriticalStageError(pageNumber, 'search highlights', error);
+                }
                 options.onRenderedPageStateChanged?.();
             }
             const annotation = stagedAnnotations ?? await renderAnnotationLayerForPage(pageNumber, context, hydration, shouldContinue);
@@ -507,7 +494,6 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
             }
             await renderCommittedPageLayers({
                 pageNumber,
-                scale: toValue(viewport.scale.effectiveScale),
                 container,
                 renderResult,
                 renderOptions,

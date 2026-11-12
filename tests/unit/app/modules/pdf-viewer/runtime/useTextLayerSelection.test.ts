@@ -28,10 +28,12 @@ function createTextLayer(content: string): ITextLayerHarness {
     layer.append(span);
     document.body.append(layer);
 
-    const cleanup = useTextLayerSelection().setupTextLayer(layer);
+    const {setupTextLayer, teardownTextLayer} = useTextLayerSelection();
+    setupTextLayer(layer);
+    const cleanup = () => teardownTextLayer(layer);
     cleanups.push(cleanup);
 
-    const sentinel = layer.querySelector<HTMLElement>('[data-evb-text-layer-selection="true"]');
+    const sentinel = layer.querySelector<HTMLElement>('.end-of-content');
     if (!sentinel) {
         throw new Error('Expected selection sentinel');
     }

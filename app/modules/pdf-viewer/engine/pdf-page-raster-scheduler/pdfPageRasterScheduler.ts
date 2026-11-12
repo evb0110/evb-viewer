@@ -15,7 +15,6 @@ import type { TPdfRenderContinuationPriority } from '@app/modules/pdf-viewer/eng
 import {
     createPdfRenderSupervisor,
     type IPdfRenderSupervisor,
-    type IPdfRenderSupervisorTimer,
 } from '@app/modules/pdf-viewer/engine/pdf-render-supervisor/pdfRenderSupervisor';
 import type {
     IWorkspaceSurfaceBudgetController,
@@ -72,8 +71,8 @@ export interface IPdfRasterRenderTarget<TPrepared> {
     additionalResourceBytes?(prepared: TPrepared): number;
     discard(prepared: TPrepared): void;
     onRenderStall?: ((payload: IPageRenderStallPayload) => void) | undefined;
-    /** Every current demand settles when its bounded attempts run out. */
-    onRenderExhausted?: ((outcome: TPdfRasterOutcome) => void) | undefined;
+    /** A still-current demand ended without a raster: its render failed or the target declined it. */
+    onRenderUncommitted?: ((outcome: TPdfRasterOutcome) => void) | undefined;
     release(pageNumber: TPageNumber, reason: string): void;
     /** The target still shows this page, so its resident stays charged. */
     retains?(pageNumber: TPageNumber): boolean;
@@ -165,8 +164,6 @@ interface IRasterWork<TPrepared = unknown> {
     prepared: TPrepared | null;
     reservation: IWorkspaceSurfaceLease | null;
     resolve: ((outcome: TPdfRasterOutcome) => void) | null;
-    retryCount: number;
-    retryTimer: IPdfRenderSupervisorTimer | null;
     targetReleased: boolean;
     sequence: number;
     sourceId: string;
@@ -200,8 +197,6 @@ const LANE_CONTINUATION_PRIORITY: Record<TPdfRasterLane, TPdfRenderContinuationP
     'thumbnail-visible': 'thumbnail',
     'prefetch': 'prefetch',
 };
-const MAX_RETRIES = 3;
-const RETRY_DELAY_MS = 16;
 let nextSchedulerScopeId = 0;
 
 function createLaneCounts() {
@@ -242,7 +237,6 @@ export function createPdfPageRasterScheduler(
     const surfaceScopeId = `pdf-raster-scheduler:${++nextSchedulerScopeId}`;
     const queued = new Map<string, IRasterWork>();
     const inFlight = new Map<string, IRasterWork>();
-    const retryPending = new Map<string, IRasterWork>();
     const residents = new Map<string, IResidentRaster>();
     const demandKeysBySource = new Map<string, Set<string>>();
     const currentDemandByIdentity = new Map<string, IPdfRasterDemand>();
@@ -252,7 +246,7 @@ export function createPdfPageRasterScheduler(
     let pumpScheduled = false;
 
     function getIndexedWork(key: string) {
-        return queued.get(key) ?? inFlight.get(key) ?? retryPending.get(key);
+        return queued.get(key) ?? inFlight.get(key);
     }
 
     function isDemandCurrent(work: IRasterWork) {
@@ -324,11 +318,6 @@ export function createPdfPageRasterScheduler(
     }
 
     function settleWork(work: IRasterWork, outcome: TPdfRasterOutcome | 'committed' | 'cancelled' | 'discarded') {
-        work.retryTimer?.clear();
-        work.retryTimer = null;
-        if (retryPending.get(work.key) === work) {
-            retryPending.delete(work.key);
-        }
         work.resolve?.(typeof outcome === 'string' ? {
             status: outcome,
             demand: work.demand,
@@ -337,8 +326,6 @@ export function createPdfPageRasterScheduler(
     }
 
     function cancelWork(work: IRasterWork, reason: string) {
-        work.retryTimer?.clear();
-        work.retryTimer = null;
         work.controller.abort();
         queued.delete(work.key);
         settleWork(work, 'cancelled');
@@ -396,79 +383,28 @@ export function createPdfPageRasterScheduler(
         });
     }
 
-    // An attempt that ends without a resident raster while its demand is still
-    // current leaves the surface blank with nothing left to redraw it: settled work
-    // is in neither `residents` nor `queued`, so only a fresh setDemand would
-    // re-enqueue it, and a settled viewport or thumbnail pane has no reason to
-    // republish. Every such ending — a thrown render, a target that declines to
-    // prepare, a target that rejects the commit — reattempts here, so the
-    // scheduler's own contract does not depend on an external nudge.
-    function armPendingReattempt(work: IRasterWork) {
-        if (
-            retryPending.get(work.key) !== work
-            || work.retryTimer !== null
-            || inFlight.get(work.key) === work
-        ) {
-            return;
+    // An attempt that ends without a raster settles. A failed render becomes
+    // the target's failure state and a declined one is dropped; either way the
+    // next demand change asks again. Nothing here retries on a timer.
+    function settleUncommitted(work: IRasterWork, outcome: TPdfRasterOutcome) {
+        const current = isDemandCurrent(work);
+        // A settled attempt is never reused: renewed demand queues a fresh one.
+        work.controller.abort();
+        settleWork(work, outcome);
+        if (!current) return;
+        try {
+            work.target.onRenderUncommitted?.(outcome);
+        } catch (error) {
+            logPdfRenderTrace('pdf-raster-render-failed-callback-failed', {
+                error: getErrorMessage(error),
+                demand: work.demand,
+            });
         }
-        const retryTimer = renderSupervisor.armTimer({
-            cause: 'render-cancelled-retry',
-            // Backed off, because the conditions a target declines on — a canvas
-            // swapped by a re-render, a debounced remeasure, a resize settling —
-            // outlast a single frame. Flat retries would spend the whole budget
-            // inside one layout pass and observe the same transient state thrice.
-            delayMs: RETRY_DELAY_MS * 2 ** (work.retryCount - 1),
-            key: `raster-scheduler:${surfaceScopeId}:${work.key}`,
-            metadata: {
-                lane: work.demand.lane,
-                pageNumber: work.demand.pageNumber,
-                retryCount: work.retryCount,
-                sourceId: work.sourceId,
-                targetId: work.target.id,
-            },
-            onFire: () => {
-                if (retryPending.get(work.key) !== work) {
-                    return;
-                }
-                retryPending.delete(work.key);
-                work.retryTimer = null;
-                if (!isDemandCurrent(work)) {
-                    settleWork(work, 'cancelled');
-                    return;
-                }
-                queued.set(work.key, work);
-                schedulePump();
-            },
-        });
-        if (retryPending.get(work.key) === work) {
-            work.retryTimer = retryTimer;
-        } else {
-            retryTimer.clear();
-        }
-    }
-
-    function scheduleReattempt(work: IRasterWork, exhausted: TPdfRasterOutcome) {
-        if (!isDemandCurrent(work) || work.retryCount >= MAX_RETRIES) {
-            settleWork(work, exhausted);
-            if (isDemandCurrent(work)) {
-                try {
-                    work.target.onRenderExhausted?.(exhausted);
-                } catch (error) {
-                    logPdfRenderTrace('pdf-raster-render-failed-callback-failed', {
-                        error: getErrorMessage(error),
-                        demand: work.demand,
-                    });
-                }
-            }
-            return;
-        }
-        work.retryCount += 1;
-        work.stage = 'queued';
-        retryPending.set(work.key, work);
     }
 
     async function executeWork(work: IRasterWork) {
         let committed = false;
+        let requeue = false;
         const commitRaster = () => {
             if (committed) return true;
             if (!isDemandCurrent(work) || !work.reservation) return false;
@@ -534,8 +470,10 @@ export function createPdfPageRasterScheduler(
                 || work.demand.lane === 'viewport-visible'
                 ? surfaceBudget.reserve(reservationRequest)
                 : surfaceBudget.tryReserve(reservationRequest);
+            // A speculative raster that does not fit waits until it is needed.
             if (!work.reservation) {
-                throw new Error(`PDF raster surface budget unavailable for page ${String(work.demand.pageNumber)}`);
+                settleUncommitted(work, {status: 'discarded', demand: work.demand});
+                return;
             }
             work.stage = 'preparing';
             const reserveAdditionalBytes = (bytes: number) => {
@@ -553,10 +491,7 @@ export function createPdfPageRasterScheduler(
             );
             if (!work.prepared) {
                 releaseReservation(work);
-                scheduleReattempt(work, {
-                    status: 'discarded',
-                    demand: work.demand,
-                });
+                settleUncommitted(work, {status: 'discarded', demand: work.demand});
                 return;
             }
             if (!isDemandCurrent(work)) {
@@ -581,7 +516,7 @@ export function createPdfPageRasterScheduler(
                 shouldStart: () => isDemandCurrent(work),
                 startRender: () => work.target.start(work.prepared, pageLease.page),
                 watchdog: {
-                    key: `raster-canvas-render:${surfaceScopeId}:${String(work.sequence)}:${String(work.retryCount)}`,
+                    key: `raster-canvas-render:${surfaceScopeId}:${String(work.sequence)}`,
                     metadata: {
                         lane: work.demand.lane,
                         renderKey: work.demand.renderKey,
@@ -613,23 +548,22 @@ export function createPdfPageRasterScheduler(
             if (!committed && (!accepted || !commitRaster())) {
                 discardPrepared(work);
                 releaseReservation(work);
-                scheduleReattempt(work, {
-                    status: 'discarded',
-                    demand: work.demand,
-                });
+                settleUncommitted(work, {status: 'discarded', demand: work.demand});
             }
         } catch (error) {
             discardPrepared(work);
             releaseReservation(work);
-            scheduleReattempt(work, !isDemandCurrent(work)
-                || error instanceof Error && (error.name === 'AbortError' || error.name === 'RenderingCancelledException') ? {
-                    status: 'cancelled',
-                    demand: work.demand,
-                } : {
-                    status: 'failed',
-                    demand: work.demand,
-                    error,
-                });
+            const cancelled = error instanceof Error && (error.name === 'AbortError' || error.name === 'RenderingCancelledException');
+            if (!isDemandCurrent(work)) {
+                settleWork(work, 'cancelled');
+            } else if (cancelled) {
+                // The shared page coordinator pre-empted this render for a
+                // higher-priority owner; it runs again once that one settles.
+                work.stage = 'queued';
+                requeue = true;
+            } else {
+                settleUncommitted(work, {status: 'failed', demand: work.demand, error});
+            }
         } finally {
             if (work.coordinatedOperationSettlements.size > 0) await Promise.allSettled(work.coordinatedOperationSettlements);
             work.pageLease?.release();
@@ -637,8 +571,12 @@ export function createPdfPageRasterScheduler(
             if (inFlight.get(work.key) === work) {
                 inFlight.delete(work.key);
             }
-            armPendingReattempt(work);
-            if (!committed && work.retryTimer === null && queued.get(work.key) !== work) {
+            if (requeue && isDemandCurrent(work)) {
+                queued.set(work.key, work);
+            } else if (requeue) {
+                settleWork(work, 'cancelled');
+            }
+            if (!committed && queued.get(work.key) !== work) {
                 releaseTarget(work, 'raster-not-committed');
             }
             schedulePump();
@@ -711,8 +649,6 @@ export function createPdfPageRasterScheduler(
             prepared: null,
             reservation: null,
             resolve,
-            retryCount: 0,
-            retryTimer: null,
             sequence: nextSequence++,
             sourceId,
             stage: 'queued',
@@ -836,7 +772,6 @@ export function createPdfPageRasterScheduler(
         for (const work of new Set([
             ...queued.values(),
             ...inFlight.values(),
-            ...retryPending.values(),
         ])) {
             if (matches(work.sourceId, work.demand)) {
                 cancelWork(work, scope.reason);
@@ -870,7 +805,6 @@ export function createPdfPageRasterScheduler(
         const cancelled = [...new Set([
             ...queued.values(),
             ...inFlight.values(),
-            ...retryPending.values(),
         ])].filter(work => work.sourceId === sourceId);
         const workSettlements = cancelled
             .map(work => work.execution)

@@ -36,7 +36,6 @@ const rendererFixture = vi.hoisted(() => ({
     renderTextLayer: vi.fn(),
     applyPageSearchHighlights: vi.fn(),
     cleanupTextLayerDom: vi.fn(),
-    setupTextLayerInteraction: vi.fn(),
     clearOcrDebug: vi.fn(),
     scheduleOcrDebugForPage: vi.fn(),
 }));
@@ -270,14 +269,13 @@ describe('usePdfPageRenderer layer hydration ownership', () => {
             showRaster(harness);
             await harness.renderer.renderCommittedPageLayers({
                 pageNumber: requirePageNumber(1),
-                scale: 1,
                 container: harness.pageContainer,
                 renderResult: harness.renderResult,
                 renderOptions: {prioritizeTextLayer: textFirst},
             });
             expect(harness.canvas.isConnected).toBe(true);
             expect(harness.pageResources.get(page1).layers).toBe('failed');
-            expect(harness.pageResources.get(page1).text).toBe(true);
+            expect(harness.pageResources.get(page1).text?.dataset.pdfTextLayerReady).toBe('true');
             expect(harness.pageContainer.dataset.pageLayerReadiness).toBe('failed');
             expect(harness.renderer.resolveLayerPromotionDemand([1])).toBeNull();
             // A quality refinement can replace the raster while this failure
@@ -377,7 +375,6 @@ describe('usePdfPageRenderer layer hydration ownership', () => {
             showRaster(harness);
             hydration = harness.renderer.renderCommittedPageLayers({
                 pageNumber: requirePageNumber(1),
-                scale: 1,
                 container: harness.pageContainer,
                 renderResult: harness.renderResult,
                 renderOptions: {},
@@ -399,12 +396,10 @@ describe('usePdfPageRenderer layer hydration ownership', () => {
         let activeSignal: AbortSignal | undefined;
         rendererFixture.renderTextLayer.mockImplementation(async (...args: unknown[]) => {
             const target = args[1] as HTMLElement;
-            (args[7] as (() => void) | undefined)?.();
             target.textContent = '';
-            activeSignal = args[6] as AbortSignal;
+            activeSignal = args[3] as AbortSignal;
             await deferred.promise;
             target.textContent = 'Replacement selectable text';
-            target.dataset.pdfTextLayerReady = 'true';
         });
         const harness = createHarness();
         const replacementCanvas = document.createElement('canvas');
@@ -414,7 +409,7 @@ describe('usePdfPageRenderer layer hydration ownership', () => {
             showRaster(harness);
             const ready = harness.pageResources.beginHydration(page1);
             harness.pageResources.beginLayers(page1, ready);
-            harness.pageResources.markText(page1, ready);
+            harness.pageResources.markText(page1, ready, harness.pageContainer.querySelector<HTMLElement>('.text-layer')!);
             harness.pageResources.settleHydration(page1, ready, 'ready');
             const replacement = createJob();
             harness.pageResources.want(page1, replacement);
@@ -426,7 +421,6 @@ describe('usePdfPageRenderer layer hydration ownership', () => {
 
             hydration = harness.renderer.renderCommittedPageLayers({
                 pageNumber: requirePageNumber(1),
-                scale: 1,
                 container: harness.pageContainer,
                 renderResult: replacementRender,
                 renderOptions: {},
@@ -456,7 +450,7 @@ describe('usePdfPageRenderer layer hydration ownership', () => {
             await hydration;
             expect(harness.pageContainer.querySelector('canvas')).toBe(replacementCanvas);
             expect(harness.pageContainer.querySelector('.text-layer')?.textContent).toBe('Replacement selectable text');
-            expect(harness.pageResources.get(page1).text).toBe(true);
+            expect(harness.pageResources.get(page1).text?.dataset.pdfTextLayerReady).toBe('true');
             expect(harness.pageResources.get(page1).layers).toBe('ready');
             expect(harness.pageContainer.dataset.pageLayerReadiness).toBe('ready');
         } finally {
@@ -480,15 +474,14 @@ describe('usePdfPageRenderer layer hydration ownership', () => {
 
             hydration = harness.renderer.renderCommittedPageLayers({
                 pageNumber: requirePageNumber(1),
-                scale: 1,
                 container: harness.pageContainer,
                 renderResult: harness.renderResult,
                 renderOptions: {prioritizeTextLayer: true},
             });
 
             await vi.waitFor(() => expect(
-                harness.pageResources.get(page1).text,
-            ).toBe(true));
+                harness.pageResources.get(page1).text?.dataset.pdfTextLayerReady,
+            ).toBe('true'));
             expect(harness.pageResources.get(page1).layers).toBe('hydrating');
 
             annotation.resolve();
@@ -532,7 +525,6 @@ describe('usePdfPageRenderer layer hydration ownership', () => {
 
             await harness.renderer.renderCommittedPageLayers({
                 pageNumber: requirePageNumber(1),
-                scale: 1,
                 container: harness.pageContainer,
                 renderResult,
                 renderOptions: {prioritizeTextLayer: true},
@@ -555,7 +547,7 @@ describe('usePdfPageRenderer layer hydration ownership', () => {
             expect(retry).toBeDefined();
             retry.onClick();
             await vi.waitFor(() => expect(harness.pageResources.get(page1).layers).toBe('ready'));
-            expect(harness.pageResources.get(page1).text).toBe(true);
+            expect(harness.pageResources.get(page1).text?.dataset.pdfTextLayerReady).toBe('true');
         } finally {
             harness.root.remove();
         }
@@ -580,7 +572,6 @@ describe('usePdfPageRenderer layer hydration ownership', () => {
             showRaster(harness);
             hydration = harness.renderer.renderCommittedPageLayers({
                 pageNumber: requirePageNumber(1),
-                scale: 1,
                 container: harness.pageContainer,
                 renderResult: harness.renderResult,
                 renderOptions: {},
@@ -657,7 +648,6 @@ describe('usePdfPageRenderer layer hydration ownership', () => {
 
             await expect(harness.renderer.renderCommittedPageLayers({
                 pageNumber: requirePageNumber(1),
-                scale: 1,
                 container: harness.pageContainer,
                 renderResult: harness.renderResult,
                 renderOptions: {},
@@ -679,7 +669,6 @@ describe('usePdfPageRenderer layer hydration ownership', () => {
 
             await expect(harness.renderer.renderCommittedPageLayers({
                 pageNumber: requirePageNumber(1),
-                scale: 1,
                 container: harness.pageContainer,
                 renderResult: harness.renderResult,
                 renderOptions: {},
@@ -763,19 +752,21 @@ describe('pdf page resources', () => {
         const job = createResourceJob();
         resources.want(resourcePage, job);
         resources.publish(resourcePage, job, resourceReceipt(container, {layers: 'canvas-only'}));
-        expect(resources.get(resourcePage)).toMatchObject({layers: 'canvas-only', text: false});
+        expect(resources.get(resourcePage)).toMatchObject({layers: 'canvas-only', text: null});
         expect(container.dataset.pageLayerReadiness).toBe('canvas-only');
 
         const hydration = resources.beginHydration(resourcePage);
         resources.beginLayers(resourcePage, hydration);
-        resources.markText(resourcePage, hydration);
+        const textLayer = document.createElement('div');
+        resources.markText(resourcePage, hydration, textLayer);
         resources.settleHydration(resourcePage, hydration, 'ready');
-        expect(resources.get(resourcePage)).toMatchObject({layers: 'ready', text: true, hydration: null});
+        expect(resources.get(resourcePage)).toMatchObject({layers: 'ready', text: textLayer, hydration: null});
+        expect(textLayer.dataset.pdfTextLayerReady).toBe('true');
 
         const refine = createResourceJob();
         resources.want(resourcePage, refine);
         resources.publish(resourcePage, refine, resourceReceipt(container, {layers: 'retain'}));
-        expect(resources.get(resourcePage)).toMatchObject({layers: 'ready', text: true});
+        expect(resources.get(resourcePage)).toMatchObject({layers: 'ready', text: textLayer});
         expect(container.dataset.pageLayerReadiness).toBe('ready');
     });
 
@@ -787,7 +778,7 @@ describe('pdf page resources', () => {
         expect(isPdfPageBusy(resources.get(resourcePage))).toBe(true);
         const second = resources.beginHydration(resourcePage);
         expect(first.controller.signal.aborted).toBe(true);
-        expect(resources.markText(resourcePage, first)).toBe(false);
+        expect(resources.markText(resourcePage, first, document.createElement('div'))).toBe(false);
         expect(resources.settleHydration(resourcePage, first, 'ready')).toBe(false);
         expect(resources.get(resourcePage).hydration).toBe(second);
 
