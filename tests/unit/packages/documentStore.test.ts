@@ -20,10 +20,12 @@ import { contentWitness } from '@document-store/contentWitness';
 import {
     createDocument,
     type DocumentDirectory,
+    forkDocument,
     type IDocumentStore,
     type IPublicationPort,
     openDocument,
     type TDocumentInit,
+    type TDraftsAfter,
 } from '@document-store/documentDirectory';
 import { createNodeStorePort } from '@document-store/nodeStorePort';
 import { saveDocument } from '@document-store/saveDocument';
@@ -39,6 +41,7 @@ import {
 
 const TWO_GIB = 2 ** 31;
 const encode = (text: string) => new TextEncoder().encode(text);
+const append = (text: string, drafts: TDraftsAfter = 'clear') => ({ kind: 'append' as const, bytes: encode(text), drafts });
 const witnessOf = (bytes: Uint8Array) => contentWitness(bytes.byteLength, async (offset, length) => bytes.subarray(offset, offset + length));
 
 let workDir = '';
@@ -113,6 +116,7 @@ function crashingPort(port: IStorePort, at: (operation: string, target: string) 
             return wrap(file, target);
         },
         copyIn: async (source, target) => (check('copyIn', target), port.copyIn(source, target)),
+        copy: async (from, target) => (check('copy', target), port.copy(from, target)),
         remove: async target => (check('remove', target), port.remove(target)),
     };
     return { port: crashing, kill: () => Promise.all(opened.map(file => file.close().catch(() => undefined))) };
@@ -138,7 +142,7 @@ describe('document directory', () => {
         expect(doc.state()).toMatchObject({ current: null, baseline: await witnessOf(encode('v1')), dirty: false });
         expect(await readdir(docDir(doc))).toEqual(['manifest.json']);
 
-        const appended = await doc.mutate(null, { kind: 'append', bytes: encode(' +a') });
+        const appended = await doc.mutate(null, append(' +a'));
         expect(appended).toMatchObject({ status: 'committed', revision: { id: 2, file: 'r1.pdf', length: 5 } });
         expect(doc.state()).toMatchObject({ history: [{ id: 1, length: 2 }], dirty: true });
         await doc.close();
@@ -152,16 +156,16 @@ describe('document directory', () => {
         const destination = path.join(workDir, 'paper.pdf');
         await writeFile(destination, 'v1');
         const doc = await create(store(), { ext: 'pdf', destination });
-        expect(await doc.mutate(7, { kind: 'append', bytes: encode('x') })).toEqual({ status: 'stale-revision', current: null });
+        expect(await doc.mutate(7, append('x'))).toEqual({ status: 'stale-revision', current: null });
 
         await writeFile(destination, 'changed elsewhere');
-        expect(await doc.mutate(null, { kind: 'append', bytes: encode('x') })).toEqual({ status: 'conflict' });
+        expect(await doc.mutate(null, append('x'))).toEqual({ status: 'conflict' });
         expect(await readdir(docDir(doc))).toEqual(['manifest.json']);
     });
 
     it('keeps history within its budget and undoes and redoes across revisions', async () => {
         const doc = await create(store(undefined, undefined, 10), { ext: 'pdf', source: new Blob(['aaaa']) });
-        const rewrite = (text: string) => ({ kind: 'rewrite' as const, source: (file: IStoreFile) => file.writeAt(0, encode(text)) });
+        const rewrite = (text: string) => ({ kind: 'rewrite' as const, source: (file: IStoreFile) => file.writeAt(0, encode(text)), drafts: 'clear' as const });
         await doc.mutate(1, rewrite('bbbbbbbb'));
         await doc.mutate(2, rewrite('cccccccc'));
         expect(doc.state().history.map(revision => revision.id)).toEqual([2]);
@@ -176,9 +180,9 @@ describe('document directory', () => {
 
     it('appends after an undo into a new file, so the redo revision keeps its bytes', async () => {
         const doc = await create(store(), { ext: 'pdf', source: new Blob(['base']) });
-        await doc.mutate(1, { kind: 'append', bytes: encode('+1') });
+        await doc.mutate(1, append('+1'));
         await doc.restore(1);
-        expect(await doc.mutate(1, { kind: 'append', bytes: encode('+2') })).toMatchObject({ revision: { id: 3, file: 'r3.pdf' } });
+        expect(await doc.mutate(1, append('+2'))).toMatchObject({ revision: { id: 3, file: 'r3.pdf' } });
         await doc.close();
 
         const reopened = await open(store(), doc.id);
@@ -191,7 +195,7 @@ describe('document directory', () => {
 describe('recovery after a crash', () => {
     it('cuts an append that crashed while writing', async () => {
         const doc = await create(store(), { ext: 'pdf', source: new Blob(['base']) });
-        await crashDuring(doc, (operation, target) => operation === 'writeAt' && target.endsWith('r1.pdf'), crashed => crashed.mutate(1, { kind: 'append', bytes: encode('-appended') }));
+        await crashDuring(doc, (operation, target) => operation === 'writeAt' && target.endsWith('r1.pdf'), crashed => crashed.mutate(1, append('-appended')));
         expect(await fileSize(doc, 'r1.pdf')).toBe(8);
 
         const reopened = await open(store(), doc.id);
@@ -201,7 +205,7 @@ describe('recovery after a crash', () => {
 
     it('cuts an append that was flushed but not yet named by the manifest', async () => {
         const doc = await create(store(), { ext: 'pdf', source: new Blob(['base']) });
-        await crashDuring(doc, (operation, target) => operation === 'writeAtomic' && target.endsWith('manifest.json'), crashed => crashed.mutate(1, { kind: 'append', bytes: encode('-appended') }));
+        await crashDuring(doc, (operation, target) => operation === 'writeAtomic' && target.endsWith('manifest.json'), crashed => crashed.mutate(1, append('-appended')));
         expect(await fileSize(doc, 'r1.pdf')).toBe(13);
 
         const reopened = await open(store(), doc.id);
@@ -214,6 +218,7 @@ describe('recovery after a crash', () => {
         await crashDuring(doc, (operation, target) => operation === 'writeAt' && target.endsWith('r2.pdf'), crashed => crashed.mutate(1, {
             kind: 'rewrite',
             source: file => file.writeAt(0, encode('rewritten')),
+            drafts: 'clear',
         }));
         expect((await readdir(docDir(doc))).sort()).toEqual(['manifest.json', 'r1.pdf', 'r2.pdf']);
 
@@ -222,22 +227,35 @@ describe('recovery after a crash', () => {
         expect((await readdir(docDir(doc))).sort()).toEqual(['manifest.json', 'r1.pdf']);
     });
 
-    it('drops drafts written for an older revision and keeps drafts for the current one', async () => {
+    it('keeps the drafts a mutation keeps when it crashes right after its manifest replace', async () => {
         const doc = await create(store(), { ext: 'pdf', source: new Blob(['base']) });
         await doc.setDrafts(1, { note: 'first' });
-        await crashDuring(doc, (operation, target) => operation === 'remove' && target.endsWith('drafts.json'), async crashed => {
-            await crashed.mutate(1, { kind: 'append', bytes: encode('+note') });
-            await crashed.setDrafts(2, { note: 'second' });
+        let committed = false;
+        await crashDuring(doc, (operation, target) => committed || ((committed = operation === 'writeAtomic' && target.endsWith('manifest.json')), false), async crashed => {
+            await crashed.mutate(1, append('+bytes', 'keep'));
+            await crashed.setDrafts(2, { note: 'lost' });
         });
-        expect(await readdir(docDir(doc))).toContain('drafts.json');
 
         const reopened = await open(store(), doc.id);
-        expect(reopened.state()).toMatchObject({ current: { id: 2 }, drafts: undefined });
-        expect(await readdir(docDir(doc))).not.toContain('drafts.json');
+        expect(reopened.state()).toMatchObject({ current: { id: 2 }, drafts: { note: 'first' }, dirty: true });
+        expect(await currentText(reopened)).toBe('base+bytes');
+        expect((await readdir(docDir(doc))).filter(name => name.startsWith('drafts-'))).toHaveLength(1);
+    });
 
-        await reopened.setDrafts(2, { note: 'third' });
-        await crashDuring(reopened, (operation, target) => operation === 'writeAt' && target.endsWith('r1.pdf'), crashed => crashed.mutate(2, { kind: 'append', bytes: encode('+lost') }));
-        expect((await open(store(), doc.id)).state().drafts).toEqual({ note: 'third' });
+    it('commits the drafts a mutation replaces or clears with its bytes, and only those', async () => {
+        const doc = await create(store(), { ext: 'pdf', source: new Blob(['base']) });
+        await doc.setDrafts(1, { note: 'first' });
+        await crashDuring(doc, (operation, target) => operation === 'writeAtomic' && target.endsWith('manifest.json'), crashed => crashed.mutate(1, append('+note', { replace: { note: 'second' } })));
+        expect((await readdir(docDir(doc))).filter(name => name.startsWith('drafts-'))).toHaveLength(2);
+
+        const reopened = await open(store(), doc.id);
+        expect(reopened.state()).toMatchObject({ current: { id: 1 }, drafts: { note: 'first' } });
+        expect((await readdir(docDir(doc))).filter(name => name.startsWith('drafts-'))).toHaveLength(1);
+        await reopened.mutate(1, append('+note', { replace: { note: 'second' } }));
+        expect(reopened.state()).toMatchObject({ current: { id: 2 }, drafts: { note: 'second' } });
+        await reopened.mutate(2, append('+more'));
+        expect(reopened.state().drafts).toBeUndefined();
+        expect((await readdir(docDir(doc))).sort()).toEqual(['manifest.json', 'r1.pdf']);
     });
 
     it.each([
@@ -248,7 +266,7 @@ describe('recovery after a crash', () => {
         const destination = path.join(workDir, 'paper.pdf');
         await writeFile(destination, 'old');
         const doc = await create(store(), { ext: 'pdf', destination });
-        await doc.mutate(null, { kind: 'append', bytes: encode(' new') });
+        await doc.mutate(null, append(' new'));
 
         let published = false;
         await crashDuring(
@@ -279,8 +297,9 @@ describe('recovery after a crash', () => {
                 await file.truncate(TWO_GIB);
                 await file.writeAt(TWO_GIB - 4, encode('tail'));
             },
+            drafts: 'clear',
         });
-        await crashDuring(doc, (operation, target) => operation === 'writeAt' && target.endsWith('r2.pdf'), crashed => crashed.mutate(2, { kind: 'append', bytes: encode('-appended') }));
+        await crashDuring(doc, (operation, target) => operation === 'writeAt' && target.endsWith('r2.pdf'), crashed => crashed.mutate(2, append('-appended')));
         expect(await fileSize(doc, 'r2.pdf')).toBe(TWO_GIB + 4);
 
         let bytesRead = 0;
@@ -320,7 +339,7 @@ describe('save', () => {
         const doc = await create(store(), { ext: 'pdf', destination });
         await doc.setDrafts(null, { note: 'unsaved' });
 
-        const saved = await saveDocument(doc, { expected: 1, commit: { kind: 'append', bytes: encode('+note') } });
+        const saved = await saveDocument(doc, { expected: 1, commit: append('+note') });
         expect(saved).toMatchObject({ status: 'saved', revision: { id: 2 } });
         expect(await readFile(destination, 'utf8')).toBe('v1+note');
         expect(doc.state()).toMatchObject({ drafts: undefined, dirty: false });
@@ -336,10 +355,10 @@ describe('save', () => {
         const destination = path.join(workDir, 'paper.pdf');
         await writeFile(destination, 'v1');
         const doc = await create(store(), { ext: 'pdf', destination });
-        await doc.mutate(null, { kind: 'append', bytes: encode('+mine') });
+        await doc.mutate(null, append('+mine'));
         await writeFile(destination, 'theirs');
 
-        expect(await saveDocument(doc, { expected: 2, commit: { kind: 'append', bytes: encode('+more') } })).toEqual({ status: 'conflict' });
+        expect(await saveDocument(doc, { expected: 2, commit: append('+more') })).toEqual({ status: 'conflict' });
         expect(await readFile(destination, 'utf8')).toBe('theirs');
         expect(await currentText(doc)).toBe('v1+mine+more');
         expect(doc.state()).toMatchObject({ dirty: true, current: { id: 3 } });
@@ -351,6 +370,14 @@ describe('save', () => {
         expect(doc.state()).toMatchObject({ destination: copy, dirty: false });
     });
 
+    it('starts an imported document clean and sends it to Save As', async () => {
+        const doc = await create(store(), { ext: 'pdf', source: new Blob(['dropped']), imported: true });
+        expect(doc.state()).toMatchObject({ destination: null, baseline: await witnessOf(encode('dropped')), dirty: false });
+        expect(await saveDocument(doc, { expected: 1 })).toEqual({ status: 'needs-save-as' });
+        await doc.mutate(1, append('+edit'));
+        expect(doc.state().dirty).toBe(true);
+    });
+
     it('sends a document without a destination to Save As', async () => {
         const doc = await create(store(), { ext: 'pdf', source: new Blob(['scanned']) });
         expect(doc.state().dirty).toBe(true);
@@ -359,6 +386,39 @@ describe('save', () => {
         expect(await saveDocument(doc, { expected: 1, saveAs: destination })).toMatchObject({ status: 'saved' });
         expect(await readFile(destination, 'utf8')).toBe('scanned');
         expect(doc.state().dirty).toBe(false);
+    });
+});
+
+describe('fork', () => {
+    it('clones the current bytes, destination, baseline and drafts into an independent directory', async () => {
+        const destination = path.join(workDir, 'paper.pdf');
+        await writeFile(destination, 'v1');
+        const source = await create(store(), { ext: 'pdf', destination });
+        await source.mutate(null, append('+a'));
+        await source.mutate(2, append('+redo'));
+        await source.restore(2);
+        await source.setDrafts(2, { note: 'unsaved' });
+
+        const fork = keep(await forkDocument(store(), source.id));
+        expect(fork.id).not.toBe(source.id);
+        expect(fork.state()).toMatchObject({
+            current: { id: 2, length: 4 },
+            history: [],
+            destination,
+            baseline: await witnessOf(encode('v1')),
+            drafts: { note: 'unsaved' },
+            dirty: true,
+        });
+        expect(await currentText(fork)).toBe('v1+a');
+
+        await fork.mutate(2, append('+fork'));
+        expect(await currentText(fork)).toBe('v1+a+fork');
+        expect(await currentText(source)).toBe('v1+a');
+        expect(source.state()).toMatchObject({ current: { id: 2 }, drafts: { note: 'unsaved' } });
+        await fork.close();
+        expect(await currentText(await open(store(), fork.id))).toBe('v1+a+fork');
+        expect(await saveDocument(source, { expected: 2 })).toMatchObject({ status: 'saved' });
+        expect(await readFile(destination, 'utf8')).toBe('v1+a');
     });
 });
 
@@ -380,11 +440,13 @@ describe('workspace checkpoints and collection', () => {
         expect((await readWorkspaceCheckpoints(port)).get('window-1')?.tabs.b).toEqual({ directory: referenced.id, view: { page: 9 } });
 
         await writeFile(path.join(root, 'workspaces', 'window-2.json'), '{"version":1,"tabs":{"a":{}}}');
+        await writeFile(path.join(root, 'workspaces', 'window-1.json.crashed.tmp'), '{"version":1');
         const isHeld = async (id: string) => id === held.id;
         expect(await collectDocuments(store(port), isHeld)).toEqual({ removed: [], unsaved: [unsaved.id] });
 
         await removeWorkspaceCheckpoint(port, 'window-2');
         expect(await collectDocuments(store(port), isHeld)).toEqual({ removed: [unreferenced.id], unsaved: [unsaved.id] });
         expect((await readdir(path.join(root, 'documents'))).sort()).toEqual([referenced.id, held.id, unsaved.id].sort());
+        expect(await readdir(path.join(root, 'workspaces'))).toEqual(['window-1.json']);
     });
 });
