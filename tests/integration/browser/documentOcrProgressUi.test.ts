@@ -82,6 +82,7 @@ describe('browser OCR progress', () => {
                 };
                 document.addEventListener('pointerdown', () => {
                     recovery.createSnapshot = async (...args) => {
+                        window.__ocrRecoveryGated = true;
                         await gate.promise;
                         return original(...args);
                     };
@@ -98,6 +99,9 @@ describe('browser OCR progress', () => {
                     delete window.__ocrReleaseRecovery;
                 })()`);
             }
+            // The snapshot reached the gated copy before release, so its lease
+            // spanned the click rather than finishing beside it.
+            expect(await page.evaluate('window.__ocrRecoveryGated === true')).toBe(true);
             await page.evaluate(`(async () => {
                 const snapshot = await window.__ocrConcurrentRecovery;
                 delete window.__ocrConcurrentRecovery;
