@@ -347,6 +347,22 @@ describe('assistant renderer on instance contract', () => {
         expect((host.querySelector('.composer-input') as HTMLTextAreaElement).value).toBe('Half-typed follow-up');
     });
 
+    it('does not retry another turn when the failed turn has no message left', async () => {
+        current.chat = chat([
+            item('orphan-failure', 'system', 'Old failure', {
+                turnId: 'trimmed-turn',
+                status: 'failed',
+                errorEnvelope: envelope('Old failure', true),
+            }),
+            item('newer', 'user', 'Newer question', {turnId: 'turn-2'}),
+        ]);
+        const host = mount();
+        await settle();
+        button(host, 'assistant.turnRetry').click();
+        await settle();
+        expect(api.sendAssistantMessage).not.toHaveBeenCalled();
+    });
+
     it('shows a failed reply once in the timeline and never also toasts it', async () => {
         const host = mount();
         await settle();

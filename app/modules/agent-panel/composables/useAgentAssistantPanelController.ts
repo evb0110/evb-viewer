@@ -244,8 +244,11 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
     /** Resends the user message of the failed turn, with its images. */
     async function retry(turnId: string | null) {
         const items = chat.value?.items ?? [];
-        const user = items.findLast(item => item.kind === 'user' && (turnId === null || item.turnId === turnId))
-            ?? items.findLast(item => item.kind === 'user');
+        // Rows saved before turn ids existed retry the latest message; a row with
+        // a turn id retries only that turn's own message.
+        const user = turnId === null
+            ? items.findLast(item => item.kind === 'user')
+            : items.findLast(item => item.kind === 'user' && item.turnId === turnId);
         if (user) await send({
             text: user.text,
             attachments: user.attachments ?? [],
