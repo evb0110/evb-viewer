@@ -118,10 +118,9 @@ recent runs.
 ## Viewer-core integration
 
 Viewer core means `app/modules/pdf-viewer`, `app/modules/document-viewer`,
-`app/modules/workspace-shell`, and the annotation session and layers. Up to
-three agents may change viewer core at once, each on a disjoint file set that
-one integrating agent assigns (AGENTS.md, Concurrency); without such an
-integrator, one viewer-core change is active at a time. Integration is
+`app/modules/workspace-shell`, and the annotation session and layers. Several
+agents may change viewer core at once, each on a disjoint file set that one
+integrating agent assigns (AGENTS.md, Concurrency). Integration is
 exclusive from updating the branch through the merge: update it from `origin/main` as
 `land-pr` describes, run the affected real-app lane on the result, merge. If `main` moves
 in between, update and revalidate.
