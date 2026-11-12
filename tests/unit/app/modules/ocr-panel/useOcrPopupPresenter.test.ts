@@ -839,8 +839,27 @@ describe('useOcrPopupPresenter', () => {
             harness.busy.value = true;
             await nextTick();
 
-            expect(harness.presenter.canRunOcr.value).toBe(false);
             await expect(harness.presenter.runOcrForAgent({open: false})).resolves.toMatchObject({
+                ok: false,
+                error: 'errors.ocr.disabled',
+            });
+            expect(harness.ocr.runOcr).not.toHaveBeenCalled();
+        } finally {
+            stopHarness(harness.scope);
+        }
+    });
+
+    it('refuses an agent run when the document becomes busy while languages load', async () => {
+        const harness = createPresenterHarness();
+        const languagesLoaded = Promise.withResolvers<void>();
+        harness.ocr.loadLanguages.mockImplementation(() => languagesLoaded.promise);
+
+        try {
+            const result = harness.presenter.runOcrForAgent({open: false});
+            harness.busy.value = true;
+            languagesLoaded.resolve();
+
+            await expect(result).resolves.toMatchObject({
                 ok: false,
                 error: 'errors.ocr.disabled',
             });

@@ -68,8 +68,36 @@ describe('browser OCR progress', () => {
             }).click();
             const dialog = page.getByRole('dialog');
             await dialog.getByText('Hebrew', {exact: true}).click({timeout: 15_000});
+            // A background checkpoint may claim the document lease between
+            // pointer-down and pointer-up. Keep its real snapshot copy pending
+            // through that click so recovery cannot intermittently swallow it.
+            await page.evaluate(`(async () => {
+                const {getDocumentWorkingCopyCapability} = await import('/_nuxt/utils/platformDocuments.ts');
+                const recovery = getDocumentWorkingCopyCapability().recovery;
+                const original = recovery.createSnapshot;
+                const gate = Promise.withResolvers();
+                document.addEventListener('pointerdown', () => {
+                    recovery.createSnapshot = async (...args) => {
+                        await gate.promise;
+                        return original(...args);
+                    };
+                    window.__ocrConcurrentRecovery = window.__evbTestApi.getActiveWorkspaceHandle()
+                        .createRecoverySnapshot({fileName: 'hebrew-recovery.pdf'});
+                }, {once: true, capture: true});
+                document.addEventListener('pointerup', () => {
+                    recovery.createSnapshot = original;
+                    gate.resolve();
+                }, {once: true, capture: true});
+            })()`);
             const ocrStartedAt = Date.now();
             await dialog.getByRole('button', {name: /^(Download and start OCR|Start OCR)$/u}).click();
+            await page.evaluate(`(async () => {
+                const snapshot = await window.__ocrConcurrentRecovery;
+                delete window.__ocrConcurrentRecovery;
+                if (!snapshot) throw new Error('The overlapping recovery snapshot did not capture the image PDF');
+                const {getDocumentWorkingCopyCapability} = await import('/_nuxt/utils/platformDocuments.ts');
+                await getDocumentWorkingCopyCapability().recovery.cleanupSnapshot(snapshot.ref);
+            })()`);
             const completionText = 'OCR complete - PDF is now searchable';
             let terminalText: string;
             try {

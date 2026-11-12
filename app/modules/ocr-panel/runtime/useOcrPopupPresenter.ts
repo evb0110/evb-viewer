@@ -425,9 +425,10 @@ export const useOcrPopupPresenter = ({
             return state === 'missing' || failedLanguageCodes.value.has(code);
         });
     });
+    // The view blocks document edits. A background recovery lease can still
+    // copy the source while recognition reads it; applying OCR takes the lease.
     const canRunOcr = computed(() =>
-        !toValue(context.busy)
-        && !progress.value.isRunning
+        !progress.value.isRunning
         && hasSelectedAvailableLanguage.value
         && Boolean(workingCopyPath.value),
     );
@@ -640,19 +641,18 @@ export const useOcrPopupPresenter = ({
     }
 
     async function runOcrForAgent(options: IAgentOcrRunOptions = {}, admission?: IAgentOcrRunAdmission) {
-        if (toValue(context.busy)) {
-            return refuseAgentRun(t('errors.ocr.disabled'));
-        }
-
         if (progress.value.isRunning) {
             return refuseAgentRun(t('errors.ocr.alreadyRunning'));
         }
 
         await loadLanguages();
-        // The command may have been aborted, or its document replaced, while
-        // the languages loaded.
+        // The command may have been aborted, its document replaced, or a
+        // document operation started while the languages loaded.
         admission?.signal.throwIfAborted();
         admission?.assertCurrentDocument();
+        if (toValue(context.busy)) {
+            return refuseAgentRun(t('errors.ocr.disabled'));
+        }
         applyAgentOcrOptions(options);
 
         if (!workingCopyPath.value) {
