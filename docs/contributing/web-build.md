@@ -19,7 +19,7 @@
 - `build` produces the Nuxt web build used for deployment, including prerendered app routes, Nitro server endpoints, and a post-build check that required browser WASM assets were copied into the deploy output.
 - `build:desktop` adds the Electron bundles on top of the Nuxt web build for local packaging and release flows.
 - Vercel builds emit Nitro output into `.vercel/output`; local desktop flows keep using `nuxt-output/`.
-- `pnpm lint && pnpm typecheck && pnpm build` is the current browser-app verification batch. The landing app shares the root pnpm workspace and lockfile but keeps its own lint, typecheck, and build commands. `lint` owns ESLint, stylelint, and the fast static checks; the slower web deploy source check is split into `pnpm run check:static:assets`.
+- `pnpm lint && pnpm typecheck && pnpm build` is the current browser-app verification batch. The landing app shares the root pnpm workspace and lockfile but keeps its own lint, typecheck, and build commands. `lint` owns OxLint, Stylelint, and dependency-cruiser architecture checks; the slower web deploy source check is split into `pnpm run check:static:assets`.
 - After a desktop build has produced `dist-electron/`, `pnpm run test:electron-bundle-static-integrity:no-build` runs static bundle assertions without forcing another build. Use `pnpm run test:electron-bundle-static-integrity` when you want the script-managed build, prune, and hygiene wrapper.
 - Browser Rust/WASM builds live in `public/wasm/` but are not committed. `pnpm dev`, `pnpm dev:web`, `pnpm build`, `pnpm test:unit` and `pnpm test:integration:browser` run `scripts/ensure-wasm-artifacts.mjs`, which rebuilds a file when it is missing or its crates changed (it needs the `wasm32-unknown-unknown` Rust target). Web deploys upload the local files; the remote build does not rebuild them.
 - The browser OCR engine (`public/wasm/evb-tesseract.wasm` and `.mjs`) is not built by cargo. The same script downloads the published files and checks their size and SHA-256 against `PREBUILT_WASM_FILES` in `scripts/wasm-artifacts.mjs`. To change the engine, run `scripts/build-tesseract-wasm.sh` with an activated emsdk at the version the script names (it refuses others), upload its two output files to the `runtime-binaries-v2` release under a new revision name, and update the pins. The build is reproducible: rebuilding unchanged sources gives the pinned bytes.
@@ -52,7 +52,7 @@
 
 ## Architecture and checks
 
-- `pnpm run check:architecture` runs ESLint path-boundary rules and dependency-cruiser cycle checks.
+- `pnpm run check:architecture` runs dependency-cruiser path-boundary and cycle checks.
 - `pnpm lint` adds Stylelint and the landing-site lint command, using the tools' native caches.
 - `pnpm typecheck` uses the existing incremental TypeScript builds; `pnpm run test:unit` runs the unit projects.
 - Use `node scripts/run-all-gates.mjs` for full local release verification.

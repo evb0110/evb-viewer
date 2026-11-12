@@ -93,7 +93,6 @@ describe('usePageShortcuts', () => {
             isContentEditable: true,
             closest: () => null,
         };
-        // eslint-disable-next-line @typescript-eslint/no-extraneous-class
         vi.stubGlobal('HTMLElement', class HTMLElementStub {});
         Object.setPrototypeOf(fakeInput, HTMLElement.prototype);
         Object.setPrototypeOf(fakeNoteEditor, HTMLElement.prototype);

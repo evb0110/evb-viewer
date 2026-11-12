@@ -14,7 +14,6 @@ export interface IFailureToastAction {
 
 // The public name is pinned by SEN-CORE-06 and intentionally differs from the
 // repository's usual interface naming convention during this migration.
-// eslint-disable-next-line @typescript-eslint/naming-convention
 export interface FailurePresentation extends IPresentedFailureCapture {
     title: string;
     description?: string;

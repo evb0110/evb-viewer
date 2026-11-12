@@ -8,7 +8,6 @@ import {
     type TLocaleMessagesShapeFrom,
 } from '@i18n-core';
 // Main-process startup intentionally imports only the English fallback.
-// eslint-disable-next-line no-restricted-imports
 import en from '@i18n-app/messages/en';
 import type {
     TTranslateArgs,

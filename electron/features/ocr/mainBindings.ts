@@ -1,4 +1,3 @@
-/* eslint-disable custom/file-naming -- Existing OCR feature binding entrypoint is retained for compatibility. */
 
 import type { IpcMainInvokeEvent } from 'electron';
 import type { OCR_PLATFORM_FEATURE } from '@contracts/ocrPlatformFeature';

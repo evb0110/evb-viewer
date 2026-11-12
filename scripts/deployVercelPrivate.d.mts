@@ -1,4 +1,3 @@
-/* eslint-disable custom/file-naming -- Declaration must share deployVercelPrivate.mjs's filename. */
 export interface IProductionDeployLock {
     (): Promise<void>;
     fd: number;

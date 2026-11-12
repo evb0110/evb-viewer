@@ -2,7 +2,6 @@
 // The dynamic module shape keeps this facade coupled to the runtime exports
 // without creating the static import that this boundary exists to avoid.
 type TAgentAssistantRuntimeModule =
-    // eslint-disable-next-line @typescript-eslint/consistent-type-imports
     typeof import('@electron/features/agent/assistantService');
 
 let runtimeModulePromise: Promise<TAgentAssistantRuntimeModule> | null = null;

@@ -83,5 +83,4 @@ export function resizeShapeToBounds(
         };
     }
 
-    return shape;
 }

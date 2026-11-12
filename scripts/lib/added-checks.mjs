@@ -125,14 +125,14 @@ const ADDED_CHECK_LINE_PATTERNS = [
         pattern: /\bcreate[A-Za-z]*TestProject\(/u,
     },
     {
-        file: /^eslint-plugin-custom\.mjs$/u,
+        file: /^oxlint-plugin-invariants\.mjs$/u,
         label: 'new custom lint rule',
         pattern: /^\s*'[a-z-]+': [A-Za-z]+Rule,?$/u,
     },
     {
-        file: /^eslint\.config\.mjs$/u,
+        file: /^\.oxlintrc\.json$/u,
         label: 'newly enabled lint rule',
-        pattern: /^\s*'(?:custom\/[a-z-]+|no-restricted-[a-z-]+)':/u,
+        pattern: /^\s*"[a-z][a-z0-9/-]*":\s*(?:"error"|\[)/u,
     },
     {
         file: /^scripts\/release\/policy\.mjs$/u,

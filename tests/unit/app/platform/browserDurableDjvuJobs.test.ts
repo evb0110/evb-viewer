@@ -24,7 +24,6 @@ function installNumericTimerHarness() {
         callbacks.set(timerId, callback);
         pendingTimerIds.add(timerId);
         // The browser host returns a numeric timer while Node's lib types use Timeout.
-        // eslint-disable-next-line no-restricted-syntax
         return timerId as unknown as ReturnType<typeof setTimeout>;
     }) as typeof setTimeout;
     const clearTimeoutStub = ((timer: ReturnType<typeof setTimeout>) => {

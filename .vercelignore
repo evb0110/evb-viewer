@@ -70,5 +70,5 @@ node_modules/
 # Build-time config not needed for the web deployment
 .DS_Store
 electron-builder.yml
-eslint-plugin-custom.mjs
+oxlint-plugin-invariants.mjs
 *.log

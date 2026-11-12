@@ -1,4 +1,3 @@
-// eslint-disable-next-line import-classic/no-restricted-paths -- browser implementation composes the aggregate API.
 import type { IPlatformApi } from '@contracts/platformApi';
 import { inspectAllowedExternalUrl } from '@contracts/externalUrl';
 import type { SHELL_PLATFORM_FEATURE } from '@contracts/shellPlatformFeature';

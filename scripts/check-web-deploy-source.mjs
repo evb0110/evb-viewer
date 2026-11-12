@@ -77,7 +77,7 @@ export const WEB_DEPLOY_SOURCE_EXCLUDED_FILE_NAMES = [
     '.DS_Store',
     'MEMORIES.md',
     'electron-builder.yml',
-    'eslint-plugin-custom.mjs',
+    'oxlint-plugin-invariants.mjs',
 ];
 
 export const WEB_DEPLOY_SOURCE_EXCLUDED_FILE_PATTERNS = [/\.(?:tgz|tar\.gz)$/iu];

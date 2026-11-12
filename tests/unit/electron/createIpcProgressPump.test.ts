@@ -1,4 +1,3 @@
-/* eslint-disable @stylistic/array-bracket-newline, @stylistic/array-element-newline, @stylistic/object-curly-newline, @stylistic/object-property-newline */
 import {
     afterEach,
     describe,
