@@ -118,23 +118,19 @@ export const useScanCleanupWorkspaceSession = (options: IUseScanCleanupWorkspace
         active: options.active,
         authoritativeLayoutByPage: detection.authoritativeLayoutByPage,
         documentCanvasSignature: detection.documentCanvasSignature,
+        detectionRecords: detection.records,
         documentRevision,
-        documentPriorByPage: detection.documentPriorByPage,
         initialViewMode: options.initialPreviewViewMode?.(),
         layoutDetectionComplete: detection.layoutDetectionComplete,
         lifecycleDocumentKey,
         ownerId,
-        pagePlanEvidenceByPage: detection.pagePlanEvidenceByPage,
         detectionResultStoreId: detection.detectionResultStoreId,
         placementAnchorSummary: detection.placementAnchorSummary,
         placementAnchorCalibrationPending: detection.placementAnchorCalibrationPending,
         placementAnchorsByPage,
         resolvePlacementAnchorsForPage: detection.resolvePlacementAnchorsForPage,
         previewPage: selection.leader,
-        recommendedOutputModeByPage: detection.recommendedOutputModeByPage,
         resolvedOptions,
-        softAlphaForegroundRecommendationByPage:
-            detection.softAlphaForegroundRecommendationByPage,
         selectPage: selection.selectPage,
         settings: settings.values,
         sourceSha256,
@@ -169,7 +165,7 @@ export const useScanCleanupWorkspaceSession = (options: IUseScanCleanupWorkspace
             detection.authoritativeLayoutByPage.value.get(pageNumber) === evidence.layoutClassification
         );
         if (pageNumbers === null) {
-            return new Map<number, IScanCleanupPagePlanEvidence>([...detection.pagePlanEvidenceByPage].filter(
+            return new Map<number, IScanCleanupPagePlanEvidence>([...detection.pagePlanEvidenceByPage.value].filter(
                 ([
                     pageNumber,
                     evidence,
@@ -178,7 +174,7 @@ export const useScanCleanupWorkspaceSession = (options: IUseScanCleanupWorkspace
         }
         const evidence = new Map<number, IScanCleanupPagePlanEvidence>();
         for (const pageNumber of pageNumbers) {
-            const detected = detection.pagePlanEvidenceByPage.get(pageNumber);
+            const detected = detection.pagePlanEvidenceByPage.value.get(pageNumber);
             if (detected !== undefined && evidenceMatchesLayout(pageNumber, detected)) {
                 evidence.set(pageNumber, detected);
             }
@@ -231,7 +227,7 @@ export const useScanCleanupWorkspaceSession = (options: IUseScanCleanupWorkspace
         detectionPending: detection.pending,
         detectionStatus: detection.terminalStatus,
         documentSettingsReady: computed(() => settings.documentSettingsReady.value),
-        documentPriorByPage: detection.documentPriorByPage,
+        detectionRecords: detection.records,
         documentRevision,
         onCompleted: settings.dismissFirstRunGuidance,
         ownerId,
@@ -247,11 +243,7 @@ export const useScanCleanupWorkspaceSession = (options: IUseScanCleanupWorkspace
             }
             return [...selection.selectedPages.value].sort((left, right) => left - right);
         }),
-        sourcePageMetadataByPage: detection.sourcePageMetadataByPage,
-        recommendedOutputModeByPage: detection.recommendedOutputModeByPage,
         resolvedOptions,
-        softAlphaForegroundRecommendationByPage:
-            detection.softAlphaForegroundRecommendationByPage,
         settings: settings.values,
         sourcePath,
         totalPages,

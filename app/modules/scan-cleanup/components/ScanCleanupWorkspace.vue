@@ -699,7 +699,7 @@ const previewOutputMode = computed<TScanCleanupOutputMode | undefined>(() =>
     resolveScanCleanupEffectiveOutputMode({
         options: settings,
         pageOverride: currentPageOverride.value,
-        detectedOutputMode: recommendedOutputModeByPage.get(previewPage.value),
+        detectedOutputMode: recommendedOutputModeByPage.value.get(previewPage.value),
         renderedOutputMode: previewResultCurrent.value && previewResult.value?.pageNumber === previewPage.value
             ? previewResult.value.outputs[0]?.metadata.outputMode
                 ?? previewResult.value.pageMetadata.recommendedOutputMode
@@ -757,12 +757,12 @@ const pageFacts = computed<IScanCleanupPageFacts | null>(() => {
     return {
         classification: authoritativeLayoutByPage.value.get(page),
         diagnostics: previewMetadataByPage.get(page),
-        layoutConfidence: detectedLayoutConfidenceByPage.get(page),
+        layoutConfidence: detectedLayoutConfidenceByPage.value.get(page),
         override: currentPageOverride.value,
-        recommendedOutputMode: recommendedOutputModeByPage.get(page),
-        recommendedOutputModeConfidence: recommendedOutputModeConfidenceByPage.get(page),
-        recommendedOutputModeReason: recommendedOutputModeReasonByPage.get(page),
-        textAxis: detectedTextAxisByPage.get(page),
+        recommendedOutputMode: recommendedOutputModeByPage.value.get(page),
+        recommendedOutputModeConfidence: recommendedOutputModeConfidenceByPage.value.get(page),
+        recommendedOutputModeReason: recommendedOutputModeReasonByPage.value.get(page),
+        textAxis: detectedTextAxisByPage.value.get(page),
     };
 });
 
