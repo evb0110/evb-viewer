@@ -471,6 +471,8 @@ importers:
         specifier: 1.5.0
         version: 1.5.0(typescript@7.0.2)
 
+  packages/document-store: {}
+
   packages/electron-worker-bundles: {}
 
   packages/i18n-app: {}
