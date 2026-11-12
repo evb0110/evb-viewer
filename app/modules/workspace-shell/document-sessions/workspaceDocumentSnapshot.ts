@@ -1,4 +1,7 @@
-import type { IDocumentRevisionInfo } from '@contracts/documentRevision';
+import type {
+    IDocumentRevisionInfo,
+    TDocumentRevisionToken,
+} from '@contracts/documentRevision';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TDocumentInstanceId } from '@contracts/documentInstanceId';
 import type { IWorkspaceOpenFailure } from '@app/types/workspaceExpose';
@@ -22,6 +25,19 @@ export interface IWorkspaceDocumentTarget {
     fileName?: string | null | undefined;
     originalPath?: TDocumentRef | null | undefined;
     isDjvu?: boolean | undefined;
+}
+
+/**
+ * The one record of where a loaded document lives and which revision it
+ * holds. Its controller owns it; the file session reads and writes it.
+ */
+export interface IWorkspaceDocumentFile {
+    originalPath: TDocumentRef | null;
+    workingCopyPath: TDocumentRef | null;
+    revisionInfo: IDocumentRevisionInfo | null;
+    /** Leads `revisionInfo` only while a page operation adopts its result before reading the stamp. */
+    revisionToken: TDocumentRevisionToken | null;
+    isDjvu: boolean;
 }
 
 export interface IWorkspaceDocumentIdentity {

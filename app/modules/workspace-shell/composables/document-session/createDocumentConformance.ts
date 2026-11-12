@@ -5,7 +5,7 @@ import type {
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import {createStaleRevisionError} from '@contracts/documentMutationErrors';
-import type { IDocumentSessionState } from '@app/modules/workspace-shell/viewers/workspaceDocumentDriver';
+import type { IDocumentSessionState } from '@app/modules/workspace-shell/composables/document-session/documentSessionState';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { getDocumentPdfCapability } from '@app/utils/platformDocuments';
 import { shouldForcePdfSaveAs } from '@app/services/pdf-file/shouldForcePdfSaveAs';

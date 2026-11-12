@@ -22,7 +22,7 @@ import {
 import {
     createDocumentSessionState,
     createEpochGuard,
-} from '@app/modules/workspace-shell/viewers/workspaceDocumentDriver';
+} from '@app/modules/workspace-shell/composables/document-session/documentSessionState';
 import { createDocumentOpenFlow } from '@app/modules/workspace-shell/composables/document-session/createDocumentOpenFlow';
 import { createDocumentOpenSurfaceSession } from '@app/modules/document-viewer/runtime/documentOpenSurfaceSession';
 import {
@@ -37,6 +37,7 @@ import type * as FailureToastModule from '@app/composables/useFailureToast';
 import {formatTranslationLeaf} from '@i18n-core';
 import {LOCALE_MESSAGES} from '@i18n-app';
 import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
+import { createWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 
 const mocks = vi.hoisted(() => ({
     toasts: [] as Array<Record<string, unknown>>,
@@ -102,7 +103,10 @@ interface IResetHistoryTestOptions {
 }
 
 function createOpenFlowHarness() {
-    const state = createDocumentSessionState({ isDesktopRuntime: ref(true) });
+    const state = createDocumentSessionState({
+            isDesktopRuntime: ref(true),
+            document: createWorkspaceDocumentController({tabId: 'tab-1'}),
+        });
     const deps = {
         cleanupAbandonedWorkingCopy: vi.fn(async () => undefined),
         clearPdfConformanceProfile: vi.fn(),
@@ -127,7 +131,10 @@ function createOpenFlowHarness() {
 
 describe('createDocumentOpenFlow', () => {
     it('clears the encryption witness when a document session closes', () => {
-        const state = createDocumentSessionState({ isDesktopRuntime: ref(true) });
+        const state = createDocumentSessionState({
+            isDesktopRuntime: ref(true),
+            document: createWorkspaceDocumentController({tabId: 'tab-1'}),
+        });
         state.wasEncrypted.value = true;
 
         state.resetForClose();

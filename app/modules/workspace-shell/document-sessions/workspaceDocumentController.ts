@@ -1,11 +1,12 @@
-import type { IDocumentRevisionInfo } from '@contracts/documentRevision';
 import type { IPdfOpeningGeometry } from '@contracts/electronApiDocuments';
 import type {TDocumentRef} from '@contracts/documentRef';
 import {createDocumentInstanceId} from '@contracts/documentInstanceId';
 import type {
     ComputedRef,
+    Ref,
     ShallowRef,
 } from 'vue';
+import { getDocumentRefBaseName } from '@app/utils/documentRef';
 import { isEqual } from 'es-toolkit/predicate';
 import type { ITabMetadataCore } from '@contracts/windowTabs';
 import type {
@@ -31,6 +32,7 @@ import { BrowserLogger } from '@app/utils/browserLogger';
 import { rememberReadingView } from '@app/modules/workspace-shell/document-sessions/recentReadingView';
 import type { IPdfPageShapeRead } from '@app/modules/workspace-shell/composables/document-session/resolvePdfOpeningGeometry';
 import type {
+    IWorkspaceDocumentFile,
     IWorkspaceDocumentIdentity,
     IWorkspaceDocumentSnapshot,
     IWorkspaceDocumentTarget,
@@ -40,6 +42,7 @@ import type {
 } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentSnapshot';
 
 export type {
+    IWorkspaceDocumentFile,
     IWorkspaceDocumentIdentity,
     IWorkspaceDocumentSnapshot,
     IWorkspaceDocumentTarget,
@@ -54,6 +57,14 @@ interface IWorkspaceDocumentCloseRequest {
 
 type TFrontierStep = (assertCurrent: () => void) => Promise<void>;
 
+/** What the document host lends its controller: its authored state and how to settle it. */
+export interface IDocumentMutationFrontier {
+    read: () => string;
+    isDirty: () => boolean;
+    prepare: TFrontierStep;
+    close: TFrontierStep;
+}
+
 export interface IDocumentOperationLease {
     activeKind: ComputedRef<TDocumentOperationKind | null>;
     isBusy: ComputedRef<boolean>;
@@ -64,14 +75,6 @@ export interface IDocumentOperationLease {
 
 /** A document the shell assigns to a tab before any workspace has loaded it. */
 export type TWorkspaceDocumentAssignment = Omit<ITabMetadataCore, 'originalBackend'> & {recoveryWorkingCopyPath?: TDocumentRef | null | undefined;};
-
-/** What the mounted workspace reports about the document it holds. */
-export interface IWorkspaceCommittedDocument {
-    fileName: string | null;
-    originalPath: TDocumentRef | null;
-    isDjvu: boolean;
-    revisionInfo: IDocumentRevisionInfo | null;
-}
 
 export interface IWorkspaceOpenRequest {
     kind: Exclude<TWorkspaceDocumentTransactionKind, 'close'>;
@@ -89,27 +92,28 @@ export interface IWorkspaceOpenRequest {
 }
 
 /**
- * The owner of one document's identity, phase, dirty state and the commands
+ * The owner of one document's record, phase, dirty state and the commands
  * that reach it, and of the tab views that show it. The shell reads its
- * snapshot; a mounted workspace writes it through these methods and writes
- * its own view through the view record.
+ * snapshot; the document's file session writes its record, and each view
+ * writes its own view record.
  */
 export interface IWorkspaceDocumentController {
-    readonly snapshot: Readonly<ShallowRef<IWorkspaceDocumentSnapshot>>;
+    readonly snapshot: Readonly<Ref<IWorkspaceDocumentSnapshot>>;
+    /** The loaded document's file; the shell reads the identity derived from it. */
+    readonly file: Readonly<ShallowRef<IWorkspaceDocumentFile>>;
     readonly views: Readonly<ShallowRef<ReadonlyMap<string, IWorkspaceDocumentView>>>;
     readonly operationLease: IDocumentOperationLease;
     assign(document: TWorkspaceDocumentAssignment): void;
     claimOpen(request: IWorkspaceOpenRequest, onPresented?: () => void): string;
     runOpen(request: IWorkspaceOpenRequest, run: (shape: IPdfOpeningGeometry | null, transactionId: string) => Promise<boolean>): Promise<boolean>;
     setOpeningLabel(label: string | null): void;
-    commitDocument(document: IWorkspaceCommittedDocument): void;
+    commitFile(patch: Partial<IWorkspaceDocumentFile>): void;
     markPresented(): void;
     markFailed(failure: IWorkspaceOpenFailure | null): void;
     /** Tells why the document failed outside an open, without changing its phase. */
     reportFailure(failure: IWorkspaceOpenFailure): void;
     dismissFailure(): void;
-    setDirty(dirty: boolean): void;
-    bindMutationFrontier(read: () => string, prepare: TFrontierStep, close: TFrontierStep): void;
+    bindMutationFrontier(frontier: IDocumentMutationFrontier): void;
     readMutationFrontier(): string | null;
     prepareTransfer: TFrontierStep;
     getView(tabId: string): IWorkspaceDocumentView | null;
@@ -127,6 +131,14 @@ export interface IWorkspaceDocumentController {
     };
 }
 
+
+const EMPTY_FILE: IWorkspaceDocumentFile = {
+    originalPath: null,
+    workingCopyPath: null,
+    revisionInfo: null,
+    revisionToken: null,
+    isDjvu: false,
+};
 
 function createEmptyIdentity(): IWorkspaceDocumentIdentity {
     return {
@@ -225,7 +237,7 @@ export function createWorkspaceDocumentController(options: {
 }): IWorkspaceDocumentController {
     const tabId = options.tabId;
     const sessionId = createSessionId('workspace-document-session');
-    const snapshot = shallowRef<IWorkspaceDocumentSnapshot>({
+    const state = shallowRef<IWorkspaceDocumentSnapshot>({
         sessionId,
         sessionRevision: 0,
         phase: 'empty',
@@ -240,14 +252,22 @@ export function createWorkspaceDocumentController(options: {
     const operationLease = createDocumentOperationLease();
     const settleWaiters = new Map<string, PromiseWithResolvers<boolean>>();
     let activeClose: Promise<boolean> | null = null;
-    let mutationFrontier: {
-        read: () => string;
-        prepare: TFrontierStep;
-        close: TFrontierStep
-    } | null = null;
+    const file = shallowRef<IWorkspaceDocumentFile>(EMPTY_FILE);
+    const mutationFrontier = shallowRef<IDocumentMutationFrontier | null>(null);
+    const liveDirty = computed(() => mutationFrontier.value?.isDirty() === true);
+    // A loaded document is as dirty as its host's frontier; until it loads,
+    // a restored or moved tab keeps the dirty state the shell assigned it.
+    const snapshot = computed(() => {
+        const loaded = file.value.workingCopyPath !== null || file.value.isDjvu;
+        const dirty = loaded ? liveDirty.value : state.value.dirty;
+        return dirty === state.value.dirty ? state.value : {
+            ...state.value,
+            dirty,
+        };
+    });
 
     function update(patch: Partial<IWorkspaceDocumentSnapshot>, bumpRevision = false) {
-        const current = snapshot.value;
+        const current = state.value;
         const next = {
             ...current,
             ...patch,
@@ -255,7 +275,7 @@ export function createWorkspaceDocumentController(options: {
         if (!bumpRevision && isEqual(current, next)) {
             return;
         }
-        snapshot.value = {
+        state.value = {
             ...next,
             sessionRevision: current.sessionRevision + (bumpRevision ? 1 : 0),
         };
@@ -403,16 +423,26 @@ export function createWorkspaceDocumentController(options: {
         update({openingLabel: label});
     }
 
-    function commitDocument(document: IWorkspaceCommittedDocument) {
+    // The file session writes the record here; the identity the shell reads
+    // follows in the same call, so no copy of it can lag behind.
+    function commitFile(patch: Partial<IWorkspaceDocumentFile>) {
+        const committed = {
+            ...file.value,
+            ...patch,
+        };
+        if (isEqual(committed, file.value)) {
+            return;
+        }
+        file.value = committed;
         const current = snapshot.value.identity;
         const next: IWorkspaceDocumentIdentity = {
             ...createEmptyIdentity(),
-            fileName: document.fileName,
-            originalPath: document.originalPath,
-            isDjvu: document.isDjvu,
-            revisionInfo: document.revisionInfo,
-            documentRef: document.revisionInfo?.documentRef ?? document.originalPath,
-            workingCopyPath: document.revisionInfo?.documentRef ?? null,
+            fileName: getDocumentRefBaseName(committed.originalPath) ?? getDocumentRefBaseName(committed.workingCopyPath),
+            originalPath: committed.originalPath,
+            isDjvu: committed.isDjvu,
+            revisionInfo: committed.revisionInfo,
+            documentRef: committed.revisionInfo?.documentRef ?? committed.originalPath,
+            workingCopyPath: committed.revisionInfo?.documentRef ?? null,
         };
         if (!identityHasDocument(next)) {
             if (identityHasDocument(current)) {
@@ -512,10 +542,6 @@ export function createWorkspaceDocumentController(options: {
         }
     }
 
-    function setDirty(dirty: boolean) {
-        update({dirty});
-    }
-
     function attachWorkspace(viewTabId: string, workspace: IWorkspaceExpose) {
         dismissFailure();
         const view = views.value.get(viewTabId);
@@ -564,11 +590,12 @@ export function createWorkspaceDocumentController(options: {
             supersedeActiveTransaction();
             resetToEmpty();
         };
-        if (!request.persist && request.ownership && mutationFrontier) {
+        const frontier = mutationFrontier.value;
+        if (!request.persist && request.ownership && frontier) {
             // The transfer already owns admission. Close through the document's
             // lifecycle, rather than waiting for this same lease to become idle.
             request.ownership.assertCurrent();
-            return mutationFrontier.close(request.assertCurrent ?? (() => undefined)).then(async () => {
+            return frontier.close(request.assertCurrent ?? (() => undefined)).then(async () => {
                 await onCloseCommit();
                 return true;
             });
@@ -662,27 +689,23 @@ export function createWorkspaceDocumentController(options: {
 
     const controller: IWorkspaceDocumentController = {
         snapshot,
+        file,
         views,
         operationLease,
         assign,
         claimOpen,
         runOpen,
         setOpeningLabel,
-        commitDocument,
+        commitFile,
         markPresented,
         markFailed,
         reportFailure,
         dismissFailure,
-        setDirty,
-        bindMutationFrontier: (read, prepare, close) => { mutationFrontier = {
-            read,
-            prepare,
-            close,
-        }; },
-        readMutationFrontier: () => mutationFrontier?.read() ?? null,
+        bindMutationFrontier: (frontier) => { mutationFrontier.value = frontier; },
+        readMutationFrontier: () => mutationFrontier.value?.read() ?? null,
         prepareTransfer: async (assertCurrent) => {
             assertCurrent();
-            await mutationFrontier?.prepare(assertCurrent);
+            await mutationFrontier.value?.prepare(assertCurrent);
         },
         getView: viewTabId => views.value.get(viewTabId) ?? null,
         addView,

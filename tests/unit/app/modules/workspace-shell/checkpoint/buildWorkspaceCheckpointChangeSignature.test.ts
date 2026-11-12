@@ -29,7 +29,10 @@ import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
 import { createDefaultWorkspaceToolbarSnapshot } from '@app/types/workspaceExpose';
 import { createWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 import type {IWorkspaceDocumentRecovery} from '@app/types/workspaceDocumentRecovery';
-import {createWorkspaceExposeFixture} from '@tests/unit/app/modules/workspace-shell/workspaceTestFixtures';
+import {
+    createWorkspaceExposeFixture,
+    setTestDocumentDirty,
+} from '@tests/unit/app/modules/workspace-shell/workspaceTestFixtures';
 import { buildWorkspaceCheckpointChangeSignature } from '@app/modules/workspace-shell/checkpoint/buildWorkspaceCheckpointChangeSignature';
 import {
     buildWorkspaceCheckpoint,
@@ -138,12 +141,12 @@ describe('buildWorkspaceCheckpointChangeSignature', () => {
         const base = buildWorkspaceCheckpointChangeSignature(options);
 
         const session = options.documentSessionsByTabId.value['tab-a'];
-        session.setDirty(true);
+        setTestDocumentDirty(session, true);
         const afterDirty = buildWorkspaceCheckpointChangeSignature(options);
         expect(afterDirty.tabSignatures.get('tab-a')).not.toBe(base.tabSignatures.get('tab-a'));
         expect(afterDirty.tabSignatures.get('tab-b')).toBe(base.tabSignatures.get('tab-b'));
 
-        session.setDirty(false);
+        setTestDocumentDirty(session, false);
         const workspace = {} as IWorkspaceExpose;
         session.attachWorkspace('tab-a', workspace);
         const afterMount = buildWorkspaceCheckpointChangeSignature(options);
@@ -161,8 +164,7 @@ describe('buildWorkspaceCheckpointChangeSignature', () => {
     it('tracks the document revision identity', () => {
         const options = createSignatureOptions();
         const session = options.documentSessionsByTabId.value['tab-a'];
-        const commit = (revisionInfo: IDocumentRevisionInfo) => session.commitDocument({
-            fileName: 'tab-a.pdf',
+        const commit = (revisionInfo: IDocumentRevisionInfo) => session.commitFile({
             originalPath: null,
             isDjvu: false,
             revisionInfo,

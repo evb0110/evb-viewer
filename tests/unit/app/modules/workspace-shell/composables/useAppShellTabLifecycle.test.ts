@@ -25,7 +25,10 @@ import {
     type IWorkspaceDocumentController,
 } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 import type { TDirtyCloseDecision } from '@app/modules/workspace-shell/composables/useDirtyTabCloseDialog';
-import { createWorkspaceExposeFixture } from '@tests/unit/app/modules/workspace-shell/workspaceTestFixtures';
+import {
+    createWorkspaceExposeFixture,
+    setTestDocumentDirty,
+} from '@tests/unit/app/modules/workspace-shell/workspaceTestFixtures';
 import {
     createDefaultWorkspaceToolbarSnapshot,
     createDefaultWorkspaceViewerCapabilities,
@@ -92,6 +95,13 @@ function attachDocumentWorkspace(session: IWorkspaceDocumentController, expected
         hasPdf: true,
         handleCloseFileFromUi: vi.fn(async (options?: Parameters<IWorkspaceExpose['handleCloseFileFromUi']>[0]) => {
             expect(options?.persist).toBe(expectedPersist);
+            // The file session releases the document before the close commits.
+            session.commitFile({
+                originalPath: null,
+                workingCopyPath: null,
+                revisionInfo: null,
+                revisionToken: null,
+            });
             await options?.onCloseCommit?.();
             return true;
         }),
@@ -156,7 +166,7 @@ describe('useAppShellTabLifecycle', () => {
         const mutation = session.operationLease.runExclusive('page-operation', async () => {
             mutationStarted.resolve(undefined);
             await releaseMutation.promise;
-            session.setDirty(true);
+            setTestDocumentDirty(session, true);
         });
         await mutationStarted.promise;
         const {

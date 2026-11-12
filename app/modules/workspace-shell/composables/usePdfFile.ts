@@ -14,40 +14,29 @@ import { createDocumentPersistence } from '@app/modules/workspace-shell/composab
 import {
     createDocumentSessionState,
     createEpochGuard,
-} from '@app/modules/workspace-shell/viewers/workspaceDocumentDriver';
+    type TDocumentFileRecord,
+} from '@app/modules/workspace-shell/composables/document-session/documentSessionState';
 
+export interface IPdfFileOptions extends IHistoryRevisionSwapOptions {
+    /** The document controller whose record this file session reads and writes. */
+    document: TDocumentFileRecord;
+}
 
-export const usePdfFile = (options: IHistoryRevisionSwapOptions = {}) => {
+export const usePdfFile = (options: IPdfFileOptions) => {
     const { t } = useTypedI18n();
 
     const { clearCache: clearOcrCache } = useOcrTextContent();
 
     const { isDesktopRuntime } = useRuntimeEnvironment();
-    const sessionState = createDocumentSessionState({isDesktopRuntime});
+    const sessionState = createDocumentSessionState({
+        isDesktopRuntime,
+        document: options.document,
+    });
     const {
-        error,
-        failurePresentation,
-        fileName,
         isDirty,
-        isElectron,
-        lastSaveMode,
-        openBatchProgress,
         originalPath,
-        pdfConformanceAnalysisState,
-        pdfConformanceProfile,
-        pdfData,
-        pdfRasterDisplayProfile,
-        pdfReloadSrc,
-        pdfSrc,
-        pendingDjvu,
-        requiresSaveAsOnFirstSave,
-        recoveryDirtyBaseline,
-        wasEncrypted,
-        resetForClose,
         workingCopyPath,
         openedWorkingCopyPath,
-        documentRevisionInfo,
-        documentRevisionToken,
     } = sessionState;
     const loadEpoch = createEpochGuard();
     const openEpoch = createEpochGuard();
@@ -57,24 +46,7 @@ export const usePdfFile = (options: IHistoryRevisionSwapOptions = {}) => {
         notifyPdfInitialVisualReady,
         shouldForceSaveAsForWorkingCopy,
     } = createDocumentConformance(sessionState);
-    const {
-        cleanupPreviousWorkingCopy,
-        clearHistory,
-        ensureHistoryBaselineForMutation,
-        fileHistoryMutationVersion,
-        fileHistorySessionVersion,
-        getHistoryDebugState,
-        readDocumentDependencies,
-        incrementSessionVersion,
-        captureHistoryCleanState,
-        pushHistorySnapshot,
-        reloadWorkingCopyRevision,
-        reloadWorkingCopyIntoHistory,
-        mapHistoryPage,
-        resetHistory,
-        setWorkspaceCommandSink,
-        syncDirtyFromHistory,
-    } = createDocumentHistory(sessionState, {
+    const history = createDocumentHistory(sessionState, {
         ...options,
         applyLoadedPdfState: (...args) => documentOpenFlow.applyLoadedPdfState(...args),
         clearPdfConformanceProfile,
@@ -87,58 +59,38 @@ export const usePdfFile = (options: IHistoryRevisionSwapOptions = {}) => {
         readPdfStateFromPath: (...args) => documentOpenFlow.readPdfStateFromPath(...args),
         toPdfBlob: (...args) => documentOpenFlow.toPdfBlob(...args),
     });
-    if (!isElectron.value) {
+    if (!sessionState.isElectron.value) {
         const readDependencies = () => [
             workingCopyPath.value,
             originalPath.value,
-            ...readDocumentDependencies(),
+            ...history.readDocumentDependencies(),
         ].flatMap(ref => ref ? [ref] : []);
         tryOnScopeDispose(registerBrowserDocumentDependencyReader(readDependencies));
     }
     const documentOpenFlow: ReturnType<typeof createDocumentOpenFlow> = createDocumentOpenFlow(sessionState, {
         cleanupAbandonedWorkingCopy: path => getDocumentWorkingCopyCapability().cleanupFile(path),
         clearPdfConformanceProfile,
-        cleanupPreviousWorkingCopy,
+        cleanupPreviousWorkingCopy: history.cleanupPreviousWorkingCopy,
         deferPdfConformanceProfile,
-        ensureHistoryBaselineForMutation,
-        incrementSessionVersion,
+        ensureHistoryBaselineForMutation: history.ensureHistoryBaselineForMutation,
+        incrementSessionVersion: history.incrementSessionVersion,
         loadEpoch,
         openEpoch,
-        pushHistorySnapshot,
-        resetHistory,
-        syncDirtyFromHistory,
+        pushHistorySnapshot: history.pushHistorySnapshot,
+        resetHistory: history.resetHistory,
+        syncDirtyFromHistory: history.syncDirtyFromHistory,
         t,
     });
-    const {
-        loadPdfFromData,
-        loadPdfFromPath,
-        openFile,
-        openFileDirect,
-        openFileDirectBatch,
-        pickFileToOpen,
-        readPdfStateFromPath,
-        toPdfBlob,
-    } = documentOpenFlow;
-    const {
-        persistPdfDataSilently,
-        saveFile,
-        repairWorkingCopy,
-        optimizeWorkingCopy,
-        optimizeWorkingCopyAsCopy,
-        saveWorkingCopy,
-        saveWorkingCopyAs,
-        trySaveEmbeddedNoteTextUpdates,
-        trySavePdfNativeMutations,
-    } = createDocumentPersistence(sessionState, {
+    const persistence = createDocumentPersistence(sessionState, {
         refreshDocumentRevisionToken: documentOpenFlow.refreshDocumentRevisionToken,
         deferPdfConformanceProfile,
-        ensureHistoryBaselineForMutation,
-        captureHistoryCleanState,
-        pushHistorySnapshot,
-        readPdfStateFromPath,
+        ensureHistoryBaselineForMutation: history.ensureHistoryBaselineForMutation,
+        captureHistoryCleanState: history.captureHistoryCleanState,
+        pushHistorySnapshot: history.pushHistorySnapshot,
+        readPdfStateFromPath: documentOpenFlow.readPdfStateFromPath,
         shouldForceSaveAsForWorkingCopy,
         t,
-        toPdfBlob,
+        toPdfBlob: documentOpenFlow.toPdfBlob,
     });
 
     async function closeFile() {
@@ -152,10 +104,10 @@ export const usePdfFile = (options: IHistoryRevisionSwapOptions = {}) => {
         // M4.3: Clear OCR cache for the current file before closing
         pathsToCleanup.forEach(path => clearOcrCache(path));
 
-        resetForClose();
+        sessionState.resetForClose();
         clearPdfConformanceProfile();
-        incrementSessionVersion();
-        clearHistory();
+        history.incrementSessionVersion();
+        history.clearHistory();
         await Promise.all(pathsToCleanup.map(path =>
             getDocumentWorkingCopyCapability().cleanupFile(path).catch((cleanupError: unknown) => {
                 BrowserLogger.warn(
@@ -173,7 +125,7 @@ export const usePdfFile = (options: IHistoryRevisionSwapOptions = {}) => {
     function markDirty() {
         BrowserLogger.debug('workspace', 'File dirty flag set', () => ({
             isDirty: isDirty.value,
-            ...getHistoryDebugState(),
+            ...history.getHistoryDebugState(),
             stack: new Error().stack?.split('\n').slice(1, 6),
         }));
         isDirty.value = true;
@@ -182,52 +134,31 @@ export const usePdfFile = (options: IHistoryRevisionSwapOptions = {}) => {
     const documentFiles = getDocumentFilesCapability();
 
     return {
-        pdfSrc,
-        pdfReloadSrc,
-        pdfData,
-        pdfRasterDisplayProfile,
-        workingCopyPath,
-        openedWorkingCopyPath,
-        documentRevisionInfo,
-        documentRevisionToken,
-        originalPath,
-        requiresSaveAsOnFirstSave,
-        recoveryDirtyBaseline,
-        wasEncrypted,
-        fileName,
-        error,
-        failurePresentation,
-        isDirty,
-        pdfConformanceAnalysisState,
-        pdfConformanceProfile,
-        lastSaveMode,
-        isElectron,
-        pendingDjvu,
-        openBatchProgress,
+        ...sessionState,
         notifyPdfInitialVisualReady,
-        pickFileToOpen,
-        openFile,
-        openFileDirect,
-        openFileDirectBatch,
-        loadPdfFromPath,
-        ensureHistoryBaselineForMutation,
-        reloadWorkingCopyRevision,
-        reloadWorkingCopyIntoHistory,
-        mapHistoryPage,
-        loadPdfFromData,
-        persistPdfDataSilently,
-        saveFile,
-        ...(typeof documentFiles.repairPdf === 'function' ? { repairWorkingCopy } : {}),
-        ...(typeof documentFiles.optimizePdfForInteraction === 'function' ? { optimizeWorkingCopy } : {}),
-        ...(typeof documentFiles.optimizePdfAsCopy === 'function' ? { optimizeWorkingCopyAsCopy } : {}),
-        saveWorkingCopy,
-        trySavePdfNativeMutations,
-        trySaveEmbeddedNoteTextUpdates,
-        saveWorkingCopyAs,
+        pickFileToOpen: documentOpenFlow.pickFileToOpen,
+        openFile: documentOpenFlow.openFile,
+        openFileDirect: documentOpenFlow.openFileDirect,
+        openFileDirectBatch: documentOpenFlow.openFileDirectBatch,
+        loadPdfFromPath: documentOpenFlow.loadPdfFromPath,
+        loadPdfFromData: documentOpenFlow.loadPdfFromData,
+        ensureHistoryBaselineForMutation: history.ensureHistoryBaselineForMutation,
+        reloadWorkingCopyRevision: history.reloadWorkingCopyRevision,
+        reloadWorkingCopyIntoHistory: history.reloadWorkingCopyIntoHistory,
+        mapHistoryPage: history.mapHistoryPage,
+        fileHistoryMutationVersion: history.fileHistoryMutationVersion,
+        fileHistorySessionVersion: history.fileHistorySessionVersion,
+        setWorkspaceCommandSink: history.setWorkspaceCommandSink,
+        persistPdfDataSilently: persistence.persistPdfDataSilently,
+        saveFile: persistence.saveFile,
+        ...(typeof documentFiles.repairPdf === 'function' ? { repairWorkingCopy: persistence.repairWorkingCopy } : {}),
+        ...(typeof documentFiles.optimizePdfForInteraction === 'function' ? { optimizeWorkingCopy: persistence.optimizeWorkingCopy } : {}),
+        ...(typeof documentFiles.optimizePdfAsCopy === 'function' ? { optimizeWorkingCopyAsCopy: persistence.optimizeWorkingCopyAsCopy } : {}),
+        saveWorkingCopy: persistence.saveWorkingCopy,
+        trySavePdfNativeMutations: persistence.trySavePdfNativeMutations,
+        trySaveEmbeddedNoteTextUpdates: persistence.trySaveEmbeddedNoteTextUpdates,
+        saveWorkingCopyAs: persistence.saveWorkingCopyAs,
         closeFile,
         markDirty,
-        fileHistoryMutationVersion,
-        fileHistorySessionVersion,
-        setWorkspaceCommandSink,
     };
 };

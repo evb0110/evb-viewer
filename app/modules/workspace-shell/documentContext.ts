@@ -123,7 +123,7 @@ export const createDocumentContext = ({controller}: {controller: IWorkspaceDocum
         createViewerLifecycleHooks: context => [createReadingViewLifecycleHooks(controller)].concat(driver.createLifecycleHooks(context)),
         getOpenSurface: () => commandView.value?.openSurface ?? null,
         runDocumentOpen,
-        assignDocument: controller.assign,
+        document: controller,
     });
     const {
         settings: appSettings,
@@ -182,32 +182,39 @@ export const createDocumentContext = ({controller}: {controller: IWorkspaceDocum
         pdfViewerRef.value?.hasCanonicalAnnotationChanges?.() === true
         || annotations.annotationNoteWindows.value.some(note => note.dirty)
         || file.isDirty.value
+        // Set with the working copy, before history reports a restored document dirty.
+        || file.recoveryDirtyBaseline.value
         || metadata.pageLabelState.pageLabelsDirty.value
         || metadata.bookmarkState.bookmarksDirty.value
     ));
 
     // This is authored state, including edits made while already dirty and drafts
     // outside the store. Parsed clean annotations are projections of the bytes.
-    controller.bindMutationFrontier(() => JSON.stringify({
-        revision: file.documentRevisionToken.value,
-        annotations: pdfDocumentAnnotations.application.value.store.dirtyEntities().map(entity => [
-            entity.identity.id,
-            entity.revision,
-            entity.deleted,
-        ]),
-        textBoxDrafts: [...pdfDocumentAnnotations.textBoxDrafts],
-        noteDrafts: annotations.getAnnotationNoteDraftsChangeSignature(),
-        metadata: metadata.captureRecovery(),
-        operation: controller.operationLease.activeKind.value,
-    }), async (assertCurrent) => {
-        await pdfDocumentAnnotations.commitPendingDraftsForSave().then(assertCurrent);
-        if (!await annotations.persistAllAnnotationNotes()) throw new Error(t('tabs.transferErrors.restoreFailed'));
-    }, async (assertCurrent) => {
-        await file.handleDjvuCancel();
-        // No await separates the final authored-state check from clearing the
-        // source. The ordinary close's admission and view hooks belong to its UI.
-        assertCurrent();
-        await file.closeFile();
+    controller.bindMutationFrontier({
+        read: () => JSON.stringify({
+            revision: file.documentRevisionToken.value,
+            annotations: pdfDocumentAnnotations.application.value.store.dirtyEntities().map(entity => [
+                entity.identity.id,
+                entity.revision,
+                entity.deleted,
+            ]),
+            textBoxDrafts: [...pdfDocumentAnnotations.textBoxDrafts],
+            noteDrafts: annotations.getAnnotationNoteDraftsChangeSignature(),
+            metadata: metadata.captureRecovery(),
+            operation: controller.operationLease.activeKind.value,
+        }),
+        isDirty: () => hasPendingUnsavedChanges.value,
+        prepare: async (assertCurrent) => {
+            await pdfDocumentAnnotations.commitPendingDraftsForSave().then(assertCurrent);
+            if (!await annotations.persistAllAnnotationNotes()) throw new Error(t('tabs.transferErrors.restoreFailed'));
+        },
+        close: async (assertCurrent) => {
+            await file.handleDjvuCancel();
+            // No await separates the final authored-state check from clearing the
+            // source. The ordinary close's admission and view hooks belong to its UI.
+            assertCurrent();
+            await file.closeFile();
+        },
     });
 
     const unencryptedSaveNotice = useUnencryptedSaveNotice();

@@ -27,7 +27,7 @@ import type {
 import { isStaleRevisionError } from '@contracts/documentMutationErrors';
 import { findSerializableErrorEnvelope } from '@contracts/serializableError';
 import { SAVE_AS_SYNC_REQUIRED_ERROR_ENVELOPE_SCHEMA } from '@contracts/documentsPersistenceSchemas';
-import type { IDocumentSessionState } from '@app/modules/workspace-shell/viewers/workspaceDocumentDriver';
+import type { IDocumentSessionState } from '@app/modules/workspace-shell/composables/document-session/documentSessionState';
 import type {IPdfLoadedState} from '@app/modules/workspace-shell/composables/document-session/createDocumentHistory';
 import { createDocumentPersistResults } from '@app/modules/workspace-shell/composables/document-session/createDocumentPersistResults';
 import { BrowserLogger } from '@app/utils/browserLogger';
@@ -167,7 +167,6 @@ export function createDocumentPersistence(
                     return false;
                 }
                 state.documentRevisionInfo.value = revisionInfo;
-                state.documentRevisionToken.value = revisionInfo.token;
                 state.pdfData.value = null;
                 state.pdfReloadSrc.value = {
                     kind: 'path',

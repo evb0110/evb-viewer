@@ -25,7 +25,10 @@ import { buildWorkspaceCheckpoint } from '@app/modules/workspace-shell/checkpoin
 import type { ICanonicalAnnotationRecovery } from '@app/modules/pdf-viewer/annotations/domain/annotationRecovery';
 import {AnnotationRecoveryAdmissionError} from '@app/modules/pdf-viewer/annotations/domain/annotationRecovery';
 import { cast } from '@tests/helpers/cast';
-import { createWorkspaceExposeFixture } from '@tests/unit/app/modules/workspace-shell/workspaceTestFixtures';
+import {
+    createWorkspaceExposeFixture,
+    setTestDocumentDirty,
+} from '@tests/unit/app/modules/workspace-shell/workspaceTestFixtures';
 
 describe('buildWorkspaceCheckpoint', () => {
     it('retains an unopened restored tab\'s reader state in the next checkpoint', () => {
@@ -95,8 +98,7 @@ describe('buildWorkspaceCheckpoint', () => {
             const originalPath = requireDocumentRef(`/documents/${tabId}.pdf`);
             const workingCopyRef = requireDocumentRef(`/managed/${tabId}.pdf`);
             const session = createWorkspaceDocumentController({tabId});
-            session.commitDocument({
-                fileName: `${tabId}.pdf`,
+            session.commitFile({
                 originalPath,
                 isDjvu: false,
                 revisionInfo: {
@@ -108,7 +110,7 @@ describe('buildWorkspaceCheckpoint', () => {
                     mintedAt: requireEpochMs(1),
                 },
             });
-            session.setDirty(true);
+            setTestDocumentDirty(session, true);
             session.attachWorkspace(tabId, createWorkspaceExposeFixture({
                 getAutomationStateSnapshot: () => cast({
                     originalPath,
@@ -189,8 +191,7 @@ describe('buildWorkspaceCheckpoint', () => {
                     isDjvu: false,
                 },
             });
-            session.commitDocument({
-                fileName: `${tabId}.pdf`,
+            session.commitFile({
                 originalPath,
                 isDjvu: false,
                 revisionInfo: {
@@ -324,8 +325,7 @@ describe('buildWorkspaceCheckpoint', () => {
         const workingCopyRef = requireDocumentRef('/managed/working.pdf');
         const originalPath = requireDocumentRef('/documents/shared.pdf');
         const session = createWorkspaceDocumentController({tabId: 'tab-1'});
-        session.commitDocument({
-            fileName: 'shared.pdf',
+        session.commitFile({
             originalPath,
             isDjvu: false,
             revisionInfo: {
@@ -337,7 +337,7 @@ describe('buildWorkspaceCheckpoint', () => {
                 mintedAt: requireEpochMs(1),
             },
         });
-        session.setDirty(options.dirty);
+        setTestDocumentDirty(session, options.dirty);
         session.addView('tab-2');
         const recovery = cast<ICanonicalAnnotationRecovery>({annotationMutationGeneration: 3});
         [

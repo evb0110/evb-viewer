@@ -27,7 +27,7 @@ import {createDefaultWorkspaceToolbarSnapshot} from '@app/types/workspaceExpose'
 import {createTabViewSessionState} from '@app/modules/workspace-shell/tabs/createTabViewSessionState';
 import {
     createEpochGuard, createDocumentSessionState,
-} from '@app/modules/workspace-shell/viewers/workspaceDocumentDriver';
+} from '@app/modules/workspace-shell/composables/document-session/documentSessionState';
 import {setBrowserPlatformApi} from '@app/utils/platform';
 import {createPlatformApiFixture} from '@tests/helpers/createPlatformApiFixture';
 import {cast} from '@tests/helpers/cast';
@@ -46,7 +46,10 @@ import { requireEpochMs } from '@contracts/timestamps';
 import {requireDocumentRevisionToken} from '@contracts/documentRevision';
 
 function createHistoryHarness(isDesktopRuntime = false) {
-    const state = createDocumentSessionState({ isDesktopRuntime: ref(isDesktopRuntime) });
+    const state = createDocumentSessionState({
+            isDesktopRuntime: ref(isDesktopRuntime),
+            document: createWorkspaceDocumentController({tabId: 'tab-1'}),
+        });
     state.workingCopyPath.value = requireDocumentRef('/tmp/work.pdf');
     state.originalPath.value = requireDocumentRef('/tmp/original.pdf');
     state.documentRevisionToken.value = requireDocumentRevisionToken('revision-before-restore');
@@ -129,7 +132,10 @@ function createContentHistoryHarness(pathHistory: boolean, withSurface: boolean,
         update: vi.fn(),
         remove: vi.fn(),
     }));
-    const state = createDocumentSessionState({isDesktopRuntime: ref(pathHistory)});
+    const state = createDocumentSessionState({
+            isDesktopRuntime: ref(pathHistory),
+            document: createWorkspaceDocumentController({tabId: 'tab-1'}),
+        });
     const work = requireDocumentRef('/tmp/content-work.pdf');
     state.workingCopyPath.value = work;
     state.originalPath.value = requireDocumentRef('/tmp/content-original.pdf');
@@ -893,7 +899,10 @@ describe('createDocumentHistory', () => {
     });
 
     it('restores path-backed external mutations to the clean baseline on undo', async () => {
-        const state = createDocumentSessionState({ isDesktopRuntime: ref(true) });
+        const state = createDocumentSessionState({
+            isDesktopRuntime: ref(true),
+            document: createWorkspaceDocumentController({tabId: 'tab-1'}),
+        });
         state.workingCopyPath.value = requireDocumentRef('/tmp/work.pdf');
         state.originalPath.value = requireDocumentRef('/tmp/original.pdf');
         state.documentRevisionToken.value = requireDocumentRevisionToken('revision-before-restore');

@@ -14,6 +14,7 @@ import type { FailureReceipt } from '@contracts/diagnostics/failureReceipt';
 import { SerializableError } from '@contracts/serializableError';
 import { requireEpochMs } from '@contracts/timestamps';
 import {getWorkspaceViewerAdapter} from '@app/modules/workspace-shell/viewers/workspaceViewerAdapters';
+import { createWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 
 const mocks = vi.hoisted(() => ({
     convertToPdf: vi.fn(),
@@ -131,7 +132,7 @@ function createController() {
             return hooks ? [hooks] : [];
         },
         runDocumentOpen: (_request, run) => run(),
-        assignDocument: () => undefined,
+        document: createWorkspaceDocumentController({tabId: 'tab-1'}),
     });
 }
 

@@ -135,8 +135,7 @@ describe('restoreWorkspaceCheckpoint', () => {
                     originalPath,
                 },
             }, async () => {
-                document.commitDocument({
-                    fileName: 'shared.pdf',
+                document.commitFile({
                     originalPath,
                     isDjvu: false,
                     revisionInfo: {
@@ -247,8 +246,7 @@ describe('restoreWorkspaceCheckpoint', () => {
                     originalPath,
                 },
             }, async () => {
-                document.commitDocument({
-                    fileName: 'shared.pdf',
+                document.commitFile({
                     originalPath,
                     isDjvu: false,
                     revisionInfo: null,
