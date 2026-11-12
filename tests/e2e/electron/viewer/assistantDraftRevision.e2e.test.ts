@@ -62,8 +62,8 @@ describe('Electron E2E - assistant draft revision', () => {
         await waitForPdfLoaded(page);
         const before = await readWorkspaceStateValues<Pick<IWorkspaceAutomationStateSnapshot, 'documentIdentity'>>(page, ['documentIdentity']);
         await clickAsUser(page, 'button[aria-label="Toggle EVB Assistant"]');
-        await page.waitForSelector('.agent-assistant-input:not(:disabled)', {visible: true});
-        await clickAsUser(page, '.agent-assistant-input');
+        await page.waitForSelector('.composer-input:not(:disabled)', {visible: true});
+        await clickAsUser(page, '.composer-input');
         await page.keyboard.type('Keep this composed prompt and image after Save.');
         // Seed the OS clipboard, then use the installed menu's Paste action.
         // CDP keyboard events do not reach the macOS application menu.
@@ -80,8 +80,8 @@ describe('Electron E2E - assistant draft revision', () => {
             await navigator.clipboard.write([new ClipboardItem({'image/png': png})]);
         });
         await activateMenuItemAsUser(page, {accelerator: 'CmdOrCtrl+V'});
-        await page.waitForFunction(() => (document.querySelector('.agent-assistant-composer-attachment-image') as HTMLImageElement | null)?.naturalWidth === 48);
-        const imageBefore = await page.$eval('.agent-assistant-composer-attachment-image', image => (image as HTMLImageElement).src);
+        await page.waitForFunction(() => (document.querySelector('.composer-image img') as HTMLImageElement | null)?.naturalWidth === 48);
+        const imageBefore = await page.$eval('.composer-image img', image => (image as HTMLImageElement).src);
         await session.command('screenshot', ['as03-composed']);
 
         await openDocumentSidebarTab(page, 'Pages');
@@ -92,7 +92,7 @@ describe('Electron E2E - assistant draft revision', () => {
         await clickAsUser(page, '#page-label-prefix-input');
         await page.keyboard.type('AS03-');
         await clickAsUser(page, '.workspace-host[data-workspace-active="true"] .pdf-sidebar-pages-primary-button');
-        expect(await page.$eval('.agent-assistant-input', input => (input as HTMLTextAreaElement).value)).toBe('Keep this composed prompt and image after Save.');
+        expect(await page.$eval('.composer-input', input => (input as HTMLTextAreaElement).value)).toBe('Keep this composed prompt and image after Save.');
         await saveViaVisibleToolbar(page, 30_000, pdfPath);
         const after = await readWorkspaceStateValues<Pick<IWorkspaceAutomationStateSnapshot, 'documentIdentity'>>(page, ['documentIdentity']);
         expect(before.documentIdentity).toBeTruthy();
@@ -100,11 +100,11 @@ describe('Electron E2E - assistant draft revision', () => {
         expect(after.documentIdentity?.token).not.toBe(before.documentIdentity?.token);
         expect(after.documentIdentity?.documentRef).toBe(before.documentIdentity?.documentRef);
         expect((await readPdfCatalogWithPdfjs(pdfPath)).pageLabels?.[0]).toBe('AS03-1');
-        await page.waitForSelector('.agent-assistant-input:not(:disabled)', {visible: true});
+        await page.waitForSelector('.composer-input:not(:disabled)', {visible: true});
         await session.command('screenshot', ['as03-saved']);
         const composed = await page.evaluate(() => ({
-            text: document.querySelector<HTMLTextAreaElement>('.agent-assistant-input')?.value,
-            images: [...document.querySelectorAll<HTMLImageElement>('.agent-assistant-composer-attachment-image')].map(image => ({
+            text: document.querySelector<HTMLTextAreaElement>('.composer-input')?.value,
+            images: [...document.querySelectorAll<HTMLImageElement>('.composer-image img')].map(image => ({
                 src: image.src,
                 width: image.naturalWidth,
             })),
@@ -141,15 +141,15 @@ describe('Electron E2E - assistant draft revision', () => {
         await clickAsUser(page, '#page-label-prefix-input');
         await page.keyboard.type('A104-');
         await clickAsUser(page, '.workspace-host[data-workspace-active="true"] .pdf-sidebar-pages-primary-button');
-        if (await page.$('.agent-assistant-input') === null) {
+        if (await page.$('.composer-input') === null) {
             await clickAsUser(page, 'button[aria-label="Toggle EVB Assistant"]');
         }
-        await page.waitForSelector('.agent-assistant-input:not(:disabled)', {visible: true});
-        await clickAsUser(page, '.agent-assistant-input');
+        await page.waitForSelector('.composer-input:not(:disabled)', {visible: true});
+        await clickAsUser(page, '.composer-input');
         await page.keyboard.type('A10-4 own save');
         await page.keyboard.press('Enter');
 
-        const reply = '.agent-assistant-message.is-assistant:last-child';
+        const reply = '.assistant-message:not(.is-user):last-of-type';
         await page.waitForFunction(selector => document.querySelector(selector)?.textContent?.includes('save:'), {}, reply);
         await session.command('screenshot', ['a10-4-own-save']);
         expect(await page.$eval(reply, element => element.textContent?.trim())).toContain('save:ok read:ok');
@@ -178,13 +178,13 @@ describe('Electron E2E - assistant draft revision', () => {
             await clickAsUser(page, selection);
         }
         await clickAsUser(page, 'button[aria-label="Toggle EVB Assistant"]');
-        await page.waitForSelector('.agent-assistant-input:not(:disabled)', {visible: true});
-        await clickAsUser(page, '.agent-assistant-input');
+        await page.waitForSelector('.composer-input:not(:disabled)', {visible: true});
+        await clickAsUser(page, '.composer-input');
         const tracePath = resolve('.devkit/test/assistant-own-rotation-mcp.json');
         rmSync(tracePath, {force: true});
         await page.keyboard.type('1544 own rotation');
         await page.keyboard.press('Enter');
-        const reply = '.agent-assistant-message.is-assistant:last-child';
+        const reply = '.assistant-message:not(.is-user):last-of-type';
         await expect.poll(() => existsSync(tracePath), {timeout: 15_000}).toBe(true);
         const trace = JSON.parse(readFileSync(tracePath, 'utf8')) as {
             turnId: string;
@@ -297,13 +297,13 @@ describe('Electron E2E - assistant draft revision', () => {
         const openChat = async () => {
             await openPdfInApp(session.page, pdfPath);
             await waitForPdfLoaded(session.page);
-            if (!await session.page.$('.agent-assistant-input')) {
+            if (!await session.page.$('.composer-input')) {
                 await clickAsUser(session.page, 'button[aria-label="Toggle EVB Assistant"]');
             }
-            await session.page.waitForSelector('.agent-assistant-input:not(:disabled)', {visible: true});
+            await session.page.waitForSelector('.composer-input:not(:disabled)', {visible: true});
         };
         await openChat();
-        await expect.poll(() => session.page.$$eval('.agent-assistant-message.is-user .agent-assistant-message-bubble',
+        await expect.poll(() => session.page.$$eval('.assistant-message.is-user .user-bubble',
             bubbles => bubbles.map(bubble => bubble.textContent?.trim()))).toEqual(['Saved before the file-key upgrade']);
         await session.command('screenshot', ['a35-legacy-chat-recovered']);
         const canonicalPath = join(sessions, fileName(canonicalKey));
@@ -316,14 +316,14 @@ describe('Electron E2E - assistant draft revision', () => {
         expect(readCanonicalSnapshot()?.session?.providerThreadId).toBe('thread-Saved before the file-key upgrade');
         const backups = readdirSync(join(root, 'archive')).map(name => readFileSync(join(root, 'archive', name), 'utf8'));
         for (const bytes of originals) expect(backups).toContain(bytes);
-        await clickAsUser(session.page, '.agent-assistant-input');
+        await clickAsUser(session.page, '.composer-input');
         await session.page.keyboard.type('Continue this saved conversation.');
         await session.page.keyboard.press('Enter');
-        await expect.poll(() => session.page.$$eval('.agent-assistant-message.is-assistant .agent-assistant-message-bubble',
+        await expect.poll(() => session.page.$$eval('.assistant-message:not(.is-user) .assistant-markdown',
             bubbles => bubbles.map(bubble => bubble.textContent?.trim()))).toContain('Image received.');
         session = await fixture.restart({clean: false});
         await openChat();
-        await expect.poll(() => session.page.$$eval('.agent-assistant-message.is-user .agent-assistant-message-bubble',
+        await expect.poll(() => session.page.$$eval('.assistant-message.is-user .user-bubble',
             bubbles => bubbles.map(bubble => bubble.textContent?.trim()))).toEqual([
             'Saved before the file-key upgrade',
             'Continue this saved conversation.',

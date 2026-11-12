@@ -1,7 +1,9 @@
 import {randomUUID} from 'node:crypto';
+import {readdir} from 'node:fs/promises';
+import {homedir} from 'node:os';
+import {join} from 'node:path';
 import {app} from 'electron';
 import {
-    getSessionInfo,
     query,
     type AccountInfo,
     type CanUseTool,
@@ -31,8 +33,8 @@ import {
     isOneOf,
     isRecord,
 } from '@contracts/runtimeGuards';
-import { createClaudeContextUnavailableError } from '@electron/features/agent/assistantResultHelpers';
-import { waitForBoundedAssistantInterrupt } from '@electron/features/agent/assistantTurnLiveness';
+import { createClaudeContextUnavailableError } from '@electron/features/agent/createClaudeContextUnavailableError';
+import { waitForBoundedAssistantInterrupt } from '@electron/features/agent/waitForBoundedAssistantInterrupt';
 import {
     ASSISTANT_IMAGE_ONLY_PROMPT,
     ASSISTANT_MCP_TOOLS,
@@ -40,6 +42,7 @@ import {
     ASSISTANT_MCP_TOOL_TIMEOUT_SECONDS,
     ASSISTANT_ROLE_PROMPT,
 } from '@electron/features/agent/codexAssistantConfig';
+import {te} from '@electron/te';
 import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
 import {
@@ -91,7 +94,41 @@ export interface IClaudeAgentAssistantSessionOptions {
     mcpServerUrl: string;
     mcpToken: string;
     executablePath: string | null;
+    /** The instance's environment, including its CLAUDE_CONFIG_DIR. */
+    env: NodeJS.ProcessEnv;
+    /** The instance's own launch flags, already checked against EVB's restrictions. */
+    extraArgs?: Record<string, string | null>;
     callbacks: IClaudeAgentAssistantCallbacks;
+}
+
+const CLAUDE_METADATA_TIMEOUT_MS = 25_000;
+const CLAUDE_CONTROL_TIMEOUT_MS = 10_000;
+
+/**
+ * Whether a Claude session transcript exists in this instance's config
+ * directory. The SDK's own lookup reads the process-wide CLAUDE_CONFIG_DIR,
+ * which would check the wrong account for a custom-home instance.
+ */
+export async function hasClaudeSessionTranscript(env: NodeJS.ProcessEnv, sessionId: string) {
+    // An empty CLAUDE_CONFIG_DIR means the default, as Claude Code treats it.
+    const configDir = [env.CLAUDE_CONFIG_DIR?.trim() ?? ''].find(dir => dir.length > 0) ?? join(homedir(), '.claude');
+    const projectsDir = join(configDir, 'projects');
+    let projects: string[];
+    try {
+        projects = await readdir(projectsDir);
+    } catch {
+        return false;
+    }
+    for (const project of projects) {
+        try {
+            if ((await readdir(join(projectsDir, project))).includes(`${sessionId}.jsonl`)) {
+                return true;
+            }
+        } catch {
+            // Not a directory.
+        }
+    }
+    return false;
 }
 
 class ClaudePromptQueue implements AsyncIterable<SDKUserMessage> {
@@ -248,12 +285,19 @@ export function normalizeClaudeSdkModelList(rawModels: unknown): IAgentAssistant
 }
 
 // Ask only for metadata. The empty prompt queue never submits a model turn.
-export async function discoverClaudeAssistantModels(cwd: string, executablePath: string | null) {
+export async function discoverClaudeAssistantModels(
+    cwd: string,
+    executablePath: string | null,
+    env: NodeJS.ProcessEnv,
+    extraArgs: Record<string, string | null> = {},
+) {
     const prompts = new ClaudePromptQueue();
     const metadata = query({
         prompt: prompts,
         options: {
             cwd,
+            env,
+            extraArgs,
             ...(executablePath ? { pathToClaudeCodeExecutable: executablePath } : {}),
             tools: [],
             mcpServers: {},
@@ -263,9 +307,34 @@ export async function discoverClaudeAssistantModels(cwd: string, executablePath:
             permissionMode: 'dontAsk',
         },
     });
+    let timer: ReturnType<typeof setTimeout> | null = null;
     try {
-        return normalizeClaudeSdkModelList(await metadata.supportedModels());
+        const [
+            models,
+            account,
+        ] = await Promise.race([
+            Promise.all([
+                metadata.supportedModels(),
+                metadata.accountInfo().catch(() => null),
+            ]),
+            new Promise<never>((_resolve, reject) => {
+                timer = setTimeout(
+                    () => reject(new Error(te('dialogs.agentAssistant.statusTimeout', {
+                        provider: 'Claude',
+                        seconds: CLAUDE_METADATA_TIMEOUT_MS / 1000,
+                    }))),
+                    CLAUDE_METADATA_TIMEOUT_MS,
+                );
+            }),
+        ]);
+        return {
+            models: normalizeClaudeSdkModelList(models),
+            account,
+        };
     } finally {
+        if (timer) {
+            clearTimeout(timer);
+        }
         prompts.close();
         metadata.close();
     }
@@ -560,7 +629,8 @@ export class ClaudeAgentAssistantSession {
         this.currentAssistantMessageId = null;
         const retirement = (async () => {
             try {
-                await queryToRetire.interrupt();
+                // The SDK's interrupt request has no deadline of its own.
+                await waitForBoundedAssistantInterrupt(queryToRetire.interrupt());
             } catch (error) {
                 logger.warn(`Failed to interrupt Claude assistant turn: ${getErrorMessage(error)}`);
             } finally {
@@ -569,7 +639,9 @@ export class ClaudeAgentAssistantSession {
                 } catch (error) {
                     logger.warn(`Failed to close retired Claude assistant query: ${getErrorMessage(error)}`);
                 }
-                await streamToRetire;
+                await waitForBoundedAssistantInterrupt(streamToRetire ?? Promise.resolve()).catch((error: unknown) => {
+                    logger.warn(`Retired Claude assistant stream did not end: ${getErrorMessage(error)}`);
+                });
                 this.options.callbacks.onTurnCompleted(turnId);
                 this.interrupting = false;
             }
@@ -621,20 +693,11 @@ export class ClaudeAgentAssistantSession {
             || this.interrupting
             || startupGeneration !== this.startupGeneration;
         if (resumeSessionId) {
-            let sessionInfo: Awaited<ReturnType<typeof getSessionInfo>>;
-            try {
-                sessionInfo = await getSessionInfo(resumeSessionId);
-            } catch (error) {
-                if (isStartupCanceled()) {
-                    throw new Error('Claude assistant session is closed.');
-                }
-                logger.warn(`Failed to verify Claude session ${resumeSessionId}: ${getErrorMessage(error)}`);
-                throw new Error(createClaudeContextUnavailableError());
-            }
+            const exists = await hasClaudeSessionTranscript(this.options.env, resumeSessionId);
             if (isStartupCanceled()) {
                 throw new Error('Claude assistant session is closed.');
             }
-            if (!sessionInfo) {
+            if (!exists) {
                 throw new Error(createClaudeContextUnavailableError());
             }
         }
@@ -661,9 +724,10 @@ export class ClaudeAgentAssistantSession {
                 effort: this.currentEffort,
                 ...(this.queryFastMode ? { settings: { fastMode: true } } : {}),
                 ...(this.options.executablePath ? { pathToClaudeCodeExecutable: this.options.executablePath } : {}),
+                ...(this.options.extraArgs ? { extraArgs: this.options.extraArgs } : {}),
                 ...(resumeSessionId ? { resume: resumeSessionId } : {}),
                 env: {
-                    ...process.env,
+                    ...this.options.env,
                     CLAUDE_AGENT_SDK_CLIENT_APP: `evb-viewer/${app.getVersion()}`,
                     [ASSISTANT_MCP_TOKEN_ENV]: this.options.mcpToken,
                     NO_COLOR: '1',
@@ -720,7 +784,20 @@ export class ClaudeAgentAssistantSession {
         }
 
         if (this.query) {
-            await this.query.setModel(normalized);
+            // The SDK's control request has no deadline of its own; a send must not wait forever.
+            let timer: ReturnType<typeof setTimeout> | null = null;
+            try {
+                await Promise.race([
+                    this.query.setModel(normalized),
+                    new Promise<never>((_resolve, reject) => {
+                        timer = setTimeout(() => reject(new Error(te('dialogs.agentAssistant.claudeModelChangeTimeout', {seconds: CLAUDE_CONTROL_TIMEOUT_MS / 1000}))), CLAUDE_CONTROL_TIMEOUT_MS);
+                    }),
+                ]);
+            } finally {
+                if (timer) {
+                    clearTimeout(timer);
+                }
+            }
         }
         this.currentModel = normalized;
     }

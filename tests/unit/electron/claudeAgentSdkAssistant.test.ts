@@ -1,7 +1,9 @@
+import type * as FsPromises from 'node:fs/promises';
 import {
     delimiter, join,
 } from 'node:path';
 import {
+    afterEach,
     beforeEach,
     describe,
     expect,
@@ -11,22 +13,24 @@ import {
 import {
     ClaudeAgentAssistantSession,
     normalizeClaudeSdkModelList,
+    discoverClaudeAssistantModels,
     shouldRefuseClaudeContextContinuation,
 } from '@electron/features/agent/claudeAgentSdkAssistant';
 import {
     getClaudeAgentSdkInfo,
     shouldUseClaudeAssistantFastMode,
 } from '@electron/features/agent/claudeProviderMetadata';
-import {normalizeClaudeAssistantModel} from '@electron/features/agent/assistantProviderStatus';
 
 const sdkMocks = vi.hoisted(() => ({
-    getSessionInfo: vi.fn(),
+    readdir: vi.fn(),
     query: vi.fn(),
 }));
 
-vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
-    getSessionInfo: sdkMocks.getSessionInfo,
-    query: sdkMocks.query,
+vi.mock('@anthropic-ai/claude-agent-sdk', () => ({query: sdkMocks.query}));
+
+vi.mock('node:fs/promises', async importOriginal => ({
+    ...(await importOriginal<typeof FsPromises>()),
+    readdir: sdkMocks.readdir,
 }));
 
 vi.mock('electron', () => ({ app: { getVersion: () => 'test' } }));
@@ -42,8 +46,8 @@ class FakeClaudeQuery {
     private readonly resolvers: Array<(value: IteratorResult<unknown>) => void> = [];
     private closed = false;
 
-    readonly accountInfo = vi.fn(async () => null);
-    readonly supportedModels = vi.fn(async () => []);
+    readonly accountInfo = vi.fn<() => Promise<unknown>>(async () => null);
+    readonly supportedModels = vi.fn<() => Promise<unknown[]>>(async () => []);
     readonly setModel = vi.fn(async () => undefined);
     readonly interrupt = vi.fn(async () => undefined);
     readonly close = vi.fn(() => {
@@ -96,13 +100,12 @@ async function settleAsyncTicks(count = 3) {
 }
 
 describe('claudeAgentSdkAssistant', () => {
+    afterEach(() => vi.useRealTimers());
     beforeEach(() => {
-        sdkMocks.getSessionInfo.mockReset();
-        sdkMocks.getSessionInfo.mockResolvedValue({
-            sessionId: '2c8c2b8a-6d31-4b77-a8c0-0aef9c8e2e5e',
-            summary: 'Existing Claude session',
-            lastModified: 1,
-        });
+        sdkMocks.readdir.mockReset();
+        sdkMocks.readdir.mockImplementation(async (path: string) => path.endsWith('projects')
+            ? ['fixture-project']
+            : ['2c8c2b8a-6d31-4b77-a8c0-0aef9c8e2e5e.jsonl']);
         sdkMocks.query.mockReset();
     });
 
@@ -137,24 +140,6 @@ describe('claudeAgentSdkAssistant', () => {
             'Opus 5.6',
             'Fable 5.1',
         ]);
-    });
-
-    it('matches persisted Claude model ids to current provider rows', () => {
-        const models = [
-            {
-                id: 'opus',
-                resolvedModel: 'claude-opus-5-5',
-                label: 'Claude Opus 5.5',
-            },
-            {
-                id: 'fable',
-                resolvedModel: 'claude-fable-5-1',
-                label: 'Claude Fable 5.1',
-            },
-        ];
-        expect(normalizeClaudeAssistantModel(models, 'claude-opus-5-5')).toBe('opus');
-        expect(normalizeClaudeAssistantModel(models, 'removed-model')).toBe('opus');
-        expect(normalizeClaudeAssistantModel(models, null)).toBe('opus');
     });
 
     it('enables Claude fast mode only for Opus-family models', () => {
@@ -400,6 +385,10 @@ describe('claudeAgentSdkAssistant', () => {
             mcpServerUrl: 'http://127.0.0.1:3000',
             mcpToken: 'token',
             executablePath: '/usr/bin/claude',
+            env: {
+                CLAUDE_CONFIG_DIR: '/fixture/claude-home',
+                INSTANCE_MARKER: 'fixture',
+            },
             callbacks,
         });
 
@@ -499,6 +488,10 @@ describe('claudeAgentSdkAssistant', () => {
             mcpServerUrl: 'http://127.0.0.1:3000',
             mcpToken: 'token',
             executablePath: '/usr/bin/claude',
+            env: {
+                CLAUDE_CONFIG_DIR: '/fixture/claude-home',
+                INSTANCE_MARKER: 'fixture',
+            },
             callbacks: {
                 onInitialized: vi.fn(),
                 onTurnStarted: vi.fn(),
@@ -536,6 +529,10 @@ describe('claudeAgentSdkAssistant', () => {
             mcpServerUrl: 'http://127.0.0.1:3000',
             mcpToken: 'token',
             executablePath: '/usr/bin/claude',
+            env: {
+                CLAUDE_CONFIG_DIR: '/fixture/claude-home',
+                INSTANCE_MARKER: 'fixture',
+            },
             callbacks: {
                 onInitialized: vi.fn(),
                 onTurnStarted: vi.fn(),
@@ -561,6 +558,10 @@ describe('claudeAgentSdkAssistant', () => {
         const queryOptions = sdkMocks.query.mock.calls[0]?.[0]?.options;
         expect(queryOptions).toMatchObject({
             resume: resumeSessionId,
+            env: expect.objectContaining({
+                CLAUDE_CONFIG_DIR: '/fixture/claude-home',
+                INSTANCE_MARKER: 'fixture',
+            }),
             persistSession: true,
             effort: 'medium',
             settings: {fastMode: true},
@@ -592,7 +593,7 @@ describe('claudeAgentSdkAssistant', () => {
     });
 
     it('refuses an unavailable provider transcript before starting the SDK query', async () => {
-        sdkMocks.getSessionInfo.mockResolvedValueOnce(undefined);
+        sdkMocks.readdir.mockRejectedValueOnce(new Error('ENOENT'));
         const session = new ClaudeAgentAssistantSession({
             cwd: '/tmp',
             model: 'opus',
@@ -603,6 +604,10 @@ describe('claudeAgentSdkAssistant', () => {
             mcpServerUrl: 'http://127.0.0.1:3000',
             mcpToken: 'token',
             executablePath: '/usr/bin/claude',
+            env: {
+                CLAUDE_CONFIG_DIR: '/fixture/claude-home',
+                INSTANCE_MARKER: 'fixture',
+            },
             callbacks: {
                 onInitialized: vi.fn(),
                 onTurnStarted: vi.fn(),
@@ -618,13 +623,13 @@ describe('claudeAgentSdkAssistant', () => {
 
         await expect(session.sendMessage('Do not submit', [], 'opus'))
             .rejects.toThrow('Claude could not restore this chat context. Start a new chat to continue.');
-        expect(sdkMocks.getSessionInfo).toHaveBeenCalledWith('2c8c2b8a-6d31-4b77-a8c0-0aef9c8e2e5e');
+        expect(sdkMocks.readdir).toHaveBeenCalledWith('/fixture/claude-home/projects');
         expect(sdkMocks.query).not.toHaveBeenCalled();
     });
 
     it('does not create a resumed query after close wins during context verification', async () => {
         let resolveSessionInfo: ((value: unknown) => void) | undefined;
-        sdkMocks.getSessionInfo.mockReturnValueOnce(new Promise(resolve => {
+        sdkMocks.readdir.mockReturnValueOnce(new Promise(resolve => {
             resolveSessionInfo = resolve;
         }));
         const session = new ClaudeAgentAssistantSession({
@@ -637,6 +642,10 @@ describe('claudeAgentSdkAssistant', () => {
             mcpServerUrl: 'http://127.0.0.1:3000',
             mcpToken: 'token',
             executablePath: '/usr/bin/claude',
+            env: {
+                CLAUDE_CONFIG_DIR: '/fixture/claude-home',
+                INSTANCE_MARKER: 'fixture',
+            },
             callbacks: {
                 onInitialized: vi.fn(),
                 onTurnStarted: vi.fn(),
@@ -652,14 +661,10 @@ describe('claudeAgentSdkAssistant', () => {
 
         const sendPromise = session.sendMessage('Do not submit after close', [], 'opus');
         await vi.waitFor(() => {
-            expect(sdkMocks.getSessionInfo).toHaveBeenCalledOnce();
+            expect(sdkMocks.readdir).toHaveBeenCalledOnce();
         });
         await session.close();
-        resolveSessionInfo?.({
-            sessionId: '2c8c2b8a-6d31-4b77-a8c0-0aef9c8e2e5e',
-            summary: 'Existing Claude session',
-            lastModified: 1,
-        });
+        resolveSessionInfo?.(['fixture-project']);
 
         await expect(sendPromise).rejects.toThrow('Claude assistant session is closed.');
         expect(sdkMocks.query).not.toHaveBeenCalled();
@@ -667,7 +672,7 @@ describe('claudeAgentSdkAssistant', () => {
 
     it('does not create a resumed query after interrupt wins during context verification', async () => {
         let resolveSessionInfo: ((value: unknown) => void) | undefined;
-        sdkMocks.getSessionInfo.mockReturnValueOnce(new Promise(resolve => {
+        sdkMocks.readdir.mockReturnValueOnce(new Promise(resolve => {
             resolveSessionInfo = resolve;
         }));
         const session = new ClaudeAgentAssistantSession({
@@ -680,6 +685,10 @@ describe('claudeAgentSdkAssistant', () => {
             mcpServerUrl: 'http://127.0.0.1:3000',
             mcpToken: 'token',
             executablePath: '/usr/bin/claude',
+            env: {
+                CLAUDE_CONFIG_DIR: '/fixture/claude-home',
+                INSTANCE_MARKER: 'fixture',
+            },
             callbacks: {
                 onInitialized: vi.fn(),
                 onTurnStarted: vi.fn(),
@@ -695,14 +704,10 @@ describe('claudeAgentSdkAssistant', () => {
 
         const sendPromise = session.sendMessage('Do not submit after interrupt', [], 'opus');
         await vi.waitFor(() => {
-            expect(sdkMocks.getSessionInfo).toHaveBeenCalledOnce();
+            expect(sdkMocks.readdir).toHaveBeenCalledOnce();
         });
         await session.interrupt();
-        resolveSessionInfo?.({
-            sessionId: '2c8c2b8a-6d31-4b77-a8c0-0aef9c8e2e5e',
-            summary: 'Existing Claude session',
-            lastModified: 1,
-        });
+        resolveSessionInfo?.(['fixture-project']);
 
         await expect(sendPromise).rejects.toThrow('Claude assistant session is closed.');
         expect(sdkMocks.query).not.toHaveBeenCalled();
@@ -736,6 +741,10 @@ describe('claudeAgentSdkAssistant', () => {
             mcpServerUrl: 'http://127.0.0.1:3000',
             mcpToken: 'token',
             executablePath: '/usr/bin/claude',
+            env: {
+                CLAUDE_CONFIG_DIR: '/fixture/claude-home',
+                INSTANCE_MARKER: 'fixture',
+            },
             callbacks,
         });
 
@@ -834,6 +843,10 @@ describe('claudeAgentSdkAssistant', () => {
             mcpServerUrl: 'http://127.0.0.1:3000',
             mcpToken: 'token',
             executablePath: '/usr/bin/claude',
+            env: {
+                CLAUDE_CONFIG_DIR: '/fixture/claude-home',
+                INSTANCE_MARKER: 'fixture',
+            },
             callbacks,
         });
 
@@ -855,4 +868,130 @@ describe('claudeAgentSdkAssistant', () => {
         expect(query.close).toHaveBeenCalledTimes(1);
         expect(callbacks.onTurnCompleted).toHaveBeenCalledTimes(1);
     });
+    it('fails a send whose model change is never answered instead of waiting forever', async () => {
+        const query = new FakeClaudeQuery();
+        query.setModel.mockImplementationOnce(() => new Promise<undefined>(() => undefined));
+        sdkMocks.query.mockReturnValue(query);
+        const session = new ClaudeAgentAssistantSession({
+            cwd: '/tmp',
+            model: 'opus',
+            effort: 'low',
+            speedMode: 'standard',
+            mcpServerName: 'evb_viewer_embedded',
+            mcpServerUrl: 'http://127.0.0.1:3000',
+            mcpToken: 'token',
+            executablePath: '/usr/bin/claude',
+            env: {},
+            callbacks: {
+                onInitialized: vi.fn(),
+                onTurnStarted: vi.fn(),
+                onAssistantDelta: vi.fn(),
+                onReasoningDelta: vi.fn(),
+                onToolActivity: vi.fn(),
+                onUsage: vi.fn(),
+                onAssistantMessage: vi.fn(),
+                onTurnCompleted: vi.fn(),
+                onError: vi.fn(),
+            },
+        });
+        await session.sendMessage('A', [], 'opus');
+        vi.useFakeTimers();
+        try {
+            const send = session.sendMessage('B', [], 'fable');
+            const outcome = expect(send).rejects.toThrow('did not accept the model change');
+            await vi.advanceTimersByTimeAsync(10_000);
+            await outcome;
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('closes the query when its interrupt request never answers', async () => {
+        const query = new FakeClaudeQuery();
+        query.interrupt.mockImplementationOnce(() => new Promise<undefined>(() => undefined));
+        sdkMocks.query.mockReturnValue(query);
+        const onTurnCompleted = vi.fn();
+        const session = new ClaudeAgentAssistantSession({
+            cwd: '/tmp',
+            model: 'opus',
+            effort: 'low',
+            speedMode: 'standard',
+            mcpServerName: 'evb_viewer_embedded',
+            mcpServerUrl: 'http://127.0.0.1:3000',
+            mcpToken: 'token',
+            executablePath: '/usr/bin/claude',
+            env: {},
+            callbacks: {
+                onInitialized: vi.fn(),
+                onTurnStarted: vi.fn(),
+                onAssistantDelta: vi.fn(),
+                onReasoningDelta: vi.fn(),
+                onToolActivity: vi.fn(),
+                onUsage: vi.fn(),
+                onAssistantMessage: vi.fn(),
+                onTurnCompleted,
+                onError: vi.fn(),
+            },
+        });
+        await session.sendMessage('A', [], 'opus');
+        vi.useFakeTimers();
+        try {
+            const interruptPromise = session.interrupt();
+            await vi.advanceTimersByTimeAsync(5_000);
+            await interruptPromise;
+        } finally {
+            vi.useRealTimers();
+        }
+        expect(query.close).toHaveBeenCalledTimes(1);
+        expect(session.isRetiring).toBe(false);
+        expect(onTurnCompleted).toHaveBeenCalledTimes(1);
+    });
+
+    it('discovers instance models and account with its environment and without submitting a prompt', async () => {
+        const metadata = new FakeClaudeQuery();
+        metadata.supportedModels.mockResolvedValue([{
+            value: 'opus',
+            displayName: 'Opus',
+            resolvedModel: 'claude-opus-5-5',
+        }]);
+        metadata.accountInfo.mockResolvedValue({email: 'reader@example.test'});
+        sdkMocks.query.mockReturnValue(metadata);
+        const env = {
+            CLAUDE_CONFIG_DIR: '/fixture/claude-home',
+            ANTHROPIC_BASE_URL: 'https://proxy.example.test',
+        };
+        expect(await discoverClaudeAssistantModels('/fixture/cwd', '/fixture/claude', env)).toMatchObject({
+            models: [{
+                id: 'opus',
+                label: 'Opus 5.5',
+            }],
+            account: {email: 'reader@example.test'},
+        });
+        const request = sdkMocks.query.mock.calls[0]![0];
+        expect(request.options).toMatchObject({
+            env,
+            cwd: '/fixture/cwd',
+            pathToClaudeCodeExecutable: '/fixture/claude',
+            tools: [],
+            mcpServers: {},
+            strictMcpConfig: true,
+            settingSources: [],
+            persistSession: false,
+        });
+        expect(await request.prompt[Symbol.asyncIterator]().next()).toMatchObject({done: true});
+        expect(metadata.close).toHaveBeenCalled();
+    });
+
+    it('bounds metadata discovery to 25 seconds and closes a stalled SDK query', async () => {
+        vi.useFakeTimers();
+        const metadata = new FakeClaudeQuery();
+        metadata.supportedModels.mockReturnValue(new Promise(() => undefined));
+        sdkMocks.query.mockReturnValue(metadata);
+        const result = expect(discoverClaudeAssistantModels('/fixture/cwd', null, {})).rejects.toThrow('Claude did not finish its status check within 25 seconds.');
+        await vi.advanceTimersByTimeAsync(25_000);
+        await result;
+        expect(metadata.close).toHaveBeenCalled();
+        expect(vi.getTimerCount()).toBe(0);
+    });
+
 });

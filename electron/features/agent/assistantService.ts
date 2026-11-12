@@ -1,1164 +1,1651 @@
-import { config } from '@electron/config';
-import type {
-    IAgentAssistantChatScope,
-    IAgentAssistantEvent,
-    IAgentAssistantModelOption,
-    IAgentAssistantScopedRequest,
-    IAgentAssistantSendMessageRequest,
-    IAgentAssistantSendMessageResult,
-    IAgentAssistantState,
-    IAgentAssistantStateRequest,
-    IAgentAssistantStatus,
-    TAgentAssistantEffort,
-    TAgentAssistantProviderId,
-    TAgentAssistantSpeedMode,
+import {randomUUID} from 'node:crypto';
+import {mkdir} from 'node:fs/promises';
+import {join} from 'node:path';
+import electron from 'electron';
+import {
+    ASSISTANT_MAX_IMAGE_ATTACHMENTS,
+    ASSISTANT_MAX_IMAGE_BYTES,
+    type IAgentAssistantChatScope,
+    type IAgentAssistantImageAttachment,
+    type IAgentAssistantModelOption,
+    type IAgentCommandSuccessor,
 } from '@contracts/agent';
-import { buildAgentAssistantScopeFingerprint } from '@agent-core/assistantScope';
+import {
+    AGENT_PLATFORM_FEATURE,
+    type IAgentEventMap,
+} from '@contracts/agentPlatformFeature';
+import {
+    ASSISTANT_DEFAULT_INSTANCE_IDS,
+    assistantSessionKey,
+    type IAssistantChat,
+    type IAssistantChatRequest,
+    type IAssistantEvent,
+    type IAssistantInstanceConfig,
+    type IAssistantInstanceRequest,
+    type IAssistantInstanceStatus,
+    type IAssistantItem,
+    type IAssistantLoginRequest,
+    type IAssistantLoginResult,
+    type IAssistantOperationResult,
+    type IAssistantSelection,
+    type IAssistantSendRequest,
+    type IAssistantState,
+    type IAssistantStateRequest,
+    type IAssistantTurn,
+    type TAssistantItemStatus,
+} from '@contracts/assistant';
 import {
     ASSISTANT_DEFAULT_EFFORT,
-    ASSISTANT_DEFAULT_SPEED_MODE,
     CLAUDE_ASSISTANT_MODELS,
-    CODEX_ASSISTANT_FALLBACK_MODELS,
 } from '@contracts/agentModels';
+import {isRecord} from '@contracts/runtimeGuards';
+import {createIsoTimestamp} from '@contracts/timestamps';
+import {parseTabId} from '@contracts/windowTabs';
 import {
-    isClaudeAuthErrorMessage,
-    getClaudeAgentSdkInfo,
-    detectClaudeAuthState,
-    shouldRefuseClaudeContextContinuation,
-} from '@electron/features/agent/claudeProviderMetadata';
-import type { IClaudeAssistantProviderInfo } from '@electron/features/agent/claudeProviderMetadata';
-import type {
-    IClaudeAgentAssistantInit,
-    IClaudeAgentAssistantSessionOptions,
-} from '@electron/features/agent/claudeAgentSdkAssistant';
-import { createClaudeTurnPresentationCallbacks } from '@electron/features/agent/createClaudeTurnPresentationCallbacks';
-import { ASSISTANT_MCP_SERVER_NAME } from '@electron/features/agent/codexAssistantConfig';
-import type { TCodexAssistantModelOption } from '@electron/features/agent/assistantModelCatalog';
+    AssistantChatPersistence,
+    type IPersistedAssistantChatSession,
+    type IPersistedAssistantMessage,
+} from '@electron/features/agent/assistantChatPersistence';
+import {createAssistantErrorEnvelope} from '@electron/features/agent/assistantErrorEnvelope';
 import {
-    codexDefaultModelId,
-    normalizeAssistantEffort,
-    normalizeAssistantSpeedMode,
-    normalizeClaudeAssistantModel,
-    normalizeCodexAssistantModel,
-    resolveAssistantSelection,
-    type IAssistantSelection,
-} from '@electron/features/agent/assistantProviderStatus';
+    assistantInstanceLabel,
+    getAssistantInstanceConfigs,
+    getAssistantInstanceFingerprints,
+    onAssistantInstancesChanged,
+    resolveAssistantLaunchContext,
+    type IAssistantBinaryResolvers,
+} from '@electron/features/agent/assistantInstances';
 import {
-    createAssistantProviderRuntimeStates,
-    getAssistantProviderRuntimeState,
-} from '@electron/features/agent/assistantProviderState';
-import { normalizeClaudeAssistantAccount } from '@electron/features/agent/assistantProviderAccounts';
-import { withAssistantErrorEnvelope } from '@electron/features/agent/assistantErrorEnvelope';
-import { normalizeOutgoingMessageRequest } from '@electron/features/agent/assistantOutgoingMessage';
-import {
-    createAssistantChatSessionStore,
-    normalizeAssistantScope,
-    type IAssistantChatSession,
-} from '@electron/features/agent/assistantChatSessionStore';
-import {
-    createAssistantFeatureLifecycle,
-    createAssistantRuntimeLifecycle,
-    createBaseAssistantMcpStatus,
-    ensureAssistantCwd,
-} from '@electron/features/agent/assistantRuntimeLifecycle';
-import {
-    buildAssistantSessionScopeBindingFingerprint,
-    getAssistantTurnProviderTurnId,
-    getAssistantTurnScope,
-    isAssistantTurnActive,
-    matchesProviderTurn,
-} from '@electron/features/agent/assistantTurnLifecycle';
-import {
+    clearAssistantMcpSessionScope,
     getActiveAssistantMcpSessionScope,
+    setActiveAssistantMcpSessionScope,
     setAssistantTurnSuccessorListener,
 } from '@electron/features/agent/assistantMcpSessionScope';
-import { buildAgentAssistantStateSnapshot } from '@electron/features/agent/buildAgentAssistantStateSnapshot';
-import { createAssistantSessionTurnCoordinator } from '@electron/features/agent/createAssistantSessionTurnCoordinator';
+import {normalizeOutgoingMessageRequest} from '@electron/features/agent/assistantOutgoingMessage';
+import {resolveAssistantPresetInstructions} from '@electron/features/agent/assistantPresetWorkflows';
+import type {IAssistantSessionScopeBinding} from '@electron/features/agent/assistantMcpSessionScope';
+import {waitForBoundedAssistantInterrupt} from '@electron/features/agent/waitForBoundedAssistantInterrupt';
+import {isCodexAppServerRequestTimeoutError} from '@electron/features/agent/codexAppServerClient';
 import {
-    createAssistantHeartbeatController,
-    waitForBoundedAssistantInterrupt,
-} from '@electron/features/agent/assistantTurnLiveness';
-import { runAssistantShutdownStep } from '@electron/features/agent/runAssistantShutdownStep';
+    ASSISTANT_MCP_SERVER_NAME,
+    ASSISTANT_MODEL_CONFIG_DIR,
+} from '@electron/features/agent/codexAssistantConfig';
 import {
-    createAssistantBusyResult,
-    createClaudeContextUnavailableError,
-    createAssistantDisabledError,
-    createAssistantDisabledResult,
-    getAssistantTurnBusyError,
-} from '@electron/features/agent/assistantResultHelpers';
-import { createAssistantAppServerNotificationController } from '@electron/features/agent/createAssistantAppServerNotificationController';
-import { createAssistantEventPublisher } from '@electron/features/agent/createAssistantEventPublisher';
-import { resolveAssistantPresetInstructions } from '@electron/features/agent/assistantPresetWorkflows';
-import { createCodexAssistantAdapter } from '@electron/features/agent/createCodexAssistantAdapter';
+    getCodexCliInfo,
+    installManagedCodex,
+    resolveCodexCliPath,
+} from '@electron/features/agent/codexCli';
+import {
+    CodexInstanceRuntime,
+    type ICodexThreadListener,
+} from '@electron/features/agent/codexInstanceRuntime';
+import {
+    getClaudeAgentSdkInfo, isClaudeAuthErrorMessage,
+} from '@electron/features/agent/claudeProviderMetadata';
+import type {ClaudeAgentAssistantSession} from '@electron/features/agent/claudeAgentSdkAssistant';
 import {
     abortActiveEmbeddedMcpRequests,
     shutdownEmbeddedMcpServer,
     startEmbeddedMcpServer,
 } from '@electron/features/agent/mcpServer';
-import { loadSettings } from '@electron/settings';
-import { createLogger } from '@electron/utils/createLogger';
-import { getErrorMessage } from '@electron/utils/error';
+import {loadSettings} from '@electron/settings';
+import {te} from '@electron/te';
+import {createLogger} from '@electron/utils/createLogger';
+import {getErrorMessage} from '@electron/utils/error';
+import {sendPlatformEvent} from '@electron/utils/sendPlatformEvent';
+import {getAllRegisteredAppWindows} from '@electron/window/registry';
+
 const logger = createLogger('agent-assistant-service');
-const ASSISTANT_TURN_CANCELLED_ERROR = 'Assistant turn was canceled before provider setup completed.';
+const MAX_CACHED_SESSIONS = 64;
+const TOOL_DETAIL_MAX_LENGTH = 4_000;
+const TERMINAL_PHASES = new Set<IAssistantTurn['phase']>([
+    'done',
+    'failed',
+    'cancelled',
+]);
 
-class AssistantTurnSupersededError extends Error {
-    readonly subsystem = 'agent';
+export interface IAgentAssistantSendOptions { windowId: number | null; }
 
-    constructor() {
-        super(ASSISTANT_TURN_CANCELLED_ERROR);
+interface IInstanceEntry {
+    config: IAssistantInstanceConfig;
+    status: IAssistantInstanceStatus;
+    probe: Promise<void> | null;
+    codex: CodexInstanceRuntime | null;
+    /** The stored configuration this entry was built from, secrets included as ciphertext. */
+    fingerprint: string;
+}
+
+interface IChatSession {
+    key: string;
+    instanceId: string;
+    driver: IAssistantInstanceConfig['driver'];
+    scope: IAgentAssistantChatScope;
+    model: string;
+    effort: string;
+    speedMode: IAssistantSelection['speedMode'];
+    providerThreadId: string | null;
+    items: IAssistantItem[];
+    lastAccessedAtMs: number;
+    turn: IAssistantTurn | null;
+    providerTurnId: string | null;
+    binding: IAssistantSessionScopeBinding | null;
+    claude: ClaudeAgentAssistantSession | null;
+    pendingError: string | null;
+    /** Resolved when the current turn ends; a steer waits on it. */
+    settleWaiters: Array<() => void>;
+}
+
+const instances = new Map<string, IInstanceEntry>();
+const sessions = new Map<string, IChatSession>();
+const persistence = new AssistantChatPersistence({onError: (message, error) => logger.warn(`${message}: ${getErrorMessage(error)}`)});
+let installProgress: string | null = null;
+let installRunning: Promise<IAssistantOperationResult> | null = null;
+let sessionsReady: Promise<void> | null = null;
+
+const binaryResolvers: IAssistantBinaryResolvers = {
+    codex: () => resolveCodexCliPath(),
+    claude: async env => (await getClaudeAgentSdkInfo({env})).executablePath,
+};
+
+function nowIso() {
+    return createIsoTimestamp();
+}
+
+function publish(event: IAssistantEvent) {
+    for (const window of getAllRegisteredAppWindows()) {
+        sendPlatformEvent<IAgentEventMap, typeof AGENT_PLATFORM_FEATURE.eventChannels.onAssistantEvent>(
+            window,
+            AGENT_PLATFORM_FEATURE.eventChannels.onAssistantEvent,
+            event,
+            error => logger.warn(`Failed to send assistant event: ${getErrorMessage(error)}`),
+        );
     }
 }
-export interface IAgentAssistantSendMessageOptions { windowId?: number | null; }
-let codexAssistantModels: readonly TCodexAssistantModelOption[] = CODEX_ASSISTANT_FALLBACK_MODELS;
-let claudeAssistantModels: readonly IAgentAssistantModelOption[] = CLAUDE_ASSISTANT_MODELS;
-const providerRuntimeStates = createAssistantProviderRuntimeStates();
-const codexProviderRuntime = getAssistantProviderRuntimeState(providerRuntimeStates, 'codex');
-const claudeProviderRuntime = getAssistantProviderRuntimeState(providerRuntimeStates, 'claude');
-let claudeInfoCache: IClaudeAssistantProviderInfo | null = null;
-interface IClaudeRuntimeModule {
-    discoverClaudeAssistantModels(cwd: string, executablePath: string | null): Promise<IAgentAssistantModelOption[]>;
-    ClaudeAgentAssistantSession: new (options: IClaudeAgentAssistantSessionOptions) => NonNullable<IAssistantChatSession['claudeSession']>;
-}
-let claudeRuntimeModulePromise: Promise<IClaudeRuntimeModule> | null = null;
-async function loadClaudeRuntimeModule() {
-    claudeRuntimeModulePromise ??= import('@electron/features/agent/claudeAgentSdkAssistant') as Promise<IClaudeRuntimeModule>;
-    return claudeRuntimeModulePromise;
+
+async function isAssistantEnabled() {
+    return (await loadSettings()).assistantPanelEnabled === true;
 }
 
-const modelDiscovery: Partial<Record<TAgentAssistantProviderId, Promise<boolean> | undefined>> = {};
-async function discoverAssistantModels() {
-    await Promise.all(([
-        'codex',
-        'claude',
-    ] as const).map(async providerId => {
-        const discovery = modelDiscovery[providerId] ??= (async () => {
-            if (providerId === 'codex') {
-                return runtimeLifecycle.refreshCodexModelList();
-            }
-            const info = await refreshClaudeInfo();
-            if (!info.installed) {
-                return false;
-            }
-            const provider = await loadClaudeRuntimeModule();
-            const models = await provider.discoverClaudeAssistantModels(await ensureAssistantCwd(), info.executablePath);
-            if (models.length > 0) {
-                claudeAssistantModels = models;
-            }
-            return models.length > 0;
-        })().catch(error => {
-            logger.warn(`Failed to read ${providerId} model list: ${getErrorMessage(error)}`);
-            return false;
-        });
-        if (!(await discovery) && modelDiscovery[providerId] === discovery) {
-            modelDiscovery[providerId] = undefined;
-        }
+function assistantDir(name: string) {
+    return join(electron.app.getPath('userData'), ASSISTANT_MODEL_CONFIG_DIR, name);
+}
+
+async function assistantCwd() {
+    const cwd = assistantDir('cwd');
+    await mkdir(cwd, {recursive: true});
+    return cwd;
+}
+
+async function embeddedMcp() {
+    const {
+        descriptor,
+        token,
+    } = await startEmbeddedMcpServer();
+    return {
+        url: descriptor.url,
+        token,
+    };
+}
+
+// ---------------------------------------------------------------------------
+// Instance status
+// ---------------------------------------------------------------------------
+
+function initialStatus(config: IAssistantInstanceConfig, previous?: IAssistantInstanceStatus): IAssistantInstanceStatus {
+    return {
+        id: config.id,
+        driver: config.driver,
+        label: assistantInstanceLabel(config),
+        enabled: config.enabled,
+        state: config.enabled ? (previous?.state ?? 'checking') : 'disabled',
+        auth: previous?.auth ?? 'unknown',
+        ...(config.enabled && previous?.message ? {message: previous.message} : {}),
+        binaryPath: previous?.binaryPath ?? null,
+        version: previous?.version ?? null,
+        homePath: previous?.homePath ?? null,
+        customEndpoint: previous?.customEndpoint ?? false,
+        account: previous?.account ?? null,
+        models: previous?.models ?? (config.driver === 'claude' ? [...CLAUDE_ASSISTANT_MODELS] : []),
+        defaultModel: previous?.defaultModel ?? null,
+        checkedAt: previous?.checkedAt ?? null,
+        canInstall: false,
+        canSignIn: config.driver === 'codex',
+        loginPending: false,
+    };
+}
+
+function publishInstances() {
+    publish({
+        type: 'instances',
+        instances: instanceStatuses(),
+    });
+}
+
+function instanceStatuses() {
+    return [...instances.values()].map(entry => ({
+        ...entry.status,
+        loginPending: entry.codex?.isLoginPending() ?? false,
     }));
 }
 
-const sessionStore = createAssistantChatSessionStore({
-    onSessionDeleted: (session: IAssistantChatSession, reason: string) => {
-        if (session.provider === 'claude' && session.claudeSession) {
-            void session.claudeSession.close().catch((error: unknown) => {
-                logger.warn(`Failed to close ${reason} Claude assistant session: ${getErrorMessage(error)}`);
-            });
-        }
-    },
-    onSessionMessageEvent: (event: IAgentAssistantEvent, session: IAssistantChatSession) => {
-        publishAssistantEvent(event, session.scope, session);
-    },
-});
-const runtimeLifecycle = createAssistantRuntimeLifecycle({
-    providerRuntime: codexProviderRuntime,
-    sessionStore,
-    getCodexModels: () => codexAssistantModels,
-    setCodexModels: (models: readonly TCodexAssistantModelOption[]) => {
-        codexAssistantModels = models;
-    },
-    isAssistantFeatureEnabled,
-    createAssistantDisabledError,
-    shutdownAssistant: () => shutdownAgentAssistant(),
-    settleCodexTurn: (session, reason) => {
-        abortActiveEmbeddedMcpRequests(
-            session.scopeBinding ?? getAssistantTurnScope(session.turnOwner),
-            reason,
-        );
-        for (const message of session.messages) {
-            if (message.role === 'assistant' && message.pending) {
-                message.pending = false;
-            }
-        }
-        supersedeSessionTurn(session);
-        sessionStore.recordSessionSnapshot(session);
-        publishAssistantEvent({type: 'turn-completed'}, session.scope, session);
-    },
-    publishCodexState: (
-        scope: IAgentAssistantChatScope | null | undefined,
-        selection: IAssistantSelection | undefined,
-    ) => publishState(
-        scope === undefined ? sessionStore.getRememberedScope() : scope,
-        selection ?? currentCodexSelection(),
-    ),
-    handleNotification: notification => appServerNotifications.handleNotification(notification),
-    handleExit: message => appServerNotifications.handleExit(message),
-    logger,
-});
-const assistantFeatureLifecycle = createAssistantFeatureLifecycle({
-    isEnabled: isAssistantFeatureEnabled,
-    createDisabledError: createAssistantDisabledError,
-});
-let syncAssistantHeartbeat = () => {};
-const {
-    adoptSessionTurnSuccessor,
-    claimSessionTurn,
-    completeSessionTurn,
-    errorSessionTurn,
-    interruptSessionTurn,
-    markSessionTurnRunning,
-    rememberStateScope,
-    releaseClaimedSessionTurn,
-    supersedeSessionTurn,
-    supersedeSessionTurnWithError,
-} = createAssistantSessionTurnCoordinator({
-    sessionStore,
-    onTurnStateChanged: () => syncAssistantHeartbeat(),
-});
-async function isAssistantFeatureEnabled() {
-    const settings = await loadSettings();
-    return settings.assistantPanelEnabled;
+function updateStatus(entry: IInstanceEntry, patch: Partial<IAssistantInstanceStatus>) {
+    const next = {
+        ...entry.status,
+        ...patch,
+    };
+    if (patch.message === undefined && 'message' in patch) {
+        delete next.message;
+    }
+    entry.status = next;
+    publishInstances();
 }
 
-async function stopAssistantForDisabledFeature() {
-    await shutdownAgentAssistant();
-    const error = createAssistantDisabledError();
-    codexProviderRuntime.lastError = error;
-    codexProviderRuntime.runtimeState = 'stopped';
-    return error;
+/**
+ * Stops an instance whose configuration changed or went away. Its processes
+ * stop first; only then do its turns end and release the document grant.
+ */
+async function retireInstance(entry: IInstanceEntry) {
+    const affected = [...sessions.values()].filter(session => session.instanceId === entry.config.id);
+    await Promise.all([
+        entry.codex?.shutdown().catch(() => undefined),
+        ...affected.map(async session => {
+            const claude = session.claude;
+            session.claude = null;
+            await claude?.retire('after its instance changed');
+        }),
+    ]);
+    for (const session of affected) {
+        if (isTurnActive(session)) {
+            finishTurn(session, 'cancelled');
+        }
+    }
 }
 
-async function shutdownClaudeAssistantRuntime(options: { shutdownMcp?: boolean } = {}) {
-    const closePromises: Array<Promise<void>> = [];
-    for (const session of sessionStore.listSessions()) {
-        if (session.provider !== 'claude') {
+let instanceSync: Promise<void> = Promise.resolve();
+
+/** Brings instance entries in line with the stored configuration, one sync at a time. */
+function syncInstances() {
+    const next = instanceSync.then(syncInstancesNow, syncInstancesNow);
+    instanceSync = next.catch(() => undefined);
+    return next;
+}
+
+async function syncInstancesNow() {
+    const configs = await getAssistantInstanceConfigs();
+    const fingerprints = await getAssistantInstanceFingerprints();
+    for (const [
+        id,
+        entry,
+    ] of instances) {
+        if (!fingerprints.has(id)) {
+            instances.delete(id);
+            await retireInstance(entry);
+        }
+    }
+    for (const config of configs) {
+        const fingerprint = fingerprints.get(config.id) ?? JSON.stringify(config);
+        const existing = instances.get(config.id);
+        if (existing?.fingerprint === fingerprint) {
             continue;
         }
-        if (session.claudeSession) {
-            closePromises.push(session.claudeSession.close());
+        if (existing) {
+            await retireInstance(existing);
         }
-        session.claudeSession = undefined;
-    }
-    await Promise.allSettled(closePromises);
-    claudeProviderRuntime.runtimeState = 'stopped';
-    claudeMcpToolCount = 0;
-    sessionStore.clearActiveSessionForProvider('claude');
-    if (options.shutdownMcp === true) {
-        await shutdownEmbeddedMcpServer();
-    }
-}
-
-function hasConflictingAssistantMcpSessionScope(session: IAssistantChatSession) {
-    const activeScope = getActiveAssistantMcpSessionScope();
-    return activeScope !== null && activeScope.sessionKey !== sessionStore.keyForSession(session);
-}
-async function getRequestChatSession(request?: IAgentAssistantStateRequest | IAgentAssistantScopedRequest | null) {
-    const scope = sessionStore.resolveRequestedScope(request);
-    const selection = resolveAssistantSelection(codexAssistantModels, request, claudeAssistantModels);
-    rememberStateScope(scope, selection);
-    return scope ? sessionStore.loadSession(scope, selection, { create: true }) : null;
-}
-function currentCodexSelection(): IAssistantSelection {
-    const selection = sessionStore.getRememberedSelection();
-    const model = selection.provider === 'codex' ? selection.model : codexDefaultModelId(codexAssistantModels);
-    return {
-        provider: 'codex',
-        model,
-        effort: normalizeAssistantEffort(
-            codexAssistantModels,
-            'codex',
-            model,
-            selection.provider === 'codex' ? selection.effort : ASSISTANT_DEFAULT_EFFORT,
-        ),
-        speedMode: normalizeAssistantSpeedMode(
-            codexAssistantModels,
-            'codex',
-            model,
-            selection.provider === 'codex' ? selection.speedMode : ASSISTANT_DEFAULT_SPEED_MODE,
-        ),
-    };
-}
-function currentState(
-    scope: IAgentAssistantChatScope | null = sessionStore.getRememberedScope(),
-    selection: IAssistantSelection = sessionStore.getRememberedSelection(),
-): IAgentAssistantState {
-    return buildAgentAssistantStateSnapshot({
-        claudeInfo: claudeInfoCache,
-        claudeModels: claudeAssistantModels,
-        codexInfo: runtimeLifecycle.getCodexInfo(),
-        codexModels: codexAssistantModels,
-        createMcpStatus: createBaseMcpStatusWithToolCount,
-        getSessionForStatus: (requestedScope, requestedSelection) =>
-            sessionStore.getSession(requestedScope, requestedSelection),
-        isAssistantTurnActiveForScope,
-        messages: sessionStore.getMessages(scope, selection),
-        platform: process.platform,
-        providerRuntimeStates,
-        scope,
-        selection,
-    });
-}
-
-function createAssistantErrorResult(
-    error: string,
-    scope: IAgentAssistantChatScope | null = sessionStore.getRememberedScope(),
-    selection: IAssistantSelection = sessionStore.getRememberedSelection(),
-) {
-    return withAssistantErrorEnvelope({
-        ok: false,
-        state: currentState(scope, selection),
-        error,
-    });
-}
-
-function createAssistantSuccessResult(session: IAssistantChatSession) {
-    return {
-        ok: true as const,
-        state: currentState(session.scope, session),
-    };
-}
-
-function setProviderError(provider: TAgentAssistantProviderId, error: string) {
-    (provider === 'claude' ? claudeProviderRuntime : codexProviderRuntime).lastError = error;
-}
-
-const {
-    publishAssistantEvent,
-    publishState,
-} = createAssistantEventPublisher({
-    currentState,
-    getDefaultScope: sessionStore.getRememberedScope,
-    getDefaultSelection: sessionStore.getRememberedSelection,
-});
-
-// A save, crop or OCR the assistant ran commits a new revision of its own
-// document; the turn keeps working on it instead of losing its authority.
-setAssistantTurnSuccessorListener((binding, successor) => {
-    const session = sessionStore.listSessions().find(candidate => sessionStore.keyForSession(candidate) === binding.sessionKey);
-    if (session && adoptSessionTurnSuccessor(session, binding.turnGeneration, successor)) {
-        publishState(session.scope, session);
-        return true;
-    }
-    return false;
-});
-
-const codexAssistantAdapter = createCodexAssistantAdapter({
-    featureLifecycle: assistantFeatureLifecycle,
-    runtimeLifecycle,
-    providerRuntime: codexProviderRuntime,
-    getState: () => currentState(),
-    publishState: () => publishState(),
-    publishEvent: event => publishAssistantEvent(event),
-    createDisabledResult: state => createAssistantDisabledResult(state),
-    stopForDisabledFeature: stopAssistantForDisabledFeature,
-    logger,
-});
-
-const appServerNotifications = createAssistantAppServerNotificationController({
-    addMessage: sessionStore.addMessage,
-    appendAssistantDelta: sessionStore.appendAssistantDelta,
-    clearLoginState: () => {
-        codexAssistantAdapter.clearLoginState();
-    },
-    clearRuntimeForExit: () => runtimeLifecycle.clearRuntimeForExit(),
-    codexProviderRuntime,
-    completeSessionTurn,
-    currentCodexSelection,
-    getPendingLoginId: codexAssistantAdapter.getPendingLoginId,
-    errorSessionTurn,
-    getActiveChatSession: () => sessionStore.getActiveSession('codex'),
-    getAuthReturnWindow: codexAssistantAdapter.getAuthReturnWindow,
-    getChatSessionByThreadId: candidateThreadId => sessionStore.getSessionByThreadId(candidateThreadId),
-    getRememberedScope: () => sessionStore.getRememberedScope(),
-    logger,
-    markSessionTurnRunning,
-    noFocus: config.automation.noFocus,
-    publishAssistantEvent,
-    publishState,
-    reconcileFailedTurnMessages,
-    refreshAuthStateAndRuntimeAvailability: runtimeLifecycle.refreshAuthStateAndRuntimeAvailability,
-    sessionStore,
-    supersedeSessionTurn,
-    upsertAssistantMessage: sessionStore.upsertAssistantMessage,
-});
-
-let assistantHeartbeatTimer: ReturnType<typeof createAssistantHeartbeatController> | null = null;
-
-export function initializeAgentAssistantRuntime() {
-    assistantHeartbeatTimer ??= createAssistantHeartbeatController({
-        sessions: sessionStore.listSessions,
-        isActive: session => isAssistantTurnActive(session.turnOwner),
-        recordBoundary: sessionStore.recordTurnBoundary,
-        publish: (event, session) => publishAssistantEvent(event, session.scope, session),
-    });
-    syncAssistantHeartbeat = assistantHeartbeatTimer.sync;
-}
-
-async function refreshClaudeInfo() {
-    claudeInfoCache = await getClaudeAgentSdkInfo();
-    if (claudeInfoCache.installed) {
-        const hasActiveSession = sessionStore.listSessions().some(session => session.provider === 'claude' && session.claudeSession);
-        if (!(hasActiveSession && claudeProviderRuntime.authState === 'signed-in')) {
-            const detected = await detectClaudeAuthState();
-            // A 'signed-out' demotion (from a real auth failure) is sticky: an
-            // inconclusive 'unknown' must not silently re-mark the account as usable.
-            // Only positive evidence ('signed-in') clears it.
-            if (detected === 'signed-in' || claudeProviderRuntime.authState !== 'signed-out') {
-                claudeProviderRuntime.authState = detected;
-            }
-        }
-        claudeProviderRuntime.runtimeState = claudeProviderRuntime.runtimeState === 'stopped'
-            ? 'ready'
-            : claudeProviderRuntime.runtimeState;
-        if (claudeProviderRuntime.authState !== 'signed-out') {
-            delete claudeProviderRuntime.lastError;
-        }
-    } else {
-        claudeProviderRuntime.authState = 'unknown';
-        claudeProviderRuntime.runtimeState = 'stopped';
-        claudeProviderRuntime.account = null;
-        if (claudeInfoCache.error) {
-            claudeProviderRuntime.lastError = claudeInfoCache.error;
-        } else {
-            delete claudeProviderRuntime.lastError;
-        }
-    }
-    return claudeInfoCache;
-}
-
-let claudeMcpToolCount = 0;
-
-function createBaseMcpStatusWithToolCount(
-    provider: TAgentAssistantProviderId = sessionStore.getRememberedSelection().provider,
-): IAgentAssistantStatus['mcp'] {
-    const base = createBaseAssistantMcpStatus();
-    return {
-        ...base,
-        toolCount: provider === 'claude' ? claudeMcpToolCount : runtimeLifecycle.getMcpToolCount(),
-    };
-}
-
-function createAssistantTurnInterrupt(session: IAssistantChatSession) {
-    const claudeSession = session.claudeSession;
-    const interrupt = session.provider === 'claude'
-        ? (claudeSession && isAssistantTurnActive(session.turnOwner) ? () => claudeSession.interrupt() : null)
-        : runtimeLifecycle.createTurnInterrupt(session);
-    return interrupt ? () => waitForBoundedAssistantInterrupt(interrupt()) : null;
-}
-
-async function interruptStaleSessionTurn(
-    session: IAssistantChatSession,
-    reason: string,
-) {
-    const interrupt = createAssistantTurnInterrupt(session);
-    if (!interrupt) {
-        return;
-    }
-
-    const providerLabel = session.provider === 'claude' ? 'Claude ' : '';
-    await interrupt().catch((error: unknown) => {
-        logger.warn(`Failed to interrupt ${reason} ${providerLabel}assistant turn: ${getErrorMessage(error)}`);
-    });
-    if (session.provider === 'claude' && isAssistantTurnActive(session.turnOwner)) {
-        supersedeSessionTurn(session);
-    }
-}
-
-function markClaudeTurnCompleted(session: IAssistantChatSession, turnId: string | null) {
-    if (turnId && !matchesProviderTurn(session.turnOwner, turnId)) {
-        return;
-    }
-
-    if (!completeSessionTurn(session, session.turnOwner.generation, turnId)) {
-        return;
-    }
-    claudeProviderRuntime.runtimeState = 'ready';
-    clearPendingAssistantMessages(session);
-    sessionStore.recordSessionSnapshot(session);
-    publishAssistantEvent({ type: 'turn-completed' }, session.scope, session);
-}
-
-function reconcileFailedTurnMessages(session: IAssistantChatSession, errorMessage: string) {
-    const normalizedError = errorMessage.trim();
-    session.messages = session.messages.filter(message => {
-        if (message.role !== 'assistant' || !message.pending) {
-            return true;
-        }
-        const text = message.text.trim();
-        // Drop the incomplete streaming bubble when it is empty or just echoes the error
-        // (e.g. an unavailable-model notice), so the failure is not shown twice.
-        return text.length > 0
-            && !normalizedError.includes(text)
-            && !text.includes(normalizedError);
-    });
-    clearPendingAssistantMessages(session);
-}
-
-function clearPendingAssistantMessages(session: IAssistantChatSession) {
-    session.messages.filter(message => message.role === 'assistant' && message.pending).forEach(message => { message.pending = false; });
-}
-
-function markClaudeTurnError(
-    session: IAssistantChatSession,
-    turnId: string | null,
-    message: string,
-    options: {idleProviderFailure?: boolean} = {},
-) {
-    claudeProviderRuntime.lastError = message;
-    claudeProviderRuntime.runtimeState = 'error';
-    if (isClaudeAuthErrorMessage(message)) {
-        claudeProviderRuntime.authState = 'signed-out';
-    }
-    if (turnId === null && options.idleProviderFailure === true) {
-        publishState(session.scope, session);
-        return;
-    }
-    errorSessionTurn(session, session.turnOwner.generation, message);
-    session.lastError = message;
-    reconcileFailedTurnMessages(session, message);
-    sessionStore.addMessage(session, {
-        role: 'system',
-        text: message,
-        error: message,
-    });
-    publishAssistantEvent({
-        type: 'error',
-        error: message,
-    }, session.scope, session);
-}
-
-function resetAssistantSession(
-    session: IAssistantChatSession,
-    providerRuntime: typeof claudeProviderRuntime,
-    runtimeState: typeof claudeProviderRuntime.runtimeState,
-) {
-    session.providerThreadId = null;
-    supersedeSessionTurn(session);
-    session.messages.length = 0;
-    delete session.lastError;
-    sessionStore.clearActiveSessionIfMatches(session);
-    sessionStore.resetSessionTranscript(session, 'reset');
-    delete providerRuntime.lastError;
-    providerRuntime.runtimeState = runtimeState;
-    publishState(session.scope, session);
-    return currentState(session.scope, session);
-}
-
-function isActiveTurnScopeCurrent(session: IAssistantChatSession) {
-    const turnScope = getAssistantTurnScope(session.turnOwner);
-    return !turnScope
-        || buildAssistantSessionScopeBindingFingerprint(turnScope)
-            === buildAgentAssistantScopeFingerprint(session.provider, session.scope);
-}
-
-function isAssistantTurnActiveForScope(
-    session: IAssistantChatSession,
-    scope: IAgentAssistantChatScope | null,
-) {
-    const turnScope = getAssistantTurnScope(session.turnOwner);
-    return Boolean(turnScope)
-        && buildAssistantSessionScopeBindingFingerprint(turnScope)
-            === buildAgentAssistantScopeFingerprint(session.provider, scope ?? session.scope);
-}
-
-function shouldDropClaudeCallback(session: IAssistantChatSession, turnId: string | null) {
-    return turnId === null
-        || !matchesProviderTurn(session.turnOwner, turnId)
-        || !isActiveTurnScopeCurrent(session);
-}
-function createClaudeCallbacks(session: IAssistantChatSession) {
-    const presentationCallbacks = createClaudeTurnPresentationCallbacks({
-        session,
-        shouldDrop: turnId => shouldDropClaudeCallback(session, turnId),
-        publish: event => publishAssistantEvent(event, session.scope, session),
-    });
-    return {
-        onInitialized: (info: IClaudeAgentAssistantInit) => {
-            const providerThreadId = info.sessionId?.trim();
-            if (providerThreadId) {
-                session.providerThreadId = providerThreadId;
-            }
-            if (info.models && info.models.length > 0) {
-                claudeAssistantModels = info.models;
-            }
-            session.model = normalizeClaudeAssistantModel(claudeAssistantModels, info.model ?? session.model);
-            claudeMcpToolCount = Math.max(claudeMcpToolCount, info.toolCount);
-            claudeProviderRuntime.account = normalizeClaudeAssistantAccount(info.account);
-            claudeProviderRuntime.authState = 'signed-in';
-            if (claudeProviderRuntime.runtimeState !== 'busy') {
-                claudeProviderRuntime.runtimeState = 'ready';
-            }
-            sessionStore.recordSessionSnapshot(session);
-            publishState(session.scope, session);
-        },
-        onTurnStarted: (turnId: string) => {
-            if (!isActiveTurnScopeCurrent(session)) {
-                return;
-            }
-            sessionStore.setActiveSession(session);
-            markSessionTurnRunning(session, session.turnOwner.generation, turnId);
-            claudeProviderRuntime.runtimeState = 'busy';
-            session.turnPresentation.phase = 'thinking';
-            session.turnPresentation.lastEventAtMs = Date.now();
-            publishAssistantEvent({
-                type: 'turn-started',
-                turnId,
-            }, session.scope, session);
-        },
-        onAssistantDelta: (turnId: string | null, messageId: string, delta: string) => {
-            if (shouldDropClaudeCallback(session, turnId)) {
-                return;
-            }
-            if (claudeProviderRuntime.runtimeState === 'busy') {
-                markSessionTurnRunning(session, session.turnOwner.generation, getAssistantTurnProviderTurnId(session.turnOwner));
-            }
-            session.turnPresentation.phase = 'streaming';
-            session.turnPresentation.lastEventAtMs = Date.now();
-            sessionStore.appendAssistantDelta(session, messageId, delta);
-        },
-        onReasoningDelta: (turnId: string | null, delta: string) => {
-            if (shouldDropClaudeCallback(session, turnId)) {
-                return;
-            }
-            session.turnPresentation.phase = 'thinking';
-            session.turnPresentation.reasoning += delta;
-            session.turnPresentation.lastEventAtMs = Date.now();
-            publishAssistantEvent({
-                type: 'reasoning-delta',
-                reasoningDelta: delta,
-                phase: 'thinking',
-                lastEventAtMs: session.turnPresentation.lastEventAtMs,
-            }, session.scope, session);
-        },
-        ...presentationCallbacks,
-        onAssistantMessage: (turnId: string | null, messageId: string, text: string, pending: boolean) => {
-            if (shouldDropClaudeCallback(session, turnId)) {
-                return;
-            }
-            sessionStore.upsertAssistantMessage(session, messageId, {
-                text,
-                pending,
+        const entry: IInstanceEntry = {
+            config,
+            status: initialStatus(config),
+            probe: null,
+            codex: null,
+            fingerprint,
+        };
+        if (config.driver === 'codex') {
+            entry.codex = new CodexInstanceRuntime({
+                resolveContext: () => resolveAssistantLaunchContext(config.id, binaryResolvers),
+                cwd: assistantCwd,
+                embeddedMcp,
+                onLoginFinished: error => {
+                    if (error) {
+                        updateStatus(entry, {message: error});
+                    }
+                    startProbe(entry, true);
+                },
             });
-        },
-        onTurnCompleted: (turnId: string | null) => {
-            markClaudeTurnCompleted(session, turnId);
-        },
-        onError: (turnId: string | null, message: string) => {
-            // A null turn ID is meaningful here. It reports an idle provider
-            // stream failure, which must invalidate the provider without
-            // inventing a failed chat turn.
-            if (turnId !== null && shouldDropClaudeCallback(session, turnId)) {
-                return;
+        }
+        instances.set(config.id, entry);
+    }
+}
+
+function defaultModelOf(models: readonly IAgentAssistantModelOption[], declared: string | null) {
+    return declared && models.some(model => model.id === declared) ? declared : (models[0]?.id ?? null);
+}
+
+async function probeEntry(entry: IInstanceEntry) {
+    const {config} = entry;
+    if (!config.enabled) {
+        updateStatus(entry, {
+            state: 'disabled',
+            message: undefined,
+        });
+        return;
+    }
+    updateStatus(entry, {state: 'checking'});
+    let context;
+    try {
+        context = await resolveAssistantLaunchContext(config.id, binaryResolvers);
+    } catch (error) {
+        updateStatus(entry, {
+            state: 'error',
+            message: getErrorMessage(error),
+            checkedAt: nowIso(),
+        });
+        return;
+    }
+    const isDefaultCodex = config.driver === 'codex' && config.id === ASSISTANT_DEFAULT_INSTANCE_IDS.codex && !config.binaryPath;
+    updateStatus(entry, {
+        binaryPath: context.binaryPath,
+        homePath: context.homePath,
+        customEndpoint: context.customEndpoint,
+        canInstall: isDefaultCodex && !context.binaryPath,
+    });
+    if (!context.binaryPath) {
+        updateStatus(entry, {
+            state: 'missing',
+            auth: 'unknown',
+            message: te(config.driver === 'codex' ? 'dialogs.agentAssistant.codexMissing' : 'dialogs.agentAssistant.claudeMissing'),
+            checkedAt: nowIso(),
+        });
+        return;
+    }
+    try {
+        if (config.driver === 'codex' && entry.codex) {
+            const version = isDefaultCodex ? (await getCodexCliInfo()).version : null;
+            const result = await entry.codex.probe();
+            updateStatus(entry, {
+                state: result.auth === 'unauthenticated' ? 'error' : (result.warning ? 'warning' : 'ready'),
+                auth: result.auth,
+                account: result.account,
+                version,
+                message: result.auth === 'unauthenticated'
+                    ? te('dialogs.agentAssistant.codexSignIn')
+                    : result.warning,
+                ...(result.models.length > 0
+                    ? {
+                        models: result.models,
+                        defaultModel: defaultModelOf(result.models, result.models.find(model => model.isDefault)?.id ?? null),
+                    }
+                    : {}),
+                checkedAt: nowIso(),
+            });
+            return;
+        }
+        const {discoverClaudeAssistantModels} = await import('@electron/features/agent/claudeAgentSdkAssistant');
+        const result = await discoverClaudeAssistantModels(await assistantCwd(), context.binaryPath, context.env, context.claudeExtraArgs);
+        const models = result.models.length > 0 ? result.models : [...CLAUDE_ASSISTANT_MODELS];
+        updateStatus(entry, {
+            state: 'ready',
+            auth: result.account ? 'authenticated' : 'unknown',
+            account: result.account?.email ? {
+                type: 'other',
+                email: result.account.email,
+            } : null,
+            message: undefined,
+            models,
+            defaultModel: defaultModelOf(models, null),
+            checkedAt: nowIso(),
+        });
+    } catch (error) {
+        const message = getErrorMessage(error);
+        updateStatus(entry, {
+            state: 'error',
+            auth: config.driver === 'claude' && isClaudeAuthErrorMessage(message) ? 'unauthenticated' : entry.status.auth,
+            message,
+            checkedAt: nowIso(),
+        });
+    }
+}
+
+/** One probe per instance at a time; each publishes its own result. */
+function startProbe(entry: IInstanceEntry, force = false) {
+    if (entry.probe || (!force && entry.status.checkedAt !== null)) {
+        return;
+    }
+    const probe = probeEntry(entry)
+        .catch((error: unknown) => logger.warn(`Assistant instance ${entry.config.id} probe failed: ${getErrorMessage(error)}`))
+        .finally(() => {
+            if (entry.probe === probe) {
+                entry.probe = null;
             }
-            markClaudeTurnError(session, turnId, message, {idleProviderFailure: true});
-        },
+        });
+    entry.probe = probe;
+}
+
+// ---------------------------------------------------------------------------
+// Chat sessions
+// ---------------------------------------------------------------------------
+
+function toItem(message: IPersistedAssistantMessage): IAssistantItem {
+    const status: TAssistantItemStatus = message.status
+        ?? (message.error ? 'failed' : message.pending ? 'interrupted' : 'completed');
+    const errorEnvelope = message.errorEnvelope ?? (message.role === 'system' && message.error
+        ? createAssistantErrorEnvelope(message.error)
+        : undefined);
+    return {
+        id: message.id,
+        kind: message.role,
+        turnId: message.turnId ?? null,
+        createdAt: message.createdAt,
+        text: message.text,
+        status,
+        ...(message.attachments ? {attachments: message.attachments} : {}),
+        ...(message.toolName ? {toolName: message.toolName} : {}),
+        ...(message.toolDetail ? {toolDetail: message.toolDetail} : {}),
+        ...(message.completedAt ? {completedAt: message.completedAt} : {}),
+        ...(errorEnvelope ? {errorEnvelope} : {}),
     };
 }
-async function ensureClaudeAssistantSession(
-    session: IAssistantChatSession,
-    model: string,
-    effort: TAgentAssistantEffort,
-    speedMode: TAgentAssistantSpeedMode,
-    generation: number,
-    isClaimCurrent: () => boolean,
-) {
-    await assistantFeatureLifecycle.assertEnabled(generation);
-    const claudeInfo = await refreshClaudeInfo();
-    await assistantFeatureLifecycle.assertEnabled(generation);
-    if (!claudeInfo.installed || !claudeInfo.executablePath) {
-        const error = claudeInfo.error ?? 'Claude Agent SDK is not available.';
-        claudeProviderRuntime.lastError = error;
-        claudeProviderRuntime.runtimeState = 'stopped';
-        publishState(session.scope, session);
-        throw new Error(error);
-    }
-    const normalizedModel = normalizeClaudeAssistantModel(claudeAssistantModels, model);
-    const normalizedEffort = normalizeAssistantEffort(codexAssistantModels, 'claude', normalizedModel, effort, claudeAssistantModels);
-    const normalizedSpeedMode = normalizeAssistantSpeedMode(codexAssistantModels, 'claude', normalizedModel, speedMode, claudeAssistantModels);
-    if (session.claudeSession) {
-        if (await session.claudeSession.prepareForSettings(normalizedModel, normalizedEffort, normalizedSpeedMode)) {
-            session.model = normalizedModel;
-            session.effort = normalizedEffort;
-            session.speedMode = normalizedSpeedMode;
-            sessionStore.recordSessionSnapshot(session);
-            return {
-                session: session.claudeSession,
-                created: false,
-            };
-        }
-        session.claudeSession = undefined;
-    }
-    if (shouldRefuseClaudeContextContinuation(session.messages.length, session.providerThreadId)) {
-        // Display history alone cannot recreate hidden preset instructions,
-        // assistant turns, tool history, or image content for Claude.
-        throw new Error(createClaudeContextUnavailableError());
-    }
-    claudeProviderRuntime.runtimeState = 'starting';
-    delete claudeProviderRuntime.lastError;
-    publishState(session.scope, session);
-    const cwd = await ensureAssistantCwd();
-    await assistantFeatureLifecycle.assertEnabled(generation);
-    if (!isClaimCurrent()) {
-        throw new AssistantTurnSupersededError();
-    }
-    const {
-        descriptor,
-        token: mcpToken,
-    } = await startEmbeddedMcpServer();
-    await assistantFeatureLifecycle.assertEnabled(generation);
-    if (!isClaimCurrent()) {
-        throw new AssistantTurnSupersededError();
-    }
-    session.model = normalizedModel;
-    session.effort = normalizedEffort;
-    session.speedMode = normalizedSpeedMode;
-    sessionStore.recordSessionSnapshot(session);
-    const {ClaudeAgentAssistantSession} = await loadClaudeRuntimeModule();
-    await assistantFeatureLifecycle.assertEnabled(generation);
-    if (!isClaimCurrent()) {
-        throw new AssistantTurnSupersededError();
-    }
-    const claudeSession = new ClaudeAgentAssistantSession({
-        cwd,
+
+function toMessage(item: IAssistantItem): IPersistedAssistantMessage {
+    return {
+        id: item.id,
+        role: item.kind,
+        text: item.text,
+        createdAt: item.createdAt,
+        turnId: item.turnId,
+        status: item.status,
+        ...(item.attachments ? {attachments: item.attachments} : {}),
+        ...(item.toolName ? {toolName: item.toolName} : {}),
+        ...(item.toolDetail ? {toolDetail: item.toolDetail} : {}),
+        ...(item.completedAt ? {completedAt: item.completedAt} : {}),
+        ...(item.errorEnvelope ? {errorEnvelope: item.errorEnvelope} : {}),
+    };
+}
+
+function persistedSession(session: IChatSession): IPersistedAssistantChatSession {
+    return {
+        provider: session.driver,
+        ...(session.instanceId === session.driver ? {} : {instanceId: session.instanceId}),
+        scope: session.scope,
         model: session.model,
         effort: session.effort,
         speedMode: session.speedMode,
-        resumeSessionId: session.providerThreadId,
-        mcpServerName: ASSISTANT_MCP_SERVER_NAME,
-        mcpServerUrl: descriptor.url,
-        mcpToken,
-        executablePath: claudeInfo.executablePath,
-        callbacks: createClaudeCallbacks(session),
-    });
-    if (!isClaimCurrent()) {
-        await claudeSession.close().catch((error: unknown) => {
-            logger.warn(`Failed to close canceled Claude assistant session: ${getErrorMessage(error)}`);
-        });
-        throw new AssistantTurnSupersededError();
-    }
-    session.claudeSession = claudeSession;
-    claudeProviderRuntime.runtimeState = 'ready';
-    publishState(session.scope, session);
-    return {
-        session: claudeSession,
-        created: true,
+        providerThreadId: session.providerThreadId,
+        turnOwner: {
+            phase: 'idle',
+            generation: 0,
+            turnId: null,
+            localTurnId: null,
+        },
+        messages: session.items.map(toMessage),
+        lastAccessedAtMs: session.lastAccessedAtMs,
     };
 }
-export async function getAgentAssistantState(
-    request?: IAgentAssistantStateRequest,
-): Promise<IAgentAssistantState> {
-    await sessionStore.ready;
-    await assistantFeatureLifecycle.waitForShutdown();
-    const session = await getRequestChatSession(request);
-    const scope = session?.scope ?? null;
-    const selection = resolveAssistantSelection(codexAssistantModels, request, claudeAssistantModels);
-    if (!(await isAssistantFeatureEnabled())) {
-        await shutdownAgentAssistant();
-        return currentState(scope, selection);
-    }
-    // Metadata probes close without creating a chat, MCP server or model turn.
-    if (request?.discoverModels) {
-        await discoverAssistantModels();
-    }
-    if (selection.provider === 'codex') {
-        await runtimeLifecycle.refreshCodexInfo();
-        await runtimeLifecycle.refreshCodexAuthStateWithoutRuntime();
-        if (codexProviderRuntime.authState === 'signed-out' && codexProviderRuntime.runtimeState === 'error') {
-            codexProviderRuntime.runtimeState = 'stopped';
-        }
-    } else {
-        await refreshClaudeInfo();
-    }
-    return currentState(scope, selection);
-}
-export const installAgentAssistantCodex = codexAssistantAdapter.install;
-export const startAgentAssistantLogin = codexAssistantAdapter.startLogin;
-export const cancelAgentAssistantLogin = codexAssistantAdapter.cancelLogin;
 
-export async function sendAgentAssistantMessage(
-    request: IAgentAssistantSendMessageRequest,
-    options: IAgentAssistantSendMessageOptions = {},
-): Promise<IAgentAssistantSendMessageResult> {
-    await sessionStore.ready;
-    await assistantFeatureLifecycle.waitForShutdown();
-    if (!(await isAssistantFeatureEnabled())) {
-        const error = await stopAssistantForDisabledFeature();
-        return createAssistantErrorResult(error);
+/**
+ * Keeps the newest items within the persistence budgets: text within the
+ * session byte cap and images within one message's worth of attachments.
+ * The newest item always stays.
+ */
+function boundItems(session: IChatSession) {
+    const maxTextBytes = persistence.getMaxSessionBytes();
+    const maxImageBytes = ASSISTANT_MAX_IMAGE_ATTACHMENTS * ASSISTANT_MAX_IMAGE_BYTES;
+    let textBytes = 0;
+    let imageBytes = 0;
+    let keepFrom = session.items.length;
+    for (let index = session.items.length - 1; index >= 0; index -= 1) {
+        const item = session.items[index];
+        if (!item) {
+            continue;
+        }
+        const itemText = Buffer.byteLength(item.text, 'utf8') + Buffer.byteLength(item.toolDetail ?? '', 'utf8') + 256;
+        const itemImages = item.attachments?.reduce((total, attachment) => total + attachment.sizeBytes, 0) ?? 0;
+        if (keepFrom < session.items.length && (textBytes + itemText > maxTextBytes || imageBytes + itemImages > maxImageBytes)) {
+            break;
+        }
+        textBytes += itemText;
+        imageBytes += itemImages;
+        keepFrom = index;
     }
-    const operationGeneration = assistantFeatureLifecycle.captureGeneration();
-    const selection = resolveAssistantSelection(codexAssistantModels, request, claudeAssistantModels);
-    const scope = normalizeAssistantScope(request.scope);
-    rememberStateScope(scope, selection);
-    if (!scope) {
-        const error = 'Open a document before starting an EVB Assistant chat.';
-        setProviderError(selection.provider, error);
-        return createAssistantErrorResult(error, null, selection);
-    }
-    const session = await sessionStore.loadSession(scope, selection, { create: true });
-    session.lastSenderWindowId = options.windowId ?? null;
-    if (hasConflictingAssistantMcpSessionScope(session)) {
-        return createAssistantBusyResult(() => currentState(session.scope, session));
-    }
-    if (session.sendInFlight) {
-        return createAssistantBusyResult(() => currentState(session.scope, session));
-    }
-    if (isAssistantTurnActive(session.turnOwner)) {
-        if (!isAssistantTurnActiveForScope(session, session.scope)) {
-            interruptSessionTurn(session);
-            publishState(session.scope, session);
-            await interruptStaleSessionTurn(session, 'stale-scope');
-        }
-        return createAssistantBusyResult(() => currentState(session.scope, session));
-    }
-
-    const sendInFlight = Promise.resolve();
-    session.sendInFlight = sendInFlight;
-    try {
-        let normalizedRequest: ReturnType<typeof normalizeOutgoingMessageRequest>;
-        try {
-            normalizedRequest = normalizeOutgoingMessageRequest(request);
-        } catch (error) {
-            const message = getErrorMessage(error);
-            setProviderError(selection.provider, message);
-            session.lastError = message;
-            return createAssistantErrorResult(message, session.scope, session);
-        }
-        const {
-            text,
-            attachments,
-        } = normalizedRequest;
-        // Preset chips send a short visible label as `text` and carry the detailed,
-        // edge-case-aware workflow as hidden instructions. The transcript records the
-        // short label, while the model receives the label plus the full workflow.
-        const presetInstructions = resolveAssistantPresetInstructions(request.presetId);
-        const modelText = presetInstructions
-            ? (text ? `${text}\n\n${presetInstructions}` : presetInstructions)
-            : text;
-        if (!text && attachments.length === 0 && !presetInstructions) {
-            return createAssistantErrorResult('Message is empty.', session.scope, session);
-        }
-        const userMessage = {
-            role: 'user' as const,
-            text,
-            ...(attachments.length > 0 ? {attachments} : {}),
-        };
-
-        // Reserve the session before any provider setup can yield. This makes
-        // the session turn and its MCP scope the transaction owner while a
-        // thread/query is being created, not only after it has started.
-        sessionStore.setActiveSession(session);
-        const claimedTurnGeneration = claimSessionTurn(session);
-        const isClaimCurrent = () => session.turnOwner.generation === claimedTurnGeneration
-            && isActiveTurnScopeCurrent(session);
-        const assertClaimCurrent = async () => {
-            await assistantFeatureLifecycle.assertEnabled(operationGeneration);
-            if (!isClaimCurrent()) {
-                throw new AssistantTurnSupersededError();
-            }
-        };
-
-        if (selection.provider === 'claude') {
-            let claudeSession: NonNullable<IAssistantChatSession['claudeSession']> | null = null;
-            let createdClaudeSession = false;
-            let claudeUserMessageId: string | null = null;
-            let claudeMessageSubmitted = false;
-            const discardCanceledClaudeMessage = () => {
-                if (!claudeMessageSubmitted && claudeUserMessageId) {
-                    sessionStore.removeMessage(session, claudeUserMessageId);
-                    publishState(session.scope, session);
-                }
-            };
-            try {
-                const ensuredClaudeSession = await ensureClaudeAssistantSession(
-                    session,
-                    selection.model,
-                    selection.effort,
-                    selection.speedMode,
-                    operationGeneration,
-                    isClaimCurrent,
-                );
-                claudeSession = ensuredClaudeSession.session;
-                createdClaudeSession = ensuredClaudeSession.created;
-                await assertClaimCurrent();
-                if (session.claudeSession !== claudeSession) {
-                    throw new AssistantTurnSupersededError();
-                }
-                claudeProviderRuntime.runtimeState = 'busy';
-                delete session.lastError;
-                claudeUserMessageId = sessionStore.addMessage(session, userMessage).id;
-                await claudeSession.sendMessage(modelText, attachments, selection.model);
-                claudeMessageSubmitted = true;
-                await assertClaimCurrent();
-                publishState(session.scope, session);
-                return createAssistantSuccessResult(session);
-            } catch (error) {
-                if (createdClaudeSession && claudeSession && session.claudeSession === claudeSession) {
-                    await claudeSession.retire('after a superseded send');
-                    session.claudeSession = undefined;
-                }
-                if (!isClaimCurrent() || error instanceof AssistantTurnSupersededError) {
-                    discardCanceledClaudeMessage();
-                    releaseClaimedSessionTurn(session, claimedTurnGeneration);
-                    return createAssistantErrorResult(ASSISTANT_TURN_CANCELLED_ERROR, session.scope, session);
-                }
-                if (!(await assistantFeatureLifecycle.isEnabled(operationGeneration))) {
-                    discardCanceledClaudeMessage();
-                    releaseClaimedSessionTurn(session, claimedTurnGeneration);
-                    return createAssistantDisabledResult(currentState(session.scope, session));
-                }
-                if (!isClaimCurrent()) {
-                    discardCanceledClaudeMessage();
-                    releaseClaimedSessionTurn(session, claimedTurnGeneration);
-                    return createAssistantErrorResult(ASSISTANT_TURN_CANCELLED_ERROR, session.scope, session);
-                }
-                const message = getErrorMessage(error);
-                markClaudeTurnError(session, null, message);
-                return createAssistantErrorResult(message, session.scope, session);
-            }
-        }
-        let codexTurn: Awaited<ReturnType<typeof runtimeLifecycle.prepareTurn>> | null = null;
-        const turnGeneration = claimedTurnGeneration;
-        try {
-            codexTurn = await runtimeLifecycle.prepareTurn(session, selection, assertClaimCurrent);
-            await assertClaimCurrent();
-            await runtimeLifecycle.assertRuntimeEnabled(codexTurn.runtime);
-            await assertClaimCurrent();
-            session.providerThreadId = codexTurn.threadId;
-            sessionStore.setActiveSession(session);
-            codexProviderRuntime.runtimeState = 'busy';
-            delete session.lastError;
-            sessionStore.addMessage(session, userMessage);
-            const providerTurnId = await runtimeLifecycle.startTurn(
-                codexTurn,
-                modelText,
-                attachments,
-                selection,
-                assertClaimCurrent,
-            );
-            session.model = normalizeCodexAssistantModel(codexAssistantModels, selection.model);
-            if (session.providerThreadId !== codexTurn.threadId) {
-                releaseClaimedSessionTurn(session, turnGeneration);
-                return createAssistantSuccessResult(session);
-            }
-            if (!isActiveTurnScopeCurrent(session)) {
-                interruptSessionTurn(session);
-                publishState(session.scope, session);
-                await interruptStaleSessionTurn(session, 'stale-scope');
-                releaseClaimedSessionTurn(session, turnGeneration);
-                return createAssistantErrorResult(getAssistantTurnBusyError(), session.scope, session);
-            }
-            markSessionTurnRunning(session, turnGeneration, providerTurnId);
-            publishState(session.scope, session);
-            return createAssistantSuccessResult(session);
-        } catch (error) {
-            if (error instanceof AssistantTurnSupersededError) {
-                runtimeLifecycle.abandonTurn(session, codexTurn, 'superseded');
-                releaseClaimedSessionTurn(session, turnGeneration);
-                return createAssistantErrorResult(ASSISTANT_TURN_CANCELLED_ERROR, session.scope, session);
-            }
-            if (!(await assistantFeatureLifecycle.isEnabled(operationGeneration))) {
-                runtimeLifecycle.abandonTurn(session, codexTurn, 'disabled');
-                releaseClaimedSessionTurn(session, turnGeneration);
-                return createAssistantDisabledResult(currentState(session.scope, session));
-            }
-            if (codexTurn && session.providerThreadId !== codexTurn.threadId) {
-                releaseClaimedSessionTurn(session, turnGeneration);
-                return createAssistantErrorResult(getErrorMessage(error), session.scope, session);
-            }
-            const ownsGeneration = session.turnOwner.generation === turnGeneration;
-            const {
-                message,
-                fenceTurn,
-            } = runtimeLifecycle.recoverTurnFailure(session, codexTurn, error, ownsGeneration);
-            session.lastError = message;
-            if (fenceTurn) {
-                if (ownsGeneration) {
-                    supersedeSessionTurnWithError(session, message);
-                    reconcileFailedTurnMessages(session, message);
-                    sessionStore.addMessage(session, {
-                        role: 'system',
-                        text: message,
-                        error: message,
-                    });
-                }
-                return createAssistantErrorResult(message, session.scope, session);
-            }
-            errorSessionTurn(
-                session,
-                turnGeneration,
-                message,
-            );
-            sessionStore.addMessage(session, {
-                role: 'system',
-                text: message,
-                error: message,
-            });
-            return createAssistantErrorResult(message, session.scope, session);
-        }
-    } finally {
-        if (session.sendInFlight === sendInFlight) {
-            session.sendInFlight = null;
-        }
+    if (keepFrom > 0) {
+        session.items = session.items.slice(keepFrom);
     }
 }
 
-export async function interruptAgentAssistant(
-    request?: IAgentAssistantScopedRequest,
-): Promise<IAgentAssistantState> {
-    await sessionStore.ready;
-    const requestedSession = await getRequestChatSession(request);
-    const selection = resolveAssistantSelection(codexAssistantModels, request, claudeAssistantModels);
-    const session = requestedSession ?? sessionStore.getActiveSession(selection.provider);
-    abortActiveEmbeddedMcpRequests(session?.scopeBinding ?? null, 'Assistant turn interrupted by the user.');
-    if (session?.provider === 'claude') {
-        const claudeSession = session.claudeSession;
-        const interrupt = createAssistantTurnInterrupt(session);
-        if (claudeSession && interrupt) {
-            const setupPending = session.turnOwner.phase === 'starting';
-            claudeProviderRuntime.runtimeState = 'busy';
-            interruptSessionTurn(session);
-            publishState(session.scope, session);
-            await interrupt().catch((error: unknown) => {
-                logger.warn(`Failed to interrupt Claude assistant turn: ${getErrorMessage(error)}`);
-                session.turnPresentation.phase = 'stalled';
-                session.turnPresentation.lastEventAtMs = Date.now();
-            });
-            if (setupPending && isAssistantTurnActive(session.turnOwner)) {
-                if (await claudeSession.retire('after canceled setup')) {
-                    session.claudeSession = undefined;
-                }
-                supersedeSessionTurn(session);
-                claudeProviderRuntime.runtimeState = claudeProviderRuntime.authState === 'signed-in'
-                    ? 'ready'
-                    : 'stopped';
-            }
-            // interrupt() -> completeTurn() -> markClaudeTurnCompleted already resets
-            // runtimeState and emits the turn-completed event.
-            return currentState(session.scope, session);
-        }
-        supersedeSessionTurn(session);
-        if (claudeProviderRuntime.runtimeState !== 'busy') {
-            claudeProviderRuntime.runtimeState = 'ready';
-        }
-        publishState(session.scope, session);
-        return currentState(session.scope, session);
-    }
+function save(session: IChatSession) {
+    boundItems(session);
+    persistence.recordSessionSnapshot(session.key, persistedSession(session));
+}
 
-    const interrupt = session ? createAssistantTurnInterrupt(session) : null;
-    const codexInterruptRequested = interrupt !== null;
-    if (session && interrupt) {
-        interruptSessionTurn(session);
-        codexProviderRuntime.runtimeState = 'busy';
-        publishState(session.scope, session);
-        try {
-            await interrupt();
-        } catch (error) {
-            const message = getErrorMessage(error);
-            logger.warn(`Failed to interrupt assistant turn: ${message}`);
-            codexProviderRuntime.lastError = message;
-            session.lastError = message;
-            session.turnPresentation.phase = 'stalled';
-            session.turnPresentation.lastEventAtMs = Date.now();
+function chatOf(session: IChatSession): IAssistantChat {
+    return {
+        sessionKey: session.key,
+        scope: session.scope,
+        instanceId: session.instanceId,
+        model: session.model,
+        items: session.items,
+        turn: session.turn,
+    };
+}
+
+function ensureSessionsReady() {
+    sessionsReady ??= persistence.recoverSessions().then(recovered => {
+        for (const entry of recovered.slice(-MAX_CACHED_SESSIONS)) {
+            const session = fromPersisted(entry.key, entry.session);
+            if (session) {
+                sessions.set(session.key, session);
+            }
         }
+    }).catch((error: unknown) => {
+        logger.warn(`Assistant chats could not be recovered: ${getErrorMessage(error)}`);
+    });
+    return sessionsReady;
+}
+
+function fromPersisted(key: string, stored: IPersistedAssistantChatSession): IChatSession | null {
+    const instanceId = stored.instanceId ?? stored.provider;
+    if (key !== assistantSessionKey(instanceId, stored.scope.key)) {
+        return null;
     }
-    if (session && codexInterruptRequested) {
-        codexProviderRuntime.runtimeState = 'busy';
-        publishState(session.scope, session);
-        return currentState(session.scope, session);
+    return {
+        key,
+        instanceId,
+        driver: stored.provider,
+        scope: stored.scope,
+        model: stored.model,
+        effort: stored.effort,
+        speedMode: stored.speedMode,
+        providerThreadId: stored.providerThreadId,
+        items: stored.messages.map(toItem),
+        lastAccessedAtMs: stored.lastAccessedAtMs,
+        turn: null,
+        providerTurnId: null,
+        binding: null,
+        claude: null,
+        pendingError: null,
+        settleWaiters: [],
+    };
+}
+
+function isTurnActive(session: IChatSession) {
+    return session.turn !== null && !TERMINAL_PHASES.has(session.turn.phase);
+}
+
+function evictSessions() {
+    if (sessions.size <= MAX_CACHED_SESSIONS) {
+        return;
+    }
+    const idle = [...sessions.values()]
+        .filter(session => !isTurnActive(session))
+        .sort((left, right) => left.lastAccessedAtMs - right.lastAccessedAtMs);
+    for (const session of idle.slice(0, sessions.size - MAX_CACHED_SESSIONS)) {
+        sessions.delete(session.key);
+        void session.claude?.retire('after eviction');
+    }
+}
+
+async function findSession(scope: IAgentAssistantChatScope, instanceId: string) {
+    await ensureSessionsReady();
+    const key = assistantSessionKey(instanceId, scope.key);
+    let session = sessions.get(key);
+    if (!session) {
+        // A recovery failure surfaces to the caller; a blank chat must not
+        // replace history that is only temporarily unreadable.
+        const recovered = await persistence.recoverSession(key);
+        session = recovered ? fromPersisted(key, recovered.session) ?? undefined : undefined;
+        if (session) {
+            sessions.set(key, session);
+        }
     }
     if (session) {
-        supersedeSessionTurn(session);
+        // The live document identity always comes from the renderer.
+        session.scope = scope;
     }
-    codexProviderRuntime.runtimeState = codexProviderRuntime.authState === 'signed-in' ? 'ready' : 'stopped';
-    publishState(session?.scope ?? null, session ?? selection);
-    return currentState(session?.scope ?? null, session ?? selection);
+    return session ?? null;
 }
 
-export async function resetAgentAssistantChat(
-    request?: IAgentAssistantScopedRequest,
-): Promise<IAgentAssistantState> {
-    await sessionStore.ready;
-    const session = await getRequestChatSession(request);
-    const selection = resolveAssistantSelection(codexAssistantModels, request, claudeAssistantModels);
-    abortActiveEmbeddedMcpRequests(
-        session?.scopeBinding ?? (session ? getAssistantTurnScope(session.turnOwner) : null),
-        'Assistant chat reset by the user.',
-    );
-    if (!session) {
-        return currentState(null, selection);
+async function openSession(scope: IAgentAssistantChatScope, entry: IInstanceEntry, selection: IAssistantSelection) {
+    const existing = await findSession(scope, entry.config.id);
+    if (existing) {
+        existing.lastAccessedAtMs = Date.now();
+        return existing;
     }
+    const session: IChatSession = {
+        key: assistantSessionKey(entry.config.id, scope.key),
+        instanceId: entry.config.id,
+        driver: entry.config.driver,
+        scope,
+        model: selection.model,
+        effort: selection.effort,
+        speedMode: selection.speedMode,
+        providerThreadId: null,
+        items: [],
+        lastAccessedAtMs: Date.now(),
+        turn: null,
+        providerTurnId: null,
+        binding: null,
+        claude: null,
+        pendingError: null,
+        settleWaiters: [],
+    };
+    sessions.set(session.key, session);
+    evictSessions();
+    return session;
+}
 
-    if (session.provider === 'claude') {
-        const interrupt = createAssistantTurnInterrupt(session);
-        if (interrupt) {
-            claudeProviderRuntime.runtimeState = 'busy';
-            interruptSessionTurn(session);
-            publishState(session.scope, session);
-            await interrupt().catch((error: unknown) => {
-                logger.warn(`Failed to interrupt Claude assistant turn during reset: ${getErrorMessage(error)}`);
-            });
-        }
-        if (session.claudeSession) {
-            await session.claudeSession.retire('during reset');
-        }
-        session.claudeSession = undefined;
-        return resetAssistantSession(
-            session,
-            claudeProviderRuntime,
-            claudeInfoCache?.installed ? 'ready' : 'stopped',
-        );
+function upsertItem(session: IChatSession, item: IAssistantItem) {
+    const index = session.items.findIndex(candidate => candidate.id === item.id);
+    if (index < 0) {
+        session.items.push(item);
+    } else {
+        session.items[index] = item;
     }
+    publish({
+        type: 'item',
+        sessionKey: session.key,
+        item,
+    });
+}
 
-    const previousThreadId = session.providerThreadId;
-    const interrupt = createAssistantTurnInterrupt(session);
-    if (interrupt) {
-        interruptSessionTurn(session);
-        publishState(session.scope, session);
-        await interrupt().catch((error: unknown) => {
-            logger.warn(`Failed to interrupt assistant turn during reset: ${getErrorMessage(error)}`);
+function appendToItem(session: IChatSession, base: Omit<IAssistantItem, 'text' | 'status' | 'createdAt'>, delta: string) {
+    const existing = session.items.find(candidate => candidate.id === base.id);
+    if (!existing) {
+        upsertItem(session, {
+            ...base,
+            createdAt: nowIso(),
+            text: delta,
+            status: 'streaming',
+        });
+        return;
+    }
+    existing.text += delta;
+    publish({
+        type: 'item-delta',
+        sessionKey: session.key,
+        itemId: existing.id,
+        delta,
+    });
+}
+
+function setTurn(session: IChatSession, turn: IAssistantTurn | null) {
+    session.turn = turn;
+    publish({
+        type: 'turn',
+        sessionKey: session.key,
+        turn,
+    });
+}
+
+function setPhase(session: IChatSession, phase: IAssistantTurn['phase']) {
+    if (session.turn && session.turn.phase !== phase && !TERMINAL_PHASES.has(session.turn.phase)) {
+        setTurn(session, {
+            ...session.turn,
+            phase,
         });
     }
+}
 
-    if (previousThreadId) {
-        runtimeLifecycle.archiveThread(previousThreadId, 'reset');
+function addSystemItem(session: IChatSession, message: string, turnId: string | null) {
+    upsertItem(session, {
+        id: randomUUID(),
+        kind: 'system',
+        turnId,
+        createdAt: nowIso(),
+        text: message,
+        status: 'failed',
+        errorEnvelope: createAssistantErrorEnvelope(message),
+    });
+}
+
+/**
+ * Ends the session's turn once. Streaming items settle with the turn, the
+ * MCP grant is withdrawn, and the transcript is saved.
+ */
+function finishTurn(session: IChatSession, requestedPhase: 'done' | 'failed' | 'cancelled', error?: string) {
+    if (!session.turn || TERMINAL_PHASES.has(session.turn.phase)) {
+        return;
     }
+    // A provider may report an interrupted turn as completed.
+    const phase = requestedPhase === 'done' && session.turn.phase === 'interrupting' ? 'cancelled' : requestedPhase;
+    const turnId = session.turn.id;
+    const itemStatus: TAssistantItemStatus = phase === 'done' ? 'completed' : phase === 'cancelled' ? 'interrupted' : 'failed';
+    for (const item of session.items) {
+        if (item.turnId === turnId && item.status === 'streaming') {
+            item.status = itemStatus;
+            item.completedAt = nowIso();
+            publish({
+                type: 'item',
+                sessionKey: session.key,
+                item,
+            });
+        }
+    }
+    if (error) {
+        addSystemItem(session, error, turnId);
+    }
+    session.providerTurnId = null;
+    session.pendingError = null;
+    if (session.binding) {
+        if (phase !== 'done') {
+            abortActiveEmbeddedMcpRequests(session.binding);
+        }
+        clearAssistantMcpSessionScope(session.key);
+        session.binding = null;
+    }
+    setTurn(session, {
+        ...session.turn,
+        phase,
+    });
+    save(session);
+    for (const resolve of session.settleWaiters.splice(0)) {
+        resolve();
+    }
+}
 
-    return resetAssistantSession(
-        session,
-        codexProviderRuntime,
-        codexProviderRuntime.authState === 'signed-in' ? 'ready' : 'stopped',
+function createBinding(session: IChatSession, windowId: number): IAssistantSessionScopeBinding {
+    const tabId = parseTabId(session.scope.tabId);
+    if (tabId === null) {
+        throw new Error(te('dialogs.agentAssistant.noDocumentTab'));
+    }
+    return {
+        sessionKey: session.key,
+        scopeKey: session.scope.key,
+        provider: session.driver,
+        turnGeneration: 0,
+        windowId,
+        tabId,
+        documentSessionKey: session.scope.documentSessionKey ?? null,
+        documentRef: session.scope.documentRef ?? null,
+        ...(session.scope.documentBackend === undefined ? {} : {documentBackend: session.scope.documentBackend}),
+        documentInstanceId: session.scope.documentInstanceId ?? null,
+        documentIdentity: session.scope.documentIdentity ?? null,
+        ...(session.scope.commandTarget === undefined ? {} : {commandTarget: {...session.scope.commandTarget}}),
+    };
+}
+
+// A write the turn's own command committed moves the turn to the new revision.
+setAssistantTurnSuccessorListener((binding, successor: IAgentCommandSuccessor) => {
+    const session = sessions.get(binding.sessionKey);
+    const current = session?.binding;
+    if (!session || !current || current.commandTarget?.tabId !== successor.commandTarget.tabId
+        || current.commandTarget.documentRef !== successor.commandTarget.documentRef
+        || (current.commandTarget.documentInstanceId ?? null) !== (successor.commandTarget.documentInstanceId ?? null)) {
+        return false;
+    }
+    session.binding = {
+        ...current,
+        commandTarget: {...successor.commandTarget},
+        documentIdentity: successor.documentIdentity && {...successor.documentIdentity},
+    };
+    session.scope = {
+        ...session.scope,
+        commandTarget: {...successor.commandTarget},
+        documentIdentity: successor.documentIdentity && {...successor.documentIdentity},
+    };
+    setActiveAssistantMcpSessionScope(session.binding);
+    return true;
+});
+
+// ---------------------------------------------------------------------------
+// Provider event mapping
+// ---------------------------------------------------------------------------
+
+function truncate(text: string) {
+    return text.length > TOOL_DETAIL_MAX_LENGTH ? `${text.slice(0, TOOL_DETAIL_MAX_LENGTH)}…` : text;
+}
+
+function describeToolDetail(item: Record<string, unknown>) {
+    const parts: string[] = [];
+    if (item.arguments !== undefined && item.arguments !== null) {
+        parts.push(truncate(JSON.stringify(item.arguments, null, 2)));
+    }
+    if (isRecord(item.error) && typeof item.error.message === 'string') {
+        parts.push(item.error.message);
+    } else if (isRecord(item.result) && Array.isArray(item.result.content)) {
+        const text = item.result.content
+            .map(block => isRecord(block) && typeof block.text === 'string' ? block.text : '')
+            .filter(Boolean)
+            .join('\n');
+        if (text) {
+            parts.push(truncate(text));
+        }
+    }
+    return parts.join('\n\n');
+}
+
+function codexItemStatus(raw: unknown, completed: boolean): TAssistantItemStatus {
+    if (raw === 'failed') {
+        return 'failed';
+    }
+    return completed || raw === 'completed' ? 'completed' : 'streaming';
+}
+
+function applyCodexItem(session: IChatSession, turnId: string, item: Record<string, unknown>, completed: boolean) {
+    const id = typeof item.id === 'string' ? item.id : null;
+    if (!id) {
+        return;
+    }
+    const existing = session.items.find(candidate => candidate.id === id);
+    const base = {
+        id,
+        turnId,
+        createdAt: existing?.createdAt ?? nowIso(),
+        ...(completed ? {completedAt: nowIso()} : {}),
+    };
+    switch (item.type) {
+        case 'agentMessage':
+            setPhase(session, 'streaming');
+            upsertItem(session, {
+                ...base,
+                kind: 'assistant',
+                text: typeof item.text === 'string' && (completed || !existing) ? item.text : (existing?.text ?? ''),
+                status: completed ? 'completed' : 'streaming',
+            });
+            return;
+        case 'reasoning': {
+            const summary = Array.isArray(item.summary) ? item.summary.filter(part => typeof part === 'string').join('\n\n') : '';
+            const content = Array.isArray(item.content) ? item.content.filter(part => typeof part === 'string').join('\n\n') : '';
+            const text = [
+                summary,
+                content,
+                existing?.text ?? '',
+            ].find(part => part.length > 0) ?? '';
+            setPhase(session, 'thinking');
+            upsertItem(session, {
+                ...base,
+                kind: 'reasoning',
+                text,
+                status: completed ? 'completed' : 'streaming',
+            });
+            return;
+        }
+        case 'mcpToolCall':
+        case 'dynamicToolCall':
+        case 'commandExecution':
+        case 'webSearch':
+        case 'fileChange':
+        case 'imageView': {
+            setPhase(session, completed ? 'thinking' : 'tool-running');
+            const toolName = typeof item.tool === 'string'
+                ? item.tool
+                : typeof item.command === 'string' ? item.command : String(item.type);
+            upsertItem(session, {
+                ...base,
+                kind: 'tool',
+                text: '',
+                toolName,
+                toolDetail: describeToolDetail(item),
+                status: codexItemStatus(item.status, completed),
+            });
+            return;
+        }
+        default:
+    }
+}
+
+function codexListener(session: IChatSession): ICodexThreadListener {
+    return {
+        onNotification(method, params) {
+            const turnId = session.turn?.id;
+            if (!turnId || !isTurnActive(session)) {
+                return;
+            }
+            const providerTurnId = typeof params.turnId === 'string'
+                ? params.turnId
+                : isRecord(params.turn) && typeof params.turn.id === 'string' ? params.turn.id : null;
+            if (session.providerTurnId && providerTurnId && providerTurnId !== session.providerTurnId) {
+                return;
+            }
+            switch (method) {
+                case 'turn/started':
+                    setPhase(session, 'thinking');
+                    return;
+                case 'item/started':
+                case 'item/completed':
+                    if (isRecord(params.item)) {
+                        applyCodexItem(session, turnId, params.item, method === 'item/completed');
+                    }
+                    return;
+                case 'item/agentMessage/delta':
+                    if (typeof params.itemId === 'string' && typeof params.delta === 'string') {
+                        setPhase(session, 'streaming');
+                        appendToItem(session, {
+                            id: params.itemId,
+                            kind: 'assistant',
+                            turnId,
+                        }, params.delta);
+                    }
+                    return;
+                case 'item/reasoning/summaryTextDelta':
+                case 'item/reasoning/textDelta':
+                    if (typeof params.itemId === 'string' && typeof params.delta === 'string') {
+                        appendToItem(session, {
+                            id: params.itemId,
+                            kind: 'reasoning',
+                            turnId,
+                        }, params.delta);
+                    }
+                    return;
+                case 'thread/tokenUsage/updated': {
+                    const last = isRecord(params.tokenUsage) && isRecord(params.tokenUsage.last) ? params.tokenUsage.last : null;
+                    if (last && session.turn && typeof last.inputTokens === 'number' && typeof last.outputTokens === 'number') {
+                        setTurn(session, {
+                            ...session.turn,
+                            usage: {
+                                inputTokens: last.inputTokens,
+                                outputTokens: last.outputTokens,
+                                ...(typeof last.cachedInputTokens === 'number' ? {cachedInputTokens: last.cachedInputTokens} : {}),
+                            },
+                        });
+                    }
+                    return;
+                }
+                case 'error':
+                    if (params.willRetry !== true && isRecord(params.error) && typeof params.error.message === 'string') {
+                        session.pendingError = params.error.message;
+                    }
+                    return;
+                case 'turn/completed': {
+                    const turn = isRecord(params.turn) ? params.turn : {};
+                    const turnError = isRecord(turn.error) && typeof turn.error.message === 'string' ? turn.error.message : null;
+                    if (turn.status === 'interrupted') {
+                        finishTurn(session, 'cancelled');
+                    } else if (turn.status === 'failed') {
+                        finishTurn(session, 'failed', turnError ?? session.pendingError ?? te('dialogs.agentAssistant.replyFailed', {provider: 'Codex'}));
+                    } else {
+                        finishTurn(session, 'done');
+                    }
+                    return;
+                }
+                default:
+            }
+        },
+        onExit(message) {
+            if (isTurnActive(session)) {
+                finishTurn(session, 'failed', te('dialogs.agentAssistant.providerStopped', {
+                    provider: 'Codex',
+                    reason: message,
+                }));
+            }
+        },
+    };
+}
+
+function claudeCallbacks(session: IChatSession) {
+    let reasoningItemId: string | null = null;
+    // Claude names its own turns; a callback from an earlier, interrupted
+    // turn must not touch the current one.
+    const currentTurn = (providerTurnId: string | null = null) => (
+        isTurnActive(session)
+        && (providerTurnId === null || session.providerTurnId === null || providerTurnId === session.providerTurnId)
+            ? session.turn?.id ?? null
+            : null
     );
+    return {
+        onInitialized: () => undefined,
+        onTurnStarted: (providerTurnId: string) => {
+            if (isTurnActive(session)) {
+                session.providerTurnId = providerTurnId;
+                setPhase(session, 'thinking');
+            }
+        },
+        onAssistantDelta: (providerTurnId: string | null, messageId: string, delta: string) => {
+            const turnId = currentTurn(providerTurnId);
+            if (!turnId) {
+                return;
+            }
+            reasoningItemId = null;
+            setPhase(session, 'streaming');
+            appendToItem(session, {
+                id: messageId,
+                kind: 'assistant',
+                turnId,
+            }, delta);
+        },
+        onReasoningDelta: (providerTurnId: string | null, delta: string) => {
+            const turnId = currentTurn(providerTurnId);
+            if (!turnId) {
+                return;
+            }
+            reasoningItemId ??= randomUUID();
+            setPhase(session, 'thinking');
+            appendToItem(session, {
+                id: reasoningItemId,
+                kind: 'reasoning',
+                turnId,
+            }, delta);
+        },
+        onToolActivity: (providerTurnId: string | null, activity: {
+            toolId: string;
+            name: string;
+            phase: 'running' | 'completed' | 'failed'
+        }) => {
+            const turnId = currentTurn(providerTurnId);
+            if (!turnId) {
+                return;
+            }
+            reasoningItemId = null;
+            setPhase(session, activity.phase === 'running' ? 'tool-running' : 'thinking');
+            const existing = session.items.find(candidate => candidate.id === activity.toolId);
+            upsertItem(session, {
+                id: activity.toolId,
+                kind: 'tool',
+                turnId,
+                createdAt: existing?.createdAt ?? nowIso(),
+                text: '',
+                toolName: activity.name.replace(`mcp__${ASSISTANT_MCP_SERVER_NAME}__`, ''),
+                status: activity.phase === 'running' ? 'streaming' : activity.phase,
+            });
+        },
+        onUsage: (providerTurnId: string | null, usage: NonNullable<IAssistantTurn['usage']>) => {
+            if (session.turn && currentTurn(providerTurnId)) {
+                setTurn(session, {
+                    ...session.turn,
+                    usage,
+                });
+            }
+        },
+        onAssistantMessage: (providerTurnId: string | null, messageId: string, text: string, pending: boolean) => {
+            const turnId = currentTurn(providerTurnId);
+            if (!turnId) {
+                return;
+            }
+            const existing = session.items.find(candidate => candidate.id === messageId);
+            upsertItem(session, {
+                id: messageId,
+                kind: 'assistant',
+                turnId,
+                createdAt: existing?.createdAt ?? nowIso(),
+                text,
+                status: pending ? 'streaming' : 'completed',
+            });
+        },
+        onTurnCompleted: (providerTurnId: string | null) => {
+            if (currentTurn(providerTurnId)) {
+                finishTurn(session, 'done');
+            }
+        },
+        onError: (providerTurnId: string | null, message: string) => {
+            if (isClaudeAuthErrorMessage(message)) {
+                const entry = instances.get(session.instanceId);
+                if (entry) {
+                    updateStatus(entry, {
+                        state: 'error',
+                        auth: 'unauthenticated',
+                        message,
+                    });
+                }
+            }
+            if (currentTurn(providerTurnId)) {
+                finishTurn(session, 'failed', message);
+            } else if (!isTurnActive(session)) {
+                addSystemItem(session, message, null);
+                save(session);
+            }
+        },
+    };
 }
 
-async function stopAssistantRuntimeForShutdown() {
-    await sessionStore.ready;
-    assistantHeartbeatTimer?.dispose();
-    assistantHeartbeatTimer = null;
-    syncAssistantHeartbeat = () => {};
-    codexAssistantAdapter.clearLoginState();
-    await runAssistantShutdownStep('Codex runtime', () => runtimeLifecycle.shutdownCodexRuntime({shutdownMcp: false}), logger);
-    await runAssistantShutdownStep('Claude runtime', () => shutdownClaudeAssistantRuntime({shutdownMcp: false}), logger);
+// ---------------------------------------------------------------------------
+// Selection
+// ---------------------------------------------------------------------------
+
+function resolveSelection(requested: IAssistantSelection | undefined): IAssistantSelection | null {
+    const enabled = [...instances.values()].filter(entry => entry.config.enabled);
+    const entry = (requested && enabled.find(candidate => candidate.config.id === requested.instanceId)) ?? enabled[0];
+    if (!entry) {
+        return null;
+    }
+    const {models} = entry.status;
+    const model = requested && requested.instanceId === entry.config.id && (models.length === 0 || models.some(candidate => candidate.id === requested.model))
+        ? requested.model
+        : entry.status.defaultModel ?? models[0]?.id ?? '';
+    const option = models.find(candidate => candidate.id === model);
+    const efforts = option?.reasoningEfforts?.map(effort => effort.id) ?? [];
+    const requestedEffort = requested?.effort ?? ASSISTANT_DEFAULT_EFFORT;
+    const effort = efforts.length === 0 || efforts.includes(requestedEffort)
+        ? requestedEffort
+        : option?.defaultReasoningEffort ?? efforts[0] ?? ASSISTANT_DEFAULT_EFFORT;
+    return {
+        instanceId: entry.config.id,
+        model,
+        effort,
+        speedMode: requested?.speedMode ?? 'standard',
+    };
 }
 
-export function preserveAssistantStateForShutdown() {
-    return assistantFeatureLifecycle.shutdown(async () => {
-        await stopAssistantRuntimeForShutdown();
-        await sessionStore.flushPersistence();
+function codexServiceTier(entry: IInstanceEntry, selection: IAssistantSelection) {
+    if (selection.speedMode !== 'fast') {
+        return null;
+    }
+    const tiers = entry.status.models.find(model => model.id === selection.model)?.serviceTiers ?? [];
+    return tiers.find(tier => tier.id === 'priority' || tier.id === 'fast')?.id ?? null;
+}
+
+// ---------------------------------------------------------------------------
+// Public operations
+// ---------------------------------------------------------------------------
+
+async function buildState(scope: IAgentAssistantChatScope | null | undefined, requested: IAssistantSelection | undefined): Promise<IAssistantState> {
+    const selection = resolveSelection(requested);
+    const session = scope && selection ? await findSession(scope, selection.instanceId) : null;
+    return {
+        supported: true,
+        enabled: true,
+        instances: instanceStatuses(),
+        selection,
+        chat: session
+            ? chatOf(session)
+            : scope && selection
+                ? {
+                    sessionKey: assistantSessionKey(selection.instanceId, scope.key),
+                    scope,
+                    instanceId: selection.instanceId,
+                    model: selection.model,
+                    items: [],
+                    turn: null,
+                }
+                : null,
+        installProgress,
+    };
+}
+
+function disabledState(): IAssistantState {
+    return {
+        supported: true,
+        enabled: false,
+        instances: instanceStatuses(),
+        selection: null,
+        chat: null,
+        installProgress: null,
+    };
+}
+
+let instancesListenerInstalled = false;
+
+function ensureInstancesListener() {
+    if (instancesListenerInstalled) {
+        return;
+    }
+    instancesListenerInstalled = true;
+    onAssistantInstancesChanged(() => {
+        void isAssistantEnabled().then(async enabled => {
+            if (!enabled) {
+                return;
+            }
+            await syncInstances();
+            for (const entry of instances.values()) {
+                startProbe(entry);
+            }
+            publishInstances();
+        });
     });
 }
 
-export function shutdownAgentAssistant() {
-    return assistantFeatureLifecycle.shutdown(async () => {
-        await stopAssistantRuntimeForShutdown();
-        await runAssistantShutdownStep('assistant session persistence', () => sessionStore.flushPersistence(), logger);
-        await runAssistantShutdownStep('active assistant session', () => sessionStore.clearActiveSession(), logger);
-        await runAssistantShutdownStep('embedded MCP server', () => shutdownEmbeddedMcpServer(), logger);
+/**
+ * Returns cached instance statuses at once. A probe request starts each
+ * enabled instance's status check in the background; every check publishes
+ * its own result, so a slow instance never holds back another.
+ */
+export async function getAgentAssistantState(request?: IAssistantStateRequest): Promise<IAssistantState> {
+    if (!(await isAssistantEnabled())) {
+        await shutdownAgentAssistant();
+        return disabledState();
+    }
+    ensureInstancesListener();
+    await syncInstances();
+    for (const entry of instances.values()) {
+        if (entry.config.enabled) {
+            startProbe(entry, request?.probe === true);
+        } else if (entry.status.state !== 'disabled') {
+            updateStatus(entry, {state: 'disabled'});
+        }
+    }
+    return buildState(request?.scope, request?.selection);
+}
+
+function errorResult(state: IAssistantState, message: string): IAssistantOperationResult {
+    return {
+        ok: false,
+        state,
+        error: createAssistantErrorEnvelope(message),
+    };
+}
+
+const INTERRUPT_TIMEOUT_MS = 12_000;
+
+/**
+ * Stops the session's running turn and returns once it has ended, so a late
+ * completion of the old turn cannot end the next one. A provider that does
+ * not confirm in time is treated as stopped.
+ */
+async function interruptActiveTurn(session: IChatSession) {
+    if (!session.turn || !isTurnActive(session)) {
+        return;
+    }
+    const turnId = session.turn.id;
+    const stillOwns = () => session.turn?.id === turnId && isTurnActive(session);
+    const entry = instances.get(session.instanceId);
+    const codexTurn = session.driver === 'codex' && entry?.codex && session.providerThreadId && session.providerTurnId
+        ? {
+            runtime: entry.codex,
+            threadId: session.providerThreadId,
+            providerTurnId: session.providerTurnId,
+        }
+        : null;
+    const claude = session.driver === 'claude' ? session.claude : null;
+    setPhase(session, 'interrupting');
+    if (!codexTurn && !claude) {
+        // Still starting: the start sees the turn has ended and submits nothing.
+        finishTurn(session, 'cancelled');
+        return;
+    }
+    const settled = new Promise<void>(resolve => session.settleWaiters.push(resolve));
+    const request = codexTurn
+        ? codexTurn.runtime.interrupt(codexTurn.threadId, codexTurn.providerTurnId)
+        : claude?.interrupt();
+    try {
+        // One deadline for the request and the provider's terminal event.
+        await waitForBoundedAssistantInterrupt(Promise.all([
+            request,
+            settled,
+        ]), INTERRUPT_TIMEOUT_MS);
+    } catch (error) {
+        if (!stillOwns()) {
+            return;
+        }
+        // An unconfirmed stop ends the provider process before the document
+        // grant is released, so old work cannot continue under a new grant.
+        logger.warn(`Assistant interrupt was not confirmed; stopping the provider: ${getErrorMessage(error)}`);
+        if (codexTurn) {
+            await codexTurn.runtime.shutdown().catch(() => undefined);
+        } else if (claude) {
+            await claude.retire('after an unconfirmed interrupt');
+            if (session.claude === claude) {
+                session.claude = null;
+            }
+        }
+    }
+    // A stop that finishes after its turn ended must not touch a newer turn.
+    if (stillOwns()) {
+        finishTurn(session, 'cancelled');
+    }
+}
+
+/** Thrown when the turn a start belongs to has already ended (stopped or replaced). */
+class TurnEndedError extends Error {}
+
+async function startCodexTurn(
+    session: IChatSession,
+    entry: IInstanceEntry,
+    selection: IAssistantSelection,
+    text: string,
+    attachments: IAgentAssistantImageAttachment[],
+    owns: () => boolean,
+) {
+    const runtime = entry.codex;
+    if (!runtime) {
+        throw new Error(te('dialogs.agentAssistant.instanceNotAvailable'));
+    }
+    // A thread from another home (such as EVB's former private Codex home)
+    // fails to resume, and the runtime starts a fresh one.
+    const opened = await runtime.openThread(session.providerThreadId, selection.model, codexListener(session));
+    if (!owns()) {
+        throw new TurnEndedError();
+    }
+    if (session.items.some(item => item.kind === 'assistant') && !opened.resumed) {
+        addSystemNotice(session, te('dialogs.agentAssistant.freshContext', {provider: 'Codex'}));
+    }
+    session.providerThreadId = opened.threadId;
+    let providerTurnId: string;
+    try {
+        providerTurnId = await runtime.startTurn({
+            threadId: opened.threadId,
+            text,
+            attachments,
+            model: selection.model,
+            effort: selection.effort,
+            serviceTier: codexServiceTier(entry, selection),
+        });
+    } catch (error) {
+        // A start without a reply may still be running in Codex; only stopping
+        // the process makes it safe to release the document grant.
+        if (isCodexAppServerRequestTimeoutError(error)) {
+            await runtime.shutdown().catch(() => undefined);
+        }
+        throw error;
+    }
+    if (!owns()) {
+        // Accepted after the turn was stopped or replaced: end the work for certain.
+        await runtime.shutdown().catch(() => undefined);
+        throw new TurnEndedError();
+    }
+    session.providerTurnId = providerTurnId;
+    setPhase(session, 'thinking');
+}
+
+function addSystemNotice(session: IChatSession, text: string) {
+    upsertItem(session, {
+        id: randomUUID(),
+        kind: 'system',
+        turnId: session.turn?.id ?? null,
+        createdAt: nowIso(),
+        text,
+        status: 'completed',
     });
+}
+
+async function startClaudeTurn(
+    session: IChatSession,
+    entry: IInstanceEntry,
+    selection: IAssistantSelection,
+    text: string,
+    attachments: IAgentAssistantImageAttachment[],
+    owns: () => boolean,
+) {
+    const context = await resolveAssistantLaunchContext(entry.config.id, binaryResolvers);
+    if (!context.binaryPath) {
+        throw new Error(te('dialogs.agentAssistant.claudeMissing'));
+    }
+    if (session.claude && !(await session.claude.prepareForSettings(selection.model, selection.effort, selection.speedMode))) {
+        session.claude = null;
+    }
+    if (!session.claude) {
+        const {
+            ClaudeAgentAssistantSession,
+            hasClaudeSessionTranscript,
+        } = await import('@electron/features/agent/claudeAgentSdkAssistant');
+        const mcp = await embeddedMcp();
+        const resumable = session.providerThreadId !== null
+            && await hasClaudeSessionTranscript(context.env, session.providerThreadId);
+        if (!resumable && session.items.some(item => item.kind === 'assistant')) {
+            addSystemNotice(session, te('dialogs.agentAssistant.freshContext', {provider: 'Claude'}));
+        }
+        const claude = new ClaudeAgentAssistantSession({
+            cwd: await assistantCwd(),
+            model: selection.model,
+            effort: selection.effort,
+            speedMode: selection.speedMode,
+            resumeSessionId: resumable ? session.providerThreadId : null,
+            mcpServerName: ASSISTANT_MCP_SERVER_NAME,
+            mcpServerUrl: mcp.url,
+            mcpToken: mcp.token,
+            executablePath: context.binaryPath,
+            env: context.env,
+            extraArgs: context.claudeExtraArgs,
+            callbacks: {
+                ...claudeCallbacks(session),
+                onInitialized: info => {
+                    if (info.sessionId) {
+                        session.providerThreadId = info.sessionId;
+                        save(session);
+                    }
+                },
+            },
+        });
+        session.claude = claude;
+    }
+    if (!owns()) {
+        throw new TurnEndedError();
+    }
+    const claude = session.claude;
+    try {
+        await claude.sendMessage(text, attachments, selection.model);
+    } catch (error) {
+        await claude.retire('after a failed send');
+        if (session.claude === claude) {
+            session.claude = null;
+        }
+        throw error;
+    }
+    if (!owns()) {
+        await claude.retire('after its turn ended during startup');
+        if (session.claude === claude) {
+            session.claude = null;
+        }
+        throw new TurnEndedError();
+    }
+}
+
+let admission: Promise<unknown> = Promise.resolve();
+
+/**
+ * Runs turn admission one send at a time, from the grant check to the
+ * provider's acceptance of the turn, so two sends never share or swap the
+ * single document grant. Stop does not wait here.
+ */
+function admit<T>(work: () => Promise<T>) {
+    const next = admission.then(work, work);
+    admission = next.catch(() => undefined);
+    return next;
+}
+
+/**
+ * Sends one message. A running turn in this chat is interrupted first, so a
+ * message typed while the assistant works steers it. Another chat's running
+ * turn keeps the shared document tools, so that send is refused.
+ */
+export function sendAgentAssistantMessage(
+    request: IAssistantSendRequest,
+    options: IAgentAssistantSendOptions,
+): Promise<IAssistantOperationResult> {
+    return admit(() => sendAdmitted(request, options));
+}
+
+async function sendAdmitted(
+    request: IAssistantSendRequest,
+    options: IAgentAssistantSendOptions,
+): Promise<IAssistantOperationResult> {
+    if (!(await isAssistantEnabled())) {
+        await shutdownAgentAssistant();
+        return errorResult(disabledState(), te('dialogs.agentAssistant.disabledMessage'));
+    }
+    await syncInstances();
+    const entry = instances.get(request.selection.instanceId);
+    const fallbackState = () => buildState(request.scope, request.selection);
+    if (!entry || !entry.config.enabled) {
+        return errorResult(await fallbackState(), te('dialogs.agentAssistant.instanceUnavailable'));
+    }
+    const selection = resolveSelection(request.selection) ?? request.selection;
+    let normalized: ReturnType<typeof normalizeOutgoingMessageRequest>;
+    try {
+        normalized = normalizeOutgoingMessageRequest(request);
+    } catch (error) {
+        return errorResult(await fallbackState(), getErrorMessage(error));
+    }
+    const presetInstructions = resolveAssistantPresetInstructions(request.presetId);
+    const modelText = presetInstructions
+        ? (normalized.text ? `${normalized.text}\n\n${presetInstructions}` : presetInstructions)
+        : normalized.text;
+    if (!normalized.text && normalized.attachments.length === 0 && !presetInstructions) {
+        return errorResult(await fallbackState(), te('dialogs.agentAssistant.emptyMessage'));
+    }
+    const session = await openSession(request.scope, entry, selection);
+    const activeBinding = getActiveAssistantMcpSessionScope();
+    if (activeBinding && activeBinding.sessionKey !== session.key) {
+        const other = sessions.get(activeBinding.sessionKey);
+        if (other && isTurnActive(other)) {
+            return errorResult(await buildState(request.scope, selection), te('dialogs.agentAssistant.otherDocumentBusy'));
+        }
+        clearAssistantMcpSessionScope(activeBinding.sessionKey);
+    }
+    await interruptActiveTurn(session);
+    session.model = selection.model;
+    session.effort = selection.effort;
+    session.speedMode = selection.speedMode;
+    session.lastAccessedAtMs = Date.now();
+    const turnId = randomUUID();
+    upsertItem(session, {
+        id: randomUUID(),
+        kind: 'user',
+        turnId,
+        createdAt: nowIso(),
+        text: normalized.text,
+        status: 'completed',
+        ...(normalized.attachments.length > 0 ? {attachments: normalized.attachments} : {}),
+    });
+    setTurn(session, {
+        id: turnId,
+        phase: 'queued',
+        startedAtMs: Date.now(),
+        usage: null,
+    });
+    const owns = () => session.turn?.id === turnId && isTurnActive(session);
+    try {
+        session.binding = createBinding(session, options.windowId ?? -1);
+        setActiveAssistantMcpSessionScope(session.binding);
+        if (entry.config.driver === 'codex') {
+            await startCodexTurn(session, entry, selection, modelText, normalized.attachments, owns);
+        } else {
+            await startClaudeTurn(session, entry, selection, modelText, normalized.attachments, owns);
+        }
+        save(session);
+        return {
+            ok: true,
+            state: await buildState(request.scope, selection),
+        };
+    } catch (error) {
+        if (error instanceof TurnEndedError || !owns()) {
+            // Stopped or replaced while starting; the stop already settled the turn.
+            return {
+                ok: true,
+                state: await buildState(request.scope, selection),
+            };
+        }
+        const message = getErrorMessage(error);
+        finishTurn(session, 'failed', message);
+        if (entry.status.state === 'ready' || entry.status.state === 'checking' || entry.status.state === 'warning') {
+            updateStatus(entry, {
+                state: 'error',
+                message,
+            });
+        }
+        return errorResult(await buildState(request.scope, selection), message);
+    }
+}
+
+export async function interruptAgentAssistant(request: IAssistantChatRequest) {
+    const session = await findSession(request.scope, request.instanceId);
+    if (session) {
+        await interruptActiveTurn(session);
+    }
+    return buildState(request.scope, session ? {
+        instanceId: session.instanceId,
+        model: session.model,
+        effort: session.effort,
+        speedMode: session.speedMode,
+    } : undefined);
+}
+
+export async function resetAgentAssistantChat(request: IAssistantChatRequest) {
+    const session = await findSession(request.scope, request.instanceId);
+    if (session) {
+        await interruptActiveTurn(session);
+        await session.claude?.retire('after a chat reset');
+        if (session.providerThreadId && session.driver === 'codex') {
+            instances.get(session.instanceId)?.codex?.releaseThread(session.providerThreadId);
+        }
+        persistence.archiveSession(session.key, 'reset');
+        sessions.delete(session.key);
+        publish({
+            type: 'chat',
+            chat: {
+                sessionKey: session.key,
+                scope: request.scope,
+                instanceId: session.instanceId,
+                model: session.model,
+                items: [],
+                turn: null,
+            },
+        });
+    }
+    return buildState(request.scope, session ? {
+        instanceId: session.instanceId,
+        model: session.model,
+        effort: session.effort,
+        speedMode: session.speedMode,
+    } : undefined);
+}
+
+export async function startAgentAssistantLogin(request: IAssistantLoginRequest): Promise<IAssistantLoginResult> {
+    await syncInstances();
+    const entry = instances.get(request.instanceId);
+    if (!entry?.codex) {
+        return {
+            ok: false,
+            state: await buildState(null, undefined),
+            error: createAssistantErrorEnvelope(te('dialogs.agentAssistant.claudeSignIn')),
+        };
+    }
+    try {
+        const urls = await entry.codex.startLogin(request.mode);
+        publishInstances();
+        return {
+            ok: true,
+            state: await buildState(null, undefined),
+            ...urls,
+        };
+    } catch (error) {
+        return {
+            ok: false,
+            state: await buildState(null, undefined),
+            error: createAssistantErrorEnvelope(getErrorMessage(error)),
+        };
+    }
+}
+
+export async function cancelAgentAssistantLogin(request: IAssistantInstanceRequest) {
+    await instances.get(request.instanceId)?.codex?.cancelLogin();
+    publishInstances();
+    return buildState(null, undefined);
+}
+
+/** Installs the pinned Codex release for the default Codex instance. */
+export function installAgentAssistantCodex(): Promise<IAssistantOperationResult> {
+    installRunning ??= (async () => {
+        try {
+            const setProgress = (progress: string | null) => {
+                installProgress = progress;
+                publish({
+                    type: 'install-progress',
+                    progress,
+                });
+            };
+            setProgress('Downloading Codex…');
+            await installManagedCodex({onProgress: setProgress});
+            setProgress(null);
+            await syncInstances();
+            const entry = instances.get(ASSISTANT_DEFAULT_INSTANCE_IDS.codex);
+            if (entry) {
+                startProbe(entry, true);
+            }
+            return {
+                ok: true,
+                state: await buildState(null, undefined),
+            };
+        } catch (error) {
+            installProgress = null;
+            publish({
+                type: 'install-progress',
+                progress: null,
+            });
+            return errorResult(await buildState(null, undefined), getErrorMessage(error));
+        } finally {
+            installRunning = null;
+        }
+    })();
+    return installRunning;
+}
+
+/** Stops every assistant process. Saved chats stay. */
+export async function shutdownAgentAssistant() {
+    // Processes stop before any turn ends, because ending a turn releases the document grant.
+    await Promise.all([...instances.values()].map(entry => retireInstance(entry)));
+    clearAssistantMcpSessionScope();
+    await shutdownEmbeddedMcpServer().catch(() => undefined);
+}
+
+export async function preserveAssistantStateForShutdown() {
+    for (const session of sessions.values()) {
+        save(session);
+    }
+    await persistence.flush();
 }

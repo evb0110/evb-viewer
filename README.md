@@ -108,10 +108,11 @@ boundaries around it.
   codec and raster IO), page operations, image combination, and PDF search.
 - **PDF.js renders, Rust writes.** The renderer never produces PDF bytes; one
   writer owns serialization, incremental saves, and multi-gigabyte documents.
-- **A local MCP server** with a capability registry and two provider adapters:
-  the Codex app-server in a sandboxed child process with an isolated home, and
-  the Claude Agent SDK. Every request is bound to one window, tab, document,
-  and revision, over a random port behind a bearer token.
+- **A local MCP server** with a capability registry and two provider drivers,
+  the Codex app-server and the Claude Agent SDK, run as configurable provider
+  instances on the user's own logins and limited to EVB's tools. Every request
+  is bound to one window, tab, document, and revision, over a random port
+  behind a bearer token.
 - **Release engineering**: signed and notarized installers, an auto-update
   canary, and build provenance.
 - **Opt-in diagnostics.** Crash reporting through `@sentry/electron` is

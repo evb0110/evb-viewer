@@ -441,8 +441,42 @@ const schemaArgsExamples: Readonly<Record<string, unknown[]>> = {
         sourcePath: '',
     }],
     'agent:setMcpIntegrationEnabled': [true],
-    'agent:startAssistantLogin': [{mode: 'chatgpt'}],
-    'agent:sendAssistantMessage': [{text: 'fixture message'}],
+    'agent:startAssistantLogin': [{
+        instanceId: 'codex',
+        mode: 'chatgpt',
+    }],
+    'agent:cancelAssistantLogin': [{instanceId: 'codex'}],
+    'agent:interruptAssistant': [{
+        instanceId: 'codex',
+        scope: {
+            kind: 'document',
+            key: 'document:a',
+            title: 'a.pdf',
+        },
+    }],
+    'agent:resetAssistantChat': [{
+        instanceId: 'codex',
+        scope: {
+            kind: 'document',
+            key: 'document:a',
+            title: 'a.pdf',
+        },
+    }],
+    'agent:saveAssistantInstances': [[]],
+    'agent:sendAssistantMessage': [{
+        text: 'fixture message',
+        scope: {
+            kind: 'document',
+            key: 'document:a',
+            title: 'a.pdf',
+        },
+        selection: {
+            instanceId: 'codex',
+            model: 'gpt-5.4',
+            effort: 'high',
+            speedMode: 'standard',
+        },
+    }],
     'agent:submitWorkspaceSnapshot': [{
         requestId: 'snapshot-1',
         ok: false,

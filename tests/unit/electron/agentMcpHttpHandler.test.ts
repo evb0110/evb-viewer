@@ -16,7 +16,7 @@ import type {
 import type { AddressInfo } from 'node:net';
 import { createHttpHandler } from '@electron/features/agent/mcp/createHttpHandler';
 import { abortAssistantToolRequestsForBinding } from '@electron/features/agent/mcpServer';
-import type { IAssistantSessionScopeBinding } from '@electron/features/agent/assistantTurnLifecycle';
+import type { IAssistantSessionScopeBinding } from '@electron/features/agent/assistantMcpSessionScope';
 import type { IProcessMcpRequestOptions } from '@electron/features/agent/mcp/mcpServerCore';
 import {requireTabId} from '@contracts/windowTabs';
 

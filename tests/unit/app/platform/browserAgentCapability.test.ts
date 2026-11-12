@@ -1,26 +1,40 @@
 import {
-    describe,
-    expect,
-    it,
+    describe, expect, it,
 } from 'vitest';
+import * as v from 'valibot';
 import {
-    browserAgentCapability,
-    createBrowserAgentMcpStatus,
-    createBrowserAssistantState,
+    browserAgentCapability, createBrowserAgentMcpStatus, createBrowserAssistantState,
 } from '@app/platform/browser-api/browserAgentCapability';
-import {requireRequestId} from '@contracts/shared';
+import { ASSISTANT_STATE_SCHEMA } from '@contracts/assistant';
+import { requireRequestId } from '@contracts/shared';
+import { requireTabId } from '@contracts/windowTabs';
 
 describe('browserAgentCapability', () => {
-    it('reports assistant support as unavailable in browser runtime', async () => {
-        const state = await browserAgentCapability.getAssistantState();
-
-        expect(state.status.supported).toBe(false);
-        expect(state.status.platform).toBe('browser');
-        expect(state.status.installState).toBe('unsupported');
-        expect(state.status.runtimeState).toBe('stopped');
-        expect(state.messages).toEqual([]);
+    it('returns the unsupported state and empty provider instances on the new wire contract', async () => {
+        expect(v.parse(ASSISTANT_STATE_SCHEMA, await browserAgentCapability.getAssistantState())).toEqual({
+            supported: false,
+            enabled: false,
+            instances: [],
+            selection: null,
+            chat: null,
+            installProgress: null,
+        });
+        expect(await browserAgentCapability.getAssistantInstances()).toEqual({
+            ok: false,
+            instances: [],
+            notices: [],
+        });
+        expect(await browserAgentCapability.saveAssistantInstances([])).toEqual({
+            ok: false,
+            instances: [],
+            notices: [],
+        });
+        expect(await browserAgentCapability.importAssistantInstancesFromT3()).toEqual({
+            ok: false,
+            instances: [],
+            notices: [],
+        });
     });
-
     it('does not accept browser assistant commands', async () => {
         await expect(browserAgentCapability.submitWorkspaceSnapshot({
             requestId: requireRequestId('snapshot-1'),
@@ -36,15 +50,27 @@ describe('browserAgentCapability', () => {
             accepted: false,
             reason: 'unknown-request',
         });
-        const sendResult = await browserAgentCapability.sendAssistantMessage({ text: 'hello' });
-        expect(sendResult.ok).toBe(false);
-        expect(sendResult.state.status).toMatchObject({
-            supported: false,
-            platform: 'browser',
+        const result = await browserAgentCapability.sendAssistantMessage({
+            text: 'hello',
+            scope: {
+                kind: 'document',
+                key: 'a',
+                title: 'A',
+                tabId: requireTabId('tab-a'),
+            },
+            selection: {
+                instanceId: 'codex',
+                model: 'gpt',
+                effort: 'high',
+                speedMode: 'standard',
+            },
+        });
+        expect(result).toEqual({
+            ok: false,
+            state: createBrowserAssistantState(),
         });
     });
-
-    it('keeps browser fallback state and MCP status in sync with the contract', () => {
+    it('preserves the browser MCP status', () => {
         expect(createBrowserAgentMcpStatus()).toMatchObject({
             enabled: false,
             serverName: 'evb_viewer',
@@ -52,15 +78,5 @@ describe('browserAgentCapability', () => {
             codexInstalled: false,
             codexConfigured: false,
         });
-        expect(createBrowserAssistantState().status.mcp).toMatchObject({
-            serverName: 'evb_viewer_embedded',
-            serverRunning: false,
-            toolCount: 0,
-        });
-        for (const provider of createBrowserAssistantState().status.providers) {
-            const ids = provider.models.map(model => model.id);
-            expect(ids).toContain(provider.defaultModel);
-            expect(ids).toContain(provider.activeModel);
-        }
     });
 });

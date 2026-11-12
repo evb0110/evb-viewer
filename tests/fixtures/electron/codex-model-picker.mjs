@@ -6,10 +6,15 @@ import { createInterface } from 'node:readline';
 
 // Replay captured provider metadata so the real-app picker needs no installed
 // Codex CLI, credentials or network. Turns return a deterministic local reply.
+// EVB_FAKE_CODEX_HANG=1 reproduces a Codex that never answers initialize, as
+// a real one does while it waits on a blocked sign-in refresh.
 if (process.argv.includes('--version')) {
     process.stdout.write('codex-cli 0.157.1\n');
 } else if (process.argv.includes('login')) {
     process.stdout.write('Logged in using ChatGPT\n');
+} else if (process.env.EVB_FAKE_CODEX_HANG === '1') {
+    process.stderr.write('refreshing ChatGPT token\n');
+    setInterval(() => undefined, 60_000);
 } else {
     const catalog = JSON.parse(readFileSync(new URL('./codex-app-server-model-list-0.157.1.json', import.meta.url), 'utf8'));
     const notify = (method, params) => process.stdout.write(JSON.stringify({
@@ -29,10 +34,11 @@ if (process.argv.includes('--version')) {
         emit('turn/completed');
     };
     // Calls the embedded EVB MCP server the way Codex does: the URL from the
-    // generated config, the bearer token from the environment.
+    // server override EVB passes on the command line, the bearer token from
+    // the environment.
     const callEvbTool = async (name, args, callId) => {
-        const config = readFileSync(`${process.env.CODEX_HOME}/config.toml`, 'utf8');
-        const url = /^url = "([^"]+)"$/mu.exec(config)?.[1];
+        const override = process.argv.find(arg => arg.startsWith('mcp_servers.evb_viewer_embedded_v4='));
+        const url = /url="([^"]+)"/u.exec(override ?? '')?.[1];
         const response = await fetch(url, {
             method: 'POST',
             headers: {

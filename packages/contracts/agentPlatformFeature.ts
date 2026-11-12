@@ -4,14 +4,6 @@ import type {
     IAgentWorkspaceSnapshotResponse,
 } from '@contracts/agent';
 import {
-    AGENT_ASSISTANT_EVENT_SCHEMA,
-    AGENT_ASSISTANT_INSTALL_RESULT_SCHEMA,
-    AGENT_ASSISTANT_LOGIN_REQUEST_SCHEMA,
-    AGENT_ASSISTANT_LOGIN_RESULT_SCHEMA,
-    AGENT_ASSISTANT_SEND_MESSAGE_REQUEST_SCHEMA,
-    AGENT_ASSISTANT_SEND_MESSAGE_RESULT_SCHEMA,
-    AGENT_ASSISTANT_STATE_REQUEST_SCHEMA,
-    AGENT_ASSISTANT_STATE_SCHEMA,
     AGENT_COMMAND_CANCEL_REQUEST_SCHEMA,
     AGENT_COMMAND_REQUEST_SCHEMA,
     AGENT_MCP_INTEGRATION_STATUS_SCHEMA,
@@ -19,6 +11,19 @@ import {
     AGENT_RENDERER_ACK_SCHEMA,
     AGENT_WORKSPACE_SNAPSHOT_REQUEST_SCHEMA,
 } from '@contracts/agent';
+import {
+    ASSISTANT_CHAT_REQUEST_SCHEMA,
+    ASSISTANT_EVENT_SCHEMA,
+    ASSISTANT_INSTANCE_REQUEST_SCHEMA,
+    ASSISTANT_INSTANCES_RESULT_SCHEMA,
+    ASSISTANT_INSTANCES_SCHEMA,
+    ASSISTANT_LOGIN_REQUEST_SCHEMA,
+    ASSISTANT_LOGIN_RESULT_SCHEMA,
+    ASSISTANT_OPERATION_RESULT_SCHEMA,
+    ASSISTANT_SEND_REQUEST_SCHEMA,
+    ASSISTANT_STATE_REQUEST_SCHEMA,
+    ASSISTANT_STATE_SCHEMA,
+} from '@contracts/assistant';
 import {
     definePlatformFeature,
     type TFeatureCapability,
@@ -57,12 +62,15 @@ function defineAgentMethod<
 
 const noArgs = v.strictTuple([]);
 const enabledArgs = v.message(v.strictTuple([v.boolean()]), 'enabled must be a boolean');
-const optionalAssistantRequestArgs = v.pipe(
-    v.strictTuple([v.optional(v.nullable(AGENT_ASSISTANT_STATE_REQUEST_SCHEMA))]),
+const optionalAssistantStateArgs = v.pipe(
+    v.strictTuple([v.optional(v.nullable(ASSISTANT_STATE_REQUEST_SCHEMA))]),
     v.transform(([request]) => request == null ? [] : [request]),
 );
-const assistantLoginArgs = v.message(v.strictTuple([AGENT_ASSISTANT_LOGIN_REQUEST_SCHEMA]), 'invalid assistant login request');
-const assistantMessageArgs = v.strictTuple([AGENT_ASSISTANT_SEND_MESSAGE_REQUEST_SCHEMA]);
+const assistantChatArgs = v.strictTuple([ASSISTANT_CHAT_REQUEST_SCHEMA]);
+const assistantInstanceArgs = v.strictTuple([ASSISTANT_INSTANCE_REQUEST_SCHEMA]);
+const assistantLoginArgs = v.message(v.strictTuple([ASSISTANT_LOGIN_REQUEST_SCHEMA]), 'invalid assistant login request');
+const assistantMessageArgs = v.strictTuple([ASSISTANT_SEND_REQUEST_SCHEMA]);
+const assistantInstancesArgs = v.strictTuple([ASSISTANT_INSTANCES_SCHEMA]);
 // Response envelopes reach the bridge as plain objects so a malformed one can still reject its pending request by id.
 // The bridge parses each with the shared response schema, and the static type stays on the renderer-facing args.
 const workspaceSnapshotResponseArgs = v.strictTuple([v.custom<IAgentWorkspaceSnapshotResponse>(isRecord)]);
@@ -92,44 +100,62 @@ export const AGENT_PLATFORM_FEATURE = definePlatformFeature({
         getAssistantState: defineAgentMethod({
             name: 'getAssistantState',
             channel: 'agent:getAssistantState',
-            args: optionalAssistantRequestArgs,
-            result: AGENT_ASSISTANT_STATE_SCHEMA,
+            args: optionalAssistantStateArgs,
+            result: ASSISTANT_STATE_SCHEMA,
         }),
         installAssistantCodex: defineAgentMethod({
             name: 'installAssistantCodex',
             channel: 'agent:installAssistantCodex',
             args: noArgs,
-            result: AGENT_ASSISTANT_INSTALL_RESULT_SCHEMA,
+            result: ASSISTANT_OPERATION_RESULT_SCHEMA,
         }),
         startAssistantLogin: defineAgentMethod({
             name: 'startAssistantLogin',
             channel: 'agent:startAssistantLogin',
             args: assistantLoginArgs,
-            result: AGENT_ASSISTANT_LOGIN_RESULT_SCHEMA,
+            result: ASSISTANT_LOGIN_RESULT_SCHEMA,
         }),
         cancelAssistantLogin: defineAgentMethod({
             name: 'cancelAssistantLogin',
             channel: 'agent:cancelAssistantLogin',
-            args: noArgs,
-            result: AGENT_ASSISTANT_STATE_SCHEMA,
+            args: assistantInstanceArgs,
+            result: ASSISTANT_STATE_SCHEMA,
         }),
         sendAssistantMessage: defineAgentMethod({
             name: 'sendAssistantMessage',
             channel: 'agent:sendAssistantMessage',
             args: assistantMessageArgs,
-            result: AGENT_ASSISTANT_SEND_MESSAGE_RESULT_SCHEMA,
+            result: ASSISTANT_OPERATION_RESULT_SCHEMA,
         }),
         interruptAssistant: defineAgentMethod({
             name: 'interruptAssistant',
             channel: 'agent:interruptAssistant',
-            args: optionalAssistantRequestArgs,
-            result: AGENT_ASSISTANT_STATE_SCHEMA,
+            args: assistantChatArgs,
+            result: ASSISTANT_STATE_SCHEMA,
         }),
         resetAssistantChat: defineAgentMethod({
             name: 'resetAssistantChat',
             channel: 'agent:resetAssistantChat',
-            args: optionalAssistantRequestArgs,
-            result: AGENT_ASSISTANT_STATE_SCHEMA,
+            args: assistantChatArgs,
+            result: ASSISTANT_STATE_SCHEMA,
+        }),
+        getAssistantInstances: defineAgentMethod({
+            name: 'getAssistantInstances',
+            channel: 'agent:getAssistantInstances',
+            args: noArgs,
+            result: ASSISTANT_INSTANCES_RESULT_SCHEMA,
+        }),
+        saveAssistantInstances: defineAgentMethod({
+            name: 'saveAssistantInstances',
+            channel: 'agent:saveAssistantInstances',
+            args: assistantInstancesArgs,
+            result: ASSISTANT_INSTANCES_RESULT_SCHEMA,
+        }),
+        importAssistantInstancesFromT3: defineAgentMethod({
+            name: 'importAssistantInstancesFromT3',
+            channel: 'agent:importAssistantInstancesFromT3',
+            args: noArgs,
+            result: ASSISTANT_INSTANCES_RESULT_SCHEMA,
         }),
         submitWorkspaceSnapshot: defineAgentMethod({
             name: 'submitWorkspaceSnapshot',
@@ -159,7 +185,7 @@ export const AGENT_PLATFORM_FEATURE = definePlatformFeature({
         onAssistantEvent: {
             kind: 'event',
             channel: 'agent:assistantEvent',
-            payload: AGENT_ASSISTANT_EVENT_SCHEMA,
+            payload: ASSISTANT_EVENT_SCHEMA,
             browser: {method: 'onAssistantEvent'},
             lazy: 'forwarded',
         },

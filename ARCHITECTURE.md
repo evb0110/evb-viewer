@@ -130,9 +130,10 @@ SHA-256 before use. Latin recognizes with `script/Latin` for æ and œ, retainin
 
 One tool implementation serves two listeners, both bound to loopback.
 
-- The **embedded assistant** runs its provider in a sandboxed child process with
-  an isolated home directory, talking to a private server on a random port
-  behind a bearer token.
+- The **embedded assistant** runs one of the configured provider instances
+  (Codex or Claude, each with its own executable, home, arguments and
+  environment) as a child process restricted to EVB's tools, talking to a
+  private server on a random port behind a bearer token.
 - **External MCP** starts a fixed-port server for outside clients such as Claude
   Code or Cursor.
 
@@ -142,7 +143,10 @@ revision, so an agent is bound to one document in one window and a stale
 revision is rejected rather than silently applied.
 [ADR 0004](docs/architecture/adr/0004-assistant-is-optional-with-provider-adapters.md)
 records why the providers are thin adapters over shared chat, tool, and
-persistence code, and why the runtime never loads on ordinary startup.
+persistence code, and why the runtime never loads on ordinary startup;
+[ADR 0008](docs/architecture/adr/0008-assistant-runs-provider-instances.md)
+records why it runs provider instances on their own logins, with per-instance
+status that never holds the panel.
 
 ## The Chrome extension
 

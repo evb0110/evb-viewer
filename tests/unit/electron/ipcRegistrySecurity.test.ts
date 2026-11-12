@@ -23,21 +23,12 @@ interface IRegisterRendererLogBridgeMock { registerListener?: (channel: string, 
 
 const mocks = vi.hoisted(() => {
     const agentState = {
-        scope: null,
-        status: {
-            provider: 'codex',
-            installState: 'missing',
-            authState: 'unknown',
-            runtimeState: 'stopped',
-            models: [],
-            providers: [],
-            mcp: {
-                running: false,
-                enabled: false,
-                toolCount: 0,
-            },
-        },
-        messages: [],
+        supported: true,
+        enabled: false,
+        instances: [],
+        selection: null,
+        chat: null,
+        installProgress: null,
     };
     const agentService = {
         getMcpIntegrationStatus: vi.fn(async () => ({
@@ -56,6 +47,21 @@ const mocks = vi.hoisted(() => {
                 serverUrl: null,
                 error: null,
             },
+        })),
+        getAssistantInstances: vi.fn(async () => ({
+            ok: true,
+            instances: [],
+            notices: [],
+        })),
+        saveAssistantInstances: vi.fn(async () => ({
+            ok: true,
+            instances: [],
+            notices: [],
+        })),
+        importAssistantInstancesFromT3: vi.fn(async () => ({
+            ok: true,
+            instances: [],
+            notices: [],
         })),
         getAssistantState: vi.fn(async () => agentState),
         installAssistantCodex: vi.fn(async () => ({
@@ -642,8 +648,23 @@ describe('IPC registry sender trust', () => {
             dataUrl: 'data:image/png;base64,AAAA',
         };
 
-        await expect(handler?.(event, {
+        const request = {
             text: 'hello',
+            scope: {
+                kind: 'document',
+                key: 'document:a',
+                title: 'a.pdf',
+            },
+            selection: {
+                instanceId: 'codex',
+                model: 'gpt-5.4',
+                effort: 'high',
+                speedMode: 'standard',
+            },
+        };
+
+        await expect(handler?.(event, {
+            ...request,
             attachments: Array.from(
                 { length: ASSISTANT_MAX_IMAGE_ATTACHMENTS + 1 },
                 (_, index) => ({
@@ -654,7 +675,7 @@ describe('IPC registry sender trust', () => {
         })).rejects.toThrow('Invalid IPC arguments for agent:sendAssistantMessage');
 
         await expect(handler?.(event, {
-            text: 'hello',
+            ...request,
             attachments: [{
                 ...imageAttachment,
                 sizeBytes: ASSISTANT_MAX_IMAGE_BYTES + 1,
@@ -662,12 +683,17 @@ describe('IPC registry sender trust', () => {
         })).rejects.toThrow('Invalid IPC arguments for agent:sendAssistantMessage');
 
         await expect(handler?.(event, {
-            text: 'hello',
+            ...request,
             attachments: [{
                 ...imageAttachment,
                 dataUrl: `data:image/png;base64,${'A'.repeat(Math.ceil(ASSISTANT_MAX_IMAGE_BYTES / 3) * 4 + 129)}`,
             }],
         })).rejects.toThrow('Invalid IPC arguments for agent:sendAssistantMessage');
+        expect(mocks.agentService.sendAssistantMessage).not.toHaveBeenCalled();
+        await expect(handler?.(event, {
+            ...request,
+            attachments: [imageAttachment],
+        })).resolves.toMatchObject({ok: true});
     }, ipcRegistrySecurityImportTimeoutMs);
 
     it('rejects malformed tab transfer payloads before calling the transfer broker', async () => {

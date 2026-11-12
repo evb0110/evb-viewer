@@ -63,13 +63,10 @@ describe('preload global event fan-out', () => {
                 channel: AGENT_PLATFORM_FEATURE.eventChannels.onAssistantEvent,
                 subscribe: client.onAssistantEvent,
                 payload: {
-                    type: 'heartbeat',
-                    binding: {
-                        scopeFingerprint: 'scope',
-                        sessionKey: 'codex:scope',
-                        turnGeneration: 1,
-                        windowId: 1,
-                    },
+                    type: 'item-delta',
+                    sessionKey: 'codex:scope',
+                    itemId: 'item-1',
+                    delta: 'text',
                 },
             },
             {

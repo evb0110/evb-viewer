@@ -1,6 +1,7 @@
 # ADR 0004: the assistant is optional and loads one provider at a time
 
-- Status: accepted (2026-09-06)
+- Status: accepted (2026-09-06); credential, runtime and status parts
+  superseded by [ADR 0008](0008-assistant-runs-provider-instances.md)
 - Evidence: [issue #328](https://github.com/evb0110/evb-viewer/issues/328),
   source and measurement at commit `35b9779d0ef97cff342b0d8c414d771c8561a9e0`
 

@@ -45,12 +45,6 @@ import type { IWorkspaceDocumentController } from '@app/modules/workspace-shell/
 import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
 import { createWorkspaceExposeFixture } from '@tests/unit/app/modules/workspace-shell/workspaceTestFixtures';
 import {requireDocumentRevisionToken} from '@contracts/documentRevision';
-import {
-    advanceAssistantTurnScope,
-    claimAssistantTurn,
-    createInitialAssistantTurnOwner,
-    getAssistantTurnScope,
-} from '@electron/features/agent/assistantTurnLifecycle';
 
 interface IWindowWithElectronApi extends Window {electronAPI?: IElectronAPI;}
 type TAgentHarnessCapability = Pick<IAgentCapability,
@@ -717,16 +711,6 @@ describe('useAgentWorkspaceSnapshot command guards', () => {
         sessionRef.current = session;
         const tabId = requireTabId('tab-1');
         const before = session.createCommandTarget(tabId);
-        const turn = claimAssistantTurn(createInitialAssistantTurnOwner(), {
-            sessionKey: 'linked-reader-session',
-            scopeKey: 'linked-reader-scope',
-            provider: 'codex',
-            windowId: 1,
-            tabId,
-            documentRef: before.documentRef,
-            documentIdentity: harness.firstIdentity,
-            commandTarget: before,
-        });
         try {
             const responsePromise = harness.submitCommand({
                 requestId: requireRequestId(`linked-reader-during-save-${recordOwnCommit}`),
@@ -751,9 +735,6 @@ describe('useAgentWorkspaceSnapshot command guards', () => {
             await linkedWorkspace.runAgentAction('file.save', {});
             finish.resolve(undefined);
             const response = await responsePromise;
-            const after = response.successor
-                ? advanceAssistantTurnScope(turn, turn.generation, response.successor)
-                : turn;
             expect(response).toMatchObject({
                 ok: true,
                 result: {saved: true},
@@ -761,8 +742,6 @@ describe('useAgentWorkspaceSnapshot command guards', () => {
             expect(session.snapshot.value.identity.revisionInfo?.token).toBe('reader-revision');
             expect(session.validateCommandTarget(before).ok).toBe(false);
             if (savedTarget) expect(session.validateCommandTarget(savedTarget).ok).toBe(false);
-            expect(getAssistantTurnScope(after)?.documentIdentity?.token).toBe('revision-1');
-            expect(getAssistantTurnScope(after)?.commandTarget).toEqual(before);
             expect(response.successor).toBeUndefined();
         } finally {
             finish.resolve(undefined);

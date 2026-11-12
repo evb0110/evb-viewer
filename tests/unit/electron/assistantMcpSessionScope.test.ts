@@ -19,9 +19,7 @@ import {
     setActiveAssistantMcpSessionScope,
     syncAssistantMcpSessionScope,
 } from '@electron/features/agent/assistantMcpSessionScope';
-import type { IAssistantSessionScopeBinding } from '@electron/features/agent/assistantTurnLifecycle';
-import { createAssistantChatSessionStore } from '@electron/features/agent/assistantChatSessionStore';
-import { createAssistantSessionTurnCoordinator } from '@electron/features/agent/createAssistantSessionTurnCoordinator';
+import type { IAssistantSessionScopeBinding } from '@electron/features/agent/assistantMcpSessionScope';
 import {requireDocumentInstanceId} from '@contracts/documentInstanceId';
 import {requireDocumentRevisionToken} from '@contracts/documentRevision';
 import {
@@ -128,55 +126,6 @@ function createSnapshot(tab: IAgentTabSnapshot = createTab()): IAgentWorkspaceSn
 describe('assistantMcpSessionScope', () => {
     afterEach(() => {
         clearAssistantMcpSessionScope();
-    });
-
-    it('validates the next internal request against the revision the turn\'s own command committed', () => {
-        const store = createAssistantChatSessionStore();
-        const coordinator = createAssistantSessionTurnCoordinator({sessionStore: store});
-        const session = store.getSession({
-            kind: 'document',
-            key: 'document:/tmp/a.pdf',
-            title: 'a.pdf',
-            tabId: binding.tabId,
-            documentSessionKey: 'document:/tmp/a.pdf',
-            documentInstanceId: binding.documentInstanceId,
-            documentRef: binding.documentRef,
-            documentIdentity,
-            commandTarget,
-        }, {
-            provider: 'codex',
-            model: 'gpt-6-astra',
-            effort: 'medium',
-            speedMode: 'standard',
-        }, {create: true});
-        const generation = coordinator.claimSessionTurn(session);
-        const savedIdentity = {
-            ...documentIdentity,
-            contentRevision: 4,
-            token: requireDocumentRevisionToken('revision-token-b'),
-        };
-        const savedTarget = {
-            ...commandTarget,
-            sessionRevision: 8,
-            documentRevisionToken: savedIdentity.token,
-        };
-        const saved = createSnapshot(createTab({
-            documentIdentity: savedIdentity,
-            commandTarget: savedTarget,
-        }));
-        expect(() => assertAssistantMcpSnapshotMatchesScope(saved, resolveAssistantMcpSessionScope())).toThrow('changed');
-
-        expect(coordinator.adoptSessionTurnSuccessor(session, generation, {
-            commandTarget: savedTarget,
-            documentIdentity: savedIdentity,
-        })).toBe(true);
-
-        expect(() => assertAssistantMcpSnapshotMatchesScope(saved, resolveAssistantMcpSessionScope())).not.toThrow();
-        expect(() => assertAssistantMcpSnapshotMatchesScope(createSnapshot(), resolveAssistantMcpSessionScope())).toThrow('changed');
-        expect(session.scope).toMatchObject({
-            commandTarget: savedTarget,
-            documentIdentity: savedIdentity,
-        });
     });
 
     it('rejects internal MCP resolution without an active assistant binding', () => {

@@ -125,6 +125,21 @@ const FEATURE_RESULTS: Readonly<Record<string, unknown>> = {
     },
     'agent.interruptAssistant': createBrowserAssistantState(),
     'agent.resetAssistantChat': createBrowserAssistantState(),
+    'agent.getAssistantInstances': {
+        ok: true,
+        instances: [],
+        notices: [],
+    },
+    'agent.saveAssistantInstances': {
+        ok: true,
+        instances: [],
+        notices: [],
+    },
+    'agent.importAssistantInstancesFromT3': {
+        ok: true,
+        instances: [],
+        notices: [],
+    },
     'agent.submitWorkspaceSnapshot': {accepted: true},
     'agent.submitCommandResponse': {accepted: true},
     // The contract's shapes, so a consumer reading them gets a list and a boolean.

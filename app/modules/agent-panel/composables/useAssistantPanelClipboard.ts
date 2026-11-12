@@ -1,9 +1,6 @@
-import type { ComputedRef } from 'vue';
-import type { IAgentAssistantChatMessage } from '@contracts/agent';
 import type { TTranslateFn } from '@i18n-app';
-import type {formatAssistantMessage} from '@app/modules/agent-panel/utils/formatAssistantMessage';
-import {createStreamingAssistantMessageFormatter} from '@app/modules/agent-panel/utils/formatAssistantMessage';
-import { BrowserLogger } from '@app/utils/browserLogger';
+import { useRuntimeErrorReports } from '@app/composables/useRuntimeErrorReports';
+import { captureAssistantFailure } from '@app/modules/agent-panel/utils/assistantFailure';
 import {
     defaultDocument,
     tryOnScopeDispose,
@@ -11,48 +8,14 @@ import {
     useTimeoutFn,
 } from '@vueuse/core';
 
-export const useAssistantPanelClipboard = (options: {
-    messages: ComputedRef<IAgentAssistantChatMessage[]>;
-    t: TTranslateFn;
-}) => {
-    const EMPTY_MESSAGE_BLOCKS: ReturnType<typeof formatAssistantMessage> = [];
-    let markdownCache = new Map<string, {
-        text: string;
-        blocks: ReturnType<typeof formatAssistantMessage>;
-        formatter: ReturnType<typeof createStreamingAssistantMessageFormatter>;
-    }>();
+export const useAssistantPanelClipboard = (options: {t: TTranslateFn;}) => {
     const copiedMessageId = ref<string | null>(null);
     const panelRef = ref<HTMLElement | null>(null);
-    const messagesRef = ref<HTMLElement | null>(null);
+    const { reportRuntimeError } = useRuntimeErrorReports();
     const { copy } = useClipboard();
     const copiedReset = useTimeoutFn(() => {
         copiedMessageId.value = null;
     }, 1800, { immediate: false });
-
-    const renderedMessages = computed(() => {
-        const nextCache: typeof markdownCache = new Map();
-        const rows = options.messages.value.map(message => {
-            const cached = markdownCache.get(message.id) ?? {
-                text: '',
-                blocks: EMPTY_MESSAGE_BLOCKS,
-                formatter: createStreamingAssistantMessageFormatter(),
-            };
-            nextCache.set(message.id, cached);
-            const blocks = computed(() => {
-                if (cached.text !== message.text) {
-                    cached.text = message.text;
-                    cached.blocks = message.text.length ? cached.formatter.format(message.text) : EMPTY_MESSAGE_BLOCKS;
-                }
-                return cached.blocks;
-            });
-            return reactive({
-                message,
-                blocks,
-            });
-        });
-        markdownCache = nextCache;
-        return rows;
-    });
 
     const isCopyShortcut = (event: KeyboardEvent) => (
         [
@@ -97,7 +60,11 @@ export const useAssistantPanelClipboard = (options: {
             await copy(text);
             return true;
         } catch (error) {
-            BrowserLogger.warn('assistant', logMessage, error);
+            reportRuntimeError(captureAssistantFailure(error, {
+                action: 'copy',
+                title: options.t('assistant.copyFailed'),
+                logMessage,
+            }));
             return false;
         }
     };
@@ -131,9 +98,7 @@ export const useAssistantPanelClipboard = (options: {
     return {
         handleAssistantCopyShortcut,
         handleCopyMessageText,
-        messagesRef,
         panelRef,
-        renderedMessages,
         copyMessageIcon: (messageId: string) => copiedMessageId.value === messageId ? 'i-ph-check' : 'i-ph-copy',
         copyMessageTooltip: (messageId: string) => copiedMessageId.value === messageId
             ? options.t('assistant.copyMessageCopied')

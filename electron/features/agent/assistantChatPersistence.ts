@@ -24,14 +24,16 @@ import {
 } from 'path';
 import { app } from 'electron';
 import type {
-    IAgentAssistantChatMessage,
     IAgentAssistantChatScope,
+    IAgentAssistantErrorEnvelope,
+    IAgentAssistantImageAttachment,
     TAgentWorkspaceCommandTarget,
     TAgentAssistantEffort,
     TAgentAssistantProviderId,
     TAgentAssistantSpeedMode,
 } from '@contracts/agent';
 import { isErrnoException } from '@contracts/runtimeGuards';
+import { ASSISTANT_INSTANCE_ID_PATTERN } from '@contracts/assistant';
 import { isDocumentRevisionInfo } from '@contracts/documentRevision';
 import {
     inferDocumentRefBackend, parseDocumentRef,
@@ -39,15 +41,12 @@ import {
 import {
     isEpochMs,
     parseIsoTimestamp,
+    type TIsoTimestamp,
 } from '@contracts/timestamps';
 import {parseTabId} from '@contracts/windowTabs';
 import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
-import {
-    type IAssistantSessionScopeBinding,
-    type TAssistantTurnOwnerState,
-    isAssistantTurnActive,
-} from '@electron/features/agent/assistantTurnLifecycle';
+import type {IAssistantSessionScopeBinding} from '@electron/features/agent/assistantMcpSessionScope';
 import {fsyncParentDirectory} from '@electron/utils/atomicReplace';
 import {fsyncFile} from '@electron/utils/fsyncPath';
 import {AssistantChatSnapshotStorage} from '@electron/features/agent/assistantChatSnapshotStorage';
@@ -55,6 +54,49 @@ import pruneAssistantChatSnapshotBlobs from '@electron/features/agent/pruneAssis
 import {pruneAssistantChatArchives} from '@electron/features/agent/pruneAssistantChatArchives';
 
 const ASSISTANT_CHAT_PERSISTENCE_SCHEMA_VERSION = 1;
+
+/** Version-1 records carry the turn owner of the release that wrote them. */
+type TAssistantTurnOwnerState =
+    | {
+        phase: 'idle';
+        generation: number;
+        turnId: null;
+        localTurnId: null;
+    }
+    | {
+        phase: 'starting';
+        generation: number;
+        localTurnId: string;
+        providerTurnId: null;
+        scope: IAssistantSessionScopeBinding;
+    }
+    | {
+        phase: 'running';
+        generation: number;
+        localTurnId: string;
+        providerTurnId: string;
+        scope: IAssistantSessionScopeBinding;
+    }
+    | {
+        phase: 'interrupting';
+        generation: number;
+        localTurnId: string;
+        providerTurnId: string | null;
+        scope: IAssistantSessionScopeBinding;
+    }
+    | {
+        phase: 'error';
+        generation: number;
+        turnId: null;
+        localTurnId: null;
+        error: string;
+    };
+
+function isAssistantTurnActive(owner: TAssistantTurnOwnerState) {
+    return owner.phase === 'starting' || owner.phase === 'running' || owner.phase === 'interrupting';
+}
+
+
 const ASSISTANT_CHAT_STORAGE_DIR = 'assistant-chat';
 const ASSISTANT_CHAT_SESSION_DIR = 'sessions';
 const ASSISTANT_CHAT_ARCHIVE_DIR = 'archive';
@@ -68,15 +110,38 @@ const ASSISTANT_CHAT_INTERRUPTED_ERROR = 'Assistant turn interrupted because EVB
 
 const logger = createLogger('assistant-chat-persistence');
 
+/**
+ * A timeline item as stored. `role` is the item kind; records written before
+ * provider instances carry only user, assistant and system roles with
+ * `pending`/`error` instead of `status`.
+ */
+export interface IPersistedAssistantMessage {
+    id: string;
+    role: 'user' | 'assistant' | 'system' | 'reasoning' | 'tool';
+    text: string;
+    createdAt: TIsoTimestamp;
+    attachments?: IAgentAssistantImageAttachment[];
+    turnId?: string | null;
+    status?: 'streaming' | 'completed' | 'interrupted' | 'failed';
+    toolName?: string;
+    toolDetail?: string;
+    completedAt?: TIsoTimestamp;
+    pending?: boolean;
+    error?: string;
+    errorEnvelope?: IAgentAssistantErrorEnvelope;
+}
+
 export interface IPersistedAssistantChatSession {
+    /** The driver. Absent `instanceId` means the driver's default instance. */
     provider: TAgentAssistantProviderId;
+    instanceId?: string;
     scope: IAgentAssistantChatScope;
     model: string;
     effort: TAgentAssistantEffort;
     speedMode: TAgentAssistantSpeedMode;
     providerThreadId: string | null;
     turnOwner: TAssistantTurnOwnerState;
-    messages: IAgentAssistantChatMessage[];
+    messages: IPersistedAssistantMessage[];
     lastAccessedAtMs: number;
     lastError?: string;
 }
@@ -239,13 +304,14 @@ async function atomicWriteJsonFile(filePath: string, payload: unknown) {
 function clonePersistedSession(session: IPersistedAssistantChatSession): IPersistedAssistantChatSession {
     return {
         provider: session.provider,
+        ...(session.instanceId === undefined ? {} : {instanceId: session.instanceId}),
         scope: {...session.scope},
         model: session.model,
         effort: session.effort,
         speedMode: session.speedMode,
         providerThreadId: session.providerThreadId,
         turnOwner: {...session.turnOwner},
-        messages: session.messages.map((message: IAgentAssistantChatMessage): IAgentAssistantChatMessage => {
+        messages: session.messages.map((message: IPersistedAssistantMessage): IPersistedAssistantMessage => {
             const attachments = message.attachments;
             return {
                 ...message,
@@ -357,18 +423,42 @@ function isAssistantImageAttachment(value: unknown) {
         && value.sizeBytes > 0;
 }
 
-function isAssistantChatMessage(value: unknown): value is IAgentAssistantChatMessage {
+const PERSISTED_MESSAGE_ROLES = new Set([
+    'user',
+    'assistant',
+    'system',
+    'reasoning',
+    'tool',
+]);
+const PERSISTED_MESSAGE_STATUSES = new Set([
+    'streaming',
+    'completed',
+    'interrupted',
+    'failed',
+]);
+
+function isOptionalString(value: unknown) {
+    return value === undefined || typeof value === 'string';
+}
+
+function isAssistantChatMessage(value: unknown): value is IPersistedAssistantMessage {
     return isObject(value)
         && typeof value.id === 'string'
-        && (value.role === 'user' || value.role === 'assistant' || value.role === 'system')
+        && typeof value.role === 'string'
+        && PERSISTED_MESSAGE_ROLES.has(value.role)
         && typeof value.text === 'string'
         && parseIsoTimestamp(value.createdAt) !== null
         && (
             value.attachments === undefined
             || Array.isArray(value.attachments) && value.attachments.every(isAssistantImageAttachment)
         )
+        && (value.turnId === undefined || value.turnId === null || typeof value.turnId === 'string')
+        && (value.status === undefined || typeof value.status === 'string' && PERSISTED_MESSAGE_STATUSES.has(value.status))
+        && isOptionalString(value.toolName)
+        && isOptionalString(value.toolDetail)
+        && (value.completedAt === undefined || parseIsoTimestamp(value.completedAt) !== null)
         && (value.pending === undefined || typeof value.pending === 'boolean')
-        && (value.error === undefined || typeof value.error === 'string')
+        && isOptionalString(value.error)
         && (value.errorEnvelope === undefined || isAssistantErrorEnvelope(value.errorEnvelope));
 }
 
@@ -425,6 +515,7 @@ function isPersistedSession(value: unknown): value is IPersistedAssistantChatSes
         return false;
     }
     return (value.provider === 'codex' || value.provider === 'claude')
+        && (value.instanceId === undefined || typeof value.instanceId === 'string' && ASSISTANT_INSTANCE_ID_PATTERN.test(value.instanceId))
         && isAssistantChatScope(value.scope)
         && typeof value.model === 'string'
         && typeof value.effort === 'string'
@@ -494,6 +585,7 @@ function interruptRecoveredSession(session: IPersistedAssistantChatSession): TRe
         scopeBinding: null,
     });
     if (!isAssistantTurnActive(recovered.turnOwner)) {
+        interruptStreamingMessages(session);
         return recovered;
     }
 
@@ -505,13 +597,20 @@ function interruptRecoveredSession(session: IPersistedAssistantChatSession): TRe
         error: ASSISTANT_CHAT_INTERRUPTED_ERROR,
     };
     session.lastError = ASSISTANT_CHAT_INTERRUPTED_ERROR;
+    interruptStreamingMessages(session);
+    return recovered;
+}
+
+function interruptStreamingMessages(session: IPersistedAssistantChatSession) {
     for (const message of session.messages) {
+        if (message.status === 'streaming') {
+            message.status = 'interrupted';
+        }
         if (message.role === 'assistant' && message.pending) {
             message.pending = false;
             message.error = message.error ?? ASSISTANT_CHAT_INTERRUPTED_ERROR;
         }
     }
-    return recovered;
 }
 
 function createSnapshotRecord(

@@ -43,7 +43,6 @@ describe('assistantOutgoingMessage', () => {
     it('normalizes outgoing attachments with fallback ids and bounded names', () => {
         const normalized = normalizeOutgoingAttachments({
             text: 'hello',
-            scope: null,
             attachments: [{
                 type: 'image',
                 id: '',
@@ -76,12 +75,10 @@ describe('assistantOutgoingMessage', () => {
 
         expect(() => normalizeOutgoingAttachments({
             text: '',
-            scope: null,
             attachments,
         })).toThrow(`EVB Assistant accepts up to ${ASSISTANT_MAX_IMAGE_ATTACHMENTS} images per message.`);
         expect(() => normalizeOutgoingAttachments({
             text: '',
-            scope: null,
             attachments: [{
                 type: 'image',
                 id: 'id',
@@ -97,7 +94,6 @@ describe('assistantOutgoingMessage', () => {
         expect(normalizeAssistantAttachmentName('', 2)).toBe('image-3');
         expect(normalizeOutgoingMessageRequest({
             text: '  hello  ',
-            scope: null,
             attachments: [{
                 type: 'image',
                 id: 'image-id',

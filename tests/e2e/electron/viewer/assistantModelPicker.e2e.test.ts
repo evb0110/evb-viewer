@@ -30,26 +30,26 @@ describe('Electron E2E - assistant model discovery', () => {
         await openPdfInApp(page, resolve('tests/fixtures/release/packaged-core-smoke.pdf'));
         await waitForPdfLoaded(page);
         await clickAsUser(page, 'button[aria-label="Toggle EVB Assistant"]');
-        await page.waitForSelector('.agent-assistant-input:not(:disabled)', {visible: true});
-        await clickAsUser(page, '.agent-assistant-input');
+        await page.waitForSelector('.composer-input:not(:disabled)', {visible: true});
+        await clickAsUser(page, '.composer-input');
         return page;
     }
 
     it('shows the newest model in each family with Sol and Opus first', async () => {
         const page = await openAssistantDocument();
-        const inputInset = await page.$eval('.agent-assistant-input', input => {
+        const inputInset = await page.$eval('.composer-input', input => {
             const style = getComputedStyle(input);
             return input.clientLeft + Number.parseFloat(style.paddingLeft);
         });
         expect(inputInset, 'Composer text should have a compact inline inset').toBeLessThanOrEqual(12);
-        await clickAsUser(page, '.assistant-switcher-trigger');
+        await clickAsUser(page, '.picker-trigger');
         await page.waitForFunction(() => {
-            const groups = [...document.querySelectorAll('.assistant-model-group')];
+            const groups = [...document.querySelectorAll('.picker-group')];
             return groups.some(group => /GPT-\d+(?:\.\d+)?-Astra/.test(group.textContent ?? ''));
         });
-        const groups = await page.evaluate(() => [...document.querySelectorAll('.assistant-model-group')].map(group => ({
-            provider: group.getAttribute('aria-label'),
-            labels: [...group.querySelectorAll('.assistant-switcher-option-label')].map(row => row.textContent?.trim() ?? ''),
+        const groups = await page.evaluate(() => [...document.querySelectorAll('.picker-group')].map(group => ({
+            provider: group.querySelector('header')?.textContent?.trim() ?? null,
+            labels: [...group.querySelectorAll('.picker-model')].map(row => row.textContent?.trim() ?? ''),
         })));
         const codex = groups.find(group => group.provider === 'Codex')?.labels ?? [];
         const claude = groups.find(group => group.provider === 'Claude')?.labels ?? [];
@@ -66,7 +66,7 @@ describe('Electron E2E - assistant model discovery', () => {
             expect(versions.length).toBeGreaterThan(0);
             expect(new Set(versions).size, `${family} has stale versions: ${versions.join(', ')}`).toBe(1);
         }
-        expect(await page.$('.agent-assistant-message.is-user')).toBeNull();
+        expect(await page.$('.assistant-message.is-user')).toBeNull();
     }, 60_000);
 
     it('keeps the accepted image prompt visible when the local provider answers', async () => {
@@ -78,28 +78,32 @@ describe('Electron E2E - assistant model discovery', () => {
             await navigator.clipboard.write([new ClipboardItem({'image/png': new Blob([bytes], {type: 'image/png'})})]);
         }, png.toString('base64'));
         await activateMenuItemAsUser(page, {accelerator: 'CmdOrCtrl+V'});
-        await page.waitForSelector('.agent-assistant-composer-attachment-image');
+        await page.waitForSelector('.composer-image img');
         await page.keyboard.type('Explain this image.');
         await page.keyboard.press('Enter');
-        await page.waitForFunction(() => document.querySelector('.agent-assistant-message.is-assistant')?.textContent?.includes('Image received.'));
-        expect(await page.$eval('.agent-assistant-messages', element => element.textContent)).toContain('Explain this image.');
-        expect(await page.$eval('.agent-assistant-message-image', image => (image as HTMLImageElement).naturalWidth)).toBe(1200);
+        await page.waitForFunction(() => document.querySelector('.assistant-message:not(.is-user)')?.textContent?.includes('Image received.'));
+        expect(await page.$eval('.assistant-timeline', element => element.textContent)).toContain('Explain this image.');
+        expect(await page.$eval('.message-images img', image => (image as HTMLImageElement).naturalWidth)).toBe(1200);
         await page.reload();
         await waitForPdfLoaded(page);
         await clickAsUser(page, 'button[aria-label="Toggle EVB Assistant"]');
-        await page.waitForSelector('.agent-assistant-message.is-user');
-        expect(await page.$eval('.agent-assistant-messages', element => element.textContent)).toContain('Explain this image.');
-        await page.waitForFunction(() => (document.querySelector('.agent-assistant-message-image') as HTMLImageElement | null)?.naturalWidth);
-        expect(await page.$eval('.agent-assistant-message-image', image => (image as HTMLImageElement).naturalWidth)).toBe(1200);
+        await page.waitForSelector('.assistant-message.is-user');
+        expect(await page.$eval('.assistant-timeline', element => element.textContent)).toContain('Explain this image.');
+        await page.waitForFunction(() => (document.querySelector('.message-images img') as HTMLImageElement | null)?.naturalWidth);
+        expect(await page.$eval('.message-images img', image => (image as HTMLImageElement).naturalWidth)).toBe(1200);
     }, 60_000);
 
     it('projects live tool activity and restores its conversation after eviction and restart', async () => {
         let page = await openAssistantDocument();
         await page.keyboard.type('AP-B02 tool activity');
         await page.keyboard.press('Enter');
-        await page.waitForFunction(() => document.querySelector('.agent-assistant-turn-progress')?.textContent?.includes('Tool search_document running'));
-        expect(await page.$$eval('.agent-assistant-tool-activity', rows => rows.map(row => row.textContent?.trim()).join('\n'))).toBe('read_document — Running\nsearch_document — Running');
-        await page.waitForFunction(() => document.querySelector('.agent-assistant-message.is-assistant:last-of-type')?.textContent?.includes('Local tool fixture finished.'));
+        // Both tool calls show as live work rows of the running turn.
+        await page.waitForFunction(() => {
+            const rows = [...document.querySelectorAll('.work-entry')].map(row => row.textContent ?? '');
+            return rows.some(row => row.includes('read_document')) && rows.some(row => row.includes('search_document'));
+        });
+        expect(await page.$eval('.work-group summary', summary => summary.textContent)).toContain('search_document');
+        await page.waitForFunction(() => document.querySelector('.assistant-message:not(.is-user):last-of-type')?.textContent?.includes('Local tool fixture finished.'));
 
         // Populate the production cache through ordinary state requests. This is
         // setup for returning to the real open document, not a second chat store.
@@ -115,9 +119,9 @@ describe('Electron E2E - assistant model discovery', () => {
         });
         await clickAsUser(page, 'button[aria-label="Toggle EVB Assistant"]');
         await clickAsUser(page, 'button[aria-label="Toggle EVB Assistant"]');
-        await page.waitForSelector('.agent-assistant-input:not(:disabled)', {visible: true});
-        await page.waitForSelector('.agent-assistant-message.is-user');
-        expect(await page.$eval('.agent-assistant-messages', element => element.textContent)).toContain('AP-B02 tool activity');
+        await page.waitForSelector('.composer-input:not(:disabled)', {visible: true});
+        await page.waitForSelector('.assistant-message.is-user');
+        expect(await page.$eval('.assistant-timeline', element => element.textContent)).toContain('AP-B02 tool activity');
 
         ({page} = await fixture.restart({
             hard: true,
@@ -125,14 +129,14 @@ describe('Electron E2E - assistant model discovery', () => {
         }));
         await waitForPdfLoaded(page);
         await clickAsUser(page, 'button[aria-label="Toggle EVB Assistant"]');
-        await page.waitForSelector('.agent-assistant-message.is-user');
-        expect(await page.$eval('.agent-assistant-messages', element => element.textContent)).toContain('AP-B02 tool activity');
+        await page.waitForSelector('.assistant-message.is-user');
+        expect(await page.$eval('.assistant-timeline', element => element.textContent)).toContain('AP-B02 tool activity');
     }, 120_000);
     it('preserves every table-like line inside assistant fenced code', async () => {
         const page = await openAssistantDocument();
         await page.keyboard.type('AP-B01 fenced table');
         await page.keyboard.press('Enter');
-        const message = '.agent-assistant-message.is-assistant:last-child';
+        const message = '.assistant-message:not(.is-user):last-of-type';
         await page.waitForFunction(selector => document.querySelector(selector)?.textContent?.includes('After'), {}, message);
         expect(await page.$eval(message + ' pre', element => element.textContent)).toBe(
             'const value = 1;\n| a | b |\n| --- | --- |\n| c | d |',

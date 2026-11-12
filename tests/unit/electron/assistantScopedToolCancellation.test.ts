@@ -3,7 +3,7 @@ import {
     expect,
     it,
 } from 'vitest';
-import type { IAssistantSessionScopeBinding } from '@electron/features/agent/assistantTurnLifecycle';
+import type { IAssistantSessionScopeBinding } from '@electron/features/agent/assistantMcpSessionScope';
 import { abortAssistantToolRequestsForBinding } from '@electron/features/agent/mcpServer';
 import { requireTabId } from '@contracts/windowTabs';
 

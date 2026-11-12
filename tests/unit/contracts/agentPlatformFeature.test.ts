@@ -1,128 +1,80 @@
 import {
-    describe,
-    expect,
-    it,
-    vi,
+    describe, expect, it, vi,
 } from 'vitest';
-import type { IAgentAssistantState } from '@contracts/agent';
-import { AGENT_PLATFORM_FEATURE } from '@contracts/agentPlatformFeature';
-import { requireIsoTimestamp } from '@contracts/timestamps';
-import { createPlatformFeaturePreloadClient } from '@electron/preload/ipcClient';
-import type { IpcRenderer } from 'electron';
 import * as v from 'valibot';
+import {AGENT_PLATFORM_FEATURE} from '@contracts/agentPlatformFeature';
+import {
+    ASSISTANT_INSTANCES_SCHEMA, type IAssistantState, type IAssistantItem,
+} from '@contracts/assistant';
+import {requireIsoTimestamp} from '@contracts/timestamps';
+import {createPlatformFeaturePreloadClient} from '@electron/preload/ipcClient';
+import type {IpcRenderer} from 'electron';
 
-type TIpcRendererFixture = Pick<IpcRenderer, 'invoke' | 'on' | 'removeListener' | 'send'>;
-
-function createAssistantState(): IAgentAssistantState {
-    const provider = {
-        id: 'codex',
-        label: 'Codex',
-        installState: 'installed',
-        authState: 'signed-in',
-        runtimeState: 'ready',
-        models: [{
-            id: 'gpt-5',
-            label: 'GPT-5',
-            reasoningEfforts: [{
-                id: 'high',
-                label: 'High',
-                isDefault: true,
-            }],
-            defaultReasoningEffort: 'high',
-            serviceTiers: [{
-                id: 'fast',
-                label: 'Fast',
-            }],
-            defaultServiceTier: 'fast',
-        }],
-        defaultModel: 'gpt-5',
-        activeModel: 'gpt-5',
-        modelSwitchMode: 'in-session',
-        availableEfforts: ['high'],
-        defaultEffort: 'high',
-        activeEffort: 'high',
-        availableSpeedModes: [
-            'fast',
-            'standard',
-        ],
-        defaultSpeedMode: 'fast',
-        activeSpeedMode: 'fast',
-        path: '/usr/local/bin/codex',
-        version: '1.0.0',
-        minimumVersion: '0.133.0',
-        versionSupported: true,
-        installUrl: 'https://example.test/install',
-        account: {
-            type: 'chatgpt',
-            email: 'reader@example.test',
-        },
-    } as const;
+const selection = {
+    instanceId: 'codex_proxy',
+    model: 'gpt-5.4',
+    effort: 'high',
+    speedMode: 'standard',
+} as const;
+const scope = {
+    kind: 'document',
+    key: 'document:a',
+    title: 'a.pdf',
+} as const;
+const item: IAssistantItem = {
+    id: 'tool-1',
+    kind: 'tool',
+    turnId: 'turn-1',
+    text: '',
+    status: 'completed',
+    createdAt: requireIsoTimestamp('2026-11-12T00:00:00.000Z'),
+    toolName: 'evb_read_resource',
+    toolDetail: 'Read page 1',
+};
+function createAssistantState(): IAssistantState {
     return {
-        scope: null,
-        status: {
-            supported: true,
-            platform: 'darwin',
-            provider: 'codex',
-            providerLabel: 'Codex',
-            providers: [provider],
-            model: 'gpt-5',
-            modelLabel: 'GPT-5',
-            models: provider.models,
-            modelSwitchMode: 'in-session',
-            effort: 'high',
-            availableEfforts: ['high'],
-            speedMode: 'fast',
-            availableSpeedModes: [
-                'fast',
-                'standard',
-            ],
-            installState: 'installed',
-            codexInstalled: true,
-            codexPath: '/usr/local/bin/codex',
-            codexVersion: '1.0.0',
-            minimumCodexVersion: '0.133.0',
-            codexVersionSupported: true,
-            installUrl: 'https://example.test/install',
-            installScriptUrl: 'https://example.test/install.sh',
-            managedInstallDir: '/tmp/codex',
-            authState: 'signed-in',
-            account: provider.account,
-            runtimeState: 'ready',
-            mcp: {
-                serverName: 'evb-viewer',
-                serverUrl: 'http://127.0.0.1:3000',
-                serverRunning: true,
-                toolCount: 4,
-            },
-            turn: {
-                id: null,
-                phase: 'idle',
-                reasoning: '',
-                toolActivity: [],
-                lastEventAtMs: null,
-                usage: null,
-            },
-            lastCheckedAt: requireIsoTimestamp('2026-07-10T00:00:00.000Z'),
-        },
-        messages: [{
-            id: 'message-1',
-            role: 'assistant',
-            text: 'Ready',
-            createdAt: requireIsoTimestamp('2026-07-10T00:00:00.000Z'),
+        supported: true,
+        enabled: true,
+        selection,
+        installProgress: null,
+        instances: [{
+            id: 'codex_proxy',
+            driver: 'codex',
+            label: 'Codex · Proxy',
+            enabled: true,
+            state: 'ready',
+            auth: 'authenticated',
+            binaryPath: '/bin/codex',
+            version: '1.0',
+            homePath: '/homes/proxy',
+            customEndpoint: true,
+            account: {type: 'apiKey'},
+            models: [{
+                id: 'gpt-5.4',
+                label: 'GPT 5.4',
+            }],
+            defaultModel: 'gpt-5.4',
+            checkedAt: requireIsoTimestamp('2026-11-12T00:00:00.000Z'),
+            canInstall: false,
+            canSignIn: true,
+            loginPending: false,
         }],
+        chat: {
+            sessionKey: 'codex_proxy:document:a',
+            scope,
+            instanceId: 'codex_proxy',
+            model: 'gpt-5.4',
+            items: [item],
+            turn: null,
+        },
     };
 }
+const {
+    methods, events, invokeChannels: channels,
+} = AGENT_PLATFORM_FEATURE;
 
-const channels = AGENT_PLATFORM_FEATURE.invokeChannels;
-const eventChannels = AGENT_PLATFORM_FEATURE.eventChannels;
-const assistantStateResult = AGENT_PLATFORM_FEATURE.methods.getAssistantState.ipc.result;
-const assistantInstallResult = AGENT_PLATFORM_FEATURE.methods.installAssistantCodex.ipc.result;
-const assistantLoginResult = AGENT_PLATFORM_FEATURE.methods.startAssistantLogin.ipc.result;
-const assistantMessageResult = AGENT_PLATFORM_FEATURE.methods.sendAssistantMessage.ipc.result;
-const assistantEvent = AGENT_PLATFORM_FEATURE.events.onAssistantEvent.payload;
-
-describe('Agent platform feature', () => {
-    it('preserves invoke channels, lifecycle event channels, and descriptor metadata', () => {
+describe('Agent platform feature with assistant instances', () => {
+    it('exposes the complete caller method and event set', () => {
         expect(channels).toEqual({
             getMcpIntegrationStatus: 'agent:getMcpIntegrationStatus',
             setMcpIntegrationEnabled: 'agent:setMcpIntegrationEnabled',
@@ -133,10 +85,13 @@ describe('Agent platform feature', () => {
             sendAssistantMessage: 'agent:sendAssistantMessage',
             interruptAssistant: 'agent:interruptAssistant',
             resetAssistantChat: 'agent:resetAssistantChat',
+            getAssistantInstances: 'agent:getAssistantInstances',
+            saveAssistantInstances: 'agent:saveAssistantInstances',
+            importAssistantInstancesFromT3: 'agent:importAssistantInstancesFromT3',
             submitWorkspaceSnapshot: 'agent:submitWorkspaceSnapshot',
             submitCommandResponse: 'agent:submitCommandResponse',
         });
-        expect(eventChannels).toEqual({
+        expect(AGENT_PLATFORM_FEATURE.eventChannels).toEqual({
             onMcpIntegrationChanged: 'agent:mcpIntegrationChanged',
             onAssistantEvent: 'agent:assistantEvent',
             onWorkspaceSnapshotRequest: 'agent:workspaceSnapshotRequest',
@@ -151,146 +106,205 @@ describe('Agent platform feature', () => {
             },
             manifestPath: ['agent'],
         }]);
-        expect(AGENT_PLATFORM_FEATURE.platformDescriptors.methods).toHaveLength(16);
+        expect(AGENT_PLATFORM_FEATURE.platformDescriptors.methods).toHaveLength(19);
     });
-
-    it('exhaustively reconstructs assistant state and nested provider data', () => {
+    it('reconstructs state and nested instances and items at the main IPC boundary', () => {
         const state = createAssistantState();
-        const payload = {
+        expect(v.parse(methods.getAssistantState.ipc.result, {
             ...state,
             ignored: true,
-            status: {
-                ...state.status,
+            instances: state.instances.map(instance => ({
+                ...instance,
                 ignored: true,
-                providers: state.status.providers.map(provider => ({
-                    ...provider,
+            })),
+            chat: {
+                ...state.chat,
+                items: [{
+                    ...item,
                     ignored: true,
-                })),
+                }],
             },
-        };
-
-        expect(v.parse(assistantStateResult, payload)).toEqual(state);
-    });
-
-    it('rejects malformed provider entries at the main result boundary and forwards trusted preload results', async () => {
-        const state = createAssistantState();
-        const malformedState = {
+        })).toEqual(state);
+        expect(() => v.parse(methods.getAssistantState.ipc.result, {
             ...state,
-            status: {
-                ...state.status,
-                providers: [null],
-            },
+            instances: [null],
+        })).toThrow('invalid assistant state');
+    });
+    it('decodes required instance selection and chat/login request payloads', () => {
+        expect(v.parse(methods.sendAssistantMessage.ipc.args, [{
+            text: 'Inspect',
+            scope,
+            selection,
+        }])).toEqual([{
+            text: 'Inspect',
+            scope,
+            selection,
+        }]);
+        expect(() => v.parse(methods.sendAssistantMessage.ipc.args, [{
+            text: 'Inspect',
+            scope,
+        }])).toThrow();
+        expect(v.parse(methods.interruptAssistant.ipc.args, [{
+            scope,
+            instanceId: 'codex_proxy',
+        }])).toEqual([{
+            scope,
+            instanceId: 'codex_proxy',
+        }]);
+        expect(v.parse(methods.startAssistantLogin.ipc.args, [{
+            instanceId: 'codex_proxy',
+            mode: 'device-code',
+        }])).toEqual([{
+            instanceId: 'codex_proxy',
+            mode: 'device-code',
+        }]);
+        expect(() => v.parse(methods.cancelAssistantLogin.ipc.args, [])).toThrow();
+    });
+    it('reconstructs operation, login and instance-save results', () => {
+        const state = createAssistantState();
+        const error = {
+            code: 'RUNTIME_UNAVAILABLE',
+            message: 'Unavailable',
+            retryable: false,
+            details: {timestamp: 0},
         };
-
-        expect(() => v.parse(assistantStateResult, malformedState)).toThrow('invalid assistant state');
-        expect(() => v.parse(assistantEvent, {
-            type: 'state',
-            state: malformedState,
-        })).toThrow('invalid agent assistant event');
-        expect(() => v.parse(assistantInstallResult, {
+        expect(v.parse(methods.sendAssistantMessage.ipc.result, {
+            ok: false,
+            state,
+            error,
+            ignored: true,
+        })).toEqual({
+            ok: false,
+            state,
+            error,
+        });
+        expect(v.parse(methods.installAssistantCodex.ipc.result, {
             ok: true,
-            state: malformedState,
-        })).toThrow('invalid assistant install');
-        expect(() => v.parse(assistantLoginResult, {
+            state,
+            ignored: true,
+        })).toEqual({
             ok: true,
-            state: malformedState,
-        })).toThrow('invalid assistant login');
-        expect(() => v.parse(assistantMessageResult, {
+            state,
+        });
+        expect(v.parse(methods.startAssistantLogin.ipc.result, {
             ok: true,
-            state: malformedState,
-        })).toThrow('invalid assistant message');
-
+            state,
+            authUrl: 'https://auth.example.test',
+            userCode: 'ABCD',
+            ignored: true,
+        })).toEqual({
+            ok: true,
+            state,
+            authUrl: 'https://auth.example.test',
+            userCode: 'ABCD',
+        });
+        expect(v.parse(methods.saveAssistantInstances.ipc.result, {
+            ok: true,
+            instances: [],
+            notices: [],
+            ignored: true,
+        })).toEqual({
+            ok: true,
+            instances: [],
+            notices: [],
+        });
+    });
+    it('accepts the ordered timeline event variants and rejects old or malformed payloads', () => {
+        const state = createAssistantState();
+        const payloads = [
+            {
+                type: 'instances',
+                instances: state.instances,
+            },
+            {
+                type: 'chat',
+                chat: state.chat,
+            },
+            {
+                type: 'item',
+                sessionKey: 'codex_proxy:document:a',
+                item,
+            },
+            {
+                type: 'item-delta',
+                sessionKey: 'codex_proxy:document:a',
+                itemId: 'reasoning-1',
+                delta: 'Inspecting',
+            },
+            {
+                type: 'turn',
+                sessionKey: 'codex_proxy:document:a',
+                turn: {
+                    id: 'turn-1',
+                    phase: 'thinking',
+                    startedAtMs: 42,
+                    usage: null,
+                },
+            },
+            {
+                type: 'install-progress',
+                progress: null,
+            },
+        ];
+        for (const payload of payloads) expect(v.parse(events.onAssistantEvent.payload, payload)).toEqual(payload);
+        expect(() => v.parse(events.onAssistantEvent.payload, {type: 'heartbeat'})).toThrow('invalid assistant event');
+        expect(() => v.parse(events.onAssistantEvent.payload, {
+            type: 'item-delta',
+            delta: 'late',
+        })).toThrow();
+        expect(() => v.parse(events.onAssistantEvent.payload, {
+            type: 'item',
+            sessionKey: 'scope',
+            item: {
+                ...item,
+                status: 'hung',
+            },
+        })).toThrow();
+    });
+    it('validates instance identity and preserves redaction metadata', () => {
+        const config = {
+            id: 'codex_proxy',
+            driver: 'codex',
+            displayName: 'Proxy',
+            enabled: true,
+            launchArgs: '',
+            launchArgsSecret: true,
+            launchArgsConfigured: true,
+            environment: [{
+                name: 'API_KEY',
+                value: '',
+                secret: true,
+                configured: true,
+            }],
+        };
+        expect(v.parse(ASSISTANT_INSTANCES_SCHEMA, [config])).toEqual([config]);
+        expect(() => v.parse(ASSISTANT_INSTANCES_SCHEMA, [
+            config,
+            config,
+        ])).toThrow('unique');
+        expect(() => v.parse(ASSISTANT_INSTANCES_SCHEMA, [{
+            ...config,
+            id: '../escape',
+        }])).toThrow();
+        expect(() => v.parse(ASSISTANT_INSTANCES_SCHEMA, [{
+            ...config,
+            environment: [{
+                name: 'INVALID NAME',
+                value: '',
+                secret: false,
+            }],
+        }])).toThrow();
+    });
+    it('forwards trusted main results through preload unchanged', async () => {
+        const state = createAssistantState();
         const ipcRenderer = {
-            invoke: vi.fn(async (channel: string) => {
-                expect(channel).toBe(channels.getAssistantState);
-                return malformedState;
-            }),
+            invoke: vi.fn(async () => state),
             on: vi.fn(),
             removeListener: vi.fn(),
             send: vi.fn(),
-        } satisfies TIpcRendererFixture;
-        const client = createPlatformFeaturePreloadClient(
-            ipcRenderer,
-            AGENT_PLATFORM_FEATURE,
-        );
-
-        await expect(client.getAssistantState()).resolves.toBe(malformedState);
-    });
-
-    it('reconstructs assistant operation result variants', () => {
-        const state = createAssistantState();
-
-        expect(v.parse(assistantInstallResult, {
-            ok: true,
-            state,
-            ignored: true,
-        })).toEqual({
-            ok: true,
-            state,
-        });
-        expect(v.parse(assistantLoginResult, {
-            ok: true,
-            state,
-            loginId: 'login-1',
-            authUrl: 'https://example.test/auth',
-            ignored: true,
-        })).toEqual({
-            ok: true,
-            state,
-            loginId: 'login-1',
-            authUrl: 'https://example.test/auth',
-        });
-        expect(v.parse(assistantMessageResult, {
-            ok: false,
-            state,
-            error: 'Unavailable',
-            ignored: true,
-        })).toEqual({
-            ok: false,
-            state,
-            error: 'Unavailable',
-        });
-    });
-
-    it('decodes reasoning, heartbeat, and typed tool activity without accepting malformed phases', () => {
-        const binding = {
-            scopeFingerprint: 'scope',
-            sessionKey: 'codex:scope',
-            turnGeneration: 2,
-            windowId: 1,
-        };
-        expect(v.parse(assistantEvent, {
-            type: 'reasoning-delta',
-            reasoningDelta: 'Inspecting the page',
-            phase: 'thinking',
-            lastEventAtMs: 42,
-            binding,
-        })).toEqual({
-            type: 'reasoning-delta',
-            reasoningDelta: 'Inspecting the page',
-            phase: 'thinking',
-            lastEventAtMs: 42,
-            binding,
-        });
-        expect(v.parse(assistantEvent, {
-            type: 'turn-progress',
-            phase: 'tool-running',
-            toolActivity: {
-                toolId: 'tool-1',
-                name: 'document.search',
-                phase: 'running',
-                startedAtMs: 42,
-            },
-            binding,
-        })).toMatchObject({type: 'turn-progress'});
-        expect(() => v.parse(assistantEvent, {
-            type: 'heartbeat',
-            phase: 'hung',
-            binding,
-        })).toThrow('invalid agent assistant event');
-        expect(() => v.parse(assistantEvent, {
-            type: 'message-delta',
-            delta: 'late',
-        })).toThrow('invalid agent assistant event');
+        } satisfies Pick<IpcRenderer, 'invoke' | 'on' | 'removeListener' | 'send'>;
+        const client = createPlatformFeaturePreloadClient(ipcRenderer, AGENT_PLATFORM_FEATURE);
+        await expect(client.getAssistantState({selection})).resolves.toBe(state);
+        expect(ipcRenderer.invoke).toHaveBeenCalledWith(channels.getAssistantState, {selection});
     });
 });
