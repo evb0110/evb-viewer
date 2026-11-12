@@ -253,17 +253,9 @@ export const useScanCleanupPreviewImages = <TPresentation = undefined>(
         }
         disposePreviewImageSwap(rawPixelSwap.value, revokeBlobUrl);
         rawPixelSwap.value = createPreviewImageSwap();
-        for (const half of Object.keys(cleanedPixelSwaps) as TScanCleanupOutputHalf[]) {
-            const state = cleanedPixelSwaps[half];
-            if (state) disposePreviewImageSwap(state, revokeBlobUrl);
-            Reflect.deleteProperty(cleanedPixelSwaps, half);
-        }
+        disposeCleanedPixelSwaps();
         clearPendingCleanedFrame();
-        for (const half of Object.keys(detailPixelUrls) as TScanCleanupOutputHalf[]) {
-            const url = detailPixelUrls[half];
-            if (url) revokeBlobUrl(url);
-            Reflect.deleteProperty(detailPixelUrls, half);
-        }
+        revokeHalfUrls(detailPixelUrls);
         for (const waiter of displayedFrameWaiters.splice(0)) {
             if (waiter.signal && waiter.abort) waiter.signal.removeEventListener('abort', waiter.abort);
             waiter.resolve('dropped');
@@ -276,11 +268,8 @@ export const useScanCleanupPreviewImages = <TPresentation = undefined>(
     }
 
     function completeRawPixelSwap(url: string) {
-        if (!rawPixelSwap.value.entering || rawPixelSwap.value.currentUrl !== url) {
-            rawPixelSwap.value = completePreviewImageSwap(rawPixelSwap.value, url, revokeBlobUrl);
-            return;
-        }
-        clearRawPixelSwapCompletionTimer();
+        // Only the transition it scheduled may clear the fallback timer.
+        if (rawPixelSwap.value.entering && rawPixelSwap.value.currentUrl === url) clearRawPixelSwapCompletionTimer();
         rawPixelSwap.value = completePreviewImageSwap(rawPixelSwap.value, url, revokeBlobUrl);
     }
 
@@ -289,12 +278,7 @@ export const useScanCleanupPreviewImages = <TPresentation = undefined>(
             return;
         }
         loadedPendingCleanedUrls.add(url);
-        if (pendingCleanedFrame.result.outputs.every(output => {
-            const pendingUrl = pendingCleanedPixelUrls[output.metadata.half];
-            return pendingUrl !== undefined && loadedPendingCleanedUrls.has(pendingUrl);
-        })) {
-            commitPendingCleanedFrame();
-        }
+        commitPendingCleanedFrame();
         scheduleCleanedPixelSwapCompletion(half, url);
     }
 
@@ -319,13 +303,26 @@ export const useScanCleanupPreviewImages = <TPresentation = undefined>(
         cleanedFrameError.value = t('scanCleanup.preview.cleanedImageDecodeFailed');
     }
 
+    function revokeHalfUrls(urls: Partial<Record<TScanCleanupOutputHalf, string>>) {
+        for (const half of Object.keys(urls) as TScanCleanupOutputHalf[]) {
+            const url = urls[half];
+            if (url) revokeBlobUrl(url);
+            Reflect.deleteProperty(urls, half);
+        }
+    }
+
+    function disposeCleanedPixelSwaps() {
+        for (const half of Object.keys(cleanedPixelSwaps) as TScanCleanupOutputHalf[]) {
+            clearCleanedPixelSwapCompletionTimer(half);
+            const state = cleanedPixelSwaps[half];
+            if (state) disposePreviewImageSwap(state, revokeBlobUrl);
+            Reflect.deleteProperty(cleanedPixelSwaps, half);
+        }
+    }
+
     function clearPendingCleanedFrame() {
         const droppedFrame = pendingCleanedFrame;
-        for (const half of Object.keys(pendingCleanedPixelUrls) as TScanCleanupOutputHalf[]) {
-            const url = pendingCleanedPixelUrls[half];
-            if (url) revokeBlobUrl(url);
-            Reflect.deleteProperty(pendingCleanedPixelUrls, half);
-        }
+        revokeHalfUrls(pendingCleanedPixelUrls);
         loadedPendingCleanedUrls.clear();
         pendingCleanedFrame = null;
         if (droppedFrame) resolveDisplayedFrameWaiters(droppedFrame.result, 'dropped');
@@ -358,12 +355,7 @@ export const useScanCleanupPreviewImages = <TPresentation = undefined>(
     function publishCleanedFrame(nextFrame: IScanCleanupPendingCleanedFrame<TPresentation>) {
         const nextResult = nextFrame.result;
         const hadPreviousResult = displayedCleanedFrame.value !== null;
-        for (const half of Object.keys(cleanedPixelSwaps) as TScanCleanupOutputHalf[]) {
-            clearCleanedPixelSwapCompletionTimer(half);
-            const state = cleanedPixelSwaps[half];
-            if (state) disposePreviewImageSwap(state, revokeBlobUrl);
-            Reflect.deleteProperty(cleanedPixelSwaps, half);
-        }
+        disposeCleanedPixelSwaps();
         for (const output of nextResult.outputs) {
             const half = output.metadata.half;
             const pendingUrl = pendingCleanedPixelUrls[half];
@@ -372,11 +364,7 @@ export const useScanCleanupPreviewImages = <TPresentation = undefined>(
             );
             Reflect.deleteProperty(pendingCleanedPixelUrls, half);
         }
-        for (const half of Object.keys(pendingCleanedPixelUrls) as TScanCleanupOutputHalf[]) {
-            const url = pendingCleanedPixelUrls[half];
-            if (url) revokeBlobUrl(url);
-            Reflect.deleteProperty(pendingCleanedPixelUrls, half);
-        }
+        revokeHalfUrls(pendingCleanedPixelUrls);
         displayedCleanedFrame.value = {
             presentation: nextFrame.presentation,
             result: nextResult,
@@ -524,12 +512,7 @@ export const useScanCleanupPreviewImages = <TPresentation = undefined>(
     ]) => {
         if (!nextResult) {
             clearPendingCleanedFrame();
-            for (const half of Object.keys(cleanedPixelSwaps) as TScanCleanupOutputHalf[]) {
-                clearCleanedPixelSwapCompletionTimer(half);
-                const state = cleanedPixelSwaps[half];
-                if (state) disposePreviewImageSwap(state, revokeBlobUrl);
-                Reflect.deleteProperty(cleanedPixelSwaps, half);
-            }
+            disposeCleanedPixelSwaps();
             displayedCleanedFrame.value = null;
             presentationPin = null;
             cleanedFrameError.value = '';
@@ -542,20 +525,9 @@ export const useScanCleanupPreviewImages = <TPresentation = undefined>(
     }, {immediate: true});
 
     watch(() => toValue(detailResult), (nextResult) => {
-        const activeHalves = new Set<TScanCleanupOutputHalf>();
+        revokeHalfUrls(detailPixelUrls);
         for (const output of nextResult?.outputs ?? []) {
-            const half = output.metadata.half;
-            activeHalves.add(half);
-            const previous = detailPixelUrls[half];
-            if (previous) revokeBlobUrl(previous);
-            detailPixelUrls[half] = pngUrl(output.imageData);
-        }
-        for (const half of Object.keys(detailPixelUrls) as TScanCleanupOutputHalf[]) {
-            if (!activeHalves.has(half)) {
-                const url = detailPixelUrls[half];
-                if (url) revokeBlobUrl(url);
-                Reflect.deleteProperty(detailPixelUrls, half);
-            }
+            detailPixelUrls[output.metadata.half] = pngUrl(output.imageData);
         }
     }, {immediate: true});
 

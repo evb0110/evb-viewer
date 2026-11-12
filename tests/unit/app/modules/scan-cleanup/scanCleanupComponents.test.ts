@@ -3273,7 +3273,6 @@ describe('Scan cleanup components', () => {
             alignment: 'top-center',
             pageNumber: 2,
             totalPages: 3,
-            stalePage: true,
             manualSplit: null,
             readingOrder: 'ltr',
         })}));
@@ -3938,7 +3937,6 @@ describe('Scan cleanup components', () => {
             alignment: 'top-center',
             pageNumber: 2,
             totalPages: 3,
-            stalePage: true,
             layoutClassification: 'two-page-spread',
             manualSplit: null,
             readingOrder: 'ltr',
@@ -3967,7 +3965,6 @@ describe('Scan cleanup components', () => {
             alignment: 'top-center',
             pageNumber: 2,
             totalPages: 3,
-            stalePage: true,
             manualSplit: null,
             readingOrder: 'ltr',
         })}));
@@ -3990,7 +3987,6 @@ describe('Scan cleanup components', () => {
             alignment: 'top-center',
             pageNumber: 2,
             totalPages: 3,
-            stalePage: true,
             manualSplit: null,
             readingOrder: 'ltr',
         })}));
@@ -4013,7 +4009,6 @@ describe('Scan cleanup components', () => {
             alignment: 'top-center',
             pageNumber: 2,
             totalPages: 3,
-            stalePage: result.value?.pageNumber !== 2,
             manualSplit: null,
             readingOrder: 'ltr',
         })}));
@@ -4049,7 +4044,6 @@ describe('Scan cleanup components', () => {
             alignment: 'top-center',
             pageNumber: 2,
             totalPages: 3,
-            stalePage: true,
             manualSplit: null,
             readingOrder: 'ltr',
         })}));
@@ -5552,7 +5546,6 @@ describe('Scan cleanup components', () => {
             alignment: 'top-center',
             pageNumber: 1,
             totalPages: 3,
-            stalePage: false,
             manualSplit: manualSplit.value,
             readingOrder: 'ltr',
             'onUpdate:manualSplit': (value: IScanCleanupNormalizedSplit | null) => {

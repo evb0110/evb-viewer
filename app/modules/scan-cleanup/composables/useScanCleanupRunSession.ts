@@ -553,14 +553,8 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
                     options.waitForDetectionBeforeRun(),
                     stopWait,
                 ]);
-                if (isStopRequested()) {
-                    return;
-                }
             }
-            if (isStopRequested()) {
-                return;
-            }
-            if (retireIfDocumentChanged()) {
+            if (isStopRequested() || retireIfDocumentChanged()) {
                 return;
             }
             const detectionStatus = options.detectionStatus.value;
@@ -581,17 +575,13 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
                 );
                 return;
             }
-            let detectionResultStoreId = options.detectionResultStoreId?.value ?? null;
-            let hasAuthoritativeDetectionStore = detectionResultStoreId !== null;
+            const detectionResultStoreId = () => options.detectionResultStoreId?.value ?? null;
             if (
                 runPageCount.value > DETECTION_RESULT_ARRAY_COMPATIBILITY_LIMIT
-                && detectionResultStoreId === null
+                && detectionResultStoreId() === null
             ) {
-                if (await refreshDetectionOnce()) {
-                    detectionResultStoreId = options.detectionResultStoreId?.value ?? null;
-                    hasAuthoritativeDetectionStore = detectionResultStoreId !== null;
-                }
-                if (detectionResultStoreId === null) {
+                await refreshDetectionOnce();
+                if (detectionResultStoreId() === null) {
                     reportScanCleanupRunError(
                         options.ownerId,
                         t('scanCleanup.detectAll.evidenceMissing'),
@@ -613,6 +603,7 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
                 );
                 return;
             }
+            const hasAuthoritativeDetectionStore = detectionResultStoreId() !== null;
             const detectionEvidenceComplete = options.detectionEvidenceComplete?.value;
             const pagePlanEvidenceMissing = hasAuthoritativeDetectionStore
                 ? false
@@ -631,38 +622,24 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
                 );
                 return;
             }
-            let missingAutomaticModeDecisions = false as boolean;
-            const checkAutomaticModeDecision = (pageNumber: number) => {
-                const pageOverride = getScanCleanupPageOverride(
-                    requestOptions.pageOverrides,
-                    requirePageNumber(pageNumber, Math.max(1, options.totalPages.value)),
-                );
-                if (
-                    !pageOverride.excluded
-                    && (pageOverride.outputModeOverride ?? requestOptions.outputMode) === 'auto'
-                    && options.detectionRecords.value.get(pageNumber)?.result?.recommendedOutputMode === undefined
-                ) {
-                    missingAutomaticModeDecisions = true;
-                }
-            };
-            if (hasAuthoritativeDetectionStore) {
-                missingAutomaticModeDecisions = false;
-            } else if (requestedPageNumbers === null) {
-                // The completed detection result store is authoritative for a
-                // full-document run. Walking 1..N here would recreate the
-                // million-page allocation this session deliberately avoids.
-                // Small compatibility callers without that scalar still use
-                // their complete page map as the proof of coverage.
-                const recommendationsComplete = options.detectionEvidenceComplete?.value
+            // The completed detection result store is authoritative for a
+            // full-document run. Walking 1..N here would recreate the
+            // million-page allocation this session deliberately avoids. Small
+            // compatibility callers without that scalar still use their
+            // complete page map as the proof of coverage.
+            const missingAutomaticModeDecisions = !hasAuthoritativeDetectionStore && (requestedPageNumbers === null
+                ? !(detectionEvidenceComplete
                     ?? [...options.detectionRecords.value.values()]
-                        .filter(record => record.result?.recommendedOutputMode !== undefined).length >= runPageCount.value;
-                missingAutomaticModeDecisions = !recommendationsComplete;
-            } else {
-                for (const pageNumber of requestedPageNumbers) {
-                    checkAutomaticModeDecision(pageNumber);
-                    if (missingAutomaticModeDecisions) break;
-                }
-            }
+                        .filter(record => record.result?.recommendedOutputMode !== undefined).length >= runPageCount.value)
+                : requestedPageNumbers.some(pageNumber => {
+                    const pageOverride = getScanCleanupPageOverride(
+                        requestOptions.pageOverrides,
+                        requirePageNumber(pageNumber, Math.max(1, options.totalPages.value)),
+                    );
+                    return !pageOverride.excluded
+                        && (pageOverride.outputModeOverride ?? requestOptions.outputMode) === 'auto'
+                        && options.detectionRecords.value.get(pageNumber)?.result?.recommendedOutputMode === undefined;
+                }));
             if (missingAutomaticModeDecisions) {
                 reportScanCleanupRunError(
                     options.ownerId,

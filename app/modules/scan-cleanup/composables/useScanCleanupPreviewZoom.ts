@@ -17,10 +17,6 @@ interface IPreviewPanGesture {
     pointerY: number;
 }
 
-interface IPreviewStageSize {
-    height: number;
-    width: number;
-}
 
 interface IPreviewWheelZoomSession {
     anchorX: number;
@@ -35,9 +31,9 @@ interface IUseScanCleanupPreviewZoomOptions {
     dragActive: Readonly<Ref<boolean>>;
     formatFitLabel: () => string;
     formatZoomLabel: (zoom: number) => string;
+    /** The unscaled stage: its width and height are the stage size. */
     overlayBounds: IScanCleanupDragRect;
     result: () => Pick<IScanCleanupPreviewResult, 'rawWidthPx' | 'rawHeightPx'> | null;
-    stageSize: IPreviewStageSize;
     surface: Ref<HTMLElement | null>;
     updateGeometry: () => void;
 }
@@ -57,12 +53,12 @@ export const useScanCleanupPreviewZoom = (options: IUseScanCleanupPreviewZoomOpt
     let wheelZoomSession: IPreviewWheelZoomSession | null = null;
     const previewFitZoom = computed(() => {
         const result = options.result();
-        if (!result || options.stageSize.width <= 0 || options.stageSize.height <= 0) {
+        if (!result || options.overlayBounds.width <= 0 || options.overlayBounds.height <= 0) {
             return 1;
         }
         const fit = Math.min(
-            options.stageSize.width / Math.max(1, result.rawWidthPx),
-            options.stageSize.height / Math.max(1, result.rawHeightPx),
+            options.overlayBounds.width / Math.max(1, result.rawWidthPx),
+            options.overlayBounds.height / Math.max(1, result.rawHeightPx),
         );
         return Number.isFinite(fit) && fit > 0 ? Math.min(ZOOM.MAX, fit) : 1;
     });
@@ -89,8 +85,8 @@ export const useScanCleanupPreviewZoom = (options: IUseScanCleanupPreviewZoomOpt
 
     function previewPanBounds(scale = previewTransformScale.value) {
         return {
-            x: Math.max(0, options.stageSize.width * (scale - 1) / 2),
-            y: Math.max(0, options.stageSize.height * (scale - 1) / 2),
+            x: Math.max(0, options.overlayBounds.width * (scale - 1) / 2),
+            y: Math.max(0, options.overlayBounds.height * (scale - 1) / 2),
         };
     }
 
@@ -113,10 +109,10 @@ export const useScanCleanupPreviewZoom = (options: IUseScanCleanupPreviewZoomOpt
             && clientY !== undefined
             && surfaceRect !== undefined;
         const anchorX = hasCursorAnchor
-            ? clientX - surfaceRect.left - options.overlayBounds.x - options.stageSize.width / 2
+            ? clientX - surfaceRect.left - options.overlayBounds.x - options.overlayBounds.width / 2
             : 0;
         const anchorY = hasCursorAnchor
-            ? clientY - surfaceRect.top - options.overlayBounds.y - options.stageSize.height / 2
+            ? clientY - surfaceRect.top - options.overlayBounds.y - options.overlayBounds.height / 2
             : 0;
         const previousPanX = previewPan.x;
         const previousPanY = previewPan.y;

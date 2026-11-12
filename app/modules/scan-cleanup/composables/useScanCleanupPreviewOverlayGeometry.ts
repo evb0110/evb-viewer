@@ -16,11 +16,6 @@ interface IPreviewPan {
     y: number;
 }
 
-interface IPreviewStageSize {
-    height: number;
-    width: number;
-}
-
 interface IUseScanCleanupPreviewOverlayGeometryOptions {
     activeDrag: Readonly<Ref<boolean>>;
     clampPan: () => void;
@@ -29,7 +24,6 @@ interface IUseScanCleanupPreviewOverlayGeometryOptions {
     previewPan: IPreviewPan;
     previewSurface: Ref<HTMLElement | null>;
     result: () => IScanCleanupPreviewResult | null;
-    stageSize: IPreviewStageSize;
     transformScale: ComputedRef<number>;
 }
 
@@ -181,13 +175,6 @@ export const useScanCleanupPreviewOverlayGeometry = (
         }
     }
 
-    function setStageSize(width: number, height: number) {
-        if (options.stageSize.width !== width || options.stageSize.height !== height) {
-            options.stageSize.width = width;
-            options.stageSize.height = height;
-        }
-    }
-
     function updateOverlayGeometry(force = false) {
         if (options.activeDrag.value && !force) {
             return;
@@ -201,7 +188,6 @@ export const useScanCleanupPreviewOverlayGeometry = (
                 width: 0,
                 height: 0,
             });
-            setStageSize(0, 0);
             return;
         }
         if (!surfaceRect) {
@@ -226,7 +212,6 @@ export const useScanCleanupPreviewOverlayGeometry = (
             width: stageWidth,
             height: stageHeight,
         });
-        setStageSize(stageWidth, stageHeight);
         options.clampPan();
         for (const [
             half,

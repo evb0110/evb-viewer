@@ -4534,8 +4534,10 @@ describe('scan cleanup workspace session detection guidance', () => {
         const mounted = mountSession(`authority-${Date.now()}`);
 
         await vi.waitFor(() => expect(harness.value.detectAll).toHaveBeenCalledOnce());
+        // Page 1 of 3 has been analyzed; the job is still running.
         harness.emitDetection({
             ...detectionState('detect-1', 'completed'),
+            status: 'running',
             results: [{
                 pageNumber: requirePageNumber(1),
                 classification: 'two-page-spread',

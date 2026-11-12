@@ -133,7 +133,6 @@
                     :alignment="settings.pageAlignment"
                     :page-number="previewPage"
                     :total-pages="previewTotalPages"
-                    :stale-page="previewResult !== null && previewResult.pageNumber !== previewPage"
                     :show-margin-boundary="marginBoundaryVisible"
                     :manual-split="currentPageOverride.manualSplit"
                     :reading-order="settings.readingOrder"
@@ -150,8 +149,8 @@
                     @retry="retryPreview"
                     @invalidate-detail="clearPreviewDetail"
                     @request-detail="requestPreviewDetail"
-                    @update:view-mode="previewViewMode = $event"
-                @update:zone-editing="zoneEditing = $event"
+                        @update:view-mode="previewViewMode = $event"
+                    @update:zone-editing="zoneEditing = $event"
                     @update:manual-split="updateCurrentManualSplit"
                     @update:manual-content-box="updateCurrentManualContentBox"
                     @update:manual-zones="updateCurrentManualZones"
@@ -360,8 +359,8 @@ const {
     navigate: navigatePreview,
     result: previewResult,
     rawResult: previewRawResult,
-    resultCurrent: previewResultCurrent = computed(() => true),
-    resultPresentationKey: previewResultPresentationKey = computed(() => ''),
+    resultCurrent: previewResultCurrent,
+    resultPresentationKey: previewResultPresentationKey,
     retry: retryPreview,
     requestDetail: requestPreviewDetail,
     totalPages: previewTotalPages,
