@@ -8,7 +8,7 @@ import {
 } from 'vitest';
 import {
     createPageShortcutDeps as createDeps,
-    pressPagingKey,
+    pressShortcut,
     resetPageShortcutsTest,
     restorePageShortcutsTest,
 } from '@tests/helpers/usePageShortcutsTestFixtures';
@@ -22,16 +22,16 @@ describe('usePageShortcuts', () => {
         const { usePageShortcuts } = await import('@app/modules/workspace-shell/composables/usePageShortcuts');
         usePageShortcuts(deps);
 
-        expect(pressPagingKey('PageDown')).toHaveBeenCalledOnce();
+        expect(pressShortcut('PageDown')).toHaveBeenCalledOnce();
         expect(deps.handleGoToPage).toHaveBeenNthCalledWith(1, 4, { navigationSource: 'toolbar' });
 
-        expect(pressPagingKey('PageUp')).toHaveBeenCalledOnce();
+        expect(pressShortcut('PageUp')).toHaveBeenCalledOnce();
         expect(deps.handleGoToPage).toHaveBeenNthCalledWith(2, 2, { navigationSource: 'toolbar' });
 
-        expect(pressPagingKey('Home')).toHaveBeenCalledOnce();
+        expect(pressShortcut('Home')).toHaveBeenCalledOnce();
         expect(deps.handleGoToPage).toHaveBeenNthCalledWith(3, 1, { navigationSource: 'toolbar' });
 
-        expect(pressPagingKey('End')).toHaveBeenCalledOnce();
+        expect(pressShortcut('End')).toHaveBeenCalledOnce();
         expect(deps.handleGoToPage).toHaveBeenNthCalledWith(4, 10, { navigationSource: 'toolbar' });
     });
 
@@ -41,10 +41,10 @@ describe('usePageShortcuts', () => {
         const { usePageShortcuts } = await import('@app/modules/workspace-shell/composables/usePageShortcuts');
         usePageShortcuts(deps);
 
-        pressPagingKey('PageDown');
+        pressShortcut('PageDown');
         expect(deps.handleGoToPage).toHaveBeenNthCalledWith(1, 5, { navigationSource: 'toolbar' });
 
-        pressPagingKey('PageUp');
+        pressShortcut('PageUp');
         expect(deps.handleGoToPage).toHaveBeenNthCalledWith(2, 1, { navigationSource: 'toolbar' });
     });
 
@@ -54,7 +54,7 @@ describe('usePageShortcuts', () => {
         const { usePageShortcuts } = await import('@app/modules/workspace-shell/composables/usePageShortcuts');
         usePageShortcuts(deps);
 
-        expect(pressPagingKey('PageDown')).toHaveBeenCalledOnce();
+        expect(pressShortcut('PageDown')).toHaveBeenCalledOnce();
         expect(deps.handleGoToPage).not.toHaveBeenCalled();
     });
 
@@ -63,9 +63,9 @@ describe('usePageShortcuts', () => {
         const { usePageShortcuts } = await import('@app/modules/workspace-shell/composables/usePageShortcuts');
         usePageShortcuts(deps);
 
-        pressPagingKey('PageDown');
+        pressShortcut('PageDown');
         deps.navigationPage.value = 4;
-        pressPagingKey('PageDown');
+        pressShortcut('PageDown');
 
         expect(deps.handleGoToPage).toHaveBeenNthCalledWith(2, 5, { navigationSource: 'toolbar' });
     });
@@ -79,7 +79,7 @@ describe('usePageShortcuts', () => {
         deps.totalPages.value = totalPages;
         usePageShortcuts(deps);
 
-        expect(pressPagingKey('PageDown')).not.toHaveBeenCalled();
+        expect(pressShortcut('PageDown')).not.toHaveBeenCalled();
         expect(deps.handleGoToPage).not.toHaveBeenCalled();
     });
 
@@ -109,7 +109,7 @@ describe('usePageShortcuts', () => {
                 'Home',
                 'End',
             ]) {
-                expect(pressPagingKey(key, { target })).not.toHaveBeenCalled();
+                expect(pressShortcut(key, { target })).not.toHaveBeenCalled();
             }
         }
         expect(deps.handleGoToPage).not.toHaveBeenCalled();
@@ -126,7 +126,7 @@ describe('usePageShortcuts', () => {
             { shiftKey: true },
             { altKey: true },
         ]) {
-            expect(pressPagingKey('PageDown', overrides)).not.toHaveBeenCalled();
+            expect(pressShortcut('PageDown', overrides)).not.toHaveBeenCalled();
         }
         expect(deps.handleGoToPage).not.toHaveBeenCalled();
     });
@@ -143,8 +143,8 @@ describe('usePageShortcuts', () => {
             'ArrowRight',
             ' ',
         ]) {
-            expect(pressPagingKey(key)).not.toHaveBeenCalled();
-            expect(pressPagingKey(key, { shiftKey: true })).not.toHaveBeenCalled();
+            expect(pressShortcut(key)).not.toHaveBeenCalled();
+            expect(pressShortcut(key, { shiftKey: true })).not.toHaveBeenCalled();
         }
         expect(deps.handleGoToPage).not.toHaveBeenCalled();
     });
@@ -163,7 +163,7 @@ describe('usePageShortcuts', () => {
             'Home',
             'End',
         ]) {
-            expect(pressPagingKey(key)).not.toHaveBeenCalled();
+            expect(pressShortcut(key)).not.toHaveBeenCalled();
         }
         expect(deps.handleGoToPage).not.toHaveBeenCalled();
     });

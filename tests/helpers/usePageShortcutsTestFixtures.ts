@@ -130,19 +130,17 @@ export function getCapturedPaste() {
     return capturedPaste;
 }
 
-export function pressPagingKey(key: string, overrides: Partial<IKeyboardEventFixtureOptions> = {}) {
+export function pressShortcut(
+    key: string,
+    overrides: Partial<IKeyboardEventFixtureOptions> = {},
+    listener: ((event: KeyboardEvent) => void) | undefined = capturedOnEventFired,
+) {
     const preventDefault = vi.fn();
-    if (!capturedOnEventFired) {
-        throw new Error('Expected useMagicKeys to register onEventFired.');
+    if (!listener) {
+        throw new Error('Expected a keyboard event listener.');
     }
-    capturedOnEventFired(createKeyboardEventFixture({
+    listener(createKeyboardEventFixture({
         key,
-        code: key,
-        metaKey: false,
-        ctrlKey: false,
-        altKey: false,
-        shiftKey: false,
-        target: null,
         preventDefault,
         ...overrides,
     }));

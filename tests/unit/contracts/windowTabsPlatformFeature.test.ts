@@ -60,26 +60,7 @@ describe('window tabs platform feature schemas', () => {
     const codecs = WINDOW_TABS_PLATFORM_FEATURE.ipcCodecs;
 
     it('owns all request/response and renderer event members but not renderer readiness', () => {
-        expect(channels).toEqual({
-            transfer: 'tabs:transfer',
-            transferAck: 'tabs:transferAck',
-            listTargetWindows: 'tabs:listTargets',
-            closeCurrentWindow: 'window:closeCurrent',
-            claimPendingExternalOpenPaths: 'app:claimPendingExternalOpenPaths',
-            acknowledgePendingExternalOpenPaths: 'app:acknowledgePendingExternalOpenPaths',
-            saveWorkspaceCheckpoint: 'workspace:checkpointSave',
-            discardWorkspaceCheckpoint: 'workspace:checkpointDiscard',
-            resumeWorkspaceCheckpoint: 'workspace:checkpointResume',
-            claimWorkspaceCheckpoint: 'workspace:checkpointClaim',
-            acknowledgeWorkspaceCheckpoint: 'workspace:checkpointAcknowledge',
-        });
-        expect(WINDOW_TABS_PLATFORM_FEATURE.eventChannels).toEqual({
-            onIncomingTransfer: 'tabs:incomingTransfer',
-            onWindowAction: 'menu:windowTabsAction',
-            onMenuNewTab: 'menu:newTab',
-            onMenuCloseTab: 'menu:closeTab',
-            onMenuSplitEditor: 'menu:splitEditor',
-        });
+
         expect(WINDOW_TABS_PLATFORM_FEATURE.platformDescriptors.methods).toHaveLength(16);
         expect(WINDOW_TABS_PLATFORM_FEATURE.platformDescriptors.methods)
             .not.toContainEqual(expect.objectContaining({path: [

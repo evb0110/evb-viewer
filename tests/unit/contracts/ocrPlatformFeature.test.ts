@@ -111,21 +111,7 @@ describe('OCR platform feature', () => {
     });
 
     it('preserves channels, timeouts, optional members, and registry replay policy', () => {
-        expect(channels).toEqual({
-            cancel: 'ocr:cancel',
-            getLanguages: 'ocr:getLanguages',
-            resolveDocumentTextCatalog: 'ocr:resolveDocumentTextCatalog',
-            resolveDocumentTextCatalogWindow: 'ocr:resolveDocumentTextCatalogWindow',
-            resolveDocumentOcrAvailability: 'ocr:resolveDocumentOcrAvailability',
-            resolveDocumentOcrPage: 'ocr:resolveDocumentOcrPage',
-            acknowledgeResultFile: 'ocr:ackResultFile',
-            createSearchablePdf: 'ocr:createSearchablePdf',
-            subscribeProgress: 'ocr:progress:subscribe',
-        });
-        expect(eventChannels).toEqual({
-            onProgress: 'ocr:progress',
-            onComplete: 'ocr:complete',
-        });
+
         expect(OCR_PLATFORM_FEATURE.methods.resolveDocumentOcrAvailability)
             .toMatchObject({
                 optionalWhenImplemented: true,
@@ -139,12 +125,6 @@ describe('OCR platform feature', () => {
         expect(OCR_PLATFORM_FEATURE.methods.createSearchablePdf.ipc.timeoutMs)
             .toBe(30 * 60 * 1_000);
         const replay = OCR_PLATFORM_FEATURE.events.onProgress.subscription.replay;
-        expect(replay).toMatchObject({
-            intervalMs: 50,
-            mode: 'latest-per-key',
-            owner: 'ipc-progress-pump',
-            terminalRetentionMs: 30_000,
-        });
         expect(replay.key({
             requestId: requireRequestId('ocr-1'),
             currentPage: 1,

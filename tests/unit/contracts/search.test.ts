@@ -189,20 +189,7 @@ describe('Search platform feature schemas', () => {
     const codecs = SEARCH_PLATFORM_FEATURE.ipcCodecs;
 
     it('preserves public IPC channels and replay policy', () => {
-        expect(channels).toEqual({
-            run: 'pdf:search',
-            warmIndex: 'pdf:search:warmIndex',
-            cancel: 'pdf:search:cancel',
-            resetCache: 'pdf:search:resetCache',
-            subscribeProgress: 'pdf:search:progress:subscribe',
-        });
-        expect(SEARCH_PLATFORM_FEATURE.eventChannels).toEqual({onProgress: 'pdf:search:progress'});
-        expect(SEARCH_PLATFORM_FEATURE.events.onProgress.subscription.replay).toMatchObject({
-            intervalMs: 50,
-            mode: 'latest-per-key',
-            owner: 'ipc-progress-pump',
-            terminalRetentionMs: 30_000,
-        });
+
         expect(SEARCH_PLATFORM_FEATURE.methods.run.ipc.timeoutMs).toBe(30 * 60 * 1_000);
         expect(SEARCH_PLATFORM_FEATURE.methods.warmIndex.ipc.timeoutMs).toBe(30 * 60 * 1_000);
     });

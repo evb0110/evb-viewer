@@ -11,7 +11,6 @@ import {
     ref,
     type Ref,
 } from 'vue';
-import type { ITab } from '@app/types/tabs';
 import { useMenuSync } from '@app/modules/workspace-shell/composables/useMenuSync';
 import { createWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 import type { TWorkspaceDocumentPhase } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentSnapshot';
@@ -105,194 +104,33 @@ describe('useMenuSync', () => {
         vi.clearAllMocks();
     });
 
-    it('syncs menu state when workspace or tabs change', async () => {
-        const activeDocumentRecord = ref(createWorkspaceDocumentRecord());
+    it.each([
+        {name: 'document presence and tab count', initial: {}, next: {hasPdf: true, initialVisualReady: true}, before: {}, after: {hasDocument: true, interactive: true}, addTab: true},
+        {name: 'save availability separately from document presence', initial: {hasPdf: true, canRepairSave: true, canOptimizePdf: true}, next: {canSave: true}, before: {hasDocument: true, interactive: true, canRepairSave: true, canOptimizePdf: true}, after: {canSave: true}},
+        {name: 'save-as viewer capability', initial: {hasPdf: true, viewerCapabilities: {...createDefaultWorkspaceViewerCapabilities(), saveAs: true}}, next: {viewerCapabilities: createDefaultWorkspaceViewerCapabilities()}, before: {hasDocument: true, interactive: true, canSaveAs: true}, after: {canSaveAs: false}},
+        {name: 'optimize independently from repair', initial: {hasPdf: true, canSave: true, canRepairSave: true}, next: {canOptimizePdf: true}, before: {hasDocument: true, interactive: true, canSave: true, canRepairSave: true}, after: {canOptimizePdf: true}},
+    ])('syncs $name as shell state changes', async ({initial, next, before, after, ...scenario}) => {
+        const activeDocumentRecord = ref(createWorkspaceDocumentRecord({toolbarSnapshot: initial}));
         const tabs = ref([{id: 'tab-1'}]);
-
-        useMenuSync({
-            ...activeDocumentOf(activeDocumentRecord),
-            tabs,
-        });
+        useMenuSync({...activeDocumentOf(activeDocumentRecord), tabs});
         await nextTick();
 
-        expect(mocks.setMenuDocumentState).toHaveBeenCalledWith(expect.objectContaining({
-            hasDocument: false,
-            canSave: false,
-            canSaveAs: false,
-            canRepairSave: false,
-            canOptimizePdf: false,
-            canPrint: false,
-            interactive: false,
-            canContinuousScroll: false,
-            continuousScroll: true,
-        }));
-        expect(mocks.setMenuTabCount).toHaveBeenCalledWith(1);
+        const expected = {
+            hasDocument: false, canSave: false, canSaveAs: false,
+            canRepairSave: false, canOptimizePdf: false, canPrint: false,
+            interactive: false, canContinuousScroll: false, continuousScroll: true,
+            ...before,
+        };
+        expect(mocks.setMenuDocumentState).toHaveBeenLastCalledWith(expect.objectContaining(expected));
+        expect(mocks.setMenuTabCount).toHaveBeenLastCalledWith(1);
 
-        activeDocumentRecord.value = createWorkspaceDocumentRecord({toolbarSnapshot: { hasPdf: true }});
-        tabs.value.push({id: 'tab-2'});
+        activeDocumentRecord.value = createWorkspaceDocumentRecord({toolbarSnapshot: {
+            ...activeDocumentRecord.value.toolbarSnapshot, ...next,
+        }});
+        if ('addTab' in scenario && scenario.addTab) tabs.value.push({id: 'tab-2'});
         await nextTick();
-
-        expect(mocks.setMenuDocumentState).toHaveBeenLastCalledWith(expect.objectContaining({
-            hasDocument: true,
-            canSave: false,
-            canSaveAs: false,
-            canRepairSave: false,
-            canOptimizePdf: false,
-            canPrint: false,
-            interactive: true,
-            canContinuousScroll: false,
-            continuousScroll: true,
-        }));
-        expect(mocks.setMenuTabCount).toHaveBeenLastCalledWith(2);
-    });
-
-    it('syncs save availability separately from document presence', async () => {
-        const activeDocumentRecord = ref(createWorkspaceDocumentRecord({toolbarSnapshot: {
-            hasPdf: true,
-            canSave: false,
-            canRepairSave: true,
-            canOptimizePdf: true,
-        }}));
-
-        useMenuSync({
-            ...activeDocumentOf(activeDocumentRecord),
-            tabs: ref([{id: 'tab-1'}]),
-        });
-        await nextTick();
-
-        expect(mocks.setMenuDocumentState).toHaveBeenLastCalledWith(expect.objectContaining({
-            hasDocument: true,
-            canSave: false,
-            canSaveAs: false,
-            canRepairSave: true,
-            canOptimizePdf: true,
-            canPrint: false,
-            interactive: true,
-            canContinuousScroll: false,
-            continuousScroll: true,
-        }));
-
-        activeDocumentRecord.value = createWorkspaceDocumentRecord({
-            ...activeDocumentRecord.value,
-            toolbarSnapshot: {
-                ...activeDocumentRecord.value.toolbarSnapshot,
-                canSave: true,
-            },
-        });
-        await nextTick();
-
-        expect(mocks.setMenuDocumentState).toHaveBeenLastCalledWith(expect.objectContaining({
-            hasDocument: true,
-            canSave: true,
-            canSaveAs: false,
-            canRepairSave: true,
-            canOptimizePdf: true,
-            canPrint: false,
-            interactive: true,
-            canContinuousScroll: false,
-            continuousScroll: true,
-        }));
-    });
-
-    it('syncs save-as availability from viewer capabilities', async () => {
-        const activeDocumentRecord = ref(createWorkspaceDocumentRecord({toolbarSnapshot: {
-            hasPdf: true,
-            canSave: false,
-            viewerCapabilities: {
-                ...createDefaultWorkspaceViewerCapabilities(),
-                saveAs: true,
-            },
-        }}));
-
-        useMenuSync({
-            ...activeDocumentOf(activeDocumentRecord),
-            tabs: ref([{id: 'tab-1'}]),
-        });
-        await nextTick();
-
-        expect(mocks.setMenuDocumentState).toHaveBeenLastCalledWith(expect.objectContaining({
-            hasDocument: true,
-            canSave: false,
-            canSaveAs: true,
-            canRepairSave: false,
-            canOptimizePdf: false,
-            canPrint: false,
-            interactive: true,
-            canContinuousScroll: false,
-            continuousScroll: true,
-        }));
-
-        activeDocumentRecord.value = createWorkspaceDocumentRecord({
-            ...activeDocumentRecord.value,
-            toolbarSnapshot: {
-                ...activeDocumentRecord.value.toolbarSnapshot,
-                viewerCapabilities: {
-                    ...activeDocumentRecord.value.toolbarSnapshot.viewerCapabilities,
-                    saveAs: false,
-                },
-            },
-        });
-        await nextTick();
-
-        expect(mocks.setMenuDocumentState).toHaveBeenLastCalledWith(expect.objectContaining({
-            hasDocument: true,
-            canSave: false,
-            canSaveAs: false,
-            canRepairSave: false,
-            canOptimizePdf: false,
-            canPrint: false,
-            interactive: true,
-            canContinuousScroll: false,
-            continuousScroll: true,
-        }));
-    });
-
-    it('syncs optimize availability independently from repair availability', async () => {
-        const activeDocumentRecord = ref(createWorkspaceDocumentRecord({toolbarSnapshot: {
-            hasPdf: true,
-            canSave: true,
-            canRepairSave: true,
-            canOptimizePdf: false,
-        }}));
-
-        useMenuSync({
-            ...activeDocumentOf(activeDocumentRecord),
-            tabs: ref([{id: 'tab-1'}]),
-        });
-        await nextTick();
-
-        expect(mocks.setMenuDocumentState).toHaveBeenLastCalledWith(expect.objectContaining({
-            hasDocument: true,
-            canSave: true,
-            canSaveAs: false,
-            canRepairSave: true,
-            canOptimizePdf: false,
-            canPrint: false,
-            interactive: true,
-            canContinuousScroll: false,
-            continuousScroll: true,
-        }));
-
-        activeDocumentRecord.value = createWorkspaceDocumentRecord({
-            ...activeDocumentRecord.value,
-            toolbarSnapshot: {
-                ...activeDocumentRecord.value.toolbarSnapshot,
-                canOptimizePdf: true,
-            },
-        });
-        await nextTick();
-
-        expect(mocks.setMenuDocumentState).toHaveBeenLastCalledWith(expect.objectContaining({
-            hasDocument: true,
-            canSave: true,
-            canSaveAs: false,
-            canRepairSave: true,
-            canOptimizePdf: true,
-            canPrint: false,
-            interactive: true,
-            canContinuousScroll: false,
-            continuousScroll: true,
-        }));
+        expect(mocks.setMenuDocumentState).toHaveBeenLastCalledWith(expect.objectContaining({...expected, ...after}));
+        expect(mocks.setMenuTabCount).toHaveBeenLastCalledWith(tabs.value.length);
     });
 
     it('uses the document phase for readiness and keeps continuous-scroll capability independent', async () => {
@@ -352,7 +190,7 @@ describe('useMenuSync', () => {
 
         useMenuSync({
             ...activeDocumentOf(activeDocumentRecord),
-            tabs: ref<ITab[]>([{id: 'tab-1'}]),
+            tabs: ref([{id: 'tab-1'}]),
         });
         await nextTick();
 
