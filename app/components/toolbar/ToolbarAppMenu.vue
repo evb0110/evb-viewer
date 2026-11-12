@@ -324,7 +324,6 @@ function takeTextEditSource() {
 /** The browser's own editing command: no other API keeps its clipboard trust, selection and undo. */
 function runEditingCommand(command: 'cut' | 'copy' | 'insertText', value?: string) {
     // An engine without it offers its keyboard shortcuts only; the caller says so.
-    // eslint-disable-next-line @typescript-eslint/no-deprecated -- no replacement keeps native undo and clipboard semantics.
     return typeof document.execCommand === 'function' && document.execCommand(command, false, value);
 }
 

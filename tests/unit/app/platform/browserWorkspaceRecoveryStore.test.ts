@@ -333,7 +333,6 @@ describe('browserWorkspaceRecoveryStore', () => {
             throw new Error('The fake IndexedDB factory was not installed.');
         }
         // The browser global is typed as IDBFactory, while this test installs the richer fake.
-        // eslint-disable-next-line no-restricted-syntax
         const factory = indexedDb as unknown as FakeIndexedDbFactory;
         const database = factory.getDatabase(DB_NAME);
         const record = database?.getStoreRecords(WORKSPACE_RECOVERY_STORE).get('owner:window:legacy');

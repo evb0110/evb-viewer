@@ -82,7 +82,6 @@
                     <span class="recent-col recent-col--actions" role="cell" />
                 </div>
             </template>
-            <!-- eslint-disable custom/app-tooltip-only -- Recent rows use native titles without per-row tooltip lifecycles. -->
             <div
                 v-for="file in filteredRecentFiles"
                 v-else
@@ -149,7 +148,6 @@
                     </button>
                 </span>
             </div>
-            <!-- eslint-enable custom/app-tooltip-only -->
         </div>
 
         <!-- A list that could not load says so in its own box, where its rows would be. -->

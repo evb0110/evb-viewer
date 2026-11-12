@@ -46,7 +46,7 @@ export function createPdfOpeningViewportStallDiagnostic(
         if (timer !== null || reported) {
             return;
         }
-        // eslint-disable-next-line custom/no-core-correctness-timers -- This timer only emits diagnostics and never coordinates viewer state.
+        // eslint-disable-next-line invariants/no-core-correctness-timers -- This diagnostic timer never coordinates viewer state.
         timer = setTimeout(() => {
             timer = null;
             const surface = options.getSurface();

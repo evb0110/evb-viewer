@@ -34,7 +34,7 @@ function createReleaseTargetManifest() {
 
 export function renderReleaseTargetManifest() {
     const serializedManifest = JSON.stringify(createReleaseTargetManifest(), null, 4);
-    return `'use strict'; /* eslint-disable @stylistic/array-bracket-newline, @stylistic/array-element-newline, @stylistic/object-curly-newline, @stylistic/object-property-newline, @stylistic/indent */
+    return `'use strict';
 /** @type {TManifest} */
 const manifest = JSON.parse(String.raw\`${serializedManifest}\`);
 /** @typedef {{id: string, label: string, pathSegments: string[], platforms?: string[], type: string}} TPackagedEntry */

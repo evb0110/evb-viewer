@@ -14,7 +14,6 @@ import {
 export {clickCenter} from './clickCenter';
 
 declare module 'vitest' {
-    // eslint-disable-next-line @typescript-eslint/naming-convention -- Vitest requires this interface name for module augmentation.
     export interface ProvidedContext {
         browserIntegrationOrigin: string;
         browserIntegrationServerOutputPath: string;

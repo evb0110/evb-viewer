@@ -1,4 +1,3 @@
-/* eslint-disable custom/file-naming -- The task contract fixes this CLI filename. */
 import { getErrorMessage } from '@contracts/getErrorMessage';
 import {
     copyFile,

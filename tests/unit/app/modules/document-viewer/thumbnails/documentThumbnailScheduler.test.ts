@@ -242,7 +242,6 @@ describe('createDocumentThumbnailScheduler', () => {
             }
             throw new Error('render failed');
         });
-        // eslint-disable-next-line prefer-const
         let scheduler: ReturnType<typeof createDocumentThumbnailScheduler>;
         const onError = vi.fn((_error: unknown, failedDemand: IDocumentThumbnailDemand) => {
             reported.push(failedDemand.pageNumber);

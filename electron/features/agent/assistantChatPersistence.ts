@@ -568,7 +568,6 @@ function parsePersistedRecord(line: string): TPersistedAssistantChatRecord | nul
         && /^[a-f0-9]{64}$/u.test(parsed.sha256)
         && typeof parsed.sizeBytes === 'number'
         && Number.isSafeInteger(parsed.sizeBytes)
-        && parsed.sizeBytes >= 0
         && parsed.sizeBytes > 0
     ) {
         return parsed as TPersistedAssistantChatRecord;

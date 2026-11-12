@@ -127,7 +127,8 @@ counting how its source was written.
 
 ## Reuse and parallel work
 
-ESLint, Stylelint, TypeScript, and Vitest use their own caches. Avoid overlapping
+OxLint runs without a lint cache. Stylelint, TypeScript, and Vitest use their own
+caches. Avoid overlapping
 dependency installation or shared-output rebuilds with tests that consume those
 files.
 

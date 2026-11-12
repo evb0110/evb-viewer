@@ -1,4 +1,3 @@
-/* eslint-disable custom/file-naming -- The issue contract fixes this focused test filename. */
 import {
     describe,
     expect,
