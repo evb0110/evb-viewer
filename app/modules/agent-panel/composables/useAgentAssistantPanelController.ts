@@ -153,17 +153,20 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
             busyAction.value = null;
         }
     }
+    // A reset or a newer refresh retires the replies of earlier refreshes.
+    let refreshSerial = 0;
     async function refresh(probe = false) {
         const identity = requestIdentity.value;
+        const serial = ++refreshSerial;
         try {
             const next = await getAgentCapability().getAssistantState({
                 scope: scope.value ? cloneAssistantScope(scope.value) : null,
                 ...(selection.value ? { selection: { ...selection.value } } : {}),
                 probe,
             });
-            if (mounted && identity === requestIdentity.value) applyState(next);
+            if (mounted && serial === refreshSerial && identity === requestIdentity.value) applyState(next);
         } catch (error) {
-            if (mounted && identity === requestIdentity.value) reportFailure(error, 'refresh');
+            if (mounted && serial === refreshSerial && identity === requestIdentity.value) reportFailure(error, 'refresh');
         }
     }
     function applyResult(result: IAssistantOperationResult, owner: string | null) {
@@ -173,7 +176,19 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
             if (instance.value?.message !== result.error.message) reportFailure(new Error(result.error.message), busyAction.value === 'install' ? 'install' : 'login');
         }
     }
-    async function send(text = draft.value.trim(), attachments = composerImages.value, presetId?: TAgentAssistantPresetId) {
+    /**
+     * Sends the composer's draft, or an explicit payload (retry, preset). Only
+     * a composer send clears the composer, so a retry keeps what is being typed.
+     */
+    async function send(payload?: {
+        text: string;
+        attachments: readonly TAssistantComposerImage[];
+        presetId?: TAgentAssistantPresetId;
+    }) {
+        const fromComposer = payload === undefined;
+        const text = payload ? payload.text : draft.value.trim();
+        const attachments = payload ? payload.attachments : composerImages.value;
+        const presetId = payload?.presetId;
         if (providerDisabledReason.value || sending.value || imageComposer.isImageIngestionPending.value || !scope.value || !selection.value || (!text && !attachments.length)) return;
         const owner = sessionKey.value;
         const existingSystemIds = new Set(chat.value?.items.filter(item => item.kind === 'system').map(item => item.id));
@@ -195,8 +210,10 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
             ...(presetId ? { presetId } : {}),
         };
         sending.value = true;
-        draft.value = '';
-        imageComposer.clearComposerImages();
+        if (fromComposer) {
+            draft.value = '';
+            imageComposer.clearComposerImages();
+        }
         try {
             const result = await getAgentCapability().sendAssistantMessage(request);
             if (owner !== sessionKey.value || !mounted) return;
@@ -205,16 +222,17 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
             const hasPushedReply = hasNewSystemItem(pushedChat);
             const hasReply = hasReturnedReply || hasPushedReply;
             applyState(result.state);
+            // A failure already pushed is newer than a snapshot that lacks it.
             if (hasPushedReply && !hasReturnedReply) state.value.chat = pushedChat;
             if (!result.ok && !hasReply && result.error) reportRefusal(result.error.message);
-            if (!result.ok && !hasReply && !draft.value && !composerImages.value.length) {
+            if (fromComposer && !result.ok && !hasReply && !draft.value && !composerImages.value.length) {
                 draft.value = text;
                 imageComposer.replaceComposerImages(attachments);
             }
         } catch (error) {
             if (mounted && owner === sessionKey.value) {
                 if (!hasNewSystemItem(chat.value)) reportRefusal(getErrorMessage(error));
-                if (!draft.value && !composerImages.value.length) {
+                if (fromComposer && !draft.value && !composerImages.value.length) {
                     draft.value = text;
                     imageComposer.replaceComposerImages(attachments);
                 }
@@ -223,9 +241,15 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
             sending.value = false;
         }
     }
-    async function retry() {
-        const user = chat.value?.items.findLast(item => item.kind === 'user');
-        if (user) await send(user.text, user.attachments ?? []);
+    /** Resends the user message of the failed turn, with its images. */
+    async function retry(turnId: string | null) {
+        const items = chat.value?.items ?? [];
+        const user = items.findLast(item => item.kind === 'user' && (turnId === null || item.turnId === turnId))
+            ?? items.findLast(item => item.kind === 'user');
+        if (user) await send({
+            text: user.text,
+            attachments: user.attachments ?? [],
+        });
     }
     async function interrupt() {
         if (!scope.value || !selection.value || interrupting.value || chat.value?.turn?.phase === 'interrupting') return;
@@ -250,6 +274,7 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
             instanceId: selection.value.instanceId,
         };
         const owner = sessionKey.value;
+        refreshSerial += 1;
         void run('reset', async () => {
             const next = await getAgentCapability().resetAssistantChat(request);
             if (mounted && owner === sessionKey.value) {
@@ -294,7 +319,11 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
     }
     const presetLabel = (id: TAgentAssistantPresetId) => t(id === 'add-bookmarks' ? 'assistant.presetAddBookmarks' : id === 'number-pages' ? 'assistant.presetNumberPages' : 'assistant.presetCheckOcr');
     function sendPreset(id: TAgentAssistantPresetId) {
-        void send(presetLabel(id), [], id);
+        void send({
+            text: presetLabel(id),
+            attachments: [],
+            presetId: id,
+        });
     }
     let mounted = false;
     let unsubscribe: (() => void) | undefined;

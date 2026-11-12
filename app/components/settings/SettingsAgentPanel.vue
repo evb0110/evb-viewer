@@ -12,6 +12,8 @@
         <p v-if="instanceError" class="instance-error" role="alert">{{ instanceError }}</p>
         <p v-for="notice in notices" :key="notice" class="settings-field-hint" role="status">{{ notice }}</p>
         <p v-if="liveState?.installProgress" class="settings-field-hint">{{ liveState.installProgress }}</p>
+        <!-- Edits pause while a save, import or refresh runs, so its reply cannot overwrite them. -->
+        <fieldset :disabled="!!activeAction" class="instance-editor">
         <article v-for="instance in instances" :key="instance.id" class="settings-agent-card settings-agent-card--stack">
             <div class="instance-heading">
                 <UIcon :name="instance.driver === 'codex' ? 'i-ph-terminal' : 'i-ph-brain'" />
@@ -60,6 +62,7 @@
                 </div>
             </details>
         </article>
+        </fieldset>
         <div class="instance-add">
             <USelect v-model="newDriver" :items="drivers" :aria-label="t('assistant.driver')" />
             <UInput v-model="newId" :placeholder="t('assistant.instanceId')" :aria-label="t('assistant.instanceId')" />
@@ -255,7 +258,7 @@ import {
     runSettingsAssistantAction,
 } from '@app/modules/workspace-shell/public/settingsAssistant';
 import {
-    ASSISTANT_INSTANCE_ID_PATTERN, type IAssistantInstanceConfig, type IAssistantInstancesResult, type IAssistantOperationResult, type IAssistantState, type TAssistantDriver,
+    ASSISTANT_INSTANCE_ID_PATTERN, type IAssistantInstanceConfig, type IAssistantInstanceStatus, type IAssistantInstancesResult, type IAssistantOperationResult, type IAssistantState, type TAssistantDriver,
 } from '@contracts/assistant';
 import { getAgentCapability } from '@app/utils/getAgentCapability';
 import { useTypedI18n } from '@app/composables/useTypedI18n';
@@ -328,16 +331,24 @@ function run(action: NonNullable<typeof activeAction.value>, callback: () => Pro
 }
 async function loadInstances() {
     await run('refresh', async () => {
+        // The configuration and the live status load independently: a failed
+        // status read must not leave the editor without the saved instances.
         const [
             config,
             state,
-        ] = await Promise.all([
+        ] = await Promise.allSettled([
             getAgentCapability().getAssistantInstances(),
             getAgentCapability().getAssistantState(),
         ]);
         if (disposed) return;
-        applyInstances(config);
-        liveState.value = state;
+        if (config.status === 'fulfilled') applyInstances(config.value);
+        if (state.status === 'fulfilled') {
+            liveState.value = state.value;
+            if (pendingInstances) liveState.value.instances = pendingInstances;
+        }
+        pendingInstances = null;
+        if (config.status === 'rejected') throw config.reason;
+        if (state.status === 'rejected') throw state.reason;
     });
 }
 function addInstance() {
@@ -411,9 +422,15 @@ function cancelInstanceLogin(instanceId: string) {
     });
 }
 let unsubscribe: (() => void) | undefined;
+let pendingInstances: IAssistantInstanceStatus[] | null = null;
 onMounted(() => {
     unsubscribe = getAgentCapability().onAssistantEvent(event => {
-        if (!liveState.value || disposed) return;
+        if (disposed) return;
+        // Status that arrives before the first snapshot is newer than it.
+        if (!liveState.value) {
+            if (event.type === 'instances') pendingInstances = event.instances;
+            return;
+        }
         if (event.type === 'instances') liveState.value.instances = event.instances;
         if (event.type === 'install-progress') liveState.value.installProgress = event.progress;
     });

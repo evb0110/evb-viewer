@@ -33,6 +33,7 @@ import type {
     TAgentAssistantSpeedMode,
 } from '@contracts/agent';
 import { isErrnoException } from '@contracts/runtimeGuards';
+import { ASSISTANT_INSTANCE_ID_PATTERN } from '@contracts/assistant';
 import { isDocumentRevisionInfo } from '@contracts/documentRevision';
 import {
     inferDocumentRefBackend, parseDocumentRef,
@@ -514,7 +515,7 @@ function isPersistedSession(value: unknown): value is IPersistedAssistantChatSes
         return false;
     }
     return (value.provider === 'codex' || value.provider === 'claude')
-        && (value.instanceId === undefined || typeof value.instanceId === 'string' && /^[a-z0-9][a-z0-9_-]{0,63}$/u.test(value.instanceId))
+        && (value.instanceId === undefined || typeof value.instanceId === 'string' && ASSISTANT_INSTANCE_ID_PATTERN.test(value.instanceId))
         && isAssistantChatScope(value.scope)
         && typeof value.model === 'string'
         && typeof value.effort === 'string'

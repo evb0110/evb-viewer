@@ -1333,7 +1333,7 @@ export default {
             't3Imported': 'Импортировано экземпляров провайдеров из T3 Code: {count}.',
             't3SkippedId': 'Экземпляр T3 «{id}» пропущен: его идентификатор нельзя использовать в EVB.',
             't3SkippedManaged': 'Экземпляр T3 «{id}» пропущен: вход под управлением T3 недоступен в EVB. Используйте вход через Codex CLI.',
-            'claudeArgUnsupported': '{label}: аргумент запуска Claude {argument} не поддерживается в EVB, потому что EVB задаёт его сам.',
+            'launchArgUnsupported': '{label}: аргумент запуска {argument} не поддерживается в EVB, потому что он изменил бы ограничения, которые EVB задаёт сам.',
             'claudeModelChangeTimeout': 'Claude не принял смену модели за {seconds} с.',
             't3WrapperReplaced': '{id}: обёртка разрешений T3 заменена исполняемым файлом Claude, который она запускает; EVB сохраняет собственные ограничения инструментов.',
         },

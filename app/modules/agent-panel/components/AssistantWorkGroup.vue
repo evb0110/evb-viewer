@@ -1,7 +1,7 @@
 <template>
     <details class="work-group">
         <summary class="work-summary">
-            <UIcon :name="live ? 'i-ph-circle-notch' : 'i-ph-check'" />
+            <UIcon :name="live ? 'i-ph-circle-notch' : items.some(item => item.status === 'failed') ? 'i-ph-warning-circle' : 'i-ph-check'" />
             <span v-if="live || items.length === 1 && latest?.kind === 'tool'">{{ latest?.toolName || latest?.text || t('assistant.thinking') }}<template v-if="latest?.kind === 'tool'"> · {{ statusLabel(latest.status) }}</template></span>
             <span v-else>{{ t('assistant.workSummary', { count: items.length }) }}</span>
         </summary>

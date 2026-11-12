@@ -432,6 +432,11 @@ export class CodexInstanceRuntime {
                 ...(typeof response.userCode === 'string' ? {userCode: response.userCode} : {}),
             };
         } catch (error) {
+            // A sign-in whose browser page could not open is not pending.
+            if (this.login?.client === client) {
+                clearTimeout(this.login.timer);
+                this.login = null;
+            }
             await this.stop(client);
             throw error;
         }

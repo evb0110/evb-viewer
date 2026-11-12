@@ -1313,7 +1313,7 @@ export default {
             't3Imported': 'Importate {count} istanze del provider da T3 Code.',
             't3SkippedId': 'Istanza T3 «{id}» ignorata: il suo identificatore non può essere usato in EVB.',
             't3SkippedManaged': 'Istanza T3 «{id}» ignorata: l’accesso gestito da T3 non è disponibile in EVB. Usa invece un accesso di Codex CLI.',
-            'claudeArgUnsupported': '{label}: l’argomento di avvio di Claude {argument} non è supportato in EVB, perché EVB lo imposta da sé.',
+            'launchArgUnsupported': '{label}: l’argomento di avvio {argument} non è supportato in EVB, perché cambierebbe restrizioni che EVB imposta da sé.',
             'claudeModelChangeTimeout': 'Claude non ha accettato il cambio di modello entro {seconds} secondi.',
             't3WrapperReplaced': '{id}: il wrapper dei permessi di T3 è stato sostituito dall’eseguibile di Claude che avvia; EVB mantiene le proprie restrizioni sugli strumenti.',
         },

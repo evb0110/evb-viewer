@@ -1314,7 +1314,7 @@ export default {
             't3Imported': '{count} instances de fournisseur importées depuis T3 Code.',
             't3SkippedId': 'Instance T3 « {id} » ignorée : son identifiant ne peut pas être utilisé dans EVB.',
             't3SkippedManaged': 'Instance T3 « {id} » ignorée : la connexion gérée par T3 n’est pas disponible dans EVB. Utilisez plutôt une connexion Codex CLI.',
-            'claudeArgUnsupported': '{label} : l’argument de lancement Claude {argument} n’est pas pris en charge dans EVB, car EVB le définit lui-même.',
+            'launchArgUnsupported': '{label} : l’argument de lancement {argument} n’est pas pris en charge dans EVB, car il modifierait des restrictions qu’EVB définit lui-même.',
             'claudeModelChangeTimeout': 'Claude n’a pas accepté le changement de modèle en {seconds} secondes.',
             't3WrapperReplaced': '{id} : l’enveloppe d’autorisations de T3 a été remplacée par l’exécutable Claude qu’elle lance ; EVB conserve ses propres restrictions d’outils.',
         },

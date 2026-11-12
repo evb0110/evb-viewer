@@ -243,6 +243,10 @@ describe('assistant instance configuration', () => {
             env: {CODEX_HOME: home},
         });
     });
+    it('refuses Codex launch arguments that enable features outside EVB isolation', async () => {
+        await save({launchArgs: '--enable shell_tool'});
+        await expect(instances.resolveAssistantLaunchContext('codex', resolvers)).rejects.toThrow('is not supported in EVB');
+    });
     it('creates a shadow home linking shared configuration but keeping credentials and scratch private', async () => {
         const home = join(state.root, 'base');
         const shadow = join(state.root, 'shadow');

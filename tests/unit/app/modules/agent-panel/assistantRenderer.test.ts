@@ -327,6 +327,26 @@ describe('assistant renderer on instance contract', () => {
         expect(api.sendAssistantMessage).toHaveBeenCalledWith(expect.objectContaining({ text: 'Use page 2' }));
     });
 
+    it('retries the failed turn with its own message and keeps the draft being typed', async () => {
+        current.chat = chat([
+            item('first', 'user', 'First question', {turnId: 'turn-1'}),
+            item('first-failure', 'system', 'First failed', {
+                turnId: 'turn-1',
+                status: 'failed',
+                errorEnvelope: envelope('First failed', true),
+            }),
+            item('second', 'user', 'Second question', {turnId: 'turn-2'}),
+            item('second-reply', 'assistant', 'Answer', {turnId: 'turn-2'}),
+        ]);
+        const host = mount();
+        await settle();
+        await draft(host, 'Half-typed follow-up');
+        button(host, 'assistant.turnRetry').click();
+        await settle();
+        expect(api.sendAssistantMessage).toHaveBeenCalledWith(expect.objectContaining({text: 'First question'}));
+        expect((host.querySelector('.composer-input') as HTMLTextAreaElement).value).toBe('Half-typed follow-up');
+    });
+
     it('shows a failed reply once in the timeline and never also toasts it', async () => {
         const host = mount();
         await settle();

@@ -1313,7 +1313,7 @@ export default {
             't3Imported': '{count} Anbieterinstanzen aus T3 Code importiert.',
             't3SkippedId': 'T3-Instanz „{id}“ übersprungen: Ihre Kennung kann in EVB nicht verwendet werden.',
             't3SkippedManaged': 'T3-Instanz „{id}“ übersprungen: Die von T3 verwaltete Anmeldung ist in EVB nicht verfügbar. Verwenden Sie stattdessen eine Codex-CLI-Anmeldung.',
-            'claudeArgUnsupported': '{label}: Das Claude-Startargument {argument} wird in EVB nicht unterstützt, weil EVB es selbst festlegt.',
+            'launchArgUnsupported': '{label}: Das Startargument {argument} wird in EVB nicht unterstützt, weil es Einschränkungen ändern würde, die EVB selbst festlegt.',
             'claudeModelChangeTimeout': 'Claude hat den Modellwechsel nicht innerhalb von {seconds} Sekunden übernommen.',
             't3WrapperReplaced': '{id}: Der Berechtigungs-Wrapper von T3 wurde durch die von ihm gestartete Claude-Programmdatei ersetzt; EVB behält seine eigenen Werkzeugbeschränkungen.',
         },

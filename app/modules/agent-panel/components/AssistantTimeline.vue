@@ -13,7 +13,7 @@
                     <AssistantWorkGroup v-if="row.kind === 'work'" :items="row.items" :live="running && row.id === activeWorkGroupId" @copy="(id, text) => emit('copy', id, text)" />
                     <div v-else-if="row.item.kind === 'system'" class="timeline-system" :class="row.item.status === 'failed' ? 'timeline-error' : 'timeline-notice'" :role="row.item.status === 'failed' ? 'alert' : 'status'">
                         <p>{{ row.item.errorEnvelope?.message ?? row.item.text }}</p>
-                        <UButton v-if="row.item.status === 'failed' && row.item.errorEnvelope?.retryable" :label="t('assistant.turnRetry')" variant="ghost" color="neutral" size="xs" @click="emit('retry')" />
+                        <UButton v-if="row.item.status === 'failed' && row.item.errorEnvelope?.retryable" :label="t('assistant.turnRetry')" variant="ghost" color="neutral" size="xs" @click="emit('retry', row.item.turnId)" />
                      </div>
                     <AssistantMessage v-else :item="row.item" :copy-icon="copyIcon(row.id)" :copy-label="copyLabel(row.id)" @copy="(id, text) => emit('copy', id, text)" @preview="(images, id) => emit('preview', images, id)" @layout="followEnd" />
                 </template>
@@ -48,7 +48,7 @@ const props = defineProps<{
 const emit = defineEmits<{
     copy: [id: string, text: string];
     preview: [images: TAssistantComposerImage[] | undefined, id: string];
-    retry: []
+    retry: [turnId: string | null]
 }>();
 const { t } = useTypedI18n();
 const viewport = ref<HTMLElement | null>(null);

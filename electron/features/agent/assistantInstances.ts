@@ -133,7 +133,7 @@ export function parseClaudeExtraArgs(tokens: readonly string[], label: string) {
     for (let index = 0; index < tokens.length; index += 1) {
         const token = tokens[index] ?? '';
         if (!token.startsWith('--') || token.length === 2) {
-            throw new Error(te('dialogs.agentAssistant.claudeArgUnsupported', {
+            throw new Error(te('dialogs.agentAssistant.launchArgUnsupported', {
                 label,
                 argument: token,
             }));
@@ -143,7 +143,7 @@ export function parseClaudeExtraArgs(tokens: readonly string[], label: string) {
             inlineValue,
         ] = token.slice(2).split(/=(.*)/su, 2);
         if (CLAUDE_RESERVED_FLAGS.has(rawName.toLowerCase())) {
-            throw new Error(te('dialogs.agentAssistant.claudeArgUnsupported', {
+            throw new Error(te('dialogs.agentAssistant.launchArgUnsupported', {
                 label,
                 argument: `--${rawName}`,
             }));
@@ -600,8 +600,23 @@ export async function resolveAssistantLaunchContext(
         launchArgs,
         homePath,
         customEndpoint,
-        claudeExtraArgs: instance.driver === 'claude' ? parseClaudeExtraArgs(launchArgs, label) : {},
+        claudeExtraArgs: instance.driver === 'claude' ? parseClaudeExtraArgs(launchArgs, label) : refuseCodexEnableFlags(launchArgs, label),
     };
+}
+
+/**
+ * Codex `--enable` turns a feature on outside the `-c` overrides EVB appends
+ * to keep the shell, apps and similar features off, so it is refused.
+ */
+function refuseCodexEnableFlags(tokens: readonly string[], label: string) {
+    const enable = tokens.find(token => token === '--enable' || token.startsWith('--enable='));
+    if (enable) {
+        throw new Error(te('dialogs.agentAssistant.launchArgUnsupported', {
+            label,
+            argument: '--enable',
+        }));
+    }
+    return {};
 }
 
 /**

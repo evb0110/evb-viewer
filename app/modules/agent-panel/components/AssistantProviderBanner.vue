@@ -50,7 +50,7 @@ const { t } = useTypedI18n();
 // A dismissed status stays hidden until the instance reports something new.
 const dismissedKey = ref<string | null>(null);
 const statusKey = computed(() => props.instance
-    ? `${props.instance.id}:${props.instance.state}:${props.instance.message ?? ''}`
+    ? `${props.instance.id}:${props.instance.state}:${props.instance.message ?? ''}:${props.instance.loginPending}:${props.deviceCode ?? ''}:${props.verificationUrl ?? ''}`
     : null);
 </script>
 

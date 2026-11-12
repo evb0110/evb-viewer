@@ -1313,7 +1313,7 @@ export default {
             't3Imported': '{count} providerinstanties geïmporteerd uit T3 Code.',
             't3SkippedId': 'T3-instantie "{id}" overgeslagen: de id kan niet in EVB worden gebruikt.',
             't3SkippedManaged': 'T3-instantie "{id}" overgeslagen: door T3 beheerd aanmelden is niet beschikbaar in EVB. Gebruik een aanmelding via de Codex-CLI.',
-            'claudeArgUnsupported': '{label}: het Claude-startargument {argument} wordt niet ondersteund in EVB, omdat EVB het zelf instelt.',
+            'launchArgUnsupported': '{label}: het startargument {argument} wordt niet ondersteund in EVB, omdat het beperkingen zou wijzigen die EVB zelf instelt.',
             'claudeModelChangeTimeout': 'Claude heeft de modelwijziging niet binnen {seconds} seconden overgenomen.',
             't3WrapperReplaced': '{id}: de rechtenwrapper van T3 is vervangen door het Claude-programma dat hij start; EVB houdt zijn eigen beperkingen voor hulpmiddelen.',
         },

@@ -1313,7 +1313,7 @@ export default {
             't3Imported': 'Imported {count} provider instances from T3 Code.',
             't3SkippedId': 'Skipped T3 instance "{id}": its id cannot be used in EVB.',
             't3SkippedManaged': 'Skipped T3 instance "{id}": T3-managed sign-in is not available in EVB. Use a Codex CLI login instead.',
-            'claudeArgUnsupported': '{label}: the Claude launch argument {argument} is not supported in EVB, because EVB sets that itself.',
+            'launchArgUnsupported': '{label}: the launch argument {argument} is not supported in EVB, because it would change restrictions EVB sets itself.',
             'claudeModelChangeTimeout': 'Claude did not accept the model change within {seconds} seconds.',
             't3WrapperReplaced': '{id}: T3\'s permission wrapper was replaced by the Claude executable it runs; EVB keeps its own tool restrictions.',
         },

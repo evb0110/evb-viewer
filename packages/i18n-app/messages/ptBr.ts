@@ -1315,7 +1315,7 @@ export default {
             't3Imported': 'Foram importadas {count} instâncias de provedor do T3 Code.',
             't3SkippedId': 'A instância T3 "{id}" foi ignorada: o identificador não pode ser usado no EVB.',
             't3SkippedManaged': 'A instância T3 "{id}" foi ignorada: o login gerenciado pelo T3 não está disponível no EVB. Use um login do Codex CLI.',
-            'claudeArgUnsupported': '{label}: o argumento de inicialização do Claude {argument} não é compatível com o EVB, porque o EVB o define por conta própria.',
+            'launchArgUnsupported': '{label}: o argumento de inicialização {argument} não é compatível com o EVB, porque alteraria restrições que o EVB define por conta própria.',
             'claudeModelChangeTimeout': 'O Claude não aceitou a troca de modelo em {seconds} segundos.',
             't3WrapperReplaced': '{id}: o wrapper de permissões do T3 foi substituído pelo executável do Claude que ele executa; o EVB mantém suas próprias restrições de ferramentas.',
         },

@@ -119,7 +119,18 @@ describe('Codex real subprocess transport and instance runtime', () => {
         await expectChildrenExited();
     }, 13_000);
     it('probes models and auth without starting an embedded MCP server and exits its child', async () => {
-        expect(await runtime().probe()).toMatchObject({
+        const embeddedMcp = vi.fn(async () => ({
+            url: 'http://127.0.0.1:1234/mcp',
+            token: 'fixture-token',
+        }));
+        const instance = new CodexInstanceRuntime({
+            resolveContext: async () => context(),
+            cwd: async () => root,
+            embeddedMcp,
+            onLoginFinished: () => undefined,
+        });
+        runtimes.push(instance);
+        expect(await instance.probe()).toMatchObject({
             auth: 'authenticated',
             account: {
                 type: 'chatgpt',
@@ -131,6 +142,7 @@ describe('Codex real subprocess transport and instance runtime', () => {
                 label: 'GPT 5.4',
             }],
         });
+        expect(embeddedMcp).not.toHaveBeenCalled();
         await expectChildrenExited();
     });
     it('settles a never-initialized probe inside its 15 second budget and leaves no child', async () => {
@@ -152,7 +164,7 @@ describe('Codex real subprocess transport and instance runtime', () => {
             onNotification: () => undefined,
             onExit: () => undefined,
         });
-        await new Promise(resolveDelay => setTimeout(resolveDelay, 300));
+        await vi.waitFor(() => readFile(join(root, 'pids'), 'utf8'));
         const stoppedAt = Date.now();
         await instance.shutdown();
         await expect(pending).rejects.toThrow();
