@@ -70,12 +70,16 @@ describe('browser OCR progress', () => {
             await dialog.getByText('Hebrew', {exact: true}).click({timeout: 15_000});
             // A background checkpoint may claim the document lease between
             // pointer-down and pointer-up. Keep its real snapshot copy pending
-            // through that click so recovery cannot intermittently swallow it.
+            // until the click has been delivered, so recovery cannot swallow it.
             await page.evaluate(`(async () => {
                 const {getDocumentWorkingCopyCapability} = await import('/_nuxt/utils/platformDocuments.ts');
                 const recovery = getDocumentWorkingCopyCapability().recovery;
                 const original = recovery.createSnapshot;
                 const gate = Promise.withResolvers();
+                window.__ocrReleaseRecovery = () => {
+                    recovery.createSnapshot = original;
+                    gate.resolve();
+                };
                 document.addEventListener('pointerdown', () => {
                     recovery.createSnapshot = async (...args) => {
                         await gate.promise;
@@ -84,13 +88,16 @@ describe('browser OCR progress', () => {
                     window.__ocrConcurrentRecovery = window.__evbTestApi.getActiveWorkspaceHandle()
                         .createRecoverySnapshot({fileName: 'hebrew-recovery.pdf'});
                 }, {once: true, capture: true});
-                document.addEventListener('pointerup', () => {
-                    recovery.createSnapshot = original;
-                    gate.resolve();
-                }, {once: true, capture: true});
             })()`);
             const ocrStartedAt = Date.now();
-            await dialog.getByRole('button', {name: /^(Download and start OCR|Start OCR)$/u}).click();
+            try {
+                await dialog.getByRole('button', {name: /^(Download and start OCR|Start OCR)$/u}).click();
+            } finally {
+                await page.evaluate(`(() => {
+                    window.__ocrReleaseRecovery?.();
+                    delete window.__ocrReleaseRecovery;
+                })()`);
+            }
             await page.evaluate(`(async () => {
                 const snapshot = await window.__ocrConcurrentRecovery;
                 delete window.__ocrConcurrentRecovery;
