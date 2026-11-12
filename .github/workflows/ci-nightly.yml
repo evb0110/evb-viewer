@@ -3,7 +3,8 @@ name: CI Nightly
 # The nightly run: checks whose value does not depend on which commit runs
 # them. They are slow, they need large fixtures or a second platform, or they
 # measure wall-clock budgets that a shared hosted runner cannot hold steady.
-# One macOS build job feeds all ten macOS E2E jobs.
+# One macOS build job feeds every macOS E2E job. The macOS lanes run the
+# smoke lane nightly and all lanes on Sunday's run and on a dispatched run.
 # It reports; nothing here gates a commit or a release (ci.yml's gates_ok is
 # the one required verdict).
 #
@@ -20,7 +21,8 @@ concurrency:
 
 on:
   schedule:
-    - cron: '30 2 * * *'
+    - cron: '30 2 * * 1-6'
+    - cron: '30 2 * * 0'
   workflow_dispatch:
 
 permissions:
@@ -222,7 +224,14 @@ jobs:
 
       - name: List lanes
         id: lanes
-        run: node scripts/electron-e2e-lanes.mjs >> "$GITHUB_OUTPUT"
+        env:
+          SCHEDULE: ${{ github.event.schedule }}
+        run: |
+          if [ "$SCHEDULE" = '30 2 * * 1-6' ]; then
+            echo 'lanes=["e2e-smoke"]'
+          else
+            node scripts/electron-e2e-lanes.mjs
+          fi >> "$GITHUB_OUTPUT"
 
       # A tarball keeps the native tools executable.
       - name: Pack build
@@ -236,8 +245,8 @@ jobs:
           path: electron-e2e-build.tar
 
   # The per-push Electron E2E lanes again on macOS, the owner's platform, with
-  # wall-clock budgets enforced. ci.yml runs the same lanes on Linux and only
-  # reports a missed budget.
+  # wall-clock budgets enforced: the smoke lane nightly, all lanes weekly.
+  # ci.yml runs the same lanes on Linux and only reports a missed budget.
   nightly_electron_e2e_macos:
     name: Electron E2E macOS (${{ matrix.lane }})
     needs: electron_e2e_macos_build
