@@ -587,7 +587,8 @@ export const createDocumentContext = ({controller}: {controller: IWorkspaceDocum
         closePageContextMenu,
         closeAllAnnotationNotes: annotations.closeAllAnnotationNotes,
         loadRecentFiles: () => void file.loadRecentFiles(),
-        isBusy: computed(() => controller.operationLease.isBusy.value || saveService.isAnySaving.value),
+        // OCR waits for document writers; a background recovery copy only reads.
+        isBusy: computed(() => controller.operationLease.isForegroundBusy.value || saveService.isAnySaving.value),
         clearOcrCache,
         ensureHistoryBaselineForMutation: file.ensureHistoryBaselineForMutation,
         reloadWorkingCopyIntoHistory: file.reloadWorkingCopyIntoHistory,

@@ -640,19 +640,18 @@ export const useOcrPopupPresenter = ({
     }
 
     async function runOcrForAgent(options: IAgentOcrRunOptions = {}, admission?: IAgentOcrRunAdmission) {
-        if (toValue(context.busy)) {
-            return refuseAgentRun(t('errors.ocr.disabled'));
-        }
-
         if (progress.value.isRunning) {
             return refuseAgentRun(t('errors.ocr.alreadyRunning'));
         }
 
         await loadLanguages();
-        // The command may have been aborted, or its document replaced, while
-        // the languages loaded.
+        // The command may have been aborted, its document replaced, or a
+        // document operation started while the languages loaded.
         admission?.signal.throwIfAborted();
         admission?.assertCurrentDocument();
+        if (toValue(context.busy)) {
+            return refuseAgentRun(t('errors.ocr.disabled'));
+        }
         applyAgentOcrOptions(options);
 
         if (!workingCopyPath.value) {

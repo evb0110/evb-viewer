@@ -19,6 +19,30 @@ import { useWorkspaceDocumentSessions } from '@app/modules/workspace-shell/docum
 import { createWorkspaceExposeFixture } from '@tests/unit/app/modules/workspace-shell/workspaceTestFixtures';
 import { readToastDescription } from '@tests/helpers/toastDescription';
 
+describe('workspace document operation lease', () => {
+    it('reports a background recovery copy as busy but not foreground busy', async () => {
+        const {operationLease} = createWorkspaceDocumentController({tabId: 'tab-lease'});
+        const recovery = Promise.withResolvers<void>();
+        const save = Promise.withResolvers<void>();
+
+        const recoveryRun = operationLease.runExclusive('recovery-snapshot', () => recovery.promise);
+        expect(operationLease.isBusy.value).toBe(true);
+        expect(operationLease.isForegroundBusy.value).toBe(false);
+
+        const saveRun = operationLease.runExclusive('save', () => save.promise);
+        expect(operationLease.isForegroundBusy.value).toBe(true);
+
+        recovery.resolve();
+        await recoveryRun;
+        expect(operationLease.isForegroundBusy.value).toBe(true);
+
+        save.resolve();
+        await saveRun;
+        expect(operationLease.isBusy.value).toBe(false);
+        expect(operationLease.isForegroundBusy.value).toBe(false);
+    });
+});
+
 describe('workspace document controller views', () => {
     it('makes the tab empty at the close commit while file cleanup is pending', async () => {
         const controller = createWorkspaceDocumentController({tabId: 'tab-1'});
