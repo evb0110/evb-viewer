@@ -31,12 +31,6 @@ export interface IWorkspacePdfViewerPageOpsPort extends
     Pick<IPdfViewerSaveExpose, 'runSaveTransaction'> {}
 
 export interface IWorkspacePdfViewerAnnotationToolsPort extends
-    Pick<IPdfViewerShapeExpose,
-        'clearSelectedShape'
-        | 'getSelectedShape'
-        | 'selectedShapeId'
-        | 'updateShape'
-    >,
     Pick<IPdfViewerAnnotationCommandExpose,
         'selectedAnnotations'
         | 'updateSelectedAnnotationProperties'

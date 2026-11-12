@@ -63,7 +63,6 @@
         @annotation-focus-comment="annotationActions.handleAnnotationFocusComment"
         @annotation-open-note="annotationActions.handleOpenAnnotationNote"
         @annotation-delete-comment="annotationActions.handleDeleteAnnotationComment"
-        @annotation-retry-enrichment="requestAnnotationEnrichment"
         @bookmarks-change="bookmarkState.handleBookmarksChange"
         @update:bookmark-edit-mode="bookmarkState.bookmarkEditMode.value = $event"
         @page-context-menu="context.pageContextMenu.showPageContextMenu"
@@ -165,19 +164,6 @@ async function editTextBox(comment: IAnnotationCommentSummary) {
         throw error;
     }
 }
-
-function requestAnnotationEnrichment() {
-    void pdfViewer.value?.ensurePdfAnnotationNameReconciliation?.('annotations-ui-open');
-}
-watch(
-    () => view.showSidebar.value && view.sidebarTab.value === 'annotations',
-    (annotationsVisible) => {
-        if (annotationsVisible) {
-            requestAnnotationEnrichment();
-        }
-    },
-    {flush: 'post'},
-);
 
 function goToResult(index: number) {
     if (search.results.value[index]) {

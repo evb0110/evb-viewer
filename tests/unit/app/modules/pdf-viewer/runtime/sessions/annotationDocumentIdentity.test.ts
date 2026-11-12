@@ -28,7 +28,6 @@ import {
     type Ref,
 } from 'vue';
 import {asAnnotationId} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
-import type {IAnnotationCommentSummary} from '@app/types/annotations';
 import type {IPdfPlacedImageFinalizePayload} from '@app/types/pdfImagePlacement';
 import type { TPdfSource } from '@app/types/pdfUi';
 import type { IDocumentsFileIoCapability } from '@contracts/electronApiDocuments';
@@ -55,32 +54,6 @@ const lastModified = 1_735_689_600_000;
 
 function createPick(bytes: Uint8Array<ArrayBuffer>) {
     return new File([bytes], 'shared-name.pdf', {lastModified});
-}
-
-function createPlacedImageComment(annotationId: string): IAnnotationCommentSummary {
-    return {
-        source: 'pdf',
-        id: annotationId,
-        stableKey: 'nm:placed-image-session-1',
-        pageIndex: requirePageIndex(0),
-        pageNumber: 1,
-        text: '',
-        subtype: 'Stamp',
-        author: null,
-        createdAt: null,
-        modifiedAt: null,
-        color: null,
-        uid: null,
-        annotationId,
-        annotationName: 'placed-image-session-1',
-        hasNote: false,
-        markerRect: {
-            left: 0.1,
-            top: 0.2,
-            width: 0.3,
-            height: 0.4,
-        },
-    };
 }
 
 const mountedSessions: Array<() => void> = [];
@@ -242,12 +215,7 @@ function mountAnnotationSession(initial: {
             color: '#ffff00',
             opacity: 1,
         }),
-        syncPlacedImages: (annotationIds: readonly string[]) => activeSession.annotationCommentModel
-            .applyFromSync(annotationIds.map(createPlacedImageComment)),
-        projectedComments: () => activeSession.annotationApplication.value.listCommentSummaries(),
         hasCanonicalChanges: () => activeSession.hasCanonicalAnnotationChanges(),
-        deleteEmbeddedAnnotationDeferred: (comment: IAnnotationCommentSummary) =>
-            activeSession.annotationMutationService.deleteEmbeddedAnnotationDeferred(comment),
     };
 }
 
@@ -396,65 +364,7 @@ describe('annotation document identity', () => {
 
         expect(harness.storeDocumentKey()).toBe(firstKey);
     });
-
-    it('leaves placed-image summaries to the canonical parser during a hard reopen', async () => {
-        const harness = mountAnnotationSession({
-            originalPath: '/documents/original.pdf',
-            workingCopyPath: '/managed/working.pdf',
-            src: {
-                kind: 'path',
-                path: requireDocumentRef('/managed/working.pdf'),
-                size: 4,
-            },
-        });
-        const firstDocument = cast<IPdfDocument>({
-            fingerprints: ['first'],
-            numPages: 1,
-        });
-        const reopenedDocument = cast<IPdfDocument>({
-            fingerprints: ['reopened'],
-            numPages: 1,
-        });
-
-        harness.syncPlacedImages(['44R']);
-        expect(harness.canonicalAnnotationIds()).toEqual([]);
-        expect(harness.projectedComments()).toEqual([]);
-        expect(harness.hasCanonicalChanges()).toBe(false);
-
-        harness.pdfDocument.value = firstDocument;
-        await nextTick();
-        harness.pdfDocument.value = null;
-        await nextTick();
-        harness.pdfDocument.value = reopenedDocument;
-        await nextTick();
-
-        harness.syncPlacedImages(['91R']);
-        expect(harness.canonicalAnnotationIds()).toEqual([]);
-        expect(harness.projectedComments()).toEqual([]);
-        expect(harness.hasCanonicalChanges()).toBe(false);
-    });
-
-    it('fails closed on duplicate placed-image names through the production comment sync', () => {
-        const harness = mountAnnotationSession({
-            workingCopyPath: '/managed/working.pdf',
-            src: {
-                kind: 'path',
-                path: requireDocumentRef('/managed/working.pdf'),
-                size: 4,
-            },
-        });
-
-        harness.syncPlacedImages([
-            '44R',
-            '45R',
-        ]);
-
-        expect(harness.canonicalAnnotationIds()).toEqual([]);
-        expect(harness.projectedComments()).toEqual([]);
-        expect(harness.hasCanonicalChanges()).toBe(false);
-    });
 });
-
 
 function imagePlacement(overrides: Partial<IPdfPlacedImageFinalizePayload> = {}): IPdfPlacedImageFinalizePayload {
     return {
@@ -609,7 +519,7 @@ describe('live canonical text box sidebar drafts', () => {
             });
         expect(restoredSurface.hasTextBoxDraftPending(entity.identity.id)).toBe(false);
         expect(restoredSurface.editingId.value).toBeNull();
-        expect(restored.session.annotationCommentsCache.value[0]?.text).toBe('Completed draft');
+        expect(restored.emitAnnotationComments.mock.lastCall?.[0][0]?.text).toBe('Completed draft');
         expect(restored.session.hasCanonicalAnnotationChanges()).toBe(true);
         expect(restored.session.annotationApplication.value.beginSave().plan.expected)
             .toEqual([expect.objectContaining({
@@ -648,7 +558,6 @@ describe('live canonical text box sidebar drafts', () => {
                     text,
                 ]],
             ]);
-            expect(session.annotationCommentsCache.value[0]?.text).toBe(text);
             expect(emitAnnotationComments.mock.lastCall?.[0][0]?.text).toBe(text);
         }
         expect(session.annotationApplication.value.listCommentSummaries()[0]?.text).toBe('Original');
@@ -658,12 +567,14 @@ describe('live canonical text box sidebar drafts', () => {
             epoch,
             [],
         ]);
-        expect(session.annotationCommentsCache.value[0]?.text).toBe('Original');
         expect(emitAnnotationComments.mock.lastCall?.[0][0]?.text).toBe('Original');
     });
 
     it('replaces the draft with committed text and preserves undo', async () => {
-        const {session} = mountAnnotationSession();
+        const {
+            session,
+            emitAnnotationComments,
+        } = mountAnnotationSession();
         const surface = session.annotationEditorSurface;
         const entity = surface.createTextBoxAt(0, {
             left: 0.1,
@@ -675,9 +586,9 @@ describe('live canonical text box sidebar drafts', () => {
         surface.setTextBoxDraftPending(entity.identity.id, 'Committed');
         surface.commitGesture(entity.identity.id, {text: 'Committed'});
         surface.endTextEditing(entity.identity.id);
-        expect(session.annotationCommentsCache.value[0]?.text).toBe('Committed');
+        expect(emitAnnotationComments.mock.lastCall?.[0][0]?.text).toBe('Committed');
         await session.annotationApplication.value.store.undo();
-        expect(session.annotationCommentsCache.value[0]?.text).toBe('Original');
+        expect(emitAnnotationComments.mock.lastCall?.[0][0]?.text).toBe('Original');
     });
 
     it('drops a draft when the text box is deleted or the document is replaced', async () => {
@@ -694,12 +605,12 @@ describe('live canonical text box sidebar drafts', () => {
         surface.setTextBoxDraftPending(entity.identity.id, 'Discarded');
         surface.deleteAnnotation(entity.identity.id);
         await session.annotationApplication.value.store.undo();
-        expect(session.annotationCommentsCache.value[0]?.text).toBe('Original');
+        expect(harness.emitAnnotationComments.mock.lastCall?.[0][0]?.text).toBe('Original');
         surface.setTextBoxDraftPending(entity.identity.id, 'Previous document');
         harness.workingCopyPath.value = '/managed/different.pdf';
         await harness.loadDocument();
         session.annotationApplication.value.store.createTextBox(entity);
-        expect(session.annotationCommentsCache.value[0]?.text).toBe('Original');
+        expect(harness.emitAnnotationComments.mock.lastCall?.[0][0]?.text).toBe('Original');
     });
 });
 

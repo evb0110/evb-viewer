@@ -8,7 +8,6 @@ type TPageAnnotationDeleteViewer = Pick<WorkspaceOrchestration.IPdfViewerExpose,
     'deleteAnnotationComment'
     | 'deleteReopenedEditorAnnotation'
     | 'removeAnnotationFromDom'
-    | 'removeAnnotationFromInternalCache'
     | 'deleteEmbeddedAnnotationDeferred'
 >;
 
@@ -103,7 +102,6 @@ export const createPageAnnotationDeleteActions = <TViewer extends TPageAnnotatio
             return false;
         }
         viewer.removeAnnotationFromDom(deletionComment);
-        viewer.removeAnnotationFromInternalCache(comment.stableKey);
         invalidateAnnotationPage(comment);
         return true;
     }
@@ -165,7 +163,6 @@ export const createPageAnnotationDeleteActions = <TViewer extends TPageAnnotatio
                     return;
                 }
                 viewer.removeAnnotationFromDom(comment);
-                viewer.removeAnnotationFromInternalCache(comment.stableKey);
                 invalidateAnnotationPage(comment);
             } else {
                 const deleted = deleteAnnotationCommentWithFallbacks(comment, false);

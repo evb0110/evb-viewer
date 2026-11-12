@@ -35,7 +35,6 @@ export interface IDocumentTransitionDeps {
     pageLabels: Ref<string[] | null>;
     pageLabelRanges: Ref<unknown[]>;
     pageLabelsDirty: Ref<boolean>;
-    pdfViewerRef: Ref<{clearShapes: () => void;} | null>;
     resetAnnotationTracking: () => void;
     resetSearchCache: () => void;
     closeSearch: () => void;
@@ -74,7 +73,6 @@ export const useDocumentTransitions = (deps: IDocumentTransitionDeps) => {
         pageLabels,
         pageLabelRanges,
         pageLabelsDirty,
-        pdfViewerRef,
         resetAnnotationTracking,
         resetSearchCache,
         closeSearch,
@@ -158,7 +156,6 @@ export const useDocumentTransitions = (deps: IDocumentTransitionDeps) => {
             bookmarkItems.value = [];
             bookmarksDirty.value = false;
             bookmarkEditMode.value = false;
-            pdfViewerRef.value?.clearShapes();
             closeAnnotationContextMenu();
             closePageContextMenu();
             void closeAllAnnotationNotes({ saveIfDirty: false });

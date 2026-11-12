@@ -194,7 +194,6 @@ export const useWorkspaceDocumentLifecycleEffects = (options: IWorkspaceDocument
         pageLabels,
         pageLabelRanges,
         pageLabelsDirty,
-        pdfViewerRef,
         resetAnnotationTracking,
         resetSearchCache,
         closeSearch,

@@ -1,142 +1,57 @@
 import type {
-    ComputedRef,
     Ref,
     ShallowRef,
 } from 'vue';
-import { useAnnotationShapes } from '@app/modules/pdf-viewer/tools/useAnnotationShapes';
-import { usePdfSelectedShapeCommands } from '@app/modules/pdf-viewer/tools/usePdfSelectedShapeCommands';
-import { usePdfShapeContext } from '@app/modules/pdf-viewer/tools/usePdfShapeContext';
-import { isSelectionInteractionTool } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/isSelectionInteractionTool';
-import type {
-    IAnnotationCommentSummary,
-    IAnnotationSettings,
-    IShapeAnnotation,
-    TAnnotationTool,
-} from '@app/types/annotations';
+import type { IShapeAnnotation } from '@app/types/annotations';
 import type { AnnotationApplication } from '@app/modules/pdf-viewer/annotations/annotationApplication';
 import { toCanonicalShapeEntity } from '@app/modules/pdf-viewer/annotations/annotationApplication';
-import { asAnnotationId } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
+import {
+    asAnnotationId,
+    toLegacyShapeAnnotation,
+    toLegacyShapeStableKey,
+    type AnnotationEntity,
+    type IShapeEntity,
+} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 
 interface IUsePdfShapeToolOptions {
-    annotationTool: ComputedRef<TAnnotationTool>;
-    annotationSettings: ComputedRef<IAnnotationSettings | null>;
-    isAnySaving: Ref<boolean>;
     annotationApplication: ShallowRef<AnnotationApplication>;
+    /** The editor surface's live projection of the store. */
+    entitiesByPage: Readonly<Ref<ReadonlyMap<number, readonly AnnotationEntity[]>>>;
     markModified: () => void;
-    emitShapeContextMenu: (payload: {
-        shapeId: string;
-        clientX: number;
-        clientY: number;
-    }) => void;
-    getDeletedShapeHandler: () => ((shape: IShapeAnnotation) => void) | null;
-    getShapeCommentsChangedHandler: () => (() => void) | null;
 }
 
+const isShapeEntity = (entity: AnnotationEntity): entity is IShapeEntity => entity.kind === 'shape';
+
+/**
+ * The shape DTOs the save path and the host read, projected on demand from
+ * the canonical `AnnotationStore`. Selection and editing belong to the editor
+ * surface; this holds no state of its own.
+ */
 export const usePdfShapeTool = (options: IUsePdfShapeToolOptions) => {
-    const shapeComposable = useAnnotationShapes({annotationApplication: options.annotationApplication});
+    const store = () => options.annotationApplication.value.store;
 
-    function handleShapeCreated(shape: IShapeAnnotation) {
-        options.annotationApplication.value.store.createShape(
-            toCanonicalShapeEntity(shape, asAnnotationId(shape.id)),
-        );
-        options.markModified();
-        options.getShapeCommentsChangedHandler()?.();
+    function projectShape(entity: IShapeEntity): IShapeAnnotation {
+        return {
+            ...toLegacyShapeAnnotation(entity),
+            source: entity.identity.pdfRef ? 'embedded' : 'local',
+        };
     }
 
-    function resolveShapeAnnotationId(shape: IShapeAnnotation) {
-        const annotationId = options.annotationApplication.value.annotationIdForShape(shape);
-        if (!annotationId) {
-            throw new Error(`Missing canonical AnnotationId for shape ${shape.id}`);
-        }
-        return annotationId;
-    }
-
-    function applyShapeUpdateWithHistory(previousShape: IShapeAnnotation, nextShape: IShapeAnnotation) {
-        const annotationId = resolveShapeAnnotationId(previousShape);
-        const nextEntity = toCanonicalShapeEntity(nextShape, annotationId);
-        options.annotationApplication.value.store.updateShape(annotationId, {
-            tool: nextEntity.tool,
-            rect: nextEntity.rect,
-            ...(nextEntity.points === undefined ? {} : {points: nextEntity.points}),
-            ...(nextEntity.strokes === undefined ? {} : {strokes: nextEntity.strokes}),
-            strokeColor: nextEntity.strokeColor,
-            strokeWidth: nextEntity.strokeWidth,
-            fill: nextEntity.fill,
-            opacity: nextEntity.opacity,
-        });
-        options.markModified();
-        options.getShapeCommentsChangedHandler()?.();
-    }
-
-    function deleteShape(shape: IShapeAnnotation) {
-        const application = options.annotationApplication.value;
-        const annotationId = resolveShapeAnnotationId(shape);
-        if (!application.store.get(annotationId)?.deleted) {
-            application.store.delete(annotationId);
-        }
-        options.getDeletedShapeHandler()?.(shape);
-    }
-
-    const selectedShapeCommands = usePdfSelectedShapeCommands({
-        selectedShapeId: shapeComposable.selectedShapeId,
-        hasShapes: shapeComposable.hasShapes,
-        isAnySaving: options.isAnySaving,
-        getShapeById: shapeComposable.getShapeById,
-        selectShape: shapeComposable.selectShape,
-        executeShapeUpdate: applyShapeUpdateWithHistory,
-        executeShapeDelete: deleteShape,
-        notifyShapeCommentsChanged: () => options.getShapeCommentsChangedHandler()?.(),
-        markModified: options.markModified,
-    });
-
-    usePdfShapeContext({
-        shapeComposable,
-        annotationTool: options.annotationTool,
-        annotationSettings: options.annotationSettings,
-        onShapeCreated: handleShapeCreated,
-        onShapeUpdated: applyShapeUpdateWithHistory,
-        onShapePreviewed: () => undefined,
-        onShapeContextMenu: options.emitShapeContextMenu,
-    });
-
-    watch(options.annotationTool, (tool) => {
-        if (!isSelectionInteractionTool(tool)) {
-            shapeComposable.selectShape(null);
-            shapeComposable.focusShape(null);
-        }
-    });
-
-    function getShapeAnnotationCommentSummaries() {
-        return options.annotationApplication.value.listCommentSummaries().filter(comment => comment.annotationKind === 'shape');
-    }
-
-    /** Resolve sidebar commands through the same canonical identity as page selection. */
-    function findShapeForAnnotationComment(comment: IAnnotationCommentSummary) {
-        if (comment.source !== 'shape') {
-            return null;
-        }
-        const application = options.annotationApplication.value;
-        const directId = comment.id.trim()
-            ? asAnnotationId(comment.id)
-            : null;
-        const directEntity = directId ? application.store.get(directId) : null;
-        const annotationId = directEntity?.kind === 'shape'
-            ? directEntity.identity.id
-            : application.annotationIdForSummary(comment);
-        if (!annotationId) {
-            return null;
-        }
-        return shapeComposable.getAllShapes().find(shape => (
-            application.annotationIdForShape(shape) === annotationId
-        )) ?? null;
+    // Deleted shapes the saved document still holds.
+    function persistedTombstones() {
+        return store().list({includeDeleted: true})
+            .filter(isShapeEntity)
+            .filter(entity => entity.deleted && (entity.identity.pdfRef !== undefined || entity.materialized === true));
     }
 
     return {
-        shapeComposable,
-        selectedShapeCommands,
-        applyShapeUpdateWithHistory,
-        handleShapeCreated,
-        getShapeAnnotationCommentSummaries,
-        findShapeForAnnotationComment,
+        hasShapes: computed(() => [...options.entitiesByPage.value.values()].some(entities => entities.some(isShapeEntity))),
+        getAllShapes: () => store().list().filter(isShapeEntity).map(projectShape),
+        getDeletedEmbeddedAnnotationIds: () => [...new Set(persistedTombstones().flatMap(entity => entity.identity.pdfRef || []))],
+        getDeletedEmbeddedShapeStableKeys: () => [...new Set(persistedTombstones().map(entity => toLegacyShapeStableKey(entity.identity.id)))],
+        createShape(shape: IShapeAnnotation) {
+            store().createShape(toCanonicalShapeEntity(shape, asAnnotationId(shape.id)));
+            options.markModified();
+        },
     };
 };

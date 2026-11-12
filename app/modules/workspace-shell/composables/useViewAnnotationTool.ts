@@ -19,7 +19,6 @@ export const useViewAnnotationTool = (deps: {
         const apply = () => {
             annotationTool.value = tool;
             deps.dragMode.value = false;
-            if (tool !== 'select') deps.pdfViewerRef.value?.clearSelectedShape();
             deps.closeAnnotationContextMenu();
             return true;
         };
