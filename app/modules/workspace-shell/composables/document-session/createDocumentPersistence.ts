@@ -11,16 +11,10 @@ import type { TPdfDateString } from '@contracts/pdfDateString';
 import type { TRequestId } from '@contracts/shared';
 import type {
     IPdfNativeAnnotationIdentityBinding,
-    IPdfNativeAnnotationDelete,
-    IPdfNativeFreeTextNote,
-    IPdfNativePlacedImageGeometryUpdate,
     IPdfNativeMutationSet,
     IPdfNativeSaveResult,
-    IPdfNoteGeometryUpdate,
-    IPdfNoteTextUpdate,
     IPdfOptimizeOptions,
     IPdfOptimizeResult,
-    IPdfSerializedCommitCallbacks,
     IPdfSerializedSaveOptions,
     TPreparedPdfOptimizeCopy,
 } from '@contracts/electronApiDocuments';
@@ -371,71 +365,6 @@ export function createDocumentPersistence(
         return true;
     }
 
-    async function saveFile(
-        data: Uint8Array,
-        opts?: {
-            saveMode?: TPdfSaveMode;
-            preserveLoadedSource?: boolean;
-            expectedWorkingPath?: TDocumentRef | null;
-            expectedDocumentRevisionToken?: TDocumentRevisionToken | null | undefined;
-            changedObjectRefs?: string[];
-            commitCallbacks?: IPdfSerializedCommitCallbacks;
-        },
-    ): Promise<IPdfPersistResult> {
-        const requestedSaveMode = opts?.saveMode ?? 'rewrite';
-        return runPersistOperation(requestedSaveMode, false, async (workingPath, markClean) => {
-            const expectedDocumentRevisionToken = resolveDocumentMutationRevisionToken(opts);
-            const forceSaveAs = await deps.shouldForceSaveAsForWorkingCopy(requestedSaveMode, workingPath);
-            if (!state.isActiveWorkingCopy(workingPath)) {
-                return skipStale('PDF save before write', workingPath, requestedSaveMode);
-            }
-            if (forceSaveAs) {
-                return saveWorkingCopyAs(data, {
-                    saveMode: 'save_as_rewrite',
-                    expectedWorkingPath: workingPath,
-                    expectedDocumentRevisionToken,
-                    ...(opts?.changedObjectRefs?.length ? {changedObjectRefs: opts.changedObjectRefs} : {}),
-                    ...(opts?.commitCallbacks ? {commitCallbacks: opts.commitCallbacks} : {}),
-                });
-            }
-
-            const wrote = await getDocumentFilesCapability().writeFile(
-                workingPath,
-                data,
-                resolveDocumentMutationRevisionOptions({
-                    expectedDocumentRevisionToken,
-                    ...(opts?.changedObjectRefs?.length ? {changedObjectRefs: opts.changedObjectRefs} : {}),
-                    ...(opts?.commitCallbacks ? {commitCallbacks: opts.commitCallbacks} : {}),
-                }),
-            );
-            const validation = {
-                isValid: wrote,
-                tool: 'native' as const,
-                errors: wrote ? [] : [deps.t('errors.file.save')],
-                warnings: [],
-            };
-            if (!state.isActiveWorkingCopy(workingPath)) {
-                return skipStale('PDF save completion', workingPath, requestedSaveMode);
-            }
-            if (!validation.isValid) {
-                return createFailedPersistResult(requestedSaveMode, false, refusedPersistFailure(
-                    'file:write',
-                    'validate-output',
-                    'validation-failed',
-                    {validation},
-                ));
-            }
-            const commitOptions = opts?.preserveLoadedSource
-                ? { preserveLoadedSource: true }
-                : undefined;
-            if (!await commitPersistedPdfState(data, workingPath, markClean, commitOptions)) {
-                return createStalePersistResult(requestedSaveMode, false);
-            }
-            state.lastSaveMode.value = requestedSaveMode;
-            return createPersistResult(true, requestedSaveMode, false);
-        }, opts?.expectedWorkingPath);
-    }
-
     async function saveWorkingCopy(
         opts?: IWorkingCopyPersistOptions,
     ): Promise<IPdfPersistResult> {
@@ -685,34 +614,6 @@ export function createDocumentPersistence(
 
             return createCancelledPersistResult(requestedSaveMode);
         }, opts?.expectedWorkingPath);
-    }
-
-    async function trySaveEmbeddedNoteTextUpdates(
-        updates: IPdfNoteTextUpdate[],
-        opts: {
-            saveMode: TPdfSaveMode;
-            preserveLoadedSource?: boolean;
-            expectedWorkingPath?: TDocumentRef | null;
-            expectedDocumentRevisionToken?: TDocumentRevisionToken | null | undefined;
-            modifiedAt: TPdfDateString;
-            workingCopyOnly?: true;
-            verifyPathBeforeExpose?: (path: TDocumentRef, knownSize: number) => Promise<void>;
-            assertBeforeExpose?: () => Promise<void> | void;
-            geometryUpdates?: IPdfNoteGeometryUpdate[];
-            placedImageGeometryUpdates?: IPdfNativePlacedImageGeometryUpdate[];
-            freeTextNotes?: IPdfNativeFreeTextNote[];
-            deletes?: IPdfNativeAnnotationDelete[];
-        },
-    ): Promise<IPdfPersistResult | null> {
-        return trySavePdfNativeMutations({
-            ...(updates.length > 0 ? {updates} : {}),
-            ...((opts.geometryUpdates?.length ?? 0) > 0 ? {geometryUpdates: opts.geometryUpdates} : {}),
-            ...((opts.placedImageGeometryUpdates?.length ?? 0) > 0
-                ? {placedImageGeometryUpdates: opts.placedImageGeometryUpdates}
-                : {}),
-            ...((opts.freeTextNotes?.length ?? 0) > 0 ? {freeTextNotes: opts.freeTextNotes} : {}),
-            ...((opts.deletes?.length ?? 0) > 0 ? {deletes: opts.deletes} : {}),
-        }, opts);
     }
 
     async function trySavePdfNativeMutations(
@@ -1165,13 +1066,11 @@ export function createDocumentPersistence(
 
     return {
         persistPdfDataSilently,
-        saveFile,
         repairWorkingCopy,
         optimizeWorkingCopy,
         optimizeWorkingCopyAsCopy,
         saveWorkingCopy,
         saveWorkingCopyAs,
-        trySaveEmbeddedNoteTextUpdates,
         trySavePdfNativeMutations,
     };
 }

@@ -11,13 +11,8 @@ import type {
     TPdfSaveMode,
 } from '@app/types/pdfContracts';
 import type {
-    IPdfNativeAnnotationDelete,
     IPdfNativeAnnotationIdentityBinding,
-    IPdfNativeFreeTextNote,
     IPdfNativeMutationSet,
-    IPdfNativePlacedImageGeometryUpdate,
-    IPdfNoteGeometryUpdate,
-    IPdfNoteTextUpdate,
     IPdfOptimizeOptions,
     IPdfOptimizeResult,
     TPreparedPdfOptimizeCopy,
@@ -144,7 +139,6 @@ export function createWorkspaceSavePlan(input: {
     dirtyState: IWorkspaceSaveDirtyState;
     hasManagedShapes: boolean;
     canPersistNativeWorkingCopy: boolean;
-    canPersistNativeMutations: boolean;
     canPersistNativeRepair?: boolean;
 }): TWorkspaceSavePlan {
     const {
@@ -186,8 +180,7 @@ export function createWorkspaceSavePlan(input: {
             operation: request.kind,
         };
     }
-    if ((request.kind === 'save' || request.kind === 'save-as') && forcedByDirtyState
-        && input.canPersistNativeMutations) {
+    if ((request.kind === 'save' || request.kind === 'save-as') && forcedByDirtyState) {
         return {
             ...common,
             kind: 'native-mutation',
@@ -246,7 +239,6 @@ export interface IWorkspaceSaveDependencies {
         flushSettings: () => Promise<boolean>;
     };
     hasPendingUnsavedChanges?: ComputedRef<boolean>;
-    hasUnsavedChanges?: () => boolean;
     optimizePdfOnSaveAs?: Ref<boolean>;
     annotations: {
         dirty: Ref<boolean>;
@@ -286,17 +278,6 @@ export interface IWorkspaceSaveDependencies {
     };
     persistence: {
         validatePdfPath: (path: TDocumentRef) => Promise<IPdfSaveResult['validation']>;
-        saveSerialized: (
-            data: Uint8Array,
-            opts: {
-                saveMode: TPdfSaveMode;
-                preserveLoadedSource?: boolean;
-                expectedWorkingPath?: TDocumentRef | null;
-                expectedDocumentRevisionToken?: TDocumentRevisionToken | null;
-                changedObjectRefs?: string[];
-                commitCallbacks?: IPdfSerializedCommitCallbacks;
-            },
-        ) => Promise<IPdfPersistResult>;
         saveWorkingCopy: (opts: {
             saveMode: TPdfSaveMode;
             preserveLoadedSource?: boolean;
@@ -336,7 +317,7 @@ export interface IWorkspaceSaveDependencies {
                 signal?: AbortSignal;
             },
         ) => Promise<IPdfPersistResult>;
-        trySavePdfNativeMutations?: (
+        trySavePdfNativeMutations: (
             mutations: IPdfNativeMutationSet,
             opts: {
                 saveMode: TPdfSaveMode;
@@ -350,28 +331,14 @@ export interface IWorkspaceSaveDependencies {
                 assertBeforeExpose?: () => Promise<void> | void;
             },
         ) => Promise<IPdfPersistResult | null>;
-        trySaveEmbeddedNoteTextUpdates?: (
-            updates: IPdfNoteTextUpdate[],
-            opts: {
-                saveMode: TPdfSaveMode;
-                preserveLoadedSource?: boolean;
-                expectedWorkingPath?: TDocumentRef | null;
-                expectedDocumentRevisionToken?: TDocumentRevisionToken | null;
-                modifiedAt: TPdfDateString;
-                workingCopyOnly?: true;
-                geometryUpdates?: IPdfNoteGeometryUpdate[];
-                freeTextNotes?: IPdfNativeFreeTextNote[];
-                deletes?: IPdfNativeAnnotationDelete[];
-                placedImageGeometryUpdates?: IPdfNativePlacedImageGeometryUpdate[];
-            },
-        ) => Promise<IPdfPersistResult | null>;
         getWorkingCopySize?: (path: TDocumentRef) => Promise<number | null>;
     };
     lifecycle: {
         loadRecentFiles: () => void;
         preparePostSaveReload?: () => IPostSaveReloadWaiter;
     };
-    runWithDocumentOperationLease?: <T>(
+    /** The document lease: the one queue every Save and recovery copy waits in. */
+    runWithDocumentOperationLease: <T>(
         kind: TDocumentOperationKind,
         operation: () => Promise<T>,
     ) => Promise<T>;
@@ -395,10 +362,8 @@ export function buildSaveTransactionRequest(
             : deps.pdf.document.value?.numPages ?? 0,
     };
     const nativeCapabilities: IPdfViewerSaveTransactionNativeCapabilities = {
-        hasNativePdfMutationCapability: options.allowNativeMutationPlan
-            && Boolean(deps.persistence.trySavePdfNativeMutations ?? deps.persistence.trySaveEmbeddedNoteTextUpdates),
-        canPersistNativeMetadataMutations: options.allowNativeMutationPlan
-            && Boolean(deps.persistence.trySavePdfNativeMutations),
+        hasNativePdfMutationCapability: options.allowNativeMutationPlan,
+        canPersistNativeMetadataMutations: options.allowNativeMutationPlan,
     };
     return {
         mode: 'persist',
@@ -637,7 +602,7 @@ export interface IRecoverySnapshotTarget {
  */
 export function createRecoverySnapshot(
     deps: IWorkspaceSaveDependencies,
-    runWithDocumentOperationLease: NonNullable<IWorkspaceSaveDependencies['runWithDocumentOperationLease']>,
+    runWithDocumentOperationLease: IWorkspaceSaveDependencies['runWithDocumentOperationLease'],
 ) {
     async function createRecoverySnapshotUnlocked(target: IRecoverySnapshotTarget, recovery?: IWorkspaceCheckpointAnnotationRecovery) {
         const capturedWorkingCopyPath = deps.document.workingCopyPath.value;

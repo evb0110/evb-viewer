@@ -1,3 +1,4 @@
+import type { Ref } from 'vue';
 import type {TDocumentCommitReceipt} from '@app/types/workspaceExpose';
 import {crashCheckpointBeforeSaveKey} from '@app/modules/workspace-shell/checkpoint/useWorkspaceCrashCheckpoint';
 import type { TDocumentRef } from '@contracts/documentRef';
@@ -18,7 +19,6 @@ import type {
     IPdfViewerSaveTransactionResult,
     INativePdfMutationProjection,
 } from '@app/modules/pdf-viewer/public';
-import { runWithoutDocumentOperationLease } from '@app/utils/runWithoutDocumentOperationLease';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { getErrorMessage } from '@app/utils/error';
 import { toPdfDateString } from '@app/utils/pdfDate';
@@ -92,7 +92,6 @@ export type {
 } from '@app/modules/workspace-shell/composables/file-operations/workspaceSaveExecutionSupport';
 
 const SLOW_SAVE_TOTAL_WARN_MS = 10_000;
-const MAX_STALE_REVISION_SAVE_RETRIES = 2;
 
 type TSingleWriterSaveTransaction = IPdfViewerSaveTransactionResult & {
     /** False when a parse of some pages cannot replace the store; nothing changed. */
@@ -221,48 +220,16 @@ async function persistNativeMutationProjection(
         ...(assertBeforeExpose ? {assertBeforeExpose} : {}),
     };
     const placedImageGeometryUpdates = projection.placedImageGeometryUpdates ?? [];
-    if (deps.persistence.trySavePdfNativeMutations) {
-        const mutations = placedImageGeometryUpdates.length > 0
-            && projection.mutations.placedImageGeometryUpdates === undefined
-            ? {
-                ...projection.mutations,
-                placedImageGeometryUpdates,
-            }
-            : projection.mutations;
-        return timedSavePhase(
-            projection.phase,
-            () => deps.persistence.trySavePdfNativeMutations!(mutations, opts),
-        );
-    }
-    if (
-        projection.hasMetadataMutations
-        || projection.hasShapeMutations
-        || (projection.mutations.placedImages?.length ?? 0) > 0
-        || (projection.textBoxes?.length ?? 0) > 0
-        || !deps.persistence.trySaveEmbeddedNoteTextUpdates
-    ) {
-        return null;
-    }
+    const mutations = placedImageGeometryUpdates.length > 0
+        && projection.mutations.placedImageGeometryUpdates === undefined
+        ? {
+            ...projection.mutations,
+            placedImageGeometryUpdates,
+        }
+        : projection.mutations;
     return timedSavePhase(
         projection.phase,
-        () => deps.persistence.trySaveEmbeddedNoteTextUpdates!(
-            projection.noteTextUpdates,
-            {
-                ...opts,
-                ...(projection.noteGeometryUpdates?.length
-                    ? {geometryUpdates: projection.noteGeometryUpdates}
-                    : {}),
-                ...(projection.freeTextNotes.length
-                    ? {freeTextNotes: projection.freeTextNotes}
-                    : {}),
-                ...(projection.annotationDeletes.length
-                    ? {deletes: projection.annotationDeletes}
-                    : {}),
-                ...(placedImageGeometryUpdates.length
-                    ? {placedImageGeometryUpdates}
-                    : {}),
-            },
-        ),
+        () => deps.persistence.trySavePdfNativeMutations(mutations, opts),
     );
 }
 
@@ -516,10 +483,20 @@ function executeSavePlan(
 export const useWorkspaceSaveService = (deps: IWorkspaceSaveDependencies) => {
     const failureSurface = deps.failureSurface ?? useWorkspaceFailureSurface();
     const persistCrashCheckpoint = getCurrentInstance() ? inject(crashCheckpointBeforeSaveKey, null) : null;
-    const runWithDocumentOperationLease = deps.runWithDocumentOperationLease
-        ?? runWithoutDocumentOperationLease;
+    const runWithDocumentOperationLease = deps.runWithDocumentOperationLease;
     let saveOperations = 0;
-    let saveQueueTail: Promise<void> = Promise.resolve();
+    // A Save shows as saving from its request until it ends, also while the
+    // lease holds it behind an earlier one.
+    const pendingSaves = new Map<Ref<boolean>, number>();
+    function holdIndicator(indicator: Ref<boolean>) {
+        pendingSaves.set(indicator, (pendingSaves.get(indicator) ?? 0) + 1);
+        indicator.value = true;
+        return () => {
+            const remaining = (pendingSaves.get(indicator) ?? 1) - 1;
+            pendingSaves.set(indicator, remaining);
+            indicator.value = remaining > 0;
+        };
+    }
     // Each optimization owns a signal from its submit on: the workspace going
     // away ends it at any point; once its dirty save is done it is bound to
     // that working copy, and another working copy replacing it ends it too.
@@ -558,8 +535,7 @@ export const useWorkspaceSaveService = (deps: IWorkspaceSaveDependencies) => {
         queuedTarget: Omit<IWorkspaceSaveTarget, 'expectedRevisionToken'>,
         onCommitted?: TDocumentCommitReceipt,
     ) {
-        const indicator = isSaveAsRequest(request) ? deps.status.isSavingAs : deps.status.isSaving;
-        indicator.value = true;
+        const releaseIndicator = holdIndicator(isSaveAsRequest(request) ? deps.status.isSavingAs : deps.status.isSaving);
         const queuedTargetIsCurrent = () => (
             deps.document.sessionKey.value === queuedTarget.expectedDocumentSessionKey
             && deps.document.originalPath.value === queuedTarget.expectedOriginalPath
@@ -653,7 +629,7 @@ export const useWorkspaceSaveService = (deps: IWorkspaceSaveDependencies) => {
 
         const runSave = async () => {
             if (!queuedTargetIsCurrent()) {
-                indicator.value = false;
+                releaseIndicator();
                 BrowserLogger.debug(
                     'workspace',
                     'Dropped a queued save after its document lease became stale',
@@ -663,111 +639,90 @@ export const useWorkspaceSaveService = (deps: IWorkspaceSaveDependencies) => {
             }
             // Set once the lease admits this save: a page operation's reload is not this save's.
             isAnySaveAdmitted.value = true;
-            let lastPlan: TWorkspaceSavePlan | null = null;
-            let result: TWorkspaceSaveExecutionResult | null = null;
             try {
-                for (let attempt = 0; attempt <= MAX_STALE_REVISION_SAVE_RETRIES; attempt += 1) {
-                    try {
-                        // Nothing has been written yet on this attempt, so the
-                        // revision seen here still identifies the open document.
-                        const revisionBeforeNotes = deps.document.revisionToken.value;
-                        if (
-                            deps.annotations.openNoteCount.value > 0
-                            && !await deps.annotations.persistOpenNotes()
-                        ) {
-                            reportSaveFailureIfCurrent('note-persistence-failed', {
-                                expectedRevisionToken: revisionBeforeNotes,
-                                failure: deps.annotations.getNoteFailurePresentation?.(),
-                            });
-                            return false;
-                        }
-
-                        // A nonempty FreeText editor remains outside annotation
-                        // storage until PDF.js commits it. Save planning must run
-                        // after that commit, otherwise the toolbar can start a save
-                        // whose captured dirty state still describes a clean file.
-                        await deps.pdf.commitEditorsForSave?.();
-                        await persistCrashCheckpoint?.(deps.document.workingCopyPath.value);
-
-                        const target: IWorkspaceSaveTarget = {
-                            ...queuedTarget,
-                            expectedRevisionToken: deps.document.revisionToken.value,
-                        };
-                        const baseline = captureBaseline(deps);
-                        lastPlan = createWorkspaceSavePlan({
-                            request,
-                            target,
-                            baseline,
-                            dirtyState: collectDirtyState(deps),
-                            hasManagedShapes: deps.shapes.hasManagedShapes(),
-                            canPersistNativeWorkingCopy: request.kind === 'repair'
-                                ? Boolean(deps.persistence.repairWorkingCopy)
-                                : request.kind === 'optimize'
-                                    ? Boolean(deps.persistence.optimizeWorkingCopy)
-                                    : false,
-                            canPersistNativeMutations: Boolean(
-                                deps.persistence.trySavePdfNativeMutations
-                            ?? deps.persistence.trySaveEmbeddedNoteTextUpdates,
-                            ),
-                            canPersistNativeRepair: request.kind === 'repair'
-                            && Boolean(deps.persistence.repairWorkingCopy)
-                            && Boolean(deps.persistence.trySavePdfNativeMutations),
-                        });
-
-                        const unencryptedSaveAbort = await unencryptedSaveNoticeGate(
-                            deps,
-                            lastPlan,
-                            acknowledgedUnencryptedSaveSessions,
-                        );
-                        result = unencryptedSaveAbort ?? await executeSavePlan(lastPlan, {
-                            ...deps,
-                            failureSurface,
-                        });
-                        if (result.status !== 'saved') {
-                            result.reloadWaiter?.cancel();
-                            if (result.status === 'failed') throw result.error;
-                            reportSaveAbort(result);
-                            return false;
-                        }
-                        isAnySaveAdmitted.value = false;
-                        break;
-                    } catch (error) {
-                        if (error instanceof DOMException && error.name === 'AbortError') return false;
-                        if (
-                            isStaleRevisionError(error)
-                            && attempt < MAX_STALE_REVISION_SAVE_RETRIES
-                        ) {
-                            BrowserLogger.debug(
-                                'workspace',
-                                'Retrying save after stale document revision',
-                                {
-                                    attempt: attempt + 1,
-                                    maxRetries: MAX_STALE_REVISION_SAVE_RETRIES,
-                                },
-                            );
-                            continue;
-                        }
-                        const failure = isFailurePresentation(error) ? error : getFailureReceipt(error)
-                            ?? BrowserLogger.error('workspace', 'Save failed', error, {code: 'RENDERER_WORKSPACE_OPERATION_FAILED'});
-                        const detail = isFailurePresentation(error) ? error.description ?? getErrorMessage(error) : getDocumentMutationErrorPayload(error)?.message
-                            ?? getErrorMessage(error);
-                        reportSaveFailureIfCurrent('unexpected-error', {
-                            detail,
-                            failure,
-                            // Its cause lets an engine limit be told as one.
-                            diagnostics: {
-                                channel: 'save',
-                                operation: 'persist',
-                                phase: 'preflight',
-                                reason: 'unknown',
-                                message: detail,
-                                cause: error,
-                            },
+                let plan: TWorkspaceSavePlan;
+                let result: TWorkspaceSaveExecutionResult;
+                try {
+                    // Nothing has been written yet, so the revision seen here
+                    // still identifies the open document.
+                    const revisionBeforeNotes = deps.document.revisionToken.value;
+                    if (
+                        deps.annotations.openNoteCount.value > 0
+                        && !await deps.annotations.persistOpenNotes()
+                    ) {
+                        reportSaveFailureIfCurrent('note-persistence-failed', {
+                            expectedRevisionToken: revisionBeforeNotes,
+                            failure: deps.annotations.getNoteFailurePresentation?.(),
                         });
                         return false;
                     }
+
+                    // A nonempty FreeText editor remains outside annotation
+                    // storage until PDF.js commits it. Save planning must run
+                    // after that commit, otherwise the toolbar can start a save
+                    // whose captured dirty state still describes a clean file.
+                    await deps.pdf.commitEditorsForSave?.();
+                    await persistCrashCheckpoint?.(deps.document.workingCopyPath.value);
+
+                    plan = createWorkspaceSavePlan({
+                        request,
+                        target: {
+                            ...queuedTarget,
+                            expectedRevisionToken: deps.document.revisionToken.value,
+                        },
+                        baseline: captureBaseline(deps),
+                        dirtyState: collectDirtyState(deps),
+                        hasManagedShapes: deps.shapes.hasManagedShapes(),
+                        canPersistNativeWorkingCopy: request.kind === 'repair'
+                            ? Boolean(deps.persistence.repairWorkingCopy)
+                            : request.kind === 'optimize'
+                                ? Boolean(deps.persistence.optimizeWorkingCopy)
+                                : false,
+                        canPersistNativeRepair: request.kind === 'repair' && Boolean(deps.persistence.repairWorkingCopy),
+                    });
+
+                    result = await unencryptedSaveNoticeGate(
+                        deps,
+                        plan,
+                        acknowledgedUnencryptedSaveSessions,
+                    ) ?? await executeSavePlan(plan, {
+                        ...deps,
+                        failureSurface,
+                    });
+                    if (result.status !== 'saved') {
+                        result.reloadWaiter?.cancel();
+                        if (result.status === 'failed') throw result.error;
+                        reportSaveAbort(result);
+                        return false;
+                    }
+                    isAnySaveAdmitted.value = false;
+                } catch (error) {
+                    if (error instanceof DOMException && error.name === 'AbortError') return false;
+                    // The revision moved after this save captured it: a conflict,
+                    // told once. The user's edits stay unsaved for the next Save.
+                    if (isStaleRevisionError(error)) {
+                        reportSaveFailureIfCurrent('document-changed');
+                        return false;
+                    }
+                    const failure = isFailurePresentation(error) ? error : getFailureReceipt(error)
+                        ?? BrowserLogger.error('workspace', 'Save failed', error, {code: 'RENDERER_WORKSPACE_OPERATION_FAILED'});
+                    const detail = isFailurePresentation(error) ? error.description ?? getErrorMessage(error) : getDocumentMutationErrorPayload(error)?.message
+                        ?? getErrorMessage(error);
+                    reportSaveFailureIfCurrent('unexpected-error', {
+                        detail,
+                        failure,
+                        // Its cause lets an engine limit be told as one.
+                        diagnostics: {
+                            channel: 'save',
+                            operation: 'persist',
+                            phase: 'preflight',
+                            reason: 'unknown',
+                            message: detail,
+                            cause: error,
+                        },
+                    });
+                    return false;
                 }
-                if (!lastPlan || result?.status !== 'saved') return false;
                 const committedPath = deps.document.workingCopyPath.value;
                 const committedRevision = result.persisted.documentRevision?.token;
                 // The document still holds the revision this save committed.
@@ -775,7 +730,7 @@ export const useWorkspaceSaveService = (deps: IWorkspaceSaveDependencies) => {
                     && deps.document.workingCopyPath.value === committedPath && (!committedRevision || deps.document.revisionToken.value === committedRevision);
                 try {
                     if (!holdsCommit()) return false;
-                    const baseline = getCompletionBaseline(lastPlan, result, deps);
+                    const baseline = getCompletionBaseline(plan, result, deps);
                     await result.reloadWaiter?.promise.catch(error => BrowserLogger.warn('workspace', 'Saved PDF but failed to restore the reloaded view', error));
                     if (!holdsCommit()) return false;
                     completeSuccessfulSaveState(baseline, result.completion, deps);
@@ -802,36 +757,32 @@ export const useWorkspaceSaveService = (deps: IWorkspaceSaveDependencies) => {
                     request: request.kind,
                     success: saveSucceeded,
                 });
-                indicator.value = false;
+                releaseIndicator();
                 isAnySaveAdmitted.value = false;
             }
         };
         return runWithDocumentOperationLease(resolveOperationKind(request), runSave);
     }
 
+    // The document lease is the one queue. The target is captured when the
+    // Save is requested and checked when the lease admits it.
     function save(request: TWorkspaceSaveRequest, onCommitted?: TDocumentCommitReceipt) {
-        const queuedTarget: Omit<IWorkspaceSaveTarget, 'expectedRevisionToken'> = {
+        return executeSave(request, {
             expectedDocumentSessionKey: deps.document.sessionKey.value,
             expectedOriginalPath: deps.document.originalPath.value,
             expectedWorkingPath: deps.document.workingCopyPath.value,
-        };
-        const execute = () => executeSave(request, queuedTarget, onCommitted);
-        const result = saveQueueTail.then(execute, execute);
-        saveQueueTail = result.then(() => undefined, () => undefined);
-        return result;
+        }, onCommitted);
     }
 
     const canSave = computed(() => failureSurface.hasSaveFailure.value || (deps.hasPendingUnsavedChanges?.value ?? (
-        deps.hasUnsavedChanges?.() ?? (
-            deps.annotations.dirty.value
-            || deps.annotations.hasChanges()
-            || deps.metadata.pageLabelsDirty.value
-            || deps.metadata.bookmarksDirty.value
-            || deps.shapes.hasChanges()
-        )
+        deps.annotations.dirty.value
+        || deps.annotations.hasChanges()
+        || deps.metadata.pageLabelsDirty.value
+        || deps.metadata.bookmarksDirty.value
+        || deps.shapes.hasChanges()
     )));
     const saveIfDirty = (onCommitted?: TDocumentCommitReceipt) => (
-        (deps.hasPendingUnsavedChanges || deps.hasUnsavedChanges) && !canSave.value
+        deps.hasPendingUnsavedChanges && !canSave.value
             ? Promise.resolve(!failureSurface.hasSaveFailure.value)
             : save({kind: 'save'}, onCommitted)
     );
