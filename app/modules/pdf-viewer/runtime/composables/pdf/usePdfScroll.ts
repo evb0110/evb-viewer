@@ -86,13 +86,6 @@ export const usePdfScroll = (options: IUsePdfScrollOptions) => {
             ) ?? domVisibility;
     }
 
-    function getVisiblePageRange(
-        container: HTMLElement | null,
-        totalPages: number,
-    ) {
-        return getViewportVisibility(container, totalPages).range;
-    }
-
     function getViewportVisibility(
         container: HTMLElement | null,
         totalPages: number,
@@ -120,7 +113,6 @@ export const usePdfScroll = (options: IUsePdfScrollOptions) => {
 
     return {
         currentPage,
-        getVisiblePageRange,
         getViewportVisibility,
         setPageLayoutMetrics,
         getPageLayoutMetrics: () => pageLayoutMetrics.value,

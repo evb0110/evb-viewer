@@ -305,7 +305,6 @@ export const createDocumentContext = ({controller}: {controller: IWorkspaceDocum
             lifecycle: {
                 loadRecentFiles: () => void file.loadRecentFiles(),
                 preparePostSaveReload: () => createPdfReloadWaiter({
-                    pdfDocument,
                     pdfViewerRef,
                     openSurface: commandOpenSurface,
                     resetSearchCache: resetSearchCaches,
@@ -396,7 +395,6 @@ export const createDocumentContext = ({controller}: {controller: IWorkspaceDocum
         documentRevisionToken: file.documentRevisionToken,
         runWithDocumentOperationLease: runExclusive,
         isHistoryBusy: computed(() => controller.operationLease.activeKind.value === 'history'),
-        pdfDocument,
         pdfViewerRef,
         openSurface: commandOpenSurface,
         currentPage,

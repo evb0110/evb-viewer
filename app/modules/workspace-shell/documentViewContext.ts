@@ -395,9 +395,8 @@ export const createDocumentViewContext = (deps: IDocumentViewContextDeps) => {
 
     const djvuProjection = useDjvuProjectionActions({
         isDjvuMode: file.isDjvuMode,
-        currentPage,
         documentRef: originalPath,
-        documentViewerRef,
+        openSurface,
         ensureProjection: file.ensureDjvuPdfProjection,
         saveAs: save.handleSaveAs,
         exportDocx: document.docxExport.handleExportDocx,

@@ -22,7 +22,6 @@ import {prepareDocumentViewsForHistorySwap} from '@app/modules/workspace-shell/d
 import {useWorkspaceCommandLedger} from '@app/modules/workspace-shell/composables/useWorkspaceCommandLedger';
 import {usePdfHistory} from '@app/modules/pdf-viewer/runtime/composables/usePdfHistory';
 import {createDocumentOpenSurfaceSession} from '@app/modules/document-viewer/public';
-import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import {createDefaultWorkspaceToolbarSnapshot} from '@app/types/workspaceExpose';
 import {createTabViewSessionState} from '@app/modules/workspace-shell/tabs/createTabViewSessionState';
 import {
@@ -126,7 +125,7 @@ function createHistoryHarness(isDesktopRuntime = false) {
     };
 }
 
-function createContentHistoryHarness(pathHistory: boolean, withSurface: boolean, beforeRevisionPrepare?: () => Promise<void>, documentAnnotations?: () => ReturnType<typeof createPdfDocumentAnnotations>) {
+function createContentHistoryHarness(pathHistory: boolean, beforeRevisionPrepare?: () => Promise<void>, documentAnnotations?: () => ReturnType<typeof createPdfDocumentAnnotations>) {
     vi.stubGlobal('useToast', () => ({
         add: vi.fn(),
         update: vi.fn(),
@@ -225,10 +224,8 @@ function createContentHistoryHarness(pathHistory: boolean, withSurface: boolean,
         ref(2),
     ];
     const surface = createDocumentOpenSurfaceSession();
-    const pdfDocument = shallowRef<IPdfDocument | null>(cast({id: 0}));
     const viewer = {
         scrollToPage: (page: number) => {pages[0]!.value = page;},
-        waitForViewerLoadSettled: async () => undefined,
     };
     for (const [
         index,
@@ -320,9 +317,8 @@ function createContentHistoryHarness(pathHistory: boolean, withSurface: boolean,
     };
     publishSurface();
     const ui = usePdfHistory({
-        pdfDocument,
         pdfViewerRef: shallowRef(viewer),
-        ...(withSurface ? {openSurface: surface} : {}),
+        openSurface: surface,
         currentPage: pages[0]!,
         isAnySaving: ref(false),
         prepareHistory: () => undefined,
@@ -372,7 +368,6 @@ function createContentHistoryHarness(pathHistory: boolean, withSurface: boolean,
         observeLoads: () => {
             const stop = watch(state.pdfSrc, () => {
                 pages[0]!.value = 1;
-                pdfDocument.value = cast({id: ++serial});
                 publishSurface();
             }, {flush: 'sync'});
             onTestFinished(stop);
@@ -388,7 +383,7 @@ describe('createDocumentHistory', () => {
         const entered = Promise.withResolvers<undefined>();
         const release = Promise.withResolvers<undefined>();
         onTestFinished(() => { release.resolve(undefined); });
-        const h = createContentHistoryHarness(pathHistory, false, () => {
+        const h = createContentHistoryHarness(pathHistory, () => {
             entered.resolve(undefined);
             return release.promise;
         });
@@ -437,21 +432,17 @@ describe('createDocumentHistory', () => {
         false,
         true,
     ].flatMap(pathHistory => [
-        false,
-        true,
-    ].flatMap(withSurface => [
         'unchanged',
         'replacement',
         'lazy',
     ].map(save => ({
         pathHistory,
-        withSurface,
         save,
-    })))))(
-        'keeps each current content page through history (path=$pathHistory, surface=$withSurface, save=$save)', async ({
-            pathHistory, withSurface, save,
+    }))))(
+        'keeps each current content page through history (path=$pathHistory, save=$save)', async ({
+            pathHistory, save,
         }) => {
-            const h = createContentHistoryHarness(pathHistory, withSurface);
+            const h = createContentHistoryHarness(pathHistory);
             const initial = await h.readState(h.work);
             h.state.pdfSrc.value = initial.pdfSrc;
             h.state.pdfReloadSrc.value = initial.pdfSrc;
@@ -1102,7 +1093,7 @@ describe.each([
     true,
 ])('B01 canonical command isolation (path=%s)', path => {
     function setup() {
-        const h = createContentHistoryHarness(path, false, undefined, () => owner);
+        const h = createContentHistoryHarness(path, undefined, () => owner);
         const scope = effectScope();
         onTestFinished(() => scope.stop());
         const owner: ReturnType<typeof createPdfDocumentAnnotations> = scope.run(() => createPdfDocumentAnnotations({

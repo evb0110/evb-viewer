@@ -51,7 +51,6 @@
                 :is="activeFeaturePack"
                 ref="activeFeaturePackRef"
                 v-bind="$attrs"
-                :current-page="rendererKind === 'page-source' ? chassisAuthority.currentPage.value : undefined"
                 :mount-presentation="props.mountPresentation"
                 :is-resizing="props.isResizing"
                 @update:total-pages="handleTotalPagesUpdate"
