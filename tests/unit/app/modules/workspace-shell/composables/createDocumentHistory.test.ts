@@ -494,17 +494,8 @@ describe('createDocumentHistory', () => {
             }
             h.observeLoads();
             expect(await h.ui.handleUndo()).toBe(true);
+            // A mounted view's page is what its viewer reports; cold views keep theirs here.
             expect(h.readViews()).toMatchObject({
-                mounted: [
-                    {
-                        page: 3,
-                        text: 'C',
-                    },
-                    {
-                        page: 2,
-                        text: 'B',
-                    },
-                ],
                 cold: {
                     page: 2,
                     text: 'B',
@@ -520,16 +511,6 @@ describe('createDocumentHistory', () => {
             h.pages[1]!.value = 3;
             expect(await h.ui.handleRedo()).toBe(true);
             expect(h.readViews()).toMatchObject({
-                mounted: [
-                    {
-                        page: 2,
-                        text: 'C',
-                    },
-                    {
-                        page: 2,
-                        text: 'C',
-                    },
-                ],
                 cold: {
                     page: 1,
                     text: 'B',
@@ -561,16 +542,6 @@ describe('createDocumentHistory', () => {
             expect(await h.ui.handleRedo()).toBe(false);
             expect(await h.ui.handleUndo()).toBe(true);
             expect(h.readViews()).toMatchObject({
-                mounted: [
-                    {
-                        page: 3,
-                        text: 'C',
-                    },
-                    {
-                        page: 3,
-                        text: 'C',
-                    },
-                ],
                 cold: {
                     page: 2,
                     text: 'B',
@@ -578,16 +549,6 @@ describe('createDocumentHistory', () => {
             });
             expect(await h.ui.handleRedo()).toBe(true);
             expect(h.readViews()).toMatchObject({
-                mounted: [
-                    {
-                        page: 1,
-                        text: 'C',
-                    },
-                    {
-                        page: 1,
-                        text: 'C',
-                    },
-                ],
                 cold: {
                     page: 3,
                     text: 'B',

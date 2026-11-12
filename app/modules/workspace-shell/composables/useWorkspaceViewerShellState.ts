@@ -14,9 +14,11 @@ import type {
     IPdfDocument,
     IPdfViewerExpose,
 } from '@app/modules/pdf-viewer/public';
-import type {
-    IDocumentPageSource,
-    TDocumentSidebarTab,
+import {
+    resolveDocumentViewportCurrentPage,
+    type IDocumentOpenSurfaceSession,
+    type IDocumentPageSource,
+    type TDocumentSidebarTab,
 } from '@app/modules/document-viewer/public';
 import type { TPageSelection } from '@pdf-core/pdfPageSelection';
 import {
@@ -27,7 +29,15 @@ import {
 
 const LEGACY_SELECTION_MATERIALIZATION_LIMIT = 100_000;
 
-export const useWorkspaceViewerShellState = (initialState?: ITabViewSessionState | null) => {
+/**
+ * One view's presentation in the shell. Its page is the page its open
+ * surface reports; the shell sends navigation and restores through that
+ * surface and keeps no page of its own.
+ */
+export const useWorkspaceViewerShellState = (
+    initialState: ITabViewSessionState | null | undefined,
+    openSurface: Pick<IDocumentOpenSurfaceSession, 'viewportSession'>,
+) => {
     const pdfViewerRef = ref<IPdfViewerExpose | null>(null);
     const djvuViewerRef = ref<IDocumentViewerExpose | null>(null);
     const documentViewerRef = computed<IDocumentViewerExpose | null>(() => (
@@ -125,7 +135,7 @@ export const useWorkspaceViewerShellState = (initialState?: ITabViewSessionState
     }, {flush: 'sync'});
     const viewMode = ref<TPdfViewMode>(initialState?.viewMode ?? 'single');
     const viewRotation = ref<TPdfViewRotation>(initialState?.viewRotation ?? 0);
-    const currentPage = ref(Math.max(1, Math.trunc(initialState?.currentPage ?? 1)));
+    const currentPage = computed(() => resolveDocumentViewportCurrentPage(openSurface.viewportSession.value));
     const totalPages = ref(0);
     const pdfDocument = shallowRef<IPdfDocument | null>(null);
     const documentPageSource = shallowRef<IDocumentPageSource | null>(null);

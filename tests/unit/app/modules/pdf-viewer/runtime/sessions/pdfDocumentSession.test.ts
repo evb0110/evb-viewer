@@ -527,7 +527,7 @@ describe('PdfDocumentSession range loading', () => {
 
     it('joins the host generation created after the PDF session was constructed', async () => {
         const openSurface = createDocumentOpenSurfaceSession();
-        const authority = createDocumentViewerRuntime(ref('pdf'), 1, openSurface);
+        const authority = createDocumentViewerRuntime(ref('pdf'), openSurface);
         const source = shallowRef<Blob | null>(new Blob(['pdf'], {type: 'application/pdf'}));
         const documentState = createPdfDocumentSession({src: computed(() => source.value)});
         const view = documentState.attachView({chassisAuthority: authority});
@@ -554,7 +554,7 @@ describe('PdfDocumentSession range loading', () => {
     it('keeps the rotated page geometry when the rotated file replaces the source', async () => {
         const documentId = '/tmp/rotated-source.pdf';
         const openSurface = createDocumentOpenSurfaceSession();
-        const authority = createDocumentViewerRuntime(ref('pdf'), 1, openSurface);
+        const authority = createDocumentViewerRuntime(ref('pdf'), openSurface);
         const source = shallowRef(new Blob(['pdf'], {type: 'application/pdf'}));
         const documentState = createPdfDocumentSession({src: computed(() => source.value)});
         documentState.attachView({

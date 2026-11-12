@@ -18,7 +18,7 @@ export {
     clampKeyboardSelection, createKeyboardSelection, updateKeyboardSelection,
 } from '@app/modules/document-viewer/region-geometry/keyboardSelection';
 export {
-    createDocumentOpenSurfaceSession, documentOpenSurfaceSessionKey, hasCommittedDocumentOpeningLayout, injectDocumentOpenSurfaceSession, isDocumentOpenEmptySurfaceTransition, resolveDocumentOpenSurfaceViewportPolicy, shouldPresentDocumentOpenEmptyPlaceholder, type IDocumentOpenSurfaceRenderFence, type IDocumentOpenSurfaceRenderOwner, type IDocumentOpenSurfaceSession, type IDocumentOpenSurfaceSnapshot, type TDocumentOpenSurfacePhase, type TDocumentViewportVisualOwner,
+    createDocumentOpenSurfaceSession, documentOpenSurfaceSessionKey, hasCommittedDocumentOpeningLayout, injectDocumentOpenSurfaceSession, isDocumentOpenEmptySurfaceTransition, resolveDocumentOpenSurfaceViewportPolicy, resolveDocumentViewportCurrentPage, shouldPresentDocumentOpenEmptyPlaceholder, type IDocumentOpenSurfaceRenderFence, type IDocumentOpenSurfaceRenderOwner, type IDocumentOpenSurfaceSession, type IDocumentOpenSurfaceSnapshot, type TDocumentOpenSurfacePhase, type TDocumentViewportVisualOwner,
 } from '@app/modules/document-viewer/runtime/documentOpenSurfaceSession';
 export { createAnchorPageWindow } from '@app/modules/document-viewer/virtualization/pageVirtualization';
 export { createDjvuPageSource } from '@app/modules/document-viewer/source/createDjvuPageSource';
@@ -40,7 +40,7 @@ export {
 } from '@app/modules/document-viewer/lifecycle/createDocumentTransitionChannel';
 export { createDocumentViewerActivationRunGuard } from '@app/modules/document-viewer/lifecycle/createDocumentViewerActivationRunGuard';
 export {
-    createDocumentViewerRuntime, documentViewerRuntimeKey, injectDocumentViewerRuntime, shouldAcceptFeaturePackRuntimePage, type IDocumentViewerRuntime,
+    createDocumentViewerRuntime, documentViewerRuntimeKey, injectDocumentViewerRuntime, type IDocumentViewerRuntime,
 } from '@app/modules/document-viewer/runtime/documentViewerRuntime';
 export type {
     IDocumentViewportFlingBackdrop, IDocumentViewportFlingBackdropPage,

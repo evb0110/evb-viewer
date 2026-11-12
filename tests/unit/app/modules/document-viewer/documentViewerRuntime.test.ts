@@ -10,7 +10,6 @@ import {
 import { ref } from 'vue';
 import {
     createDocumentViewerRuntime,
-    shouldAcceptFeaturePackRuntimePage,
 } from '@app/modules/document-viewer/runtime/documentViewerRuntime';
 import { createDocumentOpenSurfaceSession } from '@app/modules/document-viewer/runtime/documentOpenSurfaceSession';
 import { createPageNavigationRequest } from '@app/modules/document-viewer/navigation/documentNavigationRequest';
@@ -135,7 +134,7 @@ describe('document viewer chassis authority', () => {
             documentId: 'scan.pdf',
             documentRevision: 'revision-1',
         });
-        const authority = createDocumentViewerRuntime(sourceKind, 2, openSurface);
+        const authority = createDocumentViewerRuntime(sourceKind, openSurface);
         const originalSlots = authority.pageSlots;
         const originalBudget = authority.surfaceBudget;
         const originalViewportWritePort = authority.viewportWritePort;
@@ -938,7 +937,7 @@ describe('document viewer chassis authority', () => {
 
     it('resets a stale viewport offset synchronously when a document generation begins', () => {
         const openSurface = createDocumentOpenSurfaceSession();
-        const authority = createDocumentViewerRuntime(ref('pdf'), 1, openSurface);
+        const authority = createDocumentViewerRuntime(ref('pdf'), openSurface);
         const container = createViewportContainer();
         container.scrollLeft = 7;
         container.scrollTop = 4;
@@ -1046,7 +1045,7 @@ describe('document viewer chassis authority', () => {
             documentId: 'scan.djvu',
             documentRevision: 'revision-1',
         });
-        const authority = createDocumentViewerRuntime(ref('djvu'), 1, openSurface);
+        const authority = createDocumentViewerRuntime(ref('djvu'), openSurface);
 
         const pending = authority.navigate(createPageNavigationRequest(20, 'toolbar'));
         expect(pending).not.toBeNull();
@@ -1079,7 +1078,7 @@ describe('document viewer chassis authority', () => {
             documentId: 'scan.pdf',
             documentRevision: 'revision-1',
         });
-        const authority = createDocumentViewerRuntime(ref('pdf'), 1, openSurface);
+        const authority = createDocumentViewerRuntime(ref('pdf'), openSurface);
         const request = createPageNavigationRequest(1, 'toolbar');
 
         const ticket = authority.navigate(request);
@@ -1096,7 +1095,7 @@ describe('document viewer chassis authority', () => {
                 documentId: 'scan.pdf',
                 documentRevision: 'revision-1',
             });
-            const authority = createDocumentViewerRuntime(ref('pdf'), 1, openSurface);
+            const authority = createDocumentViewerRuntime(ref('pdf'), openSurface);
             const port = authority.viewportWritePort;
             const container = createViewportContainer();
             const send = () => observeDocumentViewportWheelInteraction(
@@ -1129,7 +1128,7 @@ describe('document viewer chassis authority', () => {
             openSurface.navigate(createPageNavigationRequest(page, 'toolbar'));
         }
 
-        const authority = createDocumentViewerRuntime(ref('pdf'), 1, openSurface);
+        const authority = createDocumentViewerRuntime(ref('pdf'), openSurface);
 
         expect(openSurface.viewportSession.value.requestedPage).toBe(6);
         expect(authority.currentPage.value).toBe(1);
@@ -1138,11 +1137,8 @@ describe('document viewer chassis authority', () => {
             kind: 'page',
             page: 6,
         });
-        expect(shouldAcceptFeaturePackRuntimePage(openSurface.viewportSession.value, 1)).toBe(true);
-        expect(shouldAcceptFeaturePackRuntimePage(openSurface.viewportSession.value, 6)).toBe(false);
         authority.observePage(6);
-        expect(shouldAcceptFeaturePackRuntimePage(openSurface.viewportSession.value, 1)).toBe(false);
-        expect(shouldAcceptFeaturePackRuntimePage(openSurface.viewportSession.value, 6)).toBe(true);
+        expect(authority.currentPage.value).toBe(6);
     });
 
     it('replays the full target through a renderer bind without replacing the visible page', () => {
@@ -1151,7 +1147,7 @@ describe('document viewer chassis authority', () => {
             documentId: 'scan.pdf',
             documentRevision: 'revision-1',
         });
-        const authority = createDocumentViewerRuntime(ref('pdf'), 1, openSurface);
+        const authority = createDocumentViewerRuntime(ref('pdf'), openSurface);
         const request = {
             ...createPageNavigationRequest(1, 'bookmark'),
             target: {
@@ -1169,7 +1165,7 @@ describe('document viewer chassis authority', () => {
         expect(authority.navigationTicket.value).toBe(ticket);
         expect(authority.navigationTicket.value?.request).toEqual(request);
 
-        const rebound = createDocumentViewerRuntime(ref('pdf'), 1, openSurface);
+        const rebound = createDocumentViewerRuntime(ref('pdf'), openSurface);
         expect(rebound.navigationTicket.value).toBe(ticket);
         expect(rebound.navigationTicket.value?.request.target).toEqual(request.target);
         expect(rebound.currentPage.value).toBe(1);
@@ -1188,7 +1184,7 @@ describe('document viewer chassis authority', () => {
 
     it('rejects navigation without a document owner instead of leaking it into the next open', () => {
         const openSurface = createDocumentOpenSurfaceSession();
-        const authority = createDocumentViewerRuntime(ref('pdf'), 1, openSurface);
+        const authority = createDocumentViewerRuntime(ref('pdf'), openSurface);
 
         for (let page = 2; page <= 6; page += 1) {
             expect(authority.navigate(createPageNavigationRequest(page, 'toolbar'))).toBeNull();

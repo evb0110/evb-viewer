@@ -165,7 +165,6 @@ export const usePdfViewerPublicApiController = (
         getViewerContainer: () => options.viewerContainer.value,
         getEffectiveZoom: () => viewportSession.scale.effectiveScale.value,
         getCurrentPage: () => currentPage.value,
-        getPendingNavigationTargetPage: () => viewportSession.singlePageScroll.navigationAnchorPage.value,
         getUserViewportInteractionEpoch: options.getUserViewportInteractionEpoch,
         scrollToPage: (pageNumber, scrollOptions) => {
             options.cancelPendingSearchScroll();

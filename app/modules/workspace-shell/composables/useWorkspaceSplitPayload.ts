@@ -387,9 +387,6 @@ export const useWorkspaceSplitPayload = (options: IUseWorkspaceSplitPayloadOptio
 
         if (isDjvuSplitPayload(payload) && DJVU_VIEWER_ADAPTER.capabilities.sidebar) {
             const pageToRestore = normalizeSplitPayloadPage(payload.currentPage);
-            if (pageToRestore) {
-                options.currentPage.value = pageToRestore;
-            }
             if (payload.totalPages && Number.isFinite(payload.totalPages)) {
                 options.totalPages.value = Math.max(
                     options.totalPages.value,

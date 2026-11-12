@@ -42,7 +42,7 @@ describe('createDocumentViewerExposeForwarder', () => {
         const target = shallowRef<Record<PropertyKey, unknown> | null>(null);
         const stableScroll = vi.fn();
         const exposed = createDocumentViewerExposeForwarder(target, {
-            getPendingNavigationTargetPage: () => 6,
+            getCurrentPage: () => 6,
             scrollToPage: stableScroll,
         });
         const scrollToPage = (page: number) => {
@@ -57,7 +57,7 @@ describe('createDocumentViewerExposeForwarder', () => {
             scrollToPage(page);
         }
         target.value = {scrollToPage: transientPdfScroll};
-        expect(Reflect.get(exposed, 'getPendingNavigationTargetPage')()).toBe(6);
+        expect(Reflect.get(exposed, 'getCurrentPage')()).toBe(6);
 
         expect(stableScroll).toHaveBeenCalledTimes(5);
         expect(stableScroll).toHaveBeenLastCalledWith(6);

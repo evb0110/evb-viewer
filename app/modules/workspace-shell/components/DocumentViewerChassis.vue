@@ -51,10 +51,9 @@
                 :is="activeFeaturePack"
                 ref="activeFeaturePackRef"
                 v-bind="$attrs"
-                :current-page="chassisAuthority.currentPage.value"
+                :current-page="rendererKind === 'page-source' ? chassisAuthority.currentPage.value : undefined"
                 :mount-presentation="props.mountPresentation"
                 :is-resizing="props.isResizing"
-                @update:current-page="handleCurrentPageUpdate"
                 @update:total-pages="handleTotalPagesUpdate"
             />
         </DocumentViewportHost>
@@ -74,8 +73,7 @@ import { createDocumentViewerExposeForwarder } from '@app/modules/workspace-shel
 import {
     createDocumentViewerRuntime,
     documentViewerRuntimeKey,
-    shouldAcceptFeaturePackRuntimePage,
-    DocumentViewportHost ,
+    DocumentViewportHost,
     injectDocumentOpenSurfaceSession,
     isDocumentOpenEmptySurfaceTransition,
     resolveDocumentOpenSurfaceViewportPolicy,
@@ -91,7 +89,6 @@ import { workspaceViewerFeatureChunkLoaders } from '@app/modules/workspace-shell
 import DocumentViewerFlingBackdrop from '@app/modules/workspace-shell/components/DocumentViewerFlingBackdrop.vue';
 import { createPdfPageNavigationRequest } from '@app/modules/pdf-viewer/public';
 import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/public';
-import { shouldRestoreDocumentViewerHandoffSnapshot } from '@app/modules/workspace-shell/viewers/shouldRestoreDocumentViewerHandoffSnapshot';
 
 defineOptions({ inheritAttrs: false });
 
@@ -100,12 +97,10 @@ type TDocumentViewerRendererKind = 'pdfjs' | 'page-source';
 const props = defineProps<{
     sourceKind: TDocumentPageSourceKind;
     rendererKind?: TDocumentViewerRendererKind;
-    currentPage?: number;
     mountPresentation?: boolean;
     isResizing?: boolean;
 }>();
 const emit = defineEmits<{
-    'update:current-page': [pageNumber: number];
     'update:pageSource': [source: IDocumentPageSource | null];
     'update:total-pages': [pageCount: number];
 }>();
@@ -140,11 +135,7 @@ const documentOpenSurface = injectDocumentOpenSurfaceSession();
 if (!documentOpenSurface) {
     throw new Error('DocumentViewerChassis requires the host-owned document open surface session');
 }
-const chassisAuthority = createDocumentViewerRuntime(
-    sourceKind,
-    props.currentPage ?? 1,
-    documentOpenSurface,
-);
+const chassisAuthority = createDocumentViewerRuntime(sourceKind, documentOpenSurface);
 function handleViewportWheel(interaction: IDocumentWheelInteraction) {
     // Physical scrolling must fence pending authored restores before the
     // browser mutates scrollTop. The inertial tail of a gesture that a newer
@@ -294,15 +285,13 @@ const chassisViewportStyle = computed(() => {
         },
     ];
 });
-let handoffGeneration = 0;
 provide(documentViewerRuntimeKey, chassisAuthority);
 // The backdrop's row geometry follows every zoom and pane resize; the chassis
 // reads only whether there is one, and the backdrop reads the rest itself.
 const hasViewportFlingBackdrop = computed(() => chassisAuthority.viewportFlingBackdrop.value !== null);
 
-// Feature packs publish their render source through the chassis authority. Keep
-// the compatibility event as a projection of that authoritative state so a
-// parent mounting later in the lifecycle still receives the current source.
+// Feature packs bind their render source to the chassis authority; this is
+// the one report of it, so a parent mounting later still receives it.
 watch(
     () => chassisAuthority.source.value,
     source => emit('update:pageSource', source),
@@ -312,32 +301,6 @@ watch(
     },
 );
 
-// The authority's semantic page follows the shared surface, including
-// pre-mount navigation intent. Feature packs only emit page events on later
-// changes, so a renderer initialized directly at the target page would leave
-// the parent's projection behind without this authoritative projection.
-watch(
-    () => chassisAuthority.currentPage.value,
-    (pageNumber) => {
-        if (pageNumber !== props.currentPage) {
-            emit('update:current-page', pageNumber);
-        }
-    },
-    {
-        flush: 'sync',
-        immediate: true,
-    },
-);
-
-function handleCurrentPageUpdate(pageNumber: number) {
-    if (shouldAcceptFeaturePackRuntimePage(
-        chassisAuthority.openSurface.viewportSession.value,
-        pageNumber,
-    )) {
-        emit('update:current-page', pageNumber);
-    }
-}
-
 function handleTotalPagesUpdate(pageCount: number) {
     chassisAuthority.pageCount.value = Math.max(0, Math.trunc(pageCount));
     if (chassisAuthority.pageCount.value > 0) {
@@ -345,49 +308,6 @@ function handleTotalPagesUpdate(pageCount: number) {
     }
     emit('update:total-pages', chassisAuthority.pageCount.value);
 }
-
-watch(() => [
-    sourceKind.value,
-    rendererKind.value,
-] as const, async (nextIdentity, previousIdentity) => {
-    if (nextIdentity[0] === previousIdentity[0] && nextIdentity[1] === previousIdentity[1]) {
-        return;
-    }
-    const generation = ++handoffGeneration;
-    const previousViewer = activeFeaturePackRef.value as {
-        captureScrollSnapshot?: () => unknown;
-        getCurrentPage?: () => number;
-    } | null;
-    const snapshot = previousViewer?.captureScrollSnapshot?.() ?? null;
-    const fallbackPage = previousViewer?.getCurrentPage?.() ?? 1;
-    await nextTick();
-    if (generation !== handoffGeneration) {
-        return;
-    }
-    const nextViewer = activeFeaturePackRef.value as {
-        waitForViewerLoadSettled?: () => Promise<void>;
-        restoreScrollSnapshot?: (snapshot: unknown, options: {fallbackPage: number}) => void;
-        scrollToPage?: (pageNumber: number, options?: IScrollToPageOptions) => void;
-    } | null;
-    await nextViewer?.waitForViewerLoadSettled?.();
-    if (generation !== handoffGeneration || activeFeaturePackRef.value !== nextViewer) {
-        return;
-    }
-    const viewportSession = chassisAuthority.openSurface.viewportSession.value;
-    const shouldRestoreSnapshot = shouldRestoreDocumentViewerHandoffSnapshot({
-        fallbackPage,
-        currentPage: chassisAuthority.currentPage.value,
-        pendingNavigationPage: viewportSession.identity !== null
-                && viewportSession.requestedPage !== viewportSession.committedPage
-            ? viewportSession.requestedPage
-            : null,
-    });
-    if (shouldRestoreSnapshot && nextViewer?.restoreScrollSnapshot) {
-        nextViewer.restoreScrollSnapshot(snapshot, {fallbackPage});
-    } else if (shouldRestoreSnapshot) {
-        nextViewer?.scrollToPage?.(fallbackPage);
-    }
-}, {flush: 'pre'});
 
 // Navigation belongs to the stable chassis, so commands remain durable while
 // the async feature pack is absent or swapping. When a renderer is mounted it
@@ -397,11 +317,6 @@ defineExpose(createDocumentViewerExposeForwarder(activeFeaturePackRef, {
     getCurrentPage: () => chassisAuthority.currentPage.value,
     getReaderInteractionEpoch: () => chassisAuthority.viewportWritePort.getInteractionEpoch(),
     observeReaderCommand: () => chassisAuthority.viewportWritePort.observeUserInteraction(chassisAuthority.viewportElement.value ?? undefined),
-    getPendingNavigationTargetPage: () => {
-        const ticket = chassisAuthority.navigationTicket.value;
-        const target = ticket?.request.target;
-        return target && 'page' in target ? target.page : null;
-    },
     scrollToPage: (pageNumber: number, options?: IScrollToPageOptions) => {
         const request = createPdfPageNavigationRequest(pageNumber, options);
         chassisAuthority.navigate(request);

@@ -616,7 +616,6 @@ export interface IWorkspaceDocumentDriverBindingOptions {
     currentSearchMatch: TReadableRef<unknown>;
     documentSourceCurrentResultIndex: TReadableRef<number>;
     documentSourceSearchResults: TReadableRef<readonly IDocumentSearchMatch[]>;
-    currentPage: Ref<number>;
     dragMode: Ref<boolean>;
     isAnySaving: Ref<boolean>;
     isInteractionActive: TReadableRef<boolean>;
@@ -648,14 +647,12 @@ export interface IWorkspaceDocumentDriverBindingOptions {
     onAnnotationState: unknown;
     onAnnotationToolAutoReset: () => void;
     onAnnotationToolCancel: () => void;
-    onCurrentPageUpdate: (value: number) => void;
     onDocumentUpdate: (value: unknown) => void;
 
     onInitialVisualPending: () => void;
     onInitialVisualReady: () => void;
     onLoadError: (error: unknown) => void;
     onLoading: (value: boolean) => void;
-    onNavigationFeedbackPageUpdate: (value: number | null) => void;
     onShapeContextMenu: unknown;
     onSourceCapabilitiesUpdate: (capabilities: IDocumentSourceCapabilities) => void;
     onPageSourceUpdate: (source: IDocumentPageSource | null) => void;
@@ -698,7 +695,6 @@ export const useWorkspaceDocumentDriverBinding = (options: IWorkspaceDocumentDri
                 sourcePdfData: options.sourcePdfData.value,
                 isAnySaving: options.isAnySaving.value,
                 viewRotation: options.viewRotation.value,
-                currentPage: options.currentPage.value,
                 isResizing: options.isWorkspaceLayoutResizing.value,
                 annotationTool: options.annotationTool.value,
                 annotationCursorMode: options.annotationCursorMode.value,
@@ -735,7 +731,6 @@ export const useWorkspaceDocumentDriverBinding = (options: IWorkspaceDocumentDri
 
     const nativeViewerListeners = {
         'update:zoomState': options.onZoomStateUpdate,
-        'update:currentPage': options.onCurrentPageUpdate,
         'update:totalPages': options.onTotalPagesUpdate,
         'update:document': options.onDocumentUpdate,
         loading: options.onLoading,
@@ -753,7 +748,6 @@ export const useWorkspaceDocumentDriverBinding = (options: IWorkspaceDocumentDri
 
         return {
             ...nativeViewerListeners,
-            'update:navigationFeedbackPage': options.onNavigationFeedbackPageUpdate,
             annotationState: options.onAnnotationState,
             annotationModified: options.onAnnotationModified,
             annotationComments: options.onAnnotationComments,

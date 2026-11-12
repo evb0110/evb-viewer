@@ -579,7 +579,6 @@ export const createDocumentContext = ({controller}: {controller: IWorkspaceDocum
         annotationActiveCommentStableKey: annotations.annotationActiveCommentStableKey,
         annotationEditorState: annotations.annotationEditorState,
         metadata,
-        navigationTicket: commandViewRef(port => port.openSurface.navigationTicket, null),
         resetAnnotationTracking: annotations.resetAnnotationTracking,
         resetSearchCache: resetSearchCaches,
         closeSearch: () => viewPorts.value.forEach(port => port.search.closeSearch()),

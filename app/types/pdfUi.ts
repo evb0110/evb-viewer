@@ -45,24 +45,6 @@ export interface IPdfPageMetric {
 
 export type IPageRange = IDocumentPageRange;
 
-export interface IScrollSnapshot {
-    width: number;
-    height: number;
-    centerX: number;
-    centerY: number;
-    anchorPage?: number | null;
-    anchorInsidePage?: boolean;
-    anchorOffsetRatio?: number;
-    anchorContentXRatio?: number;
-    anchorContentYRatio?: number;
-    anchorPageXRatio?: number;
-    anchorPageYRatio?: number;
-    anchorPageYOutsideEdge?: TAnchorPageOutsideEdge;
-    anchorPageYOutsideOffsetPx?: number | null;
-}
-
-export type TAnchorPageOutsideEdge = 'inside' | 'above' | 'below';
-
 export interface IPdfPathSource {
     kind: 'path';
     path: TDocumentRef;

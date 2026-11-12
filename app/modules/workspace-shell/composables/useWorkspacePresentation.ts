@@ -36,20 +36,8 @@ export const useWorkspacePresentation = (
     const {isExternallyRestoring} = useDocumentWorkspaceRestoreState({
         tabId,
         workspaceRestoreTracker: useWorkspaceRestoreTracker(),
-        currentPage: view.currentPage,
-        totalPages: view.totalPages,
-        showSidebar: view.showSidebar,
-        sidebarTab: view.sidebarTab,
-        isResizingSidebar: search.isResizingSidebar,
-        isLoading: view.isLoading,
-        continuousScroll: view.continuousScroll,
-        fitMode: view.fitMode,
-        viewMode: view.viewMode,
-        zoom: view.zoom,
-        documentViewerRef: view.documentViewerRef,
         initFromStorage: file.initFromStorage,
         cleanupSidebarResizeListeners: search.cleanupSidebarResizeListeners,
-        currentPageTransitionHistory: ref([]),
     });
 
     const capabilities = document.viewerCapabilities;
@@ -84,15 +72,10 @@ export const useWorkspacePresentation = (
     watch(document.driver.activeDocumentDriver, (adapter) => {
         if (!adapter) {
             logPdfRenderTrace('workspace-page-session-adapter-reset', {currentPageBefore: view.currentPage.value});
-            view.currentPage.value = 1;
             view.totalPages.value = 0;
             view.isLoading.value = false;
         }
     });
-    const {
-        scheduleStartupOpenVisualReady,
-        dispatchStartupOpenVisualReady,
-    } = useWorkspaceStartupReadiness(view.documentViewerRef);
     const {
         documentOpenAccepted,
         documentOpenSettled,
@@ -107,6 +90,10 @@ export const useWorkspacePresentation = (
         showDjvuSource: showsDjvuSource,
         openSurface,
     });
+    const {
+        scheduleStartupOpenVisualReady,
+        dispatchStartupOpenVisualReady,
+    } = useWorkspaceStartupReadiness(documentOpenSettled);
     const hasOpenError = computed(() => Boolean(file.pdfError.value) || Boolean(file.djvuError.value));
     const { toolbarShowSidebarForDisplay } = useWorkspaceSidebarOpenGeneration({
         sidebarPresentationEnabled,
@@ -196,16 +183,13 @@ export const useWorkspacePresentation = (
             || phase === 'viewport-committed';
     });
 
-    const navigationFeedbackPage = ref<number | null>(null);
     watch(file.pdfSrc, (src) => {
-        navigationFeedbackPage.value = null;
         if (src) {
             scheduleStartupOpenVisualReady('pdf-src');
         }
     });
     watch(() => driverView.value?.startupVisualSource ?? null, (source) => {
         if (source) {
-            navigationFeedbackPage.value = null;
             scheduleStartupOpenVisualReady(source);
         }
     });
@@ -253,7 +237,6 @@ export const useWorkspacePresentation = (
         showDjvuConversionUi,
         showDjvuConversionBanner,
         showWorkspaceViewerDocument,
-        navigationFeedbackPage,
         waitForDocumentOpenSettled,
     };
 };
