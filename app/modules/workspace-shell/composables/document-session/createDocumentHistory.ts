@@ -19,7 +19,7 @@ import type {
     IPathHistoryEntry,
     TPdfHistoryEntry,
 } from '@app/services/pdf-file/pdfHistoryEntryTypes';
-import type { IDocumentSessionState } from '@app/modules/workspace-shell/viewers/workspaceDocumentDriver';
+import type { IDocumentSessionState } from '@app/modules/workspace-shell/composables/document-session/documentSessionState';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { getDocumentRefBaseName } from '@app/utils/documentRef';
 import type {IWorkspaceCommandSink} from '@app/types/workspaceCommand';
@@ -572,7 +572,6 @@ export function createDocumentHistory(
                 if (commitRevisionSwap) commitRevisionSwap();
                 applyAnnotations?.();
                 state.documentRevisionInfo.value = revision;
-                state.documentRevisionToken.value = revision.token;
             }
             state.pdfData.value = entry.snapshot;
             state.pdfSrc.value = deps.toPdfBlob(entry.snapshot);

@@ -1,5 +1,5 @@
 import {getDocumentFilesCapability} from '@app/utils/platformDocuments';
-import type { IDocumentSessionState } from '@app/modules/workspace-shell/viewers/workspaceDocumentDriver';
+import type { IDocumentSessionState } from '@app/modules/workspace-shell/composables/document-session/documentSessionState';
 import type {
     IDocumentRevisionInfo, TDocumentRevisionToken, 
 } from '@contracts/documentRevision';
@@ -54,7 +54,6 @@ export async function adoptStablePathBackedPersistedState(input: {
         revision: baseline.revision,
     };
     input.state.documentRevisionInfo.value = revisionInfo;
-    input.state.documentRevisionToken.value = revisionInfo.token;
     input.state.pdfData.value = null;
     input.state.pdfSrc.value = source;
     input.state.pdfReloadSrc.value = source;

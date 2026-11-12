@@ -39,7 +39,11 @@ import {
     captureCanonicalAnnotationRecovery, restoreCanonicalAnnotationRecovery,
 } from '@app/modules/pdf-viewer/annotations/domain/annotationRecovery';
 import { createdTextBox } from '@tests/unit/app/modules/pdf-viewer/components/pdfAnnotationEditorLayerEventFixtures';
-import { createWorkspaceExposeFixture } from '@tests/unit/app/modules/workspace-shell/workspaceTestFixtures';
+import {
+    createWorkspaceExposeFixture,
+    bindTestDocumentFrontier,
+    setTestDocumentDirty,
+} from '@tests/unit/app/modules/workspace-shell/workspaceTestFixtures';
 
 // Capability output is the durable document and checkpoint a later session reads.
 const stores = vi.hoisted(() => ({
@@ -151,8 +155,7 @@ function mountLinkedDocumentRecovery(
 ) {
     const originalPath = requireDocumentRef('/documents/shared.pdf');
     const session = createWorkspaceDocumentController({tabId: 'tab-1'});
-    session.commitDocument({
-        fileName: 'shared.pdf',
+    session.commitFile({
         originalPath,
         isDjvu: false,
         revisionInfo: {
@@ -164,7 +167,7 @@ function mountLinkedDocumentRecovery(
             mintedAt: requireEpochMs(1),
         },
     });
-    session.setDirty(true);
+    setTestDocumentDirty(session, true);
     session.addView('tab-2');
     for (const tabId of [
         'tab-1',
@@ -285,8 +288,7 @@ async function restorePublishedRecovery(checkpoint: IWorkspaceCheckpoint) {
     session.attachWorkspace(first.tabId, createWorkspaceExposeFixture({
         handleOpenFileWithResult: async () => true,
         waitForDocumentOpenSettled: async () => {
-            session.commitDocument({
-                fileName: first.fileName,
+            session.commitFile({
                 originalPath: first.sourceRef,
                 isDjvu: false,
                 revisionInfo: {
@@ -360,8 +362,7 @@ describe('browser workspace recovery', () => {
                 text: 'Newer unmatched draft',
                 generation: 2,
             }]);
-            session.commitDocument({
-                fileName: 'shared.pdf',
+            session.commitFile({
                 originalPath: requireDocumentRef('/documents/shared.pdf'),
                 isDjvu: false,
                 revisionInfo: {
@@ -475,8 +476,7 @@ describe('browser workspace recovery', () => {
                 isDjvu: false,
                 isDirty: true,
             });
-            session.commitDocument({
-                fileName: replacementName,
+            session.commitFile({
                 originalPath: replacementSource,
                 isDjvu: false,
                 revisionInfo: {
@@ -573,11 +573,11 @@ describe('browser workspace recovery', () => {
         const session = mountLinkedDocumentRecovery(async target => storeRecoverySnapshot(target, revision.value ? editedBytes : PDF_BYTES), revision);
         await vi.advanceTimersByTimeAsync(1_000);
         await vi.advanceTimersByTimeAsync(10_000);
-        session.setDirty(false);
+        setTestDocumentDirty(session, false);
         await vi.advanceTimersByTimeAsync(1_000);
         publication.resolve(undefined);
         await vi.advanceTimersByTimeAsync(10_000);
-        session.setDirty(true);
+        setTestDocumentDirty(session, true);
         revision.value += 1;
         await vi.advanceTimersByTimeAsync(1_000);
         expect(stores.checkpoints).toHaveLength(1);
@@ -671,7 +671,7 @@ describe('browser workspace recovery', () => {
         expect(stores.readableDocuments.get(adoptedRef)).toEqual(PDF_BYTES);
         expect(stores.readableDocuments.get(replacementRef)).toEqual(PDF_BYTES);
 
-        session.setDirty(false);
+        setTestDocumentDirty(session, false);
         await vi.advanceTimersByTimeAsync(1_000);
         expect(stores.readableDocuments.get(adoptedRef)).toEqual(PDF_BYTES);
         expect(stores.readableDocuments.has(replacementRef)).toBe(false);
@@ -781,7 +781,7 @@ describe('browser workspace recovery', () => {
         });
         try {
             await vi.advanceTimersByTimeAsync(1_000);
-            session.setDirty(false);
+            setTestDocumentDirty(session, false);
             await nextTick();
             if (outcome === 'rejected') heldSnapshot.reject(createStaleRevisionError({}));
             else heldSnapshot.resolve(null);
@@ -792,7 +792,7 @@ describe('browser workspace recovery', () => {
 
             // A subsequent accepted edit still protects the document's two views.
             snapshot = Promise.resolve(storeRecoverySnapshot({fileName: 'shared.pdf.recovery.pdf'}, PDF_BYTES));
-            session.setDirty(true);
+            setTestDocumentDirty(session, true);
             await vi.advanceTimersByTimeAsync(1_000);
             const refs = latestCheckpointRefs();
             expect(refs).toHaveLength(2);
@@ -810,8 +810,7 @@ describe('browser workspace recovery', () => {
         await vi.advanceTimersByTimeAsync(1_000);
         const refs = latestCheckpointRefs();
         available = false;
-        session.commitDocument({
-            fileName: 'replacement.pdf',
+        session.commitFile({
             originalPath: requireDocumentRef('/documents/replacement.pdf'),
             isDjvu: false,
             revisionInfo: {
@@ -823,7 +822,7 @@ describe('browser workspace recovery', () => {
                 mintedAt: requireEpochMs(2),
             },
         });
-        session.setDirty(true);
+        setTestDocumentDirty(session, true);
         const view = session.getView('tab-1')!;
         view.publishToolbarSnapshot({
             ...view.toolbarSnapshot.value,
@@ -941,8 +940,7 @@ describe('desktop crash checkpoint written now', () => {
                     isDirty: true,
                     isDjvu: false,
                 });
-                reader.commitDocument({
-                    fileName: 'accepted.pdf',
+                reader.commitFile({
                     originalPath,
                     isDjvu: false,
                     revisionInfo: {
@@ -954,7 +952,7 @@ describe('desktop crash checkpoint written now', () => {
                         mintedAt: requireEpochMs(1),
                     },
                 });
-                reader.setDirty(true);
+                setTestDocumentDirty(reader, true);
                 const mounted = createWorkspaceExposeFixture({
                     getAutomationStateSnapshot: () => cast({
                         originalPath,
@@ -962,7 +960,7 @@ describe('desktop crash checkpoint written now', () => {
                     }),
                     captureCanonicalAnnotationRecovery: capture,
                 });
-                reader.bindMutationFrontier(() => JSON.stringify(mounted.captureCanonicalAnnotationRecovery?.()) ?? '', async () => {}, async () => {});
+                bindTestDocumentFrontier(reader, {read: () => JSON.stringify(mounted.captureCanonicalAnnotationRecovery?.()) ?? ''});
                 reader.attachWorkspace('tab-1', mounted);
                 return mounted;
             },
@@ -985,8 +983,7 @@ describe('desktop crash checkpoint written now', () => {
             },
             addBackgroundTab(path: string) {
                 const output = createWorkspaceDocumentController({tabId: 'tab-2'});
-                output.commitDocument({
-                    fileName: 'output.pdf',
+                output.commitFile({
                     originalPath: requireDocumentRef(path),
                     isDjvu: false,
                     revisionInfo: null,
@@ -1091,8 +1088,7 @@ describe('desktop crash checkpoint written now', () => {
         const workspace = mountCrashCheckpoint();
         const workingCopyRef = requireDocumentRef('/managed/image.pdf');
         const originalPath = requireDocumentRef('/documents/image.pdf');
-        workspace.reader.commitDocument({
-            fileName: 'image.pdf',
+        workspace.reader.commitFile({
             originalPath,
             isDjvu: false,
             revisionInfo: {
@@ -1104,7 +1100,7 @@ describe('desktop crash checkpoint written now', () => {
                 mintedAt: requireEpochMs(1),
             },
         });
-        workspace.reader.setDirty(true);
+        setTestDocumentDirty(workspace.reader, true);
         let rejectsCapture = true;
         workspace.reader.attachWorkspace('tab-1', createWorkspaceExposeFixture({
             getAutomationStateSnapshot: () => cast({
@@ -1354,10 +1350,10 @@ describe('desktop crash checkpoint written now', () => {
             text: 'accepted text',
         });
         workspace.attachDirtyReader(() => captureCanonicalAnnotationRecovery(annotations.store));
-        workspace.reader.setDirty(false);
+        setTestDocumentDirty(workspace.reader, false);
         await workspace.protectSave();
         expect((desktop.saved.at(-1) as IWorkspaceCheckpoint).tabs[0]?.isDirty).toBe(false);
-        workspace.reader.setDirty(true);
+        setTestDocumentDirty(workspace.reader, true);
         const held = Promise.withResolvers<undefined>();
         const admitted = Promise.withResolvers<undefined>();
         desktop.save = async checkpoint => {desktop.saved.push(checkpoint); admitted.resolve(undefined); await held.promise; return true;};
@@ -1410,7 +1406,7 @@ describe('desktop crash checkpoint written now', () => {
             drafts: [],
         }));
         const unrelated = workspace.addBackgroundTab('/documents/other.pdf');
-        unrelated.setDirty(true);
+        setTestDocumentDirty(unrelated, true);
         unrelated.attachWorkspace('tab-2', createWorkspaceExposeFixture({captureCanonicalAnnotationRecovery: () => {throw new Error('unrelated rejected capture');}}));
         await workspace.protectSave();
         const saved = desktop.saved.at(-1) as IWorkspaceCheckpoint;

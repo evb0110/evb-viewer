@@ -30,6 +30,7 @@ import {cast} from '@tests/helpers/cast';
 import {
     createDeferred,
     createDeps,
+    createShapeAnnotation,
     useWorkspaceSaveServiceForTest,
 } from '@tests/unit/app/modules/workspace-shell/composables/file-operations/workspaceSaveServiceFixture';
 
@@ -81,9 +82,7 @@ describe('concurrent canonical edits during workspace save', () => {
         ], []);
         application.store.updateNote(edited.identity.id, {contents: 'accepted unsaved text'});
         application.store.delete(deleted.identity.id);
-        const {
-            deps, saveFile,
-        } = createDeps({
+        const {deps} = createDeps({
             originalPath: ref(requireDocumentRef('/tmp/source.pdf')),
             workingCopyPath: ref(requireDocumentRef('/tmp/work.pdf')),
             annotationDirty: ref(true),
@@ -107,7 +106,6 @@ describe('concurrent canonical edits during workspace save', () => {
             updates: [expect.objectContaining({text: 'accepted unsaved text'})],
             deletes: [expect.objectContaining({objectNumber: 13})],
         }), expect.anything());
-        expect(saveFile).not.toHaveBeenCalled();
         expect(deps.saveWorkingCopy).not.toHaveBeenCalled();
         expect(deps.saveWorkingCopyAs).not.toHaveBeenCalled();
         expect(deps.markAnnotationSaved).not.toHaveBeenCalled();
@@ -231,9 +229,11 @@ describe('save requests while the document lease is held', () => {
     }) => {
         const gate = createDeferred<undefined>();
         const {
-            deps, saveFile,
+            deps, trySavePdfNativeMutations,
         } = createDeps({
-            annotationDirty: ref(true),
+            totalPages: ref(2),
+            hasShapeChanges: vi.fn(() => true),
+            getAllShapes: vi.fn(() => [createShapeAnnotation()]),
             runWithDocumentOperationLease: cast<NonNullable<IWorkspaceSaveDependencies['runWithDocumentOperationLease']>>(
                 async (_kind: unknown, operation: () => Promise<unknown>) => {
                     await gate.promise;
@@ -243,9 +243,7 @@ describe('save requests while the document lease is held', () => {
         });
         const service = useWorkspaceSaveServiceForTest(deps);
         const startSave = () => mode === 'save-as' ? service.handleSaveAs() : service.handleSave();
-        const writes = () => saveFile.mock.calls.length
-            + vi.mocked(deps.saveWorkingCopy).mock.calls.length
-            + vi.mocked(deps.saveWorkingCopyAs).mock.calls.length;
+        const writes = () => trySavePdfNativeMutations.mock.calls.length;
 
         const first = startSave();
         await vi.waitFor(() => expect(deps[indicator].value).toBe(true));

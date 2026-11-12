@@ -93,7 +93,6 @@ function buildPlan(options: {
     dirtyState?: IWorkspaceSaveDirtyState;
     hasManagedShapes?: boolean;
     canPersistNativeWorkingCopy?: boolean;
-    canPersistNativeMutations?: boolean;
     canPersistNativeRepair?: boolean;
 } = {}) {
     return createWorkspaceSavePlan({
@@ -112,7 +111,6 @@ function buildPlan(options: {
         dirtyState: options.dirtyState ?? CLEAN_DIRTY_STATE,
         hasManagedShapes: options.hasManagedShapes ?? false,
         canPersistNativeWorkingCopy: options.canPersistNativeWorkingCopy ?? false,
-        canPersistNativeMutations: options.canPersistNativeMutations ?? false,
         canPersistNativeRepair: options.canPersistNativeRepair ?? false,
     });
 }
@@ -200,7 +198,6 @@ describe('workspaceSavePlan', () => {
             request: {kind: 'repair'},
             dirtyState: dirtyState({bookmarks: true}),
             canPersistNativeWorkingCopy: true,
-            canPersistNativeMutations: true,
             canPersistNativeRepair: true,
         })).toMatchObject({
             kind: 'native-repair',
@@ -215,7 +212,6 @@ describe('workspaceSavePlan', () => {
     it('plans eligible dirty Save through native mutations with an explicit serialized fallback', () => {
         const plan = buildPlan({
             dirtyState: dirtyState({annotationChanges: true}),
-            canPersistNativeMutations: true,
         });
 
         expect(plan).toMatchObject({
@@ -234,16 +230,13 @@ describe('workspaceSavePlan', () => {
                 optimizeLossless: false,
             },
             dirtyState: dirtyState({annotationChanges: true}),
-            canPersistNativeMutations: true,
         }).kind).toBe('native-mutation');
-        expect(buildPlan({dirtyState: dirtyState({annotationChanges: true})}).kind).toBe('serialized');
     });
 
     it('keeps managed shape writes on the native writer path', () => {
         const plan = buildPlan({
             dirtyState: dirtyState({shapes: true}),
             hasManagedShapes: true,
-            canPersistNativeMutations: true,
         });
 
         expect(plan).toMatchObject({kind: 'native-mutation'});

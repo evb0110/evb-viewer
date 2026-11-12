@@ -12,10 +12,11 @@ import type { TTranslateFn } from '@i18n-app';
 import {
     createDocumentSessionState,
     createEpochGuard,
-} from '@app/modules/workspace-shell/viewers/workspaceDocumentDriver';
+} from '@app/modules/workspace-shell/composables/document-session/documentSessionState';
 import { createDocumentOpenFlow } from '@app/modules/workspace-shell/composables/document-session/createDocumentOpenFlow';
 import { retainDocumentOpenWorkingCopyForRetry } from '@app/modules/workspace-shell/document-sessions/retainDocumentOpenWorkingCopyForRetry';
 import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
+import { createWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 
 const mocks = vi.hoisted(() => ({
     documentFiles: {
@@ -62,7 +63,10 @@ vi.mock('@app/utils/performanceProfile', () => ({
 interface IResetHistoryTestOptions {isCurrent?: (() => boolean) | undefined;}
 
 function createOpenFlowHarness() {
-    const state = createDocumentSessionState({isDesktopRuntime: ref(true)});
+    const state = createDocumentSessionState({
+            isDesktopRuntime: ref(true),
+            document: createWorkspaceDocumentController({tabId: 'tab-1'}),
+        });
     const deps = {
         cleanupAbandonedWorkingCopy: vi.fn(async () => undefined),
         clearPdfConformanceProfile: vi.fn(),

@@ -14,6 +14,7 @@ import type { FailureReceipt } from '@contracts/diagnostics/failureReceipt';
 import { SerializableError } from '@contracts/serializableError';
 import { requireEpochMs } from '@contracts/timestamps';
 import {getWorkspaceViewerAdapter} from '@app/modules/workspace-shell/viewers/workspaceViewerAdapters';
+import { createWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 
 const mocks = vi.hoisted(() => ({
     convertToPdf: vi.fn(),
@@ -67,13 +68,11 @@ vi.mock('@app/modules/workspace-shell/composables/usePdfFile', () => ({usePdfFil
     loadPdfFromData: vi.fn(),
     persistPdfDataSilently: vi.fn(),
     closeFile: mocks.closeFile,
-    saveFile: vi.fn(),
     repairWorkingCopy: vi.fn(),
     optimizeWorkingCopy: vi.fn(),
     optimizeWorkingCopyAsCopy: vi.fn(),
     saveWorkingCopy: vi.fn(),
     trySavePdfNativeMutations: vi.fn(),
-    trySaveEmbeddedNoteTextUpdates: vi.fn(),
     saveWorkingCopyAs: vi.fn(),
     markDirty: vi.fn(),
     canUndo: ref(false),
@@ -131,7 +130,7 @@ function createController() {
             return hooks ? [hooks] : [];
         },
         runDocumentOpen: (_request, run) => run(),
-        assignDocument: () => undefined,
+        document: createWorkspaceDocumentController({tabId: 'tab-1'}),
     });
 }
 

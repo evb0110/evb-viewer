@@ -24,7 +24,7 @@ import { DocumentOpenRefusalError } from '@contracts/documentOpenErrors';
 import type {
     createEpochGuard,
     IDocumentSessionState,
-} from '@app/modules/workspace-shell/viewers/workspaceDocumentDriver';
+} from '@app/modules/workspace-shell/composables/document-session/documentSessionState';
 import type { IPdfLoadedState } from '@app/modules/workspace-shell/composables/document-session/createDocumentHistory';
 import type { IPdfConformanceDeferralOptions } from '@app/modules/workspace-shell/composables/document-session/createDocumentConformance';
 import { BrowserLogger } from '@app/utils/browserLogger';
@@ -697,8 +697,11 @@ export function createDocumentOpenFlow(
 
         // A replacement can paint while history and old-copy cleanup still wait.
         // Publish its identity with its source, before either can yield.
-        if (options?.originalPath) state.originalPath.value = options.originalPath;
-        state.workingCopyPath.value = path;
+        state.commitFile({
+            ...(options?.originalPath ? {originalPath: options.originalPath} : {}),
+            workingCopyPath: path,
+            isDjvu: false,
+        });
         if (!options?.preserveHistory) {
             state.openedWorkingCopyPath.value = path;
         }
@@ -773,7 +776,6 @@ export function createDocumentOpenFlow(
         });
         if (isCurrent?.() === false) return false;
         state.documentRevisionInfo.value = revision;
-        state.documentRevisionToken.value = revision?.token ?? null;
         return true;
     }
 

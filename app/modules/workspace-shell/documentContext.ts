@@ -8,6 +8,9 @@ import { uniq } from 'es-toolkit/array';
 import { clamp } from 'es-toolkit/math';
 import {
     createPdfDocumentAnnotations,
+    createPdfReloadWaiter,
+    createPdfSourceDataReader,
+    resolvePdfReloadPage,
     createPdfDocumentSessionSlot,
     useOcrTextContent,
     usePageContextMenu,
@@ -15,7 +18,8 @@ import {
     type IPdfDocument,
     type IPdfViewerExpose,
 } from '@app/modules/pdf-viewer/public';
-import { usePageSaveOrchestration } from '@app/modules/workspace-shell/composables/usePageSaveOrchestration';
+import { useWorkspaceSaveService } from '@app/modules/workspace-shell/composables/file-operations/useWorkspaceSaveService';
+import { hasViewerShapeChanges } from '@app/modules/workspace-shell/annotations/hasViewerShapeChanges';
 import { useUnencryptedSaveNotice } from '@app/modules/workspace-shell/composables/useUnencryptedSaveNotice';
 import { useShutdownSaveFlushReporting } from '@app/modules/workspace-shell/composables/useShutdownSaveFlushReporting';
 import { useWorkspaceDocumentLifecycleEffects } from '@app/modules/workspace-shell/composables/useWorkspaceDocumentLifecycleEffects';
@@ -29,7 +33,10 @@ import { usePageOpsHandlers } from '@app/modules/workspace-shell/composables/use
 import { usePageFileOperations } from '@app/modules/workspace-shell/composables/usePageFileOperations';
 import { useWorkspaceSplitPayload } from '@app/modules/workspace-shell/composables/useWorkspaceSplitPayload';
 import { requirePageNumber } from '@contracts/pageNumbers';
-import { getDocumentPdfCapability } from '@app/utils/platformDocuments';
+import {
+    getDocumentFilesCapability,
+    getDocumentPdfCapability,
+} from '@app/utils/platformDocuments';
 import { useDocxExport } from '@app/composables/useDocxExport';
 import { useWorkspacePrint } from '@app/modules/workspace-shell/composables/useWorkspacePrint';
 import { useMetadataSession } from '@app/modules/workspace-shell/composables/useMetadataSession';
@@ -123,7 +130,7 @@ export const createDocumentContext = ({controller}: {controller: IWorkspaceDocum
         createViewerLifecycleHooks: context => [createReadingViewLifecycleHooks(controller)].concat(driver.createLifecycleHooks(context)),
         getOpenSurface: () => commandView.value?.openSurface ?? null,
         runDocumentOpen,
-        assignDocument: controller.assign,
+        document: controller,
     });
     const {
         settings: appSettings,
@@ -182,87 +189,134 @@ export const createDocumentContext = ({controller}: {controller: IWorkspaceDocum
         pdfViewerRef.value?.hasCanonicalAnnotationChanges?.() === true
         || annotations.annotationNoteWindows.value.some(note => note.dirty)
         || file.isDirty.value
+        // Set with the working copy, before history reports a restored document dirty.
+        || file.recoveryDirtyBaseline.value
         || metadata.pageLabelState.pageLabelsDirty.value
         || metadata.bookmarkState.bookmarksDirty.value
     ));
 
     // This is authored state, including edits made while already dirty and drafts
     // outside the store. Parsed clean annotations are projections of the bytes.
-    controller.bindMutationFrontier(() => JSON.stringify({
-        revision: file.documentRevisionToken.value,
-        annotations: pdfDocumentAnnotations.application.value.store.dirtyEntities().map(entity => [
-            entity.identity.id,
-            entity.revision,
-            entity.deleted,
-        ]),
-        textBoxDrafts: [...pdfDocumentAnnotations.textBoxDrafts],
-        noteDrafts: annotations.getAnnotationNoteDraftsChangeSignature(),
-        metadata: metadata.captureRecovery(),
-        operation: controller.operationLease.activeKind.value,
-    }), async (assertCurrent) => {
-        await pdfDocumentAnnotations.commitPendingDraftsForSave().then(assertCurrent);
-        if (!await annotations.persistAllAnnotationNotes()) throw new Error(t('tabs.transferErrors.restoreFailed'));
-    }, async (assertCurrent) => {
-        await file.handleDjvuCancel();
-        // No await separates the final authored-state check from clearing the
-        // source. The ordinary close's admission and view hooks belong to its UI.
-        assertCurrent();
-        await file.closeFile();
+    controller.bindMutationFrontier({
+        read: () => JSON.stringify({
+            revision: file.documentRevisionToken.value,
+            annotations: pdfDocumentAnnotations.application.value.store.dirtyEntities().map(entity => [
+                entity.identity.id,
+                entity.revision,
+                entity.deleted,
+            ]),
+            textBoxDrafts: [...pdfDocumentAnnotations.textBoxDrafts],
+            noteDrafts: annotations.getAnnotationNoteDraftsChangeSignature(),
+            metadata: metadata.captureRecovery(),
+            operation: controller.operationLease.activeKind.value,
+        }),
+        isDirty: () => hasPendingUnsavedChanges.value,
+        prepare: async (assertCurrent) => {
+            await pdfDocumentAnnotations.commitPendingDraftsForSave().then(assertCurrent);
+            if (!await annotations.persistAllAnnotationNotes()) throw new Error(t('tabs.transferErrors.restoreFailed'));
+        },
+        close: async (assertCurrent) => {
+            await file.handleDjvuCancel();
+            // No await separates the final authored-state check from clearing the
+            // source. The ordinary close's admission and view hooks belong to its UI.
+            assertCurrent();
+            await file.closeFile();
+        },
     });
 
     const unencryptedSaveNotice = useUnencryptedSaveNotice();
-    const saveService = usePageSaveOrchestration({
-        failureSurface: failure,
+    const getSourcePdfData = createPdfSourceDataReader({
         pdfData: file.pdfData,
-        pdfDocument,
-        pdfViewerRef,
-        openSurface: commandOpenSurface,
         workingCopyPath: file.workingCopyPath,
-        originalPath: file.originalPath,
-        documentSessionKey: computed(() => controller.snapshot.value.identity.documentSessionKey),
         documentRevisionToken: file.documentRevisionToken,
-        wasEncrypted: file.wasEncrypted,
-        unencryptedSaveNotice: {
-            request: unencryptedSaveNotice.requestUnencryptedSaveNotice,
-            suppress: computed(() => appSettings.value.suppressUnencryptedSaveNotice === true),
-            updateSuppress: () => updateSetting('suppressUnencryptedSaveNotice', true),
-            resetSuppress: () => {
-                appSettings.value = {
-                    ...appSettings.value,
-                    suppressUnencryptedSaveNotice: false,
-                };
-            },
-            flushSettings: saveSettings,
-        },
-        totalPages,
-        pageLabelsDirty: metadata.pageLabelState.pageLabelsDirty,
-        pageLabelRanges: metadata.pageLabelState.pageLabelRanges,
-        bookmarksDirty: metadata.bookmarkState.bookmarksDirty,
-        bookmarkItems: metadata.bookmarkState.bookmarkItems,
-        isSaving,
-        isSavingAs,
-        annotations,
-        markPageLabelsSaved: metadata.pageLabelState.markPageLabelsSaved,
-        getPageLabelsSaveStateToken: metadata.pageLabelState.getPageLabelsRevision,
-        markBookmarksSaved: metadata.bookmarkState.markBookmarksSaved,
-        getBookmarksSaveStateToken: metadata.bookmarkState.getBookmarksRevision,
-        isDirty: file.isDirty,
-        hasPendingUnsavedChanges,
-        validatePdfPath: path => getDocumentPdfCapability().validatePdfPath(path, {purpose: 'save'}),
-        saveFile: file.saveFile,
-        repairWorkingCopy: file.repairWorkingCopy,
-        optimizeWorkingCopy: file.optimizeWorkingCopy,
-        optimizeWorkingCopyAsCopy: file.optimizeWorkingCopyAsCopy,
-        saveWorkingCopy: file.saveWorkingCopy,
-        trySavePdfNativeMutations: file.trySavePdfNativeMutations,
-        trySaveEmbeddedNoteTextUpdates: file.trySaveEmbeddedNoteTextUpdates,
-        saveWorkingCopyAs: file.saveWorkingCopyAs,
-        optimizePdfOnSaveAs: computed(() => appSettings.value.optimizePdfOnSaveAs),
-        loadRecentFiles: () => void file.loadRecentFiles(),
-        currentPage,
-        resetSearchCache: resetSearchCaches,
-        runWithDocumentOperationLease: runExclusive,
     });
+    const saveService = {
+        getSourcePdfData,
+        ...useWorkspaceSaveService({
+            status: {
+                isSaving,
+                isSavingAs,
+            },
+            document: {
+                sessionKey: computed(() => controller.snapshot.value.identity.documentSessionKey),
+                workingCopyPath: file.workingCopyPath,
+                originalPath: file.originalPath,
+                revisionToken: file.documentRevisionToken,
+                wasEncrypted: file.wasEncrypted,
+            },
+            unencryptedSaveNotice: {
+                request: unencryptedSaveNotice.requestUnencryptedSaveNotice,
+                suppress: computed(() => appSettings.value.suppressUnencryptedSaveNotice === true),
+                updateSuppress: () => updateSetting('suppressUnencryptedSaveNotice', true),
+                resetSuppress: () => {
+                    appSettings.value = {
+                        ...appSettings.value,
+                        suppressUnencryptedSaveNotice: false,
+                    };
+                },
+                flushSettings: saveSettings,
+            },
+            hasPendingUnsavedChanges,
+            optimizePdfOnSaveAs: computed(() => appSettings.value.optimizePdfOnSaveAs),
+            annotations: {
+                dirty: annotations.annotationDirty,
+                markSaved: annotations.markAnnotationSaved,
+                getSaveStateToken: annotations.getAnnotationSaveStateToken,
+                hasChanges: annotations.hasAnnotationChanges,
+                hasPendingDeletes: () => annotations.pendingEmbeddedAnnotationDeleteCount.value > 0,
+                openNoteCount: computed(() => annotations.annotationNoteWindows.value.length),
+                persistOpenNotes: annotations.persistAllAnnotationNotes,
+                getNoteFailurePresentation: annotations.getAnnotationNoteFailurePresentation,
+            },
+            metadata: {
+                totalPages,
+                pageLabelsDirty: metadata.pageLabelState.pageLabelsDirty,
+                pageLabelRanges: metadata.pageLabelState.pageLabelRanges,
+                bookmarksDirty: metadata.bookmarkState.bookmarksDirty,
+                bookmarkItems: metadata.bookmarkState.bookmarkItems,
+                untitledBookmarkLabel: t('bookmarks.untitled'),
+                markPageLabelsSaved: metadata.pageLabelState.markPageLabelsSaved,
+                getPageLabelsSaveStateToken: metadata.pageLabelState.getPageLabelsRevision,
+                markBookmarksSaved: metadata.bookmarkState.markBookmarksSaved,
+                getBookmarksSaveStateToken: metadata.bookmarkState.getBookmarksRevision,
+            },
+            pdf: {
+                document: pdfDocument,
+                viewer: pdfViewerRef,
+                commitEditorsForSave: () => pdfViewerRef.value?.commitPdfEditorsForSave?.() ?? Promise.resolve(),
+                runSaveTransaction: request => pdfViewerRef.value?.runSaveTransaction(request)
+                    ?? Promise.reject(new Error('Missing PDF viewer save transaction')),
+                getSourceData: getSourcePdfData,
+            },
+            persistence: {
+                validatePdfPath: path => getDocumentPdfCapability().validatePdfPath(path, {purpose: 'save'}),
+                saveWorkingCopy: file.saveWorkingCopy,
+                saveAs: file.saveWorkingCopyAs,
+                ...(file.repairWorkingCopy ? {repairWorkingCopy: file.repairWorkingCopy} : {}),
+                ...(file.optimizeWorkingCopy ? {optimizeWorkingCopy: file.optimizeWorkingCopy} : {}),
+                ...(file.optimizeWorkingCopyAsCopy ? {optimizeWorkingCopyAsCopy: file.optimizeWorkingCopyAsCopy} : {}),
+                trySavePdfNativeMutations: file.trySavePdfNativeMutations,
+                getWorkingCopySize: async path => (await getDocumentFilesCapability().statFile(path)).size,
+            },
+            shapes: {
+                hasChanges: () => hasViewerShapeChanges(pdfViewerRef.value),
+                hasManagedShapes: () => (pdfViewerRef.value?.getAllShapes().length ?? 0) > 0,
+            },
+            lifecycle: {
+                loadRecentFiles: () => void file.loadRecentFiles(),
+                preparePostSaveReload: () => createPdfReloadWaiter({
+                    pdfDocument,
+                    pdfViewerRef,
+                    openSurface: commandOpenSurface,
+                    resetSearchCache: resetSearchCaches,
+                    pageToRestore: resolvePdfReloadPage(currentPage.value),
+                    restoreScroll: false,
+                }),
+            },
+            runWithDocumentOperationLease: runExclusive,
+            failureSurface: failure,
+        }),
+    };
     const driver = useWorkspaceDocumentDriver({
         djvuSourcePath: file.djvuSourcePath,
         isDjvuMode: file.isDjvuMode,

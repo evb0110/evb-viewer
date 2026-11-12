@@ -121,7 +121,6 @@ export const useWorkspaceDocumentLifecycleEffects = (options: IWorkspaceDocument
             const revision = await documentFiles.getDocumentRevision(path);
             if (requestId === revisionRefreshRequestId && workingCopyPath.value === path) {
                 documentRevisionInfo.value = revision;
-                documentRevisionToken.value = revision.token;
                 return true;
             }
             // A replace can publish the new revision through the event channel
@@ -135,7 +134,6 @@ export const useWorkspaceDocumentLifecycleEffects = (options: IWorkspaceDocument
                 && workingCopyPath.value === path
             ) {
                 documentRevisionInfo.value = null;
-                documentRevisionToken.value = null;
             }
             return hasCurrentRevisionForPath(path);
         }
@@ -151,7 +149,6 @@ export const useWorkspaceDocumentLifecycleEffects = (options: IWorkspaceDocument
             return;
         }
         documentRevisionInfo.value = null;
-        documentRevisionToken.value = null;
         if (path) {
             void refreshDocumentRevision(path);
         }
@@ -163,7 +160,6 @@ export const useWorkspaceDocumentLifecycleEffects = (options: IWorkspaceDocument
         }
         revisionRefreshRequestId += 1;
         documentRevisionInfo.value = event;
-        documentRevisionToken.value = event.token;
     });
 
     tryOnScopeDispose(() => {

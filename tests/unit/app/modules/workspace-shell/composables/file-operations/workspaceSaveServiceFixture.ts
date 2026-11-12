@@ -21,6 +21,8 @@ import {
 } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import {buildSerializationPlan} from '@app/modules/pdf-viewer/annotations/persistence/annotationSavePlan';
 import { cast } from '@tests/helpers/cast';
+import type { IPdfPersistResult } from '@app/types/pdfUi';
+import { createWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 import {requirePageIndex} from '@contracts/pageNumbers';
 import {requireEpochMs} from '@contracts/timestamps';
 
@@ -74,15 +76,13 @@ type TFileOperationsSaveControllerTestDeps =
         runSaveTransaction: IWorkspaceSaveDependencies['pdf']['runSaveTransaction'];
         getSourcePdfData: IWorkspaceSaveDependencies['pdf']['getSourceData'];
         validatePdfPath: IWorkspaceSaveDependencies['persistence']['validatePdfPath'];
-        saveFile: IWorkspaceSaveDependencies['persistence']['saveSerialized'];
         saveWorkingCopy: IWorkspaceSaveDependencies['persistence']['saveWorkingCopy'];
         saveWorkingCopyAs: IWorkspaceSaveDependencies['persistence']['saveAs'];
         repairWorkingCopy?: IWorkspaceSaveDependencies['persistence']['repairWorkingCopy'];
         optimizeWorkingCopy?: IWorkspaceSaveDependencies['persistence']['optimizeWorkingCopy'];
         optimizeWorkingCopyAsCopy?: IWorkspaceSaveDependencies['persistence']['optimizeWorkingCopyAsCopy'];
         optimizePdfOnSaveAs?: Ref<boolean>;
-        trySavePdfNativeMutations?: IWorkspaceSaveDependencies['persistence']['trySavePdfNativeMutations'];
-        trySaveEmbeddedNoteTextUpdates?: IWorkspaceSaveDependencies['persistence']['trySaveEmbeddedNoteTextUpdates'];
+        trySavePdfNativeMutations: IWorkspaceSaveDependencies['persistence']['trySavePdfNativeMutations'];
         getWorkingCopySize?: IWorkspaceSaveDependencies['persistence']['getWorkingCopySize'];
         hasShapeChanges?: () => boolean;
         hasManagedShapes?: () => boolean;
@@ -91,7 +91,7 @@ type TFileOperationsSaveControllerTestDeps =
         getDeletedEmbeddedShapeStableKeys?: () => string[];
         loadRecentFiles: IWorkspaceSaveDependencies['lifecycle']['loadRecentFiles'];
         preparePostSaveReload?: IWorkspaceSaveDependencies['lifecycle']['preparePostSaveReload'];
-        runWithDocumentOperationLease?: NonNullable<IWorkspaceSaveDependencies['runWithDocumentOperationLease']>;
+        runWithDocumentOperationLease?: IWorkspaceSaveDependencies['runWithDocumentOperationLease'];
         canonicalAnnotationComments: Ref<IAnnotationCommentSummary[]>;
         captureCanonicalPendingTextUpdates: () => Map<string, string> | null;
         captureCanonicalPendingAnnotationDeletes: () => IAnnotationCommentSummary[] | null;
@@ -183,7 +183,6 @@ function createSaveDependencies(
         },
         persistence: {
             validatePdfPath: deps.validatePdfPath,
-            saveSerialized: deps.saveFile,
             saveWorkingCopy: deps.saveWorkingCopy,
             saveAs: deps.saveWorkingCopyAs,
             ...(deps.repairWorkingCopy ? {repairWorkingCopy: deps.repairWorkingCopy} : {}),
@@ -191,12 +190,7 @@ function createSaveDependencies(
             ...(deps.optimizeWorkingCopyAsCopy
                 ? {optimizeWorkingCopyAsCopy: deps.optimizeWorkingCopyAsCopy}
                 : {}),
-            ...(deps.trySavePdfNativeMutations
-                ? {trySavePdfNativeMutations: deps.trySavePdfNativeMutations}
-                : {}),
-            ...(deps.trySaveEmbeddedNoteTextUpdates
-                ? {trySaveEmbeddedNoteTextUpdates: deps.trySaveEmbeddedNoteTextUpdates}
-                : {}),
+            trySavePdfNativeMutations: deps.trySavePdfNativeMutations,
             ...(deps.getWorkingCopySize
                 ? {getWorkingCopySize: deps.getWorkingCopySize}
                 : {}),
@@ -211,9 +205,8 @@ function createSaveDependencies(
                 ? {preparePostSaveReload: deps.preparePostSaveReload}
                 : {}),
         },
-        ...(deps.runWithDocumentOperationLease
-            ? {runWithDocumentOperationLease: deps.runWithDocumentOperationLease}
-            : {}),
+        runWithDocumentOperationLease: deps.runWithDocumentOperationLease
+            ?? createWorkspaceDocumentController({tabId: 'save-tab'}).operationLease.runExclusive,
     };
 }
 
@@ -325,13 +318,11 @@ function buildCanonicalAnnotationPlan(deps: TFileOperationsSaveControllerTestDep
 
 export function createDeps(overrides: Partial<Parameters<typeof useWorkspaceSaveServiceForTest>[0]> = {}) {
     const resetModified = vi.fn();
-    const saveFile = vi.fn(async (
-        _data: Uint8Array,
-        _opts: Parameters<IWorkspaceSaveDependencies['persistence']['saveSerialized']>[1],
-    ) => ({
+    // The one write path for edits: native mutations staged, verified and published.
+    const trySavePdfNativeMutations = vi.fn<TPdfNativeMutationSave>(async (_mutations, opts) => cast<IPdfPersistResult>({
         success: true,
         outPath: '/tmp/work.pdf',
-        saveMode: 'rewrite' as const,
+        saveMode: opts.saveMode,
         didSaveAs: false,
     }));
     const saveWorkingCopyAs = vi.fn(async (
@@ -370,7 +361,7 @@ export function createDeps(overrides: Partial<Parameters<typeof useWorkspaceSave
             errors: [],
             warnings: [],
         })),
-        saveFile,
+        trySavePdfNativeMutations,
         saveWorkingCopy: vi.fn(async () => ({
             success: true,
             outPath: '/tmp/work.pdf',
@@ -417,7 +408,7 @@ export function createDeps(overrides: Partial<Parameters<typeof useWorkspaceSave
     return {
         deps,
         resetModified,
-        saveFile,
+        trySavePdfNativeMutations,
         saveWorkingCopyAs,
     };
 }

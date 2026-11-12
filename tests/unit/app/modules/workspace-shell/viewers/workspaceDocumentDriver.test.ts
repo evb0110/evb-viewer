@@ -38,8 +38,8 @@ import {
 } from '@contracts/documentRevision';
 import type {TDocumentCommitReceipt} from '@app/types/workspaceExpose';
 import type { TPdfSource } from '@app/types/pdfUi';
+import { createDocumentSessionState } from '@app/modules/workspace-shell/composables/document-session/documentSessionState';
 import {
-    createDocumentSessionState,
     createWorkspaceDocumentDriverForAdapter,
     useWorkspaceDocumentDriver,
     useWorkspaceDocumentDriverBinding,
@@ -52,6 +52,7 @@ import {
     getWorkspaceViewerAdapter,
 } from '@app/modules/workspace-shell/viewers/workspaceViewerAdapters';
 import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
+import { createWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 
 const driverMocks = vi.hoisted(() => ({
     runBrowserDjvuConversion: vi.fn(async (_source: TDocumentRef, _output: TDocumentRef) => ({success: true})),
@@ -188,7 +189,10 @@ describe('WorkspaceDocumentDriver', () => {
     });
 
     it('uses the source filename when a PDF has a generic managed working copy', () => {
-        const state = createDocumentSessionState({isDesktopRuntime: ref(true)});
+        const state = createDocumentSessionState({
+            isDesktopRuntime: ref(true),
+            document: createWorkspaceDocumentController({tabId: 'tab-1'}),
+        });
         state.workingCopyPath.value = requireDocumentRef('/tmp/pdf-work-123/document.pdf');
         state.originalPath.value = requireDocumentRef(
             '/Users/evb/Desktop/pdf/Haspelmath_Sims (2010) - Understanding Morphology.pdf',

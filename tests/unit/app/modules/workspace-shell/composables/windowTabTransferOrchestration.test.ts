@@ -46,7 +46,11 @@ import { createDocumentContext } from '@app/modules/workspace-shell/documentCont
 import type { IDocumentViewPort } from '@app/modules/workspace-shell/document-sessions/createDocumentViews';
 import { createDocumentOpenSurfaceSession } from '@app/modules/document-viewer/public';
 import type * as PlatformDocuments from '@app/utils/platformDocuments';
-import { createWorkspaceExposeFixture } from '@tests/unit/app/modules/workspace-shell/workspaceTestFixtures';
+import {
+    createWorkspaceExposeFixture,
+    bindTestDocumentFrontier,
+    setTestDocumentDirty,
+} from '@tests/unit/app/modules/workspace-shell/workspaceTestFixtures';
 import { cast } from '@tests/helpers/cast';
 import {createPdfReloadWaiter} from '@app/modules/pdf-viewer/engine/pdf-reload-waiter/createPdfReloadWaiter';
 import * as pageOpsHandlers from '@app/modules/workspace-shell/composables/usePageOpsHandlers';
@@ -307,8 +311,7 @@ describe('window tab transfer orchestration helpers', () => {
         const source = createWorkspaceDocumentController({tabId: 'source'});
         const survivor = createWorkspaceDocumentController({tabId: 'survivor'});
         const path = requireDocumentRef('/docs/source.djvu');
-        source.commitDocument({
-            fileName: 'source.djvu',
+        source.commitFile({
             originalPath: path,
             isDjvu: true,
             revisionInfo: null,
@@ -436,8 +439,7 @@ describe('window tab transfer orchestration helpers', () => {
             reportFailure: failure => failures.push(failure.message),
         });
         const path = requireDocumentRef('/docs/source.pdf');
-        source.commitDocument({
-            fileName: 'source.pdf',
+        source.commitFile({
             originalPath: path,
             isDjvu: false,
             revisionInfo: null,
@@ -455,12 +457,15 @@ describe('window tab transfer orchestration helpers', () => {
         const held = Promise.withResolvers<undefined>();
         // Preparing a move completes accepted text, then writes the document's
         // notes, which makes it dirty.
-        source.bindMutationFrontier(() => 'frontier', async (assertCurrent) => {
-            if (stage === 'completes its accepted text') {
-                await held.promise.then(assertCurrent);
-            }
-            source.setDirty(true);
-        }, async () => {});
+        bindTestDocumentFrontier(source, {
+            read: () => 'frontier',
+            prepare: async (assertCurrent) => {
+                if (stage === 'completes its accepted text') {
+                    await held.promise.then(assertCurrent);
+                }
+                setTestDocumentDirty(source, true);
+            },
+        });
         source.attachWorkspace('source', createWorkspaceExposeFixture({waitForDocumentOpenSettled: () => held.promise}));
         const pane = {
             paneId: 'pane-1',
@@ -711,7 +716,7 @@ describe('window tab transfer orchestration helpers', () => {
                                 phase: 'canvas-committed',
                                 presentation: 'committed',
                             });
-                            controller.commitDocument(document);
+                            controller.commitFile(document);
                             controller.markPresented();
                         }
                         return true;
@@ -780,7 +785,7 @@ describe('window tab transfer orchestration helpers', () => {
             // or replace its revision while A is waiting for page placement.
             await aPresented.promise;
             if (replacement === 'a new revision') {
-                controller.commitDocument({
+                controller.commitFile({
                     ...document,
                     revisionInfo: {
                         ...document.revisionInfo,
@@ -794,7 +799,7 @@ describe('window tab transfer orchestration helpers', () => {
                     target: {originalPath: b},
                 }, async () => {
                     originalPath.value = b;
-                    controller.commitDocument({
+                    controller.commitFile({
                         ...document,
                         originalPath: b,
                         revisionInfo: null,
@@ -1163,8 +1168,7 @@ describe('window tab transfer orchestration helpers', () => {
             'survivor',
         ]) {
             const controller = createWorkspaceDocumentController({tabId: id});
-            controller.commitDocument({
-                fileName: `${id}.pdf`,
+            controller.commitFile({
                 originalPath: requireDocumentRef(`/docs/${id}.pdf`),
                 isDjvu: false,
                 revisionInfo: null,

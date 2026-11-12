@@ -16,6 +16,7 @@ import {requireEpochMs} from '@contracts/timestamps';
 import { requireDocumentRef } from '@contracts/documentRef';
 import {requirePdfDateString} from '@contracts/pdfDateString';
 import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
+import { createWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 
 const mocks = vi.hoisted(() => ({
     hasElectronApi: vi.fn(() => true),
@@ -108,7 +109,7 @@ const PDF_BYTES = Uint8Array.from([
 ]);
 
 function createFacade() {
-    return usePdfFile() as IPdfFileFacade & {
+    return usePdfFile({document: createWorkspaceDocumentController({tabId: 'tab-1'})}) as IPdfFileFacade & {
         optimizeWorkingCopy?: unknown;
         optimizeWorkingCopyAsCopy?: unknown;
         repairWorkingCopy?: unknown;

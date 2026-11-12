@@ -1,10 +1,12 @@
 import { tryOnScopeDispose } from '@vueuse/core';
-import type { IHistoryRevisionSwapOptions } from '@app/modules/workspace-shell/composables/document-session/createDocumentHistory';
 import type { TDjvuPdfExportStrategy } from '@contracts/electronApiDjvu';
 import type { Ref } from 'vue';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TOpenFileResult } from '@contracts/electronApiDocuments';
-import { usePdfFile } from '@app/modules/workspace-shell/composables/usePdfFile';
+import {
+    usePdfFile,
+    type IPdfFileOptions,
+} from '@app/modules/workspace-shell/composables/usePdfFile';
 import { useDjvu } from '@app/composables/useDjvu';
 import { useRecentFiles } from '@app/composables/useRecentFiles';
 import { BrowserLogger } from '@app/utils/browserLogger';
@@ -32,7 +34,7 @@ import type { TDocumentDirectOpenOptions } from '@app/modules/workspace-shell/co
 import {isDjvuOpenResult} from '@app/modules/workspace-shell/composables/document-session/openPdfAfterPasswordPrompt';
 import { describeDocumentOpenFailure } from '@app/modules/workspace-shell/composables/useWorkspaceFailureSurface';
 
-interface IUseWorkspaceFileLifecycleControllerOptions extends IHistoryRevisionSwapOptions {
+interface IUseWorkspaceFileLifecycleControllerOptions extends IPdfFileOptions {
     createViewerLifecycleHooks?: (
         context: IWorkspaceViewerLifecycleContext,
     ) => IWorkspaceViewerLifecycleHooks[];
@@ -40,8 +42,7 @@ interface IUseWorkspaceFileLifecycleControllerOptions extends IHistoryRevisionSw
     getOpenSurface?: (() => IDocumentOpenSurfaceSession | null) | undefined;
     /** Runs an open as the document's open transaction, which ends when the viewer presents it. */
     runDocumentOpen: (request: IWorkspaceOpenRequest, run: () => Promise<boolean>) => Promise<boolean>;
-    /** Names the document's file for its tabs, which open it when shown. */
-    assignDocument: IWorkspaceDocumentController['assign'];
+    document: Pick<IWorkspaceDocumentController, 'assign' | 'file' | 'commitFile'>;
 }
 
 function createWorkspaceFileSwitch(deps: {
@@ -126,55 +127,22 @@ export const useWorkspaceFileLifecycleController = (
             await hooks.beforeSourcePresented?.(source, pageCount);
         }
     }
+    const pdfFile = usePdfFile(options);
     const {
         pdfSrc,
-        pdfReloadSrc,
-        pdfData,
         workingCopyPath,
-        openedWorkingCopyPath,
         documentRevisionInfo,
-        documentRevisionToken,
         originalPath,
-        requiresSaveAsOnFirstSave,
-        fileName,
-        isDirty,
         recoveryDirtyBaseline,
-        pdfConformanceAnalysisState,
-        pdfConformanceProfile,
-        pdfRasterDisplayProfile,
-        lastSaveMode,
         error: pdfError,
         failurePresentation: pdfFailurePresentation,
         isElectron,
         pendingDjvu,
-        openBatchProgress,
-        wasEncrypted,
-        notifyPdfInitialVisualReady,
-        pickFileToOpen: pickPdfFileToOpen,
         openFile,
         openFileDirect,
         openFileDirectBatch,
-        loadPdfFromPath,
-        ensureHistoryBaselineForMutation,
-        reloadWorkingCopyRevision,
-        reloadWorkingCopyIntoHistory,
-        mapHistoryPage,
-        loadPdfFromData,
-        persistPdfDataSilently,
         closeFile,
-        saveFile,
-        repairWorkingCopy,
-        optimizeWorkingCopy,
-        optimizeWorkingCopyAsCopy,
-        saveWorkingCopy,
-        trySavePdfNativeMutations,
-        trySaveEmbeddedNoteTextUpdates,
-        saveWorkingCopyAs,
-        markDirty,
-        fileHistoryMutationVersion,
-        fileHistorySessionVersion,
-        setWorkspaceCommandSink,
-    } = usePdfFile(options);
+    } = pdfFile;
 
     const {
         isDjvuMode,
@@ -197,7 +165,8 @@ export const useWorkspaceFileLifecycleController = (
         dismissBanner: djvuDismissBanner,
     } = useDjvu({
         getOpenSurface: options.getOpenSurface,
-        assignDocument: options.assignDocument,
+        // Names the document's file for its tabs, which open it when shown.
+        assignDocument: options.document.assign,
     });
 
     let djvuProjectionAbortController = new AbortController();
@@ -273,7 +242,10 @@ export const useWorkspaceFileLifecycleController = (
                     return admitOpeningSource(djvuPath, () => Promise.resolve(pageCount));
                 },
                 setOriginalPath: (path) => {
-                    originalPath.value = path;
+                    options.document.commitFile({
+                        originalPath: path,
+                        isDjvu: true,
+                    });
                 },
             });
             BrowserLogger.info('djvu-open-transaction', 'Activation returned', {
@@ -413,56 +385,12 @@ export const useWorkspaceFileLifecycleController = (
     ));
 
     return {
+        ...pdfFile,
         admitOpeningSource: (source: TDocumentRef, pageCount: () => Promise<number | null>) => recoveryDirtyBaseline.value
             ? Promise.resolve()
             : admitOpeningSource(source, pageCount),
-        pdfSrc,
-        pdfReloadSrc,
-        pdfData,
-        workingCopyPath,
-        openedWorkingCopyPath,
-        documentRevisionInfo,
-        documentRevisionToken,
-        originalPath,
-        requiresSaveAsOnFirstSave,
-        wasEncrypted,
-        fileName,
-        isDirty,
-        recoveryDirtyBaseline,
-        pdfConformanceAnalysisState,
-        pdfConformanceProfile,
-        pdfRasterDisplayProfile,
-        lastSaveMode,
         pdfError,
         pdfFailurePresentation,
-        isElectron,
-        pendingDjvu,
-        openBatchProgress,
-        notifyPdfInitialVisualReady,
-        pickFileToOpen: pickPdfFileToOpen,
-        openFile,
-        openFileDirect,
-        openFileDirectBatch,
-        loadPdfFromPath,
-        ensureHistoryBaselineForMutation,
-        reloadWorkingCopyRevision,
-        reloadWorkingCopyIntoHistory,
-        mapHistoryPage,
-        loadPdfFromData,
-        persistPdfDataSilently,
-        closeFile,
-        saveFile,
-        repairWorkingCopy,
-        optimizeWorkingCopy,
-        optimizeWorkingCopyAsCopy,
-        saveWorkingCopy,
-        trySavePdfNativeMutations,
-        trySaveEmbeddedNoteTextUpdates,
-        saveWorkingCopyAs,
-        markDirty,
-        fileHistoryMutationVersion,
-        fileHistorySessionVersion,
-        setWorkspaceCommandSink,
 
         isDjvuMode,
         djvuSourcePath,

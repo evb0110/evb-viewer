@@ -10,6 +10,7 @@ import {
     computed, ref,
 } from 'vue';
 import { requireDocumentRevisionToken } from '@contracts/documentRevision';
+import { createStaleRevisionError } from '@contracts/documentMutationErrors';
 import {requireEpochMs} from '@contracts/timestamps';
 import { requireDocumentRef } from '@contracts/documentRef';
 import { requirePageIndex } from '@contracts/pageNumbers';
@@ -45,6 +46,15 @@ function reopenSameDocument(deps: TSaveFixtureDeps) {
 /** A resync or post-write failure moved only the document revision. */
 function bumpDocumentRevision(deps: TSaveFixtureDeps) {
     deps.documentRevisionToken.value = requireDocumentRevisionToken('rev-2');
+}
+
+/** An unsaved shape edit, which Save writes through the native mutation path. */
+function unsavedShapeEdit() {
+    return {
+        totalPages: ref(2),
+        hasShapeChanges: vi.fn(() => true),
+        getAllShapes: vi.fn(() => [createShapeAnnotation()]),
+    };
 }
 
 describe('workspace save failure surfacing', () => {
@@ -156,7 +166,7 @@ describe('workspace save failure surfacing', () => {
         expect(receipts).toEqual([]);
         expect(deps.documentRevisionToken.value).toBe(before);
         expect(deps.saveWorkingCopy).not.toHaveBeenCalled();
-        expect(deps.saveFile).not.toHaveBeenCalled();
+        expect(deps.trySavePdfNativeMutations).not.toHaveBeenCalled();
     });
 
     it('does not report a commit when save fails', async () => {
@@ -179,11 +189,10 @@ describe('workspace save failure surfacing', () => {
 
     it('saves dirty changes before optimizing the PDF for interaction', async () => {
         const saveCalls: string[] = [];
-        const annotationDirty = ref(true);
-        const hasAnnotationChanges = vi.fn(() => annotationDirty.value);
+        const shapesDirty = ref(true);
         const {deps} = createDeps({
-            annotationDirty,
-            hasAnnotationChanges,
+            ...unsavedShapeEdit(),
+            hasShapeChanges: vi.fn(() => shapesDirty.value),
             optimizeWorkingCopy: vi.fn(async () => {
                 saveCalls.push('optimize');
                 return {
@@ -193,9 +202,9 @@ describe('workspace save failure surfacing', () => {
                     didSaveAs: false,
                 };
             }),
-            saveWorkingCopy: vi.fn(async () => {
+            trySavePdfNativeMutations: vi.fn(async () => {
                 saveCalls.push('save');
-                annotationDirty.value = false;
+                shapesDirty.value = false;
                 return {
                     success: true,
                     outPath: requireDocumentRef('/tmp/work.pdf'),
@@ -203,12 +212,6 @@ describe('workspace save failure surfacing', () => {
                     didSaveAs: false,
                 };
             }),
-            runSaveTransaction: vi.fn(async () => cast<TSaveTransactionResult>({
-                source: 'serialized-rewrite' as const,
-                nativeMutationProjection: null,
-                fallbackDecision: null,
-                annotationSavePlan: null,
-            })),
         });
         const service = useWorkspaceSaveServiceForTest(deps);
 
@@ -357,7 +360,7 @@ describe('workspace save failure surfacing', () => {
             description: toastDescriptionContaining('errors.save.openNotes'),
         }));
         expect(service.hasSaveFailure.value).toBe(true);
-        expect(deps.saveFile).not.toHaveBeenCalled();
+        expect(deps.trySavePdfNativeMutations).not.toHaveBeenCalled();
     });
 
     it.each([
@@ -432,8 +435,8 @@ describe('workspace save failure surfacing', () => {
     });
 
     it('says nothing about a replaced document when the persist of the old one was refused', async () => {
-        const { deps } = createDeps({annotationDirty: ref(true)});
-        deps.saveWorkingCopy = vi.fn(async () => {
+        const { deps } = createDeps(unsavedShapeEdit());
+        deps.trySavePdfNativeMutations = vi.fn(async () => {
             replaceOpenDocument(deps);
             return {
                 success: false,
@@ -452,8 +455,8 @@ describe('workspace save failure surfacing', () => {
 
     it('says nothing about a replaced document when the save of the old one threw', async () => {
         vi.spyOn(console, 'error').mockImplementation(() => undefined);
-        const { deps } = createDeps({annotationDirty: ref(true)});
-        deps.saveWorkingCopy = vi.fn(async () => {
+        const { deps } = createDeps(unsavedShapeEdit());
+        deps.trySavePdfNativeMutations = vi.fn(async () => {
             replaceOpenDocument(deps);
             throw new Error('disk exploded');
         });
@@ -660,8 +663,8 @@ describe('workspace save failure surfacing', () => {
 
     it('tells the user the temporary copy was removed when the working copy is missing', async () => {
         const { deps } = createDeps({
-            annotationDirty: ref(true),
-            saveWorkingCopy: vi.fn(async () => ({
+            ...unsavedShapeEdit(),
+            trySavePdfNativeMutations: vi.fn(async () => ({
                 success: false,
                 outPath: null,
                 saveMode: 'rewrite' as const,
@@ -691,8 +694,8 @@ describe('workspace save failure surfacing', () => {
     ])('the changed-original Save As action belongs to its document (replaced: %s)', async replaced => {
         let publishedPath = '';
         const {deps} = createDeps({
-            annotationDirty: ref(true),
-            saveWorkingCopy: vi.fn(async () => ({
+            ...unsavedShapeEdit(),
+            trySavePdfNativeMutations: vi.fn<TPdfNativeMutationSave>().mockResolvedValueOnce({
                 success: false,
                 outPath: null,
                 saveMode: 'rewrite' as const,
@@ -703,7 +706,12 @@ describe('workspace save failure surfacing', () => {
                     phase: 'publish-original',
                     reason: 'original-changed' as const,
                 },
-            })),
+            }).mockResolvedValue({
+                success: true,
+                outPath: null,
+                saveMode: 'save_as_rewrite' as const,
+                didSaveAs: false,
+            }),
             saveWorkingCopyAs: vi.fn(async () => {
                 publishedPath = '/tmp/recovered.pdf';
                 return {
@@ -771,8 +779,8 @@ describe('workspace save failure surfacing', () => {
 
     it('tells the user about a superseded save without marking the new document', async () => {
         const { deps } = createDeps({
-            annotationDirty: ref(true),
-            saveWorkingCopy: vi.fn(async () => ({
+            ...unsavedShapeEdit(),
+            trySavePdfNativeMutations: vi.fn(async () => ({
                 success: false,
                 outPath: null,
                 saveMode: 'rewrite' as const,
@@ -1108,11 +1116,31 @@ describe('workspace save failure surfacing', () => {
         expectWorkspaceSaveNotMarked(deps);
     });
 
+    it('tells a revision conflict once, without retrying, and keeps the edit unsaved', async () => {
+        const trySavePdfNativeMutations = vi.fn(async () => {
+            throw createStaleRevisionError({message: 'The working copy changed'});
+        });
+        const { deps } = createDeps({
+            ...unsavedShapeEdit(),
+            trySavePdfNativeMutations,
+        });
+        const service = useWorkspaceSaveServiceForTest(deps);
+
+        await expect(service.handleSave()).resolves.toBe(false);
+
+        expect(trySavePdfNativeMutations).toHaveBeenCalledOnce();
+        expect(toastAddMock).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+            color: 'error',
+            description: toastDescriptionContaining('errors.save.documentChanged'),
+        }));
+        expectWorkspaceSaveNotMarked(deps);
+    });
+
     it('keeps the thrown-save toast unchanged', async () => {
         vi.spyOn(console, 'error').mockImplementation(() => undefined);
         const { deps } = createDeps({
-            annotationDirty: ref(true),
-            saveWorkingCopy: vi.fn(() => {
+            ...unsavedShapeEdit(),
+            trySavePdfNativeMutations: vi.fn(() => {
                 throw new Error('disk exploded');
             }),
         });
