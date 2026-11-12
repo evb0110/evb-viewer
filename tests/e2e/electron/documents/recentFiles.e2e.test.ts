@@ -5,6 +5,7 @@ import {
     onTestFinished,
 } from 'vitest';
 import { delay } from 'es-toolkit/promise';
+import { PDFDocument } from 'pdf-lib';
 import {
     activateMenuItemAsUser,
     clickAsUser,
@@ -949,10 +950,20 @@ describe('Electron E2E - Recent Files', () => {
             await setRememberPlaceAsUser(session, false);
         });
 
-        const fixturePath = await createScannedTextFixturePdf(
-            `recent-file-${Date.now()}.pdf`,
-            'NON-LETTER PAGE',
-        );
+        // This geometry oracle needs a fixed non-Letter page. The OCR fixture
+        // widens its page to fit text using host-dependent canvas font metrics.
+        const fixturePath = createFixturePath(`recent-file-${Date.now()}.pdf`);
+        const fixtureDocument = await PDFDocument.create();
+        const fixturePage = fixtureDocument.addPage([
+            600,
+            250,
+        ]);
+        fixturePage.drawText('NON-LETTER PAGE', {
+            x: 30,
+            y: 135,
+            size: 36,
+        });
+        writeFileSync(fixturePath, await fixtureDocument.save());
         const fixtureDocumentRef = requireDocumentRef(fixturePath);
         await openPdfInApp(session.page, fixturePath);
         await waitForPdfLoaded(session.page);
