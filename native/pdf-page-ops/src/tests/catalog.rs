@@ -1062,7 +1062,7 @@ fn applies_sparse_shape_and_annotation_mutations_incrementally_without_a_full_pa
         created_at: None,
     };
     reset_page_tree_node_read_count();
-    delete_annotations_incremental(&mut incremental, std::slice::from_ref(&delete)).unwrap();
+    delete_annotations(&mut incremental, std::slice::from_ref(&delete)).unwrap();
     assert!(
         page_tree_node_read_count() < 100,
         "incremental annotation mutation walked too many page-tree nodes: {}",

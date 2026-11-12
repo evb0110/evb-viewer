@@ -767,7 +767,7 @@ fn recreates_markup_after_deleted_pdf_ref_in_the_same_revision() {
         stable_key: None,
         created_at: None,
     };
-    delete_annotations_incremental(&mut incremental, std::slice::from_ref(&delete)).unwrap();
+    delete_annotations(&mut incremental, std::slice::from_ref(&delete)).unwrap();
 
     let mutation = MarkupMutation {
         hints: vec![MarkupSubtypeHint {

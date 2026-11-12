@@ -1014,7 +1014,7 @@ fn deletes_a_note_popup_and_transitive_reply_chain() {
 
     let (document, (page_id, other_page, info), deleted_ids, unrelated_id) = fixture();
     let mut incremental = IncrementalDocument::from_document(document, 0, None);
-    delete_annotations_incremental(
+    delete_annotations(
         &mut incremental,
         &[AnnotationDelete {
             page_index: 0,
@@ -1071,7 +1071,7 @@ fn deletes_explicit_annotation_ref_from_its_p_page_when_page_hint_is_stale() {
         [Object::Reference(target_id)]
     );
     reset_page_tree_node_read_count();
-    delete_annotations_incremental(&mut incremental, std::slice::from_ref(&delete)).unwrap();
+    delete_annotations(&mut incremental, std::slice::from_ref(&delete)).unwrap();
 
     let revision = &incremental;
     assert!(get_page_annots(revision, last_page_id).unwrap().is_empty());

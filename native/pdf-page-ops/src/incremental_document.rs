@@ -497,6 +497,21 @@ impl PdfObjectStore for IncrementalDocument {
         self.opt_clone_object_to_new_document(object_id)?;
         Ok(self.new_document.get_object_mut(object_id)?)
     }
+
+    fn delete_object(&mut self, object_id: ObjectId) {
+        self.new_document.set_object(object_id, Object::Null);
+    }
+
+    fn stored_objects(&self) -> impl Iterator<Item = (ObjectId, &Object)> {
+        let appended = &self.new_document.objects;
+        appended.iter().map(|(id, object)| (*id, object)).chain(
+            self.previous_document
+                .objects
+                .iter()
+                .filter(|(id, _)| !appended.contains_key(id))
+                .map(|(id, object)| (*id, object)),
+        )
+    }
 }
 
 const MAX_QPDF_PAGE_LIST_BYTES: usize = 64 * 1024 * 1024;

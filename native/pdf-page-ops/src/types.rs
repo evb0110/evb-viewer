@@ -666,6 +666,13 @@ fn missing_object_message(object_id: ObjectId) -> String {
 pub(crate) trait PdfObjectStore: PdfObjectSource {
     fn object_mut(&mut self, object_id: ObjectId) -> Result<&mut Object>;
 
+    /// Drops an object: a loaded document forgets it, an appended revision
+    /// frees it as `null` over the base revision that still holds it.
+    fn delete_object(&mut self, object_id: ObjectId);
+
+    /// Every object a reader of this state finds, each once.
+    fn stored_objects(&self) -> impl Iterator<Item = (ObjectId, &Object)>;
+
     fn dictionary_mut(&mut self, object_id: ObjectId) -> Result<&mut Dictionary> {
         Ok(self.object_mut(object_id)?.as_dict_mut()?)
     }
@@ -674,6 +681,14 @@ pub(crate) trait PdfObjectStore: PdfObjectSource {
 impl PdfObjectStore for Document {
     fn object_mut(&mut self, object_id: ObjectId) -> Result<&mut Object> {
         Ok(self.get_object_mut(object_id)?)
+    }
+
+    fn delete_object(&mut self, object_id: ObjectId) {
+        self.objects.remove(&object_id);
+    }
+
+    fn stored_objects(&self) -> impl Iterator<Item = (ObjectId, &Object)> {
+        self.objects.iter().map(|(id, object)| (*id, object))
     }
 }
 
