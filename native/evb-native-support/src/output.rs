@@ -147,11 +147,17 @@ impl AtomicOutput {
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
             .as_nanos();
+        // Keep the format extension last so confined tools (e.g. system qpdf)
+        // can read the staged file under extension-based AppArmor policies.
+        let extension = destination
+            .extension()
+            .map(|value| format!(".{}", value.to_string_lossy()))
+            .unwrap_or_default();
 
         for _ in 0..128 {
             let sequence = TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed);
             let temporary_path = parent.join(format!(
-                ".{file_name}.evb-tmp-{}-{timestamp}-{sequence}",
+                ".{file_name}.evb-tmp-{}-{timestamp}-{sequence}{extension}",
                 std::process::id()
             ));
             match create_exclusive_temporary_file(&temporary_path) {
@@ -710,14 +716,22 @@ mod tests {
 
     #[test]
     fn explicit_drop_removes_unpublished_temporary() {
-        let destination = test_path("drop");
-        let output = AtomicOutput::create(&destination).unwrap();
-        let temporary_path = output.temporary_path.clone();
+        for extension in ["pdf", "PDF", "json", "png", ""] {
+            let destination = test_path("drop").with_extension(extension);
+            let output = AtomicOutput::create(&destination).unwrap();
+            let temporary_path = output.temporary_path.clone();
 
-        drop(output);
+            if !extension.is_empty() {
+                // Confined tools such as Ubuntu's qpdf admit staged files by extension.
+                assert_eq!(temporary_path.extension(), destination.extension());
+            }
+            assert_eq!(temporary_path.parent(), destination.parent());
+            drop(output);
 
-        assert!(!temporary_path.exists());
-        assert!(!destination.exists());
+            assert!(!temporary_path.exists());
+            assert!(!destination.exists());
+            assert_no_sibling_temporary(&destination);
+        }
     }
 
     #[cfg(target_os = "linux")]

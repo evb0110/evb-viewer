@@ -44,6 +44,10 @@ import {
 } from 'pdf-lib';
 import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
 import {createCanvas} from '@napi-rs/canvas';
+import {
+    FIXTURE_SANS_FONT_FAMILY,
+    FIXTURE_SERIF_FONT_FAMILY,
+} from '@tests/e2e/electron/helpers/fixtureFonts';
 import { getE2ERunId } from '@scripts/electron-run/electronRunRunId';
 import { getCurrentSessionName } from '@scripts/electron-run/electronRunSessionPaths';
 import {createPdfjsNodeDocumentOptions} from '@electron/features/search/pdfjsPageTexts';
@@ -1790,7 +1794,7 @@ export async function createLargeScannedFixturePdf(
     mkdirSync(fixtureDir, {recursive: true});
     const filePath = join(fixtureDir, filename);
     const cacheKey = createHash('sha256')
-        .update(`large-scanned-v3:${pageCount}:${attachmentSizeBytes}:${rasterScale}`)
+        .update(`large-scanned-v4:${pageCount}:${attachmentSizeBytes}:${rasterScale}`)
         .digest('hex');
     const cachePath = join(FIXTURE_CACHE_DIR, `${cacheKey}.pdf`);
     if (existsSync(cachePath)) {
@@ -1804,9 +1808,9 @@ export async function createLargeScannedFixturePdf(
     context.fillStyle = '#f8f7f3';
     context.fillRect(0, 0, 1224, 1584);
     context.fillStyle = '#242424';
-    context.font = 'bold 54px serif';
+    context.font = `bold 54px ${FIXTURE_SERIF_FONT_FAMILY}`;
     context.fillText('E2E scanned PDF fixture', 110, 150);
-    context.font = '28px serif';
+    context.font = `28px ${FIXTURE_SERIF_FONT_FAMILY}`;
     for (let line = 0; line < 34; line += 1) {
         context.fillText(
             `Scanned page sample row ${String(line + 1).padStart(2, '0')}`,
@@ -2410,7 +2414,7 @@ export async function createManagedInkStrokeFixturePdf(filename: string) {
     return filePath;
 }
 
-export async function createScannedTextFixturePdf(filename: string, text: string, font = 'bold 72px sans-serif') {
+export async function createScannedTextFixturePdf(filename: string, text: string, font = `bold 72px ${FIXTURE_SANS_FONT_FAMILY}`) {
     ensureFixtureDir();
     const filePath = join(getFixtureDir(), filename);
     const canvas = createCanvas(1200, 500);
