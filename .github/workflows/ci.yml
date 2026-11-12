@@ -51,7 +51,7 @@ jobs:
   publication_policy:
     name: Publication Policy
     if: ${{ github.event_name == 'pull_request' || github.event_name == 'push' }}
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 5
 
     steps:
@@ -80,7 +80,7 @@ jobs:
 
   changed_areas:
     name: Changed Area Detection
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 5
     outputs:
       browser_integration: ${{ steps.classify.outputs.browser_integration }}
@@ -133,7 +133,7 @@ jobs:
 
   lint:
     name: Lint
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 15
     needs: changed_areas
     if: ${{ needs.changed_areas.outputs.verified_tree != 'true' }}
@@ -190,7 +190,7 @@ jobs:
 
   unit:
     name: Typecheck And Unit Tests
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 20
     needs: changed_areas
     if: ${{ needs.changed_areas.outputs.verified_tree != 'true' }}
@@ -245,7 +245,7 @@ jobs:
     name: Rust
     if: ${{ needs.changed_areas.outputs.rust == 'true' }}
     needs: changed_areas
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 25
 
     steps:
@@ -318,7 +318,7 @@ jobs:
     name: Strict Build
     if: ${{ needs.changed_areas.outputs.desktop_build == 'true' || needs.changed_areas.outputs.electron_smoke == 'true' || needs.changed_areas.outputs.verified_tree == 'true' }}
     needs: changed_areas
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 25
     outputs:
       lanes: ${{ steps.lanes.outputs.lanes }}
@@ -346,9 +346,11 @@ jobs:
             .tmp/pdf-image-combine
             .tmp/pdf-page-ops
             .tmp/pdf-search
-          key: electron-native-v2-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('native/**', 'packages/contracts/**', 'public/fonts/annotation/*.ttf', 'public/pdf/standard_fonts/LiberationSans-*.ttf', 'scripts/build-native-tool.mjs', 'scripts/native-build-id.mjs', 'scripts/cargo-artifacts.mjs', 'scripts/lib/build-environment.mjs', 'scripts/nativeResourceManifest.ts', 'scripts/native-rust-targets.mjs', 'rust-toolchain.toml', 'native/rust-toolchain.toml', 'pnpm-lock.yaml') }}
+          # The runner image is part of the key: native tools built on one Ubuntu
+          # image must not be restored on another. Update it with runs-on.
+          key: electron-native-v2-ubuntu-26.04-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('native/**', 'packages/contracts/**', 'public/fonts/annotation/*.ttf', 'public/pdf/standard_fonts/LiberationSans-*.ttf', 'scripts/build-native-tool.mjs', 'scripts/native-build-id.mjs', 'scripts/cargo-artifacts.mjs', 'scripts/lib/build-environment.mjs', 'scripts/nativeResourceManifest.ts', 'scripts/native-rust-targets.mjs', 'rust-toolchain.toml', 'native/rust-toolchain.toml', 'pnpm-lock.yaml') }}
           restore-keys: |
-            electron-native-v2-${{ runner.os }}-${{ runner.arch }}-
+            electron-native-v2-ubuntu-26.04-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Strict build
         run: pnpm run build:strict
@@ -382,7 +384,7 @@ jobs:
     name: Native PDF Save Integration
     if: ${{ needs.changed_areas.outputs.desktop_build == 'true' }}
     needs: changed_areas
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 20
 
     steps:
@@ -446,7 +448,7 @@ jobs:
     name: Browser Integration (${{ matrix.shard }}/8)
     if: ${{ !cancelled() && needs.changed_areas.outputs.browser_integration == 'true' }}
     needs: [changed_areas, unit]
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     # Reuse the unit job's WASM so cold native builds leave the browser job's
     # budget for tests. UI files each start Chromium and a Nuxt server; run
     # files one at a time on the four-CPU runner, with eight shards keeping
@@ -488,7 +490,7 @@ jobs:
     name: Scan Cleanup Export Oracles
     if: ${{ needs.changed_areas.outputs.scan_cleanup_export == 'true' }}
     needs: changed_areas
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 15
 
     steps:
@@ -535,7 +537,7 @@ jobs:
     name: Landing
     if: ${{ needs.changed_areas.outputs.landing == 'true' }}
     needs: changed_areas
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 15
 
     steps:
@@ -561,7 +563,7 @@ jobs:
     needs:
       - changed_areas
       - strict_build
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 30
     strategy:
       fail-fast: false
@@ -621,7 +623,7 @@ jobs:
       - scan_cleanup_oracles
       - landing
       - electron_e2e
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 5
 
     steps:

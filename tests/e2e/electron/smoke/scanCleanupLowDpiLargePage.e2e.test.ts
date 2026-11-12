@@ -14,6 +14,7 @@ import {
     onTestFinished,
 } from 'vitest';
 import {createElectronE2ESessionFixture} from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
+import {FIXTURE_SERIF_FONT_FAMILY} from '@tests/e2e/electron/helpers/fixtureFonts';
 import {clickAsUser} from '@tests/e2e/electron/helpers/userInput';
 import {
     evaluateInPage,
@@ -46,7 +47,7 @@ async function createOnePixelPerPointScanPdf(path: string) {
     context.fillStyle = paper;
     context.fillRect(0, 0, SCAN_WIDTH, SCAN_HEIGHT);
     context.fillStyle = '#2b2620';
-    context.font = '64px serif';
+    context.font = `64px ${FIXTURE_SERIF_FONT_FAMILY}`;
     for (let line = 0; line < 40; line += 1) {
         context.fillText(`A page scanned at one pixel per point, line ${String(line + 1)}`, 260, 420 + (line * 88));
     }
