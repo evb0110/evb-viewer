@@ -98,14 +98,6 @@ jobs:
           export TMPDIR="$PWD/.devkit/tmp"
           node --import tsx scripts/fetchRuntimeBinaries.ts --tessdata-only
 
-      - name: Fetch the pinned macOS 14 Tesseract runtime
-        if: matrix.target == 'darwin-arm64'
-        shell: bash
-        run: |
-          export TMPDIR="$PWD/.devkit/tmp"
-          node --import tsx scripts/fetchRuntimeBinaries.ts --target darwin-arm64 \
-            --family tesseract
-
       - name: Fetch unchanged Windows x64 runtime families
         if: matrix.target == 'win32-x64'
         shell: bash
@@ -113,34 +105,6 @@ jobs:
           export TMPDIR="$PWD/.devkit/tmp"
           node --import tsx scripts/fetchRuntimeBinaries.ts --target win32-x64 \
             --family poppler --family qpdf
-
-      - name: Download Linux x64 Tesseract baseline
-        if: matrix.target == 'linux-x64'
-        shell: bash
-        run: |
-          export TMPDIR="$PWD/.devkit/tmp"
-          archive="$TMPDIR/tesseract-linux-x64-5.5.3-baseline.tar.gz"
-          curl -fsSL \
-            https://github.com/evb0110/evb-viewer/releases/download/runtime-binaries-v1/tesseract-linux-x64-5.5.3.tar.gz \
-            -o "$archive"
-          echo '65f3f9ce37a0cd57adf1df170aade5f2fc4275229cb60e3990d16ae9c2120e7c  '"$archive" | sha256sum -c -
-          test "$(stat -c '%s' "$archive")" = 4472496
-          mkdir -p "$TMPDIR/linux-tesseract-baseline"
-          tar -xzf "$archive" -C "$TMPDIR/linux-tesseract-baseline"
-
-      - name: Download Windows x64 Tesseract baseline
-        if: matrix.target == 'win32-x64'
-        shell: bash
-        run: |
-          export TMPDIR="$PWD/.devkit/tmp"
-          archive="$TMPDIR/tesseract-win32-x64-5.4.0-baseline.tar.gz"
-          curl -fsSL \
-            https://github.com/evb0110/evb-viewer/releases/download/runtime-binaries-v1/tesseract-win32-x64.tar.gz \
-            -o "$archive"
-          echo 'db15391cd3d6026b1106433adbd7ad0348171b81011f4ddd3b72241b91bfc315  '"$archive" | sha256sum -c -
-          test "$(stat -c '%s' "$archive")" = 56140942
-          mkdir -p "$TMPDIR/windows-tesseract-baseline"
-          tar -xzf "$archive" -C "$TMPDIR/windows-tesseract-baseline"
 
       - name: Build Linux runtime tools in the pinned Ubuntu image
         if: startsWith(matrix.target, 'linux-')
@@ -169,15 +133,6 @@ jobs:
           brew install cmake ninja meson pkgconf gnu-tar
           bash scripts/build-pdf-tools-macos.sh
 
-      - name: Build Windows Tesseract 5.5.3
-        if: startsWith(matrix.target, 'win32-')
-        shell: bash
-        env:
-          TARGET_ARCH: ${{ matrix.target == 'win32-x64' && 'x64' || 'arm64' }}
-        run: |
-          export TMPDIR="$PWD/.devkit/tmp"
-          bash scripts/build-tesseract-windows.sh
-
       - name: Build Windows ARM64 runtime families
         if: matrix.target == 'win32-arm64'
         shell: bash
@@ -192,33 +147,13 @@ jobs:
           name: windows-djvulibre
           path: resources/djvulibre
 
-      - name: Compare Linux Tesseract OCR accuracy
-        if: matrix.target == 'linux-x64'
-        shell: bash
-        run: |
-          export TMPDIR="$PWD/.devkit/tmp"
-          node scripts/compareTesseractFixtureAccuracy.mjs \
-            "$TMPDIR/linux-tesseract-baseline/tesseract/linux-x64/bin/tesseract" \
-            "$PWD/resources/tesseract/linux-x64/bin/tesseract" \
-            "$PWD/resources/tesseract/tessdata"
-
-      - name: Compare Windows x64 Tesseract OCR accuracy
-        if: matrix.target == 'win32-x64'
-        shell: bash
-        run: |
-          export TMPDIR="$PWD/.devkit/tmp"
-          node scripts/compareTesseractFixtureAccuracy.mjs \
-            "$TMPDIR/windows-tesseract-baseline/tesseract/win32-x64/bin/tesseract.exe" \
-            "$PWD/resources/tesseract/win32-x64/bin/tesseract.exe" \
-            "$PWD/resources/tesseract/tessdata"
-
       - name: Pack target archives
         shell: bash
         run: |
           export TMPDIR="$PWD/.devkit/tmp"
           EVB_RUNTIME_BINARY_ARCHIVE_DIR="$PWD/.devkit/tmp/runtime-archives" \
             bash scripts/packRuntimeBinaryArchives.sh "${{ matrix.target }}"
-          for family in tesseract poppler qpdf djvulibre; do
+          for family in poppler qpdf djvulibre; do
             archive="$(find .devkit/tmp/runtime-archives -maxdepth 1 -type f -name "$family-${{ matrix.target }}*.tar.gz" -print -quit)"
             test -n "$archive"
             tar -tzf "$archive" | awk -v root="$family/${{ matrix.target }}/" 'index($0, root) == 1 { found = 1 } END { exit !found }'
@@ -237,7 +172,7 @@ jobs:
             const target = process.argv[1];
             const archiveDirectory = join(process.cwd(), ".devkit/tmp/runtime-archives");
             const entries = RUNTIME_BINARY_MANIFEST.entries.filter(entry => entry.target.platformArch === target);
-            if (entries.length !== 4) process.exit(42);
+            if (entries.length !== 3) process.exit(42);
             for (const entry of entries) {
               const name = new URL(entry.archiveUrl).pathname.split("/").at(-1);
               const archivePath = join(archiveDirectory, name);
@@ -260,7 +195,7 @@ jobs:
             fi
             EVB_RUNTIME_BINARY_ARCHIVE_BASE_URL="$archive_base" \
               node --import tsx scripts/fetchRuntimeBinaries.ts --target "${{ matrix.target }}" \
-                --family tesseract --family poppler --family qpdf --family djvulibre
+                --family poppler --family qpdf --family djvulibre
           fi
 
       - name: Summarize archive digests

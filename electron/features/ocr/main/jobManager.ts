@@ -15,6 +15,10 @@ import type {
 import { runOcrJob } from '@electron/features/ocr/pipeline/runOcrJob';
 import { resolveOcrPipelinePaths } from '@electron/features/ocr/main/paths';
 import {
+    runOcrEngine,
+    shutdownOcrEnginePool,
+} from '@electron/features/ocr/main/ocrEnginePool';
+import {
     getJobWindow,
     safeSendToWindow,
 } from '@electron/features/ocr/main/ocrProgressDispatch';
@@ -335,7 +339,8 @@ export async function handleOcrCreateSearchablePdfAsync(
                     documentRevision,
                     pages,
                     options,
-                    paths: await resolveOcrPipelinePaths(),
+                    paths: resolveOcrPipelinePaths(),
+                    runEngine: runOcrEngine,
                     prepareEarlyPrintModels: signal => ensureTessdataModels(EARLY_PRINT_MODEL_CODES, {
                         signal,
                         onProgress: onModelDownloadProgress,
@@ -554,8 +559,9 @@ export function recoverOcrJobManager() {
     return Promise.resolve();
 }
 
-export function shutdownOcrJobManager() {
-    return ocrJobs.dispose();
+export async function shutdownOcrJobManager() {
+    await ocrJobs.dispose();
+    shutdownOcrEnginePool();
 }
 
 export function subscribeManagedOcrProgress(context: IOcrManagerContext) {

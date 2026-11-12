@@ -22,6 +22,9 @@ asarUnpack:
   - dist-electron/pdfConformanceWorker.js
   - dist-electron/pdf-text-worker.js
   - dist-electron/scan-cleanup-worker.js
+  - dist-electron/ocr-engine-worker.js
+  # The OCR engine the worker threads import and compile by path.
+  - nuxt-output/public/wasm/evb-tesseract.*
 npmRebuild: false
 afterPack: ./scripts/afterPack.cjs
 afterSign: ./scripts/afterSign.cjs
@@ -49,14 +52,13 @@ files:
   - "!nuxt-output/public/evb-viewer-og.png"
   - "!nuxt-output/public/robots.txt"
   - "!nuxt-output/public/sitemap.xml"
-  # The browser OCR and qpdf engines; desktop runs the native Tesseract and qpdf.
-  - "!nuxt-output/public/wasm/evb-tesseract.*"
+  # The browser qpdf engine; desktop runs the native qpdf.
   - "!nuxt-output/public/wasm/evb-qpdf.*"
   - "!.devkit/**/*"
   - "!.devkit"
 
 mac:
-  # Tesseract and the native print helper require macOS 14.
+  # The native print helper requires macOS 14.
   minimumSystemVersion: "14.0"
   icon: resources/icon.icns
   artifactName: "EVB-Viewer-${version}-${arch}.${ext}"

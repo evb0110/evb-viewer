@@ -1,25 +1,39 @@
 # OCR
 
-EVB Viewer recognizes text with the bundled Tesseract engine and pinned
-`tessdata_best` models. An OCR job runs in the main process on the shared job
-registry: each page renders and recognizes under its own broker lease, and one
+EVB Viewer recognizes text with one engine on every platform: the pinned
+Tesseract and Leptonica compiled to WebAssembly (`public/wasm/evb-tesseract.*`,
+built by `scripts/build-tesseract-wasm.sh`), reading pinned `tessdata_best`
+models. The desktop app and the browser run the same OCR job code, so the same
+raster and options produce the same words, boxes and text-only PDF.
+
+`packages/ocr-core` holds the job: `recognizeOcrPages` renders each page
+through the host's raster port, sends it to the host's engine pool with the
+command line `tesseractRecipe` builds, rereads early print, and hands each
+recognized page to the host's text-layer writer; `createTesseractEngine` is
+the engine worker body, keeping one warm instance per identical command line.
+It also holds TSV and hOCR parsing, the existing-text classifier, early-print
+reading and the dictionary decoder. A host supplies the ports:
+
+| Port | Desktop | Browser |
+|---|---|---|
+| Page raster | Poppler `pdftoppm` PPM, cleaned by native `evb-scan-cleanup` | PDF.js tiles, cleaned by the scan-cleanup WASM |
+| Engine pool | Node worker threads (`ocrEnginePool.ts`) | Web Workers (`browserOcrEngineClient.ts`) |
+| Text-layer writer | page checkpoints, then native `pdf-page-ops ocr-text-layer` | in memory, then page-ops WASM `ocrTextLayer` |
+
+A desktop job runs in the main process on the shared job registry; the
+engine never runs on the main thread. Its pool has desktop's OCR page slots;
+a job recognizes as many pages at once as the slots allow within the job
+broker's CPU tokens. Canceling, or a pass past three minutes, ends the busy
+worker, since a worker inside Tesseract cannot read messages; idle workers
+end after a minute. Every recognized page is checkpointed with its PDF's
+digest, so an interrupted job resumes after the pages it finished. One
 `pdf-page-ops ocr-text-layer` call writes the searchable layer for the whole
 document. Saved PDFs, search, selection and DOCX export consume the resulting
 logical text.
 
-The host-independent decisions live in `packages/ocr-core`: the Tesseract
-command line for every pass (`tesseractRecipe`), TSV and hOCR parsing, the
-existing-text classifier, early-print reading and the dictionary decoder. The
-desktop main process supplies files, native processes and storage around them,
-so another host reading the same raster passes Tesseract the same arguments.
-
 ## Browser OCR
 
-The browser workspace runs the same engine: `scripts/build-tesseract-wasm.sh`
-compiles the pinned Tesseract and Leptonica to WebAssembly as the stock
-command-line program, and each page runs it once in a fresh instance with the
-arguments `tesseractRecipe` builds, as desktop runs one process per page. On
-identical pixels it writes desktop's words, boxes and text-only PDF. Pages are
+The browser workspace runs the same job and engine as desktop. Pages are
 rendered by PDF.js (`browserOcrRaster.ts`) at the resolution desktop's rule
 picks (`ocrRenderDpi`), in RGB on white with annotations, tiled below browser
 canvas limits and assembled into one raster. PDF.js and Poppler resample scans
@@ -204,17 +218,23 @@ supply the geometry needed to place selectable text over the original page.
 
 ## Engine
 
-Every shipped platform builds Tesseract 5.5.3 and Leptonica 1.82.0 from
-checksum-pinned source in the manually dispatched runtime-binaries workflow.
-Each resulting archive is pinned in `scripts/runtimeBinaryManifest.ts`.
-The packaged-tool smoke check rejects a 4.x engine, because the Poor scan profile
-passes `thresholding_method`, which 4.x does not know. When Tesseract rejects a
-parameter it still exits successfully, so the pipeline reports each rejected
+The engine is Tesseract 5.5.3 and Leptonica 1.82.0 from checksum-pinned
+source, compiled to WebAssembly with SIMD128 (Tesseract's SSE4.1 path) and
+single-threaded; builds fetch it by digest (`scripts/wasm-artifacts.mjs`). The
+packaged desktop app carries it unpacked beside the application archive, so
+its worker threads import and compile it by path. When Tesseract rejects a
+parameter it still exits successfully, so the job reports each rejected
 parameter as a per-page warning instead of silently recognizing without it.
+
+Desktop previously ran a native Tesseract binary per page. Measured on a
+50-page book, the WebAssembly engine took 1.21 times the native time on
+macOS arm64 and 1.46 times on Linux x64; the native x64 build's AVX2 and FMA
+paths also read 2 of 50 pages differently from arm64, so one engine gives the
+same words on every desktop and in the browser.
 
 ## Quality evidence
 
-Run the production quality corpus with the bundled binaries:
+Run the production quality corpus with the app's engine and native tools:
 
 ```sh
 pnpm run build:scan-cleanup

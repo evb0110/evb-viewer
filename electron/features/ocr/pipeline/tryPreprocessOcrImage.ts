@@ -1,20 +1,24 @@
 import {
-    readFile, stat,
+    readFile,
+    rm,
+    stat,
 } from 'fs/promises';
-import {join} from 'node:path';
+import {decode as decodePng} from 'fast-png';
+import {requirePageNumber} from '@contracts/pageNumbers';
+import {
+    encodePnm,
+    readPnmSize,
+} from '@ocr-core/ppmRaster';
+import type {IOcrPageRaster} from '@ocr-core/recognizeOcrPages';
 import {runNativeToolCommand} from '@electron/native-tools/runNativeToolCommand';
-import type {
-    IOcrPipelinePaths, TWorkerLog,
-} from '@electron/features/ocr/pipeline/types';
-import {resolveTesseractLanguageConfig} from '@ocr-core/resolveTesseractLanguageConfig';
+import type {TWorkerLog} from '@electron/features/ocr/pipeline/types';
 import { getErrorMessage } from '@electron/utils/error';
 import { getUnprovenNativeTerminationDetail } from '@electron/utils/nativeTerminationProof';
-import type {
-    IOcrDiagnostic, IOcrSearchablePdfOptions,
-} from '@contracts/electronApiOcr';
+import type {IOcrDiagnostic} from '@contracts/electronApiOcr';
 import {decodeNativeScanCleanupOutputMetadataJson} from '@contracts/scan-cleanup/nativeArtifactCodecs';
 import type {IScanCleanupPreviewAffine} from '@contracts/scan-cleanup/geometry';
 import {
+    createOcrPreprocessingGeometryDiagnostic,
     createOcrScanCleanupOptions,
     readOcrScanCleanupGeometry,
     type TOcrScanCleanupMode,
@@ -23,31 +27,6 @@ import {
 export interface IOcrPreprocessedImage {
     path: string;
     inverseTransform?: IScanCleanupPreviewAffine;
-}
-
-/**
- * Render, cleanup and recognition children run sequentially under one page
- * lease. Reserve their peak, rather than summing phases or counting one RGBA
- * raster. Pinned-tool measurements at 150/300/450 DPI reached 59–142 MiB for
- * recognition, 117 MiB for polarity and 296/574 MiB for clean preprocessing.
- * With 1–16 Rayon workers, clean peaked below 582 MiB at 450 DPI. Its
- * 40 B/pixel matches the native BW planner; polarity needs fewer copies.
- * Recognition includes decoded rasters, model working copies and process overhead.
- */
-export async function estimateOcrPageResidentBytes(
-    pixels: number,
-    languages: string[],
-    paths: Pick<IOcrPipelinePaths, 'tessdataPath' | 'scanCleanupBinary'>,
-    options: IOcrSearchablePdfOptions,
-) {
-    const {orderedLanguages} = resolveTesseractLanguageConfig(languages);
-    const models = await Promise.all(orderedLanguages.filter(model => !model.startsWith('~'))
-        .map(async model => (await stat(join(paths.tessdataPath, `${model}.traineddata`))).size));
-    const recognitionBytes = pixels * 12 + 2 * models.reduce((bytes, size) => bytes + size, 0);
-    const preprocessingBytes = paths.scanCleanupBinary
-        ? pixels * (options.preprocessingMode === 'clean' ? 40 : options.preprocessingMode === 'off' ? 16 : 0)
-        : 0;
-    return 32 * 1024 * 1024 + Math.max(recognitionBytes, preprocessingBytes);
 }
 
 const OCR_PREPROCESS_TIMEOUT_MS = 30_000;
@@ -148,4 +127,93 @@ export async function tryPreprocessOcrImage(
         message,
     });
     return {path: inputPath};
+}
+
+/** A rendered page file (Poppler's PPM, or a PNG) as the PNM the engine reads. */
+async function readOcrRasterFile(path: string) {
+    const bytes = await readFile(path);
+    if (bytes[0] === 0x50) {
+        return {
+            ...readPnmSize(bytes),
+            image: new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength),
+        };
+    }
+    const png = decodePng(bytes);
+    if (png.depth !== 8 || (png.channels !== 1 && png.channels !== 3)) {
+        throw new Error(`OCR raster is an unsupported ${png.depth}-bit, ${png.channels}-channel PNG`);
+    }
+    return {
+        width: png.width,
+        height: png.height,
+        image: encodePnm(png.width, png.height, png.channels, png.data as Uint8Array),
+    };
+}
+
+/**
+ * The raster the engine reads for a rendered page: with a preprocessing mode,
+ * the cleaned page as the browser cleans it ('off' still normalizes
+ * polarity); a cleanup that failed or changed the page size leaves the
+ * rendered page with a diagnostic. Cleanup files go beside `renderedPath`.
+ */
+export async function prepareOcrPageRaster(input: {
+    renderedPath: string;
+    pageNumber: number;
+    dpi: number;
+    cleanupMode: TOcrScanCleanupMode | undefined;
+    scanCleanupBinary: string | undefined;
+    cleanupThreads?: number;
+    log: TWorkerLog;
+    signal: AbortSignal;
+}): Promise<IOcrPageRaster<Uint8Array>> {
+    const rendered = await readOcrRasterFile(input.renderedPath);
+    if (input.cleanupMode === undefined) return rendered;
+    const cleanedPath = `${input.renderedPath}-clean.png`;
+    const pageNumber = requirePageNumber(input.pageNumber);
+    let diagnostic: IOcrDiagnostic | undefined;
+    try {
+        const cleaned = await tryPreprocessOcrImage(
+            input.renderedPath,
+            cleanedPath,
+            input.log,
+            input.signal,
+            (reported) => {
+                diagnostic = {
+                    ...reported,
+                    pageNumber,
+                };
+            },
+            input.scanCleanupBinary,
+            `${cleanedPath}.json`,
+            input.dpi,
+            input.cleanupMode,
+            input.cleanupThreads,
+        );
+        if (cleaned.path === input.renderedPath) {
+            return {
+                ...rendered,
+                ...(diagnostic ? {diagnostic} : {}),
+            };
+        }
+        const page = await readOcrRasterFile(cleaned.path);
+        if (page.width !== rendered.width || page.height !== rendered.height) {
+            return {
+                ...rendered,
+                diagnostic: createOcrPreprocessingGeometryDiagnostic(pageNumber, rendered, page),
+            };
+        }
+        return {
+            ...rendered,
+            image: page.image,
+            ...(cleaned.inverseTransform ? {preprocessInverse: {
+                rasterWidthPx: rendered.width,
+                rasterHeightPx: rendered.height,
+                matrix: cleaned.inverseTransform.matrix,
+            }} : {}),
+        };
+    } finally {
+        await Promise.all([
+            cleanedPath,
+            `${cleanedPath}.json`,
+        ].map(path => rm(path, {force: true}))).catch(() => undefined);
+    }
 }

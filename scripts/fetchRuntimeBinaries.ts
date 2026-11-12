@@ -1,15 +1,10 @@
 import {execFileSync} from 'node:child_process';
-import {
-    createHash,
-    randomUUID,
-} from 'node:crypto';
+import {randomUUID} from 'node:crypto';
 import {
     mkdir,
     open,
-    readFile,
     rename,
     rm,
-    writeFile,
 } from 'node:fs/promises';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
@@ -28,10 +23,6 @@ import {
 } from '@scripts/nativeResourceManifest';
 import {RUNTIME_BINARY_MANIFEST} from '@scripts/runtimeBinaryManifest';
 import {validateRuntimeBinaryArchivePaths} from '@scripts/validateRuntimeBinaryArchivePaths';
-import {
-    TESSERACT_PDF_FONT_RESOURCE_SEGMENTS,
-    TESSERACT_PDF_FONT_SHA256,
-} from '@scripts/tesseractPdfFont';
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const MAX_RUNTIME_BINARY_DOWNLOAD_REDIRECTS = 3;
@@ -206,21 +197,6 @@ async function stageArchive(
     }
 }
 
-async function readVerifiedTesseractPdfFont(projectRoot: string) {
-    const fontPath = path.join(projectRoot, ...TESSERACT_PDF_FONT_RESOURCE_SEGMENTS);
-    const fontBytes = await readFile(fontPath);
-    const actualSha256 = createHash('sha256').update(fontBytes).digest('hex');
-    if (actualSha256 !== TESSERACT_PDF_FONT_SHA256) {
-        throw new Error(
-            `Tesseract PDF font SHA-256 ${actualSha256} does not match ${TESSERACT_PDF_FONT_SHA256}.`,
-        );
-    }
-    return {
-        bytes: fontBytes,
-        path: fontPath,
-    };
-}
-
 export async function fetchRuntimeBinaries({
     cacheDirectory = path.join(repositoryRoot, '.cache', 'runtime-binaries'),
     env = process.env,
@@ -291,9 +267,7 @@ export async function fetchRuntimeBinaries({
                     manifest: RUNTIME_BINARY_MANIFEST,
                     transport,
                 });
-                const pdfFont = await readVerifiedTesseractPdfFont(projectRoot);
                 await stageArchive(projectRoot, result.archivePath, dataEntry.resourceRoot);
-                await writeFile(pdfFont.path, pdfFont.bytes);
                 console.log(`  ${dataEntry.resourceRoot}: verified ${dataEntry.archiveSha256}`);
             } catch (error) {
                 if (skipUnpublished && error instanceof Error && error.message.includes('HTTP status 404')) {
@@ -314,7 +288,6 @@ export async function fetchRuntimeBinaries({
 }
 
 const RUNTIME_FAMILIES = [
-    'tesseract',
     'poppler',
     'qpdf',
     'djvulibre',

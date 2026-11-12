@@ -400,43 +400,6 @@ export interface IPreprocessingValidationResult extends IOcrErrorEnvelopeCarrier
     readonly missing: readonly string[];
 }
 
-export interface IOcrToolValidationResult extends IOcrErrorEnvelopeCarrier {
-    readonly valid: boolean;
-    readonly tools: {
-        readonly tesseract: {
-            readonly found: boolean;
-            readonly path: string;
-            readonly version?: string;
-        };
-        readonly tessdata: {
-            readonly found: boolean;
-            readonly path: string;
-            readonly languages?: readonly string[];
-            /** Supported models not installed yet; resolved through the on-demand model flow. */
-            readonly onDemandLanguages?: readonly string[];
-        };
-        readonly pdftoppm: {
-            readonly found: boolean;
-            readonly path: string;
-        };
-        readonly pdftotext: {
-            readonly found: boolean;
-            readonly path: string;
-        };
-        readonly popplerRuntime: {
-            readonly dataDirFound: boolean;
-            readonly dataDir?: string;
-            readonly fontConfigDirFound: boolean;
-            readonly fontConfigDir?: string;
-        };
-        readonly qpdf: {
-            readonly found: boolean;
-            readonly path: string;
-        };
-    };
-    readonly errors: readonly string[];
-}
-
 export interface IPreprocessPageResult extends IOcrErrorEnvelopeCarrier {
     readonly success: boolean;
     readonly imageData: Uint8Array;

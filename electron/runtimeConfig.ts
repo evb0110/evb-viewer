@@ -163,9 +163,6 @@ export const runtimeConfig = {
             get nativeToolAllowPackagedDiagnosticPaths() { // false; allow release verification to use a diagnostic native tool
                 return boolean(process.env.EVB_NATIVE_TOOL_ALLOW_PACKAGED_DIAGNOSTIC_PATHS);
             },
-            get ocrJobMaxTempMb() { // 4096 MiB; let the storage test lower the aggregate OCR limit
-                return integer(process.env.EVB_OCR_JOB_MAX_TEMP_MB, 4_096, 1, 65_536);
-            },
             get performanceMode() { // unset; override the performance mode in isolated E2E sessions
                 return process.env.EVB_TEST_PERFORMANCE_MODE;
             },

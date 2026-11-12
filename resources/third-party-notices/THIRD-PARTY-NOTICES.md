@@ -1,27 +1,20 @@
 # Third-Party Notices
 
-EVB Viewer bundles the following third-party native tools as platform
+EVB Viewer bundles the following third-party tools as platform
 resources. Each component remains under its own license; the full license
 texts are included in the `licenses/` directory alongside this file.
 
 ## Tesseract OCR
 
-- Upstream: https://github.com/tesseract-ocr/tesseract
-- License: Apache License 2.0 (`licenses/Apache-2.0.txt`)
-- Bundled as: `tesseract/<platform>-<arch>` binaries and support libraries.
+- Upstream: https://github.com/tesseract-ocr/tesseract and https://github.com/DanBloomberg/leptonica
+- License: Apache License 2.0 (`licenses/Apache-2.0.txt`); Leptonica (`licenses/Leptonica.txt`)
+- Bundled as: `evb-tesseract.wasm` and `evb-tesseract.mjs` in the application archive, Tesseract 5.5.3 and Leptonica 1.82.0 compiled to WebAssembly with Emscripten (`licenses/Emscripten.txt`), statically including zlib (`licenses/zlib.txt`) and Tesseract's glyphless PDF font.
 
 ## Tesseract language models (tessdata_best)
 
 - Upstream: https://github.com/tesseract-ocr/tessdata_best
 - License: Apache License 2.0 (`licenses/Apache-2.0.txt`)
 - Bundled as: `tesseract/tessdata/*.traineddata`.
-
-## Tesseract PDF font
-
-- Upstream: https://github.com/tesseract-ocr/tesseract
-- License: Apache License 2.0 (`licenses/Apache-2.0.txt`)
-- Bundled as: `tesseract/tessdata/pdf.ttf`.
-- Exact source and SHA-256: `Tesseract-pdf-source.txt`.
 
 ## qpdf
 

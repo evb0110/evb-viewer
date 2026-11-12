@@ -320,8 +320,8 @@ describe('afterPack extraResources preflight', () => {
     it('makes read-only updater payloads owner-writable without dropping executable bits', async () => {
         const tempRoot = await mkdtemp(path.join(tmpdir(), 'evb-after-pack-permissions-'));
         const readOnlyDirectoryPath = path.join(tempRoot, 'read-only');
-        const binaryPath = path.join(tempRoot, 'bin', 'tesseract');
-        const libraryPath = path.join(tempRoot, 'lib', 'libtesseract.dylib');
+        const binaryPath = path.join(tempRoot, 'bin', 'qpdf');
+        const libraryPath = path.join(tempRoot, 'lib', 'libqpdf.dylib');
 
         try {
             await mkdir(path.dirname(binaryPath), {recursive: true});
@@ -373,13 +373,6 @@ describe('afterPack extraResources preflight', () => {
                 label: 'third-party license notices',
                 sourcePath: path.join('/repo', 'resources', 'third-party-notices'),
                 stagedPath: path.join('/app/EVB Viewer.app/Contents/Resources', 'third-party-notices'),
-                tag: 'darwin-arm64',
-                type: 'directory',
-            }),
-            expect.objectContaining({
-                label: 'Tesseract native tools (darwin-arm64)',
-                sourcePath: path.join('/repo', 'resources', 'tesseract', 'darwin-arm64'),
-                stagedPath: path.join('/app/EVB Viewer.app/Contents/Resources', 'tesseract', 'darwin-arm64'),
                 tag: 'darwin-arm64',
                 type: 'directory',
             }),
@@ -445,11 +438,6 @@ describe('afterPack extraResources preflight', () => {
             }),
         ]);
         expect(entries.map(entry => entry.sourcePath).join('\n')).not.toContain('page-processing');
-        expect(entries[0]?.packagedEntries).toEqual([{
-            label: 'tessdata directory file',
-            relativePath: 'pdf.ttf',
-            type: 'file',
-        }]);
     });
 
     it('fails with useful source-path messages when required extraResources are absent', async () => {

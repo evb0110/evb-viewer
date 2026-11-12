@@ -34,11 +34,6 @@ export function getOcrConcurrency(targetCount: number) {
     return clamp(defaultConcurrency, 1, safeTargetCount);
 }
 
-export function getTesseractThreadLimit(grantedCpuTokens: number) {
-    const configured = parsePositiveInt(process.env.OCR_TESSERACT_THREADS);
-    return Math.max(1, Math.min(configured ?? grantedCpuTokens, Math.floor(grantedCpuTokens)));
-}
-
 export async function forEachConcurrent<T>(
     items: T[],
     concurrency: number,
@@ -51,15 +46,4 @@ export async function forEachConcurrent<T>(
     const workerCount = clamp(concurrency, 1, items.length);
     const limited = limitAsync(fn, workerCount);
     await Promise.all(items.map((item, index) => limited(item, index)));
-}
-
-export function getSequentialProgressPage(
-    pages: Array<{ pageNumber: number }>,
-    processedCount: number,
-) {
-    if (pages.length === 0) {
-        return 0;
-    }
-    const index = clamp(processedCount, 0, pages.length - 1);
-    return pages[index]?.pageNumber ?? 0;
 }

@@ -119,7 +119,7 @@ describe('native tool smoke policy', () => {
             error: 'Invalid family binary',
             path: [
                 'families',
-                4,
+                3,
                 'binaryName',
             ],
             value: 42,
@@ -129,7 +129,7 @@ describe('native tool smoke policy', () => {
             error: 'Invalid package filters',
             path: [
                 'families',
-                1,
+                0,
                 'packageFiltersByPlatform',
                 'win32',
             ],
@@ -319,9 +319,6 @@ describe('native tool smoke policy', () => {
         expect(() => assertPackagedToolSmoke('pdfinfo', 0, 'pdfinfo version 25.0.0')).not.toThrow();
         expect(() => assertPackagedToolSmoke('pdftoppm', 0, 'pdftoppm version 25.0.0')).not.toThrow();
         expect(() => assertPackagedToolSmoke('pdftotext', 0, 'pdftotext version 25.0.0')).not.toThrow();
-        expect(() => assertPackagedToolSmoke('tesseract', 0, 'tesseract 5.5.0')).not.toThrow();
-        expect(() => assertPackagedToolSmoke('tesseract', 0, 'tesseract v5.4.0.20240606\n leptonica-1.84.1')).not.toThrow();
-        expect(() => assertPackagedToolSmoke('tesseract', 0, 'tesseract 4.1.1\n leptonica-1.82.0')).toThrow('did not report a supported version');
         expect(() => assertPackagedToolSmoke('evb-pdf-page-ops', 0, 'evb-pdf-page-ops 0.1.0')).not.toThrow();
         expect(() => assertPackagedToolSmoke('evb-pdf-search', 0, 'evb-pdf-search 0.1.0')).not.toThrow();
         expect(() => assertPackagedToolSmoke('evb-scan-cleanup', 0, 'evb-scan-cleanup 0.1.0')).not.toThrow();

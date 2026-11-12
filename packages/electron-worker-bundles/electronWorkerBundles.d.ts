@@ -6,7 +6,8 @@ export type TWorkerBundleId =
     | 'pdf-text'
     | 'page-ops-crop'
     | 'image-export-tiff'
-    | 'djvu-pdf';
+    | 'djvu-pdf'
+    | 'ocr-engine';
 
 export interface IWorkerBundleEntry {
     id: TWorkerBundleId;

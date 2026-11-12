@@ -49,7 +49,7 @@ docs/       Project-specific implementation and release notes
 - Nuxt UI 4 + Tailwind CSS 4
 - The pinned EVB PDF.js fork for rendering
 - `pdf-lib` as a PDF object parser in the renderer
-- Tesseract + Poppler + qpdf + DjVuLibre for desktop-native workflows
+- Poppler + qpdf + DjVuLibre for desktop-native workflows; OCR runs the WebAssembly Tesseract in `public/wasm`
 - Vitest, Playwright, and Puppeteer-based Electron E2E coverage
 
 ## Getting Started
@@ -239,7 +239,6 @@ The desktop OCR pipeline supports two common concurrency knobs:
 | Variable | Default | Description |
 | --- | --- | --- |
 | `OCR_CONCURRENCY` | `min(cpuCount, 8)` | Max pages processed in parallel |
-| `OCR_TESSERACT_THREADS` | `floor(cpuCount / OCR_CONCURRENCY)` | Thread limit per Tesseract process |
 
 Release and stress runs can set `EVB_OCR_MODEL_DOWNLOAD_CONCURRENCY` from 1 to 8; unset or `0` uses the tier default of 1 for low-tier machines and 3 otherwise.
 
@@ -252,8 +251,8 @@ pnpm run test:ocr:quality:required
 ```
 
 The benchmark reports faithful Unicode character and word error rates for raw
-recognition, saved-PDF text and degraded pages. It uses bundled Tesseract,
-Poppler and qpdf by default.
+recognition, saved-PDF text and degraded pages. It uses the app's WebAssembly
+Tesseract and bundled Poppler and qpdf by default.
 
 Tesseract remains the default OCR backend. Improve wrapper profiles, language
 ordering, rendering, and preprocessing first; treat PaddleOCR or vision models

@@ -84,38 +84,6 @@ const RUNTIME_ARCHIVES = {
         archiveBytes: 27716063,
         archiveSha256: '8a6130a25600225d0df1e3097eb168c8b1185abdd707cf5f88e37a85745f1feb',
     },
-    'tesseract-darwin-arm64': {
-        // Tesseract 5.5.3 built from the pinned source tarballs.
-        releaseName: 'runtime-binaries-v2',
-        assetName: 'tesseract-darwin-arm64-5.5.3-r2',
-        archiveBytes: 3304377,
-        archiveSha256: '16e8faa547f3b93255869577d1277c598adeefeecb039569feda3dbe254fc0ab',
-    },
-    'tesseract-linux-x64': {
-        // Versioned so the v1 runtime-binaries asset stays byte-identical.
-        releaseName: 'runtime-binaries-v2',
-        assetName: 'tesseract-linux-x64-5.5.3',
-        archiveBytes: 4098923,
-        archiveSha256: '7fcbfd727051a018b3b3e127fc4d33533491a763f6563f0b924b5afabf3278b9',
-    },
-    'tesseract-linux-arm64': {
-        releaseName: 'runtime-binaries-v2',
-        assetName: 'tesseract-linux-arm64-5.5.3',
-        archiveBytes: 3963819,
-        archiveSha256: 'c8743bdf5c1ad590264cd01681322f7dbe6e9b0192cd2643ad8cbb5080c4044d',
-    },
-    'tesseract-win32-x64': {
-        releaseName: 'runtime-binaries-v2',
-        assetName: 'tesseract-win32-x64-5.5.3',
-        archiveBytes: 2833681,
-        archiveSha256: '44bb7800a56433fb19cbf287d5a9251bb6bf0ed6f11578946202cda811dbd2a0',
-    },
-    'tesseract-win32-arm64': {
-        releaseName: 'runtime-binaries-v2',
-        assetName: 'tesseract-win32-arm64-5.5.3',
-        archiveBytes: 2399910,
-        archiveSha256: 'a557170f424385adb316ddb5d405a4d6e3f6944e2f412b7ce3c1fe01febd5bfa',
-    },
     'tesseract-tessdata': {
         assetName: 'tesseract-tessdata-v3',
         archiveBytes: 335082789,
@@ -155,7 +123,6 @@ export const RUNTIME_BINARY_MANIFEST_ENTRIES: readonly IRuntimeBinaryManifestEnt
     'win32-x64',
     'win32-arm64',
 ] as const).flatMap(target => [
-    createRuntimeEntry('tesseract', target, target.startsWith('win32') ? 'tesseract.exe' : 'tesseract'),
     createRuntimeEntry('poppler', target, target.startsWith('win32') ? 'pdftoppm.exe' : 'pdftoppm'),
     createRuntimeEntry('qpdf', target, target.startsWith('win32') ? 'qpdf.exe' : 'qpdf'),
     createRuntimeEntry('djvulibre', target, target.startsWith('win32') ? 'ddjvu.exe' : 'ddjvu'),
@@ -172,5 +139,5 @@ export const TESSDATA_RUNTIME_DATA_ENTRY: IRuntimeBinaryDataManifestEntry = {
 export const RUNTIME_BINARY_MANIFEST: IRuntimeBinaryManifest = {
     entries: RUNTIME_BINARY_MANIFEST_ENTRIES,
     dataEntries: [TESSDATA_RUNTIME_DATA_ENTRY],
-    manifestSha256: '25599e37595d2adfc3e66799caed1ac1cfa363d652dacbfc1cebd7e7e645b167',
+    manifestSha256: '88c8715e7ff751bb69c3ad38ceeb5beecdb3967c8d9e41da8003126dd77e01d3',
 };

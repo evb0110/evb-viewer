@@ -1,18 +1,21 @@
 import {
-    copyFile,
     mkdir,
-    stat,
+    readFile,
+    writeFile,
 } from 'node:fs/promises';
 import {join} from 'node:path';
-import type {
-    IOcrDiagnostic,
-    IOcrSearchablePdfOptions,
-} from '@contracts/electronApiOcr';
-import {tryPreprocessOcrImage} from '@electron/features/ocr/pipeline/tryPreprocessOcrImage';
+import type {IOcrSearchablePdfOptions} from '@contracts/electronApiOcr';
+import {requirePageNumber} from '@contracts/pageNumbers';
+import {getOcrScanCleanupMode} from '@contracts/scan-cleanup/ocrPreprocessing';
 import {
-    getPngDimensionsFromFile,
-    runOcrFileBased,
-} from '@electron/features/ocr/pipeline/tesseractRunner';
+    recognizeOcrPages,
+    type IOcrRecognizedPage,
+} from '@ocr-core/recognizeOcrPages';
+import type {
+    IOcrEngineRequest,
+    IOcrEngineResult,
+} from '@ocr-core/tesseractEngine';
+import {prepareOcrPageRaster} from '@electron/features/ocr/pipeline/tryPreprocessOcrImage';
 
 export interface IOcrProductionQualityCase {
     dpi: number;
@@ -22,94 +25,69 @@ export interface IOcrProductionQualityCase {
     recognitionOptions: IOcrSearchablePdfOptions;
     scanCleanupBinary?: string;
     tessdataDirectory: string;
-    tesseractBinary: string;
+    runEngine: (request: IOcrEngineRequest, signal: AbortSignal) => Promise<IOcrEngineResult>;
 }
 
 /**
- * Worker-owned quality-corpus adapter for the production OCR path.
- * The corpus supplies an already-rendered page, so Poppler rasterization is the
- * only production stage intentionally outside this gate. Clean preprocessing runs
- * only when the recognition options request it, as the popup does for Poor scan.
- * The caller owns the returned pdfPath and must remove it after inspection;
- * the corpus runner does so by removing the per-run output directory.
+ * Quality-corpus adapter for the production OCR path: the shared page job on
+ * an already-rendered page, so Poppler rasterization is the only production
+ * stage outside this gate. Preprocessing follows the recognition options, as
+ * in the app. The caller owns the returned pdfPath; the corpus runner removes
+ * it with the per-run output directory.
  */
 export async function runProductionOcrQualityCase(testCase: IOcrProductionQualityCase) {
-    const abortController = new AbortController();
-    const diagnostics: IOcrDiagnostic[] = [];
-    await mkdir(testCase.outputDirectory, {recursive: true});
-    const stagedInputPath = join(testCase.outputDirectory, 'quality-input.png');
-    const cleanedPath = join(testCase.outputDirectory, 'quality-clean.png');
-    await copyFile(testCase.inputPath, stagedInputPath);
+    const signal = new AbortController().signal;
     const logMessages: string[] = [];
-    const processedPath = testCase.recognitionOptions.preprocessingMode === 'clean'
-        ? await preprocessPreservingGeometry(testCase, stagedInputPath, cleanedPath, logMessages, diagnostics, abortController.signal)
-        : stagedInputPath;
-    const dimensions = await getPngDimensionsFromFile(processedPath);
-    if (!dimensions) throw new Error('Production OCR quality input is not a valid PNG');
-    const result = await runOcrFileBased(
-        processedPath,
-        testCase.language.split('+'),
-        dimensions.width,
-        dimensions.height,
-        testCase.dpi,
-        testCase.tesseractBinary,
-        testCase.tessdataDirectory,
-        1,
-        abortController.signal,
-        testCase.recognitionOptions,
-    );
-    if (!result.success || !result.pageData || !result.pdfPath) {
-        throw new Error(result.error ?? 'Production OCR wrapper returned an incomplete result');
-    }
-    if ((await stat(result.pdfPath)).size <= 0) {
-        throw new Error('Production OCR wrapper returned an empty searchable PDF');
-    }
-    return {
-        diagnostics,
-        logMessages,
-        pdfPath: result.pdfPath,
-        preprocessing: describePreprocessing(testCase.recognitionOptions, processedPath, stagedInputPath),
-        text: result.pageData.text,
-        wordCount: result.pageData.words.length,
-        words: result.pageData.words,
-        imageWidth: result.pageData.imageWidth,
-        imageHeight: result.pageData.imageHeight,
-    };
-}
-
-async function preprocessPreservingGeometry(
-    testCase: IOcrProductionQualityCase,
-    stagedInputPath: string,
-    cleanedPath: string,
-    logMessages: string[],
-    diagnostics: IOcrDiagnostic[],
-    signal: AbortSignal,
-) {
-    const candidate = await tryPreprocessOcrImage(
-        stagedInputPath,
-        cleanedPath,
-        (level, message) => logMessages.push(`${level}: ${message}`),
+    const cleanupMode = testCase.recognitionOptions.preprocessingMode === undefined
+        ? undefined
+        : getOcrScanCleanupMode(testCase.recognitionOptions.preprocessingMode);
+    await mkdir(testCase.outputDirectory, {recursive: true});
+    let recognized: IOcrRecognizedPage | undefined;
+    const result = await recognizeOcrPages({
+        pages: [{
+            pageNumber: requirePageNumber(1),
+            languages: testCase.language.split('+'),
+        }],
+        extractionDpi: testCase.dpi,
+        sourceDpiByPage: new Map(),
+        options: testCase.recognitionOptions,
+        lanes: 1,
         signal,
-        diagnostic => diagnostics.push(diagnostic),
-        testCase.scanCleanupBinary,
-        `${cleanedPath}.json`,
-        testCase.dpi,
-    );
-    const sourceDimensions = await getPngDimensionsFromFile(stagedInputPath);
-    const candidateDimensions = await getPngDimensionsFromFile(candidate.path);
-    const preservesGeometry = sourceDimensions !== null
-        && candidateDimensions?.width === sourceDimensions.width
-        && candidateDimensions.height === sourceDimensions.height;
-    return preservesGeometry ? candidate.path : stagedInputPath;
-}
-
-function describePreprocessing(
-    recognitionOptions: IOcrSearchablePdfOptions,
-    processedPath: string,
-    stagedInputPath: string,
-) {
-    if (recognitionOptions.preprocessingMode !== 'clean') {
-        return 'off';
+        renderPage: (pageNumber, dpi) => prepareOcrPageRaster({
+            renderedPath: testCase.inputPath,
+            pageNumber,
+            dpi,
+            cleanupMode,
+            scanCleanupBinary: testCase.scanCleanupBinary,
+            log: (level, message) => logMessages.push(`${level}: ${message}`),
+            signal,
+        }),
+        runEngine: testCase.runEngine,
+        prepareEarlyPrintModels: async () => {},
+        readModel: code => readFile(join(testCase.tessdataDirectory, `${code}.traineddata`)),
+        acceptPage: async (page) => {
+            recognized = page;
+        },
+    });
+    if (!recognized) {
+        throw new Error(result.errors.items.join('; ') || 'Production OCR returned no page');
     }
-    return processedPath === stagedInputPath ? 'raw-fallback' : 'clean-applied';
+    const pdfPath = join(testCase.outputDirectory, 'quality-ocr.pdf');
+    await writeFile(pdfPath, recognized.pdf);
+    const {words} = recognized.wordGeometry;
+    return {
+        diagnostics: recognized.diagnostics,
+        logMessages,
+        pdfPath,
+        preprocessing: testCase.recognitionOptions.preprocessingMode !== 'clean'
+            ? 'off'
+            : recognized.diagnostics.some(diagnostic => diagnostic.code.startsWith('OCR_PREPROCESSING'))
+                ? 'raw-fallback'
+                : 'clean-applied',
+        text: recognized.text,
+        wordCount: words.length,
+        words,
+        imageWidth: recognized.wordGeometry.rasterWidthPx,
+        imageHeight: recognized.wordGeometry.rasterHeightPx,
+    };
 }

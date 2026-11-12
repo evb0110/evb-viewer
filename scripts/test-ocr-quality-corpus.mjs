@@ -53,7 +53,8 @@ const executableSuffix = process.platform === 'win32' ? '.exe' : '';
 function bundledExecutable(family, name) {
     return join(repositoryRoot, 'resources', family, platformArch, 'bin', `${name}${executableSuffix}`);
 }
-const tesseract = process.env.EVB_TESSERACT_PATH ?? bundledExecutable('tesseract', 'tesseract');
+// The OCR engine the app runs, as `scripts/ensure-wasm-artifacts.mjs` stages it.
+const engineDirectory = process.env.EVB_OCR_ENGINE_DIR ?? join(repositoryRoot, 'public', 'wasm');
 const pdftotext = process.env.EVB_PDFTOTEXT_PATH ?? bundledExecutable('poppler', 'pdftotext');
 const pdftoppm = process.env.EVB_PDFTOPPM_PATH ?? bundledExecutable('poppler', 'pdftoppm');
 const qpdf = process.env.EVB_QPDF_PATH ?? bundledExecutable('qpdf', 'qpdf');
@@ -73,6 +74,7 @@ const workDirectory = await mkdtemp(join(scratchRoot, 'evb-ocr-quality-'));
 // contract once the production runner bundle loads.
 const recognitionPreset = process.env.EVB_OCR_QUALITY_OPTIONS ?? 'defaults';
 let recognitionOptions;
+let runEngine;
 
 function deterministicNoise(seed) {
     let state = seed >>> 0;
@@ -128,6 +130,7 @@ async function loadProductionRunner() {
         stdin: {
             contents: `
                 export {runProductionOcrQualityCase} from './electron/features/ocr/pipeline/runProductionOcrQualityCase.ts';
+                export {createTesseractEngine} from './packages/ocr-core/tesseractEngine.ts';
                 export {shouldNormalizeGreekMicroSign} from './packages/ocr-core/tesseractRecipe.ts';
                 export {DEFAULT_OCR_RECOGNITION_OPTIONS, POOR_SCAN_OCR_RECOGNITION_OPTIONS} from './packages/contracts/electronApiOcr.ts';
             `,
@@ -241,8 +244,9 @@ async function runProductionOcrQualityDocument({
             supersessionPolicy: 'replace-all',
             replaceAllAcknowledged: true,
         },
+        runEngine,
+        prepareEarlyPrintModels: async () => {},
         paths: {
-            tesseractBinary: tesseract,
             tessdataPath: tessdataDirectory,
             pdftoppmBinary: pdftoppm,
             pdftotextBinary: pdftotext,
@@ -277,7 +281,7 @@ async function collectCheckpointPageText(tempDirectory) {
         if (!match) continue;
         const pageNumber = Number(match[1]);
         const checkpoint = JSON.parse(await readFile(pageFile, 'utf8'));
-        pages.set(pageNumber, checkpoint.pageData?.text ?? '');
+        pages.set(pageNumber, checkpoint.page?.text ?? '');
     }
     return pages;
 }
@@ -752,7 +756,7 @@ async function runMeasuredDegradedCase({
             language: selectedLanguage,
             outputDirectory: caseDirectory,
             tessdataDirectory,
-            tesseractBinary: tesseract,
+            runEngine,
             ...(scanCleanupBinary ? {scanCleanupBinary} : {}),
         });
     } finally {
@@ -1034,11 +1038,6 @@ function describeProbeError(error) {
 async function probeNativeOcrExecutables() {
     const probes = [
         [
-            'tesseract',
-            tesseract,
-            ['--version'],
-        ],
-        [
             'pdftotext',
             pdftotext,
             ['-v'],
@@ -1065,28 +1064,19 @@ async function probeNativeOcrExecutables() {
     return missing;
 }
 
-async function probeTesseractModels() {
-    try {
-        const {stdout} = await execFileAsync(tesseract, [
-            '--list-langs',
-            '--tessdata-dir',
-            tessdataDirectory,
-        ], {timeout: 10_000});
-        const available = new Set(stdout
-            .split(/\r?\n/gu)
-            .map(value => value.trim())
-            .filter(value => value && !value.startsWith('List of available languages')));
-        const requested = [...new Set([
-            ...LANGUAGE_CODES,
-            ...corpus.flatMap(testCase => testCase.language.split('+')),
-        ])];
-        const missing = requested
-            .filter(language => !available.has(language))
-            .map(language => `model ${language} is not available in ${tessdataDirectory}`);
-        return missing;
-    } catch (error) {
-        return [`Tesseract models could not be listed from ${tessdataDirectory}: ${describeProbeError(error)}`];
-    }
+async function probeOcrEngineAndModels() {
+    const requested = [...new Set([
+        ...LANGUAGE_CODES,
+        ...corpus.flatMap(testCase => testCase.language.split('+')),
+    ])];
+    return [
+        ...['evb-tesseract.mjs', 'evb-tesseract.wasm']
+            .filter(name => !existsSync(join(engineDirectory, name)))
+            .map(name => `OCR engine file ${name} is not available in ${engineDirectory}`),
+        ...requested
+            .filter(language => !existsSync(join(tessdataDirectory, `${language}.traineddata`)))
+            .map(language => `model ${language} is not available in ${tessdataDirectory}`),
+    ];
 }
 
 function reportIncomplete(reasons) {
@@ -1102,13 +1092,21 @@ try {
     if (missingTools.length > 0) {
         reportIncomplete(missingTools);
     } else {
-        const missingModels = await probeTesseractModels();
+        const missingModels = await probeOcrEngineAndModels();
         if (missingModels.length > 0) {
             reportIncomplete(missingModels);
         } else if (!GlobalFonts.registerFromPath(fontPath, 'EvbOcrCorpus')) {
             reportIncomplete([`OCR corpus font could not be registered: ${fontPath}`]);
         } else {
             const productionRunner = await loadProductionRunner();
+            const recognize = productionRunner.createTesseractEngine({
+                loadEngine: async () => ({
+                    factory: (await import(pathToFileURL(join(engineDirectory, 'evb-tesseract.mjs')).href)).default,
+                    module: await WebAssembly.compile(await readFile(join(engineDirectory, 'evb-tesseract.wasm'))),
+                }),
+                loadModel: async code => new Uint8Array(await readFile(join(tessdataDirectory, `${code}.traineddata`))),
+            });
+            runEngine = request => recognize(request);
             const recognitionPresets = {
                 'defaults': productionRunner.DEFAULT_OCR_RECOGNITION_OPTIONS,
                 'balanced-clean': {
@@ -1170,7 +1168,7 @@ try {
                         language: testCase.language,
                         outputDirectory: caseDirectory,
                         tessdataDirectory,
-                        tesseractBinary: tesseract,
+                        runEngine,
                         ...(scanCleanupBinary ? {scanCleanupBinary} : {}),
                     });
                     preprocessingCoverage.add(result.preprocessing);

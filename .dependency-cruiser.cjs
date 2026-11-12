@@ -148,7 +148,6 @@ boundaryRules.at(-1).from.pathNot = '^(app/utils/platform\\.ts|app/platform/brow
 addZone('electron/native-tools', ['electron/pdf', 'electron/features/djvu']);
 const ocrNativeToolPaths = [
     'electron/features/ocr/main/paths.ts',
-    'electron/features/ocr/main/nativeToolPaths.ts',
     'electron/features/ocr/main/resolveOcrResourcesBase.ts',
     'electron/features/ocr/pipeline/dpiDetection.ts',
 ];
