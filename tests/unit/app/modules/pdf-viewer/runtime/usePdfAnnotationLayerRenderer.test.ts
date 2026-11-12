@@ -274,16 +274,12 @@ describe('usePdfAnnotationLayerRenderer', () => {
             1,
             null,
             {signal: abortController.signal},
-        ).catch(error => error as Error);
+        );
         await Promise.resolve();
         abortController.abort();
-
-        await expect(renderPromise).resolves.toMatchObject({name: 'AbortError'});
-        expect(annotationLayerRender).not.toHaveBeenCalled();
-        expect(annotationLayerDiv.innerHTML).toContain('existingAnnotation');
         pending.resolve([]);
-        await pending.promise;
-        await Promise.resolve();
+
+        await expect(renderPromise).resolves.toBeNull();
         expect(annotationLayerRender).not.toHaveBeenCalled();
         expect(annotationLayerDiv.innerHTML).toContain('existingAnnotation');
     });

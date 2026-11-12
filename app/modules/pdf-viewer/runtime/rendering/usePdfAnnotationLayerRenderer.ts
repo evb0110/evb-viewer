@@ -18,7 +18,6 @@ import { BrowserLogger } from '@app/utils/browserLogger';
 import {runCoordinatedPdfPageOperation} from '@app/modules/pdf-viewer/engine/pdf-page-render-coordinator/coordinatedPdfPageRender';
 import { getShellCapability } from '@app/utils/getShellCapability';
 import { normalizeAllowedExternalUrl } from '@contracts/externalUrl';
-import type { IPdfRenderSupervisor } from '@app/modules/pdf-viewer/engine/pdf-render-supervisor/pdfRenderSupervisor';
 import type { ILinkAnnotation } from '@app/types/annotations';
 import { normalizePageRotation } from '@app/modules/pdf-viewer/engine/annotation-geometry/normalizePageRotation';
 import { toMarkerRectFromPdfRect } from '@app/modules/pdf-viewer/engine/annotation-geometry/toMarkerRectFromPdfRect';
@@ -27,7 +26,6 @@ import { toMarkerRectFromPdfRect } from '@app/modules/pdf-viewer/engine/annotati
 interface IAnnotationLayerRenderOptions {
     shouldContinue?: () => boolean;
     signal?: AbortSignal | undefined;
-    documentVersion?: number | undefined;
 }
 
 // pdf.js parses a page's annotations once per document but re-serializes them,
@@ -121,64 +119,19 @@ function normalizedIds(ids: ReadonlySet<string> | undefined) {
     return normalized;
 }
 
-function createAnnotationLayerCancelledError(pageNumber: number) {
-    const error = new Error(`Annotation layer render cancelled for page ${pageNumber}`);
-    error.name = 'AbortError';
-    return error;
-}
-
-async function raceWithAnnotationAbort<T>(
-    promise: Promise<T>,
-    pageNumber: number,
-    options?: IAnnotationLayerRenderOptions,
-) {
-    const signal = options?.signal;
-    if (!signal) {
-        return promise;
-    }
-    if (signal.aborted) {
-        throw createAnnotationLayerCancelledError(pageNumber);
-    }
-
-    let removeAbortListener = () => {};
-    const abortPromise = new Promise<never>((_resolve, reject) => {
-        const abort = () => reject(createAnnotationLayerCancelledError(pageNumber));
-        signal.addEventListener('abort', abort, {once: true});
-        removeAbortListener = () => signal.removeEventListener('abort', abort);
-    });
-    try {
-        return await Promise.race([
-            promise,
-            abortPromise,
-        ]);
-    } finally {
-        removeAbortListener();
-    }
-}
-
 export const usePdfAnnotationLayerRenderer = (deps: {
     numPages: Ref<number>;
     currentPage: Ref<number>;
     pdfDocument: Ref<IPdfDocument | null>;
     hiddenAnnotationIds?: MaybeRefOrGetter<Set<string>>;
     annotationProjectionReady?: MaybeRefOrGetter<boolean>;
-    renderSupervisor?: IPdfRenderSupervisor | undefined;
-    getDocumentVersion?: (() => number) | undefined;
     scrollToPage?: (pageNumber: number) => void;
     linkAnnotations?: Ref<ILinkAnnotation[]> | undefined;
 }) => {
-    let annotationLayerRenderToken = 0;
-    const annotationLayerPageRenderTokens = new Map<number, number>();
-
-    function isDocumentVersionCurrent(options?: IAnnotationLayerRenderOptions) {
-        return options?.documentVersion === undefined
-            || deps.getDocumentVersion?.() === undefined
-            || deps.getDocumentVersion() === options.documentVersion;
-    }
-
+    // The caller's signal and continuation are the page's one layer owner;
+    // a newer render of the page aborts this one through them.
     function shouldContinueLayerRender(options?: IAnnotationLayerRenderOptions) {
         return options?.signal?.aborted !== true
-            && isDocumentVersionCurrent(options)
             && options?.shouldContinue?.() !== false;
     }
 
@@ -204,18 +157,8 @@ export const usePdfAnnotationLayerRenderer = (deps: {
             return null;
         }
 
-        const renderToken = ++annotationLayerRenderToken;
-        annotationLayerPageRenderTokens.set(pageNumber, renderToken);
-
-        const annotations = await raceWithAnnotationAbort(
-            getParsedPageAnnotations(pdfPage),
-            pageNumber,
-            options,
-        );
-        if (
-            annotationLayerPageRenderTokens.get(pageNumber) !== renderToken
-            || !shouldContinueLayerRender(options)
-        ) {
+        const annotations = await getParsedPageAnnotations(pdfPage);
+        if (!shouldContinueLayerRender(options)) {
             return null;
         }
 
@@ -303,22 +246,15 @@ export const usePdfAnnotationLayerRenderer = (deps: {
             return null;
         }
 
-        await raceWithAnnotationAbort(
-            Promise.resolve(renderPdfjsAnnotationLayer(annotationLayer, {
-                annotations: renderableAnnotations,
-                viewport,
-                div: annotationLayerDiv as HTMLDivElement,
-                page: pdfPage,
-                linkService: simpleLinkService,
-                renderForms: false,
-            })),
-            pageNumber,
-            options,
-        );
-        if (
-            annotationLayerPageRenderTokens.get(pageNumber) !== renderToken
-            || !shouldContinueLayerRender(options)
-        ) {
+        await renderPdfjsAnnotationLayer(annotationLayer, {
+            annotations: renderableAnnotations,
+            viewport,
+            div: annotationLayerDiv as HTMLDivElement,
+            page: pdfPage,
+            linkService: simpleLinkService,
+            renderForms: false,
+        });
+        if (!shouldContinueLayerRender(options)) {
             return null;
         }
 
@@ -336,8 +272,6 @@ export const usePdfAnnotationLayerRenderer = (deps: {
     }
 
     function clearAllLayers() {
-        annotationLayerRenderToken += 1;
-        annotationLayerPageRenderTokens.clear();
         if (deps.linkAnnotations) {
             deps.linkAnnotations.value = [];
         }

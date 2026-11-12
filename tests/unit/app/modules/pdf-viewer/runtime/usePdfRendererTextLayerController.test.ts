@@ -13,10 +13,7 @@ import {
 import { cast } from '@tests/helpers/cast';
 import { usePdfRendererTextLayerController } from '@app/modules/pdf-viewer/runtime/rendering/usePdfRendererTextLayerController';
 import { usePdfTextLayerRenderer } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfTextLayerRenderer';
-import type {
-    IActivePdfTextLayerTask,
-    TPdfTextLayerCleanup,
-} from '@app/modules/pdf-viewer/runtime/rendering/pdfRendererTypes';
+import type { TPdfTextLayerCleanup } from '@app/modules/pdf-viewer/runtime/rendering/pdfRendererTypes';
 
 const pdfjsStructure = vi.hoisted(() => ({holds: [] as Array<{
     resolve: () => void;
@@ -114,15 +111,11 @@ function createHarness() {
 
     const renderTextLayerForPage = usePdfRendererTextLayerController({
         textLayerRenderer,
-        activeTextLayerAbortControllers: new Map<TPageNumber, IActivePdfTextLayerTask>(),
         textLayerCleanupFns,
-        getRenderVersion: () => 1,
         cleanupTextLayer: (pageNumber) => {
             textLayerCleanupFns.get(pageNumber)?.();
             textLayerCleanupFns.delete(pageNumber);
         },
-        cancelActiveTextLayerRender: vi.fn(),
-        cancelActiveTextLayerRenderIfCurrent: vi.fn(),
         clearSelectionBeforePageLayerTeardown: (pageNumber) => {
             clearedSelectionPages.push(pageNumber);
             window.getSelection()?.removeAllRanges();
@@ -136,12 +129,10 @@ function createHarness() {
         contentKey: 'revision-1',
         renderAtScale: (scale: number, publish = () => true) => renderTextLayerForPage(
             requirePageNumber(1),
-            1,
-            1,
             {
                 container,
                 pdfPage: cast<IPdfPage>({pageNumber: 1}),
-                renderResult: cast<Parameters<typeof renderTextLayerForPage>[3]['renderResult']>({
+                renderResult: cast<Parameters<typeof renderTextLayerForPage>[1]['renderResult']>({
                     canvas: document.createElement('canvas'),
                     viewport: {
                         width: 100 * scale,
@@ -159,6 +150,10 @@ function createHarness() {
                 textLayerDiv,
             },
             scale,
+            {
+                signal: new AbortController().signal,
+                isSuperseded: () => false,
+            },
             () => true,
             publish,
         ),
@@ -283,7 +278,6 @@ describe('usePdfRendererTextLayerController', () => {
         textLayerDiv.className = 'text-layer';
         container.append(textLayerDiv);
         document.body.append(container);
-        const activeTextLayerAbortControllers = new Map<TPageNumber, IActivePdfTextLayerTask>();
         const textLayerRenderer = usePdfTextLayerRenderer({
             searchPageMatches: new Map(),
             currentSearchMatch: null,
@@ -292,19 +286,10 @@ describe('usePdfRendererTextLayerController', () => {
             effectiveScale: 1,
             viewportWritePort: cast<Parameters<typeof usePdfTextLayerRenderer>[0]['viewportWritePort']>({}),
         });
-        const cancelActiveTextLayerRender = (pageNumber: TPageNumber) => {
-            const active = activeTextLayerAbortControllers.get(pageNumber);
-            activeTextLayerAbortControllers.delete(pageNumber);
-            active?.controller.abort();
-        };
         const renderTextLayerForPage = usePdfRendererTextLayerController({
             textLayerRenderer,
-            activeTextLayerAbortControllers,
             textLayerCleanupFns: new Map<TPageNumber, TPdfTextLayerCleanup>(),
-            getRenderVersion: () => 1,
             cleanupTextLayer: vi.fn(),
-            cancelActiveTextLayerRender,
-            cancelActiveTextLayerRenderIfCurrent: vi.fn(),
             clearSelectionBeforePageLayerTeardown: () => true,
             logNonCriticalStageError: vi.fn(),
         });
@@ -316,14 +301,19 @@ describe('usePdfRendererTextLayerController', () => {
             }),
             getStructTree: async () => null,
         });
-        const render = (requestId: number, scale: number) => renderTextLayerForPage(
+        // The page's layer owner: a newer render replaces and aborts the older one.
+        let owner: AbortController | null = null;
+        const render = (scale: number) => {
+            const controller = new AbortController();
+            const previous = owner;
+            owner = controller;
+            previous?.abort();
+            return renderTextLayerForPage(
             requirePageNumber(1),
-            1,
-            requestId,
             {
                 container,
                 pdfPage,
-                renderResult: cast<Parameters<typeof renderTextLayerForPage>[3]['renderResult']>({
+                renderResult: cast<Parameters<typeof renderTextLayerForPage>[1]['renderResult']>({
                     canvas: document.createElement('canvas'),
                     viewport: {
                         width: 100 * scale,
@@ -342,15 +332,20 @@ describe('usePdfRendererTextLayerController', () => {
                 textLayerDiv,
             },
             scale,
-            () => true,
-        );
+            {
+                signal: controller.signal,
+                isSuperseded: () => owner !== controller,
+            },
+            () => owner === controller,
+            );
+        };
         try {
-            const first = render(1, 1);
+            const first = render(1);
             await vi.waitFor(() => expect(pdfjsStructure.holds).toHaveLength(1));
 
             // A zoom draws the page again while the first text layer still
             // waits on its structure tree.
-            const second = render(2, 2);
+            const second = render(2);
             await vi.waitFor(() => expect(pdfjsStructure.holds).toHaveLength(2));
             pdfjsStructure.holds[1]!.resolve();
 

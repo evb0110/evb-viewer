@@ -20,7 +20,7 @@ import type {
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import type { IPdfRenderSupervisor } from '@app/modules/pdf-viewer/engine/pdf-render-supervisor/pdfRenderSupervisor';
-import type { TPdfPageRenderState } from '@app/modules/pdf-viewer/runtime/rendering/pdfPageRenderState';
+import type { TPdfPageResources } from '@app/modules/pdf-viewer/runtime/rendering/pdfPageResources';
 import type { TPdfViewportSession } from '@app/modules/pdf-viewer/runtime/sessions/createPdfViewportSession';
 import type { ILinkAnnotation } from '@app/types/annotations';
 import type { IPdfAnnotationRenderInput } from '@app/modules/pdf-viewer/engine/pdf-page-render-pipeline/bindPdfOpenSurfaceRenderContext';
@@ -51,7 +51,6 @@ export interface IUsePdfPageRendererOptions {
     document: TPdfDocumentView;
     viewport: TPdfViewportSession;
     isActive?: MaybeRefOrGetter<boolean>;
-    outputScale?: MaybeRefOrGetter<number>;
     searchPageMatches?: MaybeRefOrGetter<Map<number, IPdfPageMatches>>;
     currentSearchMatch?: MaybeRefOrGetter<IPdfSearchMatch | null>;
     currentSearchMatchNavigationId?: MaybeRefOrGetter<number>;
@@ -66,12 +65,10 @@ export interface IUsePdfPageRendererOptions {
     ) => void;
     onRenderedPageStateChanged?: () => void;
     renderSupervisor?: IPdfRenderSupervisor | undefined;
-    /** RenderingSession owns this state; the post-canvas runtime only derives from it. */
-    pageRenderState: TPdfPageRenderState;
+    /** RenderingSession owns the page resources; layer work changes them only as their owner. */
+    pageResources: TPdfPageResources;
     /** Shared with the annotation session so link overlays follow renderer page lifetime. */
     linkAnnotations?: Ref<ILinkAnnotation[]> | undefined;
-    getRenderVersion: () => number;
-    getRenderDocumentToken: () => string;
     getCommittedRender: (pageNumber: TPageNumber) => IPdfLayerRenderResult | null;
     requestSearchPageRaster: (pageNumber: TPageNumber, replace?: boolean) => Promise<void>;
 }
@@ -80,12 +77,6 @@ export interface ICancelableRenderTask {
     cancel: () => void;
     promise: Promise<unknown>;
     onContinue?: IPdfRenderTask['onContinue'];
-}
-
-export interface IActivePdfTextLayerTask {
-    version: number;
-    requestId: number;
-    controller: AbortController;
 }
 
 export interface IPdfCanvasDomCommit {
