@@ -35,7 +35,7 @@ env:
 jobs:
   release_mirror_health:
     name: Public release mirror health
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
 
     steps:
@@ -55,7 +55,7 @@ jobs:
 
   nightly_scan_cleanup_heavy:
     name: Scan Cleanup Heavy Gates
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 25
 
     steps:
@@ -120,7 +120,7 @@ jobs:
 
   nightly_rust_fuzz:
     name: Native Parser Fuzz Canaries
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     env:
       # Pinned so the cached fuzz builds stay valid; a floating nightly
@@ -294,7 +294,7 @@ jobs:
   # High-zoom search over a generated large document with its own apply budget.
   nightly_electron_e2e_search_match_scroll:
     name: Electron E2E Search Match Scroll
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     env:
       EVB_E2E_TIMING_BUDGETS: enforce
@@ -406,7 +406,7 @@ jobs:
       - nightly_electron_e2e_large_pdf
       - nightly_electron_e2e_visible_window
     if: ${{ always() && github.event_name == 'schedule' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
       issues: write
