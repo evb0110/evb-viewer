@@ -858,7 +858,7 @@ pub(crate) fn materialize_stamp_recovery_sources(
                 .checked_sub(size)
                 .ok_or("Stamp recovery sources exceed the aggregate byte ceiling")?;
         }
-        validate_recovery_image(&AppendedRevision::new(incremental), source)?;
+        validate_recovery_image(incremental, source)?;
     }
     Ok(())
 }
@@ -1026,24 +1026,14 @@ pub(crate) fn apply_placed_images_incremental(
         let page_rotation = resolve_page_rotation(incremental.get_prev_documents(), page_id)?;
         let geometry = placed_image_geometry(image, page_view, page_rotation)?;
         let expected_name = placed_image_annotation_name(image, index, chunk_index, modified_at);
-        let existing_stamp_ref = resolve_placed_image_target(
-            &AppendedRevision::new(incremental),
-            page_id,
-            image,
-            &expected_name,
-        )?;
-        let existing_appearance = existing_stamp_ref.and_then(|stamp_ref| {
-            placed_image_appearance_refs(&AppendedRevision::new(incremental), stamp_ref)
-        });
+        let existing_stamp_ref =
+            resolve_placed_image_target(incremental, page_id, image, &expected_name)?;
+        let existing_appearance = existing_stamp_ref
+            .and_then(|stamp_ref| placed_image_appearance_refs(incremental, stamp_ref));
         let private = existing_stamp_ref
             .zip(existing_appearance)
             .map(|(stamp, (appearance, image))| {
-                private_placed_image_refs(
-                    &AppendedRevision::new(incremental),
-                    stamp,
-                    appearance,
-                    image,
-                )
+                private_placed_image_refs(incremental, stamp, appearance, image)
             })
             .unwrap_or((false, false));
         let (mut image_stream, mask_stream) = build_placed_raster_streams(image_bytes, image)?;
@@ -1133,63 +1123,51 @@ pub(crate) fn apply_placed_image_geometry_updates_incremental(
         let probe = placed_image_geometry_probe(update);
         let expected_name = update.stable_key.as_deref().unwrap_or_default();
         let geometry = placed_image_geometry(&probe, page_view, page_rotation)?;
-        let stamp_ref = match resolve_placed_image_target(
-            &AppendedRevision::new(incremental),
-            page_id,
-            &probe,
-            expected_name,
-        )? {
-            Some(reference) => reference,
-            None => {
-                let source = update
-                    .source_image
-                    .as_ref()
-                    .ok_or("Placed image geometry target was not found")?;
-                let image_ref =
-                    validate_recovery_image(&AppendedRevision::new(incremental), source)?;
-                let mut annots = get_page_annots(&AppendedRevision::new(incremental), page_id)?;
-                let stamp_ref = recreate_placed_image(
-                    &mut incremental.new_document,
-                    update,
-                    &probe,
-                    &geometry,
-                    page_id,
-                    image_ref,
-                    modified_at,
-                    identity_bindings,
-                )?;
-                annots.push(Object::Reference(stamp_ref));
-                incremental.opt_clone_object_to_new_document(page_id)?;
-                incremental
-                    .new_document
-                    .get_dictionary_mut(page_id)?
-                    .set("Annots", Object::Array(annots));
-                continue;
-            }
-        };
-        let (appearance_ref, image_ref) =
-            placed_image_appearance_refs(&AppendedRevision::new(incremental), stamp_ref)
-                .ok_or("Placed image appearance resources are unavailable")?;
+        let stamp_ref =
+            match resolve_placed_image_target(incremental, page_id, &probe, expected_name)? {
+                Some(reference) => reference,
+                None => {
+                    let source = update
+                        .source_image
+                        .as_ref()
+                        .ok_or("Placed image geometry target was not found")?;
+                    let image_ref = validate_recovery_image(incremental, source)?;
+                    let mut annots = get_page_annots(incremental, page_id)?;
+                    let stamp_ref = recreate_placed_image(
+                        &mut incremental.new_document,
+                        update,
+                        &probe,
+                        &geometry,
+                        page_id,
+                        image_ref,
+                        modified_at,
+                        identity_bindings,
+                    )?;
+                    annots.push(Object::Reference(stamp_ref));
+                    incremental.opt_clone_object_to_new_document(page_id)?;
+                    incremental
+                        .new_document
+                        .get_dictionary_mut(page_id)?
+                        .set("Annots", Object::Array(annots));
+                    continue;
+                }
+            };
+        let (appearance_ref, image_ref) = placed_image_appearance_refs(incremental, stamp_ref)
+            .ok_or("Placed image appearance resources are unavailable")?;
         let appearance = build_placed_image_appearance_stream(
             image_ref,
             &geometry,
             &format!("Im{}", image_ref.0),
         );
-        let appearance_ref = if private_placed_image_refs(
-            &AppendedRevision::new(incremental),
-            stamp_ref,
-            appearance_ref,
-            image_ref,
-        )
-        .0
-        {
-            incremental
-                .new_document
-                .set_object(appearance_ref, Object::Stream(appearance));
-            appearance_ref
-        } else {
-            incremental.new_document.add_object(appearance)
-        };
+        let appearance_ref =
+            if private_placed_image_refs(incremental, stamp_ref, appearance_ref, image_ref).0 {
+                incremental
+                    .new_document
+                    .set_object(appearance_ref, Object::Stream(appearance));
+                appearance_ref
+            } else {
+                incremental.new_document.add_object(appearance)
+            };
         incremental.opt_clone_object_to_new_document(stamp_ref)?;
         let stamp = incremental.new_document.get_dictionary_mut(stamp_ref)?;
         patch_placed_image_stamp_dict(

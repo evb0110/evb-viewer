@@ -707,8 +707,8 @@ fn creates_new_text_markup_annotations_with_quad_geometry() {
     )
     .expect("new text markup annotations should be created");
 
-    let revision = AppendedRevision::new(&incremental);
-    let annots = get_page_annots(&revision, page_id).expect("page annotations");
+    let revision = &incremental;
+    let annots = get_page_annots(revision, page_id).expect("page annotations");
     assert_eq!(annots.len(), 4);
     for (index, subtype) in ["Highlight", "Underline", "StrikeOut", "Squiggly"]
         .into_iter()
@@ -735,7 +735,7 @@ fn creates_new_text_markup_annotations_with_quad_geometry() {
         assert!(annotation.get(b"Rect").is_ok());
         assert!(annotation.get(b"QuadPoints").is_ok());
         assert!(annotation.get(b"C").is_ok());
-        let quad_points = read_markup_quad_points(&revision, annotation).unwrap();
+        let quad_points = read_markup_quad_points(revision, annotation).unwrap();
         let expected_quad_points = if subtype == "Underline" {
             vec![
                 20.0, 80.0, 80.0, 80.0, 20.0, 70.0, 80.0, 70.0, 120.0, 40.0, 160.0, 40.0, 120.0,
@@ -746,7 +746,7 @@ fn creates_new_text_markup_annotations_with_quad_geometry() {
         };
         assert_quad_points_approximately(&quad_points, &expected_quad_points);
         if subtype == "Underline" {
-            let rect = read_pdf_rect_from_dict(&revision, annotation).unwrap();
+            let rect = read_pdf_rect_from_dict(revision, annotation).unwrap();
             assert_approximately(rect.x1, 20.0);
             assert_approximately(rect.y1, 30.0);
             assert_approximately(rect.x2, 160.0);
@@ -796,11 +796,11 @@ fn recreates_markup_after_deleted_pdf_ref_in_the_same_revision() {
     apply_markup_mutations_incremental(&mut incremental, &mutation, "D:20260829120500+04'00'")
         .unwrap();
 
-    let revision = AppendedRevision::new(&incremental);
-    validate_markup_document_postconditions(&revision, &mutation)
+    let revision = &incremental;
+    validate_markup_document_postconditions(revision, &mutation)
         .expect("a recreated editor markup must not validate a deleted PDF ref");
 
-    let annots = get_page_annots(&revision, page_id).unwrap();
+    let annots = get_page_annots(revision, page_id).unwrap();
     let refs: Vec<ObjectId> = annots
         .iter()
         .filter_map(|object| object.as_reference().ok())
@@ -848,7 +848,7 @@ fn emits_exact_identity_binding_for_new_native_markup() {
     .expect("native markup should produce an identity binding");
 
     assert_eq!(bindings.len(), 1);
-    let annots = get_page_annots(&AppendedRevision::new(&incremental), page_id).unwrap();
+    let annots = get_page_annots(&incremental, page_id).unwrap();
     let object_id = annots[0].as_reference().unwrap();
     assert_eq!(
         bindings[0],
@@ -1577,14 +1577,14 @@ fn rewrites_high_index_markup_by_page_hint_without_a_page_walk() {
     )
     .unwrap();
 
-    let revision = AppendedRevision::new(&incremental);
+    let revision = &incremental;
     let markup = revision.dictionary(markup_id).unwrap();
     assert_eq!(
         canonical_markup_subtype(markup).as_deref(),
         Some("Underline")
     );
     assert!(markup.get(b"QuadPoints").is_ok());
-    assert!(get_page_annots(&revision, last_page_id)
+    assert!(get_page_annots(revision, last_page_id)
         .unwrap()
         .iter()
         .any(|object| object.as_reference().ok() == Some(markup_id)));
@@ -1632,14 +1632,14 @@ fn stale_markup_page_hint_uses_the_annotation_owner_without_a_page_walk() {
     )
     .unwrap();
 
-    let revision = AppendedRevision::new(&incremental);
+    let revision = &incremental;
     let markup = revision.dictionary(markup_id).unwrap();
     assert_eq!(
         canonical_markup_subtype(markup).as_deref(),
         Some("Squiggly")
     );
     assert!(markup.get(b"AP").is_ok());
-    assert!(get_page_annots(&revision, last_page_id)
+    assert!(get_page_annots(revision, last_page_id)
         .unwrap()
         .iter()
         .any(|object| object.as_reference().ok() == Some(markup_id)));
@@ -1906,11 +1906,11 @@ fn validates_each_distinct_new_markup_identity_after_save() {
 
     apply_markup_mutations_incremental(&mut incremental, &mutation, "D:20260831130000Z")
         .expect("same-geometry markup annotations should be saved");
-    let revision = AppendedRevision::new(&incremental);
-    validate_markup_document_postconditions(&revision, &mutation)
+    let revision = &incremental;
+    validate_markup_document_postconditions(revision, &mutation)
         .expect("each requested markup identity should survive save validation");
 
-    let names: Vec<_> = get_page_annots(&revision, page_id)
+    let names: Vec<_> = get_page_annots(revision, page_id)
         .expect("page annotations")
         .iter()
         .filter_map(|object| object.as_reference().ok())
@@ -2272,8 +2272,8 @@ fn deletes_explicit_shapes_without_page_backrefs_from_full_and_incremental_docum
         &mut None,
     )
     .unwrap();
-    let revision = AppendedRevision::new(&incremental);
-    assert!(get_page_annots(&revision, page_id).unwrap().is_empty());
+    let revision = &incremental;
+    assert!(get_page_annots(revision, page_id).unwrap().is_empty());
 }
 
 fn saved_annotation_regression(
@@ -2458,7 +2458,7 @@ fn keeps_an_existing_creation_date_the_edit_does_not_know() {
         &mut None,
     )
     .unwrap();
-    assert_dates(AppendedRevision::new(&incremental).dictionary(shape_id).unwrap());
+    assert_dates(incremental.dictionary(shape_id).unwrap());
 }
 
 #[test]
@@ -2558,8 +2558,8 @@ fn deletes_high_index_shapes_by_evb_key_or_managed_nm_without_a_page_walk() {
         &mut None,
 )
         .unwrap();
-        let revision = AppendedRevision::new(&incremental);
-        assert!(get_page_annots(&revision, last_page_id).unwrap().is_empty());
+        let revision = &incremental;
+        assert!(get_page_annots(revision, last_page_id).unwrap().is_empty());
     }
 }
 

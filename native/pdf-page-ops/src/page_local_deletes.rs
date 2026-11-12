@@ -241,7 +241,7 @@ pub(crate) fn page_local_delete_closure_loaded(
     mutations: &NativeMutationsFile,
     edit: &PageLocalEdit,
 ) -> Result<bool> {
-    let source = AppendedRevision::new(base);
+    let source = base;
     let listing =
         AnnotationListing::new_for_pages(base.get_prev_documents(), source.located_pages());
     let generic = collect_delete_refs(

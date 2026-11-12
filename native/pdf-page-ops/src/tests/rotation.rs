@@ -46,6 +46,7 @@ fn incremental_rotation_normalizes_inherited_values_and_keeps_other_metadata() {
                 start_number: 1,
             }],
         },
+        false,
     )
     .unwrap();
     set_bookmarks(

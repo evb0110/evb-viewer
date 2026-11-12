@@ -987,11 +987,9 @@ pub(crate) fn rewrite_page_markup_subtypes_incremental(
         ) {
             continue;
         }
-        if let Some(hint_index) = find_named_markup_hint_for_candidate(
-            &AppendedRevision::new(incremental),
-            candidate,
-            page_hints,
-        ) {
+        if let Some(hint_index) =
+            find_named_markup_hint_for_candidate(incremental, candidate, page_hints)
+        {
             page_hints[hint_index].consumed = true;
             let hint = page_hints[hint_index].hint.clone();
             rewritten = apply_markup_rewrite_to_incremental_object_with_options(

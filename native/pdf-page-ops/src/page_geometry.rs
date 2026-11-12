@@ -85,7 +85,7 @@ pub(crate) fn write_page_geometry(
         "Encrypted PDFs are not supported by native page ops",
     )?;
 
-    let geometry = get_page_geometry(&AppendedRevision::new(&incremental), page_number)?;
+    let geometry = get_page_geometry(&incremental, page_number)?;
     serde_json::to_writer(output, &geometry)?;
     Ok(())
 }
@@ -170,18 +170,18 @@ fn validate_crop_revision_postconditions(
     pages: &[u32],
     expectation: CropRevisionExpectation,
 ) -> Result<()> {
-    let revision = AppendedRevision::new(incremental);
-    let page_resolver = PageTreeResolver::new(&revision)?;
+    let revision = incremental;
+    let page_resolver = PageTreeResolver::new(revision)?;
 
     for &page_number in pages {
-        let page_id = page_resolver.page_id(&revision, page_number)?;
+        let page_id = page_resolver.page_id(revision, page_number)?;
         let expected_crop_box = match expectation {
-            CropRevisionExpectation::Margins(margins) => margins.crop_box(&revision, page_id)?,
+            CropRevisionExpectation::Margins(margins) => margins.crop_box(revision, page_id)?,
             CropRevisionExpectation::RestoreMediaBox => {
-                resolve_inherited_box(&revision, page_id, b"MediaBox")?
+                resolve_inherited_box(revision, page_id, b"MediaBox")?
             }
         };
-        let actual_crop_box = resolve_inherited_box(&revision, page_id, b"CropBox")?;
+        let actual_crop_box = resolve_inherited_box(revision, page_id, b"CropBox")?;
         // Compare in the PDF number representation used by the writer. Real
         // coordinates are stored as f32, while the margin arithmetic uses f64.
         // Exact comparison against the unencoded result rejects ordinary crops.

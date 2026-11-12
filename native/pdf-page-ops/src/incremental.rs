@@ -290,7 +290,7 @@ fn apply_native_mutations_internal(
         rotate_pages(document, &mutations.page_rotations)?;
     }
     if let Some(page_labels) = &mutations.page_labels {
-        set_page_labels(document, page_labels)?;
+        set_page_labels(document, page_labels, is_page_label_continuation(mutations))?;
     }
     if let Some(bookmarks) = &mutations.bookmarks {
         set_bookmarks(document, bookmarks)?;
@@ -327,6 +327,12 @@ fn apply_native_mutations_internal(
     }
     document.max_id = document.objects.keys().next_back().map_or(0, |id| id.0);
     Ok(())
+}
+
+fn is_page_label_continuation(mutations: &NativeMutationsFile) -> bool {
+    mutations.continuation.as_ref().is_some_and(|continuation| {
+        continuation.family == NativeMutationContinuationFamily::PageLabels
+    })
 }
 
 pub(crate) fn apply_native_mutations_incremental(
@@ -397,7 +403,7 @@ pub(crate) fn append_native_mutations_to_bytes(
         &expected_object_ids,
     )?;
     validate_appended_revision_postconditions_with_page_ids(
-        &AppendedRevision::new(&incremental),
+        &incremental,
         mutations,
         modified_at,
         incremental.located_pages.as_ref(),
@@ -432,7 +438,7 @@ fn apply_native_mutations_incremental_internal(
     mut identity_bindings: Option<&mut Vec<AnnotationIdentityBinding>>,
 ) -> Result<()> {
     let mut annotation_visits = 0usize;
-    validate_text_box_targets(&AppendedRevision::new(incremental), mutations)?;
+    validate_text_box_targets(incremental, mutations)?;
     if !mutations.updates.is_empty() {
         update_note_text_incremental(incremental, &mutations.updates, modified_at)?;
     }
@@ -467,12 +473,10 @@ fn apply_native_mutations_incremental_internal(
         rotate_pages_incremental(incremental, &mutations.page_rotations)?;
     }
     if let Some(page_labels) = &mutations.page_labels {
-        set_page_labels_incremental(
+        set_page_labels(
             incremental,
             page_labels,
-            mutations.continuation.as_ref().is_some_and(|continuation| {
-                continuation.family == NativeMutationContinuationFamily::PageLabels
-            }),
+            is_page_label_continuation(mutations),
         )?;
     }
     if let Some(bookmarks) = &mutations.bookmarks {
@@ -727,7 +731,7 @@ fn write_native_mutations_revision(
     let expected_object_ids = collect_incremental_append_object_ids(incremental);
 
     validate_appended_revision_postconditions_with_page_ids(
-        &AppendedRevision::new(incremental),
+        incremental,
         mutations,
         modified_at,
         incremental.located_pages.as_ref(),

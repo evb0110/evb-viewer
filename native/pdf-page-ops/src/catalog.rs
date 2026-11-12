@@ -2,6 +2,7 @@ use super::*;
 pub(crate) use evb_native_support::pdf_catalog::{
     is_implicit_default_page_labels, normalize_page_label_range, normalize_page_label_ranges,
 };
+use lopdf::dictionary;
 use serde::Serialize;
 
 pub(super) const CATALOG_WALK_DEPTH_LIMIT: usize = 256;
@@ -402,7 +403,11 @@ pub(crate) fn assert_mutation_page_count(
     total_pages: u32,
     label: &str,
 ) -> Result<()> {
-    assert_mutation_page_count_with_resolver(&PageLookup::new(document, None)?, total_pages, label)
+    assert_mutation_page_count_with_resolver(
+        &PageLookup::new(document, document.located_pages())?,
+        total_pages,
+        label,
+    )
 }
 
 pub(super) fn assert_mutation_page_count_with_resolver(
@@ -418,29 +423,6 @@ pub(super) fn assert_mutation_page_count_with_resolver(
         .into());
     }
     Ok(())
-}
-
-pub(crate) fn set_page_labels_on_catalog(
-    catalog: &mut Dictionary,
-    page_labels: &PageLabelsMutation,
-) {
-    if is_implicit_default_page_labels(&page_labels.ranges, page_labels.total_pages) {
-        catalog.remove(b"PageLabels");
-        return;
-    }
-
-    let normalized = normalize_page_label_ranges(&page_labels.ranges, page_labels.total_pages);
-    let mut nums = Vec::with_capacity(normalized.len() * 2);
-    for range in normalized {
-        nums.push(Object::Integer(i64::from(
-            range.start_page.saturating_sub(1),
-        )));
-        nums.push(page_label_dictionary(&range));
-    }
-
-    let mut page_labels_dict = Dictionary::new();
-    page_labels_dict.set("Nums", Object::Array(nums));
-    catalog.set("PageLabels", Object::Dictionary(page_labels_dict));
 }
 
 fn page_label_dictionary(range: &PageLabelRange) -> Object {
@@ -465,7 +447,7 @@ fn page_label_dictionary(range: &PageLabelRange) -> Object {
 }
 
 fn collect_existing_page_label_entries(
-    document: &Document,
+    document: &impl PdfObjectSource,
     catalog: &Dictionary,
 ) -> Result<BTreeMap<i64, Object>> {
     let mut entries = BTreeMap::new();
@@ -531,71 +513,49 @@ pub(crate) fn load_page_local_catalog(
     load_qpdf_page_local_incremental_pdf(path, qpdf, edit)
 }
 
+/// Writes the page-label tree. A later chunk of a chunked save
+/// (`continuation`) extends the tree the earlier chunks wrote; any other save
+/// replaces it, and drops it when it says only the default decimal labels.
 pub(crate) fn set_page_labels(
-    document: &mut Document,
-    page_labels: &PageLabelsMutation,
-) -> Result<()> {
-    assert_mutation_page_count(document, page_labels.total_pages, "Page-label mutation")?;
-    let catalog_id = document.root_id()?;
-    let catalog = document.get_dictionary_mut(catalog_id)?;
-    set_page_labels_on_catalog(catalog, page_labels);
-    Ok(())
-}
-
-pub(crate) fn set_page_labels_incremental(
-    incremental: &mut IncrementalDocument,
+    document: &mut impl PdfObjectStore,
     page_labels: &PageLabelsMutation,
     continuation: bool,
 ) -> Result<()> {
-    assert_mutation_page_count_with_resolver(
-        &PageLookup::new(
-            incremental.get_prev_documents(),
-            incremental.located_pages.as_ref(),
-        )?,
-        page_labels.total_pages,
-        "Page-label mutation",
-    )?;
-    let catalog_id = incremental.get_prev_documents().root_id()?;
-    if continuation {
-        let previous_catalog = incremental.get_prev_documents().dictionary(catalog_id)?;
-        let mut entries = collect_existing_page_label_entries(
-            incremental.get_prev_documents(),
-            previous_catalog,
-        )?;
-        if entries.is_empty() {
-            for range in normalize_page_label_ranges(&page_labels.ranges, page_labels.total_pages) {
-                entries.insert(
-                    i64::from(range.start_page.saturating_sub(1)),
-                    page_label_dictionary(&range),
-                );
-            }
-        } else {
-            for range in &page_labels.ranges {
-                let normalized = normalize_page_label_range(range, page_labels.total_pages);
-                entries.insert(
-                    i64::from(normalized.start_page.saturating_sub(1)),
-                    page_label_dictionary(&normalized),
-                );
-            }
-        }
-        incremental.opt_clone_object_to_new_document(catalog_id)?;
-        let catalog = incremental.new_document.get_dictionary_mut(catalog_id)?;
-        if entries.is_empty() {
-            catalog.remove(b"PageLabels");
-        } else {
-            let nums = entries
-                .into_iter()
-                .flat_map(|(start_page, label)| [Object::Integer(start_page), label])
-                .collect();
-            let mut page_labels_dict = Dictionary::new();
-            page_labels_dict.set("Nums", Object::Array(nums));
-            catalog.set("PageLabels", Object::Dictionary(page_labels_dict));
-        }
+    assert_mutation_page_count(document, page_labels.total_pages, "Page-label mutation")?;
+    let total_pages = page_labels.total_pages;
+    let catalog_id = document.root_id()?;
+    let mut entries = if continuation {
+        collect_existing_page_label_entries(document, document.dictionary(catalog_id)?)?
+    } else {
+        BTreeMap::new()
+    };
+    let ranges = if entries.is_empty() {
+        normalize_page_label_ranges(&page_labels.ranges, total_pages)
+    } else {
+        page_labels
+            .ranges
+            .iter()
+            .map(|range| normalize_page_label_range(range, total_pages))
+            .collect()
+    };
+    for range in ranges {
+        entries.insert(
+            i64::from(range.start_page.saturating_sub(1)),
+            page_label_dictionary(&range),
+        );
+    }
+    let catalog = document.dictionary_mut(catalog_id)?;
+    if entries.is_empty()
+        || (!continuation && is_implicit_default_page_labels(&page_labels.ranges, total_pages))
+    {
+        catalog.remove(b"PageLabels");
         return Ok(());
     }
-    incremental.opt_clone_object_to_new_document(catalog_id)?;
-    let catalog = incremental.new_document.get_dictionary_mut(catalog_id)?;
-    set_page_labels_on_catalog(catalog, page_labels);
+    let nums = entries
+        .into_iter()
+        .flat_map(|(start_page, label)| [Object::Integer(start_page), label])
+        .collect();
+    catalog.set("PageLabels", dictionary! { "Nums" => Object::Array(nums) });
     Ok(())
 }
 

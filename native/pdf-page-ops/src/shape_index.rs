@@ -312,7 +312,7 @@ pub(crate) fn write_embedded_shape_index_path(
         "Encrypted PDFs are not supported by the embedded shape index operation",
     )?;
 
-    write_embedded_shape_index(&AppendedRevision::new(&incremental), output_path)
+    write_embedded_shape_index(&incremental, output_path)
 }
 
 fn shape_index_paths_alias(input_path: &Path, output_path: &Path) -> Result<bool> {

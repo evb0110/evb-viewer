@@ -489,10 +489,10 @@ where
     for note in &notes {
         let page_number = mutation_page_number(note.page_index)?;
         let page_id = page_resolver.page_id(incremental.get_prev_documents(), page_number)?;
-        let revision = AppendedRevision::new(incremental);
+        let revision = &*incremental;
         page_index(
             &mut annotation_indexes,
-            &revision,
+            revision,
             page_id,
             annotation_visits,
         )?;
@@ -510,7 +510,7 @@ where
 
         if let Some(annot_id) = existing {
             let (subtype, popup_ref) = {
-                let revision = AppendedRevision::new(incremental);
+                let revision = &*incremental;
                 let annot_dict = revision.dictionary(annot_id)?;
                 (
                     annotation_subtype(annot_dict),
@@ -565,9 +565,9 @@ where
             let notes = (annot_ref, popup_ref);
             let restored = &mut incremental.new_document;
             let members = restore_note_recovery(restored, data, notes, number, page_of)?;
-            let revision = AppendedRevision::new(incremental);
+            let revision = &*incremental;
             for (member, page) in members {
-                page_index(&mut annotation_indexes, &revision, page, annotation_visits)?
+                page_index(&mut annotation_indexes, revision, page, annotation_visits)?
                     .append_missing_refs(&[member]);
             }
         }
@@ -722,10 +722,10 @@ pub(crate) fn upsert_text_boxes_incremental_with_counter(
     for editor in editors {
         let page_number = mutation_page_number(editor.page_index)?;
         let page_id = page_resolver.page_id(incremental.get_prev_documents(), page_number)?;
-        let revision = AppendedRevision::new(incremental);
+        let revision = &*incremental;
         page_index(
             &mut annotation_indexes,
-            &revision,
+            revision,
             page_id,
             annotation_visits,
         )?;
@@ -733,8 +733,8 @@ pub(crate) fn upsert_text_boxes_incremental_with_counter(
         let mut rect = validate_text_box_rect(editor, page_view)?;
         let page_rotation = resolve_page_rotation(incremental.get_prev_documents(), page_id)?;
         let name = text_box_name(editor);
-        let revision = AppendedRevision::new(incremental);
-        let target = resolve_text_box_target(&revision, page_id, editor)?.or_else(|| {
+        let revision = &*incremental;
+        let target = resolve_text_box_target(revision, page_id, editor)?.or_else(|| {
             annotation_indexes
                 .get(&page_id)
                 .and_then(|index| index.first_free_text_named(&name))
@@ -767,7 +767,7 @@ pub(crate) fn upsert_text_boxes_incremental_with_counter(
             continue;
         }
         let existing = target
-            .map(|id| existing_text_box_values(&revision, id, editor, &mut rect))
+            .map(|id| existing_text_box_values(revision, id, editor, &mut rect))
             .transpose()?
             .or_else(|| {
                 editor
@@ -1483,7 +1483,7 @@ pub(crate) fn build_incremental_page_annotation_index(
     incremental: &IncrementalDocument,
     page_id: ObjectId,
 ) -> Result<(PageAnnotationIndex, usize)> {
-    build_page_annotation_index(&AppendedRevision::new(incremental), page_id)
+    build_page_annotation_index(incremental, page_id)
 }
 
 pub(crate) fn write_page_annotation_index(

@@ -441,7 +441,6 @@ fn continues_page_labels_after_a_first_page_with_its_own_start_number() {
     let input_path = temp_pdf_path("continue-page-labels-input");
     let mut original_bytes = Vec::new();
     document.save_to(&mut original_bytes).unwrap();
-    write(&input_path, &original_bytes).unwrap();
 
     let range = |start_page, style: &str, start_number| PageLabelRange {
         start_page,
@@ -463,11 +462,11 @@ fn continues_page_labels_after_a_first_page_with_its_own_start_number() {
             }),
         ),
     ];
-    for (ranges, continuation) in fragments {
-        append_native_mutations(
-            &input_path,
-            &input_path,
-            &NativeMutationsFile {
+    // The incremental append and the full rewrite read back the same labels.
+    for incremental in [true, false] {
+        write(&input_path, &original_bytes).unwrap();
+        for (ranges, continuation) in fragments.clone() {
+            let mutations = NativeMutationsFile {
                 updates: Vec::new(),
                 geometry_updates: Vec::new(),
                 notes: Vec::new(),
@@ -485,25 +484,38 @@ fn continues_page_labels_after_a_first_page_with_its_own_start_number() {
                 placed_images: Vec::new(),
                 placed_image_geometry_updates: Vec::new(),
                 continuation,
-            },
-            "D:20260609123456+03'00'",
-        )
-        .unwrap();
-    }
+            };
+            let modified_at = "D:20260609123456+03'00'";
+            if incremental {
+                append_native_mutations(&input_path, &input_path, &mutations, modified_at)
+            } else {
+                write_native_mutations_path(
+                    &input_path,
+                    &input_path,
+                    &mutations,
+                    modified_at,
+                    None,
+                    None,
+                )
+            }
+            .unwrap();
+        }
 
-    let loaded = Document::load(&input_path).unwrap();
-    let labels = read_pdf_combine_catalog(&loaded).unwrap().page_labels;
-    assert_eq!(
-        labels
-            .iter()
-            .map(|label| (label.page_index, label.style.as_deref(), label.start))
-            .collect::<Vec<_>>(),
-        vec![
-            (0, Some("D"), Some(5)),
-            (1, Some("D"), Some(10)),
-            (2, Some("r"), None),
-        ],
-    );
+        let loaded = Document::load(&input_path).unwrap();
+        let labels = read_pdf_combine_catalog(&loaded).unwrap().page_labels;
+        assert_eq!(
+            labels
+                .iter()
+                .map(|label| (label.page_index, label.style.as_deref(), label.start))
+                .collect::<Vec<_>>(),
+            vec![
+                (0, Some("D"), Some(5)),
+                (1, Some("D"), Some(10)),
+                (2, Some("r"), None),
+            ],
+            "incremental: {incremental}",
+        );
+    }
 
     let _ = remove_file(input_path);
 }
@@ -522,6 +534,7 @@ fn appends_metadata_removal_as_incremental_revision() {
                 start_number: 2,
             }],
         },
+        false,
     )
     .unwrap();
     set_bookmarks(
@@ -858,7 +871,7 @@ fn applies_labels_and_bookmarks_to_sparse_million_page_tree() {
             },
         ],
     };
-    set_page_labels(&mut document, &page_labels).unwrap();
+    set_page_labels(&mut document, &page_labels, false).unwrap();
 
     let bookmarks = BookmarksMutation {
         total_pages: 1_000_000,
@@ -1056,8 +1069,8 @@ fn applies_sparse_shape_and_annotation_mutations_incrementally_without_a_full_pa
         page_tree_node_read_count()
     );
 
-    let revision = AppendedRevision::new(&incremental);
-    let annots = get_page_annots(&revision, first_page_id).unwrap();
+    let revision = &incremental;
+    let annots = get_page_annots(revision, first_page_id).unwrap();
     assert_eq!(annots.len(), 1);
     let shape_id = annots[0].as_reference().unwrap();
     assert_eq!(

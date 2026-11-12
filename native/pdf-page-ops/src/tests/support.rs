@@ -36,6 +36,7 @@
                     start_number: 1,
                 }],
             },
+            false,
         )
         .unwrap();
         set_bookmarks(

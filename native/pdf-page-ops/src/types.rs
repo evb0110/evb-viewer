@@ -659,6 +659,24 @@ fn missing_object_message(object_id: ObjectId) -> String {
     format!("Object {}R{} was not found", object_id.0, object_id.1)
 }
 
+/// The read seam made writable for one output strategy. A mutation written
+/// against it serves both: a loaded document changes in place for a full
+/// rewrite, an incremental one copies each written object into the revision
+/// it appends. Reads see the writes already made.
+pub(crate) trait PdfObjectStore: PdfObjectSource {
+    fn object_mut(&mut self, object_id: ObjectId) -> Result<&mut Object>;
+
+    fn dictionary_mut(&mut self, object_id: ObjectId) -> Result<&mut Dictionary> {
+        Ok(self.object_mut(object_id)?.as_dict_mut()?)
+    }
+}
+
+impl PdfObjectStore for Document {
+    fn object_mut(&mut self, object_id: ObjectId) -> Result<&mut Object> {
+        Ok(self.get_object_mut(object_id)?)
+    }
+}
+
 impl PdfObjectSource for Document {
     fn stored_object(&self, object_id: ObjectId) -> Option<&Object> {
         self.objects.get(&object_id)

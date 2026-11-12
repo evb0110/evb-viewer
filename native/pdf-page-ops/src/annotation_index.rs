@@ -100,7 +100,7 @@ pub(crate) fn write_annotation_name_index_path(
         "Encrypted PDFs are not supported by the annotation index operation",
     )?;
 
-    write_annotation_name_index(&AppendedRevision::new(&incremental), output_path)
+    write_annotation_name_index(&incremental, output_path)
 }
 
 pub(crate) fn annotation_index_paths_alias(input_path: &Path, output_path: &Path) -> Result<bool> {

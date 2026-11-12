@@ -215,7 +215,7 @@ pub(crate) fn hydrate_text_box_original_appearances_path(
         let root = parse_pdfjs_annotation_object_id(id)
             .ok_or("Invalid original appearance source annotation id")?;
         let graph = capture_annotation_graph(
-            &AppendedRevision::new(&source),
+            &source,
             root,
             &[],
             true,
@@ -244,7 +244,7 @@ pub(crate) fn hydrate_text_box_original_appearances_path(
             .checked_sub(stream.content.len())
             .ok_or("Original appearance source streams exceed their byte ceiling")?;
     }
-    hydrate_text_box_original_appearances(mutations, &AppendedRevision::new(&source))
+    hydrate_text_box_original_appearances(mutations, &source)
 }
 
 pub(crate) fn original_text_box_graph(

@@ -1035,17 +1035,17 @@ pub(crate) fn apply_shape_annotation_decision_incremental(
         incremental.opt_clone_object_to_new_document(object_id)?;
         let appearance_ref = shape_appearance_stream(&subtype, &shape, page)?
             .map(|appearance| incremental.new_document.add_object(appearance));
-        let source = AppendedRevision::new(incremental);
+        let source = &*incremental;
         // The appended revision over the base: a `/Rect` or `/F` reference the
         // clone did not copy still resolves against the loaded original.
         let existing_rect = source
             .dictionary(object_id)
             .ok()
-            .and_then(|dict| read_shape_annotation_rect(&source, dict));
-        let print_flags = annotation_print_flags(&source, source.dictionary(object_id)?);
+            .and_then(|dict| read_shape_annotation_rect(source, dict));
+        let print_flags = annotation_print_flags(source, source.dictionary(object_id)?);
         let remove_appearance = subtype != "ink"
             && shape_semantic_change(
-                &source,
+                source,
                 source.dictionary(object_id)?,
                 &shape,
                 page.page_view,
