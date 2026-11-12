@@ -161,7 +161,6 @@
     "hookable": "6.1.2",
     "husky": "^9.1.7",
     "lint-staged": "^17.5.1",
-    "minimatch": "10.2.6",
     "nuxt": "4.6.3",
     "oxlint": "1.91.0",
     "pdfjs-dist-codex-preview": "npm:pdfjs-dist@5.4.296",
