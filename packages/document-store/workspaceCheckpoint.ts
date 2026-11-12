@@ -6,7 +6,7 @@ import {
 } from './documentDirectory';
 import type { IStorePort } from './storePort';
 
-const WORKSPACES_DIR = 'workspaces';
+export const WORKSPACES_DIR = 'workspaces';
 const CHECKPOINT_SUFFIX = '.json';
 
 export interface ICheckpointTab<TView = unknown> {
@@ -29,6 +29,12 @@ function checkpointPath(windowId: string) {
     return `${WORKSPACES_DIR}/${windowId}${CHECKPOINT_SUFFIX}`;
 }
 
+/** The window whose checkpoint `name` is; `null` for anything else, such as a crashed write's temporary file. */
+export function checkpointWindowId(name: string) {
+    const windowId = name.slice(0, -CHECKPOINT_SUFFIX.length);
+    return name.endsWith(CHECKPOINT_SUFFIX) && STORE_ID_PATTERN.test(windowId) ? windowId : null;
+}
+
 function decodeCheckpoint(bytes: Uint8Array): IWorkspaceCheckpoint | null {
     const value = decodeJson(bytes);
     if (!isRecord(value) || value.version !== 1 || !isRecord(value.tabs)) return null;
@@ -48,8 +54,8 @@ export function writeWorkspaceCheckpoint(port: IStorePort, windowId: string, che
 export async function readWorkspaceCheckpoints(port: IStorePort) {
     const checkpoints = new Map<string, IWorkspaceCheckpoint | null>();
     for (const name of await port.list(WORKSPACES_DIR)) {
-        const windowId = name.slice(0, -CHECKPOINT_SUFFIX.length);
-        if (!name.endsWith(CHECKPOINT_SUFFIX) || !STORE_ID_PATTERN.test(windowId)) continue;
+        const windowId = checkpointWindowId(name);
+        if (windowId === null) continue;
         checkpoints.set(windowId, await port.read(`${WORKSPACES_DIR}/${name}`).then(decodeCheckpoint).catch(() => null));
     }
     return checkpoints;

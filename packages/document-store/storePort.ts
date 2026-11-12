@@ -20,6 +20,8 @@ export interface IStorePort {
     open(path: string): Promise<IStoreFile>;
     /** Copies `source` to a new `path`, cloning where the platform can; durable when resolved. */
     copyIn(source: TExternalSource, path: string): Promise<void>;
+    /** Copies the store file `from` to a new path `to`, as `copyIn` does. */
+    copy(from: string, to: string): Promise<void>;
     /** Removes a file or a directory tree; a missing path is not an error. */
     remove(path: string): Promise<void>;
 }

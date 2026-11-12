@@ -7,6 +7,7 @@ import path from 'node:path';
 import type {
     IStoreFile,
     IStorePort,
+    TExternalSource,
 } from './storePort';
 
 function isMissing(error: unknown) {
@@ -71,6 +72,29 @@ export function createNodeStorePort(root: string): IStorePort {
         return path.join(root, ...segments);
     };
 
+    async function copyIn(source: TExternalSource, relative: string) {
+        const target = resolve(relative);
+        await ensureDirectory(path.dirname(target));
+        if (typeof source === 'string') {
+            // A clone on APFS, Btrfs and XFS; Node falls back to an ordinary copy elsewhere.
+            await fs.copyFile(source, target, constants.COPYFILE_EXCL | constants.COPYFILE_FICLONE);
+        }
+        const file = nodeStoreFile(await fs.open(target, typeof source === 'string' ? 'r+' : 'wx'));
+        try {
+            if (typeof source !== 'string') {
+                let offset = 0;
+                for await (const chunk of source.stream()) {
+                    await file.writeAt(offset, chunk);
+                    offset += chunk.byteLength;
+                }
+            }
+            await file.flush();
+        } finally {
+            await file.close();
+        }
+        await syncDirectory(path.dirname(target));
+    }
+
     return {
         async list(dir) {
             return fs.readdir(resolve(dir)).catch((error: unknown) => {
@@ -110,28 +134,8 @@ export function createNodeStorePort(root: string): IStorePort {
             await syncDirectory(path.dirname(target));
             return nodeStoreFile(handle);
         },
-        async copyIn(source, relative) {
-            const target = resolve(relative);
-            await ensureDirectory(path.dirname(target));
-            if (typeof source === 'string') {
-                // A clone on APFS, Btrfs and XFS; Node falls back to an ordinary copy elsewhere.
-                await fs.copyFile(source, target, constants.COPYFILE_EXCL | constants.COPYFILE_FICLONE);
-            }
-            const file = nodeStoreFile(await fs.open(target, typeof source === 'string' ? 'r+' : 'wx'));
-            try {
-                if (typeof source !== 'string') {
-                    let offset = 0;
-                    for await (const chunk of source.stream()) {
-                        await file.writeAt(offset, chunk);
-                        offset += chunk.byteLength;
-                    }
-                }
-                await file.flush();
-            } finally {
-                await file.close();
-            }
-            await syncDirectory(path.dirname(target));
-        },
+        copyIn,
+        copy: (from, to) => copyIn(resolve(from), to),
         remove: file => fs.rm(resolve(file), { recursive: true, force: true }),
     };
 }
