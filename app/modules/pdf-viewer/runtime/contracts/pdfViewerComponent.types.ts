@@ -45,7 +45,6 @@ export interface IPdfViewerProps {
     searchPageMatches?: Map<number, IPdfPageMatches> | undefined;
     currentSearchMatch?: IPdfSearchMatch | null | undefined;
     currentSearchMatchNavigationId?: number | undefined;
-    currentPage?: number | undefined;
     workingCopyPath?: string | null | undefined;
     originalPath?: string | null | undefined;
     documentRevisionToken?: TDocumentRevisionToken | null | undefined;
@@ -55,8 +54,6 @@ export interface IPdfViewerProps {
 
 export interface IPdfViewerEmit {
     (e: 'update:zoomState', state: TPdfZoomState): void;
-    (e: 'update:currentPage', page: number): void;
-    (e: 'update:navigationFeedbackPage', page: number | null): void;
     (e: 'update:totalPages', total: number): void;
     (e: 'update:document', document: IPdfDocument | null): void;
     (e: 'loading', loading: boolean): void;

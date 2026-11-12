@@ -183,10 +183,8 @@ export type TDocumentPageSourceRuntimeProps = Required<Pick<
 };
 export interface IDocumentPageSourceFeaturePackEmit {
     (event: 'update:zoomState', value: TPdfZoomState): void;
-    (event: 'update:currentPage', value: number): void;
     (event: 'update:totalPages', value: number): void;
     (event: 'update:sourceCapabilities', value: IDocumentSourceCapabilities): void;
-    (event: 'update:pageSource', value: IDocumentPageSource | null): void;
     (event: 'loading', value: boolean): void;
     (event: 'loadError', value: unknown): void;
     (event: 'initial-visual-pending'): void;
@@ -260,7 +258,6 @@ export async function openDocumentPageSource(
             return false;
         }
         context.setSource(nextSource);
-        context.emit('update:pageSource', nextSource);
         context.chassisAuthority?.bindSource(nextSource);
         context.emit('update:sourceCapabilities', {
             annotations: false,

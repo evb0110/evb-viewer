@@ -479,7 +479,6 @@ export function createViewportAuthority(deps: IViewportAuthorityDependencies) {
         isWorkCurrent,
         settleWork,
         cancelWork,
-        getActiveNavigationRequest: () => activeIntent.value?.navigation,
         getTerminalOutcome: (intentId: string) => terminal.get(intentId) ?? null,
     };
 }

@@ -127,7 +127,6 @@ export const createPdfInitialVisualCommit = (options: ICreatePdfInitialVisualCom
         if (!fence || !surface.commitCanvas(fence)) {
             return;
         }
-        viewport.singlePageScroll.commitCurrentViewportIfSettled(pageNumber);
         reconcileInitialVisual();
     }
     // The fence a settled render of the requested page reports on.
@@ -169,7 +168,6 @@ export const createPdfInitialVisualCommit = (options: ICreatePdfInitialVisualCom
             },
         );
         if (claimed.surface.commitCanvas(claimed.fence)) {
-            viewport.singlePageScroll.commitCurrentViewportIfSettled(commit.pageNumber);
             reconcileInitialVisual();
         }
     }

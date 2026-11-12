@@ -150,10 +150,9 @@ export const createDocumentViews = (controller: IWorkspaceDocumentController) =>
         const map = (page: number) => mapPageNumberThroughPageIdentityDelta(delta, requirePageNumber(page))
             ?? Math.max(1, Math.min(page, nextCount ?? page));
         for (const record of controller.views.value.values()) {
-            const port = viewPorts.value.get(record.tabId);
-            if (port) {
-                port.view.currentPage.value = map(port.view.currentPage.value);
-                // Its mounted viewer carries its own semantic anchor through the swap.
+            if (viewPorts.value.has(record.tabId)) {
+                // Its mounted viewer carries its own semantic anchor through
+                // the swap and reports the page it lands on.
                 continue;
             }
             const page = map(record.viewState.value.currentPage ?? record.toolbarSnapshot.value.currentPage);

@@ -91,7 +91,6 @@ export interface IDocumentViewerExpose {
     getViewerContainer: () => HTMLElement | null;
     getCurrentPage?: () => number;
     readonly getEffectiveZoom?: () => number;
-    getPendingNavigationTargetPage?: () => number | null;
     waitForViewerLoadSettled?: () => Promise<void>;
     scrollToPage: (page: number, options?: IScrollToPageOptions) => void;
     /** The point of a page at the viewport center, as a relayout keeps it. */

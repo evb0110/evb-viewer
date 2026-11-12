@@ -142,7 +142,7 @@ describe('window tab transfer orchestration helpers', () => {
                 'left',
                 'right',
             ]) {
-                const view = useWorkspaceViewerShellState();
+                const view = useWorkspaceViewerShellState(null, createDocumentOpenSurfaceSession());
                 view.totalPages.value = 5;
                 view.setSelectedThumbnailPages([tabId === 'left' ? 1 : 5]);
                 states.push(view);

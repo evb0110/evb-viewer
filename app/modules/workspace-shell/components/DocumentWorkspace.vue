@@ -360,7 +360,6 @@ const {
     mountPresentation: computed(() => surfaceMode.value === 'reader'),
     isRenderActive: computed(() => isRenderActive && surfaceMode.value === 'reader'),
     isWorkspaceLayoutResizing: isActiveViewerLayoutResizing,
-    navigationFeedbackPage: presentation.navigationFeedbackPage,
     onInitialVisualPending: documentContext.annotations.markAnnotationCommentsLoading,
     onInitialVisualReady: () => {
         file.notifyPdfInitialVisualReady();

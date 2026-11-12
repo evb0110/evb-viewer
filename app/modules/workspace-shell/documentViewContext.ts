@@ -40,8 +40,7 @@ import {
 } from '@app/modules/document-viewer/public';
 import { useDocumentSearchSession } from '@app/modules/workspace-shell/composables/useDocumentSearchSession';
 import type { IPdfPageMatches } from '@app/types/pdfUi';
-import { createWorkspaceViewerUpdateHandlers } from '@app/modules/workspace-shell/viewers/createWorkspaceViewerUpdateHandlers';
-import { createWorkspacePageNavigationFence } from '@app/modules/workspace-shell/viewers/createWorkspacePageNavigationFence';
+import { emitAutomationEvent } from '@app/modules/workspace-shell/automation/automationReadinessEvents';
 import {
     provideDocumentContext,
     useDocumentContextRegistry,
@@ -61,7 +60,6 @@ interface IDocumentViewBindingOptions {
     mountPresentation: Ref<boolean>;
     isRenderActive: Ref<boolean>;
     isWorkspaceLayoutResizing: Ref<boolean>;
-    navigationFeedbackPage: Ref<number | null>;
     onInitialVisualPending: () => void;
     onInitialVisualReady: () => void;
 }
@@ -108,7 +106,7 @@ export const createDocumentViewContext = (deps: IDocumentViewContextDeps) => {
     } = file;
     // What this view shows of the document, and its page count; the document
     // reads them through the view whose tab is in use.
-    const view = useWorkspaceViewerShellState(initialViewState);
+    const view = useWorkspaceViewerShellState(initialViewState, openSurface);
     const {
         pdfViewerRef,
         documentViewerRef,
@@ -174,13 +172,34 @@ export const createDocumentViewContext = (deps: IDocumentViewContextDeps) => {
     const pageContextMenu = usePageContextMenu();
 
     const bookmarkNavigationIntentVersion = ref(0);
-    const {
-        consumePageUpdate: consumeViewerCurrentPageUpdate,
-        navigationPage,
-    } = createWorkspacePageNavigationFence({
-        currentPage,
-        openSurface,
+    // The page a new navigation command steps from: the in-flight target
+    // while one is pending, so held paging keys compose.
+    const navigationPage = computed(() => {
+        const ticket = openSurface.navigationTicket.value;
+        if (!ticket) {
+            return currentPage.value;
+        }
+        return 'page' in ticket.request.target
+            ? ticket.request.target.page
+            : openSurface.viewportSession.value.requestedPage;
     });
+    // Automation's navigation-idle: the surface names a settled page and no
+    // navigation is in flight.
+    watch([
+        currentPage,
+        () => openSurface.navigationTicket.value,
+    ], ([page, ticket], [previousPage, previousTicket]) => {
+        if (ticket || (page === previousPage && !previousTicket)) {
+            return;
+        }
+        emitAutomationEvent('navigation-idle', {
+            navigationSource: previousTicket?.request.source ?? null,
+            page,
+            previousPage,
+            tabId,
+            totalPages: totalPages.value,
+        });
+    }, {flush: 'post'});
     // This view's annotation context menu and annotation tool: one per view,
     // like its page context menu and selection.
     const annotationContextMenu = useAnnotationContextMenu();
@@ -401,24 +420,6 @@ export const createDocumentViewContext = (deps: IDocumentViewContextDeps) => {
     function bindDocumentView(options: IDocumentViewBindingOptions) {
         const hiddenSearchPageMatches = new Map<number, IPdfPageMatches>();
         const searchShown = computed(() => isActive.value && view.showSidebar.value);
-        const {
-            handleCurrentPage,
-            handleTotalPages,
-        } = createWorkspaceViewerUpdateHandlers({
-            tabId: deps.tabId,
-            pdfSrc,
-            currentPage,
-            totalPages,
-            showSidebar: view.showSidebar,
-            sidebarTab: view.sidebarTab,
-            isLoading: view.isLoading,
-            continuousScroll: view.continuousScroll,
-            fitMode: view.fitMode,
-            viewMode: view.viewMode,
-            zoom: view.zoom,
-            viewerRef: documentViewerRef,
-            consumePageUpdate: consumeViewerCurrentPageUpdate,
-        });
         function handleLoadError(error: unknown) {
             if (error === null || error === undefined) {
                 file.pdfError.value = null;
@@ -454,7 +455,6 @@ export const createDocumentViewContext = (deps: IDocumentViewContextDeps) => {
                 searchShown.value ? sourceSearch.currentResultIndex.value : -1
             )),
             documentSourceSearchResults: computed(() => searchShown.value ? sourceSearch.results.value : []),
-            currentPage,
             dragMode: view.dragMode,
             isAnySaving: saveService.isAnySaving,
             isInteractionActive: isActive,
@@ -485,13 +485,11 @@ export const createDocumentViewContext = (deps: IDocumentViewContextDeps) => {
             onAnnotationState: annotations.handleAnnotationState,
             onAnnotationToolAutoReset: annotationToolState.handleAnnotationToolAutoReset,
             onAnnotationToolCancel: () => { void annotationToolState.handleAnnotationToolCancel(); },
-            onCurrentPageUpdate: handleCurrentPage,
             onDocumentUpdate: (value) => { pdfDocument.value = value as typeof pdfDocument.value; },
             onInitialVisualPending: options.onInitialVisualPending,
             onInitialVisualReady: options.onInitialVisualReady,
             onLoadError: handleLoadError,
             onLoading: (value) => { view.isLoading.value = value; },
-            onNavigationFeedbackPageUpdate: (value) => { options.navigationFeedbackPage.value = value; },
             onShapeContextMenu: annotationActions.handleShapeContextMenu,
             onSourceCapabilitiesUpdate: (capabilities) => {
                 if (driver.activeDocumentDriver.value) {
@@ -500,8 +498,9 @@ export const createDocumentViewContext = (deps: IDocumentViewContextDeps) => {
             },
             onPageSourceUpdate: (source) => { view.documentPageSource.value = source; },
             onTotalPagesUpdate: (value) => {
-                if (driver.activeDocumentDriver.value || value === 0) {
-                    handleTotalPages(value);
+                // A source being replaced reports no pages before its successor counts them.
+                if ((driver.activeDocumentDriver.value || value === 0) && !(value === 0 && pdfSrc.value)) {
+                    totalPages.value = value;
                 }
             },
             onZoomStateUpdate: view.setZoomState,

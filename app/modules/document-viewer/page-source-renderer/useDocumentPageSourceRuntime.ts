@@ -858,12 +858,6 @@ export const useDocumentPageSourceRuntime = (options: {
                 // its semantic page. Do not derive a center page from that
                 // provisional offset: it can overwrite the command target
                 // while the viewport is still settling.
-                if (
-                    viewportSession.lifecycle === 'ready'
-                    && viewportSession.committedPage === viewportSession.requestedPage
-                ) {
-                    emit('update:currentPage', viewportSession.requestedPage);
-                }
                 return;
             }
             const hasStableCommittedPage = viewportSession?.lifecycle === 'ready'
@@ -927,10 +921,9 @@ export const useDocumentPageSourceRuntime = (options: {
             && viewportSession.requestedPage !== props.value.currentPage
         ) {
             // A command may have committed its authored offset before the
-            // corresponding currentPage update reaches this feature. Preserve
-            // that shared semantic target instead of interpreting the command
-            // offset as a user-centered page.
-            emit('update:currentPage', viewportSession.requestedPage);
+            // surface names its page here. Preserve that shared semantic
+            // target instead of interpreting the command offset as a
+            // user-centered page.
             return;
         }
         const totalPages = source.value?.pageCount
@@ -946,8 +939,7 @@ export const useDocumentPageSourceRuntime = (options: {
             viewportWidth: container.clientWidth,
         });
         if (visiblePage && (forceProjection || visiblePage !== props.value.currentPage)) {
-            const observedPage = chassisAuthority?.observePage(visiblePage) ?? visiblePage;
-            emit('update:currentPage', observedPage);
+            chassisAuthority?.observePage(visiblePage);
         }
     }
     watch(
@@ -973,15 +965,13 @@ export const useDocumentPageSourceRuntime = (options: {
                         chassisAuthority.openSurface.viewportSession.value,
                     )
                     : null;
-                if (semanticPage !== null) {
-                    // The target render and viewport have just crossed their
-                    // ready fence. Its physical offset may still reflect
-                    // provisional geometry, so keep the committed semantic
-                    // page until trusted input records an observation.
-                    emit('update:currentPage', semanticPage);
-                    return;
+                // The target render and viewport have just crossed their
+                // ready fence. Its physical offset may still reflect
+                // provisional geometry, so keep the committed semantic page
+                // until trusted input records an observation.
+                if (semanticPage === null) {
+                    syncCurrentPageFromViewport(true);
                 }
-                syncCurrentPageFromViewport(true);
             }
         },
         {
@@ -1203,7 +1193,6 @@ export const useDocumentPageSourceRuntime = (options: {
         }
         source.value = null;
         physicalScroll.place(null, 0, 0);
-        emit('update:pageSource', null);
         if (!seedOpeningPageMetrics()) {
             pageMetrics.value = documentRef
                 ? createColdOpenProvisionalDocumentPageMetrics(Math.max(1, Math.trunc(
@@ -1380,7 +1369,6 @@ export const useDocumentPageSourceRuntime = (options: {
         }
         loadController?.abort();
         const activeSource = source.value;
-        emit('update:pageSource', null);
         activeSource?.dispose();
         if (chassisAuthority?.source.value === activeSource) {
             chassisAuthority.bindSource(null);
@@ -1416,16 +1404,6 @@ export const useDocumentPageSourceRuntime = (options: {
             },
             invalidatePages: (pages: readonly number[]) => pages.forEach(page => void renderPage(page)),
             requestScrollToCurrentResult: () => scrollToPage(props.value.currentPage),
-            captureScrollSnapshot: () => ({page: chassisAuthority?.currentPage.value ?? props.value.currentPage}),
-            restoreScrollSnapshot: (snapshot: unknown, exposeOptions: {fallbackPage: number;}) => {
-                const page = typeof snapshot === 'object' && snapshot !== null && 'page' in snapshot
-                    ? Number(snapshot.page)
-                    : exposeOptions.fallbackPage;
-                scrollToPage(Number.isFinite(page) ? page : exposeOptions.fallbackPage);
-            },
-        } satisfies IDocumentViewerExpose & {
-            captureScrollSnapshot: () => unknown;
-            restoreScrollSnapshot: (snapshot: unknown, options: {fallbackPage: number}) => void;
-        },
+        } satisfies IDocumentViewerExpose,
     };
 };

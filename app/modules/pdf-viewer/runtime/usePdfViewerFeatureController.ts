@@ -39,6 +39,7 @@ import type {
     IPdfViewerEmit,
 } from '@app/modules/pdf-viewer/runtime/contracts/pdfViewerComponent.types';
 import type { ILinkAnnotation } from '@app/types/annotations';
+import type { TPdfZoomState } from '@contracts/shared';
 
 export const usePdfViewerFeatureController = (
     props: IPdfViewerProps,
@@ -71,7 +72,13 @@ export const usePdfViewerFeatureController = (
         continuousScroll,
         isActive,
         authorName,
+        acknowledgeZoomState,
     } = usePdfViewerPropModel(props);
+    /** The viewer adopts the zoom state it reports, so its layout never waits for the host. */
+    function reportZoomState(state: TPdfZoomState) {
+        acknowledgeZoomState(state);
+        emit('update:zoomState', state);
+    }
     const { t } = useTypedI18n();
     const viewerHost = ref<HTMLElement | null>(null);
     const viewerContainer = ref<HTMLElement | null>(null);
@@ -200,9 +207,7 @@ export const usePdfViewerFeatureController = (
             fitMode,
             zoomMode,
         },
-        emitCurrentPage: page => emit('update:currentPage', page),
-        emitNavigationFeedbackPage: page => emit('update:navigationFeedbackPage', page),
-        emitZoomState: state => emit('update:zoomState', state),
+        emitZoomState: reportZoomState,
         summarizeViewerStateForLog,
     });
     viewportSessionRef.value = viewportSession;
@@ -244,7 +249,7 @@ export const usePdfViewerFeatureController = (
         captureRelayoutAnchor: viewportSession.singlePageScroll.captureRelayoutAnchor,
         relayout: viewportSession.singlePageScroll.relayout,
         isSnipActive: () => regionSnip.isActive.value || cropSelection.isSelecting.value,
-        emit,
+        emit: (_event, state) => reportZoomState(state),
     });
 
     const annotationSession = createPdfAnnotationSession({

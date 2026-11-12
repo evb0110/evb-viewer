@@ -9,7 +9,6 @@ import type { TDocumentRef } from '@contracts/documentRef';
 import type { TPdfSidebarTab } from '@app/modules/workspace-shell/types/workspaceOrchestration.types';
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 import { annotationIdForSummary } from '@app/modules/pdf-viewer/public';
-import type { IDocumentNavigationTicket } from '@app/modules/document-viewer/public';
 
 export interface IDocumentTransitionDeps {
     pdfSrc: Ref<TPdfSource | null>;
@@ -43,7 +42,6 @@ export interface IDocumentTransitionDeps {
     closeAllAnnotationNotes: (opts?: { saveIfDirty?: boolean }) => Promise<boolean>;
     loadRecentFiles: () => void;
     consumePreservedSourceReloadMetadata?: (() => boolean) | undefined;
-    navigationTicket?: Readonly<Ref<IDocumentNavigationTicket | null>> | undefined;
 }
 
 type TBookmarkSidebarSnapshot = readonly [boolean, TPdfSidebarTab];
@@ -81,7 +79,6 @@ export const useDocumentTransitions = (deps: IDocumentTransitionDeps) => {
         closeAllAnnotationNotes,
         loadRecentFiles,
         consumePreservedSourceReloadMetadata,
-        navigationTicket,
     } = deps;
 
     watch(
@@ -111,19 +108,10 @@ export const useDocumentTransitions = (deps: IDocumentTransitionDeps) => {
     watch(pdfSrc, (newSrc, oldSrc) => {
         if (newSrc && newSrc !== oldSrc) {
             const isReload = Boolean(oldSrc);
-            const pendingProgrammaticNavigation = Boolean(navigationTicket?.value);
             logPdfRenderTrace('workspace-document-transition-source-changed', {
                 isReload,
-                pendingProgrammaticNavigation,
                 currentPageBefore: currentPage.value,
             });
-            // A user command issued during the open transition owns the page
-            // model until the viewer settles it; resetting here would echo
-            // page 1 back into the navigation controller and discard the
-            // queued intent.
-            if (!pendingProgrammaticNavigation) {
-                currentPage.value = 1;
-            }
             resetAnnotationTracking();
             markAnnotationCommentsLoading();
             if (!isReload) {
@@ -141,7 +129,6 @@ export const useDocumentTransitions = (deps: IDocumentTransitionDeps) => {
         if (!newSrc) {
             // The PDF document session owns the document and destroys it once
             // its renders have settled.
-            currentPage.value = 1;
             totalPages.value = 0;
             pdfDocument.value = null;
             showSidebar.value = false;

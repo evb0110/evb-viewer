@@ -84,7 +84,6 @@ export const useWorkspaceDocumentLifecycleEffects = (options: IWorkspaceDocument
         closePageContextMenu,
         closeAllAnnotationNotes,
         loadRecentFiles,
-        navigationTicket,
         clearOcrCache,
         ensureHistoryBaselineForMutation,
         reloadWorkingCopyIntoHistory,
@@ -198,7 +197,6 @@ export const useWorkspaceDocumentLifecycleEffects = (options: IWorkspaceDocument
         closeAllAnnotationNotes,
         loadRecentFiles,
         consumePreservedSourceReloadMetadata,
-        navigationTicket,
     });
 
     async function acknowledgeOcrResultFile(payload: IOcrCompletePayload) {

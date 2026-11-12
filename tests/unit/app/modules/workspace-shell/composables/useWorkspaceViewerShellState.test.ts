@@ -16,9 +16,15 @@ import { useWorkspaceViewerDefaults } from '@app/modules/workspace-shell/composa
 import { resolveDocumentPageDisplayLayoutsBounded } from '@app/modules/document-viewer/page-source-renderer/useDocumentPageSourceRuntime';
 import { createRangePageSelection } from '@contracts/pageNumbers';
 import { useWorkspaceViewerShellState } from '@app/modules/workspace-shell/composables/useWorkspaceViewerShellState';
+import { createDocumentOpenSurfaceSession } from '@app/modules/document-viewer/public';
 
 describe('workspace viewer shell state', () => {
     it('derives compatibility modes from one authoritative discriminated state', () => {
+        const surface = createDocumentOpenSurfaceSession();
+        surface.begin({
+            documentId: 'scan.pdf',
+            documentRevision: 'revision-1',
+        }, null, 1);
         const state = useWorkspaceViewerShellState({
             surfaceMode: 'reader',
             currentPage: 42,
@@ -30,7 +36,9 @@ describe('workspace viewer shell state', () => {
             sidebarTab: 'search',
             sidebarWidth: 396,
             continuousScroll: true,
-        });
+        }, surface);
+        // The view's page is the page its surface reports.
+        surface.observeViewportPage(42);
 
         expect(state.zoomState.value).toEqual({
             kind: 'fit',
@@ -71,7 +79,7 @@ describe('workspace viewer shell state', () => {
                     sidebarTab: 'thumbnails',
                     sidebarWidth: 272,
                     continuousScroll: true,
-                });
+                }, createDocumentOpenSurfaceSession());
                 const viewportWidth = ref(100);
                 const layouts = computed(() => resolveDocumentPageDisplayLayoutsBounded(
                     [{
@@ -129,7 +137,7 @@ describe('workspace viewer shell state', () => {
     });
 
     it('keeps the last bounded legacy mirror for an oversized compact selection', () => {
-        const state = useWorkspaceViewerShellState();
+        const state = useWorkspaceViewerShellState(null, createDocumentOpenSurfaceSession());
         state.totalPages.value = 200_000;
         state.setSelectedThumbnailPages([
             2,

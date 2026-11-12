@@ -9,8 +9,6 @@ import type { IRenderVisiblePagesOptions } from '@app/modules/pdf-viewer/engine/
 import type { IPdfViewportWritePort } from '@app/modules/pdf-viewer/runtime/viewport/pdfViewportWritePort';
 import type {IPdfPageLayoutMetrics} from '@app/modules/document-viewer/public';
 
-export interface ITransactionVisibleRangeCommitOptions { transactionId?: number | undefined }
-
 export interface IUsePdfSinglePageScrollOptions {
     viewerContainer: Ref<HTMLElement | null>;
     numPages: Ref<number>;
@@ -20,23 +18,7 @@ export interface IUsePdfSinglePageScrollOptions {
     continuousScroll: Ref<boolean>;
     isLoading: Ref<boolean>;
     pdfDocument: ShallowRef<IPdfDocument | null>;
-    getMostVisiblePage: (
-        container: HTMLElement | null,
-        numPages: number,
-    ) => number;
     updateVisibleRange: (container: HTMLElement | null, numPages: number) => void;
-    updateCurrentPage: (
-        container: HTMLElement | null,
-        numPages: number,
-        options?: { requireAuthoritative?: boolean; },
-    ) => number;
-    commitVisibleRange?: ((
-        range: {
-            start: number;
-            end: number;
-        },
-        options?: ITransactionVisibleRangeCommitOptions,
-    ) => boolean | undefined) | undefined;
     renderVisiblePages: (
         range: {
             start: number;
@@ -52,8 +34,6 @@ export interface IUsePdfSinglePageScrollOptions {
         start: number;
         end: number;
     }>;
-    emitCurrentPage: (page: number) => void;
-    emitNavigationFeedbackPage?: ((page: number | null) => void) | undefined;
     viewportWritePort: IPdfViewportWritePort;
     getPhysicalScrollOrigin: () => number;
     getPageLayoutMetrics?: (() => IPdfPageLayoutMetrics | null) | undefined;

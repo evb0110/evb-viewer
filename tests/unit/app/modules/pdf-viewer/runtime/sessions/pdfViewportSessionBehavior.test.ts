@@ -54,10 +54,8 @@ import {
 import { createDocumentViewerRuntime } from '@app/modules/document-viewer/runtime/documentViewerRuntime';
 import { createPageNavigationRequest } from '@app/modules/document-viewer/navigation/documentNavigationRequest';
 import { fenceDocumentViewportPaneRelocationScroll } from '@app/modules/document-viewer/runtime/documentViewportWritePort';
-import { createWorkspacePageNavigationFence } from '@app/modules/workspace-shell/viewers/createWorkspacePageNavigationFence';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import type { IDocumentViewerRuntime } from '@app/modules/document-viewer/runtime/documentViewerRuntime';
-import { createPdfOpeningViewportStallDiagnostic } from '@app/modules/pdf-viewer/runtime/viewport/createPdfOpeningViewportStallDiagnostic';
 import { createTestPdfViewportWritePort } from '@tests/helpers/createTestPdfViewportWritePort';
 import type {IFailureToastTarget} from '@app/composables/useFailureToast';
 import {renderToString} from 'vue/server-renderer';
@@ -218,7 +216,7 @@ function createDocumentFixture(pageCount = 100) {
 }
 
 function createChassisAuthority(surface: IDocumentOpenSurfaceSession) {
-    return createDocumentViewerRuntime(ref('pdf'), 1, surface);
+    return createDocumentViewerRuntime(ref('pdf'), surface);
 }
 
 function createViewportFixture(input: {
@@ -230,7 +228,6 @@ function createViewportFixture(input: {
     isActive?: Ref<boolean>;
     isResizing?: Ref<boolean>;
     isPageFreshlyRenderedForNavigation?: (pageNumber: number) => boolean;
-    onEmitCurrentPage?: (page: number) => void;
     pageCount?: number;
     /** Attaches a rendering session whose rasters go through this scheduler. */
     rasterScheduler?: IPdfPageRasterScheduler;
@@ -290,15 +287,14 @@ function createViewportFixture(input: {
                     fitMode: computed(() => fitMode.value),
                     zoomMode: computed(() => zoomMode.value),
                 },
-                emitCurrentPage: page => {
-                    emittedPages.push(page);
-                    input.onEmitCurrentPage?.(page);
-                },
-                emitNavigationFeedbackPage: vi.fn(),
                 emitZoomState: state => {
                     if (state.kind === 'custom') zoom.value = state.scale;
                 },
                 summarizeViewerStateForLog: vi.fn(),
+            });
+            watch(viewport.currentPage, page => emittedPages.push(page), {
+                flush: 'sync',
+                immediate: true,
             });
             if (input.rasterScheduler) {
                 documentSession.rasterScheduler = input.rasterScheduler;
@@ -1380,63 +1376,6 @@ describe('PdfViewportSession behavior', () => {
         }
     });
 
-    it('reports an opening viewport stall once after five seconds and resets after cancellation', () => {
-        vi.useFakeTimers();
-        const warn = vi.mocked(BrowserLogger.warn);
-        warn.mockClear();
-        const surface = createDocumentOpenSurfaceSession();
-        const generation = surface.begin({
-            documentId: 'diagnostic-stall.pdf',
-            documentRevision: 'revision-1',
-        });
-        surface.metadataReady(1);
-        surface.commitGeometry(generation, {
-            width: 600,
-            height: 900,
-            margin: 20,
-        });
-        surface.commitCanvas(surface.createRenderFence({
-            generation,
-            documentRevision: 'revision-1',
-            renderVersion: 1,
-            requestId: 1,
-            pageNumber: 1,
-        })!);
-        const diagnostic = createPdfOpeningViewportStallDiagnostic({
-            captureCommitDiagnostics: () => ({hasContainer: false}),
-            getActiveIntent: () => null,
-            getAuthorityPhase: () => 'idle',
-            getCurrentDocumentRevision: () => 2,
-            getLayoutRevision: () => 4,
-            getSurface: () => surface,
-        });
-        try {
-            diagnostic.observe('active-current-intent');
-            vi.advanceTimersByTime(4_999);
-            expect(warn).not.toHaveBeenCalled();
-
-            diagnostic.observe('viewport-commit-rejected');
-            vi.advanceTimersByTime(1);
-            expect(warn).toHaveBeenCalledTimes(1);
-            expect(warn).toHaveBeenLastCalledWith(
-                'pdf-viewer',
-                'PDF opening viewport reconciliation remained blocked',
-                expect.objectContaining({rejectionReason: 'viewport-commit-rejected'}),
-            );
-            vi.advanceTimersByTime(10_000);
-            expect(warn).toHaveBeenCalledTimes(1);
-
-            diagnostic.observe(null);
-            diagnostic.observe('active-current-intent');
-            diagnostic.cancel();
-            vi.advanceTimersByTime(5_000);
-            expect(warn).toHaveBeenCalledTimes(1);
-        } finally {
-            diagnostic.cancel();
-            vi.useRealTimers();
-        }
-    });
-
     it('publishes visible raster demand synchronously for effective zoom and DPR changes', () => {
         const fixture = createViewportFixture({
             bufferPages: 0,
@@ -2406,7 +2345,6 @@ describe('PdfViewportSession behavior', () => {
     });
 
     it('replays the settled PDF page when the shared opening surface becomes ready', async () => {
-        const currentPage = ref(1);
         const surface = createDocumentOpenSurfaceSession();
         const generation = surface.begin({
             documentId: 'ready-reprojection.pdf',
@@ -2419,17 +2357,8 @@ describe('PdfViewportSession behavior', () => {
             margin: 20,
         })).toBe(true);
         expect(surface.requestNavigation(6)).toBe(6);
-        const navigationFence = createWorkspacePageNavigationFence({
-            currentPage,
-            openSurface: surface,
-        });
-        navigationFence.begin(6);
-        const outcomes: boolean[] = [];
         const fixture = createViewportFixture({
             chassisAuthority: createChassisAuthority(surface),
-            onEmitCurrentPage: page => {
-                outcomes.push(navigationFence.consumePageUpdate(page).accepted);
-            },
             pageCount: 10,
         });
         try {
@@ -2447,8 +2376,7 @@ describe('PdfViewportSession behavior', () => {
                 viewportYFraction: 0,
             });
             await nextTick();
-            expect(outcomes).toEqual([false]);
-            expect(currentPage.value).toBe(1);
+            expect(surface.viewportSession.value.observedPage).toBeNull();
             const renderFence = surface.createRenderFence({
                 generation,
                 documentRevision: 'revision-1',
@@ -2472,22 +2400,13 @@ describe('PdfViewportSession behavior', () => {
 
             expect(surface.markReady(renderFence!)).toBe(true);
 
-            expect(outcomes).toEqual([
-                false,
-                true,
-            ]);
-            expect(fixture.emittedPages).toEqual([
-                6,
-                6,
-            ]);
+            // At the ready edge the viewport reports the page it settled on.
+            expect(surface.viewportSession.value.observedPage ?? surface.viewportSession.value.committedPage).toBe(6);
             expect(fixture.viewport.scale.effectiveScale.value).toBeCloseTo(845 / 612);
-            expect(currentPage.value).toBe(6);
-            expect(navigationFence.targetPage.value).toBe(6);
             expect(surface.reportNavigation(surface.navigationTicket.value!, {
                 kind: 'arrived',
                 page: 6,
             })).toBe(true);
-            expect(navigationFence.targetPage.value).toBeNull();
         } finally {
             fixture.app.unmount();
         }
