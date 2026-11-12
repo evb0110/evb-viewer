@@ -1,6 +1,5 @@
 const {readdirSync} = require('node:fs');
 const {posix} = require('node:path');
-const {makeRe} = require('minimatch');
 
 const moduleEntrypoints = [
     'public', 'index.ts', 'index.tsx', 'index.js', 'index.mjs', 'public.ts', 'public.tsx',
@@ -8,15 +7,18 @@ const moduleEntrypoints = [
     'public/index.js', 'public/index.mjs',
 ];
 const boundaryRules = [];
-// Use the same glob semantics as the former import-boundary zones. Exceptions
-// allow both an entrypoint file and descendants of an allowed public directory.
+// A string is a path prefix (the path itself or anything below it); a RegExp
+// is used as is. Exceptions allow both an entrypoint file and descendants of
+// an allowed public directory.
 const escapeRegex = value => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-const pathPattern = value => {
-    if (value instanceof RegExp) return value.source;
-    return /[*!]/u.test(value)
-        ? makeRe(value).source
-        : `^${escapeRegex(value)}(?:/|$)`;
-};
+const pathPattern = value => value instanceof RegExp
+    ? value.source
+    : `^${escapeRegex(value)}(?:/|$)`;
+// Files at least one directory below `root`, outside the excluded child directories.
+const belowExcept = (root, excluded) => new RegExp(
+    `^${escapeRegex(root)}/(?!(?:${excluded.map(escapeRegex).join('|')})/)[^/]+/.+$`,
+    'u',
+);
 const pathsPattern = values => `(?:${[].concat(values).map(pathPattern).join('|')})`;
 const addZone = (target, from, except = []) => boundaryRules.push({
     name: `boundary-${boundaryRules.length + 1}`,
@@ -60,7 +62,7 @@ for (const [source, allowed] of [
     ['packages/scan-cleanup', ['scan-cleanup', 'contracts']],
     ['packages/chrome-extension', ['chrome-extension', 'contracts']],
 ]) addZone(source, 'packages', allowed.map(name => `./${name}`));
-addZone('packages/!(contracts|pdf-core|ocr-core|agent-core|release-selection|scan-cleanup|chrome-extension)/**/*', 'packages/contracts');
+addZone(belowExcept('packages', ['contracts', 'pdf-core', 'ocr-core', 'agent-core', 'release-selection', 'scan-cleanup', 'chrome-extension']), 'packages/contracts');
 
 for (const [prefix, allowed] of [
     ['app/modules', moduleEntrypoints],
@@ -91,7 +93,7 @@ for (const ownerRoot of ['app/platform/browser-api', 'app/modules/document-viewe
     for (const child of appChildren) {
         if (ownerRoot.startsWith(`app/${child}/`)) {
             const ownerName = ownerRoot.slice(`app/${child}/`.length);
-            addZone(`app/${child}/!(${ownerName})/**/*`, ownerRoot, ['public.ts']);
+            addZone(belowExcept(`app/${child}`, [ownerName]), ownerRoot, ['public.ts']);
         } else {
             addZone(`app/${child}`, ownerRoot, ['public.ts']);
         }
@@ -114,10 +116,10 @@ for (const owner of readdirSync('electron/features', {withFileTypes: true}).filt
     const entrypoints = [...moduleEntrypoints, 'contract.ts'];
     addZone([
         'electron/bootstrap',
-        'electron/platform-ipc/!(featureRegistrationDescriptors.ts)',
-        'electron/platform-ipc/*/**/*',
-        'electron/preload/!(createElectronApi.ts)',
-        'electron/preload/*/**/*',
+        /^electron\/platform-ipc\/(?!featureRegistrationDescriptors\.ts$)[^/]+$/u,
+        /^electron\/platform-ipc\/[^/]+\/.+$/u,
+        /^electron\/preload\/(?!createElectronApi\.ts$)[^/]+$/u,
+        /^electron\/preload\/[^/]+\/.+$/u,
     ], featureRoot, entrypoints);
     addZone('electron/platform-ipc/featureRegistrationDescriptors.ts', featureRoot, [
         ...entrypoints,
