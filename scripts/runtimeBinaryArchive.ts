@@ -247,15 +247,17 @@ async function fetchVerifiedRuntimeArchiveEntry({
     cacheDirectory,
     manifest,
     entry,
+    label,
     cacheKey,
     transport,
 }: {
     cacheDirectory: string;
     manifest: IRuntimeBinaryManifest;
-    entry: Pick<IRuntimeBinaryManifestEntry, 'archiveBytes' | 'archiveKind' | 'archiveSha256' | 'archiveUrl' | 'executableEntry' | 'familyId' | 'target'>;
+    entry: Pick<IRuntimeBinaryManifestEntry, 'archiveBytes' | 'archiveKind' | 'archiveSha256' | 'archiveUrl'>;
+    label: string;
     cacheKey: string;
     transport: TRuntimeBinaryArchiveTransport;
-}): Promise<IRuntimeBinaryArchiveResult> {
+}): Promise<string> {
     await mkdir(cacheDirectory, {recursive: true});
     const archivePath = archivePathFor(cacheDirectory, manifest, {
         ...entry,
@@ -267,10 +269,7 @@ async function fetchVerifiedRuntimeArchiveEntry({
             cacheStats.size === entry.archiveBytes
             && await sha256File(archivePath) === entry.archiveSha256
         ) {
-            return {
-                archivePath,
-                entry,
-            };
+            return archivePath;
         }
         await rm(archivePath, {force: true});
     } catch {
@@ -291,7 +290,7 @@ async function fetchVerifiedRuntimeArchiveEntry({
             }
             if (receivedBytes > entry.archiveBytes) {
                 throw new Error(
-                    `Runtime archive ${entry.familyId}:${entry.target.platformArch} exceeded its expected ${entry.archiveBytes}-byte length.`,
+                    `Runtime archive ${label} exceeded its expected ${entry.archiveBytes}-byte length.`,
                 );
             }
             digest.update(chunk);
@@ -303,22 +302,19 @@ async function fetchVerifiedRuntimeArchiveEntry({
         await handle.sync();
         if (receivedBytes !== entry.archiveBytes) {
             throw new Error(
-                `Runtime archive ${entry.familyId}:${entry.target.platformArch} has ${receivedBytes} bytes, expected ${entry.archiveBytes}.`,
+                `Runtime archive ${label} has ${receivedBytes} bytes, expected ${entry.archiveBytes}.`,
             );
         }
         const actualSha256 = digest.digest('hex');
         if (actualSha256 !== entry.archiveSha256) {
             throw new Error(
-                `Runtime archive ${entry.target.platformArch} SHA-256 ${actualSha256} does not match ${entry.archiveSha256}.`,
+                `Runtime archive ${label} SHA-256 ${actualSha256} does not match ${entry.archiveSha256}.`,
             );
         }
         await handle.close();
         handle = null;
         await rename(partialPath, archivePath);
-        return {
-            archivePath,
-            entry,
-        };
+        return archivePath;
     } catch (error) {
         await handle?.close().catch(() => undefined);
         await removePartialDownload(partialPath);
@@ -355,13 +351,17 @@ export async function fetchVerifiedRuntimeArchive({
     ) {
         throw new Error(`Runtime target ${target.platformArch} does not match the manifest target.`);
     }
-    return fetchVerifiedRuntimeArchiveEntry({
-        cacheDirectory,
+    return {
+        archivePath: await fetchVerifiedRuntimeArchiveEntry({
+            cacheDirectory,
+            entry,
+            label: `${entry.familyId}:${entry.target.platformArch}`,
+            cacheKey: `${entry.familyId}-${entry.target.platformArch}`,
+            manifest,
+            transport,
+        }),
         entry,
-        cacheKey: `${entry.familyId}-${entry.target.platformArch}`,
-        manifest,
-        transport,
-    });
+    };
 }
 
 export async function fetchVerifiedRuntimeDataArchive({
@@ -379,22 +379,12 @@ export async function fetchVerifiedRuntimeDataArchive({
     if (!(manifest.dataEntries ?? []).includes(dataEntry)) {
         throw new Error(`Runtime manifest does not contain data resource ${dataEntry.resourceRoot}.`);
     }
-    const entry = {
-        ...dataEntry,
-        executableEntry: `${dataEntry.resourceRoot}/`,
-        familyId: 'tesseract' as const,
-        target: {
-            arch: 'x64' as const,
-            exeSuffix: '' as const,
-            platform: 'linux' as const,
-            platformArch: 'linux-x64' as const,
-        },
-    };
-    return fetchVerifiedRuntimeArchiveEntry({
+    return {archivePath: await fetchVerifiedRuntimeArchiveEntry({
         cacheDirectory,
-        entry,
+        entry: dataEntry,
+        label: dataEntry.resourceRoot,
         cacheKey: `data-${dataEntry.resourceRoot.replaceAll('/', '-')}`,
         manifest,
         transport,
-    });
+    })};
 }

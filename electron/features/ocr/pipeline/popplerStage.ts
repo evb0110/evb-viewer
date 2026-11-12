@@ -1,7 +1,4 @@
-import {
-    rm,
-    stat,
-} from 'node:fs/promises';
+import {stat} from 'node:fs/promises';
 import {join} from 'node:path';
 import type {IOcrPageSizeInches} from '@electron/features/ocr/pipeline/pdfPageSizeProbe';
 import type {
@@ -15,18 +12,13 @@ import {
 import {isAbortError} from '@electron/utils/abort';
 import {getErrorMessage} from '@electron/utils/error';
 import {getUnprovenNativeTerminationDetail} from '@electron/utils/nativeTerminationProof';
-import {isOcrStorageFailure} from '@electron/features/ocr/pipeline/ocrJobStorageBudget';
 import {createScanCleanupRenderers} from '@evb/scan-cleanup/adapters/createScanCleanupRenderers';
-import {readPngDimensions} from '@evb/scan-cleanup/core/rasterLayerDimensions';
 import type {IScanCleanupRasterRenderLimits} from '@evb/scan-cleanup/core/types';
 export {buildPopplerEnv} from '@electron/native-tools/buildPopplerEnv';
 
 const QPDF_TIMEOUT_MS = 2 * 60 * 1000;
 const OCR_MAX_RASTER_PIXELS = 45_000_000;
 const OCR_MAX_RASTER_DIMENSION_PX = 40_000;
-// Coarse enough that even a wall-sized page stays a few thousand pixels, fine
-// enough that the recovered size is within 1/8 inch of the real page box.
-const OCR_PAGE_SIZE_PROBE_DPI = 8;
 
 export interface IPreparedPopplerPdf {
     pdfPath: string;
@@ -41,17 +33,18 @@ export const renderPdfPageToPng = renderers.renderPage;
 export const renderPdfPageToPpm = renderers.renderPagePpm;
 
 // Most PDFs are directly readable by Poppler. Keep normalization as repair,
-// not a full-document copy paid by every single-page OCR request.
-export async function renderOcrPageToPng(
-    args: Parameters<typeof renderPdfPageToPng>,
+// not a full-document copy paid by every single-page OCR request. The engine
+// reads Poppler's own PPM; a PNG would only re-encode the same pixels.
+export async function renderOcrPageToPpm(
+    args: Parameters<typeof renderPdfPageToPpm>,
     prepareFallback: () => Promise<IPreparedPopplerPdf>,
 ) {
     try {
-        await renderPdfPageToPng(...args);
+        await renderPdfPageToPpm(...args);
     } catch (error) {
         const signal = args[7];
         if (signal?.aborted || isAbortError(error) || error instanceof RangeError
-            || error instanceof TypeError || isOcrStorageFailure(error) || getUnprovenNativeTerminationDetail(error) !== undefined) {
+            || error instanceof TypeError || getUnprovenNativeTerminationDetail(error) !== undefined) {
             throw error;
         }
         const prepared = await prepareFallback();
@@ -59,7 +52,7 @@ export async function renderOcrPageToPng(
         if (prepared.pdfPath === args[3]) throw error;
         const fallbackArgs: typeof args = [...args];
         fallbackArgs[3] = prepared.pdfPath;
-        await renderPdfPageToPng(...fallbackArgs);
+        await renderPdfPageToPpm(...fallbackArgs);
     }
 }
 
@@ -73,53 +66,6 @@ export function createOcrRasterRenderLimits(
         maxPixels: OCR_MAX_RASTER_PIXELS,
         maxDimensionPx: OCR_MAX_RASTER_DIMENSION_PX,
     };
-}
-
-// A failed probe falls back to the post-render guard rather than failing a
-// page that the full render might still handle; only an abort propagates.
-export interface IOcrPageSizeProbeSource {
-    popplerSourcePdfPath: string;
-    popplerEnv?: NodeJS.ProcessEnv | undefined;
-    signal?: AbortSignal | undefined;
-}
-
-export async function probeOcrPageSizeInches(
-    paths: Parameters<typeof renderPdfPageToPng>[0],
-    log: TWorkerLog,
-    pageNumber: number,
-    source: IOcrPageSizeProbeSource,
-    probeImagePath: string,
-): Promise<IOcrPageSizeInches | undefined> {
-    const {signal} = source;
-    let failure: unknown;
-    try {
-        await renderPdfPageToPng(
-            paths,
-            log,
-            pageNumber,
-            source.popplerSourcePdfPath,
-            probeImagePath,
-            OCR_PAGE_SIZE_PROBE_DPI,
-            source.popplerEnv,
-            signal,
-        );
-        const dimensions = await readPngDimensions(probeImagePath);
-        return {
-            width: dimensions.width / OCR_PAGE_SIZE_PROBE_DPI,
-            height: dimensions.height / OCR_PAGE_SIZE_PROBE_DPI,
-        };
-    } catch (err) {
-        failure = err;
-        if (signal?.aborted || isAbortError(err) || getUnprovenNativeTerminationDetail(err) !== undefined) {
-            throw err;
-        }
-        log('warn', `Page ${pageNumber} size probe failed; relying on the post-render raster guard: ${getErrorMessage(err)}`);
-        return undefined;
-    } finally {
-        if (getUnprovenNativeTerminationDetail(failure) === undefined) {
-            await rm(probeImagePath, {force: true}).catch(() => undefined);
-        }
-    }
 }
 
 export async function preparePdfForPoppler(

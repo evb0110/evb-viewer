@@ -175,8 +175,7 @@ describe('ensureRuntimeTessdataSeeded', () => {
         vi.unstubAllGlobals();
     });
 
-    it('shares one async seed and restores the font even when a prior copy exists', async () => {
-        mocks.installedPaths.add(join('/tmp/electron-user-data/tessdata/pdf.ttf'));
+    it('shares one async seed of the bundled models', async () => {
         const {
             ensureRuntimeTessdataSeeded,
             getRuntimeTessdataDir,
@@ -191,11 +190,10 @@ describe('ensureRuntimeTessdataSeeded', () => {
 
         expect(mocks.readdir).toHaveBeenCalledTimes(1);
         expect(mocks.mkdir).toHaveBeenCalledTimes(1);
-        expect(mocks.copyFile).toHaveBeenCalledTimes(3);
+        expect(mocks.copyFile).toHaveBeenCalledTimes(2);
         expect(mocks.copyFile.mock.calls.map(call => call[0])).toEqual([
             join('/tmp/resources/tesseract/tessdata/eng.traineddata'),
             join('/tmp/resources/tesseract/tessdata/rus.traineddata'),
-            join('/tmp/resources/tesseract/tessdata/pdf.ttf'),
         ]);
         expect(mocks.copyFile.mock.calls.every(call => (
             typeof call[1] === 'string'

@@ -232,10 +232,6 @@ console.log(executablePath);
     if (hostTag) {
         const nativeResourcePaths = [
             [
-                'tesseract',
-                join(projectRoot, 'resources', 'tesseract', hostTag, 'bin', process.platform === 'win32' ? 'tesseract.exe' : 'tesseract'),
-            ],
-            [
                 'pdfinfo',
                 join(projectRoot, 'resources', 'poppler', hostTag, 'bin', process.platform === 'win32' ? 'pdfinfo.exe' : 'pdfinfo'),
             ],
@@ -280,7 +276,6 @@ console.log(executablePath);
 
     if (process.platform === 'linux') {
         const missingSystemTools = [
-            'tesseract',
             'pdfinfo',
             'pdftoppm',
             'pdftotext',

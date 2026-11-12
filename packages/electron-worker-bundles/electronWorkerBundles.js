@@ -1,5 +1,5 @@
 /**
- * @typedef {'pdf-combine' | 'pdf-conformance' | 'document-save-utility' | 'scan-cleanup' | 'pdf-text' | 'page-ops-crop' | 'image-export-tiff' | 'djvu-pdf'} TWorkerBundleId
+ * @typedef {'pdf-combine' | 'pdf-conformance' | 'document-save-utility' | 'scan-cleanup' | 'pdf-text' | 'page-ops-crop' | 'image-export-tiff' | 'djvu-pdf' | 'ocr-engine'} TWorkerBundleId
  */
 
 /**
@@ -67,6 +67,13 @@ export const WORKER_BUNDLES = [
         id: 'djvu-pdf',
         entryPoint: 'electron/features/djvu/main/pdfWorker.ts',
         fileName: 'djvu-pdfWorker.js',
+        format: 'esm',
+        unpacked: true,
+    },
+    {
+        id: 'ocr-engine',
+        entryPoint: 'electron/features/ocr/main/ocrEngineWorker.ts',
+        fileName: 'ocr-engine-worker.js',
         format: 'esm',
         unpacked: true,
     },

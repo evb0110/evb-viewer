@@ -13,7 +13,6 @@ import {
     type INativeToolResourceFamily,
     type TNativeResourcePlatform,
 } from '@scripts/nativeResourceManifest';
-import {TESSERACT_PDF_FONT_FILE_NAME} from '@scripts/tesseractPdfFont';
 
 export interface IElectronBuilderResourcePlan {
     content: string;
@@ -108,17 +107,14 @@ async function assertOcrRegistryMatchesResources(root: string) {
         .filter(entry => entry.isFile() && entry.name.endsWith('.traineddata'))
         .map(entry => entry.name.slice(0, -'.traineddata'.length))
         .sort();
-    const hasPdfFont = (await readdir(tessdataDirectory, {withFileTypes: true}))
-        .some(entry => entry.isFile() && entry.name === TESSERACT_PDF_FONT_FILE_NAME);
     const bundledCodes = [...BUNDLED_OCR_LANGUAGE_CODES].sort();
     const missingModels = registryCodes.filter(code => !tessdataCodes.includes(code));
     const unregisteredModels = tessdataCodes.filter(code => !registryCodes.includes(code));
     const invalidBundledModels = bundledCodes.filter(code => !tessdataCodes.includes(code));
 
-    if (!hasPdfFont || missingModels.length > 0 || unregisteredModels.length > 0 || invalidBundledModels.length > 0) {
+    if (missingModels.length > 0 || unregisteredModels.length > 0 || invalidBundledModels.length > 0) {
         throw new Error([
             'OCR registry and tessdata_best resources are out of sync.',
-            `Missing Tesseract PDF font: ${hasPdfFont ? '(none)' : TESSERACT_PDF_FONT_FILE_NAME}`,
             `Missing traineddata: ${missingModels.join(', ') || '(none)'}`,
             `Unregistered traineddata: ${unregisteredModels.join(', ') || '(none)'}`,
             `Invalid bundled defaults: ${invalidBundledModels.join(', ') || '(none)'}`,
