@@ -25,7 +25,6 @@ interface IUsePdfRendererSearchControllerOptions extends IPdfRendererSearchNavig
     currentSearchMatch: MaybeRefOrGetter<IPdfSearchMatch | null>;
     currentSearchMatchNavigationId: MaybeRefOrGetter<number>;
     scheduleRenderForSinglePage: (pageNumber: TPageNumber) => void;
-    isPageRenderPending?: (pageNumber: TPageNumber) => boolean;
 }
 
 export const usePdfRendererSearchController = (options: IUsePdfRendererSearchControllerOptions) => {
@@ -98,7 +97,6 @@ export const usePdfRendererSearchController = (options: IUsePdfRendererSearchCon
         ...(options.isSearchTransactionCurrent ? { isSearchTransactionCurrent: options.isSearchTransactionCurrent } : {}),
         ...(options.settleSearchTransaction ? { settleSearchTransaction: options.settleSearchTransaction } : {}),
         ...(options.cancelSearchTransaction ? { cancelSearchTransaction: options.cancelSearchTransaction } : {}),
-        ...(options.isPageRenderPending ? { isPageRenderPending: options.isPageRenderPending } : {}),
     });
 
     let lastHandledSearchNavigationId = 0;

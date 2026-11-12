@@ -95,13 +95,11 @@ vi.mock('@app/modules/pdf-viewer/runtime/rendering/usePdfPageRenderer', async im
         ...original.usePdfPageRenderer(...args),
         // These canvas behavior fixtures do not acquire pages for optional DOM layers.
         renderLayerPromotions: async () => {},
-        renderCommittedPageLayers: async ({
-            pageNumber, version, requestId, container,
-        }: Parameters<ReturnType<typeof original.usePdfPageRenderer>['renderCommittedPageLayers']>[0], publishRaster?: () => boolean) => {
-            if (publishRaster && !publishRaster()) return;
-            args[0].pageRenderState.markLayersHydrating(pageNumber, version, requestId);
-            args[0].pageRenderState.markLayersCanvasOnly(pageNumber, version, requestId, container);
-            args[0].pageRenderState.completeRender(pageNumber, version, requestId);
+        renderCommittedPageLayers: async (
+            _commit: Parameters<ReturnType<typeof original.usePdfPageRenderer>['renderCommittedPageLayers']>[0],
+            publishRaster?: (layers: 'canvas-only') => boolean,
+        ) => {
+            publishRaster?.('canvas-only');
         },
     })};
 });

@@ -5,7 +5,6 @@ import {
 import type { TPageNumber } from '@contracts/pageNumbers';
 import type { usePdfTextLayerRenderer } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfTextLayerRenderer';
 import type {
-    IActivePdfTextLayerTask,
     IPdfLayerRenderResult,
     TClearSelectionBeforePageLayerTeardown,
     TPdfTextLayerCleanup,
@@ -14,10 +13,14 @@ import { PDF_PAGE_TEXT_LAYER_TIMEOUT_MS } from '@app/constants/timeouts';
 import { isPageRenderTimeoutError } from '@app/modules/pdf-viewer/engine/pdf-page-render-timeout/isPageRenderTimeoutError';
 import { withPageStageTimeout } from '@app/modules/pdf-viewer/engine/pdf-page-render-timeout/withPageStageTimeout';
 import { clearPdfSelectionForLayerTeardown } from '@app/modules/pdf-viewer/engine/pdf-selection-cleanup/clearPdfSelectionForLayerTeardown';
-import { isRenderCancellation } from '@app/modules/pdf-viewer/runtime/rendering/usePdfRendererAnnotationLayerController';
 import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
 
-export interface ITextLayerFailure {
+export function isRenderCancellation(error: unknown) {
+    const name = error && typeof error === 'object' ? (error as {name?: unknown}).name : undefined;
+    return name === 'AbortError' || name === 'RenderingCancelledException';
+}
+
+export interface IPdfLayerStageFailure {
     failure: FailureReceipt | undefined;
     error: unknown;
 }
@@ -29,14 +32,16 @@ interface ITextLayerRenderContext {
     textLayerDiv: HTMLDivElement | null;
 }
 
+/** The page's layer owner: its abort signal, and whether a newer owner replaced it. */
+interface ITextLayerOwner {
+    signal: AbortSignal;
+    isSuperseded: () => boolean;
+}
+
 interface IUsePdfRendererTextLayerControllerOptions {
     textLayerRenderer: ReturnType<typeof usePdfTextLayerRenderer>;
-    activeTextLayerAbortControllers: Map<TPageNumber, IActivePdfTextLayerTask>;
     textLayerCleanupFns: Map<TPageNumber, TPdfTextLayerCleanup>;
-    getRenderVersion: () => number;
     cleanupTextLayer: (pageNumber: TPageNumber) => void;
-    cancelActiveTextLayerRender: (pageNumber: TPageNumber) => void;
-    cancelActiveTextLayerRenderIfCurrent: (pageNumber: TPageNumber, version: number, requestId: number) => void;
     clearSelectionBeforePageLayerTeardown: TClearSelectionBeforePageLayerTeardown;
     logNonCriticalStageError: (pageNumber: TPageNumber, stage: string, error: unknown) => FailureReceipt | undefined;
 }
@@ -44,28 +49,23 @@ interface IUsePdfRendererTextLayerControllerOptions {
 export const usePdfRendererTextLayerController = (options: IUsePdfRendererTextLayerControllerOptions) => {
     const {
         textLayerRenderer,
-        activeTextLayerAbortControllers,
         textLayerCleanupFns,
-        getRenderVersion,
         cleanupTextLayer,
-        cancelActiveTextLayerRender,
-        cancelActiveTextLayerRenderIfCurrent,
         clearSelectionBeforePageLayerTeardown,
         logNonCriticalStageError,
     } = options;
 
     async function renderTextLayerForPage(
         pageNumber: TPageNumber,
-        version: number,
-        requestId: number,
         context: ITextLayerRenderContext,
         scale: number,
+        owner: ITextLayerOwner,
         shouldContinue: () => boolean,
         publish: () => boolean = () => true,
-    ): Promise<boolean | ITextLayerFailure> {
+    ): Promise<boolean | IPdfLayerStageFailure> {
         // A text layer that failed or timed out, rather than one a newer
         // render replaced; it is not tried again until asked.
-        let failure: ITextLayerFailure | null = null;
+        let failure: IPdfLayerStageFailure | null = null;
         const {
             container,
             pdfPage,
@@ -75,7 +75,7 @@ export const usePdfRendererTextLayerController = (options: IUsePdfRendererTextLa
         if (!textLayerDiv) {
             return publish();
         }
-        if (getRenderVersion() !== version || !shouldContinue()) {
+        if (!shouldContinue()) {
             return false;
         }
 
@@ -89,7 +89,6 @@ export const usePdfRendererTextLayerController = (options: IUsePdfRendererTextLa
             totalScaleFactor,
         } = renderResult;
 
-        cancelActiveTextLayerRender(pageNumber);
         let isTextLayerRendered = false;
         // A pure scale or rotation step reuses the mounted spans, so the
         // selection and the interaction handlers that hang off them survive.
@@ -98,10 +97,14 @@ export const usePdfRendererTextLayerController = (options: IUsePdfRendererTextLa
 
         const controller = new AbortController();
         const documentTeardown = readPdfPageDocumentTeardownSignal(pdfPage);
-        const signal = documentTeardown ? AbortSignal.any([
+        const signal = AbortSignal.any(documentTeardown ? [
             controller.signal,
+            owner.signal,
             documentTeardown,
-        ]) : controller.signal;
+        ] : [
+            controller.signal,
+            owner.signal,
+        ]);
         const cleanupText = () => {
             clearPdfSelectionForLayerTeardown({
                 target: textLayerDiv,
@@ -110,11 +113,6 @@ export const usePdfRendererTextLayerController = (options: IUsePdfRendererTextLa
             textLayerRenderer.cleanupTextLayerDom(textLayerDiv);
         };
         try {
-            activeTextLayerAbortControllers.set(pageNumber, {
-                version,
-                requestId,
-                controller,
-            });
             await withPageStageTimeout(
                 textLayerRenderer.renderTextLayer(
                     pdfPage,
@@ -131,10 +129,8 @@ export const usePdfRendererTextLayerController = (options: IUsePdfRendererTextLa
                     stage: 'text-layer',
                     timeoutMs: PDF_PAGE_TEXT_LAYER_TIMEOUT_MS,
                 },
-                () => getRenderVersion() === version && shouldContinue(),
-                () => {
-                    cancelActiveTextLayerRenderIfCurrent(pageNumber, version, requestId);
-                },
+                shouldContinue,
+                () => controller.abort(),
                 // Optional enrichment must not enter the canonical render-stall
                 // recovery loop; the local timeout and diagnostic error are enough.
                 undefined,
@@ -149,24 +145,16 @@ export const usePdfRendererTextLayerController = (options: IUsePdfRendererTextLa
             if (isPageRenderTimeoutError(textLayerError)) {
                 cleanupText();
                 // The canvas stays readable; the page offers Retry for its text.
-                isTextLayerRendered = false;
                 failure = {
                     failure: logNonCriticalStageError(pageNumber, 'text layer', textLayerError),
                     error: textLayerError,
                 };
-            } else if (
-                getRenderVersion() !== version
-                || !shouldContinue()
-                || isRenderCancellation(textLayerError)
-            ) {
-                // A newer render of this page cancelled this one and already
-                // owns the shared text layer; cleaning it here would erase
-                // that render's work.
-                const owner = activeTextLayerAbortControllers.get(pageNumber);
-                if (owner && owner.controller !== controller) {
-                    return false;
-                }
-                cleanupText();
+            } else if (!shouldContinue() || isRenderCancellation(textLayerError)) {
+                // A newer owner of this page already holds the shared text
+                // layer; cleaning it here would erase that render's work. A
+                // scale-only reuse is synchronous, so only a rebuild this
+                // render started can be left half-built.
+                if (!owner.isSuperseded() && didRebuildTextLayer) cleanupText();
                 return false;
             } else {
                 failure = {
@@ -179,17 +167,9 @@ export const usePdfRendererTextLayerController = (options: IUsePdfRendererTextLa
                 };
                 cleanupText();
             }
-        } finally {
-            const activeTextLayer = activeTextLayerAbortControllers.get(pageNumber);
-            if (
-                activeTextLayer?.version === version
-                && activeTextLayer.requestId === requestId
-            ) {
-                activeTextLayerAbortControllers.delete(pageNumber);
-            }
         }
 
-        if (getRenderVersion() !== version || !shouldContinue()) return false;
+        if (!shouldContinue()) return false;
         if (!publish()) {
             textLayerRenderer.cleanupTextLayerDom(textLayerDiv);
             return false;
