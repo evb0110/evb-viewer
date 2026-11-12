@@ -22,7 +22,6 @@ import type {
     IAnnotationInventoryCompleteness,
     TAnnotationCommentsStatus,
 } from '@app/types/annotations';
-import type {IAnnotationEnrichmentState} from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/annotationEnrichmentPolicy';
 import PdfAnnotationCommentsList from '@app/modules/pdf-viewer/components/PdfAnnotationCommentsList.vue';
 
 vi.mock('@app/composables/useTypedI18n', async (importOriginal) => ({
@@ -37,7 +36,6 @@ async function mountList(options: {
     comments?: IAnnotationCommentSummary[];
     status?: TAnnotationCommentsStatus;
     inventory?: IAnnotationInventoryCompleteness;
-    enrichmentState?: IAnnotationEnrichmentState;
 } = {}) {
     const state = reactive({
         comments: options.comments ?? [],
@@ -167,20 +165,6 @@ describe('PdfAnnotationCommentsList empty state', () => {
             failedPageCount: 1,
         }});
         expect(host.querySelector('[data-testid="annotation-inventory-incomplete"]')).not.toBeNull();
-        expect(host.querySelector('.document-panel-empty-state__description')).toBeNull();
-    });
-
-    it.each([
-        'failed',
-        'skipped',
-    ] as const)('preserves the %s enrichment notice and retry action', async status => {
-        const {host} = await mountList({enrichmentState: {
-            status,
-            reason: status === 'skipped' ? 'unreadable-source' : null,
-            canRetry: true,
-        }});
-        expect(host.querySelector('.notes-enrichment-notice')).not.toBeNull();
-        expect(host.querySelector('.notes-enrichment-retry')).not.toBeNull();
         expect(host.querySelector('.document-panel-empty-state__description')).toBeNull();
     });
 });

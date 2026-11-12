@@ -31,7 +31,6 @@
         :annotation-comments="annotations.annotationComments.value"
         :annotation-comments-status="annotations.annotationCommentsStatus.value"
         :annotation-inventory="annotations.annotationInventory.value"
-        :annotation-enrichment-state="annotations.annotationEnrichmentState.value"
         :selected-annotations="annotations.selectedAnnotations.value"
         :can-rotate-annotations="pdfViewer?.canRotateSelectedAnnotations"
         :bookmark-edit-mode="bookmarkState.bookmarkEditMode.value"

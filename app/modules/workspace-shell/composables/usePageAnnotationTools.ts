@@ -7,9 +7,6 @@ import type {
     TAnnotationCommentsStatus,
 } from '@app/types/annotations';
 import { DEFAULT_ANNOTATION_SETTINGS } from '@app/constants/annotationDefaults';
-import type { IAnnotationEnrichmentState } from '@app/modules/pdf-viewer/public';
-import {PENDING_ANNOTATION_ENRICHMENT_STATE} from '@app/modules/pdf-viewer/public';
-
 
 interface IPageAnnotationToolsDeps {
     clearAnnotationChanges: () => void;
@@ -29,7 +26,6 @@ export const usePageAnnotationTools = (deps: IPageAnnotationToolsDeps) => {
     // Null means "no inventory has reported yet"; a complete inventory reports
     // a completeness record with `complete: true`.
     const annotationInventory = ref<IAnnotationInventoryCompleteness | null>(null);
-    const annotationEnrichmentState = ref<IAnnotationEnrichmentState>(PENDING_ANNOTATION_ENRICHMENT_STATE);
     const annotationActiveCommentStableKey = ref<string | null>(null);
     const annotationEditorState = ref<IAnnotationEditorState>({
         isEditing: false,
@@ -126,15 +122,10 @@ export const usePageAnnotationTools = (deps: IPageAnnotationToolsDeps) => {
         annotationComments.value = [];
         annotationCommentsStatus.value = 'loading';
         annotationInventory.value = null;
-        annotationEnrichmentState.value = PENDING_ANNOTATION_ENRICHMENT_STATE;
     }
 
     function applyAnnotationInventory(completeness: IAnnotationInventoryCompleteness | null) {
         annotationInventory.value = completeness;
-    }
-
-    function applyAnnotationEnrichmentState(state: IAnnotationEnrichmentState) {
-        annotationEnrichmentState.value = state;
     }
 
     return {
@@ -143,7 +134,6 @@ export const usePageAnnotationTools = (deps: IPageAnnotationToolsDeps) => {
         annotationComments,
         annotationCommentsStatus,
         annotationInventory,
-        annotationEnrichmentState,
         annotationActiveCommentStableKey,
         annotationEditorState,
         annotationRevision,
@@ -159,7 +149,6 @@ export const usePageAnnotationTools = (deps: IPageAnnotationToolsDeps) => {
         markAnnotationCommentsLoading,
         applyAnnotationComments,
         applyAnnotationInventory,
-        applyAnnotationEnrichmentState,
         clearAnnotationComments,
     };
 };

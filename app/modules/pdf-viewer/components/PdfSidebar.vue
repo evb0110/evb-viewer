@@ -17,7 +17,6 @@
                 :comments="annotationComments"
                 :comments-status="annotationCommentsStatus"
                 :inventory="annotationInventory"
-                :enrichment-state="annotationEnrichmentState"
                 :selected-annotations="selectedAnnotations"
                 :can-rotate-annotations="canRotateAnnotations"
                 :keep-active="annotationKeepActive"
@@ -29,7 +28,6 @@
                 @edit-text-box="emit('annotation-edit-text-box', $event)"
                 @open-note="openAnnotationNote"
                 @delete-comment="deleteAnnotationComment"
-                @retry-enrichment="retryAnnotationEnrichment"
             />
 
             <DocumentSidebarPagesPanel
@@ -141,9 +139,7 @@ import type {
 } from '@app/types/annotations';
 import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfScroll';
 import type { TPdfSidebarTab } from '@app/modules/pdf-viewer/runtime/contracts/pdfViewerExpose.types';
-import type { IAnnotationEnrichmentState } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/annotationEnrichmentPolicy';
 import type { AnnotationEntity } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
-import { PENDING_ANNOTATION_ENRICHMENT_STATE } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/annotationEnrichmentPolicy';
 import PdfAnnotationsPanel from '@app/modules/pdf-viewer/components/PdfAnnotationsPanel.vue';
 import PdfOutline from '@app/modules/pdf-viewer/components/PdfOutline.vue';
 import PdfPageSelectionBar from '@app/modules/pdf-viewer/components/PdfPageSelectionBar.vue';
@@ -197,7 +193,6 @@ interface IProps {
     annotationComments: IAnnotationCommentSummary[];
     annotationCommentsStatus: TAnnotationCommentsStatus;
     annotationInventory?: IAnnotationInventoryCompleteness | null | undefined;
-    annotationEnrichmentState?: IAnnotationEnrichmentState | undefined;
     selectedAnnotations?: readonly AnnotationEntity[] | undefined;
     canRotateAnnotations?: ((delta: -90 | 90) => boolean) | undefined;
     bookmarkEditMode: boolean;
@@ -228,7 +223,6 @@ const {
     annotationComments,
     annotationCommentsStatus,
     annotationInventory = null,
-    annotationEnrichmentState = PENDING_ANNOTATION_ENRICHMENT_STATE,
     bookmarkItems = undefined,
     bookmarkNavigationIntentVersion,
     bookmarksDirty,
@@ -288,7 +282,6 @@ const emit = defineEmits<{
     'annotation-focus-comment': [comment: IAnnotationCommentSummary];
     'annotation-open-note': [comment: IAnnotationCommentSummary];
     'annotation-delete-comment': [comment: IAnnotationCommentSummary];
-    'annotation-retry-enrichment': [];
     'bookmarks-change': [payload: IPdfBookmarkChangePayload];
     'page-context-menu': [payload: {
         clientX: number;
@@ -432,10 +425,6 @@ function openAnnotationNote(comment: IAnnotationCommentSummary) {
 
 function deleteAnnotationComment(comment: IAnnotationCommentSummary) {
     emit('annotation-delete-comment', comment);
-}
-
-function retryAnnotationEnrichment() {
-    emit('annotation-retry-enrichment');
 }
 
 function getSelectedPagePayload(): TPageSelectionInput {

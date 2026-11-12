@@ -212,34 +212,6 @@ describe('usePageAnnotationTools', () => {
         expect(tools.annotationInventory.value).toBeNull();
     });
 
-    it('holds the viewer enrichment verdict and forgets it when the document is swapped', () => {
-        const { tools } = createHarness();
-
-        expect(tools.annotationEnrichmentState.value.status).toBe('pending');
-
-        tools.applyAnnotationEnrichmentState({
-            status: 'skipped',
-            reason: 'over-byte-limit',
-            canRetry: false,
-        });
-
-        expect(tools.annotationEnrichmentState.value).toEqual({
-            status: 'skipped',
-            reason: 'over-byte-limit',
-            canRetry: false,
-        });
-
-        // The next document has not been read yet. Carrying the previous
-        // verdict over would tell the user a fresh file was skipped.
-        tools.clearAnnotationComments();
-
-        expect(tools.annotationEnrichmentState.value).toEqual({
-            status: 'pending',
-            reason: null,
-            canRetry: false,
-        });
-    });
-
     it('marks dirty from a modified signal when the editor stack is empty but live annotation changes remain', () => {
         const {
             deps,
