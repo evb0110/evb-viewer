@@ -244,7 +244,7 @@ function baseEntityFields(author: string | null) {
     };
 }
 
-function textMarkupStyle(
+export function textMarkupStyle(
     settings: IAnnotationSettings | null,
     subtype: TMarkupSubtype,
 ) {

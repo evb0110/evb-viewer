@@ -27,15 +27,8 @@ vi.mock('@app/composables/useTypedI18n', async (importOriginal) => ({
 
 function mountToolbar() {
     const prepareAnnotationToolChange = vi.fn();
-    const clearSelectedShape = vi.fn();
     const tools = useViewAnnotationTool({
-        pdfViewerRef: ref({
-            prepareAnnotationToolChange,
-            clearSelectedShape,
-            selectedShapeId: null,
-            getSelectedShape: () => null,
-            updateShape: vi.fn(),
-        }),
+        pdfViewerRef: ref({prepareAnnotationToolChange}),
         dragMode: ref(false),
         annotationKeepActive: ref(true),
         closeAnnotationContextMenu: vi.fn(),
@@ -67,7 +60,6 @@ function mountToolbar() {
         button,
         click,
         prepareAnnotationToolChange,
-        clearSelectedShape,
     };
 }
 
@@ -90,13 +82,11 @@ describe('annotation toolbar tool selection', () => {
         expect(toolbar.tools.annotationTool.value).toBe(tool);
         expect(toolbar.button(tool).getAttribute('aria-pressed')).toBe('true');
         toolbar.prepareAnnotationToolChange.mockClear();
-        toolbar.clearSelectedShape.mockClear();
         await toolbar.click(tool);
         expect(toolbar.tools.annotationTool.value).toBe('select');
         expect(toolbar.button(tool).getAttribute('aria-pressed')).toBe('false');
         expect(toolbar.button('select').getAttribute('aria-pressed')).toBe('true');
         expect(toolbar.prepareAnnotationToolChange).toHaveBeenCalledOnce();
-        expect(toolbar.clearSelectedShape).not.toHaveBeenCalled();
     });
 
     it('activates a different tool and leaves selection active when clicked again', async () => {

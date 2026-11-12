@@ -6,8 +6,6 @@ import type {
     IAnnotationPropertyUpdate,
     IAnnotationMarkerRect,
     IShapeAnnotation,
-    TShapeAnnotationPatch,
-    ITextMarkupAnnotationProperties,
     TMarkupSubtype,
 } from '@app/types/annotations';
 import type {IPageIdentityDelta} from '@contracts/electronApiPageOps';
@@ -194,15 +192,6 @@ export interface IPdfViewerAnnotationCommandExpose {
 }
 
 export interface IPdfViewerAnnotationCommentExpose {
-    ensurePdfAnnotationNameReconciliation?: (
-        reason: 'annotations-ui-open' | 'existing-annotation-mutation',
-    ) => Promise<
-        | 'reconciled'
-        | 'already-reconciled'
-        | 'skipped-over-limit'
-        | 'stale'
-        | 'failed'
-    >;
     focusAnnotationComment: (comment: IAnnotationCommentSummary) => Promise<void>;
     updateAnnotationComment: (
         comment: IAnnotationCommentSummary,
@@ -212,14 +201,8 @@ export interface IPdfViewerAnnotationCommentExpose {
     deleteAnnotationComment: (comment: IAnnotationCommentSummary) => Promise<boolean>;
     /** Remove a reopened editor and tombstone its canonical entity in one history transaction. */
     deleteReopenedEditorAnnotation?: (comment: IAnnotationCommentSummary) => Promise<boolean>;
-    getAnnotationCommentsSnapshot?: () => IAnnotationCommentSummary[];
     deleteEmbeddedAnnotationDeferred?: (comment: IAnnotationCommentSummary) => boolean;
     removeAnnotationFromDom: (comment: IAnnotationCommentSummary) => void;
-    removeAnnotationFromInternalCache: (stableKey: string) => void;
-    updateSelectedTextMarkupAnnotationColor?: (
-        color: string,
-        selected: ITextMarkupAnnotationProperties,
-    ) => boolean;
     updateTextMarkupAnnotationColor?: (comment: IAnnotationCommentSummary, color: string) => boolean;
 }
 
@@ -227,13 +210,9 @@ export interface IPdfViewerShapeExpose {
     getAllShapes: () => IShapeAnnotation[];
     getDeletedEmbeddedShapeAnnotationIds: () => string[];
     getDeletedEmbeddedShapeStableKeys?: () => string[];
-    clearShapes: () => void;
-    clearSelectedShape: () => void;
+    /** Deletes the view's selected annotations (the Delete key outside the editor layer). */
     deleteSelectedShape: () => void;
     hasShapes: boolean;
-    selectedShapeId: string | null;
-    updateShape: (id: string, updates: TShapeAnnotationPatch) => void;
-    getSelectedShape: () => IShapeAnnotation | null;
 }
 
 export interface IPdfViewerImagePlacementExpose {

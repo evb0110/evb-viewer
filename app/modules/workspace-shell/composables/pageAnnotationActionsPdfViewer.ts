@@ -10,7 +10,6 @@ export type TPageAnnotationActionsPdfViewer = Pick<WorkspaceOrchestration.IPdfVi
     | 'highlightSelection'
     | 'invalidatePages'
     | 'removeAnnotationFromDom'
-    | 'removeAnnotationFromInternalCache'
     | 'runSaveTransaction'
     | 'selectAnnotationById'
     | 'startImagePlacement'
