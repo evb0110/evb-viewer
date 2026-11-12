@@ -492,9 +492,8 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
             ));
     }
 
-    // The default page portion is the same for every untouched page. Keep that
-    // one value scalar, then store only explicitly edited pages for a running
-    // detection request.
+    // The default page portion is the same for every untouched page: only
+    // explicitly edited pages carry their own signature.
     const defaultPageOverrideSignature = computed(() => pageOverrideSignature(0));
     const pageOverrideSignatureToken = computed(() => Object.keys(options.settings.pageOverrides)
         .map(pageKey => {
@@ -508,25 +507,14 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
         .join(','));
     let detectionDocumentSignature = documentSignature.value;
     let detectionPageOverrideSignatureToken = pageOverrideSignatureToken.value;
-    const detectionPageOverrideSignatures = new Map<number, string>();
+    // Pages edited since the current job started. Its results for them were
+    // measured under the previous edits and are never recorded as current.
+    const pagesEditedDuringDetection = new Set<number>();
 
     function captureDetectionSignatures() {
         detectionDocumentSignature = documentSignature.value;
         detectionPageOverrideSignatureToken = pageOverrideSignatureToken.value;
-        detectionPageOverrideSignatures.clear();
-        for (const pageKey of Object.keys(options.settings.pageOverrides)) {
-            const pageNumber = Number(pageKey);
-            if (
-                Number.isSafeInteger(pageNumber)
-                && pageNumber >= 1
-                && pageNumber <= options.totalPages.value
-            ) {
-                const pageSignature = pageOverrideSignature(pageNumber);
-                if (pageSignature !== defaultPageOverrideSignature.value) {
-                    detectionPageOverrideSignatures.set(pageNumber, pageSignature);
-                }
-            }
-        }
+        pagesEditedDuringDetection.clear();
     }
 
     function readPageOverrideSignatures() {
@@ -550,15 +538,6 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
     let observedDocumentSignature = documentSignature.value;
     let observedPageOverrideSignatures = readPageOverrideSignatures();
     let observedTotalPages = options.totalPages.value;
-
-    function detectionRequestSignature(pageNumber: number) {
-        return `${detectionDocumentSignature}:${detectionPageOverrideSignatures.get(pageNumber)
-            ?? defaultPageOverrideSignature.value}`;
-    }
-
-    function signature(pageNumber: number) {
-        return `${documentSignature.value}:${pageOverrideSignature(pageNumber)}`;
-    }
 
     function resolveDetectionDocumentPageCount(fallback = options.totalPages.value) {
         return detectionDocumentPageCount.value > 0
@@ -660,7 +639,10 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
         placementAnchorCalibrationInFlight.value = false;
         placementAnchorCalibrationError.value = '';
         replaceRecords(next => {
-            for (const pageNumber of pageNumbers) next.delete(pageNumber);
+            for (const pageNumber of pageNumbers) {
+                next.delete(pageNumber);
+                pagesEditedDuringDetection.add(pageNumber);
+            }
         });
     }
 
@@ -696,7 +678,8 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
                 // A job a settings change outlived still reports pages, but
                 // they were measured under the old settings: only the source
                 // geometry and the page's settled state carry over.
-                touch(result.pageNumber, detectionRequestSignature(result.pageNumber) === signature(result.pageNumber)
+                touch(result.pageNumber, detectionDocumentSignature === documentSignature.value
+                    && !pagesEditedDuringDetection.has(result.pageNumber)
                     ? {
                         settled: true,
                         result,
@@ -1425,9 +1408,7 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
         error.value = '';
         errorCode.value = null;
         clearDetectionEvidence();
-        detectionDocumentSignature = documentSignature.value;
-        detectionPageOverrideSignatureToken = pageOverrideSignatureToken.value;
-        detectionPageOverrideSignatures.clear();
+        captureDetectionSignatures();
         observedDocumentSignature = documentSignature.value;
         observedPageOverrideSignatures = readPageOverrideSignatures();
         observedTotalPages = options.totalPages.value;

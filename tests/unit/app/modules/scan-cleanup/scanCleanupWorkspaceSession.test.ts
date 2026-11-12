@@ -4424,6 +4424,10 @@ describe('scan cleanup workspace session detection guidance', () => {
         };
         await nextTick();
         harness.emitDetection(detectionState('detect-1', 'completed'));
+        // The job measured page 1 before its edit: that result is not taken
+        // as page 1's plan, while the untouched pages keep theirs.
+        expect(mounted.session.detection.pagePlanEvidenceByPage.value.has(1)).toBe(false);
+        expect(mounted.session.detection.pagePlanEvidenceByPage.value.has(2)).toBe(true);
 
         await vi.waitFor(() => expect(harness.value.detectAll).toHaveBeenCalledTimes(2));
         expect(scanCleanupDetectionSessionCache.size).toBe(0);
