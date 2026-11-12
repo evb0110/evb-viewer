@@ -29,7 +29,9 @@ on:
 # push run has a green gates_ok, and nothing else gates a release. Jobs run
 # in parallel and are sized so the verdict lands in about fifteen minutes;
 # the Electron E2E suite runs as a matrix of lanes, one per directory of
-# tests/e2e/electron, against one shared production build. Slow, heavy or
+# tests/e2e/electron, against the one strict production build. A push that
+# merges a pull request whose tree already passed runs only the smoke lane
+# (see scripts/ci/push-diff-base.sh). Slow, heavy or
 # large-fixture checks, timing budgets and the macOS E2E run live in
 # ci-nightly.yml, which reports and never gates.
 # A dispatched run skips the changed-area classifier and runs every job.
@@ -88,6 +90,7 @@ jobs:
       rust: ${{ steps.classify.outputs.rust }}
       desktop_build: ${{ steps.classify.outputs.desktop_build }}
       scan_cleanup_export: ${{ steps.classify.outputs.scan_cleanup_export }}
+      verified_tree: ${{ steps.classify.outputs.verified_tree }}
 
     steps:
       - name: Checkout
@@ -124,11 +127,16 @@ jobs:
             head_sha="$PUSH_HEAD_SHA"
           fi
           node scripts/ci/classify-changed-areas.mjs --base="$base_sha" --head="$head_sha"
+          if [ "$base_sha" = "$head_sha" ]; then
+            echo 'verified_tree=true' >> "$GITHUB_OUTPUT"
+          fi
 
   lint:
     name: Lint
     runs-on: ubuntu-24.04
     timeout-minutes: 15
+    needs: changed_areas
+    if: ${{ needs.changed_areas.outputs.verified_tree != 'true' }}
 
     steps:
       - name: Checkout
@@ -184,6 +192,8 @@ jobs:
     name: Typecheck And Unit Tests
     runs-on: ubuntu-24.04
     timeout-minutes: 20
+    needs: changed_areas
+    if: ${{ needs.changed_areas.outputs.verified_tree != 'true' }}
 
     steps:
       - name: Checkout
@@ -293,7 +303,7 @@ jobs:
       - name: Rust dependency policy
         env:
           CARGO_TERM_COLOR: always
-        run: "$RUNNER_TEMP/cargo-deny-bin/cargo-deny --log-level warn --manifest-path native/Cargo.toml --all-features check"
+        run: '"$RUNNER_TEMP/cargo-deny-bin/cargo-deny" --log-level warn --manifest-path native/Cargo.toml --all-features check'
 
       - name: Rust tests
         run: pnpm run test:rust
@@ -301,12 +311,17 @@ jobs:
       - name: Scan-cleanup catastrophe baseline
         run: scripts/ci/scan-cleanup-oracles.sh native "$RUNNER_TEMP/scan-cleanup-oracles"
 
+  # The one desktop production build of a run: the strict build, held to the
+  # warning allowlist, of the renderer the packaged app loads, the Electron
+  # bundle and the native tools. Every Electron E2E lane downloads it.
   strict_build:
     name: Strict Build
-    if: ${{ needs.changed_areas.outputs.desktop_build == 'true' }}
+    if: ${{ needs.changed_areas.outputs.desktop_build == 'true' || needs.changed_areas.outputs.electron_smoke == 'true' || needs.changed_areas.outputs.verified_tree == 'true' }}
     needs: changed_areas
     runs-on: ubuntu-24.04
     timeout-minutes: 25
+    outputs:
+      lanes: ${{ steps.lanes.outputs.lanes }}
 
     steps:
       - name: Checkout
@@ -320,11 +335,48 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           wasm: 'true'
 
+      # A staged tool is reused only when its build receipt matches the exact
+      # source inputs, so a stale restore costs a rebuild, never a wrong binary.
+      # The native integration and oracle jobs restore the same tools.
+      - name: Restore staged Electron native binaries
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with: &electron-native-binaries
+          path: |
+            .tmp/scan-cleanup
+            .tmp/pdf-image-combine
+            .tmp/pdf-page-ops
+            .tmp/pdf-search
+          key: electron-native-v2-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('native/**', 'packages/contracts/**', 'public/fonts/annotation/*.ttf', 'public/pdf/standard_fonts/LiberationSans-*.ttf', 'scripts/build-native-tool.mjs', 'scripts/native-build-id.mjs', 'scripts/cargo-artifacts.mjs', 'scripts/lib/build-environment.mjs', 'scripts/nativeResourceManifest.ts', 'scripts/native-rust-targets.mjs', 'rust-toolchain.toml', 'native/rust-toolchain.toml', 'pnpm-lock.yaml') }}
+          restore-keys: |
+            electron-native-v2-${{ runner.os }}-${{ runner.arch }}-
+
       - name: Strict build
         run: pnpm run build:strict
 
       - name: Electron bundle static integrity
         run: pnpm run test:electron-bundle-static-integrity:no-build
+
+      - name: List lanes
+        id: lanes
+        env:
+          VERIFIED_TREE: ${{ needs.changed_areas.outputs.verified_tree }}
+        run: |
+          if [ "$VERIFIED_TREE" = 'true' ]; then
+            echo 'lanes=["e2e-smoke"]'
+          else
+            node scripts/electron-e2e-lanes.mjs
+          fi >> "$GITHUB_OUTPUT"
+
+      # A tarball keeps the native tools executable.
+      - name: Pack build
+        run: tar -cf electron-e2e-build.tar nuxt-output/public dist-electron .tmp/scan-cleanup .tmp/pdf-image-combine .tmp/pdf-page-ops .tmp/pdf-search
+
+      - name: Upload build
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: electron-e2e-build
+          retention-days: 1
+          path: electron-e2e-build.tar
 
   native_pdf_integration:
     name: Native PDF Save Integration
@@ -343,6 +395,10 @@ jobs:
         uses: ./.github/actions/setup-ci-env
         with:
           node-version: ${{ env.NODE_VERSION }}
+
+      - name: Restore staged Electron native binaries
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with: *electron-native-binaries
 
       - name: Build native PDF page operations
         run: pnpm run build:pdf-page-ops
@@ -450,6 +506,10 @@ jobs:
         timeout-minutes: 15
         run: scripts/ci/apt-install.sh img2pdf poppler-utils python3-numpy python3-opencv python3-pil qpdf
 
+      - name: Restore staged Electron native binaries
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with: *electron-native-binaries
+
       - name: Preview, export, and word-loss gates
         run: scripts/ci/scan-cleanup-oracles.sh export "$RUNNER_TEMP/scan-cleanup-oracles"
 
@@ -495,73 +555,19 @@ jobs:
       - name: Landing build
         run: pnpm --dir landing run build
 
-  # Builds what every Electron E2E lane runs: the production renderer the
-  # packaged app loads, the Electron bundle and the native tools. The lanes
-  # download it instead of building it seven times.
-  electron_e2e_build:
-    name: Electron E2E Build
-    if: ${{ needs.changed_areas.outputs.electron_smoke == 'true' }}
-    needs: changed_areas
-    runs-on: ubuntu-24.04
-    timeout-minutes: 20
-    outputs:
-      lanes: ${{ steps.lanes.outputs.lanes }}
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
-      - name: Setup CI environment
-        uses: ./.github/actions/setup-ci-env
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          wasm: 'true'
-
-      - name: Restore staged Electron native binaries
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: |
-            .tmp/scan-cleanup
-            .tmp/pdf-image-combine
-            .tmp/pdf-page-ops
-            .tmp/pdf-search
-          key: electron-native-v2-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('native/**', 'packages/contracts/**', 'public/fonts/annotation/*.ttf', 'public/pdf/standard_fonts/LiberationSans-*.ttf', 'scripts/build-native-tool.mjs', 'scripts/native-build-id.mjs', 'scripts/cargo-artifacts.mjs', 'scripts/lib/build-environment.mjs', 'scripts/nativeResourceManifest.ts', 'scripts/native-rust-targets.mjs', 'rust-toolchain.toml', 'native/rust-toolchain.toml', 'pnpm-lock.yaml') }}
-          restore-keys: |
-            electron-native-v2-${{ runner.os }}-${{ runner.arch }}-
-
-      - name: Build renderer, Electron and native tools
-        run: pnpm run build && pnpm run build:electron && pnpm run build:native:e2e
-
-      - name: List lanes
-        id: lanes
-        run: node scripts/electron-e2e-lanes.mjs >> "$GITHUB_OUTPUT"
-
-      # A tarball keeps the native tools executable.
-      - name: Pack build
-        run: tar -cf electron-e2e-build.tar nuxt-output/public dist-electron .tmp/scan-cleanup .tmp/pdf-image-combine .tmp/pdf-page-ops .tmp/pdf-search
-
-      - name: Upload build
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        with:
-          name: electron-e2e-build
-          retention-days: 1
-          path: electron-e2e-build.tar
-
   electron_e2e:
     name: Electron E2E (${{ matrix.lane }})
-    if: ${{ needs.changed_areas.outputs.electron_smoke == 'true' }}
+    if: ${{ needs.changed_areas.outputs.electron_smoke == 'true' || needs.changed_areas.outputs.verified_tree == 'true' }}
     needs:
       - changed_areas
-      - electron_e2e_build
+      - strict_build
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
         # One job per lane directory of tests/e2e/electron.
-        lane: ${{ fromJSON(needs.electron_e2e_build.outputs.lanes) }}
+        lane: ${{ fromJSON(needs.strict_build.outputs.lanes) }}
 
     steps:
       - name: Checkout
@@ -614,7 +620,6 @@ jobs:
       - browser_integration
       - scan_cleanup_oracles
       - landing
-      - electron_e2e_build
       - electron_e2e
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -628,20 +633,22 @@ jobs:
           node <<'NODE'
           const needs = JSON.parse(process.env.NEEDS_JSON);
           const areas = needs.changed_areas.outputs ?? {};
+          const verifiedTree = areas.verified_tree === 'true';
           // A job may be skipped only when the classifier said its area did
-          // not change; the publication policy has no range to scan on a
-          // dispatched run.
+          // not change or the tree already passed; the publication policy has
+          // no range to scan on a dispatched run.
           const legitimatelySkippable = new Map([
             ['publication_policy', process.env.EVENT_NAME === 'workflow_dispatch'],
+            ['lint', verifiedTree],
+            ['unit', verifiedTree],
             ['rust', areas.rust === 'false'],
-            ['strict_build', areas.desktop_build === 'false'],
+            ['strict_build', areas.desktop_build === 'false' && areas.electron_smoke === 'false' && !verifiedTree],
             ['native_pdf_integration', areas.desktop_build === 'false'],
             ['windows_atomic_pdf_replacement', areas.electron_save_reopen === 'false'],
             ['browser_integration', areas.browser_integration === 'false'],
             ['scan_cleanup_oracles', areas.scan_cleanup_export === 'false'],
             ['landing', areas.landing === 'false'],
-            ['electron_e2e_build', areas.electron_smoke === 'false'],
-            ['electron_e2e', areas.electron_smoke === 'false'],
+            ['electron_e2e', areas.electron_smoke === 'false' && !verifiedTree],
           ]);
           const rejected = [];
 

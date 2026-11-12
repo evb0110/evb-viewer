@@ -266,10 +266,12 @@ jobs:
       - name: Summarize archive digests
         shell: bash
         run: |
-          echo '### ${{ matrix.target }}' >> "$GITHUB_STEP_SUMMARY"
-          echo '```text' >> "$GITHUB_STEP_SUMMARY"
-          cat .devkit/tmp/runtime-archives/SHA256SUMS >> "$GITHUB_STEP_SUMMARY"
-          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo '### ${{ matrix.target }}'
+            echo '```text'
+            cat .devkit/tmp/runtime-archives/SHA256SUMS
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload target runtime archives
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
