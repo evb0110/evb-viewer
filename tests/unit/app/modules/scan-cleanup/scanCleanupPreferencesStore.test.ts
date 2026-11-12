@@ -61,6 +61,26 @@ const capability = vi.hoisted(() => ({value: {
     onSettingsChanged: vi.fn(),
 }}));
 const temporaryDirectories: string[] = [];
+// Store operations still running when a test ends would write into a
+// directory that teardown is deleting; teardown waits for them first.
+const pendingStoreOperations = new Set<Promise<unknown>>();
+
+function trackStoreOperation<T>(operation: Promise<T>) {
+    // Callers get the tracked promise, so a rejection nobody observes still
+    // surfaces as unhandled instead of being consumed here.
+    const tracked: Promise<T> = operation.then(
+        value => {
+            pendingStoreOperations.delete(tracked);
+            return value;
+        },
+        (error: unknown) => {
+            pendingStoreOperations.delete(tracked);
+            throw error;
+        },
+    );
+    pendingStoreOperations.add(tracked);
+    return tracked;
+}
 const settingsSubscribers = new Set<(settings: IScanCleanupSettingsChange) => void>();
 
 function broadcastSettings(settings: IScanCleanupSettingsChange) {
@@ -72,13 +92,17 @@ async function createDurableSettingsStore(onSettingsChanged = broadcastSettings,
     const directory = await mkdtemp(join(process.cwd(), '.devkit', 'p8-settings-'));
     temporaryDirectories.push(directory);
     const filePath = join(directory, 'scan-cleanup-settings.json');
+    const store = createScanCleanupSettingsStore({
+        filePath,
+        onSettingsChanged,
+        replace,
+    });
     return {
         filePath,
-        store: createScanCleanupSettingsStore({
-            filePath,
-            onSettingsChanged,
-            replace,
-        }),
+        store: {
+            get: (...args: Parameters<typeof store.get>) => trackStoreOperation(store.get(...args)),
+            update: (...args: Parameters<typeof store.update>) => trackStoreOperation(store.update(...args)),
+        },
     };
 }
 
@@ -120,6 +144,8 @@ describe('scan cleanup renderer preference store', () => {
         vi.restoreAllMocks();
         platform.desktop = true;
         resetScanCleanupPreferencesStore();
+        // A settling operation can start another (a read that leads to a write).
+        while (pendingStoreOperations.size > 0) await Promise.allSettled([...pendingStoreOperations]);
         await Promise.all(temporaryDirectories.splice(0).map(directory => rm(directory, {
             recursive: true,
             force: true,
