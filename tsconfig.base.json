@@ -18,6 +18,7 @@
             "#build/*": ["./.nuxt/*"],
             "@app/*": ["./app/*"],
             "@contracts/*": ["./packages/contracts/*"],
+            "@document-store/*": ["./packages/document-store/*"],
             "@node-runtime/*": ["./packages/node-runtime/*"],
             "@pdf-core": ["./packages/pdf-core/index.ts"],
             "@pdf-core/*": ["./packages/pdf-core/*"],
