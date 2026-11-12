@@ -7,7 +7,7 @@ use fax::{
     Color,
 };
 
-pub(crate) const CONTEXT_COUNT: usize = 1 << 16;
+const CONTEXT_COUNT: usize = 1 << 16;
 const TPGD_CONTEXT: usize = 0x9b25;
 
 /// Upper bound on synthesized (stuffed) bytes an intact arithmetic stream needs
@@ -23,33 +23,15 @@ const MAX_FLUSH_STUFFED_BYTES: u32 = 2;
 pub(crate) fn encode(width: u32, height: u32, rows: &[u8], stride: usize) -> Vec<u8> {
     let mut coder = Encoder::new();
     let mut contexts = vec![0; CONTEXT_COUNT];
-    encode_with_coder(&mut coder, &mut contexts, width, height, rows, stride, true);
-    coder.finish()
-}
-
-/// Encodes a bitmap into an existing arithmetic coding stream. Symbol
-/// dictionaries use this form because all directly-coded symbol bitmaps in a
-/// dictionary share one arithmetic coder and one generic-region context.
-pub(crate) fn encode_with_coder(
-    coder: &mut Encoder,
-    contexts: &mut [u8],
-    width: u32,
-    height: u32,
-    rows: &[u8],
-    stride: usize,
-    typical_prediction: bool,
-) {
     let mut ltp = false;
     let width = width as usize;
 
     for y in 0..height as usize {
         let duplicate =
             y > 0 && rows[y * stride..(y + 1) * stride] == rows[(y - 1) * stride..y * stride];
-        if typical_prediction {
-            let sltp = if duplicate { !ltp } else { ltp };
-            ltp = duplicate;
-            coder.encode(contexts, TPGD_CONTEXT, u8::from(sltp));
-        }
+        let sltp = if duplicate { !ltp } else { ltp };
+        ltp = duplicate;
+        coder.encode(&mut contexts, TPGD_CONTEXT, u8::from(sltp));
         if ltp {
             continue;
         }
@@ -61,12 +43,13 @@ pub(crate) fn encode_with_coder(
         for x in 0..width {
             let context = usize::from((c1 << 11) | (c2 << 4) | c3);
             let bit = current[x >> 3] >> (7 - (x & 7)) & 1;
-            coder.encode(contexts, context, bit);
+            coder.encode(&mut contexts, context, bit);
             c1 = ((c1 << 1) | u16::from(bit_at(above.0, x + 3, width))) & 0x1f;
             c2 = ((c2 << 1) | u16::from(bit_at(above.1, x + 4, width))) & 0x7f;
             c3 = ((c3 << 1) | u16::from(bit)) & 0x0f;
         }
     }
+    coder.finish()
 }
 
 pub(crate) fn decode(
@@ -83,15 +66,34 @@ pub(crate) fn decode(
     let mut coder = Decoder::new(data).ok_or(Jbig2Error::InvalidArithmeticData)?;
     let mut contexts = vec![0; CONTEXT_COUNT];
     let mut rows = allocate_zeroed(stride, height)?;
-    decode_with_coder(
-        &mut coder,
-        &mut contexts,
-        width,
-        height,
-        stride,
-        &mut rows,
-        typical_prediction,
-    );
+    let mut ltp = false;
+    let pixel_width = width as usize;
+
+    for y in 0..height as usize {
+        if typical_prediction {
+            ltp ^= coder.decode(&mut contexts, TPGD_CONTEXT) != 0;
+        }
+        let (before, current_and_after) = rows.split_at_mut(y * stride);
+        if ltp {
+            if y > 0 {
+                current_and_after[..stride].copy_from_slice(&before[(y - 1) * stride..y * stride]);
+            }
+            continue;
+        }
+
+        let current = &mut current_and_after[..stride];
+        let above = neighbor_rows(before, stride, y);
+        let (mut c1, mut c2, mut c3) = initial_contexts(above, pixel_width);
+
+        for x in 0..pixel_width {
+            let context = usize::from((c1 << 11) | (c2 << 4) | c3);
+            let bit = coder.decode(&mut contexts, context);
+            current[x >> 3] |= bit << (7 - (x & 7));
+            c1 = ((c1 << 1) | u16::from(bit_at(above.0, x + 3, pixel_width))) & 0x1f;
+            c2 = ((c2 << 1) | u16::from(bit_at(above.1, x + 4, pixel_width))) & 0x7f;
+            c3 = ((c3 << 1) | u16::from(bit)) & 0x0f;
+        }
+    }
 
     // A complete stream reaches its terminating `ff ac` marker only for the
     // final C-register flush, which stuffs at most two synthesized bytes
@@ -113,46 +115,6 @@ pub(crate) fn decode(
         height,
         rows,
     })
-}
-
-/// Decodes one directly-coded bitmap from an existing arithmetic stream.
-pub(crate) fn decode_with_coder(
-    coder: &mut Decoder<'_>,
-    contexts: &mut [u8],
-    width: u32,
-    height: u32,
-    stride: usize,
-    rows: &mut [u8],
-    typical_prediction: bool,
-) {
-    let mut ltp = false;
-    let pixel_width = width as usize;
-
-    for y in 0..height as usize {
-        if typical_prediction {
-            ltp ^= coder.decode(contexts, TPGD_CONTEXT) != 0;
-        }
-        let (before, current_and_after) = rows.split_at_mut(y * stride);
-        if ltp {
-            if y > 0 {
-                current_and_after[..stride].copy_from_slice(&before[(y - 1) * stride..y * stride]);
-            }
-            continue;
-        }
-
-        let current = &mut current_and_after[..stride];
-        let above = neighbor_rows(before, stride, y);
-        let (mut c1, mut c2, mut c3) = initial_contexts(above, pixel_width);
-
-        for x in 0..pixel_width {
-            let context = usize::from((c1 << 11) | (c2 << 4) | c3);
-            let bit = coder.decode(contexts, context);
-            current[x >> 3] |= bit << (7 - (x & 7));
-            c1 = ((c1 << 1) | u16::from(bit_at(above.0, x + 3, pixel_width))) & 0x1f;
-            c2 = ((c2 << 1) | u16::from(bit_at(above.1, x + 4, pixel_width))) & 0x7f;
-            c3 = ((c3 << 1) | u16::from(bit)) & 0x0f;
-        }
-    }
 }
 
 pub(crate) fn decode_mmr(
@@ -199,7 +161,7 @@ pub(crate) fn decode_mmr(
     })
 }
 
-pub(crate) fn allocate_zeroed(stride: usize, height: u32) -> Result<Vec<u8>, Jbig2Error> {
+fn allocate_zeroed(stride: usize, height: u32) -> Result<Vec<u8>, Jbig2Error> {
     let length = stride
         .checked_mul(height as usize)
         .ok_or(Jbig2Error::AllocationFailed)?;

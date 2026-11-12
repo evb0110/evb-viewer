@@ -56,9 +56,9 @@ use crate::{
         OwnedNetpbm,
     },
     pdf::{
-        apply_shared_symbol_encoding, write_pdf_to_writer, AffineMaskedLayeredPdfPage,
-        BilevelStream, ImagePage, ImagePayload, LayeredImagePayload, LayeredPdfImage,
-        LayeredPdfPage, MaskPdfPage, PdfWriter, SoftLayeredPdfPage, SoftMaskStream,
+        write_pdf_to_writer, AffineMaskedLayeredPdfPage, BilevelStream, ImagePage, ImagePayload,
+        LayeredImagePayload, LayeredPdfImage, LayeredPdfPage, MaskPdfPage, PdfWriter,
+        SoftLayeredPdfPage, SoftMaskStream,
     },
     tiff_io::combine_tiff_pages,
 };
@@ -297,11 +297,6 @@ pub struct PdfBuildOptions {
     /// Pages whose payloads may be encoded concurrently. The written bytes are
     /// identical for every value; only wall-clock and peak memory change.
     pub worker_threads: usize,
-    /// Enables the experimental cross-page JBIG2 symbol pass. This remains
-    /// opt-in because its conservative, lossless verification can add
-    /// substantial wall-clock time without reliably beating the generic
-    /// per-page payloads on scanned books.
-    pub enable_shared_symbol_encoding: bool,
 }
 
 impl Default for PdfBuildOptions {
@@ -316,12 +311,9 @@ impl Default for PdfBuildOptions {
             max_tiff_frames: 250,
             provenance_stamp_hex: None,
             worker_threads: 1,
-            enable_shared_symbol_encoding: false,
         }
     }
 }
-
-const JBIG2_SYMBOL_CHUNK_PAGES: usize = 50;
 
 pub fn write_pdf<'a, W, I, P>(
     output: W,
@@ -352,16 +344,13 @@ where
     let mut page_count = 0usize;
     let mut processed = 0usize;
     let output = write_pdf_to_writer(output, options.provenance_stamp_hex.as_deref(), |pdf| {
-        let mut symbol_chunk = options
-            .enable_shared_symbol_encoding
-            .then(|| Vec::with_capacity(JBIG2_SYMBOL_CHUNK_PAGES));
         loop {
             // A source that may hold several frames hands each frame to the
             // writer as soon as it is prepared, so the page and output limits
             // apply frame by frame and no more than one frame is held.
             if let Some(spec) = page_specs.next_if(PageSpec::streams_frames) {
                 prepare_page_spec(spec, options, |page| {
-                    write_counted_page(pdf, page, &mut page_count, &mut symbol_chunk, options)
+                    write_counted_page(pdf, page, &mut page_count, options)
                 })?;
                 processed += 1;
                 on_processed(processed);
@@ -371,14 +360,11 @@ where
                 .take(batch_size)
                 .collect::<Vec<PdfPageSpec<'a>>>();
             if batch.is_empty() {
-                if let Some(symbol_chunk) = symbol_chunk.as_mut() {
-                    write_symbol_chunk(pdf, symbol_chunk)?;
-                }
                 return Ok(());
             }
             for prepared in encoders.prepare(batch, options) {
                 for page in prepared? {
-                    write_counted_page(pdf, page, &mut page_count, &mut symbol_chunk, options)?;
+                    write_counted_page(pdf, page, &mut page_count, options)?;
                 }
                 processed += 1;
                 on_processed(processed);
@@ -397,41 +383,12 @@ where
 
 fn write_counted_page<W: Write>(
     pdf: &mut PdfWriter<W>,
-    mut page: PreparedPage,
+    page: PreparedPage,
     page_count: &mut usize,
-    symbol_chunk: &mut Option<Vec<PreparedPage>>,
     options: &PdfBuildOptions,
 ) -> Result<()> {
     *page_count = next_page_count_with_limit(*page_count, options.max_pages)?;
-    let Some(symbol_chunk) = symbol_chunk.as_mut() else {
-        return write_prepared_page(pdf, page);
-    };
-    // A page without a symbol-encodable mask gains nothing from the chunk, so
-    // it is written as soon as the pages queued before it are.
-    if page.generated_bilevel_stream_mut().is_none() {
-        write_symbol_chunk(pdf, symbol_chunk)?;
-        return write_prepared_page(pdf, page);
-    }
-    symbol_chunk.push(page);
-    if symbol_chunk.len() == JBIG2_SYMBOL_CHUNK_PAGES {
-        write_symbol_chunk(pdf, symbol_chunk)?;
-    }
-    Ok(())
-}
-
-fn write_symbol_chunk<W: Write>(
-    pdf: &mut PdfWriter<W>,
-    pages: &mut Vec<PreparedPage>,
-) -> Result<()> {
-    let mut masks = pages
-        .iter_mut()
-        .filter_map(PreparedPage::generated_bilevel_stream_mut)
-        .collect::<Vec<_>>();
-    apply_shared_symbol_encoding(&mut masks);
-    for page in pages.drain(..) {
-        write_prepared_page(pdf, page)?;
-    }
-    Ok(())
+    write_prepared_page(pdf, page)
 }
 
 enum PreparedPage {
@@ -445,30 +402,6 @@ enum PreparedPage {
     SoftLayered(Box<SoftLayeredPdfPage>),
     AffineMaskedLayered(Box<AffineMaskedLayeredPdfPage>),
     Mask(MaskPdfPage),
-}
-
-impl PreparedPage {
-    fn generated_bilevel_stream_mut(&mut self) -> Option<&mut BilevelStream> {
-        match self {
-            Self::Image { page, .. } => match &mut page.payload {
-                ImagePayload::Bilevel(stream) if stream.supports_symbol_encoding() => Some(stream),
-                _ => None,
-            },
-            Self::Layered(page) if page.foreground_mask.supports_symbol_encoding() => {
-                Some(&mut page.foreground_mask)
-            }
-            Self::AffineMaskedLayered(page) if page.foreground_mask.supports_symbol_encoding() => {
-                Some(&mut page.foreground_mask)
-            }
-            Self::Mask(page) if page.foreground_mask.supports_symbol_encoding() => {
-                Some(&mut page.foreground_mask)
-            }
-            Self::SoftLayered(_)
-            | Self::Layered(_)
-            | Self::AffineMaskedLayered(_)
-            | Self::Mask(_) => None,
-        }
-    }
 }
 
 fn write_prepared_page<W: Write>(pdf: &mut PdfWriter<W>, page: PreparedPage) -> Result<()> {
@@ -1605,38 +1538,6 @@ mod tests {
     }
 
     #[test]
-    fn shared_symbol_encoding_is_explicitly_opt_in() {
-        let mask = include_bytes!("../../jbig2-codec/tests/fixtures/scan-page-007-notes.pbm");
-        let pages = || {
-            [
-                image_page("first.pbm", mask, Some(PAGE), FramePolicy::ExactlyOne),
-                image_page("second.pbm", mask, Some(PAGE), FramePolicy::ExactlyOne),
-            ]
-        };
-
-        let default_pdf =
-            write_pdf(Vec::new(), pages(), &PdfBuildOptions::default(), |_| {}).unwrap();
-        assert!(!String::from_utf8_lossy(&default_pdf).contains("/JBIG2Globals"));
-
-        let symbol_pdf = write_pdf(
-            Vec::new(),
-            pages(),
-            &PdfBuildOptions {
-                enable_shared_symbol_encoding: true,
-                ..PdfBuildOptions::default()
-            },
-            |_| {},
-        )
-        .unwrap();
-        assert_eq!(
-            String::from_utf8_lossy(&symbol_pdf)
-                .matches("/JBIG2Globals")
-                .count(),
-            2
-        );
-    }
-
-    #[test]
     fn affine_layered_spec_validates_and_preserves_source_jbig2_mask() {
         let background = b"P5\n8 1\n255\n\xf0\xf0\xf0\xf0\xf0\xf0\xf0\xf0";
         let foreground = b"P5\n8 1\n255\n\x10\x20\x30\x40\x50\x60\x70\x80";
@@ -1756,8 +1657,7 @@ mod tests {
         let processed = Rc::new(RefCell::new(0usize));
         let error = write_pdf(
             FailOnPageObjectSink,
-            (0..JBIG2_SYMBOL_CHUNK_PAGES)
-                .map(|_| image_page("page.pgm", b"P5\n1 1\n255\n\x00", None, FramePolicy::All)),
+            (0..2).map(|_| image_page("page.pgm", b"P5\n1 1\n255\n\x00", None, FramePolicy::All)),
             &PdfBuildOptions {
                 worker_threads: 1,
                 ..PdfBuildOptions::default()
@@ -1828,67 +1728,22 @@ mod tests {
                 .write_image::<colortype::Gray16>(1, 1, &[1])
                 .unwrap();
         }
-        for enable_shared_symbol_encoding in [false, true] {
-            let mut output = Vec::new();
-            let error = write_pdf(
-                &mut output,
-                [image_page("frames.tiff", &tiff, None, FramePolicy::All)],
-                &PdfBuildOptions {
-                    enable_shared_symbol_encoding,
-                    ..PdfBuildOptions::default()
-                },
-                |_| {},
-            )
-            .expect_err("the 16-bit second frame is rejected");
-
-            assert!(
-                error.to_string().contains("Only 8-bit TIFF samples"),
-                "{error}"
-            );
-            assert!(
-                contains_bytes(&output, b"<< /Type /Page /Parent"),
-                "the first frame's page must be written before the second frame is decoded \
-                 (shared symbols: {enable_shared_symbol_encoding})"
-            );
-        }
-    }
-
-    #[test]
-    fn shared_symbol_mode_keeps_page_order_around_pages_without_symbols() {
-        let first = include_bytes!("../../jbig2-codec/tests/fixtures/scan-page-000-body-509.pbm");
-        let last = include_bytes!("../../jbig2-codec/tests/fixtures/scan-page-007-notes.pbm");
-        let tiff = two_page_tiff();
-        let pdf = write_pdf(
-            Vec::new(),
-            [
-                image_page("first.pbm", first, None, FramePolicy::All),
-                image_page("frames.tiff", &tiff, None, FramePolicy::All),
-                image_page("last.pbm", last, None, FramePolicy::All),
-            ],
-            &PdfBuildOptions {
-                max_tiff_frames: 10,
-                enable_shared_symbol_encoding: true,
-                ..PdfBuildOptions::default()
-            },
+        let mut output = Vec::new();
+        let error = write_pdf(
+            &mut output,
+            [image_page("frames.tiff", &tiff, None, FramePolicy::All)],
+            &PdfBuildOptions::default(),
             |_| {},
         )
-        .unwrap();
-        let text = String::from_utf8_lossy(&pdf);
-        let positions = [
-            "/Width 509 /Height 512",
-            "/Width 1 /Height 1",
-            "/Width 2 /Height 1",
-            "/Width 512 /Height 512",
-        ]
-        .map(|image| {
-            text.find(image)
-                .unwrap_or_else(|| panic!("missing {image}"))
-        });
+        .expect_err("the 16-bit second frame is rejected");
 
-        assert!(text.contains("/Count 4"));
         assert!(
-            positions.windows(2).all(|pair| pair[0] < pair[1]),
-            "pages must keep input order: {positions:?}"
+            error.to_string().contains("Only 8-bit TIFF samples"),
+            "{error}"
+        );
+        assert!(
+            contains_bytes(&output, b"<< /Type /Page /Parent"),
+            "the first frame's page must be written before the second frame is decoded"
         );
     }
 

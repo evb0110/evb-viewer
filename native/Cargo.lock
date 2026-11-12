@@ -498,7 +498,6 @@ name = "jbig2-codec"
 version = "0.1.0"
 dependencies = [
  "fax 0.3.0",
- "rayon",
 ]
 
 [[package]]
