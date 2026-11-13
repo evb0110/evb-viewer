@@ -13,6 +13,11 @@ function storeError(error: {name: string; message: string}) {
     return Object.assign(new Error(error.message), {name: error.name});
 }
 
+const opfsPorts = new WeakSet<IStorePort>();
+
+/** Whether `port` keeps its files in the origin private file system, where a worker reads and writes them by path. */
+export const isOpfsStorePort = (port: IStorePort) => opfsPorts.has(port);
+
 /** The storage port of a store worker (`opfsStore.worker.ts`), which holds the files' sync access handles. */
 export function createWorkerStorePort(worker: Worker): IStorePort & {probe(): Promise<boolean>} {
     const pending = new Map<number, {resolve(value: unknown): void; reject(error: Error): void}>();
@@ -42,8 +47,8 @@ export function createWorkerStorePort(worker: Worker): IStorePort & {probe(): Pr
         flush: () => call('flush', id),
         close: () => call('close', id),
     });
-    return {
-        probe: () => call('probe'),
+    const port = {
+        probe: () => call<boolean>('probe'),
         list: dir => call('list', dir),
         read: path => call('read', path),
         writeAtomic: (path, bytes) => call('writeAtomic', path, bytes),
@@ -51,7 +56,9 @@ export function createWorkerStorePort(worker: Worker): IStorePort & {probe(): Pr
         copyIn: (source, path) => call('copyIn', source, path),
         copy: (from, to) => call('copy', from, to),
         remove: path => call('remove', path),
-    };
+    } satisfies IStorePort & {probe(): Promise<boolean>};
+    opfsPorts.add(port);
+    return port;
 }
 
 /** The storage port without durability: documents of a window whose browser refuses storage. */

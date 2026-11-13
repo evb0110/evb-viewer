@@ -276,24 +276,15 @@ export async function openDocumentPaths(
     }
 
     const { createCombinedPdfFromPaths } = await import('@app/platform/browser-api/createCombinedPdfFromPaths');
-    const combinedPdf = await createCombinedPdfFromPaths(
-        normalizedPaths,
-        progressOptions,
-    );
     const generatedName =
         normalizedPaths.length === 1
             ? ensurePdfExtension(firstFileName.replace(/\.[^.]+$/u, ''))
             : ensurePdfExtension(`combined-${Date.now()}`);
-    const originalPath = await browserDocumentStore.createStoredDocument(
-        generatedName,
-        combinedPdf,
-        {
-            mimeType: 'application/pdf',
-            saveKind: 'pdf',
-            kind: 'source',
-            retention: 'durable',
-        },
-    );
+    const originalPath = await createCombinedPdfFromPaths(normalizedPaths, progressOptions, {
+        fileName: generatedName,
+        kind: 'source',
+        retention: 'durable',
+    });
     const workingPath = await browserDocumentStore.cloneAsWorkingCopy(originalPath);
     await touchRecentFileForOpen(originalPath);
     browserDocumentStore.unload(originalPath);

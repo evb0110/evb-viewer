@@ -221,6 +221,8 @@ mod wasm;
 mod wasm_abi;
 #[cfg(all(target_family = "wasm", target_os = "unknown"))]
 mod wasm_append_admission;
+#[cfg(all(target_family = "wasm", target_os = "unknown"))]
+mod wasm_host_files;
 
 #[cfg(all(target_family = "wasm", target_os = "unknown"))]
 #[no_mangle]

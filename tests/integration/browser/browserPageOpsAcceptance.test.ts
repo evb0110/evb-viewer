@@ -13,7 +13,10 @@ import {
     resolve,
 } from 'node:path';
 import {build} from 'esbuild';
-import {chromium} from 'playwright';
+import {
+    chromium,
+    type Page,
+} from 'playwright';
 import {
     afterAll,
     beforeAll,
@@ -24,32 +27,48 @@ import {
 
 let server: Server;
 let origin = '';
-let bundlePath = '';
 let temporaryDirectory = '';
-let wasmBytes: Buffer;
+
+// The page loads the entry as a module; the page-ops and store workers it starts resolve beside it, as in the app.
+const SERVED = {
+    '/entry.js': 'entry.js',
+    '/browserPageOps.worker.ts': 'page-ops-worker.js',
+    '/opfsStore.worker.ts': 'opfs-store-worker.js',
+} as const;
 
 beforeAll(async () => {
     await mkdir(join(process.cwd(), '.devkit'), {recursive: true});
     temporaryDirectory = await mkdtemp(join(process.cwd(), '.devkit/browser-page-ops-'));
-    bundlePath = join(temporaryDirectory, 'browser-page-ops-acceptance.js');
-    await build({
+    const bundle = (entry: string, outfile: string) => build({
         bundle: true,
-        entryPoints: [resolve(process.cwd(), 'tests/integration/browser/browserPageOpsAcceptanceEntry.ts')],
-        format: 'iife',
-        outfile: bundlePath,
+        entryPoints: [resolve(process.cwd(), entry)],
+        format: 'esm',
+        outfile: join(temporaryDirectory, outfile),
         platform: 'browser',
         sourcemap: false,
         tsconfig: resolve(process.cwd(), 'tsconfig.json'),
     });
-    wasmBytes = await readFile(resolve(process.cwd(), 'public/wasm/evb-pdf-page-ops.wasm'));
-    server = createServer((_request, response) => {
-        if (_request.url === '/wasm/evb-pdf-page-ops.wasm') {
-            response.writeHead(200, {'content-type': 'application/wasm'});
-            response.end(wasmBytes);
+    await Promise.all([
+        bundle('tests/integration/browser/browserPageOpsAcceptanceEntry.ts', SERVED['/entry.js']),
+        bundle('app/platform/browser-api/browserPageOps.worker.ts', SERVED['/browserPageOps.worker.ts']),
+        bundle('app/platform/browser/opfsStore.worker.ts', SERVED['/opfsStore.worker.ts']),
+    ]);
+    const files: Record<string, {path: string; type: string}> = {
+        ...Object.fromEntries(Object.entries(SERVED).map(([url, name]) => [url, {path: join(temporaryDirectory, name), type: 'text/javascript'}])),
+        '/wasm/evb-pdf-page-ops.wasm': {path: resolve(process.cwd(), 'public/wasm/evb-pdf-page-ops.wasm'), type: 'application/wasm'},
+        '/pdf.worker.mjs': {path: resolve(process.cwd(), 'node_modules/pdfjs-dist/build/pdf.worker.mjs'), type: 'text/javascript'},
+    };
+    server = createServer((request, response) => {
+        const file = files[request.url ?? ''];
+        if (!file) {
+            response.writeHead(200, {'content-type': 'text/html'});
+            response.end('<!doctype html><title>Browser page-ops acceptance</title><script type="module" src="/entry.js"></script>');
             return;
         }
-        response.writeHead(200, {'content-type': 'text/html'});
-        response.end('<!doctype html><title>Browser page-ops acceptance</title>');
+        void readFile(file.path).then((body) => {
+            response.writeHead(200, {'content-type': file.type});
+            response.end(body);
+        });
     });
     await new Promise<void>((resolveListen, rejectListen) => {
         server.once('error', rejectListen);
@@ -72,13 +91,17 @@ afterAll(async () => {
     });
 });
 
+async function openHarness(page: Page) {
+    await page.goto(origin);
+    await page.waitForFunction(() => Boolean(Reflect.get(globalThis, '__evbLargePageOps')));
+}
+
 describe('browser page-ops capability acceptance in Chromium', () => {
     it('saves, reopens, and remaps outlines and page labels for delete, reorder, and insert', async () => {
         const browser = await chromium.launch({headless: true});
         try {
             const page = await browser.newPage();
-            await page.goto(origin);
-            await page.addScriptTag({path: bundlePath});
+            await openHarness(page);
             const results = await page.evaluate(async () => {
                 const run = Reflect.get(globalThis, '__evbRunBrowserPageOpsAcceptance');
                 if (typeof run !== 'function') {
@@ -116,7 +139,7 @@ describe('browser page-ops capability acceptance in Chromium', () => {
                     pageCount: 4,
                     labels: [
                         '1',
-                        '2',
+                        '1',
                         'I',
                         'II',
                     ],
@@ -158,8 +181,7 @@ describe('browser page-ops capability acceptance in Chromium', () => {
         const browser = await chromium.launch({headless: true});
         try {
             const page = await browser.newPage();
-            await page.goto(origin);
-            await page.addScriptTag({path: bundlePath});
+            await openHarness(page);
             const results = await page.evaluate(async () => {
                 const run = Reflect.get(globalThis, '__evbRunBrowserCatalogPartsAcceptance');
                 if (typeof run !== 'function') {
@@ -183,4 +205,72 @@ describe('browser page-ops capability acceptance in Chromium', () => {
             await browser.close();
         }
     }, 120_000);
+
+    // The page tool reads and writes files, so a document past the 512 MiB its 32-bit memory once capped is edited
+    // whole. Each operation is read back by PDF.js after a reload: page count, order, bookmark and labels.
+    it('edits a document larger than 512 MiB with each page-structure operation', async () => {
+        // A profile on disk: an off-the-record context keeps its origin private file system in memory.
+        const context = await chromium.launchPersistentContext(await mkdtemp(join(temporaryDirectory, 'profile-')), {headless: true});
+        try {
+            let page = await context.newPage();
+            await openHarness(page);
+            type TLarge = Record<string, (...args: unknown[]) => Promise<unknown>>;
+            const call = (target: Page, name: string, ...args: unknown[]) => target.evaluate(([scenario, values]) => {
+                const scenarios = Reflect.get(globalThis, '__evbLargePageOps') as TLarge;
+                return scenarios[scenario as string]!(...values as unknown[]);
+            }, [name, args] as const);
+            const pageCount = 24;
+            const size = await call(page, 'createFixture', 'large.pdf', pageCount, 25 * 1024 * 1024) as number;
+            expect(size).toBeGreaterThan(512 * 1024 * 1024);
+            const widths = Array.from({length: pageCount}, (_, index) => 100 + index);
+            const roman = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X', 'XI', 'XII', 'XIII', 'XIV', 'XV', 'XVI', 'XVII', 'XVIII', 'XIX', 'XX', 'XXI', 'XXII'];
+            const small = await call(page, 'storeSmallPdf', 'insert.pdf') as string;
+            const results: Record<string, unknown> = {};
+            for (const operation of ['delete', 'reorder', 'insert', 'merge', 'extract'] as const) {
+                const ref = await call(page, 'open', 'large.pdf') as string;
+                const run = await call(page, 'run', operation, ref, pageCount, operation === 'extract' ? 'extract-out' : small) as {result: unknown; error?: unknown};
+                expect(run.error).toBeUndefined();
+                results[operation] = {ref, result: run.result};
+            }
+            // A reload: the documents are read back from the store by a new page.
+            await page.close();
+            page = await context.newPage();
+            await openHarness(page);
+            const inspect = (operation: string) => {
+                const {ref, result} = results[operation] as {ref: string; result: {destPath?: string} | string};
+                const target = operation === 'merge' ? result as string : operation === 'extract' ? 'extract-out.pdf' : ref;
+                return call(page, 'inspect', target);
+            };
+            expect(await inspect('delete')).toMatchObject({
+                pageCount: pageCount - 1,
+                widths: widths.filter((_, index) => index !== 1),
+                outlinePage: 2,
+                labels: ['1', ...roman.slice(0, pageCount - 2)],
+            });
+            expect(await inspect('reorder')).toMatchObject({
+                pageCount,
+                widths: widths.toReversed(),
+                outlinePage: pageCount - 2,
+                labels: [...roman.slice(0, pageCount - 2).toReversed(), '2', '1'],
+            });
+            expect(await inspect('insert')).toMatchObject({
+                pageCount: pageCount + 1,
+                widths: [100, 999, ...widths.slice(1)],
+                outlinePage: 4,
+                labels: ['1', '1', '2', ...roman.slice(0, pageCount - 2)],
+            });
+            expect(await inspect('merge')).toMatchObject({
+                pageCount: pageCount + 1,
+                widths: [...widths, 999],
+                outlinePage: 3,
+            });
+            expect(await inspect('extract')).toMatchObject({
+                pageCount: 3,
+                widths: [100, 102, 100 + pageCount - 1],
+                labels: ['1', 'I', roman[pageCount - 3]],
+            });
+        } finally {
+            await context.close();
+        }
+    }, 600_000);
 });
