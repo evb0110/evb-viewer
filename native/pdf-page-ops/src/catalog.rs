@@ -330,7 +330,6 @@ pub(crate) fn read_page_label_ranges(
     Ok(output)
 }
 
-#[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
 pub(crate) fn add_implicit_default_page_label_range(
     ranges: &mut Vec<PdfCombinePageLabelRange>,
     page_count: u32,

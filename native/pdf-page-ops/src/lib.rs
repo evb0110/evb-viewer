@@ -8,7 +8,6 @@ use evb_native_support::{
     bounded_io::{deserialize_bounded_vec, deserialize_json_file_bounded, read_file_bounded},
     NativeError, NativeErrorCode,
 };
-#[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
 use lopdf::dictionary;
 use lopdf::{Dictionary, Document, Object, ObjectId, Stream, StringFormat};
 use page_geometry::write_page_geometry;
@@ -55,6 +54,7 @@ mod overlay_destinations;
 mod overlay_sources;
 mod page_geometry;
 mod page_locator;
+mod page_structure_edit;
 #[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
 mod page_tree_ops;
 mod pdf_source;
@@ -141,6 +141,7 @@ pub(crate) use outline::*;
 pub(crate) use overlay_sources::*;
 pub(crate) use page_geometry::*;
 pub(crate) use page_locator::*;
+pub(crate) use page_structure_edit::*;
 #[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
 pub(crate) use page_tree_ops::*;
 pub(crate) use pdf_source::*;
