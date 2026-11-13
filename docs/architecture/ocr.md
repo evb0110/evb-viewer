@@ -115,13 +115,21 @@ cannot keep breaking searchable-PDF creation. Development uses the repository's
 resources directory. Neither the model directory nor download origin is a
 supported environment override in the app.
 
-Serbian is advertised as Cyrillic. Its model asks Tesseract to load `srp_latn`
-implicitly, so EVB explicitly excludes that unselected Latin recognizer. Four
-clean Serbian pages had zero faithful character error with or without the Latin
+A model's own config can ask Tesseract to load other models beside it
+(`tessedit_load_sublangs`). Tesseract reads them from the same directory and,
+when one is absent, silently recognizes without it. `OCR_MODEL_SUBLANGUAGES`
+in the registry records each pinned model's sub-languages, and every model
+download, installed state, bundle and engine mount uses its closure
+(`withOcrModelSublanguages`); the `-l` list stays the user's selection. Modern
+Greek loads Ancient Greek: without `grc`, `ell` read `και` as `καὶ` and `Ο` as
+`0`, roughly doubling word error on the quality corpus. Serbian is advertised
+as Cyrillic, so its `srp_latn` is kept out with `-l srp+~srp_latn`; four clean
+Serbian pages had zero faithful character error with or without the Latin
 model.
 
-Model changes must update the registry, pinned digests, development resources
-and packaging selection together. The resource generator checks those inputs.
+Model changes must update the registry, pinned digests, sub-languages,
+development resources and packaging selection together. The resource generator
+checks those inputs, including each model's `tessedit_load_sublangs`.
 Portuguese uses the upstream shared Portuguese model, including Brazilian
 Portuguese.
 

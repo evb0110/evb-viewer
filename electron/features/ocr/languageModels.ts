@@ -56,6 +56,7 @@ import {
     TESSDATA_BEST_REF,
     type TOcrLanguageCode,
     type TOcrModelCode,
+    withOcrModelSublanguages,
 } from '@contracts/ocrLanguages';
 
 const log = createLogger('ocr-languageModels');
@@ -1128,7 +1129,7 @@ export async function ensureTessdataModels(
     const runtimeDir = getRuntimeTessdataDir();
     await ensureRuntimeTessdataSeeded(options);
     // Bound parallel model downloads so OCR requests cannot flood network/disk resources.
-    await forEachConcurrent(uniq(modelCodes), getModelDownloadConcurrency(), async (modelCode) => {
+    await forEachConcurrent(withOcrModelSublanguages(modelCodes), getModelDownloadConcurrency(), async (modelCode) => {
         await ensureLanguageModel(modelCode, runtimeDir, options);
     });
 }
@@ -1145,8 +1146,12 @@ export async function getOcrLanguageModelStates() {
                 ? 'installed' as const
                 : 'missing' as const,
     ] as const)));
-    return AVAILABLE_OCR_LANGUAGES.map(({code}) => ({
-        code,
-        state: modelStates.get(code) ?? 'missing' as const,
-    }));
+    // A language is installed once every model file its run reads is.
+    return AVAILABLE_OCR_LANGUAGES.map(({code}) => {
+        const states = withOcrModelSublanguages([code]).map(model => modelStates.get(model) ?? 'missing' as const);
+        return {
+            code,
+            state: states.find(state => state !== 'installed') ?? 'installed' as const,
+        };
+    });
 }

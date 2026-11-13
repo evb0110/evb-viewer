@@ -5,7 +5,10 @@ import {
     type IBrowserOcrEnginePass,
     type IBrowserOcrEngineResult,
 } from '@contracts/browserOcrEngine';
-import type {TOcrModelCode} from '@contracts/ocrLanguages';
+import {
+    type TOcrModelCode,
+    withOcrModelSublanguages,
+} from '@contracts/ocrLanguages';
 
 /** The part of the Emscripten module a pass uses (`scripts/build-tesseract-wasm.sh`). */
 interface ITesseractModule {
@@ -154,14 +157,16 @@ export function createTesseractEngine(source: ITesseractEngineSource) {
     /** Runs one page's passes in order; a failed page drops the instance it may have left in a bad state. */
     return async function recognize(request: IOcrEngineRequest): Promise<IOcrEngineResult> {
         try {
+            // Tesseract finds the sub-languages a model's config loads beside it.
+            const codes = withOcrModelSublanguages(request.models);
             const [
                 engine,
                 ...loaded
             ] = await Promise.all([
                 loadEngine(),
-                ...request.models.map(loadModel),
+                ...codes.map(loadModel),
             ]);
-            const modelBytes = new Map(request.models.map((code, index) => [
+            const modelBytes = new Map(codes.map((code, index) => [
                 code,
                 loaded[index]!,
             ]));
