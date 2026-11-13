@@ -37,6 +37,7 @@ import {
 } from './ocrQualityMetrics.mjs';
 import {
     DEGRADATION_PROFILES,
+    encodeOcrQualityPng,
     generateOcrLanguageQualityFixture,
     LANGUAGE_CODES,
     PAGE_DPI,
@@ -120,7 +121,7 @@ function renderCorpusImage(testCase, index) {
         }
     }
     context.putImageData(image, 0, 0);
-    return canvas.encode('png');
+    return encodeOcrQualityPng(canvas);
 }
 
 async function loadProductionRunner() {

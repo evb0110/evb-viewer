@@ -2,6 +2,7 @@ import {createHash} from 'node:crypto';
 import {readFile} from 'node:fs/promises';
 import {join} from 'node:path';
 import {PDFDocument} from 'pdf-lib';
+import {encode as encodePng} from 'fast-png';
 import {
     createCanvas, GlobalFonts,
     loadImage,
@@ -1417,6 +1418,20 @@ function drawImageToCanvas(image, width, height, filter) {
     return canvas;
 }
 
+/** @param {any} canvas */
+export function encodeOcrQualityPng(canvas) {
+    // Desktop's page raster port supplies RGB; canvas PNGs always add alpha.
+    const {width, height} = canvas;
+    const {data} = canvas.getContext('2d').getImageData(0, 0, width, height);
+    const rgb = new Uint8Array(width * height * 3);
+    for (let source = 0, target = 0; source < data.length; source += 4, target += 3) {
+        rgb[target] = data[source];
+        rgb[target + 1] = data[source + 1];
+        rgb[target + 2] = data[source + 2];
+    }
+    return Buffer.from(encodePng({width, height, data: rgb, channels: 3, depth: 8}));
+}
+
 /** @param {any} canvas @param {number} start @param {number} end @param {'x' | 'y'} axis */
 function applyIllumination(canvas, start, end, axis) {
     const context = canvas.getContext('2d');
@@ -1614,7 +1629,7 @@ export async function realizeOcrQualityProfile({
         }
         throw new Error(`Unsupported OCR degradation operation ${operation.type}`);
     }
-    const raster = drawImageToCanvas(image, width, height).toBuffer('image/png');
+    const raster = encodeOcrQualityPng(drawImageToCanvas(image, width, height));
     return {
         raster,
         realized: {
