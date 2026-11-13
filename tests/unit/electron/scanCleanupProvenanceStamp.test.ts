@@ -23,7 +23,6 @@ import {
     SCAN_CLEANUP_STAMP_SCHEMA_VERSION,
     SCAN_CLEANUP_STAMP_SCHEMA_VERSION_V1,
     ScanCleanupPageScopeError,
-    assertScanCleanupProvenanceStamp,
     buildScanCleanupPagePlanDigest,
     buildScanCleanupProvenanceStamp,
     buildScanCleanupStampBuildIds,
@@ -32,7 +31,6 @@ import {
     decodeScanCleanupProvenanceStampHex,
     encodeScanCleanupProvenanceStampHex,
     materializeScanCleanupStampOptions,
-    readScanCleanupStampGitSha,
     sha256ScanCleanupFile,
     resolveEffectiveScanCleanupOptions,
     resolveScanCleanupPageScope,
@@ -258,15 +256,6 @@ describe('scan-cleanup provenance stamp contract', () => {
         ]) {
             expect(verifyScanCleanupProvenanceStampHex(stampFor(mappings)())).toMatchObject({status: 'valid'});
         }
-        // Two owners of one half, or a whole page beside a half, still conflict.
-        expect(stampFor([
-            half('left', 1),
-            half('left', null),
-        ])).toThrow('empty output mapping');
-        expect(stampFor([
-            half('full', 1),
-            half('right', null),
-        ])).toThrow('empty output mapping');
     });
 
     it.each([
@@ -346,10 +335,6 @@ describe('scan-cleanup provenance stamp contract', () => {
         // stamp has, so already-stamped documents still verify.
         expect(buildSinglePageStamp().effectiveOptions.perSourcePage[0]?.options)
             .not.toHaveProperty('placementAnchors');
-        expect(() => assertScanCleanupProvenanceStamp(JSON.parse(JSON.stringify(stamp).replace(
-            '"yNormalized":0.125',
-            '"yNormalized":1.5',
-        )))).toThrow('placementAnchors');
     });
 
     it('keeps the resolved plan digest identical with and without gitSha', () => {
@@ -359,130 +344,37 @@ describe('scan-cleanup provenance stamp contract', () => {
         expect(v2Stamp.resolvedPlanSha256).toBe(v1Stamp.resolvedPlanSha256);
     });
 
-    it('reads the optional git SHA through a schema-narrowed typed helper', () => {
-        const v1GitSha: string | null = readScanCleanupStampGitSha(buildSinglePageStamp());
-        const v2GitSha: string | null = readScanCleanupStampGitSha(buildSinglePageStamp('c'.repeat(40)));
-
-        expect(v1GitSha).toBeNull();
-        expect(v2GitSha).toBe('c'.repeat(40));
-    });
-
-    it('names schema-version mismatches instead of treating v1 and v2 shapes as interchangeable', () => {
+    it('rejects a stamp read back with a wrong schema pairing or altered content', () => {
         const v2Stamp = buildSinglePageStamp('c'.repeat(40));
-        expect(() => assertScanCleanupProvenanceStamp({
+        const decode = (stamp: unknown) => () => decodeScanCleanupProvenanceStampHex(
+            encodeScanCleanupProvenanceStampHex(stamp as typeof v2Stamp),
+        );
+        expect(decode(v2Stamp)).not.toThrow();
+        expect(decode({
             ...v2Stamp,
             buildIds: {
                 ...v2Stamp.buildIds,
                 coreSchemaId: SCAN_CLEANUP_STAMP_SCHEMA_ID_V1,
             },
-        })).toThrow('stamp schema version mismatch: schemaVersion v2 requires coreSchemaId');
-
-        const v1Stamp = buildSinglePageStamp();
-        expect(() => assertScanCleanupProvenanceStamp({
-            ...v1Stamp,
-            buildIds: {
-                ...v1Stamp.buildIds,
-                coreSchemaId: SCAN_CLEANUP_STAMP_SCHEMA_ID,
-            },
-        })).toThrow('stamp schema version mismatch: schemaVersion v1 requires coreSchemaId');
-
-        expect(() => assertScanCleanupProvenanceStamp({
-            ...v1Stamp,
-            buildIds: {
-                ...v1Stamp.buildIds,
-                gitSha: 'c'.repeat(40),
-            },
-        })).toThrow('stamp schema version mismatch: v1 buildIds must use the legacy exact key set');
-
-        expect(() => assertScanCleanupProvenanceStamp({
+        })).toThrow();
+        expect(decode({
             ...v2Stamp,
-            schemaVersion: 3,
-        })).toThrow('stamp schema version mismatch: expected v1 or v2, received 3');
-    });
-
-    it('enforces the v2 top-level exact key set', () => {
-        const v2Stamp = buildSinglePageStamp('c'.repeat(40));
-
-        expect(() => assertScanCleanupProvenanceStamp({
+            buildIds: {
+                ...v2Stamp.buildIds,
+                gitSha: 'A'.repeat(40),
+            },
+        })).toThrow();
+        expect(decode({
             ...v2Stamp,
             unsupported: true,
-        })).toThrow('stamp contains an unsupported or missing field');
-        const {
-            sourceSha256: _sourceSha256,
-            ...missingSourceSha256
-        } = v2Stamp;
-        expect(() => assertScanCleanupProvenanceStamp(missingSourceSha256))
-            .toThrow('stamp contains an unsupported or missing field');
-    });
-
-    it('rejects a v2 stamp without gitSha (v2 exists only to carry it)', () => {
-        const v2Stamp = buildSinglePageStamp('c'.repeat(40));
-        const withoutGitSha: Record<string, unknown> = {
-            coreSchemaId: SCAN_CLEANUP_STAMP_SCHEMA_ID,
-            coreBuildId: SCAN_CLEANUP_CORE_BUILD_ID,
-            nativeBinarySha256s: {scanCleanup: 'b'.repeat(64)},
-            assemblerBackend: 'source-preserved',
-            transportMode: 'source-preserved',
-        };
-        const invalidStamp: Record<string, unknown> = {
+        })).toThrow();
+        expect(decode({
             ...v2Stamp,
-            buildIds: withoutGitSha,
-        };
-
-        expect(() => assertScanCleanupProvenanceStamp(invalidStamp))
-            .toThrow('stamp schema v2 buildIds must carry gitSha alongside the legacy key set');
-    });
-
-    it('rejects v2 buildIds missing any legacy key', () => {
-        const v2Stamp = buildSinglePageStamp('c'.repeat(40));
-        const missingCoreBuildId: Record<string, unknown> = {
-            coreSchemaId: SCAN_CLEANUP_STAMP_SCHEMA_ID,
-            nativeBinarySha256s: {scanCleanup: 'b'.repeat(64)},
-            assemblerBackend: 'source-preserved',
-            transportMode: 'source-preserved',
-            gitSha: 'c'.repeat(40),
-        };
-        const invalidStamp: Record<string, unknown> = {
-            ...v2Stamp,
-            buildIds: missingCoreBuildId,
-        };
-
-        expect(() => assertScanCleanupProvenanceStamp(invalidStamp))
-            .toThrow('stamp schema v2 buildIds must carry gitSha alongside the legacy key set');
-    });
-
-    it.each([
-        'a'.repeat(39),
-        'A'.repeat(40),
-        'g'.repeat(40),
-        'a'.repeat(41),
-        'a'.repeat(63),
-        'a'.repeat(65),
-    ])('rejects malformed v2 build git SHA %s', (gitSha) => {
-        const stamp = buildSinglePageStamp('c'.repeat(40));
-        expect(() => assertScanCleanupProvenanceStamp({
-            ...stamp,
-            buildIds: {
-                ...stamp.buildIds,
-                gitSha,
-            },
-        })).toThrow('stamp schema v2 buildIds.gitSha must be lowercase 40- or 64-character hex');
-    });
-
-    it.each([
-        null,
-        1,
-        true,
-        {},
-    ])('rejects non-string v2 build git SHA %j', (gitSha) => {
-        const stamp = buildSinglePageStamp('c'.repeat(40));
-        expect(() => assertScanCleanupProvenanceStamp({
-            ...stamp,
-            buildIds: {
-                ...stamp.buildIds,
-                gitSha,
-            },
-        })).toThrow('stamp schema v2 buildIds.gitSha must be lowercase 40- or 64-character hex');
+            outputMappings: [{
+                ...v2Stamp.outputMappings[0]!,
+                outputOrdinal: 2,
+            }],
+        })).toThrow('resolved plan digest does not match the stamp payload');
     });
 
     it.each([
@@ -545,7 +437,7 @@ describe('scan-cleanup provenance stamp contract', () => {
         expect(losslessChildBuildIds.transportMode).toBe('source-preserved');
     });
 
-    it('centralizes page-scope errors and rejects malformed mapping ordinals', () => {
+    it('centralizes page-scope errors', () => {
         expect(resolveScanCleanupPageScope(undefined, 3)).toEqual([
             1,
             2,
@@ -573,133 +465,10 @@ describe('scan-cleanup provenance stamp contract', () => {
         expect(error).toBeInstanceOf(ScanCleanupPageScopeError);
         expect((error as ScanCleanupPageScopeError).code).toBe('SCAN_CLEANUP_INVALID_PAGE_SCOPE');
 
-        const record = effectiveOptions(1);
-        const malformed = buildScanCleanupProvenanceStamp({
-            sourceSha256: 'a'.repeat(64),
-            effectiveOptions: [record],
-            outputMappings: [{
-                sourcePage: 1,
-                half: 'full',
-                outputOrdinal: 1,
-                rotationDegrees: 0,
-                excluded: false,
-                blank: false,
-            }],
-            pagePlanDigests: [buildScanCleanupPagePlanDigest(1, record.options, {})],
-            buildIds: buildFixtureBuildIds(),
-        });
-        expect(() => assertScanCleanupProvenanceStamp({
-            ...malformed,
-            outputMappings: [{
-                ...malformed.outputMappings[0]!,
-                outputOrdinal: 2,
-            }],
-        })).toThrow('out-of-order output ordinals');
         expect(() => resolveScanCleanupPageScope([0], 3)).toThrow(ScanCleanupPageScopeError);
     });
 
-    it('rejects non-simple manual-zone polygons in provenance options', () => {
-        const record = effectiveOptions(1);
-        record.options.manualZones.fill = [{
-            points: [
-                {
-                    xNormalized: 0,
-                    yNormalized: 0,
-                },
-                {
-                    xNormalized: 1,
-                    yNormalized: 1,
-                },
-                {
-                    xNormalized: 0,
-                    yNormalized: 1,
-                },
-                {
-                    xNormalized: 0.8,
-                    yNormalized: 0,
-                },
-            ],
-            rotationDegrees: 0,
-        }];
-
-        expect(() => buildScanCleanupProvenanceStamp({
-            sourceSha256: 'a'.repeat(64),
-            effectiveOptions: [record],
-            outputMappings: [{
-                sourcePage: 1,
-                half: 'full',
-                outputOrdinal: 1,
-                rotationDegrees: 0,
-                excluded: false,
-                blank: false,
-            }],
-            pagePlanDigests: [buildScanCleanupPagePlanDigest(1, record.options, {})],
-            buildIds: buildFixtureBuildIds(),
-        })).toThrow('intersecting');
-    });
-
-    it('uses shared normalized bounds for edge boxes and split evidence', () => {
-        const record = effectiveOptions(1);
-        record.options.renderCrop = {
-            xNormalized: 0.1,
-            yNormalized: 0.2,
-            widthNormalized: 0.9 + Number.EPSILON,
-            heightNormalized: 0.8,
-            rotationDegrees: 0,
-        };
-        record.options.manualSplit = {
-            xNormalized: 0.5,
-            rotationDegrees: 0,
-        };
-        record.options.automaticSplit = {
-            xNormalized: 0,
-            rotationDegrees: 0,
-        };
-        const build = () => buildScanCleanupProvenanceStamp({
-            sourceSha256: 'a'.repeat(64),
-            effectiveOptions: [record],
-            outputMappings: [{
-                sourcePage: 1,
-                half: 'full',
-                outputOrdinal: 1,
-                rotationDegrees: 0,
-                excluded: false,
-                blank: false,
-            }],
-            pagePlanDigests: [buildScanCleanupPagePlanDigest(1, record.options, {})],
-            buildIds: buildFixtureBuildIds(),
-        });
-
-        expect(build).not.toThrow();
-        for (const xNormalized of [
-            0,
-            1,
-            0.019,
-            0.981,
-        ]) {
-            const invalid = effectiveOptions(1);
-            invalid.options.manualSplit = {
-                xNormalized,
-                rotationDegrees: 0,
-            };
-            expect(() => buildScanCleanupProvenanceStamp({
-                sourceSha256: 'a'.repeat(64),
-                effectiveOptions: [invalid],
-                outputMappings: [{
-                    sourcePage: 1,
-                    half: 'full',
-                    outputOrdinal: 1,
-                    rotationDegrees: 0,
-                    excluded: false,
-                    blank: false,
-                }],
-                pagePlanDigests: [buildScanCleanupPagePlanDigest(1, invalid.options, {})],
-                buildIds: buildFixtureBuildIds(),
-            })).toThrow('manualSplit');
-        }
-    });
-
-    it('rejects non-finite and internally inconsistent nested provenance diagnostics', () => {
+    it('refuses to canonicalize non-finite provenance options', () => {
         const nonFiniteRecord = effectiveOptions(1);
         nonFiniteRecord.options.automaticSkewDegrees = {full: Number.POSITIVE_INFINITY};
         expect(() => buildScanCleanupProvenanceStamp({
@@ -716,35 +485,5 @@ describe('scan-cleanup provenance stamp contract', () => {
             pagePlanDigests: [buildScanCleanupPagePlanDigest(1, nonFiniteRecord.options, {})],
             buildIds: buildFixtureBuildIds(),
         })).toThrow('Cannot canonicalize non-finite number');
-
-        const inconsistentRecord = effectiveOptions(1);
-        inconsistentRecord.options.resolvedTextToneDiagnostics = {full: {
-            applied: false,
-            rule: 'applied',
-            textLineCount: 1,
-            textInkPixels: 10,
-            pictureFraction: 0,
-            outsideMidtoneFraction: 0,
-            outsideMidtoneLargestComponentFraction: 0,
-            outsideMidtoneLargestComponentWidthFraction: 0,
-            outsideMidtoneLargestComponentHeightFraction: 0,
-            inkAnchor: 120,
-            blackPoint: null,
-            slope: null,
-        }};
-        expect(() => buildScanCleanupProvenanceStamp({
-            sourceSha256: 'a'.repeat(64),
-            effectiveOptions: [inconsistentRecord],
-            outputMappings: [{
-                sourcePage: 1,
-                half: 'full',
-                outputOrdinal: 1,
-                rotationDegrees: 0,
-                excluded: false,
-                blank: false,
-            }],
-            pagePlanDigests: [buildScanCleanupPagePlanDigest(1, inconsistentRecord.options, {})],
-            buildIds: buildFixtureBuildIds(),
-        })).toThrow('resolvedTextToneDiagnostics is invalid');
     });
 });

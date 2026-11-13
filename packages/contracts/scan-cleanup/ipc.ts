@@ -6,20 +6,39 @@ import {
 } from '@contracts/nativeErrors';
 import {SERIALIZABLE_ERROR_ENVELOPE_SCHEMA} from '@contracts/serializableError';
 import type {
+    IScanCleanupDocumentPrior,
     TScanCleanupBinarizationMethod,
-    TScanCleanupContentTrimSide,
+    TScanCleanupLayoutClassification,
     TScanCleanupOutputHalf,
+    TScanCleanupOutputMode,
     TScanCleanupOutputModeRecommendationReason,
 } from '@contracts/scan-cleanup/domain';
-import type {IScanCleanupPixelRect} from '@contracts/scan-cleanup/geometry';
-import {
-    SCAN_CLEANUP_WARNING_EVENT_SCHEMA,
-    type INativeScanCleanupBinarizationDiagnosticsV3,
-    type INativeScanCleanupTextToneDiagnosticsV3,
-} from '@contracts/scan-cleanup/nativeProtocolV3';
+import {SCAN_CLEANUP_WARNING_EVENT_SCHEMA} from '@contracts/scan-cleanup/nativeProtocolV3';
+import type {
+    BinarizationDiagnostics,
+    CleanupMetadata,
+    ContentAcceptedTrim,
+    ContentBlockEvidence,
+    ContentDiagnostics,
+    OutputModeDiagnostics,
+    PageResultMetadata,
+    SplitDiagnostics,
+    SplitSeamPolyline,
+    TextAxisHint,
+    TextToneDiagnostics,
+} from '@contracts/scan-cleanup/nativeWire.generated';
+import type {TScanCleanupProgress} from '@contracts/scan-cleanup/progress';
+import type {
+    TJobId,
+    TRequestId,
+} from '@contracts/shared';
+import type {TEpochMs} from '@contracts/timestamps';
+import type {TPageNumber} from '@contracts/pageNumbers';
+import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
 import * as v from 'valibot';
 import type {
     SCAN_CLEANUP_OWNER_CONTEXT_SCHEMA,
+    SCAN_CLEANUP_PLACEMENT_ANCHORS_SCHEMA,
     SCAN_CLEANUP_PREVIEW_REQUEST_SCHEMA,
     SCAN_CLEANUP_PREVIEW_CANCEL_REQUEST_SCHEMA,
     SCAN_CLEANUP_DETECTION_REQUEST_SCHEMA,
@@ -29,18 +48,6 @@ import type {
     SCAN_CLEANUP_START_REQUEST_SCHEMA,
 } from '@contracts/scan-cleanup/ipcRequestCodecs';
 import type {SCAN_CLEANUP_PLACEMENT_ANCHOR_SUMMARY_SCHEMA} from '@contracts/scan-cleanup/decodeScanCleanupPlacementAnchorSummary';
-import type {
-    SCAN_CLEANUP_DETECTION_JOB_STATE_SCHEMA,
-    SCAN_CLEANUP_DETECTION_RESULT_SCHEMA,
-    SCAN_CLEANUP_DETECTION_START_RESULT_SCHEMA,
-    SCAN_CLEANUP_JOB_STATE_SCHEMA,
-    SCAN_CLEANUP_PLACEMENT_ANCHOR_CALIBRATION_SCHEMA,
-    SCAN_CLEANUP_PREVIEW_METADATA_SCHEMA,
-    SCAN_CLEANUP_PREVIEW_PAGE_METADATA_SCHEMA,
-    SCAN_CLEANUP_PREVIEW_RESULT_SCHEMA,
-    SCAN_CLEANUP_RAW_PREVIEW_EVENT_SCHEMA,
-    SCAN_CLEANUP_START_RESULT_SCHEMA,
-} from '@contracts/scan-cleanup/ipcResultCodecs';
 export type {
     TScanCleanupCanvasPolicy,
     TScanCleanupContentTrimSide,
@@ -89,7 +96,16 @@ export function isScanCleanupErrorEnvelope(value: unknown): value is IScanCleanu
 
 export type IScanCleanupPreviewRequest = v.InferOutput<typeof SCAN_CLEANUP_PREVIEW_REQUEST_SCHEMA>;
 
-export type IScanCleanupRawPreviewEvent = v.InferOutput<typeof SCAN_CLEANUP_RAW_PREVIEW_EVENT_SCHEMA>;
+export interface IScanCleanupRawPreviewEvent {
+    ownerId: string;
+    documentRevision: string;
+    requestId: TRequestId;
+    pageNumber: TPageNumber;
+    totalPages: number;
+    rawImageData: Uint8Array;
+    rawWidthPx: number;
+    rawHeightPx: number;
+}
 export type IScanCleanupRawPreviewResult = Omit<IScanCleanupRawPreviewEvent, 'ownerId' | 'documentRevision' | 'requestId'>;
 
 export type IScanCleanupPreviewCancelRequest = v.InferOutput<typeof SCAN_CLEANUP_PREVIEW_CANCEL_REQUEST_SCHEMA>;
@@ -108,55 +124,11 @@ export interface IScanCleanupDocumentCanvasPlan {
     heightPx: number;
 }
 
-export interface IScanCleanupContentSideConfidence {
-    left: number;
-    top: number;
-    right: number;
-    bottom: number;
-}
-
-export interface IScanCleanupContentTextMaskSummary {
-    analysisWidthPx: number;
-    analysisHeightPx: number;
-    inkPixels: number;
-    lineCount: number;
-    bounds?: IScanCleanupPixelRect;
-}
-
-export interface IScanCleanupContentBlockEvidence {
-    bounds: IScanCleanupPixelRect;
-    pictureMaskOverlapPixels: number;
-    headingEvidence: boolean;
-    grayscaleEvidence: boolean;
-    /** Present in current native metadata; absent in artifacts made before text hard-protection. */
-    textEvidence?: boolean;
-}
-
-export interface IScanCleanupContentAcceptedTrim {
-    side: TScanCleanupContentTrimSide;
-    iteration: number;
-    score: number;
-    threshold: number;
-    contentDistanceSum: number;
-    garbageDistanceSum: number;
-    removedBlocks: IScanCleanupContentBlockEvidence[];
-}
-
-export interface IScanCleanupContentDiagnostics {
-    sideConfidence: IScanCleanupContentSideConfidence;
-    textMask: IScanCleanupContentTextMaskSummary;
-    /**
-     * Exact analysis-space detector box after all native side writers. Export
-     * still maps it through source support and margins; this is not output cropRect.
-     */
-    shippedBounds?: IScanCleanupPixelRect;
-    acceptedTrims?: IScanCleanupContentAcceptedTrim[];
-    protectedBlocks?: IScanCleanupContentBlockEvidence[];
-}
-
-export interface IScanCleanupBinarizationDiagnostics extends INativeScanCleanupBinarizationDiagnosticsV3 {}
-
-export interface IScanCleanupTextToneDiagnostics extends INativeScanCleanupTextToneDiagnosticsV3 {}
+export type IScanCleanupContentBlockEvidence = ContentBlockEvidence;
+export type IScanCleanupContentAcceptedTrim = ContentAcceptedTrim;
+export type IScanCleanupContentDiagnostics = ContentDiagnostics;
+export type IScanCleanupBinarizationDiagnostics = BinarizationDiagnostics;
+export type IScanCleanupTextToneDiagnostics = TextToneDiagnostics;
 
 /** Renderer-facing per-page diagnostic summary assembled from page and first-output metadata. */
 export interface IScanCleanupPageDiagnostics {
@@ -180,17 +152,57 @@ export interface IScanCleanupPageOutputDiagnostics {
     textToneDiagnostics?: IScanCleanupTextToneDiagnostics;
 }
 
-export type IScanCleanupPreviewMetadata = v.InferOutput<typeof SCAN_CLEANUP_PREVIEW_METADATA_SCHEMA>;
-export type IScanCleanupPreviewPageMetadata = v.InferOutput<typeof SCAN_CLEANUP_PREVIEW_PAGE_METADATA_SCHEMA>;
-export type IScanCleanupPreviewOutput = Extract<
-    v.InferOutput<typeof SCAN_CLEANUP_PREVIEW_RESULT_SCHEMA>,
-    {pageMetadata: unknown}
->['outputs'][number];
-export type TScanCleanupPreviewWireResult = v.InferOutput<typeof SCAN_CLEANUP_PREVIEW_RESULT_SCHEMA>;
-export type IScanCleanupPreviewResult = Omit<Extract<
-    TScanCleanupPreviewWireResult,
-    {pageMetadata: unknown}
->, 'rawImageData'> & {rawImageData: Uint8Array};
+/** A preview's page record: the engine's page metadata and its first output's diagnostics. */
+export interface IScanCleanupPreviewPageMetadata extends IScanCleanupPageDiagnostics, Pick<PageResultMetadata,
+    | 'layoutClassification' | 'layoutConfidence' | 'cutterXPx' | 'rotationDegrees' | 'canvasScope'
+    | 'excluded' | 'blankOutputsSkipped' | 'tier1Verdict' | 'reconciled' | 'clusterAgreement'> {
+    splitSeam?: SplitSeamPolyline;
+    splitAbstained?: boolean;
+    recommendedOutputMode?: TScanCleanupOutputMode;
+    recommendedOutputModeConfidence?: number;
+    softAlphaForegroundRecommendation?: boolean;
+}
+
+/** A preview output's metadata: the engine's output record as the preview carries it. */
+export interface IScanCleanupPreviewMetadata extends Pick<CleanupMetadata,
+    | 'half' | 'layoutClassification' | 'layoutConfidence' | 'manualSkew' | 'sourceRegion' | 'contentBox'
+    | 'cropRect' | 'contentDiagnostics' | 'appliedMargins' | 'outputWidthPx' | 'outputHeightPx'
+    | 'intrinsicRasterWidthPx' | 'intrinsicRasterHeightPx' | 'renderRegion' | 'canvasWidthPx' | 'canvasHeightPx'
+    | 'canvasPolicy' | 'canvasOverflow' | 'matchedCanvasTargetWidthPx' | 'matchedCanvasTargetHeightPx'
+    | 'matchedCanvasTargetWidthPoints' | 'matchedCanvasTargetHeightPoints' | 'matchedCanvasContentWidthPx'
+    | 'matchedCanvasContentHeightPx' | 'matchedCanvasOpticalPlacement' | 'matchedCanvasIntrinsicOverflowLeftPx'
+    | 'matchedCanvasIntrinsicOverflowRightPx' | 'matchedCanvasIntrinsicOverflowTopPx' | 'foldClipLeftPx'
+    | 'foldClipRightPx' | 'placementOffsetXPx' | 'placementOffsetYPx' | 'forwardTransform' | 'cutterXPx'
+    | 'splitSeam' | 'inputWidthPx' | 'inputHeightPx' | 'rotationDegrees' | 'canvasScope' | 'resamplePasses'
+    | 'textToneDiagnostics' | 'rasterScaleLimited' | 'warnings'>, Partial<Pick<CleanupMetadata,
+    | 'detectedSkewDegrees' | 'skewConfidence' | 'skewApplied' | 'illuminationNormalized' | 'binarizationMode' | 'binarizationDiagnostics' | 'despeckleFallback' | 'dewarpConfidence' | 'sourceDpi'
+    | 'renderDpi' | 'requestedRenderDpi'>> {
+    matchedCanvasOpticalContentLeftPx: number | null;
+    matchedCanvasOpticalContentRightPx: number | null;
+    /** What the engine wrote: always a resolved mode. */
+    outputMode?: TScanCleanupOutputMode;
+    splitAbstained?: boolean;
+    dewarpApplied?: boolean;
+}
+
+export interface IScanCleanupPreviewOutput {
+    imageData: Uint8Array;
+    metadata: IScanCleanupPreviewMetadata;
+}
+
+interface IScanCleanupPreviewWire {
+    canceled?: undefined;
+    requestId?: TRequestId;
+    pageNumber: TPageNumber;
+    totalPages: number;
+    rawImageData?: Uint8Array;
+    rawWidthPx: number;
+    rawHeightPx: number;
+    outputs: IScanCleanupPreviewOutput[];
+    pageMetadata: IScanCleanupPreviewPageMetadata;
+}
+export type TScanCleanupPreviewWireResult = {canceled: true} | IScanCleanupPreviewWire;
+export type IScanCleanupPreviewResult = Omit<IScanCleanupPreviewWire, 'rawImageData'> & {rawImageData: Uint8Array};
 
 export type IScanCleanupDetectionRequest = v.InferOutput<typeof SCAN_CLEANUP_DETECTION_REQUEST_SCHEMA>;
 
@@ -222,11 +234,54 @@ export type IScanCleanupPlacementAnchorSummaryCluster = IScanCleanupPlacementAnc
 export type IScanCleanupPlacementAnchorSummaryIdentity = IScanCleanupPlacementAnchorSummary['identity'];
 export type IScanCleanupPlacementAnchorCalibrationRequest = v.InferOutput<typeof SCAN_CLEANUP_PLACEMENT_ANCHOR_CALIBRATION_REQUEST_SCHEMA>;
 
-export type IScanCleanupPlacementAnchorCalibration = v.InferOutput<typeof SCAN_CLEANUP_PLACEMENT_ANCHOR_CALIBRATION_SCHEMA>;
+export interface IScanCleanupPlacementAnchorCalibration {
+    summary: IScanCleanupPlacementAnchorSummary;
+    placementAnchors: v.InferOutput<typeof SCAN_CLEANUP_PLACEMENT_ANCHORS_SCHEMA>;
+}
 
-export type IScanCleanupDetectionResult = v.InferOutput<typeof SCAN_CLEANUP_DETECTION_RESULT_SCHEMA>;
-export type TScanCleanupDetectionJobState = NonNullable<v.InferOutput<typeof SCAN_CLEANUP_DETECTION_JOB_STATE_SCHEMA>>;
-export type TScanCleanupDetectionStartResult = v.InferOutput<typeof SCAN_CLEANUP_DETECTION_START_RESULT_SCHEMA>;
+export interface IScanCleanupDetectionResult {
+    pageNumber: TPageNumber;
+    revision?: number;
+    classification: TScanCleanupLayoutClassification;
+    confidence: number;
+    cutterXPx: number | null;
+    tier1Verdict: TScanCleanupLayoutClassification;
+    reconciled: boolean;
+    clusterAgreement: number;
+    documentPrior: IScanCleanupDocumentPrior | null;
+    textAxis?: TextAxisHint;
+    recommendedOutputMode?: TScanCleanupOutputMode;
+    recommendedOutputModeConfidence?: number;
+    recommendedOutputModeReason?: TScanCleanupOutputModeRecommendationReason;
+    softAlphaForegroundRecommendation?: boolean;
+    outputModeDiagnostics?: OutputModeDiagnostics;
+    sourcePageMetadata?: IScanCleanupSourcePageMetadata;
+    pagePlanEvidence?: IScanCleanupPagePlanEvidence;
+    splitDiagnostics?: SplitDiagnostics;
+}
+
+/** Why a job failed, in a form the renderer localizes. */
+interface IScanCleanupJobFailure {
+    error: string;
+    errorCode: TScanCleanupErrorCode;
+    scratchShortfall?: IScanCleanupScratchShortfall;
+}
+
+export type TScanCleanupDetectionJobState = {
+    jobId: TJobId;
+    documentCanvasSignature?: string;
+    progress: TScanCleanupProgress;
+    resultCount?: number;
+    /** Final pages recommended as blank, counted over every result, not the window. */
+    blankPageCount?: number;
+    detectionResultStoreId?: string;
+    placementAnchorSummary?: IScanCleanupPlacementAnchorSummary;
+    results: IScanCleanupDetectionResult[];
+    updatedAtMs: TEpochMs;
+} & ({status: 'queued' | 'running' | 'canceling' | 'completed' | 'canceled'} | ({status: 'failed'} & IScanCleanupJobFailure));
+export type TScanCleanupDetectionStartResult =
+    | {started: true; jobId: TJobId}
+    | ({started: false; jobId: TJobId} & IScanCleanupJobFailure);
 
 export type IScanCleanupStartRequest = v.InferOutput<typeof SCAN_CLEANUP_START_REQUEST_SCHEMA>;
 
@@ -299,5 +354,23 @@ export const SCAN_CLEANUP_SUMMARY_SCHEMA = v.object({
 });
 export type TScanCleanupSummary = v.InferOutput<typeof SCAN_CLEANUP_SUMMARY_SCHEMA>;
 
-export type TScanCleanupJobState = NonNullable<v.InferOutput<typeof SCAN_CLEANUP_JOB_STATE_SCHEMA>>;
-export type TScanCleanupStartResult = v.InferOutput<typeof SCAN_CLEANUP_START_RESULT_SCHEMA>;
+export type TScanCleanupJobState = {
+    jobId: TJobId;
+    progress: TScanCleanupProgress;
+    updatedAtMs: TEpochMs;
+} & (
+    | {status: 'queued' | 'running' | 'canceling' | 'handoff' | 'committing' | 'canceled'}
+    | {
+        status: 'completed';
+        outputPdfPath: string;
+        summary: TScanCleanupSummary;
+        partial: boolean;
+    }
+    | ({
+        status: 'failed';
+        failure?: FailureReceipt;
+    } & IScanCleanupJobFailure)
+);
+export type TScanCleanupStartResult =
+    | {started: true; jobId: TJobId; outputPdfPath: string}
+    | ({started: false; jobId: TJobId} & IScanCleanupJobFailure);

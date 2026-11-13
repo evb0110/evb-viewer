@@ -12,7 +12,7 @@ import type {
     TScanCleanupDetectionStartResult,
 } from '@contracts/scan-cleanup/electronApiScanCleanup';
 import type {TJobId} from '@contracts/shared';
-import {projectScanCleanupDetectionStateForRenderer} from '@contracts/scan-cleanup/ipcResultCodecs';
+import {projectScanCleanupDetectionStateForRenderer} from '@contracts/scan-cleanup/projectScanCleanupDetectionStateForRenderer';
 import {attachScanCleanupPageOverrideDefaults} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
 import {
     runScanCleanupDetection,

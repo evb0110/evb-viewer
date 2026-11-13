@@ -23,7 +23,6 @@ import {reactive} from 'vue';
 import type {IScanCleanupPreviewRequest} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import {requirePageNumber} from '@contracts/pageNumbers';
 import {requireRequestId} from '@contracts/shared';
-import * as v from 'valibot';
 import {findSerializableErrorEnvelope} from '@contracts/serializableError';
 import {SCAN_CLEANUP_ERROR_ENVELOPE_SCHEMA} from '@contracts/scan-cleanup/ipc';
 import {toPlainScanCleanupOptions} from '@contracts/scan-cleanup/scanCleanupSettings';
@@ -31,14 +30,11 @@ import {
     defaultDependencies, scanCleanupPreviewLifecycle,
 } from '@electron/features/scan-cleanup/scanCleanupPreviewLifecycle';
 import {NativeScanCleanupError} from '@electron/features/scan-cleanup/worker/runScanCleanupSidecar';
-import {
-    SCAN_CLEANUP_DETECTION_JOB_STATE_SCHEMA, decodeScanCleanupPreviewResult,
-} from '@contracts/scan-cleanup/ipcResultCodecs';
+import type {TScanCleanupPreviewWireResult} from '@contracts/scan-cleanup/ipc';
 import {
     createScanCleanupPreviewDependencies,
     createScanCleanupPreviewTestContext,
     lifecycleSender,
-    PNG,
     pngWithDimensions,
     previewOf,
     request,
@@ -63,8 +59,8 @@ async function previewDependencies() {
     return createScanCleanupPreviewTestContext(dirs, dependenciesOverride);
 }
 
-function platformPreviewResultFixture() {
-    return decodeScanCleanupPreviewResult({
+function platformPreviewResultFixture(): TScanCleanupPreviewWireResult {
+    return {
         pageNumber: requirePageNumber(1),
         totalPages: 1,
         rawWidthPx: 1,
@@ -76,9 +72,13 @@ function platformPreviewResultFixture() {
             canvasScope: 'page',
             excluded: false,
             blankOutputsSkipped: 0,
+            layoutConfidence: 0,
+            tier1Verdict: 'single-uncut-page',
+            reconciled: false,
+            clusterAgreement: 0,
         },
         outputs: [],
-    });
+    };
 }
 
 afterEach(async () => {
@@ -116,10 +116,6 @@ export async function scenarioPreservesFoldClippingThroughNativeArtifactAndIPCCo
         foldClipLeftPx: 1,
         foldClipRightPx: 1,
     });
-    expect(decodeScanCleanupPreviewResult(result)).toMatchObject({outputs: [{metadata: {
-        foldClipLeftPx: 1,
-        foldClipRightPx: 1,
-    }}]});
 
 }
 
@@ -406,28 +402,6 @@ export async function scenarioSerializesNestedReactivePageOverridesForEveryIPCRe
 
 }
 
-export async function scenarioRejectsAsymmetricStartErrorsAndImpossibleJobProgress(): Promise<void> {
-
-    expect(() => SCAN_CLEANUP_IPC_CODECS[SCAN_CLEANUP_CHANNELS.start].decodeResult({
-        started: false,
-        jobId: 'job-1',
-        error: 'failed',
-        errorCode: 'untyped-code',
-    })).toThrow('typed error');
-    expect(() => SCAN_CLEANUP_IPC_CODECS[SCAN_CLEANUP_CHANNELS.getJobState].decodeResult({
-        jobId: 'job-1',
-        status: 'running',
-        progress: {
-            stage: 'rendering',
-            completedUnits: 2,
-            totalUnits: 1,
-            percent: 50,
-        },
-        updatedAtMs: Date.now(),
-    })).toThrow('invalid scan-cleanup progress');
-
-}
-
 export async function scenarioDemandMaterializesLazyOriginalInputBeforeScanCleanupPreview(): Promise<void> {
 
     const {deps} = await previewDependencies();
@@ -573,384 +547,14 @@ export async function scenarioKeepsEagerScanCleanupPreviewPathsUnchanged(): Prom
 
 }
 
-export async function scenarioAcceptsUnboundedNonnegativeSkewEvidenceAndRejectsInvalidValuesAtBothMetadataBoundaries(): Promise<void> {
+export async function scenarioAcceptsUnboundedNonnegativeSkewEvidence(): Promise<void> {
 
     const {deps} = await previewDependencies();
     const result = await previewOf(scanCleanupPreviewLifecycle(deps), sender(), request);
-    expect(decodeScanCleanupPreviewResult(result)).toMatchObject({
+    expect(result).toMatchObject({
         outputs: [{metadata: {skewConfidence: 2.4}}],
         pageMetadata: {skewConfidence: 2.4},
     });
-
-    for (const invalid of [
-        -0.01,
-        Number.NaN,
-        Number.POSITIVE_INFINITY,
-    ]) {
-        expect(() => decodeScanCleanupPreviewResult({
-            ...result,
-            outputs: result.outputs.map(output => ({
-                ...output,
-                metadata: {
-                    ...output.metadata,
-                    skewConfidence: invalid,
-                },
-            })),
-        })).toThrow('invalid scan-cleanup preview skew confidence');
-        expect(() => decodeScanCleanupPreviewResult({
-            ...result,
-            pageMetadata: {
-                ...result.pageMetadata,
-                skewConfidence: invalid,
-            },
-        })).toThrow('invalid scan-cleanup preview page skew confidence');
-    }
-
-}
-
-export async function scenarioValidatesAdditiveRenderRegionMetadataAgainstTheFullIntrinsicOutput(): Promise<void> {
-
-    const {deps} = await previewDependencies();
-    const result = await previewOf(scanCleanupPreviewLifecycle(deps), sender(), request);
-    const withRegion = {
-        ...result,
-        outputs: result.outputs.map(output => ({
-            ...output,
-            metadata: {
-                ...output.metadata,
-                outputWidthPx: 10,
-                outputHeightPx: 20,
-                canvasWidthPx: 10,
-                canvasHeightPx: 20,
-                renderRegion: {
-                    xPx: 2,
-                    yPx: 3,
-                    widthPx: 4,
-                    heightPx: 5,
-                },
-            },
-        })),
-    };
-
-    const decodedWithRegion = decodeScanCleanupPreviewResult(withRegion);
-    if (decodedWithRegion.canceled === true) throw new Error('unexpected canceled preview');
-    expect(decodedWithRegion.outputs[0]?.metadata.renderRegion)
-        .toEqual({
-            xPx: 2,
-            yPx: 3,
-            widthPx: 4,
-            heightPx: 5,
-        });
-    expect(() => decodeScanCleanupPreviewResult({
-        ...withRegion,
-        outputs: withRegion.outputs.map(output => ({
-            ...output,
-            metadata: {
-                ...output.metadata,
-                renderRegion: {
-                    xPx: 8,
-                    yPx: 3,
-                    widthPx: 4,
-                    heightPx: 5,
-                },
-            },
-        })),
-    })).toThrow('render region');
-
-}
-
-export async function scenarioRejectsOversizedEncodedImageResponsesAtTheIPCBoundary(): Promise<void> {
-
-    expect(() => decodeScanCleanupPreviewResult({
-        pageNumber: 1,
-        totalPages: 1,
-        rawWidthPx: 1,
-        rawHeightPx: 1,
-        rawImageData: PNG,
-        outputs: [{
-            imageData: new Uint8Array(32 * 1024 * 1024 + 1),
-            metadata: {
-                half: 'full',
-                layoutClassification: 'single-uncut-page',
-                layoutConfidence: 0.9,
-                outputWidthPx: 1,
-                outputHeightPx: 1,
-                canvasWidthPx: 1,
-                canvasHeightPx: 1,
-                placementOffsetXPx: 0,
-                placementOffsetYPx: 0,
-            },
-        }],
-    })).toThrow('invalid scan-cleanup preview output image');
-
-}
-
-export async function scenarioRejectsLayoutConfidenceOutsideTheUnitIntervalAtTheIPCBoundary(): Promise<void> {
-
-    const {deps} = await previewDependencies();
-    const result = await previewOf(scanCleanupPreviewLifecycle(deps), sender(), request);
-
-    expect(() => decodeScanCleanupPreviewResult({
-        ...result,
-        outputs: result.outputs.map(output => ({
-            ...output,
-            metadata: {
-                ...output.metadata,
-                layoutConfidence: 1.1,
-            },
-        })),
-    })).toThrow('invalid scan-cleanup preview layout confidence');
-
-}
-
-export async function scenarioRejectsMalformedCleanupDiagnosticFlagsAtTheIPCBoundary(): Promise<void> {
-
-    const {deps} = await previewDependencies();
-    const result = await previewOf(scanCleanupPreviewLifecycle(deps), sender(), request);
-
-    expect(() => decodeScanCleanupPreviewResult({
-        ...result,
-        outputs: result.outputs.map(output => ({
-            ...output,
-            metadata: {
-                ...output.metadata,
-                despeckleFallback: 'yes',
-            },
-        })),
-    })).toThrow('invalid scan-cleanup preview metadata');
-
-    expect(() => decodeScanCleanupPreviewResult({
-        ...result,
-        outputs: result.outputs.map(output => ({
-            ...output,
-            metadata: {
-                ...output.metadata,
-                contentDiagnostics: {
-                    sideConfidence: {
-                        left: 1.2,
-                        top: 0,
-                        right: 0,
-                        bottom: 0,
-                    },
-                    textMask: {
-                        analysisWidthPx: 1,
-                        analysisHeightPx: 1,
-                        inkPixels: 0,
-                        lineCount: 0,
-                    },
-                },
-            },
-        })),
-    })).toThrow('invalid scan-cleanup preview content left confidence');
-
-}
-
-export async function scenarioRejectsNonNumericRotationsAndUnsafePixelGeometryAtTheIPCBoundary(): Promise<void> {
-
-    const {deps} = await previewDependencies();
-    const result = await previewOf(scanCleanupPreviewLifecycle(deps), sender(), request);
-
-    for (const rotationDegrees of [
-        '0',
-        null,
-    ]) {
-        expect(() => decodeScanCleanupPreviewResult({
-            ...result,
-            pageMetadata: {
-                ...result.pageMetadata,
-                rotationDegrees,
-            },
-        })).toThrow('invalid scan-cleanup preview page metadata');
-        expect(() => decodeScanCleanupPreviewResult({
-            ...result,
-            outputs: result.outputs.map(output => ({
-                ...output,
-                metadata: {
-                    ...output.metadata,
-                    rotationDegrees,
-                },
-            })),
-        })).toThrow('invalid scan-cleanup preview metadata');
-    }
-
-    expect(() => decodeScanCleanupPreviewResult({
-        ...result,
-        pageMetadata: {
-            ...result.pageMetadata,
-            cutterXPx: Number.MAX_SAFE_INTEGER + 1,
-        },
-    })).toThrow('invalid scan-cleanup preview page metadata');
-    expect(() => decodeScanCleanupPreviewResult({
-        ...result,
-        outputs: result.outputs.map(output => ({
-            ...output,
-            metadata: {
-                ...output.metadata,
-                sourceRegion: {
-                    ...output.metadata.sourceRegion,
-                    xPx: Number.MAX_SAFE_INTEGER + 1,
-                },
-            },
-        })),
-    })).toThrow('invalid scan-cleanup preview source region');
-    expect(() => decodeScanCleanupPreviewResult({
-        ...result,
-        pageMetadata: {
-            ...result.pageMetadata,
-            splitSeam: {points: [
-                {
-                    x: Number.MAX_SAFE_INTEGER + 1,
-                    y: 0,
-                },
-                {
-                    x: 1,
-                    y: 1,
-                },
-            ]},
-        },
-    })).toThrow('invalid scan-cleanup preview split seam point 0 x');
-
-}
-
-export async function scenarioRequiresNamedFiniteAppliedMarginsAtTheIPCBoundary(): Promise<void> {
-
-    const {deps} = await previewDependencies();
-    const result = await previewOf(scanCleanupPreviewLifecycle(deps), sender(), request);
-    const withMargins = (appliedMargins: unknown) => ({
-        ...result,
-        outputs: result.outputs.map(output => ({
-            ...output,
-            metadata: {
-                ...output.metadata,
-                appliedMargins,
-            },
-        })),
-    });
-
-    expect(() => decodeScanCleanupPreviewResult(withMargins([
-        1,
-        2,
-        3,
-        4,
-    ]))).toThrow('invalid scan-cleanup preview metadata');
-    expect(() => decodeScanCleanupPreviewResult(withMargins({
-        leftPx: Number.NaN,
-        topPx: 2,
-        rightPx: 3,
-        bottomPx: 4,
-    }))).toThrow('invalid scan-cleanup preview applied left margin');
-
-}
-
-export async function scenarioRejectsFullyOffCanvasAndInconsistentIntrinsicOverflowIntervalsAtTheIPCBoundary(): Promise<void> {
-
-    const {deps} = await previewDependencies();
-    const result = await previewOf(scanCleanupPreviewLifecycle(deps), sender(), request);
-    const withGeometry = (geometry: Record<string, number>) => ({
-        ...result,
-        outputs: result.outputs.map(output => ({
-            ...output,
-            metadata: {
-                ...output.metadata,
-                ...geometry,
-            },
-        })),
-    });
-
-    expect(() => decodeScanCleanupPreviewResult(withGeometry({
-        canvasWidthPx: 100,
-        matchedCanvasContentWidthPx: 200,
-        matchedCanvasIntrinsicOverflowLeftPx: 200,
-        placementOffsetXPx: 0,
-    }))).toThrow('invalid scan-cleanup preview intrinsic/canvas placement');
-    expect(() => decodeScanCleanupPreviewResult(withGeometry({
-        matchedCanvasIntrinsicOverflowLeftPx: 10,
-        placementOffsetXPx: 5,
-    }))).toThrow('invalid scan-cleanup preview intrinsic/canvas placement');
-    expect(() => decodeScanCleanupPreviewResult(withGeometry({
-        matchedCanvasIntrinsicOverflowTopPx: 2,
-        placementOffsetYPx: 1,
-    }))).toThrow('invalid scan-cleanup preview intrinsic/canvas placement');
-    expect(() => decodeScanCleanupPreviewResult(withGeometry({foldClipLeftPx: 1}))).toThrow('invalid scan-cleanup preview intrinsic/canvas placement');
-
-}
-
-export async function scenarioAcceptsOptionalDetectionTextAxisAndRecommendationReasonsAndRejectsMalformedValues(): Promise<void> {
-
-    const state = {
-        jobId: 'detect-axis',
-        status: 'completed',
-        progress: {
-            stage: 'detecting',
-            completedUnits: 1,
-            totalUnits: 1,
-            percent: 100,
-            completedPageNumbers: [1],
-        },
-        results: [{
-            pageNumber: 1,
-            classification: 'single-uncut-page',
-            confidence: 0.9,
-            cutterXPx: null,
-            tier1Verdict: 'single-uncut-page',
-            reconciled: false,
-            clusterAgreement: 0,
-            documentPrior: null,
-            textAxis: {
-                sideways: true,
-                confidence: 0.98,
-            },
-            recommendedOutputModeReason: 'blank',
-            sourcePageMetadata: {
-                pageNumber: 1,
-                xPoints: 0,
-                yPoints: 0,
-                widthPoints: 612,
-                heightPoints: 792,
-                rotation: 0,
-                sourceDpi: 300,
-                dominantImageWidthPx: 2_550,
-                dominantImageHeightPx: 3_300,
-                dominantImageWidthPoints: 612,
-                dominantImageHeightPoints: 792,
-            },
-        }],
-        updatedAtMs: Date.now(),
-    };
-    expect(v.parse(SCAN_CLEANUP_DETECTION_JOB_STATE_SCHEMA, state, {abortEarly: true})?.results[0]?.textAxis).toEqual({
-        sideways: true,
-        confidence: 0.98,
-    });
-    expect(v.parse(SCAN_CLEANUP_DETECTION_JOB_STATE_SCHEMA, state, {abortEarly: true})?.results[0]?.recommendedOutputModeReason).toBe('blank');
-    expect(v.parse(SCAN_CLEANUP_DETECTION_JOB_STATE_SCHEMA, state, {abortEarly: true})?.results[0]?.sourcePageMetadata).toEqual(
-        state.results[0]!.sourcePageMetadata,
-    );
-
-    const axislessResult = structuredClone(state.results[0]!);
-    Reflect.deleteProperty(axislessResult, 'textAxis');
-    const withoutAxis = {
-        ...structuredClone(state),
-        results: [axislessResult],
-    };
-    expect(v.parse(SCAN_CLEANUP_DETECTION_JOB_STATE_SCHEMA, withoutAxis, {abortEarly: true})?.results[0]).not.toHaveProperty('textAxis');
-
-    const malformed = structuredClone(state);
-    malformed.results[0]!.textAxis.confidence = Number.NaN;
-    expect(() => v.parse(SCAN_CLEANUP_DETECTION_JOB_STATE_SCHEMA, malformed, {abortEarly: true})).toThrow('detection result');
-
-    const malformedReason = structuredClone(state);
-    malformedReason.results[0]!.recommendedOutputModeReason = 'empty';
-    expect(() => v.parse(SCAN_CLEANUP_DETECTION_JOB_STATE_SCHEMA, malformedReason, {abortEarly: true})).toThrow('detection result');
-
-    const mismatchedMetadata = structuredClone(state);
-    mismatchedMetadata.results[0]!.sourcePageMetadata.pageNumber = 2;
-    expect(() => v.parse(SCAN_CLEANUP_DETECTION_JOB_STATE_SCHEMA, mismatchedMetadata, {abortEarly: true})).toThrow(
-        'detection source page metadata',
-    );
-
-    const unsafeCutter = structuredClone(state);
-    Reflect.set(unsafeCutter.results[0]!, 'cutterXPx', Number.MAX_SAFE_INTEGER + 1);
-    expect(() => v.parse(SCAN_CLEANUP_DETECTION_JOB_STATE_SCHEMA, unsafeCutter, {abortEarly: true})).toThrow('detection result');
 
 }
 
@@ -1175,9 +779,6 @@ describe('scanCleanupPreviewIpcAdapterTest', () => {
     it('serializes nested reactive page overrides for every IPC request', async () => {
         await scenarioSerializesNestedReactivePageOverridesForEveryIPCRequest();
     });
-    it('rejects asymmetric start errors and impossible job progress', async () => {
-        await scenarioRejectsAsymmetricStartErrorsAndImpossibleJobProgress();
-    });
     it('demand-materializes lazy-original input before scan-cleanup preview', async () => {
         await scenarioDemandMaterializesLazyOriginalInputBeforeScanCleanupPreview();
     });
@@ -1196,32 +797,8 @@ describe('scanCleanupPreviewIpcAdapterTest', () => {
     it('keeps eager scan-cleanup preview paths unchanged', async () => {
         await scenarioKeepsEagerScanCleanupPreviewPathsUnchanged();
     });
-    it('accepts unbounded nonnegative skew evidence and rejects invalid values at both metadata boundaries', async () => {
-        await scenarioAcceptsUnboundedNonnegativeSkewEvidenceAndRejectsInvalidValuesAtBothMetadataBoundaries();
-    });
-    it('validates additive render-region metadata against the full intrinsic output', async () => {
-        await scenarioValidatesAdditiveRenderRegionMetadataAgainstTheFullIntrinsicOutput();
-    });
-    it('rejects oversized encoded image responses at the IPC boundary', async () => {
-        await scenarioRejectsOversizedEncodedImageResponsesAtTheIPCBoundary();
-    });
-    it('rejects layout confidence outside the unit interval at the IPC boundary', async () => {
-        await scenarioRejectsLayoutConfidenceOutsideTheUnitIntervalAtTheIPCBoundary();
-    });
-    it('rejects malformed cleanup diagnostic flags at the IPC boundary', async () => {
-        await scenarioRejectsMalformedCleanupDiagnosticFlagsAtTheIPCBoundary();
-    });
-    it('rejects non-numeric rotations and unsafe pixel geometry at the IPC boundary', async () => {
-        await scenarioRejectsNonNumericRotationsAndUnsafePixelGeometryAtTheIPCBoundary();
-    });
-    it('requires named finite applied margins at the IPC boundary', async () => {
-        await scenarioRequiresNamedFiniteAppliedMarginsAtTheIPCBoundary();
-    });
-    it('rejects fully off-canvas and inconsistent intrinsic overflow intervals at the IPC boundary', async () => {
-        await scenarioRejectsFullyOffCanvasAndInconsistentIntrinsicOverflowIntervalsAtTheIPCBoundary();
-    });
-    it('accepts optional detection text-axis and recommendation reasons and rejects malformed values', async () => {
-        await scenarioAcceptsOptionalDetectionTextAxisAndRecommendationReasonsAndRejectsMalformedValues();
+    it('carries unbounded nonnegative skew evidence', async () => {
+        await scenarioAcceptsUnboundedNonnegativeSkewEvidence();
     });
     it('keeps the owner listeners until its last preview job ends', async () => {
         await scenarioKeepsTheOwnerListenersUntilItsLastPreviewJobEnds();

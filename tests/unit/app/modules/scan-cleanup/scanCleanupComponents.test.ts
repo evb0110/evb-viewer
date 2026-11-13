@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 
+import type {Affine} from '@contracts/scan-cleanup/nativeWire.generated';
 import type {IScanCleanupZoneSelection} from '@app/modules/scan-cleanup/geometry/zoneGeometry';
 import type {TScanCleanupPageOverrides} from '@contracts/scan-cleanup/domain';
 import {FULL_SCAN_CLEANUP_SUPPORT} from '@contracts/scan-cleanup/scanCleanupPlatformFeature';
@@ -708,7 +709,7 @@ function spreadPreviewResult(pageNumber = 1): IScanCleanupPreviewResult {
                     0,
                     1,
                 ],
-            ]},
+            ] as Affine['matrix']},
             cutterXPx: 500,
             inputWidthPx: 1000,
             inputHeightPx: 800,
@@ -1567,6 +1568,7 @@ describe('Scan cleanup components', () => {
                             pictureMaskOverlapPixels: 240,
                             headingEvidence: false,
                             grayscaleEvidence: true,
+                            textEvidence: false,
                         }],
                     }],
                     protectedBlocks: [{
@@ -1579,6 +1581,7 @@ describe('Scan cleanup components', () => {
                         pictureMaskOverlapPixels: 1_300,
                         headingEvidence: true,
                         grayscaleEvidence: false,
+                        textEvidence: false,
                     }],
                 },
             }],

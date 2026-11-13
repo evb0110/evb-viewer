@@ -1,58 +1,35 @@
-import type {TScanCleanupPageRotation} from '@contracts/scan-cleanup/domain';
+import type {
+    AppliedMargins,
+    MarginsMm,
+    NormalizedRect,
+    NormalizedSplit,
+    Point,
+    Polygon,
+    PixelRect,
+    SplitSeamPolyline,
+} from '@contracts/scan-cleanup/nativeWire.generated';
 
 export type {TScanCleanupPageRotation} from '@contracts/scan-cleanup/domain';
 
 /** A vertical cutter authored in normalized rotated-analysis-page space. */
-export interface IScanCleanupNormalizedSplit {
-    xNormalized: number;
-    rotationDegrees: TScanCleanupPageRotation;
-}
+export type IScanCleanupNormalizedSplit = NormalizedSplit;
 
 /**
  * A rectangle with an output-half-local origin whose axes and scale are the
  * complete rotated analysis page.
  */
-export interface IScanCleanupNormalizedRect {
-    xNormalized: number;
-    yNormalized: number;
-    widthNormalized: number;
-    heightNormalized: number;
-    rotationDegrees: TScanCleanupPageRotation;
-}
+export type IScanCleanupNormalizedRect = NormalizedRect;
 
 /** Shared tolerance for normalized coordinates and rectangle edge sums. */
 export const SCAN_CLEANUP_NORMALIZED_BOUNDS_EPSILON = 1e-9;
 
-export interface IScanCleanupPixelRect {
-    xPx: number;
-    yPx: number;
-    widthPx: number;
-    heightPx: number;
-}
-
-export interface IScanCleanupPixelPoint {
-    x: number;
-    y: number;
-}
-
-export interface IScanCleanupPixelPolygon {points: IScanCleanupPixelPoint[]}
-
+export type IScanCleanupPixelRect = PixelRect;
+export type IScanCleanupPixelPoint = Point;
+export type IScanCleanupPixelPolygon = Polygon;
 /** Diagnostic curved gutter geometry; straight cutter geometry remains authoritative for rendering. */
-export interface IScanCleanupSplitSeamPolyline {points: IScanCleanupPixelPoint[]}
-
-export interface IScanCleanupAppliedMargins {
-    leftPx: number;
-    topPx: number;
-    rightPx: number;
-    bottomPx: number;
-}
-
-export interface IScanCleanupMarginsMm {
-    leftMm: number;
-    topMm: number;
-    rightMm: number;
-    bottomMm: number;
-}
+export type IScanCleanupSplitSeamPolyline = SplitSeamPolyline;
+export type IScanCleanupAppliedMargins = AppliedMargins;
+export type IScanCleanupMarginsMm = MarginsMm;
 
 /** Shared ceiling for every hard-margin editor, codec, and clamp. */
 export const SCAN_CLEANUP_MARGIN_MAX_MM = 25;

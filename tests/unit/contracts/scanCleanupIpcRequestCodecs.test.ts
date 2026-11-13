@@ -4,7 +4,6 @@ import {
     it,
 } from 'vitest';
 import {SCAN_CLEANUP_DOCUMENT_PRIOR_SCHEMA} from '@contracts/scan-cleanup/domain';
-import {SCAN_CLEANUP_DETECTION_RESULT_SCHEMA} from '@contracts/scan-cleanup/ipcResultCodecs';
 import * as v from 'valibot';
 import {
     SCAN_CLEANUP_DETECTION_ARGS_SCHEMA,
@@ -150,14 +149,6 @@ describe('scan-cleanup IPC request codecs', () => {
             dominantImageWidthPoints: 612,
             dominantImageHeightPoints: 792,
         };
-        const detected = v.parse(SCAN_CLEANUP_DETECTION_RESULT_SCHEMA, {
-            pageNumber: 12,
-            classification: 'single-uncut-page',
-            confidence: 1,
-            cutterXPx: null,
-            sourcePageMetadata,
-        });
-        expect(detected.sourcePageMetadata).toEqual(sourcePageMetadata);
         const started = v.parse(SCAN_CLEANUP_START_ARGS_SCHEMA, [{
             ...request,
             sourcePageMetadataByPage: {'12': sourcePageMetadata},
@@ -178,7 +169,7 @@ describe('scan-cleanup IPC request codecs', () => {
             xPoints: -72,
             yPoints: -36,
         },
-    ])('round-trips signed PDF origins through detection and start IPC: $xPoints,$yPoints', origin => {
+    ])('round-trips signed PDF origins through start IPC: $xPoints,$yPoints', origin => {
         const sourcePageMetadata = {
             pageNumber: 12,
             ...origin,
@@ -187,16 +178,9 @@ describe('scan-cleanup IPC request codecs', () => {
             rotation: 0,
             sourceDpi: 150,
         };
-        const detected = v.parse(SCAN_CLEANUP_DETECTION_RESULT_SCHEMA, {
-            pageNumber: 12,
-            classification: 'single-uncut-page',
-            confidence: 1,
-            cutterXPx: null,
-            sourcePageMetadata,
-        });
         const started = v.parse(SCAN_CLEANUP_START_ARGS_SCHEMA, [{
             ...request,
-            sourcePageMetadataByPage: {'12': detected.sourcePageMetadata},
+            sourcePageMetadataByPage: {'12': sourcePageMetadata},
         }])[0];
         expect(started.sourcePageMetadataByPage?.['12']).toEqual(sourcePageMetadata);
     });

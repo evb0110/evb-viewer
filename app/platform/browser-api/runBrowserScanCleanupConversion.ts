@@ -5,10 +5,6 @@ import type {
     TScanCleanupWarningEvent,
 } from '@contracts/scan-cleanup/electronApiScanCleanup';
 import {requirePageNumber} from '@contracts/pageNumbers';
-import {
-    decodeNativeScanCleanupOutputMetadataJson,
-    decodeNativeScanCleanupPageMetadataJson,
-} from '@contracts/scan-cleanup/nativeArtifactCodecs';
 import type {
     IScanCleanupWasmPlane,
     IScanCleanupWasmRenderPageRequest,
@@ -546,7 +542,7 @@ async function runRasterConversion(
                 analysisPlane,
                 planes: 'encoded',
             }, signal, context.engines.observe('scanCleanup')));
-            const pageMetadata = decodeNativeScanCleanupPageMetadataJson(rendered.pageMetadataJson);
+            const pageMetadata = rendered.pageMetadata;
             pageMetadataBySource.set(pageNumber, pageMetadata);
             const collected = collectRenderedPage(context, {
                 pageNumber,
@@ -733,7 +729,7 @@ function collectRenderedPage(context: IConversionContext, input: ICollectRendere
         outputIndex,
         output,
     ] of rendered.outputs.entries()) {
-        const metadata = decodeNativeScanCleanupOutputMetadataJson(output.metadataJson);
+        const {metadata} = output;
         const name = (plane: IScanCleanupWasmPlane) => `p${String(pageNumber)}-${String(outputIndex)}-${plane.role}.${planeExtension(plane)}`;
         const plane = (role: TScanCleanupWasmPlaneRole, description: string) => {
             const found = output.planes.find(candidate => candidate.role === role);
