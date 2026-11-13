@@ -228,14 +228,6 @@ export const useAnnotationTextSelectionCache = ({
         return selection;
     }
 
-    function resolveTextLayerForRange(activeRange: Range) {
-        const anchorElement = getElementFromRangeNode(activeRange.startContainer);
-        const commonAncestorElement = getElementFromRangeNode(activeRange.commonAncestorContainer);
-        return anchorElement?.closest<HTMLElement>('.text-layer, .textLayer')
-            ?? commonAncestorElement?.closest<HTMLElement>('.text-layer, .textLayer')
-            ?? null;
-    }
-
     /**
      * True when a range starts in one page's text layer and ends in another.
      * pdf.js refuses such a range outright, so the caller has to recognize it
@@ -293,7 +285,6 @@ export const useAnnotationTextSelectionCache = ({
         consumeSelection,
         beginSelectionGesture,
         invalidateSelectionForToolActivation,
-        resolveTextLayerForRange,
         restoreSelectionRange,
     };
 };

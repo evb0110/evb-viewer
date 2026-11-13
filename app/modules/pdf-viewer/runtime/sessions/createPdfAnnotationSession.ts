@@ -628,7 +628,8 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
             clientX,
             clientY,
             hasSelection: Boolean(selectionRange),
-            selectionText: selectionRange?.toString() ?? '',
+            // Read as the browser copies it: a Range drops the text layer's line breaks.
+            selectionText: selectionRange ? textSelectionCache.restoreSelectionRange(selectionRange)?.toString() ?? '' : '',
             pageNumber: target?.pageNumber === undefined
                 ? null
                 : requirePageNumber(target.pageNumber),
