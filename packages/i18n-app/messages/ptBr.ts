@@ -1217,7 +1217,6 @@ export default {
     'dialogs': {
         'openDocument': 'Abrir Documento',
         'openImage': 'Abrir imagem',
-        'openFolder': 'Abrir pasta',
         'combineFiles': 'Combinar arquivos',
         'documentsFilter': 'Documentos',
         'imagesFilter': 'Imagens',
@@ -1595,8 +1594,6 @@ export default {
         'fileSizeValue': 'Tamanho: {size}',
         'zoomUnknown': 'Zoom: -',
         'zoomValue': 'Zoom: {zoom}%',
-        'preparingDocument': 'Preparando documento',
-        'preparingDocumentProgress': 'Preparando documento · {progress}%',
         'showInDownloads': 'Salvar em Downloads e mostrar',
         'showInFolder': 'Mostrar na pasta',
         'showInFolderUnavailableWeb': 'Salvo neste navegador',
@@ -1861,7 +1858,6 @@ export default {
             'changedWhileOpening': 'O arquivo foi alterado enquanto era aberto. Abra-o novamente.',
             'invalid': 'O arquivo está danificado ou não é um documento compatível.',
             'emptyPdf': 'O arquivo PDF está vazio (0 bytes)',
-            'folderEmpty': 'Não foram encontrados documentos compatíveis na pasta selecionada',
             'save': 'Falha ao salvar arquivo',
             'originalSavedOtherKept': 'O PDF foi alterado em outro programa durante o salvamento. A versão que estava no disco logo antes do seu salvamento foi mantida ao lado como {path}. Suas alterações continuam abertas aqui; use “Salvar Como” para mantê-las.',
             'recoveryKeptOriginalTitle': 'Uma versão foi mantida ao lado deste PDF',
@@ -1872,8 +1868,6 @@ export default {
         'save': {
             'recoverySettlementTitle': 'PDF salvo, mas não foi possível atualizar a recuperação',
             'recoverySettlementDescription': 'Suas alterações foram gravadas no PDF. As alterações posteriores ainda não salvas continuam abertas aqui.',
-            'workingCopySyncRequiredTitle': 'Não foi possível atualizar o documento aberto após salvar',
-            'workingCopySyncRequiredUnknown': 'O arquivo pode ter sido gravado. Suas alterações continuam abertas aqui; verifique o arquivo ou use Salvar como para salvá-las em outro lugar.',
             'validation': 'O documento não passou na verificação de validade, então nada foi gravado.',
             'openNotes': 'Não foi possível salvar as notas abertas, então o documento não foi gravado.',
             'documentChanged': 'O documento mudou antes de o salvamento terminar, então nada foi gravado.',

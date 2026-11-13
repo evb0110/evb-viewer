@@ -1215,7 +1215,6 @@ export default {
     'dialogs': {
         'openDocument': 'Abrir documento',
         'openImage': 'Abrir imagen',
-        'openFolder': 'Abrir carpeta',
         'combineFiles': 'Combinar archivos',
         'documentsFilter': 'Documentos',
         'imagesFilter': 'Imágenes',
@@ -1587,8 +1586,6 @@ export default {
         'fileSizeValue': 'Tamaño: {size}',
         'zoomUnknown': 'Zoom: -',
         'zoomValue': 'Zoom: {zoom}%',
-        'preparingDocument': 'Preparando documento',
-        'preparingDocumentProgress': 'Preparando documento · {progress}%',
         'showInDownloads': 'Guardar en Descargas y mostrar',
         'showInFolder': 'Mostrar en la carpeta',
         'showInFolderUnavailableWeb': 'Guardado en este navegador',
@@ -1849,7 +1846,6 @@ export default {
             'changedWhileOpening': 'El archivo cambió mientras se abría. Vuelve a abrirlo.',
             'invalid': 'El archivo está dañado o no es un documento compatible.',
             'emptyPdf': 'El archivo PDF está vacío (0 bytes)',
-            'folderEmpty': 'No se encontraron documentos compatibles en la carpeta seleccionada',
             'save': 'No se pudo guardar el archivo',
             'originalSavedOtherKept': 'El PDF cambió en otro programa mientras se guardaba. La versión que estaba en el disco justo antes de su guardado se conservó junto a él como {path}. Sus cambios siguen abiertos aquí; use «Guardar como» para conservarlos.',
             'recoveryKeptOriginalTitle': 'Se conservó una versión junto a este PDF',
@@ -1860,8 +1856,6 @@ export default {
         'save': {
             'recoverySettlementTitle': 'PDF guardado, pero no se pudo actualizar la recuperación',
             'recoverySettlementDescription': 'Los cambios se escribieron en el PDF. Los cambios posteriores sin guardar siguen abiertos aquí.',
-            'workingCopySyncRequiredTitle': 'No se pudo actualizar el documento abierto después de guardar',
-            'workingCopySyncRequiredUnknown': 'Es posible que el archivo se haya escrito. Tus cambios siguen abiertos aquí; revisa el archivo o usa Guardar como para guardarlos en otro lugar.',
             'validation': 'El documento no superó la comprobación de validez, así que no se escribió nada.',
             'openNotes': 'No se pudieron guardar las notas abiertas, así que el documento no se escribió.',
             'documentChanged': 'El documento cambió antes de terminar de guardar, así que no se escribió nada.',

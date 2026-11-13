@@ -1,5 +1,4 @@
 import {useWorkspaceCommandLedger} from '@app/modules/workspace-shell/composables/useWorkspaceCommandLedger';
-import {encodeSerializableErrorEnvelope} from '@contracts/serializableError';
 import {
     beforeEach,
     describe,
@@ -234,30 +233,6 @@ describe('usePdfFile façade', () => {
             dependencyPublication.resolve({size: PDF_BYTES.byteLength});
             cleanup.resolve(undefined);
         }
-    });
-
-    it('reports a Save As that wrote its file but could not refresh the open copy', async () => {
-        const file = createFacade();
-        await file.openFile(pdfResult('save-as-sync-required'));
-        file.isDirty.value = true;
-        const originalPath = file.originalPath.value;
-        mocks.saveAs.mockRejectedValueOnce(new Error(`Error invoking remote method 'dialog:savePdfAs': Error: ${encodeSerializableErrorEnvelope({
-            code: 'working-copy-sync-required',
-            message: 'Target file was saved, but the working copy refresh failed: ENOSPC',
-        })}`));
-
-        const result = await file.saveWorkingCopyAs();
-
-        expect(result).toMatchObject({
-            success: false,
-            failure: {
-                reason: 'working-copy-sync-required',
-                externalWriteCommitted: true,
-                workingCopySyncRequired: true,
-            },
-        });
-        expect(file.originalPath.value).toBe(originalPath);
-        expect(file.isDirty.value).toBe(true);
     });
 
     it('finishes a staged Save As while its staging lease cleanup is pending', async () => {

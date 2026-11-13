@@ -130,36 +130,6 @@ describe('feature IPC codec maps', () => {
         expect(v.safeParse(event.payload, {requestId: ''}, {abortEarly: true}).success).toBe(false);
     });
 
-    it('validates working-copy backing status once at the generated IPC boundary', () => {
-        const channel = DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.getWorkingCopyBackingStatus;
-        const validStatus = {
-            documentRef: '/tmp/managed.pdf',
-            failure: null,
-            progress: 0.5,
-            state: 'materializing' as const,
-        };
-
-        expect(DOCUMENT_FILES_PLATFORM_FEATURE.ipcCodecs[channel]?.decodeArgs(['/tmp/managed.pdf']))
-            .toEqual(['/tmp/managed.pdf']);
-        expect(DOCUMENT_FILES_PLATFORM_FEATURE.ipcCodecs[channel]?.decodeResult(validStatus))
-            .toEqual(validStatus);
-        expect(v.parse(DOCUMENT_FILES_PLATFORM_FEATURE.events.onWorkingCopyBackingStatusChanged.payload, validStatus))
-            .toEqual(validStatus);
-        expect(DOCUMENT_FILES_PLATFORM_FEATURE.platformDescriptors.methods.find(
-            descriptor => descriptor.path.at(-1) === 'onWorkingCopyBackingStatusChanged',
-        )).toMatchObject({
-            optionalWhenImplemented: true,
-            required: {
-                browser: false,
-                electron: false,
-            },
-        });
-        expect(v.safeParse(DOCUMENT_FILES_PLATFORM_FEATURE.events.onWorkingCopyBackingStatusChanged.payload, {
-            ...validStatus,
-            progress: 1.1,
-        }, {abortEarly: true}).success).toBe(false);
-    });
-
     it('accepts bounded opening and save purposes for path validation', () => {
         const channel = DOCUMENT_PDF_PLATFORM_FEATURE.invokeChannels.validatePdfPath;
         const codec = DOCUMENT_PDF_PLATFORM_FEATURE.ipcCodecs[channel];

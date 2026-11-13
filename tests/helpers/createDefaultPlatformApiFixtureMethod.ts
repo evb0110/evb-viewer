@@ -284,9 +284,6 @@ function createAsyncDefault(path: string) {
     if (path.endsWith('.getMemoryInfo')) {
         return vi.fn(() => null);
     }
-    if (path.endsWith('.fileExists')) {
-        return vi.fn(async () => false);
-    }
     if (path.endsWith('.readFile') || path.endsWith('.readFileRange')) {
         return vi.fn(async () => new Uint8Array());
     }

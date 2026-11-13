@@ -20,7 +20,6 @@ import {
     join,
 } from 'node:path';
 import {promisify} from 'node:util';
-import type {IPdfEmbeddedShapeIndexEntry} from '@contracts/electronApiDocuments';
 import {
     readPdfAnnotationIndex,
     type IPdfAnnotationIndexEntry,
@@ -87,6 +86,12 @@ interface ICanonicalEntitySnapshot {
     pageNumber: number;
     top: number;
     width: number;
+}
+
+/** One line entry of the native `embedded-shape-index` command's JSONL output. */
+interface IShapeIndexEntry extends IAnnotationRef {
+    pageIndex: number;
+    pdfSubtype: string;
 }
 
 interface IAnnotationRef {
@@ -189,7 +194,7 @@ async function readShapeIndex(page: Page, documentPath: string) {
         ] = readFileSync(outputPath, 'utf8')
             .split('\n')
             .filter(line => line.trim().length > 0)
-            .map(line => JSON.parse(line) as {entries?: IPdfEmbeddedShapeIndexEntry[]});
+            .map(line => JSON.parse(line) as {entries?: IShapeIndexEntry[]});
         return chunks.flatMap(chunk => chunk.entries ?? []);
     } finally {
         rmSync(directory, {
@@ -238,13 +243,13 @@ function countAddedAnnotationSubtype(
     )).length;
 }
 
-function pageShapes(entries: IPdfEmbeddedShapeIndexEntry[]) {
+function pageShapes(entries: IShapeIndexEntry[]) {
     return entries.filter(entry => entry.pageIndex === MATRIX_PAGE_INDEX);
 }
 
 function addedPageShapes(
-    before: IPdfEmbeddedShapeIndexEntry[],
-    after: IPdfEmbeddedShapeIndexEntry[],
+    before: IShapeIndexEntry[],
+    after: IShapeIndexEntry[],
 ) {
     const beforeRefs = new Set(pageShapes(before).map(refKey));
     return pageShapes(after).filter(entry => !beforeRefs.has(refKey(entry)));

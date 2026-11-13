@@ -53,10 +53,7 @@ import {
     type TDocumentRevisionChangeReason,
     type TDocumentRevisionToken,
 } from '@contracts/documentRevision';
-import type {
-    IPdfNativePageGeometry,
-    TWorkingCopyBackingFailureCode,
-} from '@contracts/electronApiDocuments';
+import type {IPdfNativePageGeometry} from '@contracts/electronApiDocuments';
 import {DocumentOpenRefusalError} from '@contracts/documentOpenErrors';
 import {createEpochMs} from '@contracts/timestamps';
 import {
@@ -83,10 +80,10 @@ const STORE_DIR = 'document-store';
 const REF_NAME = 'document';
 
 export class WorkingCopyMaterializationError extends Error {
-    readonly code: TWorkingCopyBackingFailureCode;
+    readonly code: 'SOURCE_BACKING_CHANGED' | 'SOURCE_BACKING_UNAVAILABLE';
     readonly retryable: boolean;
 
-    constructor(code: TWorkingCopyBackingFailureCode, message: string, options: {cause?: unknown; retryable?: boolean} = {}) {
+    constructor(code: WorkingCopyMaterializationError['code'], message: string, options: {cause?: unknown; retryable?: boolean} = {}) {
         super(message, options.cause === undefined ? undefined : {cause: options.cause});
         this.name = 'WorkingCopyMaterializationError';
         this.code = code;

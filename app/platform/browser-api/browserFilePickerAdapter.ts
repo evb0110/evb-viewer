@@ -259,7 +259,6 @@ export async function pickFiles(options: {
 function pickInputFiles(options: {
     accept: string;
     multiple?: boolean;
-    directory?: boolean;
 }) {
     if (typeof document === 'undefined' || typeof window === 'undefined') {
         return Promise.resolve(null);
@@ -336,7 +335,6 @@ function pickInputFiles(options: {
         input.type = 'file';
         input.accept = options.accept;
         input.multiple = options.multiple ?? false;
-        input.webkitdirectory = options.directory ?? false;
         input.style.display = 'none';
         const supportsCancelEvent = 'oncancel' in input;
         if (supportsCancelEvent) {
@@ -362,57 +360,6 @@ function pickInputFiles(options: {
         }
         input.click();
     });
-}
-
-type TBrowserDirectoryPicker = (options?: {mode?: 'read'}) => Promise<FileSystemDirectoryHandle>;
-
-function isFileHandle(handle: FileSystemHandle): handle is FileSystemFileHandle {
-    return handle.kind === 'file';
-}
-
-/**
- * The files directly inside a folder the reader chooses, unsorted, or null
- * when the choice was cancelled. A directory input stands in where the browser
- * has no directory picker; it lists subfolders' files too, which are dropped.
- */
-export async function pickFolderFiles(): Promise<IPickedBrowserFile[] | null> {
-    const showDirectoryPicker = typeof window === 'undefined'
-        ? undefined
-        : (window as Window & {showDirectoryPicker?: TBrowserDirectoryPicker}).showDirectoryPicker;
-    if (typeof showDirectoryPicker === 'function' && shouldUseFileSystemAccessOpenPicker(true)) {
-        try {
-            const directory = await showDirectoryPicker.call(window, {mode: 'read'});
-            const picked: IPickedBrowserFile[] = [];
-            for await (const handle of directory.values()) {
-                if (isFileHandle(handle)) {
-                    picked.push({
-                        file: await handle.getFile(),
-                        handle,
-                    });
-                }
-            }
-            return picked;
-        } catch (error) {
-            if (error instanceof DOMException && error.name === 'AbortError') {
-                return null;
-            }
-            if (isFileSystemAccessDeniedError(error)) {
-                rememberInputOpenPickerMode();
-                throw createBrowserFilePickerSetupDeniedError();
-            }
-            throw error;
-        }
-    }
-    const files = await pickInputFiles({
-        accept: '',
-        multiple: true,
-        directory: true,
-    });
-    return files?.filter(file => !file.webkitRelativePath || file.webkitRelativePath.split('/').length === 2)
-        .map(file => ({
-            file,
-            handle: null,
-        })) ?? null;
 }
 
 export async function pickSingleFile(options: {

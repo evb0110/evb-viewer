@@ -1215,7 +1215,6 @@ export default {
     'dialogs': {
         'openDocument': 'Dokument öffnen',
         'openImage': 'Bild öffnen',
-        'openFolder': 'Ordner öffnen',
         'combineFiles': 'Dateien zusammenführen',
         'documentsFilter': 'Dokumente',
         'imagesFilter': 'Bilder',
@@ -1587,8 +1586,6 @@ export default {
         'fileSizeValue': 'Größe: {size}',
         'zoomUnknown': 'Zoom: -',
         'zoomValue': 'Zoom: {zoom}%',
-        'preparingDocument': 'Dokument wird vorbereitet',
-        'preparingDocumentProgress': 'Dokument wird vorbereitet · {progress}%',
         'showInDownloads': 'In Downloads speichern und anzeigen',
         'showInFolder': 'Im Ordner anzeigen',
         'showInFolderUnavailableWeb': 'In diesem Browser gespeichert',
@@ -1849,7 +1846,6 @@ export default {
             'changedWhileOpening': 'Die Datei wurde während des Öffnens geändert. Öffnen Sie sie erneut.',
             'invalid': 'Die Datei ist beschädigt oder kein unterstütztes Dokument.',
             'emptyPdf': 'Die PDF-Datei ist leer (0 Byte)',
-            'folderEmpty': 'Im ausgewählten Ordner wurden keine unterstützten Dokumente gefunden',
             'save': 'Datei konnte nicht gespeichert werden',
             'originalSavedOtherKept': 'Die PDF-Datei wurde während des Speicherns anderweitig geändert. Die Fassung, die direkt vor Ihrem Speichern auf dem Datenträger war, wurde daneben als {path} aufbewahrt. Ihre Änderungen sind hier noch geöffnet; verwenden Sie „Speichern unter“, um sie zu behalten.',
             'recoveryKeptOriginalTitle': 'Eine Fassung wurde neben dieser PDF aufbewahrt',
@@ -1860,8 +1856,6 @@ export default {
         'save': {
             'recoverySettlementTitle': 'PDF gespeichert, aber die Wiederherstellung konnte nicht aktualisiert werden',
             'recoverySettlementDescription': 'Ihre Änderungen wurden in die PDF-Datei geschrieben. Neuere, noch nicht gespeicherte Änderungen bleiben hier geöffnet.',
-            'workingCopySyncRequiredTitle': 'Das geöffnete Dokument konnte nach dem Speichern nicht aktualisiert werden',
-            'workingCopySyncRequiredUnknown': 'Die Datei wurde möglicherweise geschrieben. Ihre Änderungen bleiben hier geöffnet; prüfen Sie die Datei oder speichern Sie sie mit „Speichern unter“ an einem anderen Ort.',
             'validation': 'Das Dokument hat die Gültigkeitsprüfung nicht bestanden, es wurde nichts geschrieben.',
             'openNotes': 'Offene Notizen konnten nicht gespeichert werden, das Dokument wurde nicht geschrieben.',
             'documentChanged': 'Das Dokument hat sich vor dem Ende des Speicherns geändert, es wurde nichts geschrieben.',

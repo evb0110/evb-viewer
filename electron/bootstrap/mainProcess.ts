@@ -103,7 +103,6 @@ import {
 import {
     shutdownRetainedDocumentSaveUtilityProcesses,
     sweepStalePdfAnnotationParseArtifacts,
-    sweepStalePdfEmbeddedShapeIndexArtifacts,
     sweepStaleDefaultAppTempPdfs,
     sweepStaleOcrTempArtifacts,
     shutdownSerializedPdfPersistence,
@@ -834,7 +833,6 @@ void runInitSequence({
     reapOrphanedManagedNativeProcesses: () => reapOrphanedManagedProcesses(getAppTempDir(), {log: (level, message) => logger[level](message)}),
     sweepStaleDefaultAppTempPdfs,
     sweepStalePdfAnnotationParseArtifacts,
-    sweepStalePdfEmbeddedShapeIndexArtifacts,
     sweepStaleScanCleanupScratchDirs: () => sweepStaleScanCleanupScratchDirs(getAppTempDir(), {log: (level, message) => logger[level](message)}),
     sweepStaleOcrTempArtifacts,
     pruneStaleDjvuArtifactJobs,

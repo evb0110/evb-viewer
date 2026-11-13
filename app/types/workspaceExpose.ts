@@ -4,7 +4,6 @@ import type { TPageMoveOperation } from '@contracts/pageNumbers';
 import type {
     IDocumentRevisionInfo,
     TDocumentCommitReceipt,
-    TDocumentRevisionToken,
 } from '@contracts/documentRevision';
 import type { TDocumentInstanceId } from '@contracts/documentInstanceId';
 import type { TOpenFileResult } from '@contracts/electronApiDocuments';
@@ -326,17 +325,6 @@ export interface IWorkspaceExpose extends IWorkspaceDocumentRecoveryPort {
         uri: string,
         context?: IWorkspaceAgentCommandContext,
     ) => Promise<Record<string, unknown>>;
-    /** A durable recovery copy of the document's current state, or null when none applies or the state changed meanwhile. */
-    createRecoverySnapshot: (
-        target: {
-            fileName: string;
-            sourceRef?: TDocumentRef | null
-        },
-        recovery?: IWorkspaceCheckpointTab['annotationRecovery'],
-    ) => Promise<{
-        ref: TDocumentRef;
-        revisionToken: TDocumentRevisionToken
-    } | null>;
     commentAtPoint?: (
         pageNumber: number,
         pageX: number,

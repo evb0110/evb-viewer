@@ -59,7 +59,6 @@ import {
     buildSaveTransactionRequest,
     completeSuccessfulSaveState,
     createPageMutationWriterSave,
-    createRecoverySnapshot as createRecoverySnapshotForService,
     createReloadWaiter,
     createWorkspaceSavePlan,
     getNativeSaveTransactionOptions,
@@ -509,10 +508,6 @@ export const useWorkspaceSaveService = (deps: IWorkspaceSaveDependencies) => {
     const isAnySaveAdmitted = ref(false);
     const acknowledgedUnencryptedSaveSessions = new Set<string>();
     const nativeSaveTransactionOptions = () => getNativeSaveTransactionOptions(deps);
-    const createRecoverySnapshot = createRecoverySnapshotForService(
-        deps,
-        runWithDocumentOperationLease,
-    );
 
     // A save that failed keeps its state until the workspace adopts a different
     // document or a fresh attempt supersedes it, so the status bar cannot
@@ -796,7 +791,6 @@ export const useWorkspaceSaveService = (deps: IWorkspaceSaveDependencies) => {
         handleSave: saveIfDirty,
         saveForExternalRead: saveIfDirty,
         getNativeSaveTransactionOptions: nativeSaveTransactionOptions,
-        createRecoverySnapshot,
         createPageMutationWriterSave: (options: Omit<Parameters<typeof createPageMutationWriterSave>[0], 'save'>) => createPageMutationWriterSave({
             save: deps,
             ...options,

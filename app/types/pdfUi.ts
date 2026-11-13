@@ -124,7 +124,6 @@ export interface IPdfPersistFailure {
     validation?: IPdfValidationResult | null;
     /** From the save result: whether the file was written (null: unknown). */
     externalWriteCommitted?: boolean | null;
-    workingCopySyncRequired?: boolean;
 }
 
 export interface IPdfPersistResult {
