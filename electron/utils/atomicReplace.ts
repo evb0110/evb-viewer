@@ -33,7 +33,6 @@ import {
     fsyncDirectory,
     fsyncFile as fsyncPath,
 } from '@electron/utils/fsyncPath';
-import {runtimeConfig} from '@electron/runtimeConfig';
 
 const logger = createLogger('atomicReplace');
 const DEFAULT_ATOMIC_REPLACE_BACKUP_MAX_AGE_MS = 24 * 60 * 60 * 1000;
@@ -97,20 +96,6 @@ async function fileExists(filePath: string) {
         return (await stat(filePath)).isFile();
     } catch {
         return false;
-    }
-}
-
-async function waitForAtomicReplaceTestBarrier(stage: string) {
-    if (process.platform !== 'win32' || runtimeConfig.test.atomicReplaceBarrier !== stage) {
-        return;
-    }
-    const barrierPath = runtimeConfig.test.atomicReplaceBarrierFile;
-    if (!barrierPath) {
-        throw new Error('Atomic replace test barrier requires EVB_ATOMIC_REPLACE_TEST_BARRIER_FILE');
-    }
-    await writeFile(`${barrierPath}.${stage}`, `${String(process.pid)}\n`, 'utf8');
-    while (!(await fileExists(`${barrierPath}.release`))) {
-        await new Promise(resolve => setTimeout(resolve, 25));
     }
 }
 
@@ -425,7 +410,6 @@ export async function atomicReplace(
     // Node's Windows rename uses the same-name replacement primitive. Keep
     // this as the first choice so the destination name never disappears.
     try {
-        await waitForAtomicReplaceTestBarrier('before-publish');
         await rename(srcTemp, dst);
     } catch (error) {
         if (!isErrnoException(error) || !WINDOWS_FALLBACK_CODES.has(error.code ?? '') || !(await fileExists(dst))) {
