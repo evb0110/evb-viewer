@@ -59,9 +59,10 @@ function serialize<T>(operation: () => Promise<T>) {
 const legacyOwnerId = (ownerWebContentsId: number) => `legacy-webcontents-${ownerWebContentsId}`;
 
 function getOwnerId(ownerWebContentsId: number, owner?: number | WebContents) {
-    if (owner === undefined || typeof owner === 'number' || owner.isDestroyed()) return legacyOwnerId(ownerWebContentsId);
+    if (owner === undefined || typeof owner === 'number') return legacyOwnerId(ownerWebContentsId);
+    // A closed window is retired after its contents are destroyed, under the id its checkpoint was written with.
     const known = ownerIdsByWebContents.get(owner);
-    if (known) return known;
+    if (known || owner.isDestroyed()) return known ?? legacyOwnerId(ownerWebContentsId);
     const ownerId = randomUUID();
     ownerIdsByWebContents.set(owner, ownerId);
     liveOwners.set(ownerId, owner);
