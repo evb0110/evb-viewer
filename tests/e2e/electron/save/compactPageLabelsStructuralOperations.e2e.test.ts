@@ -857,8 +857,8 @@ describe('Electron E2E, compact page labels through structural operations', () =
         await runCommand(session, 'handlePageMove', [move]);
 
         const insertionAfterPage = await insertOnePageThroughWorkspace(session, insertionSourcePath);
-        // The workspace remaps known labels and gives a new page its physical ordinal.
-        expected.splice(insertionAfterPage, 0, String(insertionAfterPage + 1));
+        // An inserted page keeps the label its source gives it: page 1 of an unlabelled PDF.
+        expected.splice(insertionAfterPage, 0, '1');
         await waitForSemanticLabels(session, expected);
 
         await runCommand(session, 'handleSave', []);

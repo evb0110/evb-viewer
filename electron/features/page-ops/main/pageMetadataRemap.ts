@@ -12,6 +12,8 @@ import type {
 } from '@contracts/electronApiPageOps';
 import type {IPdfNativeMutationSet} from '@contracts/electronApiDocuments';
 import {splitPdfNativeMutationSetIntoBoundedChunks} from '@pdf-core/nativePdfMutationPolicy';
+import {normalizePageLabelRanges} from '@pdf-core/pdfPageLabels';
+import {isEqual} from 'es-toolkit/predicate';
 import {createPageIdentityDeltaPageMapper} from '@contracts/electronApiPageOps';
 import {
     requirePageIndex,
@@ -91,6 +93,12 @@ export async function resolvePageMetadataSourceTargets(
             }),
         };
     }
+    // The page engine carries the document's own page labels; only labels the
+    // renderer has not saved yet are written over its output.
+    if (metadata.pageLabelRanges !== undefined && await hasSourcePageLabels(metadata.pageLabelRanges, binaryPath, sourcePath, options)) {
+        const {pageLabels: _labels, pageLabelRanges: _ranges, ...rest} = metadata;
+        metadata = rest;
+    }
     if (!needsResolution(metadata.bookmarks ?? [])) return metadata;
     return usingManagedScratchScope('pdf-page-ops-', getAppTempDir(), async tempDir => {
         const mutationsPath = join(tempDir, 'targets.json');
@@ -128,6 +136,28 @@ export async function resolvePageMetadataSourceTargets(
         }
         return Object.assign({}, metadata, {bookmarks});
     });
+}
+
+/** Whether `ranges` label the pages as the source's own label tree does. An unreadable tree differs. */
+async function hasSourcePageLabels(
+    ranges: readonly IPdfPageLabelRange[],
+    binaryPath: string,
+    sourcePath: string,
+    options: {signal: AbortSignal; cancelGroup: string},
+) {
+    const source = await readNativePdfCatalogPart(binaryPath, sourcePath, 'pageLabels', {
+        ...options,
+        commandLabel: 'evb-pdf-page-ops(source-page-labels)',
+    }).catch(() => null) as Array<{pageIndex: number; style?: IPdfPageLabelRange['style']; prefix?: string; start?: number}> | null;
+    return source !== null && isEqual(
+        normalizePageLabelRanges(source.map(range => ({
+            startPage: range.pageIndex + 1,
+            style: range.style ?? null,
+            prefix: range.prefix ?? '',
+            startNumber: range.start ?? 1,
+        })), Number.MAX_SAFE_INTEGER),
+        normalizePageLabelRanges(ranges, Number.MAX_SAFE_INTEGER),
+    );
 }
 
 function remapKnownPageLabels(
@@ -266,12 +296,11 @@ export function remapPageMetadata(
     delta: IPageIdentityDelta,
 ) {
     const nextPageCount = delta.nextPageCount ?? delta.pages?.length;
-    const compactRanges = metadata.pageLabels === undefined || metadata.pageLabels === null
-        ? metadata.pageLabelRanges === undefined
-            ? undefined
-            : remapCompactPageLabelRanges(metadata.pageLabelRanges, delta, nextPageCount)
-        : undefined;
-    const labels = metadata.pageLabels !== undefined && metadata.pageLabels !== null
+    // Ranges keep the label structure; the per-page labels are the fallback.
+    const compactRanges = metadata.pageLabelRanges === undefined
+        ? undefined
+        : remapCompactPageLabelRanges(metadata.pageLabelRanges, delta, nextPageCount);
+    const labels = metadata.pageLabelRanges === undefined && metadata.pageLabels !== undefined && metadata.pageLabels !== null
         ? remapKnownPageLabels(metadata.pageLabels, delta, nextPageCount)
         : undefined;
     const result: {

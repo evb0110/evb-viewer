@@ -330,6 +330,8 @@ pub(crate) fn read_page_label_ranges(
     Ok(output)
 }
 
+/// Starts the labels at the first page with decimal numbers, as a reader
+/// labels the pages before a tree's first range.
 pub(crate) fn add_implicit_default_page_label_range(
     ranges: &mut Vec<PdfCombinePageLabelRange>,
     page_count: u32,
@@ -339,7 +341,7 @@ pub(crate) fn add_implicit_default_page_label_range(
             0,
             PdfCombinePageLabelRange {
                 page_index: 0,
-                style: None,
+                style: Some("D".to_string()),
                 prefix: None,
                 start: None,
             },
