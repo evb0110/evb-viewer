@@ -130,7 +130,8 @@ function isAdmittedSource(sourceRef: TDocumentRef, owner: number | WebContents, 
 /**
  * Stores this window's workspace: each tab's unsaved annotations become the drafts of its document, bound to the
  * revision they were captured on, and the checkpoint keeps references. Resolves once both are durable; a capture
- * for a revision that is no longer current is refused, since its drafts could not be replayed.
+ * for a revision that is no longer current is refused, since its drafts could not be replayed. A damaged document
+ * takes no drafts: its directory stays as it is for a start that can read it.
  */
 export function saveWorkspaceCheckpoint(
     checkpoint: IWorkspaceCheckpoint,
@@ -150,7 +151,7 @@ export function saveWorkspaceCheckpoint(
             if (entry) {
                 directories.set(tab.tabId, entry.doc.id);
                 const recovery = tab.annotationRecovery;
-                if (recovery?.payload !== undefined) {
+                if (recovery?.payload !== undefined && !entry.doc.damaged) {
                     const drafts: IDrafts = {annotationRecovery: recovery};
                     const status = await setOpenDocumentDrafts(entry, recovery.workingByteRevision, drafts);
                     if (status !== 'stored') throw new Error(`Unsaved annotations for an outdated revision were not stored (${status})`);
@@ -190,7 +191,8 @@ export function hasRecoverableWorkspaceCheckpoints(ownerWebContentsId: number, o
 /**
  * Hands the newest checkpoint this window may take to it: its own after a reload, or one whose window is gone. Each
  * dirty tab's document reopens through the store's recovery and is registered to this window, with its drafts as
- * the tab's annotation recovery. A tab whose document cannot be read reopens its source and says its work was lost.
+ * the tab's annotation recovery. A damaged document shows its file as last saved, stays unsaved and says its work
+ * was not found, which a later start that can read it recovers; a tab whose document cannot be opened reopens its source.
  */
 export function claimWorkspaceCheckpoint(ownerWebContentsId: number, owner?: number | WebContents) {
     const claimantId = getOwnerId(ownerWebContentsId, owner);
@@ -237,6 +239,7 @@ async function claimTab(tab: IWorkspaceCheckpointTab, stored: IStoredCheckpoint,
             workingCopyRef: requireDocumentRef(entry.ref),
             sourceRef: requireDocumentRef(state.destination ?? entry.originalPath ?? tab.sourceRef ?? entry.ref),
             ...(drafts ? {annotationRecovery: {...drafts, workingCopyRef: requireDocumentRef(entry.ref)}} : {}),
+            ...(state.damaged ? {workingCopyLost: true as const} : {}),
         };
     } catch (error) {
         log.warn(`Unsaved work of a restored tab is unavailable: ${getErrorMessage(error)}`);

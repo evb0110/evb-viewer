@@ -4,6 +4,7 @@ import {
     readdir,
     rm,
     stat,
+    truncate,
     writeFile,
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -19,6 +20,7 @@ import { collectDocuments } from '@document-store/collectDocuments';
 import { contentWitness } from '@document-store/contentWitness';
 import {
     createDocument,
+    DamagedDocumentError,
     type DocumentDirectory,
     forkDocument,
     type IDocumentStore,
@@ -193,6 +195,33 @@ describe('document directory', () => {
 });
 
 describe('recovery after a crash', () => {
+    it.each(['missing', 'cut short'] as const)('leaves a directory whose current revision file is %s as it is until the file is back', async (damage) => {
+        const destination = path.join(workDir, 'report.pdf');
+        await writeFile(destination, 'saved');
+        const doc = await create(store(), { ext: 'pdf', destination });
+        await doc.mutate(null, append('-edited'));
+        await doc.close();
+        const revision = path.join(docDir(doc), 'r1.pdf');
+        const bytes = await readFile(revision);
+        await (damage === 'missing' ? rm(revision) : truncate(revision, 3));
+        const files = async () => Promise.all((await readdir(docDir(doc))).sort().map(async name => [name, await readFile(path.join(docDir(doc), name))]));
+        const before = await files();
+
+        const damaged = await open(store(), doc.id);
+        expect(damaged.state()).toMatchObject({ current: null, destination, dirty: true, damaged: true, drafts: undefined });
+        await expect(damaged.mutate(null, append('-more'))).rejects.toThrow(DamagedDocumentError);
+        await expect(damaged.setDrafts(null, { note: 'kept' })).rejects.toThrow(DamagedDocumentError);
+        await expect(saveDocument(damaged, { expected: null })).rejects.toThrow(DamagedDocumentError);
+        await damaged.close();
+        expect(await files()).toEqual(before);
+        expect(await readFile(destination, 'utf8')).toBe('saved');
+
+        await writeFile(revision, bytes);
+        const recovered = await open(store(), doc.id);
+        expect(recovered.state()).toMatchObject({ dirty: true, damaged: false });
+        expect(await currentText(recovered)).toBe('saved-edited');
+    });
+
     it('cuts an append that crashed while writing', async () => {
         const doc = await create(store(), { ext: 'pdf', source: new Blob(['base']) });
         await crashDuring(doc, (operation, target) => operation === 'writeAt' && target.endsWith('r1.pdf'), crashed => crashed.mutate(1, append('-appended')));

@@ -299,6 +299,48 @@ describe('desktop document store', () => {
         expect(await readFile(pdf)).toEqual(Buffer.from(ORIGINAL));
     });
 
+    it('restores a tab whose unsaved bytes are missing as unsaved, showing the PDF as saved, until a start finds them', async () => {
+        const {pdf, entry} = await openPdf();
+        await store.commitDocumentMutation(entry, '1' as never, {kind: 'rewrite', source: await writeTemp('edited.pdf', EDITED)}, 'write');
+        const paneId = requirePaneId('pane-1');
+        const tabId = requireTabId('tab-1');
+        const checkpoint: IWorkspaceCheckpoint = {
+            version: 1,
+            capturedAt: requireEpochMs(Date.now()),
+            activePaneId: paneId,
+            activeTabId: tabId,
+            layout: {type: 'leaf', paneId},
+            panes: [{paneId, tabIds: [tabId], activeTabId: tabId}],
+            tabs: [{
+                tabId, paneId, fileName: 'report.pdf', sourceRef: pdf as never, workingCopyRef: entry.ref as never,
+                isDirty: true, isDjvu: false, currentPage: null, zoom: null, zoomMode: null,
+            }],
+        };
+        await checkpoints.saveWorkspaceCheckpoint(checkpoint, 7);
+        const revision = join(dirname(entry.ref), entry.doc.state().current!.file);
+        await restart();
+        await rename(revision, `${revision}.away`);
+
+        const claimed = await checkpoints.claimWorkspaceCheckpoint(9);
+        expect(claimed?.tabs[0]).toMatchObject({workingCopyRef: entry.ref, sourceRef: pdf, isDirty: true, workingCopyLost: true});
+        const standIn = store.requireOpenDocument(entry.ref, 9);
+        expect(await readAll(standIn)).toEqual(ORIGINAL);
+        await expect(store.saveOpenDocument(standIn, '1' as never)).rejects.toThrow('missing or cut short');
+        // The window's checkpoint before a Save still names it, with annotations the damaged document cannot take.
+        const annotationRecovery = {
+            artifactId: 'artifact-1', documentInstanceId: 'instance-1', workingCopyRef: entry.ref as never,
+            workingByteRevision: '1' as never, annotationMutationGeneration: 1, payload: {entities: []},
+        };
+        expect(await checkpoints.saveWorkspaceCheckpoint({...checkpoint, tabs: [{...checkpoint.tabs[0]!, annotationRecovery}]}, 9)).toBe(true);
+        expect(existsSync(revision)).toBe(false);
+
+        await restart();
+        await rename(`${revision}.away`, revision);
+        expect((await checkpoints.claimWorkspaceCheckpoint(11))?.tabs[0]).toMatchObject({workingCopyRef: entry.ref, isDirty: true});
+        expect(await readAll(store.requireOpenDocument(entry.ref, 11))).toEqual(EDITED);
+        expect(await readFile(pdf)).toEqual(Buffer.from(ORIGINAL));
+    });
+
     it('collects documents no window holds and no checkpoint names, keeping the ones a checkpoint names', async () => {
         const {entry} = await openPdf();
         const snapshot = await store.forkOpenDocument(entry, 7);
