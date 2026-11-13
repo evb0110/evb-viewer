@@ -75,6 +75,21 @@ function readUserFile(page: Page) {
     }, FILE_NAME).then(bytes => Uint8Array.from(bytes));
 }
 
+/** Each store directory's committed revision, read from the page as recovery would read it. */
+function readCommittedRevisions(page: Page) {
+    return page.evaluate(async () => {
+        const revisions: Record<string, number | null> = {};
+        const documents = await (await navigator.storage.getDirectory()).getDirectoryHandle('documents').catch(() => null);
+        for await (const [id, dir] of documents?.entries() ?? []) {
+            const manifest = await (dir as FileSystemDirectoryHandle).getFileHandle('manifest.json')
+                .then(async handle => JSON.parse(await (await handle.getFile()).text()) as {current?: {id: number}})
+                .catch(() => null);
+            revisions[id] = manifest?.current?.id ?? null;
+        }
+        return JSON.stringify(revisions);
+    });
+}
+
 function writeUserFile(page: Page, bytes: Uint8Array, position = 0) {
     return page.evaluate(async ({fileName, content, at}) => {
         const handle = await (await navigator.storage.getDirectory()).getFileHandle(fileName, {create: true});
@@ -132,6 +147,44 @@ describe('browser document lifecycle UI', () => {
             await page.evaluate(() => Reflect.set(window, 'showSaveFilePicker', undefined));
             await page.getByRole('menuitem', {name: /^Save As/u}).click();
             expect(noteTexts(await PDFDocument.load(readFileSync(await (await download).path())))).toContain(NOTE);
+        } finally {
+            await context.close().catch(() => undefined);
+            rmSync(profile, {recursive: true, force: true});
+        }
+    }, 180_000);
+
+    // T2: a page edit is unsaved work from the moment it is committed, before the window records its layout.
+    it('restores a page rotation the browser was killed right after', async () => {
+        const book = await createReadingBook('Crash recovery', FILE_NAME);
+        mkdirSync(join(process.cwd(), '.devkit'), {recursive: true});
+        const profile = mkdtempSync(join(process.cwd(), '.devkit', 'crash-recovery-profile-'));
+        let {context, page} = await launch(profile);
+        try {
+            await writeUserFile(page, book.buffer);
+            await page.getByRole('button', {name: 'Open File', exact: true}).first().click();
+            await expect.poll(async () => (await readReadingView(page)).visibleText, {timeout: 30_000}).toBe('Crash recovery page 1');
+            await settleActiveOpen(page);
+            await page.getByRole('button', {name: 'Toggle Sidebar', exact: true}).click();
+            await page.getByRole('tab', {name: 'Pages', exact: true}).click();
+            const opened = await readCommittedRevisions(page);
+            await page.locator('[data-thumbnail-page="1"]').first().click({button: 'right'});
+            await page.getByRole('menuitem', {name: 'Rotate Clockwise', exact: true}).click();
+            // The kill follows the rotation's commit within milliseconds, well inside the layout record's delay.
+            await expect.poll(() => readCommittedRevisions(page), {interval: 5, timeout: 60_000}).not.toBe(opened);
+            killBrowser(profile);
+            await context.close().catch(() => undefined);
+            ({context, page} = await launch(profile));
+
+            await expect.poll(async () => {
+                const box = await page.locator('.page_container--rendered[data-page="1"]').first().boundingBox();
+                return box ? box.width > box.height : false;
+            }, {timeout: 30_000}).toBe(true);
+            await settleActiveOpen(page);
+            const save = page.locator('.save-split-primary').first();
+            await expect.poll(() => save.isDisabled(), {timeout: 15_000}).toBe(false);
+            await save.click();
+            await expect.poll(() => save.getAttribute('aria-busy'), {timeout: 15_000}).toBe('false');
+            expect((await PDFDocument.load(await readUserFile(page))).getPage(0).getRotation().angle).toBe(90);
         } finally {
             await context.close().catch(() => undefined);
             rmSync(profile, {recursive: true, force: true});

@@ -243,7 +243,7 @@ export async function readRecoveries(page: Page, subtype?: '/Text') {
         const rows = [];
         for await (const name of workspaces.keys()) {
             if (!/^[\w-]+\.json$/u.test(name)) continue;
-            const checkpoint = ((await readJson(workspaces, name)) as {layout: {tabs: Array<{
+            const checkpoint = ((await readJson(workspaces, name)) as {layout: null | {tabs: Array<{
                 isDirty: boolean;
                 workingCopyRef: string | null;
                 currentPage: number | null;
@@ -253,9 +253,11 @@ export async function readRecoveries(page: Page, subtype?: '/Text') {
                     entities?: Array<{kind: string; contents?: string; text?: string}>;
                 }}
             }>}}).layout;
-            const tab = checkpoint.tabs.find(candidate => candidate.isDirty);
-            const id = tab?.workingCopyRef?.slice('browser://documents/'.length).split('/')[0];
-            if (tab && id) {
+            // A window's checkpoint names every document it holds; a recovery record is one with unsaved work.
+            const tab = checkpoint?.tabs.find(candidate => candidate.isDirty);
+            if (!checkpoint || !tab) continue;
+            const id = tab.workingCopyRef?.slice('browser://documents/'.length).split('/')[0];
+            if (id) {
                 try {
                     const dir = await (await root.getDirectoryHandle('documents')).getDirectoryHandle(id);
                     const manifest = await readJson(dir, 'manifest.json') as {drafts?: string};

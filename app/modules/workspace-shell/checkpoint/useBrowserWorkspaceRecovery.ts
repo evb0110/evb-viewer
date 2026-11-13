@@ -25,9 +25,9 @@ interface IUseBrowserWorkspaceRecoveryOptions {
 const RECOVERY_DEBOUNCE_MS = 750;
 
 /**
- * Records the browser window's unsaved work after each change: every dirty document's unsaved state goes
- * into its store directory with its bytes, and the window's checkpoint names those directories. A crash
- * leaves the directories as they were last recorded, and the next start offers them.
+ * Records the browser window's layout and unsaved annotations shortly after each change: the annotations go
+ * into each document's store directory as drafts. The window's checkpoint already names every directory the
+ * window holds, written when it opened, so a crash before this record still finds the document's bytes.
  */
 export const useBrowserWorkspaceRecovery = (options: IUseBrowserWorkspaceRecoveryOptions) => {
     const recovery = getWindowTabsCapability().browserRecovery;

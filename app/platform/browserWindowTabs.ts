@@ -17,6 +17,7 @@ import {
     acknowledgeBrowserWorkspaceCheckpoint,
     browserWindowLockName,
     claimBrowserWorkspaceCheckpoint,
+    nameBrowserWorkspaceDirectory,
     saveBrowserWorkspaceCheckpoint,
 } from '@app/platform/browser/browserWorkspaceRecovery';
 import {browserDocumentStore} from '@app/platform/browser/browserDocumentRepository';
@@ -847,6 +848,16 @@ async function holdCurrentWindowLock() {
 async function releaseTransferredDocuments(payload: IWindowTabTransferRequest['payload']) {
     if (payload.kind === 'pdfSnapshot' && payload.snapshotPath) await browserDocumentStore.release(payload.snapshotPath);
 }
+
+// The window's checkpoint names each document directory as soon as the window holds it.
+browserDocumentStore.onDirectoryHeld = async (directory) => {
+    try {
+        const windowId = await holdCurrentWindowLock();
+        if (windowId) await nameBrowserWorkspaceDirectory(windowId, directory);
+    } catch (error) {
+        BrowserLogger.warn('workspace-recovery', 'Failed to name a document in the window checkpoint', error);
+    }
+};
 
 export const browserWindowTabsCapability: IWindowTabsCapability = {
     browserRecovery: {

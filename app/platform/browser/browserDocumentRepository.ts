@@ -117,7 +117,7 @@ export interface ICreateStoredDocumentOptions {
     sourceRef?: string;
     saveHandle?: FileSystemFileHandle | null;
     /** `handle`: the bytes are the file `saveHandle` names, written by the caller. */
-    storageMode?: 'handle' | 'inline' | 'chunked';
+    storageMode?: 'handle' | 'inline';
     /** Copies the new document's bytes from this one instead of `data`. */
     contentFrom?: string;
 }
@@ -171,6 +171,8 @@ export class BrowserDocumentStore {
     private readonly removalListeners = new Set<(ref: string) => void>();
     private storesPromise: Promise<{durable: IDocumentStore | null; memory: IDocumentStore}> | null = null;
     private readonly recentFiles = new BrowserRecentFilesStore();
+    /** Awaited before a newly held store directory is used. */
+    public onDirectoryHeld = async (_id: string) => {};
 
     /** The durable store (the origin private file system) when the browser offers one, and the memory store. */
     public stores() {
@@ -287,12 +289,13 @@ export class BrowserDocumentStore {
             const release = await this.lock(id, 0);
             try {
                 const store = {...source.store, historyBudget: 0};
-                entry = this.attach(this.docEntry(workingRef, await forkDocument(store, source.doc.id, id), store, release, meta));
+                const forked = this.docEntry(workingRef, await forkDocument(store, source.doc.id, id), store, release, meta);
+                forked.memoryOnly = source.memoryOnly;
+                entry = await this.hold(forked);
             } catch (error) {
                 release();
                 throw error;
             }
-            entry.memoryOnly = source.memoryOnly;
             entry.file = source.doc.state().current ? null : source.file;
         } else {
             entry = await this.createEntry(workingRef, {source: await this.fileOf(source), imported: true}, meta);
@@ -354,17 +357,9 @@ export class BrowserDocumentStore {
         return this.readEntryRange(await this.requireEntry(ref), Math.max(0, offset), Math.max(0, length));
     }
 
-    public async readText(ref: string) {
-        return new TextDecoder().decode(await this.read(ref));
-    }
-
     public async stat(ref: string) {
         const {size, modifiedAt} = await this.getContentSnapshot(ref);
         return {size, modifiedAt};
-    }
-
-    public async getContentSignature(ref: string) {
-        return (await this.getContentSnapshot(ref)).contentSignature;
     }
 
     /** Size and revision describe one state; a picked file is looked at again first. */
@@ -604,10 +599,6 @@ export class BrowserDocumentStore {
         return entry?.doc ?? null;
     }
 
-    public revisionTokenOf(entry: IBrowserDocumentEntry) {
-        return this.tokenOf(entry);
-    }
-
     public openEntries() {
         return [...this.entries.values()];
     }
@@ -675,6 +666,11 @@ export class BrowserDocumentStore {
     private attach(entry: IBrowserDocumentEntry) {
         this.entries.set(entry.ref, entry);
         return entry;
+    }
+
+    private async hold(entry: IBrowserDocumentEntry) {
+        if (entry.doc && !entry.memoryOnly) await this.onDirectoryHeld(entry.doc.id);
+        return this.attach(entry);
     }
 
     private baseEntry(ref: TDocumentRef, meta: TEntryMeta): IBrowserDocumentEntry {
@@ -756,12 +752,12 @@ export class BrowserDocumentStore {
                 store = {...memory};
                 doc = await createDocument(store, documentInit);
             }
-            const entry = this.attach(this.docEntry(ref, doc, store, release, {...meta, fileName}));
+            const entry = this.docEntry(ref, doc, store, release, {...meta, fileName});
             if (store.port === memory.port) {
                 entry.memoryOnly = true;
                 emitBrowserDocumentPersistenceWarning({fileName, error: new Error('The browser refused to store this document')});
             }
-            return entry;
+            return await this.hold(entry);
         } catch (error) {
             release();
             throw error;
@@ -791,7 +787,7 @@ export class BrowserDocumentStore {
             const doc = await openDocument(store, id);
             const sourceRef = this.namedSources.get(parsed);
             // A named directory is a working copy; one opened from Recent Files is a stored source.
-            const entry = this.attach(this.docEntry(parsed, doc, store, release, sourceRef
+            const entry = await this.hold(this.docEntry(parsed, doc, store, release, sourceRef
                 ? {kind: 'working', retention: 'transient', ...(sourceRef === parsed ? {} : {sourceRef})}
                 : {}));
             const key = handleKeyOf(doc.state().destination);
@@ -879,7 +875,7 @@ export class BrowserDocumentStore {
     }
 
     /** A store document's revision is its directory and the revision its manifest names. */
-    private tokenOf(entry: IBrowserDocumentEntry) {
+    public tokenOf(entry: IBrowserDocumentEntry) {
         if (entry.doc) {
             const manifest = entry.doc.snapshot();
             return requireDocumentRevisionToken(`drt1:browser:${entry.doc.id}:${manifest.current?.id ?? manifest.next}`);
