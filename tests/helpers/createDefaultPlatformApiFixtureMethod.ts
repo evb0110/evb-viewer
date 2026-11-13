@@ -260,6 +260,7 @@ const FEATURE_RESULTS: Readonly<Record<string, unknown>> = {
         estimatedBytes: 1,
     }],
     'djvu.cleanupTemp': undefined,
+    'documentWorkingCopy.retainDocumentRevisions': undefined,
 };
 
 function createAsyncDefault(path: string) {

@@ -72,12 +72,10 @@ function createOpenFlowHarness() {
         clearPdfConformanceProfile: vi.fn(),
         cleanupPreviousWorkingCopy: vi.fn(async () => undefined),
         deferPdfConformanceProfile: vi.fn(),
-        ensureHistoryBaselineForMutation: vi.fn(async () => true),
         incrementSessionVersion: vi.fn(),
         loadEpoch: createEpochGuard(),
         openEpoch: createEpochGuard(),
-        pushHistorySnapshot: vi.fn(async () => true),
-        resetHistory: vi.fn(async (_snapshot: unknown, options?: IResetHistoryTestOptions) => options?.isCurrent?.() !== false),
+        resetHistory: vi.fn(async (options?: IResetHistoryTestOptions) => options?.isCurrent?.() !== false),
         syncDirtyFromHistory: vi.fn(),
         t: ((key: string) => key) as TTranslateFn,
     };
