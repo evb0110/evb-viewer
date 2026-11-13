@@ -275,10 +275,10 @@ describe('browser document lifecycle UI', () => {
             await page.route('**/*usePdfAnnotationLayerRenderer.ts*', async (route) => {
                 const response = await route.fetch();
                 const body = await response.text();
-                const marker = 'const renderToken = ++annotationLayerRenderToken;';
+                const marker = 'const annotations = await getParsedPageAnnotations(pdfPage);';
                 if (!body.includes(marker)) throw new Error('PDF.js layer hydration fault seam was not found');
                 const hold = readiness === 'hydrating'
-                    ? 'document.body.dataset.optionalHydrationFault = "held"; annotationLayerDiv.dataset.hydrationFault = "held"; try { await raceWithAnnotationAbort(new Promise(() => {}), pageNumber, options); } finally { annotationLayerDiv.dataset.hydrationFault = "settled"; }'
+                    ? 'document.body.dataset.optionalHydrationFault = "held"; annotationLayerDiv.dataset.hydrationFault = "held"; try { await new Promise((_, reject) => options.signal.addEventListener("abort", () => reject(options.signal.reason), {once: true})); } finally { annotationLayerDiv.dataset.hydrationFault = "settled"; }'
                     : 'document.body.dataset.optionalHydrationFault = "refused"; const refusal = new Error("Injected optional annotation hydration refusal"); refusal.name = "AbortError"; throw refusal;';
                 await route.fulfill({
                     response,
@@ -387,20 +387,36 @@ describe('browser document lifecycle UI', () => {
         try {
             const page = await context.newPage();
             // Hold the actual producer only after an original picture exists.
+            // Persist-only Saves keep PDF.js's document but reauthorize the page resource.
+            // Read its version at the caller so only the superseded producer is held.
+            await page.route('**/*usePdfPageRenderer.ts*', async (route) => {
+                const response = await route.fetch();
+                const body = await response.text();
+                const marker = 'usePdfAnnotationLayerRenderer({';
+                if (!body.includes(marker)) throw new Error('Required page-resource version seam was not found');
+                await route.fulfill({
+                    response,
+                    body: body.replace(marker, `${marker}
+                        getTestPageVersion: (pageNumber) => {
+                            const resource = options.pageResources.get(pageNumber);
+                            return resource.job?.demand.consumerGeneration ?? resource.shown?.version;
+                        },`),
+                });
+            });
             await page.route('**/*usePdfAnnotationLayerRenderer.ts*', async (route) => {
                 const response = await route.fetch();
                 const body = await response.text();
-                const marker = 'const renderToken = ++annotationLayerRenderToken;';
+                const marker = 'const annotations = await getParsedPageAnnotations(pdfPage);';
                 if (!body.includes(marker)) throw new Error('Required annotation producer seam was not found');
                 const hold = `const faultRoot = document.querySelector('.page_container[data-page="' + pageNumber + '"]');
-                    const target = JSON.stringify([options?.documentVersion, viewport.width, viewport.height]);
+                    const target = JSON.stringify([deps.getTestPageVersion(pageNumber), viewport.width, viewport.height]);
                     if (faultRoot?.getAttribute('data-required-hydration-fault') === 'armed'
                         && viewport.width > Number(faultRoot.getAttribute('data-required-hydration-baseline-width'))) {
                         faultRoot.setAttribute('data-required-hydration-target', target);
                     }
                     if (faultRoot?.getAttribute('data-required-hydration-target') === target) {
                         faultRoot.setAttribute('data-required-hydration-fault', 'held');
-                        try { await raceWithAnnotationAbort(new Promise(() => {}), pageNumber, options); }
+                        try { await new Promise((_, reject) => options.signal.addEventListener("abort", () => reject(options.signal.reason), {once: true})); }
                         finally { faultRoot.setAttribute('data-required-hydration-fault', 'settled'); }
                     }`;
                 await route.fulfill({
