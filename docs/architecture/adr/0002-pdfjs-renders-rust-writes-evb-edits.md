@@ -102,9 +102,12 @@ The editor and save-route parts of this decision are done: annotation saves go
 only through `pdf-page-ops`. The writer role is one writer per kind of
 operation:
 
-- Whole-file restructuring on desktop (delete, extract, reorder, move, insert,
-  merge, optimize) is the qpdf CLI (`electron/features/page-ops/main/qpdf.ts`
-  and callers). It streams and handles multi-GB files.
+- Page-structure edits (delete, extract, reorder, move, insert, merge) are
+  `pdf-page-ops` on desktop and in the browser. It indexes the cross-reference
+  sections, parses the objects the trailer reaches and writes one fresh
+  revision whose stream data is copied by byte range, so memory follows the
+  object structure, not the file size (`src/pdf_source.rs`, `pdf_writer.rs`).
+  Whole-file optimization and repair on desktop stay with the qpdf CLI.
 - Append-only incremental edits (annotations, notes, rotation, crop, bookmarks,
   page labels, metadata, the OCR text layer) are `pdf-page-ops`. Rotation has
   one path, an appended revision; a working copy that shares its inode with the

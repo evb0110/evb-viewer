@@ -3152,3 +3152,178 @@ fn lazy_catalog_admission_allows_tags_and_layers() {
         assert!(catalog["bookmarks"].is_array());
     }
 }
+
+/// Three small pages whose objects all lie past an unreferenced 4.5 GiB
+/// stream, sharing one 64 MiB image.
+fn write_sparse_page_structure_pdf(path: &Path) {
+    const PADDING_BYTES: u64 = 4_608 * 1024 * 1024;
+    const IMAGE_BYTES: u64 = 64 * 1024 * 1024;
+    let mut file = sparse_file::create_sparse_file(path);
+    file.write_all(b"%PDF-1.4\n%\x80\x81\x82\x83\n").unwrap();
+    let mut offsets = Vec::new();
+    let sparse_stream = |file: &mut File, offsets: &mut Vec<u64>, header: String, len: u64| {
+        offsets.push(file.stream_position().unwrap());
+        file.write_all(header.as_bytes()).unwrap();
+        file.seek(SeekFrom::Current(i64::try_from(len).unwrap()))
+            .unwrap();
+        file.write_all(b"\nendstream\nendobj\n").unwrap();
+    };
+    sparse_stream(
+        &mut file,
+        &mut offsets,
+        format!("1 0 obj\n<</Length {PADDING_BYTES}>>\nstream\n"),
+        PADDING_BYTES,
+    );
+    write_object(
+        &mut file,
+        &mut offsets,
+        b"2 0 obj\n<</Type/Catalog/Pages 3 0 R>>\nendobj\n",
+    );
+    write_object(
+        &mut file,
+        &mut offsets,
+        b"3 0 obj\n<</Type/Pages/Kids[4 0 R 5 0 R 6 0 R]/Count 3/MediaBox[0 0 200 100]>>\nendobj\n",
+    );
+    for page in 0..3 {
+        write_object(
+            &mut file,
+            &mut offsets,
+            format!(
+                "{} 0 obj\n<</Type/Page/Parent 3 0 R/Resources<</XObject<</Im 10 0 R>>>>/Contents {} 0 R>>\nendobj\n",
+                4 + page,
+                7 + page
+            )
+            .as_bytes(),
+        );
+    }
+    for page in 0..3 {
+        let content = format!("% page {}\n", page + 1);
+        write_object(
+            &mut file,
+            &mut offsets,
+            format!(
+                "{} 0 obj\n<</Length {}>>\nstream\n{content}\nendstream\nendobj\n",
+                7 + page,
+                content.len()
+            )
+            .as_bytes(),
+        );
+    }
+    sparse_stream(
+        &mut file,
+        &mut offsets,
+        format!("10 0 obj\n<</Type/XObject/Subtype/Image/Width 1/Height 1/ColorSpace/DeviceGray/BitsPerComponent 8/Length {IMAGE_BYTES}>>\nstream\n"),
+        IMAGE_BYTES,
+    );
+    let xref_offset = file.stream_position().unwrap();
+    assert!(offsets[1] > u64::from(u32::MAX));
+    file.write_all(b"xref\n0 11\n0000000000 65535 f \n")
+        .unwrap();
+    for offset in offsets {
+        file.write_all(format!("{offset:010} 00000 n \n").as_bytes())
+            .unwrap();
+    }
+    file.write_all(
+        format!("trailer\n<</Size 11/Root 2 0 R>>\nstartxref\n{xref_offset}\n%%EOF\n").as_bytes(),
+    )
+    .unwrap();
+    file.sync_all().unwrap();
+}
+
+#[test]
+fn page_structure_edits_copy_a_sparse_pdf_beyond_four_gib_by_range() {
+    let pdf = temp_path("five-gib-page-structure", "pdf");
+    let partner = temp_path("page-structure-partner", "pdf");
+    let pages = temp_path("page-structure-pages", "txt");
+    let output = temp_path("page-structure-output", "pdf");
+    let _cleanup = TempFiles::disk_heavy(vec![
+        pdf.clone(),
+        partner.clone(),
+        pages.clone(),
+        output.clone(),
+    ]);
+    write_sparse_page_structure_pdf(&pdf);
+    let mut small = Document::with_version("1.4");
+    let small_pages = small.new_object_id();
+    let content = small.add_object(Stream::new(dictionary! {}, b"% partner\n".to_vec()));
+    let page = small.add_object(dictionary! {
+        "Type" => "Page", "Parent" => small_pages, "Contents" => content,
+        "MediaBox" => vec![0.into(), 0.into(), 100.into(), 100.into()],
+    });
+    small.objects.insert(
+        small_pages,
+        dictionary! {"Type" => "Pages", "Kids" => vec![page.into()], "Count" => 1}.into(),
+    );
+    let catalog = small.add_object(dictionary! {"Type" => "Catalog", "Pages" => small_pages});
+    small.trailer.set("Root", catalog);
+    small.save(&partner).unwrap();
+
+    for (command, page_list, expected) in [
+        ("delete-pages", Some("2"), vec!["page 1", "page 3"]),
+        ("extract-pages", Some("3\n1"), vec!["page 3", "page 1"]),
+        (
+            "reorder-pages",
+            Some("3\n1-2"),
+            vec!["page 3", "page 1", "page 2"],
+        ),
+        (
+            "insert-pages",
+            None,
+            vec!["page 1", "partner", "page 2", "page 3"],
+        ),
+        (
+            "merge-pages",
+            None,
+            vec!["page 1", "page 2", "page 3", "partner"],
+        ),
+    ] {
+        let mut process = Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"));
+        process
+            .arg(command)
+            .arg("--input")
+            .arg(&pdf)
+            .arg("--output")
+            .arg(&output);
+        match page_list {
+            Some(page_list) => {
+                fs::write(&pages, page_list).unwrap();
+                process.arg("--pages-file").arg(&pages);
+            }
+            None => {
+                process.arg("--source").arg(&partner);
+            }
+        }
+        if command == "insert-pages" {
+            process.arg("--after-page").arg("1");
+        }
+        let result = process.output().unwrap();
+        assert!(
+            result.status.success(),
+            "{command}: {}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        assert_qpdf_check(&output);
+        let written = Document::load(&output).unwrap();
+        let contents = written
+            .get_pages()
+            .values()
+            .map(|page| {
+                String::from_utf8(written.get_page_content(*page))
+                    .unwrap()
+                    .trim()
+                    .trim_start_matches("% ")
+                    .to_string()
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(contents, expected, "{command}");
+        let image = written
+            .objects
+            .values()
+            .filter_map(|object| object.as_stream().ok())
+            .find(|stream| stream.dict.has_type(b"XObject"));
+        if contents.iter().any(|content| content.starts_with("page")) {
+            assert_eq!(image.unwrap().content.len(), 64 * 1024 * 1024, "{command}");
+        }
+        assert!(fs::metadata(&output).unwrap().len() < 65 * 1024 * 1024);
+    }
+}

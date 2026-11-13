@@ -12,21 +12,7 @@ import {
 } from '@electron/image/pdfConversion';
 import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
-import {
-    ensureWorkingCopyDirectory,
-} from '@electron/file-access/documentStore';
-import {
-    cleanupTempOutput,
-    makeTempPdfOutputPath,
-    replaceTempOutput,
-} from '@electron/features/page-ops/main/tempOutput';
-import {
-    assertNonEmptyPdfOutput,
-    getPdfPageCount,
-    QPDF_OUTPUT_SUCCESS_EXIT_CODES,
-    QPDF_TIMEOUT_MS,
-    runQpdfPageOperation,
-} from '@electron/features/page-ops/main/qpdf';
+import { runPageStructureCommand } from '@electron/features/page-ops/main/pageStructureCommand';
 import type { TOpenPath } from '@electron/file-access/openPathCapabilities';
 
 const log = createLogger('page-ops-insert-service');
@@ -37,7 +23,7 @@ interface IInsertPagesFromSourcePathsOptions {
 }
 
 async function prepareInsertionSourcePdf(
-    workingCopyPath: string,
+    targetPath: string,
     sourcePaths: TOpenPath[],
     onProgress?: (progress: ICreatePdfFromInputPathsProgress) => void,
     options: IInsertPagesFromSourcePathsOptions = {},
@@ -67,7 +53,7 @@ async function prepareInsertionSourcePdf(
         ...(options.signal ? {signal: options.signal} : {}),
     };
     const tempSourcePdfPath = join(
-        workingCopyPath,
+        targetPath,
         '..',
         `insert-source-${randomUUID()}.pdf`,
     );
@@ -90,69 +76,29 @@ async function prepareInsertionSourcePdf(
     };
 }
 
+/** Writes `sourcePath` with the pages of `sourcePaths` inserted after `afterPage` to `targetPath`. */
 export async function insertPagesFromSourcePaths(
-    workingCopyPath: string,
-    expectedTotalPages: number,
+    sourcePath: string,
+    targetPath: string,
+    totalPages: number,
     sourcePaths: TOpenPath[],
     afterPage: number,
-    senderWebContentsId?: number,
     onProgress?: (progress: ICreatePdfFromInputPathsProgress) => void,
     options: IInsertPagesFromSourcePathsOptions = {},
 ) {
-    if (!await ensureWorkingCopyDirectory(workingCopyPath, senderWebContentsId)) {
-        throw new Error('Working copy path is not managed');
-    }
-    const totalPages = await getPdfPageCount(workingCopyPath, options);
-    if (expectedTotalPages !== totalPages) {
-        throw new Error('Renderer page count is stale');
-    }
     if (afterPage > totalPages) {
         throw new Error('Invalid afterPage');
     }
-    const tempPath = makeTempPdfOutputPath(workingCopyPath);
-
     const {
         sourcePdfPath,
         cleanup,
-    } = await prepareInsertionSourcePdf(workingCopyPath, sourcePaths, onProgress, options);
+    } = await prepareInsertionSourcePdf(targetPath, sourcePaths, onProgress, options);
 
     try {
-        const pagesArgs: string[] = [];
-
-        if (afterPage >= 1) {
-            pagesArgs.push(workingCopyPath, `1-${afterPage}`);
-        }
-
-        pagesArgs.push(sourcePdfPath, '1-z');
-
-        if (afterPage < totalPages) {
-            pagesArgs.push(workingCopyPath, `${afterPage + 1}-${totalPages}`);
-        }
-
-        const args = [
-            workingCopyPath,
-            '--pages',
-            ...pagesArgs,
-            '--',
-            tempPath,
-        ];
-        await runQpdfPageOperation(args, {
-            timeoutMs: QPDF_TIMEOUT_MS,
-            allowedExitCodes: QPDF_OUTPUT_SUCCESS_EXIT_CODES,
-            commandLabel: 'qpdf(insert-pages)',
-            ...(options.signal ? { signal: options.signal } : {}),
-            ...(options.cancelGroup ? { cancelGroup: options.cancelGroup } : {}),
-            workingCopyMaterialization: {
-                path: workingCopyPath,
-                ...(senderWebContentsId === undefined ? {} : {senderWebContentsId}),
-                ...(options.signal ? {signal: options.signal} : {}),
-            },
-        });
-        await assertNonEmptyPdfOutput(tempPath, 'Inserting pages');
-        await replaceTempOutput(tempPath, workingCopyPath);
-    } catch (err) {
-        await cleanupTempOutput(tempPath, log, 'temporary insert output');
-        throw err;
+        await runPageStructureCommand('insert-pages', sourcePath, targetPath, {
+            sources: [sourcePdfPath],
+            afterPage,
+        }, options);
     } finally {
         await cleanup();
     }
