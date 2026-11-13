@@ -1,4 +1,5 @@
 import {
+    contentOf,
     contentWitness,
     sameWitness,
 } from './contentWitness';
@@ -57,15 +58,16 @@ export interface IDocumentState {
     dirty: boolean;
 }
 
-/** Bytes to publish: exactly `[0, length)` of `file`, which lives at the store-relative `path`. */
+/** Bytes to publish: exactly `[0, length)` of `file`, which lives at the store-relative `path`; `witness`, what is known of them. */
 export interface IPublishSource {
     path: string;
     length: number;
     file: IStoreFile;
+    witness?: string | undefined;
 }
 
-/** `witness`: facts the platform read from the destination after the write, joined to the bytes' witness as the new baseline. */
-export type TPublishResult = { status: 'published'; keptOriginal?: string; witness?: string } | { status: 'conflict' };
+/** `witness`: the destination's witness after the write, the new baseline. */
+export type TPublishResult = { status: 'published'; keptOriginal?: string; witness: string } | { status: 'conflict' };
 
 /** Everything platform-specific about where a document is saved. */
 export interface IPublicationPort {
@@ -77,11 +79,12 @@ export interface IPublicationPort {
     /** The destination's bytes, to copy in as the first revision. */
     source(destination: string): Promise<TExternalSource>;
     /**
-     * Writes `source` to `destination`. With `expected`, refuses with `conflict` unless the destination's
-     * witness still equals it, checked as close to the write as the platform allows. Refusals of another
-     * kind (locked, read-only, folder not writable) throw the adapter's own error.
+     * Writes `source` to `destination`. Before the destination changes, `stage` receives the witness the
+     * destination will have, and is awaited: the core records it as the pending publish. With `expected`, refuses
+     * with `conflict` unless the destination's witness still equals it, checked as close to the write as the
+     * platform allows. Refusals of another kind (locked, read-only, folder not writable) throw the adapter's own error.
      */
-    publish(destination: string, source: IPublishSource, expected: string | null): Promise<TPublishResult>;
+    publish(destination: string, source: IPublishSource, expected: string | null, stage: (witness: string) => Promise<void>): Promise<TPublishResult>;
 }
 
 export interface IDocumentStore {
@@ -94,8 +97,9 @@ export interface IDocumentStore {
 export type TRevisionWriter = (file: IStoreFile) => Promise<void>;
 /** The drafts a mutation leaves: the current ones, new ones (`undefined` clears), or none. */
 export type TDraftsAfter = 'keep' | 'clear' | { replace: unknown };
-export type TMutation = ({ kind: 'append'; bytes: Uint8Array } | { kind: 'rewrite'; source: TExternalSource | TRevisionWriter })
-    & { drafts: TDraftsAfter };
+/** New bytes for a document: written from `source`, or `move`: a file the caller wrote on the store's file system and gives up. */
+export type TReplacement = { kind: 'rewrite'; source: TExternalSource | TRevisionWriter } | { kind: 'move'; file: string };
+export type TMutation = ({ kind: 'append'; bytes: Uint8Array } | TReplacement) & { drafts: TDraftsAfter };
 export type TStaleRevision = { status: 'stale-revision'; current: IRevision | null };
 export type TMutationResult = { status: 'committed'; revision: IRevision } | TStaleRevision | { status: 'conflict' };
 export type TDraftResult = { status: 'stored'; revision: IRevision | null } | TStaleRevision | { status: 'conflict' };
@@ -392,7 +396,8 @@ export class DocumentDirectory {
             revision = { id, file: base.file, length: base.length + mutation.bytes.byteLength };
         } else {
             const name = `r${id}.${manifest.ext}`;
-            const created = await this.createRevisionFile(name, mutation.kind === 'rewrite' ? mutation.source : this.copyThenAppend(base, mutation.bytes));
+            const created = await this.createRevisionFile(name, mutation.kind === 'rewrite' ? mutation.source
+                : mutation.kind === 'move' ? { move: mutation.file } : this.copyThenAppend(base, mutation.bytes));
             file = created.file;
             revision = { id, file: name, length: created.length };
         }
@@ -428,7 +433,8 @@ export class DocumentDirectory {
         const { manifest } = this;
         const pending = manifest.pendingPublish;
         if (!pending) return;
-        const witness = await this.store.publication.witness(pending.destination, true).catch(() => undefined);
+        // A pending witness without content names the published file by its metadata, which is enough to compare.
+        const witness = await this.store.publication.witness(pending.destination, contentOf(pending.witness) !== undefined).catch(() => undefined);
         // Unreadable now, for example held by another program: the next open or Save decides.
         if (witness === undefined) return;
         const adopted = witness && sameWitness(witness, pending.witness) ? { destination: pending.destination, baseline: witness } : {};
@@ -472,11 +478,16 @@ export class DocumentDirectory {
     }
 
     /** Creates a revision file from `source`; with `withWitness`, also returns the content witness of its bytes. */
-    private async createRevisionFile(name: string, source: TExternalSource | TRevisionWriter, withWitness = false) {
+    private async createRevisionFile(name: string, source: TExternalSource | TRevisionWriter | { move: string }, withWitness = false) {
         const { port } = this.store;
         const path = this.path(name);
         try {
-            if (typeof source !== 'function') await port.copyIn(source, path);
+            if (typeof source === 'object' && 'move' in source) {
+                if (!port.move) throw new Error('This store cannot take files in');
+                await port.move(source.move, path);
+            } else if (typeof source !== 'function') {
+                await port.copyIn(source, path);
+            }
             const file = await port.open(path);
             try {
                 if (typeof source === 'function') {

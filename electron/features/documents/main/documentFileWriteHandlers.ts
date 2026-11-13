@@ -66,7 +66,7 @@ export async function handleFileWrite(
 
     return enqueueWorkingCopyMutation(entry.ref, async () => {
         await assertQueuedWorkingCopyMutationPreconditions(entry.ref, expectedDocumentRevisionToken);
-        // Beside the revisions, so the commit clones it; a crash leaves nothing the manifest names.
+        // Beside the revisions, so the commit moves it in; a crash leaves nothing the manifest names.
         const tempPath = join(dirname(entry.ref), `.write-${randomUUID()}.tmp`);
         try {
             await writeFileAtomic(tempPath, payload);
@@ -74,7 +74,7 @@ export async function handleFileWrite(
             if (!validation.isValid) {
                 throw new Error(`PDF write verification failed: ${validation.errors.join('; ')}`);
             }
-            await commitDocumentMutation(entry, expectedDocumentRevisionToken, {kind: 'rewrite', source: tempPath}, 'write');
+            await commitDocumentMutation(entry, expectedDocumentRevisionToken, {kind: 'move', file: tempPath}, 'write');
         } finally {
             await unlink(tempPath).catch(() => undefined);
         }

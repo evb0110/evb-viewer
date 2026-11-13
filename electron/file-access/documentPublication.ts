@@ -114,17 +114,18 @@ async function copyRevision(source: IPublishSource, absolutePath: string, target
 }
 
 /**
- * Publication to files on this computer. A destination's witness is its metadata, so opening or checking a file
- * never reads it; recovery asks for its content too. A Save checks the destination against the baseline inside
- * `atomicReplace`, after which the replaced PDF is moved aside rather than deleted; bytes another program wrote
- * between that check and the move stay beside the PDF as "(original)". Save As replaces without a check. The
- * metadata after the replace joins the published bytes' content witness in the new baseline.
+ * Publication to files on this computer. A destination's witness is its metadata, so opening, checking or saving
+ * a file never reads it; recovery asks for its content only to settle a publish staged with content. The bytes are
+ * copied beside the destination, and that copy's metadata is the witness staged before the replace: a rename keeps
+ * it. A Save checks the destination against the baseline inside `atomicReplace`, after which the replaced PDF is
+ * moved aside rather than deleted; bytes another program wrote between that check and the move stay beside the PDF
+ * as "(original)". Save As replaces without a check. The metadata after the replace is the new baseline.
  */
 export function createDesktopPublication(absolute: (storePath: string) => string): IPublicationPort {
     return {
         witness: fileWitness,
         source: async destination => destination,
-        publish: (destination, source, expected) => withOriginalPathMutationLock(destination, async () => {
+        publish: (destination, source, expected, stage) => withOriginalPathMutationLock(destination, async () => {
             await settleDisplacedOriginal(destination, expected);
             const temp = makeSiblingTempPath(destination);
             const published = (keptOriginal?: string) => ({
@@ -134,6 +135,7 @@ export function createDesktopPublication(absolute: (storePath: string) => string
             });
             try {
                 await copyRevision(source, absolute(source.path), temp);
+                await stage(metadataFact(statSync(temp, {bigint: true})));
                 if (expected === null) {
                     await atomicReplace(temp, destination);
                     return published();

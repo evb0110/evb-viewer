@@ -28,7 +28,7 @@ import {
     MANIFEST_NAME,
     openDocument,
     STORE_ID_PATTERN,
-    type TMutation,
+    type TReplacement,
     type TMutationResult,
 } from '@document-store/documentDirectory';
 import {createNodeStorePort} from '@document-store/nodeStorePort';
@@ -532,7 +532,7 @@ function throwFailedMutation(entry: IOpenDocument, token: TDocumentRevisionToken
 export async function commitDocumentMutation(
     entry: IOpenDocument,
     token: TDocumentRevisionToken | null,
-    change: Omit<Extract<TMutation, {kind: 'rewrite'}>, 'drafts'>,
+    change: TReplacement,
     reason: TDocumentRevisionChangeReason,
 ) {
     const previous = documentRevisionToken(entry);
@@ -612,7 +612,7 @@ export async function setOpenDocumentDrafts(entry: IOpenDocument, token: string 
  * document's destination becomes that file. The result tells a conflict and a stale revision apart; nothing retries.
  */
 export async function saveOpenDocument(entry: IOpenDocument, token: TDocumentRevisionToken | null, options: {
-    commit?: Omit<Extract<TMutation, {kind: 'rewrite'}>, 'drafts'>;
+    commit?: TReplacement;
     saveAs?: string;
 } = {}): Promise<TSaveResult> {
     const previous = documentRevisionToken(entry);

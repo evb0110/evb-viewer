@@ -502,7 +502,7 @@ async function commitSession(
         await commitDocumentMutation(
             requireOpenDocument(session.workingPath, session.senderId),
             session.expectedDocumentRevisionToken,
-            {kind: 'rewrite', source: session.tempPath},
+            {kind: 'move', file: session.tempPath},
             'replace-working-copy',
         );
     }, {ownerWebContentsId: session.senderId});

@@ -112,7 +112,7 @@ async function saveRewritten(
         const optimized = await rewrite(await requireDocumentFile(entry), tempPath);
         const validation = optimized ?? await validatePdfFile(tempPath);
         if (!validation.isValid) return validation;
-        const saved = await saveOpenDocument(entry, token, {commit: {kind: 'rewrite', source: tempPath}});
+        const saved = await saveOpenDocument(entry, token, {commit: {kind: 'move', file: tempPath}});
         return saved.status === 'saved' && saved.keptOriginal === undefined ? validation : createOriginalChangedValidationResult();
     } finally {
         await rm(tempPath, {force: true}).catch(() => undefined);
