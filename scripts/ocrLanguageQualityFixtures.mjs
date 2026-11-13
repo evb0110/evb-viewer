@@ -753,6 +753,12 @@ const PASSAGE_SEEDS = {
         'Kho lưu trữ yên tĩnh ghi lại từng phép đo cùng ngày tháng, địa điểm và mã nhận dạng đã kiểm tra. Người đọc theo dõi lộ trình đánh số mà không phải đoán dòng nào thuộc bản ghi tiếp theo.',
         'Mỗi trang giữ lề sạch và câu văn đầy đủ. Sổ ghi chép mô tả thời tiết, công cụ, nhân chứng và thay đổi bằng từ ngữ thông thường cùng dấu câu rõ ràng.',
     ],
+    // Caesar, De bello Gallico 1.1.1-3 (public domain), modern s and no ligatures.
+    // https://www.thelatinlibrary.com/caesar/gall1.shtml
+    lat: [
+        'Gallia est omnis divisa in partes tres, quarum unam incolunt Belgae, aliam Aquitani, tertiam qui ipsorum lingua Celtae, nostra Galli appellantur. Hi omnes lingua, institutis, legibus inter se differunt.',
+        'Gallos ab Aquitanis Garumna flumen, a Belgis Matrona et Sequana dividit. Horum omnium fortissimi sunt Belgae, propterea quod a cultu atque humanitate provinciae longissime absunt, minimeque ad eos mercatores saepe commeant atque ea quae ad effeminandos animos pertinent important.',
+    ],
     tur: [
         'Sessiz arşiv her ölçümü tarih, yer ve denetlenmiş kimlik bilgisiyle birlikte kaydeder. Okuyucu, sonraki kayda hangi satırın ait olduğunu tahmin etmeden numaralı yolu izler.',
         'Her sayfa temiz kenar boşluklarını ve tamamlanmış cümleleri korur. Kayıt, hava durumunu, araçları, tanıkları ve değişiklikleri sıradan sözcüklerle ve yararlı noktalama işaretleriyle anlatır.',
@@ -904,6 +910,7 @@ const LANGUAGE_CODES = [
     'hrv',
     'ind',
     'vie',
+    'lat',
     'tur',
     'ell',
     'grc',
@@ -956,7 +963,7 @@ function makeManifest(fontHashes) {
             type: 'original-benchmark-text',
             author: 'EVB Viewer contributors',
             license: 'CC0-1.0',
-            attribution: 'Original text written for the EVB Viewer OCR language benchmark; no external publication is used.',
+            attribution: 'Original benchmark text except Latin: Julius Caesar, De bello Gallico 1.1.1-3 (public domain), https://www.thelatinlibrary.com/caesar/gall1.shtml; modern s, no ligatures. Passage repetition follows the benchmark generator.',
         },
         physicalPage: {
             widthMm: PAGE_WIDTH_MM,
