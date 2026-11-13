@@ -60,7 +60,7 @@ import {
     waitForPdfLoaded,
     waitForViewerInteractive,
 } from '@tests/e2e/electron/helpers/viewerCore';
-import {getActiveWorkspaceWorkingCopyPath} from '@tests/e2e/electron/helpers/electronApiHelpers';
+import {readDocumentBytes} from '@tests/e2e/electron/helpers/electronApiHelpers';
 import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
 import {waitForViewportQuiet} from '@tests/e2e/electron/helpers/viewportPageObservation';
 
@@ -932,9 +932,8 @@ describe('Electron E2E - annotation save budgets and imported replies', () => {
         writeFileSync(fixture, await pdf.save({useObjectStreams: false}));
         await openPdfInApp(page, fixture);
         await waitForPdfLoaded(page);
-        const workingCopy = await getActiveWorkspaceWorkingCopyPath(page);
         const originalBytes = readFileSync(fixture);
-        const workingBytes = readFileSync(workingCopy);
+        const workingBytes = await readDocumentBytes(page);
         await clickAnnotationTool(page, 'Select');
         const selector = '.editor-pane.is-active .pdf-annotation-editor-layer [data-annotation-kind="shape"]';
         const target = await page.waitForSelector(selector, {visible: true});
@@ -959,12 +958,12 @@ describe('Electron E2E - annotation save budgets and imported replies', () => {
         expect(description).toContain('Your edits remain open');
         expect(await page.$('.tab.is-dirty')).not.toBeNull();
         expect(readFileSync(fixture)).toEqual(originalBytes);
-        expect(readFileSync(workingCopy)).toEqual(workingBytes);
+        expect(await readDocumentBytes(page)).toEqual(workingBytes);
         const artifactDirectory = resolve('.devkit/artifacts', `identity-refusal-${Date.now()}`);
         mkdirSync(artifactDirectory, {recursive: true});
         await page.screenshot({path: join(artifactDirectory, 'refused-save.png')});
         copyFileSync(fixture, join(artifactDirectory, 'original.pdf'));
-        copyFileSync(workingCopy, join(artifactDirectory, 'working.pdf'));
+        writeFileSync(join(artifactDirectory, 'working.pdf'), await readDocumentBytes(page));
         console.log(`IDENTITY_REFUSAL_EVIDENCE ${artifactDirectory}`);
     }, ACCEPTANCE_TIMEOUT_MS);
 
