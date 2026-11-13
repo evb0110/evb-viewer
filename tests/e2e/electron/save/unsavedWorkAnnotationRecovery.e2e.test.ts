@@ -1,4 +1,6 @@
 import {encode} from 'fast-png';
+import type {Page} from 'puppeteer-core';
+import {validateCanonicalAnnotationRecovery} from '@app/modules/pdf-viewer/annotations/domain/annotationRecovery';
 import {
     appendFileSync, copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, mkdtempSync, rmSync, watch, writeFileSync,
 } from 'node:fs';
@@ -43,6 +45,24 @@ import {
 
 const FIXTURE_PATH = resolve(process.cwd(), 'tests/fixtures/electron/test-scanned.pdf');
 
+// Fail serialization at the document capture boundary, before draft storage.
+// Patching the workspace expose no longer reaches the document-owned capture.
+async function rejectRecoverySerialization(page: Page, marker: string, message: string, restoreKey: string) {
+    await page.evaluate((input: {marker: string; message: string; restoreKey: string}) => {
+        const stringify = JSON.stringify;
+        Reflect.set(window, input.restoreKey, () => {JSON.stringify = stringify;});
+        JSON.stringify = ((value: unknown, ...args: unknown[]) => {
+            const encoded = Reflect.apply(stringify, JSON, [value, ...args]) as string | undefined;
+            if (value && typeof value === 'object' && 'entities' in value && 'drafts' in value
+                && encoded?.includes(input.marker)) {
+                Reflect.set(window, '__protectionCaptureRejected', true);
+                throw new Error(input.message);
+            }
+            return encoded;
+        }) as typeof JSON.stringify;
+    }, {marker, message, restoreKey});
+}
+
 function writeTextProtectionHoldHook(directory: string, message: string) {
     const gate = join(directory, 'checkpoint');
     const hook = join(directory, 'hold-checkpoint.cjs');
@@ -50,7 +70,7 @@ function writeTextProtectionHoldHook(directory: string, message: string) {
 if(process.type==='browser'){
  const gate=${JSON.stringify(gate)},open=fsp.open;
  fsp.open=async(path,...args)=>{
-  if(fs.existsSync(gate+'.arm')&&String(path).includes('workspaces')&&String(path).endsWith('.tmp')){
+  if(fs.existsSync(gate+'.arm')&&String(path).includes('document-store')&&/drafts-[^/]+\\.json\\.[^/]+\\.tmp$/.test(String(path))){
    fs.writeFileSync(gate+'.held','');
    if(!fs.existsSync(gate+'.release'))await new Promise(resolve=>{const watcher=fs.watch(${JSON.stringify(directory)},()=>{if(fs.existsSync(gate+'.release')){watcher.close();resolve()}})});
    if(fs.existsSync(gate+'.reject'))throw Object.assign(new Error(${JSON.stringify(message)}),{code:'ENOSPC'});
@@ -107,14 +127,13 @@ describe('checkpointed annotation recovery', () => {
             capturedAt: number;
             tabs: Array<{
                 isDirty: boolean;
-                annotationRecovery?: {artifactId: string}
+                annotationRecovery?: {artifactId: string; payload?: unknown}
             }>
         }}
-        // A checkpointed-note scenario starts at the durable journal receipt.
-        // The note and checkpoint debounces can outlast expect.poll's default
-        // budget, especially on the low performance profile. Observe admission
-        // instead; the test's existing deadline still bounds a missing receipt.
-        const recoveryDirectory = workspaceCheckpointDirectory(session.name);
+        // Observe the manifest's draft receipt and the workspace reference.
+        // Drafts now commit independently of layout, so either can arrive last.
+        // The test's existing deadline still bounds a missing receipt.
+        const recoveryDirectory = join(workspaceCheckpointDirectory(session.name), '..');
         mkdirSync(recoveryDirectory, {recursive: true});
         const originalRecord = await new Promise<INoteRecord>((resolveRecord, reject) => {
             const check = () => {
@@ -122,18 +141,18 @@ describe('checkpointed annotation recovery', () => {
                     .find(candidate => candidate.checkpoint.tabs.some(tab => tab.isDirty && tab.annotationRecovery));
                 const artifact = record?.checkpoint.tabs.find(tab => tab.annotationRecovery)?.annotationRecovery;
                 if (!record || !artifact) return;
-                if (readAnnotationRecoveryDraft(session!.name, artifact.artifactId)?.includes(marker)) {
+                if (JSON.stringify(artifact.payload)?.includes(marker)) {
                     watcher.close();
                     resolveRecord(record);
                 }
             };
-            const watcher = watch(recoveryDirectory, check);
+            const watcher = watch(recoveryDirectory, {recursive: true}, check);
             onTestFinished(() => watcher.close());
             watcher.once('error', reject);
             check();
         });
         const artifact = originalRecord.checkpoint.tabs.find(tab => tab.annotationRecovery)!.annotationRecovery!;
-        expect((readAnnotationRecoveryDraft(session.name, artifact.artifactId) ?? '{}')).toContain(marker);
+        expect(JSON.stringify(artifact.payload)).toContain(marker);
         const capturedAt = originalRecord.checkpoint.capturedAt;
         await session.page.screenshot({path: join(evidenceDirectory, 'note-before-first-crash.png')});
         await session.browser.disconnect();
@@ -358,7 +377,7 @@ describe('checkpointed annotation recovery', () => {
 if(process.type==='browser'){
  const gate=${JSON.stringify(gate)},target=${JSON.stringify(sourcePath)},cut=${JSON.stringify(cut)},open=fsp.open,rename=fsp.rename;
  fsp.open=async(path,...args)=>{
-  if(cut!==2&&fs.existsSync(gate+'.arm')&&!fs.existsSync(gate+'.release')&&String(path).includes('workspaces')&&String(path).endsWith('.tmp')){
+  if(cut!==2&&fs.existsSync(gate+'.arm')&&!fs.existsSync(gate+'.release')&&String(path).includes('document-store')&&/drafts-[^/]+\\.json\\.[^/]+\\.tmp$/.test(String(path))){
    fs.writeFileSync(gate+'.held','');
    await new Promise(resolve=>{const watcher=fs.watch(${JSON.stringify(outputDirectory)},()=>{if(fs.existsSync(gate+'.release')){watcher.close();resolve()}})});
    if(cut===1)throw Object.assign(new Error('ENOSPC: text checkpoint volume is full'),{code:'ENOSPC'});
@@ -546,13 +565,7 @@ if(process.type==='browser'){
 
         const pendingMarker = `Pending protected text ${cut}`;
         if (cut === 2) {
-            await session.page.evaluate(() => {
-                const workspace = (window as IE2EWindow).__evbTestApi?.getActiveWorkspaceHandle();
-                const capture = workspace?.captureCanonicalAnnotationRecovery;
-                if (!workspace || !capture) throw new Error('The recovery capture is missing');
-                Reflect.set(window, '__restoreTextCapture', () => {workspace.captureCanonicalAnnotationRecovery = capture;});
-                workspace.captureCanonicalAnnotationRecovery = () => {throw new Error('Text checkpoint capture rejected');};
-            });
+            await rejectRecoverySerialization(session.page, pendingMarker, 'Text draft capture rejected', '__restoreTextCapture');
         }
         writeFileSync(`${gate}.arm`, '');
         const pendingId = await createCanonicalTextBoxWithPointer(session.page, pendingMarker, {
@@ -605,7 +618,7 @@ if(process.type==='browser'){
             writeFileSync(`${gate}.release`, '');
         }
         const expectedText = cut === 3 ? `${pendingMarker} newest` : pendingMarker;
-        const cause = cut === 1 ? 'ENOSPC' : cut === 2 ? 'Text checkpoint capture rejected' : 'changed while recovery protection was pending';
+        const cause = cut === 1 ? 'ENOSPC' : cut === 2 ? 'Text draft capture rejected' : 'changed while recovery protection was pending';
         if (cut !== 3) await session.page.waitForFunction((text: string) => Array.from(document.querySelectorAll('.app-toast-failure'))
             .some(toast => toast.textContent?.includes(text)), {timeout: 30_000}, cause);
         await session.page.waitForFunction((text: string) => Array.from(document.querySelectorAll<HTMLElement>('.editor-pane [contenteditable="true"]'))
@@ -1165,7 +1178,7 @@ if (process.type === 'browser') {
 if(process.type==='browser'){
  const target=${JSON.stringify(sourcePath)},gate=${JSON.stringify(gate)},fault=${JSON.stringify(fault)};
  const open=fsp.open,rename=fsp.rename;
- fsp.open=async(path,...args)=>{if(fault==='ENOSPC'&&fs.existsSync(gate+'.arm')&&String(path).includes('workspaces')&&String(path).endsWith('.tmp')){fs.writeFileSync(gate+'.rejected','');throw Object.assign(new Error('ENOSPC: recovery checkpoint volume is full'),{code:'ENOSPC'})}return open(path,...args)};
+ fsp.open=async(path,...args)=>{if(fault==='ENOSPC'&&fs.existsSync(gate+'.arm')&&String(path).includes('document-store')&&/drafts-[^/]+\\.json\\.[^/]+\\.tmp$/.test(String(path))){fs.writeFileSync(gate+'.rejected','');throw Object.assign(new Error('ENOSPC: recovery checkpoint volume is full'),{code:'ENOSPC'})}return open(path,...args)};
  fsp.rename=async(from,to)=>{await rename(from,to);if(fs.existsSync(gate+'.arm')&&String(from)===target&&String(to).endsWith('.evb-replaced')){fs.writeFileSync(gate+'.displaced','');await new Promise(()=>{})}};
  require('node:module').syncBuiltinESMExports();
 }`);
@@ -1180,16 +1193,9 @@ if(process.type==='browser'){
         const clickTab = (fileName: string) => clickFoundAsUser(session!.page, (name: string) => Array.from(
             document.querySelectorAll<HTMLElement>('.editor-pane .tab[data-tab-id]'),
         ).find(tab => tab.querySelector('.tab-label')?.textContent?.includes(name)), fileName, {description: `${fileName} tab`});
-        const rejectActiveCapture = async (cause: string) => session!.page.evaluate((message: string) => {
-            const workspace = (window as IE2EWindow).__evbTestApi?.getActiveWorkspaceHandle();
-            const capture = workspace?.captureCanonicalAnnotationRecovery;
-            if (!workspace || !capture) throw new Error('The document recovery capture is missing');
-            Reflect.set(window, '__restoreProtectionCapture', () => {workspace.captureCanonicalAnnotationRecovery = capture;});
-            workspace.captureCanonicalAnnotationRecovery = () => {
-                Reflect.set(window, '__protectionCaptureRejected', true);
-                throw new Error(message);
-            };
-        }, cause);
+        const rejectActiveCapture = (text: string, cause: string) => rejectRecoverySerialization(
+            session!.page, text, cause, '__restoreProtectionCapture',
+        );
         await waitForPdfLoaded(session.page, 60_000);
         await clickTab(basename(sourcePath));
         await waitForActiveDocumentSource(session.page, sourcePath, 30_000);
@@ -1209,7 +1215,7 @@ if(process.type==='browser'){
             if (entity?.kind !== 'text-box') throw new Error('Accepted text has no canonical rectangle');
             return entity.rect;
         }, marker);
-        if (fault === 'capture-rejected') await rejectActiveCapture('Accepted text recovery capture rejected');
+        if (fault === 'capture-rejected') await rejectActiveCapture(marker, 'Accepted text recovery capture rejected');
         writeFileSync(`${gate}.arm`, '');
         await clickVisibleToolbarButton(session.page, 'Save');
         // Old code reaches displacement; fixed code reports failure without reaching that gate.
@@ -1259,7 +1265,7 @@ if(process.type==='browser'){
             x: 0.3,
             y: 0.3,
         });
-        await rejectActiveCapture('Unrelated document recovery capture rejected');
+        await rejectActiveCapture('Unrelated accepted text', 'Unrelated document recovery capture rejected');
         await clickTab(basename(sourcePath));
         await waitForActiveDocumentSource(session!.page, sourcePath, 30_000);
         await waitForViewerInteractive(session!.page, 30_000);
@@ -1422,12 +1428,15 @@ if(process.type==='browser'){
                 .map(record => decodeWorkspaceCheckpoint(record.checkpoint)).find(Boolean);
             const imageTab = checkpoint?.tabs.find(tab => tab.fileName === basename(imageDocumentPath));
             const noteTab = checkpoint?.tabs.find(tab => tab.fileName === basename(noteDocumentPath));
-            const artifact = noteTab?.annotationRecovery;
-            if (!imageTab?.annotationRecovery || !artifact) return null;
-            const payload = JSON.parse((readAnnotationRecoveryDraft(session!.name, artifact.artifactId) ?? '{}')) as {payload?: {entities?: Array<{text?: string}>}};
+            // Each manifest names its own drafts. Artifact ids are no longer
+            // unique across documents, so reading the first matching id can
+            // mistake the image document's drafts for the note document's.
+            const imageRecovery = imageTab?.annotationRecovery?.payload;
+            const noteRecovery = noteTab?.annotationRecovery?.payload;
+            if (!imageRecovery || !noteRecovery) return null;
             return {
-                imageProtected: true,
-                notePresent: payload.payload?.entities?.some(entity => entity.text === marker) ?? false,
+                imageProtected: validateCanonicalAnnotationRecovery(imageRecovery).entities.some(entity => entity.kind === 'placed-image'),
+                notePresent: validateCanonicalAnnotationRecovery(noteRecovery).entities.some(entity => entity.kind === 'text-box' && entity.text === marker),
             };
         }, {timeout: 20_000}).toEqual({
             imageProtected: true,
