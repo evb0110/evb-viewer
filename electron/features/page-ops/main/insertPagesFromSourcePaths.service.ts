@@ -12,9 +12,6 @@ import {
 } from '@electron/image/pdfConversion';
 import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
-import { ensureWorkingCopyDirectory } from '@electron/file-access/documentStore';
-import { getPdfPageCount } from '@electron/features/page-ops/main/qpdf';
-import { materializePageOperationWorkingCopy } from '@electron/features/page-ops/main/pageStructure';
 import { runPageStructureCommand } from '@electron/features/page-ops/main/pageStructureCommand';
 import type { TOpenPath } from '@electron/file-access/openPathCapabilities';
 
@@ -26,7 +23,7 @@ interface IInsertPagesFromSourcePathsOptions {
 }
 
 async function prepareInsertionSourcePdf(
-    workingCopyPath: string,
+    targetPath: string,
     sourcePaths: TOpenPath[],
     onProgress?: (progress: ICreatePdfFromInputPathsProgress) => void,
     options: IInsertPagesFromSourcePathsOptions = {},
@@ -56,7 +53,7 @@ async function prepareInsertionSourcePdf(
         ...(options.signal ? {signal: options.signal} : {}),
     };
     const tempSourcePdfPath = join(
-        workingCopyPath,
+        targetPath,
         '..',
         `insert-source-${randomUUID()}.pdf`,
     );
@@ -79,37 +76,26 @@ async function prepareInsertionSourcePdf(
     };
 }
 
+/** Writes `sourcePath` with the pages of `sourcePaths` inserted after `afterPage` to `targetPath`. */
 export async function insertPagesFromSourcePaths(
-    workingCopyPath: string,
-    expectedTotalPages: number,
+    sourcePath: string,
+    targetPath: string,
+    totalPages: number,
     sourcePaths: TOpenPath[],
     afterPage: number,
-    senderWebContentsId?: number,
     onProgress?: (progress: ICreatePdfFromInputPathsProgress) => void,
     options: IInsertPagesFromSourcePathsOptions = {},
 ) {
-    if (!await ensureWorkingCopyDirectory(workingCopyPath, senderWebContentsId)) {
-        throw new Error('Working copy path is not managed');
-    }
-    const totalPages = await getPdfPageCount(workingCopyPath, options);
-    if (expectedTotalPages !== totalPages) {
-        throw new Error('Renderer page count is stale');
-    }
     if (afterPage > totalPages) {
         throw new Error('Invalid afterPage');
     }
     const {
         sourcePdfPath,
         cleanup,
-    } = await prepareInsertionSourcePdf(workingCopyPath, sourcePaths, onProgress, options);
+    } = await prepareInsertionSourcePdf(targetPath, sourcePaths, onProgress, options);
 
     try {
-        const materializedPath = await materializePageOperationWorkingCopy(
-            workingCopyPath,
-            senderWebContentsId,
-            options.signal,
-        );
-        await runPageStructureCommand('insert-pages', materializedPath, materializedPath, {
+        await runPageStructureCommand('insert-pages', sourcePath, targetPath, {
             sources: [sourcePdfPath],
             afterPage,
         }, options);

@@ -1,73 +1,33 @@
 import {
-    copyFile,
     rm,
     writeFile,
 } from 'fs/promises';
-import {constants as fsConstants} from 'node:fs';
 import {join} from 'path';
 import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
 import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
 import { getAppTempDir } from '@electron/utils/appTempDir';
 import { createManagedScratchTempDir } from '@electron/utils/managedScratchTemp';
-import {
-    ensureWorkingCopyDirectory,
-    ensureWorkingCopyMaterialized,
-    getWorkingCopyBackingEntry,
-} from '@electron/file-access/documentStore';
-import { runWithWorkingCopyMutationCommitSignal } from '@electron/file-access/workingCopyMutationCommitSignal';
 import {resolveNativePageOpsPath} from '@electron/features/page-ops/main/resolveNativePageOpsPath';
 import {
     type IPageStructureOptions,
     runPageStructureCommand,
 } from '@electron/features/page-ops/main/pageStructureCommand';
 import {
-    cleanupTempOutput,
-    makeTempPdfOutputPath,
-    replaceTempOutput,
-} from '@electron/features/page-ops/main/tempOutput';
-import {
     assertNonEmptyPdfOutput,
-    getPdfPageCount,
     QPDF_TIMEOUT_MS,
 } from '@electron/features/page-ops/main/qpdf';
 import {
     formatPageMoveRanges,
-    isPageMoveRangesNoOp,
     validatePageDeleteRanges,
 } from '@electron/features/page-ops/domain/pageNumbers';
-import { createPageMoveRanges } from '@pdf-core/pdfPageSelection';
 import type {
     IPageMoveRangeSegment,
     IPageMoveRanges,
 } from '@contracts/pageNumbers';
-import { createLogger } from '@electron/utils/createLogger';
 
-const log = createLogger('page-ops-structure');
-
-const NON_COMMITTING_MATERIALIZATION_SIGNAL = {markCommitStarted: () => undefined};
-
-export async function materializePageOperationWorkingCopy(
-    workingCopyPath: string,
-    senderWebContentsId?: number,
-    signal?: AbortSignal,
-) {
-    if (!getWorkingCopyBackingEntry(workingCopyPath, senderWebContentsId)) {
-        if (!await ensureWorkingCopyDirectory(workingCopyPath, senderWebContentsId)) {
-            throw new Error('Working copy path is not managed');
-        }
-        return workingCopyPath;
-    }
-    // Materializing copies the original's bytes into place atomically: it is
-    // not the page operation's commit, and a cancel before or after it leaves
-    // the document's content unchanged.
-    const result = await runWithWorkingCopyMutationCommitSignal(NON_COMMITTING_MATERIALIZATION_SIGNAL, () =>
-        ensureWorkingCopyMaterialized(workingCopyPath, {
-            reason: 'page-operation',
-            ...(senderWebContentsId === undefined ? {} : {ownerWebContentsId: senderWebContentsId}),
-            ...(signal ? {signal} : {}),
-        }));
-    return result.physicalWorkingCopyPath;
-}
+// Each edit reads `sourcePath` and writes a new PDF at `targetPath`; the
+// caller decides what the target becomes (the next document revision, or an
+// extracted file).
 
 /** Consecutive pages as `first-last` runs, in the given order. */
 function pageRuns(pages: readonly number[]) {
@@ -92,100 +52,61 @@ function rangeRuns(ranges: readonly IPageMoveRangeSegment[]) {
         : `${range.startPage}-${range.endPage}`);
 }
 
-async function extractPageList(srcPath: string, destPath: string, pages: string[], options: IPageStructureOptions) {
-    const readPath = getWorkingCopyBackingEntry(srcPath, options.senderWebContentsId)
-        ? await materializePageOperationWorkingCopy(srcPath, options.senderWebContentsId, options.signal)
-        : srcPath;
-    await runPageStructureCommand('extract-pages', readPath, destPath, {pages}, options);
-}
-
-export async function extractPages(
-    srcPath: string,
-    destPath: string,
+export function extractPages(
+    sourcePath: string,
+    targetPath: string,
     pages: number[],
     options: IPageStructureOptions = {},
 ) {
-    return extractPageList(srcPath, destPath, pageRuns(pages), options);
+    return runPageStructureCommand('extract-pages', sourcePath, targetPath, {pages: pageRuns(pages)}, options);
 }
 
 /** Extracts validated page ranges without expanding them into a dense page array. */
-export async function extractPageRanges(
-    srcPath: string,
-    destPath: string,
+export function extractPageRanges(
+    sourcePath: string,
+    targetPath: string,
     ranges: readonly IPageMoveRangeSegment[],
     options: IPageStructureOptions = {},
 ) {
-    return extractPageList(srcPath, destPath, rangeRuns(ranges), options);
-}
-
-async function materializeWithPageCount(
-    workingCopyPath: string,
-    expectedTotalPages: number | undefined,
-    senderWebContentsId: number | undefined,
-    options: IPageStructureOptions,
-) {
-    const materializedPath = await materializePageOperationWorkingCopy(
-        workingCopyPath,
-        senderWebContentsId,
-        options.signal,
-    );
-    const totalPages = await getPdfPageCount(materializedPath, options);
-    if (expectedTotalPages !== undefined && expectedTotalPages !== totalPages) {
-        throw new Error('Renderer page count is stale');
-    }
-    return {
-        materializedPath,
-        totalPages,
-    };
+    return runPageStructureCommand('extract-pages', sourcePath, targetPath, {pages: rangeRuns(ranges)}, options);
 }
 
 /** Deletes sorted, disjoint page runs; a page array arrives here as its runs. */
 export async function deletePageRanges(
-    workingCopyPath: string,
+    sourcePath: string,
+    targetPath: string,
     ranges: readonly IPageMoveRangeSegment[],
-    expectedTotalPages?: number,
-    senderWebContentsId?: number,
+    totalPages: number,
     options: IPageStructureOptions = {},
 ) {
-    const {
-        materializedPath, totalPages,
-    } = await materializeWithPageCount(workingCopyPath, expectedTotalPages, senderWebContentsId, options);
     validatePageDeleteRanges(ranges, totalPages);
     const keptCount = ranges.reduce((count, range) => count - (range.endPage - range.startPage + 1), totalPages);
     if (keptCount === 0) {
         throw new Error('Cannot delete all pages from the document');
     }
-    await runPageStructureCommand('delete-pages', materializedPath, materializedPath, {pages: rangeRuns(ranges)}, options);
+    await runPageStructureCommand('delete-pages', sourcePath, targetPath, {pages: rangeRuns(ranges)}, options);
     return {pageCount: keptCount};
 }
 
 export async function reorderPages(
-    workingCopyPath: string,
+    sourcePath: string,
+    targetPath: string,
     newOrder: number[],
-    senderWebContentsId?: number,
     options: IPageStructureOptions = {},
 ) {
-    const materializedPath = await materializePageOperationWorkingCopy(workingCopyPath, senderWebContentsId, options.signal);
-    await runPageStructureCommand('reorder-pages', materializedPath, materializedPath, {pages: pageRuns(newOrder)}, options);
+    await runPageStructureCommand('reorder-pages', sourcePath, targetPath, {pages: pageRuns(newOrder)}, options);
     return {pageCount: newOrder.length};
 }
 
 /** Moves sorted page runs, one or several; the new order is sent as runs. */
 export async function movePageRanges(
-    workingCopyPath: string,
-    requestedMove: IPageMoveRanges,
-    expectedTotalPages?: number,
-    senderWebContentsId?: number,
+    sourcePath: string,
+    targetPath: string,
+    move: IPageMoveRanges,
     options: IPageStructureOptions = {},
 ) {
-    const {
-        materializedPath, totalPages,
-    } = await materializeWithPageCount(workingCopyPath, expectedTotalPages, senderWebContentsId, options);
-    const move = createPageMoveRanges(totalPages, requestedMove.ranges, requestedMove.insertAt);
-    if (!isPageMoveRangesNoOp(move)) {
-        await runPageStructureCommand('reorder-pages', materializedPath, materializedPath, {pages: formatPageMoveRanges(move).split(',')}, options);
-    }
-    return {pageCount: totalPages};
+    await runPageStructureCommand('reorder-pages', sourcePath, targetPath, {pages: formatPageMoveRanges(move).split(',')}, options);
+    return {pageCount: move.pageCount};
 }
 
 export type TRotationAngle = 90 | 180 | 270;
@@ -196,26 +117,13 @@ function createNativeModifiedAt() {
     return `D:${pad(date.getUTCFullYear(), 4)}${pad(date.getUTCMonth() + 1)}${pad(date.getUTCDate())}${pad(date.getUTCHours())}${pad(date.getUTCMinutes())}${pad(date.getUTCSeconds())}Z`;
 }
 
-/**
- * Rotation appends only the selected page dictionaries. An in-place append
- * writes through every hard link to the file, so a working copy that shares
- * its inode with the original is copied first, the copy takes the append, and
- * it replaces the working copy. The caller owns the revision journal and must
- * materialize a managed working copy before entering the transition.
- */
+/** Rotation appends the selected page dictionaries to `pdfPath`, a file no one else holds. */
 export async function rotatePages(
-    workingCopyPath: string,
+    pdfPath: string,
     pages: number[],
     angle: TRotationAngle,
-    appendInPlace: boolean,
-    senderWebContentsId?: number,
     options: IPageStructureOptions = {},
 ) {
-    const materializedPath = await materializePageOperationWorkingCopy(
-        workingCopyPath,
-        senderWebContentsId,
-        options.signal,
-    );
     const binaryPath = resolveNativePageOpsPath();
     if (!binaryPath) {
         throw new Error('Native page rotation is unavailable');
@@ -223,11 +131,7 @@ export async function rotatePages(
 
     const tempDir = await createManagedScratchTempDir('pdf-page-ops-', getAppTempDir());
     const mutationsPath = join(tempDir, 'mutations.json');
-    const targetPath = appendInPlace ? materializedPath : makeTempPdfOutputPath(materializedPath);
     try {
-        if (!appendInPlace) {
-            await copyFile(materializedPath, targetPath, fsConstants.COPYFILE_FICLONE);
-        }
         const pageRotations = pages.map(page => ({
             pageIndex: page - 1,
             angle,
@@ -236,9 +140,9 @@ export async function rotatePages(
         await runNativeToolCommand(binaryPath, [
             'save-mutations',
             '--input',
-            targetPath,
+            pdfPath,
             '--output',
-            targetPath,
+            pdfPath,
             '--mutations-file',
             mutationsPath,
             '--qpdf',
@@ -252,15 +156,7 @@ export async function rotatePages(
             commandLabel: 'evb-pdf-page-ops(page-rotation)',
             ...options,
         });
-        await assertNonEmptyPdfOutput(targetPath, 'Rotating pages');
-        if (!appendInPlace) {
-            await replaceTempOutput(targetPath, materializedPath);
-        }
-    } catch (err) {
-        if (!appendInPlace) {
-            await cleanupTempOutput(targetPath, log, 'rotation temp file');
-        }
-        throw err;
+        await assertNonEmptyPdfOutput(pdfPath, 'Rotating pages');
     } finally {
         await rm(tempDir, {
             recursive: true,

@@ -9,7 +9,6 @@ import { QPDF_TIMEOUT_MS } from '@electron/pdf/pdfPageCount';
 export interface IPageStructureOptions {
     signal?: AbortSignal;
     cancelGroup?: string;
-    senderWebContentsId?: number;
 }
 
 type TPageStructureCommand = 'delete-pages' | 'extract-pages' | 'reorder-pages' | 'insert-pages' | 'merge-pages';

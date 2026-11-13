@@ -8,15 +8,12 @@ import {
     createPageMoveRanges,
     pageMoveRangesRestInsertIndex,
     pageMoveRangesSelectedPageCount,
-    isPageMoveRangesNoOp,
 } from '@pdf-core/pdfPageSelection';
 import {stringifyJson} from '@contracts/stringifyJson';
 
 export type {
     IPageMoveRangeSegment, IPageMoveRanges,
 } from '@pdf-core/pdfPageSelection';
-
-export {isPageMoveRangesNoOp};
 
 export function validatePageDeleteRanges(
     ranges: unknown,

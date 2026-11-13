@@ -29,6 +29,7 @@ import {
     openDocument,
     STORE_ID_PATTERN,
     type TMutation,
+    type TMutationResult,
 } from '@document-store/documentDirectory';
 import {createNodeStorePort} from '@document-store/nodeStorePort';
 import {
@@ -522,26 +523,6 @@ function clearNextRevision(entry: IOpenDocument) {
     return entry.doc.run(() => rm(absolute(entry.doc.nextRevisionPath()), {force: true}));
 }
 
-/**
- * A private copy of the document's current bytes at the next revision's path, for a native tool to append to or
- * replace. `commitStagedDocumentMutation` makes it the new revision; anything else leaves it to be removed.
- */
-function stageDocumentMutation(entry: IOpenDocument) {
-    return entry.doc.run(async () => {
-        const current = await entry.doc.ensureCurrent();
-        if (!current) throw sourceChangedError();
-        const staged = absolute(entry.doc.nextRevisionPath());
-        await rm(staged, {force: true});
-        await copyFile(revisionPath(entry, current), staged, constants.COPYFILE_FICLONE);
-        return staged;
-    });
-}
-
-/** Staging for a ref, by the call shape native page operations use. */
-export function stageWorkingCopyMutation(ref: string, senderId?: number) {
-    return stageDocumentMutation(requireOpenDocument(ref, senderId));
-}
-
 function throwFailedMutation(entry: IOpenDocument, token: TDocumentRevisionToken | null, result: Exclude<Awaited<ReturnType<DocumentDirectory['mutate']>>, {status: 'committed'}>): never {
     if (result.status === 'stale-revision') throw staleRevisionError(entry, token, result.current);
     throw sourceChangedError();
@@ -564,52 +545,63 @@ export async function commitDocumentMutation(
     return notifyRevisionChanged(entry, previous, reason);
 }
 
-/** Commits the file `stageDocumentMutation` prepared, as it now is, as the document's next revision. */
-async function commitStagedDocumentMutation(entry: IOpenDocument, reason: TDocumentRevisionChangeReason) {
+/**
+ * Runs `rewrite`, which reads the document's bytes at `input` (its current revision, or its destination while it has
+ * none of its own) and writes a new file at `output`, then commits that file as the next revision. Nothing is copied
+ * first: the tool's output is the revision. Revision 1 names the destination's bytes, so the first revision of a
+ * document without bytes of its own is revision 2. A failure leaves the document as it was.
+ */
+export async function rewriteDocument(
+    entry: IOpenDocument,
+    rewrite: (input: string, output: string) => Promise<void>,
+    reason: TDocumentRevisionChangeReason,
+) {
     const previous = documentRevisionToken(entry);
-    const staged = absolute(entry.doc.nextRevisionPath());
-    if (!(await stat(staged).catch(() => null))?.size) throw new Error('The staged revision is missing or empty');
-    const result = await entry.doc.mutate(expectedRevisionId(entry, null), {
-        kind: 'rewrite',
-        // The file is already in place: the store adopts it as it is.
-        source: () => Promise.resolve(),
-        drafts: 'clear',
-    });
-    if (result.status !== 'committed') throwFailedMutation(entry, null, result);
+    const {current, destination} = entry.doc.state();
+    const input = current ? revisionPath(entry, current) : destination;
+    if (input === null) throw new WorkingCopyMissingError();
+    const {next, ext} = entry.doc.snapshot();
+    const name = `r${current ? next : next + 1}.${ext}`;
+    const output = absolute(entry.doc.path(name));
+    const removeOutput = () => entry.doc.run(() => rm(output, {force: true}));
+    await removeOutput();
+    try {
+        if (!current) await assertAdmission(entry, input);
+        await rewrite(input, output);
+        if (!(await stat(output).catch(() => null))?.size) throw new Error('The rewrite wrote no revision');
+        const result = await entry.doc.run(async (): Promise<TMutationResult> => {
+            const stale = entry.doc.staleRevision(expectedRevisionId(entry, previous));
+            if (stale) return stale;
+            const manifest = entry.doc.snapshot();
+            // A first copy of the destination made meanwhile is revision 1, and `name` is its next revision.
+            if (manifest.current) {
+                return entry.doc.applyMutation(manifest.current.id, {kind: 'rewrite', source: () => Promise.resolve(), drafts: 'clear'});
+            }
+            await assertAdmission(entry, input);
+            const file = await getDocumentStore().port.open(entry.doc.path(name));
+            const revision = {id: next + 1, file: name, length: await file.size()};
+            await file.flush();
+            await entry.doc.commit({...manifest, next: revision.id + 1, current: revision, drafts: undefined}, file);
+            return {status: 'committed', revision};
+        });
+        if (result.status !== 'committed') throwFailedMutation(entry, previous, result);
+    } catch (error) {
+        await removeOutput();
+        throw error;
+    }
     return notifyRevisionChanged(entry, previous, reason);
 }
 
-/**
- * Runs `commit`, which changes the staged revision `stagedPath` in place, then makes it the document's revision.
- * The call shape native page operations use; a failure leaves the current revision as it was.
- */
-export async function transitionWorkingCopyContentRevision(
-    stagedPath: string,
-    reason: TDocumentRevisionChangeReason,
-    commit: () => Promise<void>,
-    senderId?: number,
-) {
-    const entry = requireOpenDocument(stagedPath, senderId);
-    if (normalizePathForLookup(stagedPath) !== normalizePathForLookup(absolute(entry.doc.nextRevisionPath()))) {
-        throw new Error('A content transition changes the staged revision of its document');
-    }
-    try {
-        await commit();
-    } catch (error) {
-        await clearNextRevision(entry);
-        throw error;
-    }
-    return commitStagedDocumentMutation(entry, reason);
-}
-
-/** Runs a native tool that rewrites a staged copy of the document in place, and commits the result. */
-export async function rewriteOpenDocument(
+/** Runs a native tool that edits a private clone of the document's bytes in place, and commits the result. */
+export function rewriteOpenDocument(
     entry: IOpenDocument,
     rewrite: (stagedPath: string) => Promise<void>,
     reason: TDocumentRevisionChangeReason,
 ) {
-    const staged = await stageDocumentMutation(entry);
-    return transitionWorkingCopyContentRevision(staged, reason, () => rewrite(staged));
+    return rewriteDocument(entry, async (input, output) => {
+        await copyFile(input, output, constants.COPYFILE_FICLONE);
+        await rewrite(output);
+    }, reason);
 }
 
 /** Stores the unsaved state that is not in the bytes yet, for revision `token`. */

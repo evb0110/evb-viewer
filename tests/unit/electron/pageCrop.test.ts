@@ -30,7 +30,6 @@ import {
 import { PdfPageOpsCapabilityError } from '@electron/features/page-ops/main/pageOpsErrors';
 
 const mocks = vi.hoisted(() => ({
-    ensureWorkingCopyDirectory: vi.fn(),
     nativePageOpsPath: null as string | null,
     readFileCount: 0,
     runNativeToolCommand: vi.fn(),
@@ -55,10 +54,6 @@ vi.mock('fs/promises', async () => {
         },
     };
 });
-vi.mock('@electron/file-access/documentStore', async importOriginal => ({
-    ...await importOriginal<Record<string, unknown>>(),
-    ensureWorkingCopyDirectory: (...args: unknown[]) => mocks.ensureWorkingCopyDirectory(...args),
-}));
 vi.mock('@electron/native-tools/runNativeToolCommand', () => ({runNativeToolCommand: (...args: unknown[]) => mocks.runNativeToolCommand(...args)}));
 vi.mock('@electron/features/page-ops/main/resolveNativePageOpsPath', () => ({resolveNativePageOpsPath: () => mocks.nativePageOpsPath}));
 
@@ -87,7 +82,6 @@ describe('page crop operations', () => {
         mocks.readFileCount = 0;
         mocks.nativePageOpsPath = null;
         process.env = { ...originalEnv };
-        mocks.ensureWorkingCopyDirectory.mockResolvedValue(true);
         tempDir = await mkdtemp(join(tmpdir(), 'page-crop-test-'));
         pdfPath = join(tempDir, 'sample.pdf');
     });
@@ -253,28 +247,5 @@ describe('page crop operations', () => {
 
         expect(javaScriptParseCount).toBe(0);
         await expect(readFile(pdfPath, 'utf8')).resolves.toBe('%PDF-1.7\nnative crop');
-    });
-
-    it('recovers the working-copy directory before native crop declines', async () => {
-        await createPdf(pdfPath);
-
-        await expect(cropPages(pdfPath, [1], {
-            top: 1,
-            bottom: 1,
-            left: 1,
-            right: 1,
-        }, 17)).rejects.toBeInstanceOf(PdfPageOpsCapabilityError);
-
-        expect(mocks.ensureWorkingCopyDirectory).toHaveBeenCalledWith(pdfPath, 17);
-        expect(mocks.ensureWorkingCopyDirectory).toHaveBeenCalledTimes(1);
-    });
-
-    it('recovers the working-copy directory before native page geometry declines', async () => {
-        await createPdf(pdfPath);
-
-        await expect(getPageGeometry(pdfPath, 1, 17)).rejects.toBeInstanceOf(PdfPageOpsCapabilityError);
-
-        expect(mocks.ensureWorkingCopyDirectory).toHaveBeenCalledWith(pdfPath, 17);
-        expect(mocks.ensureWorkingCopyDirectory).toHaveBeenCalledTimes(1);
     });
 });

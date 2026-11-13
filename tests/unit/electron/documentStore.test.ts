@@ -1,6 +1,5 @@
 import {existsSync} from 'node:fs';
 import {
-    appendFile,
     chmod,
     mkdtemp,
     readFile,
@@ -216,23 +215,38 @@ describe('desktop document store', () => {
         expect(await findKeptOriginal(pdf)).toBe(kept);
     });
 
-    it('commits a native tool change of the staged copy, and drops it when the tool fails', async () => {
+    it('commits a native tool\'s output as the next revision without copying the document first, and drops it when the tool fails', async () => {
         const {pdf, entry} = await openPdf();
         const before = store.documentRevisionToken(entry);
+        const appendLine = (line: string) => async (input: string, output: string) => {
+            await writeFile(output, Buffer.concat([await readFile(input), Buffer.from(line)]));
+        };
 
-        const failedStage = await store.stageWorkingCopyMutation(entry.ref, 7);
-        await expect(store.transitionWorkingCopyContentRevision(failedStage, 'page-ops', async () => {
-            await appendFile(failedStage, 'partial');
+        let failedOutput = '';
+        await expect(store.rewriteDocument(entry, async (input, output) => {
+            failedOutput = output;
+            await writeFile(output, 'partial');
             throw new Error('native tool failed');
-        }, 7)).rejects.toThrow('native tool failed');
-        expect(existsSync(failedStage)).toBe(false);
+        }, 'page-ops')).rejects.toThrow('native tool failed');
+        expect(existsSync(failedOutput)).toBe(false);
         expect(store.documentRevisionToken(entry)).toBe(before);
 
-        const staged = await store.stageWorkingCopyMutation(entry.ref, 7);
-        await store.transitionWorkingCopyContentRevision(staged, 'page-ops', () => appendFile(staged, '% appended\n'), 7);
+        const inputs: string[] = [];
+        await store.rewriteDocument(entry, async (input, output) => {
+            inputs.push(input);
+            await appendLine('% first\n')(input, output);
+        }, 'page-ops');
+        await store.rewriteDocument(entry, async (input, output) => {
+            inputs.push(input);
+            await appendLine('% second\n')(input, output);
+        }, 'page-ops');
 
-        expect(Buffer.from(await readAll(entry)).toString()).toBe(`${Buffer.from(ORIGINAL).toString()}% appended\n`);
+        expect(Buffer.from(await readAll(entry)).toString()).toBe(`${Buffer.from(ORIGINAL).toString()}% first\n% second\n`);
         expect(store.documentRevisionToken(entry)).not.toBe(before);
+        // The first rewrite read the person's file itself; the second read the revision the first wrote.
+        expect(inputs[0]).toBe(pdf);
+        expect(dirname(inputs[1]!)).toBe(dirname(entry.ref));
+        expect((await readdir(dirname(entry.ref))).filter(name => name.startsWith('r'))).toHaveLength(1);
         expect(await readFile(pdf)).toEqual(Buffer.from(ORIGINAL));
     });
 
