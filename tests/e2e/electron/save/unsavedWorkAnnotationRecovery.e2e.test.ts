@@ -7,7 +7,7 @@ import {
 } from '@tests/e2e/electron/helpers/userInput';
 import {tmpdir} from 'node:os';
 import {
-    basename, join, resolve,
+    basename, dirname, join, resolve,
 } from 'node:path';
 import {
     afterEach, describe, expect, it, onTestFinished,
@@ -127,7 +127,7 @@ describe('checkpointed annotation recovery', () => {
                     resolveRecord(record);
                 }
             };
-            const watcher = watch(recoveryDirectory, check);
+            const watcher = watch(dirname(recoveryDirectory), {recursive: true}, check);
             onTestFinished(() => watcher.close());
             watcher.once('error', reject);
             check();
