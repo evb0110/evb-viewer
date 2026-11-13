@@ -488,6 +488,27 @@ describe('recentFiles persistence', () => {
             await workingCopyStore.setDocumentStoreRootForTests(join(userDataDir, 'store'));
         });
 
+        it('binds a view left after a Save to the saved file, so it reopens where the reader left it', async () => {
+            const originalPath = writeFixture('saved.pdf', 'saved bytes');
+            const {
+                recentFiles, readingViews, workingCopyStore,
+            } = await load();
+            const workingPath = await openWorkingCopy(originalPath, 'saved');
+            await recentFiles.addRecentFile(workingPath, 42);
+            const entry = workingCopyStore.requireOpenDocument(workingPath);
+            const edited = writeFixture('edited.pdf', 'edited and longer bytes');
+            expect(await workingCopyStore.saveOpenDocument(entry, '1' as never, {commit: {kind: 'rewrite', source: edited}})).toMatchObject({status: 'saved'});
+            await readingViews.rememberRecentReadingView(workingPath, readingView, 42);
+            await workingCopyStore.discardOpenDocument(entry);
+
+            expect(readFileSync(originalPath, 'utf8')).toBe('edited and longer bytes');
+            expect(await readingViews.readRecentReadingViewOf({
+                originalPath,
+                ...readingViews.readingViewSourceOf(statSync(originalPath, {bigint: true})),
+            })).toEqual(readingView);
+            await workingCopyStore.setDocumentStoreRootForTests(join(userDataDir, 'store'));
+        });
+
         it('restores a view through the opening preflight\'s own stat of a source with a sub-millisecond modification time', async () => {
             // A freshly written file keeps the file system's nanoseconds; `utimes` would round them to microseconds.
             const originalPath = writeFixture('fractional.pdf', 'fractional bytes');

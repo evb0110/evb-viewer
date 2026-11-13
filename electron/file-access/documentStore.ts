@@ -778,11 +778,12 @@ export function getWorkingCopyOwnerWebContentsId(ref: string) {
 }
 
 /**
- * The size and modification time the document's source had when it was opened, which a remembered reading view is
- * bound to; `null` for a document the app made or one recovered with bytes of its own.
+ * The size and modification time of the file version the document last read from or saved to, named by the metadata
+ * fact of its baseline witness: what a remembered reading view is bound to. `null` for a document without one.
  */
-export function getWorkingCopyOriginalFileExpectation(ref: string, senderId?: number) {
-    return getWorkingCopyBackingEntry(ref, senderId)?.admission ?? null;
+export function getBaselineFileVersion(ref: string, senderId?: number) {
+    const fact = /(?:^| )file-v1:(\d+):(\d+)(?: |$)/u.exec(getWorkingCopyBackingEntry(ref, senderId)?.doc.state().baseline ?? '');
+    return fact ? {size: BigInt(fact[1]!), mtimeNs: BigInt(fact[2]!)} : null;
 }
 
 /** The revision of the open document whose directory holds `path`, such as a native tool's staged output. */
