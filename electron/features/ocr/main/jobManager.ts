@@ -54,11 +54,11 @@ import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
 import * as v from 'valibot';
 import { runDetached } from '@electron/utils/runDetached';
-import { getWorkingCopyRevision } from '@electron/file-access/documentRevisionStore';
 import {
     getWorkingCopyBackingEntry,
-    normalizePathForLookup,
-} from '@electron/file-access/workingCopyStore';
+    getWorkingCopyRevision,
+} from '@electron/file-access/documentStore';
+import {normalizePathForLookup} from '@electron/file-access/normalizePathForLookup';
 import { removeOcrResultArtifacts } from '@electron/features/ocr/main/removeOcrResultArtifacts';
 import {
     createMainJobRegistry,
@@ -295,7 +295,8 @@ export async function handleOcrCreateSearchablePdfAsync(
             owner: toOcrActor(context),
             operation: {
                 kind: 'abortable-work',
-                workingCopyPath: sourcePdfPath,
+                // The document, not the file it reads, so closing the document stops the job.
+                workingCopyPath: documentRevision.documentRef,
             },
             ownerLifecycle: {
                 destroyed: 'detach',

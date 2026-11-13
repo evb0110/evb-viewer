@@ -17,7 +17,10 @@ import {
     writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import {
+    dirname,
+    join,
+} from 'node:path';
 import {
     afterEach,
     beforeEach,
@@ -34,7 +37,6 @@ import {requireLeaseId} from '@contracts/shared';
 const mocks = vi.hoisted(() => ({
     inspect: vi.fn(),
     path: '',
-    revision: null as null | {token: string},
 }));
 
 function changeFileModeAfterCtimeAdvances(path: string, initialMode: number) {
@@ -52,7 +54,6 @@ vi.mock('@electron/features/documents/main/documentFilePathResolution', () => ({
     resolveExistingReadableBinaryPath: vi.fn(async () => mocks.path),
     resolveExistingReadableDocumentOrImagePath: vi.fn(async () => mocks.path),
 }));
-vi.mock('@electron/file-access/workingCopyManifest', () => ({readWorkingCopyRevision: vi.fn(async () => mocks.revision)}));
 vi.mock('@electron/features/documents/main/fingerprintFileWithUtilityProcess', () => ({fingerprintFileWithUtilityProcess: mocks.inspect}));
 
 describe('managed temporary file handles', () => {
@@ -61,7 +62,6 @@ describe('managed temporary file handles', () => {
     beforeEach(async () => {
         directory = mkdtempSync(join(tmpdir(), 'evb-managed-handle-'));
         mocks.path = join(directory, 'large.pdf');
-        mocks.revision = null;
         writeFileSync(mocks.path, Buffer.from('managed-file-content'));
         mocks.inspect.mockImplementation(async (path: string) => {
             const bytes = readFileSync(path);
@@ -72,16 +72,16 @@ describe('managed temporary file handles', () => {
         });
         const { clearManagedTempFileHandlesForTests } = await import('@electron/features/documents/main/managedTempFileHandles');
         clearManagedTempFileHandlesForTests();
+        const {setDocumentStoreRootForTests} = await import('@electron/file-access/documentStore');
+        await setDocumentStoreRootForTests(join(directory, 'store'));
     });
 
     afterEach(async () => {
         vi.useRealTimers();
         const { clearManagedTempFileHandlesForTests } = await import('@electron/features/documents/main/managedTempFileHandles');
         clearManagedTempFileHandlesForTests();
-        const {clearWorkingCopyOriginalPaths} = await import(
-            '@electron/file-access/workingCopyStore'
-        );
-        clearWorkingCopyOriginalPaths();
+        const {setDocumentStoreRootForTests} = await import('@electron/file-access/documentStore');
+        await setDocumentStoreRootForTests(null);
         rmSync(directory, {
             force: true,
             recursive: true,
@@ -111,16 +111,8 @@ describe('managed temporary file handles', () => {
     it('fingerprints original-backed bytes without materializing the logical working copy', async () => {
         const originalPath = join(directory, 'original.pdf');
         renameSync(mocks.path, originalPath);
-        const {
-            captureWorkingCopyAdmissionSnapshot,
-            setWorkingCopyOriginalPath,
-        } = await import('@electron/file-access/workingCopyStore');
-        await setWorkingCopyOriginalPath(mocks.path, originalPath, 42, {
-            admissionSnapshot: await captureWorkingCopyAdmissionSnapshot(originalPath),
-            backingState: 'lazy-original',
-            deferOriginalFileExpectation: true,
-        });
-        mocks.revision = {token: 'drt1:lazy-source'};
+        const {openDocumentFromFile} = await import('@electron/file-access/documentStore');
+        mocks.path = (await openDocumentFromFile(originalPath, {ownerWebContentsId: 42})).ref;
         const {
             createManagedTempFileHandle,
             resolveManagedTempFileHandle,
@@ -133,7 +125,7 @@ describe('managed temporary file handles', () => {
             path: mocks.path,
             size: Buffer.byteLength('managed-file-content'),
             sha256: createHash('sha256').update('managed-file-content').digest('hex'),
-            revision: 'drt1:lazy-source',
+            revision: '1',
         });
         await expect(resolveManagedTempFileHandle({senderId: 42}, handle)).resolves.toEqual(handle);
         expect(existsSync(mocks.path)).toBe(false);
@@ -144,11 +136,11 @@ describe('managed temporary file handles', () => {
     it('fingerprints the materialized working-copy bytes instead of the original', async () => {
         const originalPath = join(directory, 'original.pdf');
         writeFileSync(originalPath, 'original-file-content');
-        const {setWorkingCopyOriginalPath} = await import('@electron/file-access/workingCopyStore');
-        await setWorkingCopyOriginalPath(mocks.path, originalPath, 42, {
-            backingState: 'materialized',
-            deferOriginalFileExpectation: true,
-        });
+        const {commitDocumentMutation, openDocumentFromFile} = await import('@electron/file-access/documentStore');
+        const edited = mocks.path;
+        const document = await openDocumentFromFile(originalPath, {ownerWebContentsId: 42});
+        await commitDocumentMutation(document, null, {kind: 'rewrite', source: edited}, 'write');
+        mocks.path = document.ref;
         const {createManagedTempFileHandle} = await import('@electron/features/documents/main/managedTempFileHandles');
 
         const handle = await createManagedTempFileHandle({senderId: 42}, mocks.path);
@@ -162,15 +154,8 @@ describe('managed temporary file handles', () => {
     ] as const)('rejects an original changed %s fingerprinting', async (when) => {
         const originalPath = join(directory, 'original.pdf');
         renameSync(mocks.path, originalPath);
-        const {
-            captureWorkingCopyAdmissionSnapshot,
-            setWorkingCopyOriginalPath,
-        } = await import('@electron/file-access/workingCopyStore');
-        await setWorkingCopyOriginalPath(mocks.path, originalPath, 42, {
-            admissionSnapshot: await captureWorkingCopyAdmissionSnapshot(originalPath),
-            backingState: 'lazy-original',
-            deferOriginalFileExpectation: true,
-        });
+        const {openDocumentFromFile} = await import('@electron/file-access/documentStore');
+        mocks.path = (await openDocumentFromFile(originalPath, {ownerWebContentsId: 42})).ref;
         const replaceOriginal = () => {
             const replacementPath = join(directory, 'replacement.pdf');
             writeFileSync(replacementPath, 'changed-source-bytes');
@@ -793,6 +778,12 @@ describe('managed temporary file handles', () => {
     });
 
     it('invalidates a receipt after revision drift', async () => {
+        const {commitDocumentMutation, openDocumentFromFile} = await import('@electron/file-access/documentStore');
+        const document = await openDocumentFromFile(mocks.path, {ownerWebContentsId: 42});
+        const edited = join(directory, 'edited.pdf');
+        writeFileSync(edited, 'edited-content');
+        mocks.path = join(dirname(document.ref), '.staged.pdf');
+        writeFileSync(mocks.path, 'staged-content');
         const {
             createTypedStagedArtifact,
             resolveTypedStagedArtifact,
@@ -803,7 +794,7 @@ describe('managed temporary file handles', () => {
             semanticCheck: false,
             fsynced: false,
         });
-        mocks.revision = {token: 'changed-revision'};
+        await commitDocumentMutation(document, null, {kind: 'rewrite', source: edited}, 'write');
 
         await expect(resolveTypedStagedArtifact({senderId: 42}, artifact))
             .rejects.toThrow('changed after staging');

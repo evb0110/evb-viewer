@@ -19,10 +19,14 @@ import {
 } from 'vitest';
 
 const runNativeToolCommandMock = vi.hoisted(() => vi.fn());
-const copyFileCopyOnWriteMock = vi.hoisted(() => vi.fn());
+const copyFileMock = vi.hoisted(() => vi.fn());
 
 vi.mock('@electron/native-tools/runNativeToolCommand', () => ({runNativeToolCommand: (...args: unknown[]) => runNativeToolCommandMock(...args)}));
-vi.mock('@electron/file-access/workingCopyDirectory', () => ({copyFileCopyOnWrite: (...args: unknown[]) => copyFileCopyOnWriteMock(...args)}));
+vi.mock('fs/promises', async importOriginal => {
+    const actual = await importOriginal<typeof import('fs/promises')>();
+    copyFileMock.mockImplementation(actual.copyFile);
+    return {...actual, copyFile: (...args: Parameters<typeof actual.copyFile>) => copyFileMock(...args)};
+});
 vi.mock('@electron/pdf/nativeToolPaths', async (importOriginal) => ({
     ...(await importOriginal<typeof TViMockOriginalModule>()),
     getPdfNativeToolPaths: () => ({qpdf: '/tools/qpdf'}),
@@ -93,7 +97,7 @@ describe('native page crop helper', () => {
         const outputPath = args[args.indexOf('--output') + 1];
         const pagesFilePath = args[args.indexOf('--pages-file') + 1];
         expect(inputPath).toBe(outputPath);
-        expect(copyFileCopyOnWriteMock).toHaveBeenCalledWith(pdfPath, inputPath);
+        expect(copyFileMock).toHaveBeenCalledWith(pdfPath, inputPath, expect.anything());
         expect(args).toEqual([
             'crop',
             '--input',
@@ -140,7 +144,7 @@ describe('native page crop helper', () => {
         const outputPath = args[args.indexOf('--output') + 1];
         const pagesFilePath = args[args.indexOf('--pages-file') + 1];
         expect(inputPath).toBe(outputPath);
-        expect(copyFileCopyOnWriteMock).toHaveBeenCalledWith(pdfPath, inputPath);
+        expect(copyFileMock).toHaveBeenCalledWith(pdfPath, inputPath, expect.anything());
         expect(args).toEqual([
             'remove-crop',
             '--input',
@@ -161,7 +165,7 @@ describe('native page crop helper', () => {
 
     it('uses a copy-on-write input and qpdf for the structural route above 512 MiB', async () => {
         await truncate(pdfPath, 512 * 1024 * 1024 + 1);
-        copyFileCopyOnWriteMock.mockImplementationOnce(async (_sourcePath: string, targetPath: string) => {
+        copyFileMock.mockImplementationOnce(async (_sourcePath: string, targetPath: string) => {
             await writeFile(targetPath, '%PDF-1.7\nstructural input');
         });
         runNativeToolCommandMock.mockImplementationOnce(async (_binaryPath: string, args: string[]) => {
@@ -189,7 +193,7 @@ describe('native page crop helper', () => {
         expect(inputPath).toBe(outputPath);
         expect(inputPath).not.toBe(pdfPath);
         expect(args).toContain('/tools/qpdf');
-        expect(copyFileCopyOnWriteMock).toHaveBeenCalledWith(pdfPath, inputPath);
+        expect(copyFileMock).toHaveBeenCalledWith(pdfPath, inputPath, expect.anything());
     });
 
     it('leaves a small working copy untouched for the local fallback when the native helper fails', async () => {

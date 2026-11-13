@@ -1,4 +1,6 @@
+import { constants } from 'fs';
 import {
+    copyFile,
     rm,
     stat,
     writeFile,
@@ -26,7 +28,6 @@ import {
 } from '@electron/features/page-ops/main/tempOutput';
 import { createManagedScratchTempDir } from '@electron/utils/managedScratchTemp';
 import {resolveNativePageOpsPath} from '@electron/features/page-ops/main/resolveNativePageOpsPath';
-import { copyFileCopyOnWrite } from '@electron/file-access/workingCopyDirectory';
 
 type TCropOperation = 'crop' | 'remove-crop';
 
@@ -168,7 +169,7 @@ async function tryRunNativeCropOperation(
 
     try {
         await writeFile(pagesFilePath, createPageFileContents(pages));
-        await copyFileCopyOnWrite(workingCopyPath, tempPath);
+        await copyFile(workingCopyPath, tempPath, constants.COPYFILE_FICLONE);
         await runNativeToolCommand(binaryPath, createNativeCropArgs(
             operation,
             tempPath,

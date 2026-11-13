@@ -1,7 +1,9 @@
 import type { IDocumentRevisionChangedEvent } from '@contracts/documentRevision';
 import { cancelOcrJobsForWorkingCopy } from '@electron/features/ocr/public/index';
 import { searchService } from '@electron/features/search/public';
-import { onWorkingCopyRevisionChanged } from '@electron/file-access/documentRevisionStore';
+import {
+    onDocumentRevisionChanged,
+} from '@electron/file-access/documentStore';
 
 let unsubscribeRevisionInvalidationEffects: (() => void) | null = null;
 
@@ -10,7 +12,7 @@ export function registerDocumentRevisionInvalidationEffects(): () => void {
         return unsubscribeRevisionInvalidationEffects;
     }
 
-    unsubscribeRevisionInvalidationEffects = onWorkingCopyRevisionChanged((event: IDocumentRevisionChangedEvent) => {
+    unsubscribeRevisionInvalidationEffects = onDocumentRevisionChanged((event: IDocumentRevisionChangedEvent) => {
         const reason = `Document revision changed: ${event.reason}`;
         cancelOcrJobsForWorkingCopy(event.documentRef, reason);
         searchService.cancelRequestsForPdfPath(event.documentRef, reason);

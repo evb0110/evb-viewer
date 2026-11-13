@@ -1,5 +1,5 @@
 import {
-    copyFileSync, existsSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync,
+    copyFileSync, existsSync, mkdtempSync, readdirSync, renameSync, rmSync,
 } from 'node:fs';
 import {tmpdir} from 'node:os';
 import {
@@ -22,10 +22,11 @@ import {
     readWorkspaceStateValues, requireWorkspaceCommand, waitForWorkspaceToolbarIdle,
 } from '@tests/e2e/electron/helpers/workspaceExpose';
 import {
-    hasWorkspaceCrashCheckpoint, readWorkspaceRecoveryRecords,
+    hasWorkspaceCrashCheckpoint,
+    readAnnotationRecoveryDraft,
+    readWorkspaceRecoveryRecords,
 } from '@scripts/electron-run/electronRunWorkspaceCheckpoint';
 import {stopSingleSession} from '@scripts/electron-run/stopSession';
-import {electronUserDataPath} from '@scripts/electron-run/electronRunSessionPaths';
 
 interface IPoint {
     readonly x: number;
@@ -106,8 +107,7 @@ it('restores focused text draft after a crash checkpoint', async () => {
             }>} } | undefined;
             const tab = checkpoint?.checkpoint?.tabs?.[0];
             if (!tab?.isDirty || !tab.annotationRecovery?.artifactId) return null;
-            const artifactPath = join(electronUserDataPath(session.name), 'workspace-annotation-recovery', `${tab.annotationRecovery.artifactId}.json`);
-            const artifact = JSON.parse(readFileSync(artifactPath, 'utf8')) as {payload?: {drafts?: Array<{text?: string}>}};
+            const artifact = JSON.parse(readAnnotationRecoveryDraft(session.name, tab.annotationRecovery.artifactId) ?? '{}') as {payload?: {drafts?: Array<{text?: string}>}};
             return artifact.payload?.drafts ?? null;
         }, {timeout: 60_000}).toEqual(expect.arrayContaining([expect.objectContaining({text: draftText})]));
 

@@ -30,10 +30,9 @@ import {
     startElectronE2ESession, type IElectronE2ESession,
 } from '@tests/e2e/electron/helpers/startElectronE2ESession';
 import {
-    hasWorkspaceCrashCheckpoint, readWorkspaceRecoveryRecords,
+    hasWorkspaceCrashCheckpoint, readAnnotationRecoveryDraft, readWorkspaceRecoveryRecords, workspaceCheckpointDirectory,
 } from '@scripts/electron-run/electronRunWorkspaceCheckpoint';
 import {stopSingleSession} from '@scripts/electron-run/stopSession';
-import {electronUserDataPath} from '@scripts/electron-run/electronRunSessionPaths';
 import {getSessionInfo} from '@scripts/electron-run/electronRunSessionArtifacts';
 import {isProcessAlive} from '@scripts/electron-run/electronRunProcessTree';
 import {decodeWorkspaceCheckpoint} from '@contracts/workspaceCheckpoint';
@@ -115,7 +114,7 @@ describe('checkpointed annotation recovery', () => {
         // The note and checkpoint debounces can outlast expect.poll's default
         // budget, especially on the low performance profile. Observe admission
         // instead; the test's existing deadline still bounds a missing receipt.
-        const recoveryDirectory = join(electronUserDataPath(session.name), 'workspace-recovery');
+        const recoveryDirectory = workspaceCheckpointDirectory(session.name);
         mkdirSync(recoveryDirectory, {recursive: true});
         const originalRecord = await new Promise<INoteRecord>((resolveRecord, reject) => {
             const check = () => {
@@ -123,8 +122,7 @@ describe('checkpointed annotation recovery', () => {
                     .find(candidate => candidate.checkpoint.tabs.some(tab => tab.isDirty && tab.annotationRecovery));
                 const artifact = record?.checkpoint.tabs.find(tab => tab.annotationRecovery)?.annotationRecovery;
                 if (!record || !artifact) return;
-                const path = join(electronUserDataPath(session!.name), 'workspace-annotation-recovery', `${artifact.artifactId}.json`);
-                if (existsSync(path) && readFileSync(path, 'utf8').includes(marker)) {
+                if (readAnnotationRecoveryDraft(session!.name, artifact.artifactId)?.includes(marker)) {
                     watcher.close();
                     resolveRecord(record);
                 }
@@ -135,7 +133,7 @@ describe('checkpointed annotation recovery', () => {
             check();
         });
         const artifact = originalRecord.checkpoint.tabs.find(tab => tab.annotationRecovery)!.annotationRecovery!;
-        expect(readFileSync(join(electronUserDataPath(session.name), 'workspace-annotation-recovery', `${artifact.artifactId}.json`), 'utf8')).toContain(marker);
+        expect((readAnnotationRecoveryDraft(session.name, artifact.artifactId) ?? '{}')).toContain(marker);
         const capturedAt = originalRecord.checkpoint.capturedAt;
         await session.page.screenshot({path: join(evidenceDirectory, 'note-before-first-crash.png')});
         await session.browser.disconnect();
@@ -1315,8 +1313,7 @@ if(process.type==='browser'){
                 }>}} | undefined;
                 const recovery = entry?.checkpoint?.tabs?.[0]?.annotationRecovery;
                 if (!entry?.checkpoint?.tabs?.[0]?.isDirty || !recovery?.artifactId) return null;
-                const artifactPath = join(electronUserDataPath(session!.name), 'workspace-annotation-recovery', `${recovery.artifactId}.json`);
-                const payload = JSON.parse(readFileSync(artifactPath, 'utf8')) as {payload?: {entities?: Array<{text?: string}>}};
+                const payload = JSON.parse(readAnnotationRecoveryDraft(session!.name, recovery.artifactId) ?? '{}') as {payload?: {entities?: Array<{text?: string}>}};
                 return payload.payload?.entities ?? null;
             }, {timeout: 60_000}).toEqual(expect.arrayContaining([expect.objectContaining({text: marker})]));
             expect(readFileSync(sourcePath)).toEqual(sourceBytes);
@@ -1423,7 +1420,7 @@ if(process.type==='browser'){
             const noteTab = checkpoint?.tabs.find(tab => tab.fileName === basename(noteDocumentPath));
             const artifact = noteTab?.annotationRecovery;
             if (!imageTab?.annotationRecovery || imageTab.annotationRecoveryFailure || !artifact) return null;
-            const payload = JSON.parse(readFileSync(join(electronUserDataPath(session!.name), 'workspace-annotation-recovery', `${artifact.artifactId}.json`), 'utf8')) as {payload?: {entities?: Array<{text?: string}>}};
+            const payload = JSON.parse((readAnnotationRecoveryDraft(session!.name, artifact.artifactId) ?? '{}')) as {payload?: {entities?: Array<{text?: string}>}};
             return {
                 imageProtected: true,
                 notePresent: payload.payload?.entities?.some(entity => entity.text === marker) ?? false,

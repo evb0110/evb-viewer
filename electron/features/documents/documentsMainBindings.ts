@@ -34,7 +34,7 @@ import {
 } from '@electron/features/documents/public';
 import {PDF_REVISION_OPTIONS_SCHEMA} from '@contracts/documentsPersistenceSchemas';
 import type {
-    IPdfSerializedSaveOptions, IWorkingCopyBackingStatus,  
+    IPdfSerializedSaveOptions,
 } from '@contracts/electronApiDocuments';
 import type { TDocumentRef } from '@contracts/documentRef';
 import {
@@ -65,11 +65,14 @@ import {
     type TOpenPath,
 } from '@electron/file-access/openPathCapabilities';
 import { isSupportedOpenPath } from '@electron/image/pdfConversion';
-import { requireManagedWorkingCopyPath } from '@electron/file-access/workingCopyCreation';
+import {
+    cleanupWorkingCopy,
+    getWorkingCopyRevision,
+    requireManagedWorkingCopyPath,
+} from '@electron/file-access/documentStore';
 import { createLogger } from '@electron/utils/createLogger';
 import { onSenderLifetimeEnd } from '@electron/utils/onSenderLifetimeEnd';
 import { getErrorMessage } from '@electron/utils/error';
-import { createIpcProgressPump } from '@electron/utils/createIpcProgressPump';
 import {parseDocumentRef} from '@contracts/documentRef';
 import * as v from 'valibot';
 import {
@@ -135,10 +138,8 @@ import {
     handlePrintPdfData,
     handlePrintPdfPath,
 } from '@electron/features/documents/main/print';
-import { cleanupWorkingCopy } from '@electron/file-access/workingCopyCleanup';
 import { forgetKeptOriginal } from '@electron/file-access/keptOriginalNotices';
 import { discardOcrResultsForDocument } from '@electron/features/ocr/public/index';
-import { getWorkingCopyRevision } from '@electron/file-access/documentRevisionStore';
 import {
     clearRecentFiles,
     getRecentFiles,
@@ -155,10 +156,6 @@ import {
     setMenuTabCount,
     updateRecentFilesMenu,
 } from '@electron/menu';
-import {
-    getWorkingCopyBackingStatus,
-    onWorkingCopyBackingStatusChanged,
-} from '@electron/features/documents/main/workingCopyBackingStatus';
 
 import {
     handleFileSaveStructured,
@@ -481,8 +478,8 @@ export const documentsMainBindings = {
         handleFileExists(context, filePath),
     getDocumentRevision: (context, filePath) =>
         getWorkingCopyRevision(filePath, context.senderId),
-    getWorkingCopyBackingStatus: (context, filePath) =>
-        getWorkingCopyBackingStatus(context.senderId, filePath),
+    // Nothing materializes in the background any more: a document has no backing status to report.
+    getWorkingCopyBackingStatus: () => null,
     savePdfAs: (context, workingPath, saveOptions, revisionOptions?) =>
         handleSavePdfAs({
             ...context,
@@ -630,32 +627,6 @@ export function registerDocumentsDirectIpc(
     registrar: IIpcMainRegistrar<never, IpcMainInvokeEvent>,
     eventRegistrar: {on: (channel: string, handler: (event: IpcMainEvent, ...args: unknown[]) => void) => void},
 ) {
-    const backingStatusPump = createIpcProgressPump<IWorkingCopyBackingStatus>({
-        channel: DOCUMENTS_EVENT_CHANNELS.workingCopyBackingStatusChanged,
-        getTarget: () => null,
-        getKey: status => status.documentRef,
-        isTerminal: status => status.state !== 'materializing',
-        intervalMs: 250,
-        onError: error => {
-            logger.debug(`Failed to send working-copy backing status: ${getErrorMessage(error)}`);
-        },
-    });
-    onWorkingCopyBackingStatusChanged((statusEvent) => {
-        const windows = BrowserWindow.getAllWindows().filter(window => (
-            statusEvent.ownerWebContentsId === undefined
-            || window.webContents.id === statusEvent.ownerWebContentsId
-        ));
-        backingStatusPump.enqueue(statusEvent.status, {
-            isDestroyed: () => windows.every(window => window.webContents.isDestroyed()),
-            send: (channel, status) => {
-                for (const window of windows) {
-                    if (!window.webContents.isDestroyed()) {
-                        window.webContents.send(channel, status);
-                    }
-                }
-            },
-        });
-    });
     registerDocumentRevisionEventBridge();
     registerDocumentRevisionInvalidationEffects();
 

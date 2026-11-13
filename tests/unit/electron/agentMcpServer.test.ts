@@ -46,8 +46,6 @@ import {
     startEmbeddedMcpServer,
     startLocalMcpServer,
 } from '@electron/features/agent/mcpServer';
-import type * as TWorkingCopyMaterialization from '@electron/file-access/workingCopyMaterialization';
-import type * as TWorkingCopyStore from '@electron/file-access/workingCopyStore';
 import type {
     IAgentDocumentPageReadOptions,
     IAgentDocumentSearchOptions,
@@ -88,14 +86,10 @@ vi.mock('@electron/utils/createLogger', () => ({ createLogger: () => mocks.logge
 
 const lazyCopy = vi.hoisted(() => ({entered: () => {}}));
 
-vi.mock('@electron/file-access/workingCopyStore', async importOriginal => ({
-    ...(await importOriginal<typeof TWorkingCopyStore>()),
+vi.mock('@electron/file-access/documentStore', async importOriginal => ({
+    ...(await importOriginal<Record<string, unknown>>()),
     findWorkingCopyPathByOriginalPath: () => '/tmp/lazy.pdf',
-    getWorkingCopyBackingEntry: () => ({backingState: 'materializing'}),
-}));
-
-vi.mock('@electron/file-access/workingCopyMaterialization', async importOriginal => ({
-    ...(await importOriginal<typeof TWorkingCopyMaterialization>()),
+    getWorkingCopyBackingEntry: () => ({}),
     // Materialization completes only when the caller aborts, so a lost signal stalls the test.
     ensureWorkingCopyMaterialized: (_path: string, {signal}: {signal?: AbortSignal}) => new Promise((_resolve, reject) => {
         lazyCopy.entered();

@@ -1,7 +1,7 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { randomUUID } from 'node:crypto';
 import { createMainOperationShuttingDownError } from '@contracts/mainOperationErrors';
-import { normalizePathForLookup } from '@electron/file-access/workingCopyStore';
+import {normalizePathForLookup} from '@electron/file-access/normalizePathForLookup';
 import { createLogger } from '@electron/utils/createLogger';
 import { runDetached } from '@electron/utils/runDetached';
 

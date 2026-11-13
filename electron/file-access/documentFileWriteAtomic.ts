@@ -1,48 +1,23 @@
+import {constants} from 'fs';
 import {
-    link,
+    copyFile,
     open as openFileHandle,
     rename,
     unlink,
 } from 'fs/promises';
 import {dirname} from 'path';
-import { isNoHardLinkError } from '@electron/utils/isNoHardLinkError';
-import {
-    attemptWorkingCopyClone,
-    copyFileFromStableSource,
-} from '@electron/file-access/workingCopyDirectory';
-import { createLogger } from '@electron/utils/createLogger';
-import { getErrorMessage } from '@electron/utils/error';
 import {fsyncFile} from '@electron/utils/fsyncPath';
 import {syncFileHandleForDurability} from '@electron/utils/syncFileHandleForDurability';
-import {measureOperationPhase} from '@contracts/measureOperationPhase';
 import {assertNoSymlinkPathSegments} from '@electron/file-access/assertNoSymlinkPathSegments';
-import {runtimeConfig} from '@electron/runtimeConfig';
 import {
     atomicReplace, makeSiblingTempPath,
 } from '@electron/utils/atomicReplace';
-
-const log = createLogger('documentFileWriteAtomic');
 
 const MAX_IPC_WRITE_BYTES = 16 * 1024 * 1024;
 function assertWithinIpcWriteBudget(byteLength: number) {
     if (byteLength > MAX_IPC_WRITE_BYTES) {
         throw new Error(`Invalid data: exceeds max size (${MAX_IPC_WRITE_BYTES} bytes)`);
     }
-}
-
-/** A publication's temporary name; one beside a journaled backup is removed by recovery with that backup. */
-export function getPublicationTemporaryPath(targetPath: string, destinationBackupPath?: string) {
-    return destinationBackupPath === undefined ? makeSiblingTempPath(targetPath) : `${destinationBackupPath}.tmp`;
-}
-
-async function linkImmutableSourceForAtomicCopy(sourcePath: string, targetPath: string) {
-    if (
-        process.env.NODE_ENV === 'test'
-        && runtimeConfig.test.forceImmutableLinkResult === 'cross-device'
-    ) {
-        throw Object.assign(new Error('Forced cross-device immutable link for tests'), {code: 'EXDEV'});
-    }
-    await link(sourcePath, targetPath);
 }
 
 export function normalizeIpcWritePayload(data: unknown) {
@@ -92,133 +67,29 @@ export async function writeFileAtomic(resolvedPath: string, payload: Uint8Array)
     }
 }
 
+/** Replaces `resolvedTargetPath` with a copy of `resolvedSourcePath`, cloned where the volume can. */
 export async function copyFileAtomic(
     resolvedSourcePath: string,
     resolvedTargetPath: string,
     options: {
-        assertDestinationCurrent?: () => Promise<void>;
-        destinationBackupPath?: string;
         durable?: boolean;
-        linkImmutableSource?: boolean;
-        onPhase?: (phase: string, durationMs: number) => void;
         temporaryPath?: string;
     } = {},
 ) {
     assertNoSymlinkPathSegments(resolvedSourcePath);
     assertNoSymlinkPathSegments(resolvedTargetPath);
 
-    const directoryPath = dirname(resolvedTargetPath);
-    const temporaryPath = options.temporaryPath
-        ?? getPublicationTemporaryPath(resolvedTargetPath, options.destinationBackupPath);
-
+    const temporaryPath = options.temporaryPath ?? makeSiblingTempPath(resolvedTargetPath);
     try {
-        const cloneOutcome = await measureCopyPhase(options.onPhase, 'clone', () =>
-            attemptWorkingCopyClone(resolvedSourcePath, temporaryPath));
-        if (cloneOutcome === 'known-unsupported') {
-            let linked = false;
-            if (options.linkImmutableSource) {
-                try {
-                    await measureCopyPhase(options.onPhase, 'link', () =>
-                        linkImmutableSourceForAtomicCopy(resolvedSourcePath, temporaryPath));
-                    linked = true;
-                } catch (error) {
-                    if (!isNoHardLinkError(error)) {
-                        throw error;
-                    }
-                }
-            }
-            // A plain copy reads a source that may be written meanwhile; this
-            // one refuses a source that changes while it is copied.
-            if (!linked) {
-                await measureCopyPhase(options.onPhase, 'copy', () =>
-                    copyFileFromStableSource(resolvedSourcePath, temporaryPath, {preserveMode: true}));
-            }
-        }
+        await copyFile(resolvedSourcePath, temporaryPath, constants.COPYFILE_EXCL | constants.COPYFILE_FICLONE);
         if (options.durable !== false) {
-            await measureCopyPhase(options.onPhase, 'fsync-file', () => fsyncFile(temporaryPath));
+            await fsyncFile(temporaryPath);
         }
-        assertNoSymlinkPathSegments(resolvedTargetPath);
-        await measureCopyPhase(options.onPhase, 'rename', async () => {
-            await atomicReplace(temporaryPath, resolvedTargetPath, {
-                ...options,
-                durable: false,
-                markMutationCommitStarted: false,
-            });
-        });
-        if (options.durable !== false) {
-            await measureCopyPhase(options.onPhase, 'fsync-directory', () =>
-                fsyncDirectoryBestEffort(directoryPath));
-        }
-    } catch (error) {
-        await unlink(temporaryPath).catch(() => undefined);
-        throw error;
-    }
-}
-
-async function measureCopyPhase<T>(
-    onPhase: ((phase: string, durationMs: number) => void) | undefined,
-    phase: string,
-    operation: () => Promise<T>,
-): Promise<T> {
-    return measureOperationPhase(operation, durationMs => {
-        try { onPhase?.(phase, durationMs); }
-        catch (error) { log.warn(`Atomic copy phase reporter failed: ${getErrorMessage(error)}`); }
-    });
-}
-
-/**
- * Publishes a fresh immutable target. Callers must fsync the source first.
- * The hard-link path deliberately refuses an existing target with EEXIST;
- * only unsupported-link errors fall back to a durable atomic copy.
- */
-export async function linkOrCopyFileDurably(
-    resolvedSourcePath: string,
-    resolvedTargetPath: string,
-) {
-    assertNoSymlinkPathSegments(resolvedSourcePath);
-    assertNoSymlinkPathSegments(resolvedTargetPath);
-    try {
-        await link(resolvedSourcePath, resolvedTargetPath);
-        await fsyncDirectoryBestEffort(dirname(resolvedTargetPath));
-    } catch (error) {
-        if (!isNoHardLinkError(error)) {
-            throw error;
-        }
-        await copyFileAtomic(resolvedSourcePath, resolvedTargetPath);
-    }
-}
-
-/**
- * Publishes an already-fsynced immutable artifact without rewriting its bytes.
- * A same-filesystem hard link preserves the durable inode; cross-device and
- * unsupported filesystems fall back to the regular durable atomic copy.
- */
-export async function publishImmutableFileAtomic(
-    resolvedSourcePath: string,
-    resolvedTargetPath: string,
-    options: Pick<NonNullable<Parameters<typeof atomicReplace>[2]>, 'assertDestinationCurrent' | 'destinationBackupPath'> = {},
-) {
-    assertNoSymlinkPathSegments(resolvedSourcePath);
-    assertNoSymlinkPathSegments(resolvedTargetPath);
-    const directoryPath = dirname(resolvedTargetPath);
-    const temporaryPath = getPublicationTemporaryPath(resolvedTargetPath, options.destinationBackupPath);
-    try {
-        await linkImmutableSourceForAtomicCopy(resolvedSourcePath, temporaryPath);
-    } catch (error) {
-        if (!isNoHardLinkError(error)) {
-            throw error;
-        }
-        return copyFileAtomic(resolvedSourcePath, resolvedTargetPath, options);
-    }
-
-    try {
         assertNoSymlinkPathSegments(resolvedTargetPath);
         await atomicReplace(temporaryPath, resolvedTargetPath, {
-            ...options,
-            durable: false,
+            durable: options.durable !== false,
             markMutationCommitStarted: false,
         });
-        await fsyncDirectoryBestEffort(directoryPath);
     } catch (error) {
         await unlink(temporaryPath).catch(() => undefined);
         throw error;

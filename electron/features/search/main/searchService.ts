@@ -10,7 +10,7 @@ import {
     createRequestId,
     type TRequestId,
 } from '@contracts/shared';
-import { normalizePathForLookup } from '@electron/file-access/workingCopyStore';
+import {normalizePathForLookup} from '@electron/file-access/normalizePathForLookup';
 import {
     createMainJobRegistry,
     type TMainJobErrorKind,

@@ -50,10 +50,10 @@ import {
     scanCleanupScratchShortfall,
 } from '@electron/features/scan-cleanup/scanCleanupPreviewPolicy';
 import {
-    captureWorkingCopyAdmissionSnapshot,
-    clearWorkingCopyOriginalPaths,
-    setWorkingCopyOriginalPath,
-} from '@electron/file-access/workingCopyStore';
+    commitDocumentMutation,
+    openDocumentFromFile,
+    setDocumentStoreRootForTests,
+} from '@electron/file-access/documentStore';
 import {
     removeAllowedOpenPath,
     requireOpenPath,
@@ -712,7 +712,7 @@ async function measurePipelineRasterPeak(
 
 afterEach(async () => {
     vi.unstubAllEnvs();
-    clearWorkingCopyOriginalPaths();
+    await setDocumentStoreRootForTests(null);
     const {rm} = await import('fs/promises');
     await Promise.all(dirs.splice(0).map(dir => rm(dir, {
         recursive: true,
@@ -1392,48 +1392,27 @@ describe('scan cleanup pipeline', () => {
         expect(() => resolver.resolve(20_001)).toThrow('missing ink placement anchor');
     });
 
-    it('demand-materializes lazy-original input before scan-cleanup apply', async () => {
+    it('gives scan-cleanup apply a file holding a document that has no bytes of its own yet', async () => {
         const fixture = await setup();
-        const workingCopyPath = join(fixture.dir, 'working.pdf');
-        await setWorkingCopyOriginalPath(
-            workingCopyPath,
-            fixture.sourcePdfPath,
-            42,
-            {
-                admissionSnapshot: await captureWorkingCopyAdmissionSnapshot(fixture.sourcePdfPath),
-                backingState: 'lazy-original',
-                deferOriginalFileExpectation: true,
-            },
-        );
+        await setDocumentStoreRootForTests(join(fixture.dir, 'store'));
+        const document = await openDocumentFromFile(fixture.sourcePdfPath, {ownerWebContentsId: 42});
 
-        await expect(materializeScanCleanupSourcePath(
-            workingCopyPath,
-            42,
-        )).resolves.toBe(workingCopyPath);
+        const physicalPath = await materializeScanCleanupSourcePath(document.ref, 42);
 
-        await expect(readFile(workingCopyPath, 'utf8')).resolves.toBe('ORIGINAL');
+        await expect(readFile(physicalPath, 'utf8')).resolves.toBe('ORIGINAL');
     });
 
-    it('keeps eager scan-cleanup apply paths unchanged', async () => {
+    it('gives scan-cleanup apply the edited bytes of a document', async () => {
         const fixture = await setup();
-        const workingCopyPath = join(fixture.dir, 'working.pdf');
-        await writeFile(workingCopyPath, 'EAGER');
-        await setWorkingCopyOriginalPath(
-            workingCopyPath,
-            fixture.sourcePdfPath,
-            42,
-            {
-                backingState: 'eager',
-                deferOriginalFileExpectation: true,
-            },
-        );
+        await setDocumentStoreRootForTests(join(fixture.dir, 'store'));
+        const edited = join(fixture.dir, 'edited.pdf');
+        await writeFile(edited, 'EDITED');
+        const document = await openDocumentFromFile(fixture.sourcePdfPath, {ownerWebContentsId: 42});
+        await commitDocumentMutation(document, null, {kind: 'rewrite', source: edited}, 'write');
 
-        await expect(materializeScanCleanupSourcePath(
-            workingCopyPath,
-            42,
-        )).resolves.toBe(workingCopyPath);
+        const physicalPath = await materializeScanCleanupSourcePath(document.ref, 42);
 
-        await expect(readFile(workingCopyPath, 'utf8')).resolves.toBe('EAGER');
+        await expect(readFile(physicalPath, 'utf8')).resolves.toBe('EDITED');
     });
 
     it('reverses RTL lossless halves and prunes raster options', async () => {
