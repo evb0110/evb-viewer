@@ -52,8 +52,9 @@ export const useBookmarkState = (deps: {
         return bookmarkRevision;
     }
 
-    function captureRecovery(): IWorkspaceMetadataRecovery['bookmarks'] {
-        return bookmarksDirty.value ? {
+    /** `differsFromBytes`: the outline differs from the working bytes even where it matches the saved file. */
+    function captureRecovery(differsFromBytes = false): IWorkspaceMetadataRecovery['bookmarks'] {
+        return bookmarksDirty.value || differsFromBytes ? {
             revision: bookmarkRevision,
             dirty: true,
             items: bookmarkItems.value,

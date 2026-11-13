@@ -6,6 +6,7 @@ import {
     describe,
     expect,
     it,
+    vi,
 } from 'vitest';
 import type {
     IEditorPaneState,
@@ -22,8 +23,14 @@ import { createDefaultWorkspaceToolbarSnapshot } from '@app/types/workspaceExpos
 import { createTabViewSessionState } from '@app/modules/workspace-shell/tabs/createTabViewSessionState';
 import { createWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 import { buildWorkspaceCheckpoint } from '@app/modules/workspace-shell/checkpoint/buildWorkspaceCheckpoint';
-import type { ICanonicalAnnotationRecovery } from '@app/modules/pdf-viewer/annotations/domain/annotationRecovery';
-import {AnnotationRecoveryAdmissionError} from '@app/modules/pdf-viewer/annotations/domain/annotationRecovery';
+import {createWorkspaceDocumentRecovery} from '@app/modules/workspace-shell/checkpoint/createWorkspaceDocumentRecovery';
+import {requirePageIndex} from '@contracts/pageNumbers';
+import {AnnotationStore} from '@app/modules/pdf-viewer/annotations/domain/annotationStore';
+import {captureCanonicalAnnotationRecovery} from '@app/modules/pdf-viewer/annotations/domain/annotationRecovery';
+import {
+    asAnnotationId,
+    type ITextMarkupEntity,
+} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import { cast } from '@tests/helpers/cast';
 import {
     createWorkspaceExposeFixture,
@@ -76,176 +83,6 @@ describe('buildWorkspaceCheckpoint', () => {
             viewRotation: 90,
         });
     });
-    it('keeps another document recoverable when one document rejects its annotation capture', () => {
-        const paneId = requirePaneId('pane-1');
-        const tabIds = [
-            'image-tab',
-            'note-tab',
-        ].map(requireTabId);
-        const pane: IEditorPaneState = {
-            paneId,
-            tabIds,
-            activeTabId: tabIds[1]!,
-        };
-        const noteRecovery = cast<ICanonicalAnnotationRecovery>({
-            annotationMutationGeneration: 7,
-            entities: [{
-                kind: 'note',
-                contents: 'Accepted note in the other document',
-            }],
-        });
-        const sessions = Object.fromEntries(tabIds.map((tabId, index) => {
-            const originalPath = requireDocumentRef(`/documents/${tabId}.pdf`);
-            const workingCopyRef = requireDocumentRef(`/managed/${tabId}.pdf`);
-            const session = createWorkspaceDocumentController({tabId});
-            session.commitFile({
-                originalPath,
-                isDjvu: false,
-                revisionInfo: {
-                    version: 1,
-                    token: requireDocumentRevisionToken(`revision-${index}`),
-                    documentRef: workingCopyRef,
-                    authority: 'browser-document-store',
-                    contentRevision: 1,
-                    mintedAt: requireEpochMs(1),
-                },
-            });
-            setTestDocumentDirty(session, true);
-            session.attachWorkspace(tabId, createWorkspaceExposeFixture({
-                getAutomationStateSnapshot: () => cast({
-                    originalPath,
-                    workingCopyPath: workingCopyRef,
-                }),
-                captureCanonicalAnnotationRecovery: () => {
-                    if (index === 0) {
-                        throw new AnnotationRecoveryAdmissionError('Recovery state exceeds the 4194304-byte annotation budget');
-                    }
-                    return noteRecovery;
-                },
-            }));
-            return [
-                tabId,
-                session,
-            ];
-        }));
-        const checkpoint = buildWorkspaceCheckpoint({
-            panes: ref([pane]),
-            tabs: ref(tabIds.map(id => ({id}))),
-            layout: ref<TEditorLayoutNode | null>({
-                type: 'leaf',
-                paneId,
-            }),
-            activePaneId: ref<TPaneId | null>(paneId),
-            activeTabId: ref<TTabId | null>(tabIds[1]!),
-            documentSessionsByTabId: shallowRef(sessions),
-            getPaneByTabId: () => pane,
-        });
-
-        expect(checkpoint.tabs).toMatchObject([
-            {
-                tabId: tabIds[0],
-                isDirty: true,
-                workingCopyRef: '/managed/image-tab.pdf',
-                annotationRecoveryFailure: {
-                    reason: 'capture-rejected',
-                    message: 'Recovery state exceeds the 4194304-byte annotation budget',
-                },
-            },
-            {
-                tabId: tabIds[1],
-                isDirty: true,
-                annotationRecovery: {payload: noteRecovery},
-            },
-        ]);
-        expect(checkpoint.tabs[0]).not.toHaveProperty('annotationRecovery');
-        expect(checkpoint.tabs[1]).not.toHaveProperty('annotationRecoveryFailure');
-    });
-
-    it('withholds another presented document capture while protecting the admitted startup target', () => {
-        const paneId = requirePaneId('pane-1');
-        const tabIds = [
-            'restoring-tab',
-            'saving-tab',
-        ].map(requireTabId);
-        const pane: IEditorPaneState = {
-            paneId,
-            tabIds,
-            activeTabId: tabIds[1]!,
-        };
-        const recovery = cast<ICanonicalAnnotationRecovery>({
-            annotationMutationGeneration: 7,
-            entities: [{
-                kind: 'note',
-                contents: 'Healthy accepted note',
-            }],
-        });
-        const sessions = Object.fromEntries(tabIds.map((tabId, index) => {
-            const originalPath = requireDocumentRef(`/documents/${tabId}.pdf`);
-            const workingCopyRef = requireDocumentRef(`/managed/${tabId}.pdf`);
-            const session = createWorkspaceDocumentController({
-                tabId,
-                assignment: {
-                    fileName: `${tabId}.pdf`,
-                    originalPath,
-                    isDirty: true,
-                    isDjvu: false,
-                },
-            });
-            session.commitFile({
-                originalPath,
-                isDjvu: false,
-                revisionInfo: {
-                    version: 1,
-                    token: requireDocumentRevisionToken(`revision-${index}`),
-                    documentRef: workingCopyRef,
-                    authority: 'browser-document-store',
-                    contentRevision: 1,
-                    mintedAt: requireEpochMs(1),
-                },
-            });
-            session.attachWorkspace(tabId, createWorkspaceExposeFixture({
-                getAutomationStateSnapshot: () => cast({
-                    originalPath,
-                    workingCopyPath: workingCopyRef,
-                }),
-                // The other viewer is presented, but its admitted recovery has not replayed.
-                captureCanonicalAnnotationRecovery: () => index === 0
-                    ? {
-                        version: 1,
-                        annotationMutationGeneration: 0,
-                        entities: [],
-                        foreign: [],
-                        drafts: [],
-                    }
-                    : recovery,
-            }));
-            expect(session.snapshot.value.phase).toBe('presented');
-            return [
-                tabId,
-                session,
-            ];
-        }));
-        const checkpoint = buildWorkspaceCheckpoint({
-            panes: ref([pane]),
-            tabs: ref(tabIds.map(id => ({id}))),
-            layout: ref<TEditorLayoutNode | null>({
-                type: 'leaf',
-                paneId,
-            }),
-            activePaneId: ref<TPaneId | null>(paneId),
-            activeTabId: ref<TTabId | null>(tabIds[1]!),
-            documentSessionsByTabId: shallowRef(sessions),
-            getPaneByTabId: () => pane,
-        }, requireDocumentRef('/managed/saving-tab.pdf'));
-
-        expect(checkpoint.tabs[0]).toMatchObject({
-            isDirty: true,
-            workingCopyRef: '/managed/restoring-tab.pdf',
-        });
-        expect(checkpoint.tabs[0]).not.toHaveProperty('annotationRecovery');
-        expect(checkpoint.tabs[1]?.annotationRecovery?.payload).toEqual(recovery);
-    });
-
     it('persists the cleanup surface without copying a document-sized page mapping', () => {
         const toolbar = {
             ...createDefaultWorkspaceToolbarSnapshot(),
@@ -319,8 +156,6 @@ describe('buildWorkspaceCheckpoint', () => {
     function checkpointSharedDocument(options: {
         dirty: boolean;
         mountedTabIds: string[];
-        /** Mounted tabs whose viewer can capture annotations yet; all of them by default. */
-        capturingTabIds?: string[];
     }) {
         const workingCopyRef = requireDocumentRef('/managed/working.pdf');
         const originalPath = requireDocumentRef('/documents/shared.pdf');
@@ -339,16 +174,12 @@ describe('buildWorkspaceCheckpoint', () => {
         });
         setTestDocumentDirty(session, options.dirty);
         session.addView('tab-2');
-        const recovery = cast<ICanonicalAnnotationRecovery>({annotationMutationGeneration: 3});
         [
             'tab-1',
             'tab-2',
         ].forEach((tabId, index) => {
             if (options.mountedTabIds.includes(tabId)) {
                 session.attachWorkspace(tabId, createWorkspaceExposeFixture({
-                    captureCanonicalAnnotationRecovery: () => (
-                        (options.capturingTabIds ?? options.mountedTabIds).includes(tabId) ? recovery : null
-                    ),
                     getAutomationStateSnapshot: () => cast({
                         originalPath,
                         workingCopyPath: workingCopyRef,
@@ -410,7 +241,7 @@ describe('buildWorkspaceCheckpoint', () => {
         };
     }
 
-    it('captures a dirty document shown in two views once, with a view record for each tab', () => {
+    it('records a dirty document shown in two views with a view record for each tab', () => {
         const {checkpoint} = checkpointSharedDocument({
             dirty: true,
             mountedTabIds: [
@@ -435,8 +266,6 @@ describe('buildWorkspaceCheckpoint', () => {
                 5,
             ],
         ]);
-        // The document's unsaved annotations are recovered once, not once per view.
-        expect(checkpoint.tabs.filter(tab => tab.annotationRecovery)).toHaveLength(1);
     });
 
     it('names the first view of a clean document on its later views', () => {
@@ -463,66 +292,6 @@ describe('buildWorkspaceCheckpoint', () => {
         ]);
     });
 
-    it('captures a dirty document\'s annotations through its surviving view when the first view lost its workspace', () => {
-        const {
-            checkpoint,
-            workingCopyRef,
-        } = checkpointSharedDocument({
-            dirty: true,
-            mountedTabIds: ['tab-2'],
-        });
-
-        // The first tab restores the document, so it carries the recovery.
-        expect(checkpoint.tabs.map(tab => [
-            tab.tabId,
-            tab.workingCopyRef,
-            tab.annotationRecovery?.payload ?? null,
-        ])).toEqual([
-            [
-                'tab-1',
-                workingCopyRef,
-                {annotationMutationGeneration: 3},
-            ],
-            [
-                'tab-2',
-                workingCopyRef,
-                null,
-            ],
-        ]);
-    });
-
-    it('puts the document\'s annotations on its first tab when only the second view can capture them', () => {
-        const {
-            checkpoint,
-            workingCopyRef,
-        } = checkpointSharedDocument({
-            dirty: true,
-            mountedTabIds: [
-                'tab-1',
-                'tab-2',
-            ],
-            // The first view's viewer is still mounting.
-            capturingTabIds: ['tab-2'],
-        });
-
-        expect(checkpoint.tabs.map(tab => [
-            tab.tabId,
-            tab.workingCopyRef,
-            tab.annotationRecovery?.payload ?? null,
-        ])).toEqual([
-            [
-                'tab-1',
-                workingCopyRef,
-                {annotationMutationGeneration: 3},
-            ],
-            [
-                'tab-2',
-                workingCopyRef,
-                null,
-            ],
-        ]);
-    });
-
     it('names the shared working copy for a linked tab whose view is not mounted', () => {
         const {
             checkpoint,
@@ -536,5 +305,67 @@ describe('buildWorkspaceCheckpoint', () => {
             workingCopyRef,
             workingCopyRef,
         ]);
+    });
+});
+
+const highlight: ITextMarkupEntity = {
+    identity: {id: asAnnotationId('saved-highlight')},
+    kind: 'text-markup',
+    pageIndex: requirePageIndex(0),
+    revision: 0,
+    persistedRevision: 0,
+    deleted: false,
+    createdAt: null,
+    modifiedAt: null,
+    author: null,
+    subtype: 'Highlight',
+    contents: 'Saved comment',
+    quadPoints: [{left: 0.1, top: 0.2, width: 0.3, height: 0.04}],
+    color: '#ffff00',
+    opacity: 0.5,
+};
+
+function createRecovery(options: {phase?: string; noteText?: () => string | null; bookmarks?: boolean} = {}) {
+    const store = new AnnotationStore();
+    store.replaceFromDocument([highlight], []);
+    const recovery = createWorkspaceDocumentRecovery({
+        controller: cast({snapshot: ref({phase: options.phase ?? 'presented', identity: {}})}),
+        pdfViewer: () => cast({captureCanonicalAnnotationRecovery: () => {
+            const text = options.noteText?.() ?? null;
+            return captureCanonicalAnnotationRecovery(store, text === null ? [] : [{
+                annotationId: highlight.identity.id,
+                kind: 'note',
+                canonicalRevision: 0,
+                text,
+                generation: 1,
+            }]);
+        }}),
+        pdfDocumentAnnotations: cast({application: shallowRef({store})}),
+        annotations: cast({captureAnnotationNoteDrafts: () => []}),
+        metadata: cast({captureRecovery: () => (options.bookmarks ? {bookmarks: {revision: 1, dirty: true, items: []}} : {})}),
+        reportFailure: vi.fn(),
+    });
+    return {store, recovery};
+}
+
+describe('createWorkspaceDocumentRecovery', () => {
+    it('keeps the stored drafts while the document is not presented', () => {
+        expect(createRecovery({phase: 'opening'}).recovery.capture()).toBeNull();
+    });
+
+    it('stores nothing for a document whose working bytes hold all its annotations', () => {
+        expect(createRecovery().recovery.capture()).toBeUndefined();
+    });
+
+    it('recovers a saved highlight comment draft, and clears after returning to its working-byte text', () => {
+        let text = 'Edited comment';
+        const {recovery} = createRecovery({noteText: () => text});
+        expect(recovery.capture()?.drafts[0]?.text).toBe('Edited comment');
+        text = 'Saved comment';
+        expect(recovery.capture()).toBeUndefined();
+    });
+
+    it('keeps a bookmark edit, which an empty annotation store does not represent', () => {
+        expect(createRecovery({bookmarks: true}).recovery.capture()?.metadata?.bookmarks).toMatchObject({dirty: true, items: []});
     });
 });

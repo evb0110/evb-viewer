@@ -33,6 +33,7 @@ import {
     decodeStoredWorkspaceCheckpoint,
     decodeWorkspaceCheckpoint,
     type IWorkspaceCheckpoint,
+    type IWorkspaceCheckpointAnnotationRecovery,
     type IWorkspaceCheckpointTab,
     toStoredWorkspaceCheckpoint,
 } from '@contracts/workspaceCheckpoint';
@@ -258,31 +259,22 @@ export function nameBrowserWorkspaceDirectory(windowId: string, directory: strin
     return writeWindowCheckpoint(windowId);
 }
 
-/**
- * Records this window's layout and unsaved annotations. Each document's unsaved annotations become the drafts
- * of its directory, committed with its bytes; the checkpoint keeps references and views only.
- */
+/** Records this window's layout. */
 export async function saveBrowserWorkspaceCheckpoint(windowId: string, checkpoint: IWorkspaceCheckpoint) {
-    const {durable} = await browserDocumentStore.stores();
-    if (!durable) return;
     // A record that names a working copy this window has closed since was captured before the change; the
     // record after it describes the window, so this one writes nothing.
     const open = new Set(browserDocumentStore.openEntries().map(entry => entry.ref));
     if (checkpoint.tabs.some(tab => tab.isDirty && tab.workingCopyRef && !open.has(tab.workingCopyRef))) return;
-    const withDrafts = new Set<string>();
-    for (const tab of checkpoint.tabs) {
-        const recovery = tab.annotationRecovery;
-        if (!tab.isDirty || !recovery?.workingCopyRef || recovery.payload === undefined) continue;
-        const entry = await browserDocumentStore.ensureEntry(recovery.workingCopyRef).catch(() => null);
-        if (!entry?.doc || entry.memoryOnly || browserDocumentStore.tokenOf(entry) !== recovery.workingByteRevision) continue;
-        const stored = await entry.doc.setDrafts(entry.doc.state().current?.id ?? null, recovery);
-        if (stored.status === 'stored') withDrafts.add(entry.ref);
-    }
-    for (const entry of browserDocumentStore.openEntries()) {
-        if (entry.doc && !entry.memoryOnly && !withDrafts.has(entry.ref) && entry.doc.state().drafts !== undefined) {
-            await entry.doc.setDrafts(entry.doc.state().current?.id ?? null, undefined);
-        }
-    }
     layout = toStoredWorkspaceCheckpoint(checkpoint);
     await writeWindowCheckpoint(windowId);
+}
+
+/** Commits a document's drafts, or clears them without a payload. False for an outdated revision: the renderer sends them again. */
+export async function setBrowserDocumentDrafts(drafts: IWorkspaceCheckpointAnnotationRecovery) {
+    const entry = drafts.workingCopyRef ? await browserDocumentStore.ensureEntry(drafts.workingCopyRef).catch(() => null) : null;
+    if (!entry?.doc || entry.memoryOnly || (drafts.payload === undefined && entry.doc.state().drafts === undefined)) return true;
+    if (browserDocumentStore.tokenOf(entry) !== drafts.workingByteRevision) return false;
+    const stored = await entry.doc.setDrafts(entry.doc.state().current?.id ?? null, drafts.payload === undefined ? undefined : drafts);
+    if (stored.status === 'conflict') throw new Error('Drafts were not stored');
+    return stored.status === 'stored';
 }

@@ -15,7 +15,6 @@ import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/public';
 import type { TDocumentContext } from '@app/modules/workspace-shell/documentContext';
 import type { TDocumentViewContext } from '@app/modules/workspace-shell/documentViewContext';
 import { stepPdfViewRotation } from '@app/utils/pdfViewRotation';
-import {createWorkspaceDocumentRecovery} from '@app/modules/workspace-shell/checkpoint/createWorkspaceDocumentRecovery';
 
 /** Commands and display state the workspace owns beyond the document context. */
 export interface IWorkspaceExposeOwners extends Pick<IWorkspaceExpose,
@@ -270,7 +269,10 @@ export function createWorkspaceExpose(
         handleOcrComplete: async (payload) => {
             await document.ocr.applyResult(payload as Parameters<typeof document.ocr.applyResult>[0]);
         },
-        ...createWorkspaceDocumentRecovery(document, pdfViewer),
+        getWorkspaceDocumentRefsSignature: () => [document.file.originalPath.value, document.file.workingCopyPath.value, document.file.requiresSaveAsOnFirstSave.value],
+        captureCanonicalAnnotationRecovery: document.recovery.capture,
+        commitDocumentDrafts: document.recovery.commitDrafts,
+        restoreCanonicalAnnotationRecovery: value => document.recovery.restoreCanonicalAnnotationRecovery(pdfViewer(), value),
         handlePageRotate: (pages, angle) => runPageOperation(() => pageOps.handlePageRotate(pages, angle)),
         handleCropPages: (pages, margins) => runPageOperation(() => pageOps.handleCropPages(pages, margins)),
         handleSave: handleSaveFromCommandSurface,

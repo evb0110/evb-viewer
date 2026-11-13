@@ -19,6 +19,7 @@ import {
 import {
     decodeWorkspaceCheckpoint,
     type IWorkspaceCheckpoint,
+    workspaceAnnotationRecoverySchema,
 } from '@contracts/workspaceCheckpoint';
 import * as v from 'valibot';
 
@@ -114,6 +115,14 @@ export const WINDOW_TABS_PLATFORM_FEATURE = definePlatformFeature({
                 reason: 'requires-native-backend',
             },
         },
+        // False: the drafts were captured on a revision that is no longer current, and are sent again for the new one.
+        setDocumentDrafts: defineForwardedPlatformMethod({
+            name: 'setDocumentDrafts',
+            channel: 'workspace:setDocumentDrafts',
+            args: v.strictTuple([workspaceAnnotationRecoverySchema]),
+            result: v.boolean(),
+            main: 'setWorkspaceDocumentDrafts',
+        }),
         discardWorkspaceCheckpoint: defineForwardedPlatformMethod({
             name: 'discardWorkspaceCheckpoint',
             channel: 'workspace:checkpointDiscard',
@@ -172,9 +181,9 @@ export const WINDOW_TABS_PLATFORM_FEATURE = definePlatformFeature({
     },
 });
 
-/** The browser window records its unsaved work itself; desktop checkpoints are main-owned. */
+/** The browser window records its layout itself; desktop checkpoints are main-owned. */
 export interface IBrowserWorkspaceRecoveryCapability {
-    /** Stores each dirty document's unsaved state with its bytes and this window's checkpoint; an all-clean workspace keeps none. */
+    /** Stores this window's tabs, panes and views; a workspace naming no document keeps none. */
     save(checkpoint: IWorkspaceCheckpoint): Promise<void>;
 }
 

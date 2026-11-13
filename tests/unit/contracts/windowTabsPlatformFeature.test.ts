@@ -61,7 +61,7 @@ describe('window tabs platform feature schemas', () => {
 
     it('owns all request/response and renderer event members but not renderer readiness', () => {
 
-        expect(WINDOW_TABS_PLATFORM_FEATURE.platformDescriptors.methods).toHaveLength(16);
+        expect(WINDOW_TABS_PLATFORM_FEATURE.platformDescriptors.methods).toHaveLength(17);
         expect(WINDOW_TABS_PLATFORM_FEATURE.platformDescriptors.methods)
             .not.toContainEqual(expect.objectContaining({path: [
                 'windowTabs',

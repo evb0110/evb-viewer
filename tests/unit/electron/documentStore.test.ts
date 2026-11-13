@@ -354,11 +354,20 @@ describe('desktop document store', () => {
         expect(await readFile(pdf)).toEqual(Buffer.from(ORIGINAL));
     });
 
-    it('offers unsaved annotations again after a restart, bound to the revision they were captured on', async () => {
+    // The drafts commit when the edit is accepted; the window's layout may still describe the document as clean.
+    it.each([true, false])('offers unsaved annotations again after a restart, bound to the revision they were captured on (layout dirty: %s)', async (layoutDirty) => {
         const {pdf, entry} = await openPdf();
         const paneId = requirePaneId('pane-1');
         const tabId = requireTabId('tab-1');
         const token = store.documentRevisionToken(entry);
+        const drafts = {
+            artifactId: 'artifact-1',
+            documentInstanceId: 'instance-1',
+            workingCopyRef: entry.ref as never,
+            workingByteRevision: token,
+            annotationMutationGeneration: 4,
+            payload: {entities: [{kind: 'note', text: 'unsaved'}]},
+        };
         const checkpoint: IWorkspaceCheckpoint = {
             version: 1,
             capturedAt: requireEpochMs(Date.now()),
@@ -372,23 +381,16 @@ describe('desktop document store', () => {
                 fileName: 'report.pdf',
                 sourceRef: pdf as never,
                 workingCopyRef: entry.ref as never,
-                isDirty: true,
+                isDirty: layoutDirty,
                 isDjvu: false,
                 currentPage: 3,
                 zoom: 1.5,
                 zoomMode: null,
-                annotationRecovery: {
-                    artifactId: 'artifact-1',
-                    documentInstanceId: 'instance-1',
-                    workingCopyRef: entry.ref as never,
-                    workingByteRevision: token,
-                    annotationMutationGeneration: 4,
-                    payload: {entities: [{kind: 'note', text: 'unsaved'}]},
-                },
             }],
         };
 
         expect(await checkpoints.saveWorkspaceCheckpoint(checkpoint, 7)).toBe(true);
+        expect(await checkpoints.setWorkspaceDocumentDrafts(drafts, 7)).toBe(true);
         await restart();
         const claimed = await checkpoints.claimWorkspaceCheckpoint(9);
 
@@ -401,6 +403,20 @@ describe('desktop document store', () => {
         const reopened = store.getWorkingCopyBackingEntry(entry.ref, 9);
         expect(reopened && store.documentRevisionToken(reopened)).toBe(token);
         expect(await readFile(pdf)).toEqual(Buffer.from(ORIGINAL));
+    });
+
+    it('clears a document\'s drafts when the working bytes hold everything, and refuses drafts of an outdated revision', async () => {
+        const {entry} = await openPdf();
+        const drafts = {
+            artifactId: 'artifact-1', documentInstanceId: 'instance-1', workingCopyRef: entry.ref as never,
+            workingByteRevision: store.documentRevisionToken(entry), annotationMutationGeneration: 1,
+        };
+        expect(await checkpoints.setWorkspaceDocumentDrafts({...drafts, payload: {entities: []}}, 7)).toBe(true);
+        expect(entry.doc.state()).toMatchObject({dirty: true});
+        expect(await checkpoints.setWorkspaceDocumentDrafts(drafts, 7)).toBe(true);
+        expect(entry.doc.state()).toMatchObject({drafts: undefined, dirty: false});
+        expect(await checkpoints.setWorkspaceDocumentDrafts({...drafts, workingByteRevision: '2' as never, payload: {}}, 7)).toBe(false);
+        expect(entry.doc.state().drafts).toBeUndefined();
     });
 
     it('restores a tab whose unsaved bytes are missing as unsaved, showing the PDF as saved, until a start finds them', async () => {
@@ -430,12 +446,11 @@ describe('desktop document store', () => {
         const standIn = store.requireOpenDocument(entry.ref, 9);
         expect(await readAll(standIn)).toEqual(ORIGINAL);
         await expect(store.saveOpenDocument(standIn, '1' as never)).rejects.toThrow('missing or cut short');
-        // The window's checkpoint before a Save still names it, with annotations the damaged document cannot take.
-        const annotationRecovery = {
+        // The damaged document takes no drafts: its directory stays as it is for a start that can read it.
+        expect(await checkpoints.setWorkspaceDocumentDrafts({
             artifactId: 'artifact-1', documentInstanceId: 'instance-1', workingCopyRef: entry.ref as never,
-            workingByteRevision: '1' as never, annotationMutationGeneration: 1, payload: {entities: []},
-        };
-        expect(await checkpoints.saveWorkspaceCheckpoint({...checkpoint, tabs: [{...checkpoint.tabs[0]!, annotationRecovery}]}, 9)).toBe(true);
+            workingByteRevision: '1', annotationMutationGeneration: 1, payload: {entities: []},
+        }, 9)).toBe(true);
         expect(existsSync(revision)).toBe(false);
 
         await restart();

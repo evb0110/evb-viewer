@@ -199,13 +199,7 @@ function isAdmittedSource(sourceRef: TDocumentRef, owner: number | WebContents, 
     }
 }
 
-/**
- * Stores this window's workspace: the checkpoint keeps references, naming every directory before any drafts land in
- * it; then each tab's unsaved annotations become the drafts of its document, bound to the revision they were
- * captured on. Resolves once both are durable; a capture for a revision that is no longer current is refused, since
- * its drafts could not be replayed. A damaged document takes no drafts: its directory stays as it is for a start
- * that can read it.
- */
+/** Stores this window's tabs, panes and views and the directory each tab shows; resolves once durable. */
 export function saveWorkspaceCheckpoint(
     checkpoint: IWorkspaceCheckpoint,
     ownerWebContentsId: number,
@@ -216,34 +210,32 @@ export function saveWorkspaceCheckpoint(
         if (discardedOwners.has(ownerId)) return false;
         const directories = new Map<string, string>();
         const tabs: IWorkspaceCheckpointTab[] = [];
-        const documents: [IOpenDocument, IWorkspaceCheckpointTab][] = [];
         for (const tab of checkpoint.tabs) {
             const entry = tab.workingCopyRef ? getWorkingCopyBackingEntry(tab.workingCopyRef, ownerWebContentsId) : null;
             if (tab.workingCopyRef && (!entry || entry.ownerWebContentsId !== ownerWebContentsId)) {
                 throw new Error('Workspace checkpoint contains an unowned working copy');
             }
-            if (entry) {
-                directories.set(tab.tabId, entry.doc.id);
-                documents.push([entry, tab]);
-            }
+            if (entry) directories.set(tab.tabId, entry.doc.id);
             const sourceRef = tab.sourceRef && isAdmittedSource(tab.sourceRef, owner, entry?.originalPath) ? tab.sourceRef : null;
             tabs.push({...tab, sourceRef});
             // A generated output a tab shows must outlive the scratch sweep until the tab is gone.
             if (sourceRef) void touchScanCleanupGeneratedOutput(sourceRef).catch(() => undefined);
         }
         await writeOwnerCheckpoint(ownerId, ownerWebContentsId, encodeStored({...checkpoint, tabs}, directories));
-        for (const [entry, tab] of documents) {
-            const recovery = tab.annotationRecovery;
-            if (recovery?.payload !== undefined && !entry.doc.damaged) {
-                const drafts: IDrafts = {annotationRecovery: recovery};
-                const status = await setOpenDocumentDrafts(entry, recovery.workingByteRevision, drafts);
-                if (status !== 'stored') throw new Error(`Unsaved annotations for an outdated revision were not stored (${status})`);
-            } else if (!tab.isDirty && entry.doc.state().drafts !== undefined) {
-                await setOpenDocumentDrafts(entry, null, undefined);
-            }
-        }
         return true;
     });
+}
+
+/** Commits a document's drafts for their revision, or clears them without a payload; false for an outdated revision. */
+export async function setWorkspaceDocumentDrafts(drafts: IWorkspaceCheckpointAnnotationRecovery, ownerWebContentsId: number) {
+    const entry = drafts.workingCopyRef ? getWorkingCopyBackingEntry(drafts.workingCopyRef, ownerWebContentsId) : null;
+    if (entry?.ownerWebContentsId !== ownerWebContentsId) throw new Error('Drafts of an unowned working copy');
+    // A damaged document's directory waits for a start that reads it.
+    if (entry.doc.damaged || (drafts.payload === undefined && entry.doc.state().drafts === undefined)) return true;
+    if (drafts.payload !== undefined) await nameEditedDirectory(entry);
+    const status = await setOpenDocumentDrafts(entry, drafts.workingByteRevision, drafts.payload === undefined ? undefined : {annotationRecovery: drafts});
+    if (status === 'conflict') throw new Error('Drafts were not stored');
+    return status === 'stored';
 }
 
 /** Writes nothing: every save is written before it resolves. Kept for the shutdown order. */

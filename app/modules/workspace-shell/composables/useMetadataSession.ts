@@ -5,6 +5,7 @@ import {
     type createPdfReloadWaiter,
 } from '@app/modules/pdf-viewer/public';
 import type { Ref } from 'vue';
+import { isEqual } from 'es-toolkit/predicate';
 import { useWorkspaceMetadataHistory } from '@app/modules/workspace-shell/composables/useWorkspaceMetadataHistory';
 import { useWorkspaceCommandLedger } from '@app/modules/workspace-shell/composables/useWorkspaceCommandLedger';
 import type {
@@ -23,6 +24,8 @@ interface IMetadataSessionOptions {
     documentRevisionToken?: Readonly<Ref<TDocumentRevisionToken | null>>;
     markDirty: () => void;
     setWorkspaceCommandSink?: ((sink: IWorkspaceCommandSink | null) => void) | undefined;
+    /** An edit, undo or redo took effect; resolves once the document's drafts hold it. */
+    commitAcceptedEdit?: (() => Promise<void>) | undefined;
 }
 
 export const useMetadataSession = (options: IMetadataSessionOptions) => {
@@ -33,10 +36,28 @@ export const useMetadataSession = (options: IMetadataSessionOptions) => {
         documentRevisionToken,
         markDirty,
         setWorkspaceCommandSink,
+        commitAcceptedEdit,
     } = options;
 
     let metadataHistory: ReturnType<typeof useWorkspaceMetadataHistory> | null = null;
-    const workspaceUndoTimeline = useWorkspaceCommandLedger();
+    // The document's one command ledger: every annotation, metadata and file edit, its undo and its redo pass here,
+    // and each one that takes effect starts the commit of the document's drafts.
+    const ledger = useWorkspaceCommandLedger();
+    const afterAccepted = async (done: boolean) => {
+        if (done) await commitAcceptedEdit?.();
+        return done;
+    };
+    const workspaceUndoTimeline = {
+        ...ledger,
+        registerCommand: (command: IWorkspaceCommandRegistration) => {
+            ledger.registerCommand(command);
+            void commitAcceptedEdit?.();
+        },
+        undoTimeline: async () => afterAccepted(await ledger.undoTimeline()),
+        redoTimeline: async () => afterAccepted(await ledger.redoTimeline()),
+    };
+    // What the working bytes hold of each field, as last read from them or written to them.
+    const workingMetadata: {bookmarkItems?: unknown; pageLabelRanges?: unknown} = {};
     // This reload scope holds the existing owner, never a second metadata copy.
     let preservedReload: {
         prepareReload: (() => ReturnType<typeof createPdfReloadWaiter>) | undefined;
@@ -104,7 +125,17 @@ export const useMetadataSession = (options: IMetadataSessionOptions) => {
     };
     setWorkspaceCommandSink?.(commandSink);
 
+    /** The field's value as written to the working bytes, or as read from them when `written` is absent. */
+    function acknowledgeWorkingMetadata<T>(field: 'bookmarkItems' | 'pageLabelRanges', written?: T) {
+        workingMetadata[field] = structuredClone(toRaw(written ?? (field === 'bookmarkItems' ? bookmarkItems.value : pageLabelRanges.value)));
+        return written;
+    }
+    const differsFromWorkingBytes = (field: 'bookmarkItems' | 'pageLabelRanges', value: unknown) => (
+        field in workingMetadata && !isEqual(workingMetadata[field], toRaw(value))
+    );
+
     function synchronizeMetadata(field: 'bookmarkItems' | 'pageLabelRanges') {
+        acknowledgeWorkingMetadata(field);
         if (preservesSourceReload()) return;
         if (preservedReload) metadataHistory?.captureCleanState()(field);
         else metadataHistory?.markCurrentStateClean(field);
@@ -115,7 +146,7 @@ export const useMetadataSession = (options: IMetadataSessionOptions) => {
         preservesSourceReload,
         onBookmarksSynchronized: () => synchronizeMetadata('bookmarkItems'),
         onBookmarksDirty: () => metadataHistory?.recordCurrentState(),
-        onBookmarksSaved: written => metadataHistory?.markCurrentStateClean('bookmarkItems', written),
+        onBookmarksSaved: written => metadataHistory?.markCurrentStateClean('bookmarkItems', acknowledgeWorkingMetadata('bookmarkItems', written)),
     });
     const {
         bookmarkItems,
@@ -139,7 +170,7 @@ export const useMetadataSession = (options: IMetadataSessionOptions) => {
         preservesSourceReload,
         onPageLabelsSynchronized: () => synchronizeMetadata('pageLabelRanges'),
         onPageLabelsDirty: () => metadataHistory?.recordCurrentState(),
-        onPageLabelsSaved: written => metadataHistory?.markCurrentStateClean('pageLabelRanges', written),
+        onPageLabelsSaved: written => metadataHistory?.markCurrentStateClean('pageLabelRanges', acknowledgeWorkingMetadata('pageLabelRanges', written)),
         // The outline is re-read from new bytes, not from another view's copy of the same.
         onDocumentBytesChanged: () => {
             bookmarksResolved.value = false;
@@ -173,9 +204,10 @@ export const useMetadataSession = (options: IMetadataSessionOptions) => {
         runWithPreservedMetadataReload,
         workspaceUndoTimeline,
         workspaceCommandSink: commandSink,
+        /** The fields that differ from the saved file or from the working bytes: an undo can return to the saved file's state after a write put the edit in the bytes. */
         captureRecovery: (): IWorkspaceMetadataRecovery => {
-            const bookmarks = bookmarkState.captureRecovery();
-            const labels = pageLabelState.captureRecovery();
+            const bookmarks = bookmarkState.captureRecovery(differsFromWorkingBytes('bookmarkItems', bookmarkItems.value));
+            const labels = pageLabelState.captureRecovery(differsFromWorkingBytes('pageLabelRanges', pageLabelRanges.value));
             return {
                 ...(bookmarks ? {bookmarks} : {}),
                 ...(labels ? {pageLabels: labels} : {}),
