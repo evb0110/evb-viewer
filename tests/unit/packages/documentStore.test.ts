@@ -338,6 +338,37 @@ describe('recovery after a crash', () => {
         expect(await readFile(destination, 'utf8')).toBe('v1');
     });
 
+    it('continues from the manifest a failed replace left on disk, so the next append cannot overwrite committed bytes', async () => {
+        const doc = await create(store(), { ext: 'pdf', source: new Blob(['base']) });
+        await doc.close();
+        const port = createNodeStorePort(root);
+        let manifestWrite: 'lands then fails' | 'fails' | 'unreadable' = 'lands then fails';
+        const flaky: IStorePort = {
+            ...port,
+            async writeAtomic(target, bytes) {
+                if (!target.endsWith('manifest.json')) return port.writeAtomic(target, bytes);
+                if (manifestWrite === 'lands then fails') await port.writeAtomic(target, bytes);
+                throw new Error(`manifest write ${manifestWrite}`);
+            },
+            read: async target => (manifestWrite === 'unreadable' && target.endsWith('manifest.json') ? Promise.reject(new Error('EIO')) : port.read(target)),
+        };
+        const live = await open(store(flaky), doc.id);
+
+        // The rename landed and the directory flush failed: the disk names AAA.
+        await expect(live.mutate(1, append('AAA'))).rejects.toThrow('lands then fails');
+        expect(live.state().current).toMatchObject({ id: 2, length: 7 });
+        // The next append starts after AAA; its own manifest write fails before landing.
+        manifestWrite = 'fails';
+        await expect(live.mutate(2, append('BBB'))).rejects.toThrow('fails');
+        expect(live.state().current).toMatchObject({ id: 2, length: 7 });
+        manifestWrite = 'unreadable';
+        await expect(live.mutate(2, append('CCC'))).rejects.toThrow('unreadable');
+        await expect(live.mutate(2, append('DDD'))).rejects.toThrow('open it again');
+        await live.close();
+
+        expect(await currentText(await open(store(), doc.id))).toBe('baseAAA');
+    });
+
     it('keeps the drafts a mutation keeps when it crashes right after its manifest replace', async () => {
         const doc = await create(store(), { ext: 'pdf', source: new Blob(['base']) });
         await doc.setDrafts(1, { note: 'first' });

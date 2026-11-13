@@ -198,6 +198,8 @@ function namedFiles(manifest: IManifest) {
 export class DocumentDirectory {
     private tail: Promise<unknown> = Promise.resolve();
     private retained: ReadonlySet<number> = new Set();
+    /** Why every call is refused until the directory is opened again; see `commit`. */
+    private refusal: Error | null = null;
 
     private constructor(
         readonly id: string,
@@ -386,18 +388,23 @@ export class DocumentDirectory {
     }
 
     close() {
-        return this.damaged ? Promise.resolve() : this.run(async () => {
+        const closed = this.tail.then(async () => {
             await this.file?.close();
             this.file = null;
         });
+        this.tail = closed.catch(() => undefined);
+        return closed;
     }
 
     // The members below are the steps `saveDocument` composes; application code uses the methods above.
 
-    /** Runs `task` after every earlier call on this directory has settled; a damaged directory runs nothing. */
+    /** Runs `task` after every earlier call on this directory has settled; a damaged or refusing directory runs nothing. */
     run<T>(task: () => Promise<T>): Promise<T> {
         if (this.damaged) return Promise.reject(new DamagedDocumentError(`The unsaved changes of document ${this.id} are in a revision file that is missing or cut short`));
-        const result = this.tail.then(task);
+        const result = this.tail.then(() => {
+            if (this.refusal) throw this.refusal;
+            return task();
+        });
         this.tail = result.catch(() => undefined);
         return result;
     }
@@ -501,16 +508,26 @@ export class DocumentDirectory {
      * Replaces the manifest, the only commit point, then makes `file` the current file's handle and `drafts`
      * the value of the drafts file it names, and deletes the files the new manifest no longer names. Failures
      * after the replace are left to recovery, which deletes the same things, so a committed change never
-     * reports failure. A new `file` is closed when the replace fails.
+     * reports failure. A replace that fails may still have landed (its directory flush failed, say), so this
+     * continues from the manifest the disk holds: the new one, kept without deleting what the old one named,
+     * since it may not be durable; or the old one, closing a new `file`. A disk that shows neither leaves the
+     * directory refusing everything until it is opened again.
      */
     async commit(next: IManifest, file: IStoreFile | null = this.file, drafts: unknown = this.drafts) {
         const { port } = this.store;
         const before = this.manifest;
+        const text = JSON.stringify(next);
+        let failure: unknown;
         try {
-            await port.writeAtomic(this.path(MANIFEST_NAME), encodeJson(next));
+            await port.writeAtomic(this.path(MANIFEST_NAME), new TextEncoder().encode(text));
         } catch (error) {
-            if (file !== this.file) await file?.close().catch(() => undefined);
-            throw error;
+            failure = error;
+            const onDisk = await port.read(this.path(MANIFEST_NAME)).then(bytes => new TextDecoder().decode(bytes), () => null);
+            if (onDisk !== text) {
+                if (file !== this.file) await file?.close().catch(() => undefined);
+                if (onDisk !== JSON.stringify(before)) this.refusal = new Error(`Document ${this.id} lost track of its manifest; open it again`, { cause: error });
+                throw error;
+            }
         }
         this.manifest = next;
         this.drafts = next.drafts === undefined ? undefined : drafts;
@@ -518,6 +535,7 @@ export class DocumentDirectory {
             await this.file?.close().catch(() => undefined);
             this.file = file;
         }
+        if (failure !== undefined) throw failure;
         const named = namedFiles(next);
         for (const name of namedFiles(before)) {
             if (!named.has(name)) await port.remove(this.path(name)).catch(() => undefined);
