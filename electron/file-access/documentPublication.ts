@@ -1,10 +1,8 @@
 import {
-    constants,
     statSync,
     type BigIntStats,
 } from 'node:fs';
 import {
-    copyFile,
     open,
     rename,
     rm,
@@ -23,6 +21,7 @@ import type {
     IPublicationPort,
     IPublishSource,
 } from '@document-store/documentDirectory';
+import {copyNewFile} from '@document-store/nodeStorePort';
 import {isErrnoException} from '@contracts/runtimeGuards';
 import {
     atomicReplace,
@@ -117,7 +116,7 @@ function settleInterruptedPublish(destination: string, published: string, baseli
 class DestinationChanged extends Error {}
 
 async function copyRevision(source: IPublishSource, absolutePath: string, target: string) {
-    await copyFile(absolutePath, target, constants.COPYFILE_FICLONE);
+    await copyNewFile(absolutePath, target);
     if (statSync(target).size !== source.length) await truncate(target, source.length);
 }
 
