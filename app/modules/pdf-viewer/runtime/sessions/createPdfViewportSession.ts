@@ -901,10 +901,19 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
             singlePageScroll.place(getRequestAnchor(undefined, clampPageNumber(render.pageNumber, numPages.value)), 'document-restore');
         }
     }
-    watch(() => singlePageScroll.viewportAuthority.activeIntent.value, (activeIntent) => {
-        if (activeIntent === null) {
-            reconcileIdleOpenSurfaceViewport();
+    watch(() => singlePageScroll.viewportAuthority.activeIntent.value, (activeIntent, previous) => {
+        if (activeIntent !== null) {
+            return;
         }
+        // A settled page-top navigation's place is from now on the centre
+        // point it shows (R3), so a later relayout, such as a tab's return
+        // while its sidebar slides in, keeps that point, not the page top.
+        const anchor = previous?.navigation && viewportAuthority.committedAnchor.value?.affinity === 'start'
+            && viewportAuthority.getTerminalOutcome(previous.id) === 'settled'
+            ? singlePageScroll.captureRelayoutAnchor()
+            : null;
+        if (anchor) viewportAuthority.observeSettledAnchor(anchor);
+        reconcileIdleOpenSurfaceViewport();
     }, { flush: 'sync' });
     watch([
         () => chassisAuthority?.openSurface.snapshot.value.committedRender,
@@ -917,7 +926,24 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
     function pageTopAnchor() {
         return getRequestAnchor(undefined, clampPageNumber(currentPage.value, numPages.value));
     }
-    // R3 keeps the centre point through zoom/fit and maps it through rotation.
+    // R3 keeps the centre point through a layout change and maps it through
+    // its page's turn: every page's, or only that of the `pages` an edit turns.
+    function relayoutRotation(change: () => void, rotation: number, pages?: readonly number[]) {
+        singlePageScroll.relayout(change, rotation % 360 === 0 ? undefined : (anchor) => {
+            if (pages && !pages.includes(anchor.page)) {
+                return anchor;
+            }
+            const point = rotateAnnotationPoint({
+                x: anchor.pageXFraction,
+                y: anchor.pageYFraction,
+            }, rotation);
+            return {
+                ...anchor,
+                pageXFraction: point.x,
+                pageYFraction: point.y,
+            };
+        });
+    }
     watch([
         options.zoom,
         options.zoomMode,
@@ -926,19 +952,7 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         , , rotation,
     ], [
         , , previousRotation,
-    ]) => {
-        singlePageScroll.relayout(fitToViewport, rotation === previousRotation ? undefined : anchor => {
-            const point = rotateAnnotationPoint({
-                x: anchor.pageXFraction,
-                y: anchor.pageYFraction,
-            }, rotation - previousRotation);
-            return {
-                ...anchor,
-                pageXFraction: point.x,
-                pageYFraction: point.y,
-            };
-        });
-    }, {flush: 'sync'});
+    ]) => relayoutRotation(fitToViewport, rotation - previousRotation), {flush: 'sync'});
     // No reading-point rule changes view/scroll mode's page-top placement.
     watch([
         options.viewMode,
@@ -1137,6 +1151,7 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         userViewportInteractionEpoch,
         scroll,
         scale,
+        relayoutRotation,
         skeletonInsets,
         reloadTransition,
         viewModel,

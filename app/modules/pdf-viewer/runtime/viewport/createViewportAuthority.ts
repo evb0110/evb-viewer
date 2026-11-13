@@ -471,6 +471,8 @@ export function createViewportAuthority(deps: IViewportAuthorityDependencies) {
         submit,
         commitSettledPosition,
         observeUserScroll,
+        // The point a settled position shows; it moves nothing and keeps the page.
+        observeSettledAnchor: (anchor: IPdfSemanticAnchor) => commitAnchor(anchor, currentPage.value),
         suspend: cancelActive,
         dispose,
         activeWorkKind,

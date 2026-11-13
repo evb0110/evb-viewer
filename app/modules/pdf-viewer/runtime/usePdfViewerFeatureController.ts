@@ -23,7 +23,6 @@ import {
     type TPdfAnnotationSession,
 } from '@app/modules/pdf-viewer/runtime/sessions/createPdfAnnotationSession';
 import { usePdfViewerPublicApiController } from '@app/modules/pdf-viewer/runtime/usePdfViewerPublicApiController';
-import { getRequestAnchor } from '@app/modules/pdf-viewer/runtime/navigation/pdfNavigationRequestAnchors';
 import type { IBrowserPrintDocument } from '@app/utils/pdfPrintShared';
 import { usePdfViewerNavigationDiagnostics } from '@app/modules/pdf-viewer/runtime/lifecycle/usePdfViewerNavigationDiagnostics';
 import { usePdfViewerMouseInteractions } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerMouseInteractions';
@@ -126,7 +125,7 @@ export const usePdfViewerFeatureController = (
             if (rotationDelta === null) {
                 renderingSession.cancelPageRotationPreview(pages);
             }
-            updatePageMutationFitWidth();
+            updatePageMutationFitWidth(pages, rotationDelta);
             if (rotationDelta !== null) {
                 void nextTick(() => renderingSession.preparePageRotationPreview(pages, rotationDelta));
             }
@@ -390,19 +389,17 @@ export const usePdfViewerFeatureController = (
     }
 
     // Rotated pages change size (and Fit Width may change the scale) under
-    // the reader. The relayout keeps the committed page in place, the same
-    // placement the revision swap restores.
-    function updatePageMutationFitWidth() {
-        const page = requirePageNumber(
-            viewportSession.currentPage.value,
-            documentSession.numPages.value,
-        );
-        viewportSession.singlePageScroll.relayout(() => {
+    // the reader, whose reading point turns with its page; the revision swap
+    // then carries that point.
+    function updatePageMutationFitWidth(pages?: readonly number[], rotationDelta?: 90 | 180 | 270 | null) {
+        viewportSession.relayoutRotation(() => {
             if (zoomMode.value === 'fit-width') {
                 viewportSession.scale.invalidateScaleCache();
-                viewportSession.scale.computeFitWidthScale(viewerContainer.value, {page});
+                viewportSession.scale.computeFitWidthScale(viewerContainer.value, {
+                    page: requirePageNumber(viewportSession.currentPage.value, documentSession.numPages.value),
+                });
             }
-        }, getRequestAnchor(undefined, page));
+        }, rotationDelta ?? 0, pages);
     }
 
     // The rotation preview changes the geometry every view shares; the
