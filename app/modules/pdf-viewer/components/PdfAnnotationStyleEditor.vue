@@ -174,7 +174,6 @@ import { isAuthoringAnnotationTool } from '@app/modules/pdf-viewer/engine/annota
 import { isShapeTool } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/isShapeTool';
 import {
     isReadOnlyAnnotation,
-    type ITextBoxEntity,
     type AnnotationEntity,
 } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 
@@ -198,7 +197,6 @@ interface IDrawStylePreset {
 interface IProps {
     tool: TAnnotationTool;
     settings: IAnnotationSettings;
-    selectedTextBox?: Pick<ITextBoxEntity, 'fontSize' | 'color'> | null;
     selectedAnnotations?: readonly AnnotationEntity[];
     canRotate?: ((delta: -90 | 90) => boolean) | undefined;
     hasAnnotations?: boolean;
@@ -209,7 +207,6 @@ const { t } = useTypedI18n();
 const {
     settings,
     tool,
-    selectedTextBox = null,
     selectedAnnotations = [],
     canRotate = undefined,
     hasAnnotations = false,
@@ -356,9 +353,6 @@ const activeWidthValue = computed(() => {
     if (!activeWidthControl.value) {
         return 0;
     }
-    if (tool === 'text' && selectedTextBox) {
-        return selectedTextBox.fontSize;
-    }
     return settings[activeWidthControl.value.key];
 });
 
@@ -372,7 +366,7 @@ const activeColorSwatch = computed(() => {
     }
 
     if (tool === 'text') {
-        return selectedTextBox?.color ?? settings.textColor;
+        return settings.textColor;
     }
 
     if (tool === 'note') {

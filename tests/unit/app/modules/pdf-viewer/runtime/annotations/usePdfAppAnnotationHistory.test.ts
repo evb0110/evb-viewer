@@ -506,7 +506,6 @@ describe('usePdfAppAnnotationHistory', () => {
         expect(firstUndo).toHaveBeenCalledTimes(2);
         expect(history.canUndo.value).toBe(false);
         expect(history.canRedo.value).toBe(false);
-        expect(history.annotationHistoryResetVersion.value).toBe(1);
     });
 
     it('does not publish pending transaction commands after replay poisons history', () => {
@@ -538,7 +537,6 @@ describe('usePdfAppAnnotationHistory', () => {
 
         expect(received).toBeInstanceOf(AnnotationHistoryIndeterminateError);
         expect((received as AnnotationHistoryIndeterminateError).cause).toBe(replayFailure);
-        expect(history.annotationHistoryResetVersion.value).toBe(1);
         expect(history.canUndo.value).toBe(false);
         expect(history.canRedo.value).toBe(false);
         expect(history.undo()).toBe(false);
@@ -583,7 +581,6 @@ describe('usePdfAppAnnotationHistory', () => {
         expect(received).toBeInstanceOf(AnnotationHistoryCompensationError);
         expect((received as AnnotationHistoryCompensationError).cause).toBe(replayFailure);
         expect((received as AnnotationHistoryCompensationError).rollbackErrors).toEqual([rollbackFailure]);
-        expect(history.annotationHistoryResetVersion.value).toBe(1);
         expect(ledger.nextUndoSource.value).toBe('file');
         expect(ledger.canUndoTimeline.value).toBe(true);
         expect(ledger.canRedoTimeline.value).toBe(false);

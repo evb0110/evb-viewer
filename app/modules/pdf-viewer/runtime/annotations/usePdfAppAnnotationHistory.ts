@@ -25,7 +25,6 @@ export const usePdfAppAnnotationHistory = (options: {
     const undoDepth = ref(0);
     const redoDepth = ref(0);
     const annotationHistoryMutationVersion = ref(0);
-    const annotationHistoryResetVersion = ref(0);
     const canUndo = computed(() => undoDepth.value > 0);
     const canRedo = computed(() => redoDepth.value > 0);
     let transactionDepth = 0;
@@ -165,7 +164,6 @@ export const usePdfAppAnnotationHistory = (options: {
             discarded.forEach(command => command.onDiscard?.());
         }
         syncDepths();
-        annotationHistoryResetVersion.value += 1;
         emitCombinedState();
     }
 
@@ -270,7 +268,6 @@ export const usePdfAppAnnotationHistory = (options: {
         ].forEach(command => command.onDiscard?.());
         transactionCommands = [];
         syncDepths();
-        annotationHistoryResetVersion.value += 1;
         ignoreFailure(() => workspaceCommandSink?.reset('annotation'));
         ignoreFailure(emitCombinedState);
     }
@@ -361,14 +358,12 @@ export const usePdfAppAnnotationHistory = (options: {
         ].forEach(command => command.onDiscard?.());
         transactionCommands = [];
         syncDepths();
-        annotationHistoryResetVersion.value += 1;
         workspaceCommandSink?.reset('annotation');
         emitCombinedState();
     }
 
     return {
         annotationHistoryMutationVersion,
-        annotationHistoryResetVersion,
         canUndo,
         canRedo,
         registerCommand,

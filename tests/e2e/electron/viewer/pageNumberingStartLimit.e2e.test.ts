@@ -30,7 +30,7 @@ import {
     waitForToolbarCurrentPage,
 } from '@tests/e2e/electron/helpers/viewerCore';
 import {readToolbarPageIndicator} from '@tests/e2e/electron/helpers/toolbarPageIndicator';
-import {getPageLabelStartNumberMax} from '@app/modules/document-viewer/pageLabels';
+import {getPageLabelStartNumberMax} from '@pdf-core/pdfPageLabels';
 import type {Page} from 'puppeteer-core';
 
 const PAGES_PANEL = '.workspace-host[data-workspace-active="true"]';

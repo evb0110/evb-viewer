@@ -833,15 +833,3 @@ export function registerPdfDocumentPageLeaseOwner(
 ) {
     pdfDocumentPageLeaseOwners.set(document, leasePage);
 }
-
-export async function leasePdfDocumentPage(
-    document: IPdfDocument,
-    pageNumber: number,
-    retention: TPdfDocumentPageLeaseRetention = 'render-cache',
-) {
-    const leasePage = pdfDocumentPageLeaseOwners.get(document);
-    if (!leasePage) {
-        throw new Error('PDF document page lease owner is unavailable');
-    }
-    return leasePage(pageNumber, retention);
-}

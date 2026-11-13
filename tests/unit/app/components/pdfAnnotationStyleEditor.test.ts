@@ -73,20 +73,12 @@ interface IMountEditorOptions {
     tool?: TAnnotationTool;
     selectedAnnotations?: readonly AnnotationEntity[];
     canRotate?: (delta: -90 | 90) => boolean;
-    selectedTextBox?: {
-        color: string;
-        fontSize: number;
-    } | null;
 }
 
 function mountEditor({
     tool = 'text',
     selectedAnnotations = [],
     canRotate = () => true,
-    selectedTextBox = {
-        color: '#123456',
-        fontSize: 14,
-    },
 }: IMountEditorOptions = {}) {
     const host = document.createElement('div');
     document.body.append(host);
@@ -103,7 +95,6 @@ function mountEditor({
     };
     const app = createApp(defineComponent({setup: () => () => h(PdfAnnotationStyleEditor, {
         settings: {...DEFAULT_ANNOTATION_SETTINGS},
-        selectedTextBox,
         selectedAnnotations,
         canRotate,
         tool,
@@ -250,34 +241,8 @@ describe('PdfAnnotationStyleEditor', () => {
         expect(input.value).toBe(String(selectedText.fontSize));
     });
 
-    it('uses the selected text box style and routes text edits through settings events', () => {
-        const {
-            host,
-            updates,
-        } = mountEditor();
-
-        expect(host.querySelector('.style-label')?.textContent).toContain('14');
-        const selectedColor = host.querySelector<HTMLButtonElement>('button[aria-label="#123456"]');
-        expect(selectedColor?.getAttribute('aria-pressed')).toBe('true');
-
-        selectedColor?.click();
-        expect(updates.at(-1)).toEqual({
-            key: 'textColor',
-            value: '#123456',
-        });
-
-        host.querySelector<HTMLButtonElement>('button[aria-label="annotations.increaseWidth"]')?.click();
-        expect(updates.at(-1)).toEqual({
-            key: 'textSize',
-            value: 15,
-        });
-    });
-
     it('changes draw presets without toggling the active draw tool off', () => {
-        const editor = mountEditor({
-            tool: 'draw',
-            selectedTextBox: null,
-        });
+        const editor = mountEditor({tool: 'draw'});
         const {
             host,
             updates,
@@ -483,10 +448,7 @@ describe('PdfAnnotationStyleEditor', () => {
             host,
             updates,
             propertyUpdates,
-        } = mountEditor({
-            tool: 'note',
-            selectedTextBox: null,
-        });
+        } = mountEditor({tool: 'note'});
         host.querySelector<HTMLButtonElement>('button[aria-label="#22c55e"]')?.click();
         expect(updates).toEqual([{
             key: 'noteColor',

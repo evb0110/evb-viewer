@@ -2,11 +2,9 @@ import type {IBackendAnnotationMutation} from '@app/modules/pdf-viewer/engine/an
 import type {
     IAnnotationMutationStep,
     ISerializationPlan,
-    IAnnotationReopenReader,
 } from '@app/modules/pdf-viewer/annotations/persistence/annotationSavePlan';
 import {
     SERIALIZATION_MUTATION_ORDER,
-    verifyAnnotationSave,
 } from '@app/modules/pdf-viewer/annotations/persistence/annotationSavePlan';
 export type {IBackendAnnotationMutation} from '@app/modules/pdf-viewer/engine/annotations/persistence/backendAnnotationMutation';
 
@@ -97,44 +95,4 @@ export function assertAnnotationBackendSemanticConformance(plan: ISerializationP
         throw new Error('Annotation persistence backends produced divergent semantic programs');
     }
     return program ?? [];
-}
-
-export interface IAnnotationPersistenceBackendAdapter extends IAnnotationReopenReader {
-    readonly backend: TAnnotationPersistenceBackend;
-    apply(mutations: readonly IBackendAnnotationMutation[]): Promise<Uint8Array>;
-}
-
-/**
- * Executes and semantically reopens every supported backend. This is the
- * conformance gate used by backend fixtures; byte equality is intentionally
- * not required, but the canonical plan and reopen truth are.
- */
-export async function verifyAllAnnotationPersistenceBackends(
-    plan: ISerializationPlan,
-    adapters: readonly IAnnotationPersistenceBackendAdapter[],
-) {
-    const byBackend = new Map(adapters.map(adapter => [
-        adapter.backend,
-        adapter,
-    ]));
-    if (
-        byBackend.size !== ANNOTATION_PERSISTENCE_BACKENDS.length
-        || ANNOTATION_PERSISTENCE_BACKENDS.some(backend => !byBackend.has(backend))
-    ) {
-        throw new Error('Annotation conformance requires exactly one adapter for every persistence backend');
-    }
-    assertAnnotationBackendSemanticConformance(plan);
-    return Promise.all(ANNOTATION_PERSISTENCE_BACKENDS.map(async (backend) => {
-        const adapter = byBackend.get(backend);
-        if (!adapter) {
-            throw new Error(`Missing annotation persistence adapter for ${backend}`);
-        }
-        const mutations = projectAnnotationBackendMutations(plan, backend);
-        const bytes = await adapter.apply(mutations);
-        await verifyAnnotationSave(bytes, plan, adapter);
-        return {
-            backend,
-            bytes,
-        };
-    }));
 }

@@ -1038,11 +1038,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
             initialVisual.reconcileInitialVisual();
         }
     }, {flush: 'sync'});
-    const {
-        resetRenderStallRecoveryState,
-        invalidatePages,
-        handlePageRenderStall,
-    } = usePdfViewerRenderStallRecovery({
+    const {handlePageRenderStall} = usePdfViewerRenderStallRecovery({
         src: computed(() => documentSession.acceptedSource.value),
         numPages: documentSession.numPages,
         currentPage: viewport.currentPage,
@@ -1186,7 +1182,6 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
         }
         if (mandatoryDemandTaskId !== null) window.clearTimeout(mandatoryDemandTaskId);
         qualityRefineGate.clearIdleTimer();
-        resetRenderStallRecoveryState();
         initialVisual.setPendingReadyToken(null);
         await cancelRasterDemand();
         [...textLayerWaits].forEach(giveUp => giveUp());
@@ -1228,7 +1223,6 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
         getCommittedAnnotationInput: (pageNumber: TPageNumber) => pageResources.get(pageNumber).shown?.render.annotationInput,
         isNativeTextBoxAppearance: pageResources.isNativeTextBoxAppearance,
         isPageRenderFailed,
-        invalidatePages,
         handlePageRenderStall,
     };
 };

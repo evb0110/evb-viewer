@@ -1,4 +1,4 @@
-import type {IPdfSaveByteRouteDecision} from '@app/modules/pdf-viewer/public';
+import type {IPdfSaveByteRouteDecision} from '@app/modules/pdf-viewer/runtime/save/pdfViewerSaveTransaction.types';
 
 export const TEST_PDF_SAVE_BYTE_ROUTE_DECISION: IPdfSaveByteRouteDecision = {
     route: 'source-clean',

@@ -3,10 +3,7 @@ import {
     expect,
     it,
 } from 'vitest';
-import {
-    createWorkspaceSurfaceBudgetController,
-    estimateCanvasSurfaceBytes,
-} from '@app/modules/document-viewer/public';
+import { createWorkspaceSurfaceBudgetController } from '@app/modules/document-viewer/runtime/workspaceSurfaceBudgetController';
 import {
     DOCUMENT_SOURCE_INACTIVE_LEASE_GRACE_MS,
     shouldRetainInactiveDocumentPageSourceLease,
@@ -222,17 +219,6 @@ describe('workspace surface budget controller', () => {
         expect(admitted).not.toBeNull();
         expect(evicted).toEqual(['thumbnail']);
         expect(controller.getSnapshot().reservedBytes).toBe(800);
-    });
-
-    it('counts canvas backing stores at four bytes per physical pixel', () => {
-        expect(estimateCanvasSurfaceBytes({
-            width: 1200,
-            height: 800,
-        })).toBe(3_840_000);
-        expect(estimateCanvasSurfaceBytes({
-            width: 0,
-            height: 800,
-        })).toBe(0);
     });
 
     it('evicts low-priority reclaimable surfaces as the live pressure budget contracts', () => {

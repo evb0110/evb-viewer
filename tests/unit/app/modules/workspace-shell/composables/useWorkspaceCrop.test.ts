@@ -82,15 +82,11 @@ function createPdfViewerExpose(overrides: Partial<IPdfViewerExpose> = {}): IPdfV
         focusAnnotationComment: vi.fn(async () => {}),
         updateAnnotationComment: vi.fn(() => false),
         deleteAnnotationComment: vi.fn(async () => false),
-        removeAnnotationFromDom: vi.fn(),
         getAllShapes: () => [],
         getDeletedEmbeddedShapeAnnotationIds: () => [],
         deleteSelectedShape: vi.fn(),
         hasShapes: false,
         startImagePlacement: vi.fn(async () => false),
-        clearPendingImagePlacement: vi.fn(),
-        invalidatePages: vi.fn(),
-        requestScrollToCurrentResult: vi.fn(),
     };
 
     return {

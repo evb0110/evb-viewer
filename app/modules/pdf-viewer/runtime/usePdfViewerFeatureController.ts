@@ -434,8 +434,6 @@ export const usePdfViewerFeatureController = (
         renderVisiblePages: renderingSession.renderVisiblePages,
         renderLoadedPdfPagesForBrowserPrint,
         startImagePlacement,
-        clearPendingImagePlacement,
-        invalidatePages: renderingSession.invalidatePages,
         beginPageRotationPreview,
         cancelPageRotationPreview,
         preparePageMutationRevisionSwap: async (input) => {
@@ -463,7 +461,6 @@ export const usePdfViewerFeatureController = (
         startCropSelection: cropSelection.startCropSelection,
         cancelCropSelection: cropSelection.cancelSelection,
         isCropSelecting: cropSelection.isSelecting,
-        requestScrollToCurrentResult: renderingSession.requestScrollToCurrentResult,
     });
 
     return {

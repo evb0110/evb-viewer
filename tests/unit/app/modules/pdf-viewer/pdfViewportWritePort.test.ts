@@ -3,12 +3,12 @@ import {
     expect,
     it,
 } from 'vitest';
-import { createPdfViewportWritePort } from '@app/modules/pdf-viewer/runtime/viewport/pdfViewportWritePort';
+import { createDocumentViewportWritePort } from '@app/modules/document-viewer/runtime/documentViewportWritePort';
 import { createTestPdfViewportWritePort } from '@tests/helpers/createTestPdfViewportWritePort';
 
 describe('PDF viewport write port ownership tags', () => {
     it('fences a synchronous scroll event raised by the DOM setter', () => {
-        const port = createPdfViewportWritePort();
+        const port = createDocumentViewportWritePort();
         let scrollTop = 0;
         let consumedDuringSetter: boolean | null = null;
         // The port only observes scroll geometry and the scrollTop setter in
@@ -51,7 +51,7 @@ describe('PDF viewport write port ownership tags', () => {
             scrollLeft: 0,
             scrollTop: 0,
         } as HTMLElement;
-        const port = createPdfViewportWritePort();
+        const port = createDocumentViewportWritePort();
         expect(port.getInteractionEpoch()).toBe(0);
         const firstIntent = port.beginIntent('navigation-1');
         port.apply(container, {

@@ -571,7 +571,6 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         },
         releasePageLayers,
         applySearchHighlights: searchController.applySearchHighlights,
-        requestScrollToCurrentResult: searchController.requestScrollToCurrentResult,
         annotationProjectionReady,
         annotationPaintIdentities,
         isAnnotationInputCurrent: (pageNumber: TPageNumber, input: IPdfAnnotationRenderInput | undefined) => !input

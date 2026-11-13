@@ -5,14 +5,6 @@ import type {
     TSearchResultOffset,
 } from '@contracts/search';
 
-export interface IDocumentPreviewPageState {
-    failedRenderPx: number;
-    objectUrl: string | null;
-    renderedPx: number;
-    status: 'idle' | 'loading' | 'loaded' | 'error';
-    token: number;
-}
-
 export interface IPreviewPageSize {
     width: number;
     height: number;

@@ -482,8 +482,3 @@ export function createViewportAuthority(deps: IViewportAuthorityDependencies) {
         getTerminalOutcome: (intentId: string) => terminal.get(intentId) ?? null,
     };
 }
-
-export type TPdfViewportWorkPort = Pick<
-    ReturnType<typeof createViewportAuthority>,
-    'activeWorkKind' | 'beginWork' | 'isWorkCurrent' | 'settleWork' | 'cancelWork'
->;

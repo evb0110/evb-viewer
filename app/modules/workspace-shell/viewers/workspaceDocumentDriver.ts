@@ -163,7 +163,6 @@ export type TWorkspaceDriverCommandResult =
 export interface IWorkspaceDocumentDriver {
     readonly id: TWorkspaceDocumentDriverId;
     readonly capabilities: Readonly<IWorkspaceViewerCapabilities>;
-    readonly canPreparePrint: boolean;
     readonly lifecycle: IWorkspaceDocumentDriverLifecycle;
     readonly operations: IWorkspaceDocumentDriverOperations;
     readonly source: IWorkspaceDocumentDriverSource;
@@ -315,9 +314,6 @@ export function createWorkspaceDocumentDriverForAdapter(
     return {
         id: driverProfile.id,
         capabilities: adapter.capabilities,
-        get canPreparePrint() {
-            return isDjvu && sources.djvuSourcePath.value !== null;
-        },
         lifecycle: {createHooks: context => adapter.createLifecycleHooks?.(context) ?? null},
         get operations(): IWorkspaceDocumentDriverOperations {
             const sourcePath = isDjvu

@@ -124,7 +124,6 @@ function mountAnnotationSession(mountOptions: IMountAnnotationSessionOptions = {
             rendering: cast<TPdfRenderingSession>({
                 attachAnnotationProjection: vi.fn(() => vi.fn()),
                 hideManagedAnnotationEditors: vi.fn(),
-                invalidatePages: vi.fn(),
                 isPageRendered: vi.fn(() => false),
                 renderAnnotationEditorLayerForPage: vi.fn(),
                 renderVisiblePages: vi.fn(),

@@ -1,19 +1,11 @@
 import {isFiniteNumber} from '@contracts/runtimeGuards';
 import type { IAnnotationMarkerRect } from '@app/types/annotations';
 import { normalizeMarkerRect } from '@app/modules/pdf-viewer/engine/annotation-geometry/normalizeMarkerRect';
-import { toMarkerRectFromPdfRect } from '@app/modules/pdf-viewer/engine/annotation-geometry/toMarkerRectFromPdfRect';
-import type { TPageRotation } from '@app/modules/pdf-viewer/engine/annotation-geometry/pageRotation';
 import { isTextMarkupSubtype } from '@app/services/pdf/annotationSubtype';
 import type {
     IPdfTextPreviewItem,
     IPdfTextPreviewViewport,
 } from '@app/modules/pdf-viewer/engine/annotations/pdf-annotation-preview-text/pdfAnnotationPreviewTextTypes';
-
-interface IPdfAnnotationTextPreviewRecord {
-    subtype?: string | null | undefined;
-    rect?: number[] | null | undefined;
-    quadPoints?: ArrayLike<number> | null | undefined;
-}
 
 const MAX_PREVIEW_TEXT_LENGTH = 280;
 
@@ -63,67 +55,6 @@ function joinPreviewSegments(segments: string[]) {
             .replace(/\s+/g, ' ')
             .trim(),
     );
-}
-
-function toQuadRects(
-    quadPoints: ArrayLike<number> | null | undefined,
-    pageView: number[] | null | undefined,
-    pageRotation: TPageRotation,
-) {
-    const rects: IAnnotationMarkerRect[] = [];
-    if (!quadPoints || quadPoints.length < 8) {
-        return rects;
-    }
-
-    for (let index = 0; index + 7 < quadPoints.length; index += 8) {
-        const xs = [
-            quadPoints[index],
-            quadPoints[index + 2],
-            quadPoints[index + 4],
-            quadPoints[index + 6],
-        ].filter(isFiniteNumber);
-        const ys = [
-            quadPoints[index + 1],
-            quadPoints[index + 3],
-            quadPoints[index + 5],
-            quadPoints[index + 7],
-        ].filter(isFiniteNumber);
-        if (xs.length === 0 || ys.length === 0) {
-            continue;
-        }
-
-        const rect = toMarkerRectFromPdfRect(
-            [
-                Math.min(...xs),
-                Math.min(...ys),
-                Math.max(...xs),
-                Math.max(...ys),
-            ],
-            pageView,
-            pageRotation,
-        );
-        if (rect) {
-            rects.push(rect);
-        }
-    }
-
-    return rects;
-}
-
-function resolveAnnotationTargetRects(
-    annotation: IPdfAnnotationTextPreviewRecord,
-    pageView: number[] | null | undefined,
-    pageRotation: TPageRotation,
-) {
-    const quadRects = toQuadRects(annotation.quadPoints, pageView, pageRotation);
-    if (quadRects.length > 0) {
-        return quadRects;
-    }
-
-    const rect = annotation.rect
-        ? toMarkerRectFromPdfRect(annotation.rect, pageView, pageRotation)
-        : null;
-    return rect ? [rect] : [];
 }
 
 function expandMarkerRect(rect: IAnnotationMarkerRect) {
@@ -404,15 +335,4 @@ export function resolvePdfAnnotationPreviewTextFromMarkerRects(
         return null;
     }
     return createPdfAnnotationPreviewTextResolver(textItems, viewport)(subtype, targetRects);
-}
-
-export function resolvePdfAnnotationPreviewText(
-    annotation: IPdfAnnotationTextPreviewRecord,
-    textItems: readonly IPdfTextPreviewItem[],
-    pageView: number[] | null | undefined,
-    pageRotation: TPageRotation,
-    viewport: IPdfTextPreviewViewport | null | undefined,
-) {
-    const targets = resolveAnnotationTargetRects(annotation, pageView, pageRotation);
-    return resolvePdfAnnotationPreviewTextFromMarkerRects(annotation.subtype, targets, textItems, viewport);
 }

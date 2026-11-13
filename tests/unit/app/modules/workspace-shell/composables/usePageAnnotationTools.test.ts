@@ -5,9 +5,7 @@ import {
     vi,
 } from 'vitest';
 import type { IAnnotationEditorState } from '@app/types/annotations';
-import type { ITextBoxEntity } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import { usePageAnnotationTools } from '@app/modules/workspace-shell/composables/usePageAnnotationTools';
-import {requirePageIndex} from '@contracts/pageNumbers';
 
 function createEditorState(overrides: Partial<IAnnotationEditorState> = {}): IAnnotationEditorState {
     return {
@@ -20,35 +18,9 @@ function createEditorState(overrides: Partial<IAnnotationEditorState> = {}): IAn
     };
 }
 
-function createTextBoxEntity(): ITextBoxEntity {
-    return {
-        kind: 'text-box',
-        identity: {id: 'text-box' as ITextBoxEntity['identity']['id']},
-        pageIndex: requirePageIndex(0),
-        revision: 0,
-        persistedRevision: 0,
-        deleted: false,
-        createdAt: null,
-        modifiedAt: null,
-        author: null,
-        text: 'text box',
-        rect: {
-            left: 0.1,
-            top: 0.1,
-            width: 0.3,
-            height: 0.1,
-        },
-        rotation: 0,
-        fontSize: 14,
-        color: '#000000',
-    };
-}
-
 function createHarness() {
     const viewer = {
         prepareAnnotationToolChange: vi.fn(),
-        getSelectedTextBox: vi.fn<() => ITextBoxEntity | null>(() => null),
-        updateSelectedTextBoxProperties: vi.fn(),
     };
 
     const deps = {
@@ -78,26 +50,6 @@ describe('usePageAnnotationTools', () => {
 
         expect(tools.annotationSettings.value.shapeStrokeWidth).toBe(5);
         expect(tools.annotationSettings.value.shapeFillColor).toBe('transparent');
-    });
-
-    it('keeps text defaults separate from selected canonical text boxes', () => {
-        const {
-            viewer,
-            tools,
-        } = createHarness();
-
-        viewer.getSelectedTextBox.mockReturnValue(createTextBoxEntity());
-
-        tools.handleAnnotationSettingChange({
-            key: 'textSize',
-            value: 22,
-        });
-        tools.handleAnnotationSettingChange({
-            key: 'textColor',
-            value: '#ef4444',
-        });
-
-        expect(viewer.updateSelectedTextBoxProperties).not.toHaveBeenCalled();
     });
 
     it('tracks dirty state across editor undo transitions and save/reset', () => {

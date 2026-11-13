@@ -2,7 +2,6 @@ import { requirePageIndex } from '@contracts/pageNumbers';
 import type { TPageNumber } from '@contracts/pageNumbers';
 
 import { clamp } from 'es-toolkit/math';
-import type { TPdfViewMode } from '@contracts/shared';
 import type { IPdfPageLayoutMetrics } from '@app/modules/document-viewer/layout/pdfPageLayoutMetrics';
 import {
     getLayoutContentHeight,
@@ -17,11 +16,6 @@ import {createLazyIndexedCollection} from '@app/modules/document-viewer/virtuali
 import type {IPdfSemanticAnchor} from '@contracts/recentReadingView';
 
 export type {IPdfSemanticAnchor};
-
-export interface IPdfViewportPageMetric {
-    width: number;
-    height: number;
-}
 export interface IPdfViewportRect {
     left: number;
     top: number;
@@ -191,89 +185,6 @@ export function getViewportGeometryRowForPage(
     }
 
     return geometry.rows[clamp(low, 0, rowCount - 1)] ?? null;
-}
-
-export interface IComputePdfViewportGeometryOptions {
-    revision: number;
-    pages: readonly IPdfViewportPageMetric[];
-    viewportWidth: number;
-    viewportHeight: number;
-    zoom: number;
-    viewMode: TPdfViewMode;
-    gap: number;
-    padding: number;
-}
-
-function getRowEnd(startIndex: number, total: number, mode: TPdfViewMode) {
-    if (mode === 'single' || total <= 1) {
-        return startIndex;
-    }
-    if (mode === 'facing-first-single' && startIndex === 0) {
-        return 0;
-    }
-    return Math.min(total - 1, startIndex + 1);
-}
-
-export function computePdfViewportGeometry(
-    options: IComputePdfViewportGeometryOptions,
-): IPdfViewportGeometry {
-    const scale = Math.max(0.01, options.zoom);
-    const gap = Math.max(0, options.gap);
-    const padding = Math.max(0, options.padding);
-    const pageRects: IPdfViewportRect[] = [];
-    const rows: Array<IPdfViewportGeometry['rows'][number]> = [];
-    let top = padding;
-    let contentWidth = options.viewportWidth;
-
-    for (let start = 0; start < options.pages.length;) {
-        const end = getRowEnd(start, options.pages.length, options.viewMode);
-        const rowPages = options.pages.slice(start, end + 1);
-        const widths = rowPages.map(page => Math.max(0, page.width * scale));
-        const heights = rowPages.map(page => Math.max(0, page.height * scale));
-        const rowWidth = widths.reduce((sum, width) => sum + width, 0) + gap * (widths.length - 1);
-        const rowHeight = Math.max(0, ...heights);
-        let left = Math.max(padding, (options.viewportWidth - rowWidth) / 2);
-        for (let offset = 0; offset < rowPages.length; offset += 1) {
-            const width = widths[offset];
-            const height = heights[offset];
-            if (width === undefined || height === undefined) {
-                continue;
-            }
-            pageRects[start + offset] = {
-                left,
-                top,
-                width,
-                height,
-            };
-            left += width + gap;
-        }
-        rows.push({
-            startPage: start + 1,
-            endPage: end + 1,
-            rect: {
-                left: Math.max(padding, (options.viewportWidth - rowWidth) / 2),
-                top,
-                width: rowWidth,
-                height: rowHeight,
-            },
-        });
-        contentWidth = Math.max(contentWidth, rowWidth + padding * 2);
-        top += rowHeight + gap;
-        start = end + 1;
-    }
-
-    return {
-        revision: options.revision,
-        insetTop: padding,
-        viewportWidth: options.viewportWidth,
-        viewportHeight: options.viewportHeight,
-        contentWidth,
-        contentHeight: Math.max(options.viewportHeight, top - (rows.length ? gap : 0) + padding),
-        physicalScrollOrigin: 0,
-        physicalScrollHeight: Math.max(options.viewportHeight, top - (rows.length ? gap : 0) + padding),
-        pageRects,
-        rows,
-    };
 }
 
 /**

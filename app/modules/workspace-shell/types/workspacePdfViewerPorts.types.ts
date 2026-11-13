@@ -18,9 +18,6 @@ export interface IWorkspacePdfViewerAnnotationToolsPort extends
         | 'updateSelectedAnnotationProperties'
         | 'canRotateSelectedAnnotations'
         | 'prepareAnnotationToolChange'
-        | 'selectedTextBox'
-        | 'getSelectedTextBox'
-        | 'updateSelectedTextBoxProperties'
     > {}
 
 export interface IWorkspacePdfViewerAnnotationChangesPort extends

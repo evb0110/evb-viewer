@@ -56,7 +56,6 @@ vi.mock('@app/modules/pdf-viewer/runtime/rendering/usePdfAnnotationLayerRenderer
 vi.mock('@app/modules/pdf-viewer/runtime/rendering/usePdfRendererSearchController', () => ({usePdfRendererSearchController: () => ({
     applySearchHighlights: vi.fn(),
     invalidatePendingRequests: vi.fn(),
-    requestScrollToCurrentResult: vi.fn(),
 })}));
 
 const toastAdd = vi.fn();

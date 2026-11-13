@@ -106,6 +106,47 @@ function createDeferredLoadingTask(document: ReturnType<typeof createDocumentPro
     };
 }
 
+/** A committed open surface that accepts a staged page-mutation revision swap. */
+function createRevisionSwapAuthority(revision: TDocumentRevisionToken) {
+    const surfaceSnapshot = ref({
+        generation: 7,
+        phase: 'ready',
+        identity: {
+            documentId: 'scan.pdf',
+            documentRevision: revision,
+        },
+    });
+    const surface = {
+        snapshot: surfaceSnapshot,
+        prepareRevisionSwap: vi.fn((identity: {
+            documentId: string;
+            documentRevision: TDocumentRevisionToken
+        }) => {
+            surfaceSnapshot.value = {
+                ...surfaceSnapshot.value,
+                identity,
+            };
+            return true;
+        }),
+        completeRevisionSwap: vi.fn(() => true),
+        cancelRevisionSwap: vi.fn(() => true),
+        acquireSource: vi.fn(() => 7),
+    };
+    const source = ref<unknown>(null);
+    const chassisAuthority = {
+        openSurface: surface,
+        source,
+        bindSource: vi.fn((pageSource: unknown) => {
+            source.value = pageSource;
+        }),
+        surfaceBudget: undefined,
+    };
+    return {
+        surface,
+        chassisAuthority: chassisAuthority as never,
+    };
+}
+
 describe('PdfDocumentSession transitions', () => {
     beforeEach(() => {
         vi.clearAllMocks();
@@ -175,7 +216,7 @@ describe('PdfDocumentSession transitions', () => {
         expect(session.document.value).toBeNull();
     });
 
-    it('restores a remounted rendering subscriber after its predecessor wedged mid-open', async () => {
+    it('opens a remounted rendering subscriber after its predecessor wedged mid-open', async () => {
         const wedgedDocument = createDocumentProxy('wedged');
         const wedged = createDeferredLoadingTask(wedgedDocument);
         const recoveredDocument = createDocumentProxy('recovered');
@@ -203,9 +244,8 @@ describe('PdfDocumentSession transitions', () => {
         const wedgedFence = predecessorPhases[0]!.fence;
         await predecessor.dispose();
 
-        const active = ref(true);
         const successor = createPdfDocumentSession({src: source});
-        const successorView = successor.attachView({isActive: computed(() => active.value)});
+        const successorView = successor.attachView();
         const viewportPhases: string[] = [];
         const renderingPhases: string[] = [];
         let renderingFence: IPdfDocumentTransition['fence'] | null = null;
@@ -214,18 +254,12 @@ describe('PdfDocumentSession transitions', () => {
         });
         successorView.subscribe((transition) => {
             renderingPhases.push(transition.phase);
-            if (transition.phase === 'ready' || transition.phase === 'restore') {
+            if (transition.phase === 'ready') {
                 renderingFence = transition.fence;
             }
         });
 
         await successor.load();
-        active.value = false;
-        await nextTick();
-        active.value = true;
-        await vi.waitFor(() => {
-            expect(renderingPhases.at(-1)).toBe('restore');
-        });
 
         expect(viewportPhases).toEqual(renderingPhases);
         expect(successor.document.value).toBe(recoveredDocument);
@@ -239,7 +273,7 @@ describe('PdfDocumentSession transitions', () => {
         expect(predecessorPhases).toHaveLength(1);
         expect(predecessorView.isCurrent(wedgedFence)).toBe(false);
         expect(successor.document.value).toBe(recoveredDocument);
-        expect(renderingPhases.at(-1)).toBe('restore');
+        expect(renderingPhases.at(-1)).toBe('settled');
     });
 
     it('fences a stale ready transition before a later rendering subscriber can tear down', async () => {
@@ -313,7 +347,7 @@ describe('PdfDocumentSession transitions', () => {
         expect(view.isCurrent(fence)).toBe(false);
     });
 
-    it('carries preserved and selective reload intent through the typed transition', async () => {
+    it('carries preserved reload intent through the typed transition', async () => {
         pdfjsState.getDocument.mockImplementation(() => ({
             promise: Promise.resolve(createDocumentProxy(crypto.randomUUID())),
             destroy: vi.fn(),
@@ -331,12 +365,6 @@ describe('PdfDocumentSession transitions', () => {
         await session.load();
         view.preserveNextReloadVisibleContent(true);
         await session.load(true);
-        view.preserveNextReloadVisibleContent(true);
-        view.invalidatePagesOnNextReload([
-            2,
-            4,
-        ]);
-        await session.load(true);
 
         expect(loadingPlans).toEqual([
             expect.objectContaining({
@@ -350,16 +378,6 @@ describe('PdfDocumentSession transitions', () => {
                 preservePageStructure: true,
                 isSelectiveReload: false,
             }),
-            expect.objectContaining({
-                isReload: true,
-                preserveVisibleContent: true,
-                preservePageStructure: true,
-                isSelectiveReload: true,
-                pagesToInvalidate: [
-                    2,
-                    4,
-                ],
-            }),
         ]);
     });
 
@@ -367,39 +385,9 @@ describe('PdfDocumentSession transitions', () => {
         const previousRevision = requireDocumentRevisionToken('drt1:before-rotate');
         const nextRevision = requireDocumentRevisionToken('drt1:after-rotate');
         const documentRevisionToken = ref(previousRevision);
-        const pageSource = ref<unknown>(null);
-        const surfaceSnapshot = ref({
-            generation: 7,
-            phase: 'ready',
-            identity: {
-                documentId: 'scan.pdf',
-                documentRevision: previousRevision,
-            },
-        });
-        const surface = {
-            snapshot: surfaceSnapshot,
-            prepareRevisionSwap: vi.fn((identity: {
-                documentId: string;
-                documentRevision: TDocumentRevisionToken
-            }) => {
-                surfaceSnapshot.value = {
-                    ...surfaceSnapshot.value,
-                    identity,
-                };
-                return true;
-            }),
-            completeRevisionSwap: vi.fn(() => true),
-            cancelRevisionSwap: vi.fn(() => true),
-            acquireSource: vi.fn(() => 7),
-        };
-        const chassisAuthority = {
-            openSurface: surface,
-            source: pageSource,
-            bindSource: vi.fn((source: unknown) => {
-                pageSource.value = source;
-            }),
-            surfaceBudget: undefined,
-        };
+        const {
+            surface, chassisAuthority,
+        } = createRevisionSwapAuthority(previousRevision);
         const source = computed(() => new Blob(['pdf'], {type: 'application/pdf'}) as never);
         const emitInitialVisualPending = vi.fn();
         const session = createPdfDocumentSession({
@@ -407,7 +395,7 @@ describe('PdfDocumentSession transitions', () => {
             documentRevisionToken: computed(() => documentRevisionToken.value),
         });
         const view = session.attachView({
-            chassisAuthority: chassisAuthority as never,
+            chassisAuthority,
             emitInitialVisualPending,
         });
         const loadingPlans: Array<IPdfDocumentTransition['plan']> = [];
@@ -447,30 +435,7 @@ describe('PdfDocumentSession transitions', () => {
         const previousRevision = requireDocumentRevisionToken('drt1:before-fast-rotate');
         const nextRevision = requireDocumentRevisionToken('drt1:after-fast-rotate');
         const documentRevisionToken = ref(previousRevision);
-        const surfaceSnapshot = ref({
-            generation: 7,
-            phase: 'ready',
-            identity: {
-                documentId: 'scan.pdf',
-                documentRevision: previousRevision,
-            },
-        });
-        const surface = {
-            snapshot: surfaceSnapshot,
-            prepareRevisionSwap: vi.fn((identity: {
-                documentId: string;
-                documentRevision: TDocumentRevisionToken
-            }) => {
-                surfaceSnapshot.value = {
-                    ...surfaceSnapshot.value,
-                    identity,
-                };
-                return true;
-            }),
-            completeRevisionSwap: vi.fn(() => true),
-            cancelRevisionSwap: vi.fn(() => true),
-            acquireSource: vi.fn(() => 7),
-        };
+        const {chassisAuthority} = createRevisionSwapAuthority(previousRevision);
         const replacementPageRequests: number[] = [];
         const previousDocument = createMetricDocumentProxy('before-fast-rotate', 3);
         const replacementDocument = createMetricDocumentProxy(
@@ -485,19 +450,11 @@ describe('PdfDocumentSession transitions', () => {
             destroy: vi.fn(),
         }));
         const source = computed(() => new Blob(['pdf'], {type: 'application/pdf'}) as never);
-        const sourceRef = ref<unknown>(null);
         const session = createPdfDocumentSession({
             src: source,
             documentRevisionToken: computed(() => documentRevisionToken.value),
         });
-        const view = session.attachView({chassisAuthority: {
-            openSurface: surface,
-            source: sourceRef,
-            bindSource: vi.fn((pageSource: unknown) => {
-                sourceRef.value = pageSource;
-            }),
-            surfaceBudget: undefined,
-        } as never});
+        const view = session.attachView({chassisAuthority});
         const loadingPlans: Array<IPdfDocumentTransition['plan']> = [];
         view.subscribe((transition) => {
             if (transition.phase === 'loading' && transition.plan.isSelectiveReload) {
@@ -561,6 +518,10 @@ describe('PdfDocumentSession transitions', () => {
 
     it('refreshes invalidated page geometry before publishing the selective replacement source', async () => {
         const currentPage = 135;
+        const previousRevision = requireDocumentRevisionToken('drt1:before-replace');
+        const nextRevision = requireDocumentRevisionToken('drt1:after-replace');
+        const documentRevisionToken = ref(previousRevision);
+        const {chassisAuthority} = createRevisionSwapAuthority(previousRevision);
         const previousDocument = createMetricDocumentProxy('before-rotation', 20_001);
         const replacementPageRequests: number[] = [];
         const replacementDocument = createMetricDocumentProxy(
@@ -577,10 +538,16 @@ describe('PdfDocumentSession transitions', () => {
         const source = computed(() => new Blob(['pdf'], {type: 'application/pdf'}) as never);
         const observed: string[] = [];
         let collecting = false;
-        const session = createPdfDocumentSession({src: source});
-        const view = session.attachView({emitDocument: () => {
-            if (collecting) observed.push('replacement-source-published');
-        }});
+        const session = createPdfDocumentSession({
+            src: source,
+            documentRevisionToken: computed(() => documentRevisionToken.value),
+        });
+        const view = session.attachView({
+            chassisAuthority,
+            emitDocument: () => {
+                if (collecting) observed.push('replacement-source-published');
+            },
+        });
 
         await session.load();
         await session.ensurePageMetricsInRange(currentPage, currentPage);
@@ -606,8 +573,8 @@ describe('PdfDocumentSession transitions', () => {
             observed.push('replacement-geometry-ready');
         });
         collecting = true;
-        view.preserveNextReloadVisibleContent(true);
-        view.invalidatePagesOnNextReload([currentPage]);
+        expect(view.preparePageMutationRevisionSwap(String(nextRevision), [currentPage], currentPage)).toBe(true);
+        documentRevisionToken.value = nextRevision;
         await session.load(true);
 
         expect(observed).toEqual([
