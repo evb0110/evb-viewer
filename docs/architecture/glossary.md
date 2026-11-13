@@ -6,10 +6,26 @@ decisions use for documents, annotations, and the parts that read and write them
 
 ## Documents
 
+**Document store**:
+The shared durability core in `packages/document-store`. Each document has one
+directory whose manifest commits its revision, unsaved drafts and destination.
+_Avoid_: recovery tree, document database
+
 **Working copy**:
-The private, decrypted copy of an opened file that every read, edit, and save
-operates on until the user saves back to the original path.
+The opened document's editable bytes, addressed by a document reference. Reads
+use its committed revision, or its destination until it needs bytes of its own.
+A reference is not a physical file path.
 _Avoid_: temp file, scratch copy, materialized file
+
+**Revision**:
+A file and committed length named by the document manifest. Bytes within that
+length are immutable; an append can extend the same file.
+_Avoid_: checkpoint copy, generation
+
+**Destination witness**:
+The saved file's size and modification time used to detect an external change.
+Content witnesses identify bytes for recovery and downloads.
+_Avoid_: checksum (when file metadata is meant)
 
 **Renderer**:
 The component that turns a page into pixels, a text layer, and a static display
