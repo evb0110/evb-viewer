@@ -85,7 +85,13 @@ export function toDocumentSaveResult(
                     validation,
                 };
         case 'conflict':
-            return {ok: false, reason: 'original-changed', externalWriteCommitted: false, validation: null};
+            return {
+                ok: false,
+                reason: 'original-changed',
+                ...(result.keptOriginal === undefined ? {} : {keptFilePath: result.keptOriginal}),
+                externalWriteCommitted: false,
+                validation: null,
+            };
         case 'stale-revision':
             return {ok: false, reason: 'stale', externalWriteCommitted: false, validation: null};
         case 'needs-save-as':

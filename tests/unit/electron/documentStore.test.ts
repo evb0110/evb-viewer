@@ -215,6 +215,25 @@ describe('desktop document store', () => {
         expect(await findKeptOriginal(pdf)).toBe(kept);
     });
 
+    it('keeps the original beside the PDF when another program changed it after a crashed save installed its bytes', async () => {
+        const {pdf, entry} = await openPdf();
+        await crashDuringPublish(entry, await writeTemp('edited.pdf', EDITED));
+        await rename(pdf, displaced(pdf));
+        const outside = new TextEncoder().encode(`${new TextDecoder().decode(EDITED)}% appended elsewhere\n`);
+        await writeFile(pdf, outside);
+        const id = entry.doc.id;
+        await restart();
+
+        const reopened = await store.reopenStoredDocument(id, {});
+
+        const kept = join(dirname(pdf), 'report (original).pdf');
+        expect(await readFile(kept)).toEqual(Buffer.from(ORIGINAL));
+        expect(await readFile(pdf)).toEqual(Buffer.from(outside));
+        expect(await findKeptOriginal(pdf)).toBe(kept);
+        expect(reopened.doc.state().dirty).toBe(true);
+        expect(await readAll(reopened)).toEqual(EDITED);
+    });
+
     it('commits a native tool\'s output as the next revision without copying the document first, and drops it when the tool fails', async () => {
         const {pdf, entry} = await openPdf();
         const before = store.documentRevisionToken(entry);

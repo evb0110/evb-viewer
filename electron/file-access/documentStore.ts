@@ -335,7 +335,7 @@ export async function reopenStoredDocument(id: string, options: {ownerWebContent
 async function settleInterruptedPublish(id: string) {
     const manifest = decodeManifest(await getDocumentStore().port.read(`${DOCUMENTS_DIR}/${id}/${MANIFEST_NAME}`));
     if (manifest.pendingPublish) {
-        await recoverInterruptedPublish(manifest.pendingPublish.destination, manifest.baseline ?? null);
+        await recoverInterruptedPublish(manifest.pendingPublish.destination, manifest.baseline ?? null, manifest.pendingPublish.witness);
     }
 }
 
