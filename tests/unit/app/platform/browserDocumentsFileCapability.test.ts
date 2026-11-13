@@ -449,9 +449,12 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
             expect(downloads).toHaveLength(1);
             expect(new Uint8Array(await downloads[0]!.arrayBuffer())).toEqual(edited);
         } else expect(physical).toEqual(expected);
-        await expect(store.read(working)).resolves.toEqual(expected);
+        // A Save the file refused keeps the edits it committed in the working copy, unsaved; a cancelled pick commits nothing.
+        await expect(store.read(working)).resolves.toEqual(outcome === 'cancel' ? original : edited);
         await expect(store.read(source)).resolves.toEqual(expected);
-        if (outcome === 'cancel' || outcome === 'denied') expect((await store.getDocumentRevision(working)).token).toBe(revision.token);
+        const token = (await store.getDocumentRevision(working)).token;
+        if (outcome === 'cancel') expect(token).toBe(revision.token);
+        if (outcome === 'denied') expect(token).not.toBe(revision.token);
     });
 
     it.each([
@@ -1650,10 +1653,13 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
             grantedModes.add(descriptor?.mode ?? '');
             return 'granted' as const;
         });
-        const createWritable = vi.fn(async () => createFileSystemWritableFileStream({write: vi.fn(async (_chunk: FileSystemWriteChunkType) => {})}));
+        let physical = Uint8Array.of(1);
+        const createWritable = vi.fn(async () => createFileSystemWritableFileStream({write: vi.fn(async (chunk: FileSystemWriteChunkType) => {
+            physical = new Uint8Array(requireArrayBufferChunk(chunk));
+        })}));
         const handle = createFileSystemFileHandle({
             name: 'needs-permission.pdf',
-            getFile: vi.fn(async () => new File([Uint8Array.of(1)], 'needs-permission.pdf', {
+            getFile: vi.fn(async () => new File([physical], 'needs-permission.pdf', {
                 type: 'application/pdf',
                 lastModified: 1,
             })),

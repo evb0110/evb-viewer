@@ -46,10 +46,13 @@ function statOrNull(path: string) {
 }
 
 /**
- * A file version's metadata fact: its size and modification time at the precision the platform records. Equal
- * facts mean an unchanged file, as long as nothing restores a modification time it changed.
+ * A file version's metadata fact: its size, its modification time at the precision the platform records, and its
+ * identity (device and inode; on Windows the volume serial and file id). A file another program put in its place
+ * differs even with the same size and time; a rename keeps all four, so a published copy's fact survives its
+ * install. An edit in place that restores the modification time goes unseen: telling it apart takes reading the
+ * content. Facts of the earlier `file-v1` form, size and time only, never equal these.
  */
-const metadataFact = (stats: BigIntStats) => `file-v1:${stats.size}:${stats.mtimeNs}`;
+const metadataFact = (stats: BigIntStats) => `file-v2:${stats.size}:${stats.mtimeNs}:${stats.dev}:${stats.ino}`;
 
 /** The metadata fact of the file at `path` and, with `content`, its content witness (one full read); `null` when missing. */
 async function fileWitness(path: string, content = false) {
@@ -77,16 +80,13 @@ function displacedPath(destination: string) {
     return join(dirname(destination), `.${basename(destination)}.evb-replaced`);
 }
 
-const sameBytesOnDisk = (left: BigIntStats, right: BigIntStats) => left.dev === right.dev && left.ino === right.ino
-    && left.size === right.size && left.mtimeNs === right.mtimeNs;
-
 /**
  * Ends what a save left of the PDF it displaced: put back when the save never installed its bytes, removed when the
  * PDF still holds what the save `installed` and the displaced bytes were the `baseline` EVB last read or wrote (or the
  * very file the save's check read, `checked`), and otherwise kept beside the PDF under a visible "(original)" name with
  * a notice, since another program wrote one of the two. Returns that name.
  */
-async function settleDisplacedOriginal(destination: string, baseline: string | null, installed = true, checked?: BigIntStats) {
+async function settleDisplacedOriginal(destination: string, baseline: string | null, installed = true, checked?: string) {
     const displaced = displacedPath(destination);
     const found = statOrNull(displaced);
     if (!found) return undefined;
@@ -95,7 +95,7 @@ async function settleDisplacedOriginal(destination: string, baseline: string | n
         await fsyncParentDirectory(destination);
         return undefined;
     }
-    if (installed && ((checked && sameBytesOnDisk(found, checked)) || sameWitness(metadataFact(found), baseline))) {
+    if (installed && (sameWitness(metadataFact(found), checked) || sameWitness(metadataFact(found), baseline))) {
         await rm(displaced, {force: true});
         return undefined;
     }
@@ -103,14 +103,14 @@ async function settleDisplacedOriginal(destination: string, baseline: string | n
 }
 
 /**
- * Settles a save a crash interrupted, before the document that made it reopens: the save finished only if the PDF is
- * the file it was publishing, whose metadata it staged as `published`. A PDF that cannot be read now is left for the
- * next start.
+ * Settles a save a crash or a failure interrupted: the save finished only if the PDF is the file it was publishing,
+ * whose metadata it staged as `published`. Returns the PDF's witness afterwards; throws while the PDF cannot be read,
+ * so the document keeps the save to settle later.
  */
-export function recoverInterruptedPublish(destination: string, baseline: string | null, published: string) {
+function settleInterruptedPublish(destination: string, published: string, baseline: string | null) {
     return withOriginalPathMutationLock(destination, async () => {
-        const now = await fileWitness(destination).catch(() => undefined);
-        return now === undefined ? undefined : settleDisplacedOriginal(destination, baseline, sameWitness(now, published));
+        await settleDisplacedOriginal(destination, baseline, sameWitness(await fileWitness(destination), published));
+        return fileWitness(destination);
     });
 }
 
@@ -132,6 +132,7 @@ async function copyRevision(source: IPublishSource, absolutePath: string, target
 export function createDesktopPublication(absolute: (storePath: string) => string): IPublicationPort {
     return {
         witness: fileWitness,
+        settle: settleInterruptedPublish,
         source: async destination => destination,
         publish: (destination, source, expected, stage) => withOriginalPathMutationLock(destination, async () => {
             await settleDisplacedOriginal(destination, expected);
@@ -140,14 +141,14 @@ export function createDesktopPublication(absolute: (storePath: string) => string
                 await copyRevision(source, absolute(source.path), temp);
                 const staged = metadataFact(statSync(temp, {bigint: true}));
                 await stage(staged);
-                let checked: BigIntStats | undefined;
+                let checked: string | undefined;
                 try {
                     await atomicReplace(temp, destination, expected === null ? {} : {
                         destinationBackupPath: displacedPath(destination),
                         assertDestinationCurrent: () => {
                             const before = statOrNull(destination);
-                            if (!before || !sameWitness(metadataFact(before), expected)) throw new DestinationChanged();
-                            checked = before;
+                            checked = before ? metadataFact(before) : undefined;
+                            if (!sameWitness(checked, expected)) throw new DestinationChanged();
                             return Promise.resolve();
                         },
                     });

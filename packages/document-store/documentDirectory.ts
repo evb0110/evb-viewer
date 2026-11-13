@@ -39,9 +39,12 @@ export type THistoryRevision = IRevision | IDestinationRevision;
 
 const hasFile = (revision: THistoryRevision): revision is IRevision => 'file' in revision;
 
+/** A publish whose outcome is unknown: `witness` is what `destination` holds if it finished. */
 interface IPendingPublish {
     destination: string;
     witness: string;
+    /** What the destination held before, for an `unsettled` record; the latest publish's is the manifest's `baseline`. */
+    baseline?: string | undefined;
 }
 
 export interface IManifest {
@@ -55,7 +58,10 @@ export interface IManifest {
     destination?: string | undefined;
     /** The witness of the bytes last read from or published to `destination`. */
     baseline?: string | undefined;
+    /** The latest publish while its outcome is unknown; recovery adopts it when the destination holds what it published. */
     pendingPublish?: IPendingPublish | undefined;
+    /** Earlier publishes a later one followed before they could be settled, for example while their destination could not be read. */
+    unsettled?: IPendingPublish[] | undefined;
     /** The immutable file holding the drafts that apply to `current`; absent when there are none. */
     drafts?: string | undefined;
 }
@@ -94,6 +100,12 @@ export interface IPublicationPort {
      * file metadata alone unless `content` asks for the content witness too, which reads every byte.
      */
     witness(destination: string, content?: boolean): Promise<string | null>;
+    /**
+     * Ends what an interrupted publish of `published` left at `destination`, which held `baseline` before (on desktop,
+     * the file it moved aside), then answers as `witness` does. Throws while the destination cannot be read. Without
+     * it, recovery asks `witness`, for the content when `published` names it.
+     */
+    settle?(destination: string, published: string, baseline: string | null): Promise<string | null>;
     /** The destination's bytes, to copy in as the first revision. */
     source(destination: string): Promise<TExternalSource>;
     /**
@@ -157,6 +169,8 @@ function isRevision(value: unknown): value is IRevision {
 }
 
 const isDestinationRevision = (value: unknown) => isRecord(value) && value.id === 1 && typeof value.witness === 'string' && !('file' in value);
+const isPendingPublish = (value: unknown) => isRecord(value) && typeof value.destination === 'string' && typeof value.witness === 'string'
+    && isOptionalString(value.baseline);
 
 function isManifest(value: unknown): value is IManifest {
     return isRecord(value) && value.version === 1 && typeof value.ext === 'string' && EXT_PATTERN.test(value.ext)
@@ -165,8 +179,8 @@ function isManifest(value: unknown): value is IManifest {
         && (value.current === undefined || isRevision(value.current))
         && isOptionalString(value.destination) && isOptionalString(value.baseline)
         && (value.drafts === undefined || (typeof value.drafts === 'string' && DRAFTS_FILE_PATTERN.test(value.drafts)))
-        && (value.pendingPublish === undefined || (isRecord(value.pendingPublish)
-            && typeof value.pendingPublish.destination === 'string' && typeof value.pendingPublish.witness === 'string'));
+        && (value.pendingPublish === undefined || isPendingPublish(value.pendingPublish))
+        && (value.unsettled === undefined || (Array.isArray(value.unsettled) && value.unsettled.every(isPendingPublish)));
 }
 
 export function decodeManifest(bytes: Uint8Array): IManifest {
@@ -178,7 +192,7 @@ export function decodeManifest(bytes: Uint8Array): IManifest {
 /** Dirty: drafts exist, a publish is unresolved, or the current bytes are not known to equal the baseline. */
 export function isDirty(manifest: IManifest) {
     const { current } = manifest;
-    return manifest.drafts !== undefined || manifest.pendingPublish !== undefined
+    return manifest.drafts !== undefined || manifest.pendingPublish !== undefined || manifest.unsettled !== undefined
         || (current !== undefined && !sameWitness(current.witness, manifest.baseline));
 }
 
@@ -198,6 +212,8 @@ function namedFiles(manifest: IManifest) {
 export class DocumentDirectory {
     private tail: Promise<unknown> = Promise.resolve();
     private retained: ReadonlySet<number> = new Set();
+    /** Why every call is refused until the directory is opened again; see `commit`. */
+    private refusal: Error | null = null;
 
     private constructor(
         readonly id: string,
@@ -386,18 +402,23 @@ export class DocumentDirectory {
     }
 
     close() {
-        return this.damaged ? Promise.resolve() : this.run(async () => {
+        const closed = this.tail.then(async () => {
             await this.file?.close();
             this.file = null;
         });
+        this.tail = closed.catch(() => undefined);
+        return closed;
     }
 
     // The members below are the steps `saveDocument` composes; application code uses the methods above.
 
-    /** Runs `task` after every earlier call on this directory has settled; a damaged directory runs nothing. */
+    /** Runs `task` after every earlier call on this directory has settled; a damaged or refusing directory runs nothing. */
     run<T>(task: () => Promise<T>): Promise<T> {
         if (this.damaged) return Promise.reject(new DamagedDocumentError(`The unsaved changes of document ${this.id} are in a revision file that is missing or cut short`));
-        const result = this.tail.then(task);
+        const result = this.tail.then(() => {
+            if (this.refusal) throw this.refusal;
+            return task();
+        });
         this.tail = result.catch(() => undefined);
         return result;
     }
@@ -459,6 +480,25 @@ export class DocumentDirectory {
         return [...history.filter(revision => this.retained.has(revision.id) && revision.id !== replaced?.id), ...replaced ? [replaced] : []];
     }
 
+    /**
+     * Gives revision 1, which history keeps without a file while the destination holds it, a file of its own: a publish
+     * is about to replace the destination's bytes or make another file the destination. Nothing when history keeps no
+     * such revision, or when the destination no longer holds it or cannot be read: the publish goes ahead, and undo to
+     * that revision is refused as before.
+     */
+    async keepDestinationRevision() {
+        const { manifest } = this;
+        const { destination } = manifest;
+        const kept = manifest.history.find(revision => !hasFile(revision));
+        if (!kept || destination === undefined || !sameWitness(kept.witness, manifest.baseline)) return;
+        const name = `r1.${manifest.ext}`;
+        const created = await this.store.publication.source(destination).then(source => this.createFromDestination(name, source)).catch(() => null);
+        if (!created) return;
+        await created.file.close();
+        const revision: IRevision = { id: 1, file: name, length: created.length, witness: kept.witness };
+        await this.commit({ ...manifest, history: manifest.history.map(other => (other === kept ? revision : other)) });
+    }
+
     /** The current revision, copying the destination in as revision 1 when there is none; `null` on a conflict. */
     async ensureCurrent(): Promise<IRevision | null> {
         const { manifest } = this;
@@ -484,33 +524,54 @@ export class DocumentDirectory {
         return null;
     }
 
-    /** Recovery step 3, also run before every Save: adopt or drop a publish whose outcome is unknown. */
+    /**
+     * Recovery step 3, also run before every Save: settles each publish whose outcome is unknown and drops its record,
+     * adopting the latest when its destination holds what it published. A record whose destination cannot be read
+     * now, for example held by another program, stays for the next open or Save.
+     */
     async resolvePending() {
         const { manifest } = this;
-        const pending = manifest.pendingPublish;
-        if (!pending) return;
-        // A pending witness without content names the published file by its metadata, which is enough to compare.
-        const witness = await this.store.publication.witness(pending.destination, contentOf(pending.witness) !== undefined).catch(() => undefined);
-        // Unreadable now, for example held by another program: the next open or Save decides.
-        if (witness === undefined) return;
-        const adopted = witness && sameWitness(witness, pending.witness) ? { destination: pending.destination, baseline: witness } : {};
-        await this.commit({ ...manifest, ...adopted, pendingPublish: undefined });
+        const { pendingPublish: pending, unsettled = [] } = manifest;
+        if (!pending && unsettled.length === 0) return;
+        const { publication } = this.store;
+        // A witness without content names the published file by its metadata, which is enough to compare.
+        const settle = (record: IPendingPublish, baseline: string | undefined) => (publication.settle
+            ? publication.settle(record.destination, record.witness, baseline ?? null)
+            : publication.witness(record.destination, contentOf(record.witness) !== undefined)).catch(() => undefined);
+        const left: IPendingPublish[] = [];
+        for (const record of unsettled) {
+            if (await settle(record, record.baseline) === undefined) left.push(record);
+        }
+        const witness = pending && await settle(pending, manifest.baseline);
+        const adopted = pending && witness && sameWitness(witness, pending.witness) ? { destination: pending.destination, baseline: witness } : {};
+        const next = { ...manifest, ...adopted, pendingPublish: witness === undefined ? pending : undefined, unsettled: left.length > 0 ? left : undefined };
+        if (JSON.stringify(next) !== JSON.stringify(manifest)) await this.commit(next);
     }
 
     /**
      * Replaces the manifest, the only commit point, then makes `file` the current file's handle and `drafts`
      * the value of the drafts file it names, and deletes the files the new manifest no longer names. Failures
      * after the replace are left to recovery, which deletes the same things, so a committed change never
-     * reports failure. A new `file` is closed when the replace fails.
+     * reports failure. A replace that fails may still have landed (its directory flush failed, say), so this
+     * continues from the manifest the disk holds: the new one, kept without deleting what the old one named,
+     * since it may not be durable; or the old one, closing a new `file`. A disk that shows neither leaves the
+     * directory refusing everything until it is opened again.
      */
     async commit(next: IManifest, file: IStoreFile | null = this.file, drafts: unknown = this.drafts) {
         const { port } = this.store;
         const before = this.manifest;
+        const text = JSON.stringify(next);
+        let failure: unknown;
         try {
-            await port.writeAtomic(this.path(MANIFEST_NAME), encodeJson(next));
+            await port.writeAtomic(this.path(MANIFEST_NAME), new TextEncoder().encode(text));
         } catch (error) {
-            if (file !== this.file) await file?.close().catch(() => undefined);
-            throw error;
+            failure = error;
+            const onDisk = await port.read(this.path(MANIFEST_NAME)).then(bytes => new TextDecoder().decode(bytes), () => null);
+            if (onDisk !== text) {
+                if (file !== this.file) await file?.close().catch(() => undefined);
+                if (onDisk !== JSON.stringify(before)) this.refusal = new Error(`Document ${this.id} lost track of its manifest; open it again`, { cause: error });
+                throw error;
+            }
         }
         this.manifest = next;
         this.drafts = next.drafts === undefined ? undefined : drafts;
@@ -518,6 +579,7 @@ export class DocumentDirectory {
             await this.file?.close().catch(() => undefined);
             this.file = file;
         }
+        if (failure !== undefined) throw failure;
         const named = namedFiles(next);
         for (const name of namedFiles(before)) {
             if (!named.has(name)) await port.remove(this.path(name)).catch(() => undefined);

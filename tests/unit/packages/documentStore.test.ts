@@ -338,6 +338,37 @@ describe('recovery after a crash', () => {
         expect(await readFile(destination, 'utf8')).toBe('v1');
     });
 
+    it('continues from the manifest a failed replace left on disk, so the next append cannot overwrite committed bytes', async () => {
+        const doc = await create(store(), { ext: 'pdf', source: new Blob(['base']) });
+        await doc.close();
+        const port = createNodeStorePort(root);
+        let manifestWrite: 'lands then fails' | 'fails' | 'unreadable' = 'lands then fails';
+        const flaky: IStorePort = {
+            ...port,
+            async writeAtomic(target, bytes) {
+                if (!target.endsWith('manifest.json')) return port.writeAtomic(target, bytes);
+                if (manifestWrite === 'lands then fails') await port.writeAtomic(target, bytes);
+                throw new Error(`manifest write ${manifestWrite}`);
+            },
+            read: async target => (manifestWrite === 'unreadable' && target.endsWith('manifest.json') ? Promise.reject(new Error('EIO')) : port.read(target)),
+        };
+        const live = await open(store(flaky), doc.id);
+
+        // The rename landed and the directory flush failed: the disk names AAA.
+        await expect(live.mutate(1, append('AAA'))).rejects.toThrow('lands then fails');
+        expect(live.state().current).toMatchObject({ id: 2, length: 7 });
+        // The next append starts after AAA; its own manifest write fails before landing.
+        manifestWrite = 'fails';
+        await expect(live.mutate(2, append('BBB'))).rejects.toThrow('fails');
+        expect(live.state().current).toMatchObject({ id: 2, length: 7 });
+        manifestWrite = 'unreadable';
+        await expect(live.mutate(2, append('CCC'))).rejects.toThrow('unreadable');
+        await expect(live.mutate(2, append('DDD'))).rejects.toThrow('open it again');
+        await live.close();
+
+        expect(await currentText(await open(store(), doc.id))).toBe('baseAAA');
+    });
+
     it('keeps the drafts a mutation keeps when it crashes right after its manifest replace', async () => {
         const doc = await create(store(), { ext: 'pdf', source: new Blob(['base']) });
         await doc.setDrafts(1, { note: 'first' });
@@ -522,6 +553,23 @@ describe('save', () => {
         expect(await currentText(doc)).toBe('v2');
     });
 
+    it.each([false, true])('keeps the destination\'s bytes for undo when a Save replaces it or a Save As rebinds it (Save As: %s)', async (saveAs) => {
+        const destination = path.join(workDir, 'paper.pdf');
+        await writeFile(destination, 'v1');
+        const doc = await create(store(), { ext: 'pdf', destination });
+        await doc.mutate(null, rewrite('v2'));
+        await doc.retain([1]);
+        const copy = path.join(workDir, 'copy.pdf');
+        expect(await saveDocument(doc, { expected: 2, ...(saveAs ? { saveAs: copy } : {}) })).toMatchObject({ status: 'saved' });
+        expect(await readFile(saveAs ? copy : destination, 'utf8')).toBe('v2');
+        await doc.close();
+
+        const reopened = await open(store(), doc.id);
+        expect(await reopened.restore(2, 1)).toMatchObject({ status: 'committed', revision: { id: 1 } });
+        expect(await currentText(reopened)).toBe('v1');
+        expect(reopened.state().dirty).toBe(true);
+    });
+
     it('starts an imported document clean and sends it to Save As', async () => {
         const doc = await create(store(), { ext: 'pdf', source: new Blob(['dropped']), imported: true });
         expect(doc.state()).toMatchObject({ destination: null, baseline: await witnessOf(encode('dropped')), dirty: false });
@@ -584,15 +632,23 @@ describe('fork', () => {
 });
 
 describe('workspace checkpoints and collection', () => {
-    it('removes clean, unreferenced, unheld directories and reports unsaved ones', async () => {
+    it('removes clean unreferenced directories and what an interrupted open left, and keeps all other unsaved work', async () => {
         const destination = path.join(workDir, 'paper.pdf');
         await writeFile(destination, 'v1');
-        const [unreferenced, referenced, held, unsaved] = await Promise.all([
+        const [unreferenced, referenced, held, openOnly, decrypted, drafted, edited] = await Promise.all([
             create(store(), { ext: 'pdf', destination }),
             create(store(), { ext: 'pdf', destination }),
             create(store(), { ext: 'pdf', destination }),
             create(store(), { ext: 'pdf', source: new Blob(['new']) }),
+            create(store(), { ext: 'pdf', destination }),
+            create(store(), { ext: 'pdf', source: new Blob(['new']) }),
+            create(store(), { ext: 'pdf', source: new Blob(['new']) }),
         ]);
+        // An open's own rewrite (decrypting, normalizing) leaves an unnamed directory that only an open made.
+        await decrypted.mutate(null, rewrite('decrypted'));
+        await drafted.setDrafts(1, { note: 'committed before any checkpoint named it' });
+        await edited.mutate(1, append('+1'));
+        await edited.mutate(2, append('+2'));
         const port = createNodeStorePort(root);
         await writeWorkspaceCheckpoint(port, 'window-1', {
             tabs: { a: { directory: referenced.id, view: { page: 3 } }, b: { directory: referenced.id, view: { page: 9 } } },
@@ -602,12 +658,28 @@ describe('workspace checkpoints and collection', () => {
 
         await writeFile(path.join(root, 'workspaces', 'window-2.json'), '{"version":1,"tabs":{"a":{}}}');
         await writeFile(path.join(root, 'workspaces', 'window-1.json.crashed.tmp'), '{"version":1');
-        const isHeld = async (id: string) => id === held.id;
-        expect(await collectDocuments(store(port), isHeld)).toEqual({ removed: [], unsaved: [unsaved.id] });
+        const hold = async (id: string) => (id === held.id ? null : () => {});
+        const unsaved = [openOnly.id, decrypted.id, drafted.id, edited.id].sort();
+        const sorted = (result: { removed: string[]; unsaved: string[] }) => ({ removed: result.removed.sort(), unsaved: result.unsaved.sort() });
+        // An unreadable checkpoint might name anything: nothing goes.
+        expect(sorted(await collectDocuments(store(port), hold))).toEqual({ removed: [], unsaved });
 
         await removeWorkspaceCheckpoint(port, 'window-2');
-        expect(await collectDocuments(store(port), isHeld)).toEqual({ removed: [unreferenced.id], unsaved: [unsaved.id] });
-        expect((await readdir(path.join(root, 'documents'))).sort()).toEqual([referenced.id, held.id, unsaved.id].sort());
+        expect(sorted(await collectDocuments(store(port), hold))).toEqual({
+            removed: [unreferenced.id, openOnly.id, decrypted.id].sort(),
+            unsaved: [drafted.id, edited.id].sort(),
+        });
+        expect((await readdir(path.join(root, 'documents'))).sort()).toEqual([referenced.id, held.id, drafted.id, edited.id].sort());
         expect(await readdir(path.join(root, 'workspaces'))).toEqual(['window-1.json']);
+    });
+
+    it('decides and removes each directory while holding it', async () => {
+        const doc = await create(store(), { ext: 'pdf', source: new Blob(['new']), imported: true });
+        await doc.close();
+        const port = createNodeStorePort(root);
+        const steps: string[] = [];
+        const watched: IStorePort = { ...port, remove: async target => (steps.push(`remove ${target}`), port.remove(target)) };
+        await collectDocuments(store(watched), async id => (steps.push(`hold ${id}`), () => steps.push(`release ${id}`)));
+        expect(steps).toEqual([`hold ${doc.id}`, `remove documents/${doc.id}`, `release ${doc.id}`]);
     });
 });

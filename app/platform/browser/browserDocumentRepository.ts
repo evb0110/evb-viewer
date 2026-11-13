@@ -535,18 +535,22 @@ export class BrowserDocumentStore {
 
     /**
      * Imports `fromRef`'s bytes anew as `ref`'s, which then start clean: the file as it was last saved, or the
-     * bytes an open made. The directory keeps its id and this window keeps its lock throughout.
+     * bytes an open made. They commit as a rewrite, then become the baseline with no history; the old bytes go
+     * only once a manifest no longer names them.
      */
     public async replaceContent(ref: string, fromRef: string) {
         const entry = await this.requireEntry(ref);
         const doc = this.requireDoc(entry);
         const source = await this.externalSource(fromRef);
         const previous = this.tokenOf(entry);
-        await doc.close();
-        await entry.store!.port.remove(`documents/${doc.id}`);
-        entry.doc = await createDocument(entry.store!, {id: doc.id, ext: extensionOf(entry.fileName), source, imported: true});
+        await doc.run(async () => {
+            const result = await doc.applyMutation(doc.snapshot().current?.id ?? null, {kind: 'rewrite', source, drafts: 'clear'});
+            if (result.status !== 'committed') throw new BrowserDocumentSourceChangedError(entry.ref);
+            const witness = await contentWitness(result.revision.length, (offset, length) => doc.read(offset, length));
+            await doc.commit({...doc.snapshot(), current: {...result.revision, witness}, baseline: witness, history: []});
+        });
         entry.file = null;
-        entry.fileSize = entry.doc.state().current?.length ?? 0;
+        entry.fileSize = doc.state().current?.length ?? 0;
         entry.updatedAt = Date.now();
         this.emitRevision(entry, previous, 'write');
     }
@@ -567,45 +571,30 @@ export class BrowserDocumentStore {
 
     /**
      * Save, or Save As with `saveAs`: commit `commit` into the bytes, check the destination against the
-     * baseline, publish. The caller asked for write permission before; the document's lock is held.
+     * baseline, publish. The caller asked for write permission before; the document's lock is held. Every window
+     * learns of a revision the Save committed whatever happens after the commit: the edits are in the working
+     * copy, unsaved until a Save publishes them, so a retry or Save As writes them once.
      */
     public async save(ref: string, token: TDocumentRevisionToken | null | undefined, options: {commit?: Uint8Array; saveAs?: string} = {}): Promise<TSaveResult> {
         const entry = await this.requireEntry(ref);
         const doc = this.requireDoc(entry);
         const previous = this.tokenOf(entry);
-        // The shell keeps a refused save's edits pending and stages them again for Save As, so a save the
-        // file's change refuses must not commit them first. The core checks again under the write.
-        const {destination, baseline} = doc.state();
-        if (options.commit && !options.saveAs && baseline && handleKeyOf(destination) !== null
-            && !sameWitness(await browserPublication.witness(destination!), baseline)) {
-            return {status: 'conflict'};
-        }
-        // A save that commits the shell's edits and then fails puts the revision the shell knows back: its
-        // edits stay pending there, and a retry must not apply them twice.
-        const base = doc.state().current?.id ?? 1;
-        const rollBack = async () => {
-            const current = doc.state().current?.id ?? null;
-            if (options.commit && current !== base) await doc.restore(current, base);
-        };
-        let result: TSaveResult;
         try {
-            result = await saveDocument(doc, {
+            const result = await saveDocument(doc, {
                 expected: this.expectedRevision(entry, token),
-                ...(options.commit ? {commit: {kind: 'rewrite', source: bytesBlob(options.commit), drafts: 'clear'} satisfies TMutation} : {}),
+                ...(options.commit ? {commit: {kind: 'rewrite', source: bytesBlob(options.commit), drafts: 'clear'}} : {}),
                 ...(options.saveAs ? {saveAs: options.saveAs} : {}),
             });
-        } catch (error) {
-            await rollBack();
-            throw error;
-        }
-        if (result.status !== 'saved') {
-            await rollBack();
             if (result.status === 'stale-revision') this.throwStale(entry, token);
             return result;
+        } finally {
+            if (this.tokenOf(entry) !== previous) {
+                entry.file = null;
+                entry.fileSize = doc.state().current?.length ?? entry.fileSize;
+                entry.updatedAt = Date.now();
+                this.emitRevision(entry, previous, 'save-sync');
+            }
         }
-        entry.updatedAt = Date.now();
-        if (this.tokenOf(entry) !== previous) this.emitRevision(entry, previous, 'save-sync');
-        return result;
     }
 
     /** Undo or redo: makes `revision`, which the document keeps for its undo history, current again. Nothing is copied. */
