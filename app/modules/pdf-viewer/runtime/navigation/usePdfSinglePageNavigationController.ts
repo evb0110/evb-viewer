@@ -856,7 +856,11 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
         // paints the previous page track. Sample the mounted reading point,
         // rather than interpreting its scroll offset with next-scale metrics.
         const mounted = container ? captureDocumentViewportResizeAnchor(container, viewportPoint ? {viewportPoint} : undefined) : null;
-        if (mounted) {
+        // A point in a paged spread's gutter is on neither page; it stays on
+        // the current page instead of the half that rounds nearer.
+        const offPage = mounted && !options.continuousScroll.value && mounted.pageNumber !== viewportAuthority.currentPage.value
+            && [mounted.pageRatioX, mounted.pageRatioY].some(ratio => ratio === 0 || ratio === 1);
+        if (mounted && !offPage) {
             return {
                 page: mounted.pageNumber,
                 pageXFraction: mounted.pageRatioX,
