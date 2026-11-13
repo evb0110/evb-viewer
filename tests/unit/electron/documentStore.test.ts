@@ -142,18 +142,22 @@ describe('desktop document store', () => {
         expect(existsSync(displaced(pdf))).toBe(false);
     });
 
-    it('leaves the edits a refused Save carried uncommitted, so the same revision can still be saved elsewhere', async () => {
+    it('commits the edits a refused Save carried and tells every window, so Save As publishes them elsewhere', async () => {
         const {pdf, entry} = await openPdf();
         const edited = await writeTemp('edited.pdf', EDITED);
         // Unsaved annotations give the document its own copy of the PDF as the person saw it.
         await store.setOpenDocumentDrafts(entry, '1', {annotationRecovery: {}});
         await writeFile(pdf, new TextEncoder().encode('%PDF-1.7\nchanged elsewhere\n%%EOF\n'));
+        const events: string[] = [];
+        const stop = store.onDocumentRevisionChanged(event => events.push(event.token));
 
         expect(await store.saveOpenDocument(entry, '1' as never, {commit: {kind: 'rewrite', source: edited}})).toEqual({status: 'conflict'});
-        expect(store.documentRevisionToken(entry)).toBe('1');
+        stop();
+        const committed = store.documentRevisionToken(entry);
+        expect(events).toEqual([committed]);
+        expect(entry.doc.state()).toMatchObject({dirty: true, drafts: undefined});
         const elsewhere = join(tempRoot, 'elsewhere.pdf');
-        expect(await store.saveOpenDocument(entry, '1' as never, {commit: {kind: 'rewrite', source: edited}, saveAs: elsewhere}))
-            .toMatchObject({status: 'saved'});
+        expect(await store.saveOpenDocument(entry, committed, {saveAs: elsewhere})).toMatchObject({status: 'saved'});
         expect(await readFile(elsewhere)).toEqual(Buffer.from(EDITED));
     });
 
@@ -213,6 +217,25 @@ describe('desktop document store', () => {
         expect(await readFile(kept)).toEqual(Buffer.from(outside));
         expect(await readFile(pdf)).toEqual(Buffer.from(EDITED));
         expect(await findKeptOriginal(pdf)).toBe(kept);
+    });
+
+    it('keeps the original beside the PDF when another program changed it after a crashed save installed its bytes', async () => {
+        const {pdf, entry} = await openPdf();
+        await crashDuringPublish(entry, await writeTemp('edited.pdf', EDITED));
+        await rename(pdf, displaced(pdf));
+        const outside = new TextEncoder().encode(`${new TextDecoder().decode(EDITED)}% appended elsewhere\n`);
+        await writeFile(pdf, outside);
+        const id = entry.doc.id;
+        await restart();
+
+        const reopened = await store.reopenStoredDocument(id, {});
+
+        const kept = join(dirname(pdf), 'report (original).pdf');
+        expect(await readFile(kept)).toEqual(Buffer.from(ORIGINAL));
+        expect(await readFile(pdf)).toEqual(Buffer.from(outside));
+        expect(await findKeptOriginal(pdf)).toBe(kept);
+        expect(reopened.doc.state().dirty).toBe(true);
+        expect(await readAll(reopened)).toEqual(EDITED);
     });
 
     it('commits a native tool\'s output as the next revision without copying the document first, and drops it when the tool fails', async () => {

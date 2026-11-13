@@ -289,7 +289,11 @@ async function executeNativeMutationSave(
         return notSavedBeforeWrite('native-save-required', plan.target.expectedRevisionToken, null);
     }
     if (!persisted.success) {
-        // As for an ordinary save: persistence ran and may have written the file.
+        // The revision moved: the Save committed the edits into the working copy before it failed, so they are in
+        // the open document's bytes now and stay unsaved, and a later Save or Save As publishes those bytes.
+        if (deps.document.revisionToken.value !== plan.target.expectedRevisionToken) {
+            saveTransaction.commitAnnotationSave?.(persisted.materializedIdentityBindings, false);
+        }
         return workingCopySaveResult(persisted, null);
     }
     const materializedIdentityBindings = persisted.materializedIdentityBindings;

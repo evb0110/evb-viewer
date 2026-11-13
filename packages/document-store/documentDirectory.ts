@@ -64,8 +64,11 @@ export interface IPublishSource {
     file: IStoreFile;
 }
 
-/** `witness`: facts the platform read from the destination after the write, joined to the bytes' witness as the new baseline. */
-export type TPublishResult = { status: 'published'; keptOriginal?: string; witness?: string } | { status: 'conflict' };
+/**
+ * `witness`: facts the platform knows of the file it wrote, joined to the bytes' witness as the new baseline.
+ * `keptOriginal`: where bytes another program wrote around the publication were kept.
+ */
+export type TPublishResult = { status: 'published' | 'conflict'; keptOriginal?: string; witness?: string };
 
 /** Everything platform-specific about where a document is saved. */
 export interface IPublicationPort {

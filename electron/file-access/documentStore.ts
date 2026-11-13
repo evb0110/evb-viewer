@@ -16,7 +16,6 @@ import {
     relative,
 } from 'node:path';
 import {collectDocuments} from '@document-store/collectDocuments';
-import {sameWitness} from '@document-store/contentWitness';
 import {
     createDocument,
     decodeManifest,
@@ -335,7 +334,7 @@ export async function reopenStoredDocument(id: string, options: {ownerWebContent
 async function settleInterruptedPublish(id: string) {
     const manifest = decodeManifest(await getDocumentStore().port.read(`${DOCUMENTS_DIR}/${id}/${MANIFEST_NAME}`));
     if (manifest.pendingPublish) {
-        await recoverInterruptedPublish(manifest.pendingPublish.destination, manifest.baseline ?? null);
+        await recoverInterruptedPublish(manifest.pendingPublish.destination, manifest.baseline ?? null, manifest.pendingPublish.witness);
     }
 }
 
@@ -613,33 +612,28 @@ export async function setOpenDocumentDrafts(entry: IOpenDocument, token: string 
 /**
  * Save: commit `commit` into the working bytes, check the destination, publish, acknowledge. With `saveAs` the
  * document's destination becomes that file. The result tells a conflict and a stale revision apart; nothing retries.
+ * Every window learns of a committed revision whatever happens after the commit, since the edits are in it.
  */
 export async function saveOpenDocument(entry: IOpenDocument, token: TDocumentRevisionToken | null, options: {
     commit?: Omit<Extract<TMutation, {kind: 'rewrite'}>, 'drafts'>;
     saveAs?: string;
 } = {}): Promise<TSaveResult> {
     const previous = documentRevisionToken(entry);
-    const {destination, baseline} = entry.doc.state();
-    // The renderer keeps the edits it asked to save as pending until a Save succeeds, so a Save the check will
-    // refuse must not commit them. Under the replace the check runs again.
-    if (options.commit && options.saveAs === undefined && destination !== null && baseline !== null
-        && !sameWitness(await getDocumentStore().publication.witness(destination), baseline)) {
-        return {status: 'conflict'};
-    }
     await clearNextRevision(entry);
-    const result = await saveDocument(entry.doc, {
-        expected: expectedRevisionId(entry, token),
-        ...(options.commit ? {commit: {...options.commit, drafts: 'clear'}} : {}),
-        ...(options.saveAs === undefined ? {} : {saveAs: options.saveAs}),
-    });
-    if (result.status === 'saved') {
-        if (options.saveAs !== undefined) {
+    try {
+        const result = await saveDocument(entry.doc, {
+            expected: expectedRevisionId(entry, token),
+            ...(options.commit ? {commit: {...options.commit, drafts: 'clear'}} : {}),
+            ...(options.saveAs === undefined ? {} : {saveAs: options.saveAs}),
+        });
+        if (result.status === 'saved' && options.saveAs !== undefined) {
             entry.originalPath = options.saveAs;
             entry.role = 'current';
         }
+        return result;
+    } finally {
         notifyRevisionChanged(entry, previous, 'save-sync');
     }
-    return result;
 }
 
 // Ownership and lifetime

@@ -22,7 +22,7 @@ export interface ISaveOptions {
 export type TSaveResult = { status: 'saved'; revision: IRevision | null; keptOriginal?: string }
     | TStaleRevision
     /** The destination changed since it was last read or written: offer Save As. */
-    | { status: 'conflict' }
+    | { status: 'conflict'; keptOriginal?: string }
     /** There is no destination a plain Save can check: a new document, or one only ever downloaded. */
     | { status: 'needs-save-as' };
 
@@ -61,14 +61,13 @@ export function saveDocument(doc: DocumentDirectory, options: ISaveOptions) {
             { path: doc.path(revision.file), length: revision.length, file },
             saveAs === undefined ? baseline ?? null : null,
         );
+        const kept = published.keptOriginal === undefined ? {} : { keptOriginal: published.keptOriginal };
         if (published.status === 'conflict') {
             await doc.commit({ ...doc.snapshot(), pendingPublish: undefined });
-            return { status: 'conflict' };
+            return { status: 'conflict', ...kept };
         }
         const after = published.witness === undefined ? witness : `${published.witness} ${witness}`;
         await doc.commit({ ...doc.snapshot(), destination, baseline: after, pendingPublish: undefined });
-        return published.keptOriginal === undefined
-            ? { status: 'saved', revision }
-            : { status: 'saved', revision, keptOriginal: published.keptOriginal };
+        return { status: 'saved', revision, ...kept };
     });
 }

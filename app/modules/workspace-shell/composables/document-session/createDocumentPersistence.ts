@@ -692,6 +692,8 @@ export function createDocumentPersistence(
         let stagedSaveAsResult: IPdfPersistResult | null = null;
         let materializedIdentityBindings: IPdfNativeAnnotationIdentityBinding[] = [];
         let annotationDeleteEffects: IPdfNativeSaveResult['annotationDeleteEffects'];
+        // A failed save may have committed the staged bytes before it stopped; the shell acknowledges their identities then.
+        const stagedIdentities = () => (materializedIdentityBindings.length > 0 ? {materializedIdentityBindings} : {});
         const workingPath = state.workingCopyPath.value;
         const expectedOriginalPath = state.originalPath.value;
         if (!workingPath) {
@@ -915,6 +917,7 @@ export function createDocumentPersistence(
                         },
                     )),
                     ...(result.error?.code === 'too-large' ? {nativeRefusalCode: 'too-large' as const} : {}),
+                    ...stagedIdentities(),
                 };
             }
             const commitWorkingPath = state.workingCopyPath.value;
@@ -980,15 +983,18 @@ export function createDocumentPersistence(
                 totalMs: roundDurationMs(performance.now() - operationStart),
                 phases: phaseTimings,
             });
-            return createFailedPersistResult(opts.saveMode, false, refusedPersistFailure(
-                'native',
-                'mutation',
-                'write-failed',
-                {
-                    message: getErrorMessage(saveError),
-                    cause: saveError,
-                },
-            ));
+            return {
+                ...createFailedPersistResult(opts.saveMode, false, refusedPersistFailure(
+                    'native',
+                    'mutation',
+                    'write-failed',
+                    {
+                        message: getErrorMessage(saveError),
+                        cause: saveError,
+                    },
+                )),
+                ...stagedIdentities(),
+            };
         }
     }
 
