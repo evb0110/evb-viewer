@@ -57,8 +57,6 @@ pub(crate) enum Operation {
     PageSizes {
         metadata_only: bool,
     },
-    /// Rebuilds a qpdf page subset's form fields from its retained widgets.
-    FinalizeSubsetForms,
     /// delete-pages, extract-pages, reorder-pages, insert-pages and
     /// merge-pages: a new file from the input and each `--source`.
     PageStructure {
@@ -318,7 +316,6 @@ pub(crate) fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Confi
             page_number: page_number.ok_or("Missing --page value")?,
         },
         "page-sizes" => Operation::PageSizes { metadata_only },
-        "finalize-subset-forms" => Operation::FinalizeSubsetForms,
         "delete-pages" | "extract-pages" | "reorder-pages" => {
             let pages_file = pages_file.ok_or("Missing --pages-file value")?;
             Operation::PageStructure {
@@ -441,13 +438,6 @@ pub(crate) fn mutate_pdf(config: Config) -> Result<()> {
         .ok_or("Missing --output value")?;
 
     match &config.operation {
-        Operation::FinalizeSubsetForms => {
-            return crate::split_catalog::split_forms::write_subset_form_path(
-                &config.input_path,
-                output_path,
-                config.qpdf_path.as_deref(),
-            )
-        }
         Operation::PageStructure { command, sources } => {
             let pages = match command {
                 PageStructureCommand::Delete(file)

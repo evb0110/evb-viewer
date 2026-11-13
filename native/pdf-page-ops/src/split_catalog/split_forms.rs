@@ -3,48 +3,6 @@ use super::*;
 use crate::catalog::CatalogWalkState;
 use crate::split_output::SplitAnnotationMap;
 
-pub(crate) fn write_subset_form_path(
-    input: &Path,
-    output: &Path,
-    qpdf: Option<&Path>,
-) -> Result<()> {
-    let mut incremental = load_dictionary_incremental_pdf_path(input, qpdf)?;
-    let source = &incremental.previous_document;
-    let updates = page_structure_updates(source)?;
-    if updates.is_empty() && !source.catalog()?.has(b"AcroForm") && input == output {
-        return Ok(());
-    }
-    let mut annotations = SplitAnnotationMap::new();
-    for page in source.get_pages().values() {
-        for entry in crate::split_navigation::source_annotation_entries(source, *page) {
-            let (id, object) = source.dereference(&entry)?;
-            let dictionary = object.as_dict()?;
-            if dictionary.get(b"Subtype").and_then(Object::as_name).ok() == Some(b"Widget") {
-                let id = id.ok_or("Retained form widget must be indirect")?;
-                incremental.new_document.set_object(id, dictionary.clone());
-                annotations.entry(id).or_default().push((*page, id));
-            }
-        }
-    }
-    incremental.new_document.objects.extend(updates);
-    if let Some(form) = split_form(source, &mut incremental.new_document, &annotations)? {
-        let root = source.trailer.get(b"Root")?.as_reference()?;
-        let mut catalog = incremental
-            .new_document
-            .catalog()
-            .unwrap_or(source.catalog()?)
-            .clone();
-        catalog.set("AcroForm", form);
-        incremental.new_document.set_object(root, catalog);
-    }
-    incremental.new_document.version = source.version.clone();
-    let revision = build_incremental_revision(&mut incremental)?;
-    let ids = collect_incremental_append_object_ids(&incremental);
-    with_staged_incremental_output(input, output, |staged| {
-        write_incremental_revision(staged, &incremental, &revision, &ids)
-    })
-}
-
 pub(crate) fn split_form(
     source: &Document,
     target: &mut Document,
