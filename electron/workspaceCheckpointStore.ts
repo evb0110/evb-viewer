@@ -24,7 +24,10 @@ import {
     requireDocumentRef,
     type TDocumentRef,
 } from '@contracts/documentRef';
-import {isRecord} from '@contracts/runtimeGuards';
+import {
+    isErrnoException,
+    isRecord,
+} from '@contracts/runtimeGuards';
 import {
     getDocumentStore,
     getWorkingCopyBackingEntry,
@@ -44,8 +47,8 @@ const log = createLogger('workspace-checkpoint-store');
 /**
  * Each window's workspace is one checkpoint in the document store: the renderer's tabs, panes and views, and for
  * each tab the document directory it shows. It keeps references only: unsaved annotations are the drafts of their
- * document, committed with its manifest, and whether a tab holds unsaved work, where it saves to and its drafts
- * come from that manifest when the workspace is claimed.
+ * document, committed with its manifest, and whether a tab holds unsaved work and its drafts come from that
+ * manifest when the workspace is claimed.
  */
 interface IDrafts {annotationRecovery: IWorkspaceCheckpointAnnotationRecovery}
 
@@ -109,12 +112,12 @@ function encodeStored(checkpoint: IWorkspaceCheckpoint, directories: ReadonlyMap
     };
 }
 
-/** Whether the document in `directory` holds unsaved work, by its manifest. One that cannot be read may. */
+/** Whether the document in `directory` holds unsaved work, by its manifest. A directory that is gone holds none; one that cannot be read may. */
 async function holdsUnsavedWork(directory: string) {
     try {
         return isDirty(decodeManifest(await getDocumentStore().port.read(`${DOCUMENTS_DIR}/${directory}/${MANIFEST_NAME}`)));
-    } catch {
-        return true;
+    } catch (error) {
+        return !(isErrnoException(error) && error.code === 'ENOENT');
     }
 }
 
@@ -253,7 +256,6 @@ async function claimTab(tab: IWorkspaceCheckpointTab, stored: IStoredCheckpoint,
             isDirty: true,
             workingCopyRef: requireDocumentRef(entry.ref),
             sourceRef: requireDocumentRef(state.destination ?? entry.originalPath ?? tab.sourceRef ?? entry.ref),
-            ...(state.destination === null ? {requiresSaveAsOnFirstSave: true} : {}),
             ...(drafts ? {annotationRecovery: {...drafts, workingCopyRef: requireDocumentRef(entry.ref)}} : {}),
         };
     } catch (error) {

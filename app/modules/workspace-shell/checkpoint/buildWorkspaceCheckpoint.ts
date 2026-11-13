@@ -48,6 +48,7 @@ function readWorkspaceDocumentRefs(
         return {
             sourceRef: snapshot?.originalPath ?? null,
             workingCopyRef: snapshot?.workingCopyPath ?? null,
+            requiresSaveAsOnFirstSave: snapshot?.requiresSaveAsOnFirstSave ?? false,
         };
     } catch (error) {
         throw new WorkspaceCheckpointCaptureError(tabId, error);
@@ -120,6 +121,7 @@ export function buildWorkspaceCheckpoint(
                 : {
                     sourceRef: session.snapshot.value.identity.originalPath,
                     workingCopyRef: session.snapshot.value.identity.workingCopyPath,
+                    requiresSaveAsOnFirstSave: false,
                 };
             const workingByteRevision = session?.snapshot.value.identity.revisionInfo?.token ?? null;
             // The first tab of a document carries its unsaved annotations:
@@ -144,6 +146,7 @@ export function buildWorkspaceCheckpoint(
                 sourceRef: documentRefs.sourceRef ?? snapshot.originalPath ?? null,
                 workingCopyRef: documentRefs.workingCopyRef,
                 ...(linkedToTabId ? {linkedToTabId} : {}),
+                requiresSaveAsOnFirstSave: documentRefs.requiresSaveAsOnFirstSave,
                 isDirty: snapshot.isDirty,
                 isDjvu: snapshot.isDjvu,
                 currentPage: reader?.currentPage ?? null,

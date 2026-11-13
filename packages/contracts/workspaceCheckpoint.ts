@@ -176,14 +176,13 @@ export function decodeWorkspaceCheckpoint(value: unknown): IWorkspaceCheckpoint 
 
 /**
  * The checkpoint as the document store keeps it: tabs, panes, views and document references. Whether a tab holds
- * unsaved work, where it saves to and its drafts are its document's manifest's; failures are the live window's.
+ * unsaved work and its drafts are its document's manifest's; failures are the live window's.
  */
 export function toStoredWorkspaceCheckpoint(checkpoint: IWorkspaceCheckpoint) {
     return {
         ...checkpoint,
         tabs: checkpoint.tabs.map(({
             isDirty: _dirty,
-            requiresSaveAsOnFirstSave: _saveAs,
             keptOriginalPath: _kept,
             annotationRecovery: _drafts,
             annotationRecoveryFailure: _failure,

@@ -98,6 +98,7 @@ async function orphanTab(id: string, paneId: IWorkspaceCheckpointTab['paneId']):
         fileName,
         sourceRef: key !== null && stored ? createBrowserDocumentRef(stored.name, key) : workingCopyRef,
         workingCopyRef,
+        requiresSaveAsOnFirstSave: key === null,
         isDirty: true,
         isDjvu: false,
         currentPage: null,
@@ -114,21 +115,14 @@ function directoryOf(ref: string | null) {
     }
 }
 
-/**
- * Opens a tab's unsaved directory here and puts back what its manifest holds: the drafts, and whether a Save
- * needs a destination first.
- */
+/** Opens a tab's unsaved directory here and puts its drafts back on the tab. */
 async function restoreUnsavedTab(tab: IWorkspaceCheckpointTab & {workingCopyRef: TDocumentRef}): Promise<IWorkspaceCheckpointTab> {
     browserDocumentStore.nameSource(tab.workingCopyRef, tab.sourceRef ?? tab.workingCopyRef);
     const doc = await browserDocumentStore.documentOf(tab.workingCopyRef);
-    if (!doc) return {...tab, workingCopyLost: true};
-    const {drafts, destination} = doc.state();
-    return {
-        ...tab,
-        isDirty: true,
-        ...(destination === null ? {requiresSaveAsOnFirstSave: true} : {}),
-        ...(drafts === undefined ? {} : {annotationRecovery: drafts as IWorkspaceCheckpointTab['annotationRecovery']}),
-    };
+    const drafts = doc?.state().drafts;
+    return doc
+        ? {...tab, isDirty: true, ...(drafts === undefined ? {} : {annotationRecovery: drafts as IWorkspaceCheckpointTab['annotationRecovery']})}
+        : {...tab, workingCopyLost: true};
 }
 
 /**
