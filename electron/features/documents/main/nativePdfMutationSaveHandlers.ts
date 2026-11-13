@@ -4,7 +4,6 @@ import {
 import {withContentReadLease} from '@electron/features/documents/main/documentFileReadHandlers';
 import {getAppTempDir} from '@electron/utils/appTempDir';
 import {usingManagedScratchScope} from '@electron/utils/managedScratchTemp';
-import {getUnprovenNativeTerminationDetail} from '@electron/utils/nativeTerminationProof';
 import {
     readFile,
     stat,
@@ -43,6 +42,7 @@ import {
 import {
     assertQueuedWorkingCopyMutationPreconditions,
     discardDocumentAppend,
+    endDocumentAppend,
     normalizeExpectedDocumentRevisionToken,
     prepareDocumentAppend,
     requireOpenDocument,
@@ -374,15 +374,16 @@ async function runNativeWorkingCopyCommand(
                     annotationDeleteEffects,
                 } = prepared;
 
-                // The receipt names the document's own file, extended past its committed bytes: a later commit
-                // `extend`s the document, and the next append cuts what no commit claimed.
+                // The receipt names the document's own file, extended past its committed bytes: a commit
+                // `extend`s the document, and the receipt's end cuts what no commit claimed.
+                const staged = await stat(targetPath, {bigint: true});
                 const stagedOutput = await createOpaqueNativePdfStagedArtifact(context, targetPath, {
                     qpdfCheck: false,
                     tailCheck: true,
                     semanticCheck: true,
                     semanticScopeSha256: createNativeIncrementalMutationSemanticScopeSha256(),
                     fsynced: true,
-                });
+                }, {release: () => endDocumentAppend(entry, targetPath, staged)});
                 const totalMs = Math.round((performance.now() - operationStart) * 10) / 10;
                 const logTimings = totalMs >= 1_000 ? log.info.bind(log) : log.debug.bind(log);
                 logTimings('Native working-copy mutation phase timings', {
@@ -402,10 +403,7 @@ async function runNativeWorkingCopyCommand(
                 };
             });
         } catch (error) {
-            // A tool that may still be running keeps its bytes until the next append cuts them.
-            if (getUnprovenNativeTerminationDetail(error) === undefined) {
-                await discardDocumentAppend(entry);
-            }
+            await discardDocumentAppend(entry, error);
             log.warn('Native working-copy mutation failed', {
                 command: 'save-mutations',
                 endedAtEpochMs: Date.now(),
@@ -443,7 +441,7 @@ export async function handleCommitStagedPdfNativeMutations(
             await resolveTypedStagedArtifact(context, stagedOutput);
             const saved = toDocumentSaveResult(entry, await saveOpenDocument(entry, expectedDocumentRevisionToken, {
                 commit: {kind: 'extend'},
-            }).finally(() => discardDocumentAppend(entry)), createNativeValidationResult());
+            }), createNativeValidationResult());
             if (saved.ok) {
                 return {
                     applied: true,

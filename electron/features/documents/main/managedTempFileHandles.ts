@@ -45,7 +45,8 @@ interface IMainManagedTempFileLease {
     ownerId: number | undefined;
     path: string;
     expiresAt: number;
-    cleanupOnRelease: boolean;
+    /** What ending the lease does: deletes a temporary file, or cuts an append no commit claimed. */
+    release?: (() => Promise<unknown>) | undefined;
     cleanupPending?: boolean;
     invalidated?: boolean;
 }
@@ -223,28 +224,28 @@ async function statRegularArtifact(path: string) {
 
 function invalidateStagedArtifactLease(leaseId: TLeaseId) {
     const lease = leases.get(leaseId);
-    if (lease?.cleanupOnRelease) {
-        lease.invalidated = true;
-        cleanupLeaseFile(leaseId, lease);
-    } else {
-        unregisterLease(leaseId);
-    }
+    if (lease) endLease(leaseId, lease);
     sweepExpiredLeases();
 }
 
-function clearLeaseSweepIfIdle() {
-    if (leases.size === 0 && leaseSweepTimer) {
-        clearInterval(leaseSweepTimer);
-        leaseSweepTimer = null;
-    }
-}
+const removeFile = (path: string) => () => rm(path, {force: true});
 
-function cleanupLeaseFile(leaseId: TLeaseId, lease: IMainManagedTempFileLease) {
+/**
+ * Ends a lease however it ends (released, expired, invalid, its renderer gone): its release runs once, and one that
+ * fails runs again on a later sweep.
+ */
+function endLease(leaseId: TLeaseId, lease: IMainManagedTempFileLease) {
+    const {release} = lease;
+    if (!release) {
+        unregisterLease(leaseId);
+        return;
+    }
+    lease.invalidated = true;
     if (lease.cleanupPending) {
         return;
     }
     lease.cleanupPending = true;
-    void rm(lease.path, {force: true}).then(() => {
+    void release().then(() => {
         if (leases.get(leaseId) === lease) {
             unregisterLease(leaseId);
         }
@@ -256,20 +257,20 @@ function cleanupLeaseFile(leaseId: TLeaseId, lease: IMainManagedTempFileLease) {
     }).finally(clearLeaseSweepIfIdle);
 }
 
+function clearLeaseSweepIfIdle() {
+    if (leases.size === 0 && leaseSweepTimer) {
+        clearInterval(leaseSweepTimer);
+        leaseSweepTimer = null;
+    }
+}
+
 function sweepExpiredLeases() {
     const now = Date.now();
     for (const [
         leaseId,
         lease,
     ] of leases) {
-        if (lease.expiresAt <= now) {
-            if (lease.cleanupOnRelease) {
-                lease.invalidated = true;
-                cleanupLeaseFile(leaseId, lease);
-            } else {
-                unregisterLease(leaseId);
-            }
-        }
+        if (lease.expiresAt <= now) endLease(leaseId, lease);
     }
     clearLeaseSweepIfIdle();
 }
@@ -300,7 +301,7 @@ export async function createManagedTempFileHandle(
         ownerId: context.senderId,
         path: requireDocumentRef(path),
         expiresAt: Date.now() + MANAGED_HANDLE_TTL_MS,
-        cleanupOnRelease: options.cleanupOnRelease === true,
+        release: options.cleanupOnRelease ? removeFile(path) : undefined,
     });
     ensureLeaseSweep();
     return {
@@ -325,7 +326,7 @@ interface ICreateTypedStagedArtifactOptions {
 }
 
 interface IRegisterTypedStagedArtifactOptions {
-    cleanupOnRelease: boolean;
+    release?: (() => Promise<unknown>) | undefined;
     invalidReceiptMessage: string;
 }
 
@@ -346,7 +347,7 @@ function registerTypedStagedArtifact(
         ownerId: context.senderId,
         path: authoritativeArtifact.path,
         expiresAt: Date.now() + MANAGED_HANDLE_TTL_MS,
-        cleanupOnRelease: options.cleanupOnRelease === true,
+        release: options.release,
         artifact: authoritativeArtifact,
         statWitness: createArtifactStatWitness(fileStat),
         immutable: true,
@@ -421,7 +422,7 @@ async function createTypedStagedArtifactAtPath(
         leaseId,
         revision: currentRevision?.token ?? null,
     }, fileStat, {
-        cleanupOnRelease: options.cleanupOnRelease === true,
+        release: options.cleanupOnRelease ? removeFile(path) : undefined,
         invalidReceiptMessage: 'Invalid staged artifact validation receipt',
     });
 }
@@ -446,7 +447,7 @@ export async function createOpaqueNativePdfStagedArtifact(
     context: IDocumentsSenderIdContext,
     filePath: unknown,
     validations: IStagedArtifactValidations,
-    options: {cleanupOnRelease?: boolean} = {},
+    options: {release?: () => Promise<unknown>} = {},
 ): Promise<ITypedStagedArtifact> {
     const path = await resolveExistingReadableBinaryPath(filePath, context.senderId);
     const beforeStat = await statRegularArtifact(path);
@@ -483,7 +484,7 @@ export async function createOpaqueNativePdfStagedArtifact(
         leaseId,
         revision: currentRevision?.token ?? null,
     }, fileStat, {
-        cleanupOnRelease: options.cleanupOnRelease === true,
+        release: options.release,
         invalidReceiptMessage: 'Invalid opaque native staged artifact receipt',
     });
 }
@@ -526,12 +527,7 @@ export function releaseManagedTempFileHandle(
     if (!lease || lease.ownerId !== context.senderId) {
         return false;
     }
-    if (lease.cleanupOnRelease) {
-        lease.invalidated = true;
-        cleanupLeaseFile(parsedLeaseId, lease);
-    } else {
-        unregisterLease(parsedLeaseId);
-    }
+    endLease(parsedLeaseId, lease);
     sweepExpiredLeases();
     return true;
 }
@@ -633,15 +629,7 @@ export function revokeManagedTempFileHandlesForSender(senderId: number) {
         leaseId,
         lease,
     ] of leases) {
-        if (lease.ownerId !== senderId) {
-            continue;
-        }
-        if (lease.cleanupOnRelease) {
-            lease.invalidated = true;
-            cleanupLeaseFile(leaseId, lease);
-        } else {
-            unregisterLease(leaseId);
-        }
+        if (lease.ownerId === senderId) endLease(leaseId, lease);
     }
     sweepExpiredLeases();
 }

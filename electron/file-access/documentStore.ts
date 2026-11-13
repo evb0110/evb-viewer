@@ -59,7 +59,10 @@ import {createDesktopPublication} from '@electron/file-access/documentPublicatio
 import {normalizePathForLookup} from '@electron/file-access/normalizePathForLookup';
 import type {TOpenPath} from '@electron/file-access/openPathCapabilities';
 import {WorkingCopyMissingError} from '@electron/file-access/workingCopyMissingError';
-import {drainWorkingCopyMutations} from '@electron/file-access/workingCopyMutationQueue';
+import {
+    drainWorkingCopyMutations,
+    enqueueWorkingCopyMutation,
+} from '@electron/file-access/workingCopyMutationQueue';
 import {
     cancelMainOperationsForClosingWorkingCopy,
     snapshotCancellableWorkingCopyDependents,
@@ -69,6 +72,7 @@ import {isWorkingCopyQuarantined} from '@electron/file-access/workingCopyQuarant
 import {getAppTempDirPath} from '@electron/utils/appTempDir';
 import {createLogger} from '@electron/utils/createLogger';
 import {getErrorMessage} from '@electron/utils/error';
+import {getUnprovenNativeTerminationDetail} from '@electron/utils/nativeTerminationProof';
 
 const log = createLogger('document-store');
 const STORE_DIR = 'document-store';
@@ -576,9 +580,24 @@ export async function prepareDocumentAppend(entry: IOpenDocument) {
     return revisionPath(entry, revision);
 }
 
-/** Cuts what an append that was not committed left past the document's bytes, so no reader of its file meets it. */
-export async function discardDocumentAppend(entry: IOpenDocument) {
-    await entry.doc.ownCurrentFile().catch(() => undefined);
+/**
+ * Ends an append that `error` stopped before its commit, so no reader of the document's file meets its bytes: they are
+ * cut, or, when the tool may still be writing, the document moves to a copy of its file and leaves the tool that one.
+ */
+export async function discardDocumentAppend(entry: IOpenDocument, error?: unknown) {
+    const end = getUnprovenNativeTerminationDetail(error) === undefined ? entry.doc.ownCurrentFile() : entry.doc.abandonCurrentFile();
+    await end.catch(() => undefined);
+}
+
+/**
+ * Ends the receipt of an append a native tool made to `path`, the document's file, when it looked like `staged`: in the
+ * document's queue, cuts what no commit claimed, unless the file has changed since (a later append owns its end).
+ */
+export function endDocumentAppend(entry: IOpenDocument, path: string, staged: BigIntStats) {
+    return enqueueWorkingCopyMutation(entry.ref, async () => {
+        const now = await stat(path, {bigint: true}).catch(() => null);
+        if (now && now.size === staged.size && now.mtimeNs === staged.mtimeNs && now.ctimeNs === staged.ctimeNs) await discardDocumentAppend(entry);
+    }, {kind: 'document-append-end'}).catch(() => undefined);
 }
 
 /**
@@ -598,7 +617,7 @@ export async function appendToDocument(
         const result = await entry.doc.mutate(expectedRevisionId(entry, previous), {kind: 'extend', drafts: 'clear'});
         if (result.status !== 'committed') throwFailedMutation(entry, previous, result);
     } catch (error) {
-        await discardDocumentAppend(entry);
+        await discardDocumentAppend(entry, error);
         throw error;
     }
     return notifyRevisionChanged(entry, previous, reason);

@@ -408,21 +408,23 @@ export class DocumentDirectory {
      */
     ownCurrentFile() {
         return this.run(async () => {
-            const { manifest } = this;
-            const { current } = manifest;
+            const { current } = this.manifest;
             if (!current) return null;
             const longer = this.longerThanCurrent();
-            if (longer.length > 0) {
-                const name = `r${manifest.next}.${manifest.ext}`;
-                await this.store.port.copy(this.path(current.file), this.path(name)).catch(async (error: unknown) => {
-                    await this.store.port.remove(this.path(name));
-                    throw error;
-                });
-                const history = manifest.history.map(other => (hasFile(other) && longer.includes(other) ? { ...other, file: name } : other));
-                await this.commit({ ...manifest, next: manifest.next + 1, history });
-            }
+            if (longer.length > 0) await this.moveToCopy(longer);
             if (await this.currentFile().size() > current.length) await this.currentFile().truncate(current.length);
             return current;
+        });
+    }
+
+    /**
+     * Stops using the current file: every revision in it moves to a copy holding exactly what they name, so a writer
+     * that may still be appending to the old file writes where nobody reads. The old file goes once nothing holds it.
+     */
+    abandonCurrentFile() {
+        return this.run(async () => {
+            const { current, history } = this.manifest;
+            if (current) await this.moveToCopy([current, ...history.filter(hasFile).filter(other => other.file === current.file)]);
         });
     }
 
@@ -509,6 +511,23 @@ export class DocumentDirectory {
         const drafts = await this.writeDrafts(mutation.drafts);
         await this.commit({ ...manifest, next: id + 1, current: revision, history: this.historyAfter(manifest.history), drafts: drafts.name }, file, drafts.value);
         return { status: 'committed', revision };
+    }
+
+    /** Moves `moved`, revisions in one file, to a copy of it cut to the most they name: one manifest replace. */
+    private async moveToCopy(moved: IRevision[]) {
+        const { manifest } = this;
+        const name = `r${manifest.next}.${manifest.ext}`;
+        await this.store.port.copy(this.path(moved[0]!.file), this.path(name)).catch(async (error: unknown) => {
+            await this.store.port.remove(this.path(name));
+            throw error;
+        });
+        const file = await this.store.port.open(this.path(name));
+        const length = Math.max(...moved.map(revision => revision.length));
+        if (await file.size() > length) await file.truncate(length);
+        const rename = <T extends THistoryRevision>(revision: T): T => (moved.includes(revision as IRevision) ? { ...revision, file: name } as T : revision);
+        const current = manifest.current && rename(manifest.current);
+        if (current === manifest.current) await file.close();
+        await this.commit({ ...manifest, next: manifest.next + 1, current, history: manifest.history.map(rename) }, current === manifest.current ? this.file : file);
     }
 
     /** The revisions that name more of the current file than the current revision: it may grow in place without them. */
