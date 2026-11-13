@@ -117,7 +117,7 @@ export interface ICreateStoredDocumentOptions {
     sourceRef?: string;
     saveHandle?: FileSystemFileHandle | null;
     /** `handle`: the bytes are the file `saveHandle` names, written by the caller. */
-    storageMode?: 'handle' | 'inline';
+    storageMode?: 'handle';
     /** Copies the new document's bytes from this one instead of `data`. */
     contentFrom?: string;
 }
@@ -287,14 +287,17 @@ export class BrowserDocumentStore {
         } else if (source.doc && source.store) {
             const id = browserDocumentRefId(workingRef);
             const release = await this.lock(id, 0);
+            const store = {...source.store, historyBudget: 0};
             try {
-                const store = {...source.store, historyBudget: 0};
                 const forked = this.docEntry(workingRef, await forkDocument(store, source.doc.id, id), store, release, meta);
                 forked.memoryOnly = source.memoryOnly;
                 entry = await this.hold(forked);
             } catch (error) {
                 release();
-                throw error;
+                if (!isQuotaError(error)) throw error;
+                // No room: copy into memory.
+                await store.port.remove(`documents/${id}`).catch(() => undefined);
+                entry = await this.createEntry(workingRef, {source: await this.externalSource(source.ref), imported: true}, meta);
             }
             entry.file = source.doc.state().current ? null : source.file;
         } else {
@@ -305,14 +308,6 @@ export class BrowserDocumentStore {
     }
 
     // Reading ------------------------------------------------------------------------------------------------
-
-    public async ensureEntryAvailability(ref: string): Promise<{available: boolean; entry: IBrowserDocumentEntry | null}> {
-        try {
-            return {available: true, entry: await this.ensureEntry(ref)};
-        } catch {
-            return {available: false, entry: null};
-        }
-    }
 
     public async ensureEntry(ref: string): Promise<IBrowserDocumentEntry | null> {
         const known = this.entries.get(ref);
@@ -332,7 +327,7 @@ export class BrowserDocumentStore {
     }
 
     public async exists(ref: string) {
-        return (await this.ensureEntryAvailability(ref)).entry !== null;
+        return (await this.ensureEntry(ref).catch(() => null)) !== null;
     }
 
     public async read(ref: string, {maxBytes = BROWSER_MAX_FULL_READ_BYTES} = {}): Promise<Uint8Array> {

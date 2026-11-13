@@ -484,7 +484,7 @@ async function saveImageExport(
         kind: 'output',
         retention: 'transient',
         saveHandle,
-        storageMode: saveHandle ? 'handle' : 'inline',
+        ...(saveHandle ? {storageMode: 'handle' as const} : {}),
     });
     if (saveHandle) {
         await browserDocumentStore.replaceWithHandleBackedDocument(outputRef, {

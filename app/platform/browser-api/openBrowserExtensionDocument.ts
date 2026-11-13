@@ -159,7 +159,7 @@ async function hasWindowRecovery() {
 /** The document this history entry already opened, while the browser still stores it. */
 async function readLaunchedDocument() {
     const launched = parseDocumentRef(readHistoryState()[LAUNCHED_DOCUMENT_STATE_KEY]);
-    return launched && (await browserDocumentStore.ensureEntryAvailability(launched)).available ? launched : null;
+    return launched && await browserDocumentStore.exists(launched) ? launched : null;
 }
 
 /**
