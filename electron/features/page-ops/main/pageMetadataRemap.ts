@@ -80,18 +80,19 @@ export async function resolvePageMetadataSourceTargets(
     if (!binaryPath) throw new Error('Native bookmark target resolution is unavailable');
     // The renderer omits bookmarks it has not read since the last reload. The
     // working PDF still holds them, and qpdf is about to rewrite their pages, so
-    // read them here instead of letting a deleted page keep its bookmark.
-    if (metadata?.bookmarks === undefined) {
-        metadata = {
-            ...metadata,
-            ...decodeMetadataSnapshot({
-                bookmarks: await readNativePdfCatalogPart(binaryPath, sourcePath, 'bookmarks', {
-                    ...options,
-                    commandLabel: 'evb-pdf-page-ops(source-bookmarks)',
-                }),
-                untitledBookmarkLabel: metadata?.untitledBookmarkLabel ?? te('bookmarks.untitled'),
+    // read them here instead of letting a deleted page keep its bookmark. An
+    // empty tree over a source without one changes nothing, so it is dropped
+    // and no remap appends it; one that empties the source's tree stays.
+    if (!metadata?.bookmarks?.length) {
+        const source = decodeMetadataSnapshot({
+            bookmarks: await readNativePdfCatalogPart(binaryPath, sourcePath, 'bookmarks', {
+                ...options,
+                commandLabel: 'evb-pdf-page-ops(source-bookmarks)',
             }),
-        };
+            untitledBookmarkLabel: metadata?.untitledBookmarkLabel ?? te('bookmarks.untitled'),
+        });
+        const {bookmarks: edited, ...rest} = {...metadata, ...source, bookmarks: metadata?.bookmarks};
+        metadata = source.bookmarks?.length ? {...rest, bookmarks: edited ?? source.bookmarks} : rest;
     }
     // The page engine carries the document's own page labels; only labels the
     // renderer has not saved yet are written over its output.
@@ -355,7 +356,9 @@ export async function applyPageMetadataRemap(input: {
     cancelGroup: string;
 }) {
     const {metadataSnapshot} = input;
-    if (!metadataSnapshot) {
+    // A remap that changes nothing appends nothing.
+    const mutations = metadataSnapshot ? remapPageMetadata(metadataSnapshot, input.delta) : {};
+    if (Object.keys(mutations).length === 0) {
         return;
     }
     const binaryPath = resolveNativePageOpsPath();
@@ -367,10 +370,6 @@ export async function applyPageMetadataRemap(input: {
         const workingCopyStat = await stat(input.workingCopyPath, {bigint: true});
         if (!workingCopyStat.isFile() || workingCopyStat.nlink !== 1n) {
             throw new Error('Page metadata remap requires an exclusively owned working-copy inode');
-        }
-        const mutations = remapPageMetadata(metadataSnapshot, input.delta);
-        if (Object.keys(mutations).length === 0) {
-            return;
         }
         const mutationChunks = splitPdfNativeMutationSetIntoBoundedChunks(
             mutations,
