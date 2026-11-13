@@ -14,6 +14,7 @@ import {
     AVAILABLE_OCR_LANGUAGES,
     isAvailableOcrLanguageCode,
     type IOcrLanguage,
+    withOcrModelSublanguages,
 } from '@contracts/ocrLanguages';
 import {
     createJobId,
@@ -348,7 +349,8 @@ export const browserOcrCapability: IOcrCapability = {
             .map(async (language): Promise<IOcrLanguage> => ({
                 code: language.code,
                 script: language.script,
-                modelState: await hasCachedOcrModel(language.code).catch(() => false) ? 'installed' : 'missing',
+                modelState: (await Promise.all(withOcrModelSublanguages([language.code]).map(code => hasCachedOcrModel(code).catch(() => false))))
+                    .every(Boolean) ? 'installed' : 'missing',
             })));
     },
     async resolveDocumentTextCatalog(workingCopyPath, documentRevision, pageCount?: number, _requestId?: TRequestId) {

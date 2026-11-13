@@ -3,7 +3,11 @@ import {
     partition,
     uniq,
 } from 'es-toolkit/array';
-import { isRtlOcrLanguage } from '@contracts/ocrLanguages';
+import {
+    isRtlOcrLanguage,
+    OCR_MODEL_SUBLANGUAGES,
+    type TOcrModelCode,
+} from '@contracts/ocrLanguages';
 
 const LATIN_WORD_BOUNDARY_CONFIG = [
     '-c',
@@ -44,11 +48,8 @@ export function resolveTesseractLanguageConfig(
     options: ITesseractLanguageConfigOptions = {},
 ): ITesseractLanguageConfig {
     const deduped = uniq(compact(languages));
-    // The Cyrillic model asks Tesseract to load srp_latn implicitly. EVB exposes
-    // Serbian Cyrillic, so keep that unselected recognizer out of the run.
-    if (deduped.includes('srp')) {
-        deduped.push('~srp_latn');
-    }
+    // Keep out the sub-languages the registry excludes, such as Serbian's Latin recognizer.
+    deduped.push(...deduped.flatMap(code => (OCR_MODEL_SUBLANGUAGES[code as TOcrModelCode] ?? []).filter(entry => entry.startsWith('~'))));
     const hasRtl = deduped.some(isRtlOcrLanguage);
 
     if (!hasRtl) {

@@ -38,6 +38,7 @@ import {
     EARLY_PRINT_MODEL_CODES,
     OCR_LANGUAGE_MODEL_BYTES,
     type TOcrModelCode,
+    withOcrModelSublanguages,
 } from '@contracts/ocrLanguages';
 import {requirePageNumber} from '@contracts/pageNumbers';
 import {
@@ -170,7 +171,7 @@ export async function runBrowserOcrJob(input: IBrowserOcrJobInput): Promise<TBro
     throwIfAborted(signal);
     await browserDocumentStore.assertDocumentRevisionCurrent(input.sourceRef, revision.token);
 
-    const modelCodes = [...new Set(input.pages.flatMap(page => page.languages))] as TOcrModelCode[];
+    const modelCodes = withOcrModelSublanguages(input.pages.flatMap(page => page.languages) as TOcrModelCode[]);
     for (const code of modelCodes) {
         stage('model-prep', {languageCode: code});
         try {

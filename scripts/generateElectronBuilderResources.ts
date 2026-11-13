@@ -1,11 +1,20 @@
-import { readdir } from 'node:fs/promises';
+import {
+    readdir,
+    readFile,
+} from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { writeGeneratedFileIfChanged } from '@scripts/writeGeneratedFileIfChanged';
 import {
     BUNDLED_OCR_LANGUAGE_CODES,
     OCR_MODEL_CODES,
+    OCR_MODEL_SUBLANGUAGES,
+    type TOcrModelCode,
 } from '@contracts/ocrLanguages';
+import {
+    readTraineddataComponent,
+    TRAINEDDATA_CONFIG,
+} from '@ocr-core/readTraineddataWordList';
 import {
     ELECTRON_BUILDER_PLATFORM_KEYS,
     GLOBAL_PACKAGED_RESOURCES,
@@ -119,6 +128,19 @@ async function assertOcrRegistryMatchesResources(root: string) {
             `Unregistered traineddata: ${unregisteredModels.join(', ') || '(none)'}`,
             `Invalid bundled defaults: ${invalidBundledModels.join(', ') || '(none)'}`,
         ].join('\n'));
+    }
+
+    // Tesseract silently reads without a sub-language its model's config names but cannot find.
+    const unlisted: string[] = [];
+    for (const code of registryCodes as TOcrModelCode[]) {
+        const config = readTraineddataComponent(await readFile(path.join(tessdataDirectory, `${code}.traineddata`)), TRAINEDDATA_CONFIG);
+        const named = new TextDecoder().decode(config ?? new Uint8Array()).match(/^tessedit_load_sublangs\s+(\S+)/mu)?.[1] ?? '';
+        if (named !== (OCR_MODEL_SUBLANGUAGES[code] ?? []).map(entry => entry.replace(/^~/u, '')).join('+')) {
+            unlisted.push(`${code} loads ${named || 'none'}`);
+        }
+    }
+    if (unlisted.length > 0) {
+        throw new Error(`OCR registry sub-languages differ from the models' tessedit_load_sublangs: ${unlisted.join(', ')}`);
     }
 }
 
