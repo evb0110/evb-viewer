@@ -7,16 +7,14 @@ use std::{cell::RefCell, slice};
 use crate::pdf_conformance_facts;
 use crate::{
     append_native_mutations_to_bytes, crop_browser_pdf_bytes, decrypt_browser_pdf_bytes,
-    delete_browser_pdf_pages, extract_browser_pdf_pages, get_browser_page_geometry_from_bytes,
-    insert_browser_pdf_pages, load_browser_pdf, ocr_text_layer_increment_bytes,
-    ocr_text_visibility_bytes, remove_crop_browser_pdf_bytes, reorder_browser_pdf_pages,
-    rotate_browser_pdf_bytes, serialize_annotation_parse, validate_native_mutations,
-    NativeMutationBytesResult, PageMutationBytes, Result, PAGE_OP_WASM_MAX_BUFFER_BYTES,
-    PAGE_OP_WASM_MUTATION_HEADER_BYTES,
+    get_browser_page_geometry_from_bytes, load_browser_pdf, ocr_text_layer_increment_bytes,
+    ocr_text_visibility_bytes, remove_crop_browser_pdf_bytes, rotate_browser_pdf_bytes,
+    serialize_annotation_parse, validate_native_mutations, NativeMutationBytesResult,
+    PageMutationBytes, Result, PAGE_OP_WASM_MAX_BUFFER_BYTES, PAGE_OP_WASM_MUTATION_HEADER_BYTES,
 };
 use crate::{
-    build_print_layout, page_structure_bytes, read_pdf_document_catalog, save_document_to_bytes,
-    PageStructureEdit, PrintOrientation, PrintViewMode,
+    build_print_layout, read_pdf_document_catalog, save_document_to_bytes, PrintOrientation,
+    PrintViewMode,
 };
 
 use crate::wasm_abi::*;
@@ -132,6 +130,10 @@ fn clear_last_result() {
 }
 
 fn run_request(request: &[u8]) -> Result<Vec<u8>> {
+    #[cfg(all(target_family = "wasm", target_os = "unknown"))]
+    if crate::wasm_host_files::is_file_request(request) {
+        return crate::wasm_host_files::run_file_request(request);
+    }
     if is_instructed_request(request) {
         return run_instructed_request(parse_instructed_request(request)?);
     }
@@ -174,14 +176,6 @@ fn run_request(request: &[u8]) -> Result<Vec<u8>> {
             output.extend_from_slice(&metadata);
             Ok(output)
         }
-        OP_DELETE_PAGES => encode_mutation(delete_browser_pdf_pages(parsed.data, &parsed.pages)?),
-        OP_EXTRACT_PAGES => encode_mutation(extract_browser_pdf_pages(parsed.data, &parsed.pages)?),
-        OP_REORDER_PAGES => encode_mutation(reorder_browser_pdf_pages(parsed.data, &parsed.pages)?),
-        OP_INSERT_PAGES => encode_mutation(insert_browser_pdf_pages(
-            parsed.data,
-            parsed.insertion_data,
-            parsed.after_page,
-        )?),
         OP_ROTATE => encode_mutation(rotate_browser_pdf_bytes(
             parsed.data,
             &parsed.pages,
@@ -339,9 +333,6 @@ fn run_document_list_request(request: &[u8]) -> Result<Vec<u8>> {
     }
     if offset != request.len() {
         return Err("Trailing bytes in page-op WASM document-list request".into());
-    }
-    if operation == OP_MERGE_PAGES {
-        return encode_mutation(page_structure_bytes(PageStructureEdit::Merge, &inputs)?);
     }
     let documents = inputs
         .into_iter()
@@ -704,7 +695,7 @@ mod tests {
     };
 
     fn request_header(page_count: u32, data_len: u32, insertion_data_len: u32) -> Vec<u8> {
-        request_header_with_password(OP_DELETE_PAGES, page_count, data_len, insertion_data_len, 0)
+        request_header_with_password(OP_ROTATE, page_count, data_len, insertion_data_len, 0)
     }
 
     fn request_header_with_password(
@@ -716,7 +707,7 @@ mod tests {
     ) -> Vec<u8> {
         let mut request = Vec::new();
         request.extend_from_slice(REQUEST_MAGIC);
-        for value in [REQUEST_VERSION, operation, page_count, 0, 0, 0] {
+        for value in [REQUEST_VERSION, operation, page_count, 0, 0] {
             write_u32_le(&mut request, value);
         }
         for _ in 0..4 {
@@ -773,16 +764,13 @@ mod tests {
         document.catalog_mut().unwrap().set("Outlines", outlines_id);
         let mut source = Vec::new();
         document.save_to(&mut source).unwrap();
-        let mut request = REQUEST_MAGIC.to_vec();
-        for value in [REQUEST_VERSION_DOCUMENT_LIST, OP_MERGE_PAGES, 2] {
-            write_u32_le(&mut request, value);
-        }
-        for _ in 0..2 {
-            write_u32_le(&mut request, source.len() as u32);
-            request.extend_from_slice(&source);
-        }
-        let output = run_request(&request).unwrap();
-        let saved = Document::load_mem(&output[MUTATION_HEADER.bytes..]).unwrap();
+        let sources = [
+            crate::SourcePdf::open(source.as_slice(), source.len() as u64).unwrap(),
+            crate::SourcePdf::open(source.as_slice(), source.len() as u64).unwrap(),
+        ];
+        let merged = crate::edit_page_structure(crate::PageStructureEdit::Merge, &sources).unwrap();
+        let output = merged.write(&sources, Vec::new()).unwrap();
+        let saved = Document::load_mem(&output).unwrap();
         let outlines = saved
             .get_dictionary(
                 saved
@@ -1009,7 +997,7 @@ mod tests {
     fn crop_request(data: &[u8], top: f64) -> Vec<u8> {
         let mut request = Vec::new();
         request.extend_from_slice(REQUEST_MAGIC);
-        for value in [REQUEST_VERSION, OP_CROP, 1, 0, 0, 0] {
+        for value in [REQUEST_VERSION, OP_CROP, 1, 0, 0] {
             write_u32_le(&mut request, value);
         }
         for value in [top, 0.0, 0.0, 0.0] {

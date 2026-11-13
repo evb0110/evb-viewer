@@ -325,31 +325,27 @@ describe('browser worker request parsers', () => {
             type: 'conformance',
             payload: {data},
         });
-        expect(parseBrowserPageOpsWorkerRequest({
+        const source = new Blob([data]);
+        const merge = {
             id: 11,
-            type: 'mergePages',
-            payload: {documents: [
-                data,
-                new Uint8Array([
-                    4,
-                    5,
-                ]),
-            ]},
-        })).toEqual({
-            id: 11,
-            type: 'mergePages',
-            payload: {documents: [
-                data,
-                new Uint8Array([
-                    4,
-                    5,
-                ]),
-            ]},
-        });
+            type: 'pageStructure',
+            payload: {
+                edit: {kind: 'merge'},
+                sources: [
+                    source,
+                    source,
+                ],
+                output: 'documents/a/r2.pdf',
+            },
+        };
+        expect(parseBrowserPageOpsWorkerRequest(merge)).toEqual(merge);
         expect(parseBrowserPageOpsWorkerRequest({
-            id: 12,
-            type: 'mergePages',
-            payload: {documents: []},
+            ...merge,
+            payload: {...merge.payload, sources: []},
+        })).toBeNull();
+        expect(parseBrowserPageOpsWorkerRequest({
+            ...merge,
+            payload: {...merge.payload, edit: {kind: 'delete', pages: [0]}},
         })).toBeNull();
     });
     it('validates save, password, and print inputs with the shared native contracts', () => {

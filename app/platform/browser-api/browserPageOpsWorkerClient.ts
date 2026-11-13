@@ -74,28 +74,11 @@ async function buildWorkerRequestWithTransfers(
         return copy;
     };
     const transfer: Transferable[] = [];
-    if (request.type === 'textBoxAppearance') return {
+    // Blobs are posted by reference; the engine reads them by range.
+    if (request.type === 'textBoxAppearance' || request.type === 'pageStructure') return {
         request,
         transfer,
     };
-    if (request.type === 'insertPages') {
-        const transferableData = await toTransferableRequestData(request.payload.data);
-        const transferableInsertionData = await toTransferableRequestData(request.payload.insertionData);
-        return {
-            request: {
-                ...request,
-                payload: {
-                    ...request.payload,
-                    data: transferableData,
-                    insertionData: transferableInsertionData,
-                },
-            },
-            transfer: [
-                transferableData.buffer,
-                transferableInsertionData.buffer,
-            ] satisfies Transferable[],
-        };
-    }
 
     if (request.type === 'replacePageImages') {
         // The base and every attachment get their own buffer, so a caller's
@@ -121,27 +104,6 @@ async function buildWorkerRequestWithTransfers(
                     data,
                     replacementPdfs,
                 },
-            },
-            transfer,
-        };
-    }
-
-    if (request.type === 'mergePages') {
-        const transferredBuffers = new Set<ArrayBuffer>();
-        const documents: Uint8Array[] = [];
-        for (const document of request.payload.documents) {
-            let data = await toTransferableRequestData(document);
-            if (transferredBuffers.has(data.buffer)) {
-                data = data.slice();
-            }
-            transferredBuffers.add(data.buffer);
-            transfer.push(data.buffer);
-            documents.push(data);
-        }
-        return {
-            request: {
-                ...request,
-                payload: {documents},
             },
             transfer,
         };
@@ -201,6 +163,7 @@ function getEngineDeadlineMs(payload: object, signal: AbortSignal | undefined) {
     for (const value of Object.values(payload)) {
         for (const item of Array.isArray(value) ? value : [value]) {
             if (item instanceof Uint8Array) inputBytes += item.byteLength;
+            else if (item instanceof Blob) inputBytes += item.size;
         }
     }
     return DESKTOP_NATIVE_PAGE_OP_TIMEOUT_MS + Math.ceil(inputBytes / (1024 * 1024)) * ENGINE_DEADLINE_MS_PER_MIB;
@@ -378,12 +341,13 @@ async function runBrowserPageOpsWithoutWorker<K extends TBrowserPageOpsWorkerReq
     if (type === 'textBoxAppearance') {
         throw new BrowserPageOpsWorkerUnavailableError('Text appearance generation requires a worker');
     }
-    if (requireWorker) {
+    // A page-structure edit reads its files synchronously, which only a worker can.
+    if (requireWorker || type === 'pageStructure') {
         throw new BrowserPageOpsWorkerUnavailableError(`The browser page operation ${type} requires a worker`);
     }
     // Without a worker the engine runs on this thread as one long task, with
     // the same request ceiling as the worker.
-    const result = await tryRunBrowserPageOpsWithWasm(type, payload, yieldAdmitted);
+    const result = await tryRunBrowserPageOpsWithWasm(type as Exclude<K, 'pageStructure'>, payload as never, yieldAdmitted);
     await yieldAdmitted();
     return result as IBrowserPageOpsWorkerResultMap[K];
 }

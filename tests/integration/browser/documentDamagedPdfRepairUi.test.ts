@@ -21,7 +21,7 @@ async function readAppendAdmission(bytes: Uint8Array) {
         evb_pdf_page_ops_alloc: alloc,
         evb_pdf_page_ops_free: free,
         evb_pdf_page_ops_append_admission: admit,
-    } = new WebAssembly.Instance(module, {}).exports;
+    } = new WebAssembly.Instance(module, {evb_host: Object.fromEntries(WebAssembly.Module.imports(module).map(({name}) => [name, () => -1]))}).exports;
     if (!(memory instanceof WebAssembly.Memory) || typeof alloc !== 'function' || typeof free !== 'function' || typeof admit !== 'function') {
         throw new Error('The page tool has no append admission');
     }

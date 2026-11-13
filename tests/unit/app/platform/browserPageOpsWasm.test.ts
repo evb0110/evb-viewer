@@ -27,8 +27,14 @@ import {
 import * as v from 'valibot';
 import type { IPageGeometry } from '@contracts/shared';
 import {PDF_BOOKMARK_RECOVERY_ENTRY_SCHEMA} from '@contracts/pdfBookmarkEntry';
-import type {IPageMutationWorkerResult} from '@contracts/browserPageOpsWorker';
-import type {IBrowserPageOpsWasmFailure} from '@app/platform/browser-api/tryRunBrowserPageOpsWithWasm';
+import {
+    isBrowserPageOpsWasmFailure,
+    type IPageMutationWorkerResult,
+} from '@contracts/browserPageOpsWorker';
+import type {
+    IBrowserPageOpsWasmFailure,
+    TPageStructureEdit,
+} from '@app/platform/browser-api/tryRunBrowserPageOpsWithWasm';
 import {
     SPLIT_PAGES_INSTRUCTIONS_SCHEMA,
     OVERLAY_TEXT_INSTRUCTIONS_SCHEMA,
@@ -149,17 +155,40 @@ async function readPasswordProtectedPdf() {
     return Uint8Array.from(Buffer.from(encoded.trim(), 'base64'));
 }
 
+function romanNumeral(value: number) {
+    const numerals = [[1000, 'M'], [900, 'CM'], [500, 'D'], [400, 'CD'], [100, 'C'], [90, 'XC'], [50, 'L'], [40, 'XL'], [10, 'X'], [9, 'IX'], [5, 'V'], [4, 'IV'], [1, 'I']] as const;
+    let rest = value;
+    return numerals.map(([amount, numeral]) => {
+        const count = Math.floor(rest / amount);
+        rest -= count * amount;
+        return numeral.repeat(count);
+    }).join('');
+}
+
+/** Each page's displayed label, from the label ranges' style, prefix and first number. */
 function readPageLabels(pdfDocument: PDFDocument) {
     const pageLabels = pdfDocument.context.lookup(
         pdfDocument.catalog.get(PDFName.of('PageLabels')) as PDFRef,
     ) as PDFDict;
     const nums = pageLabels.get(PDFName.of('Nums')) as PDFArray;
-    const labels: string[] = [];
+    const ranges: Array<{start: number; style: string; prefix: string; first: number}> = [];
     for (let index = 0; index < nums.size(); index += 2) {
-        const pageLabel = pdfDocument.context.lookup(nums.get(index + 1)) as PDFDict;
-        labels.push((pageLabel.get(PDFName.of('P')) as PDFString).decodeText());
+        const label = pdfDocument.context.lookup(nums.get(index + 1)) as PDFDict;
+        ranges.push({
+            start: (nums.get(index) as PDFNumber).asNumber(),
+            style: (label.get(PDFName.of('S')) as PDFName | undefined)?.decodeText() ?? '',
+            prefix: (label.get(PDFName.of('P')) as PDFString | undefined)?.decodeText() ?? '',
+            first: (label.get(PDFName.of('St')) as PDFNumber | undefined)?.asNumber() ?? 1,
+        });
     }
-    return labels;
+    return pdfDocument.getPages().map((_page, pageIndex) => {
+        const range = ranges.findLast(candidate => candidate.start <= pageIndex);
+        if (!range) return String(pageIndex + 1);
+        const number = range.first + pageIndex - range.start;
+        const numerals: Record<string, string> = {D: String(number), R: romanNumeral(number), r: romanNumeral(number).toLowerCase()};
+        const numeral = numerals[range.style] ?? '';
+        return `${range.prefix}${numeral}`;
+    });
 }
 
 function readOutlineDestination(pdfDocument: PDFDocument) {
@@ -332,6 +361,44 @@ function createFailingPageOpsWasmExports(errorText: string) {
     };
 }
 
+/** The engine's file imports over PDFs held in memory: each document is a source, the output a growing buffer. */
+async function runPageStructureInMemory(
+    module: typeof import('@app/platform/browser-api/tryRunBrowserPageOpsWithWasm'),
+    edit: TPageStructureEdit,
+    documents: Uint8Array[],
+) {
+    let output = new Uint8Array(1024);
+    const slice = (bytes: Uint8Array, at: number, length: number) => {
+        if (at + length > bytes.byteLength) throw new Error('Read past the end');
+        return bytes.subarray(at, at + length);
+    };
+    const sink = {
+        write(bytes: Uint8Array, at: number) {
+            if (at + bytes.byteLength > output.byteLength) {
+                const grown = new Uint8Array(Math.max(at + bytes.byteLength, output.byteLength * 2));
+                grown.set(output);
+                output = grown;
+            }
+            output.set(bytes, at);
+        },
+        read: (into: Uint8Array, at: number) => into.set(slice(output, at, into.byteLength)),
+    };
+    const result = await module.runPageStructureEdit(edit, {
+        sources: documents.map(document => ({
+            size: document.byteLength,
+            read: (into, at) => into.set(slice(document, at, into.byteLength)),
+        })),
+        sink,
+        async copy(copies) {
+            for (const {source, from, length, at} of copies) sink.write(slice(documents[source]!, from, length), at);
+        },
+    });
+    return isBrowserPageOpsWasmFailure(result) ? result : {
+        data: output.slice(0, result.length),
+        pageCount: result.pageCount,
+    };
+}
+
 async function loadWasmRunner() {
     vi.resetModules();
     vi.unstubAllGlobals();
@@ -340,6 +407,7 @@ async function loadWasmRunner() {
     return {
         fetchMock,
         run: module.tryRunBrowserPageOpsWithWasm,
+        structure: (edit: TPageStructureEdit, documents: Uint8Array[]) => runPageStructureInMemory(module, edit, documents),
     };
 }
 
@@ -421,14 +489,8 @@ describe('browser page-ops WASM fast path', () => {
         const data = new Uint8Array(await readFile(join(process.cwd(), 'tests/fixtures/electron/pdf-preservation/forms.pdf')));
         const wasm = await loadWasmRunner();
         const result = operation === 'deletePages'
-            ? await wasm.run('deletePages', {
-                data,
-                pages: [2],
-            })
-            : await wasm.run('extractPages', {
-                data,
-                pages: [1],
-            });
+            ? await wasm.structure({kind: 'delete', pages: [2]}, [data])
+            : await wasm.structure({kind: 'extract', pages: [1]}, [data]);
         assertSuccessfulWasmMutation(result);
         const output = await PDFDocument.load(result.data);
         expect(output.getPageCount()).toBe(1);
@@ -462,17 +524,8 @@ describe('browser page-ops WASM fast path', () => {
             'reorderPages',
         ] as const) {
             const result = operation === 'reorderPages'
-                ? await wasm.run(operation, {
-                    data,
-                    newOrder: [
-                        2,
-                        1,
-                    ],
-                })
-                : await wasm.run(operation, {
-                    data,
-                    pages: [operation === 'extractPages' ? 1 : 2],
-                });
+                ? await wasm.structure({kind: 'reorder', pages: [2, 1]}, [data])
+                : await wasm.structure({kind: operation === 'extractPages' ? 'extract' : 'delete', pages: [operation === 'extractPages' ? 1 : 2]}, [data]);
             assertSuccessfulWasmMutation(result);
             const saved = await PDFDocument.load(result.data);
             const fields = saved.getForm().getFields();
@@ -510,7 +563,7 @@ describe('browser page-ops WASM fast path', () => {
                 feature,
             ],
         ]) {
-            const result = await wasm.run('mergePages', {documents});
+            const result = await wasm.structure({kind: 'merge'}, documents);
             expect(result).toMatchObject({pageCount: 2});
             assertSuccessfulWasmMutation(result);
             expect((await PDFDocument.load(result.data)).getPageCount()).toBe(2);
@@ -522,36 +575,15 @@ describe('browser page-ops WASM fast path', () => {
         const ordinary = await createPdf({pageWidths: [200]});
         const wasm = await loadWasmRunner();
         const results = [
-            await wasm.run('deletePages', {
-                data,
-                pages: [2],
-            }),
-            await wasm.run('extractPages', {
-                data,
-                pages: [1],
-            }),
-            await wasm.run('reorderPages', {
-                data,
-                newOrder: [
+            await wasm.structure({kind: 'delete', pages: [2]}, [data]),
+            await wasm.structure({kind: 'extract', pages: [1]}, [data]),
+            await wasm.structure({kind: 'reorder', pages: [
                     2,
                     1,
-                ],
-            }),
-            await wasm.run('insertPages', {
-                data,
-                insertionData: ordinary,
-                afterPage: 1,
-            }),
-            await wasm.run('insertPages', {
-                data: ordinary,
-                insertionData: data,
-                afterPage: 1,
-            }),
-            await wasm.run('insertPages', {
-                data,
-                insertionData: data,
-                afterPage: 1,
-            }),
+                ]}, [data]),
+            await wasm.structure({kind: 'insert', afterPage: 1}, [data, ordinary]),
+            await wasm.structure({kind: 'insert', afterPage: 1}, [ordinary, data]),
+            await wasm.structure({kind: 'insert', afterPage: 1}, [data, data]),
         ];
         for (const [
             index,
@@ -574,7 +606,7 @@ describe('browser page-ops WASM fast path', () => {
     it('judges only the live append-admission allocation with its matching pointer and length', async () => {
         const bytes = await createPdf({pageWidths: [200]});
         const module = await NativeWebAssembly.compile(await readFile(join(process.cwd(), 'public/wasm/evb-pdf-page-ops.wasm')));
-        const {exports} = await NativeWebAssembly.instantiate(module, {});
+        const {exports} = await NativeWebAssembly.instantiate(module, {evb_host: Object.fromEntries(NativeWebAssembly.Module.imports(module).map(({name}) => [name, () => -1]))});
         const memory = exports.memory;
         const alloc = exports.evb_pdf_page_ops_alloc;
         const free = exports.evb_pdf_page_ops_free;
@@ -782,7 +814,7 @@ describe('browser page-ops WASM fast path', () => {
     it('keeps one exact live request allocation across repeated awkward lengths', async () => {
         const wasmBytes = await readFile(join(process.cwd(), 'public/wasm/evb-pdf-page-ops.wasm'));
         const module = new NativeWebAssembly.Module(toArrayBuffer(wasmBytes));
-        const instance = await NativeWebAssembly.instantiate(module);
+        const instance = await NativeWebAssembly.instantiate(module, {evb_host: Object.fromEntries(NativeWebAssembly.Module.imports(module).map(({name}) => [name, () => -1]))});
         const memory = instance.exports.memory;
         const allocationAbiVersion = instance.exports.evb_wasm_request_allocation_abi_version;
         const alloc = instance.exports.evb_pdf_page_ops_alloc;
@@ -1215,30 +1247,17 @@ describe('browser page-ops WASM fast path', () => {
         const insertionPdf = await createPdf({pageWidths: [500]});
 
         const wasm = await loadWasmRunner();
-        const wasmDelete = await wasm.run('deletePages', {
-            data: basePdf,
-            pages: [2],
-        });
-        const wasmExtract = await wasm.run('extractPages', {
-            data: basePdf,
-            pages: [
+        const wasmDelete = await wasm.structure({kind: 'delete', pages: [2]}, [basePdf]);
+        const wasmExtract = await wasm.structure({kind: 'extract', pages: [
                 3,
                 1,
-            ],
-        });
-        const wasmReorder = await wasm.run('reorderPages', {
-            data: basePdf,
-            newOrder: [
+            ]}, [basePdf]);
+        const wasmReorder = await wasm.structure({kind: 'reorder', pages: [
                 3,
                 1,
                 2,
-            ],
-        });
-        const wasmInsert = await wasm.run('insertPages', {
-            data: basePdf,
-            insertionData: insertionPdf,
-            afterPage: 1,
-        });
+            ]}, [basePdf]);
+        const wasmInsert = await wasm.structure({kind: 'insert', afterPage: 1}, [basePdf, insertionPdf]);
         const wasmRotate = await wasm.run('rotate', {
             data: basePdf,
             pages: [
@@ -1407,10 +1426,7 @@ describe('browser page-ops WASM fast path', () => {
         const wasm = await loadWasmRunner();
         const operations = [
             {
-                result: await wasm.run('deletePages', {
-                    data: basePdf,
-                    pages: [2],
-                }),
+                result: await wasm.structure({kind: 'delete', pages: [2]}, [basePdf]),
                 labels: [
                     '1',
                     'II',
@@ -1418,14 +1434,11 @@ describe('browser page-ops WASM fast path', () => {
                 destinationPage: 2,
             },
             {
-                result: await wasm.run('reorderPages', {
-                    data: basePdf,
-                    newOrder: [
+                result: await wasm.structure({kind: 'reorder', pages: [
                         3,
                         1,
                         2,
-                    ],
-                }),
+                    ]}, [basePdf]),
                 labels: [
                     'II',
                     '1',
@@ -1434,14 +1447,11 @@ describe('browser page-ops WASM fast path', () => {
                 destinationPage: 1,
             },
             {
-                result: await wasm.run('insertPages', {
-                    data: basePdf,
-                    insertionData: insertionPdf,
-                    afterPage: 1,
-                }),
+                result: await wasm.structure({kind: 'insert', afterPage: 1}, [basePdf, insertionPdf]),
+                // The inserted page keeps its own source's number.
                 labels: [
                     '1',
-                    '2',
+                    '1',
                     'I',
                     'II',
                 ],
@@ -1505,10 +1515,10 @@ describe('browser page-ops WASM fast path', () => {
             hasXfa: false,
         });
 
-        const mergedResult = await wasm.run('mergePages', {documents: [
+        const mergedResult = await wasm.structure({kind: 'merge'}, [
             sourcePdf,
             secondPdf,
-        ]});
+        ]);
         assertSuccessfulWasmMutation(mergedResult);
         expect(mergedResult.pageCount).toBe(4);
         const merged = await PDFDocument.load(mergedResult.data);
@@ -1543,7 +1553,7 @@ describe('browser page-ops WASM fast path', () => {
     it('merges more than 500 documents and reads catalogs of more than 500 pages, as desktop does', async () => {
         const wasm = await loadWasmRunner();
         const onePage = await createPdf({pageWidths: [200]});
-        const mergedResult = await wasm.run('mergePages', {documents: Array.from({length: 600}, () => onePage.slice())});
+        const mergedResult = await wasm.structure({kind: 'merge'}, Array.from({length: 600}, () => onePage.slice()));
         assertSuccessfulWasmMutation(mergedResult);
         expect(mergedResult.pageCount).toBe(600);
         expect((await PDFDocument.load(mergedResult.data)).getPageCount()).toBe(600);
@@ -1582,10 +1592,10 @@ describe('browser page-ops WASM fast path', () => {
         const sourcePdf = await createMetadataPdf();
         const wasm = await loadWasmRunner();
 
-        const mergedResult = await wasm.run('mergePages', {documents: [
+        const mergedResult = await wasm.structure({kind: 'merge'}, [
             sourcePdf,
             sourcePdf,
-        ]});
+        ]);
         assertSuccessfulWasmMutation(mergedResult);
 
         const mergedCatalog = await wasm.run('readCatalog', {data: mergedResult.data});
@@ -1781,12 +1791,9 @@ describe('browser page-ops WASM fast path', () => {
 
     it('fails closed when core receives non-integer runtime page fields', async () => {
         const basePdf = await createPdf({pageWidths: [200]});
-        const insertionPdf = await createPdf({pageWidths: [300]});
         const core = await loadCoreWithWasm();
 
-        await expect(core.deletePdfPages(basePdf, [1.5]))
-            .rejects.toThrow('Invalid page-op WASM integer field');
-        await expect(core.insertPdfPages(basePdf, insertionPdf, 1.5))
+        await expect(core.rotatePdfBytes(basePdf, [1.5], 90))
             .rejects.toThrow('Invalid page-op WASM integer field');
         await expect(core.getPageGeometryFromPdfBytes(basePdf, 1.5))
             .rejects.toThrow('Invalid page-op WASM integer field');
@@ -2233,10 +2240,12 @@ describe('browser page-ops WASM fast path', () => {
 
     it('rejects delete-all through native page-ops WASM before saving a zero-page PDF', async () => {
         const basePdf = await createPdf({pageWidths: [200]});
-        const core = await loadCoreWithWasm();
+        const wasm = await loadWasmRunner();
 
-        await expect(core.deletePdfPages(basePdf, [1]))
-            .rejects.toThrow('deletePages: cannot delete every page');
+        expect(await wasm.structure({kind: 'delete', pages: [1]}, [basePdf])).toMatchObject({
+            status: 'failed',
+            error: {message: 'deletePages: cannot delete every page'},
+        });
     });
 
     it('reports why the WASM asset could not be loaded', async () => {
@@ -2247,9 +2256,10 @@ describe('browser page-ops WASM fast path', () => {
         const { tryRunBrowserPageOpsWithWasm } = await import('@app/platform/browser-api/tryRunBrowserPageOpsWithWasm');
         const basePdf = await createPdf({pageWidths: [200]});
 
-        await expect(tryRunBrowserPageOpsWithWasm('deletePages', {
+        await expect(tryRunBrowserPageOpsWithWasm('rotate', {
             data: basePdf,
             pages: [1],
+            angle: 90,
         })).resolves.toEqual({
             status: 'failed',
             error: {
@@ -2272,9 +2282,10 @@ describe('browser page-ops WASM fast path', () => {
         const {tryRunBrowserPageOpsWithWasm} = await import('@app/platform/browser-api/tryRunBrowserPageOpsWithWasm');
         const basePdf = await createPdf({pageWidths: [200]});
 
-        await expect(tryRunBrowserPageOpsWithWasm('deletePages', {
+        await expect(tryRunBrowserPageOpsWithWasm('rotate', {
             data: basePdf,
             pages: [1],
+            angle: 90,
         })).resolves.toEqual({
             status: 'failed',
             error: {
@@ -2300,9 +2311,10 @@ describe('browser page-ops WASM fast path', () => {
         const { tryRunBrowserPageOpsWithWasm } = await import('@app/platform/browser-api/tryRunBrowserPageOpsWithWasm');
         const basePdf = await createPdf({pageWidths: [200]});
 
-        await expect(tryRunBrowserPageOpsWithWasm('deletePages', {
+        await expect(tryRunBrowserPageOpsWithWasm('rotate', {
             data: basePdf,
             pages: [1],
+            angle: 90,
         })).resolves.toEqual({
             status: 'failed',
             error: {
@@ -2328,9 +2340,10 @@ describe('browser page-ops WASM fast path', () => {
         const {tryRunBrowserPageOpsWithWasm} = await import('@app/platform/browser-api/tryRunBrowserPageOpsWithWasm');
         const basePdf = await createPdf({pageWidths: [200]});
 
-        await expect(tryRunBrowserPageOpsWithWasm('deletePages', {
+        await expect(tryRunBrowserPageOpsWithWasm('rotate', {
             data: basePdf,
             pages: [1],
+            angle: 90,
         })).resolves.toMatchObject({
             status: 'failed',
             error: {code: 'too-large'},
@@ -2361,9 +2374,10 @@ describe('browser page-ops WASM fast path', () => {
         const {tryRunBrowserPageOpsWithWasm} = await import('@app/platform/browser-api/tryRunBrowserPageOpsWithWasm');
         const basePdf = await createPdf({pageWidths: [200]});
 
-        await expect(tryRunBrowserPageOpsWithWasm('deletePages', {
+        await expect(tryRunBrowserPageOpsWithWasm('rotate', {
             data: basePdf,
             pages: [1],
+            angle: 90,
         })).resolves.toMatchObject({
             status: 'failed',
             error: {code: 'invalid-request'},
@@ -2371,9 +2385,10 @@ describe('browser page-ops WASM fast path', () => {
         expect(wasmMock.run).not.toHaveBeenCalled();
         expect(wasmMock.free).toHaveBeenCalledOnce();
 
-        await expect(tryRunBrowserPageOpsWithWasm('deletePages', {
+        await expect(tryRunBrowserPageOpsWithWasm('rotate', {
             data: basePdf,
             pages: [1],
+            angle: 90,
         })).resolves.toMatchObject({status: 'failed'});
         expect(wasmMock.run).toHaveBeenCalledOnce();
         expect(wasmMock.free).toHaveBeenCalledTimes(2);
@@ -2403,9 +2418,10 @@ describe('browser page-ops WASM fast path', () => {
         const {tryRunBrowserPageOpsWithWasm} = await import('@app/platform/browser-api/tryRunBrowserPageOpsWithWasm');
         const basePdf = await createPdf({pageWidths: [200]});
 
-        await expect(tryRunBrowserPageOpsWithWasm('deletePages', {
+        await expect(tryRunBrowserPageOpsWithWasm('rotate', {
             data: basePdf,
             pages: [1],
+            angle: 90,
         })).resolves.toMatchObject({
             status: 'failed',
             error: {code: 'invalid-request'},
@@ -2413,9 +2429,10 @@ describe('browser page-ops WASM fast path', () => {
         expect(wasmMock.run).toHaveBeenCalledOnce();
         expect(wasmMock.free).toHaveBeenCalledOnce();
 
-        await expect(tryRunBrowserPageOpsWithWasm('deletePages', {
+        await expect(tryRunBrowserPageOpsWithWasm('rotate', {
             data: basePdf,
             pages: [1],
+            angle: 90,
         })).resolves.toMatchObject({
             status: 'failed',
             error: {code: 'invalid-request'},
@@ -2444,9 +2461,10 @@ describe('browser page-ops WASM fast path', () => {
         );
         const basePdf = await createPdf({pageWidths: [200]});
 
-        await expect(tryRunBrowserPageOpsWithWasm('deletePages', {
+        await expect(tryRunBrowserPageOpsWithWasm('rotate', {
             data: basePdf,
             pages: [1],
+            angle: 90,
         })).resolves.toMatchObject({
             status: 'failed',
             error: {code: 'native-failure'},

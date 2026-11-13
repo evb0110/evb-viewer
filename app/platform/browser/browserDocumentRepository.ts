@@ -6,6 +6,7 @@ import {
     openDocument,
     type TDocumentInit,
     type TMutation,
+    type TMutationResult,
 } from '@document-store/documentDirectory';
 import {
     saveDocument,
@@ -27,7 +28,10 @@ import {
 } from '@app/platform/browser/browserDocumentReadError';
 import { emitBrowserDocumentPersistenceWarning } from '@app/platform/browser/browserDocumentPersistenceWarnings';
 import { fileHandleStore } from '@app/platform/browser/browserFileHandleStore';
-import { sameWitness } from '@document-store/contentWitness';
+import {
+    contentWitness,
+    sameWitness,
+} from '@document-store/contentWitness';
 import {
     browserPublication,
     fileFact,
@@ -40,9 +44,11 @@ import {
 import { BrowserRecentFilesStore } from '@app/platform/browser/browserRecentFilesStore';
 import {
     createMemoryStorePort,
+    isOpfsStorePort,
     openBrowserStorePort,
 } from '@app/platform/browser/browserStorePort';
 import { holdBrowserLock } from '@app/platform/browser/runBrowserLock';
+import { opfsFileHandle } from '@app/platform/browser/opfsFileHandle';
 import {
     createMissingRevisionError,
     createStaleRevisionError,
@@ -401,6 +407,72 @@ export class BrowserDocumentStore {
     public async write(ref: string, data: Uint8Array | ArrayBuffer, options: IWriteOptions = {}) {
         await this.mutate(await this.requireEntry(ref), options.expectedDocumentRevisionToken, {kind: 'rewrite', source: bytesBlob(data), drafts: 'clear'}, 'write');
         return true;
+    }
+
+    /**
+     * Commits a revision that `write` makes from `source`, the document's present bytes read in place: it writes
+     * the new revision file at the store path `output`, or returns the bytes when the document's store is not
+     * the origin private file system (`output` null), such as a window's memory store. As on desktop, a document without bytes of its own is read from its file, which must
+     * still hold the bytes the person saw when the revision commits; no copy of it is made first. `imported`:
+     * the new bytes are the document's baseline, as for bytes the person supplied, so it stays clean.
+     */
+    public async rewrite(
+        ref: string,
+        token: TDocumentRevisionToken | null | undefined,
+        write: (source: Blob, output: string | null) => Promise<Uint8Array | undefined>,
+        {imported = false} = {},
+    ) {
+        const entry = await this.requireEntry(ref);
+        const doc = this.requireDoc(entry);
+        const previous = this.tokenOf(entry);
+        this.expectedRevision(entry, token);
+        const source = await this.readableBlob(ref);
+        let info: IDocumentRevisionInfo;
+        if (!isOpfsStorePort(entry.store!.port)) {
+            const bytes = await write(source, null);
+            if (!bytes) throw new Error('The rewrite returned no bytes');
+            info = await this.mutate(entry, token, {kind: 'rewrite', source: bytesBlob(bytes), drafts: 'clear'}, 'write');
+        } else {
+            const {current, next, ext} = doc.snapshot();
+            const name = `r${current ? next : next + 1}.${ext}`;
+            const output = doc.path(name);
+            try {
+                await write(source, output);
+                info = this.settle(entry, token, previous, await doc.run(async (): Promise<TMutationResult> => {
+                    const manifest = doc.snapshot();
+                    if (this.tokenOf(entry) !== previous) return {status: 'stale-revision', current: manifest.current ?? null};
+                    // A first copy of the file made meanwhile is revision `next`, and `name` is its next revision.
+                    if (manifest.current) return doc.applyMutation(manifest.current.id, {kind: 'rewrite', source: () => Promise.resolve(), drafts: 'clear'});
+                    if (!sameWitness(await browserPublication.witness(manifest.destination!), manifest.baseline)) return {status: 'conflict'};
+                    const file = await entry.store!.port.open(output);
+                    const revision = {id: next + 1, file: name, length: await file.size()};
+                    await file.flush();
+                    await doc.commit({...manifest, next: revision.id + 1, current: revision, drafts: undefined}, file);
+                    return {status: 'committed', revision};
+                }), 'write');
+            } catch (error) {
+                await entry.store!.port.remove(output).catch(() => undefined);
+                throw error;
+            }
+        }
+        if (imported) {
+            const current = doc.state().current!;
+            const witness = await contentWitness(current.length, (offset, length) => doc.read(offset, length));
+            await doc.run(() => doc.commit({...doc.snapshot(), current: {...current, witness}, baseline: witness}));
+        }
+        return info;
+    }
+
+    /**
+     * The document's present bytes as a Blob read in place, for a worker that reads them by range: its current
+     * revision's file, or its file before it has bytes of its own. Valid until the document next changes.
+     */
+    public async readableBlob(ref: string): Promise<Blob> {
+        const entry = await this.requireEntry(ref);
+        const current = entry.doc?.state().current;
+        if (!entry.doc || !current) return this.fileOf(entry);
+        if (!isOpfsStorePort(entry.store!.port)) return this.externalSource(ref) as Promise<Blob>;
+        return (await (await opfsFileHandle(entry.doc.path(current.file))).getFile()).slice(0, current.length);
     }
 
     /** Commits a staged output into `targetRef` when both are still the revisions it was staged against. */
@@ -917,7 +989,17 @@ export class BrowserDocumentStore {
     ) {
         const doc = this.requireDoc(entry);
         const previous = this.tokenOf(entry);
-        const result = await doc.mutate(this.expectedRevision(entry, token), mutation);
+        return this.settle(entry, token, previous, await doc.mutate(this.expectedRevision(entry, token), mutation), reason, announce);
+    }
+
+    private settle(
+        entry: IBrowserDocumentEntry,
+        token: TDocumentRevisionToken | null | undefined,
+        previous: TDocumentRevisionToken,
+        result: TMutationResult,
+        reason: TDocumentRevisionChangeReason,
+        announce = true,
+    ) {
         if (result.status === 'stale-revision') this.throwStale(entry, token);
         if (result.status === 'conflict') throw new BrowserDocumentSourceChangedError(entry.ref);
         entry.file = null;

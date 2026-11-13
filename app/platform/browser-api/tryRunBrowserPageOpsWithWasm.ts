@@ -5,6 +5,7 @@ import { getErrorMessage } from '@app/utils/error';
 import {
     BYTES_HEADER,
     DOCUMENT_LIST_HEADER,
+    FILE_REQUEST_HEADER,
     MAX_U32,
     MUTATION_HEADER,
     NATIVE_MUTATION_HEADER,
@@ -18,6 +19,7 @@ import {
     REQUEST_MAGIC,
     REQUEST_VERSION,
     REQUEST_VERSION_DOCUMENT_LIST,
+    REQUEST_VERSION_FILES,
     REQUEST_VERSION_INSTRUCTED,
     REQUEST_VERSION_ORIGINAL_APPEARANCE_SOURCE,
     REQUEST_ORIGINAL_APPEARANCE_SOURCE_HEADER,
@@ -29,7 +31,9 @@ import {
     RESPONSE_REPORTED_INCREMENT,
     RESPONSE_REPORTED_PDF,
     RESPONSE_REPORTED_RASTER,
+    RESPONSE_WRITTEN,
     U32_BYTES,
+    WRITTEN_HEADER,
 } from '@contracts/browserPageOpsWasm.generated';
 import {
     BROWSER_PAGE_OPS_SAVE_MUTATIONS_RESULT_SCHEMA,
@@ -74,7 +78,8 @@ interface IPdfPageOpsWasmExports {
 
 
 
-type IBrowserPageOpsWasmRequestMap = IBrowserPageOpsWorkerRequestMap;
+// Page-structure edits read and write files through the engine's host imports, not a request buffer.
+type IBrowserPageOpsWasmRequestMap = Omit<IBrowserPageOpsWorkerRequestMap, 'pageStructure'>;
 
 const wasmBytesSchema = v.custom<Uint8Array>(value => value instanceof Uint8Array);
 const wasmMutationResultSchema = v.object({
@@ -91,7 +96,7 @@ const wasmCatalogResultSchema = v.pipe(
 );
 
 type IBrowserPageOpsWasmResultMap = {
-    [K in keyof IBrowserPageOpsWorkerResultMap]: Exclude<IBrowserPageOpsWorkerResultMap[K], IBrowserPageOpsWasmFailure>;
+    [K in keyof IBrowserPageOpsWasmRequestMap]: Exclude<IBrowserPageOpsWorkerResultMap[K], IBrowserPageOpsWasmFailure>;
 };
 
 type TBrowserPageOpsWasmRequestType = keyof IBrowserPageOpsWasmRequestMap;
@@ -169,16 +174,62 @@ function resolveWasmUrl() {
     return new URL(WASM_PATH, globalThis.location.href).toString();
 }
 
+/** Stream data the engine leaves to the host: `length` bytes of source `source` at `from`, to the sink at `at`. */
+export interface IPageStructureCopy {
+    source: number;
+    from: number;
+    length: number;
+    at: number;
+}
+
+/** The files of the page-structure edit running now, which the engine reaches through its host imports. */
+export interface IPageStructureFiles {
+    /** `read` fills `into` from `at` or throws. */
+    sources: readonly {size: number; read(into: Uint8Array, at: number): void}[];
+    /** The output file; `write` stores all of `bytes` or throws. */
+    sink: {write(bytes: Uint8Array, at: number): void; read(into: Uint8Array, at: number): void};
+    /** Makes the copies the engine asked for, between its write and its verification. */
+    copy(copies: readonly IPageStructureCopy[]): Promise<void>;
+}
+
+let openFiles: {files: IPageStructureFiles; copies: IPageStructureCopy[]; error: unknown} | null = null;
+
+/** The engine's `evb_host` imports over `openFiles`. A host failure answers -1 and is kept for the caller. */
+export function createPageOpsHostImports(memory: () => WebAssembly.Memory) {
+    const view = (pointer: number, len: number) => new Uint8Array(memory().buffer, pointer >>> 0, len >>> 0);
+    const call = (run: (open: NonNullable<typeof openFiles>) => void) => {
+        const open = openFiles;
+        if (!open) return -1;
+        try {
+            run(open);
+            return 0;
+        } catch (error) {
+            open.error ??= error;
+            return -1;
+        }
+    };
+    return {evb_host: {
+        evb_host_source_len: (source: number) => openFiles?.files.sources[source]?.size ?? -1,
+        evb_host_source_read: (source: number, at: number, pointer: number, len: number) => call(({files}) => files.sources[source]!.read(view(pointer, len), at)),
+        evb_host_source_copy: (source: number, from: number, length: number, at: number) => call(({copies}) => copies.push({source, from, length, at})),
+        evb_host_sink_write: (at: number, pointer: number, len: number) => call(({files}) => files.sink.write(view(pointer, len), at)),
+        evb_host_sink_read: (at: number, pointer: number, len: number) => call(({files}) => files.sink.read(view(pointer, len), at)),
+    }};
+}
+
 function loadPdfPageOpsWasm() {
     const pending = wasmExportsPromise ??= (async () => {
         if (typeof WebAssembly === 'undefined' || typeof fetch !== 'function') {
             throw new Error('This browser cannot run WebAssembly');
         }
-        const instantiated = await loadWasmWithDeadline(resolveWasmUrl());
+        let memory: WebAssembly.Memory | null = null;
+        const instantiated = await loadWasmWithDeadline(resolveWasmUrl(), createPageOpsHostImports(() => memory!));
         const instance = 'instance' in instantiated
             ? instantiated.instance
             : instantiated;
-        return getPdfPageOpsWasmExports(instance.exports);
+        const exports = getPdfPageOpsWasmExports(instance.exports);
+        memory = exports.memory;
+        return exports;
     })();
     // A failed load must not disable the page tool for the rest of the
     // session: the next operation loads it again.
@@ -222,14 +273,10 @@ function writeU32(view: DataView, offset: number, value: number) {
 
 function getRequestPages(request: TBrowserPageOpsWasmRequest): number[] {
     switch (request.type) {
-        case 'deletePages':
-        case 'extractPages':
         case 'rotate':
         case 'crop':
         case 'removeCrop':
             return request.payload.pages;
-        case 'reorderPages':
-            return request.payload.newOrder;
         case 'printLayout':
             return request.payload.pageNumbers;
         case 'ocrTextVisibility':
@@ -241,13 +288,11 @@ function getRequestPages(request: TBrowserPageOpsWasmRequest): number[] {
         case 'overlayText':
         case 'recompressImages':
         case 'replacePageImages':
-        case 'insertPages':
         case 'getPageGeometry':
         case 'decrypt':
         case 'parseAnnotations':
         case 'readCatalog':
         case 'conformance':
-        case 'mergePages':
         case 'textBoxAppearance':
             return [];
         case 'saveMutations':
@@ -257,10 +302,6 @@ function getRequestPages(request: TBrowserPageOpsWasmRequest): number[] {
 
 function getRequestData(request: TBrowserPageOpsWasmRequest): Uint8Array {
     switch (request.type) {
-        case 'deletePages':
-        case 'extractPages':
-        case 'reorderPages':
-        case 'insertPages':
         case 'rotate':
         case 'crop':
         case 'removeCrop':
@@ -280,7 +321,6 @@ function getRequestData(request: TBrowserPageOpsWasmRequest): Uint8Array {
         case 'recompressImages':
         case 'replacePageImages':
             return request.payload.data;
-        case 'mergePages':
         case 'textBoxAppearance':
             return new Uint8Array();
     }
@@ -289,9 +329,6 @@ function getRequestData(request: TBrowserPageOpsWasmRequest): Uint8Array {
 function getInsertionData(request: TBrowserPageOpsWasmRequest): Uint8Array {
     if (request.type === 'textBoxAppearance') {
         return new TextEncoder().encode(JSON.stringify(request.payload));
-    }
-    if (request.type === 'insertPages') {
-        return request.payload.insertionData;
     }
     if (request.type === 'saveMutations') {
         const {
@@ -323,12 +360,6 @@ function getPageNumber(request: TBrowserPageOpsWasmRequest): number {
         : 0;
 }
 
-function getAfterPage(request: TBrowserPageOpsWasmRequest): number {
-    return request.type === 'insertPages'
-        ? request.payload.afterPage
-        : 0;
-}
-
 function getAngle(request: TBrowserPageOpsWasmRequest): number {
     return request.type === 'rotate'
         ? request.payload.angle
@@ -353,12 +384,6 @@ function getDocumentList(request: TBrowserPageOpsWasmRequest): Uint8Array[] | nu
         case 'readCatalog':
         case 'conformance':
             return [request.payload.data];
-        case 'mergePages':
-            return request.payload.documents;
-        case 'deletePages':
-        case 'extractPages':
-        case 'reorderPages':
-        case 'insertPages':
         case 'rotate':
         case 'crop':
         case 'removeCrop':
@@ -421,10 +446,6 @@ function getInstructedRequest(request: TBrowserPageOpsWasmRequest): IInstructedW
                 attachments: request.payload.replacementPdfs,
             };
         case 'textBoxAppearance':
-        case 'deletePages':
-        case 'extractPages':
-        case 'reorderPages':
-        case 'insertPages':
         case 'rotate':
         case 'crop':
         case 'removeCrop':
@@ -435,7 +456,6 @@ function getInstructedRequest(request: TBrowserPageOpsWasmRequest): IInstructedW
         case 'saveMutations':
         case 'decrypt':
         case 'printLayout':
-        case 'mergePages':
         case 'ocrTextVisibility':
         case 'inspectScanCleanupPdf':
             return null;
@@ -515,11 +535,7 @@ function buildWasmRequest(request: TBrowserPageOpsWasmRequest) {
     if (instructed !== null) {
         return buildInstructedWasmRequest(OPERATION_CODES[request.type], instructed);
     }
-    if (
-        request.type === 'readCatalog'
-        || request.type === 'conformance'
-        || request.type === 'mergePages'
-    ) {
+    if (request.type === 'readCatalog' || request.type === 'conformance') {
         return buildDocumentListWasmRequest(request);
     }
     const data = getRequestData(request);
@@ -529,7 +545,6 @@ function buildWasmRequest(request: TBrowserPageOpsWasmRequest) {
     const headerBytes = sourceData ? REQUEST_ORIGINAL_APPEARANCE_SOURCE_HEADER.bytes : REQUEST_HEADER.bytes;
     const pages = getRequestPages(request).map(toWasmU32);
     const pageNumber = toWasmU32(getPageNumber(request));
-    const afterPage = toWasmU32(getAfterPage(request));
     const angle = toWasmU32(getAngle(request));
     const dataLength = toWasmU32(data.byteLength);
     const insertionDataLength = toWasmU32(insertionData.byteLength);
@@ -549,7 +564,6 @@ function buildWasmRequest(request: TBrowserPageOpsWasmRequest) {
     writeU32(view, REQUEST_HEADER.operation, OPERATION_CODES[request.type]);
     writeU32(view, REQUEST_HEADER.pageCount, pages.length);
     writeU32(view, REQUEST_HEADER.pageNumber, pageNumber);
-    writeU32(view, REQUEST_HEADER.afterPage, afterPage);
     writeU32(view, REQUEST_HEADER.angle, angle);
     view.setFloat64(REQUEST_HEADER.top, toWasmF64(margins.top), true);
     view.setFloat64(REQUEST_HEADER.bottom, toWasmF64(margins.bottom), true);
@@ -888,6 +902,94 @@ function runWasmRequest<K extends TBrowserPageOpsWasmRequestType>(
                 if (!trapped) exports.evb_pdf_page_ops_free(pointer, requestByteLength);
             }
         }
+    }
+}
+
+export type TPageStructureEdit = IBrowserPageOpsWorkerRequestMap['pageStructure']['edit'];
+
+const PAGE_STRUCTURE_OPERATIONS = {
+    delete: OPERATION_CODES.deletePages,
+    extract: OPERATION_CODES.extractPages,
+    reorder: OPERATION_CODES.reorderPages,
+    insert: OPERATION_CODES.insertPages,
+    merge: OPERATION_CODES.mergePages,
+    verify: OPERATION_CODES.verifyWritten,
+} as const;
+
+/** The engine keeps one written edit until it is verified, so edits in one thread run one at a time. */
+let pageStructureTail: Promise<unknown> = Promise.resolve();
+
+function runFileRequest(exports: IPdfPageOpsWasmExports, edit: TPageStructureEdit | {kind: 'verify'}, sourceCount: number) {
+    const pages = 'pages' in edit ? edit.pages : [];
+    const request = new Uint8Array(FILE_REQUEST_HEADER.bytes + pages.length * U32_BYTES);
+    const view = new DataView(request.buffer);
+    writeMagic(request, FILE_REQUEST_HEADER.magic);
+    writeU32(view, FILE_REQUEST_HEADER.version, REQUEST_VERSION_FILES);
+    writeU32(view, FILE_REQUEST_HEADER.operation, PAGE_STRUCTURE_OPERATIONS[edit.kind]);
+    writeU32(view, FILE_REQUEST_HEADER.sourceCount, sourceCount);
+    writeU32(view, FILE_REQUEST_HEADER.afterPage, edit.kind === 'insert' ? toWasmU32(edit.afterPage) : 0);
+    let offset = writeU32(view, FILE_REQUEST_HEADER.pageCount, pages.length);
+    for (const page of pages) offset = writeU32(view, offset, toWasmU32(page));
+    const pointer = exports.evb_pdf_page_ops_alloc(request.byteLength);
+    if (pointer === 0) return createWasmFailure('too-large', 'Page operation WASM could not allocate request memory');
+    let trapped = false;
+    try {
+        getCheckedWasmMemoryView(exports.memory, pointer, request.byteLength, 'Page operation WASM allocation').set(request);
+        const resultCode = exports.evb_pdf_page_ops_run(pointer, request.byteLength);
+        if (openFiles?.error !== undefined) throw openFiles.error;
+        if (resultCode !== 0) return readWasmFailure(resultCode, exports);
+        const output = copyWasmBytes(exports, exports.evb_pdf_page_ops_output_ptr(), exports.evb_pdf_page_ops_output_len());
+        const written = new DataView(output.buffer);
+        if (output.byteLength !== WRITTEN_HEADER.bytes || written.getUint32(WRITTEN_HEADER.kind, true) !== RESPONSE_WRITTEN) {
+            return createWasmFailure('invalid-request', 'Page operation WASM returned malformed output');
+        }
+        return {
+            pageCount: written.getUint32(WRITTEN_HEADER.pageCount, true),
+            length: written.getFloat64(WRITTEN_HEADER.length, true),
+        };
+    } catch (error) {
+        if (!(error instanceof Error && error.name === 'RuntimeError')) throw error;
+        // As in `runWasmRequest`: a trap leaves the engine unusable, so the next request loads a fresh one.
+        trapped = true;
+        wasmExportsPromise = null;
+        return createWasmFailure('too-large', `The browser page tool ran out of memory: ${getErrorMessage(error)}`);
+    } finally {
+        if (!trapped) exports.evb_pdf_page_ops_free(pointer, request.byteLength);
+    }
+}
+
+/**
+ * Runs a page-structure edit over `files` in this thread's engine. The engine reads its sources' objects by
+ * range and writes the output, leaving stream data for `files.copy` to copy; then it verifies what was
+ * written. Its memory holds the documents' objects and never their bytes. A host failure, such as a full
+ * store, is thrown as itself.
+ */
+export async function runPageStructureEdit(
+    edit: TPageStructureEdit,
+    files: IPageStructureFiles,
+): Promise<{pageCount: number; length: number} | IBrowserPageOpsWasmFailure> {
+    let exports: IPdfPageOpsWasmExports;
+    try {
+        exports = await loadPdfPageOpsWasm();
+    } catch (error) {
+        return createWasmLoadFailure(error);
+    }
+    const previous = pageStructureTail;
+    let done = () => {};
+    pageStructureTail = new Promise<void>(resolve => {
+        done = resolve;
+    });
+    await previous;
+    const open = {files, copies: [] as IPageStructureCopy[], error: undefined as unknown};
+    openFiles = open;
+    try {
+        const written = runFileRequest(exports, edit, files.sources.length);
+        if (isBrowserPageOpsWasmFailure(written)) return written;
+        await files.copy(open.copies);
+        return runFileRequest(exports, {kind: 'verify'}, 0);
+    } finally {
+        openFiles = null;
+        done();
     }
 }
 

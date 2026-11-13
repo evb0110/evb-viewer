@@ -1,16 +1,11 @@
 import {
     cropPdfBytes,
-    deletePdfPages,
-    extractPdfPages,
     getPageGeometryFromPdfBytes,
     parsePdfAnnotations,
-    insertPdfPages,
     removeCropPdfBytes,
-    reorderPdfPages,
     rotatePdfBytes,
     readPdfCatalog,
     readPdfConformance,
-    mergePdfPages,
 } from '@app/platform/browser-api/browserPageOpsCore';
 import type {
     IBrowserPageOpsWorkerRequest,
@@ -23,8 +18,12 @@ import {
     parseBrowserPageOpsWorkerRequest,
 } from '@contracts/browserPageOpsWorker';
 import {
-    tryRunBrowserPageOpsWithWasm, isBrowserPageOpsWasmFailure,
+    tryRunBrowserPageOpsWithWasm,
+    isBrowserPageOpsWasmFailure,
+    runPageStructureEdit,
+    type IPageStructureFiles,
 } from '@app/platform/browser-api/tryRunBrowserPageOpsWithWasm';
+import {opfsFileHandle} from '@app/platform/browser/opfsFileHandle';
 import {readLoadedWasmDigest} from '@app/platform/browser-api/loadWasmWithDeadline';
 import { getErrorMessage } from '@app/utils/error';
 function toTransferableUint8Array(data: Uint8Array) {
@@ -38,41 +37,110 @@ function toTransferableUint8Array(data: Uint8Array) {
     return data.slice();
 }
 
-async function handleDeleteRequest(
-    request: IBrowserPageOpsWorkerRequest<'deletePages'>,
-) {
-    return deletePdfPages(
-        request.payload.data,
-        request.payload.pages,
-    );
+const COPY_CHUNK_BYTES = 4 * 1024 * 1024;
+
+type TPageStructureSink = IPageStructureFiles['sink'] & {
+    /** Makes the output durable; returns its bytes when it has no file. */
+    finish(length: number): Uint8Array | undefined;
+    close(): void;
+};
+
+/**
+ * The new revision file at the store path `output`. No other context opens it before the edit is committed,
+ * so this worker is its one writer; a file left by an edit that was stopped is overwritten from its start.
+ */
+async function openStoreSink(output: string): Promise<TPageStructureSink> {
+    const handle = await (await opfsFileHandle(output, true)).createSyncAccessHandle();
+    handle.truncate(0);
+    return {
+        write(bytes, at) {
+            // Chromium throws QuotaExceededError when the store is full; Firefox stores fewer bytes.
+            if (handle.write(bytes, {at}) !== bytes.byteLength) {
+                throw new DOMException('The browser\'s storage is full', 'QuotaExceededError');
+            }
+        },
+        read(into, at) {
+            if (handle.read(into, {at}) !== into.byteLength) throw new Error('The written file ended early');
+        },
+        finish() {
+            handle.flush();
+            return undefined;
+        },
+        close: () => handle.close(),
+    };
 }
 
-async function handleExtractRequest(
-    request: IBrowserPageOpsWorkerRequest<'extractPages'>,
-) {
-    return extractPdfPages(
-        request.payload.data,
-        request.payload.pages,
-    );
+/** The output of a document the browser keeps in memory, returned as bytes. */
+function createMemorySink(): TPageStructureSink {
+    let buffer = new Uint8Array(1 << 20);
+    let length = 0;
+    return {
+        write(bytes, at) {
+            const end = at + bytes.byteLength;
+            if (end > buffer.byteLength) {
+                const grown = new Uint8Array(Math.max(end, buffer.byteLength * 2));
+                grown.set(buffer.subarray(0, length));
+                buffer = grown;
+            }
+            buffer.set(bytes, at);
+            length = Math.max(length, end);
+        },
+        read(into, at) {
+            if (at + into.byteLength > length) throw new Error('The written output ended early');
+            into.set(buffer.subarray(at, at + into.byteLength));
+        },
+        finish: written => buffer.slice(0, written),
+        close: () => undefined,
+    };
 }
 
-async function handleReorderRequest(
-    request: IBrowserPageOpsWorkerRequest<'reorderPages'>,
-) {
-    return reorderPdfPages(
-        request.payload.data,
-        request.payload.newOrder,
-    );
+/** A document's objects read by range: each read is one synchronous slice of the Blob. */
+function blobSource(blob: Blob, reader: FileReaderSync) {
+    return {
+        size: blob.size,
+        read(into: Uint8Array, at: number) {
+            const bytes = reader.readAsArrayBuffer(blob.slice(at, at + into.byteLength));
+            if (bytes.byteLength !== into.byteLength) throw new Error('The document ended before its cross-reference said');
+            into.set(new Uint8Array(bytes));
+        },
+    };
 }
 
-async function handleInsertRequest(
-    request: IBrowserPageOpsWorkerRequest<'insertPages'>,
-) {
-    return insertPdfPages(
-        request.payload.data,
-        request.payload.insertionData,
-        request.payload.afterPage,
-    );
+async function handlePageStructureRequest(
+    request: IBrowserPageOpsWorkerRequest<'pageStructure'>,
+): Promise<IBrowserPageOpsWorkerResultMap['pageStructure']> {
+    const {edit, sources, output} = request.payload;
+    const sink = output === null ? createMemorySink() : await openStoreSink(output);
+    try {
+        const reader = new FileReaderSync();
+        const result = await runPageStructureEdit(edit, {
+            sources: sources.map(blob => blobSource(blob, reader)),
+            sink,
+            // Read asynchronously: each read ends a task, which releases its buffer.
+            async copy(copies) {
+                for (const {source, from, length, at} of copies) {
+                    for (let done = 0; done < length; done += COPY_CHUNK_BYTES) {
+                        const end = from + Math.min(length, done + COPY_CHUNK_BYTES);
+                        const bytes = new Uint8Array(await sources[source]!.slice(from + done, end).arrayBuffer());
+                        if (bytes.byteLength !== end - from - done) throw new Error('The document ended before its cross-reference said');
+                        sink.write(bytes, at + done);
+                    }
+                }
+            },
+        });
+        if (isBrowserPageOpsWasmFailure(result)) return result;
+        const data = sink.finish(result.length);
+        return {
+            status: 'written',
+            ...result,
+            ...(data ? {data} : {}),
+        };
+    } catch (error) {
+        if (error instanceof DOMException && error.name === 'QuotaExceededError') return {status: 'storage-full'};
+        throw error;
+    } finally {
+        sink.close();
+    }
 }
 
 async function handleRotateRequest(
@@ -131,12 +199,6 @@ async function handleConformanceRequest(
     return readPdfConformance(request.payload.data);
 }
 
-async function handleMergePagesRequest(
-    request: IBrowserPageOpsWorkerRequest<'mergePages'>,
-) {
-    return mergePdfPages(request.payload.documents);
-}
-
 const WASM_WRITER_REQUEST_TYPES = [
     'textBoxAppearance',
     'saveMutations',
@@ -173,14 +235,8 @@ async function handleRequest(
         case 'recompressImages':
         case 'replacePageImages':
             return tryRunBrowserPageOpsWithWasm(request.type, request.payload);
-        case 'deletePages':
-            return handleDeleteRequest(request);
-        case 'extractPages':
-            return handleExtractRequest(request);
-        case 'reorderPages':
-            return handleReorderRequest(request);
-        case 'insertPages':
-            return handleInsertRequest(request);
+        case 'pageStructure':
+            return handlePageStructureRequest(request);
         case 'rotate':
             return handleRotateRequest(request);
         case 'crop':
@@ -195,8 +251,6 @@ async function handleRequest(
             return handleReadCatalogRequest(request);
         case 'conformance':
             return handleConformanceRequest(request);
-        case 'mergePages':
-            return handleMergePagesRequest(request);
     }
 }
 
@@ -254,6 +308,17 @@ self.addEventListener('message', async (event: MessageEvent<unknown>) => {
                     },
                 }, [transferableData.buffer]);
             }
+            return;
+        }
+        if (request.type === 'pageStructure') {
+            const result = data as IBrowserPageOpsWorkerResultMap['pageStructure'];
+            const bytes = result.status === 'written' && result.data ? toTransferableUint8Array(result.data) : null;
+            await postResponse({
+                id: request.id,
+                type: request.type,
+                ok: true,
+                data: bytes ? {...result, data: bytes} : result,
+            }, bytes ? [bytes.buffer] : []);
             return;
         }
         if (request.type === 'getPageGeometry') {

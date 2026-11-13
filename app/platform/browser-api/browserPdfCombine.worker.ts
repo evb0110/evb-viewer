@@ -23,10 +23,6 @@ import {
     readPdfImageCombineEngineDigest,
     tryCombineImageInputsWithWasm,
 } from '@app/platform/browser-api/tryCombineImageInputsWithWasm';
-import {
-    isBrowserPageOpsWasmFailure,
-    tryRunBrowserPageOpsWithWasm,
-} from '@app/platform/browser-api/tryRunBrowserPageOpsWithWasm';
 import { toTransferableUint8Array } from '@app/platform/browser-api/toTransferableUint8Array';
 import { getErrorMessage } from '@app/utils/error';
 import { readBrowserRasterImageMetadata } from '@app/platform/browser-api/browserRasterImageMetadata';
@@ -82,9 +78,6 @@ async function convertWorkerImageBytesToPng(fileName: string, bytes: Uint8Array)
 
 function validateWorkerInput(input: IBrowserPdfCombineInput) {
     const extension = getBrowserFileExtension(input.fileName);
-    if (extension === '.pdf') {
-        return;
-    }
     if (isNetpbmExtension(extension)) {
         return;
     }
@@ -233,52 +226,7 @@ async function handleCombinePdfsRequest(request: TBrowserPdfCombineWorkerRequest
         }
     }
 
-    const hasPdfInput = inputs.some(input => getBrowserFileExtension(input.fileName) === '.pdf');
-    if (hasPdfInput) {
-        if (wasmImagePreprocessing !== undefined) {
-            throw new Error('ERR_BROWSER_PDF_COMBINE_WORKER_MIXED_WASM_PREPROCESSING_UNSUPPORTED');
-        }
-        const documents: Uint8Array[] = [];
-        let imageInputs: IBrowserPdfCombineInput[] = [];
-        const flushImages = async () => {
-            if (imageInputs.length === 0) {
-                return;
-            }
-            const imageResult = await tryCombineImageInputsWithWasm(
-                imageInputs,
-                buildExifRotationPreprocessing(imageInputs),
-            );
-            if (imageResult.status === 'fatal') {
-                throw new SerializableError(imageResult.error);
-            }
-            if (imageResult.status === 'unavailable') {
-                throw new Error('ERR_BROWSER_PDF_COMBINE_WASM_UNAVAILABLE');
-            }
-            if (imageResult.status !== 'success') {
-                throw new Error('ERR_BROWSER_PDF_COMBINE_WORKER_UNSUPPORTED_INPUT');
-            }
-            documents.push(imageResult.data);
-            imageInputs = [];
-        };
-        for (const input of inputs) {
-            if (getBrowserFileExtension(input.fileName) === '.pdf') {
-                await flushImages();
-                documents.push(input.data);
-            } else {
-                imageInputs.push(input);
-            }
-        }
-        await flushImages();
-        const merged = await tryRunBrowserPageOpsWithWasm('mergePages', {documents});
-        if (isBrowserPageOpsWasmFailure(merged)) {
-            throw new SerializableError(merged.error);
-        }
-        if (merged.data.byteLength === 0) {
-            throw createBrowserPdfCombineOutputError();
-        }
-        return {data: toTransferableUint8Array(merged.data)};
-    }
-
+    // PDFs are merged by the page tool, which reads them in place; this worker builds PDFs from images.
     let flatWasmPreprocessing = wasmImagePreprocessing;
     // Pages from manifest lines or page specs carry their own placement.
     if (!flatWasmPreprocessing?.pageSpecs && !flatWasmPreprocessing?.compactManifestLines) {

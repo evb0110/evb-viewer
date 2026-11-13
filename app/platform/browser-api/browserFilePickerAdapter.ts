@@ -706,7 +706,7 @@ export async function pickSaveTarget(options: {
 }
 
 export async function saveBytesToPickerOrDownload(
-    bytes: Uint8Array,
+    bytes: Uint8Array | Blob,
     options: {
         suggestedName: string;
         mimeType: string;
@@ -715,7 +715,7 @@ export async function saveBytesToPickerOrDownload(
     },
 ) {
     return saveBlobToPickerOrDownload(
-        new Blob([toBrowserOwnedArrayBuffer(bytes)], { type: options.mimeType }),
+        bytes instanceof Blob ? bytes : new Blob([toBrowserOwnedArrayBuffer(bytes)], { type: options.mimeType }),
         options.suggestedName,
         options.pickerTypes,
         options.signal === undefined ? {} : {signal: options.signal},
@@ -724,7 +724,7 @@ export async function saveBytesToPickerOrDownload(
 
 export async function writeBytesToHandle(
     handle: FileSystemFileHandle,
-    data: Uint8Array,
+    data: Uint8Array | Blob,
     signal?: AbortSignal,
 ) {
     throwIfAborted(signal);
@@ -734,13 +734,15 @@ export async function writeBytesToHandle(
 
 async function writeBytesAfterPermission(
     handle: FileSystemFileHandle,
-    data: Uint8Array,
+    data: Uint8Array | Blob,
     signal?: AbortSignal,
 ) {
     throwIfAborted(signal);
     const writable = await handle.createWritable();
     try {
-        await writeBrowserFileChunks(writable, data, signal);
+        // A Blob, such as a stored file, streams from where it is.
+        if (data instanceof Blob) await writable.write(data);
+        else await writeBrowserFileChunks(writable, data, signal);
     } catch (error) {
         await abortAfterBrowserFileWriteError(writable, error);
     }

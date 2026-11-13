@@ -42,60 +42,10 @@ async function requireBrowserPageOpsWasmResult<T>(
     );
 }
 
-export function deletePdfPages(
-    data: Uint8Array,
-    pages: number[],
-): Promise<IPageMutationWorkerResult> {
-    return requireBrowserPageOpsWasmResult('page deletion', () =>
-        tryRunBrowserPageOpsWithWasm('deletePages', {
-            data,
-            pages,
-        }),
-    );
-}
-
 export function parsePdfAnnotations(data: Uint8Array) {
     return requireBrowserPageOpsWasmResult<{data: Uint8Array}>(
         'annotation parsing',
         () => tryRunBrowserPageOpsWithWasm('parseAnnotations', {data}),
-    );
-}
-
-export function extractPdfPages(
-    data: Uint8Array,
-    pages: number[],
-): Promise<IPageMutationWorkerResult> {
-    return requireBrowserPageOpsWasmResult('page extraction', () =>
-        tryRunBrowserPageOpsWithWasm('extractPages', {
-            data,
-            pages,
-        }),
-    );
-}
-
-export function reorderPdfPages(
-    data: Uint8Array,
-    newOrder: number[],
-): Promise<IPageMutationWorkerResult> {
-    return requireBrowserPageOpsWasmResult('page reordering', () =>
-        tryRunBrowserPageOpsWithWasm('reorderPages', {
-            data,
-            newOrder,
-        }),
-    );
-}
-
-export function insertPdfPages(
-    data: Uint8Array,
-    insertionData: Uint8Array,
-    afterPage: number,
-): Promise<IPageMutationWorkerResult> {
-    return requireBrowserPageOpsWasmResult('page insertion', () =>
-        tryRunBrowserPageOpsWithWasm('insertPages', {
-            data,
-            insertionData,
-            afterPage,
-        }),
     );
 }
 
@@ -165,14 +115,6 @@ export function readPdfConformance(
 ): Promise<IBrowserPdfConformanceFacts> {
     return requireBrowserPageOpsWasmResult('conformance inspection', () =>
         tryRunBrowserPageOpsWithWasm('conformance', {data}),
-    );
-}
-
-export function mergePdfPages(
-    documents: Uint8Array[],
-): Promise<IPageMutationWorkerResult> {
-    return requireBrowserPageOpsWasmResult('PDF merge', () =>
-        tryRunBrowserPageOpsWithWasm('mergePages', {documents}),
     );
 }
 

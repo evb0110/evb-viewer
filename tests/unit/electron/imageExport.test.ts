@@ -1867,7 +1867,7 @@ describe('image export', () => {
                     handle: null,
                 });
                 save.mockImplementation(async bytes => {
-                    browserBytes = bytes.slice();
+                    browserBytes = (bytes as Uint8Array<ArrayBuffer>).slice();
                     return {
                         canceled: false,
                         fileName,

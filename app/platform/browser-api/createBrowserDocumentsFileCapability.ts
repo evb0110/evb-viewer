@@ -40,7 +40,6 @@ import {
     getExtension,
     getOptimizedPdfName,
 } from '@app/platform/browser-api/browserFileName';
-import type { IBrowserBatchOpenProgressOptions } from '@app/platform/browser-api/createCombinedPdfFromPaths';
 import {
     analyzeBrowserPdfConformance,
     validateBrowserPdfData,
@@ -104,11 +103,10 @@ import {
 const BROWSER_NATIVE_PRINT_UNSUPPORTED = 'Printing via the native desktop dialog is unavailable in the browser capability';
 
 export async function createBrowserCombinedPdfFromPaths(
-    paths: string[],
-    progressOptions?: IBrowserBatchOpenProgressOptions,
+    ...args: Parameters<typeof import('@app/platform/browser-api/createCombinedPdfFromPaths').createCombinedPdfFromPaths>
 ) {
     const module = await import('@app/platform/browser-api/createCombinedPdfFromPaths');
-    return module.createCombinedPdfFromPaths(paths, progressOptions);
+    return module.createCombinedPdfFromPaths(...args);
 }
 
 interface IBrowserNativeMutationLease {
@@ -742,7 +740,13 @@ export function createBrowserDocumentsFileCapability(
             }
 
             try {
-                return await createBrowserCombinedPdfFromPaths(refs, options);
+                // The capability answers bytes, so the combined document is read back whole, as the engine returned it.
+                const combined = await createBrowserCombinedPdfFromPaths(refs, options);
+                try {
+                    return await browserDocumentStore.read(combined, {maxBytes: BROWSER_PAGE_OPS_MAX_REQUEST_BYTES});
+                } finally {
+                    await browserDocumentStore.remove(combined);
+                }
             } finally {
                 await cleanupTransientOpenRefs(refs);
             }
