@@ -23,6 +23,7 @@ import {
 import {evaluateInPage} from '@tests/e2e/electron/helpers/pageRuntime';
 import {waitForViewportQuiet} from '@tests/e2e/electron/helpers/viewportPageObservation';
 import {createCanonicalTextBoxWithPointer} from '@tests/e2e/electron/helpers/viewerAnnotations';
+import {createMultiPageTextFixturePdf} from '@tests/e2e/electron/helpers/fixtures';
 
 async function highlightedTextPdf(path: string, note = '', flags = 4) {
     const pdf = await PDFDocument.create();
@@ -112,6 +113,16 @@ async function drag(page: Page, points: Awaited<ReturnType<typeof lineDragPoints
     return evaluateInPage(page, () => document.getSelection()?.toString() ?? '');
 }
 
+/** Cmd+C reaches the app menu only through the OS, so macOS presses the menu item. */
+async function pressCopy(page: Page) {
+    if (process.platform === 'darwin') {
+        await activateMenuItemAsUser(page, {accelerator: 'CmdOrCtrl+C'});
+    } else {
+        await page.keyboard.down('Control');
+        await page.keyboard.press('C');
+        await page.keyboard.up('Control');
+    }
+}
 
 async function readImportedHighlight(path: string) {
     const bytes = await readFile(path);
@@ -516,13 +527,7 @@ describe('Electron E2E - Text Select over existing highlight', () => {
             await cdp.detach();
         }
         const selected = await page.evaluate(() => document.getSelection()?.toString() ?? '');
-        if (process.platform === 'darwin') {
-            await activateMenuItemAsUser(page, {accelerator: 'CmdOrCtrl+C'});
-        } else {
-            await page.keyboard.down('Control');
-            await page.keyboard.press('C');
-            await page.keyboard.up('Control');
-        }
+        await pressCopy(page);
         await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe('Hello');
         const copied = await page.evaluate(() => navigator.clipboard.readText());
         console.log(`STACKED_HIGHLIGHT_SELECTION ${JSON.stringify({
@@ -532,6 +537,53 @@ describe('Electron E2E - Text Select over existing highlight', () => {
         })}`);
         expect(selected).toBe('Hello');
         expect(copied).toBe('Hello');
+    }, 90_000);
+
+    it('copies a two-line drag with a line break between the lines', async () => {
+        const {page} = sessions.getSession();
+        const first = 'E2E Multi Page Fixture 1/1';
+        const second = 'Page 1 sample text for annotations';
+        await openPdfInApp(page, await createMultiPageTextFixturePdf('two-line-copy.pdf', 1));
+        await waitForPdfLoaded(page);
+        await waitForViewerInteractive(page);
+        await page.waitForSelector('.editor-pane.is-active .page_container[data-page="1"] .text-layer[data-pdf-text-layer-ready="true"]');
+        await waitForViewportQuiet(page);
+        // From just inside the first line's box to just inside the end of the second.
+        const points = await page.$$eval('.editor-pane.is-active .page_container[data-page="1"] .text-layer span', spans => {
+            const [firstBox, secondBox] = spans.map(span => span.getBoundingClientRect());
+            return {
+                start: {
+                    x: firstBox!.left + 1,
+                    y: firstBox!.top + firstBox!.height / 2,
+                },
+                end: {
+                    x: secondBox!.right - 1,
+                    y: secondBox!.top + secondBox!.height / 2,
+                },
+                menu: {
+                    x: firstBox!.left + firstBox!.width / 2,
+                    y: firstBox!.top + firstBox!.height / 2,
+                },
+            };
+        });
+        const selected = await drag(page, points);
+        await page.evaluate(() => navigator.clipboard.writeText('selection-sentinel'));
+        await pressCopy(page);
+        await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).not.toBe('selection-sentinel');
+        const copied = await page.evaluate(() => navigator.clipboard.readText());
+
+        await page.evaluate(() => navigator.clipboard.writeText('selection-sentinel'));
+        await page.mouse.click(points.menu.x, points.menu.y, {button: 'right'});
+        await clickAsUser(page, '.annotation-context-menu button.pdf-context-menu__action:first-of-type');
+        await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).not.toBe('selection-sentinel');
+        const copiedFromMenu = await page.evaluate(() => navigator.clipboard.readText());
+        console.log(`TWO_LINE_COPY ${JSON.stringify({
+            selected,
+            copied,
+            copiedFromMenu,
+        })}`);
+        expect(copied).toBe(`${first}\n${second}`);
+        expect(copiedFromMenu).toBe(`${first}\n${second}`);
     }, 90_000);
 
 });
