@@ -9,6 +9,7 @@ import type {BrowserContext} from 'playwright';
 import {
     describe, expect, it,
 } from 'vitest';
+import type {IBrowserLifecycleTestApi} from './documentLifecycleTestHelpers';
 import {
     readRecoveries, lifecycle, readPersistedDocumentBytes, waitForOpenFileReady, collectConsoleProblems, keepFileChooserInterceptionEnabled,
 } from './documentLifecycleTestHelpers';
@@ -554,38 +555,12 @@ describe('browser document lifecycle UI', () => {
             }).click();
             await expect.poll(() => page.evaluate(() => Reflect.get(window, '__printedNote')?.yellowPixels ?? 0), {timeout: 15_000}).toBeGreaterThan(50);
             expect(await page.evaluate(() => Reflect.get(window, '__printedNote').pages)).toBeGreaterThan(0);
-            await expect.poll(async () => {
-                const rows = await page.evaluate(async () => {
-                    const db = await new Promise<IDBDatabase>((resolveDb, rejectDb) => {
-                        const request = indexedDB.open('evb-viewer-browser-documents');
-                        request.onsuccess = () => resolveDb(request.result);
-                        request.onerror = () => rejectDb(request.error);
-                    });
-                    try {
-                        const rows = await new Promise<Array<{
-                            ref: string;
-                            fileName: string;
-                            kind: string
-                        }>>((resolveRows, rejectRows) => {
-                            const request = db.transaction('documents', 'readonly').objectStore('documents').getAll();
-                            request.onsuccess = () => resolveRows(request.result);
-                            request.onerror = () => rejectRows(request.error);
-                        });
-                        return rows;
-                    } finally {
-                        db.close();
-                    }
-                });
-                const bytes = await Promise.all(rows.map(row => readPersistedDocumentBytes(page, row.ref)));
-                const encoded = [...text].map(character => character.charCodeAt(0).toString(16).padStart(4, '0')).join('');
-                return {
-                    recovered: rows.some((row, index) => row.fileName.endsWith('.recovery.pdf') && new TextDecoder().decode(Uint8Array.from(bytes[index]!)).toLowerCase().includes(encoded)),
-                    originalChanged: rows.some((row, index) => row.kind === 'source' && new TextDecoder().decode(Uint8Array.from(bytes[index]!)).toLowerCase().includes(encoded)),
-                };
-            }, {timeout: 15_000}).toEqual({
-                recovered: true,
-                originalChanged: false,
-            });
+            // The note is in the window's recovery, and the original file's stored bytes are as they were.
+            await expect.poll(async () => (await readRecoveries(page)).some(record => record.notes.has(text)), {timeout: 15_000}).toBe(true);
+            const sourceRef = await page.evaluate(() => (Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi)
+                .readActiveWorkspaceStateValues?.<{originalPath: string}>(['originalPath']).originalPath);
+            const encoded = [...text].map(character => character.charCodeAt(0).toString(16).padStart(4, '0')).join('');
+            expect(new TextDecoder().decode(Uint8Array.from(await readPersistedDocumentBytes(page, sourceRef!))).toLowerCase()).not.toContain(encoded);
             expect(await page.getByRole('button', {
                 name: 'Save',
                 exact: true,

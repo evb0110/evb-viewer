@@ -1,4 +1,6 @@
-import {readFileSync} from 'node:fs';
+import {
+    existsSync, readFileSync,
+} from 'node:fs';
 import {resolve} from 'node:path';
 import {
     PDFDocument, PDFArray, PDFDict, PDFName, PDFString, PDFHexString,
@@ -53,21 +55,23 @@ export interface IBrowserLifecycleTestApi {
     }>;
 }
 
+/** The bytes the store holds for `ref`: its manifest's current revision, read from the origin private file system. */
 export async function readPersistedDocumentBytes(page: Page, ref: string, sha256 = false): Promise<number[]> {
-    // Read persisted bytes without creating another document/maintenance lifecycle.
-    // Keep browser imports outside Vitest's server-side module transform.
-    return page.evaluate(`(async () => {
-        const {loadRecord} = await import('/_nuxt/platform/browser/browserDocumentIdb.ts');
-        const {createEntryFromPersistedRecord} = await import('/_nuxt/platform/browser/browserDocumentRecords.ts');
-        const {readBrowserDocumentChunkedEntryBytes} = await import('/_nuxt/platform/browser/browserDocumentChunkStorage.ts');
-        const record = await loadRecord(${JSON.stringify(ref)});
-        if (!record) return [];
-        const entry = createEntryFromPersistedRecord(record);
-        const bytes = entry.storageMode === 'chunked'
-            ? await readBrowserDocumentChunkedEntryBytes(entry)
-            : entry.data;
-        return Array.from(${sha256} ? new Uint8Array(await crypto.subtle.digest('SHA-256', bytes)) : bytes);
-    })()`);
+    return page.evaluate(async ({documentRef, digest}) => {
+        const id = documentRef.slice('browser://documents/'.length).split('/')[0]!;
+        const root = await navigator.storage.getDirectory();
+        let dir: FileSystemDirectoryHandle;
+        try {
+            dir = await (await root.getDirectoryHandle('documents')).getDirectoryHandle(id);
+        } catch {
+            return [];
+        }
+        const manifest = JSON.parse(await (await (await dir.getFileHandle('manifest.json')).getFile()).text()) as {current?: {file: string; length: number}};
+        if (!manifest.current) return [];
+        const file = await (await dir.getFileHandle(manifest.current.file)).getFile();
+        const bytes = new Uint8Array(await file.slice(0, manifest.current.length).arrayBuffer());
+        return Array.from(digest ? new Uint8Array(await crypto.subtle.digest('SHA-256', bytes)) : bytes);
+    }, {documentRef: ref, digest: sha256});
 }
 
 export async function waitForOpenFileReady(page: Page) {
@@ -225,60 +229,73 @@ export function noteTexts(document: PDFDocument, subtype?: '/Text') {
     }));
 }
 
-// Each recovery record's owner and the notes in its recovery bytes.
+// Each window checkpoint's owner and the notes its unsaved document holds: in its bytes or in its drafts.
 export async function readRecoveries(page: Page, subtype?: '/Text') {
     const records = await page.evaluate(async () => {
-        const db = await new Promise<IDBDatabase>((resolveDb, rejectDb) => {
-            const request = indexedDB.open('evb-viewer-browser-documents');
-            request.onsuccess = () => resolveDb(request.result);
-            request.onerror = () => rejectDb(request.error);
-        });
+        const root = await navigator.storage.getDirectory();
+        const readJson = async (dir: FileSystemDirectoryHandle, name: string) => JSON.parse(await (await (await dir.getFileHandle(name)).getFile()).text()) as unknown;
+        let workspaces: FileSystemDirectoryHandle;
         try {
-            const rows = await new Promise<Array<{
-                ownerId: string;
-                checkpoint: {tabs: Array<{
-                    isDirty: boolean;
-                    workingCopyRef: string | null;
-                    currentPage: number | null;
-                    zoom: number | null;
-                    annotationRecovery?: {payload?: {drafts: Array<{text: string}>}}
-                }>}
-            }>>((resolveRows, rejectRows) => {
-                const request = db.transaction('workspace-recovery', 'readonly').objectStore('workspace-recovery').getAll();
-                request.onsuccess = () => resolveRows(request.result);
-                request.onerror = () => rejectRows(request.error);
-            });
-            return rows.map(row => ({
-                ownerId: row.ownerId,
-                checkpoint: row.checkpoint,
-                tab: row.checkpoint.tabs.find(tab => tab.isDirty),
-            }));
-        } finally {
-            db.close();
+            workspaces = await root.getDirectoryHandle('workspaces');
+        } catch {
+            return [];
         }
+        const rows = [];
+        for await (const name of workspaces.keys()) {
+            if (!/^[\w-]+\.json$/u.test(name)) continue;
+            const checkpoint = ((await readJson(workspaces, name)) as {layout: null | {tabs: Array<{
+                isDirty: boolean;
+                workingCopyRef: string | null;
+                currentPage: number | null;
+                zoom: number | null;
+                annotationRecovery?: {payload?: {
+                    drafts: Array<{text: string}>;
+                    entities?: Array<{kind: string; contents?: string; text?: string}>;
+                }}
+            }>}}).layout;
+            // A window's checkpoint names every document it holds; a recovery record is one with unsaved work.
+            const tab = checkpoint?.tabs.find(candidate => candidate.isDirty);
+            if (!checkpoint || !tab) continue;
+            const id = tab.workingCopyRef?.slice('browser://documents/'.length).split('/')[0];
+            if (id) {
+                try {
+                    const dir = await (await root.getDirectoryHandle('documents')).getDirectoryHandle(id);
+                    const manifest = await readJson(dir, 'manifest.json') as {drafts?: string};
+                    if (manifest.drafts) tab.annotationRecovery = await readJson(dir, manifest.drafts) as NonNullable<typeof tab.annotationRecovery>;
+                } catch {
+                    // The directory is gone: the checkpoint names a document it cannot restore.
+                }
+            }
+            rows.push({ownerId: name.slice(0, -'.json'.length), checkpoint, tab});
+        }
+        return rows;
     });
     return Promise.all(records.map(async record => {
         const bytes = record.tab?.workingCopyRef
             ? await readPersistedDocumentBytes(page, record.tab.workingCopyRef)
             : [];
-        return {
-            ...record,
-            bytes,
-            notes: record.tab?.workingCopyRef ? noteTexts(await PDFDocument.load(Uint8Array.from(bytes)), subtype) : new Set<string>(),
-        };
+        const notes = bytes.length > 0 ? noteTexts(await PDFDocument.load(Uint8Array.from(bytes)), subtype) : new Set<string>();
+        // Unsaved notes are the drafts' text and the notes among the unsaved entities.
+        const payload = record.tab?.annotationRecovery?.payload;
+        for (const draft of payload?.drafts ?? []) notes.add(draft.text);
+        for (const entity of payload?.entities ?? []) {
+            if (entity.kind === 'note' || (!subtype && typeof entity.contents === 'string')) notes.add(entity.contents ?? entity.text ?? '');
+        }
+        notes.delete('');
+        return {...record, bytes, notes};
     }));
 }
 
-// The lease owners whose lock a window holds, and those a window waits for.
-export function readLeaseOwnerLocks(page: Page) {
+// The windows whose lock a window holds, and those a window waits for: a held window lock means the window is alive.
+export function readWindowLocks(page: Page) {
     return page.evaluate(async () => {
         const {
             held = [],
             pending = [],
         } = await navigator.locks.query();
         const owners = (locks: LockInfo[]) => locks.flatMap(({name}) => (
-            name?.startsWith('evb-viewer:browser-lease-owner:')
-                ? [name.slice('evb-viewer:browser-lease-owner:'.length)]
+            name?.startsWith('evb-window:')
+                ? [name.slice('evb-window:'.length)]
                 : []
         )).sort();
         return {
@@ -306,39 +323,38 @@ export async function zoomActivePane(page: Page, paneId: string, label: 'Zoom In
     }
 }
 
+/** The store's document directories with the length of each one's current bytes, and the window checkpoints. */
 export async function readBrowserPayloadCounts(page: Page) {
     return page.evaluate(async () => {
-        const db = await new Promise<IDBDatabase>((resolveDb, rejectDb) => {
-            const request = indexedDB.open('evb-viewer-browser-documents');
-            request.onsuccess = () => resolveDb(request.result);
-            request.onerror = () => rejectDb(request.error);
-        });
-        const count = (name: string) => new Promise<number>((resolveCount, rejectCount) => {
-            const request = db.transaction(name).objectStore(name).count();
-            request.onsuccess = () => resolveCount(request.result);
-            request.onerror = () => rejectCount(request.error);
-        });
-        try {
-            const [
-                records,
-                chunks,
-                recovery,
-            ] = await Promise.all([
-                count('documents'),
-                count('document-chunks'),
-                count('workspace-recovery'),
-            ]);
-            return {
-                records: records!,
-                chunks: chunks!,
-                recovery: recovery!,
-            };
-        } finally { db.close(); }
+        const root = await navigator.storage.getDirectory();
+        const entries = async (name: string) => {
+            try {
+                const names: string[] = [];
+                for await (const entry of (await root.getDirectoryHandle(name)).keys()) names.push(entry);
+                return names;
+            } catch {
+                return [];
+            }
+        };
+        const documents = await root.getDirectoryHandle('documents').catch(() => null);
+        const sizes: number[] = [];
+        for (const id of await entries('documents')) {
+            const manifest = await (await (await documents!.getDirectoryHandle(id)).getFileHandle('manifest.json')).getFile()
+                .then(async file => JSON.parse(await file.text()) as {current?: {length: number}})
+                .catch(() => ({}) as {current?: {length: number}});
+            sizes.push(manifest.current?.length ?? 0);
+        }
+        return {
+            documents: sizes.length,
+            sizes,
+            checkpoints: (await entries('workspaces')).filter(name => /^[\w-]+\.json$/u.test(name)).length,
+        };
     });
 }
 
 export const lifecycle = {
     get browser() { return browser; },
     get origin() { return origin; },
-    get serverOutput() { return readFileSync(inject('browserIntegrationServerOutputPath'), 'utf8'); },
+    // The server writes its log only once it prints something; a failure report must not fail on its absence.
+    get serverOutput() { return existsSync(inject('browserIntegrationServerOutputPath')) ? readFileSync(inject('browserIntegrationServerOutputPath'), 'utf8') : ''; },
 };

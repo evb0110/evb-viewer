@@ -24,12 +24,8 @@ import {
     getBrowserDocumentFileName,
     isBrowserDocumentRef,
 } from '@app/platform/browserDocumentStore';
-import {
-    syncBrowserWindowTitle,
-    retireBrowserDocumentWorkingCopy,
-    reserveBrowserDocumentWorkingCopy,
-    handoffBrowserDocumentWorkingCopy,
-} from '@app/platform/browserWindowTabs';
+import {syncBrowserWindowTitle} from '@app/platform/browserWindowTabs';
+import {BrowserDocumentSourceChangedError} from '@app/platform/browser/browserDocumentRepository';
 import {
     OPEN_IMAGE_ACCEPT,
     OPEN_INPUT_ACCEPT,
@@ -65,9 +61,9 @@ import {
     createBrowserWorkingCopyFromBytes,
     decryptBrowserWorkingCopy,
     openDocumentPaths,
+    startOpenedWorkingCopyClean,
 } from '@app/platform/browser-api/browserWorkingCopyService';
 import {
-    BrowserExternalSaveSyncRequiredError,
     savePdfAsFromWorkingCopy,
     saveWorkingBytesToSource,
     saveWorkingBytesToSourceStructured,
@@ -80,7 +76,6 @@ import {
 import {isBrowserPageOpsWasmFailure} from '@contracts/browserPageOpsWorker';
 import {BROWSER_PAGE_OPS_MAX_REQUEST_BYTES} from '@contracts/browserPageOpsLimits';
 import { decodeBrowserPdfAnnotationsOutput } from '@app/platform/browser-api/decodeBrowserPdfAnnotationsOutput';
-import {runSerializedRecentFilesStorageMutation} from '@app/platform/browser/browserRecentFilesStore';
 import {browserSettingsCapability} from '@app/platform/browser-api/browserSettingsCapability';
 import {
     createBrowserStoreStagedArtifact,
@@ -181,7 +176,6 @@ export function createBrowserDocumentsFileCapability(
 
     async function discardWorkingCopy(path: TDocumentRef, leaseId?: string) {
         if (leaseId !== undefined) browserNativeMutationLeases.delete(leaseId);
-        await retireBrowserDocumentWorkingCopy(path);
         await browserDocumentStore.remove(path).catch(() => undefined);
     }
 
@@ -199,20 +193,13 @@ export function createBrowserDocumentsFileCapability(
         });
         if (saveResult.canceled) return null;
         const name = saveResult.handle?.name ?? normalizeName(saveResult.fileName);
-        const ref = await reserveBrowserDocumentWorkingCopy(name);
-        try {
-            return await browserDocumentStore.createStoredDocument(name, new Uint8Array(), {
-                ref,
-                mimeType: saveKind === 'pdf' ? 'application/pdf' : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-                saveKind,
-                kind: 'output',
-                retention: 'transient',
-                saveHandle: saveResult.handle,
-            });
-        } catch (error) {
-            await retireBrowserDocumentWorkingCopy(ref);
-            throw error;
-        }
+        return browserDocumentStore.createStoredDocument(name, new Uint8Array(), {
+            mimeType: saveKind === 'pdf' ? 'application/pdf' : DOCX_MIME_TYPE,
+            saveKind,
+            kind: 'output',
+            retention: 'transient',
+            saveHandle: saveResult.handle,
+        });
     }
 
     // One picked file opens as itself, saved back to its handle and kept in Recent.
@@ -319,29 +306,12 @@ export function createBrowserDocumentsFileCapability(
             });
         },
         async openDocumentDirect(path, password) {
-            if (!isBrowserDocumentRef(path)) {
-                return null;
-            }
-
-            try {
-                return await openDocumentPaths([path], undefined, password);
-            } finally {
-                await retireBrowserDocumentWorkingCopy(path);
-            }
+            return isBrowserDocumentRef(path) ? openDocumentPaths([path], undefined, password) : null;
         },
         async openDocumentDirectBatch(paths, requestId) {
-            if (paths.some((path) => !isBrowserDocumentRef(path))) {
-                return null;
-            }
-
-            try {
-                return await openDocumentPaths(
-                    paths,
-                    requestId ? { requestId } : undefined,
-                );
-            } finally {
-                await Promise.all(paths.map(retireBrowserDocumentWorkingCopy));
-            }
+            return paths.every(path => isBrowserDocumentRef(path))
+                ? openDocumentPaths(paths, requestId ? { requestId } : undefined)
+                : null;
         },
         async savePdfAs(workingCopyPath, saveOptions, revisionOptions?) {
             return savePdfAsFromWorkingCopy(workingCopyPath, saveOptions, revisionOptions);
@@ -410,15 +380,13 @@ export function createBrowserDocumentsFileCapability(
                 options.expectedDocumentRevisionToken,
             );
             const stagedName = `${getBrowserDocumentFileName(path)}.staged-native-save.pdf`;
-            const stagedPath = await reserveBrowserDocumentWorkingCopy(stagedName);
+            const stagedPath = await browserDocumentStore.createStoredDocument(stagedName, wasmResult.data, {
+                mimeType: 'application/pdf',
+                saveKind: 'pdf',
+                kind: 'output',
+                retention: 'transient',
+            });
             try {
-                await browserDocumentStore.createStoredDocument(stagedName, wasmResult.data, {
-                    ref: stagedPath,
-                    mimeType: 'application/pdf',
-                    saveKind: 'pdf',
-                    kind: 'output',
-                    retention: 'transient',
-                });
                 const stagedOutput = await createBrowserStoreStagedArtifact(
                     browserDocumentStore,
                     stagedPath,
@@ -481,14 +449,13 @@ export function createBrowserDocumentsFileCapability(
             try {
                 committed = await saveWorkingBytesToSource(path, options, stagedOutput);
             } catch (error) {
-                // Written, but local bookkeeping failed: a save result, not a writer failure.
-                if (!(error instanceof BrowserExternalSaveSyncRequiredError)) throw error;
+                // The file changed since it was opened: a save result that offers Save As.
+                if (!(error instanceof BrowserDocumentSourceChangedError)) throw error;
                 return {
                     applied: false,
                     validation: null,
-                    reason: 'working-copy-sync-required',
-                    externalWriteCommitted: error.externalWriteCommitted,
-                    workingCopySyncRequired: true,
+                    reason: 'original-changed',
+                    externalWriteCommitted: false,
                     error: {
                         code: 'io',
                         message: error.message,
@@ -561,11 +528,7 @@ export function createBrowserDocumentsFileCapability(
         onDocumentRevisionChanged(callback) {
             return browserDocumentStore.onDocumentRevisionChanged(callback);
         },
-        analyzePdfConformance(path, options) {
-            const analysis = analyzeBrowserPdfConformance(path, options);
-            handoffBrowserDocumentWorkingCopy(path, path, () => analysis.then(() => undefined, () => undefined));
-            return analysis;
-        },
+        analyzePdfConformance: (path, options) => analyzeBrowserPdfConformance(path, options),
         validatePdfPath: (path, options) => validateBrowserPdfPath(path, options),
         printPdfData() {
             return Promise.resolve({
@@ -663,32 +626,18 @@ export function createBrowserDocumentsFileCapability(
             });
         },
         async createWorkingCopyFromPath(sourcePath, originalPath, password) {
+            // A working copy's copy is a fork: an independent document with its bytes, baseline and drafts.
             const sourceEntry = await browserDocumentStore.requireEntry(sourcePath);
-            const sourceRef =
-                originalPath && isBrowserDocumentRef(originalPath)
-                    ? originalPath
-                    : (
-                        sourceEntry.kind === 'working'
-                            ? sourceEntry.sourceRef
-                            : sourceEntry.ref
-                    );
-            const workingPath = await reserveBrowserDocumentWorkingCopy(sourceEntry.fileName, sourceRef ? parseDocumentRef(sourceRef) ?? undefined : undefined);
+            const workingPath = await browserDocumentStore.cloneAsWorkingCopy(sourcePath);
+            const workingEntry = await browserDocumentStore.requireEntry(workingPath);
+            const sourceRef = originalPath && isBrowserDocumentRef(originalPath) ? parseDocumentRef(originalPath) : null;
+            if (sourceRef) workingEntry.sourceRef = sourceRef;
             try {
-                if (sourceEntry.kind !== 'working') {
-                    await browserDocumentStore.cloneAsWorkingCopy(sourceEntry.ref, sourceEntry.fileName, workingPath);
-                } else {
-                    await browserDocumentStore.cloneStoredDocument(sourceEntry.ref, {
-                        ref: workingPath,
-                        fileName: sourceEntry.fileName,
-                        kind: 'working',
-                        retention: 'transient',
-                        ...(sourceRef ? {sourceRef} : {}),
-                        saveKind: 'pdf',
-                        saveHandle: null,
-                    });
-                }
                 assertBrowserWorkingCopyDecrypted(await decryptBrowserWorkingCopy(workingPath, password));
-                browserDocumentStore.unload(sourcePath);
+                if (sourceEntry.kind !== 'working') {
+                    await startOpenedWorkingCopyClean(workingPath);
+                    browserDocumentStore.unload(sourcePath);
+                }
                 return workingPath;
             } catch (error) {
                 await discardWorkingCopy(workingPath);
@@ -707,15 +656,10 @@ export function createBrowserDocumentsFileCapability(
         },
         async cleanupFile(path) {
             await closeBrowserWorkingCopyWork(path);
-            await retireBrowserDocumentWorkingCopy(path);
-            const entry = await browserDocumentStore.ensureEntry(path);
-            if (!entry) {
-                return;
-            }
-
+            const sourceRef = await browserDocumentStore.getSourceRef(path).catch(() => path);
             for (const ref of new Set([
                 path,
-                entry.sourceRef ?? path,
+                sourceRef,
             ])) {
                 await browserDocumentStore.cleanupDetachedDocument(ref);
                 await clearSearchCaches(ref);
@@ -730,45 +674,24 @@ export function createBrowserDocumentsFileCapability(
         },
         showItemInFolder: showBrowserDocumentInDownloads,
         recentFiles: {
+            // An entry whose file or stored copy is gone leaves the list; storage that cannot answer keeps it.
             async get() {
-                const recentFiles = await browserDocumentStore.recoverRecentFilesIfStorageMissing();
-                const sized = new Map<string, number>();
+                const recentFiles = browserDocumentStore.getRecentFiles();
+                const kept: IRecentFile[] = [];
                 for (const file of recentFiles) {
-                    const {
-                        available,
-                        entry,
-                    } = await browserDocumentStore.ensureEntryAvailability(file.originalPath);
-                    if (!available) return recentFiles;
-                    if (entry?.retention === 'transient' || !entry) {
-                        await browserDocumentStore.removeRecentFile(file.originalPath);
-                        continue;
-                    }
-                    sized.set(file.originalPath, entry.fileSize);
+                    const stored = await browserDocumentStore.isStored(file.originalPath).catch(() => true);
+                    if (stored) kept.push(file);
+                    else await browserDocumentStore.removeRecentFile(file.originalPath);
                 }
-                const withSize = (file: IRecentFile) => (file.fileSize ? file : {
-                    ...file,
-                    fileSize: sized.get(file.originalPath) ?? 0,
-                });
-                if (recentFiles.some(file => !file.fileSize && sized.get(file.originalPath))) {
-                    await runSerializedRecentFilesStorageMutation(currentFiles => ({
-                        files: currentFiles.map(withSize),
-                        value: undefined,
-                    }));
-                }
-                return recentFiles.filter(file => sized.has(file.originalPath)).map(withSize);
+                return kept;
             },
             async remove(path) {
                 await browserDocumentStore.removeRecentFile(path);
                 await clearSearchCaches(path);
             },
-            // Gone means its stored bytes are gone, or were kept only for the
-            // session; storage that cannot answer keeps the entry.
+            // Gone means its file or stored copy is gone; storage that cannot answer keeps the entry.
             async removeIfMissing(path) {
-                const {
-                    available,
-                    entry,
-                } = await browserDocumentStore.ensureEntryAvailability(path);
-                if (!available || (entry && entry.retention !== 'transient')) {
+                if (await browserDocumentStore.isStored(path).catch(() => true)) {
                     return false;
                 }
                 const removed = await browserDocumentStore.removeRecentFile(path);

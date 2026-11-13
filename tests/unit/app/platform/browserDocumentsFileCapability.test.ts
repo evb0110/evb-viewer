@@ -4,6 +4,7 @@ import type * as TBrowserWindowTabs from '@app/platform/browserWindowTabs';
 import {createHash} from 'node:crypto';
 import {createBrowserStoreStagedArtifact} from '@app/platform/browser/browserStagedArtifact';
 import {
+    afterAll,
     beforeEach,
     describe,
     expect,
@@ -11,7 +12,11 @@ import {
     onTestFinished,
     vi,
 } from 'vitest';
-import {readFile} from 'node:fs/promises';
+import {
+    mkdtemp, readFile, rm,
+} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {createNodeStorePort} from '@document-store/nodeStorePort';
 import {join} from 'node:path';
 import { PDFDocument } from 'pdf-lib';
 import type {
@@ -20,10 +25,6 @@ import type {
 } from '@contracts/electronApiDocuments';
 import type {TDocumentRef} from '@contracts/documentRef';
 import {requireDocumentRef} from '@contracts/documentRef';
-import {requirePaneId} from '@contracts/editorPanes';
-import {requireTabId} from '@contracts/windowTabs';
-import {requireEpochMs} from '@contracts/timestamps';
-import {requirePageNumber} from '@contracts/pageNumbers';
 import {requireRequestId} from '@contracts/shared';
 import type { BrowserDocumentStore } from '@app/platform/browserDocumentStore';
 import {BROWSER_MAX_FULL_READ_BYTES as BROWSER_FULL_READ_LIMIT} from '@app/platform/browser/browserDocumentConstants';
@@ -34,7 +35,6 @@ import {
     DOCUMENT_LIST_HEADER, U32_BYTES,
 } from '@contracts/browserPageOpsWasm.generated';
 import {
-    FakeIndexedDbFactory,
     FakeLockManager,
     MemoryStorage,
 } from '@tests/unit/app/platform/browserPlatformTestDoubles';
@@ -286,7 +286,6 @@ async function loadBrowserDocumentsFileCapability(
     options?: ILoadBrowserDocumentsFileCapabilityOptions,
 ): Promise<ILoadedBrowserDocumentsFileCapability> {
     vi.resetModules();
-    vi.stubGlobal('indexedDB', new FakeIndexedDbFactory());
     const localStorage = new MemoryStorage();
     const sessionStorage = new MemoryStorage();
     vi.stubGlobal('window', {
@@ -333,10 +332,22 @@ async function loadBrowserDocumentsFileCapability(
             BROWSER_MAX_FULL_READ_BYTES,
             browserDocumentStore,
         },
+        {createMemoryStorePort},
+        {browserPublication},
     ] = await Promise.all([
         import('@app/platform/browser-api/createBrowserDocumentsFileCapability'),
         import('@app/platform/browserDocumentStore'),
+        import('@app/platform/browser/browserStorePort'),
+        import('@app/platform/browser/browserPublication'),
     ]);
+    // Node has no origin private file system: the store's durable documents live in a temporary directory,
+    // through the core's Node port.
+    const storeRoot = await mkdtemp(join(process.env.TMPDIR ?? tmpdir(), 'browser-document-store-'));
+    storeRoots.push(storeRoot);
+    vi.spyOn(browserDocumentStore, 'stores').mockResolvedValue({
+        durable: {port: createNodeStorePort(storeRoot), publication: browserPublication, historyBudget: 0},
+        memory: {port: createMemoryStorePort(), publication: browserPublication, historyBudget: 0},
+    });
 
     return {
         BROWSER_DOCUMENT_CHUNK_SIZE,
@@ -345,6 +356,12 @@ async function loadBrowserDocumentsFileCapability(
         browserDocumentStore,
     };
 }
+
+const storeRoots: string[] = [];
+
+afterAll(async () => {
+    await Promise.all(storeRoots.map(root => rm(root, {recursive: true, force: true})));
+});
 
 describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
     beforeEach(() => {
@@ -369,82 +386,6 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
         utifMock.toRGBA8.mockReturnValue(new Uint8Array());
         pdfjsModule.getDocument.mockReset();
         pdfjsModule.getDocument.mockReturnValue(createLoadedPdfTask());
-    });
-
-    it('keeps a durable multi-chunk recovery copy unchanged across reload and working-copy rewrites', async () => {
-        const {
-            BROWSER_DOCUMENT_CHUNK_SIZE, browserDocumentStore: store,
-        } = await loadBrowserDocumentsFileCapability();
-        const {createBrowserDocumentsCapability} = await import('@app/platform/browser-api/createBrowserDocumentsCapability');
-        const {BrowserDocumentStore: ReloadedBrowserDocumentStore} = await import('@app/platform/browserDocumentStore');
-        const {saveBrowserWorkspaceRecovery} = await import('@app/platform/browser/browserWorkspaceRecoveryStore');
-        const {documentWorkingCopy} = createBrowserDocumentsCapability({clearSearchCaches: () => {}});
-        const recovery = documentWorkingCopy.recovery!;
-        const sourceRef = await store.createStoredDocument('original.pdf', Uint8Array.of(37, 80, 68, 70), PDF_SOURCE_OPTIONS);
-        const workingRef = await store.cloneAsWorkingCopy(sourceRef);
-        const bytes = new Uint8Array(2 * BROWSER_DOCUMENT_CHUNK_SIZE + 17);
-        bytes.fill(1, 0, BROWSER_DOCUMENT_CHUNK_SIZE);
-        bytes.fill(2, BROWSER_DOCUMENT_CHUNK_SIZE, 2 * BROWSER_DOCUMENT_CHUNK_SIZE);
-        bytes.fill(3, 2 * BROWSER_DOCUMENT_CHUNK_SIZE);
-        await store.writeForBootstrap(workingRef, bytes, 'test-setup');
-        const expectedDigest = createHash('sha256').update(bytes).digest('hex');
-
-        const snapshot = await recovery.createSnapshot('document.recovery.pdf', workingRef, sourceRef);
-        expect(snapshot.ref).not.toBe(workingRef);
-        const paneId = requirePaneId('pane-1');
-        const tabId = requireTabId('tab-1');
-        await expect(saveBrowserWorkspaceRecovery('window:recovery-test', 0, {
-            version: 1,
-            capturedAt: requireEpochMs(1),
-            activePaneId: paneId,
-            activeTabId: tabId,
-            layout: {
-                type: 'leaf',
-                paneId,
-            },
-            panes: [{
-                paneId,
-                tabIds: [tabId],
-                activeTabId: tabId,
-            }],
-            tabs: [{
-                tabId,
-                paneId,
-                fileName: 'document.recovery.pdf',
-                sourceRef,
-                workingCopyRef: snapshot.ref,
-                requiresSaveAsOnFirstSave: true,
-                isDirty: true,
-                isDjvu: false,
-                currentPage: requirePageNumber(1),
-                zoom: 1,
-                zoomMode: 'custom',
-            }],
-        }, [snapshot.ref])).resolves.toMatchObject({saved: true});
-        expect(await store.requireEntry(snapshot.ref)).toMatchObject({
-            storageMode: 'chunked',
-            chunkCount: 3,
-            retention: 'durable',
-            sourceRef,
-        });
-        const readDigest = async (documents: BrowserDocumentStore) => {
-            const digest = createHash('sha256');
-            for (let offset = 0; offset < bytes.length; offset += BROWSER_DOCUMENT_CHUNK_SIZE) {
-                digest.update(await documents.readRange(snapshot.ref, offset, Math.min(BROWSER_DOCUMENT_CHUNK_SIZE, bytes.length - offset)));
-            }
-            return digest.digest('hex');
-        };
-        expect(await readDigest(store)).toBe(expectedDigest);
-
-        await store.writeForBootstrap(workingRef, Uint8Array.of(9, 8, 7), 'later-edit');
-        await expect(store.read(workingRef)).resolves.toEqual(Uint8Array.of(9, 8, 7));
-        expect(await readDigest(store)).toBe(expectedDigest);
-        store.unload(workingRef);
-        store.unload(snapshot.ref);
-        const reloaded = new ReloadedBrowserDocumentStore();
-        await expect(reloaded.stat(snapshot.ref)).resolves.toMatchObject({size: bytes.length});
-        expect(await readDigest(reloaded)).toBe(expectedDigest);
-        await expect(reloaded.getDocumentRevision(snapshot.ref)).resolves.toMatchObject({token: snapshot.revisionToken});
     });
 
     it.each([
@@ -1551,51 +1492,12 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
         })]);
     });
 
-    it('adds missing Recent Files sizes without dropping an entry another tab added meanwhile', async () => {
-        const {
-            browserDocumentStore,
-            capability,
-        } = await loadBrowserDocumentsFileCapability();
-        const {BROWSER_RECENT_FILES_STORAGE_KEY} = await import('@app/utils/browserRuntimePersistence');
-        const older = await browserDocumentStore.createStoredDocument('older.pdf', new Uint8Array([
-            1,
-            2,
-            3,
-        ]), PDF_SOURCE_OPTIONS);
-        const newer = await browserDocumentStore.createStoredDocument('newer.pdf', new Uint8Array([4]), PDF_SOURCE_OPTIONS);
-        await browserDocumentStore.touchRecentFile(older);
-        // A list written before sizes were recorded.
-        const legacy = (JSON.parse(window.localStorage.getItem(BROWSER_RECENT_FILES_STORAGE_KEY)!) as Array<Record<string, unknown>>)
-            .map(({
-                fileSize: _fileSize, ...file
-            }) => file);
-        window.localStorage.setItem(BROWSER_RECENT_FILES_STORAGE_KEY, JSON.stringify(legacy));
-        const ensure = browserDocumentStore.ensureEntryAvailability.bind(browserDocumentStore);
-        vi.spyOn(browserDocumentStore, 'ensureEntryAvailability').mockImplementationOnce(async (path) => {
-            // Another tab opens a document while this one validates its list.
-            await browserDocumentStore.touchRecentFile(newer);
-            return ensure(path);
-        });
-
-        await capability.recentFiles.get();
-
-        const stored = JSON.parse(window.localStorage.getItem(BROWSER_RECENT_FILES_STORAGE_KEY)!) as Array<{
-            originalPath: string;
-            fileSize?: number
-        }>;
-        expect(stored.map(file => file.originalPath)).toEqual(expect.arrayContaining([
-            older,
-            newer,
-        ]));
-        expect(stored.find(file => file.originalPath === older)?.fileSize).toBe(3);
-    });
-
     it('names an optimized dot-file without dropping its name', () => {
         expect(getOptimizedPdfName('.hidden')).toBe('.hidden-optimized.pdf');
         expect(getOptimizedPdfName('book.pdf')).toBe('book-optimized.pdf');
     });
 
-    it('remembers a DjVu source reading view only while its content witness matches', async () => {
+    it('remembers a DjVu source reading view only while its file is the version it was left on', async () => {
         const {
             capability, browserDocumentStore,
         } = await loadBrowserDocumentsFileCapability();
@@ -1622,13 +1524,10 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
         } as const;
         await capability.recentFiles.rememberReadingView(source, view);
         await expect(capability.recentFiles.readingView(source)).resolves.toEqual(view);
-        const {BrowserDocumentStore} = await import('@app/platform/browserDocumentStore');
-        const restored = new BrowserDocumentStore();
-        await expect(restored.readRecentReadingView(source)).resolves.toEqual(view);
 
-        physical = new File([Uint8Array.of(65, 84, 38, 85)], 'book.djvu', {lastModified: 1_000});
-        const changedSource = await browserDocumentStore.refreshSourceVersionIfChanged(source);
-        await expect(capability.recentFiles.readingView(changedSource)).resolves.toBeNull();
+        // Another write gives the file a new modification time: the view was left on a version it no longer is.
+        physical = new File([Uint8Array.of(65, 84, 38, 85)], 'book.djvu', {lastModified: 2_000});
+        await expect(capability.recentFiles.readingView(source)).resolves.toBeNull();
     });
 
     it('reopens a Recent PDF where the reader left it, only on the bytes it was left on', async () => {
@@ -1818,7 +1717,7 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
         oversizedBytes[1] = 80;
         oversizedBytes[2] = 68;
         oversizedBytes[3] = 70;
-        await browserDocumentStore.writeForBootstrap(workingRef, oversizedBytes, 'test-setup');
+        await browserDocumentStore.write(workingRef, oversizedBytes, await getRevisionOptions(browserDocumentStore, workingRef));
 
         await expect(capability.saveFileStructured(
             workingRef,
@@ -1828,7 +1727,7 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
         expect(queryPermission).toHaveBeenCalledWith({ mode: 'readwrite' });
         expect(requestPermission).not.toHaveBeenCalled();
         const savedEntry = await browserDocumentStore.requireEntry(sourceRef);
-        expect(savedEntry.storageMode).toBe('handle');
+        expect(savedEntry.saveHandle).toBe(handle);
         await expect(browserDocumentStore.stat(sourceRef)).resolves.toEqual({
             size: BROWSER_MAX_FULL_READ_BYTES + 1,
             modifiedAt: expect.any(Number),
@@ -1872,7 +1771,7 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
             },
         );
         const workingRef = await browserDocumentStore.cloneAsWorkingCopy(sourceRef);
-        await browserDocumentStore.writeForBootstrap(workingRef, Uint8Array.of(37, 80, 68, 70), 'test-setup');
+        await browserDocumentStore.write(workingRef, Uint8Array.of(37, 80, 68, 70), await getRevisionOptions(browserDocumentStore, workingRef));
 
         await expect(capability.saveFileStructured(
             workingRef,
@@ -1915,11 +1814,7 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
         );
         const workingRef = await browserDocumentStore.cloneAsWorkingCopy(sourceRef);
         const staleRevisionOptions = await getRevisionOptions(browserDocumentStore, workingRef);
-        await browserDocumentStore.writeForBootstrap(
-            workingRef,
-            Uint8Array.of(37, 80, 68, 70, 10),
-            'test-advance-revision',
-        );
+        await browserDocumentStore.write(workingRef, Uint8Array.of(37, 80, 68, 70, 10), await getRevisionOptions(browserDocumentStore, workingRef));
 
         await expect(capability.saveFileStructured(workingRef, staleRevisionOptions)).resolves.toMatchObject({
             ok: false,
@@ -2094,7 +1989,7 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
             },
         );
         const workingRef = await browserDocumentStore.cloneAsWorkingCopy(sourceRef);
-        await browserDocumentStore.writeForBootstrap(workingRef, Uint8Array.of(37, 80, 68, 70), 'test-setup');
+        await browserDocumentStore.write(workingRef, Uint8Array.of(37, 80, 68, 70), await getRevisionOptions(browserDocumentStore, workingRef));
 
         await expect(capability.saveFileStructured(
             workingRef,
@@ -2128,7 +2023,7 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
             capability, browserDocumentStore,
         } = await loadBrowserDocumentsFileCapability({windowOverrides: {showSaveFilePicker: async () => {
             if (outcome === 'cancel') throw new DOMException('Canceled', 'AbortError');
-            if (outcome === 'stale') await browserDocumentStore.writeForBootstrap(workingRef, Uint8Array.of(9), 'concurrent-edit');
+            if (outcome === 'stale') await browserDocumentStore.write(workingRef, Uint8Array.of(9), await getRevisionOptions(browserDocumentStore, workingRef));
             return handle;
         }}});
         const sourceRef = await browserDocumentStore.createStoredDocument('frontier-original.pdf', originalBytes, PDF_SOURCE_OPTIONS);
@@ -2150,7 +2045,7 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
                 semanticScopeSha256: 'a'.repeat(64),
             },
         });
-        if (outcome === 'altered-stage') await browserDocumentStore.writeForBootstrap(stagedRef, Uint8Array.of(7), 'changed-stage');
+        if (outcome === 'altered-stage') await browserDocumentStore.write(stagedRef, Uint8Array.of(7), await getRevisionOptions(browserDocumentStore, stagedRef));
         const revisionOptions = await getRevisionOptions(browserDocumentStore, workingRef);
         const save = capability.savePdfAs(workingRef, {stagedOutput}, revisionOptions);
         if (outcome === 'save') {
@@ -2407,7 +2302,6 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
         }
         // The finalized frontier is published as it is: no check, no second optimization.
         expect(qpdfRun).not.toHaveBeenCalled();
-        expect((await locks.query()).held).toEqual([]);
         await expect(store.read(source)).resolves.toEqual(original);
         await expect(store.read(working)).resolves.toEqual(original);
         await expect(store.read(staged)).resolves.toEqual(frontier);
@@ -2544,7 +2438,7 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
         const sourceEntry = sourceRef
             ? await browserDocumentStore.requireEntry(sourceRef)
             : null;
-        expect(sourceEntry?.storageMode).toBe('handle');
+        expect(sourceEntry?.saveHandle).not.toBeNull();
         expect(sourceEntry?.saveHandle).toBe(handle);
         await expect(browserDocumentStore.stat(sourceRef!)).resolves.toEqual({
             size: BROWSER_MAX_FULL_READ_BYTES + 1,
@@ -2555,9 +2449,10 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
 
     it('preserves externally changed bytes when saving a byte-created snapshot', async () => {
         let physicalBytes = Uint8Array.of(37, 80, 68, 70);
+        let modifiedAt = 1_000;
         const handle = createFileSystemFileHandle({
             name: 'snapshot.pdf',
-            getFile: async () => new File([physicalBytes], 'snapshot.pdf'),
+            getFile: async () => new File([physicalBytes], 'snapshot.pdf', {lastModified: modifiedAt}),
             createWritable: async () => createFileSystemWritableFileStream({write: async chunk => {
                 physicalBytes = new Uint8Array(requireArrayBufferChunk(chunk));
             }}),
@@ -2571,16 +2466,17 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
         });
         const snapshot = await capability.createWorkingCopyFromData('snapshot.pdf', Uint8Array.of(37, 80, 68, 70, 9), sourceRef);
         physicalBytes = Uint8Array.of(37, 80, 68, 70, 8);
+        modifiedAt = 2_000;
         await expect(capability.saveFileStructured(snapshot, await getRevisionOptions(browserDocumentStore, snapshot)))
             .resolves.toMatchObject({
                 ok: false,
-                reason: 'write-failed',
+                reason: 'original-changed',
             });
         expect(physicalBytes).toEqual(Uint8Array.of(37, 80, 68, 70, 8));
         await expect(browserDocumentStore.read(snapshot)).resolves.toEqual(Uint8Array.of(37, 80, 68, 70, 9));
     });
 
-    it('serializes regular saves from working copies that share one source', async () => {
+    it('refuses the later of two working copies\' saves to one file', async () => {
         const firstWriteStarted = Promise.withResolvers<undefined>();
         const releaseFirstWrite = Promise.withResolvers<undefined>();
         let writableIndex = 0;
@@ -2618,16 +2514,8 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
         );
         const firstWorkingRef = await browserDocumentStore.cloneAsWorkingCopy(sourceRef);
         const secondWorkingRef = await browserDocumentStore.cloneAsWorkingCopy(sourceRef);
-        await browserDocumentStore.writeForBootstrap(
-            firstWorkingRef,
-            Uint8Array.of(37, 80, 68, 70, 1),
-            'first-save-test',
-        );
-        await browserDocumentStore.writeForBootstrap(
-            secondWorkingRef,
-            Uint8Array.of(37, 80, 68, 70, 2),
-            'second-save-test',
-        );
+        await browserDocumentStore.write(firstWorkingRef, Uint8Array.of(37, 80, 68, 70, 1), await getRevisionOptions(browserDocumentStore, firstWorkingRef));
+        await browserDocumentStore.write(secondWorkingRef, Uint8Array.of(37, 80, 68, 70, 2), await getRevisionOptions(browserDocumentStore, secondWorkingRef));
 
         const firstSave = capability.saveFileStructured(
             firstWorkingRef,
@@ -2642,17 +2530,13 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
         expect(createWritable).toHaveBeenCalledOnce();
 
         releaseFirstWrite.resolve(undefined);
-        await expect(Promise.all([
+        // Whichever save publishes first writes the file; the other finds it changed and offers Save As.
+        const results = await Promise.all([
             firstSave,
             secondSave,
-        ])).resolves.toEqual([
-            expect.objectContaining({ok: true}),
-            expect.objectContaining({
-                ok: false,
-                reason: 'write-failed',
-                message: expect.stringContaining('Browser physical source changed since this working copy opened'),
-            }),
         ]);
+        expect(results.map(result => result.ok).sort()).toEqual([false, true]);
+        expect(results.find(result => !result.ok)).toMatchObject({reason: 'original-changed'});
         expect(createWritable).toHaveBeenCalledOnce();
     });
 
@@ -2705,9 +2589,10 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
 
         await expect(saveAsPromise).resolves.not.toBeNull();
         await expect(regularSavePromise).resolves.toMatchObject({ok: true});
-        expect(originalWrittenBytes).toEqual(originalBytes);
+        // The working copy still holds the file's bytes, so its Save has nothing to write.
+        expect(originalWrittenBytes).toBeNull();
         expect(saveAsWrittenBytes).toEqual(originalBytes);
-        expect(originalCreateWritable).toHaveBeenCalledOnce();
+        expect(originalCreateWritable).not.toHaveBeenCalled();
     });
 
     it('streams a DOCX above the former 16 MiB browser limit into one download without a file handle', async () => {
@@ -2950,7 +2835,7 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
         const edited = new Uint8Array(FORMER_DOWNLOAD_FALLBACK_MAX_BYTES + 3);
         for (let offset = 0; offset < edited.byteLength; offset += 4096) edited[offset] = (offset / 4096) % 251;
         edited[edited.byteLength - 1] = 7;
-        await browserDocumentStore.writeForBootstrap(workingRef, edited, 'test-setup');
+        await browserDocumentStore.write(workingRef, edited, await getRevisionOptions(browserDocumentStore, workingRef));
         const digest = (bytes: Uint8Array) => createHash('sha256').update(bytes).digest('hex');
         const readStored = async (ref: string) => {
             const {size} = await browserDocumentStore.stat(ref);

@@ -78,7 +78,6 @@ import {
 } from '@contracts/scan-cleanup/toolbarSelectors';
 import {useScanCleanupDocumentSettings} from '@app/modules/scan-cleanup/composables/useScanCleanupDocumentSettings';
 import {resetScanCleanupPreferencesStore} from '@app/modules/scan-cleanup/runtime/scanCleanupPreferencesStore';
-import {FakeIndexedDbFactory} from '@tests/unit/app/platform/browserPlatformTestDoubles';
 import type {IScanCleanupTabSessionState} from '@app/modules/workspace-shell/tabs/tabSessionStoreTypes';
 import type {IDocumentPageSource} from '@app/modules/document-viewer/source/documentPageSource';
 
@@ -2020,7 +2019,6 @@ describe('Scan cleanup components', () => {
 
     it('normalizes persisted document mixed output to Auto and exposes Auto/B&W/Gray/Color labels', async () => {
         const previousIndexedDb = globalThis.indexedDB;
-        vi.stubGlobal('indexedDB', new FakeIndexedDbFactory());
         onTestFinished(() => {
             vi.stubGlobal('indexedDB', previousIndexedDb);
         });

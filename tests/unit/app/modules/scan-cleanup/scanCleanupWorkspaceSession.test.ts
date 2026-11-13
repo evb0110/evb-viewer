@@ -63,7 +63,6 @@ import {
     setScanCleanupRunError,
 } from '@app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator';
 import {encodeSerializableErrorEnvelope} from '@contracts/serializableError';
-import {FakeIndexedDbFactory} from '@tests/unit/app/platform/browserPlatformTestDoubles';
 
 const capability = vi.hoisted(() => ({value: null as IScanCleanupCapability | null}));
 // Counts the real reduction rather than replacing it: the document's layouts
@@ -378,7 +377,6 @@ function mountSession(documentKey: string, overrides: {
 describe('scan cleanup workspace session detection guidance', () => {
     beforeEach(() => {
         const previousIndexedDb = globalThis.indexedDB;
-        vi.stubGlobal('indexedDB', new FakeIndexedDbFactory());
         onTestFinished(() => {
             vi.stubGlobal('indexedDB', previousIndexedDb);
         });

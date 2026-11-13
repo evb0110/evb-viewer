@@ -14,7 +14,6 @@ import {
     createBrowserStoreStagedArtifact,
 } from '@app/platform/browser/browserStagedArtifact';
 import {
-    FakeIndexedDbFactory,
     MemoryStorage,
 } from '@tests/unit/app/platform/browserPlatformTestDoubles';
 
@@ -41,7 +40,6 @@ function stagedValidations() {
 describe('browser staged artifact commit', () => {
     beforeEach(() => {
         vi.unstubAllGlobals();
-        vi.stubGlobal('indexedDB', new FakeIndexedDbFactory());
         vi.stubGlobal('window', {localStorage: new MemoryStorage()});
         vi.stubGlobal('document', {cookie: ''});
     });
@@ -60,10 +58,6 @@ describe('browser staged artifact commit', () => {
             PDF_OPTIONS,
         );
         const workingRef = await store.cloneAsWorkingCopy(sourceRef);
-        const lease = await store.createLiveLease('window:staged-reader', [
-            {ref: sourceRef},
-            {ref: workingRef},
-        ]);
         const stagedRef = await store.createStoredDocument(
             'staged.pdf',
             stagedBytes,
@@ -72,14 +66,6 @@ describe('browser staged artifact commit', () => {
                 kind: 'output',
                 retention: 'durable',
             },
-        );
-        await store.touchRecentFile(sourceRef);
-        await store.touchRecentFile(stagedRef);
-        expect(store.getRecentFiles().map(file => file.originalPath)).toEqual(
-            expect.arrayContaining([
-                sourceRef,
-                stagedRef,
-            ]),
         );
         const workingRevision = await store.getDocumentRevision(workingRef);
         const stagedArtifact = await createBrowserStoreStagedArtifact(store, stagedRef, {
@@ -116,8 +102,6 @@ describe('browser staged artifact commit', () => {
         await expect(store.read(workingRef)).resolves.toEqual(stagedBytes);
         await expect(store.read(sourceRef)).resolves.toEqual(sourceBytes);
         await expect(store.exists(stagedRef)).resolves.toBe(false);
-        expect(store.getRecentFiles().map(file => file.originalPath)).toContain(sourceRef);
-        expect(store.getRecentFiles().map(file => file.originalPath)).not.toContain(stagedRef);
         const committedRevision = await store.getDocumentRevision(workingRef);
         expect(revisionEvents).toContainEqual({
             documentRef: workingRef,
@@ -125,7 +109,6 @@ describe('browser staged artifact commit', () => {
             reason: 'write',
             token: committedRevision.token,
         });
-        await store.releaseLiveLease(lease.ownerId, lease.generation);
     });
 
     it('rejects a browser staged self-commit without consuming the staged record', async () => {
@@ -251,11 +234,7 @@ describe('browser staged artifact commit', () => {
             },
         );
         const staleTargetRevision = await store.getDocumentRevision(workingRef);
-        await store.writeForBootstrap(
-            workingRef,
-            Uint8Array.of(37, 80, 68, 70, 8),
-            'advance-before-staged-commit',
-        );
+        await store.write(workingRef, Uint8Array.of(37, 80, 68, 70, 8), {expectedDocumentRevisionToken: (await store.getDocumentRevision(workingRef)).token});
         const stagedArtifact = await createBrowserStoreStagedArtifact(store, stagedRef, {
             leaseId: 'browser-stale-target-lease',
             sha256: sha256(stagedBytes),
@@ -267,7 +246,7 @@ describe('browser staged artifact commit', () => {
             stagedArtifact,
             workingRef,
             staleTargetRevision.token,
-        )).rejects.toThrow('Browser staged artifact content or revision changed during commit');
+        )).rejects.toThrow('STALE_REVISION');
 
         await expect(store.read(workingRef)).resolves.toEqual(Uint8Array.of(37, 80, 68, 70, 8));
         await expect(store.exists(stagedRef)).resolves.toBe(true);
@@ -297,11 +276,7 @@ describe('browser staged artifact commit', () => {
             sha256: sha256(stagedBytes),
             validations: stagedValidations(),
         });
-        await store.writeForBootstrap(
-            stagedRef,
-            Uint8Array.of(37, 80, 68, 70, 7),
-            'advance-staged-artifact-revision',
-        );
+        await store.write(stagedRef, Uint8Array.of(37, 80, 68, 70, 7), {expectedDocumentRevisionToken: (await store.getDocumentRevision(stagedRef)).token});
 
         await expect(commitBrowserStoreStagedArtifact(
             store,
@@ -311,64 +286,5 @@ describe('browser staged artifact commit', () => {
         )).rejects.toThrow('changed after staging');
         await expect(store.read(workingRef)).resolves.toEqual(Uint8Array.of(37, 80, 68, 70, 1));
         await expect(store.exists(stagedRef)).resolves.toBe(true);
-    });
-
-    it('does not delete a staged revision replaced by another browser store', async () => {
-        const store = new BrowserDocumentStore();
-        const sourceRef = await store.createStoredDocument(
-            'concurrent-stage.pdf',
-            Uint8Array.of(37, 80, 68, 70, 1),
-            PDF_OPTIONS,
-        );
-        const workingRef = await store.createStoredDocument(
-            'concurrent-stage-working.pdf',
-            new Uint8Array(),
-            {
-                mimeType: 'application/pdf',
-                kind: 'working',
-                retention: 'durable',
-                saveKind: 'pdf',
-                sourceRef,
-                storageMode: 'source-proxy',
-            },
-        );
-        const stagedBytes = Uint8Array.of(37, 80, 68, 70, 9);
-        const replacementBytes = Uint8Array.of(37, 80, 68, 70, 7);
-        const stagedRef = await store.createStoredDocument(
-            'concurrent-stage-output.pdf',
-            stagedBytes,
-            {
-                ...PDF_OPTIONS,
-                kind: 'output',
-                retention: 'durable',
-            },
-        );
-        const workingRevision = await store.getDocumentRevision(workingRef);
-        const stagedArtifact = await createBrowserStoreStagedArtifact(store, stagedRef, {
-            leaseId: 'browser-concurrent-stage-lease',
-            sha256: sha256(stagedBytes),
-            validations: stagedValidations(),
-        });
-        await store.touchRecentFile(sourceRef);
-        await store.touchRecentFile(workingRef);
-        await store.touchRecentFile(stagedRef);
-
-        const concurrentStore = new BrowserDocumentStore();
-        await concurrentStore.writeForBootstrap(
-            stagedRef,
-            replacementBytes,
-            'replace-staged-artifact-before-commit',
-        );
-
-        await expect(commitBrowserStoreStagedArtifact(
-            store,
-            stagedArtifact,
-            workingRef,
-            workingRevision.token,
-        )).rejects.toThrow('Browser staged artifact content or revision changed during commit');
-
-        await expect(concurrentStore.read(stagedRef)).resolves.toEqual(replacementBytes);
-        await expect(concurrentStore.read(workingRef)).resolves.toEqual(Uint8Array.of(37, 80, 68, 70, 1));
-        await expect(concurrentStore.exists(stagedRef)).resolves.toBe(true);
     });
 });

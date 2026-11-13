@@ -644,7 +644,6 @@ export function createDocumentHistory(
         fileHistorySessionVersion,
         getHistoryDebugState,
         mapHistoryPage,
-        readDocumentDependencies: () => [...retainedEntries()].flatMap(entry => entry.kind === 'path' ? [entry.path] : []),
         incrementSessionVersion,
         pushHistoryEntry,
         pushHistorySnapshot,

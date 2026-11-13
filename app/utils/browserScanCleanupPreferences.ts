@@ -1,5 +1,4 @@
-import {DOCUMENTS_STORE} from '@app/platform/browser/browserDocumentConstants';
-import {runObjectStoreTransaction} from '@app/platform/browser/browserDocumentIdb';
+import {runBrowserLock} from '@app/platform/browser/runBrowserLock';
 import type {
     IScanCleanupMarginsMm,
     IScanCleanupPageOverride,
@@ -52,19 +51,7 @@ const browserStorage: IScanCleanupPreferenceStorage = {
 };
 
 async function runSerializedScanCleanupPreferencesMutation<T>(mutate: () => T): Promise<T> {
-    const result = await runObjectStoreTransaction<{value: T} | {error: unknown}>(DOCUMENTS_STORE, 'readwrite', (store, setResult) => {
-        const read = store.get('__evb_scan_cleanup_preferences_storage_lock__');
-        read.onsuccess = () => {
-            try {
-                setResult({value: mutate()});
-            } catch (error) {
-                setResult({error});
-            }
-        };
-    });
-    if (result === null) throw new Error('Failed to serialize scan-cleanup preferences');
-    if ('error' in result) throw result.error;
-    return result.value;
+    return runBrowserLock('__evb_scan_cleanup_preferences_storage_lock__', async () => mutate());
 }
 
 export function exportScanCleanupLegacyStorage(
