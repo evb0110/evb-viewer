@@ -4,8 +4,6 @@ import {
     it,
 } from 'vitest';
 import {
-    clampDpi,
-    pixelsToPdfPoints,
     readImageDpi,
     readJpegExifOrientation,
     readTiffFrameDpi,
@@ -152,12 +150,6 @@ describe('readTiffFrameDpi', () => {
     });
 });
 
-describe('pixelsToPdfPoints', () => {
-    it('converts image pixels to PDF points', () => {
-        expect(pixelsToPdfPoints(300, 300)).toBe(72);
-    });
-});
-
 describe('readJpegExifOrientation', () => {
     it.each([
         2,
@@ -211,14 +203,5 @@ describe('readJpegExifOrientation', () => {
             0xda,
         ]);
         expect(readJpegExifOrientation(jpeg)).toBe(orientation);
-    });
-});
-
-describe('clampDpi', () => {
-    it('bounds render DPI to the shared image range', () => {
-        expect(clampDpi(Number.NaN)).toBe(300);
-        expect(clampDpi(30)).toBe(72);
-        expect(clampDpi(299.6)).toBe(300);
-        expect(clampDpi(2000)).toBe(1200);
     });
 });

@@ -484,4 +484,3 @@ export function createScanCleanupDetectionRecorder({
 }
 
 export type IScanCleanupDetectionRecorder = ReturnType<typeof createScanCleanupDetectionRecorder>;
-export type IScanCleanupDetectionBatchRecorder = ReturnType<IScanCleanupDetectionRecorder['beginBatch']>;

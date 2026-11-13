@@ -155,10 +155,6 @@ function getDefaultDocumentMutationErrorMessage(code: TDocumentMutationErrorCode
     return 'Working copy must be resynced before further edits';
 }
 
-export function isMissingRevisionError(error: unknown) {
-    return isDocumentMutationErrorCode(error, 'MISSING_REVISION');
-}
-
 export function isStaleRevisionError(error: unknown) {
     return isDocumentMutationErrorCode(error, 'STALE_REVISION');
 }

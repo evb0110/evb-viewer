@@ -57,15 +57,6 @@ export function inspectAllowedExternalUrl(rawUrl: string): TExternalUrlDecision 
     };
 }
 
-export function parseAllowedExternalUrl(rawUrl: string) {
-    const decision = inspectAllowedExternalUrl(rawUrl);
-    if (!decision.ok) {
-        return null;
-    }
-
-    return decision.url;
-}
-
 export function normalizeAllowedExternalUrl(rawUrl: string) {
     const decision = inspectAllowedExternalUrl(rawUrl);
     return decision.ok

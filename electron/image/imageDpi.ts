@@ -1,7 +1,4 @@
 const DEFAULT_IMAGE_DPI = 72;
-const DEFAULT_RENDER_DPI = 300;
-const MIN_RENDER_DPI = 72;
-const MAX_RENDER_DPI = 1200;
 const METERS_PER_INCH = 0.0254;
 const CM_PER_INCH = 2.54;
 const PNG_SIGNATURE_LENGTH = 8;
@@ -282,13 +279,6 @@ export function readTiffFrameDpi(ifd: ITiffResolutionTags) {
     return null;
 }
 
-export function clampDpi(value: number) {
-    if (!Number.isFinite(value)) {
-        return DEFAULT_RENDER_DPI;
-    }
-    return Math.min(Math.max(Math.round(value), MIN_RENDER_DPI), MAX_RENDER_DPI);
-}
-
 export function readImageDpi(data: Uint8Array, extension: string) {
     const ext = extension.toLowerCase();
     let dpi: number | null = null;
@@ -300,8 +290,4 @@ export function readImageDpi(data: Uint8Array, extension: string) {
     }
 
     return dpi && dpi > 0 ? dpi : DEFAULT_IMAGE_DPI;
-}
-
-export function pixelsToPdfPoints(pixels: number, dpi: number) {
-    return (pixels / dpi) * 72;
 }

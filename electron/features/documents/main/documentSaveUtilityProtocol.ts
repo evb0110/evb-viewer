@@ -61,10 +61,6 @@ export type IDocumentSaveUtilityValidateRequest = Extract<
     v.InferOutput<typeof documentSaveUtilityRequestSchema>,
     {type: 'validate'}
 >;
-export type IDocumentSaveUtilityInspectRequest = Extract<
-    v.InferOutput<typeof documentSaveUtilityRequestSchema>,
-    {type: 'inspect'}
->;
 export type TDocumentSaveUtilityRequest = v.InferOutput<typeof documentSaveUtilityRequestSchema>;
 
 const shutdownRequestSchema = v.object({

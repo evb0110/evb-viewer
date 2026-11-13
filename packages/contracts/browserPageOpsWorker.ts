@@ -123,7 +123,6 @@ export const SCAN_CLEANUP_RASTER_REQUEST_SCHEMA = v.strictObject({
     })),
     maxPixels: positiveIntegerSchema,
 });
-export type TScanCleanupRasterRequest = v.InferOutput<typeof SCAN_CLEANUP_RASTER_REQUEST_SCHEMA>;
 
 /** A page's raster size and how closely its samples match desktop's, or why it has no scan raster. */
 const SCAN_CLEANUP_RASTER_REPORT_SCHEMA = v.union([
@@ -692,7 +691,6 @@ export function parseBrowserPageOpsWorkerRequest(value: unknown): TBrowserPageOp
 }
 
 export {
-    workerResponseSchema as BROWSER_PAGE_OPS_WORKER_RESPONSE_SCHEMA,
     workerResultSchemas as BROWSER_PAGE_OPS_WORKER_RESULT_SCHEMAS,
 };
 

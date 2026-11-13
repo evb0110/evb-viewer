@@ -21,8 +21,6 @@ export type TStructuredDocumentRef = IBrowserDocumentRef | INativeDocumentRef;
 
 export type TDocumentRef = TLegacyDocumentRef;
 
-export type TDocumentRefLike = TDocumentRef | TStructuredDocumentRef;
-
 const BROWSER_DOCUMENT_REF_PREFIX = 'browser://documents/';
 const POSIX_ABSOLUTE_PATH_PATTERN = /^\//u;
 const WINDOWS_ABSOLUTE_PATH_PATTERN = /^[a-z]:[\\/]/iu;
@@ -71,10 +69,6 @@ export function isNativeStructuredDocumentRef(value: unknown): value is INativeD
         && value.kind === 'native-document-ref'
         && value.backend === 'electron'
         && isNativeLegacyDocumentRef(value.path);
-}
-
-export function isStructuredDocumentRef(value: unknown): value is TStructuredDocumentRef {
-    return isBrowserStructuredDocumentRef(value) || isNativeStructuredDocumentRef(value);
 }
 
 export function createBrowserDocumentRefValue(ref: string): IBrowserDocumentRef {

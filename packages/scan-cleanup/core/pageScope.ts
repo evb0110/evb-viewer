@@ -147,19 +147,6 @@ export function mapScanCleanupPageScope<T>(
     return values;
 }
 
-export function filterScanCleanupPageScope(
-    pageScope: TScanCleanupPageScope,
-    predicate: (pageNumber: number, index: number) => boolean,
-) {
-    const values: number[] = [];
-    let index = 0;
-    for (const pageNumber of pageScope) {
-        if (predicate(pageNumber, index)) values.push(pageNumber);
-        index += 1;
-    }
-    return values;
-}
-
 export function getScanCleanupPageAt(
     pageScope: TScanCleanupPageScope,
     index: number,

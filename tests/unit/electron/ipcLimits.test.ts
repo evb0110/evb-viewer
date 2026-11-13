@@ -5,14 +5,12 @@ import {
 } from 'vitest';
 import {
     normalizeBoundedString,
-    normalizeOptionalBoundedString,
     truncateForIpc,
 } from '@electron/utils/ipcLimits';
 
 describe('ipcLimits', () => {
     it('normalizes non-empty bounded strings', () => {
         expect(normalizeBoundedString('  request-1  ', 'requestId', 16)).toBe('request-1');
-        expect(normalizeOptionalBoundedString(null, 'requestId')).toBeNull();
     });
 
     it('rejects missing, empty, and oversized strings', () => {

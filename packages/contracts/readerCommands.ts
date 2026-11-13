@@ -41,7 +41,6 @@ export const READER_COMMANDS = [
 ] as const;
 
 export type TReaderCommandId = typeof READER_COMMANDS[number];
-export type TReaderCommandPlacement = 'inline' | 'menu';
 export type TReaderCommandMap = Readonly<Record<TReaderCommandId, boolean>>;
 
 export interface IReaderCommandDescriptor {
@@ -61,13 +60,6 @@ export interface IReaderCommandState {
     readonly enabled: boolean;
     readonly visible: boolean;
     readonly selected?: boolean;
-}
-
-export interface IReaderCommandStateSnapshot { readonly commands: readonly IReaderCommandState[] }
-
-export interface IReaderCommandRequest {
-    id: TReaderCommandId;
-    payload?: unknown;
 }
 
 export const READER_COMMAND_DESCRIPTORS = Object.freeze({
