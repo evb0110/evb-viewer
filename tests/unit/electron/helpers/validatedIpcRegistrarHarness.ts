@@ -150,6 +150,14 @@ const schemaArgsExamples: Readonly<Record<string, unknown[]>> = {
         '/tmp/fixture.pdf',
         {expectedDocumentRevisionToken: 'drt1:fixture'},
     ],
+    'working-copy:restoreRevision': [
+        '/tmp/fixture.pdf',
+        '1',
+    ],
+    'working-copy:retainRevisions': [
+        '/tmp/fixture.pdf',
+        ['1'],
+    ],
     'file:cleanup': ['/tmp/fixture.pdf'],
     'file:read': ['/tmp/fixture.pdf'],
     'pdf:pageLabels:read': ['/tmp/fixture.pdf'],
