@@ -1,27 +1,19 @@
 import {NATIVE_ERROR_CODES} from '@contracts/nativeErrors';
 import type {
     AnalysisOutputMetadata,
-    BinarizationDiagnostics,
     CleanupOptions,
     CleanupMetadata,
-    DetailRenderPlan,
-    DewarpOptions,
-    ExperimentalOptions,
     FoldBandUnmeasuredReason,
-    InkConsistencyDiagnostics,
     LosslessPlacement,
     ManifestV3,
+    Operation,
     OutputModeDiagnostics,
     Page,
     PageOutput,
     PageResultMetadata,
-    PdfImagePlacement,
-    PdfPageGeometry,
     PlacementAnchor,
+    RenderMode,
     SplitDiagnostics,
-    SpreadBinarizationPlanDecision,
-    TextToneDiagnostics,
-    TextToneRule,
 } from '@contracts/scan-cleanup/nativeWire.generated';
 import * as v from 'valibot';
 import {isRecord} from '@contracts/runtimeGuards';
@@ -36,34 +28,23 @@ import {SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES} from '@contracts/scan-cleanup/input
 
 export const SCAN_CLEANUP_NATIVE_PROTOCOL_VERSION = 3 as const;
 
-export type TNativeScanCleanupOperation = 'analyze' | 'render';
-export type TNativeScanCleanupRenderMode = 'preview' | 'final';
-export type TNativeScanCleanupAnalysisPurpose = 'classification' | 'page-plan';
+export type TNativeScanCleanupOperation = Operation;
+export type TNativeScanCleanupRenderMode = RenderMode;
 
 export type IScanCleanupPlacementAnchor = PlacementAnchor;
 
-export type INativeScanCleanupExperimentalOptionsV3 = ExperimentalOptions;
 export type INativeScanCleanupOptionsV3 = CleanupOptions;
 export type INativeScanCleanupOutputV3 = PageOutput;
-export type INativeScanCleanupPdfPageV3 = PdfPageGeometry;
-export type INativeScanCleanupDetailRenderPlanV3 = DetailRenderPlan;
 export type INativeScanCleanupPageV3 = Page;
 export type INativeScanCleanupManifestV3 = ManifestV3;
 
-export type INativeScanCleanupPdfImagePlacementV3 = PdfImagePlacement;
 export type INativeScanCleanupPdfPlacementV3 = LosslessPlacement;
-export type INativeScanCleanupDewarpModelV3 = DewarpOptions;
 export type INativeScanCleanupOutputMetadataV3 = CleanupMetadata;
-export type INativeScanCleanupInkConsistencyDiagnosticsV3 = InkConsistencyDiagnostics;
-export type INativeScanCleanupTextToneDiagnosticsV3 = TextToneDiagnostics;
 export type INativeScanCleanupAnalysisOutputV3 = AnalysisOutputMetadata;
-export type INativeScanCleanupOutputModeDiagnosticsV3 = OutputModeDiagnostics;
-export type TNativeScanCleanupTextToneRuleV3 = TextToneRule;
-export type TNativeScanCleanupSpreadBinarizationPlanDecisionV3 = SpreadBinarizationPlanDecision;
 /** Native-only inverse geometry persisted beside a preview output for detail reuse. */
 export type INativeScanCleanupReusableGeometryV3 = Pick<CleanupMetadata, 'inverseTransform' | 'dewarpMapping'>;
 
-export const NATIVE_SCAN_CLEANUP_FOLD_BAND_UNMEASURED_REASONS_V3 = [
+const FOLD_BAND_UNMEASURED_REASONS = [
     'not-applicable',
     'no-fold-evidence',
     'fold-evidence-unquantified',
@@ -72,7 +53,7 @@ export const NATIVE_SCAN_CLEANUP_FOLD_BAND_UNMEASURED_REASONS_V3 = [
 ] as const satisfies readonly FoldBandUnmeasuredReason[];
 
 const foldBandNumber = v.pipe(v.number(), v.finite(), v.minValue(0));
-export const NATIVE_SCAN_CLEANUP_FOLD_BAND_SCHEMA = v.variant('status', [
+const foldBandSchema = v.variant('status', [
     v.pipe(v.strictObject({
         status: v.literal('measured'),
         leftXPx: foldBandNumber,
@@ -80,20 +61,13 @@ export const NATIVE_SCAN_CLEANUP_FOLD_BAND_SCHEMA = v.variant('status', [
     }), v.check(value => value.rightXPx >= value.leftXPx)),
     v.strictObject({
         status: v.literal('unmeasured'),
-        reason: v.picklist(NATIVE_SCAN_CLEANUP_FOLD_BAND_UNMEASURED_REASONS_V3),
+        reason: v.picklist(FOLD_BAND_UNMEASURED_REASONS),
         nominalHalfWidthPx: foldBandNumber,
     }),
 ]);
 
-export type TNativeScanCleanupFoldBandV3 = v.InferOutput<typeof NATIVE_SCAN_CLEANUP_FOLD_BAND_SCHEMA>;
-
-export function isNativeScanCleanupFoldBandV3(value: unknown): value is TNativeScanCleanupFoldBandV3 {
-    return v.safeParse(NATIVE_SCAN_CLEANUP_FOLD_BAND_SCHEMA, value, {abortEarly: true}).success;
-}
-
 export type INativeScanCleanupSplitDiagnosticsV3 = SplitDiagnostics;
 export type INativeScanCleanupPageMetadataV3 = PageResultMetadata;
-export type INativeScanCleanupBinarizationDiagnosticsV3 = BinarizationDiagnostics;
 
 const finiteNumber = v.pipe(v.number(), v.finite());
 const nonNegativeInteger = (message: string) => v.message(v.pipe(
@@ -107,7 +81,7 @@ const confidence = (message: string) => v.message(v.pipe(
     v.maxValue(1),
 ), message);
 export const NATIVE_SCAN_CLEANUP_SPLIT_DIAGNOSTICS_SCHEMA = v.strictObject({
-    foldBand: NATIVE_SCAN_CLEANUP_FOLD_BAND_SCHEMA,
+    foldBand: foldBandSchema,
     analysisDpi: finiteNumber,
     deskewAngleDegrees: finiteNumber,
     deskewConfidence: finiteNumber,
@@ -522,40 +496,12 @@ const paperDownscaled = v.message(v.pipe(v.strictObject({
     value.paperWidth,
     value.paperHeight,
 ]) && rectangleIsWholeOrAbsent(value.paperWidth, value.paperHeight))), warningEventMessage);
-/**
- * A page's capped render DPI, and the superseded shape of the same condition:
- * artifacts written before both measurements travelled as fixed-point
- * thousandths state them as plain DPI. One condition carries one decoded
- * shape, so the old fields are converted and re-decoded against the canonical
- * bounds instead of widening the union with a variant every consumer would
- * branch on; both shapes being exact, a payload mixing them matches neither.
- * The old field also admitted a DPI below half a thousandth: that lands on the
- * smallest one the canonical field states rather than quantizing to zero and
- * costing a readable artifact its decode.
- */
-const canonicalPageDpiCapped = v.message(v.strictObject({
+const pageDpiCapped = v.message(v.strictObject({
     code: warningEventCode('matched-canvas-page-dpi-capped'),
     pageNumber: warningEventPageNumber,
     appliedDpiThousandths: warningEventDpiThousandths,
     requestedDpiThousandths: warningEventDpiThousandths,
 }), warningEventMessage);
-const legacyPageDpiCapped = v.message(v.strictObject({
-    code: warningEventCode('matched-canvas-page-dpi-capped'),
-    pageNumber: warningEventPageNumber,
-    appliedDpi: warningEventDpi,
-    requestedDpi: warningEventDpi,
-}), warningEventMessage);
-const legacyDpiThousandths = (dpi: number) => Math.max(1, Math.round(dpi * 1_000));
-// Legacy DPI names normalize into the canonical fixed-point warning shape.
-const pageDpiCapped = v.pipe(v.union([
-    canonicalPageDpiCapped,
-    legacyPageDpiCapped,
-]), v.transform(value => 'appliedDpi' in value ? {
-    code: value.code,
-    pageNumber: value.pageNumber,
-    appliedDpiThousandths: legacyDpiThousandths(value.appliedDpi),
-    requestedDpiThousandths: legacyDpiThousandths(value.requestedDpi),
-} : value));
 export const SCAN_CLEANUP_WARNING_EVENT_SCHEMA = v.message(v.union([
     contentFitted,
     v.message(v.strictObject({
@@ -644,8 +590,3 @@ export const NATIVE_SCAN_CLEANUP_ENVELOPE_SCHEMA = v.pipe(
 
 export type TNativeScanCleanupPageStageTimingsV3 = v.InferOutput<typeof pageStageTimings>;
 export type TNativeScanCleanupProgressV3 = v.InferOutput<typeof progress>;
-export type TNativeScanCleanupProgressStage = TNativeScanCleanupProgressV3['stage'];
-export type TNativeScanCleanupProgressEnvelopeV3 = v.InferOutput<typeof progressEnvelope>;
-export type TNativeScanCleanupResultV3 = v.InferOutput<typeof resultEnvelope>['result'];
-export type TNativeScanCleanupResultEnvelopeV3 = v.InferOutput<typeof resultEnvelope>;
-export type TNativeScanCleanupEnvelopeV3 = v.InferOutput<typeof NATIVE_SCAN_CLEANUP_ENVELOPE_SCHEMA>;

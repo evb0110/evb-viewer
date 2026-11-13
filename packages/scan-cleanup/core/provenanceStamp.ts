@@ -1,8 +1,10 @@
 /**
- * The platform-neutral provenance stamp: schema, canonical JSON, digests,
- * validation and hex transport. Whole-file source hashing is each platform's:
+ * The platform-neutral provenance stamp: schema, canonical JSON, digests
+ * and hex transport. A stamp is built from options already validated where
+ * they entered the process; decoding is where one is validated. Whole-file source hashing is each platform's:
  * sha256ScanCleanupFile on Node, WebCrypto in the browser.
  */
+import * as v from 'valibot';
 import {sha256Utf8Hex} from '@evb/scan-cleanup/core/sha256Utf8Hex';
 import type {
     INativeScanCleanupOptionsV3,
@@ -13,26 +15,11 @@ import type {
     TScanCleanupPageRotation,
     TScanCleanupOutputModeSetting,
 } from '@contracts/scan-cleanup/electronApiScanCleanup';
-import {SCAN_CLEANUP_ALIGNMENTS} from '@contracts/scan-cleanup/electronApiScanCleanup';
-import {
-    consumeScanCleanupVertices,
-    consumeScanCleanupZones,
-    createScanCleanupInputBudget,
-    type IScanCleanupInputBudget,
-    SCAN_CLEANUP_INPUT_MAX_VERTICES_PER_POLYGON,
-    SCAN_CLEANUP_INPUT_MAX_VERTICES_PER_PAGE,
-    SCAN_CLEANUP_INPUT_MAX_ZONES_PER_PAGE,
-} from '@contracts/scan-cleanup/inputLimits';
-import {assertSimpleScanCleanupPolygon} from '@contracts/scan-cleanup/assertSimpleScanCleanupPolygon';
 import type {
     IScanCleanupNormalizedRect,
     IScanCleanupNormalizedSplit,
 } from '@contracts/scan-cleanup/geometry';
-import {
-    SCAN_CLEANUP_MANUAL_SPLIT_MAX,
-    SCAN_CLEANUP_MANUAL_SPLIT_MIN,
-    SCAN_CLEANUP_NORMALIZED_BOUNDS_EPSILON,
-} from '@contracts/scan-cleanup/geometry';
+import {SCAN_CLEANUP_OUTPUT_HALVES} from '@contracts/scan-cleanup/domain';
 import {getErrorMessage} from '@contracts/getErrorMessage';
 import {
     SCAN_CLEANUP_ASSEMBLER_BACKENDS,
@@ -106,53 +93,78 @@ export interface IScanCleanupStampEffectiveOptions {
     maxDimensionPx: number;
 }
 
-export interface IScanCleanupStampEffectiveOptionsRecord {
-    sourcePage: number;
-    options: IScanCleanupStampEffectiveOptions;
-}
+const sha256Schema = v.pipe(v.string(), v.regex(/^[0-9a-f]{64}$/u));
+const sourcePageSchema = v.pipe(v.number(), v.safeInteger(), v.minValue(1));
+const buildIdsEntries = {
+    coreBuildId: v.pipe(v.string(), v.minLength(1)),
+    nativeBinarySha256s: v.record(v.string(), sha256Schema),
+    assemblerBackend: v.picklist(SCAN_CLEANUP_ASSEMBLER_BACKENDS),
+    transportMode: v.picklist(SCAN_CLEANUP_TRANSPORT_MODES),
+};
+const stampEntries = {
+    sourceSha256: sha256Schema,
+    resolvedPlanSha256: sha256Schema,
+    effectiveOptions: v.strictObject({perSourcePage: v.pipe(v.array(v.strictObject({
+        sourcePage: sourcePageSchema,
+        // Covered by its page plan digest, which decoding recomputes.
+        options: v.custom<IScanCleanupStampEffectiveOptions>(isRecord),
+    })), v.minLength(1))}),
+    outputMappings: v.pipe(v.array(v.strictObject({
+        sourcePage: sourcePageSchema,
+        half: v.picklist(SCAN_CLEANUP_OUTPUT_HALVES),
+        outputOrdinal: v.nullable(sourcePageSchema),
+        rotationDegrees: v.picklist([0, 90, 180, 270] as const),
+        excluded: v.boolean(),
+        blank: v.boolean(),
+    })), v.minLength(1)),
+    pagePlanDigests: v.array(v.strictObject({
+        sourcePage: sourcePageSchema,
+        planSha256: sha256Schema,
+        evidenceSha256: sha256Schema,
+    })),
+};
+/**
+ * A stamp read back from a document: v1 when the build had no source
+ * revision, v2 carrying it. Its digests must match its own content.
+ */
+const stampShapeSchema = v.variant('schemaVersion', [
+    v.strictObject({
+        ...stampEntries,
+        schemaVersion: v.literal(SCAN_CLEANUP_STAMP_SCHEMA_VERSION_V1),
+        buildIds: v.strictObject({
+            ...buildIdsEntries,
+            coreSchemaId: v.literal(SCAN_CLEANUP_STAMP_SCHEMA_ID_V1),
+        }),
+    }),
+    v.strictObject({
+        ...stampEntries,
+        schemaVersion: v.literal(SCAN_CLEANUP_STAMP_SCHEMA_VERSION),
+        buildIds: v.strictObject({
+            ...buildIdsEntries,
+            coreSchemaId: v.literal(SCAN_CLEANUP_STAMP_SCHEMA_ID),
+            gitSha: v.pipe(v.string(), v.regex(SCAN_CLEANUP_GIT_SHA_HEX_PATTERN)),
+        }),
+    }),
+]);
 
-export interface IScanCleanupStampPagePlanDigest {
-    sourcePage: number;
-    planSha256: string;
-    evidenceSha256: string;
-}
-
-interface IScanCleanupStampBuildIdsBase extends Record<string, unknown> {
-    coreBuildId: string;
-    nativeBinarySha256s: Record<string, string>;
-    assemblerBackend: TScanCleanupAssemblerBackend;
-    transportMode: TScanCleanupTransportMode;
-}
-
-export interface IScanCleanupStampBuildIdsV1 extends IScanCleanupStampBuildIdsBase {coreSchemaId: typeof SCAN_CLEANUP_STAMP_SCHEMA_ID_V1;}
-
-export interface IScanCleanupStampBuildIds extends IScanCleanupStampBuildIdsBase {
-    coreSchemaId: typeof SCAN_CLEANUP_STAMP_SCHEMA_ID;
-    gitSha: string;
-}
-
-export type TScanCleanupStampBuildIds = IScanCleanupStampBuildIdsV1 | IScanCleanupStampBuildIds;
-
-interface IScanCleanupProvenanceStampBase {
-    sourceSha256: string;
-    resolvedPlanSha256: string;
-    effectiveOptions: {perSourcePage: IScanCleanupStampEffectiveOptionsRecord[];};
-    outputMappings: IScanCleanupOutputMapping[];
-    pagePlanDigests: IScanCleanupStampPagePlanDigest[];
-}
-
-export interface IScanCleanupProvenanceStampV1 extends IScanCleanupProvenanceStampBase {
-    schemaVersion: typeof SCAN_CLEANUP_STAMP_SCHEMA_VERSION_V1;
-    buildIds: IScanCleanupStampBuildIdsV1;
-}
-
-export interface IScanCleanupProvenanceStampV2 extends IScanCleanupProvenanceStampBase {
-    schemaVersion: typeof SCAN_CLEANUP_STAMP_SCHEMA_VERSION;
-    buildIds: IScanCleanupStampBuildIds;
-}
-
-export type TScanCleanupProvenanceStamp = IScanCleanupProvenanceStampV1 | IScanCleanupProvenanceStampV2;
+export type TScanCleanupProvenanceStamp = v.InferOutput<typeof stampShapeSchema>;
 export type IScanCleanupProvenanceStamp = TScanCleanupProvenanceStamp;
+export type TScanCleanupStampBuildIds = TScanCleanupProvenanceStamp['buildIds'];
+type IScanCleanupStampBuildIdsV1 = Extract<TScanCleanupStampBuildIds, {coreSchemaId: typeof SCAN_CLEANUP_STAMP_SCHEMA_ID_V1}>;
+type IScanCleanupStampBuildIdsV2 = Extract<TScanCleanupStampBuildIds, {coreSchemaId: typeof SCAN_CLEANUP_STAMP_SCHEMA_ID}>;
+export type IScanCleanupStampEffectiveOptionsRecord = TScanCleanupProvenanceStamp['effectiveOptions']['perSourcePage'][number];
+export type IScanCleanupStampPagePlanDigest = TScanCleanupProvenanceStamp['pagePlanDigests'][number];
+
+const SCAN_CLEANUP_PROVENANCE_STAMP_SCHEMA = v.pipe(stampShapeSchema, v.check(stamp => stamp.pagePlanDigests.every(digest => {
+    const record = stamp.effectiveOptions.perSourcePage.find(item => item.sourcePage === digest.sourcePage);
+    return record !== undefined && sha256ScanCleanupJson(record.options) === digest.planSha256;
+}), 'pagePlanDigests do not match effective options'), v.check(stamp => sha256ScanCleanupJson({
+    sourceSha256: stamp.sourceSha256,
+    effectiveOptions: stamp.effectiveOptions,
+    outputMappings: stamp.outputMappings,
+    pagePlanDigests: stamp.pagePlanDigests,
+    buildIds: buildResolvedPlanBuildIds(stamp.buildIds),
+}) === stamp.resolvedPlanSha256, 'resolved plan digest does not match the stamp payload'));
 
 export interface IBuildScanCleanupProvenanceStampInput {
     sourceSha256: string;
@@ -317,28 +329,22 @@ export function buildScanCleanupProvenanceStamp({
         outputMappings: normalizedMappings,
         pagePlanDigests: normalizedPagePlanDigests,
     };
-    let payload: TScanCleanupProvenanceStamp;
-    if (gitSha === null) {
-        payload = {
+    return gitSha === null
+        ? {
             schemaVersion: SCAN_CLEANUP_STAMP_SCHEMA_VERSION_V1,
             ...commonPayload,
             buildIds: buildV1BuildIds(buildIds),
-        };
-    } else {
-        payload = {
+        }
+        : {
             schemaVersion: SCAN_CLEANUP_STAMP_SCHEMA_VERSION,
             ...commonPayload,
             buildIds: buildV2BuildIds(buildIds, gitSha),
         };
-    }
-    assertScanCleanupProvenanceStamp(payload);
-    return payload;
 }
 
 export function encodeScanCleanupProvenanceStampHex(
     payload: TScanCleanupProvenanceStamp,
 ): string {
-    assertScanCleanupProvenanceStamp(payload);
     return Array.from(
         new TextEncoder().encode(canonicalScanCleanupJson(payload)),
         byte => byte.toString(16).padStart(2, '0'),
@@ -371,15 +377,7 @@ export function decodeScanCleanupProvenanceStampHex(hex: string): TScanCleanupPr
     if (canonicalScanCleanupJson(parsed) !== json) {
         throw new Error('provenance stamp JSON is not canonical sorted-key JSON');
     }
-    assertScanCleanupProvenanceStamp(parsed);
-    return parsed;
-}
-
-export function readScanCleanupStampGitSha(stamp: TScanCleanupProvenanceStamp): string | null {
-    if (stamp.schemaVersion === SCAN_CLEANUP_STAMP_SCHEMA_VERSION_V1) {
-        return null;
-    }
-    return stamp.buildIds.gitSha;
+    return v.parse(SCAN_CLEANUP_PROVENANCE_STAMP_SCHEMA, parsed, {abortEarly: true});
 }
 
 export function verifyScanCleanupProvenanceStampHex(
@@ -429,127 +427,6 @@ export function verifyScanCleanupProvenanceStampHex(
     }
 }
 
-export function assertScanCleanupProvenanceStamp(value: unknown): asserts value is TScanCleanupProvenanceStamp {
-    if (!isRecord(value)) fail('stamp must be an object');
-    assertExactKeys(value, [
-        'schemaVersion',
-        'sourceSha256',
-        'resolvedPlanSha256',
-        'effectiveOptions',
-        'outputMappings',
-        'pagePlanDigests',
-        'buildIds',
-    ]);
-    if (
-        value.schemaVersion !== SCAN_CLEANUP_STAMP_SCHEMA_VERSION_V1
-        && value.schemaVersion !== SCAN_CLEANUP_STAMP_SCHEMA_VERSION
-    ) {
-        fail(`stamp schema version mismatch: expected v1 or v2, received ${String(value.schemaVersion)}`);
-    }
-    assertSha256(value.sourceSha256, 'sourceSha256');
-    assertSha256(value.resolvedPlanSha256, 'resolvedPlanSha256');
-    if (!isRecord(value.effectiveOptions)) fail('effectiveOptions must be an object');
-    assertExactKeys(value.effectiveOptions, ['perSourcePage']);
-    if (!isUnknownArray(value.effectiveOptions.perSourcePage) || value.effectiveOptions.perSourcePage.length === 0) {
-        fail('effectiveOptions.perSourcePage must be non-empty');
-    }
-    const effectiveRecords = value.effectiveOptions.perSourcePage;
-    const inputBudget = createScanCleanupInputBudget();
-    const optionsBySource = new Map<number, IScanCleanupStampEffectiveOptions>();
-    const sourcePages = effectiveRecords.map((record, index) => {
-        if (!isRecord(record)) fail(`effectiveOptions.perSourcePage[${String(index)}] must be an object`);
-        assertExactKeys(record, [
-            'sourcePage',
-            'options',
-        ]);
-        assertPositiveInteger(record.sourcePage, `effectiveOptions.perSourcePage[${String(index)}].sourcePage`);
-        assertStampEffectiveOptions(record.options, inputBudget);
-        optionsBySource.set(record.sourcePage as number, record.options);
-        return record.sourcePage as number;
-    });
-    assertStrictlyIncreasing(sourcePages, 'effectiveOptions.perSourcePage');
-    if (
-        !Array.isArray(value.outputMappings)
-        || value.outputMappings.length === 0
-    ) fail('outputMappings must be a bounded non-empty array');
-    const outputMappings = value.outputMappings.map((mapping, index) => {
-        assertOutputMapping(mapping, `outputMappings[${String(index)}]`);
-        if (mapping.outputOrdinal !== null && (mapping.excluded || mapping.blank)) {
-            fail('produced output mapping cannot be excluded or blank');
-        }
-        return mapping;
-    });
-    if (
-        !isUnknownArray(value.pagePlanDigests)
-    ) fail('pagePlanDigests must be a bounded array');
-    const digestRecords = value.pagePlanDigests;
-    const digestPages = digestRecords.map((digest, index) => {
-        if (!isRecord(digest)) fail(`pagePlanDigests[${String(index)}] must be an object`);
-        assertExactKeys(digest, [
-            'sourcePage',
-            'planSha256',
-            'evidenceSha256',
-        ]);
-        assertPositiveInteger(digest.sourcePage, `pagePlanDigests[${String(index)}].sourcePage`);
-        assertSha256(digest.planSha256, `pagePlanDigests[${String(index)}].planSha256`);
-        assertSha256(digest.evidenceSha256, `pagePlanDigests[${String(index)}].evidenceSha256`);
-        return digest.sourcePage as number;
-    });
-    assertStrictlyIncreasing(digestPages, 'pagePlanDigests');
-    if (!isRecord(value.buildIds)) fail('buildIds must be an object');
-    assertBuildIds(value.buildIds, value.schemaVersion);
-    const mappingPages = [...new Set(outputMappings.map(mapping => mapping.sourcePage))].sort((a, b) => a - b);
-    if (JSON.stringify(mappingPages) !== JSON.stringify(sourcePages)) {
-        fail('outputMappings do not cover every effective source page exactly');
-    }
-    const mappingsBySource = new Map<number, IScanCleanupOutputMapping[]>();
-    for (const mapping of outputMappings) {
-        const records = mappingsBySource.get(mapping.sourcePage) ?? [];
-        records.push(mapping);
-        mappingsBySource.set(mapping.sourcePage, records);
-    }
-    for (const sourcePage of sourcePages) {
-        const records = mappingsBySource.get(sourcePage)!;
-        const emptyRecords = records.filter(record => record.outputOrdinal === null);
-        // A spread may skip one blank half beside the half it produced.
-        const blankHalfBesideSibling = records.length === 2
-            && records.some(record => record.half === 'left') && records.some(record => record.half === 'right')
-            && emptyRecords.length === 1 && emptyRecords[0]!.blank === true && !emptyRecords[0]!.excluded;
-        if (emptyRecords.length > 0 && !blankHalfBesideSibling
-            && (records.length !== 1 || !emptyRecords[0]!.excluded && !emptyRecords[0]!.blank)) {
-            fail('empty output mapping must be the only mapping for its source page');
-        }
-    }
-    if (JSON.stringify(digestPages) !== JSON.stringify(sourcePages)) {
-        fail('pagePlanDigests do not cover every effective source page exactly');
-    }
-    for (const digest of digestRecords) {
-        if (!isRecord(digest)) fail('pagePlanDigests must contain objects');
-        assertSha256(digest.planSha256, 'pagePlanDigests.planSha256');
-        const options = optionsBySource.get(digest.sourcePage as number);
-        if (options === undefined || sha256ScanCleanupJson(options) !== digest.planSha256) {
-            fail('pagePlanDigests do not match effective options');
-        }
-    }
-    const ordinalMappings = outputMappings.filter(mapping => mapping.outputOrdinal !== null);
-    ordinalMappings.forEach((mapping, index) => {
-        if (mapping.outputOrdinal !== index + 1) {
-            fail('outputMappings contain duplicate or out-of-order output ordinals');
-        }
-    });
-    for (const mapping of outputMappings.filter(item => item.outputOrdinal === null)) {
-        if (!mapping.excluded && !mapping.blank) fail('empty output mapping must be excluded or blank');
-    }
-    const recomputedPlan = sha256ScanCleanupJson({
-        sourceSha256: value.sourceSha256,
-        effectiveOptions: value.effectiveOptions,
-        outputMappings,
-        pagePlanDigests: value.pagePlanDigests,
-        buildIds: buildResolvedPlanBuildIds(value.buildIds),
-    });
-    if (recomputedPlan !== value.resolvedPlanSha256) fail('resolved plan digest does not match the stamp payload');
-}
-
 function readBuildIdsGitSha(buildIds: TScanCleanupStampBuildIds): string | null {
     if (!('gitSha' in buildIds) || typeof buildIds.gitSha !== 'string') {
         return null;
@@ -570,7 +447,7 @@ function buildV1BuildIds(buildIds: TScanCleanupStampBuildIds): IScanCleanupStamp
 function buildV2BuildIds(
     buildIds: TScanCleanupStampBuildIds,
     gitSha: string,
-): IScanCleanupStampBuildIds {
+): IScanCleanupStampBuildIdsV2 {
     return {
         coreSchemaId: SCAN_CLEANUP_STAMP_SCHEMA_ID,
         coreBuildId: buildIds.coreBuildId,
@@ -641,584 +518,4 @@ function sortJsonValue(value: unknown): unknown {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function isUnknownArray(value: unknown): value is unknown[] {
-    return Array.isArray(value);
-}
-
-function assertExactKeys(value: Record<string, unknown>, keys: readonly string[]) {
-    if (!hasExactKeys(value, keys)) {
-        fail('stamp contains an unsupported or missing field');
-    }
-}
-
-function hasExactKeys(value: Record<string, unknown>, keys: readonly string[]) {
-    const expected = new Set(keys);
-    const actual = Object.keys(value);
-    return actual.length === expected.size && actual.every(key => expected.has(key));
-}
-
-function assertPositiveInteger(value: unknown, label: string) {
-    if (!Number.isSafeInteger(value) || (value as number) < 1) fail(`${label} must be a positive integer`);
-}
-
-function assertSha256(value: unknown, label: string) {
-    if (typeof value !== 'string' || !/^[0-9a-f]{64}$/u.test(value)) fail(`${label} must be lowercase SHA-256 hex`);
-}
-
-function assertStrictlyIncreasing(values: readonly number[], label: string) {
-    for (let index = 1; index < values.length; index += 1) {
-        if (values[index]! <= values[index - 1]!) fail(`${label} must be ordered without duplicates`);
-    }
-}
-
-function assertOutputMapping(value: unknown, label: string): asserts value is IScanCleanupOutputMapping {
-    if (!isRecord(value)) fail(`${label} must be an object`);
-    assertExactKeys(value, [
-        'sourcePage',
-        'half',
-        'outputOrdinal',
-        'rotationDegrees',
-        'excluded',
-        'blank',
-    ]);
-    assertPositiveInteger(value.sourcePage, `${label}.sourcePage`);
-    if (value.half !== 'full' && value.half !== 'left' && value.half !== 'right') fail(`${label}.half is invalid`);
-    if (value.outputOrdinal !== null) assertPositiveInteger(value.outputOrdinal, `${label}.outputOrdinal`);
-    if (![
-        0,
-        90,
-        180,
-        270,
-    ].includes(value.rotationDegrees as number)) fail(`${label}.rotationDegrees is invalid`);
-    if (typeof value.excluded !== 'boolean' || typeof value.blank !== 'boolean') fail(`${label} flags are invalid`);
-}
-
-function assertStampEffectiveOptions(
-    value: unknown,
-    inputBudget: IScanCleanupInputBudget,
-): asserts value is IScanCleanupStampEffectiveOptions {
-    if (!isRecord(value)) fail('effective page options must be an object');
-    const keys = [
-        'qualityPath',
-        'preserveOriginalQuality',
-        'layoutMode',
-        'readingOrder',
-        'dpi',
-        'sourceDpi',
-        'sourceHasBilevelLayer',
-        'sourceBackgroundDpi',
-        'requestedRenderDpi',
-        'renderCrop',
-        'binarization',
-        'thickness',
-        'normalizeIllumination',
-        'despeckle',
-        'despeckleLevel',
-        'outputMode',
-        'preferSoftAlphaForeground',
-        'resolvedTextToneDiagnostics',
-        'ocrMode',
-        'layout',
-        'manualSplit',
-        'automaticSplit',
-        'manualSkewDegrees',
-        'manualContentBoxes',
-        'automaticSkewDegrees',
-        'automaticContentBoxes',
-        'manualZones',
-        'cropContent',
-        'matchPageSize',
-        'pageAlignment',
-        'placementOverrides',
-        'margins',
-        'experimental',
-        'rotationDegrees',
-        'excluded',
-        'skipBlankPages',
-        'maxPixels',
-        'maxDimensionPx',
-    ];
-    // `placementAnchors` is written only by a run that resolved `ink` anchors,
-    // so requiring it would reject every stamp written before that choice
-    // existed.
-    assertExactKeys(value, 'placementAnchors' in value ? [
-        ...keys,
-        'placementAnchors',
-    ] : keys);
-    for (const key of [
-        'dpi',
-        'sourceDpi',
-        'requestedRenderDpi',
-    ]) {
-        if (!positiveNumber(value[key])) fail(`${key} is invalid`);
-    }
-    for (const key of [
-        'maxPixels',
-        'maxDimensionPx',
-    ]) {
-        if (!Number.isSafeInteger(value[key]) || (value[key] as number) <= 0) fail(`${key} is invalid`);
-    }
-    for (const key of [
-        'preserveOriginalQuality',
-        'sourceHasBilevelLayer',
-        'normalizeIllumination',
-        'despeckle',
-        'ocrMode',
-        'cropContent',
-        'matchPageSize',
-        'excluded',
-        'skipBlankPages',
-    ]) {
-        if (typeof value[key] !== 'boolean') fail(`${key} is invalid`);
-    }
-    if (![
-        'raster',
-        'lossless',
-    ].includes(value.qualityPath as string)) fail('qualityPath is invalid');
-    if (![
-        'auto',
-        'force-single',
-        'force-two-page',
-    ].includes(value.layoutMode as string)) fail('layoutMode is invalid');
-    if (![
-        'ltr',
-        'rtl',
-    ].includes(value.readingOrder as string)) fail('readingOrder is invalid');
-    if (![
-        'auto',
-        'otsu',
-        'sauvola',
-        'wolf',
-    ].includes(value.binarization as string)) fail('binarization is invalid');
-    if (![
-        'off',
-        'cautious',
-        'normal',
-        'aggressive',
-    ].includes(value.despeckleLevel as string)) fail('despeckleLevel is invalid');
-    if (![
-        'auto',
-        'bw',
-        'mixed',
-        'grayscale',
-        'color',
-    ].includes(value.outputMode as string)) fail('outputMode is invalid');
-    if (value.despeckle !== (value.despeckleLevel !== 'off')) fail('despeckle does not match despeckleLevel');
-    if (typeof value.thickness !== 'number' || !Number.isFinite(value.thickness)) fail('thickness is invalid');
-    if (![
-        0,
-        90,
-        180,
-        270,
-    ].includes(value.rotationDegrees as number)) fail('rotationDegrees is invalid');
-    if (value.sourceBackgroundDpi !== null && !positiveNumber(value.sourceBackgroundDpi)) fail('sourceBackgroundDpi is invalid');
-    if (value.preferSoftAlphaForeground !== null && typeof value.preferSoftAlphaForeground !== 'boolean') fail('preferSoftAlphaForeground is invalid');
-    if (value.layout !== 'auto' && value.layout !== 'force-single' && value.layout !== 'page-with-offcut'
-        && value.layout !== 'keep-left' && value.layout !== 'keep-right' && value.layout !== 'force-two-page') {
-        fail('layout is invalid');
-    }
-    if (!(SCAN_CLEANUP_ALIGNMENTS as readonly string[]).includes(value.pageAlignment as string)) {
-        fail('pageAlignment is invalid');
-    }
-    if (value.renderCrop !== null) assertNormalizedRect(value.renderCrop, 'renderCrop');
-    if (value.manualSplit !== null) {
-        assertNormalizedSplit(
-            value.manualSplit,
-            'manualSplit',
-            SCAN_CLEANUP_MANUAL_SPLIT_MIN,
-            SCAN_CLEANUP_MANUAL_SPLIT_MAX,
-        );
-    }
-    if (value.automaticSplit !== null) {
-        assertNormalizedSplit(value.automaticSplit, 'automaticSplit');
-    }
-    if (value.manualSkewDegrees !== null && !boundedNumber(value.manualSkewDegrees, -15, 15)) fail('manualSkewDegrees is invalid');
-    assertNormalizedRectMap(value.manualContentBoxes, 'manualContentBoxes');
-    assertNumberMap(value.automaticSkewDegrees, 'automaticSkewDegrees');
-    assertNormalizedRectMap(value.automaticContentBoxes, 'automaticContentBoxes');
-    if ('placementAnchors' in value) {
-        assertPlacementAnchorMap(value.placementAnchors, 'placementAnchors');
-    }
-    assertTextToneDiagnostics(value.resolvedTextToneDiagnostics);
-    assertManualZones(value.manualZones, inputBudget);
-    assertMargins(value.margins);
-    assertPlacementOverrides(value.placementOverrides);
-    if (!isRecord(value.experimental) || Object.keys(value.experimental).some(key => ![
-        'autoDewarp',
-        'autoDewarpDepth',
-    ].includes(key))
-        || typeof value.experimental.autoDewarp !== 'boolean') fail('experimental is invalid');
-    if (value.experimental.autoDewarpDepth !== null && !positiveNumber(value.experimental.autoDewarpDepth)) fail('experimental.autoDewarpDepth is invalid');
-}
-
-function assertBuildIds(
-    value: Record<string, unknown>,
-    schemaVersion:
-        | typeof SCAN_CLEANUP_STAMP_SCHEMA_VERSION_V1
-        | typeof SCAN_CLEANUP_STAMP_SCHEMA_VERSION,
-): asserts value is TScanCleanupStampBuildIds {
-    const legacyKeys = [
-        'coreSchemaId',
-        'coreBuildId',
-        'nativeBinarySha256s',
-        'assemblerBackend',
-        'transportMode',
-    ];
-    if (schemaVersion === SCAN_CLEANUP_STAMP_SCHEMA_VERSION_V1) {
-        if (!hasExactKeys(value, legacyKeys)) {
-            fail('stamp schema version mismatch: v1 buildIds must use the legacy exact key set');
-        }
-    } else if (!hasExactKeys(value, [
-        ...legacyKeys,
-        'gitSha',
-    ])) {
-        fail('stamp schema v2 buildIds must carry gitSha alongside the legacy key set');
-    }
-    const expectedSchemaId = schemaVersion === SCAN_CLEANUP_STAMP_SCHEMA_VERSION_V1
-        ? SCAN_CLEANUP_STAMP_SCHEMA_ID_V1
-        : SCAN_CLEANUP_STAMP_SCHEMA_ID;
-    if (value.coreSchemaId !== expectedSchemaId) {
-        fail(`stamp schema version mismatch: schemaVersion v${String(schemaVersion)} requires coreSchemaId ${expectedSchemaId}`);
-    }
-    for (const key of [
-        'coreSchemaId',
-        'coreBuildId',
-    ]) {
-        if (typeof value[key] !== 'string' || value[key].length === 0 || /[/\\]|timestamp|username|basename/iu.test(value[key])) fail(`${key} is invalid`);
-    }
-    if (!isRecord(value.nativeBinarySha256s) || Object.keys(value.nativeBinarySha256s).length === 0) fail('nativeBinarySha256s is invalid');
-    for (const [
-        role,
-        hash,
-    ] of Object.entries(value.nativeBinarySha256s)) {
-        if (/path|timestamp|username|basename/iu.test(role)) fail('native binary role is invalid');
-        assertSha256(hash, `nativeBinarySha256s.${role}`);
-    }
-    if (!(SCAN_CLEANUP_ASSEMBLER_BACKENDS as readonly unknown[]).includes(value.assemblerBackend)) {
-        fail('assemblerBackend is invalid');
-    }
-    if (!(SCAN_CLEANUP_TRANSPORT_MODES as readonly unknown[]).includes(value.transportMode)) {
-        fail('transportMode is invalid');
-    }
-    if (
-        schemaVersion === SCAN_CLEANUP_STAMP_SCHEMA_VERSION
-        && 'gitSha' in value
-        && (typeof value.gitSha !== 'string' || !SCAN_CLEANUP_GIT_SHA_HEX_PATTERN.test(value.gitSha))
-    ) {
-        fail('stamp schema v2 buildIds.gitSha must be lowercase 40- or 64-character hex');
-    }
-}
-
-function positiveNumber(value: unknown): value is number {
-    return typeof value === 'number' && Number.isFinite(value) && value > 0;
-}
-
-function boundedNumber(value: unknown, minimum: number, maximum: number): value is number {
-    return typeof value === 'number' && Number.isFinite(value) && value >= minimum && value <= maximum;
-}
-
-function assertNormalizedRect(
-    value: unknown,
-    label: string,
-): asserts value is IScanCleanupNormalizedRect {
-    if (!isRecord(value)) fail(`${label} is invalid`);
-    assertExactKeys(value, [
-        'xNormalized',
-        'yNormalized',
-        'widthNormalized',
-        'heightNormalized',
-        'rotationDegrees',
-    ]);
-    if (!boundedNumber(
-        value.xNormalized,
-        -SCAN_CLEANUP_NORMALIZED_BOUNDS_EPSILON,
-        1 + SCAN_CLEANUP_NORMALIZED_BOUNDS_EPSILON,
-    ) || !boundedNumber(
-        value.yNormalized,
-        -SCAN_CLEANUP_NORMALIZED_BOUNDS_EPSILON,
-        1 + SCAN_CLEANUP_NORMALIZED_BOUNDS_EPSILON,
-    )
-        || !boundedNumber(
-            value.widthNormalized,
-            -SCAN_CLEANUP_NORMALIZED_BOUNDS_EPSILON,
-            1 + SCAN_CLEANUP_NORMALIZED_BOUNDS_EPSILON,
-        ) || !boundedNumber(
-        value.heightNormalized,
-        -SCAN_CLEANUP_NORMALIZED_BOUNDS_EPSILON,
-        1 + SCAN_CLEANUP_NORMALIZED_BOUNDS_EPSILON,
-    )
-        || (value.widthNormalized) <= 0 || (value.heightNormalized) <= 0
-        || (value.xNormalized) + (value.widthNormalized)
-            > 1 + SCAN_CLEANUP_NORMALIZED_BOUNDS_EPSILON
-        || (value.yNormalized) + (value.heightNormalized)
-            > 1 + SCAN_CLEANUP_NORMALIZED_BOUNDS_EPSILON
-        || ![
-            0,
-            90,
-            180,
-            270,
-        ].includes(value.rotationDegrees as number)) {
-        fail(`${label} is invalid`);
-    }
-}
-
-function assertNormalizedSplit(
-    value: unknown,
-    label: string,
-    minimum = -SCAN_CLEANUP_NORMALIZED_BOUNDS_EPSILON,
-    maximum = 1 + SCAN_CLEANUP_NORMALIZED_BOUNDS_EPSILON,
-): asserts value is IScanCleanupNormalizedSplit {
-    if (!isRecord(value)) fail(`${label} is invalid`);
-    assertExactKeys(value, [
-        'rotationDegrees',
-        'xNormalized',
-    ]);
-    if (![
-        0,
-        90,
-        180,
-        270,
-    ].includes(value.rotationDegrees as number)
-        || !boundedNumber(value.xNormalized, minimum, maximum)) {
-        fail(`${label} is invalid`);
-    }
-}
-
-function assertNormalizedRectMap(value: unknown, label: string) {
-    if (!isRecord(value)) fail(`${label} is invalid`);
-    for (const [
-        half,
-        rect,
-    ] of Object.entries(value)) {
-        if (![
-            'full',
-            'left',
-            'right',
-        ].includes(half)) fail(`${label} contains an invalid half`);
-        assertNormalizedRect(rect, `${label}.${half}`);
-    }
-}
-
-function assertPlacementAnchorMap(value: unknown, label: string) {
-    if (!isRecord(value)) fail(`${label} is invalid`);
-    for (const [
-        half,
-        anchor,
-    ] of Object.entries(value)) {
-        if (![
-            'full',
-            'left',
-            'right',
-        ].includes(half)) fail(`${label} contains an invalid half`);
-        if (!isRecord(anchor)
-            || !boundedNumberOrZero(anchor.yNormalized)
-            || Object.keys(anchor).some(key => key !== 'yNormalized')) {
-            fail(`${label}.${half} is invalid`);
-        }
-    }
-}
-
-function assertNumberMap(value: unknown, label: string) {
-    if (!isRecord(value)) fail(`${label} is invalid`);
-    for (const [
-        half,
-        skew,
-    ] of Object.entries(value)) {
-        if (![
-            'full',
-            'left',
-            'right',
-        ].includes(half) || typeof skew !== 'number' || !Number.isFinite(skew)) {
-            fail(`${label} is invalid`);
-        }
-    }
-}
-
-function assertTextToneDiagnostics(value: unknown) {
-    if (value === null) {
-        return;
-    }
-    if (!isRecord(value)) fail('resolvedTextToneDiagnostics is invalid');
-    for (const [
-        half,
-        diagnostics,
-    ] of Object.entries(value)) {
-        if (![
-            'full',
-            'left',
-            'right',
-        ].includes(half) || !isRecord(diagnostics)) fail('resolvedTextToneDiagnostics is invalid');
-        assertExactKeys(diagnostics, [
-            'applied',
-            'rule',
-            'textLineCount',
-            'textInkPixels',
-            'pictureFraction',
-            'outsideMidtoneFraction',
-            'outsideMidtoneLargestComponentFraction',
-            'outsideMidtoneLargestComponentWidthFraction',
-            'outsideMidtoneLargestComponentHeightFraction',
-            'inkAnchor',
-            'blackPoint',
-            'slope',
-        ]);
-        const inkAnchorIsValid = diagnostics.inkAnchor === null
-            || Number.isSafeInteger(diagnostics.inkAnchor)
-                && Number(diagnostics.inkAnchor) >= 0
-                && Number(diagnostics.inkAnchor) <= 255;
-        const blackPointIsValid = diagnostics.blackPoint === null
-            || typeof diagnostics.blackPoint === 'number'
-                && Number.isFinite(diagnostics.blackPoint)
-                && diagnostics.blackPoint >= 0;
-        const slopeIsValid = diagnostics.slope === null
-            || typeof diagnostics.slope === 'number'
-                && Number.isFinite(diagnostics.slope)
-                && diagnostics.slope > 0;
-        if (typeof diagnostics.applied !== 'boolean'
-            || ![
-                'applied',
-                'picture-evidence',
-                'insufficient-text',
-                'tonal-mass-outside-text',
-                'already-dark',
-            ].includes(diagnostics.rule as string)
-            || !Number.isSafeInteger(diagnostics.textLineCount) || (diagnostics.textLineCount as number) < 0
-            || !Number.isSafeInteger(diagnostics.textInkPixels) || (diagnostics.textInkPixels as number) < 0
-            || !boundedNumberOrZero(diagnostics.pictureFraction) || !boundedNumberOrZero(diagnostics.outsideMidtoneFraction)
-            || !boundedNumberOrZero(diagnostics.outsideMidtoneLargestComponentFraction)
-            || !boundedNumberOrZero(diagnostics.outsideMidtoneLargestComponentWidthFraction)
-            || !boundedNumberOrZero(diagnostics.outsideMidtoneLargestComponentHeightFraction)
-            || !inkAnchorIsValid
-            || !blackPointIsValid
-            || !slopeIsValid
-            || diagnostics.applied !== (diagnostics.rule === 'applied')
-            || diagnostics.applied !== (diagnostics.blackPoint !== null && diagnostics.slope !== null)) {
-            fail('resolvedTextToneDiagnostics is invalid');
-        }
-    }
-}
-
-function assertManualZones(value: unknown, inputBudget: IScanCleanupInputBudget) {
-    if (!isRecord(value) || Object.keys(value).some(key => ![
-        'picture',
-        'fill',
-    ].includes(key))
-        || !Array.isArray(value.picture) || !Array.isArray(value.fill)) fail('manualZones is invalid');
-    const zoneCount = value.picture.length + value.fill.length;
-    if (zoneCount > SCAN_CLEANUP_INPUT_MAX_ZONES_PER_PAGE) {
-        fail('manualZones exceeds the per-page zone limit');
-    }
-    consumeScanCleanupZones(inputBudget, zoneCount, 'provenance manual zones');
-    let pageVertexCount = 0;
-    const assertPagePolygon = (polygon: unknown, label: string) => {
-        const pointCount = assertNormalizedPolygon(polygon, label, inputBudget);
-        const nextPageVertexCount = pageVertexCount + pointCount;
-        if (nextPageVertexCount > SCAN_CLEANUP_INPUT_MAX_VERTICES_PER_PAGE) {
-            fail('manualZones exceeds the per-page vertex limit');
-        }
-        pageVertexCount = nextPageVertexCount;
-    };
-    value.picture.forEach((zone, index) => {
-        if (!isRecord(zone)) fail(`manualZones.picture[${String(index)}] is invalid`);
-        assertExactKeys(zone, [
-            'polygon',
-            'layer',
-        ]);
-        if (![
-            'eraser1',
-            'painter2',
-            'eraser3',
-        ].includes(zone.layer as string)) fail('manualZones picture layer is invalid');
-        assertPagePolygon(
-            zone.polygon,
-            `manualZones.picture[${String(index)}].polygon`,
-        );
-    });
-    value.fill.forEach((polygon, index) => assertPagePolygon(
-        polygon,
-        `manualZones.fill[${String(index)}]`,
-    ));
-}
-
-function assertNormalizedPolygon(
-    value: unknown,
-    label: string,
-    inputBudget: IScanCleanupInputBudget,
-) {
-    if (!isRecord(value)) fail(`${label} is invalid`);
-    assertExactKeys(value, [
-        'points',
-        'rotationDegrees',
-    ]);
-    if (
-        !Array.isArray(value.points)
-        || value.points.length < 3
-        || value.points.length > SCAN_CLEANUP_INPUT_MAX_VERTICES_PER_POLYGON
-        || ![
-            0,
-            90,
-            180,
-            270,
-        ].includes(value.rotationDegrees as number)) {
-        fail(`${label} is invalid`);
-    }
-    consumeScanCleanupVertices(inputBudget, value.points.length, 'provenance manual-zone vertices');
-    value.points.forEach((point, index) => {
-        if (!isRecord(point)) fail(`${label}.points[${String(index)}] is invalid`);
-        assertExactKeys(point, [
-            'xNormalized',
-            'yNormalized',
-        ]);
-        if (!boundedNumber(point.xNormalized, 0, 1) || !boundedNumber(point.yNormalized, 0, 1)) fail(`${label}.points is invalid`);
-    });
-    assertSimpleScanCleanupPolygon(
-        value.points as IScanCleanupManualZones['fill'][number]['points'],
-        label,
-    );
-    return value.points.length;
-}
-
-function assertMargins(value: unknown) {
-    if (!isRecord(value)) fail('margins is invalid');
-    assertExactKeys(value, [
-        'leftMm',
-        'topMm',
-        'rightMm',
-        'bottomMm',
-    ]);
-    for (const key of [
-        'leftMm',
-        'topMm',
-        'rightMm',
-        'bottomMm',
-    ]) {
-        if (!boundedNumber(value[key], 0, 25)) fail('margins is invalid');
-    }
-}
-
-function assertPlacementOverrides(value: unknown) {
-    if (!isRecord(value)) fail('placementOverrides is invalid');
-    for (const [
-        half,
-        alignment,
-    ] of Object.entries(value)) {
-        if (![
-            'full',
-            'left',
-            'right',
-        ].includes(half)
-            || !(SCAN_CLEANUP_ALIGNMENTS as readonly string[]).includes(alignment as string)) {
-            fail('placementOverrides is invalid');
-        }
-    }
-}
-
-function boundedNumberOrZero(value: unknown): value is number {
-    return typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 1;
-}
-
-function fail(message: string): never {
-    throw new Error(message);
 }

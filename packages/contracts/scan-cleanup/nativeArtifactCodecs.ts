@@ -26,10 +26,8 @@ import {
     SCAN_CLEANUP_NATIVE_PROTOCOL_VERSION,
     SCAN_CLEANUP_WARNING_EVENTS_SCHEMA,
     type INativeScanCleanupAnalysisOutputV3,
-    type INativeScanCleanupDewarpModelV3,
     type INativeScanCleanupOutputMetadataV3,
     type INativeScanCleanupPageMetadataV3,
-    type INativeScanCleanupReusableGeometryV3,
 } from '@contracts/scan-cleanup/nativeProtocolV3';
 
 const MAX_PAGE_OUTPUTS = 2;
@@ -452,8 +450,7 @@ const previewOutputRequiredFieldsSchema = v.pipe(previewOutputShapeSchema,
     v.check(output => output.resamplePasses !== undefined, 'resamplePasses is required for preview'),
     v.check(output => output.warnings !== undefined, 'warnings is required for preview'));
 const previewOutputTypedSchema = v.pipe(previewOutputRequiredFieldsSchema,
-    v.transform(value => value as IScanCleanupPreviewMetadata & INativeScanCleanupOutputMetadataV3 & INativeScanCleanupReusableGeometryV3
-        & {dewarpModel?: INativeScanCleanupDewarpModelV3 | null}));
+    v.transform(value => value as INativeScanCleanupOutputMetadataV3));
 export type TNativeScanCleanupPreviewOutputArtifactMetadataV3 = v.InferOutput<typeof previewOutputTypedSchema>;
 
 /** Checks that optical content stays inside the requested horizontal margins. */
@@ -513,12 +510,11 @@ function parseArtifactJson(text: string, artifact: TArtifact, maximumLength: num
 }
 
 export function decodeNativeScanCleanupPageMetadata(value: unknown): INativeScanCleanupPageArtifactMetadataV3 {
-    const artifact = 'page metadata';
     const source = isRecord(value) && value.canvasScope === undefined ? {
         ...value,
         canvasScope: 'page',
     } : value;
-    parseArtifact(pageMetadataTypedSchema, source, artifact);
+    parseArtifact(pageMetadataTypedSchema, source, 'page metadata');
     return source as INativeScanCleanupPageArtifactMetadataV3;
 }
 
@@ -536,11 +532,6 @@ export function decodeNativeScanCleanupPreviewPageMetadataJson(text: string): TN
     };
     parseArtifact(previewPageTypedSchema, preview, 'page metadata');
     return preview as TNativeScanCleanupPreviewPageArtifactMetadataV3;
-}
-
-function hasLegacyWarningEventFields(value: unknown): boolean {
-    return Array.isArray(value)
-        && value.some(item => isRecord(item) && ('appliedDpi' in item || 'requestedDpi' in item));
 }
 
 function validateIntrinsicPlacement(metadata: INativeScanCleanupOutputMetadataV3): boolean {
@@ -566,8 +557,7 @@ const outputMetadataWithPlacementSchema = v.pipe(outputMetadataTypedSchema,
     v.check(validateIntrinsicPlacement, 'intrinsic content placement exceeds its canvas'));
 
 export function decodeNativeScanCleanupOutputMetadata(value: unknown): TNativeScanCleanupOutputArtifactMetadataV3 {
-    const artifact = 'output metadata';
-    const defaults = isRecord(value) && (
+    const source = isRecord(value) && (
         value.placementOffsetXPx === undefined || value.placementOffsetYPx === undefined
         || value.forwardTransform === undefined || value.rotationDegrees === undefined
     ) ? {
@@ -577,15 +567,8 @@ export function decodeNativeScanCleanupOutputMetadata(value: unknown): TNativeSc
             rotationDegrees: 0,
             ...value,
         } : value;
-    const decoded = parseArtifact(outputMetadataWithPlacementSchema, defaults, artifact);
-    const events = decoded.warningEvents;
-    const source = defaults as Record<string, unknown>;
-    return hasLegacyWarningEventFields(source.warningEvents)
-        ? {
-            ...source,
-            warningEvents: events,
-        } as TNativeScanCleanupOutputArtifactMetadataV3
-        : source as TNativeScanCleanupOutputArtifactMetadataV3;
+    parseArtifact(outputMetadataWithPlacementSchema, source, 'output metadata');
+    return source as TNativeScanCleanupOutputArtifactMetadataV3;
 }
 
 export function decodeNativeScanCleanupOutputMetadataJson(text: string) {
