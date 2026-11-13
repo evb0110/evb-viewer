@@ -34,7 +34,7 @@ import {
     callWorkspaceCommand, waitForWorkspaceToolbarIdle,
 } from '@tests/e2e/electron/helpers/workspaceExpose';
 import {
-    readNativePdfCatalog, readNativePdfCatalogPart, resolveNativePageOpsPath,
+    readNativePdfCatalogPart, resolveNativePageOpsPath,
 } from '@electron/features/page-ops/public/nativePageOpsPath';
 
 describe('Electron E2E - bookmark destination round trip', () => {
@@ -114,30 +114,29 @@ describe('Electron E2E - bookmark destination round trip', () => {
             .toEqual([]);
         const nativePath = resolveNativePageOpsPath();
         if (!nativePath) throw new Error('Native catalog reader is unavailable');
-        expect(await readNativePdfCatalog(nativePath, fixture, {commandLabel: 'E2E combine catalog read'})).toMatchObject({
-            pageLabels: [
-                {
-                    pageIndex: 0,
-                    style: 'r',
-                    prefix: 'front-',
-                },
-                {
-                    pageIndex: 2,
-                    style: 'D',
-                    prefix: 'chapter-',
-                },
-            ],
-            bookmarks: [
-                {
-                    title: 'First',
-                    pageIndex: 0,
-                },
-                {
-                    title: 'Named chapter',
-                    pageIndex: 2,
-                },
-            ],
-        });
+        const readPart = (part: 'bookmarks' | 'pageLabels') => readNativePdfCatalogPart(nativePath, fixture, part, {commandLabel: 'E2E catalog read'});
+        expect(await readPart('pageLabels')).toMatchObject([
+            {
+                pageIndex: 0,
+                style: 'r',
+                prefix: 'front-',
+            },
+            {
+                pageIndex: 2,
+                style: 'D',
+                prefix: 'chapter-',
+            },
+        ]);
+        expect(await readPart('bookmarks')).toMatchObject([
+            {
+                title: 'First',
+                pageIndex: 0,
+            },
+            {
+                title: 'Named chapter',
+                pageIndex: 2,
+            },
+        ]);
         console.info('CATALOG_READ ' + JSON.stringify({
             size,
             indicator: await readToolbarPageIndicator(page),

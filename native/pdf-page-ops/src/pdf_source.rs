@@ -165,6 +165,140 @@ impl<S: ByteSource> SourcePdf<S> {
     }
 }
 
+/// Bytes compared at each end of a written stream.
+const STREAM_SAMPLE_BYTES: u64 = 16;
+
+/// Reopens the written form of `document` (whose streams `raw` locates as
+/// the writer took them) and checks what a writer that copies byte ranges can
+/// get wrong, in time that follows the object count rather than the bytes:
+/// every cross-reference entry names the object at its offset; every
+/// stream's length ends at its `endstream`, and its data begins and ends
+/// with the bytes it was written from; every object of `document` is there
+/// and every reference from the trailer resolves; and the page tree yields
+/// `document`'s pages, each with a parent, a media box and resources.
+pub(crate) fn verify_written<'a, S: ByteSource + 'a, O: ByteSource>(
+    document: &Document,
+    raw: impl Fn(ObjectId) -> Option<(&'a S, u64, u64)>,
+    output: &O,
+    len: u64,
+) -> Result<()> {
+    let reader = Reader::new(output, len)?;
+    if !Reader::read(output, len, len.saturating_sub(6), 6)?.ends_with(b"%%EOF\n") {
+        return Err(corrupt("The written PDF does not end with %%EOF"));
+    }
+    let index = reader.index()?;
+    let mut written = Document::with_version(reader.version.clone());
+    written.trailer = index.trailer.clone();
+    for (&number, entry) in &index.entries {
+        let XrefEntry::Offset { offset, generation } = *entry else {
+            return Err(corrupt("The written PDF has a compressed object"));
+        };
+        let id = (number, generation);
+        let (_, object, data) = reader.indirect_object(offset, Some(id))?;
+        if let (Object::Dictionary(dictionary), Some(data)) = (&object, data) {
+            let start = reader.base + data;
+            let declared = dictionary
+                .get(b"Length")
+                .and_then(Object::as_i64)
+                .ok()
+                .and_then(|length| u64::try_from(length).ok())
+                .filter(|length| reader.ends_at_endstream(start, *length).unwrap_or(false))
+                .ok_or_else(|| {
+                    corrupt(format!(
+                        "Written stream {number} does not end at its length"
+                    ))
+                })?;
+            if let Some(Object::Stream(stream)) = document.objects.get(&id) {
+                let same = match raw(id).filter(|_| stream.content.is_empty()) {
+                    Some((source, origin, source_len)) => {
+                        same_ends(output, start, declared, source, origin, source_len)
+                    }
+                    None => same_ends(
+                        output,
+                        start,
+                        declared,
+                        &stream.content[..],
+                        0,
+                        stream.content.len() as u64,
+                    ),
+                };
+                if !same.map_err(io_domain_error)? {
+                    return Err(corrupt(format!(
+                        "Written stream {number} differs from its source"
+                    )));
+                }
+            }
+        }
+        written.objects.insert(id, object);
+    }
+    if let Some(id) = document
+        .objects
+        .keys()
+        .find(|id| !written.objects.contains_key(id))
+    {
+        return Err(corrupt(format!(
+            "The written PDF lacks object {} {}",
+            id.0, id.1
+        )));
+    }
+    let mut pending = Vec::new();
+    let mut reached = HashSet::new();
+    collect_references(&written.trailer, &mut pending);
+    while let Some(id) = pending.pop() {
+        if reached.insert(id) {
+            let object = written.objects.get(&id).ok_or_else(|| {
+                corrupt(format!(
+                    "Written reference {} {} R resolves to nothing",
+                    id.0, id.1
+                ))
+            })?;
+            collect_object_references(object, &mut pending);
+        }
+    }
+    let pages = written.get_pages();
+    if pages.len() != document.get_pages().len() {
+        return Err(corrupt("The written page tree lost pages"));
+    }
+    for page in pages.into_values() {
+        let parent = written
+            .get_dictionary(page)?
+            .get(b"Parent")?
+            .as_reference()?;
+        written.get_dictionary(parent)?;
+        for key in [b"MediaBox".as_slice(), b"Resources"] {
+            resolve_inherited_object(&written, page, key)?
+                .ok_or_else(|| corrupt("A written page lacks its media box or resources"))?;
+        }
+    }
+    Ok(())
+}
+
+/// Whether `len` written bytes at `start` have the length of the `source_len`
+/// bytes at `origin` of `source` they were written from, and the same first and
+/// last bytes.
+fn same_ends<O: ByteSource, S: ByteSource + ?Sized>(
+    output: &O,
+    start: u64,
+    len: u64,
+    source: &S,
+    origin: u64,
+    source_len: u64,
+) -> io::Result<bool> {
+    if len != source_len {
+        return Ok(false);
+    }
+    let sample = len.min(STREAM_SAMPLE_BYTES);
+    for at in [0, len - sample] {
+        let (mut written, mut wanted) = (vec![0; sample as usize], vec![0; sample as usize]);
+        output.read_at(start + at, &mut written)?;
+        source.read_at(origin + at, &mut wanted)?;
+        if written != wanted {
+            return Ok(false);
+        }
+    }
+    Ok(true)
+}
+
 /// Every reference a direct object holds, without following any.
 fn collect_object_references(object: &Object, pending: &mut Vec<ObjectId>) {
     match object {
@@ -533,15 +667,8 @@ impl<'a, S: ByteSource> Reader<'a, S> {
         bound: Option<u64>,
     ) -> Result<(u64, u64)> {
         let start = self.base + data;
-        if let Some(len) =
-            declared.filter(|len| start.checked_add(*len).is_some_and(|end| end <= self.len))
-        {
-            let after = Self::read(self.bytes, self.len, start + len, 64)?;
-            let skipped = after
-                .iter()
-                .take_while(|byte| is_pdf_whitespace(**byte))
-                .count();
-            if after[skipped..].starts_with(b"endstream") {
+        if let Some(len) = declared {
+            if self.ends_at_endstream(start, len)? {
                 return Ok((start, len));
             }
         }
@@ -583,6 +710,20 @@ impl<'a, S: ByteSource> Reader<'a, S> {
         found
             .map(|end| (start, end - start))
             .ok_or_else(|| corrupt("PDF stream has no endstream"))
+    }
+
+    /// Whether `len` bytes of stream data from absolute offset `start` end
+    /// where `endstream` follows.
+    fn ends_at_endstream(&self, start: u64, len: u64) -> Result<bool> {
+        let Some(end) = start.checked_add(len).filter(|end| *end <= self.len) else {
+            return Ok(false);
+        };
+        let after = Self::read(self.bytes, self.len, end, 64)?;
+        let skipped = after
+            .iter()
+            .take_while(|byte| is_pdf_whitespace(**byte))
+            .count();
+        Ok(after[skipped..].starts_with(b"endstream"))
     }
 
     /// A stream's decoded data, for the cross-reference and object streams

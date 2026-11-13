@@ -15,15 +15,6 @@ pub(crate) struct PageCloneContext<'a> {
     pending_objects: Vec<(usize, ObjectId, ObjectId)>,
 }
 
-struct BrowserPageLabelRange {
-    start_page: i64,
-    prefix: Option<String>,
-    style: Option<Vec<u8>>,
-    start_number: i64,
-}
-
-const MAX_BROWSER_PAGE_LABEL_NUMBER: i64 = 1_000_000_000;
-
 pub(crate) fn validate_browser_page_numbers(
     pages: &[u32],
     label: &str,
@@ -89,14 +80,27 @@ impl PageSubset {
         sources: &[SourcePdf<S>],
         output: W,
     ) -> Result<W> {
-        write_document(
-            &self.document,
-            |id| {
-                let (index, source_id) = self.origins.get(&id)?;
-                sources.get(*index)?.stream_range(*source_id)
-            },
-            output,
-        )
+        write_document(&self.document, |id| self.raw(sources, id), output)
+    }
+
+    /// Checks the `len` bytes `write` wrote to `output`; see `verify_written`.
+    pub(crate) fn verify<S: ByteSource, O: ByteSource>(
+        &self,
+        sources: &[SourcePdf<S>],
+        output: &O,
+        len: u64,
+    ) -> Result<()> {
+        verify_written(&self.document, |id| self.raw(sources, id), output, len)
+    }
+
+    /// The source range of a copied stream.
+    pub(crate) fn raw<'a, S: ByteSource>(
+        &self,
+        sources: &'a [SourcePdf<S>],
+        id: ObjectId,
+    ) -> Option<(&'a S, u64, u64)> {
+        let (index, source_id) = self.origins.get(&id)?;
+        sources.get(*index)?.stream_range(*source_id)
     }
 }
 
@@ -164,7 +168,6 @@ pub(crate) fn edit_page_structure<S>(
             let [insertion] = others else {
                 return Err("insertPages: takes the document and one insertion PDF".into());
             };
-            read_pdf_combine_catalog(*insertion)?;
             if after_page > page_count {
                 return Err("Invalid afterPage".into());
             }
@@ -191,13 +194,9 @@ pub(crate) fn edit_page_structure<S>(
     }
 }
 
-/// Every page of every input in order, each input's outline and page labels
-/// offset to its pages.
+/// Every page of every input in order, each input's outline offset to its
+/// pages.
 fn merge_pages(documents: &[&Document]) -> Result<PageSubset> {
-    let catalogs = documents
-        .iter()
-        .map(|document| read_pdf_combine_catalog(*document))
-        .collect::<Result<Vec<_>>>()?;
     let mut sequence = Vec::new();
     for (document_index, document) in documents.iter().enumerate() {
         sequence.extend(
@@ -213,37 +212,14 @@ fn merge_pages(documents: &[&Document]) -> Result<PageSubset> {
     let mut merged = page_subset(documents, &sequence)?;
     let mut page_offset = 0u32;
     let mut bookmarks = Vec::new();
-    let mut page_labels = Vec::new();
-    for (document, mut catalog) in documents.iter().zip(catalogs) {
-        let pages = document.get_pages().len() as u32;
-        add_implicit_default_page_label_range(&mut catalog.page_labels, pages);
+    for document in documents {
         bookmarks.extend(
-            catalog
-                .bookmarks
+            read_pdf_outline(*document, false)?
                 .into_iter()
                 .map(|bookmark| offset_bookmark(bookmark, page_offset)),
         );
-        page_labels.extend(catalog.page_labels.into_iter().map(|range| {
-            PageLabelRange {
-                start_page: range
-                    .page_index
-                    .saturating_add(page_offset)
-                    .saturating_add(1),
-                style: range.style,
-                prefix: range.prefix.unwrap_or_default(),
-                start_number: range.start.unwrap_or(1),
-            }
-        }));
-        page_offset = page_offset.saturating_add(pages);
+        page_offset = page_offset.saturating_add(document.get_pages().len() as u32);
     }
-    set_page_labels(
-        &mut merged.document,
-        &PageLabelsMutation {
-            total_pages: merged.page_count,
-            ranges: page_labels,
-        },
-        false,
-    )?;
     set_bookmarks(
         &mut merged.document,
         &BookmarksMutation {
@@ -294,13 +270,13 @@ pub(crate) fn write_page_structure_path(
         .collect::<Result<Vec<_>>>()?;
     let subset = edit_page_structure(edit, &sources)?;
     let staged = AtomicOutput::create(output).map_err(io_domain_error)?;
+    let file = staged.file().map_err(io_domain_error)?;
     subset
-        .write(
-            &sources,
-            std::io::BufWriter::with_capacity(1 << 20, staged.file().map_err(io_domain_error)?),
-        )?
+        .write(&sources, std::io::BufWriter::with_capacity(1 << 20, file))?
         .into_inner()
         .map_err(|error| io_domain_error(error.into_error()))?;
+    let len = file.metadata().map_err(io_domain_error)?.len();
+    subset.verify(&sources, file, len)?;
     // Windows cannot replace a file this process still holds open.
     drop(sources);
     staged.publish().map_err(io_domain_error)
@@ -356,7 +332,7 @@ fn page_subset(sources: &[&Document], page_sequence: &[PageCloneSource]) -> Resu
         "Type" => "Catalog",
         "Pages" => pages_id,
     };
-    preserve_single_source_document_metadata(&mut clone_context, 0, page_sequence, &mut catalog)?;
+    preserve_single_source_document_metadata(&mut clone_context, 0, &mut catalog)?;
     if sources.len() == 1 {
         let source = sources[0];
         let mut annotations = crate::split_output::SplitAnnotationMap::new();
@@ -402,9 +378,12 @@ fn page_subset(sources: &[&Document], page_sequence: &[PageCloneSource]) -> Resu
         if let Some(form) = form {
             catalog.set("AcroForm", form);
         }
+    } else {
+        add_imported_fields(&mut clone_context, &mut catalog, page_sequence)?;
     }
     let catalog_id = clone_context.target.add_object(catalog);
     clone_context.target.trailer.set("Root", catalog_id);
+    set_subset_page_labels(&mut clone_context.target, sources, page_sequence)?;
     for (id, object) in crate::split_catalog::page_structure_updates(&clone_context.target)? {
         clone_context.target.set_object(id, object);
     }
@@ -424,7 +403,6 @@ fn page_subset(sources: &[&Document], page_sequence: &[PageCloneSource]) -> Resu
 pub(crate) fn preserve_single_source_document_metadata(
     clone_context: &mut PageCloneContext,
     source_index: usize,
-    page_sequence: &[PageCloneSource],
     catalog: &mut Dictionary,
 ) -> Result<()> {
     let source_document = clone_context.source(source_index)?;
@@ -457,141 +435,177 @@ pub(crate) fn preserve_single_source_document_metadata(
         None => {}
     }
 
-    if let Ok(page_labels) = source_catalog.get(b"PageLabels") {
-        catalog.set(
-            "PageLabels",
-            remap_browser_page_labels(clone_context, source_index, page_sequence, page_labels)?,
-        );
-    }
-
     Ok(())
 }
 
-fn remap_browser_page_labels(
-    clone_context: &PageCloneContext,
-    source_index: usize,
+/// Adds the fields of widgets on pages from the other inputs to the output's
+/// form; an input's own form, attachments and scripts stay behind. A field
+/// whose top-level name the form already holds is renamed `name+N`, as qpdf
+/// renames it. A widget without a field type, or with a /Parent loop, keeps
+/// its appearance but joins no field.
+fn add_imported_fields(
+    clone_context: &mut PageCloneContext,
+    catalog: &mut Dictionary,
     page_sequence: &[PageCloneSource],
-    page_labels: &Object,
-) -> Result<Object> {
-    let source = clone_context.source(source_index)?;
-    let source_page_numbers = source
-        .get_pages()
-        .into_iter()
-        .map(|(page_number, page_id)| (page_id, page_number as i64))
-        .collect::<HashMap<_, _>>();
-    let mut ranges = Vec::new();
-    for range in read_page_label_ranges(source, page_labels)? {
-        if usize::try_from(range.page_index).ok() >= Some(source_page_numbers.len()) {
-            return Err("PageLabels range index is outside the source page tree".into());
+) -> Result<()> {
+    let (mut roots, mut seen) = (Vec::new(), HashSet::new());
+    for page in page_sequence.iter().filter(|page| page.document_index > 0) {
+        let source = clone_context.source(page.document_index)?;
+        for entry in crate::split_navigation::source_annotation_entries(source, page.page_id) {
+            let root = entry
+                .as_reference()
+                .ok()
+                .and_then(|id| field_root(source, id));
+            if let Some(&copy) =
+                root.and_then(|root| clone_context.object_map.get(&(page.document_index, root)))
+            {
+                if seen.insert(copy) {
+                    roots.push((page.document_index, copy));
+                }
+            }
         }
-        let start_page: i64 = i64::from(range.page_index)
-            .checked_add(1)
-            .ok_or("Invalid PageLabels range")?;
-        ranges.push(BrowserPageLabelRange {
-            start_page,
-            prefix: range.prefix,
-            style: range.style.map(|value| value.into_bytes()),
-            start_number: i64::from(range.start.unwrap_or(1))
-                .clamp(1, MAX_BROWSER_PAGE_LABEL_NUMBER),
-        });
     }
-    ranges.sort_by_key(|range| range.start_page);
+    if roots.is_empty() {
+        return Ok(());
+    }
+    let target = &clone_context.target;
+    let resolved = |document: &Document, object: Option<&Object>| {
+        object
+            .and_then(|object| document.resolved(object).ok())
+            .cloned()
+    };
+    let mut form = resolved(target, catalog.get(b"AcroForm").ok())
+        .and_then(|form| form.as_dict().ok().cloned())
+        .unwrap_or_default();
+    let mut fields = resolved(target, form.get(b"Fields").ok())
+        .and_then(|fields| fields.as_array().ok().cloned())
+        .unwrap_or_default();
+    let field_name = |document: &Document, id: ObjectId| {
+        let field = document.get_dictionary(id).ok()?;
+        lopdf::decode_text_string(field.get(b"T").ok()?).ok()
+    };
+    let mut names = fields
+        .iter()
+        .filter_map(|field| field_name(target, field.as_reference().ok()?))
+        .collect::<HashSet<_>>();
+    for (source_index, copy) in roots {
+        let source = clone_context.source(source_index)?;
+        let appearance = resolved(source, source.catalog()?.get(b"AcroForm").ok())
+            .and_then(|form| form.as_dict().ok()?.get(b"DA").ok().cloned());
+        let name = field_name(&clone_context.target, copy);
+        let field = clone_context.target.get_dictionary_mut(copy)?;
+        if let (false, Some(appearance)) = (field.has(b"DA"), appearance) {
+            field.set("DA", appearance);
+        }
+        if let Some(name) = name {
+            let unique = std::iter::once(name.clone())
+                .chain((1..).map(|suffix| format!("{name}+{suffix}")))
+                .find(|candidate| !names.contains(candidate))
+                .expect("an unused suffix exists");
+            if unique != name {
+                field.set("T", lopdf::text_string(&unique));
+            }
+            names.insert(unique);
+        }
+        fields.push(Object::Reference(copy));
+    }
+    form.set("Fields", fields);
+    catalog.set("AcroForm", form);
+    Ok(())
+}
 
-    let mut output_nums = Vec::with_capacity(page_sequence.len() * 2);
-    for (output_index, page) in page_sequence.iter().enumerate() {
-        let label = if page.document_index == source_index {
-            let source_page_number = *source_page_numbers
-                .get(&page.page_id)
-                .ok_or("Page-label source page was not found")?;
-            page_label_for_number(&ranges, source_page_number)?
-        } else {
-            format_decimal((output_index + 1) as i64)
+/// The top of a widget's /Parent chain when that chain is a field: it ends,
+/// and it sets a field type.
+fn field_root(source: &Document, widget: ObjectId) -> Option<ObjectId> {
+    let annotation = source.get_dictionary(widget).ok()?;
+    if annotation.get(b"Subtype").and_then(Object::as_name).ok() != Some(b"Widget") {
+        return None;
+    }
+    let (mut id, mut chain, mut typed) = (widget, HashSet::new(), false);
+    loop {
+        let field = source
+            .get_dictionary(id)
+            .ok()
+            .filter(|_| chain.insert(id))?;
+        typed |= field.has(b"FT");
+        match field.get(b"Parent") {
+            Ok(parent) => id = parent.as_reference().ok()?,
+            Err(_) => return typed.then_some(id),
+        }
+    }
+}
+
+/// Labels each output page as its source labels it, in the fewest ranges: a
+/// page continues the range before it when it shows that range's style and
+/// prefix and, with a style, the next number. Pages of a source without a
+/// label tree, or an inserted source whose tree cannot be read, keep their
+/// numbers there; with no tree in any source the output has none.
+fn set_subset_page_labels(
+    target: &mut Document,
+    sources: &[&Document],
+    page_sequence: &[PageCloneSource],
+) -> Result<()> {
+    let mut labelled = false;
+    let mut labels = Vec::with_capacity(sources.len());
+    for (index, document) in sources.iter().enumerate() {
+        let pages = document.get_pages();
+        let mut ranges = match document.catalog()?.get(b"PageLabels") {
+            Ok(tree) => {
+                labelled = true;
+                match read_page_label_ranges(*document, tree) {
+                    Err(_) if index > 0 => Vec::new(),
+                    ranges => ranges?,
+                }
+            }
+            Err(_) => Vec::new(),
         };
-        output_nums.push(Object::Integer(output_index as i64));
-        let mut label_dict = Dictionary::new();
-        label_dict.set("P", lopdf::text_string(&label));
-        output_nums.push(Object::Dictionary(label_dict));
+        add_implicit_default_page_label_range(&mut ranges, pages.len() as u32);
+        let indices = pages
+            .into_iter()
+            .map(|(number, id)| (id, number - 1))
+            .collect::<HashMap<_, _>>();
+        labels.push((ranges, indices));
     }
-    Ok(dictionary! {"Nums" => output_nums}.into())
-}
-
-fn page_label_for_number(ranges: &[BrowserPageLabelRange], page_number: i64) -> Result<String> {
-    // The ranges are sorted by start page; a reverse scan per page made a
-    // label on every page quadratic in the document.
-    let Some(range) = ranges
-        .partition_point(|range| range.start_page <= page_number)
-        .checked_sub(1)
-        .and_then(|index| ranges.get(index))
-        .or_else(|| ranges.first())
-    else {
-        // An empty label tree labels nothing: the page keeps its number.
-        return Ok(format_decimal(page_number));
-    };
-    let number = range
-        .start_number
-        .saturating_add(page_number.saturating_sub(range.start_page))
-        .clamp(1, MAX_BROWSER_PAGE_LABEL_NUMBER);
-    let suffix = match range.style.as_deref() {
-        None => String::new(),
-        Some(b"R") => format_roman(number).to_uppercase(),
-        Some(b"r") => format_roman(number),
-        Some(b"A") => format_alpha(number, true)?,
-        Some(b"a") => format_alpha(number, false)?,
-        Some(_) => format_decimal(number),
-    };
-    Ok(format!(
-        "{}{}",
-        range.prefix.as_deref().unwrap_or_default(),
-        suffix
-    ))
-}
-
-fn format_decimal(number: i64) -> String {
-    number.to_string()
-}
-
-fn format_alpha(number: i64, uppercase: bool) -> Result<String> {
-    let index = number
-        .checked_sub(1)
-        .ok_or("Invalid alphabetic page label number")?;
-    let repeat_count =
-        usize::try_from(index / 26 + 1).map_err(|_| "Alphabetic page label is too large")?;
-    if repeat_count > MAX_AGGREGATE_TEXT_BYTES {
-        return Err("Alphabetic page label exceeds the bounded text limit".into());
+    if !labelled {
+        return Ok(());
     }
-    let letter = (if uppercase { b'A' } else { b'a' }) + (index % 26) as u8;
-    let mut result = String::new();
-    result
-        .try_reserve(repeat_count)
-        .map_err(|_| "Alphabetic page label exceeds the bounded text limit")?;
-    result.extend(std::iter::repeat_n(char::from(letter), repeat_count));
-    Ok(result)
-}
-
-fn format_roman(mut number: i64) -> String {
-    let values = [
-        (1000, "m"),
-        (900, "cm"),
-        (500, "d"),
-        (400, "cd"),
-        (100, "c"),
-        (90, "xc"),
-        (50, "l"),
-        (40, "xl"),
-        (10, "x"),
-        (9, "ix"),
-        (5, "v"),
-        (4, "iv"),
-        (1, "i"),
-    ];
-    let mut result = String::new();
-    for (value, text) in values {
-        while number >= value {
-            number -= value;
-            result.push_str(text);
+    let mut ranges: Vec<PageLabelRange> = Vec::new();
+    let mut previous_number = 0u32;
+    for (output_index, page) in page_sequence.iter().enumerate() {
+        let (source_ranges, indices) = &labels[page.document_index];
+        let index = *indices
+            .get(&page.page_id)
+            .ok_or("Page-label source page was not found")?;
+        let range =
+            &source_ranges[source_ranges.partition_point(|range| range.page_index <= index) - 1];
+        let number = range
+            .start
+            .unwrap_or(1)
+            .saturating_add(index - range.page_index);
+        let prefix = range.prefix.clone().unwrap_or_default();
+        let continues = ranges.last().is_some_and(|last| {
+            last.style == range.style
+                && last.prefix == prefix
+                && (range.style.is_none() || previous_number.checked_add(1) == Some(number))
+        });
+        if !continues {
+            ranges.push(PageLabelRange {
+                start_page: output_index as u32 + 1,
+                style: range.style.clone(),
+                prefix,
+                start_number: number,
+            });
         }
+        previous_number = number;
     }
-    result
+    set_page_labels(
+        target,
+        &PageLabelsMutation {
+            total_pages: page_sequence.len() as u32,
+            ranges,
+        },
+        false,
+    )
 }
 
 impl PageCloneContext<'_> {

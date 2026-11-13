@@ -3136,7 +3136,7 @@ fn lazy_catalog_admission_allows_tags_and_layers() {
         });
         document.save(&input).unwrap();
         let output = Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"))
-            .arg("read-catalog")
+            .arg("read-document-catalog")
             .arg("--input")
             .arg(&input)
             .arg("--qpdf")

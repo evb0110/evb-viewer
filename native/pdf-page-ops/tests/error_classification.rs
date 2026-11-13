@@ -807,11 +807,11 @@ fn run_catalog_read(command: &str, input: &Path) -> Output {
 }
 
 #[test]
-fn read_outline_reads_documents_whose_combine_preflight_refuses_them() {
-    for (label, feature, refusal) in [
-        ("form", "AcroForm", "source forms"),
-        ("attachment", "EmbeddedFiles", "source attachments"),
-        ("script", "JavaScript", "source JavaScript"),
+fn catalog_reads_documents_with_forms_attachments_and_scripts() {
+    for (label, feature) in [
+        ("form", "AcroForm"),
+        ("attachment", "EmbeddedFiles"),
+        ("script", "JavaScript"),
     ] {
         let input = path(&format!("outline-{label}"), "pdf");
         let _cleanup = RemovePdfFilesOnDrop([input.clone()]);
@@ -847,12 +847,6 @@ fn read_outline_reads_documents_whose_combine_preflight_refuses_them() {
         document.trailer.set("Root", catalog_id);
         document.save(&input).unwrap();
 
-        let catalog = run_catalog_read("read-catalog", &input);
-        assert!(!catalog.status.success(), "{label}");
-        assert!(
-            String::from_utf8_lossy(&catalog.stderr).contains(refusal),
-            "{label}"
-        );
         let outline = run_catalog_read("read-document-catalog", &input);
         assert!(
             outline.status.success(),
@@ -924,11 +918,6 @@ fn read_document_catalog_reads_the_outline_and_page_labels_independently() {
             assert_eq!(catalog["pageLabels"][0]["style"], "r");
             assert!(catalog["bookmarks"].is_null() && catalog["bookmarksError"].is_string());
         }
-        // The combine preflight still needs both parts.
-        assert!(
-            !run_catalog_read("read-catalog", &input).status.success(),
-            "{broken}"
-        );
     }
 }
 
@@ -1000,8 +989,8 @@ fn read_catalog_matches_pdfjs_for_recoverable_page_label_trees() {
         } else {
             serde_json::json!([])
         };
-        for command in ["read-catalog", "read-document-catalog"] {
-            let read = run_catalog_read(command, &input);
+        {
+            let read = run_catalog_read("read-document-catalog", &input);
             assert!(
                 read.status.success(),
                 "{variant}: {}",

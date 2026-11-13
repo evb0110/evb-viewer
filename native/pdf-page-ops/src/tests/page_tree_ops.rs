@@ -180,7 +180,7 @@ fn page_subset_operations_preserve_and_remap_outlines_and_page_labels() {
             insert_browser_pdf_pages(&source_bytes, &insertion_bytes, 1).unwrap(),
             4,
             400.0,
-            vec!["1", "2", "I", "II"],
+            vec!["1", "1", "I", "II"],
         ),
     ];
     let _ = insertion_pages;
@@ -188,32 +188,7 @@ fn page_subset_operations_preserve_and_remap_outlines_and_page_labels() {
     for (result, expected_page_number, expected_width, expected_labels) in cases {
         let output = Document::load_mem(&result.data).unwrap();
         let catalog = output.catalog().unwrap();
-        let page_labels =
-            resolve_dictionary_object(&output, catalog.get(b"PageLabels").unwrap(), "PageLabels")
-                .unwrap();
-        let page_label_values = page_labels
-            .get(b"Nums")
-            .unwrap()
-            .as_array()
-            .unwrap()
-            .chunks_exact(2)
-            .map(|pair| {
-                resolve_dictionary_object(&output, &pair[1], "PageLabel")
-                    .unwrap()
-                    .get(b"P")
-                    .unwrap()
-                    .as_str()
-                    .unwrap()
-                    .to_vec()
-            })
-            .collect::<Vec<_>>();
-        assert_eq!(
-            page_label_values,
-            expected_labels
-                .iter()
-                .map(|label| label.as_bytes().to_vec())
-                .collect::<Vec<_>>()
-        );
+        assert_eq!(page_label_texts(&output), expected_labels);
         let outlines_id = catalog.get(b"Outlines").unwrap().as_reference().unwrap();
         let outlines = output.get_dictionary(outlines_id).unwrap();
         let first_id = outlines.get(b"First").unwrap().as_reference().unwrap();
@@ -292,23 +267,7 @@ fn browser_page_label_rewrites_preserve_text_encoding_and_pdf_alphabetic_sequenc
     // Poppler reports a cross-reference section without object 0 as invalid.
     assert!(result.data.windows(18).any(|entry| entry == b"0000000000 65535 f"));
     let output = Document::load_mem(&result.data).unwrap();
-    let page_labels = resolve_dictionary_object(
-        &output,
-        output.catalog().unwrap().get(b"PageLabels").unwrap(),
-        "PageLabels",
-    )
-    .unwrap();
-    let labels = page_labels
-        .get(b"Nums")
-        .unwrap()
-        .as_array()
-        .unwrap()
-        .chunks_exact(2)
-        .map(|pair| {
-            let label = resolve_dictionary_object(&output, &pair[1], "PageLabel").unwrap();
-            lopdf::decode_text_string(label.get(b"P").unwrap()).unwrap()
-        })
-        .collect::<Vec<_>>();
+    let labels = page_label_texts(&output);
 
     assert_eq!(
         labels,
@@ -370,23 +329,7 @@ fn browser_page_label_rewrites_preserve_utf16_prefixes() {
     source.save_to(&mut source_bytes).unwrap();
     let result = extract_browser_pdf_pages(&source_bytes, &[1, 2, 3]).unwrap();
     let output = Document::load_mem(&result.data).unwrap();
-    let page_labels = resolve_dictionary_object(
-        &output,
-        output.catalog().unwrap().get(b"PageLabels").unwrap(),
-        "PageLabels",
-    )
-    .unwrap();
-    let labels = page_labels
-        .get(b"Nums")
-        .unwrap()
-        .as_array()
-        .unwrap()
-        .chunks_exact(2)
-        .map(|pair| {
-            let label = resolve_dictionary_object(&output, &pair[1], "PageLabel").unwrap();
-            lopdf::decode_text_string(label.get(b"P").unwrap()).unwrap()
-        })
-        .collect::<Vec<_>>();
+    let labels = page_label_texts(&output);
 
     assert_eq!(labels, ["Г1", "‰a", "‰b"]);
 }
@@ -674,23 +617,7 @@ fn browser_page_labels_accept_flat_indirect_nums() {
     source.save_to(&mut source_bytes).unwrap();
     let result = delete_browser_pdf_pages(&source_bytes, &[2]).unwrap();
     let output = Document::load_mem(&result.data).unwrap();
-    let page_labels = resolve_dictionary_object(
-        &output,
-        output.catalog().unwrap().get(b"PageLabels").unwrap(),
-        "PageLabels",
-    )
-    .unwrap();
-    let labels = page_labels
-        .get(b"Nums")
-        .unwrap()
-        .as_array()
-        .unwrap()
-        .chunks_exact(2)
-        .map(|pair| {
-            let label = resolve_dictionary_object(&output, &pair[1], "PageLabel").unwrap();
-            lopdf::decode_text_string(label.get(b"P").unwrap()).unwrap()
-        })
-        .collect::<Vec<_>>();
+    let labels = page_label_texts(&output);
 
     assert_eq!(labels, ["front-1", "IV"]);
 }
@@ -1062,23 +989,7 @@ fn browser_page_rewrites_keep_page_numbers_for_an_empty_label_tree() {
 
         let result = delete_browser_pdf_pages(&source_bytes, &[2]).unwrap();
         let output = Document::load_mem(&result.data).unwrap();
-        let page_labels = resolve_dictionary_object(
-            &output,
-            output.catalog().unwrap().get(b"PageLabels").unwrap(),
-            "PageLabels",
-        )
-        .unwrap();
-        let labels = page_labels
-            .get(b"Nums")
-            .unwrap()
-            .as_array()
-            .unwrap()
-            .chunks_exact(2)
-            .map(|pair| {
-                let label = resolve_dictionary_object(&output, &pair[1], "PageLabel").unwrap();
-                lopdf::decode_text_string(label.get(b"P").unwrap()).unwrap()
-            })
-            .collect::<Vec<_>>();
+        let labels = page_label_texts(&output);
         assert_eq!(labels, ["1", "3"]);
     }
 }
@@ -1600,45 +1511,131 @@ fn browser_form_actions_share_the_published_field_graph_after_page_edits() {
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
-#[test]
-fn insertion_refuses_imported_forms_before_publication() {
-    let (mut destination, _) = create_test_document();
-    let (mut insertion, page) = create_test_document();
-    let font = insertion.add_object(
-        dictionary! {"Type" => "Font", "Subtype" => "Type1", "BaseFont" => "Helvetica"},
-    );
-    let field = insertion.add_object(dictionary! {
+/// A one-page document with a filled text field named `Answer`, a document
+/// script and an attachment.
+fn form_document(value: &str) -> Vec<u8> {
+    let (mut document, page) = create_test_document();
+    let field = document.add_object(dictionary! {
         "Type" => "Annot", "Subtype" => "Widget", "FT" => "Tx", "P" => page,
-        "T" => Object::string_literal("Answer"), "V" => Object::string_literal("Preserved answer"),
+        "T" => Object::string_literal("Answer"), "V" => Object::string_literal(value),
         "Rect" => vec![10.into(), 10.into(), 150.into(), 40.into()],
     });
-    insertion
+    document
         .get_dictionary_mut(page)
         .unwrap()
         .set("Annots", vec![Object::Reference(field)]);
-    insertion.catalog_mut().unwrap().set(
+    let script = dictionary! {"S" => "JavaScript", "JS" => Object::string_literal(value)};
+    let file = document.add_object(Stream::new(dictionary! {"Type" => "EmbeddedFile"}, value.into()));
+    let names = dictionary! {
+        "JavaScript" => dictionary! {"Names" => vec![Object::string_literal(value), script.into()]},
+        "EmbeddedFiles" => dictionary! {"Names" => vec![
+            Object::string_literal(value),
+            dictionary! {"Type" => "Filespec", "F" => Object::string_literal(value), "EF" => dictionary! {"F" => file}}.into(),
+        ]},
+    };
+    let catalog = document.catalog_mut().unwrap();
+    catalog.set(
         "AcroForm",
-        dictionary! {
-            "Fields" => vec![Object::Reference(field)], "NeedAppearances" => true,
-            "DA" => Object::string_literal("/Helv 12 Tf 0 g"),
-            "DR" => dictionary! {"Font" => dictionary! {"Helv" => font}},
-        },
+        dictionary! {"Fields" => vec![Object::Reference(field)], "DA" => Object::string_literal("/Helv 12 Tf 0 g")},
     );
-    let mut original = Vec::new();
-    destination.save_to(&mut original).unwrap();
-    let mut imported = Vec::new();
-    insertion.save_to(&mut imported).unwrap();
-    let error = insert_browser_pdf_pages(&original, &imported, 1)
-        .err()
-        .expect("forms must be refused before publishing bytes");
-    assert!(
-        error.to_string().contains("does not support source forms"),
-        "{error}"
+    catalog.set("Names", names);
+    let mut bytes = Vec::new();
+    document.save_to(&mut bytes).unwrap();
+    bytes
+}
+
+/// The form's top-level fields as (name, value, default appearance), the
+/// appearance inherited from the form when the field has none.
+fn form_fields(document: &Document) -> Vec<(String, String, String)> {
+    let form = document.catalog().unwrap().get(b"AcroForm").unwrap();
+    let form = document.dereference(form).unwrap().1.as_dict().unwrap();
+    let fields = form.get(b"Fields").unwrap();
+    let text = |field: &Dictionary, key: &[u8]| {
+        lopdf::decode_text_string(field.get(key).or_else(|_| form.get(key)).unwrap()).unwrap()
+    };
+    fields
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|field| {
+            let field = document.get_dictionary(field.as_reference().unwrap()).unwrap();
+            (text(field, b"T"), text(field, b"V"), text(field, b"DA"))
+        })
+        .collect()
+}
+
+/// The names of a catalog name tree such as /JavaScript or /EmbeddedFiles.
+fn catalog_names(document: &Document, tree: &[u8]) -> Vec<String> {
+    let Ok(names) = document.catalog().unwrap().get(b"Names") else {
+        return Vec::new();
+    };
+    let names = document.dereference(names).unwrap().1.as_dict().unwrap();
+    let Ok(tree) = names.get(tree) else {
+        return Vec::new();
+    };
+    let tree = document.dereference(tree).unwrap().1.as_dict().unwrap();
+    tree.get(b"Names")
+        .unwrap()
+        .as_array()
+        .unwrap()
+        .chunks_exact(2)
+        .map(|pair| lopdf::decode_text_string(&pair[0]).unwrap())
+        .collect()
+}
+
+#[test]
+fn insertion_brings_pages_with_their_fields_and_leaves_document_features_behind() {
+    let target = form_document("target");
+    let source = form_document("source");
+    let once = insert_browser_pdf_pages(&target, &source, 1).unwrap().data;
+    let twice = insert_browser_pdf_pages(&once, &source, 0).unwrap().data;
+    let output = Document::load_mem(&twice).unwrap();
+    assert_eq!(output.get_pages().len(), 3);
+    let field = |name: &str, value: &str| (name.to_string(), value.to_string(), "/Helv 12 Tf 0 g".to_string());
+    assert_eq!(
+        form_fields(&output),
+        [field("Answer", "target"), field("Answer+1", "source"), field("Answer+2", "source")]
     );
-    let reopened = Document::load_mem(&original).unwrap();
-    assert_eq!(reopened.get_pages().len(), 1);
-    let reopened = Document::load_mem(&imported).unwrap();
-    assert_eq!(string_bytes(&reopened, field, b"V"), b"Preserved answer");
+    assert_eq!(catalog_names(&output, b"JavaScript"), ["target"]);
+    assert_eq!(catalog_names(&output, b"EmbeddedFiles"), ["target"]);
+
+    // A target without a form takes the fields of the pages it gains.
+    let (mut plain, _) = create_test_document();
+    let mut plain_bytes = Vec::new();
+    plain.save_to(&mut plain_bytes).unwrap();
+    let output = insert_browser_pdf_pages(&plain_bytes, &source, 1).unwrap().data;
+    let output = Document::load_mem(&output).unwrap();
+    assert_eq!(form_fields(&output), [field("Answer", "source")]);
+    assert!(catalog_names(&output, b"JavaScript").is_empty());
+
+    // An inserted source whose label tree cannot be read numbers its pages
+    // in decimal instead of refusing the insert.
+    let mut broken = Document::load_mem(&source).unwrap();
+    broken.catalog_mut().unwrap().set(
+        "PageLabels",
+        dictionary! {"Nums" => vec![0.into(), Object::Integer(5)]},
+    );
+    let mut broken_bytes = Vec::new();
+    broken.save_to(&mut broken_bytes).unwrap();
+    let output = insert_browser_pdf_pages(&labelled_book_bytes(1, 1, 1), &broken_bytes, 1).unwrap();
+    let output = Document::load_mem(&output.data).unwrap();
+    assert_eq!(page_label_texts(&output), ["i", "1", "1", "A-1"]);
+
+    // Delete, extract and reorder keep a document's own form, scripts and
+    // attachments.
+    let two_pages = insert_browser_pdf_pages(&plain_bytes, &target, 1).unwrap().data;
+    for (operation, bytes) in [
+        ("delete", delete_browser_pdf_pages(&two_pages, &[1]).unwrap().data),
+        ("extract", extract_browser_pdf_pages(&target, &[1]).unwrap().data),
+        ("reorder", reorder_browser_pdf_pages(&once, &[2, 1]).unwrap().data),
+    ] {
+        let output = Document::load_mem(&bytes).unwrap();
+        assert_eq!(form_fields(&output)[0].1, "target", "{operation}");
+        if operation != "delete" {
+            assert_eq!(catalog_names(&output, b"JavaScript"), ["target"], "{operation}");
+            assert_eq!(catalog_names(&output, b"EmbeddedFiles"), ["target"], "{operation}");
+        }
+    }
 }
 
 #[test]
@@ -1706,5 +1703,166 @@ fn insertion_resolves_imported_named_links_before_destination_name_collisions() 
             .unwrap()[0],
             Object::Reference(pages[&1])
         );
+    }
+}
+
+/// Roman front matter, an arabic body and a prefixed appendix, as qpdf and
+/// readers number them.
+fn labelled_book_bytes(front: u32, body: u32, appendix: u32) -> Vec<u8> {
+    let mut document = Document::with_version("1.4");
+    let pages_id = document.new_object_id();
+    let page_ids = (0..front + body + appendix)
+        .map(|_| {
+            document.add_object(dictionary! {
+                "Type" => "Page",
+                "Parent" => pages_id,
+                "MediaBox" => vec![0.into(), 0.into(), 200.into(), 100.into()],
+            })
+        })
+        .collect::<Vec<_>>();
+    document.set_object(
+        pages_id,
+        dictionary! {
+            "Type" => "Pages",
+            "Kids" => page_ids.iter().copied().map(Object::Reference).collect::<Vec<_>>(),
+            "Count" => page_ids.len() as i64,
+        },
+    );
+    let catalog = document.add_object(dictionary! {"Type" => "Catalog", "Pages" => pages_id});
+    document.trailer.set("Root", catalog);
+    let range = |start_page, style: &str, prefix: &str| PageLabelRange {
+        start_page,
+        style: Some(style.to_string()),
+        prefix: prefix.to_string(),
+        start_number: 1,
+    };
+    set_page_labels(
+        &mut document,
+        &PageLabelsMutation {
+            total_pages: page_ids.len() as u32,
+            ranges: vec![
+                range(1, "r", ""),
+                range(front + 1, "D", ""),
+                range(front + body + 1, "D", "A-"),
+            ],
+        },
+        false,
+    )
+    .unwrap();
+    let mut bytes = Vec::new();
+    document.save_to(&mut bytes).unwrap();
+    bytes
+}
+
+#[test]
+fn page_structure_edits_keep_each_page_label_in_the_fewest_ranges() {
+    let book = labelled_book_bytes(2, 3, 2);
+    let side = labelled_book_bytes(1, 1, 1);
+    let merged = page_structure_bytes(PageStructureEdit::Merge, &[&book, &side])
+        .unwrap()
+        .data;
+    let cases = [
+        (
+            "delete inside the body",
+            delete_browser_pdf_pages(&book, &[4]).unwrap().data,
+            vec!["i", "ii", "1", "3", "A-1", "A-2"],
+            vec![0, 2, 3, 4],
+        ),
+        (
+            "delete the end of the front matter",
+            delete_browser_pdf_pages(&book, &[2]).unwrap().data,
+            vec!["i", "1", "2", "3", "A-1", "A-2"],
+            vec![0, 1, 4],
+        ),
+        (
+            "reorder",
+            reorder_browser_pdf_pages(&book, &[2, 1, 3, 4, 5, 6, 7]).unwrap().data,
+            vec!["ii", "i", "1", "2", "3", "A-1", "A-2"],
+            vec![0, 1, 2, 5],
+        ),
+        (
+            "extract",
+            extract_browser_pdf_pages(&book, &[4, 5, 6]).unwrap().data,
+            vec!["2", "3", "A-1"],
+            vec![0, 2],
+        ),
+        (
+            "insert into the body",
+            insert_browser_pdf_pages(&book, &side, 3).unwrap().data,
+            vec!["i", "ii", "1", "i", "1", "A-1", "2", "3", "A-1", "A-2"],
+            vec![0, 2, 3, 4, 5, 6, 8],
+        ),
+        (
+            "merge",
+            merged,
+            vec!["i", "ii", "1", "2", "3", "A-1", "A-2", "i", "1", "A-1"],
+            vec![0, 2, 5, 7, 8, 9],
+        ),
+    ];
+    for (name, bytes, labels, starts) in cases {
+        let output = Document::load_mem(&bytes).unwrap();
+        assert_eq!(page_label_texts(&output), labels, "{name}");
+        assert_eq!(page_label_starts(&output), starts, "{name}");
+    }
+}
+
+#[test]
+fn page_structure_output_verification_catches_writer_faults() {
+    let (mut document, page) = create_test_document();
+    let content = document.add_object(Stream::new(
+        dictionary! {},
+        b"BT /F1 12 Tf 20 50 Td (verified page) Tj ET".to_vec(),
+    ));
+    document
+        .get_dictionary_mut(page)
+        .unwrap()
+        .set("Contents", content);
+    let mut input = Vec::new();
+    document.save_to(&mut input).unwrap();
+    let sources = [SourcePdf::open(input.as_slice(), input.len() as u64).unwrap()];
+    let subset = edit_page_structure(PageStructureEdit::Extract(&[1]), &sources).unwrap();
+    let verify = |bytes: &[u8]| subset.verify(&sources, &bytes, bytes.len() as u64);
+    let good = subset.write(&sources, Vec::new()).unwrap();
+    verify(&good).unwrap();
+
+    let stream = *subset
+        .document
+        .objects
+        .iter()
+        .find(|(_, object)| object.as_stream().is_ok())
+        .unwrap()
+        .0;
+    let shifted = write_document(
+        &subset.document,
+        |id| {
+            subset
+                .raw(&sources, id)
+                .map(|(source, offset, len)| (source, offset + 1, len))
+        },
+        Vec::new(),
+    )
+    .unwrap();
+    let mut dropped = subset.document.clone();
+    dropped.objects.remove(&stream);
+    let dropped = write_document(&dropped, |id| subset.raw(&sources, id), Vec::new()).unwrap();
+    let xref = good.windows(6).position(|window| window == b"\nxref\n").unwrap() + 1;
+    let entry = xref + good[xref..].windows(3).position(|w| w == b" n ").unwrap() - 15;
+    let mut misplaced = good.clone();
+    misplaced[entry + 9] = if misplaced[entry + 9] == b'9' { b'0' } else { misplaced[entry + 9] + 1 };
+    let length = format!("/Length {}", subset.raw(&sources, stream).unwrap().2);
+    let at = good.windows(length.len()).position(|w| w == length.as_bytes()).unwrap();
+    let mut misstated = good.clone();
+    misstated[at + length.len() - 1] -= 1;
+    let faults = [
+        ("a stream copied from a range shifted by one byte", shifted),
+        ("an object left out", dropped),
+        ("one cross-reference offset off by one", misplaced),
+        ("a stream length one byte short", misstated),
+        ("a file cut before %%EOF", good[..good.len() - 2].to_vec()),
+        ("a file cut inside its cross-reference table", good[..xref + 30].to_vec()),
+        ("a file cut in half", good[..good.len() / 2].to_vec()),
+    ];
+    for (fault, bytes) in faults {
+        assert!(verify(&bytes).is_err(), "{fault} was not caught");
     }
 }

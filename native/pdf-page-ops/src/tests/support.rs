@@ -251,3 +251,56 @@ fn print_annotation_appearance(document: &Document) -> Option<Vec<u8>> {
     let appearance_id = names.as_dict().unwrap().get(b"PrintAnnot0").ok()?.as_reference().unwrap();
     Some(document.get_object(appearance_id).unwrap().as_stream().unwrap().decompressed_content().unwrap())
 }
+
+    /// Each page's label as a reader shows it, from the document's label tree.
+    fn page_label_texts(document: &Document) -> Vec<String> {
+        fn roman(mut number: u32) -> String {
+            let mut text = String::new();
+            for (value, digits) in [
+                (1000, "m"), (900, "cm"), (500, "d"), (400, "cd"), (100, "c"), (90, "xc"),
+                (50, "l"), (40, "xl"), (10, "x"), (9, "ix"), (5, "v"), (4, "iv"), (1, "i"),
+            ] {
+                while number >= value {
+                    number -= value;
+                    text.push_str(digits);
+                }
+            }
+            text
+        }
+        let alpha = |number: u32, base: u8| {
+            char::from(base + ((number - 1) % 26) as u8)
+                .to_string()
+                .repeat((number as usize - 1) / 26 + 1)
+        };
+        let pages = document.get_pages().len() as u32;
+        let mut ranges = match document.catalog().unwrap().get(b"PageLabels") {
+            Ok(tree) => read_page_label_ranges(document, tree).unwrap(),
+            Err(_) => Vec::new(),
+        };
+        add_implicit_default_page_label_range(&mut ranges, pages);
+        (0..pages)
+            .map(|index| {
+                let range = ranges.iter().rev().find(|range| range.page_index <= index).unwrap();
+                let number = range.start.unwrap_or(1) + index - range.page_index;
+                let numeral = match range.style.as_deref() {
+                    None => String::new(),
+                    Some("R") => roman(number).to_uppercase(),
+                    Some("r") => roman(number),
+                    Some("A") => alpha(number, b'A'),
+                    Some("a") => alpha(number, b'a'),
+                    Some(_) => number.to_string(),
+                };
+                format!("{}{numeral}", range.prefix.clone().unwrap_or_default())
+            })
+            .collect()
+    }
+
+    /// The `/Nums` keys of a document's label tree: where its ranges start.
+    fn page_label_starts(document: &Document) -> Vec<u32> {
+        let tree = document.catalog().unwrap().get(b"PageLabels").unwrap();
+        read_page_label_ranges(document, tree)
+            .unwrap()
+            .iter()
+            .map(|range| range.page_index)
+            .collect()
+    }

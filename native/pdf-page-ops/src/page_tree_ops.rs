@@ -273,6 +273,11 @@ pub(crate) fn page_structure_bytes(
         ));
     }
     written?;
+    subset.verify(
+        &sources,
+        &output.bytes.as_slice(),
+        output.bytes.len() as u64,
+    )?;
     Ok(PageMutationBytes {
         data: output.bytes,
         page_count: subset.page_count,

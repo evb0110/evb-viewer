@@ -248,7 +248,9 @@ const DEFERRED_COMMIT_SIGNAL = {markCommitStarted: () => undefined};
  * Runs one page operation as a rewrite of the document: `mutate` reads its
  * current bytes at `source` and writes the next revision at `target`, which
  * the store commits once the page count and structure checks pass. An edit
- * that appends in place clones `source` to `target` first.
+ * that appends in place clones `source` to `target` first. The page-structure
+ * engine and the incremental writer verify what they write; a tool that does
+ * not asks for `strictStructureCheck`.
  */
 async function runPageMutation<T>(input: {
     ref: string;
@@ -258,7 +260,7 @@ async function runPageMutation<T>(input: {
     options?: IPageOpsMutationOptions | undefined;
     operation: IWorkingCopyMutationOperation;
     skipPageMetadataRemap?: boolean;
-    nativeAppendStructureVerified?: boolean;
+    strictStructureCheck?: boolean;
     mutate: (source: string, target: string, pageCount: number) => Promise<{
         value: T;
         delta: IPageIdentityDelta
@@ -289,10 +291,7 @@ async function runPageMutation<T>(input: {
             if (predictedPageCount === undefined || predictedPageCount !== actualPageCount) {
                 throw new Error(`Page operation reopen verification failed: predicted ${predictedPageCount ?? 'unknown'}, received ${actualPageCount}`);
             }
-            // The incremental writer validates the appended xref/object set
-            // and the selected page dictionaries before returning, so an
-            // append needs no full structure check.
-            if (!input.nativeAppendStructureVerified) {
+            if (input.strictStructureCheck) {
                 await verifyPdfStructureStrict(target, nativeOptions);
             }
             // The store's commit is the commit point. A cancel accepted before
@@ -721,7 +720,6 @@ async function handlePageOpsRotate(
         operation,
         options,
         skipPageMetadataRemap: true,
-        nativeAppendStructureVerified: true,
         mutate: async (source, target, pageCount) => {
             const ranges = validatePageOpsSelection(pages, pageCount, 'rotatePages');
             await cloneSource(source, target);
@@ -809,6 +807,7 @@ async function handlePageOpsCrop(
         expectedTotalPages,
         operation,
         options,
+        strictStructureCheck: true,
         mutate: async (source, target, pageCount) => {
             const ranges = validatePageOpsSelection(pages, pageCount, 'cropPages');
             await cloneSource(source, target);
@@ -848,6 +847,7 @@ async function handlePageOpsRemoveCrop(
         expectedTotalPages,
         operation,
         options,
+        strictStructureCheck: true,
         mutate: async (source, target, pageCount) => {
             const ranges = validatePageOpsSelection(pages, pageCount, 'removeCrop');
             await cloneSource(source, target);
