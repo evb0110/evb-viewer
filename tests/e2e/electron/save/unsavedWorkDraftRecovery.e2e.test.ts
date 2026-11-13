@@ -1,9 +1,10 @@
+import {decodeManifest} from '@document-store/documentDirectory';
 import {
-    copyFileSync, existsSync, mkdtempSync, readdirSync, renameSync, rmSync,
+    copyFileSync, existsSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync,
 } from 'node:fs';
 import {tmpdir} from 'node:os';
 import {
-    basename, join,
+    basename, dirname, join,
 } from 'node:path';
 import {
     expect, it,
@@ -14,7 +15,7 @@ import {
 } from '@tests/e2e/electron/helpers/viewerCore';
 import {clickAnnotationTool} from '@tests/e2e/electron/helpers/viewerAnnotations';
 import {clickAsUser} from '@tests/e2e/electron/helpers/userInput';
-import {getActiveWorkspaceWorkingCopyPath} from '@tests/e2e/electron/helpers/electronApiHelpers';
+import {getActiveWorkspaceWorkingCopyPath, readDocumentBytes} from '@tests/e2e/electron/helpers/electronApiHelpers';
 import {
     createMultiPageTextFixturePdf, readPdfPageSnapshots,
 } from '@tests/e2e/electron/helpers/fixtures';
@@ -185,7 +186,7 @@ it('keeps an unsaved page edit through a crash and a reboot that empties the tem
         }, {timeout: 60_000});
         const state = await readWorkspaceStateValues<{dirtyState?: {fileDirty?: boolean}}>(session.page, ['dirtyState']);
         expect(state.dirtyState?.fileDirty).toBe(true);
-        expect((await readPdfPageSnapshots(await getActiveWorkspaceWorkingCopyPath(session.page)))[0]?.rotation).toBe(90);
+        expect((await readPdfPageSnapshots(await readDocumentBytes(session.page)))[0]?.rotation).toBe(90);
         expect((await readPdfPageSnapshots(sourcePath))[0]?.rotation).toBe(0);
     } finally {
         await session.stop();
@@ -227,8 +228,12 @@ it('keeps a restored tab\'s unsaved changes for a later start when its working c
             isDirty: true,
             workingCopyRef: workingCopyPath,
         });
-        // Moves the working copy while the app is down.
-        const awayPath = `${workingCopyPath}.away`;
+        // Remove only the current bytes; retain the recovery manifest.
+        const documentDirectory = dirname(workingCopyPath);
+        const revision = decodeManifest(readFileSync(join(documentDirectory, 'manifest.json'))).current;
+        if (!revision) throw new Error('Rotation did not create a document revision');
+        const revisionPath = join(documentDirectory, revision.file);
+        const awayPath = `${revisionPath}.away`;
         const crashAndRestart = async (from: string, to: string) => {
             await session.browser.disconnect();
             await stopSingleSession(session.name, {
@@ -243,7 +248,7 @@ it('keeps a restored tab\'s unsaved changes for a later start when its working c
 
         // The checkpoint came along and its working copy did not, as on a
         // roaming profile opened on another computer.
-        await crashAndRestart(workingCopyPath, awayPath);
+        await crashAndRestart(revisionPath, awayPath);
 
         const note = await session.page.waitForFunction(() => Array.from(document.querySelectorAll<HTMLElement>('li, [role="status"], [role="alert"]'))
             .map(element => element.innerText)
@@ -255,13 +260,13 @@ it('keeps a restored tab\'s unsaved changes for a later start when its working c
         await session.page.waitForFunction(() => document.body.innerText.includes('these changes cannot be saved'), {timeout: 60_000});
         await waitForWorkspaceToolbarIdle(session.page, {timeoutMs: 60_000});
         expect((await readWorkspaceStateValues<{dirtyState?: {fileDirty?: boolean}}>(session.page, ['dirtyState'])).dirtyState?.fileDirty).toBe(true);
-        expect(existsSync(workingCopyPath)).toBe(false);
+        expect(existsSync(revisionPath)).toBe(false);
         await expect.poll(readStoredTab, {timeout: 60_000}).toMatchObject({
             isDirty: true,
             workingCopyRef: workingCopyPath,
         });
 
-        await crashAndRestart(awayPath, workingCopyPath);
+        await crashAndRestart(awayPath, revisionPath);
         await expect.poll(() => session.page.evaluate(firstPageIsLandscape), {timeout: 60_000}).toBe(true);
         expect((await readPdfPageSnapshots(sourcePath))[0]?.rotation).toBe(0);
     } finally {

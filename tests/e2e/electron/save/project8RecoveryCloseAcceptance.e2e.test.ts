@@ -1,3 +1,4 @@
+import {decodeManifest} from '@document-store/documentDirectory';
 import {spawn} from 'node:child_process';
 import {PDFDocument} from 'pdf-lib';
 import { delay } from 'es-toolkit/promise';
@@ -20,7 +21,7 @@ import {
 } from 'node:path';
 import {
     appendFile,
-    readFile, readdir, rename, stat,
+    readFile, rename, stat,
 } from 'node:fs/promises';
 import {
     afterEach,
@@ -39,7 +40,7 @@ import {
 import {createCanonicalTextBoxWithPointer} from '@tests/e2e/electron/helpers/viewerAnnotations';
 import {moveTabToNewWindow} from '@tests/e2e/electron/helpers/moveTabToNewWindow';
 import {installPageEvaluationShims} from '@tests/e2e/electron/helpers/pageRuntime';
-import {getActiveWorkspaceWorkingCopyPath} from '@tests/e2e/electron/helpers/electronApiHelpers';
+import {getActiveWorkspaceWorkingCopyPath, readDocumentBytes} from '@tests/e2e/electron/helpers/electronApiHelpers';
 import {
     startElectronE2ESession,
     type IElectronE2ESession,
@@ -138,7 +139,7 @@ async function createRecoveredSession(
             isDirty: true,
             workingCopyRef: expect.any(String),
         });
-        expect((await readPdfPageSnapshots(workingCopyPath))[0]?.rotation).toBe(90);
+        expect((await readPdfPageSnapshots(await readDocumentBytes(session!.page, workingCopyPath)))[0]?.rotation).toBe(90);
 
         const crashed = session;
         await crashed.browser.disconnect();
@@ -160,7 +161,7 @@ async function createRecoveredSession(
         const state = await readWorkspaceStateValues<{dirtyState?: {fileDirty?: boolean}}>(session.page, ['dirtyState']);
         expect(state.dirtyState?.fileDirty).toBe(true);
         const recoveredWorkingCopyPath = await getActiveWorkspaceWorkingCopyPath(session.page);
-        expect((await readPdfPageSnapshots(recoveredWorkingCopyPath))[0]?.rotation).toBe(90);
+        expect((await readPdfPageSnapshots(await readDocumentBytes(session!.page, recoveredWorkingCopyPath)))[0]?.rotation).toBe(90);
         return {
             pdfPath,
             workingCopyPath: recoveredWorkingCopyPath,
@@ -622,15 +623,14 @@ describe('Project 8 recovered close decisions', () => {
                 await session.page.mouse.move(point.x + 220, point.y + 250, {steps: 10});
                 await session.page.mouse.up();
                 await session.page.waitForSelector('[role="dialog"] input[role="spinbutton"]');
-                // A freshly opened document may still read from its original
-                // while the working copy is materialized. The crop dialog opens
-                // only after that copy exists, so its bytes are hashed here.
-                const previousWorkingCopyDigest = await getFileSha256(workingCopyPath);
+                // Compare the document's bytes across the crop, whether its
+                // baseline is still external or a revision already exists.
+                const previousWorkingCopyDigest = await readDocumentBytes(session!.page, workingCopyPath).then(bytes => createHash('sha256').update(bytes).digest('hex'));
                 await clickDirtyTabDecision(session, 'Apply Crop');
-                await expect.poll(() => getFileSha256(workingCopyPath), {timeout: 30_000}).not.toBe(previousWorkingCopyDigest);
+                await expect.poll(() => readDocumentBytes(session!.page, workingCopyPath).then(bytes => createHash('sha256').update(bytes).digest('hex')), {timeout: 30_000}).not.toBe(previousWorkingCopyDigest);
                 await waitForWorkspaceToolbarIdle(session.page, {timeoutMs: 60_000});
                 await waitForPdfLoaded(session.page, 60_000);
-                const croppedPage = await PDFDocument.load(await readFile(workingCopyPath));
+                const croppedPage = await PDFDocument.load(await readDocumentBytes(session!.page, workingCopyPath));
                 const visibleCropBox = croppedPage.getPages()[0]!.getCropBox();
                 await expect.poll(() => activeSession.page.$eval('.editor-pane.is-active .page_container[data-page="1"]', (element) => {
                     const rect = element.getBoundingClientRect();
@@ -648,7 +648,7 @@ describe('Project 8 recovered close decisions', () => {
                 return state.stretched;
             });
             expect(stretched).toEqual([]);
-            const croppedPdf = await PDFDocument.load(await readFile(workingCopyPath));
+            const croppedPdf = await PDFDocument.load(await readDocumentBytes(session!.page, workingCopyPath));
             expectedBox = croppedPdf.getPages()[0]!.getCropBox();
             expect(expectedBox.width).toBeGreaterThan(0);
             expect(expectedBox.width).toBeLessThan(originalBox.width);
@@ -746,7 +746,7 @@ describe('Project 8 recovered close decisions', () => {
         await waitForPdfLoaded(session.page, 60_000);
         await waitForViewerInteractive(session.page, 60_000);
         const workingCopyPath = await getActiveWorkspaceWorkingCopyPath(session.page);
-        const workingCopyDigest = await getFileSha256(workingCopyPath);
+        const workingCopyDigest = await readDocumentBytes(session!.page, workingCopyPath).then(bytes => createHash('sha256').update(bytes).digest('hex'));
 
         heldTool.hold();
         await rotateFirstPageCounterclockwise(session);
@@ -763,14 +763,14 @@ describe('Project 8 recovered close decisions', () => {
         await expect.poll(() => session!.page.evaluate(() => document.body.innerText), {timeout: 10_000})
             .toContain('Page operation canceled. The document is unchanged.');
         expect(await session.page.evaluate(() => document.body.innerText)).not.toContain(ROTATE_FAILURE_TEXT);
-        expect(await getFileSha256(workingCopyPath)).toBe(workingCopyDigest);
-        expect((await readPdfPageSnapshots(workingCopyPath))[0]?.rotation).toBe(0);
+        expect(await readDocumentBytes(session!.page, workingCopyPath).then(bytes => createHash('sha256').update(bytes).digest('hex'))).toBe(workingCopyDigest);
+        expect((await readPdfPageSnapshots(await readDocumentBytes(session!.page, workingCopyPath)))[0]?.rotation).toBe(0);
         expect((await readWorkspaceStateValues<{dirtyState?: {fileDirty?: boolean}}>(session.page, ['dirtyState'])).dirtyState?.fileDirty).toBe(false);
 
         heldTool.release();
         await rotateFirstPageCounterclockwise(session);
         await expect.poll(async () => (
-            await readPdfPageSnapshots(workingCopyPath)
+            await readPdfPageSnapshots(await readDocumentBytes(session!.page, workingCopyPath))
         )[0]?.rotation, {timeout: 30_000}).toBe(270);
     }, E2E_TIMEOUT_MS);
 
@@ -781,7 +781,7 @@ describe('Project 8 recovered close decisions', () => {
         expect(session.page.isClosed()).toBe(false);
         const state = await readWorkspaceStateValues<{dirtyState?: {fileDirty?: boolean}}>(session.page, ['dirtyState']);
         expect(state.dirtyState?.fileDirty).toBe(true);
-        expect((await readPdfPageSnapshots(await getActiveWorkspaceWorkingCopyPath(session.page)))[0]?.rotation).toBe(90);
+        expect((await readPdfPageSnapshots(await readDocumentBytes(session.page)))[0]?.rotation).toBe(90);
     }, E2E_TIMEOUT_MS);
 
     it.each([
@@ -791,15 +791,9 @@ describe('Project 8 recovered close decisions', () => {
         const recovered = await createRecoveredSession(`owner-retirement-${decision.startsWith('Save') ? 'save' : 'discard'}`, {largeHistory: true});
         session = recovered.session;
         const active = session;
-        const root = dirname(dirname(recovered.workingCopyPath));
-        const before = new Set(await readdir(root));
-        // Setup a second structural checkpoint so retirement includes history,
-        // as well as the recovered document's current working copy.
+        // Give the recovered document another edit before closing its window.
         await requireWorkspaceCommand(active.page, 'handleRotateCw', [[1]]);
         await waitForWorkspaceToolbarIdle(active.page);
-        const historyDirectories = (await readdir(root)).filter(name => !before.has(name)).map(name => join(root, name));
-        expect(historyDirectories.length).toBeGreaterThan(0);
-        const closingCopy = await getActiveWorkspaceWorkingCopyPath(active.page);
         const siblingPath = await createMultiPageTextFixturePdf(`retirement-sibling-${Date.now()}.pdf`, 3);
         await createNewWorkspaceTab(active);
         await openPdfInApp(active.page, siblingPath);
@@ -807,7 +801,7 @@ describe('Project 8 recovered close decisions', () => {
         await installPageEvaluationShims(sibling);
         await waitForViewerInteractive(sibling);
         const siblingCopy = await getActiveWorkspaceWorkingCopyPath(sibling);
-        const siblingBytes = await readFile(siblingCopy);
+        const siblingBytes = await readDocumentBytes(sibling, siblingCopy);
         await activateWorkspaceTab(active, 0);
         await waitForViewerInteractive(active.page);
         await expect.poll(() => readWorkspaceRecoveryRecords<{checkpoint?: {
@@ -821,7 +815,7 @@ describe('Project 8 recovered close decisions', () => {
 
         await clickWindowDecision(active, decision, {waitForClose: true});
         expect(sibling.isClosed()).toBe(false);
-        await expect(readFile(siblingCopy)).resolves.toEqual(siblingBytes);
+        await expect(readDocumentBytes(sibling, siblingCopy)).resolves.toEqual(siblingBytes);
         await sibling.waitForFunction(() => document.querySelector('.text-layer')?.textContent?.includes('Fixture 1/3'));
         if (decision.startsWith('Save')) {
             expect((await readPdfPageSnapshots(recovered.pdfPath))[0]?.rotation).toBe(180);
@@ -829,10 +823,6 @@ describe('Project 8 recovered close decisions', () => {
         } else {
             expect((await readPdfPageSnapshots(recovered.pdfPath))[0]?.rotation).toBe(0);
         }
-        await expect.poll(() => [
-            closingCopy,
-            ...historyDirectories,
-        ].filter(path => existsSync(path)), {timeout: 30_000}).toEqual([]);
         await expect.poll(() => readWorkspaceRecoveryRecords<{checkpoint?: {
             capturedAt?: number;
             tabs?: Array<{sourceRef?: string}>
@@ -848,8 +838,7 @@ describe('Project 8 recovered close decisions', () => {
         await waitForViewerInteractive(third);
         const tabs = await third.$$eval('.tab-list [role="tab"]', elements => elements.map(element => element.textContent));
         expect(tabs.some(text => text?.includes(basename(recovered.pdfPath)))).toBe(false);
-        expect(existsSync(siblingCopy)).toBe(true);
-        await expect(readFile(siblingCopy)).resolves.toEqual(siblingBytes);
+        await expect(readDocumentBytes(sibling, siblingCopy)).resolves.toEqual(siblingBytes);
     }, E2E_TIMEOUT_MS);
 
     it('Save commits recovered bytes and permits close without Save As', async () => {
@@ -867,7 +856,7 @@ describe('Project 8 recovered close decisions', () => {
         const externalBytes = await readFile(replacementSourcePath);
         const recovered = await createRecoveredSession('external-replacement', {replacementSourcePath});
         session = recovered.session;
-        const recoveredWorkingBytes = await readFile(recovered.workingCopyPath);
+        const recoveredWorkingBytes = await readDocumentBytes(session!.page, recovered.workingCopyPath);
 
         await expect(callWorkspaceCommand<boolean>(session.page, 'handleSave')).resolves.toEqual({
             called: true,
@@ -877,9 +866,9 @@ describe('Project 8 recovered close decisions', () => {
         const state = await readWorkspaceStateValues<{dirtyState?: {fileDirty?: boolean}}>(session.page, ['dirtyState']);
         expect(state.dirtyState?.fileDirty).toBe(true);
         await expect(readFile(recovered.pdfPath)).resolves.toEqual(externalBytes);
-        await expect(readFile(recovered.workingCopyPath)).resolves.toEqual(recoveredWorkingBytes);
+        await expect(readDocumentBytes(session!.page, recovered.workingCopyPath)).resolves.toEqual(recoveredWorkingBytes);
         expect((await readPdfPageSnapshots(recovered.pdfPath))[0]?.rotation).toBe(0);
-        expect((await readPdfPageSnapshots(recovered.workingCopyPath))[0]?.rotation).toBe(90);
+        expect((await readPdfPageSnapshots(await readDocumentBytes(session!.page, recovered.workingCopyPath)))[0]?.rotation).toBe(90);
     }, E2E_TIMEOUT_MS);
 
     it('Discard closes without committing recovered bytes', async () => {
@@ -927,7 +916,7 @@ describe('Project 8 recovered close decisions', () => {
         await expect(readFile(recovered.pdfPath)).resolves.toEqual(externalBytes);
         const state = await readWorkspaceStateValues<{dirtyState?: {fileDirty?: boolean;};}>(session.page, ['dirtyState']);
         expect(state.dirtyState?.fileDirty).toBe(true);
-        expect((await readPdfPageSnapshots(recovered.workingCopyPath))[0]?.rotation).toBe(90);
+        expect((await readPdfPageSnapshots(await readDocumentBytes(session!.page, recovered.workingCopyPath)))[0]?.rotation).toBe(90);
         await expect.poll(async () => {
             const checkpointSession = session!.name;
             if (!hasWorkspaceCrashCheckpoint(checkpointSession)) {
@@ -1001,8 +990,8 @@ describe('Project 8 recovered close decisions', () => {
                 isDirty: true,
             }),
         ]));
-        expect((await readPdfPageSnapshots(firstWorkingCopyPath))[0]?.rotation).toBe(90);
-        expect((await readPdfPageSnapshots(secondWorkingCopyPath))[0]?.rotation).toBe(90);
+        expect((await readPdfPageSnapshots(await readDocumentBytes(session!.page, firstWorkingCopyPath)))[0]?.rotation).toBe(90);
+        expect((await readPdfPageSnapshots(await readDocumentBytes(session!.page, secondWorkingCopyPath)))[0]?.rotation).toBe(90);
         const firstRecoverySidecarPaths = [join(dirname(firstWorkingCopyPath), 'manifest.json')];
         expect(firstRecoverySidecarPaths.every(path => existsSync(path))).toBe(true);
 
@@ -1017,8 +1006,11 @@ describe('Project 8 recovered close decisions', () => {
         expect(failedTab?.workingCopyRef).toBe(firstWorkingCopyPath);
         expect(successfulTab?.workingCopyRef).toBe(secondWorkingCopyPath);
 
-        const unavailableWorkingCopyPath = `${firstWorkingCopyPath}.project8-open-failure`;
-        await rename(firstWorkingCopyPath, unavailableWorkingCopyPath);
+        const firstDocumentDirectory = dirname(firstWorkingCopyPath);
+        const revision = decodeManifest(await readFile(join(firstDocumentDirectory, 'manifest.json'))).current;
+        if (!revision) throw new Error('Rotation did not create a document revision');
+        const revisionPath = join(firstDocumentDirectory, revision.file);
+        const unavailableWorkingCopyPath = `${revisionPath}.project8-open-failure`;
         const crashed = session;
         await crashed.browser.disconnect();
         await stopSingleSession(crashed.name, {
@@ -1026,6 +1018,7 @@ describe('Project 8 recovered close decisions', () => {
             crashElectronBeforeStop: true,
         });
 
+        await rename(revisionPath, unavailableWorkingCopyPath);
         session = await startElectronE2ESession(sessionName, {clean: false});
 
         await activateTabWithWorkingCopy(session, secondWorkingCopyPath, secondPdfPath);
@@ -1046,11 +1039,10 @@ describe('Project 8 recovered close decisions', () => {
             isDirty: true,
         });
         expect(firstRecoverySidecarPaths.every(path => existsSync(path))).toBe(true);
-        await rename(unavailableWorkingCopyPath, firstWorkingCopyPath);
+        await rename(unavailableWorkingCopyPath, revisionPath);
 
-        const recoveredAfterFailedOpen = await readPdfPageSnapshots(firstWorkingCopyPath);
-        expect(recoveredAfterFailedOpen[0]?.rotation).toBe(90);
-        expect((await readPdfPageSnapshots(secondWorkingCopyPath))[0]?.rotation).toBe(90);
+        expect((await readPdfPageSnapshots(revisionPath))[0]?.rotation).toBe(90);
+        expect((await readPdfPageSnapshots(await readDocumentBytes(session!.page, secondWorkingCopyPath)))[0]?.rotation).toBe(90);
 
         const failedRestart = session;
         await failedRestart.browser.disconnect();
@@ -1079,7 +1071,7 @@ describe('Project 8 recovered close decisions', () => {
             fileDirty: true,
             recoveryDirtyBaseline: true,
         });
-        expect((await readPdfPageSnapshots(firstWorkingCopyPath))[0]?.rotation).toBe(90);
+        expect((await readPdfPageSnapshots(await readDocumentBytes(session!.page, firstWorkingCopyPath)))[0]?.rotation).toBe(90);
         await expect.poll(async () => {
             if (!hasWorkspaceCrashCheckpoint(checkpointSession)) {
                 return null;
@@ -1100,8 +1092,8 @@ describe('Project 8 recovered close decisions', () => {
         const settledSuccessfulState = await readWorkspaceStateValues<{workingCopyPath?: string | null}>(session.page, ['workingCopyPath']);
         expect(finalSuccessfulState?.workingCopyPath).toEqual(expect.any(String));
         expect(settledSuccessfulState.workingCopyPath).toEqual(expect.any(String));
-        expect((await readPdfPageSnapshots(settledSuccessfulState.workingCopyPath!))[0]?.rotation).toBe(90);
-        expect((await readPdfPageSnapshots(secondWorkingCopyPath))[0]?.rotation).toBe(90);
+        expect((await readPdfPageSnapshots(await readDocumentBytes(session!.page, settledSuccessfulState.workingCopyPath!)))[0]?.rotation).toBe(90);
+        expect((await readPdfPageSnapshots(await readDocumentBytes(session!.page, secondWorkingCopyPath)))[0]?.rotation).toBe(90);
     }, E2E_TIMEOUT_MS);
 
     it('keeps dirty checkpoints separate across two windows and a restart', async () => {

@@ -10,7 +10,6 @@ import {
     clickAsUser,
     clickFoundAsUser,
 } from '@tests/e2e/electron/helpers/userInput';
-import {execFileSync} from 'node:child_process';
 import {
     requireDocumentRef,
     type TDocumentRef,
@@ -24,11 +23,12 @@ import {
     createLargeScannedFixturePdf,
     createMixedPageSizeTextFixturePdf,
     createMultiPageTextFixturePdf,
+    readPdfPageSnapshots,
     resolveDjvuFixturePath,
     selectFixtureDescribe,
 } from '@tests/e2e/electron/helpers/fixtures';
 import { createElectronE2ESessionFixture } from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
-import { getActiveWorkspaceWorkingCopyPath } from '@tests/e2e/electron/helpers/electronApiHelpers';
+import { getActiveWorkspaceWorkingCopyPath, readDocumentBytes } from '@tests/e2e/electron/helpers/electronApiHelpers';
 import {
     goToPageViaToolbar,
     openDjvuInApp,
@@ -75,7 +75,6 @@ import {
 } from '@tests/e2e/electron/helpers/viewerVirtualizationContract';
 import { findViewportLifecycleViolations } from '@tests/e2e/electron/helpers/findViewportLifecycleViolations';
 import { resolveClockwiseRotationDelta } from '@tests/e2e/electron/helpers/resolveClockwiseRotationDelta';
-import {getPdfNativeToolPaths} from '@electron/pdf/nativeToolPaths';
 import { expectWithinTimingBudget } from '@tests/e2e/electron/helpers/timingBudget';
 import { createNewWorkspaceTab } from '@tests/e2e/electron/helpers/workspaceTabs';
 
@@ -409,39 +408,15 @@ async function readManagedPdfOpeningGeometry(
 }
 
 async function waitForManagedPdfRotation(
+    page: Parameters<typeof evaluateInPage>[0],
     workingCopyPath: string,
     expectedRotation: number,
     timeoutMs = PR_BLOCKING_SMOKE_TIMEOUT_MS,
 ) {
     const deadline = Date.now() + timeoutMs;
-    const nativeTools = getPdfNativeToolPaths();
     let rotation: number | null = null;
     while (rotation !== expectedRotation) {
-        const pageListing = execFileSync(nativeTools.qpdf, [
-            '--show-pages',
-            workingCopyPath,
-        ], {
-            encoding: 'utf8',
-            maxBuffer: 1024 * 1024,
-            timeout: 10_000,
-        });
-        const pageObjectMatch = /^page\s+1:\s+(\d+)\s+(\d+)\s+R\s*$/imu.exec(pageListing);
-        if (!pageObjectMatch?.[1] || !pageObjectMatch[2]) {
-            throw new Error('qpdf did not report the page 1 object');
-        }
-        const pageObject = execFileSync(nativeTools.qpdf, [
-            `--show-object=${pageObjectMatch[1]},${pageObjectMatch[2]}`,
-            workingCopyPath,
-        ], {
-            encoding: 'utf8',
-            maxBuffer: 1024 * 1024,
-            timeout: 10_000,
-        });
-        const match = /\/Rotate\s+(-?\d+)\b/u.exec(pageObject);
-        const rawRotation = Number.parseInt(match?.[1] ?? '', 10);
-        rotation = Number.isSafeInteger(rawRotation)
-            ? ((rawRotation % 360) + 360) % 360
-            : null;
+        rotation = (await readPdfPageSnapshots(await readDocumentBytes(page, workingCopyPath)))[0]?.rotation ?? null;
         if (Date.now() >= deadline) {
             throw new Error(`Timed out waiting for persisted PDF rotation ${expectedRotation}; last observed ${String(rotation)}`);
         }
@@ -1314,7 +1289,7 @@ describe('Electron E2E - PR Blocking Smoke', () => {
         const persistedRotation = await runPdfDiagnosticStage(
             session.page,
             'rotation:wait-persisted-bytes',
-            () => waitForManagedPdfRotation(workingCopyPath, 90),
+            () => waitForManagedPdfRotation(session.page, workingCopyPath, 90),
         );
         expect(persistedRotation).toBe(90);
         // The revision commits before the bounded managed-shape import finishes.
