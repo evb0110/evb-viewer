@@ -59,12 +59,26 @@ pub(crate) enum Operation {
     },
     /// Rebuilds a qpdf page subset's form fields from its retained widgets.
     FinalizeSubsetForms,
+    /// delete-pages, extract-pages, reorder-pages, insert-pages and
+    /// merge-pages: a new file from the input and each `--source`.
+    PageStructure {
+        command: PageStructureCommand,
+        sources: Vec<PathBuf>,
+    },
     ReadCatalog,
     ReadDocumentCatalog(Option<PathBuf>),
     PrintLayout {
         view_mode: PrintViewMode,
         orientation: PrintOrientation,
     },
+}
+
+pub(crate) enum PageStructureCommand {
+    Delete(PathBuf),
+    Extract(PathBuf),
+    Reorder(PathBuf),
+    Insert { after_page: u32 },
+    Merge,
 }
 
 pub(crate) struct Config {
@@ -84,7 +98,8 @@ pub fn run_cli_entry(args: Vec<String>) -> Result<()> {
 pub(crate) fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Config> {
     let command = args.next().ok_or("Missing command")?;
     let mut input_path = None;
-    let mut source_path = None;
+    let mut sources = Vec::new();
+    let mut after_page = None;
     let mut output_path = None;
     let mut pages_file = None;
     let mut mutations_file = None;
@@ -112,8 +127,13 @@ pub(crate) fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Confi
             "--input" => {
                 input_path = Some(PathBuf::from(args.next().ok_or("Missing --input value")?))
             }
-            "--source" => {
-                source_path = Some(PathBuf::from(args.next().ok_or("Missing --source value")?))
+            "--source" => sources.push(PathBuf::from(args.next().ok_or("Missing --source value")?)),
+            "--after-page" => {
+                after_page = Some(
+                    args.next()
+                        .ok_or("Missing --after-page value")?
+                        .parse::<u32>()?,
+                )
             }
             "--output" => {
                 output_path = Some(PathBuf::from(args.next().ok_or("Missing --output value")?))
@@ -231,6 +251,11 @@ pub(crate) fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Confi
         return Err("--append-in-place requires --append on save-mutations".into());
     }
 
+    if sources.len() > 1 && command != "merge-pages" {
+        return Err("--source is repeatable only for merge-pages".into());
+    }
+    let source_path = sources.first().cloned();
+
     if identity_bindings_file.is_some() && command != "save-mutations" {
         return Err("--identity-bindings-file is only valid for save-mutations".into());
     }
@@ -294,6 +319,27 @@ pub(crate) fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Confi
         },
         "page-sizes" => Operation::PageSizes { metadata_only },
         "finalize-subset-forms" => Operation::FinalizeSubsetForms,
+        "delete-pages" | "extract-pages" | "reorder-pages" => {
+            let pages_file = pages_file.ok_or("Missing --pages-file value")?;
+            Operation::PageStructure {
+                command: match command.as_str() {
+                    "delete-pages" => PageStructureCommand::Delete(pages_file),
+                    "extract-pages" => PageStructureCommand::Extract(pages_file),
+                    _ => PageStructureCommand::Reorder(pages_file),
+                },
+                sources,
+            }
+        }
+        "insert-pages" => Operation::PageStructure {
+            command: PageStructureCommand::Insert {
+                after_page: after_page.ok_or("Missing --after-page value")?,
+            },
+            sources,
+        },
+        "merge-pages" => Operation::PageStructure {
+            command: PageStructureCommand::Merge,
+            sources,
+        },
         "read-catalog" => Operation::ReadCatalog,
         "read-document-catalog" => Operation::ReadDocumentCatalog(mutations_file),
         "print-layout" if pages_file.is_some() => {
@@ -401,6 +447,31 @@ pub(crate) fn mutate_pdf(config: Config) -> Result<()> {
                 output_path,
                 config.qpdf_path.as_deref(),
             )
+        }
+        Operation::PageStructure { command, sources } => {
+            let pages = match command {
+                PageStructureCommand::Delete(file)
+                | PageStructureCommand::Extract(file)
+                | PageStructureCommand::Reorder(file) => {
+                    read_page_sequence_file(file).map_err(|error| {
+                        reclassify_domain_error(error, NativeErrorCode::InvalidRequest)
+                    })?
+                }
+                _ => Vec::new(),
+            };
+            let edit = match command {
+                PageStructureCommand::Delete(_) => PageStructureEdit::Delete(&pages),
+                PageStructureCommand::Extract(_) => PageStructureEdit::Extract(&pages),
+                PageStructureCommand::Reorder(_) => PageStructureEdit::Reorder(&pages),
+                PageStructureCommand::Insert { after_page } => PageStructureEdit::Insert {
+                    after_page: *after_page,
+                },
+                PageStructureCommand::Merge => PageStructureEdit::Merge,
+            };
+            let inputs = std::iter::once(config.input_path.clone())
+                .chain(sources.iter().cloned())
+                .collect::<Vec<_>>();
+            return write_page_structure_path(edit, &inputs, output_path);
         }
         Operation::TextBoxAppearance { metadata_file } => {
             use evb_native_support::output::AtomicOutput;
