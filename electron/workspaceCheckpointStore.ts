@@ -212,11 +212,17 @@ export function claimWorkspaceCheckpoint(ownerWebContentsId: number, owner?: num
     });
 }
 
+// Reopening the document settles a Save a crash interrupted, which can keep the original beside the PDF, so the
+// kept original is looked for only once the tab's document has reopened.
 async function claimTab(tab: IWorkspaceCheckpointTab, stored: IStoredCheckpoint, ownerWebContentsId: number): Promise<IWorkspaceCheckpointTab> {
-    const keptOriginalPath = tab.sourceRef ? await findKeptOriginal(tab.sourceRef) : undefined;
-    const claimed = keptOriginalPath ? {...tab, keptOriginalPath: requireDocumentRef(keptOriginalPath)} : tab;
+    const claimed = await reopenTab(tab, stored, ownerWebContentsId);
+    const keptOriginalPath = claimed.sourceRef ? await findKeptOriginal(claimed.sourceRef) : undefined;
+    return keptOriginalPath ? {...claimed, keptOriginalPath: requireDocumentRef(keptOriginalPath)} : claimed;
+}
+
+async function reopenTab(tab: IWorkspaceCheckpointTab, stored: IStoredCheckpoint, ownerWebContentsId: number): Promise<IWorkspaceCheckpointTab> {
     const directory = stored.tabs[tab.tabId]?.directory;
-    if (!tab.isDirty || !directory) return claimed;
+    if (!tab.isDirty || !directory) return tab;
     try {
         const entry = await reopenStoredDocument(directory, {
             ownerWebContentsId,
@@ -227,10 +233,10 @@ async function claimTab(tab: IWorkspaceCheckpointTab, stored: IStoredCheckpoint,
             // The work was saved after this checkpoint: the tab reopens its file.
             openDocuments.delete(entry.ref);
             await entry.doc.close();
-            return {...claimed, isDirty: false};
+            return {...tab, isDirty: false};
         }
         const drafts = isRecord(state.drafts) ? (state.drafts as unknown as IDrafts).annotationRecovery : undefined;
-        const {annotationRecovery: _stale, ...rest} = claimed;
+        const {annotationRecovery: _stale, ...rest} = tab;
         return {
             ...rest,
             workingCopyRef: requireDocumentRef(entry.ref),
@@ -239,7 +245,7 @@ async function claimTab(tab: IWorkspaceCheckpointTab, stored: IStoredCheckpoint,
         };
     } catch (error) {
         log.warn(`Unsaved work of a restored tab is unavailable: ${getErrorMessage(error)}`);
-        const {annotationRecovery: _lost, ...rest} = claimed;
+        const {annotationRecovery: _lost, ...rest} = tab;
         return {...rest, isDirty: false, workingCopyRef: null, workingCopyLost: true};
     }
 }
