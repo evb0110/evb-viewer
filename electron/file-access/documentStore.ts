@@ -29,7 +29,7 @@ import {
     openDocument,
     STORE_ID_PATTERN,
     type TMutation,
-    type TMutationResult,
+    type TStaleRevision,
 } from '@document-store/documentDirectory';
 import {createNodeStorePort} from '@document-store/nodeStorePort';
 import {
@@ -116,7 +116,7 @@ export interface IOpenDocument {
      * to the destination and require this to hold, so the person never sees bytes other than the baseline's.
      */
     admission?: BigIntStats;
-    /** `snapshot` for a copy such as an undo point: a lookup by the original file never finds it. */
+    /** `snapshot` for a fork, such as a print copy: a lookup by the original file never finds it. */
     role: 'current' | 'snapshot';
     openingPageGeometry?: IPdfNativePageGeometry;
 }
@@ -150,8 +150,6 @@ export function getDocumentStore(): IDocumentStore {
     store ??= {
         port: createNodeStorePort(getDocumentStoreRoot()),
         publication: createDesktopPublication(absolute),
-        // Undo is the renderer's: a revision that is no longer current has no reader.
-        historyBudget: 0,
     };
     return store;
 }
@@ -293,7 +291,7 @@ export async function createDocumentFromSource(source: string | Uint8Array, opti
     ));
 }
 
-/** An independent copy of an open document: an undo snapshot, or a view moved to another window (T4). */
+/** An independent copy of an open document, such as a view moved to another window (T4). */
 export async function forkOpenDocument(entry: IOpenDocument, ownerWebContentsId?: number) {
     return trackCreation(async () => register(
         await entry.doc.run(() => forkDocument(getDocumentStore(), entry.doc.id)),
@@ -358,11 +356,13 @@ export function getDocumentRevisionInfo(entry: IOpenDocument): IDocumentRevision
     };
 }
 
+const revisionIdOf = (token: string) => /^\d+$/u.test(token) ? Number(token) : -1;
+
 /** The store's revision id for a renderer's token: `null` names a document without bytes of its own. */
 function expectedRevisionId(entry: IOpenDocument, token: string | null) {
     const current = entry.doc.state().current;
     if (token === null) return current?.id ?? null;
-    const id = /^\d+$/u.test(token) ? Number(token) : -1;
+    const id = revisionIdOf(token);
     return current === null && id === 1 ? null : id;
 }
 
@@ -523,7 +523,7 @@ function clearNextRevision(entry: IOpenDocument) {
     return entry.doc.run(() => rm(absolute(entry.doc.nextRevisionPath()), {force: true}));
 }
 
-function throwFailedMutation(entry: IOpenDocument, token: TDocumentRevisionToken | null, result: Exclude<Awaited<ReturnType<DocumentDirectory['mutate']>>, {status: 'committed'}>): never {
+function throwFailedMutation(entry: IOpenDocument, token: TDocumentRevisionToken | null, result: TStaleRevision | {status: 'conflict'}): never {
     if (result.status === 'stale-revision') throw staleRevisionError(entry, token, result.current);
     throw sourceChangedError();
 }
@@ -548,8 +548,8 @@ export async function commitDocumentMutation(
 /**
  * Runs `rewrite`, which reads the document's bytes at `input` (its current revision, or its destination while it has
  * none of its own) and writes a new file at `output`, then commits that file as the next revision. Nothing is copied
- * first: the tool's output is the revision. Revision 1 names the destination's bytes, so the first revision of a
- * document without bytes of its own is revision 2. A failure leaves the document as it was.
+ * first: the tool's output is the revision, and the destination's bytes stay revision 1. A failure leaves the
+ * document as it was.
  */
 export async function rewriteDocument(
     entry: IOpenDocument,
@@ -560,30 +560,14 @@ export async function rewriteDocument(
     const {current, destination} = entry.doc.state();
     const input = current ? revisionPath(entry, current) : destination;
     if (input === null) throw new WorkingCopyMissingError();
-    const {next, ext} = entry.doc.snapshot();
-    const name = `r${current ? next : next + 1}.${ext}`;
-    const output = absolute(entry.doc.path(name));
+    const output = absolute(entry.doc.nextRevisionPath());
     const removeOutput = () => entry.doc.run(() => rm(output, {force: true}));
     await removeOutput();
     try {
         if (!current) await assertAdmission(entry, input);
         await rewrite(input, output);
         if (!(await stat(output).catch(() => null))?.size) throw new Error('The rewrite wrote no revision');
-        const result = await entry.doc.run(async (): Promise<TMutationResult> => {
-            const stale = entry.doc.staleRevision(expectedRevisionId(entry, previous));
-            if (stale) return stale;
-            const manifest = entry.doc.snapshot();
-            // A first copy of the destination made meanwhile is revision 1, and `name` is its next revision.
-            if (manifest.current) {
-                return entry.doc.applyMutation(manifest.current.id, {kind: 'rewrite', source: () => Promise.resolve(), drafts: 'clear'});
-            }
-            await assertAdmission(entry, input);
-            const file = await getDocumentStore().port.open(entry.doc.path(name));
-            const revision = {id: next + 1, file: name, length: await file.size()};
-            await file.flush();
-            await entry.doc.commit({...manifest, next: revision.id + 1, current: revision, drafts: undefined}, file);
-            return {status: 'committed', revision};
-        });
+        const result = await entry.doc.mutate(expectedRevisionId(entry, previous), {kind: 'rewrite', source: () => Promise.resolve(), drafts: 'clear'});
         if (result.status !== 'committed') throwFailedMutation(entry, previous, result);
     } catch (error) {
         await removeOutput();
@@ -602,6 +586,23 @@ export function rewriteOpenDocument(
         await copyFile(input, output, constants.COPYFILE_FICLONE);
         await rewrite(output);
     }, reason);
+}
+
+/**
+ * Undo or redo: makes revision `token`, which the document's history keeps, current again on top of revision
+ * `expected`. Nothing is copied; back on revision 1 without a file, the document reads its destination again.
+ */
+export async function restoreOpenDocumentRevision(entry: IOpenDocument, token: TDocumentRevisionToken, expected: TDocumentRevisionToken | null) {
+    const previous = documentRevisionToken(entry);
+    const result = await entry.doc.restore(expectedRevisionId(entry, expected), revisionIdOf(token));
+    if (result.status !== 'committed') throwFailedMutation(entry, expected, result);
+    if (!result.revision) entry.admission = await stat(entry.doc.state().destination!, {bigint: true});
+    return notifyRevisionChanged(entry, previous, 'write');
+}
+
+/** Keeps exactly the revisions `tokens` names for undo and redo; the files no revision names any more go. */
+export function retainOpenDocumentRevisions(entry: IOpenDocument, tokens: readonly TDocumentRevisionToken[]) {
+    return entry.doc.retain(tokens.map(revisionIdOf));
 }
 
 /** Stores the unsaved state that is not in the bytes yet, for revision `token`. */
@@ -650,7 +651,7 @@ async function removeDirectory(doc: DocumentDirectory) {
 }
 
 /**
- * Ends a document: the person closed it, discarded it, or it was an undo snapshot no longer needed. A document a
+ * Ends a document: the person closed it or discarded it, or a fork such as a print copy is done. A document a
  * native reader may still hold is quarantined: it closes, and its files stay for the next start to collect.
  */
 export async function discardOpenDocument(entry: IOpenDocument) {
@@ -741,7 +742,7 @@ export async function collectStaleDocuments() {
         const referenced = new Set(checkpoints.flatMap(checkpoint => Object.values(checkpoint!.tabs).map(tab => tab.directory)));
         for (const id of unsaved) {
             if (referenced.has(id) || await isHeld(id)) continue;
-            // No checkpoint restores it, such as an undo snapshot or a document closed while unsaved.
+            // No checkpoint restores it, such as a print copy or a document closed while unsaved.
             await docStore.port.remove(`${DOCUMENTS_DIR}/${id}`);
             removed.push(id);
         }

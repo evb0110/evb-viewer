@@ -56,12 +56,7 @@ interface IPdfPersistPhaseTiming {
 interface ICreateDocumentPersistenceDeps {
     refreshDocumentRevisionToken: (path: TDocumentRef, isCurrent: () => boolean) => Promise<boolean>;
     deferPdfConformanceProfile: (path: TDocumentRef) => void;
-    ensureHistoryBaselineForMutation: () => Promise<boolean>;
     captureHistoryCleanState: () => () => Promise<void>;
-    pushHistorySnapshot: (
-        snapshot: Uint8Array,
-        options?: { reuseSnapshot?: boolean },
-    ) => Promise<boolean>;
     readPdfStateFromPath: (path: TDocumentRef) => Promise<IPdfLoadedState>;
     shouldForceSaveAsForWorkingCopy: (
         saveMode: TPdfSaveMode,
@@ -326,43 +321,6 @@ export function createDocumentPersistence(
             expectedDocumentRevisionToken,
             forceSaveAs,
         };
-    }
-
-    async function persistPdfDataSilently(data: Uint8Array) {
-        const expectedWorkingPath = state.workingCopyPath.value;
-        const snapshot = data.slice();
-        if (!await deps.ensureHistoryBaselineForMutation()) {
-            return false;
-        }
-        if (expectedWorkingPath !== state.workingCopyPath.value) {
-            return false;
-        }
-        if (expectedWorkingPath) {
-            await getDocumentFilesCapability().writeFile(
-                expectedWorkingPath,
-                snapshot,
-                createDocumentMutationRevisionOptions(state.documentRevisionToken.value),
-            );
-            if (!state.isActiveWorkingCopy(expectedWorkingPath)) {
-                BrowserLogger.debug('pdf-file', 'Skipped stale silent PDF data persistence', {
-                    expectedWorkingPath,
-                    currentWorkingPath: state.workingCopyPath.value,
-                });
-                return false;
-            }
-        } else if (state.workingCopyPath.value !== null) {
-            return false;
-        }
-
-        state.pdfData.value = snapshot;
-        state.pdfSrc.value = deps.toPdfBlob(snapshot);
-        state.pdfReloadSrc.value = state.pdfSrc.value;
-        await deps.pushHistorySnapshot(snapshot, { reuseSnapshot: true });
-
-        if (expectedWorkingPath) {
-            deps.deferPdfConformanceProfile(expectedWorkingPath);
-        }
-        return true;
     }
 
     async function saveWorkingCopy(
@@ -1065,7 +1023,6 @@ export function createDocumentPersistence(
     }
 
     return {
-        persistPdfDataSilently,
         repairWorkingCopy,
         optimizeWorkingCopy,
         optimizeWorkingCopyAsCopy,

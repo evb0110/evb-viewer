@@ -25,6 +25,19 @@ export interface IRevision {
     witness?: string | undefined;
 }
 
+/**
+ * Revision 1 of a document opened from a destination, kept for undo while no file of the store holds it: the
+ * destination's bytes, as long as the destination still has `witness`.
+ */
+export interface IDestinationRevision {
+    id: 1;
+    witness: string;
+}
+
+export type THistoryRevision = IRevision | IDestinationRevision;
+
+const hasFile = (revision: THistoryRevision): revision is IRevision => 'file' in revision;
+
 interface IPendingPublish {
     destination: string;
     witness: string;
@@ -33,11 +46,11 @@ interface IPendingPublish {
 export interface IManifest {
     version: 1;
     ext: string;
-    /** The id of the next revision, which also names its file when it needs one. */
+    /** The id of the next revision, which also names its file. Revision 1 is the destination's bytes as opened. */
     next: number;
     current?: IRevision | undefined;
-    /** Revisions kept for undo and redo, oldest first; never contains `current`. */
-    history: IRevision[];
+    /** Revisions kept for undo and redo; never contains `current`. */
+    history: THistoryRevision[];
     destination?: string | undefined;
     /** The witness of the bytes last read from or published to `destination`. */
     baseline?: string | undefined;
@@ -49,7 +62,7 @@ export interface IManifest {
 export interface IDocumentState {
     id: string;
     current: IRevision | null;
-    history: readonly IRevision[];
+    history: readonly THistoryRevision[];
     destination: string | null;
     baseline: string | null;
     /** Unsaved state not yet in the bytes, applying to `current`; `undefined` when there is none. */
@@ -87,8 +100,6 @@ export interface IPublicationPort {
 export interface IDocumentStore {
     port: IStorePort;
     publication: IPublicationPort;
-    /** Bytes that revision files kept only for undo may occupy; the oldest revisions go first. */
-    historyBudget: number;
 }
 
 export type TRevisionWriter = (file: IStoreFile) => Promise<void>;
@@ -99,6 +110,8 @@ export type TMutation = ({ kind: 'append'; bytes: Uint8Array } | { kind: 'rewrit
 export type TStaleRevision = { status: 'stale-revision'; current: IRevision | null };
 export type TMutationResult = { status: 'committed'; revision: IRevision } | TStaleRevision | { status: 'conflict' };
 export type TDraftResult = { status: 'stored'; revision: IRevision | null } | TStaleRevision | { status: 'conflict' };
+/** `revision` is `null` after a restore to the destination's bytes: the document reads its destination again. */
+export type TRestoreResult = { status: 'committed'; revision: IRevision | null } | TStaleRevision | { status: 'conflict' };
 /**
  * `imported`: bytes the person supplied without a destination; they are the baseline, so the document starts clean.
  * `id`: the directory's id when the caller must know it first, for example to lock it before it exists.
@@ -125,9 +138,12 @@ function isRevision(value: unknown): value is IRevision {
         && isCount(value.length) && isOptionalString(value.witness);
 }
 
+const isDestinationRevision = (value: unknown) => isRecord(value) && value.id === 1 && typeof value.witness === 'string' && !('file' in value);
+
 function isManifest(value: unknown): value is IManifest {
     return isRecord(value) && value.version === 1 && typeof value.ext === 'string' && EXT_PATTERN.test(value.ext)
-        && isCount(value.next) && Array.isArray(value.history) && value.history.every(isRevision)
+        && isCount(value.next) && Array.isArray(value.history)
+        && value.history.every(revision => isRevision(revision) || isDestinationRevision(revision))
         && (value.current === undefined || isRevision(value.current))
         && isOptionalString(value.destination) && isOptionalString(value.baseline)
         && (value.drafts === undefined || (typeof value.drafts === 'string' && DRAFTS_FILE_PATTERN.test(value.drafts)))
@@ -149,31 +165,21 @@ export function isDirty(manifest: IManifest) {
 }
 
 function namedFiles(manifest: IManifest) {
-    const files = [manifest.current, ...manifest.history].flatMap(revision => revision ? [revision.file] : []);
+    const files = [manifest.current, ...manifest.history].flatMap(revision => revision && hasFile(revision) ? [revision.file] : []);
     return new Set(manifest.drafts === undefined ? files : [...files, manifest.drafts]);
-}
-
-/** Drops the oldest revisions until the files only history keeps fit the budget. */
-function trimHistory(history: IRevision[], current: IRevision, budget: number) {
-    const kept = [...history];
-    const historyBytes = () => {
-        const lengths = new Map<string, number>();
-        for (const revision of kept) {
-            if (revision.file !== current.file) lengths.set(revision.file, Math.max(lengths.get(revision.file) ?? 0, revision.length));
-        }
-        return [...lengths.values()].reduce((sum, length) => sum + length, 0);
-    };
-    while (kept.length > 0 && historyBytes() > budget) kept.shift();
-    return kept;
 }
 
 /**
  * One document directory: `manifest.json` (the only commit point), revision files `r<id>.<ext>` that are
  * immutable up to the lengths the manifest names, and the immutable drafts file it names. Calls run one at a
  * time in call order.
+ *
+ * Undo is a restore to a revision `history` keeps. History keeps the revisions the caller last asked to
+ * retain, and the one the latest change replaced; a file nothing names is deleted.
  */
 export class DocumentDirectory {
     private tail: Promise<unknown> = Promise.resolve();
+    private retained: ReadonlySet<number> = new Set();
 
     private constructor(
         readonly id: string,
@@ -188,7 +194,7 @@ export class DocumentDirectory {
         if (!EXT_PATTERN.test(init.ext)) throw new Error(`Unsupported document extension: ${init.ext}`);
         const id = init.id ?? crypto.randomUUID();
         if (!STORE_ID_PATTERN.test(id)) throw new Error(`Invalid document directory id: ${id}`);
-        const manifest: IManifest = { version: 1, ext: init.ext, next: 1, history: [] };
+        const manifest: IManifest = { version: 1, ext: init.ext, next: 2, history: [] };
         const doc = new DocumentDirectory(id, store, manifest, null, undefined);
         if ('destination' in init) {
             const baseline = await store.publication.witness(init.destination);
@@ -197,7 +203,7 @@ export class DocumentDirectory {
         } else {
             const name = `r1.${init.ext}`;
             const { file, length, witness } = await doc.createRevisionFile(name, init.source, init.imported === true);
-            await doc.commit({ ...manifest, next: 2, current: { id: 1, file: name, length, witness }, baseline: witness }, file);
+            await doc.commit({ ...manifest, current: { id: 1, file: name, length, witness }, baseline: witness }, file);
         }
         return doc;
     }
@@ -248,7 +254,7 @@ export class DocumentDirectory {
         if (current && file) {
             // 1. Cut an unfinished append. A redo revision can name the same file further than `current`.
             const size = await file.size();
-            const named = Math.max(...[current, ...manifest.history].filter(revision => revision.file === current.file).map(revision => revision.length));
+            const named = Math.max(...[current, ...manifest.history.filter(hasFile)].filter(revision => revision.file === current.file).map(revision => revision.length));
             if (size < current.length) {
                 throw new Error(`Revision file ${current.file} of document ${id} is shorter than its manifest`);
             }
@@ -293,22 +299,38 @@ export class DocumentDirectory {
         return this.run(() => this.applyMutation(expected, mutation));
     }
 
-    /** Makes a retained revision current again: undo, or redo after an undo. */
-    restore(revisionId: number) {
-        return this.run(async (): Promise<TMutationResult> => {
+    /**
+     * Makes revision `revisionId` that history keeps current again, on top of revision `expected`: undo, or redo
+     * after an undo. One manifest replace; nothing is copied. Drafts described the replaced bytes, so they go.
+     */
+    restore(expected: number | null, revisionId: number) {
+        return this.run(async (): Promise<TRestoreResult> => {
+            const stale = this.staleRevision(expected);
+            if (stale) return stale;
             const { manifest } = this;
             const { current } = manifest;
-            if (current?.id === revisionId) return { status: 'committed', revision: current };
+            if ((current?.id ?? 1) === revisionId) return { status: 'committed', revision: current ?? null };
             const target = manifest.history.find(revision => revision.id === revisionId);
-            if (!current || !target) return { status: 'stale-revision', current: current ?? null };
-            const file = target.file === current.file ? this.file : await this.store.port.open(this.path(target.file));
+            if (!target) return { status: 'stale-revision', current: current ?? null };
+            if (!hasFile(target) && !(sameWitness(target.witness, manifest.baseline) && manifest.destination !== undefined
+                && sameWitness(await this.store.publication.witness(manifest.destination), target.witness))) return { status: 'conflict' };
+            const file = !hasFile(target) ? null : target.file === current?.file ? this.file : await this.store.port.open(this.path(target.file));
             await this.commit({
                 ...manifest,
-                current: target,
-                history: [...manifest.history.filter(revision => revision !== target), current],
+                current: hasFile(target) ? target : undefined,
+                history: this.historyAfter(manifest.history.filter(revision => revision !== target)),
                 drafts: undefined,
             }, file);
-            return { status: 'committed', revision: target };
+            return { status: 'committed', revision: hasFile(target) ? target : null };
+        });
+    }
+
+    /** Keeps exactly the revisions `revisionIds` names in history, from now on and after every change. */
+    retain(revisionIds: readonly number[]) {
+        return this.run(async () => {
+            this.retained = new Set(revisionIds);
+            const history = this.manifest.history.filter(revision => this.retained.has(revision.id));
+            if (history.length < this.manifest.history.length) await this.commit({ ...this.manifest, history });
         });
     }
 
@@ -375,52 +397,67 @@ export class DocumentDirectory {
         return (current?.id ?? null) === expected ? null : { status: 'stale-revision', current };
     }
 
+    /**
+     * A rewrite of a document without bytes of its own copies nothing in: its source is the new revision, and
+     * the destination's bytes stay revision 1 for undo.
+     */
     async applyMutation(expected: number | null, mutation: TMutation): Promise<TMutationResult> {
         const stale = this.staleRevision(expected);
         if (stale) return stale;
-        const base = await this.ensureCurrent();
-        if (!base) return { status: 'conflict' };
+        const base = mutation.kind === 'rewrite' ? this.manifest.current : await this.ensureCurrent();
+        if (base === null) return { status: 'conflict' };
         const drafts = await this.writeDrafts(mutation.drafts);
         const manifest = this.manifest;
         const id = manifest.next;
         let revision: IRevision;
         let file = this.file;
-        const redoSharesFile = manifest.history.some(other => other.file === base.file && other.length > base.length);
-        if (mutation.kind === 'append' && !redoSharesFile) {
+        const redoSharesFile = manifest.history.some(other => hasFile(other) && other.file === base?.file && other.length > base.length);
+        if (mutation.kind === 'append' && base && !redoSharesFile) {
             await this.currentFile().writeAt(base.length, mutation.bytes);
             await this.currentFile().flush();
             revision = { id, file: base.file, length: base.length + mutation.bytes.byteLength };
         } else {
             const name = `r${id}.${manifest.ext}`;
-            const created = await this.createRevisionFile(name, mutation.kind === 'rewrite' ? mutation.source : this.copyThenAppend(base, mutation.bytes));
+            const source = mutation.kind === 'rewrite' ? mutation.source : this.copyThenAppend(base!, mutation.bytes);
+            const created = base ? await this.createRevisionFile(name, source) : await this.createFromDestination(name, source);
+            if (!created) return { status: 'conflict' };
             file = created.file;
             revision = { id, file: name, length: created.length };
         }
-        const history = trimHistory([...manifest.history, base], revision, this.store.historyBudget);
-        await this.commit({ ...manifest, next: id + 1, current: revision, history, drafts: drafts.name }, file, drafts.value);
+        await this.commit({ ...manifest, next: id + 1, current: revision, history: this.historyAfter(manifest.history), drafts: drafts.name }, file, drafts.value);
         return { status: 'committed', revision };
     }
 
-    /**
-     * The current revision, copying the destination in as the first one when there is none. `null` when the
-     * destination no longer holds the baseline: edits must not land on bytes the person has not seen.
-     */
+    /** The history a change leaves: what the caller retains, and the revision the change replaces. */
+    private historyAfter(history: readonly THistoryRevision[]): THistoryRevision[] {
+        const { current, baseline } = this.manifest;
+        const replaced: THistoryRevision | undefined = current ?? (baseline === undefined ? undefined : { id: 1, witness: baseline });
+        return [...history.filter(revision => this.retained.has(revision.id) && revision.id !== replaced?.id), ...replaced ? [replaced] : []];
+    }
+
+    /** The current revision, copying the destination in as revision 1 when there is none; `null` on a conflict. */
     async ensureCurrent(): Promise<IRevision | null> {
         const { manifest } = this;
         if (manifest.current) return manifest.current;
         if (manifest.destination === undefined) throw new Error(`Document ${this.id} has neither bytes nor a destination`);
-        const id = manifest.next;
-        const name = `r${id}.${manifest.ext}`;
-        const { file, length } = await this.createRevisionFile(name, await this.store.publication.source(manifest.destination));
-        // The destination still holds the baseline after the copy, so the copy holds the baseline's bytes.
-        if (!sameWitness(await this.store.publication.witness(manifest.destination), manifest.baseline)) {
-            await file.close();
-            await this.store.port.remove(this.path(name));
-            return null;
-        }
-        const current = { id, file: name, length, witness: manifest.baseline };
-        await this.commit({ ...manifest, next: id + 1, current }, file);
+        const name = `r1.${manifest.ext}`;
+        const created = await this.createFromDestination(name, await this.store.publication.source(manifest.destination));
+        if (!created) return null;
+        const current = { id: 1, file: name, length: created.length, witness: manifest.baseline };
+        await this.commit({ ...manifest, current }, created.file);
         return current;
+    }
+
+    /**
+     * A revision file made from bytes read from the destination. `null`, and no file, when the destination no
+     * longer holds the baseline afterwards: edits must not land on bytes the person has not seen.
+     */
+    private async createFromDestination(name: string, source: TExternalSource | TRevisionWriter) {
+        const created = await this.createRevisionFile(name, source);
+        if (sameWitness(await this.store.publication.witness(this.manifest.destination!), this.manifest.baseline)) return created;
+        await created.file.close();
+        await this.store.port.remove(this.path(name));
+        return null;
     }
 
     /** Recovery step 3, also run before every Save: adopt or drop a publish whose outcome is unknown. */

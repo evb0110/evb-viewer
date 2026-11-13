@@ -6,10 +6,11 @@ import type {
 import type { TDocumentRef } from '@contracts/documentRef';
 import { isNativeDocumentRef } from '@app/utils/documentRef';
 import { isPathPdfSource } from '@app/modules/pdf-viewer/public';
-import type { ILazyHistoryBaseline } from '@app/modules/workspace-shell/composables/document-session/createDocumentHistory';
-
 interface IResolvedPathBaseline {
-    baseline: ILazyHistoryBaseline;
+    baseline: {
+        revision: TDocumentRevisionToken;
+        size: number;
+    };
     revisionInfo: IDocumentRevisionInfo;
 }
 
@@ -31,13 +32,7 @@ export async function adoptStablePathBackedPersistedState(input: {
     state: IDocumentSessionState;
     path: TDocumentRef;
     resolveStableBaseline: () => Promise<IResolvedPathBaseline>;
-    markCurrentHistoryEntryClean: (
-        snapshot: Uint8Array | null,
-        options?: {
-            lazyBaseline?: ILazyHistoryBaseline;
-            recordSnapshotChange?: boolean;
-        },
-    ) => Promise<void>;
+    markCurrentHistoryEntryClean: () => Promise<void>;
 }) {
     const {
         baseline,
@@ -57,10 +52,7 @@ export async function adoptStablePathBackedPersistedState(input: {
     input.state.pdfData.value = null;
     input.state.pdfSrc.value = source;
     input.state.pdfReloadSrc.value = source;
-    await input.markCurrentHistoryEntryClean(null, {
-        lazyBaseline: baseline,
-        recordSnapshotChange: false,
-    });
+    await input.markCurrentHistoryEntryClean();
     return true;
 }
 
@@ -73,7 +65,6 @@ export async function resolveStableLazyHistoryBaseline(path: TDocumentRef) {
         if (before.token === after.token) {
             return {
                 baseline: {
-                    workingPath: path,
                     revision: after.token,
                     size: file.size,
                 },

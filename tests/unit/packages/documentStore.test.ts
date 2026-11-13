@@ -42,6 +42,7 @@ import {
 const TWO_GIB = 2 ** 31;
 const encode = (text: string) => new TextEncoder().encode(text);
 const append = (text: string, drafts: TDraftsAfter = 'clear') => ({ kind: 'append' as const, bytes: encode(text), drafts });
+const rewrite = (text: string) => ({ kind: 'rewrite' as const, source: (file: IStoreFile) => file.writeAt(0, encode(text)), drafts: 'clear' as const });
 const witnessOf = (bytes: Uint8Array) => contentWitness(bytes.byteLength, async (offset, length) => bytes.subarray(offset, offset + length));
 
 let workDir = '';
@@ -74,7 +75,7 @@ function filePublication(onPublished = () => {}): IPublicationPort {
     };
 }
 
-const store = (port: IStorePort = createNodeStorePort(root), publication = filePublication(), historyBudget = 1 << 20): IDocumentStore => ({ port, publication, historyBudget });
+const store = (port: IStorePort = createNodeStorePort(root), publication = filePublication()): IDocumentStore => ({ port, publication });
 const keep = (doc: DocumentDirectory) => (live.push(doc), doc);
 const create = async (into: IDocumentStore, init: TDocumentInit) => keep(await createDocument(into, init));
 const open = async (from: IDocumentStore, id: string) => keep(await openDocument(from, id));
@@ -163,32 +164,63 @@ describe('document directory', () => {
         expect(await readdir(docDir(doc))).toEqual(['manifest.json']);
     });
 
-    it('keeps history within its budget and undoes and redoes across revisions', async () => {
-        const doc = await create(store(undefined, undefined, 10), { ext: 'pdf', source: new Blob(['aaaa']) });
-        const rewrite = (text: string) => ({ kind: 'rewrite' as const, source: (file: IStoreFile) => file.writeAt(0, encode(text)), drafts: 'clear' as const });
+    it('keeps the revisions the caller retains and the one the latest change replaced, and restores them without copying', async () => {
+        const doc = await create(store(), { ext: 'pdf', source: new Blob(['aaaa']) });
         await doc.mutate(1, rewrite('bbbbbbbb'));
         await doc.mutate(2, rewrite('cccccccc'));
         expect(doc.state().history.map(revision => revision.id)).toEqual([2]);
         expect((await readdir(docDir(doc))).sort()).toEqual(['manifest.json', 'r2.pdf', 'r3.pdf']);
-        expect(await doc.restore(1)).toMatchObject({ status: 'stale-revision' });
+        expect(await doc.restore(3, 1)).toMatchObject({ status: 'stale-revision' });
 
-        await doc.restore(2);
+        await doc.retain([2, 3]);
+        await doc.mutate(3, rewrite('dddd'));
+        expect(doc.state().history.map(revision => revision.id).sort()).toEqual([2, 3]);
+        expect(await doc.restore(2, 2)).toMatchObject({ status: 'stale-revision' });
+        await doc.restore(4, 2);
         expect(await currentText(doc)).toBe('bbbbbbbb');
-        await doc.restore(3);
-        expect(await currentText(doc)).toBe('cccccccc');
+        await doc.restore(2, 4);
+        expect(await currentText(doc)).toBe('dddd');
+        expect((await readdir(docDir(doc))).sort()).toEqual(['manifest.json', 'r2.pdf', 'r3.pdf', 'r4.pdf']);
+
+        // A new edit after an undo: the caller drops the redo revision, and its file goes.
+        await doc.restore(4, 3);
+        await doc.retain([2, 3]);
+        await doc.mutate(3, rewrite('eeee'));
+        expect(doc.state().history.map(revision => revision.id).sort()).toEqual([2, 3]);
+        expect((await readdir(docDir(doc))).sort()).toEqual(['manifest.json', 'r2.pdf', 'r3.pdf', 'r5.pdf']);
+        await doc.retain([]);
+        expect((await readdir(docDir(doc))).sort()).toEqual(['manifest.json', 'r5.pdf']);
+    });
+
+    it('rewrites a document without bytes of its own without copying it in, and undoes to its destination', async () => {
+        const destination = path.join(workDir, 'paper.pdf');
+        await writeFile(destination, 'v1');
+        const doc = await create(store(), { ext: 'pdf', destination });
+        expect(await doc.mutate(null, rewrite('v2'))).toMatchObject({ status: 'committed', revision: { id: 2, file: 'r2.pdf' } });
+        expect((await readdir(docDir(doc))).sort()).toEqual(['manifest.json', 'r2.pdf']);
+        expect(doc.state()).toMatchObject({ history: [{ id: 1 }], dirty: true });
+
+        expect(await doc.restore(2, 1)).toEqual({ status: 'committed', revision: null });
+        expect(doc.state()).toMatchObject({ current: null, history: [{ id: 2 }], dirty: false });
+        await doc.restore(null, 2);
+        expect(await currentText(doc)).toBe('v2');
+
+        await writeFile(destination, 'changed elsewhere');
+        expect(await doc.restore(2, 1)).toEqual({ status: 'conflict' });
+        expect(await currentText(doc)).toBe('v2');
     });
 
     it('appends after an undo into a new file, so the redo revision keeps its bytes', async () => {
         const doc = await create(store(), { ext: 'pdf', source: new Blob(['base']) });
         await doc.mutate(1, append('+1'));
-        await doc.restore(1);
+        await doc.restore(2, 1);
         expect(await doc.mutate(1, append('+2'))).toMatchObject({ revision: { id: 3, file: 'r3.pdf' } });
         await doc.close();
 
         const reopened = await open(store(), doc.id);
         expect(await currentText(reopened)).toBe('base+2');
-        await reopened.restore(2);
-        expect(await currentText(reopened)).toBe('base+1');
+        await reopened.restore(3, 1);
+        expect(await currentText(reopened)).toBe('base');
     });
 });
 
@@ -256,6 +288,30 @@ describe('recovery after a crash', () => {
         await reopened.mutate(2, append('+more'));
         expect(reopened.state().drafts).toBeUndefined();
         expect((await readdir(docDir(doc))).sort()).toEqual(['manifest.json', 'r1.pdf']);
+    });
+
+    it.each([
+        ['before', false, 'three', ['manifest.json', 'r1.pdf', 'r2.pdf', 'r3.pdf']],
+        ['right after', true, 'one', ['manifest.json', 'r1.pdf', 'r3.pdf']],
+    ])('leaves the old or the restored revision when an undo crashes %s its manifest replace', async (_label, afterReplace, text, files) => {
+        const doc = await create(store(), { ext: 'pdf', source: new Blob(['one']) });
+        await doc.mutate(1, rewrite('two'));
+        await doc.retain([1]);
+        await doc.mutate(2, rewrite('three'));
+        let replaced = false;
+        await crashDuring(doc, (operation, target) => {
+            const manifest = operation === 'writeAtomic' && target.endsWith('manifest.json');
+            if (!afterReplace || replaced) return manifest || replaced;
+            replaced = manifest;
+            return false;
+        }, async crashed => {
+            await crashed.restore(3, 1);
+            await crashed.setDrafts(1, { note: 'lost' });
+        });
+
+        const reopened = await open(store(), doc.id);
+        expect(await currentText(reopened)).toBe(text);
+        expect((await readdir(docDir(doc))).sort()).toEqual(files);
     });
 
     it.each([
@@ -345,9 +401,9 @@ describe('save', () => {
         expect(doc.state()).toMatchObject({ drafts: undefined, dirty: false });
         expect(await saveDocument(doc, { expected: 2 })).toMatchObject({ status: 'saved' });
 
-        await doc.restore(1);
+        await doc.restore(2, 1);
         expect(doc.state().dirty).toBe(true);
-        await doc.restore(2);
+        await doc.restore(1, 2);
         expect(doc.state().dirty).toBe(false);
     });
 
@@ -396,7 +452,7 @@ describe('fork', () => {
         const source = await create(store(), { ext: 'pdf', destination });
         await source.mutate(null, append('+a'));
         await source.mutate(2, append('+redo'));
-        await source.restore(2);
+        await source.restore(3, 2);
         await source.setDrafts(2, { note: 'unsaved' });
 
         const fork = keep(await forkDocument(store(), source.id));

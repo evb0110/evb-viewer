@@ -35,67 +35,62 @@ import {
     createDocumentHistory,
     type IPdfLoadedState,
 } from '@app/modules/workspace-shell/composables/document-session/createDocumentHistory';
-import {
-    createMissingRevisionError,
-    createStaleRevisionError,
-} from '@contracts/documentMutationErrors';
+import {createStaleRevisionError} from '@contracts/documentMutationErrors';
 import { requireDocumentRef } from '@contracts/documentRef';
 import type { TDocumentRef } from '@contracts/documentRef';
 import { requireEpochMs } from '@contracts/timestamps';
-import {requireDocumentRevisionToken} from '@contracts/documentRevision';
+import {
+    requireDocumentRevisionToken,
+    type TDocumentRevisionToken,
+} from '@contracts/documentRevision';
 
+const revisionToken = (name: string) => requireDocumentRevisionToken(name);
+
+/** A working copy whose revisions undo restores; `mutate` is a page operation that makes the next one. */
 function createHistoryHarness(isDesktopRuntime = false) {
     const state = createDocumentSessionState({
             isDesktopRuntime: ref(isDesktopRuntime),
             document: createWorkspaceDocumentController({tabId: 'tab-1'}),
         });
-    state.workingCopyPath.value = requireDocumentRef('/tmp/work.pdf');
+    const work = requireDocumentRef('/tmp/work.pdf');
+    state.workingCopyPath.value = work;
     state.originalPath.value = requireDocumentRef('/tmp/original.pdf');
-    state.documentRevisionToken.value = requireDocumentRevisionToken('revision-before-restore');
-
-    const documentFiles = {
-        writeFile: vi.fn(async (_path: TDocumentRef, _data: Uint8Array) => true),
-        getDocumentRevision: vi.fn(async () => ({
-            version: 1 as const,
-            documentRef: requireDocumentRef('/tmp/history.pdf'),
-            token: requireDocumentRevisionToken('revision-before-restore'),
-            contentRevision: 1,
-            authority: 'electron-working-copy' as const,
-            mintedAt: requireEpochMs(1),
-        })),
-        statFile: vi.fn(async () => ({size: 1})),
-        savePdfData: vi.fn(async () => ({
-            isValid: true,
-            tool: 'qpdf' as const,
-            errors: [],
-            warnings: [],
-        })),
-    };
+    state.documentRevisionToken.value = revisionToken('revision-1');
+    let serial = 1;
+    const revisionInfo = () => ({
+        version: 1 as const,
+        documentRef: work,
+        token: state.documentRevisionToken.value!,
+        contentRevision: serial,
+        authority: 'electron-working-copy' as const,
+        mintedAt: requireEpochMs(1),
+    });
+    const documentFiles = {getDocumentRevision: vi.fn(async () => revisionInfo())};
     const documentWorkingCopy = {
         cleanupFile: vi.fn(async () => undefined),
-        createWorkingCopyFromData: vi.fn(async () => requireDocumentRef('/tmp/history.pdf')),
-        createWorkingCopyFromPath: vi.fn(async () => requireDocumentRef('/tmp/history.pdf')),
+        restoreDocumentRevision: vi.fn(async (_path: TDocumentRef, revision: TDocumentRevisionToken) => {
+            state.documentRevisionToken.value = revision;
+            return revisionInfo();
+        }),
+        retainDocumentRevisions: vi.fn(async (_path: TDocumentRef, _revisions: TDocumentRevisionToken[]) => undefined),
     };
     const applyLoadedPdfState = vi.fn(async () => undefined);
 
     const history = createDocumentHistory(state, {
         applyLoadedPdfState,
-        clearPdfConformanceProfile: vi.fn(),
         clearOcrCache: vi.fn(),
-        deferPdfConformanceProfile: vi.fn(),
         documentFiles: () => documentFiles,
         documentWorkingCopy: () => documentWorkingCopy,
         getOpenEpoch: () => 1,
         isCurrentOpenEpoch: () => true,
         readPdfStateFromPath: vi.fn(async (): Promise<IPdfLoadedState> => ({
-            pdfData: new Uint8Array([3]),
+            pdfData: null,
             pdfSrc: {
                 kind: 'path',
-                path: requireDocumentRef('/tmp/history.pdf'),
+                path: work,
                 size: 1,
             },
         })),
-        toPdfBlob: vi.fn(() => new Blob()),
     });
 
     const ledger = useWorkspaceCommandLedger();
@@ -104,10 +99,18 @@ function createHistoryHarness(isDesktopRuntime = false) {
         reset: ledger.resetSource,
         forget: ledger.forgetSourceEntries,
     });
+    const mutate = async () => {
+        await history.ensureHistoryBaselineForMutation();
+        state.documentRevisionToken.value = revisionToken(`revision-${++serial}`);
+        return history.reloadWorkingCopyIntoHistory();
+    };
+    const retained = () => [...documentWorkingCopy.retainDocumentRevisions.mock.lastCall?.[1] ?? []].sort();
     return {
         applyLoadedPdfState,
         documentFiles,
         documentWorkingCopy,
+        mutate,
+        retained,
         history: {
             ...history,
             undo: ledger.undoTimeline,
@@ -122,6 +125,7 @@ function createHistoryHarness(isDesktopRuntime = false) {
             } : null),
         },
         state,
+        work,
     };
 }
 
@@ -139,56 +143,56 @@ function createContentHistoryHarness(pathHistory: boolean, beforeRevisionPrepare
     state.workingCopyPath.value = work;
     state.originalPath.value = requireDocumentRef('/tmp/content-original.pdf');
     const encode = (pages: string[]) => new TextEncoder().encode(JSON.stringify(pages));
-    const storage = new Map<TDocumentRef, Uint8Array>([[
-        work,
-        encode([
-            'A',
-            'B',
-            'C',
-        ]),
-    ]]);
+    // The working copy's revisions: a write makes the next one, and only the ones history retains survive.
     let serial = 0;
     let revisionNumber = 1;
+    const tokenOf = (number: number) => requireDocumentRevisionToken(`content-revision-${number}`);
+    let current = tokenOf(1);
+    const revisions = new Map([[current, encode([
+        'A',
+        'B',
+        'C',
+    ])]]);
+    const storage = {
+        get: (_path: TDocumentRef) => revisions.get(current),
+        set: (_path: TDocumentRef, bytes: Uint8Array) => {
+            current = tokenOf(++revisionNumber);
+            revisions.set(current, bytes.slice());
+        },
+    };
     const size = pathHistory ? 64 * 1024 * 1024 : 16;
     const revision = (path: TDocumentRef) => ({
         version: 1 as const,
         documentRef: path,
-        token: requireDocumentRevisionToken(`content-revision-${revisionNumber}`),
+        token: current,
         contentRevision: revisionNumber,
         authority: 'electron-working-copy' as const,
         mintedAt: requireEpochMs(1),
     });
-    state.documentRevisionToken.value = revision(work).token;
+    state.documentRevisionToken.value = current;
     const files = {
         writeFile: vi.fn(async (path: TDocumentRef, bytes: Uint8Array) => {
-            storage.set(path, bytes.slice());
-            revisionNumber++;
+            storage.set(path, bytes);
             return true;
         }),
         getDocumentRevision: async (path: TDocumentRef) => revision(path),
         statFile: async () => ({size}),
-        savePdfData: async () => ({
-            isValid: true,
-            tool: 'qpdf' as const,
-            errors: [],
-            warnings: [],
-        }),
     };
     setBrowserPlatformApi(createPlatformApiFixture({
         backend: 'browser',
         overrides: {documentFiles: files},
     }));
     const workingCopies = {
-        cleanupFile: async (path: TDocumentRef) => {storage.delete(path);},
-        createWorkingCopyFromPath: async (path: TDocumentRef) => {
-            const next = requireDocumentRef(`/tmp/content-copy-${++serial}.pdf`);
-            storage.set(next, storage.get(path)!.slice());
-            return next;
+        cleanupFile: async () => undefined,
+        restoreDocumentRevision: async (path: TDocumentRef, token: TDocumentRevisionToken) => {
+            if (!revisions.has(token)) throw new Error(`Revision ${token} was not retained`);
+            current = token;
+            return revision(path);
         },
-        createWorkingCopyFromData: async (_name: string, bytes: Uint8Array) => {
-            const next = requireDocumentRef(`/tmp/content-copy-${++serial}.pdf`);
-            storage.set(next, bytes.slice());
-            return next;
+        retainDocumentRevisions: async (_path: TDocumentRef, kept: TDocumentRevisionToken[]) => {
+            for (const token of revisions.keys()) {
+                if (token !== current && !kept.includes(token)) revisions.delete(token);
+            }
         },
     };
     const readState = async (path: TDocumentRef): Promise<IPdfLoadedState> => ({
@@ -258,11 +262,9 @@ function createContentHistoryHarness(pathHistory: boolean, beforeRevisionPrepare
         clearPdfConformanceProfile: () => undefined,
         deferPdfConformanceProfile: () => undefined,
         incrementSessionVersion: () => history.incrementSessionVersion(),
-        ensureHistoryBaselineForMutation: () => history.ensureHistoryBaselineForMutation(),
         loadEpoch: createEpochGuard(),
         openEpoch: createEpochGuard(),
-        pushHistorySnapshot: (...args) => history.pushHistorySnapshot(...args),
-        resetHistory: (...args) => history.resetHistory(...args),
+        resetHistory: options => history.resetHistory(options),
         syncDirtyFromHistory: () => history.syncDirtyFromHistory(),
         t: (key, ..._args) => String(key),
     });
@@ -272,15 +274,12 @@ function createContentHistoryHarness(pathHistory: boolean, beforeRevisionPrepare
         prepareHistoryRevisionSwap: (token, delta) => prepareDocumentViewsForHistorySwap(
             views, 3, token, delta,
         ),
-        clearPdfConformanceProfile: () => undefined,
         clearOcrCache: () => undefined,
-        deferPdfConformanceProfile: () => undefined,
         documentFiles: () => files,
         documentWorkingCopy: () => workingCopies,
         getOpenEpoch: () => 1,
         isCurrentOpenEpoch: () => true,
         readPdfStateFromPath: readState,
-        toPdfBlob: bytes => new Blob([bytes.slice()]),
     });
     const ledger = useWorkspaceCommandLedger();
     history.setWorkspaceCommandSink({
@@ -422,7 +421,9 @@ describe('createDocumentHistory', () => {
         h.history.incrementSessionVersion();
         release.resolve(undefined);
         await expect(undo).resolves.toBe(false);
-        expect(h.readViews()).toEqual(before);
+        // The working copy took the undo, which the next session reads; the replaced one keeps its views in place.
+        const places = (views: typeof before) => ({mounted: views.mounted.map(view => view.page), cold: views.cold.anchor});
+        expect(places(h.readViews())).toEqual(places(before));
         expect(h.state.pdfSrc.value).toBe(source);
         expect(h.history.canUndo.value).toBe(false);
     });
@@ -563,136 +564,10 @@ describe('createDocumentHistory', () => {
         expect(state.isDirty.value).toBe(true);
     });
 
-    it('keeps 2+ GiB desktop path history in managed files without a byte snapshot', async () => {
-        const {
-            documentFiles,
-            documentWorkingCopy,
-            history,
-            state,
-        } = createHistoryHarness(true);
-        const largeDocumentSize = (2 * 1024 * 1024 * 1024) + 1;
-        state.pdfSrc.value = {
-            kind: 'path',
-            path: requireDocumentRef('/tmp/work.pdf'),
-            size: largeDocumentSize,
-        };
-        state.pdfReloadSrc.value = state.pdfSrc.value;
-        documentWorkingCopy.createWorkingCopyFromPath
-            .mockResolvedValueOnce(requireDocumentRef('/tmp/large-history-baseline.pdf'))
-            .mockResolvedValueOnce(requireDocumentRef('/tmp/large-history-next.pdf'));
-
-        await expect(history.resetHistory(new Uint8Array([1]), {reuseSnapshot: true})).resolves.toBe(true);
-        await expect(history.pushHistorySnapshot(new Uint8Array([2]), {reuseSnapshot: true})).resolves.toBe(true);
-
-        expect(documentWorkingCopy.createWorkingCopyFromPath).toHaveBeenNthCalledWith(
-            1,
-            '/tmp/work.pdf',
-            '/tmp/original.pdf',
-        );
-        expect(documentWorkingCopy.createWorkingCopyFromPath).toHaveBeenNthCalledWith(
-            2,
-            '/tmp/work.pdf',
-            '/tmp/original.pdf',
-        );
-        expect(documentWorkingCopy.createWorkingCopyFromData).not.toHaveBeenCalled();
-        expect(documentFiles.savePdfData).not.toHaveBeenCalled();
-    });
-
-    it('cleans a canceled desktop path history clone', async () => {
-        const {
-            documentWorkingCopy,
-            history,
-            state,
-        } = createHistoryHarness(true);
-        state.pdfSrc.value = {
-            kind: 'path',
-            path: requireDocumentRef('/tmp/work.pdf'),
-            size: 2 * 1024 * 1024 * 1024,
-        };
-        const staging = Promise.withResolvers<TDocumentRef>();
-        documentWorkingCopy.createWorkingCopyFromPath.mockReturnValueOnce(staging.promise);
-        let isCurrent = true;
-
-        const reset = history.resetHistory(new Uint8Array([1]), {
-            reuseSnapshot: true,
-            isCurrent: () => isCurrent,
-        });
-        await vi.waitFor(() => {
-            expect(documentWorkingCopy.createWorkingCopyFromPath).toHaveBeenCalledOnce();
-        });
-        isCurrent = false;
-        staging.resolve(requireDocumentRef('/tmp/canceled-history.pdf'));
-
-        await expect(reset).resolves.toBe(false);
-        expect(documentWorkingCopy.cleanupFile).toHaveBeenCalledWith('/tmp/canceled-history.pdf');
-    });
-
-    it('cleans a failed desktop path checkpoint clone', async () => {
-        const {
-            documentFiles,
-            documentWorkingCopy,
-            history,
-        } = createHistoryHarness(true);
-        await history.resetHistory(new Uint8Array([1]), {reuseSnapshot: true});
-        await history.captureHistoryCleanState()();
-        documentWorkingCopy.createWorkingCopyFromPath.mockResolvedValueOnce(requireDocumentRef('/tmp/failed-history.pdf'));
-        documentFiles.getDocumentRevision
-            .mockResolvedValueOnce({
-                version: 1,
-                documentRef: requireDocumentRef('/tmp/work.pdf'),
-                token: requireDocumentRevisionToken('revision-before-restore'),
-                contentRevision: 1,
-                authority: 'electron-working-copy',
-                mintedAt: requireEpochMs(1),
-            })
-            .mockRejectedValueOnce(new Error('revision read failed'));
-
-        await expect(history.ensureHistoryBaselineForMutation()).resolves.toBe(false);
-        expect(documentWorkingCopy.cleanupFile).toHaveBeenCalledWith('/tmp/failed-history.pdf');
-    });
-
-    it('keeps every undo step of a browser document whose snapshots exceed the in-memory budget', async () => {
-        const {history} = createHistoryHarness(false);
-        const snapshot = (fill: number) => new Uint8Array(10 * 1024 * 1024).fill(fill);
-        await expect(history.resetHistory(snapshot(0), {reuseSnapshot: true})).resolves.toBe(true);
-        for (let step = 1; step <= 3; step += 1) {
-            await expect(history.pushHistorySnapshot(snapshot(step), {reuseSnapshot: true})).resolves.toBe(true);
-        }
-        for (let step = 0; step < 3; step += 1) {
-            await expect(history.undo()).resolves.toBe(true);
-        }
-        expect(history.canUndo.value).toBe(false);
-        expect(history.canRedo.value).toBe(true);
-    });
-
-    it('keeps document open viable when an oversized baseline cannot be staged', async () => {
-        const {
-            documentWorkingCopy,
-            history,
-        } = createHistoryHarness(true);
-        documentWorkingCopy.createWorkingCopyFromPath.mockRejectedValueOnce(new Error('staging failed'));
-
-        await expect(history.resetHistory(
-            new Uint8Array((16 * 1024 * 1024) + 1),
-            { reuseSnapshot: true },
-        )).resolves.toBe(true);
-
-    });
-
-    it('rejects oversized byte entries supplied through the public history entry API', () => {
-        const {history} = createHistoryHarness();
-
-        expect(history.pushHistoryEntry({
-            kind: 'bytes',
-            snapshot: new Uint8Array((16 * 1024 * 1024) + 1),
-        })).toBe(false);
-    });
-
     it('publishes file checkpoints directly to the workspace command sink', async () => {
-        const {history} = createHistoryHarness();
+        const {history, mutate} = createHistoryHarness();
         const registrations: Array<{
             source: string;
-            estimatedBytes?: number;
             undo: () => Promise<boolean>;
             cmd: () => Promise<boolean>;
         }> = [];
@@ -702,17 +577,11 @@ describe('createDocumentHistory', () => {
             reset,
             forget: vi.fn(),
         });
-        await history.resetHistory(new Uint8Array([1]), {reuseSnapshot: true});
-        await history.pushHistorySnapshot(new Uint8Array([
-            2,
-            3,
-        ]), {reuseSnapshot: true});
+        await history.resetHistory();
+        await mutate();
 
         expect(registrations).toHaveLength(1);
-        expect(registrations[0]).toMatchObject({
-            source: 'file',
-            estimatedBytes: 3,
-        });
+        expect(registrations[0]).toMatchObject({source: 'file'});
         await expect(registrations[0]?.undo()).resolves.toBe(true);
         await expect(registrations[0]?.cmd()).resolves.toBe(true);
 
@@ -720,367 +589,137 @@ describe('createDocumentHistory', () => {
         expect(reset).toHaveBeenLastCalledWith(undefined);
     });
 
-    it('keeps the undo cursor unchanged when restoring bytes fails', async () => {
+    it('undoes and redoes by restoring revisions of the same working copy, with no copy', async () => {
         const {
-            documentFiles,
-            history,
-        } = createHistoryHarness();
-
-        await history.resetHistory(new Uint8Array([1]), { reuseSnapshot: true });
-        await history.pushHistorySnapshot(new Uint8Array([2]), { reuseSnapshot: true });
-
-        documentFiles.writeFile.mockRejectedValueOnce(new Error('write failed'));
-
-        await expect(history.undo()).rejects.toThrow('write failed');
-    });
-
-    it('restores byte history with the current document revision token', async () => {
-        const {
-            documentFiles,
-            history,
-        } = createHistoryHarness();
-
-        await history.resetHistory(new Uint8Array([1]), { reuseSnapshot: true });
-        await history.pushHistorySnapshot(new Uint8Array([2]), { reuseSnapshot: true });
-
-        await expect(history.undo()).resolves.toBe(true);
-
-        expect(documentFiles.writeFile).toHaveBeenCalledWith(
-            '/tmp/work.pdf',
-            new Uint8Array([1]),
-            { expectedDocumentRevisionToken: requireDocumentRevisionToken('revision-before-restore') },
-        );
-    });
-
-    it('restores byte-identical checkpoints through an undo and redo round trip', async () => {
-        const {
-            documentFiles,
-            history,
-            state,
-        } = createHistoryHarness();
-        const before = new Uint8Array([
-            37,
-            80,
-            68,
-            70,
-            45,
-            49,
-            46,
-            55,
-            10,
-            1,
-            2,
-            3,
-        ]);
-        const after = new Uint8Array([
-            37,
-            80,
-            68,
-            70,
-            45,
-            49,
-            46,
-            55,
-            10,
-            9,
-            8,
-            7,
-        ]);
-        await history.resetHistory(before, {reuseSnapshot: true});
-        await history.pushHistorySnapshot(after, {reuseSnapshot: true});
-
-        await expect(history.undo()).resolves.toBe(true);
-        expect(documentFiles.writeFile).toHaveBeenLastCalledWith(
-            '/tmp/work.pdf',
-            before,
-            {expectedDocumentRevisionToken: requireDocumentRevisionToken('revision-before-restore')},
-        );
-        expect(state.pdfData.value).toEqual(before);
-
-        await expect(history.redo()).resolves.toBe(true);
-        expect(documentFiles.writeFile).toHaveBeenLastCalledWith(
-            '/tmp/work.pdf',
-            after,
-            {expectedDocumentRevisionToken: requireDocumentRevisionToken('revision-before-restore')},
-        );
-        expect(state.pdfData.value).toEqual(after);
-    });
-
-    it('propagates missing revision rejection when byte history restore has no token', async () => {
-        const {
-            documentFiles,
-            history,
-            state,
-        } = createHistoryHarness();
-        state.documentRevisionToken.value = null;
-
-        await history.resetHistory(new Uint8Array([1]), { reuseSnapshot: true });
-        await history.pushHistorySnapshot(new Uint8Array([2]), { reuseSnapshot: true });
-        documentFiles.writeFile.mockRejectedValueOnce(createMissingRevisionError({documentRef: requireDocumentRef('/tmp/work.pdf')}));
-
-        await expect(history.undo()).rejects.toMatchObject({ code: 'MISSING_REVISION' });
-        expect(documentFiles.writeFile).toHaveBeenCalledWith(
-            '/tmp/work.pdf',
-            new Uint8Array([1]),
-            undefined,
-        );
-    });
-
-    it('propagates stale revision rejection when byte history restore uses an old token', async () => {
-        const {
-            documentFiles,
-            history,
-        } = createHistoryHarness();
-
-        await history.resetHistory(new Uint8Array([1]), { reuseSnapshot: true });
-        await history.pushHistorySnapshot(new Uint8Array([2]), { reuseSnapshot: true });
-        documentFiles.writeFile.mockRejectedValueOnce(createStaleRevisionError({
-            documentRef: requireDocumentRef('/tmp/work.pdf'),
-            expectedRevision: requireDocumentRevisionToken('revision-before-restore'),
-            actualRevision: requireDocumentRevisionToken('revision-after-edit'),
-        }));
-
-        await expect(history.undo()).rejects.toMatchObject({ code: 'STALE_REVISION' });
-        expect(documentFiles.writeFile).toHaveBeenCalledWith(
-            '/tmp/work.pdf',
-            new Uint8Array([1]),
-            { expectedDocumentRevisionToken: requireDocumentRevisionToken('revision-before-restore') },
-        );
-    });
-
-    it('restores path-backed external mutations to the clean baseline on undo', async () => {
-        const state = createDocumentSessionState({
-            isDesktopRuntime: ref(true),
-            document: createWorkspaceDocumentController({tabId: 'tab-1'}),
-        });
-        state.workingCopyPath.value = requireDocumentRef('/tmp/work.pdf');
-        state.originalPath.value = requireDocumentRef('/tmp/original.pdf');
-        state.documentRevisionToken.value = requireDocumentRevisionToken('revision-before-restore');
-
-        const createWorkingCopyFromPath = vi.fn()
-            .mockResolvedValueOnce(requireDocumentRef('/tmp/history-baseline.pdf'))
-            .mockResolvedValueOnce(requireDocumentRef('/tmp/history-ocr.pdf'))
-            .mockResolvedValueOnce(requireDocumentRef('/tmp/restored-work.pdf'));
-        const readPdfStateFromPath = vi.fn(async (path: TDocumentRef): Promise<IPdfLoadedState> => ({
-            pdfData: null,
-            pdfSrc: {
-                kind: 'path',
-                path,
-                size: 64 * 1024 * 1024,
-            },
-        }));
-        const applyLoadedPdfState = vi.fn(async () => true);
-        const register = vi.fn();
-        const history = createDocumentHistory(state, {
-            applyLoadedPdfState,
-            clearPdfConformanceProfile: vi.fn(),
-            clearOcrCache: vi.fn(),
-            deferPdfConformanceProfile: vi.fn(),
-            documentFiles: () => ({
-                writeFile: vi.fn(async () => true),
-                getDocumentRevision: vi.fn(async () => ({
-                    version: 1 as const,
-                    documentRef: requireDocumentRef('/tmp/history.pdf'),
-                    token: requireDocumentRevisionToken('revision-before-restore'),
-                    contentRevision: 1,
-                    authority: 'electron-working-copy' as const,
-                    mintedAt: requireEpochMs(1),
-                })),
-                statFile: vi.fn(async () => ({size: 64 * 1024 * 1024})),
-                savePdfData: vi.fn(async () => ({
-                    isValid: true,
-                    tool: 'qpdf' as const,
-                    errors: [],
-                    warnings: [],
-                })),
-            }),
-            documentWorkingCopy: () => ({
-                cleanupFile: vi.fn(async () => undefined),
-                createWorkingCopyFromData: vi.fn(async () => requireDocumentRef('/tmp/unused-data-history.pdf')),
-                createWorkingCopyFromPath,
-            }),
-            getOpenEpoch: () => 1,
-            isCurrentOpenEpoch: () => true,
-            readPdfStateFromPath,
-            toPdfBlob: vi.fn(() => new Blob()),
-        });
-        const ledger = useWorkspaceCommandLedger();
-        history.setWorkspaceCommandSink({
-            register: command => {ledger.registerCommand(command); register(command);},
-            reset: vi.fn(),
-            forget: vi.fn(),
-        });
-
-        await expect(history.ensureHistoryBaselineForMutation()).resolves.toBe(true);
-        await expect(history.reloadWorkingCopyIntoHistory()).resolves.toBe(true);
-
-        expect(register).toHaveBeenCalledOnce();
-        expect(register.mock.calls[0]?.[0]).toMatchObject({source: 'file'});
-        expect(register.mock.calls[0]?.[0].estimatedBytes).toBe(0);
-        expect(ledger.canUndoTimeline.value).toBe(true);
+            applyLoadedPdfState, documentWorkingCopy, history, mutate, state, work,
+        } = createHistoryHarness(true);
+        await history.resetHistory();
+        await mutate();
         expect(state.isDirty.value).toBe(true);
 
-        await expect(ledger.undoTimeline()).resolves.toBe(true);
-
+        await expect(history.undo()).resolves.toBe(true);
+        expect(documentWorkingCopy.restoreDocumentRevision).toHaveBeenLastCalledWith(work, revisionToken('revision-1'), {
+            expectedDocumentRevisionToken: revisionToken('revision-2'),
+        });
+        expect(applyLoadedPdfState).toHaveBeenLastCalledWith(work, expect.anything(), expect.objectContaining({preserveHistory: true}));
+        expect(applyLoadedPdfState.mock.lastCall).not.toContainEqual(expect.objectContaining({previousPath: expect.anything()}));
         expect(state.isDirty.value).toBe(false);
-        expect(createWorkingCopyFromPath).toHaveBeenNthCalledWith(
-            1,
-            '/tmp/work.pdf',
-            '/tmp/original.pdf',
-        );
-        expect(createWorkingCopyFromPath).toHaveBeenNthCalledWith(
-            3,
-            '/tmp/history-baseline.pdf',
-            '/tmp/original.pdf',
-        );
-        expect(applyLoadedPdfState).toHaveBeenCalledWith(
-            '/tmp/restored-work.pdf',
-            {
-                pdfData: null,
-                pdfSrc: {
-                    kind: 'path',
-                    path: requireDocumentRef('/tmp/restored-work.pdf'),
-                    size: 64 * 1024 * 1024,
-                },
-            },
-            expect.objectContaining({
-                preserveHistory: true,
-                previousPath: '/tmp/work.pdf',
-            }),
-        );
+
+        await expect(history.redo()).resolves.toBe(true);
+        expect(documentWorkingCopy.restoreDocumentRevision).toHaveBeenLastCalledWith(work, revisionToken('revision-2'), {
+            expectedDocumentRevisionToken: revisionToken('revision-1'),
+        });
+        expect(state.workingCopyPath.value).toBe(work);
+        expect(state.isDirty.value).toBe(true);
+    });
+
+    it('retains exactly the revisions history names: a new edit after an undo and the history limit let go', async () => {
+        const {history, mutate, retained} = createHistoryHarness(true);
+        await history.resetHistory();
+        await mutate();
+        await mutate();
+        expect(retained()).toEqual(['revision-1', 'revision-2', 'revision-3']);
+
+        await expect(history.undo()).resolves.toBe(true);
+        await mutate();
+        expect(history.canRedo.value).toBe(false);
+        expect(retained()).toEqual(['revision-1', 'revision-2', 'revision-4']);
+
+        for (let step = 0; step < 20; step += 1) await mutate();
+        expect(retained()).toHaveLength(20);
+        expect(retained()).not.toContain('revision-1');
+
+        history.clearHistory();
+        expect(retained()).toEqual([]);
+    });
+
+    it('propagates a refused restore', async () => {
+        const {documentWorkingCopy, history, mutate} = createHistoryHarness();
+        await history.resetHistory();
+        await mutate();
+        documentWorkingCopy.restoreDocumentRevision.mockRejectedValueOnce(createStaleRevisionError({
+            documentRef: requireDocumentRef('/tmp/work.pdf'),
+            expectedRevision: revisionToken('revision-2'),
+            actualRevision: revisionToken('revision-after-edit'),
+        }));
+
+        await expect(history.undo()).rejects.toMatchObject({code: 'STALE_REVISION'});
     });
 
     it('shares first-mutation staging and records one baseline plus the result', async () => {
-        const {
-            applyLoadedPdfState,
-            documentWorkingCopy,
-            history,
-        } = createHistoryHarness(true);
-        const staging = Promise.withResolvers<TDocumentRef>();
-        documentWorkingCopy.createWorkingCopyFromPath.mockReturnValue(staging.promise);
-
+        const {documentFiles, history, mutate} = createHistoryHarness(true);
         const first = history.ensureHistoryBaselineForMutation();
         const second = history.ensureHistoryBaselineForMutation();
-        await vi.waitFor(() => {
-            expect(documentWorkingCopy.createWorkingCopyFromPath).toHaveBeenCalledOnce();
-        });
+        await expect(Promise.all([first, second])).resolves.toEqual([true, true]);
+        expect(documentFiles.getDocumentRevision).toHaveBeenCalledOnce();
 
-        staging.resolve(requireDocumentRef('/tmp/first-mutation-baseline.pdf'));
-        await expect(Promise.all([
-            first,
-            second,
-        ])).resolves.toEqual([
-            true,
-            true,
-        ]);
-        await history.pushHistorySnapshot(new Uint8Array([2]), {reuseSnapshot: true});
-
-        expect(history.canUndo.value).toBe(true);
-
+        await mutate();
         await expect(history.undo()).resolves.toBe(true);
-        expect(applyLoadedPdfState).toHaveBeenCalledWith(
-            '/tmp/first-mutation-baseline.pdf',
-            expect.objectContaining({pdfData: new Uint8Array([3])}),
-            expect.objectContaining({
-                preserveHistory: true,
-                previousPath: '/tmp/work.pdf',
-            }),
-        );
+        expect(history.canUndo.value).toBe(false);
     });
 
-    it('cleans first-mutation staging when the document switches', async () => {
-        const {
-            documentWorkingCopy,
-            history,
-            state,
-        } = createHistoryHarness(true);
-        const staging = Promise.withResolvers<TDocumentRef>();
-        documentWorkingCopy.createWorkingCopyFromPath.mockReturnValue(staging.promise);
+    it('refuses first-mutation staging when the document switches meanwhile', async () => {
+        const {documentFiles, history, state} = createHistoryHarness(true);
+        const revision = Promise.withResolvers<Awaited<ReturnType<typeof documentFiles.getDocumentRevision>>>();
+        const info = await documentFiles.getDocumentRevision();
+        documentFiles.getDocumentRevision.mockReturnValueOnce(revision.promise);
 
         const baseline = history.ensureHistoryBaselineForMutation();
-        await vi.waitFor(() => {
-            expect(documentWorkingCopy.createWorkingCopyFromPath).toHaveBeenCalledOnce();
-        });
         state.workingCopyPath.value = requireDocumentRef('/tmp/next.pdf');
         history.incrementSessionVersion();
-        staging.resolve(requireDocumentRef('/tmp/stale-mutation-baseline.pdf'));
+        revision.resolve(info);
 
         await expect(baseline).resolves.toBe(false);
-        expect(documentWorkingCopy.cleanupFile).toHaveBeenCalledWith('/tmp/stale-mutation-baseline.pdf');
     });
 
-    it('stages saved bytes before the next external mutation without adding file undo', async () => {
-        const {
-            documentFiles,
-            documentWorkingCopy,
-            history,
-            state,
-        } = createHistoryHarness(true);
-        const revision = requireDocumentRevisionToken('lazy-history-revision');
-        state.documentRevisionToken.value = revision;
-        documentFiles.getDocumentRevision.mockResolvedValue({
-            version: 1,
-            documentRef: requireDocumentRef('/tmp/work.pdf'),
-            token: revision,
-            contentRevision: 2,
-            authority: 'electron-working-copy',
-            mintedAt: requireEpochMs(2),
-        });
+    it('stages the saved revision before the next mutation without adding file undo', async () => {
+        const {history, retained} = createHistoryHarness(true);
         const register = vi.fn();
         history.setWorkspaceCommandSink({
             register,
             reset: vi.fn(),
             forget: vi.fn(),
         });
-        await history.resetHistory(new Uint8Array([1]), {reuseSnapshot: true});
+        await history.resetHistory();
         await history.captureHistoryCleanState()();
 
         await expect(history.ensureHistoryBaselineForMutation()).resolves.toBe(true);
 
-        expect(documentFiles.getDocumentRevision).toHaveBeenCalledTimes(2);
-        expect(documentWorkingCopy.createWorkingCopyFromPath).toHaveBeenCalledWith(
-            '/tmp/work.pdf',
-            '/tmp/original.pdf',
-        );
+        expect(retained()).toEqual(['revision-1']);
         expect(register).not.toHaveBeenCalled();
     });
 
     it('refuses to stage a checkpoint after its working-copy revision changes', async () => {
         const {
             documentFiles,
-            documentWorkingCopy,
             history,
             state,
         } = createHistoryHarness(true);
-        const baselineRevision = requireDocumentRevisionToken('lazy-history-before');
-        state.documentRevisionToken.value = baselineRevision;
+        state.documentRevisionToken.value = revisionToken('lazy-history-before');
         await history.captureHistoryCleanState()();
         documentFiles.getDocumentRevision.mockResolvedValue({
             version: 1,
             documentRef: requireDocumentRef('/tmp/work.pdf'),
-            token: requireDocumentRevisionToken('lazy-history-after'),
+            token: revisionToken('lazy-history-after'),
             contentRevision: 3,
             authority: 'electron-working-copy',
             mintedAt: requireEpochMs(3),
         });
 
         await expect(history.ensureHistoryBaselineForMutation()).resolves.toBe(false);
-
-        expect(documentWorkingCopy.createWorkingCopyFromPath).not.toHaveBeenCalled();
     });
 
-    it('keeps immutable redo bytes after an annotation-only lazy Save', async () => {
+    it('keeps redo after an annotation-only Save', async () => {
         const {
-            documentFiles, documentWorkingCopy, history, state,
+            documentWorkingCopy, history, mutate, state,
         } = createHistoryHarness(true);
-        await history.resetHistory(new Uint8Array([1]));
-        await history.pushHistorySnapshot(new Uint8Array([2]));
+        await history.resetHistory();
+        await mutate();
         await history.captureHistoryCleanState()();
         await expect(history.undo()).resolves.toBe(true);
-        expect(Array.from(documentFiles.writeFile.mock.calls[0]![1])).toEqual([1]);
+        expect(documentWorkingCopy.restoreDocumentRevision).toHaveBeenLastCalledWith(expect.anything(), revisionToken('revision-1'), expect.anything());
         await expect(history.redo()).resolves.toBe(true);
-        expect(Array.from(documentFiles.writeFile.mock.calls[1]![1])).toEqual([2]);
-        expect(documentWorkingCopy.createWorkingCopyFromPath).not.toHaveBeenCalled();
+        expect(documentWorkingCopy.restoreDocumentRevision).toHaveBeenLastCalledWith(expect.anything(), revisionToken('revision-2'), expect.anything());
         expect(state.isDirty.value).toBe(false);
     });
 });
@@ -1197,7 +836,7 @@ describe.each([
         expect(h.state.isDirty.value).toBe(true);
         const stale = h.history.captureHistoryCleanState();
         h.history.incrementSessionVersion();
-        await h.history.resetHistory(null);
+        await h.history.resetHistory();
         h.state.recoveryDirtyBaseline.value = true;
         await stale();
         h.history.syncDirtyFromHistory();

@@ -654,6 +654,12 @@ export function createBrowserDocumentsFileCapability(
             }
             return result;
         },
+        restoreDocumentRevision(path, revision, options) {
+            return browserDocumentStore.restoreRevision(path, revision, options?.expectedDocumentRevisionToken);
+        },
+        retainDocumentRevisions(path, revisions) {
+            return browserDocumentStore.retainRevisions(path, revisions);
+        },
         async cleanupFile(path) {
             await closeBrowserWorkingCopyWork(path);
             const sourceRef = await browserDocumentStore.getSourceRef(path).catch(() => path);

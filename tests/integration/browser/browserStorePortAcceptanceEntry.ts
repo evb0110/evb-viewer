@@ -80,7 +80,7 @@ async function portBasics() {
 /** The core's recovery over the port: an unfinished append is cut and unnamed files go; drafts stay. */
 async function coreRecovery() {
     const port = openPort();
-    const store: IDocumentStore = {port, publication, historyBudget: 0};
+    const store: IDocumentStore = {port, publication};
     const original = Uint8Array.from({length: 200_000}, (_, index) => index % 251);
     const tail = encoder.encode('%appended edit\n');
     const doc = await createDocument(store, {ext: 'pdf', source: new Blob([original]), imported: true});

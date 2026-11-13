@@ -745,6 +745,13 @@ export interface IDocumentsFileCapability {
         path: TDocumentRef,
         options?: TPlatformPdfPathValidationOptions,
     ) => Promise<IPdfValidationResult>;
+    /**
+     * Undo or redo: makes `revision`, one the document keeps for its undo history, current again. Nothing is
+     * copied; the document stays the same document.
+     */
+    restoreDocumentRevision: (path: TDocumentRef, revision: TDocumentRevisionToken, options?: IDocumentMutationRevisionOptions) => Promise<IDocumentRevisionInfo>;
+    /** The revisions the undo history names; the document keeps those and lets the others go. */
+    retainDocumentRevisions: (path: TDocumentRef, revisions: TDocumentRevisionToken[]) => Promise<void>;
     cleanupFile: (path: TDocumentRef) => Promise<void>;
     setWindowTitle: (title: string) => Promise<void>;
     showItemInFolder: (path: TDocumentRef) => Promise<boolean>;
@@ -813,6 +820,8 @@ export interface IDocumentsWorkingCopyCapability extends Pick<
     | 'createWorkingCopyFromData'
     | 'createWorkingCopyFromPath'
     | 'parsePdfAnnotations'
+    | 'restoreDocumentRevision'
+    | 'retainDocumentRevisions'
     | 'cleanupFile'
 > {recovery?: {
     /** Copies `from` into a durable recovery document, chunk by chunk. */

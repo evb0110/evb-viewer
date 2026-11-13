@@ -209,6 +209,15 @@ const writeFileArgs = v.strictTuple([
     uint8ArraySchema,
     optionalRevisionOptionsSchema,
 ]);
+const restoreDocumentRevisionArgs = v.strictTuple([
+    documentRefSchema,
+    documentRevisionTokenSchema,
+    optionalRevisionOptionsSchema,
+]);
+const retainDocumentRevisionsArgs = v.strictTuple([
+    documentRefSchema,
+    v.pipe(v.array(documentRevisionTokenSchema), v.maxLength(256)),
+]);
 const replaceWorkingCopyArgs = v.strictTuple([
     documentRefSchema,
     documentRefSchema,
@@ -561,6 +570,8 @@ export {
     repairPdfArgs,
     replaceWorkingCopyArgs,
     replaceWorkingCopyFromStagedNativeMutationArgs,
+    restoreDocumentRevisionArgs,
+    retainDocumentRevisionsArgs,
     revisionResult,
     saveFileStructuredArgs,
     savePdfAsArgs,

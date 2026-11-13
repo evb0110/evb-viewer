@@ -246,7 +246,8 @@ describe('desktop document store', () => {
         // The first rewrite read the person's file itself; the second read the revision the first wrote.
         expect(inputs[0]).toBe(pdf);
         expect(dirname(inputs[1]!)).toBe(dirname(entry.ref));
-        expect((await readdir(dirname(entry.ref))).filter(name => name.startsWith('r'))).toHaveLength(1);
+        // The current revision and the one it replaced, kept for its undo; nothing else is copied or kept.
+        expect((await readdir(dirname(entry.ref))).filter(name => name.startsWith('r')).sort()).toEqual(['r2.pdf', 'r3.pdf']);
         expect(await readFile(pdf)).toEqual(Buffer.from(ORIGINAL));
     });
 
