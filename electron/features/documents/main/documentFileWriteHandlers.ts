@@ -1,40 +1,32 @@
 import {
     basename,
+    dirname,
     extname,
+    join,
 } from 'path';
-import { createHash } from 'node:crypto';
+import {
+    createHash,
+    randomUUID,
+} from 'node:crypto';
 import {createReadStream} from 'node:fs';
 import { pipeline } from 'node:stream/promises';
 import { unlink } from 'node:fs/promises';
 import {requireDocumentRef} from '@contracts/documentRef';
-import {
-    resolveAllowedReadPath,
-    resolveAllowedWritePath,
-} from '@electron/utils/pathValidator';
+import {resolveAllowedReadPath} from '@electron/utils/pathValidator';
 import { enqueueWorkingCopyMutation } from '@electron/file-access/workingCopyMutationQueue';
-import {ensureWorkingCopyMaterialized} from '@electron/file-access/workingCopyMaterialization';
 import type { IDocumentMutationRevisionOptions } from '@contracts/electronApiDocuments';
-import {transitionWorkingCopyContentRevision} from '@electron/file-access/documentRevisionStore';
 import {
     assertQueuedWorkingCopyMutationPreconditions,
+    commitDocumentMutation,
     normalizeExpectedDocumentRevisionToken,
-} from '@electron/file-access/documentMutationGuards';
+    requireOpenDocument,
+} from '@electron/file-access/documentStore';
 import {
-    copyFileAtomic,
     normalizeIpcWritePayload,
     writeFileAtomic,
 } from '@electron/file-access/documentFileWriteAtomic';
-import {
-    atomicReplace,
-    makeSiblingTempPath,
-} from '@electron/utils/atomicReplace';
 import {validatePdfFile} from '@electron/features/documents/main/pdfConformance';
 import { normalizeNonEmptyPath } from '@electron/features/documents/main/documentFilePathResolution';
-import {
-    getWorkingCopyOriginalPath,
-    refreshWorkingCopyOriginalFileExpectation,
-} from '@electron/file-access/workingCopyStore';
-import { originalPathSaveBaseMatches } from '@electron/file-access/originalPathSaveWitness';
 import { findOcrResultForDocument } from '@electron/features/ocr/public/index';
 import type { IDocumentsSenderIdContext } from '@electron/features/documents/documentsContexts';
 
@@ -61,18 +53,6 @@ function assertOcrPdfResultSourcePath(resolvedPath: string) {
     }
 }
 
-async function shouldRefreshOriginalSaveBaseAfterWorkingCopyReplacement(
-    workingCopyPath: string,
-    senderWebContentsId: number,
-) {
-    const mapping = getWorkingCopyOriginalPath(workingCopyPath, senderWebContentsId);
-    if (!mapping) {
-        return false;
-    }
-
-    return originalPathSaveBaseMatches(workingCopyPath, mapping.originalPath, senderWebContentsId);
-}
-
 export async function handleFileWrite(
     context: IDocumentsSenderIdContext,
     filePath: unknown,
@@ -80,40 +60,23 @@ export async function handleFileWrite(
     options?: IDocumentMutationRevisionOptions,
 ) {
     const senderId = requireSenderId(context);
-    const normalizedPath = normalizeNonEmptyPath(filePath);
+    const entry = requireOpenDocument(normalizeNonEmptyPath(filePath), senderId);
     const payload = normalizeIpcWritePayload(data);
     const expectedDocumentRevisionToken = normalizeExpectedDocumentRevisionToken(options);
 
-    const resolvedPath = await resolveAllowedWritePath(normalizedPath);
-    if (!resolvedPath) {
-        throw new Error('Invalid file path: writes only allowed within temp directory');
-    }
-
-    return enqueueWorkingCopyMutation(resolvedPath, async () => {
-        await assertQueuedWorkingCopyMutationPreconditions(resolvedPath, expectedDocumentRevisionToken);
-        await ensureWorkingCopyMaterialized(resolvedPath, {
-            ownerWebContentsId: senderId,
-            reason: 'first-mutation',
-        });
-        const tempPath = makeSiblingTempPath(resolvedPath);
-        let committed = false as boolean;
+    return enqueueWorkingCopyMutation(entry.ref, async () => {
+        await assertQueuedWorkingCopyMutationPreconditions(entry.ref, expectedDocumentRevisionToken);
+        // Beside the revisions, so the commit clones it; a crash leaves nothing the manifest names.
+        const tempPath = join(dirname(entry.ref), `.write-${randomUUID()}.tmp`);
         try {
             await writeFileAtomic(tempPath, payload);
             const validation = await validatePdfFile(tempPath);
             if (!validation.isValid) {
                 throw new Error(`PDF write verification failed: ${validation.errors.join('; ')}`);
             }
-            await transitionWorkingCopyContentRevision(
-                resolvedPath,
-                'write',
-                async () => {
-                    await atomicReplace(tempPath, resolvedPath);
-                    committed = true;
-                },
-                senderId,
-            );
+            await commitDocumentMutation(entry, expectedDocumentRevisionToken, {kind: 'rewrite', source: tempPath}, 'write');
         } finally {
-            if (!committed) await unlink(tempPath).catch(() => undefined);
+            await unlink(tempPath).catch(() => undefined);
         }
         return true;
     });
@@ -126,37 +89,24 @@ export async function handleReplaceWorkingCopyFromPath(
     options?: IDocumentMutationRevisionOptions,
 ) {
     const senderId = requireSenderId(context);
-    const normalizedWorkingCopyPath = normalizeNonEmptyPath(workingCopyPath);
+    const entry = requireOpenDocument(normalizeNonEmptyPath(workingCopyPath), senderId);
     const normalizedSourcePath = normalizeNonEmptyPath(sourcePath);
     const expectedDocumentRevisionToken = normalizeExpectedDocumentRevisionToken(options);
 
-    const allowedWorkingCopyPath = await resolveAllowedWritePath(normalizedWorkingCopyPath);
-    if (!allowedWorkingCopyPath) {
-        throw new Error('Invalid file path: writes only allowed within temp directory');
-    }
-    const allowedSourcePath = await resolveAllowedReadPath(normalizedSourcePath);
-    if (!allowedSourcePath) {
+    const resolvedSourcePath = await resolveAllowedReadPath(normalizedSourcePath);
+    if (!resolvedSourcePath) {
         throw new Error('Invalid source path: OCR result must be within temp directory');
     }
-    const resolvedWorkingCopyPath = allowedWorkingCopyPath;
-    const resolvedSourcePath = allowedSourcePath;
     assertOcrPdfResultSourcePath(resolvedSourcePath);
 
-    return enqueueWorkingCopyMutation(resolvedWorkingCopyPath, async () => {
-        await assertQueuedWorkingCopyMutationPreconditions(
-            resolvedWorkingCopyPath,
-            expectedDocumentRevisionToken,
-        );
-        await ensureWorkingCopyMaterialized(resolvedWorkingCopyPath, {
-            ownerWebContentsId: senderId,
-            reason: 'ocr-persist',
-        });
+    return enqueueWorkingCopyMutation(entry.ref, async () => {
+        await assertQueuedWorkingCopyMutationPreconditions(entry.ref, expectedDocumentRevisionToken);
         if (!expectedDocumentRevisionToken) {
             throw new Error('OCR apply requires the source document revision');
         }
         const pendingResult = findOcrResultForDocument(
             resolvedSourcePath,
-            requireDocumentRef(resolvedWorkingCopyPath),
+            requireDocumentRef(entry.ref),
             expectedDocumentRevisionToken,
         );
         if (!pendingResult) {
@@ -165,32 +115,7 @@ export async function handleReplaceWorkingCopyFromPath(
         if (await sha256File(resolvedSourcePath) !== pendingResult.resultSha256) {
             throw new Error('OCR result content hash does not match the verified worker result');
         }
-        const shouldRefreshOriginalSaveBase = await shouldRefreshOriginalSaveBaseAfterWorkingCopyReplacement(
-            resolvedWorkingCopyPath,
-            senderId,
-        );
-        const tempPath = makeSiblingTempPath(resolvedWorkingCopyPath);
-        let committed = false as boolean;
-        try {
-            await copyFileAtomic(resolvedSourcePath, tempPath);
-            await transitionWorkingCopyContentRevision(
-                resolvedWorkingCopyPath,
-                'ocr-apply',
-                async () => {
-                    await atomicReplace(tempPath, resolvedWorkingCopyPath);
-                    committed = true;
-                },
-                senderId,
-            );
-        } finally {
-            if (!committed) await unlink(tempPath).catch(() => undefined);
-        }
-        if (shouldRefreshOriginalSaveBase) {
-            if (!await refreshWorkingCopyOriginalFileExpectation(resolvedWorkingCopyPath, senderId)) {
-                throw new Error('Working copy registration changed before original expectation refresh completed');
-            }
-        }
+        await commitDocumentMutation(entry, expectedDocumentRevisionToken, {kind: 'rewrite', source: resolvedSourcePath}, 'ocr-apply');
         return true;
     });
 }
-

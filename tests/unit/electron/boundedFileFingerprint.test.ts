@@ -12,7 +12,7 @@ import {
     expect,
     it,
 } from 'vitest';
-import {hashContentFingerprintFilePath} from '@electron/file-access/originalPathSnapshot';
+import {createOriginalFileContentFingerprintHash} from '@electron/file-access/createOriginalFileContentFingerprintHash';
 import {fingerprintFileBounded} from '@electron/features/documents/main/fingerprintFileBounded';
 
 describe('bounded file fingerprint', () => {
@@ -45,7 +45,7 @@ describe('bounded file fingerprint', () => {
         await expect(fingerprintFileBounded(path, bytes.byteLength)).resolves.toEqual({
             bytes: bytes.byteLength,
             sha256: createHash('sha256').update(bytes).digest('hex'),
-            contentFingerprint: await hashContentFingerprintFilePath(path, BigInt(bytes.byteLength)),
+            contentFingerprint: `sha256-full-v1:${createOriginalFileContentFingerprintHash(bytes.byteLength).update(bytes).digest('hex')}`,
         });
     });
 

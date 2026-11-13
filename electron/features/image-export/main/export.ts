@@ -66,7 +66,7 @@ import {
 import { getErrorMessage } from '@electron/utils/error';
 import {isAbortError} from '@electron/utils/abort';
 import { getUnprovenNativeTerminationDetail } from '@electron/utils/nativeTerminationProof';
-import { normalizePathForLookup } from '@electron/file-access/workingCopyStore';
+import {normalizePathForLookup} from '@electron/file-access/normalizePathForLookup';
 import {
     recordManagedScratchBackup,
     recordManagedScratchComplete,

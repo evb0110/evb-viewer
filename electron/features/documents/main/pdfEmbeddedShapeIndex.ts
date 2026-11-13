@@ -33,8 +33,8 @@ import {resolveExistingReadablePdfPath} from '@electron/features/documents/main/
 import {
     assertWorkingCopyRevisionCurrent,
     getWorkingCopyRevision,
-} from '@electron/file-access/documentRevisionStore';
-import {runWithWorkingCopyReadBacking} from '@electron/file-access/runWithWorkingCopyReadBacking';
+    runWithWorkingCopyReadBacking,
+} from '@electron/file-access/documentStore';
 import {resolveNativePageOpsPath} from '@electron/features/page-ops/public/nativePageOpsPath';
 import {getPdfNativeToolPaths} from '@electron/pdf/nativeToolPaths';
 import {runNativeToolCommand} from '@electron/native-tools/runNativeToolCommand';

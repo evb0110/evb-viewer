@@ -5,7 +5,7 @@ import {parseDocumentRef} from '@contracts/documentRef';
 import {
     getWorkingCopyOriginalFileExpectation,
     getWorkingCopyOriginalPath,
-} from '@electron/file-access/workingCopyStore';
+} from '@electron/file-access/documentStore';
 import {getAdmittedDjvuViewingSource} from '@electron/features/djvu/public';
 import {
     mutateRecentFiles,
@@ -23,7 +23,7 @@ import {
 async function readAdmittedSource(documentPath: string, senderWebContentsId: number) {
     const mapped = getWorkingCopyOriginalPath(documentPath, senderWebContentsId);
     const expectation = getWorkingCopyOriginalFileExpectation(documentPath, senderWebContentsId);
-    const originalPath = mapped && !mapped.retired ? parseDocumentRef(mapped.originalPath) : null;
+    const originalPath = mapped ? parseDocumentRef(mapped.originalPath) : null;
     if (originalPath && expectation) {
         return {
             originalPath,

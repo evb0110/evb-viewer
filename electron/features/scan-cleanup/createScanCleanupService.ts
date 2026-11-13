@@ -52,10 +52,10 @@ import {
     type TMainJobSnapshot,
 } from '@electron/operation-lifecycle/createMainJobRegistry';
 import {
+    ensureWorkingCopyMaterialized,
     getWorkingCopyBackingEntry,
     isWorkingCopyOriginalPathRegistered,
-} from '@electron/file-access/workingCopyStore';
-import {ensureWorkingCopyMaterialized} from '@electron/file-access/workingCopyMaterialization';
+} from '@electron/file-access/documentStore';
 import {quarantineWorkingCopy} from '@electron/file-access/workingCopyQuarantine';
 import {getUnprovenNativeTerminationDetail} from '@electron/utils/nativeTerminationProof';
 import {

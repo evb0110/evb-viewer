@@ -10,8 +10,15 @@ import {
     createFeatureRegistrarCases, createValidatedRegistrarHarness, getCapturedIpcHandler, createHarnessEvent,
 } from '@tests/unit/electron/helpers/validatedIpcRegistrarHarness';
 import {
-    readFile, rm, writeFile,
+    mkdtemp, readFile, rm, writeFile,
 } from 'fs/promises';
+import {tmpdir} from 'os';
+import {join} from 'path';
+import {
+    discardOpenDocument,
+    openDocumentFromFile,
+    setDocumentStoreRootForTests,
+} from '@electron/file-access/documentStore';
 import {reactive} from 'vue';
 import type {IScanCleanupPreviewRequest} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import {requirePageNumber} from '@contracts/pageNumbers';
@@ -23,9 +30,6 @@ import {toPlainScanCleanupOptions} from '@contracts/scan-cleanup/scanCleanupSett
 import {
     defaultDependencies, scanCleanupPreviewLifecycle,
 } from '@electron/features/scan-cleanup/scanCleanupPreviewLifecycle';
-import {
-    forgetRetiredWorkingCopyOriginal, rememberRetiredWorkingCopyOriginal,
-} from '@electron/file-access/workingCopyStore';
 import {NativeScanCleanupError} from '@electron/features/scan-cleanup/worker/runScanCleanupSidecar';
 import {
     SCAN_CLEANUP_DETECTION_JOB_STATE_SCHEMA, decodeScanCleanupPreviewResult,
@@ -427,11 +431,7 @@ export async function scenarioRejectsAsymmetricStartErrorsAndImpossibleJobProgre
 export async function scenarioDemandMaterializesLazyOriginalInputBeforeScanCleanupPreview(): Promise<void> {
 
     const {deps} = await previewDependencies();
-    vi.mocked(deps.materializeWorkingCopy).mockResolvedValue({
-        logicalRef: request.sourcePdfPath,
-        physicalWorkingCopyPath: '/managed/document.pdf',
-        sourceFingerprint: 'source-fingerprint',
-    });
+    vi.mocked(deps.materializeWorkingCopy).mockResolvedValue({physicalWorkingCopyPath: '/managed/document.pdf'});
 
     await previewOf(scanCleanupPreviewLifecycle(deps), sender(), request);
 
@@ -462,14 +462,20 @@ export async function scenarioDemandMaterializesLazyOriginalInputBeforeScanClean
 
 export async function scenarioCancelsPreviewWorkWhoseWorkingCopyRegistrationWasRetired(): Promise<void> {
 
-    const previewSender = sender();
-    rememberRetiredWorkingCopyOriginal(request.sourcePdfPath, '/original.pdf', previewSender.id);
+    // The document was closed: the ref the store gave it names no open document any more.
+    const storeRoot = await mkdtemp(join(tmpdir(), 'scan-cleanup-closed-source-'));
+    await setDocumentStoreRootForTests(join(storeRoot, 'store'));
     try {
+        const source = join(storeRoot, 'source.pdf');
+        await writeFile(source, '%PDF-1.7\n');
+        const document = await openDocumentFromFile(source, {ownerWebContentsId: sender().id});
+        await discardOpenDocument(document);
         const service = scanCleanupPreviewLifecycle(defaultDependencies);
 
-        await expect(service.preview(previewSender, request)).resolves.toEqual({canceled: true});
+        await expect(service.preview(sender(), {...request, sourcePdfPath: document.ref})).resolves.toEqual({canceled: true});
     } finally {
-        forgetRetiredWorkingCopyOriginal(request.sourcePdfPath);
+        await setDocumentStoreRootForTests(null);
+        await rm(storeRoot, {recursive: true, force: true});
     }
 
 }

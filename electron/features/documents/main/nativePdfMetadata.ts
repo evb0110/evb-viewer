@@ -13,7 +13,7 @@ import {
 } from '@contracts/pdfPageLabels';
 import { requirePageNumber } from '@contracts/pageNumbers';
 import type { IDocumentsSenderIdContext } from '@electron/features/documents/documentsContexts';
-import { resolveOriginalBackedReadTransport } from '@electron/features/documents/main/documentFileReadHandlers';
+import { resolveDocumentReadTransport } from '@electron/features/documents/main/documentFileReadHandlers';
 import { resolveExistingReadablePdfPath } from '@electron/features/documents/main/documentFilePathResolution';
 import { allowOpenPath } from '@electron/file-access/openPathCapabilities';
 import { getRecentFiles } from '@electron/recentFiles';
@@ -32,19 +32,18 @@ import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@contracts/getErrorMessage';
 import { onSenderLifetimeEnd } from '@electron/utils/onSenderLifetimeEnd';
 import { isErrnoException } from '@contracts/runtimeGuards';
-import { isWorkingCopyDocumentPath } from '@electron/file-access/workingCopyDirectory';
 import {
-    getWorkingCopyBackingEntry, normalizePathForLookup,
-} from '@electron/file-access/workingCopyStore';
+    assertWorkingCopyRevisionCurrent,
+    getWorkingCopyBackingEntry,
+    getWorkingCopyRevision,
+    isWorkingCopyDocumentPath,
+} from '@electron/file-access/documentStore';
+import {normalizePathForLookup} from '@electron/file-access/normalizePathForLookup';
 import { requireEpochMs } from '@contracts/timestamps';
 import {
     readNativePdfCatalogPart,
     resolveNativePageOpsPath,
 } from '@electron/features/page-ops/public/nativePageOpsPath';
-import {
-    assertWorkingCopyRevisionCurrent,
-    getWorkingCopyRevision,
-} from '@electron/file-access/documentRevisionStore';
 import { getAppTempDir } from '@electron/utils/appTempDir';
 import { readPdfNativePageGeometry } from '@electron/pdf/pdfPageSizes';
 import * as v from 'valibot';
@@ -185,7 +184,7 @@ export async function handlePdfNativePageSizes(
         throw new Error('Document revision token is required for exact PDF geometry');
     }
     const resolvedPath = await resolvePdfPath(context, filePath);
-    const originalBackedRead = resolveOriginalBackedReadTransport(resolvedPath, context.senderId);
+    const originalBackedRead = resolveDocumentReadTransport(resolvedPath, context.senderId);
     const revision = await getWorkingCopyRevision(resolvedPath, context.senderId);
     if (revision.token !== expectedRevisionToken) {
         throw createStaleRevisionError({
@@ -319,7 +318,7 @@ export async function handlePdfPageLabelRanges(
     filePath: unknown,
 ): Promise<IPdfPageLabelRange[]> {
     const resolvedPath = await resolvePdfPath(context, filePath);
-    const originalBackedRead = resolveOriginalBackedReadTransport(resolvedPath, context.senderId);
+    const originalBackedRead = resolveDocumentReadTransport(resolvedPath, context.senderId);
     const binaryPath = resolveNativePageOpsPath();
     if (!binaryPath) {
         throw new Error('Native page operations are required to read PDF page labels');
@@ -391,7 +390,7 @@ export async function handlePdfOpeningGeometry(
         }
         throw error;
     }
-    const originalBackedRead = resolveOriginalBackedReadTransport(resolvedPath, context.senderId);
+    const originalBackedRead = resolveDocumentReadTransport(resolvedPath, context.senderId);
     // A working copy that still reads its original keeps its admission
     // identity when the original changes, so only the checked read can tell.
     if (originalBackedRead) {
@@ -434,7 +433,7 @@ export async function handlePdfOpeningGeometry(
 async function readPdfOpeningGeometry(
     context: IDocumentsSenderIdContext,
     resolvedPath: string,
-    originalBackedRead: ReturnType<typeof resolveOriginalBackedReadTransport>,
+    originalBackedRead: ReturnType<typeof resolveDocumentReadTransport>,
     identityBefore: Pick<IPdfOpeningGeometry, 'size' | 'modifiedAt'>,
     openingPage = 1,
 ): Promise<IPdfOpeningGeometry | null> {

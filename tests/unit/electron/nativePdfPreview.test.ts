@@ -6,20 +6,17 @@ import {
     vi,
 } from 'vitest';
 import {
-    mkdtemp, readFile, readdir, realpath, rm, symlink, writeFile,
+    mkdtemp, readFile, readdir, rm, symlink, writeFile,
 } from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {
-    dirname, join,
+    dirname, join, relative,
 } from 'node:path';
 import {webContents} from 'electron';
 import {markUnprovenNativeTermination} from '@electron/utils/nativeTerminationProof';
 import {
-    setWorkingCopyOriginalPath, forgetWorkingCopyOriginalPath, getWorkingCopyBackingEntry,
-} from '@electron/file-access/workingCopyStore';
-import {
-    getWorkingCopyRevision, markWorkingCopyContentChanged,
-} from '@electron/file-access/documentRevisionStore';
+    commitDocumentMutation, getWorkingCopyRevision, openDocumentFromFile, setDocumentStoreRootForTests,
+} from '@electron/file-access/documentStore';
 import {requireDocumentRef} from '@contracts/documentRef';
 import type * as TAppTempDir from '@electron/utils/appTempDir';
 import {
@@ -36,6 +33,7 @@ import { readNativePdfCatalogPart } from '@electron/features/page-ops/main/readN
 const mocks = vi.hoisted(() => ({
     resolveExistingReadablePdfPath: vi.fn(),
     resolveOriginalBackedReadTransport: vi.fn(),
+    actualReadTransport: null as unknown as (...args: unknown[]) => unknown,
     runNativeToolCommand: vi.fn(),
     readPdfNativePageGeometry: vi.fn(),
     appTempDir: '',
@@ -54,7 +52,11 @@ vi.mock('electron', () => ({
 }));
 vi.mock('@electron/features/page-ops/main/resolveNativePageOpsPath', () => ({resolveNativePageOpsPath: () => '/tools/evb-pdf-page-ops'}));
 vi.mock('@electron/features/documents/main/documentFilePathResolution', () => ({resolveExistingReadablePdfPath: mocks.resolveExistingReadablePdfPath}));
-vi.mock('@electron/features/documents/main/documentFileReadHandlers', () => ({resolveOriginalBackedReadTransport: mocks.resolveOriginalBackedReadTransport}));
+vi.mock('@electron/features/documents/main/documentFileReadHandlers', async importOriginal => {
+    const actual = await importOriginal<Record<string, (...args: unknown[]) => unknown>>();
+    mocks.actualReadTransport = actual.resolveDocumentReadTransport!;
+    return {...actual, resolveDocumentReadTransport: (...args: unknown[]) => mocks.resolveOriginalBackedReadTransport(...args)};
+});
 vi.mock('@electron/native-tools/runNativeToolCommand', () => ({runNativeToolCommand: mocks.runNativeToolCommand}));
 vi.mock('@electron/native-tools/buildPopplerEnv', () => ({buildPopplerEnv: () => undefined}));
 vi.mock('@electron/pdf/nativeToolPaths', () => ({getPdfNativeToolPaths: () => ({
@@ -131,13 +133,14 @@ describe('complete PDF opening geometry', () => {
         const directory = await mkdtemp(join(tmpdir(), 'pdf-work-prepared-'));
         const alias = `${directory}-alias`;
         await symlink(directory, alias, 'junction');
-        const input = join(directory, 'document.pdf');
-        const aliasedInput = join(alias, 'document.pdf');
         mocks.appTempDir = directory;
-        await writeFile(input, '%PDF-1.7\n');
-        await setWorkingCopyOriginalPath(input, '/books/original.pdf', 7, {deferOriginalFileExpectation: true});
+        await setDocumentStoreRootForTests(join(directory, 'store'));
+        const original = join(directory, 'original.pdf');
+        await writeFile(original, '%PDF-1.7\n');
+        const entry = await openDocumentFromFile(original, {ownerWebContentsId: 7});
+        const input = entry.ref;
+        const aliasedInput = join(alias, relative(directory, input));
         const revision = await getWorkingCopyRevision(input, 7);
-        const entry = getWorkingCopyBackingEntry(input, 7)!;
         const page = {
             pageNumber: requirePageNumber(1),
             xPoints: 0,
@@ -154,16 +157,16 @@ describe('complete PDF opening geometry', () => {
             pageCount: 1,
             pages: [page],
         };
-        const resolved = await realpath(input);
-        expect(resolved).not.toBe(aliasedInput);
-        mocks.resolveExistingReadablePdfPath.mockResolvedValue(resolved);
-        mocks.resolveOriginalBackedReadTransport.mockReturnValue(null);
+        mocks.resolveExistingReadablePdfPath.mockResolvedValue(input);
+        mocks.resolveOriginalBackedReadTransport.mockImplementation(mocks.actualReadTransport);
         mocks.readPdfNativePageGeometry.mockResolvedValue([{
             ...page,
             widthPoints: 700,
         }]);
         try {
-            const current = changed ? await markWorkingCopyContentChanged(input, 'native-mutation', 7) : revision;
+            const current = changed
+                ? await commitDocumentMutation(entry, null, {kind: 'rewrite', source: original}, 'native-mutation')
+                : revision;
             const opening = await handlePdfOpeningGeometry({senderId: 7}, input);
             expect(opening?.width).toBe(changed ? 700 : 612);
             if (!changed) expect(entry.openingPageGeometry?.pages[0]?.widthPoints).toBe(612);
@@ -178,7 +181,7 @@ describe('complete PDF opening geometry', () => {
             const next = await handlePdfNativePageSizes({senderId: 7}, input, options);
             expect(next.pages[0]?.widthPoints).toBe(700);
         } finally {
-            forgetWorkingCopyOriginalPath(input);
+            await setDocumentStoreRootForTests(null);
             await rm(alias, {
                 recursive: true,
                 force: true,
@@ -209,11 +212,14 @@ describe('complete PDF opening geometry', () => {
 
     it('keeps complete geometry available to admit a materialized working copy', async () => {
         const directory = await mkdtemp(join(tmpdir(), 'pdf-work-opening-'));
-        const input = join(directory, 'document.pdf');
-        await writeFile(input, '%PDF-1.7\n');
-        await setWorkingCopyOriginalPath(input, '/books/original.pdf', 7, {deferOriginalFileExpectation: true});
+        await setDocumentStoreRootForTests(join(directory, 'store'));
+        const original = join(directory, 'original.pdf');
+        await writeFile(original, '%PDF-1.7\n');
+        const entry = await openDocumentFromFile(original, {ownerWebContentsId: 7});
+        await commitDocumentMutation(entry, null, {kind: 'rewrite', source: original}, 'write');
+        const input = entry.ref;
         mocks.resolveExistingReadablePdfPath.mockResolvedValue(input);
-        mocks.resolveOriginalBackedReadTransport.mockReturnValue(null);
+        mocks.resolveOriginalBackedReadTransport.mockImplementation(mocks.actualReadTransport);
         mocks.readPdfNativePageGeometry.mockResolvedValue(Array.from({length: 3}, (_, index) => ({
             pageNumber: index + 1,
             xPoints: 0,
@@ -231,7 +237,7 @@ describe('complete PDF opening geometry', () => {
             });
             expect(geometry?.pages).toHaveLength(3);
         } finally {
-            forgetWorkingCopyOriginalPath(input);
+            await setDocumentStoreRootForTests(null);
             await rm(directory, {
                 recursive: true,
                 force: true,
@@ -413,11 +419,11 @@ describe('native text-box appearance scratch ownership', () => {
         true,
     ])('keeps bytes only while native termination is unproven: %s', async (unproven) => {
         mocks.appTempDir = await mkdtemp(join(tmpdir(), 'appearance-scratch-test-'));
-        const workingPath = join(mocks.appTempDir, 'managed-copy.pdf');
-        await setWorkingCopyOriginalPath(workingPath, '/original.pdf', 7, {
-            backingState: 'lazy-original',
-            deferOriginalFileExpectation: true,
-        });
+        const storeDirectory = await mkdtemp(join(tmpdir(), 'appearance-scratch-store-'));
+        await setDocumentStoreRootForTests(join(storeDirectory, 'store'));
+        const original = join(storeDirectory, 'original.pdf');
+        await writeFile(original, '%PDF-1.7\n');
+        const workingPath = (await openDocumentFromFile(original, {ownerWebContentsId: 7})).ref;
         let input = '';
         const failure = new Error('Native appearance failed');
         if (unproven) markUnprovenNativeTermination(failure, 'writer remains unconfirmed');
@@ -439,7 +445,11 @@ describe('native text-box appearance scratch ownership', () => {
                 expect(JSON.parse(await readFile(join(dirname(input), '.evb-managed-scratch.json'), 'utf8'))).toMatchObject({prefix: 'pdf-page-ops-'});
             }
         } finally {
-            forgetWorkingCopyOriginalPath(workingPath);
+            await setDocumentStoreRootForTests(null);
+            await rm(storeDirectory, {
+                recursive: true,
+                force: true,
+            });
             await rm(mocks.appTempDir, {
                 recursive: true,
                 force: true,

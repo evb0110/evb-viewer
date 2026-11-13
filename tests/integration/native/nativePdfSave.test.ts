@@ -144,7 +144,7 @@ describe('native PDF save integration', () => {
             nativeOutputPath,
         ])).resolves.toMatchObject({stdout: '1\n'});
 
-        await copyFileAtomic(nativeOutputPath, publishedPath, {linkImmutableSource: false});
+        await copyFileAtomic(nativeOutputPath, publishedPath);
         await expect(runQpdf([
             '--check',
             publishedPath,

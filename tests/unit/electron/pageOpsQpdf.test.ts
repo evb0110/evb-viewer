@@ -1,5 +1,4 @@
 import type * as TViMockOriginalModule from '@electron/pdf/nativeToolPaths';
-import type * as TViMockOriginalModule2 from '@electron/file-access/workingCopyStore';
 
 import {
     beforeEach,
@@ -66,10 +65,10 @@ vi.mock('@electron/pdf/nativeToolPaths', async (importOriginal_1) => ({
     ...(await importOriginal_1<typeof TViMockOriginalModule>()),
     getPdfNativeToolPaths: () => ({ qpdf: '/mock/qpdf' }),
 }));
-vi.mock('@electron/file-access/workingCopyCreation', () => ({ensureWorkingCopyDirectory: (...args: unknown[]) => ensureWorkingCopyDirectoryMock(...args)}));
-vi.mock('@electron/file-access/workingCopyMaterialization', () => ({ensureWorkingCopyMaterialized: (...args: unknown[]) => ensureWorkingCopyMaterializedMock(...args)}));
-vi.mock('@electron/file-access/workingCopyStore', async (importOriginal_2) => ({
-    ...(await importOriginal_2<typeof TViMockOriginalModule2>()),
+vi.mock('@electron/file-access/documentStore', async importOriginal => ({
+    ...(await importOriginal<Record<string, unknown>>()),
+    ensureWorkingCopyDirectory: (...args: unknown[]) => ensureWorkingCopyDirectoryMock(...args),
+    ensureWorkingCopyMaterialized: (...args: unknown[]) => ensureWorkingCopyMaterializedMock(...args),
     getWorkingCopyBackingEntry: (...args: unknown[]) => getWorkingCopyBackingEntryMock(...args),
 }));
 vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({

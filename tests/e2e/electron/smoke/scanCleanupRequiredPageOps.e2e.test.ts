@@ -12,7 +12,6 @@ import {
     existsSync,
     mkdirSync,
     readFileSync,
-    readdirSync,
     statSync,
     writeFileSync,
 } from 'node:fs';
@@ -27,7 +26,7 @@ import {
     it,
 } from 'vitest';
 import {sessionDir} from '@scripts/electron-run/electronRunSessionPaths';
-import {isRecord} from '@contracts/runtimeGuards';
+import {readWorkspaceRecoveryRecords} from '@scripts/electron-run/electronRunWorkspaceCheckpoint';
 import {decodeWorkspaceCheckpoint} from '@contracts/workspaceCheckpoint';
 import {createElectronE2ESessionFixture} from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
 import {waitForRendererReady} from '@tests/e2e/electron/helpers/startElectronE2ESession';
@@ -468,12 +467,9 @@ describe('scan cleanup completed output recovery', () => {
         await goToPageViaToolbar(session.page, 4);
         // Recover a saved reading position, rather than racing the initial
         // checkpoint write for a document that has only just been opened.
-        const recoveryRoot = join(sessionDir(session.name), 'electron-user-data', 'workspace-recovery');
-        await expect.poll(() => existsSync(recoveryRoot) && readdirSync(recoveryRoot)
-            .filter(name => name.endsWith('.json'))
-            .some((name) => {
-                const record: unknown = JSON.parse(readFileSync(join(recoveryRoot, name), 'utf8'));
-                const checkpoint = isRecord(record) ? decodeWorkspaceCheckpoint(record.checkpoint) : null;
+        await expect.poll(() => readWorkspaceRecoveryRecords(session.name)
+            .some((record) => {
+                const checkpoint = decodeWorkspaceCheckpoint(record.checkpoint);
                 const tab = checkpoint?.tabs.find(candidate => candidate.tabId === checkpoint.activeTabId);
                 return tab?.fileName === basename(readerPath) && tab.currentPage === 4 && tab.zoomMode === 'custom';
             }), {timeout: 60_000}).toBe(true);

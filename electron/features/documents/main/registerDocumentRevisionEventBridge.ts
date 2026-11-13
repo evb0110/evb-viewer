@@ -1,7 +1,9 @@
 import { BrowserWindow } from 'electron';
 import type { IDocumentRevisionChangedEvent } from '@contracts/documentRevision';
 import { DOCUMENTS_EVENT_CHANNELS } from '@electron/features/documents/contract';
-import { onWorkingCopyRevisionChanged } from '@electron/file-access/documentRevisionStore';
+import {
+    onDocumentRevisionChanged,
+} from '@electron/file-access/documentStore';
 import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
 
@@ -13,7 +15,7 @@ export function registerDocumentRevisionEventBridge(): void {
         return;
     }
 
-    unsubscribeRevisionBridge = onWorkingCopyRevisionChanged((event: IDocumentRevisionChangedEvent) => {
+    unsubscribeRevisionBridge = onDocumentRevisionChanged((event: IDocumentRevisionChangedEvent) => {
         for (const window of BrowserWindow.getAllWindows()) {
             if (window.isDestroyed() || window.webContents.isDestroyed()) {
                 continue;

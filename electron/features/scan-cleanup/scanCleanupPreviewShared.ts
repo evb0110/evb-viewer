@@ -70,7 +70,9 @@ import type {
     IMainJobSender,
     TMainJobSnapshot,
 } from '@electron/operation-lifecycle/createMainJobRegistry';
-import type { ensureWorkingCopyMaterialized } from '@electron/file-access/workingCopyMaterialization';
+import {
+    type ensureWorkingCopyMaterialized,
+} from '@electron/file-access/documentStore';
 
 
 

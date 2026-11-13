@@ -797,7 +797,7 @@ describe('Project 8 recovered close decisions', () => {
         // as well as the recovered document's current working copy.
         await requireWorkspaceCommand(active.page, 'handleRotateCw', [[1]]);
         await waitForWorkspaceToolbarIdle(active.page);
-        const historyDirectories = (await readdir(root)).filter(name => name.startsWith('pdf-work-') && !before.has(name)).map(name => join(root, name));
+        const historyDirectories = (await readdir(root)).filter(name => !before.has(name)).map(name => join(root, name));
         expect(historyDirectories.length).toBeGreaterThan(0);
         const closingCopy = await getActiveWorkspaceWorkingCopyPath(active.page);
         const siblingPath = await createMultiPageTextFixturePdf(`retirement-sibling-${Date.now()}.pdf`, 3);

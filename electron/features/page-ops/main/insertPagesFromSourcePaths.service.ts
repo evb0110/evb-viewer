@@ -12,7 +12,9 @@ import {
 } from '@electron/image/pdfConversion';
 import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
-import { ensureWorkingCopyDirectory } from '@electron/file-access/workingCopyCreation';
+import {
+    ensureWorkingCopyDirectory,
+} from '@electron/file-access/documentStore';
 import {
     cleanupTempOutput,
     makeTempPdfOutputPath,

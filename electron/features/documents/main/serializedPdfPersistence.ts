@@ -55,16 +55,18 @@ import {
 import {makeSiblingTempPath} from '@electron/utils/atomicReplace';
 import { onSenderLifetimeEnd } from '@electron/utils/onSenderLifetimeEnd';
 import { syncFileHandleForDurability } from '@electron/utils/syncFileHandleForDurability';
-import {ensureWorkingCopyMaterialized} from '@electron/file-access/workingCopyMaterialization';
 import { validatePdfFile } from '@electron/features/documents/main/pdfConformance';
 import {
     allowOpenPath,
     removeAllowedOpenPath,
 } from '@electron/file-access/openPathCapabilities';
 import { enqueueWorkingCopyMutation } from '@electron/file-access/workingCopyMutationQueue';
-import {transitionWorkingCopyContentRevision} from '@electron/file-access/documentRevisionStore';
-import { assertQueuedWorkingCopyMutationPreconditions } from '@electron/file-access/documentMutationGuards';
-import { commitPdfTempFile } from '@electron/features/documents/main/commitPdfTempFile';
+import {
+    assertQueuedWorkingCopyMutationPreconditions,
+    commitDocumentMutation,
+    requireOpenDocument,
+} from '@electron/file-access/documentStore';
+import { verifyPdfTempFile } from '@electron/features/documents/main/commitPdfTempFile';
 import type {
     IDocumentsSenderIdContext,
     IDocumentsWebContentsContext,
@@ -379,10 +381,7 @@ export async function beginSerializedPdfSaveToWorkingCopy(
         throw new Error('Serialized PDF persistence only stages managed working copies');
     }
 
-    await ensureWorkingCopyMaterialized(normalizedWorkingPath, {
-        ownerWebContentsId: context.senderId,
-        reason: 'serialized-persistence',
-    });
+    requireOpenDocument(normalizedWorkingPath, context.senderId);
     const session = await createSession({
         sender: context.sender,
         workingPath: normalizedWorkingPath,
@@ -491,25 +490,20 @@ async function commitSession(
             session.workingPath,
             session.expectedDocumentRevisionToken,
         );
-        await ensureWorkingCopyMaterialized(session.workingPath, {
-            ownerWebContentsId: session.senderId,
-            reason: 'serialized-persistence',
-        });
-        await transitionWorkingCopyContentRevision(
-            session.workingPath,
-            'replace-working-copy',
-            async () => {
-                await commitPdfTempFile(session.tempPath, session.workingPath, {
-                    signal: session.lifecycleOperation.signal,
-                    ownerId: `serialized-pdf:${session.id}`,
-                    receipt: {
-                        artifact: stagedOutput,
-                        context: {senderId: session.senderId},
-                    },
-                    ...(session.changedObjectRefs.length ? {changedObjectRefs: session.changedObjectRefs} : {}),
-                });
+        await verifyPdfTempFile(session.tempPath, session.workingPath, {
+            signal: session.lifecycleOperation.signal,
+            ownerId: `serialized-pdf:${session.id}`,
+            receipt: {
+                artifact: stagedOutput,
+                context: {senderId: session.senderId},
             },
-            session.senderId,
+            ...(session.changedObjectRefs.length ? {changedObjectRefs: session.changedObjectRefs} : {}),
+        });
+        await commitDocumentMutation(
+            requireOpenDocument(session.workingPath, session.senderId),
+            session.expectedDocumentRevisionToken,
+            {kind: 'rewrite', source: session.tempPath},
+            'replace-working-copy',
         );
     }, {ownerWebContentsId: session.senderId});
 

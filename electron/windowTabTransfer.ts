@@ -16,7 +16,7 @@ import {
     commitWorkingCopyTransferAccess,
     grantWorkingCopyTransferAccess,
     revokeWorkingCopyTransferAccess,
-} from '@electron/file-access/workingCopyStore';
+} from '@electron/file-access/documentStore';
 
 const logger = createLogger('windowTabTransfer');
 const DEFAULT_TRANSFER_TIMEOUT_MS = 12_000;

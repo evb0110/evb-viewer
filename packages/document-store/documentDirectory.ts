@@ -312,6 +312,23 @@ export class DocumentDirectory {
         });
     }
 
+    /**
+     * Gives the document bytes of its own, copying the destination in when it has none, for readers that need a
+     * file. The revision id stays what a caller expecting `null` meets as revision 1. `null` on a conflict.
+     */
+    materialize() {
+        return this.run(() => this.ensureCurrent());
+    }
+
+    /**
+     * The store path the next revision's file will have. A caller may prepare that file itself, such as a native
+     * tool's output, and commit it with a rewrite whose writer leaves it as it is; while no manifest names it,
+     * recovery removes it. Valid until the next change to this directory commits.
+     */
+    nextRevisionPath() {
+        return this.path(`r${this.manifest.next}.${this.manifest.ext}`);
+    }
+
     close() {
         return this.run(async () => {
             await this.file?.close();

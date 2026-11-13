@@ -2295,14 +2295,14 @@ describe('[crpart3core] submitted open', () => {
 if (process.type === 'browser') {
     const fs = require('node:fs/promises');
     const {watch, existsSync, writeFileSync} = require('node:fs');
-    const {basename, join} = require('node:path');
+    const {basename, dirname, join} = require('node:path');
     const {syncBuiltinESMExports} = require('node:module');
     const root = ${JSON.stringify(cleanupGate)};
     const remove = fs.rm;
     let held = false;
     fs.rm = async (path, ...args) => {
         const result = await remove(path, ...args);
-        if (!held && basename(String(path)).startsWith('pdf-work-')) {
+        if (!held && basename(dirname(String(path))) === 'documents') {
             held = true;
             writeFileSync(join(root, 'held'), 'held');
             await new Promise(resolve => {
