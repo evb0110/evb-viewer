@@ -1,3 +1,4 @@
+import {readDocumentBytes} from '@tests/e2e/electron/helpers/electronApiHelpers';
 import { getErrorMessage } from '@contracts/getErrorMessage';
 import {createHash} from 'node:crypto';
 import {
@@ -512,7 +513,7 @@ describe('Electron E2E, compact page labels through structural operations', () =
             const workingPath = (await readState()).workingCopyPath;
             expect(workingPath).toBeTruthy();
             const originalBytes = await readFile(pdfPath);
-            const workingBytes = await readFile(workingPath!);
+            const workingBytes = await readDocumentBytes(page, workingPath!);
             const deleteSecondPage = async () => {
                 await openDocumentSidebarTab(page, 'Pages');
                 await clickAsUser(page, '.editor-pane.is-active [data-thumbnail-page="2"]', {button: 'right'});
@@ -544,14 +545,14 @@ describe('Electron E2E, compact page labels through structural operations', () =
                 state: await readState(),
                 toasts: await readToasts(),
                 originalUnchanged: originalBytes.equals(await readFile(pdfPath)),
-                workingUnchanged: workingBytes.equals(await readFile(workingPath!)),
+                workingUnchanged: workingBytes.equals(await readDocumentBytes(page, workingPath!)),
             }));
             await expect.poll(readToasts, {timeout: 5_000}).toEqual([expect.stringContaining('Failed to delete pages')]);
             expect((await readToasts())[0]).toContain('Your edits remain open here.');
             expect((await readToasts())[0]).not.toContain('UnreadableStyle');
             expect((await readToasts())[0]).toContain('Error ID:');
             expect(await readFile(pdfPath)).toEqual(originalBytes);
-            expect(await readFile(workingPath!)).toEqual(workingBytes);
+            expect(await readDocumentBytes(page, workingPath!)).toEqual(workingBytes);
             await clickAsUser(page, '.app-toast-failure [data-slot="close"]');
             await page.waitForSelector('.app-toast-failure', {hidden: true});
 
@@ -588,12 +589,12 @@ describe('Electron E2E, compact page labels through structural operations', () =
                 dirtyHistory,
                 retainedHistory,
                 originalUnchanged: originalBytes.equals(await readFile(pdfPath)),
-                workingUnchanged: workingBytes.equals(await readFile(workingPath!)),
+                workingUnchanged: workingBytes.equals(await readDocumentBytes(page, workingPath!)),
             }));
             expect(retainedHistory?.canUndo).toBe(dirtyHistory?.canUndo);
             expect(retainedHistory?.canRedo).toBe(dirtyHistory?.canRedo);
             expect(await readFile(pdfPath)).toEqual(originalBytes);
-            expect(await readFile(workingPath!)).toEqual(workingBytes);
+            expect(await readDocumentBytes(page, workingPath!)).toEqual(workingBytes);
             expect(await page.$eval(mark, element => element.getBoundingClientRect().toJSON())).toEqual(paintedMark);
             await clickAsUser(page, '.app-toast-failure [data-slot="close"]');
             await clickToolbarButtonWhenEnabled(page, 'Undo');
@@ -640,7 +641,7 @@ describe('Electron E2E, compact page labels through structural operations', () =
         const workingPath = (await readState()).workingCopyPath;
         expect(workingPath).toBeTruthy();
         const originalBytes = await readFile(pdfPath);
-        const workingBytes = await readFile(workingPath!);
+        const workingBytes = await readDocumentBytes(page, workingPath!);
         const beforeToolbar = await getWorkspaceToolbarSnapshot(page);
         const directory = dirname(workingPath!);
         const mode = (await stat(directory)).mode;
@@ -658,7 +659,7 @@ describe('Electron E2E, compact page labels through structural operations', () =
             expect(toast).toContain('Error ID:');
             expect(toast).not.toContain('The document could not be prepared safely for this operation.');
             expect(await readFile(pdfPath)).toEqual(originalBytes);
-            expect(await readFile(workingPath!)).toEqual(workingBytes);
+            expect(await readDocumentBytes(page, workingPath!)).toEqual(workingBytes);
             const afterToolbar = await getWorkspaceToolbarSnapshot(page);
             expect(afterToolbar?.canUndo).toBe(beforeToolbar?.canUndo);
             expect(afterToolbar?.canRedo).toBe(beforeToolbar?.canRedo);

@@ -44,7 +44,7 @@ import {
     revealForPointer,
 } from '@tests/e2e/electron/helpers/userInput';
 import type { IE2EWindow } from '@tests/e2e/electron/helpers/e2EWindow';
-import {getActiveWorkspaceWorkingCopyPath} from '@tests/e2e/electron/helpers/electronApiHelpers';
+import {getActiveWorkspaceWorkingCopyPath, readDocumentBytes} from '@tests/e2e/electron/helpers/electronApiHelpers';
 
 // Tagged books remain editable; saved subsets retain only the selected pages and their tags.
 it.each([
@@ -93,7 +93,7 @@ it.each([
         const {page} = session;
         await waitForViewerInteractive(page);
         const workingPath = await getActiveWorkspaceWorkingCopyPath(page);
-        const baseline = await readFile(workingPath);
+        const baseline = await readDocumentBytes(page, workingPath);
         const baselinePdf = await PDFDocument.load(baseline);
         await openDocumentSidebarTab(page, 'Pages');
         if (operation.startsWith('insert-')) {
@@ -131,12 +131,12 @@ it.each([
         await waitForViewerInteractive(page);
         await page.waitForSelector('.editor-pane.is-active .page_container--rendered canvas', {visible: true});
         await page.screenshot({path: join(evidence, 'result.png')});
-        const saved = await PDFDocument.load(await readFile(operation === 'extract' ? extractedPath : workingPath));
+        const saved = await PDFDocument.load(operation === 'extract' ? await readFile(extractedPath) : await readDocumentBytes(page));
         expect(saved.getPageCount()).toBe(operation.startsWith('insert-')
             ? baselinePdf.getPageCount() + (await PDFDocument.load(await readFile(insertPath))).getPageCount()
             : 1);
         expect(await readFile(inputPath)).toEqual(original);
-        if (operation === 'extract') expect(await readFile(workingPath)).toEqual(baseline);
+        if (operation === 'extract') expect(await readDocumentBytes(page, workingPath)).toEqual(baseline);
         const imageBytes = (pdf: PDFDocument) => pdf.context.enumerateIndirectObjects()
             .map(([
                 , object,
