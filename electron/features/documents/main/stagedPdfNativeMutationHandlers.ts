@@ -5,7 +5,6 @@ import {isAllowedOriginalSavePath} from '@electron/file-access/isAllowedOriginal
 import {
     assertQueuedWorkingCopyMutationPreconditions,
     commitDocumentMutation,
-    discardDocumentAppend,
     normalizeExpectedDocumentRevisionToken,
     requireOpenDocument,
 } from '@electron/file-access/documentStore';
@@ -59,8 +58,8 @@ function toStagedSourcePath(stagedOutput: ITypedStagedArtifact) {
 /**
  * Consumes a lease-backed native mutation receipt into a disposable snapshot.
  * The receipt is the only authority used to read the staged path: the source
- * document's own file, extended past its committed bytes, which are cut again
- * afterwards. It is released on every resolution path, and the original
+ * document's own file, extended past its committed bytes, which the receipt's
+ * end cuts again. It is released on every resolution path, and the original
  * document is never opened or written here.
  */
 export async function handleCloneStagedPdfNativeMutationToWorkingCopy(
@@ -75,12 +74,8 @@ export async function handleCloneStagedPdfNativeMutationToWorkingCopy(
         const normalizedOriginalPath = normalizeOptionalOriginalPath(originalPath);
         const source = requireOpenDocument(stagedOutput.path, senderId);
         const entry = await enqueueWorkingCopyMutation(source.ref, async () => {
-            try {
-                await resolveTypedStagedArtifact(context, stagedOutput);
-                return await createDocumentForOriginal(toStagedSourcePath(stagedOutput), normalizedOriginalPath, senderId);
-            } finally {
-                await discardDocumentAppend(source);
-            }
+            await resolveTypedStagedArtifact(context, stagedOutput);
+            return createDocumentForOriginal(toStagedSourcePath(stagedOutput), normalizedOriginalPath, senderId);
         }, {
             kind: 'native-pdf-mutation-staged-clone',
             ownerWebContentsId: senderId,
@@ -114,13 +109,9 @@ export async function handleReplaceWorkingCopyFromStagedPdfNativeMutation(
     try {
         assertConsumableStagedPdf(stagedOutput);
         return await enqueueWorkingCopyMutation(entry.ref, async () => {
-            try {
-                await assertQueuedWorkingCopyMutationPreconditions(entry.ref, expectedDocumentRevisionToken);
-                await resolveTypedStagedArtifact(context, stagedOutput);
-                await commitDocumentMutation(entry, expectedDocumentRevisionToken, {kind: 'extend'}, 'native-mutation');
-            } finally {
-                await discardDocumentAppend(entry);
-            }
+            await assertQueuedWorkingCopyMutationPreconditions(entry.ref, expectedDocumentRevisionToken);
+            await resolveTypedStagedArtifact(context, stagedOutput);
+            await commitDocumentMutation(entry, expectedDocumentRevisionToken, {kind: 'extend'}, 'native-mutation');
             return true;
         }, {
             kind: 'native-pdf-mutation-staged-working-copy',

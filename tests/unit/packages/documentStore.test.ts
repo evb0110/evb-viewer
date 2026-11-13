@@ -264,6 +264,12 @@ describe('document directory', () => {
         expect(doc.state().history).toMatchObject([{ id: 2, file: 'r3.pdf', length: 6 }]);
         await doc.restore(1, 2);
         expect(await currentText(doc)).toBe('base+1');
+
+        // A writer that may still append to the file is left a file nobody reads.
+        await writeFile(path.join(docDir(doc), 'r3.pdf'), 'base+1+late', { flag: 'w' });
+        await doc.abandonCurrentFile();
+        expect(doc.state().current).toMatchObject({ id: 2, file: 'r4.pdf', length: 6 });
+        expect(await readFile(path.join(docDir(doc), 'r4.pdf'), 'utf8')).toBe('base+1');
     });
 
     it('appends after an undo into a new file, so the redo revision keeps its bytes', async () => {
