@@ -15,6 +15,11 @@ import {
 // Reading views are stored with their Recent entries, but which source bytes a
 // view belongs to is the working-copy registry's knowledge, not the list's.
 
+/** A file version as a reading view names it: its size, and its modification time in fractional milliseconds. */
+export function readingViewSourceOf(version: {size: bigint; mtimeNs: bigint}) {
+    return {sourceSize: Number(version.size), sourceModifiedAtMs: Number(version.mtimeNs) / 1_000_000};
+}
+
 // The source a document was admitted from, with the size and modification
 // time it had then: the identity a reading view belongs to. A PDF is shown
 // from a working copy whose registry recorded its source; a DjVu is read live
@@ -22,15 +27,9 @@ import {
 // the call arrives, while the sender still owns the working copy or grant.
 async function readAdmittedSource(documentPath: string, senderWebContentsId: number) {
     const mapped = getWorkingCopyOriginalPath(documentPath, senderWebContentsId);
-    const expectation = getWorkingCopyOriginalFileExpectation(documentPath, senderWebContentsId);
+    const version = getWorkingCopyOriginalFileExpectation(documentPath, senderWebContentsId);
     const originalPath = mapped ? parseDocumentRef(mapped.originalPath) : null;
-    if (originalPath && expectation) {
-        return {
-            originalPath,
-            sourceSize: expectation.size,
-            sourceModifiedAtMs: expectation.mtimeMs,
-        };
-    }
+    if (originalPath && version) return {originalPath, ...readingViewSourceOf(version)};
     const djvu = await getAdmittedDjvuViewingSource(documentPath, senderWebContentsId);
     const djvuPath = djvu ? parseDocumentRef(djvu.originalPath) : null;
     return djvu && djvuPath

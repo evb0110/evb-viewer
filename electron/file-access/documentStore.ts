@@ -782,8 +782,7 @@ export function getWorkingCopyOwnerWebContentsId(ref: string) {
  * bound to; `null` for a document the app made or one recovered with bytes of its own.
  */
 export function getWorkingCopyOriginalFileExpectation(ref: string, senderId?: number) {
-    const admission = getWorkingCopyBackingEntry(ref, senderId)?.admission;
-    return admission ? {size: Number(admission.size), mtimeMs: Number(admission.mtimeNs / 1_000n) / 1_000} : null;
+    return getWorkingCopyBackingEntry(ref, senderId)?.admission ?? null;
 }
 
 /** The revision of the open document whose directory holds `path`, such as a native tool's staged output. */

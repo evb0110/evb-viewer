@@ -19,6 +19,7 @@ import {
 } from '@electron/file-access/documentStore';
 import {requireDocumentRef} from '@contracts/documentRef';
 import type * as TAppTempDir from '@electron/utils/appTempDir';
+import type * as TRecentReadingViews from '@electron/recentReadingViews';
 import {
     requirePageIndex, requirePageNumber,
 } from '@contracts/pageNumbers';
@@ -40,7 +41,10 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('@electron/pdf/pdfPageSizes', () => ({readPdfNativePageGeometry: mocks.readPdfNativePageGeometry}));
-vi.mock('@electron/recentReadingViews', () => ({readRecentReadingViewOf: async () => null}));
+vi.mock('@electron/recentReadingViews', async importOriginal => ({
+    ...(await importOriginal<typeof TRecentReadingViews>()),
+    readRecentReadingViewOf: async () => null,
+}));
 
 vi.mock('@electron/utils/appTempDir', async importOriginal => ({
     ...(await importOriginal<typeof TAppTempDir>()),
