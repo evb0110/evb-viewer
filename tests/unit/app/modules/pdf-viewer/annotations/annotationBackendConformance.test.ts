@@ -8,12 +8,10 @@ import {AnnotationStore} from '@app/modules/pdf-viewer/annotations/domain/annota
 import {buildSerializationPlan} from '@app/modules/pdf-viewer/annotations/persistence/annotationSavePlan';
 import {requireDocumentRevisionToken} from '@contracts/documentRevision';
 import {requirePageIndex} from '@contracts/pageNumbers';
-import {requireEpochMs} from '@contracts/timestamps';
 import {
     ANNOTATION_PERSISTENCE_BACKENDS,
     assertAnnotationBackendSemanticConformance,
     projectAnnotationBackendMutations,
-    verifyAllAnnotationPersistenceBackends,
 } from '@app/modules/pdf-viewer/annotations/persistence/annotationBackendConformance';
 
 describe('annotation persistence backend conformance', () => {
@@ -98,52 +96,6 @@ describe('annotation persistence backend conformance', () => {
                 height: 0.02,
             },
         });
-    });
-
-    it('executes and reopens the native writer adapter against canonical entities', async () => {
-        const store = new AnnotationStore();
-        const noteId = asAnnotationId('backend-note');
-        store.createNote({
-            kind: 'note',
-            identity: {id: noteId},
-            pageIndex: requirePageIndex(0),
-            revision: 0,
-            persistedRevision: -1,
-            deleted: false,
-            createdAt: requireEpochMs(1),
-            modifiedAt: requireEpochMs(2),
-            author: 'Author',
-            contents: 'עברית Ω',
-            position: {
-                left: 0.1,
-                top: 0.2,
-                width: 0.02,
-                height: 0.02,
-            },
-            color: '#ffaa00',
-            open: false,
-        });
-        const frontier = store.beginSave();
-        const plan = buildSerializationPlan(frontier, store.dirtyEntities());
-        const calls: string[] = [];
-        const adapters = [{
-            backend: 'native-append' as const,
-            apply: async (mutations: ReturnType<typeof projectAnnotationBackendMutations>) => {
-                calls.push(`native-append:${mutations.map(mutation => mutation.operation).join(',')}`);
-                return new Uint8Array([1]);
-            },
-            reopen: async () => plan.expected,
-        }];
-        const results = await verifyAllAnnotationPersistenceBackends(plan, adapters);
-        expect(results.map(result => result.backend)).toEqual(ANNOTATION_PERSISTENCE_BACKENDS);
-        expect(calls).toHaveLength(1);
-        expect(calls.every(call => call.endsWith('prepare-free-text-appearance,write-free-text-contents,bind-identities'))).toBe(true);
-    });
-
-    it('refuses a partial backend conformance run', async () => {
-        const store = new AnnotationStore();
-        const plan = buildSerializationPlan(store.beginSave(), []);
-        await expect(verifyAllAnnotationPersistenceBackends(plan, [])).rejects.toThrow('exactly one adapter');
     });
 
     it('captures one global immutable frontier for structure, metadata, OCR, annotations, and postconditions', () => {

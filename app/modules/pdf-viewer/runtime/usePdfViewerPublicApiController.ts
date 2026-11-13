@@ -17,19 +17,16 @@ import { DEFAULT_ANNOTATION_SETTINGS } from '@app/constants/annotationDefaults';
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
 import { getPageContainerByNumber } from '@app/modules/pdf-viewer/engine/pdf-scroll-visibility/getPageContainerByNumber';
 import { buildShapeAnnotation } from '@app/modules/pdf-viewer/tools/annotationShapeDrawing';
-import { cloneSparsePageMetrics } from '@app/modules/document-viewer/public';
 
 const POINT_NOTE_CANCELLED_REASON = 'The document changed before the point note was created.';
 const DOCUMENT_CHANGED_REASON = 'The document changed before the annotation was created.';
 
 type TPdfViewerPublicApiRefBackedKeys =
-    | 'annotationHistoryResetVersion'
     | 'hasShapes'
     | 'isCropSelecting'
     | 'pageMetrics'
     | 'pageMetricsVersion'
-    | 'selectedAnnotations'
-    | 'selectedTextBox';
+    | 'selectedAnnotations';
 
 type TPdfViewerRefBackedSource = {
     [TKey in TPdfViewerPublicApiRefBackedKeys]-?: Readonly<Ref<Exclude<IPdfViewerExpose[TKey], undefined>>>;
@@ -61,15 +58,12 @@ interface IUsePdfViewerPublicApiControllerOptions {
     ) => Promise<void>;
     renderLoadedPdfPagesForBrowserPrint: NonNullable<IPdfViewerExpose['renderLoadedPdfPagesForBrowserPrint']>;
     startImagePlacement: IPdfViewerExpose['startImagePlacement'];
-    clearPendingImagePlacement: IPdfViewerExpose['clearPendingImagePlacement'];
-    invalidatePages: IPdfViewerExpose['invalidatePages'];
     preparePageMutationRevisionSwap?: IPdfViewerExpose['preparePageMutationRevisionSwap'];
     beginPageRotationPreview?: IPdfViewerExpose['beginPageRotationPreview'];
     cancelPageRotationPreview?: IPdfViewerExpose['cancelPageRotationPreview'];
     startCropSelection: IPdfViewerExpose['startCropSelection'];
     cancelCropSelection: IPdfViewerExpose['cancelCropSelection'];
     isCropSelecting: TPdfViewerPublicApiSource['isCropSelecting'];
-    requestScrollToCurrentResult: IPdfViewerExpose['requestScrollToCurrentResult'];
 }
 
 export const usePdfViewerPublicApiController = (
@@ -169,12 +163,7 @@ export const usePdfViewerPublicApiController = (
             );
         },
         captureReadingAnchor: () => viewportSession.singlePageScroll.captureRelayoutAnchor(),
-        cancelProgrammaticNavigation: () => {
-            options.cancelPendingSearchScroll();
-            viewportSession.singlePageScroll.cancelProgrammaticNavigation('public-api');
-        },
         ensurePageMetricsInRange: documentSession.ensurePageMetricsInRange,
-        getPageMetricsSnapshot: () => cloneSparsePageMetrics(documentSession.pageMetrics.value),
         pageMetrics: documentSession.pageMetrics,
         pageMetricsVersion: documentSession.pageMetricsVersion,
         waitForViewerLoadSettled: options.waitForViewerLoadSettled,
@@ -291,7 +280,6 @@ export const usePdfViewerPublicApiController = (
             return result(true, annotationSession.annotationApplication.value.listCommentSummaries()
                 .find(comment => comment.appAnnotationId === shape.id) ?? null);
         },
-        annotationHistoryResetVersion: annotationSession.appAnnotationHistory.annotationHistoryResetVersion,
         hasCanonicalAnnotationChanges: annotationRuntime.hasCanonicalAnnotationChanges,
         getAnnotationDirtyEntityCount: () => annotationSession.annotationApplication.value.store.dirtyEntities().length,
         hasCanonicalShapeChanges: annotationRuntime.hasCanonicalShapeChanges,
@@ -329,9 +317,6 @@ export const usePdfViewerPublicApiController = (
         canRotateSelectedAnnotations: annotationRuntime.annotationEditorSurface.canRotateSelectedAnnotations,
         prepareAnnotationToolChange: annotationRuntime.annotationEditorSurface.prepareToolChange,
         handleAnnotationEscape: annotationRuntime.annotationEditorSurface.handleEscape,
-        selectedTextBox: annotationRuntime.annotationEditorSurface.selectedTextBox,
-        getSelectedTextBox: annotationRuntime.annotationEditorSurface.getSelectedTextBox,
-        updateSelectedTextBoxProperties: annotationRuntime.annotationEditorSurface.updateSelectedTextBoxProperties,
         captureCanonicalAnnotationRecovery: annotationRuntime.captureCanonicalAnnotationRecovery,
         getCanonicalAnnotationRecoveryChangeSignature: annotationRuntime.getCanonicalAnnotationRecoveryChangeSignature,
         restoreCanonicalAnnotationRecovery: annotationRuntime.restoreCanonicalAnnotationRecovery,
@@ -348,8 +333,6 @@ export const usePdfViewerPublicApiController = (
         deleteSelectedShape: annotationRuntime.annotationEditorSurface.deleteSelection,
         hasShapes: shapeTool.hasShapes,
         startImagePlacement: options.startImagePlacement,
-        clearPendingImagePlacement: options.clearPendingImagePlacement,
-        invalidatePages: options.invalidatePages,
         ...(options.preparePageMutationRevisionSwap
             ? {preparePageMutationRevisionSwap: options.preparePageMutationRevisionSwap}
             : {}),
@@ -359,11 +342,8 @@ export const usePdfViewerPublicApiController = (
         ...(options.cancelPageRotationPreview
             ? {cancelPageRotationPreview: options.cancelPageRotationPreview}
             : {}),
-        remapPageIdentityDelta: delta => annotationRuntime.annotationApplication.value.remapPages(delta),
-        removeAnnotationFromDom: annotationRuntime.removeAnnotationFromDom,
         startCropSelection: options.startCropSelection,
         cancelCropSelection: options.cancelCropSelection,
         isCropSelecting: options.isCropSelecting,
-        requestScrollToCurrentResult: options.requestScrollToCurrentResult,
     };
 };

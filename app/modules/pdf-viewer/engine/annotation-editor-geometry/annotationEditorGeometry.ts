@@ -84,29 +84,6 @@ export function annotationPageDimensions(
         };
 }
 
-export function moveAnnotationRect(
-    rect: IAnnotationMarkerRect,
-    deltaX: number,
-    deltaY: number,
-): IAnnotationMarkerRect {
-    const normalized = normalizeRect(rect);
-    const left = clamp(
-        normalized.left + finiteOr(deltaX, 0),
-        0,
-        Math.max(0, 1 - normalized.width),
-    );
-    const top = clamp(
-        normalized.top + finiteOr(deltaY, 0),
-        0,
-        Math.max(0, 1 - normalized.height),
-    );
-    return {
-        ...normalized,
-        left,
-        top,
-    };
-}
-
 export function applyAnnotationHandleResize(
     rect: IAnnotationMarkerRect,
     handle: TAnnotationResizeHandle,

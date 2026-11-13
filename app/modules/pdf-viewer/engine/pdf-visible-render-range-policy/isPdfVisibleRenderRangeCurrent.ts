@@ -2,7 +2,6 @@ import {
     clampPageNumber,
     requirePageNumber,
 } from '@contracts/pageNumbers';
-import type { TPageNumber } from '@contracts/pageNumbers';
 
 import type {TPdfViewMode} from '@contracts/shared';
 import type {IPageRange} from '@app/types/pdfUi';
@@ -12,12 +11,6 @@ function isFinitePageRange(range: IPageRange) {
     return Number.isFinite(range.start)
         && Number.isFinite(range.end)
         && range.start <= range.end;
-}
-
-function pageRangeContainsPage(range: IPageRange, pageNumber: TPageNumber) {
-    return isFinitePageRange(range)
-        && pageNumber >= range.start
-        && pageNumber <= range.end;
 }
 
 function pageRangesIntersect(left: IPageRange, right: IPageRange) {
@@ -47,14 +40,6 @@ function expandRangeToCompleteRows(options: IResolvePdfProtectedVisibleRangeOpti
     };
 }
 
-interface IIsPdfVisibleRenderRangeCurrentOptions {
-    range: IPageRange;
-    visibleRange: IPageRange;
-    navigationTargetPage: number | null;
-    viewMode: TPdfViewMode;
-    totalPages: number;
-}
-
 interface IResolvePdfProtectedVisibleRangeOptions {
     visibleRange: IPageRange;
     navigationTargetPage: number | null;
@@ -81,19 +66,4 @@ export function resolvePdfProtectedVisibleRange(
         } : targetRow;
     }
     return visibleRows;
-}
-
-export function isPdfVisibleRenderRangeCurrent(
-    options: IIsPdfVisibleRenderRangeCurrentOptions,
-) {
-    if (options.navigationTargetPage !== null && options.totalPages > 0) {
-        const targetRowBounds = resolvePdfProtectedVisibleRange(options);
-        return pageRangesIntersect(options.range, targetRowBounds)
-            || pageRangeContainsPage(
-                options.range,
-                clampPageNumber(options.navigationTargetPage, options.totalPages),
-            );
-    }
-
-    return pageRangesIntersect(options.range, resolvePdfProtectedVisibleRange(options));
 }

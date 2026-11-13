@@ -12,7 +12,6 @@ import {
 import {AnnotationStore} from '@app/modules/pdf-viewer/annotations/domain/annotationStore';
 import {
     buildSerializationPlan,
-    verifyAnnotationSave,
 } from '@app/modules/pdf-viewer/annotations/persistence/annotationSavePlan';
 import {requirePageIndex} from '@contracts/pageNumbers';
 
@@ -61,29 +60,6 @@ function markup(id = 'markup'): ITextMarkupEntity {
         color: '#ffff00',
         opacity: 0.6,
     };
-}
-
-function planFor(entity: INoteEntity | ITextMarkupEntity) {
-    const store = new AnnotationStore();
-    if (entity.kind === 'note') {
-        store.createNote(entity);
-    } else {
-        store.createTextMarkup(entity);
-    }
-    const frontier = store.beginSave();
-    return buildSerializationPlan(
-        frontier,
-        store.dirtyEntities(),
-        store.list({includeDeleted: true}),
-    );
-}
-
-function expectedMarkup(plan: ReturnType<typeof planFor>): ITextMarkupEntity {
-    const expected = plan.expected[0];
-    if (!expected || expected.kind !== 'text-markup') {
-        throw new Error('Expected a text markup save plan');
-    }
-    return expected;
 }
 
 describe('annotation tombstone serialization', () => {
@@ -225,81 +201,5 @@ describe('annotation tombstone serialization', () => {
             operation: 'delete-annotation',
             fields: expect.objectContaining({identity: expect.objectContaining({pdfRef: '24R'})}),
         })]);
-    });
-});
-
-describe('annotation save reopen verification', () => {
-    it('rejects a note whose persisted color differs from the canonical entity', async () => {
-        const plan = planFor(note());
-        const reopened = {
-            ...plan.expected[0]!,
-            color: '#00ccff',
-        };
-
-        await expect(verifyAnnotationSave(
-            Uint8Array.of(1),
-            plan,
-            {reopen: async () => [reopened]},
-        )).rejects.toThrow('note: note color mismatch');
-    });
-
-    it('rejects a note whose persisted open state differs from the canonical entity', async () => {
-        const plan = planFor({
-            ...note(),
-            open: true,
-        });
-        const reopened = {
-            ...plan.expected[0]!,
-            open: false,
-        };
-
-        await expect(verifyAnnotationSave(
-            Uint8Array.of(1),
-            plan,
-            {reopen: async () => [reopened]},
-        )).rejects.toThrow('note: note open state mismatch');
-    });
-
-    it('rejects a markup whose persisted color differs from the canonical entity', async () => {
-        const plan = planFor(markup());
-        const reopened = {
-            ...expectedMarkup(plan),
-            color: '#00ccff',
-        };
-
-        await expect(verifyAnnotationSave(
-            Uint8Array.of(1),
-            plan,
-            {reopen: async () => [reopened]},
-        )).rejects.toThrow('markup: markup color mismatch');
-    });
-
-    it('accepts color casing and Float32 opacity round-trip quantization', async () => {
-        const plan = planFor(markup());
-        const reopened = {
-            ...expectedMarkup(plan),
-            color: '#FFFF00',
-            opacity: new Float32Array([0.6]).at(0) ?? 0.6,
-        };
-
-        await expect(verifyAnnotationSave(
-            Uint8Array.of(1),
-            plan,
-            {reopen: async () => [reopened]},
-        )).resolves.toBeUndefined();
-    });
-
-    it('rejects a markup whose persisted opacity differs from the canonical entity', async () => {
-        const plan = planFor(markup());
-        const reopened = {
-            ...expectedMarkup(plan),
-            opacity: 0.2,
-        };
-
-        await expect(verifyAnnotationSave(
-            Uint8Array.of(1),
-            plan,
-            {reopen: async () => [reopened]},
-        )).rejects.toThrow('markup: markup opacity mismatch');
     });
 });

@@ -1,10 +1,10 @@
 export {
-    createPageNavigationRequest, type IDocumentNavigationRequest, type IDocumentNavigationTicket, type IDocumentTextAnchorNavigationOptions, type TDocumentNavigationOutcome, type TDocumentNavigationReport, type TDocumentNavigationTarget,
+    createPageNavigationRequest, type IDocumentNavigationRequest, type IDocumentNavigationTicket, type IDocumentTextAnchorNavigationOptions, type TDocumentNavigationReport, type TDocumentNavigationTarget,
 } from '@app/modules/document-viewer/navigation/documentNavigationRequest';
 export { default as DocumentViewportHost } from '@app/modules/document-viewer/runtime/DocumentViewportHost.vue';
 export * from '@app/modules/document-viewer/thumbnails/documentThumbnailRenderMetrics';
 export {
-    applyPageLabelRange, applySparsePageLabelUpdates, buildPageLabelSegments, buildPageLabelsFromRanges, buildWholeDocumentPageLabelRanges, countPageLabelDifferences, createPageLabelModel, derivePageLabelRangesFromLabels, findPageByPageLabelInput, formatPageIndicatorWithOptions, formatPageRange, getPageIndicatorLayoutMetrics, getPageLabelStartNumberMax, getPageLabelWindow, getVisiblePageLabel, isImplicitDefaultPageLabels, materializePageLabelsForCompatibility, normalizePageLabelRanges, PAGE_LABEL_DENSE_READ_MAX_PAGES, PAGE_LABEL_SMALL_COMPATIBILITY_MAX_PAGES, parsePageRangeInput, type IDocumentPageLabelModel, type TDocumentPageLabelLookup,
+    applyPageLabelRange, applySparsePageLabelUpdates, buildPageLabelSegments, buildPageLabelsFromRanges, buildWholeDocumentPageLabelRanges, countPageLabelDifferences, createPageLabelModel, derivePageLabelRangesFromLabels, findPageByPageLabelInput, formatPageIndicatorWithOptions, formatPageRange, getPageIndicatorLayoutMetrics, getPageLabelWindow, getVisiblePageLabel, isImplicitDefaultPageLabels, materializePageLabelsForCompatibility, normalizePageLabelRanges, PAGE_LABEL_DENSE_READ_MAX_PAGES, PAGE_LABEL_SMALL_COMPATIBILITY_MAX_PAGES, parsePageRangeInput, type IDocumentPageLabelModel, type TDocumentPageLabelLookup,
 } from '@app/modules/document-viewer/pageLabels';
 export {
     canScrollWithinPageBounds, resolveWheelDirection, resolveWheelTargetPage,
@@ -18,20 +18,20 @@ export {
     clampKeyboardSelection, createKeyboardSelection, updateKeyboardSelection,
 } from '@app/modules/document-viewer/region-geometry/keyboardSelection';
 export {
-    createDocumentOpenSurfaceSession, documentOpenSurfaceSessionKey, hasCommittedDocumentOpeningLayout, injectDocumentOpenSurfaceSession, isDocumentOpenEmptySurfaceTransition, resolveDocumentOpenSurfaceViewportPolicy, resolveDocumentViewportCurrentPage, shouldPresentDocumentOpenEmptyPlaceholder, type IDocumentOpenSurfaceRenderFence, type IDocumentOpenSurfaceRenderOwner, type IDocumentOpenSurfaceSession, type IDocumentOpenSurfaceSnapshot, type TDocumentOpenSurfacePhase, type TDocumentViewportVisualOwner,
+    createDocumentOpenSurfaceSession, documentOpenSurfaceSessionKey, hasCommittedDocumentOpeningLayout, injectDocumentOpenSurfaceSession, isDocumentOpenEmptySurfaceTransition, resolveDocumentOpenSurfaceViewportPolicy, resolveDocumentViewportCurrentPage, type IDocumentOpenSurfaceRenderOwner, type IDocumentOpenSurfaceSession, type IDocumentOpenSurfaceSnapshot, type TDocumentOpenSurfacePhase, type TDocumentViewportVisualOwner,
 } from '@app/modules/document-viewer/runtime/documentOpenSurfaceSession';
 export { createAnchorPageWindow } from '@app/modules/document-viewer/virtualization/pageVirtualization';
 export { createDjvuPageSource } from '@app/modules/document-viewer/source/createDjvuPageSource';
 export { createDocumentOpenGenerationErrorLatch } from '@app/modules/document-viewer/runtime/createDocumentOpenGenerationErrorLatch';
 export {
-    createDocumentOpeningPageFrame, type IDocumentOpeningPageFrame,
+    createDocumentOpeningPageFrame,
 } from '@app/modules/document-viewer/runtime/documentOpeningPageFrame';
 export { createDocumentPageSourceSearchBackend } from '@app/modules/document-viewer/search/createDocumentPageSourceSearchBackend';
 export {
     createDocumentProjectionSession, ensurePdfProjection, type IDocumentProjectionSession, type TPdfProjectionReason,
 } from '@app/modules/document-viewer/session/documentProjectionSession';
 export {
-    createDocumentSinglePageRange, doDocumentPageRangesIntersect, normalizeDocumentPageRange, type IDocumentPageRange,
+    type IDocumentPageRange,
 } from '@app/modules/document-viewer/documentPageRange';
 export { createDocumentThumbnailResizeAnchorLifecycle } from '@app/modules/document-viewer/thumbnails/createDocumentThumbnailResizeAnchorLifecycle';
 export { createDocumentThumbnailScrollRestorer } from '@app/modules/document-viewer/thumbnails/createDocumentThumbnailScrollRestorer';
@@ -42,35 +42,29 @@ export {
     createDocumentViewerRuntime, documentViewerRuntimeKey, injectDocumentViewerRuntime, type IDocumentViewerRuntime,
 } from '@app/modules/document-viewer/runtime/documentViewerRuntime';
 export type {
-    IDocumentViewportFlingBackdrop, IDocumentViewportFlingBackdropPage,
+    IDocumentViewportFlingBackdrop,
 } from '@app/modules/document-viewer/runtime/documentViewportFlingBackdrop';
 export {
-    clearDocumentViewportPaneRelocationScrollFence, consumeDocumentViewportPaneRelocationScrollFence, createDocumentViewportWritePort, fenceDocumentViewportPaneRelocationScroll, observeDocumentViewportWheelInteraction, type IDocumentViewportWrite, type IDocumentViewportWritePort,
+    clearDocumentViewportPaneRelocationScrollFence, consumeDocumentViewportPaneRelocationScrollFence, fenceDocumentViewportPaneRelocationScroll, observeDocumentViewportWheelInteraction, type IDocumentViewportWrite, type IDocumentViewportWritePort,
 } from '@app/modules/document-viewer/runtime/documentViewportWritePort';
 export {
     createDocumentWheelZoomHandler, DOCUMENT_WHEEL_ZOOM_GESTURE_GRACE_MS, resolveDocumentWheelInteraction, resolveDocumentWheelZoomTarget, type IDocumentWheelInteraction, type IDocumentWheelSourceEvent,
 } from '@app/modules/document-viewer/input/documentWheelInteraction';
 export {
-    createDocumentPageSlotRegistry, type IDocumentPageSlotOwner, type IDocumentPageSlotRegistry,
+    createDocumentPageSlotRegistry,
 } from '@app/modules/document-viewer/page-slots/createDocumentPageSlotRegistry';
 export { createPdfPageSource } from '@app/modules/document-viewer/source/createPdfPageSource';
 export { createWheelFlipGate } from '@app/modules/document-viewer/single-page-wheel/createWheelFlipGate';
 export {
     DEFAULT_DOCUMENT_SEARCH_OPTIONS, getDocumentSearchQueryError, resolveDocumentSearchQuery, type IDocumentSearchMatch,
 } from '@app/modules/document-viewer/providers/documentSearch';
-export {
-    DEFAULT_DOCUMENT_THUMBNAIL_ITEM_CHROME_HEIGHT, DocumentThumbnailLayout, type IDocumentThumbnailScrollSegmentTransition,
-} from '@app/modules/document-viewer/thumbnails/documentThumbnailLayout';
 export { DOCUMENT_PAGE_GUTTER_PX } from '@app/modules/document-viewer/layout/documentPageGutterPx';
-export {
-    DOCUMENT_THUMBNAIL_AUTO_FOLLOW_COOLDOWN_MS, DOCUMENT_THUMBNAIL_PROGRAMMATIC_SCROLL_GUARD_MS, getDocumentThumbnailComfortPadding, isDocumentThumbnailWithinComfortViewport, resolveDocumentThumbnailRevealScrollTop, type IDocumentThumbnailPageBounds, type IDocumentThumbnailViewport,
-} from '@app/modules/document-viewer/thumbnails/documentThumbnailViewport';
 export { formatDocumentSearchResultsSummary } from '@app/modules/document-viewer/providers/formatDocumentSearchResultsSummary';
 export {
     getDocumentBookmarkVisibleRows, isDocumentBookmarkExpanded, resolveDocumentBookmarkRevealRowIndex, type IDocumentBookmarkTreeItem, type TDocumentBookmarkDisplayMode, type TDocumentBookmarkPersistenceRefusal, type TDocumentBookmarkStatus,
 } from '@app/modules/document-viewer/bookmarks/documentBookmarks';
 export {
-    type IDocumentPreviewPageState, type IPagePreviewOutlineItem, type IPagePreviewRenderedObjectUrl, type IPagePreviewSource,
+    type IPagePreviewOutlineItem, type IPagePreviewSource,
 } from '@app/modules/document-viewer/pagePreviewSource';
 export { getRectHeight } from '@app/modules/document-viewer/region-geometry/getRectHeight';
 export { getRectWidth } from '@app/modules/document-viewer/region-geometry/getRectWidth';
@@ -91,26 +85,17 @@ export { intersectClientRects } from '@app/modules/document-viewer/region-geomet
 /** The page-source renderer stays its own async chunk; only the chassis mounts it. */
 export const loadDocumentPageSourceRenderer = () => import('@app/modules/document-viewer/page-source-renderer/DocumentPageSourceFeaturePack.vue');
 export {
-    normalizeMemoryPressureLevel, resolveInactiveViewerResidencyState, resolvePostReclaimResidencyState, selectViewerReclaimCandidates, shouldReclaimViewerResidencyState, type IRuntimeMemoryPressureSignal, type IViewerReclaimCandidate, type TMemoryPressureLevel, type TViewerResidencyState,
+    resolveInactiveViewerResidencyState, resolvePostReclaimResidencyState, shouldReclaimViewerResidencyState, type TMemoryPressureLevel, type TViewerResidencyState,
 } from '@app/utils/viewerResidencyPolicy';
 export {
     resolveWorkspaceMemoryBudget,
-    resolveWorkspaceMemoryDeviceTier,
-    resolveWorkspaceMemoryReclaimPlan,
-    type IResolveWorkspaceMemoryBudgetOptions,
-    type IWorkspaceMemoryBudget,
-    type IResolveWorkspaceMemoryReclaimPlanOptions,
-    type IWorkspaceMemoryReclaimPlan,
 } from '@app/modules/document-viewer/runtime/workspaceMemoryBudget';
 export {
-    createWorkspaceSurfaceBudgetController,
-    estimateCanvasSurfaceBytes,
     workspaceSurfaceBudgetController,
     type IWorkspaceSurfaceBudgetController,
     type IWorkspaceSurfaceLease,
     type IWorkspaceSurfaceBudgetSnapshot,
     type TWorkspaceResourcePressureLevel,
-    type TWorkspaceSurfaceCategory,
 } from '@app/modules/document-viewer/runtime/workspaceSurfaceBudgetController';
 export { normalizeClientRect } from '@app/modules/document-viewer/region-geometry/normalizeClientRect';
 export {
@@ -121,29 +106,28 @@ export { resolveDjvuPageSizeInPoints } from '@app/modules/document-viewer/source
 export { resolveDocumentPageSourceOpeningFrame } from '@app/modules/document-viewer/layout/resolveDocumentPageSourceOpeningFrame';
 export { resolveVirtualRowRevealScrollTop } from '@app/modules/document-viewer/virtualization/resolveVirtualRowRevealScrollTop';
 export {
-    reportDocumentViewportPlacement, type IDocumentViewportPlacement,
+    reportDocumentViewportPlacement,
 } from '@app/modules/document-viewer/runtime/reportDocumentViewportPlacement';
 export { toClientRect } from '@app/modules/document-viewer/region-geometry/toClientRect';
 export { toLocalRect } from '@app/modules/document-viewer/region-geometry/toLocalRect';
-export { type TPageSnapAnchor } from '@app/modules/document-viewer/single-page-wheel/singlePageWheelTypes';
 export { unionClientRects } from '@app/modules/document-viewer/region-geometry/unionClientRects';
 export { useDocumentBookmarkSession } from '@app/modules/document-viewer/bookmarks/useDocumentBookmarkSession';
 export { useDocumentSidebarCapabilitySession } from '@app/modules/document-viewer/sidebar/useDocumentSidebarCapabilitySession';
 export { useDocumentThumbnailController } from '@app/modules/document-viewer/thumbnails/useDocumentThumbnailController';
 export {
-    PDF_PAGE_METRICS_CHUNK_SIZE, PDF_PAGE_METRICS_DENSE_LIMIT, cloneSparsePageMetrics, forEachKnownPageMetric, getIndexedValue, getPageMetricMaximum, isSparsePageMetricCollection, normalizePageMetrics, projectPdfPageMetricForView, type IPdfLazyIndexedCollection, type IPdfPageMetricCollection,
+    PDF_PAGE_METRICS_DENSE_LIMIT, cloneSparsePageMetrics, forEachKnownPageMetric, getIndexedValue, getPageMetricMaximum, normalizePageMetrics, projectPdfPageMetricForView, type IPdfLazyIndexedCollection,
 } from '@app/modules/document-viewer/layout/normalizePageMetrics';
 export { buildPageLayoutMetrics } from '@app/modules/document-viewer/layout/buildPageLayoutMetrics';
 export {
-    PDF_VIEWER_SCROLL_SEGMENT_MAX_HEIGHT, createLayoutPhysicalScrollSession, getLayoutContentHeight, getLayoutPageHeight, getLayoutPageTop, getLayoutPageWidth, getLayoutPhysicalScrollSegment, resolveLayoutPhysicalScrollOrigin, getLayoutRowHeight, getLayoutRowTop, type IPdfPageLayoutBase, type IPdfPageLayoutMetrics,
+    PDF_VIEWER_SCROLL_SEGMENT_MAX_HEIGHT, createLayoutPhysicalScrollSession, getLayoutContentHeight, getLayoutPageHeight, getLayoutPageTop, getLayoutPageWidth, getLayoutPhysicalScrollSegment, resolveLayoutPhysicalScrollOrigin, getLayoutRowHeight, getLayoutRowTop, type IPdfPageLayoutMetrics,
 } from '@app/modules/document-viewer/layout/pdfPageLayoutMetrics';
 export {
-    getPageNumbersForViewMode, getPageRowBoundsForViewMode,
+    getPageRowBoundsForViewMode,
 } from '@app/modules/document-viewer/layout/getPageRowBoundsForViewMode';
 export { resolveCurrentSpreadBaseWidth } from '@app/modules/document-viewer/layout/resolveCurrentSpreadBaseWidth';
 export {
-    resolvePdfFitWidthDimensions, resolvePdfFitWidthRowWidths, type IPdfFitWidthDimensions,
+    resolvePdfFitWidthDimensions, resolvePdfFitWidthRowWidths,
 } from '@app/modules/document-viewer/layout/resolvePdfFitWidthDimensions';
 export {
-    computePdfViewportGeometry, createPdfViewportGeometryFromLayout, getViewportGeometryRowForPage, resolvePageIndicatorFromScroll, resolveAnchorFromScroll, resolveRetainedAnchorFromScroll, resolveScrollForAnchor, resolveScrollForPageRect, type IComputePdfViewportGeometryOptions, type IPdfSemanticAnchor, type IPdfViewportGeometry, type IPdfViewportPageMetric, type IPdfViewportRect,
+    createPdfViewportGeometryFromLayout, resolvePageIndicatorFromScroll, resolveAnchorFromScroll, resolveRetainedAnchorFromScroll, resolveScrollForAnchor, resolveScrollForPageRect, type IPdfSemanticAnchor, type IPdfViewportGeometry,
 } from '@app/modules/document-viewer/layout/pdfViewportGeometry';

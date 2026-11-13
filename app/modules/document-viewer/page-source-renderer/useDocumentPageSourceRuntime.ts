@@ -1402,8 +1402,6 @@ export const useDocumentPageSourceRuntime = (options: {
                     affinity: 'center',
                 } : null;
             },
-            invalidatePages: (pages: readonly number[]) => pages.forEach(page => void renderPage(page)),
-            requestScrollToCurrentResult: () => scrollToPage(currentPage.value),
         } satisfies IDocumentViewerExpose,
     };
 };

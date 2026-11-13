@@ -12,11 +12,11 @@ import {
     getLayoutRowHeight,
     cloneSparsePageMetrics,
     getPageMetricMaximum,
-    isSparsePageMetricCollection,
     normalizePageMetrics,
     projectPdfPageMetricForView,
     PDF_PAGE_METRICS_DENSE_LIMIT,
 } from '@app/modules/document-viewer/public';
+import { isSparsePageMetricCollection } from '@app/modules/document-viewer/layout/normalizePageMetrics';
 import { getLeadingSpacerHeightForPage } from '@app/modules/pdf-viewer/engine/pdf-page-layout/getLeadingSpacerHeightForPage';
 import { getTrailingSpacerHeightForPage } from '@app/modules/pdf-viewer/engine/pdf-page-layout/getTrailingSpacerHeightForPage';
 import { resolveDocumentBaseMetric } from '@app/modules/pdf-viewer/engine/pdf-page-layout/resolveDocumentBaseMetric';

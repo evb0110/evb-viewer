@@ -6,7 +6,6 @@ import {normalizePdfJsAnnotationId} from '@app/utils/pdfAnnotationRefs';
 import {readPdfDocumentOriginalAnnotations} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentLoadedRevision';
 import type { usePdfAppAnnotationHistory } from '@app/modules/pdf-viewer/runtime/annotations/usePdfAppAnnotationHistory';
 import {
-    annotationDocumentKey,
     createPdfDocumentAnnotations,
     pdfDocumentAnnotationsKey,
     type IPdfDocumentAnnotationsView,
@@ -142,20 +141,6 @@ export interface ICreatePdfAnnotationSessionOptions {
     /** Renderer-owned PDF link state consumed by the portal overlay. */
     linkAnnotations?: Ref<ILinkAnnotation[]> | undefined;
 
-}
-interface IAnnotationSnapshotDocumentIdentityInput {
-    originalPath: string | null;
-    workingCopyPath: string | null;
-    source: TPdfSource | null;
-}
-export function resolveAnnotationSnapshotDocumentIdentity(
-    input: IAnnotationSnapshotDocumentIdentityInput,
-) {
-    return input.originalPath
-        ? `source:${input.originalPath}`
-        : input.workingCopyPath
-            ? `path:${input.workingCopyPath}`
-            : annotationDocumentKey(input.source);
 }
 
 export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionOptions) => {
@@ -1045,9 +1030,6 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         getDeletedPersistedCanonicalAnnotationCount: () => annotationApplication.value.store
             .countDirtyPersistedDeletions(),
         shapeTool,
-        removeAnnotationFromDom: (comment: IAnnotationCommentSummary) => {
-            if (comment.pageNumber > 0) rendering.invalidatePages([comment.pageNumber]);
-        },
         annotationSettings: options.annotationSettings,
         highlightComposable: highlight,
         commentCrud: crud,

@@ -27,19 +27,6 @@ interface IUsePdfViewerRenderStallRecoveryOptions {
  * Retry until the next demand change.
  */
 export const usePdfViewerRenderStallRecovery = (options: IUsePdfViewerRenderStallRecoveryOptions) => {
-    let pendingInvalidation: number[] | null = null;
-
-    function resetRenderStallRecoveryState() {
-        pendingInvalidation = null;
-    }
-
-    function invalidatePages(pages: number[]) {
-        pendingInvalidation = [...new Set([
-            ...(pendingInvalidation ?? []),
-            ...pages,
-        ])];
-    }
-
     function handlePageRenderStall(payload: IPageRenderStallPayload) {
         if (!options.src.value) {
             return;
@@ -56,8 +43,6 @@ export const usePdfViewerRenderStallRecovery = (options: IUsePdfViewerRenderStal
     }
 
     return {
-        resetRenderStallRecoveryState,
-        invalidatePages,
         handlePageRenderStall,
     };
 };

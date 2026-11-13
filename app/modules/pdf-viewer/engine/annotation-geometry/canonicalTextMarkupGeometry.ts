@@ -1,11 +1,8 @@
 import { clamp } from 'es-toolkit/math';
-import { isFiniteNumber } from '@contracts/runtimeGuards';
 import type { IAnnotationMarkerRect } from '@app/types/annotations';
 import { normalizeMarkerRectBounds } from '@app/utils/pdfMarkerRect';
-import type { TPageRotation } from '@app/modules/pdf-viewer/engine/annotation-geometry/pageRotation';
 import {
     MIN_MARKER_RECT_SIZE,
-    toMarkerRectFromPdfRect,
 } from '@app/modules/pdf-viewer/engine/annotation-geometry/toMarkerRectFromPdfRect';
 
 /**
@@ -63,26 +60,6 @@ const CANONICAL_COORDINATE_STEP = 1e-6;
  * covering any movement a reader could see.
  */
 export const TEXT_MARKUP_COORDINATE_TOLERANCE = 0.0001;
-
-/**
- * Most quads one text-markup annotation contributes as separate rects.
- *
- * A quad is one highlighted line, and a dense page of text holds a few dozen,
- * so this leaves an order of magnitude of headroom over anything a reader
- * produces. Past it the record is treated as a single bounding rect instead:
- * the pairing below is quadratic in the rect count, and a file is free to
- * declare a `/QuadPoints` array with thousands of entries. Legacy ingest and
- * save verification read a record through the same function, so they cross the
- * ceiling together and still compare like against like — a genuine change in
- * quad count across the ceiling still moves the bounding rect or the count.
- */
-const MAX_CANONICAL_TEXT_MARKUP_QUADS = 512;
-
-/** The `/QuadPoints` and `/Rect` entries this boundary reads from one record. */
-export interface ICanonicalTextMarkupGeometrySource {
-    readonly quadPoints?: ArrayLike<number> | null | undefined;
-    readonly rect?: readonly number[] | null | undefined;
-}
 
 export interface ICanonicalGeometryMatch {
     readonly countMatches: boolean;
@@ -147,132 +124,6 @@ export function toCanonicalTextMarkupRect(
         width: roundCanonicalCoordinate(width),
         height: roundCanonicalCoordinate(height),
     };
-}
-
-/** Projects one PDF quad (eight numbers, any corner order) onto a canonical rect. */
-function toCanonicalTextMarkupRectFromQuad(
-    quad: readonly number[],
-    pageView: readonly number[],
-    pageRotation: TPageRotation,
-) {
-    if (quad.length < 8) {
-        return null;
-    }
-    const xs: number[] = [];
-    const ys: number[] = [];
-    for (let index = 0; index < 8; index += 2) {
-        const x = quad[index];
-        const y = quad[index + 1];
-        if (!isFiniteNumber(x) || !isFiniteNumber(y)) {
-            return null;
-        }
-        xs.push(x);
-        ys.push(y);
-    }
-    return toCanonicalTextMarkupRect(toMarkerRectFromPdfRect([
-        Math.min(...xs),
-        Math.min(...ys),
-        Math.max(...xs),
-        Math.max(...ys),
-    ], [...pageView], pageRotation));
-}
-
-/**
- * The corners of every quad, collapsed into one enclosing quad.
- *
- * Coordinates are read as complete (x, y) pairs and a pair is dropped whole
- * when either half is missing or non-finite. Filtering the flattened array
- * instead would shift every later coordinate's parity, so one `NaN` would turn
- * the remaining x values into y values and yield a plausible-looking rect that
- * encloses nothing the record describes.
- *
- * The bounds are carried incrementally rather than collected and spread into
- * `Math.min`/`Math.max`. This is the branch a file with an unbounded
- * `/QuadPoints` array takes, and a spread call over one coordinate per corner
- * exhausts the engine's argument limit long before such an array stops being
- * something a reader could open.
- */
-function boundingQuadOf(quadPoints: ArrayLike<number>, quadCount: number) {
-    let left = Number.POSITIVE_INFINITY;
-    let right = Number.NEGATIVE_INFINITY;
-    let top = Number.NEGATIVE_INFINITY;
-    let bottom = Number.POSITIVE_INFINITY;
-    let hasPair = false;
-    for (let index = 0; index + 1 < quadCount * 8; index += 2) {
-        const x = quadPoints[index];
-        const y = quadPoints[index + 1];
-        if (typeof x !== 'number' || !Number.isFinite(x) || typeof y !== 'number' || !Number.isFinite(y)) {
-            continue;
-        }
-        hasPair = true;
-        left = Math.min(left, x);
-        right = Math.max(right, x);
-        top = Math.max(top, y);
-        bottom = Math.min(bottom, y);
-    }
-    if (!hasPair) {
-        return [];
-    }
-    return [
-        left,
-        top,
-        right,
-        top,
-        left,
-        bottom,
-        right,
-        bottom,
-    ];
-}
-
-/**
- * Reads one text-markup record's stored geometry into canonical rects: one rect
- * per `/QuadPoints` quad, or the `/Rect` bounding box when the record carries no
- * usable quads, or their single enclosing rect once there are more quads than
- * {@link MAX_CANONICAL_TEXT_MARKUP_QUADS}. Trailing values that do not complete
- * a quad, and quads that cannot be projected, are dropped; the resulting count
- * difference is reported by the verifier rather than hidden.
- *
- * Legacy ingest and save verification both read a record through this function,
- * so a multi-quad highlight is the same list of rects whether it arrives from
- * the opened document or from the reopened staged bytes.
- */
-export function toCanonicalTextMarkupGeometryFromRecord(
-    record: ICanonicalTextMarkupGeometrySource,
-    pageView: readonly number[] | null | undefined,
-    pageRotation: TPageRotation,
-): IAnnotationMarkerRect[] {
-    if (!pageView || pageView.length < 4) {
-        return [];
-    }
-    const geometry: IAnnotationMarkerRect[] = [];
-    const quadPoints = record.quadPoints;
-    if (quadPoints && quadPoints.length >= 8) {
-        const quadCount = Math.floor(quadPoints.length / 8);
-        if (quadCount > MAX_CANONICAL_TEXT_MARKUP_QUADS) {
-            const bounding = toCanonicalTextMarkupRectFromQuad(
-                boundingQuadOf(quadPoints, quadCount),
-                pageView,
-                pageRotation,
-            );
-            return bounding ? [bounding] : [];
-        }
-        const quadValues = Array.from(quadPoints);
-        for (let index = 0; index + 7 < quadValues.length; index += 8) {
-            const quad = quadValues.slice(index, index + 8);
-            const rect = toCanonicalTextMarkupRectFromQuad(quad, pageView, pageRotation);
-            if (rect) {
-                geometry.push(rect);
-            }
-        }
-    }
-    if (geometry.length) {
-        return geometry;
-    }
-    const rect = record.rect && record.rect.length >= 4
-        ? toCanonicalTextMarkupRect(toMarkerRectFromPdfRect([...record.rect], [...pageView], pageRotation))
-        : null;
-    return rect ? [rect] : [];
 }
 
 /** Applies the canonical normal form to authored marker geometry. */

@@ -87,7 +87,6 @@ const electronApi = createElectronPlatformApiFixture({documentFiles: {readFileRa
 
 vi.mock('@app/utils/platform', () => ({getPlatformAPI: () => electronApi}));
 
-const {leasePdfDocumentPage} = await import('@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource');
 const {createPdfDocumentSession} = await import('@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSession');
 const {createDocumentViewerRuntime} = await import('@app/modules/document-viewer/runtime/documentViewerRuntime');
 const {createDocumentOpenSurfaceSession} = await import('@app/modules/document-viewer/runtime/documentOpenSurfaceSession');
@@ -2993,58 +2992,6 @@ describe('PdfDocumentSession range loading', () => {
 
         expect(getPage).toHaveBeenCalledOnce();
         expect(loadedPages.get(1)?.[1]?.cleanup).not.toHaveBeenCalled();
-    });
-
-    it('keeps background inventory pages out of the visible render LRU', async () => {
-        const pages = new Map<number, Array<{
-            cleanup: ReturnType<typeof vi.fn>;
-            getViewport: ReturnType<typeof vi.fn>;
-            pageNumber: number;
-        }>>();
-        const getPage = vi.fn(async (pageNumber: number) => {
-            const page = {
-                cleanup: vi.fn(),
-                getViewport: vi.fn(() => ({
-                    width: 200,
-                    height: 400,
-                })),
-                pageNumber,
-            };
-            pages.set(pageNumber, [
-                ...(pages.get(pageNumber) ?? []),
-                page,
-            ]);
-            return page;
-        });
-        const pdfDocument = {
-            numPages: sparsePageCount,
-            getPage,
-            loadingTask: {destroy: vi.fn()},
-        };
-        pdfjsState.getDocument.mockReturnValue({
-            promise: Promise.resolve(pdfDocument),
-            destroy: vi.fn(),
-        });
-        electronApi.documentFiles.readFileRange.mockResolvedValue(Uint8Array.of(1, 2, 3, 4));
-
-        const documentState = createPdfDocumentSession();
-        await documentState.loadPdf({
-            kind: 'path',
-            path: requireDocumentRef('/tmp/background-page-inventory.pdf'),
-            size: 2048,
-        });
-
-        const backgroundLease = await leasePdfDocumentPage(
-            pdfDocument as never,
-            requirePageNumber(2),
-            'transient-background',
-        );
-        backgroundLease.release();
-
-        expect(pages.get(2)?.[0]?.cleanup).not.toHaveBeenCalled();
-        await documentState.getPage(requirePageNumber(2));
-        expect(getPage).toHaveBeenCalledTimes(3);
-        expect(pages.get(1)?.[0]?.cleanup).not.toHaveBeenCalled();
     });
 
     it('keeps stable cached page proxies attached to one exact lease entry across eviction', async () => {

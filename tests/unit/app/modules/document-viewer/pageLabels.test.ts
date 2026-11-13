@@ -16,12 +16,14 @@ import {
     materializePageLabelsForCompatibility,
     getMaxPageIndicatorLength,
     getPageIndicatorLayoutMetrics,
-    getPageLabelStartNumberMax,
     normalizePageLabelRanges,
-    replacePageLabelRange,
 } from '@app/modules/document-viewer/pageLabels';
 import { ref } from 'vue';
-import { formatPageLabelForDisplay } from '@pdf-core/pdfPageLabels';
+import {
+    formatPageLabelForDisplay,
+    getPageLabelStartNumberMax,
+    replacePageLabelRange,
+} from '@pdf-core/pdfPageLabels';
 import type { IPdfPageLabelRange } from '@contracts/pdfPageLabels';
 import { createDocumentAgentPageLabels } from '@app/modules/workspace-shell/agent/createDocumentAgentPageLabels';
 

@@ -4,7 +4,6 @@ export type {
     IPdfViewerAnnotationCommentExpose,
     IPdfViewerCropExpose,
     IPdfViewerExpose,
-    IPdfViewerRegionCaptureExpose,
     IPdfViewerSaveExpose,
     IPdfViewerShapeExpose,
     TAgentTextMarkupKind,
@@ -12,16 +11,14 @@ export type {
 } from '@app/modules/pdf-viewer/runtime/contracts/pdfViewerExpose.types';
 export type {
     IAnnotationCreationFailureReport,
-    TAnnotationCreationFailureReason,
 } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/annotationCreationOutcome.types';
 export { useBookmarkState } from '@app/modules/pdf-viewer/runtime/composables/pdf/useBookmarkState';
 export { useOcrTextContent } from '@app/modules/pdf-viewer/runtime/composables/pdf/useOcrTextContent';
 export { usePageContextMenu } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePageContextMenu';
 export { usePageLabelState } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePageLabelState';
 export {
-    buildPageMetadataSnapshot, usePageOperations,
+    usePageOperations,
 } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePageOperations';
-export type { TPageOperationCancelState } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePageOperations';
 export { usePdfHistory } from '@app/modules/pdf-viewer/runtime/composables/usePdfHistory';
 export {
     createPdfDocumentAnnotations,
@@ -52,8 +49,6 @@ export type {
 } from '@app/modules/pdf-viewer/annotations/domain/annotationRecovery';
 export type {
     INativePdfMutationProjection,
-    IPdfSaveByteRouteDecision,
-    IPdfViewerNativeRequiredFailure,
     IPdfViewerSaveTransactionDocumentStructure,
     IPdfViewerSaveTransactionNativeCapabilities,
     IPdfViewerNativeMaterializationRequest,
@@ -69,12 +64,10 @@ export { resolveVisiblePageLabelsDuringMetadataRefresh } from '@app/modules/pdf-
 export { capturePdfRegionAsPngBlob } from '@app/modules/pdf-viewer/engine/pdf-region-capture/capturePdfRegionAsPngBlob';
 export { resolvePdfReloadPage } from '@app/modules/pdf-viewer/engine/pdf-reload-waiter/resolvePdfReloadPage';
 export { createPdfReloadWaiter } from '@app/modules/pdf-viewer/engine/pdf-reload-waiter/createPdfReloadWaiter';
-export type { IMarkupSubtypeHint } from '@app/modules/pdf-viewer/engine/annotation-subtype-hints/pdfSerializationSubtypeHintsTypes';
 export { findPdfPageContainer } from '@app/modules/pdf-viewer/dom/pdf-viewer-dom/findPdfPageContainer';
 export { pdfViewerDomSelectors } from '@app/modules/pdf-viewer/dom/pdf-viewer-dom/pdfViewerDomSelectors';
 export { clampPdfManualZoom } from '@app/modules/pdf-viewer/runtime/zoom/resolvePdfZoomScale';
 export { isPathPdfSource } from '@app/modules/pdf-viewer/engine/pdf-document-source/isPathPdfSource';
-export type { IPdfPageRasterScheduler } from '@app/modules/pdf-viewer/engine/pdf-page-raster-scheduler/pdfPageRasterScheduler';
 export type { IPdfThumbnailPageGeometry } from '@app/modules/pdf-viewer/thumbnails/pdfThumbnailComponentContract';
 
 export { createPdfSourceDataReader } from '@app/modules/pdf-viewer/runtime/composables/pdf/createPdfSourceDataReader';

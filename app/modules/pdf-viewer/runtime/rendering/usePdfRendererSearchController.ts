@@ -166,20 +166,8 @@ export const usePdfRendererSearchController = (options: IUsePdfRendererSearchCon
         },
     );
 
-    function requestScrollToCurrentResult() {
-        if (!toValue(isActive)) {
-            return;
-        }
-        const currentMatchValue = toValue(currentSearchMatch);
-        if (!currentMatchValue) {
-            return;
-        }
-        searchMatchScroller.requestScrollToMatch(currentMatchValue.pageIndex);
-    }
-
     return {
         applySearchHighlights,
-        requestScrollToCurrentResult,
         invalidatePendingRequests: searchMatchScroller.invalidatePendingRequests,
     };
 };

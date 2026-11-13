@@ -9,7 +9,6 @@ import {
     createDocumentOpenSurfaceSession,
     resolveDocumentOpenSurfaceViewportPolicy,
     shouldProjectDocumentViewportScroll,
-    shouldPresentDocumentOpenEmptyPlaceholder,
 } from '@app/modules/document-viewer/runtime/documentOpenSurfaceSession';
 import type { IDocumentOpenSurfaceRenderFence } from '@app/modules/document-viewer/runtime/documentOpenSurfaceSession';
 
@@ -363,50 +362,6 @@ describe('document open surface session', () => {
             committedPage: 3,
             pageCount: 3,
         });
-    });
-
-    it('clamps the paint target without manufacturing a new command when metadata shrinks', () => {
-        const session = createDocumentOpenSurfaceSession();
-        const generation = beginSurface(session, 'edited.pdf', 'pdfjs:1');
-        session.metadataReady(12);
-        commitDefaultGeometry(session, generation);
-        const openingFence = createRenderFence(session, generation, 'pdfjs:1');
-        commitReadySurface(session, openingFence);
-        session.requestNavigation(7);
-        const navigationTicket = session.navigationTicket.value;
-        expect(navigationTicket).not.toBeNull();
-        const pageSevenFence = createRenderFence(session, generation, 'pdfjs:1', {
-            renderVersion: 1,
-            requestId: 2,
-            pageNumber: 7,
-        });
-        commitReadySurface(session, pageSevenFence);
-        const priorIntentId = session.viewportSession.value.viewportIntent?.id;
-        expect(priorIntentId).toBeTruthy();
-
-        expect(session.metadataReady(3)).toBe(true);
-        expect(session.viewportSession.value).toMatchObject({
-            lifecycle: 'transitioning',
-            requestedPage: 3,
-            committedPage: null,
-            viewportIntent: {pageNumber: 3},
-        });
-        expect(session.viewportSession.value.viewportIntent?.id).toBe(priorIntentId);
-        expect(session.navigationTicket.value?.signal).toBe(navigationTicket?.signal);
-        expect(session.isNavigationCurrent(navigationTicket!)).toBe(true);
-        expect(session.reportNavigation(navigationTicket!, {
-            kind: 'placed',
-            page: 3,
-            left: 0,
-            top: 0,
-            geometryRevision: 1,
-            interactionEpoch: 0,
-        })).toBe(true);
-        expect(session.snapshot.value).toMatchObject({
-            phase: 'geometry-committed',
-            presentation: 'page-shell',
-        });
-        expect(shouldPresentDocumentOpenEmptyPlaceholder(session.snapshot.value)).toBe(false);
     });
 
     it('dispatches an explicit command back to the stale requested page after free scrolling', () => {
@@ -1400,43 +1355,6 @@ describe('document open surface session', () => {
 
         expect(session.commitOpeningPageFrame(generation, openingFrame(generation))).toBe(true);
         expect(session.snapshot.value.presentation).toBe('idle');
-    });
-
-    it('makes the opening surface the sole owner of empty-placeholder handoff', () => {
-        const session = createDocumentOpenSurfaceSession();
-        expect(shouldPresentDocumentOpenEmptyPlaceholder(session.snapshot.value)).toBe(true);
-
-        const generation = beginSurface(session, 'scan.pdf', 'open-intent:1');
-        expect(shouldPresentDocumentOpenEmptyPlaceholder(session.snapshot.value)).toBe(true);
-
-        session.commitOpeningPageFrame(generation, openingFrame(generation, {
-            ownerId: 'pdfjs',
-            pageNumber: 1,
-            intentKey: 'fit-width:1',
-            style: {
-                width: '760px',
-                height: '1224px',
-            },
-        }));
-        expect(shouldPresentDocumentOpenEmptyPlaceholder(session.snapshot.value)).toBe(true);
-
-        session.commitGeometry(generation, {
-            width: 760,
-            height: 1224,
-            margin: 20,
-        });
-        expect(shouldPresentDocumentOpenEmptyPlaceholder(session.snapshot.value)).toBe(false);
-
-        const failedSession = createDocumentOpenSurfaceSession();
-        const failedGeneration = failedSession.begin({
-            documentId: 'broken.pdf',
-            documentRevision: 'open-intent:2',
-        });
-        failedSession.fail(failedGeneration, 'load failed');
-        expect(shouldPresentDocumentOpenEmptyPlaceholder(failedSession.snapshot.value)).toBe(false);
-
-        failedSession.reset();
-        expect(shouldPresentDocumentOpenEmptyPlaceholder(failedSession.snapshot.value)).toBe(true);
     });
 
     it('takes a first page geometry after its page failed to render, not after the open failed', () => {

@@ -43,10 +43,7 @@ const revisionRead = vi.fn<IDocumentsFileIoCapability['getDocumentRevision']>();
 const electronApi = createElectronPlatformApiFixture({documentFiles: {getDocumentRevision: revisionRead}});
 vi.mock('@app/utils/platform', () => ({getPlatformAPI: () => electronApi}));
 
-const {
-    createPdfAnnotationSession,
-    resolveAnnotationSnapshotDocumentIdentity,
-} = await import(
+const {createPdfAnnotationSession} = await import(
     '@app/modules/pdf-viewer/runtime/sessions/createPdfAnnotationSession'
 );
 
@@ -117,7 +114,6 @@ function mountAnnotationSession(initial: {
                     return vi.fn();
                 }),
                 hideManagedAnnotationEditors: vi.fn(),
-                invalidatePages: vi.fn(),
                 isPageRendered: vi.fn(() => false),
                 renderAnnotationEditorLayerForPage: vi.fn(),
                 renderVisiblePages: vi.fn(),
@@ -184,11 +180,6 @@ function mountAnnotationSession(initial: {
             currentTransition = false;
         },
         storeDocumentKey: () => activeSession.annotationApplication.value.documentKey,
-        snapshotDocumentKey: () => resolveAnnotationSnapshotDocumentIdentity({
-            originalPath: originalPath.value,
-            workingCopyPath: workingCopyPath.value,
-            source: src.value,
-        }),
         canonicalAnnotationIds: () => activeSession.annotationApplication.value.store
             .list()
             .map(entity => entity.identity.id),
@@ -284,7 +275,7 @@ describe('annotation document identity', () => {
         expect(harness.annotationProjectionReady()).toBe(false);
     });
 
-    it('keys the canonical store on the working copy while the snapshot keeps the original path', () => {
+    it('keys the canonical store on the working copy', () => {
         const harness = mountAnnotationSession({
             originalPath: '/documents/original.pdf',
             workingCopyPath: '/managed/working.pdf',
@@ -296,7 +287,6 @@ describe('annotation document identity', () => {
         });
 
         expect(harness.storeDocumentKey()).toBe('path:/managed/working.pdf');
-        expect(harness.snapshotDocumentKey()).toBe('source:/documents/original.pdf');
     });
 
     it('keeps annotations through a copy identity change and resets them with loaded bytes', async () => {
@@ -317,9 +307,7 @@ describe('annotation document identity', () => {
         harness.originalPath.value = '/documents/renamed.pdf';
         await nextTick();
 
-        // The snapshot cache follows the document the user opened; the
-        // canonical store follows the bytes PDF.js currently holds.
-        expect(harness.snapshotDocumentKey()).toBe('source:/documents/renamed.pdf');
+        // The canonical store follows the bytes PDF.js currently holds.
         expect(harness.storeDocumentKey()).toBe('path:/managed/working.pdf');
         expect(harness.canonicalAnnotationIds()).toHaveLength(1);
 

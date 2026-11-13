@@ -25,10 +25,7 @@ import type {
 import type {IWorkspaceCommandSink} from '@app/types/workspaceCommand';
 import type { TAnnotationCreationFailureReason } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/annotationCreationOutcome.types';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
-import type {
-    ITextBoxEntity,
-    AnnotationEntity,
-} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
+import type { AnnotationEntity } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import type {
     ICanonicalAnnotationRecovery,
     TAnnotationRecoveryDraftInput,
@@ -95,7 +92,6 @@ export interface IDocumentViewerExpose {
     scrollToPage: (page: number, options?: IScrollToPageOptions) => void;
     /** The point of a page at the viewport center, as a relayout keeps it. */
     captureReadingAnchor?: () => IPdfSemanticAnchor | null;
-    cancelProgrammaticNavigation?: () => void;
     getUserViewportInteractionEpoch?: () => number;
     /**
      * The reader's moves of this view, PDF or DjVu alike, as the chassis's
@@ -105,8 +101,6 @@ export interface IDocumentViewerExpose {
     getReaderInteractionEpoch?: () => number;
     /** A reader's view command (zoom, fit, view mode) counts as a move of this view. */
     observeReaderCommand?: () => void;
-    invalidatePages?: (pages: number[]) => void;
-    remapPageIdentityDelta?: (delta: IPageIdentityDelta) => void;
     preparePageMutationRevisionSwap?: (input: {
         documentRevision: TDocumentRevisionToken;
         invalidatedPages: readonly number[];
@@ -120,7 +114,6 @@ export interface IDocumentViewerExpose {
         rotationDelta: 90 | 180 | 270;
     }) => boolean | Promise<boolean>;
     cancelPageRotationPreview?: (input: {invalidatedPages: readonly number[]}) => boolean | Promise<boolean>;
-    requestScrollToCurrentResult?: () => void;
 }
 
 
@@ -132,6 +125,7 @@ export interface IPdfViewerCropExpose {
 
 export interface IPdfViewerSaveExpose {
     runSaveTransaction: (request: IPdfViewerNativeMaterializationRequest) => Promise<IPdfViewerSaveTransactionResult>;
+    /** Read by the Electron e2e fixture cleanup, which settles editors before removing its file. */
     commitPdfEditorsForSave?: () => Promise<void>;
 }
 
@@ -142,7 +136,6 @@ export interface IPdfViewerBrowserPrintExpose {renderLoadedPdfPagesForBrowserPri
 ) => Promise<void>;}
 
 export interface IPdfViewerAnnotationCommandExpose {
-    annotationHistoryResetVersion?: number | undefined;
     hasCanonicalAnnotationChanges?: (() => boolean) | undefined;
     getAnnotationDirtyEntityCount?: (() => number) | undefined;
     hasCanonicalShapeChanges?: (() => boolean) | undefined;
@@ -179,11 +172,6 @@ export interface IPdfViewerAnnotationCommandExpose {
     canRotateSelectedAnnotations?: (delta: -90 | 90) => boolean;
     prepareAnnotationToolChange?: () => void | Promise<void>;
     handleAnnotationEscape?: () => boolean;
-    selectedTextBox?: Pick<ITextBoxEntity, 'fontSize' | 'color'> | null;
-    getSelectedTextBox?: () => ITextBoxEntity | null;
-    updateSelectedTextBoxProperties?: (
-        updates: Partial<Pick<ITextBoxEntity, 'fontSize' | 'color'>>,
-    ) => boolean | Promise<boolean>;
     /** Renderer-owned canonical state for main-process recovery publication. */
     getCanonicalAnnotationRecoveryChangeSignature?: () => readonly [number, ReadonlyArray<readonly [string, number, string]>];
     captureCanonicalAnnotationRecovery?: (drafts?: TAnnotationRecoveryDraftInput) => ICanonicalAnnotationRecovery;
@@ -201,7 +189,6 @@ export interface IPdfViewerAnnotationCommentExpose {
     /** Remove a reopened editor and tombstone its canonical entity in one history transaction. */
     deleteReopenedEditorAnnotation?: (comment: IAnnotationCommentSummary) => Promise<boolean>;
     deleteEmbeddedAnnotationDeferred?: (comment: IAnnotationCommentSummary) => boolean;
-    removeAnnotationFromDom: (comment: IAnnotationCommentSummary) => void;
     updateTextMarkupAnnotationColor?: (comment: IAnnotationCommentSummary, color: string) => boolean;
 }
 
@@ -226,7 +213,6 @@ export interface IPdfViewerImagePlacementExpose {
             annotationId?: string | null;
         },
     ) => Promise<boolean>;
-    clearPendingImagePlacement: () => void;
 }
 
 export interface IPdfViewerExpose extends
@@ -240,9 +226,6 @@ export interface IPdfViewerExpose extends
     IPdfViewerShapeExpose,
     IPdfViewerImagePlacementExpose {
     ensurePageMetricsInRange?: (startPage: number, endPage: number) => Promise<boolean>;
-    getPageMetricsSnapshot?: () => IPdfPageMetric[];
     pageMetrics?: readonly IPdfPageMetric[];
     pageMetricsVersion?: number;
-    invalidatePages: (pages: number[]) => void;
-    requestScrollToCurrentResult: () => void;
 }

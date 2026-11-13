@@ -17,7 +17,6 @@ import {
     createAnnotationRectFromPoints,
     createDefaultTextBoxRect,
     expandTextBoxRectToContentSize,
-    moveAnnotationRect,
 } from '@app/modules/pdf-viewer/engine/annotation-editor-geometry/annotationEditorGeometry';
 import type { IAnnotationMarkerRect } from '@app/types/annotations';
 
@@ -36,15 +35,6 @@ function expectRect(actual: IAnnotationMarkerRect, expected: IAnnotationMarkerRe
 }
 
 describe('annotation editor geometry', () => {
-    it('moves a rectangle without allowing it to leave the page', () => {
-        expectRect(moveAnnotationRect(rect, 0.7, -0.5), {
-            left: 0.6,
-            top: 0,
-            width: 0.4,
-            height: 0.2,
-        });
-    });
-
     it('creates a bounded rectangle for a reverse drag and enforces its minimum size', () => {
         expectRect(createAnnotationRectFromPoints({
             x: 0.8,

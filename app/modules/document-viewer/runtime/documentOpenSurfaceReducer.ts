@@ -171,10 +171,6 @@ function isPositivePage(value: number) {
     return Number.isSafeInteger(value) && value >= 1;
 }
 
-export function canOpenRecentDocument(state: IDocumentViewportSessionState) {
-    return state.lifecycle === 'empty' && state.identity === null && state.visual.kind === 'empty';
-}
-
 export function collectDocumentViewportSessionInvariantViolations(
     state: IDocumentViewportSessionState,
 ) {
