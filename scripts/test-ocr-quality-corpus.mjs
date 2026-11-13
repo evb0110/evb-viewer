@@ -184,7 +184,7 @@ async function writeSinglePageTextLayer(pdfPageOpsBinary, tesseractPdfPath, dire
     const instructionsPath = join(directory, 'text-layer.json');
     await writeFile(instructionsPath, JSON.stringify({pages: [{
         pageNumber: 1,
-        sourcePath: tesseractPdfPath,
+        source: tesseractPdfPath,
         normalizeGreekMicroSign,
     }]}));
     await execFileAsync(pdfPageOpsBinary, [
