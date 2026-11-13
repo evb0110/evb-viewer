@@ -7,9 +7,7 @@ import {
 import {
     definePlatformFeature,
     type TPlatformFeatureSchema,
-    type TFeatureCapability,
     type TFeatureEventMap,
-    type TFeatureInvokeMap,
 } from '@contracts/platformFeature';
 import {
     applyNativeMutationsArgs,
@@ -753,49 +751,5 @@ export const DOCUMENT_PLATFORM_FEATURES = [
     DOCUMENT_WINDOW_PLATFORM_FEATURE,
     DOCUMENT_MENU_PLATFORM_FEATURE,
 ] as const;
-
-/**
- * These public methods remain direct preload/browser bindings because their
- * callback, AbortSignal, AsyncIterable, or MessagePort transfer semantics
- * cannot be represented by invoke/event specs without changing the protocol.
- */
-export const DOCUMENTS_DIRECT_BINDING_METHODS = ['documentFiles.savePdfData'] as const;
-
-export type IDocumentPickerPlatformCapability =
-    TFeatureCapability<typeof DOCUMENT_PICKER_PLATFORM_FEATURE>;
-export type IDocumentOpenPlatformCapability =
-    TFeatureCapability<typeof DOCUMENT_OPEN_PLATFORM_FEATURE>;
-export type IDocumentWorkingCopyPlatformCapability =
-    TFeatureCapability<typeof DOCUMENT_WORKING_COPY_PLATFORM_FEATURE>;
-export type IDocumentFilesPlatformCapability =
-    TFeatureCapability<typeof DOCUMENT_FILES_PLATFORM_FEATURE>;
-export type IDocumentPdfPlatformCapability =
-    TFeatureCapability<typeof DOCUMENT_PDF_PLATFORM_FEATURE>;
-export type IDocumentRecentFilesPlatformCapability =
-    TFeatureCapability<typeof DOCUMENT_RECENT_FILES_PLATFORM_FEATURE>;
-export type IDocumentWindowPlatformCapability =
-    TFeatureCapability<typeof DOCUMENT_WINDOW_PLATFORM_FEATURE>;
-export type IDocumentMenuPlatformCapability =
-    TFeatureCapability<typeof DOCUMENT_MENU_PLATFORM_FEATURE>;
-export type IDocumentPickerInvokeMap =
-    TFeatureInvokeMap<typeof DOCUMENT_PICKER_PLATFORM_FEATURE>;
-export type IDocumentOpenInvokeMap =
-    TFeatureInvokeMap<typeof DOCUMENT_OPEN_PLATFORM_FEATURE>;
-export type IDocumentWorkingCopyInvokeMap =
-    TFeatureInvokeMap<typeof DOCUMENT_WORKING_COPY_PLATFORM_FEATURE>;
-export type IDocumentFilesInvokeMap =
-    TFeatureInvokeMap<typeof DOCUMENT_FILES_PLATFORM_FEATURE>;
-export type IDocumentPdfInvokeMap =
-    TFeatureInvokeMap<typeof DOCUMENT_PDF_PLATFORM_FEATURE>;
-export type IDocumentRecentFilesInvokeMap =
-    TFeatureInvokeMap<typeof DOCUMENT_RECENT_FILES_PLATFORM_FEATURE>;
-export type IDocumentWindowInvokeMap =
-    TFeatureInvokeMap<typeof DOCUMENT_WINDOW_PLATFORM_FEATURE>;
-export type IDocumentMenuInvokeMap =
-    TFeatureInvokeMap<typeof DOCUMENT_MENU_PLATFORM_FEATURE>;
 export type IDocumentMenuEventMap =
     TFeatureEventMap<typeof DOCUMENT_MENU_PLATFORM_FEATURE>;
-export type IDocumentOpenEventMap =
-    TFeatureEventMap<typeof DOCUMENT_OPEN_PLATFORM_FEATURE>;
-export type IDocumentFilesEventMap =
-    TFeatureEventMap<typeof DOCUMENT_FILES_PLATFORM_FEATURE>;

@@ -5,7 +5,6 @@ import {
     lstat,
     open,
     readFile,
-    readdir,
     copyFile,
     rename,
     stat,
@@ -13,7 +12,6 @@ import {
     writeFile,
 } from 'fs/promises';
 import {
-    basename,
     dirname,
     join,
 } from 'path';
@@ -35,8 +33,6 @@ import {
 } from '@electron/utils/fsyncPath';
 
 const logger = createLogger('atomicReplace');
-const DEFAULT_ATOMIC_REPLACE_BACKUP_MAX_AGE_MS = 24 * 60 * 60 * 1000;
-const ATOMIC_REPLACE_BACKUP_NAME_PATTERN = /^(?<destination>.+)\.bak-[0-9a-f]{16}$/u;
 const ATOMIC_REPLACE_JOURNAL_VERSION = 1;
 const WINDOWS_FALLBACK_CODES = new Set<string | number>([
     'EACCES',
@@ -191,128 +187,6 @@ async function createRestoreFailureError(
 
 export function makeSiblingTempPath(targetPath: string) {
     return join(dirname(targetPath), `.${randomSuffix()}.tmp`);
-}
-
-function getAtomicReplaceBackupDestination(backupPath: string) {
-    const destinationName = basename(backupPath).match(ATOMIC_REPLACE_BACKUP_NAME_PATTERN)?.groups?.destination;
-    return destinationName ? join(dirname(backupPath), destinationName) : null;
-}
-
-/**
- * Removes only old atomic-replace backups in one caller-selected directory.
- * The caller owns the directory scope. A backup stays in place when its
- * destination is missing, active, too recent, or cannot be inspected safely.
- */
-export async function cleanupStaleAtomicReplaceBackups(
-    directoryPath: string,
-    options: IAtomicReplaceBackupCleanupOptions = {},
-): Promise<IAtomicReplaceBackupCleanupResult> {
-    const result: IAtomicReplaceBackupCleanupResult = {
-        hasRetainedBackup: false,
-        removedBackups: 0,
-    };
-    if (process.platform !== 'win32') {
-        return result;
-    }
-
-    const now = options.now !== undefined && Number.isFinite(options.now) ? options.now : Date.now();
-    const maxAgeMs = options.maxAgeMs !== undefined
-        && Number.isFinite(options.maxAgeMs)
-        && options.maxAgeMs >= 0
-        ? options.maxAgeMs
-        : DEFAULT_ATOMIC_REPLACE_BACKUP_MAX_AGE_MS;
-    try {
-        const directoryStat = await lstat(directoryPath);
-        if (!directoryStat.isDirectory() || directoryStat.isSymbolicLink()) {
-            return result;
-        }
-    } catch {
-        return result;
-    }
-    let entries: string[];
-    try {
-        entries = await readdir(directoryPath);
-    } catch {
-        return result;
-    }
-
-    for (const entry of entries) {
-        if (!entry.includes('.bak-')) {
-            continue;
-        }
-
-        const backupPath = join(directoryPath, entry);
-        const destinationPath = getAtomicReplaceBackupDestination(backupPath);
-        if (!destinationPath) {
-            // Keep names from another backup scheme. They are outside this
-            // utility's naming contract and may carry user data.
-            result.hasRetainedBackup = true;
-            continue;
-        }
-
-        let backupStat;
-        try {
-            backupStat = await lstat(backupPath);
-        } catch {
-            continue;
-        }
-        if (!backupStat.isFile() || backupStat.isSymbolicLink()) {
-            result.hasRetainedBackup = true;
-            continue;
-        }
-
-        let destinationStat;
-        try {
-            destinationStat = await lstat(destinationPath);
-        } catch {
-            // A backup without its destination is the useful recovery copy.
-            result.hasRetainedBackup = true;
-            continue;
-        }
-        if (!destinationStat.isFile() || destinationStat.isSymbolicLink()) {
-            result.hasRetainedBackup = true;
-            continue;
-        }
-
-        if (options.isDestinationActive?.(destinationPath)) {
-            result.hasRetainedBackup = true;
-            continue;
-        }
-
-        const lastTouchedAt = backupStat.mtimeMs;
-        if (!Number.isFinite(lastTouchedAt) || now - lastTouchedAt < maxAgeMs) {
-            result.hasRetainedBackup = true;
-            continue;
-        }
-
-        // Recheck the destination immediately before unlinking the backup. It
-        // does not make the pair a conditional filesystem operation, but it
-        // avoids deleting a recovery copy after an obvious destination loss.
-        try {
-            const currentDestinationStat = await lstat(destinationPath);
-            if (!currentDestinationStat.isFile() || currentDestinationStat.isSymbolicLink()) {
-                result.hasRetainedBackup = true;
-                continue;
-            }
-            if (options.isDestinationActive?.(destinationPath)) {
-                result.hasRetainedBackup = true;
-                continue;
-            }
-        } catch {
-            result.hasRetainedBackup = true;
-            continue;
-        }
-
-        try {
-            await unlink(backupPath);
-            result.removedBackups += 1;
-        } catch (error) {
-            result.hasRetainedBackup = true;
-            logger.warn(`Failed to remove stale atomic replace backup "${backupPath}": ${getErrorMessage(error)}`);
-        }
-    }
-
-    return result;
 }
 
 /** Moves a complete file into an absent path; no-link volumes use rename. */

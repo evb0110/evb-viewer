@@ -65,12 +65,6 @@ export interface IBookmarkDropTarget {
     position: TBookmarkDropPosition;
 }
 
-export interface IBookmarkActivatePayload {
-    id: string;
-    multiSelect: boolean;
-    rangeSelect: boolean;
-}
-
 export interface IBookmarkDropPayload {
     targetId: string;
     position: TBookmarkDropPosition;

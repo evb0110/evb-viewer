@@ -1,6 +1,5 @@
 import type {
     IAgentAssistantChatScope,
-    TAgentAssistantProviderId,
 } from '@contracts/agent';
 
 export function cloneAssistantScope(scope: IAgentAssistantChatScope): IAgentAssistantChatScope {
@@ -22,19 +21,4 @@ export function getAgentAssistantScopeRevisionToken(scope: IAgentAssistantChatSc
     return scope?.commandTarget?.documentRevisionToken
         ?? scope?.documentIdentity?.token
         ?? null;
-}
-
-export function buildAgentAssistantScopeFingerprint(
-    provider: TAgentAssistantProviderId,
-    scope: IAgentAssistantChatScope | null | undefined,
-) {
-    return JSON.stringify({
-        provider,
-        scopeKey: scope?.key ?? null,
-        tabId: scope?.tabId ?? null,
-        documentSessionKey: scope?.documentSessionKey ?? scope?.key ?? null,
-        documentInstanceId: scope?.documentInstanceId ?? scope?.commandTarget?.documentInstanceId ?? null,
-        documentRef: scope?.documentRef ?? scope?.commandTarget?.documentRef ?? null,
-        documentRevisionToken: getAgentAssistantScopeRevisionToken(scope),
-    });
 }

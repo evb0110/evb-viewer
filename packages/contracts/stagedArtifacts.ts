@@ -147,8 +147,6 @@ export const TYPED_STAGED_ARTIFACT_SCHEMA = v.union([
 export type TArtifactFileIdentity = v.InferOutput<typeof fileIdentitySchema>;
 export type IBrowserStoreFileIdentity = v.InferOutput<typeof browserStoreFileIdentitySchema>;
 export type IStagedArtifactValidations = v.InferOutput<typeof stagedArtifactValidationsSchema>;
-export type IContentFingerprintStagedArtifact = v.InferOutput<typeof contentFingerprintStagedArtifactSchema>;
-export type IOpaqueNativeStagedArtifact = v.InferOutput<typeof opaqueNativeStagedArtifactSchema>;
 export type ITypedStagedArtifact = v.InferOutput<typeof TYPED_STAGED_ARTIFACT_SCHEMA>;
 export type TBrowserStoreStagedArtifact = v.InferOutput<typeof browserStoreStagedArtifactSchema>;
 

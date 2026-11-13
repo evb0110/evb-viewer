@@ -179,7 +179,6 @@ export function parseBrowserPdfCombineWorkerRequest(value: unknown): TBrowserPdf
 
 export {
     resultSchemas as BROWSER_PDF_COMBINE_WORKER_RESULT_SCHEMAS,
-    workerResponseSchema as BROWSER_PDF_COMBINE_WORKER_RESPONSE_SCHEMA,
 };
 
 export type {

@@ -179,8 +179,3 @@ export async function releaseScanCleanupDetectionResultStoreOwner(ownerId: strin
             .map(store => releaseScanCleanupDetectionResultStore(store.storeId)),
     );
 }
-
-/** Close all stores registered by one preview service. */
-export async function releaseScanCleanupDetectionResultStores(storeIds: Iterable<string>) {
-    await Promise.all([...new Set(storeIds)].map(storeId => releaseScanCleanupDetectionResultStore(storeId)));
-}

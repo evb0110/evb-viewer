@@ -71,17 +71,6 @@ export function decodeScanCleanupPageNumber(value: unknown, label: string) {
     return requirePageNumber(Number(value));
 }
 
-export function decodeScanCleanupPageKey(value: string, label: string) {
-    if (!/^[1-9]\d*$/u.test(value)) {
-        throw new Error(`invalid scan-cleanup ${label}`);
-    }
-    const pageNumber = decodeScanCleanupPageNumber(Number(value), label);
-    if (String(pageNumber) !== value) {
-        throw new Error(`invalid scan-cleanup ${label}`);
-    }
-    return pageNumber;
-}
-
 export function consumeScanCleanupPages(
     budget: IScanCleanupInputBudget,
     count: number,

@@ -594,11 +594,3 @@ export function decodeScanCleanupPageOverrideEdits(value: unknown, budget = crea
     for (const page of Object.keys(parsed)) edits[page] = overrides[page] ?? null;
     return edits;
 }
-
-export type TScanCleanupOwnerContext = v.InferOutput<typeof ownerContextSchema>;
-export type TScanCleanupStartRequest = v.InferOutput<typeof startRequestShapeSchema>;
-export type TScanCleanupPreviewRequest = v.InferOutput<typeof previewRequestSchema>;
-export type TScanCleanupDetectionRequest = v.InferOutput<typeof detectionRequestSchema>;
-export type TScanCleanupPlacementAnchorCalibrationRequest = v.InferOutput<typeof placementAnchorCalibrationRequestSchema>;
-export type TScanCleanupPreviewCancelRequest = v.InferOutput<typeof previewCancelRequestSchema>;
-export type TScanCleanupPlacementAnchor = v.InferOutput<typeof placementAnchorSchema>;
