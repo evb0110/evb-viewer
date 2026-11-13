@@ -7,6 +7,7 @@ import type { IFilePickerAcceptType } from '@app/platform/browser-api/browserFil
 import { toBrowserOwnedArrayBuffer } from '@app/platform/browser-api/browserPlatformHelpers';
 import { yieldToBrowser } from '@app/platform/browser-api/browserYield';
 import { resolveBrowserCapabilityTier } from '@app/platform/browser/browserCapabilityTier';
+import { downloadBlob as downloadPublishedBlob } from '@app/platform/browser/browserPublication';
 import {
     safeGetSessionStorageItem,
     safeSetSessionStorageItem,
@@ -74,13 +75,6 @@ function createBrowserFileWritePermissionError() {
     return new Error(
         'Browser write permission was not granted for this file. '
         + 'Choose Save changes in the browser prompt, or use Save As to pick a new output file.',
-    );
-}
-
-function createBrowserFileWritePermissionChangedError() {
-    return new Error(
-        'Browser write permission for this file changed while the save waited for other saves. '
-        + 'Save again to be asked for write permission.',
     );
 }
 
@@ -180,14 +174,6 @@ export async function ensureFileHandleWritePermission(handle: FileSystemFileHand
         : currentPermission;
     if (nextPermission !== 'granted') {
         throw createBrowserFileWritePermissionError();
-    }
-}
-
-// For the physical-save lock: a grant lost while the save waited is a retryable
-// failure here. A prompt inside the lock would block every other window's save.
-async function assertFileHandleWriteGranted(handle: FileSystemFileHandle) {
-    if (await queryFileHandleWritePermission(handle) !== 'granted') {
-        throw createBrowserFileWritePermissionChangedError();
     }
 }
 
@@ -441,16 +427,7 @@ export async function pickSingleFile(options: {
 // immediately before it; nothing can take a dispatched download back.
 function downloadBlob(blob: Blob, fileName: string, signal?: AbortSignal) {
     throwIfAborted(signal);
-    const href = URL.createObjectURL(blob);
-    const anchor = document.createElement('a');
-    anchor.href = href;
-    anchor.download = fileName;
-    anchor.rel = 'noopener';
-    anchor.style.display = 'none';
-    document.body.append(anchor);
-    anchor.click();
-    anchor.remove();
-    window.setTimeout(() => URL.revokeObjectURL(href), 1_000);
+    downloadPublishedBlob(blob, fileName);
 }
 
 /**
@@ -755,19 +732,6 @@ export async function writeBytesToHandle(
     await writeBytesAfterPermission(handle, data, signal);
 }
 
-// Inside the physical-save lock, after the caller's preflight. It never prompts.
-// The grant is checked before a writer exists, so a conflict or cancellation has no
-// writer to abort.
-export async function writeBytesToHandleInSaveLock(
-    handle: FileSystemFileHandle,
-    data: Uint8Array,
-    signal?: AbortSignal,
-) {
-    throwIfAborted(signal);
-    await assertFileHandleWriteGranted(handle);
-    await writeBytesAfterPermission(handle, data, signal);
-}
-
 async function writeBytesAfterPermission(
     handle: FileSystemFileHandle,
     data: Uint8Array,
@@ -784,12 +748,11 @@ async function writeBytesAfterPermission(
     await closeBrowserFileWritable(writable);
 }
 
-// Inside the physical-save lock, after the caller's preflight. It never prompts.
+/** Streams a stored document into `handle`; the caller asked for write permission first. */
 export async function writeDocumentRefToHandle(
     handle: FileSystemFileHandle,
     ref: TDocumentRef,
 ) {
-    await assertFileHandleWriteGranted(handle);
     const writable = await handle.createWritable();
     let size = 0;
     try {

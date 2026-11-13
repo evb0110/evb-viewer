@@ -43,10 +43,6 @@ import {
     browserDocumentStore,
     getBrowserDocumentFileName,
 } from '@app/platform/browserDocumentStore';
-import {
-    reserveBrowserDocumentWorkingCopy,
-    retireBrowserDocumentWorkingCopy,
-} from '@app/platform/browserWindowTabs';
 import {getErrorMessage} from '@app/utils/error';
 
 // The smallest module that uses a SIMD128 instruction; the engine needs SIMD.
@@ -165,15 +161,13 @@ function findLanguageProblem(pages: readonly IOcrSearchablePdfPage[]) {
 
 async function stageResult(requestId: TRequestId, sourceRef: TDocumentRef, sourceRevisionToken: TDocumentRevisionToken, data: Uint8Array) {
     const stagedName = `${getBrowserDocumentFileName(sourceRef)}.ocr.pdf`;
-    const stagedRef = await reserveBrowserDocumentWorkingCopy(stagedName);
+    const stagedRef = await browserDocumentStore.createStoredDocument(stagedName, data, {
+        mimeType: 'application/pdf',
+        saveKind: 'pdf',
+        kind: 'output',
+        retention: 'transient',
+    });
     try {
-        await browserDocumentStore.createStoredDocument(stagedName, data, {
-            ref: stagedRef,
-            mimeType: 'application/pdf',
-            saveKind: 'pdf',
-            kind: 'output',
-            retention: 'transient',
-        });
         const artifact = await createBrowserStoreStagedArtifact(browserDocumentStore, stagedRef, {
             leaseId: crypto.randomUUID(),
             sha256: await sha256Hex(data),
@@ -199,7 +193,6 @@ async function stageResult(requestId: TRequestId, sourceRef: TDocumentRef, sourc
 
 async function discardStagedDocument(ref: TDocumentRef) {
     stagedResults.delete(ref);
-    await retireBrowserDocumentWorkingCopy(ref);
     await browserDocumentStore.remove(ref).catch(() => undefined);
 }
 

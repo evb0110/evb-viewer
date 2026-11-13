@@ -114,44 +114,26 @@ describe('browser document lifecycle UI', () => {
         }
     }, 60_000);
 
-    it.each([
-        'discovery',
-        'lock',
-    ])('opens and saves a PDF after one initial recovery lease %s refusal', async (fault) => {
+    it('opens and saves a PDF after one initial window lock refusal', async () => {
         const context = await lifecycle.browser.newContext();
         const page = await context.newPage();
         const problems = collectConsoleProblems(page);
         try {
-            await page.addInitScript((fault) => {
+            await page.addInitScript(() => {
                 Reflect.set(window, '__allowRendererFileOpenForAutomation', () => true);
                 Reflect.set(window, 'showSaveFilePicker', undefined);
                 sessionStorage.setItem('evb-viewer:browser:open-picker-mode', 'input');
-                if (fault === 'lock') {
-                    const locks = navigator.locks;
-                    const request = locks.request;
-                    locks.request = function (...args: [string, LockOptions | LockGrantedCallback<unknown>, LockGrantedCallback<unknown>?]) {
-                        if (args[0].startsWith('evb-viewer:browser-lease-owner:')
-                            && typeof args[1] === 'object' && args[1].mode === 'exclusive') {
-                            locks.request = request;
-                            Reflect.set(window, '__initialClaimRefused', true);
-                            return Promise.reject(new Error('Injected initial lease claim refusal'));
-                        }
-                        return Reflect.apply(request, locks, args);
-                    };
-                    return;
-                }
-                const post = BroadcastChannel.prototype.postMessage;
-                BroadcastChannel.prototype.postMessage = function (this: BroadcastChannel, message: unknown) {
-                    if (this.name === 'evb-viewer:browserWindowTabs'
-                        && Reflect.get(Object(message), 'type') === 'discover'
-                        && new Error().stack?.includes('listTargetWindows')) {
-                        BroadcastChannel.prototype.postMessage = post;
+                const locks = navigator.locks;
+                const request = locks.request;
+                locks.request = function (...args: [string, LockOptions | LockGrantedCallback<unknown>, LockGrantedCallback<unknown>?]) {
+                    if (args[0].startsWith('evb-window:')) {
+                        locks.request = request;
                         Reflect.set(window, '__initialClaimRefused', true);
-                        throw new Error('Injected initial lease claim refusal');
+                        return Promise.reject(new Error('Injected initial window lock refusal'));
                     }
-                    return post.call(this, message);
+                    return Reflect.apply(request, locks, args);
                 };
-            }, fault);
+            });
             await page.goto(lifecycle.origin, {waitUntil: 'domcontentloaded'});
             await waitForOpenFileReady(page);
             expect(await page.evaluate(() => Reflect.get(window, '__initialClaimRefused'))).toBe(true);
@@ -169,7 +151,7 @@ describe('browser document lifecycle UI', () => {
             });
             await textBox.dblclick();
             const editor = page.locator('.pdf-annotation-editor-text-box__editor').last();
-            await editor.fill('Edit after lease claim refusal');
+            await editor.fill('Edit after window lock refusal');
             const download = page.waitForEvent('download');
             await page.getByRole('button', {
                 name: 'Save options',
@@ -180,8 +162,8 @@ describe('browser document lifecycle UI', () => {
             const annots = saved.getPage(0).node.lookup(PDFName.of('Annots'), PDFArray);
             expect(Array.from({length: annots.size()}, (_, index) => annots.lookup(index, PDFDict)
                 .lookupMaybe(PDFName.of('Contents'), PDFString, PDFHexString)?.decodeText()))
-                .toContain('Edit after lease claim refusal');
-            expect(problems.filter(problem => !problem.includes('Injected initial lease claim refusal'))).toEqual([]);
+                .toContain('Edit after window lock refusal');
+            expect(problems.filter(problem => !problem.includes('Injected initial window lock refusal'))).toEqual([]);
         } finally {
             await context.close();
         }
@@ -647,8 +629,9 @@ describe('browser document lifecycle UI', () => {
             const draft = 'Protected newer draft after reading';
             await input.fill(draft);
             await expect.poll(async () => Array.from((await readRecovery()).notes), {timeout: 15_000}).toContain(draft);
+            // The draft joins the same document's recovery: no new copy of its bytes.
             const edited = await readRecovery();
-            expect(edited.tab?.workingCopyRef).not.toBe(initial!.tab?.workingCopyRef);
+            expect(edited.tab?.workingCopyRef).toBe(initial!.tab?.workingCopyRef);
             observations.push({
                 event: 'new draft',
                 ref: edited.tab?.workingCopyRef,

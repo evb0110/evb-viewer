@@ -1,10 +1,5 @@
-import {
-    DB_NAME, DOCUMENTS_STORE,
-} from '@app/platform/browser/browserDocumentConstants';
 import {browserDocumentStore} from '@app/platform/browserDocumentStore';
-import {
-    FakeIndexedDbFactory, MemoryStorage,
-} from '@tests/unit/app/platform/browserPlatformTestDoubles';
+import {MemoryStorage} from '@tests/unit/app/platform/browserPlatformTestDoubles';
 import {requireJobId} from '@contracts/shared';
 import type * as TViMockOriginalModule from '@app/modules/document-viewer/public';
 import type * as TDjvuConversionPipelineModule from '@app/platform/browser-api/browserDjvuConversionPipeline';
@@ -644,9 +639,8 @@ describe('WorkspaceDocumentDriver', () => {
 describe('DjVu print layout cancellation storage', () => {
     afterEach(() => vi.unstubAllGlobals());
     it('starts no conversion when canceled while its output is being created', async () => {
-        const indexedDb = new FakeIndexedDbFactory();
-        vi.stubGlobal('indexedDB', indexedDb);
         vi.stubGlobal('localStorage', new MemoryStorage());
+        const storedBefore = browserDocumentStore.openEntries().length;
         const {prepareBrowserDjvuPrint} = await import('@app/platform/browser-api/prepareBrowserDjvuPrint');
         const {browserDjvuCapability} = await import('@app/platform/browser-api/browserDjvuCapability');
         const createStarted = Promise.withResolvers<undefined>();
@@ -689,16 +683,15 @@ describe('DjVu print layout cancellation storage', () => {
             expect(await outcome).toMatchObject({name: 'AbortError'});
             await vi.waitFor(() => expect(printResult).toMatchObject({canceled: true}));
             expect(driverMocks.runBrowserDjvuConversion).not.toHaveBeenCalled();
-            expect(indexedDb.getDatabase(DB_NAME)?.getStoreRecords(DOCUMENTS_STORE).size ?? 0).toBe(0);
+            expect(browserDocumentStore.openEntries()).toHaveLength(storedBefore);
         } finally {
             create.mockRestore();
         }
     });
 
     it('leaves no stored PDF when canceled during layout', async () => {
-        const indexedDb = new FakeIndexedDbFactory();
-        vi.stubGlobal('indexedDB', indexedDb);
         vi.stubGlobal('localStorage', new MemoryStorage());
+        const storedBefore = browserDocumentStore.openEntries().length;
         const {prepareBrowserDjvuPrint} = await import('@app/platform/browser-api/prepareBrowserDjvuPrint');
         const {browserDjvuCapability} = await import('@app/platform/browser-api/browserDjvuCapability');
         const layoutStarted = Promise.withResolvers<undefined>();
@@ -753,7 +746,7 @@ describe('DjVu print layout cancellation storage', () => {
         });
         expect(printResult).not.toHaveProperty('printablePdfPath');
         expect(await browserDocumentStore.exists(convertedPath!)).toBe(false);
-        expect(indexedDb.getDatabase(DB_NAME)?.getStoreRecords(DOCUMENTS_STORE).size).toBe(0);
+        expect(browserDocumentStore.openEntries()).toHaveLength(storedBefore);
         expect(onNativePrintHandoffStart).not.toHaveBeenCalled();
     });
 });

@@ -8,11 +8,8 @@ import {
     type TDocumentRef,
 } from '@contracts/documentRef';
 import { browserDocumentStore } from '@app/platform/browserDocumentStore';
-import {
-    browserWindowTabsCapability,
-    getBrowserWindowRecoveryOwnerId,
-    reserveBrowserDocumentWorkingCopy,
-} from '@app/platform/browserWindowTabs';
+import { getBrowserWindowId } from '@app/platform/browserWindowTabs';
+import { hasBrowserWorkspaceCheckpoint } from '@app/platform/browser/browserWorkspaceRecovery';
 import { openBrowserExternalPaths } from '@app/platform/browser-api/browserExternalOpenQueue';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { isBrowserExtensionPage } from '@app/utils/isBrowserExtensionPage';
@@ -149,18 +146,14 @@ async function fetchLaunchDocument(documentUrl: string) {
         throw new Error('The response is not a PDF or DjVu document');
     }
     const fileName = resolveLaunchFileName(response, kind);
-    // A page that replaces another viewer page in its tab inherits that page's
-    // window, and the startup collection of the previous page's documents can
-    // run while this one is stored. The window protects the ref before the
-    // document exists, for as long as this page shows it.
-    const ref = await reserveBrowserDocumentWorkingCopy(fileName);
-    return browserDocumentStore.registerFile(new File([response.blob], fileName, {type: kind === 'pdf' ? 'application/pdf' : 'image/vnd.djvu'}), {ref});
+    // The stored copy is locked before it exists, so no window's startup collection takes it.
+    return browserDocumentStore.registerFile(new File([response.blob], fileName, {type: kind === 'pdf' ? 'application/pdf' : 'image/vnd.djvu'}));
 }
 
 // A window with unsaved work restores its own tabs, the launched document among them.
 async function hasWindowRecovery() {
-    const ownerId = getBrowserWindowRecoveryOwnerId();
-    return ownerId !== null && await browserWindowTabsCapability.browserRecovery?.load(ownerId) != null;
+    const windowId = getBrowserWindowId();
+    return windowId !== null && await hasBrowserWorkspaceCheckpoint(windowId);
 }
 
 /** The document this history entry already opened, while the browser still stores it. */

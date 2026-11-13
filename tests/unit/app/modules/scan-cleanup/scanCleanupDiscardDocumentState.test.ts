@@ -7,7 +7,6 @@ import {
     it,
     vi,
 } from 'vitest';
-import {FakeIndexedDbFactory} from '@tests/unit/app/platform/browserPlatformTestDoubles';
 import {requireJobId} from '@contracts/shared';
 import {requireEpochMs} from '@contracts/timestamps';
 import {discardScanCleanupDocumentState} from '@app/modules/scan-cleanup/runtime/discardScanCleanupDocumentState';
@@ -50,7 +49,6 @@ function cacheEntry() {
 
 describe('discardScanCleanupDocumentState', () => {
     beforeEach(() => {
-        vi.stubGlobal('indexedDB', new FakeIndexedDbFactory());
         localStorage.clear();
         scanCleanupDetectionSessionCache.clear();
         scanCleanupAutoDetectionCanceledDocuments.clear();

@@ -121,37 +121,25 @@ describe('browser document lifecycle UI', () => {
         const problems = collectConsoleProblems(page);
         const observations: unknown[] = [];
         try {
-            await page.addInitScript(() => {
-                Reflect.set(window, '__a46LoadGate', new Promise<void>(resolveGate => Reflect.set(window, '__a46ReleaseLoad', resolveGate)));
-                Reflect.set(window, '__a46Publications', []);
-                const put = IDBObjectStore.prototype.put;
-                IDBObjectStore.prototype.put = function (...args: Parameters<IDBObjectStore['put']>) {
-                    if (this.name === 'workspace-recovery' && Reflect.get(window, '__a46ObservePublications')) {
-                        Reflect.get(window, '__a46Publications').push(structuredClone(args[0]));
-                    }
-                    return Reflect.apply(put, this, args);
-                };
-            });
-            // Hold the existing awaited load, leaving all document input and bytes real.
-            await page.route('**/checkpoint/useBrowserWorkspaceRecovery.ts*', async route => {
-                const response = await route.fetch();
-                const body = await response.text();
-                const marker = 'const previous = await recovery.load(ownerId);';
-                if (!body.includes(marker)) throw new Error('Recovery load gate seam was not found');
-                await route.fulfill({
-                    response,
-                    body: body.replace(marker, `${marker}
-                    if (Reflect.get(window, '__a46HoldLoad')) {
-                        Reflect.set(window, '__a46HoldLoad', false);
-                        document.body.dataset.a46Load = 'held';
-                        await Reflect.get(window, '__a46LoadGate');
-                    }`),
-                });
-            });
             await openPdfFromChooser(page, resolve('tests/fixtures/electron/generated-text.pdf'));
             await page.locator('.page_container--rendered canvas').first().waitFor({state: 'visible'});
             const originalTab = await page.locator('.tab.is-active[data-tab-id]').getAttribute('data-tab-id');
-            await page.evaluate(() => Reflect.set(window, '__a46HoldLoad', true));
+            // Hold the window's next recovery record, leaving all document input and bytes real.
+            await page.evaluate(`(async () => {
+                const {getWindowTabsCapability} = await import('/_nuxt/utils/platformWindowTabs.ts');
+                const recovery = getWindowTabsCapability().browserRecovery;
+                const save = recovery.save.bind(recovery);
+                const gate = new Promise(resolve => Reflect.set(window, '__a46ReleaseLoad', resolve));
+                let holding = true;
+                recovery.save = async (checkpoint) => {
+                    if (holding) {
+                        holding = false;
+                        document.body.dataset.a46Load = 'held';
+                        await gate;
+                    }
+                    return save(checkpoint);
+                };
+            })()`);
             await page.getByRole('button', {
                 name: 'Place a sticky note on the page.',
                 exact: true,
@@ -169,7 +157,6 @@ describe('browser document lifecycle UI', () => {
                 exact: true,
             }).click();
             await page.waitForFunction(() => document.body.dataset.a46Load === 'held');
-            await page.evaluate(() => Reflect.set(window, '__a46ObservePublications', true));
             const chooser = page.waitForEvent('filechooser');
             await page.getByRole('button', {
                 name: 'Menu',
@@ -207,18 +194,18 @@ describe('browser document lifecycle UI', () => {
             }).click();
             await page.evaluate(() => Reflect.get(window, '__a46ReleaseLoad')());
             await expect.poll(async () => (await readRecoveries(page, '/Text')).some(record => record.notes.has(replacementNote))).toBe(true);
-            const publications = await page.evaluate(() => Reflect.get(window, '__a46Publications') as Array<{checkpoint: {tabs: Array<{
-                fileName: string;
-                sourceRef: string
-            }>}}>);
+            // The held capture of the replaced document wrote nothing: every stored record names the replacement.
+            const records = await readRecoveries(page, '/Text');
             observations.push({
-                step: 'publications',
-                publications,
+                step: 'records',
+                records: records.map(record => record.checkpoint),
             });
-            expect(publications.length).toBeGreaterThan(0);
-            for (const publication of publications) {
-                expect(publication.checkpoint.tabs[0]!.fileName).toBe('a46-replacement.pdf');
-                expect(publication.checkpoint.tabs[0]!.sourceRef).toContain('a46-replacement.pdf');
+            expect(records.length).toBeGreaterThan(0);
+            for (const record of records) {
+                for (const tab of record.checkpoint.tabs.filter(candidate => candidate.isDirty)) {
+                    expect((tab as {fileName?: string}).fileName).toBe('a46-replacement.pdf');
+                }
+                expect(record.notes.has('Discarded A note')).toBe(false);
             }
             await page.reload({waitUntil: 'domcontentloaded'});
             await waitForOpenFileReady(page);

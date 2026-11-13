@@ -1,4 +1,3 @@
-import {createBrowserDocumentRef} from '@app/platform/browser/browserDocumentRefs';
 import * as functionUtils from 'es-toolkit/function';
 import type { IWindowTabsCapability } from '@contracts/windowTabsPlatformFeature';
 import type {
@@ -15,28 +14,13 @@ import {
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { subscribeBrowserMenuEvent } from '@app/platform/browserMenuBar';
 import {
-    abortBrowserTransferAuthority,
-    loadBrowserTransferAuthority,
-    mutateBrowserTransferAuthority,
-    type IBrowserTransferAuthorityRecord,
-} from '@app/platform/browser/browserDocumentIdb';
-import {
-    claimBrowserWorkspaceRecoveryOwner,
-    clearBrowserWorkspaceRecovery,
-    saveBrowserWorkspaceRecovery,
-    touchBrowserWorkspaceRecovery,
-    loadBrowserWorkspaceRecoveries,
-    loadBrowserWorkspaceRecovery,
-    RECOVERY_OWNER_LEASE_TIMEOUT_MS,
-} from '@app/platform/browser/browserWorkspaceRecoveryStore';
-import {
-    holdLeaseOwnerLock,
-    holdsLeaseOwnerLock,
-    loadLiveLeaseOwnerIds,
-    loadBrowserDocumentLiveLease,
-} from '@app/platform/browser/browserDocumentLeaseStore';
+    acknowledgeBrowserWorkspaceCheckpoint,
+    browserWindowLockName,
+    claimBrowserWorkspaceCheckpoint,
+    saveBrowserWorkspaceCheckpoint,
+} from '@app/platform/browser/browserWorkspaceRecovery';
 import {browserDocumentStore} from '@app/platform/browser/browserDocumentRepository';
-import type { TDocumentRef } from '@contracts/documentRef';
+import {holdBrowserLock} from '@app/platform/browser/runBrowserLock';
 import { removeBrowserExtensionDocumentUrl } from '@contracts/browserExtensionLaunch';
 import * as v from 'valibot';
 const WINDOW_TABS_CHANNEL = 'evb-viewer:browserWindowTabs';
@@ -50,86 +34,6 @@ const FALLBACK_WINDOW_TITLE = 'EVB Viewer';
 const CLOSE_CURRENT_WINDOW_TIMEOUT_MS = 150;
 const TRANSFER_MESSAGE_SCHEMA_VERSION = 1;
 
-function buildTransferAuthorityRecord(
-    transfer: IWindowTabIncomingTransfer,
-    nonce: string,
-    sourceInstanceNonce: string,
-    targetInstanceNonce: string,
-    deadlineAt: number,
-): IBrowserTransferAuthorityRecord {
-    const refs = new Set<string>();
-    const add = (ref: string | null | undefined) => { if (ref) refs.add(ref); };
-    add(transfer.tab.originalPath);
-    add(transfer.session?.documentRef);
-    if (transfer.payload.kind === 'djvu') add(transfer.payload.sourcePath);
-    if (transfer.payload.kind === 'pdfSnapshot') {
-        add(transfer.payload.originalPath);
-        add(transfer.payload.snapshotPath);
-    }
-    const expired = Date.now() >= deadlineAt;
-    return {
-        id: `transfer:${transfer.transferId}`,
-        transferId: transfer.transferId,
-        nonce,
-        sourceWindowId: transfer.sourceWindowId,
-        sourceInstanceNonce,
-        targetWindowId: transfer.targetWindowId,
-        targetInstanceNonce,
-        generation: expired ? 2 : 1,
-        state: expired ? 'aborted' : 'pending',
-        targetReady: false,
-        deadlineAt,
-        payload: transfer,
-        backingRefs: Array.from(refs, ref => ({ref})),
-        createdAt: Date.now(),
-        ...(expired ? {decidedAt: Date.now()} : {}),
-    };
-}
-async function createTransferAuthority(
-    transfer: IWindowTabIncomingTransfer,
-    nonce: string,
-    sourceInstanceNonce: string,
-    targetInstanceNonce: string,
-    deadlineAt: number,
-) {
-    return mutateBrowserTransferAuthority(transfer.transferId, (current, store) => {
-        if (current) {
-            return current;
-        }
-        const record = buildTransferAuthorityRecord(
-            transfer,
-            nonce,
-            sourceInstanceNonce,
-            targetInstanceNonce,
-            deadlineAt,
-        );
-        store.put(record);
-        return record;
-    });
-}
-async function commitTransferAuthority(
-    transferId: string,
-    nonce: string,
-    sourceWindowId: number,
-    targetWindowId: number,
-) {
-    return mutateBrowserTransferAuthority(transferId, (current) => {
-        if (!current || current.nonce !== nonce || current.sourceWindowId !== sourceWindowId
-            || current.targetWindowId !== targetWindowId || current.state !== 'pending') {
-            return current;
-        }
-        if (Date.now() >= current.deadlineAt) {
-            return current;
-        }
-        return {
-            ...current,
-            targetReady: true,
-            state: 'committed',
-            generation: current.generation + 1,
-            decidedAt: Date.now(),
-        };
-    });
-}
 type TIncomingTransferListener = (
     transfer: IWindowTabIncomingTransfer,
 ) => void;
@@ -263,6 +167,25 @@ let currentWindowId = -1;
 let currentRecoveryInstanceNonce = '';
 let isCurrentWindowReady = false;
 let cleanupRegistered = false;
+// The lock that says this window is alive; a checkpoint whose window lock is free belongs to a window that is gone.
+let windowLock: {windowId: number; held: boolean; granted: Promise<boolean>} | null = null;
+
+function holdWindowLock(windowId: number) {
+    if (windowLock?.windowId === windowId) return windowLock.granted;
+    const lock = {windowId, held: false, granted: Promise.resolve(false)};
+    // A lock manager that refuses the request leaves the id unproven, as another holder would.
+    lock.granted = holdBrowserLock(browserWindowLockName(String(windowId))).then((release) => {
+        lock.held = release !== null;
+        return lock.held;
+    }, () => false);
+    windowLock = lock;
+    return lock.granted;
+}
+
+/** Whether this context holds `windowId`'s lock; `null` without Web Locks, when only instance nonces can decide. */
+function holdsWindowLock(windowId: number) {
+    return typeof navigator === 'undefined' || !navigator.locks ? null : windowLock?.windowId === windowId && windowLock.held;
+}
 
 function parseBrowserWindowTabsMessage(data: unknown): TBrowserWindowTabsMessage | null {
     const result = v.safeParse(browserWindowTabsMessageSchema, data, {abortEarly: true});
@@ -374,7 +297,7 @@ function resolveCurrentWindowId() {
         const namedWindowId = readNamedWindowId();
         const reloadingWindowId = parsePositiveWindowId(Number(window.sessionStorage?.getItem(WINDOW_TABS_STATE_KEY)));
         window.sessionStorage?.removeItem(WINDOW_TABS_STATE_KEY);
-        if (namedWindowId && (holdsLeaseOwnerLock(recoveryOwnerId(namedWindowId)) !== null
+        if (namedWindowId && (holdsWindowLock(namedWindowId) === true
             || (namedWindowId === reloadingWindowId
                 && performance.getEntriesByType('navigation').some(entry => 'type' in entry && entry.type === 'reload')))) {
             if (state) state.windowId = namedWindowId;
@@ -391,13 +314,10 @@ function resolveCurrentWindowId() {
     return windowId;
 }
 
-function recoveryOwnerId(windowId: number) {
-    return `window:${String(windowId)}`;
-}
-
-export function getBrowserWindowRecoveryOwnerId() {
+/** This window's id, which names its workspace checkpoint; `null` outside a window. */
+export function getBrowserWindowId() {
     initializeBrowserWindowTabs();
-    return currentWindowId > 0 ? recoveryOwnerId(currentWindowId) : null;
+    return currentWindowId > 0 ? String(currentWindowId) : null;
 }
 
 function ensureChannel() {
@@ -550,7 +470,6 @@ function finishTransfer(
     if (!pending) {
         return;
     }
-    if (!result.success) void abortBrowserTransferAuthority(transferId, pending.nonce);
     pendingTransfers.delete(transferId);
     removeQueuedTransferReference(pending.targetWindowId, transferId);
     clearTimeout(pending.timeoutHandle);
@@ -663,7 +582,7 @@ function shouldIgnoreBrowserWindowTabsMessage(message: TBrowserWindowTabsMessage
 export function rekeyCurrentWindow() {
     const retainedWindowId = currentWindowId;
     const nextWindowId = createWindowId();
-    void holdLeaseOwnerLock(recoveryOwnerId(nextWindowId), true);
+    void holdWindowLock(nextWindowId);
     knownWindows.delete(currentWindowId);
     currentWindowId = nextWindowId;
     const state = getBrowserWindowTabsState();
@@ -688,7 +607,7 @@ function handleWindowAnnouncement(message: Extract<TBrowserWindowTabsMessage, { 
         // holds the owner's lease lock keeps the owner with its leases and
         // records; a context that does not takes a new id and that id's lock.
         // Without a lock manager the instance nonces decide which one keeps it.
-        const retainsOwner = holdsLeaseOwnerLock(recoveryOwnerId(currentWindowId))
+        const retainsOwner = holdsWindowLock(currentWindowId)
             ?? currentRecoveryInstanceNonce < message.instanceNonce;
         if (!retainsOwner) {
             const retainedWindowId = rekeyCurrentWindow();
@@ -727,12 +646,16 @@ function handleIncomingTransferMessage(message: Extract<TBrowserWindowTabsMessag
         message.transfer.transferId,
         message.transfer.nonce,
     );
+    const {payload} = message.transfer;
+    if (payload.kind === 'pdfSnapshot' && payload.snapshotPath && payload.originalPath) {
+        browserDocumentStore.nameSource(payload.snapshotPath, payload.originalPath);
+    }
     incomingTransferListeners.forEach((listener) => {
         listener(message.transfer);
     });
 }
 
-async function handleTransferAckMessage(message: Extract<TBrowserWindowTabsMessage, { type: 'ack' }>) {
+function handleTransferAckMessage(message: Extract<TBrowserWindowTabsMessage, { type: 'ack' }>) {
     const pending = pendingTransfers.get(message.ack.transferId);
     if (
         !pending
@@ -751,18 +674,7 @@ async function handleTransferAckMessage(message: Extract<TBrowserWindowTabsMessa
         });
         return;
     }
-    const authority = await commitTransferAuthority(
-        message.ack.transferId,
-        pending.nonce,
-        currentWindowId,
-        pending.targetWindowId,
-    );
-    if (authority?.state === 'committed') {
-        // The durable decision protects bytes while the receiver adopts its reader.
-        authority.backingRefs.forEach(({ref}) => documentDependencyReaders.delete(ref));
-        finishTransfer(message.ack.transferId, {success: true});
-        await publishBrowserDocumentLiveLeases();
-    }
+    finishTransfer(message.ack.transferId, {success: true});
 }
 
 function handleMessage(data: unknown) {
@@ -788,7 +700,7 @@ function handleMessage(data: unknown) {
             handleIncomingTransferMessage(message);
             break;
         case 'ack':
-            void handleTransferAckMessage(message);
+            handleTransferAckMessage(message);
             break;
     }
 }
@@ -848,6 +760,7 @@ function initializeBrowserWindowTabs() {
         lastSeenAt: Date.now(),
         ready: isCurrentWindowReady,
     });
+    void holdWindowLock(currentWindowId);
     rememberBrowserWindowTabsInstance();
     ensureChannel();
     registerCleanupHandlers();
@@ -918,179 +831,41 @@ export function syncBrowserWindowTitle() {
     updateKnownCurrentWindow();
     announceCurrentWindow();
 }
-async function waitForTransferDecision(transferId: string, nonce: string) {
-    const deadline = Date.now() + INCOMING_TRANSFER_NONCE_TTL_MS;
-    while (Date.now() < deadline) {
-        try {
-            const authority = await loadBrowserTransferAuthority(transferId);
-            if (authority?.nonce === nonce) {
-                if (authority.state === 'committed') {
-                    const barrier = Reflect.get(globalThis, '__evbTransferAuthorityCommittedReadBarrier') as
-                        (() => void | Promise<void>) | undefined;
-                    if (typeof barrier === 'function') {
-                        await Promise.resolve(barrier());
-                    }
-                    return true;
-                }
-                if (authority.state === 'aborted') {
-                    return false;
-                }
-            }
-        } catch {
-            // Storage refusal is not an abort. Keep the provisional bytes and retry.
-        }
-        await new Promise<void>(resolve => setTimeout(resolve, 250));
-    }
-    throw new Error('Durable transfer decision remained unavailable.');
-}
-// Hold the owner lock before restoration can expose its record as an orphan.
 // A silent duplicate cannot announce a collision; its held lock forces rekeying.
-async function holdRecoveryOwnerLock() {
+async function holdCurrentWindowLock() {
     for (;;) {
-        const ownerId = getBrowserWindowRecoveryOwnerId();
-        if (!ownerId) {
-            return null;
-        }
-        const held = await holdLeaseOwnerLock(ownerId, true);
-        if (ownerId !== getBrowserWindowRecoveryOwnerId()) continue;
-        if (held) return ownerId;
+        const windowId = getBrowserWindowId();
+        if (!windowId) return null;
+        const held = await holdWindowLock(Number(windowId));
+        if (windowId !== getBrowserWindowId()) continue;
+        if (held) return windowId;
         rekeyCurrentWindow();
     }
 }
-// Recovery records and their live document leases share this platform owner.
-type TDocumentDependencyOwner = (() => TDocumentRef[]) & {complete?: () => Promise<void>};
-const documentDependencyReaders = new Map<string | (() => TDocumentRef[]), TDocumentDependencyOwner>();
-let recoveryLiveLease: Promise<Awaited<ReturnType<typeof loadBrowserDocumentLiveLease>>> | null = null;
 
-async function claimRecoveryLiveLease() {
-    await holdRecoveryOwnerLock();
-    if (ensureChannel()) await browserWindowTabsCapability.listTargetWindows();
-
-    return holdRecoveryOwnerLock().then(ownerId => ownerId ? loadBrowserDocumentLiveLease(ownerId) : null);
-}
-
-export function registerBrowserDocumentDependencyReader(read: () => TDocumentRef[]) {
-    documentDependencyReaders.set(read, read);
-    return () => documentDependencyReaders.delete(read);
-}
-
-export async function reserveBrowserDocumentWorkingCopy(fileName: string, sourceRef?: TDocumentRef) {
-    const ref = createBrowserDocumentRef(fileName);
-    if (sourceRef && (await browserDocumentStore.requireEntry(sourceRef)).memoryOnly || !getBrowserWindowRecoveryOwnerId()) return ref;
-    documentDependencyReaders.set(ref, () => sourceRef ? [
-        ref,
-        sourceRef,
-    ] : [ref]);
-    return publishBrowserDocumentLiveLeases().then(() => ref, (error: unknown) => {
-        documentDependencyReaders.delete(ref);
-        throw error;
-    });
-}
-
-export function handoffBrowserDocumentWorkingCopy(ref: TDocumentRef, ownerRef: TDocumentRef, complete: () => Promise<void>) {
-    const owner = documentDependencyReaders.get(ownerRef);
-    if (ref === ownerRef && !owner) return;
-    const readOwner: TDocumentDependencyOwner = owner ?? (() => [ownerRef]);
-    documentDependencyReaders.delete(ref);
-    documentDependencyReaders.set(ownerRef, Object.assign(
-        () => readOwner().concat(ref),
-        {complete: functionUtils.once(() => Promise.resolve(readOwner.complete?.()).finally(complete))},
-    ));
-}
-
-export async function retireBrowserDocumentWorkingCopy(ref: TDocumentRef) {
-    const owner = documentDependencyReaders.get(ref);
-    await (owner?.complete?.() ?? Promise.resolve()).finally(() => {
-        if (documentDependencyReaders.get(ref) === owner) documentDependencyReaders.delete(ref);
-        return publishBrowserDocumentLiveLeases();
-    });
-}
-
-export function publishBrowserDocumentLiveLeases(
-    ownerId?: string | null,
-    refs: TDocumentRef[] = [],
-) {
-    const previous = recoveryLiveLease ?? Promise.resolve(null);
-    const publication = previous.then(lease => lease ?? claimRecoveryLiveLease()).then(async (lease) => {
-        ownerId ??= getBrowserWindowRecoveryOwnerId();
-        if (!ownerId) return null;
-        const dependencies = new Set<string>(documentDependencyReaders.size > 0
-            ? [...documentDependencyReaders.values()].flatMap(read => read())
-            : refs);
-        if (dependencies.size === 0 && !lease) return null;
-        if (lease?.ownerId === ownerId && lease.status === 'active'
-            && lease.protectedDependencies.length === dependencies.size
-            && lease.protectedDependencies.every(dependency => dependency.chunkGeneration === undefined && dependencies.has(dependency.ref))) return lease;
-        const generation = lease?.ownerId === ownerId ? lease.generation : 0;
-        return dependencies.size > 0
-            ? browserDocumentStore.heartbeatLiveLease(ownerId, generation, Array.from(dependencies, ref => ({ref})))
-            : browserDocumentStore.releaseLiveLease(ownerId, generation);
-    });
-    // A rejected publication keeps the last committed authority and generation.
-    recoveryLiveLease = publication.catch(() => previous);
-    return publication;
+/** The documents a transfer hands over leave this window first, so the target can lock and open them. */
+async function releaseTransferredDocuments(payload: IWindowTabTransferRequest['payload']) {
+    if (payload.kind === 'pdfSnapshot' && payload.snapshotPath) await browserDocumentStore.release(payload.snapshotPath);
 }
 
 export const browserWindowTabsCapability: IWindowTabsCapability = {
     browserRecovery: {
-        getOwnerId: getBrowserWindowRecoveryOwnerId,
-        load: loadBrowserWorkspaceRecovery,
-        async save(ownerId, expectedGeneration, checkpoint, snapshotRefs, liveDocumentRefs) {
-            const outcome = await saveBrowserWorkspaceRecovery(ownerId, expectedGeneration, checkpoint, snapshotRefs);
-            if (outcome.saved) await publishBrowserDocumentLiveLeases(ownerId, liveDocumentRefs);
-            return outcome;
+        async save(checkpoint) {
+            const windowId = await holdCurrentWindowLock();
+            if (windowId) await saveBrowserWorkspaceCheckpoint(windowId, checkpoint);
         },
-        async touch(ownerId, expectedGeneration, liveDocumentRefs) {
-            const outcome = await touchBrowserWorkspaceRecovery(ownerId, expectedGeneration);
-            if (outcome.saved) await publishBrowserDocumentLiveLeases(ownerId, liveDocumentRefs);
-            return outcome;
-        },
-        clear: clearBrowserWorkspaceRecovery,
     },
-    // Restore acknowledgement cannot delete the browser's only dirty bytes.
-    // The browser writer retires them after a replacement or clean checkpoint.
-    async acknowledgeWorkspaceCheckpoint() {},
+    async acknowledgeWorkspaceCheckpoint() {
+        const windowId = getBrowserWindowId();
+        if (windowId) await acknowledgeBrowserWorkspaceCheckpoint(windowId);
+    },
     discardWorkspaceCheckpoint: () => Promise.resolve('1'),
     async resumeWorkspaceCheckpoint() {},
     claimWorkspaceCheckpoint: async () => {
-        await (recoveryLiveLease ?? Promise.resolve(null)).then(lease => lease ?? claimRecoveryLiveLease());
-        const ownerId = getBrowserWindowRecoveryOwnerId();
-        if (!ownerId) return null;
-        const records = await loadBrowserWorkspaceRecoveries();
-        const exact = records.find(record => record.ownerId === ownerId)
-            ?? records.find(record => record.ownerId === recoveryOwnerId(inheritedWindowId ?? -1));
-        if (exact?.ownerId === ownerId && ownerId === getBrowserWindowRecoveryOwnerId()) {
-            return exact.checkpoint;
-        }
-
-        const activeOwnerIds = new Set(Array.from(knownWindows.keys(), recoveryOwnerId));
-        const liveOwnerIds = await loadLiveLeaseOwnerIds();
-        const now = Date.now();
-        const orphan = records
-            .filter(record => (
-                record.ownerId !== ownerId
-                && !activeOwnerIds.has(record.ownerId)
-                // Silence proves nothing: use locks or the conservative heartbeat
-                // check, then fence a changed lease revision in the claim transaction.
-                && (liveOwnerIds
-                    ? !liveOwnerIds.has(record.ownerId)
-                    : now - record.updatedAt >= RECOVERY_OWNER_LEASE_TIMEOUT_MS)
-            ))
-            .sort((first, second) => (
-                Number(second.ownerId === exact?.ownerId) - Number(first.ownerId === exact?.ownerId)
-                || second.updatedAt - first.updatedAt
-                || first.ownerId.localeCompare(second.ownerId)
-            ))[0];
-        if (!orphan) {
-            return null;
-        }
-        const outcome = await claimBrowserWorkspaceRecoveryOwner(
-            orphan.ownerId,
-            ownerId,
-            orphan.generation,
-            orphan.leaseRevision,
-        );
-        return outcome.claimed ? orphan.checkpoint : null;
+        const windowId = await holdCurrentWindowLock();
+        if (!windowId) return null;
+        // A page that replaced another in this tab inherits its window's unsaved work first.
+        return claimBrowserWorkspaceCheckpoint(windowId, inheritedWindowId === null ? null : String(inheritedWindowId));
     },
     async transfer(request: IWindowTabTransferRequest) {
         initializeBrowserWindowTabs();
@@ -1140,7 +915,7 @@ export const browserWindowTabsCapability: IWindowTabsCapability = {
             const timeoutMs = normalizeTimeout(request.timeoutMs);
             const timeoutHandle = setTimeout(() => finishTransfer(transferId, {
                 success: false,
-                error: 'Transfer timed out while waiting for durable source acknowledgement.',
+                error: 'Transfer timed out while waiting for the target window.',
             }), timeoutMs);
             pendingTransfers.set(transferId, {
                 transferId,
@@ -1150,20 +925,7 @@ export const browserWindowTabsCapability: IWindowTabsCapability = {
                 resolve,
                 timeoutHandle,
             });
-            void createTransferAuthority(
-                payload,
-                nonce,
-                currentRecoveryInstanceNonce,
-                knownWindows.get(targetWindowId)?.instanceNonce ?? '',
-                Date.now() + timeoutMs,
-            ).then(record => {
-                if (!record || record.state === 'aborted') {
-                    finishTransfer(transferId, {
-                        success: false,
-                        error: 'Transfer authority was unavailable.',
-                    });
-                    return;
-                }
+            void releaseTransferredDocuments(request.payload).then(() => {
                 const targetWindow = knownWindows.get(targetWindowId);
                 if (targetWindow?.ready) {
                     dispatchTransfer(transferId);
@@ -1177,7 +939,7 @@ export const browserWindowTabsCapability: IWindowTabsCapability = {
                 });
             }).catch(() => finishTransfer(transferId, {
                 success: false,
-                error: 'Transfer authority was unavailable.',
+                error: 'The transferred document could not be handed over.',
             }));
         });
     },
@@ -1200,7 +962,7 @@ export const browserWindowTabsCapability: IWindowTabsCapability = {
                 instanceNonce: currentRecoveryInstanceNonce,
             },
         });
-        return waitForTransferDecision(ack.transferId, nonce);
+        return Promise.resolve(true);
     },
     async listTargetWindows() {
         initializeBrowserWindowTabs();
