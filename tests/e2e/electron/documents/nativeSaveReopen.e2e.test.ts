@@ -620,7 +620,9 @@ describe('Electron E2E - native save and reopen', () => {
         expect(await readFile(sourcePath)).toEqual(sourceBytes);
     }, NATIVE_SAVE_REOPEN_TIMEOUT_MS);
 
-    it('retains another annotation edit arriving while Save As is staged', async () => {
+    // T3: Save As writes the edits accepted when it took its snapshot. An edit made while it runs does not fail it:
+    // the edit stays visible and unsaved, and the next Save writes it.
+    it('keeps another annotation edit arriving while Save As is staged for the next Save', async () => {
         const sourcePath = await createMultiPageTextFixturePdf(`native-save-as-race-${Date.now()}.pdf`, 1);
         const destinationPath = sourcePath.replace(/\.pdf$/u, '-copy.pdf');
         onTestFinished(() => rm(destinationPath, {force: true}));
@@ -666,9 +668,16 @@ describe('Electron E2E - native save and reopen', () => {
             value: true,
         });
         expect(await readFile(sourcePath)).toEqual(sourceBytes);
-        expect(await readPdfTextAnnotationRecords(destinationPath)).toEqual(expect.arrayContaining([expect.objectContaining({contents: 'After concurrent edit'})]));
+        const savedContents = async () => (await readPdfTextAnnotationRecords(destinationPath)).map(record => record.contents);
+        expect(await savedContents()).toEqual(['Before concurrent edit']);
         await waitForOpenedPdf(session, destinationPath);
-        await expect.poll(async () => (await readCanonicalAnnotationSnapshot(session!.page)).comments).toEqual(expect.arrayContaining([expect.objectContaining({text: 'After concurrent edit'})]));
+        const shownTextBox = '.editor-pane.is-active .pdf-annotation-editor-layer [data-annotation-kind="text-box"]';
+        await session.page.waitForFunction((selector: string) => Array.from(document.querySelectorAll(selector))
+            .some(entity => entity.textContent?.trim() === 'After concurrent edit'), {timeout: 30_000}, shownTextBox);
+        await session.page.waitForSelector('.editor-pane.is-active .tab.is-active.is-dirty', {visible: true});
+        expect(await requireWorkspaceCommand<boolean>(session.page, 'handleSave')).toBe(true);
+        expect(await savedContents()).toEqual(['After concurrent edit']);
+        await session.page.waitForSelector('.editor-pane.is-active .tab.is-active:not(.is-dirty)', {visible: true});
     }, NATIVE_SAVE_REOPEN_TIMEOUT_MS);
 
     it('moves a parsed store-owned text box through save and fresh-process reopen', async () => {

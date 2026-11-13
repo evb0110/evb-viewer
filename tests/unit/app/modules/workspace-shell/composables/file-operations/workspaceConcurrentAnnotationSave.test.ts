@@ -31,6 +31,7 @@ import {
     createDeferred,
     createDeps,
     createShapeAnnotation,
+    type TPdfNativeMutationSave,
     useWorkspaceSaveServiceForTest,
 } from '@tests/unit/app/modules/workspace-shell/composables/file-operations/workspaceSaveServiceFixture';
 
@@ -166,9 +167,11 @@ describe('concurrent canonical edits during workspace save', () => {
             documentRevisionToken: computed(() => revision.value),
         });
         deps.runSaveTransaction = request => transaction.runSaveTransaction(request);
-        async function publishCapturedBytes() {
+        async function publishCapturedBytes(assertBeforeExpose?: () => Promise<void> | void) {
             enteredPersistence.resolve(undefined);
             await finishPersistence.promise;
+            // As the native writer does, check the save is still current before exposing its bytes, after the edit.
+            await assertBeforeExpose?.();
             if (mode === 'save-as') originalPath.value = requireDocumentRef('/tmp/new.pdf');
             revision.value = requireDocumentRevisionToken('rev-2');
             return {
@@ -184,9 +187,9 @@ describe('concurrent canonical edits during workspace save', () => {
             entities: [],
             foreign: [],
         }));
-        deps.trySavePdfNativeMutations = vi.fn(publishCapturedBytes);
-        deps.saveWorkingCopy = vi.fn(publishCapturedBytes);
-        deps.saveWorkingCopyAs = vi.fn(publishCapturedBytes);
+        deps.trySavePdfNativeMutations = vi.fn<TPdfNativeMutationSave>((_mutations, opts) => publishCapturedBytes(opts.assertBeforeExpose));
+        deps.saveWorkingCopy = vi.fn(() => publishCapturedBytes());
+        deps.saveWorkingCopyAs = vi.fn(() => publishCapturedBytes());
         const service = useWorkspaceSaveServiceForTest(deps);
         const saving = mode === 'save-as' ? service.handleSaveAs() : service.handleSave();
         await enteredPersistence.promise;

@@ -13,6 +13,7 @@ import type {
     IPdfViewerNativeMaterializationRequest,
     IPdfViewerSaveTransactionResult,
     TNativeSaveRouteRejection,
+    TPdfViewerSaveTransactionMode,
 } from '@app/modules/pdf-viewer/runtime/save/pdfViewerSaveTransaction.types';
 import type {
     ISerializationPlan,
@@ -134,7 +135,7 @@ export const usePdfViewerSaveTransaction = (
     function prepareAnnotationSave(input: {
         annotationApplication: AnnotationApplication | undefined;
         documentRevisionToken: TDocumentRevisionToken | null;
-    }, preserveSavedBaseline: boolean) {
+    }, mode: TPdfViewerSaveTransactionMode) {
         if (options.prepareAnnotationSave) {
             return options.prepareAnnotationSave();
         }
@@ -143,12 +144,15 @@ export const usePdfViewerSaveTransaction = (
             return undefined;
         }
         const session = application.beginSave(input.documentRevisionToken);
+        const preserveSavedBaseline = mode === 'embedded-mutation';
         let expectedUpserts = session.plan.expected.filter(entity => !entity.deleted);
         return {
             plan: session.plan,
             verify: () => Promise.resolve(),
             verifyPath: () => Promise.resolve(),
-            assertCurrent: () => application.assertSaveCurrent(session, input.documentRevisionToken),
+            // A Save writes the edits accepted when it took this frontier; a later edit stays unsaved for the next
+            // Save and is no conflict. A snapshot, print or embed stands for the current annotations: a later edit voids it.
+            ...(mode === 'persist' ? {} : {assertCurrent: () => application.assertSaveCurrent(session, input.documentRevisionToken)}),
             commit: (identityBindings?: readonly IPdfNativeAnnotationIdentityBinding[], saved = true) => {
                 application.acknowledgeSave(session, input.documentRevisionToken, identityBindings, preserveSavedBaseline || !saved);
                 expectedUpserts = expectedUpserts.map(entity => ({
@@ -235,7 +239,7 @@ export const usePdfViewerSaveTransaction = (
             () => commitPdfEditorsForSave(options.commitPendingEditorDraftsForSave),
         );
         assertSaveTargetCurrent();
-        const canonicalSave = prepareAnnotationSave(capturedTarget, request.mode === 'embedded-mutation');
+        const canonicalSave = prepareAnnotationSave(capturedTarget, request.mode);
         // Complete the annotation frontier into the global immutable save plan
         // before route selection. From this point onward no backend is allowed to
         // sample metadata or route constraints from mutable UI state.
