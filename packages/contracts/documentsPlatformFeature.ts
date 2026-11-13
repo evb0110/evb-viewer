@@ -3,7 +3,6 @@ import type {
 } from '@contracts/electronApiDocuments';
 import {
     PDF_SERIALIZED_COMMIT_CALLBACKS_SCHEMA,
-    WORKING_COPY_BACKING_STATUS_SCHEMA,
 } from '@contracts/electronApiDocuments';
 import {
     definePlatformFeature,
@@ -28,7 +27,6 @@ import {
     documentRevisionArgs,
     documentRevisionEvent,
     documentSaveResult,
-    fileExistsArgs,
     fileStatResult,
     longNativeIpcTimeoutMs,
     managedHandleArgs,
@@ -77,13 +75,6 @@ import {
     parsePdfAnnotationsArgs,
     pdfAnnotationParseResult,
 } from '@contracts/pdfAnnotationParseSchemas';
-import {
-    beginPdfEmbeddedShapeIndexArgs,
-    pdfEmbeddedShapeIndexChunkResult,
-    pdfEmbeddedShapeIndexSessionResult,
-    readPdfEmbeddedShapeIndexChunkArgs,
-    releasePdfEmbeddedShapeIndexArgs,
-} from '@contracts/pdfEmbeddedShapeIndexSchemas';
 import {pdfValidationPathArgs} from '@contracts/pdfValidationPathArgs';
 import {
     parseDocumentRef,
@@ -132,9 +123,6 @@ const combinedFilesArgs = v.strictTuple([
     v.optional(combinedFilesOptionsSchema),
 ]);
 const combinedPdfResult = v.custom<Uint8Array>((value): value is Uint8Array => value instanceof Uint8Array);
-const workingCopyBackingStatusArgs = pathArgs('path');
-const workingCopyBackingStatus = WORKING_COPY_BACKING_STATUS_SCHEMA;
-const nullableWorkingCopyBackingStatus = v.nullable(WORKING_COPY_BACKING_STATUS_SCHEMA);
 
 function defineIpcMethod<
     const TName extends string,
@@ -223,9 +211,6 @@ export const DOCUMENT_PICKER_PLATFORM_FEATURE = definePlatformFeature({
         openDocumentDialog,
         openCombineDialog: defineIpcMethod(
             'openCombineDialog', 'dialog:openCombine', noArgs, openFileResult, 'openCombineDialog', 'sender',
-        ),
-        openFolderDialog: defineIpcMethod(
-            'openFolderDialog', 'dialog:openFolder', noArgs, openFileResult, 'openFolderDialog', 'sender',
         ),
         openImageDialog: defineIpcMethod(
             'openImageDialog', 'dialog:openImage', noArgs, nullableStringResult, 'openImageDialog', 'sender',
@@ -416,50 +401,10 @@ export const DOCUMENT_FILES_PLATFORM_FEATURE = definePlatformFeature({
             },
             ...electronImplementedOptional,
         },
-        beginPdfEmbeddedShapeIndex: {
-            ...defineIpcMethod(
-                'beginPdfEmbeddedShapeIndex', 'pdf:embeddedShapeIndex:begin', beginPdfEmbeddedShapeIndexArgs,
-                pdfEmbeddedShapeIndexSessionResult, 'beginPdfEmbeddedShapeIndex', 'sender',
-            ),
-            ipc: {
-                args: beginPdfEmbeddedShapeIndexArgs,
-                result: pdfEmbeddedShapeIndexSessionResult,
-                timeoutMs: longNativeIpcTimeoutMs,
-            },
-            ...electronImplementedOptional,
-        },
-        readPdfEmbeddedShapeIndexChunk: {
-            ...defineIpcMethod(
-                'readPdfEmbeddedShapeIndexChunk', 'pdf:embeddedShapeIndex:readChunk', readPdfEmbeddedShapeIndexChunkArgs,
-                pdfEmbeddedShapeIndexChunkResult, 'readPdfEmbeddedShapeIndexChunk', 'sender',
-            ),
-            ...electronImplementedOptional,
-        },
-        releasePdfEmbeddedShapeIndex: {
-            ...defineIpcMethod(
-                'releasePdfEmbeddedShapeIndex', 'pdf:embeddedShapeIndex:release', releasePdfEmbeddedShapeIndexArgs,
-                booleanResult, 'releasePdfEmbeddedShapeIndex', 'sender',
-            ),
-            ...electronImplementedOptional,
-        },
-        fileExists: defineIpcMethod(
-            'fileExists', 'file:exists', fileExistsArgs, booleanResult, 'fileExists', 'sender',
-        ),
         getDocumentRevision: defineIpcMethod(
             'getDocumentRevision', 'document:revision:get', documentRevisionArgs,
             revisionResult, 'getDocumentRevision', 'sender',
         ),
-        getWorkingCopyBackingStatus: {
-            ...defineIpcMethod(
-                'getWorkingCopyBackingStatus',
-                'working-copy:backing-status:get',
-                workingCopyBackingStatusArgs,
-                nullableWorkingCopyBackingStatus,
-                'getWorkingCopyBackingStatus',
-                'sender',
-            ),
-            ...electronImplementedOptional,
-        },
         savePdfAs: defineIpcMethod(
             'savePdfAs', 'dialog:savePdfAs', savePdfAsArgs, nullableDocumentRefResult, 'savePdfAs', 'sender',
         ),
@@ -606,14 +551,6 @@ export const DOCUMENT_FILES_PLATFORM_FEATURE = definePlatformFeature({
             'document:revision:changed',
             documentRevisionEvent,
         ),
-        onWorkingCopyBackingStatusChanged: {
-            ...defineEvent(
-                'onWorkingCopyBackingStatusChanged',
-                'working-copy:backing-status:changed',
-                workingCopyBackingStatus,
-            ),
-            ...electronImplementedOptional,
-        },
     },
 });
 

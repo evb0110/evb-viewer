@@ -1215,7 +1215,6 @@ export default {
     'dialogs': {
         'openDocument': 'Document openen',
         'openImage': 'Afbeelding openen',
-        'openFolder': 'Map openen',
         'combineFiles': 'Bestanden samenvoegen',
         'documentsFilter': 'Documenten',
         'imagesFilter': 'Afbeeldingen',
@@ -1587,8 +1586,6 @@ export default {
         'fileSizeValue': 'Grootte: {size}',
         'zoomUnknown': 'Zoom: -',
         'zoomValue': 'Zoom: {zoom}%',
-        'preparingDocument': 'Document voorbereiden',
-        'preparingDocumentProgress': 'Document voorbereiden · {progress}%',
         'showInDownloads': 'Opslaan in Downloads en weergeven',
         'showInFolder': 'Weergeven in map',
         'showInFolderUnavailableWeb': 'Opgeslagen in deze browser',
@@ -1849,7 +1846,6 @@ export default {
             'changedWhileOpening': 'Het bestand is gewijzigd terwijl het werd geopend. Open het opnieuw.',
             'invalid': 'Het bestand is beschadigd of geen ondersteund document.',
             'emptyPdf': 'Het PDF-bestand is leeg (0 bytes)',
-            'folderEmpty': 'Er zijn geen ondersteunde documenten gevonden in de geselecteerde map',
             'save': 'Kan bestand niet opslaan',
             'originalSavedOtherKept': 'De pdf is elders gewijzigd tijdens het opslaan. De versie die vlak voor uw opslag op schijf stond, is ernaast bewaard als {path}. Uw wijzigingen zijn hier nog open; gebruik ‘Opslaan als’ om ze te bewaren.',
             'recoveryKeptOriginalTitle': 'Er is een versie naast deze pdf bewaard',
@@ -1860,8 +1856,6 @@ export default {
         'save': {
             'recoverySettlementTitle': 'PDF opgeslagen, maar herstel kon niet worden bijgewerkt',
             'recoverySettlementDescription': 'Uw wijzigingen zijn naar de PDF geschreven. Nieuwere, niet-opgeslagen wijzigingen blijven hier open.',
-            'workingCopySyncRequiredTitle': 'Het geopende document kon na het opslaan niet worden bijgewerkt',
-            'workingCopySyncRequiredUnknown': 'Het bestand is mogelijk geschreven. Je wijzigingen blijven hier geopend; controleer het bestand of gebruik Opslaan als om ze elders op te slaan.',
             'validation': 'Het document doorstond de geldigheidscontrole niet, dus er is niets weggeschreven.',
             'openNotes': 'Open notities konden niet worden opgeslagen, dus het document is niet weggeschreven.',
             'documentChanged': 'Het document veranderde voordat het opslaan klaar was, dus er is niets weggeschreven.',

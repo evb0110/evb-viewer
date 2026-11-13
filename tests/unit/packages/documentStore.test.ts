@@ -67,11 +67,14 @@ function filePublication(onPublished = () => {}): IPublicationPort {
     return {
         witness,
         source: async destination => destination,
-        async publish(destination, source, expected) {
+        async publish(destination, source, expected, stage) {
             if (expected !== null && await witness(destination) !== expected) return { status: 'conflict' };
-            await writeFile(destination, await source.file.readAt(0, source.length));
+            const bytes = await source.file.readAt(0, source.length);
+            const published = await witnessOf(bytes);
+            await stage(published);
+            await writeFile(destination, bytes);
             onPublished();
-            return { status: 'published' };
+            return { status: 'published', witness: published };
         },
     };
 }
@@ -152,6 +155,20 @@ describe('document directory', () => {
         const reopened = await open(store(), doc.id);
         expect(await currentText(reopened)).toBe('v1 +a');
         expect(await readFile(destination, 'utf8')).toBe('v1');
+    });
+
+    it('takes a file the caller wrote in as the next revision without copying it', async () => {
+        const destination = path.join(workDir, 'paper.pdf');
+        await writeFile(destination, 'v1');
+        const doc = await create(store(), { ext: 'pdf', destination });
+        const output = path.join(docDir(doc), '.tool-output.pdf');
+        await writeFile(output, 'v2 from a tool');
+        const { ino } = await stat(output);
+
+        expect(await doc.mutate(null, { kind: 'move', file: output, drafts: 'clear' })).toMatchObject({ status: 'committed' });
+        expect(await currentText(doc)).toBe('v2 from a tool');
+        expect((await stat(path.join(docDir(doc), doc.state().current!.file))).ino).toBe(ino);
+        await expect(stat(output)).rejects.toThrow();
     });
 
     it('returns stale revisions and a changed destination as results', async () => {

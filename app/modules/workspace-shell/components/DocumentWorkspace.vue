@@ -260,8 +260,8 @@ const {
     docxExport,
 } = documentContext;
 // A cleanup started from this document keeps running after Done. While the
-// reader is shown, the status bar names its step and count beside the same
-// spinner a preparing document uses, so the work is never invisible.
+// reader is shown, the status bar names its step and count beside a spinner,
+// so the work is never invisible.
 const statusActivityLabel = computed(() => {
     const workingCopyPath = file.workingCopyPath.value;
     const job = scanCleanupRun.jobState;
@@ -274,7 +274,7 @@ const statusActivityLabel = computed(() => {
     ) {
         return `${t('scanCleanup.button')}: ${formatScanCleanupProgress(job.progress, t).text}`;
     }
-    return statusBar.statusMaterializationLabel.value;
+    return null;
 });
 const {
     zoomDropdownOpen,

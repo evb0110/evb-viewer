@@ -212,24 +212,16 @@ describe('document direct-open recent authorization', () => {
         expect(mocks.openInputPaths).not.toHaveBeenCalled();
     });
 
-    it('starts folder and image dialogs in the Documents directory', async () => {
-        const {
-            handleOpenFolderDialog,
-            handleOpenImageDialog,
-        } = await import('@electron/features/documents/main/documentOpenHandlers');
+    it('starts the image dialog in the Documents directory', async () => {
+        const {handleOpenImageDialog} = await import('@electron/features/documents/main/documentOpenHandlers');
         const context = {
             ...createOpenContext(42),
             parentWindow: null,
         };
 
-        await expect(handleOpenFolderDialog(context)).resolves.toBeNull();
         await expect(handleOpenImageDialog(context)).resolves.toBeNull();
 
-        expect(mocks.showOpenDialog).toHaveBeenNthCalledWith(1, expect.objectContaining({
-            defaultPath: '/home/test/Documents',
-            properties: ['openDirectory'],
-        }));
-        expect(mocks.showOpenDialog).toHaveBeenNthCalledWith(2, expect.objectContaining({
+        expect(mocks.showOpenDialog).toHaveBeenCalledWith(expect.objectContaining({
             defaultPath: '/home/test/Documents',
             properties: ['openFile'],
         }));

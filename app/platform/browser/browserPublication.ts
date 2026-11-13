@@ -1,4 +1,5 @@
 import {
+    contentOf,
     contentWitness,
     sameWitness,
 } from '@document-store/contentWitness';
@@ -108,17 +109,20 @@ export const browserPublication: IPublicationPort = {
     async source(destination) {
         return (await requireFileHandle(destination)).getFile();
     },
-    async publish(destination, source, expected) {
+    async publish(destination, source, expected, stage) {
+        const witness = contentOf(source.witness) ?? await contentWitness(source.length, (offset, length) => source.file.readAt(offset, length));
         const fileName = destinationFileName(destination);
         if (fileName !== null) {
+            await stage(witness);
             downloadBlob(await publishSourceBlob(source, 'application/pdf'), fileName);
-            return {status: 'published'};
+            return {status: 'published', witness};
         }
         const handle = await requireFileHandle(destination);
         // Two documents can name one file (it was opened twice). Every publication to a file takes one lock, so
         // the check sees what another document's save wrote.
         return runBrowserLock(PUBLISH_LOCK, async () => {
             if (expected !== null && !sameWitness(fileFact(await handle.getFile()), expected)) return {status: 'conflict'} as const;
+            await stage(witness);
             const writable = await handle.createWritable();
             try {
                 for await (const chunk of sourceChunks(source)) await writable.write(chunk);
@@ -127,7 +131,7 @@ export const browserPublication: IPublicationPort = {
                 throw error;
             }
             await writable.close();
-            return {status: 'published', witness: fileFact(await handle.getFile())} as const;
+            return {status: 'published', witness: `${fileFact(await handle.getFile())} ${witness}`} as const;
         });
     },
 };

@@ -89,7 +89,6 @@ import {MAX_RENDERER_FILE_OPEN_TOKENS_PER_SENDER} from '@electron/features/docum
 import {
     handleCancelOpenDocumentDirectBatch,
     handleOpenCombineDialog,
-    handleOpenFolderDialog,
     handleOpenImageDialog,
     handleOpenPdfDialog,
     handleOpenPdfDirect,
@@ -109,7 +108,6 @@ import {
     handleCreateWorkingCopyFromPath,
 } from '@electron/features/documents/main/documentWorkingCopyHandlers';
 import {
-    handleFileExists,
     handleFileRead,
     handleFileReadRange,
     handleFileStat,
@@ -119,11 +117,6 @@ import {
     handlePdfPageLabelRanges,
     handlePdfNativePageSizes,
 } from '@electron/features/documents/main/nativePdfMetadata';
-import {
-    beginPdfEmbeddedShapeIndex,
-    readPdfEmbeddedShapeIndexChunk,
-    releasePdfEmbeddedShapeIndex,
-} from '@electron/features/documents/main/pdfEmbeddedShapeIndex';
 import {parsePdfAnnotations} from '@electron/features/documents/main/pdfAnnotationParse';
 import {
     handleFileWrite,
@@ -421,10 +414,6 @@ export const documentsMainBindings = {
         ...context,
         parentWindow: BrowserWindow.fromWebContents(context.sender),
     }),
-    openFolderDialog: context => handleOpenFolderDialog({
-        ...context,
-        parentWindow: BrowserWindow.fromWebContents(context.sender),
-    }),
     openImageDialog: context => handleOpenImageDialog({
         ...context,
         parentWindow: BrowserWindow.fromWebContents(context.sender),
@@ -468,18 +457,9 @@ export const documentsMainBindings = {
         handlePdfOpeningGeometry(context, filePath),
     getPdfNativePageSizes: (context, filePath, options) =>
         handlePdfNativePageSizes(context, filePath, options),
-    beginPdfEmbeddedShapeIndex: (context, filePath, options) =>
-        beginPdfEmbeddedShapeIndex(context, filePath, options),
-    readPdfEmbeddedShapeIndexChunk: (context, sessionId, offset, options) =>
-        readPdfEmbeddedShapeIndexChunk(context, sessionId, offset, options),
-    releasePdfEmbeddedShapeIndex: (context, sessionId) =>
-        releasePdfEmbeddedShapeIndex(context, sessionId),
-    fileExists: (context, filePath) =>
-        handleFileExists(context, filePath),
     getDocumentRevision: (context, filePath) =>
         getWorkingCopyRevision(filePath, context.senderId),
     // Nothing materializes in the background any more: a document has no backing status to report.
-    getWorkingCopyBackingStatus: () => null,
     savePdfAs: (context, workingPath, saveOptions, revisionOptions?) =>
         handleSavePdfAs({
             ...context,

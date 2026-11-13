@@ -68,16 +68,23 @@ function restart() {
 const displaced = (pdf: string) => join(dirname(pdf), `.${basename(pdf)}.evb-replaced`);
 
 /** Leaves the document as a crash during its Save's publish would: the witness about to be published is recorded. */
+/**
+ * A Save that crashed after staging its publish: the edits are committed and the copy that would replace the PDF lies
+ * beside it, its metadata staged as `pendingPublish`, as Save stages it. Returns that copy, which a test renames over
+ * the PDF to model a replace that finished.
+ */
 async function crashDuringPublish(entry: Awaited<ReturnType<typeof store.openDocumentFromFile>>, edited: string) {
     await store.commitDocumentMutation(entry, store.documentRevisionToken(entry), {kind: 'rewrite', source: edited}, 'write');
     const {doc} = entry;
+    const destination = doc.state().destination!;
+    const copy = join(dirname(destination), '.publishing.tmp');
+    await writeFile(copy, await readAll(entry));
+    const witness = (await doc.store.publication.witness(copy))!;
     await doc.run(async () => {
         const current = (await doc.ensureCurrent())!;
-        const {contentWitness} = await import('@document-store/contentWitness');
-        const file = doc.currentFile();
-        const witness = await contentWitness(current.length, (offset, length) => file.readAt(offset, length));
-        await doc.commit({...doc.snapshot(), current: {...current, witness}, pendingPublish: {destination: doc.state().destination!, witness}});
+        await doc.commit({...doc.snapshot(), current: {...current, witness}, pendingPublish: {destination, witness}});
     });
+    return copy;
 }
 
 beforeEach(async () => {
@@ -187,9 +194,9 @@ describe('desktop document store', () => {
 
     it('keeps a save that finished installing before the crash and acknowledges it', async () => {
         const {pdf, entry} = await openPdf();
-        await crashDuringPublish(entry, await writeTemp('edited.pdf', EDITED));
+        const copy = await crashDuringPublish(entry, await writeTemp('edited.pdf', EDITED));
         await rename(pdf, displaced(pdf));
-        await writeFile(pdf, EDITED);
+        await rename(copy, pdf);
         const id = entry.doc.id;
         await restart();
 
@@ -203,11 +210,11 @@ describe('desktop document store', () => {
 
     it('keeps bytes another program wrote before a crashed save displaced them, and names them on the next open', async () => {
         const {pdf, entry} = await openPdf();
-        await crashDuringPublish(entry, await writeTemp('edited.pdf', EDITED));
+        const copy = await crashDuringPublish(entry, await writeTemp('edited.pdf', EDITED));
         const outside = new TextEncoder().encode('%PDF-1.7\nwritten elsewhere\n%%EOF\n');
         await writeFile(pdf, outside);
         await rename(pdf, displaced(pdf));
-        await writeFile(pdf, EDITED);
+        await rename(copy, pdf);
         const id = entry.doc.id;
         await restart();
 

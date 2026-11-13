@@ -13,7 +13,6 @@ export {shutdownRetainedDocumentSaveUtilityProcesses} from '@electron/features/d
 export { assertOpenInputPathCount } from '@electron/features/documents/public/assertOpenInputPathCount';
 export { sweepStaleDefaultAppTempPdfs } from '@electron/features/documents/main/print';
 export { sweepStaleOcrTempArtifacts } from '@electron/features/documents/main/sweepStaleOcrTempArtifacts';
-export { sweepStalePdfEmbeddedShapeIndexArtifacts } from '@electron/features/documents/main/pdfEmbeddedShapeIndex';
 export { sweepStalePdfAnnotationParseArtifacts } from '@electron/features/documents/main/pdfAnnotationParse';
 export { registerDocumentRevisionEventBridge } from '@electron/features/documents/main/registerDocumentRevisionEventBridge';
 export { registerDocumentRevisionInvalidationEffects } from '@electron/features/documents/main/registerDocumentRevisionInvalidationEffects';

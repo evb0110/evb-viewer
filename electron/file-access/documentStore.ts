@@ -27,7 +27,7 @@ import {
     MANIFEST_NAME,
     openDocument,
     STORE_ID_PATTERN,
-    type TMutation,
+    type TReplacement,
     type TMutationResult,
 } from '@document-store/documentDirectory';
 import {createNodeStorePort} from '@document-store/nodeStorePort';
@@ -52,10 +52,7 @@ import {
     type TDocumentRevisionChangeReason,
     type TDocumentRevisionToken,
 } from '@contracts/documentRevision';
-import type {
-    IPdfNativePageGeometry,
-    TWorkingCopyBackingFailureCode,
-} from '@contracts/electronApiDocuments';
+import type {IPdfNativePageGeometry} from '@contracts/electronApiDocuments';
 import {DocumentOpenRefusalError} from '@contracts/documentOpenErrors';
 import {createEpochMs} from '@contracts/timestamps';
 import {
@@ -82,10 +79,10 @@ const STORE_DIR = 'document-store';
 const REF_NAME = 'document';
 
 export class WorkingCopyMaterializationError extends Error {
-    readonly code: TWorkingCopyBackingFailureCode;
+    readonly code: 'SOURCE_BACKING_CHANGED' | 'SOURCE_BACKING_UNAVAILABLE';
     readonly retryable: boolean;
 
-    constructor(code: TWorkingCopyBackingFailureCode, message: string, options: {cause?: unknown; retryable?: boolean} = {}) {
+    constructor(code: WorkingCopyMaterializationError['code'], message: string, options: {cause?: unknown; retryable?: boolean} = {}) {
         super(message, options.cause === undefined ? undefined : {cause: options.cause});
         this.name = 'WorkingCopyMaterializationError';
         this.code = code;
@@ -534,7 +531,7 @@ function throwFailedMutation(entry: IOpenDocument, token: TDocumentRevisionToken
 export async function commitDocumentMutation(
     entry: IOpenDocument,
     token: TDocumentRevisionToken | null,
-    change: Omit<Extract<TMutation, {kind: 'rewrite'}>, 'drafts'>,
+    change: TReplacement,
     reason: TDocumentRevisionChangeReason,
 ) {
     const previous = documentRevisionToken(entry);
@@ -615,7 +612,7 @@ export async function setOpenDocumentDrafts(entry: IOpenDocument, token: string 
  * Every window learns of a committed revision whatever happens after the commit, since the edits are in it.
  */
 export async function saveOpenDocument(entry: IOpenDocument, token: TDocumentRevisionToken | null, options: {
-    commit?: Omit<Extract<TMutation, {kind: 'rewrite'}>, 'drafts'>;
+    commit?: TReplacement;
     saveAs?: string;
 } = {}): Promise<TSaveResult> {
     const previous = documentRevisionToken(entry);
@@ -706,9 +703,12 @@ export async function clearAllWorkingCopies(options: {skipPaths?: ReadonlySet<st
     }));
 }
 
-/** Waits for every queued store operation, so a quit never cuts a commit short. */
+/**
+ * At quit: lets every queued store operation finish, so no commit is cut short, then closes each document's file.
+ * Directories and checkpoints stay; the quit's later steps or the next start decide what to keep.
+ */
 export async function settleOpenDocuments() {
-    await Promise.allSettled([...openDocuments.values()].map(entry => entry.doc.run(() => Promise.resolve())));
+    await Promise.allSettled([...openDocuments.values()].map(entry => entry.doc.close()));
 }
 
 /**

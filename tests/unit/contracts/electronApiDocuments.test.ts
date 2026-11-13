@@ -7,7 +7,6 @@ import {
 import {
     OPEN_BATCH_PROGRESS_SCHEMA,
     PDF_OPTIMIZE_PROGRESS_SCHEMA,
-    WORKING_COPY_BACKING_STATUS_SCHEMA,
 } from '@contracts/electronApiDocuments';
 import {PDF_IMAGE_COMBINE_PROGRESS_SCHEMA} from '@contracts/pdfImageCombineProgress';
 import {DOCUMENT_FILES_PLATFORM_FEATURE} from '@contracts/documentsPlatformFeature';
@@ -151,69 +150,6 @@ describe('progress event payload schemas', () => {
         }, {abortEarly: true}).success).toBe(false);
     });
 });
-
-describe('working-copy backing status contract', () => {
-    it('decodes and sanitizes renderer-visible backing status', () => {
-        expect(v.parse(WORKING_COPY_BACKING_STATUS_SCHEMA, {
-            documentRef: '/tmp/managed.pdf',
-            failure: {
-                code: 'WORKING_COPY_MATERIALIZATION_NO_SPACE',
-                retryable: true,
-                originalPath: '/private/source.pdf',
-            },
-            originalPath: '/private/source.pdf',
-            progress: 0.75,
-            state: 'materializing',
-        })).toEqual({
-            documentRef: '/tmp/managed.pdf',
-            failure: {
-                code: 'WORKING_COPY_MATERIALIZATION_NO_SPACE',
-                retryable: true,
-            },
-            progress: 0.75,
-            state: 'materializing',
-        });
-    });
-
-    it.each([
-        {
-            documentRef: '',
-            failure: null,
-            progress: 0,
-            state: 'lazy-original',
-        },
-        {
-            documentRef: '/tmp/a.pdf',
-            failure: null,
-            progress: -0.1,
-            state: 'materializing',
-        },
-        {
-            documentRef: '/tmp/a.pdf',
-            failure: null,
-            progress: 1.1,
-            state: 'materializing',
-        },
-        {
-            documentRef: '/tmp/a.pdf',
-            failure: null,
-            progress: 0.5,
-            state: 'copied',
-        },
-        {
-            documentRef: '/tmp/a.pdf',
-            failure: {
-                code: 'ENOSPC',
-                retryable: true,
-            },
-            progress: 0.5,
-            state: 'materializing',
-        },
-    ])('rejects malformed status %#', (status) => {
-        expect(v.safeParse(WORKING_COPY_BACKING_STATUS_SCHEMA, status, {abortEarly: true}).success).toBe(false);
-    });
-});
-
 
 describe('document save revision through preload', () => {
     it.each([
