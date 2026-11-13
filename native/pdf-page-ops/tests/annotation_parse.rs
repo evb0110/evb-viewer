@@ -1009,36 +1009,6 @@ fn large_metadata_reads_keep_inherited_geometry_catalog_and_note_recovery_depend
         assert_eq!(catalog["bookmarks"][1]["title"], "Alias sibling");
         assert_eq!(catalog["bookmarks"][1]["pageIndex"], 0);
     }
-    for (key, value, reason) in [
-        ("AcroForm", Object::Integer(1), "source forms"),
-        ("AF", Object::Integer(1), "source attachments"),
-        (
-            "Names",
-            Object::Dictionary(dictionary! {"EmbeddedFiles" => 1}),
-            "source attachments",
-        ),
-        (
-            "Names",
-            Object::Dictionary(dictionary! {"JavaScript" => 1}),
-            "source JavaScript",
-        ),
-    ] {
-        document.get_dictionary_mut(root).unwrap().set(key, value);
-        save_metadata_fixture(&mut document, &input, 512 * 1024 * 1024 + 1);
-        let result = Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"))
-            .args(["read-catalog", "--input"])
-            .arg(&input)
-            .arg("--qpdf")
-            .arg(metadata_qpdf_path())
-            .output()
-            .unwrap();
-        assert!(!result.status.success());
-        assert!(String::from_utf8_lossy(&result.stderr).contains(reason));
-        document
-            .get_dictionary_mut(root)
-            .unwrap()
-            .remove(key.as_bytes());
-    }
 }
 
 #[test]

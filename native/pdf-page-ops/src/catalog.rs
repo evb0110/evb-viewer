@@ -10,13 +10,6 @@ pub(crate) const CATALOG_WALK_NODE_LIMIT: usize = 100_000;
 
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct PdfCombineCatalog {
-    pub(crate) bookmarks: Vec<BookmarkEntry>,
-    pub(crate) page_labels: Vec<PdfCombinePageLabelRange>,
-}
-
-#[derive(Clone, Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
 pub(crate) struct PdfCombinePageLabelRange {
     pub(crate) page_index: u32,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -196,23 +189,6 @@ pub(crate) fn has_valid_oc_properties(document: &Document, catalog_id: ObjectId)
     }))
 }
 
-/// Reads the subset of a source catalog that the PDF combine paths preserve,
-/// refusing the sources they cannot carry.
-///
-/// The PDF catalog structures are attacker-controlled linked graphs. Cycles
-/// terminate the relevant walk, and both depth and node limits bound work on a
-/// large or malformed catalog. Page references are indexed only when an
-/// outline points at them, so a sparse page tree does not force a dense map.
-pub(crate) fn read_pdf_combine_catalog(
-    document: &impl PdfObjectSource,
-) -> Result<PdfCombineCatalog> {
-    validate_pdf_combine_catalog(document, document.dictionary(document.root_id()?)?)?;
-    Ok(PdfCombineCatalog {
-        bookmarks: read_pdf_outline(document, false)?,
-        page_labels: read_pdf_page_labels(document)?,
-    })
-}
-
 /// The catalog parts a document shows. Each is read on its own and carries
 /// either its value or, as `<part>Error`, the reason it could not be read, so a
 /// broken outline leaves the page labels readable and the reverse.
@@ -241,33 +217,6 @@ fn read_pdf_page_labels(document: &impl PdfObjectSource) -> Result<Vec<PdfCombin
         Ok(page_labels_object) => read_page_label_ranges(document, page_labels_object),
         Err(_) => Ok(Vec::new()),
     }
-}
-
-#[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
-#[allow(dead_code)]
-pub(crate) fn read_pdf_combine_catalog_from_bytes(data: &[u8]) -> Result<PdfCombineCatalog> {
-    let document = load_browser_pdf(data)?;
-    read_pdf_combine_catalog(&document)
-}
-
-fn validate_pdf_combine_catalog(
-    document: &impl PdfObjectSource,
-    catalog: &Dictionary,
-) -> Result<()> {
-    if catalog.has(b"AcroForm") {
-        return Err("PDF combine does not support source forms".into());
-    }
-    let names = match catalog.get(b"Names") {
-        Ok(names_object) => Some(resolve_catalog_dictionary(document, names_object, "Names")?),
-        Err(_) => None,
-    };
-    if catalog.has(b"AF") || names.is_some_and(|names| names.has(b"EmbeddedFiles")) {
-        return Err("PDF combine does not support source attachments".into());
-    }
-    if names.is_some_and(|names| names.has(b"JavaScript")) {
-        return Err("PDF combine does not support source JavaScript".into());
-    }
-    Ok(())
 }
 
 pub(super) fn resolve_catalog_dictionary<'a>(

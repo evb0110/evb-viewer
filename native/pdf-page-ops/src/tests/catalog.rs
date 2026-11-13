@@ -127,10 +127,10 @@ fn omitted_metadata_mutations_preserve_existing_catalog_metadata() {
 #[test]
 fn read_catalog_returns_outlines_and_page_labels() {
     let (document, _page_id) = create_outline_fixture();
-    let catalog = read_pdf_combine_catalog(&document).unwrap();
-    assert_eq!(catalog.page_labels.len(), 1);
-    assert_eq!(catalog.bookmarks[0].title, "Parent");
-    assert_eq!(catalog.bookmarks[0].page_index, Some(0));
+    let catalog = read_pdf_document_catalog(&document);
+    assert_eq!(catalog["pageLabels"].as_array().unwrap().len(), 1);
+    assert_eq!(catalog["bookmarks"][0]["title"], "Parent");
+    assert_eq!(catalog["bookmarks"][0]["pageIndex"], 0);
 }
 
 #[test]
@@ -186,9 +186,9 @@ fn read_catalog_terminates_on_cyclic_outline() {
         .unwrap()
         .set("Outlines", Object::Reference(outlines_id));
 
-    let catalog = read_pdf_combine_catalog(&document).unwrap();
-    assert_eq!(catalog.bookmarks.len(), 1);
-    assert!(catalog.bookmarks[0].items.is_empty());
+    let bookmarks = read_pdf_outline(&document, false).unwrap();
+    assert_eq!(bookmarks.len(), 1);
+    assert!(bookmarks[0].items.is_empty());
 }
 
 #[test]
@@ -276,9 +276,8 @@ fn read_catalog_resolves_named_destinations_through_the_name_tree() {
     });
     document.trailer.set("Root", catalog_id);
 
-    let catalog = read_pdf_combine_catalog(&document).unwrap();
-    let resolved = catalog
-        .bookmarks
+    let bookmarks = read_pdf_outline(&document, false).unwrap();
+    let resolved = bookmarks
         .iter()
         .map(|bookmark| (bookmark.title.as_str(), bookmark.page_index))
         .collect::<Vec<_>>();
@@ -470,7 +469,11 @@ fn continues_page_labels_after_a_first_page_with_its_own_start_number() {
         }
 
         let loaded = Document::load(&input_path).unwrap();
-        let labels = read_pdf_combine_catalog(&loaded).unwrap().page_labels;
+        let labels = read_page_label_ranges(
+            &loaded,
+            loaded.catalog().unwrap().get(b"PageLabels").unwrap(),
+        )
+        .unwrap();
         assert_eq!(
             labels
                 .iter()
@@ -1710,7 +1713,7 @@ fn read_outline_keeps_source_names_and_actions_other_than_go_to() {
         ("Uri", None, None, true),
     ]);
     assert!(outline[1].original_destination.is_none(), "a kept name stays the target");
-    let combined = read_pdf_combine_catalog(&document).unwrap().bookmarks;
+    let combined = read_pdf_outline(&document, false).unwrap();
     assert_eq!(combined[1].named_dest, None, "a combine resolves names it cannot carry");
     assert_eq!(combined[1].page_index, Some(0));
     assert_eq!(combined[3].original_action, outline[3].original_action);
@@ -1820,7 +1823,6 @@ fn document_catalog_reads_each_part_whatever_happens_to_the_other() {
     let parts = serde_json::to_value(read_pdf_document_catalog(&document)).unwrap();
     assert_eq!(parts["bookmarks"].as_array().unwrap().len(), 6);
     assert!(parts["pageLabelsError"].is_string() && parts.get("pageLabels").is_none());
-    assert!(read_pdf_combine_catalog(&document).is_err());
 
     let catalog = document.get_dictionary_mut(root_id).unwrap();
     catalog.set("PageLabels", dictionary! {"Nums" => vec![0.into(), dictionary! {"S" => "r"}.into()]});
@@ -1828,7 +1830,6 @@ fn document_catalog_reads_each_part_whatever_happens_to_the_other() {
     let parts = serde_json::to_value(read_pdf_document_catalog(&document)).unwrap();
     assert_eq!(parts["pageLabels"][0]["style"], "r");
     assert!(parts["bookmarksError"].is_string() && parts.get("bookmarks").is_none());
-    assert!(read_pdf_combine_catalog(&document).is_err());
 }
 
 #[test]
@@ -2004,17 +2005,4 @@ fn accepted_named_and_pending_targets_resolve_without_dropping_unknown_entries()
     let mut unreadable = unknown.clone();
     crate::outline::names::resolve_bookmark_source_targets(&document, &mut unreadable).unwrap();
     assert_eq!(unreadable, unknown);
-}
-
-
-#[test]
-fn combine_catalog_does_not_refuse_tags_or_layers_including_null_roots() {
-    for key in [b"StructTreeRoot".as_slice(), b"OCProperties".as_slice()] {
-        let (mut document, _) = create_test_document();
-        document
-            .catalog_mut()
-            .unwrap()
-            .set(key.to_vec(), Object::Null);
-        read_pdf_combine_catalog(&document).unwrap();
-    }
 }

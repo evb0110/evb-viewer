@@ -1914,7 +1914,7 @@ mod tests {
         let structural =
             load_dictionary_incremental_pdf_path(&input_path, Some(&qpdf_path)).unwrap();
         assert_eq!(stream_len(&structural), 0);
-        read_pdf_combine_catalog(&structural).unwrap();
+        read_pdf_outline(&structural, false).unwrap();
         let mut geometry = Vec::new();
         write_page_geometry(&input_path, 1, Some(&qpdf_path), &mut geometry).unwrap();
         assert!(String::from_utf8(geometry)

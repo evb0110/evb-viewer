@@ -63,7 +63,6 @@ pub(crate) enum Operation {
         command: PageStructureCommand,
         sources: Vec<PathBuf>,
     },
-    ReadCatalog,
     ReadDocumentCatalog(Option<PathBuf>),
     PrintLayout {
         view_mode: PrintViewMode,
@@ -337,7 +336,6 @@ pub(crate) fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Confi
             command: PageStructureCommand::Merge,
             sources,
         },
-        "read-catalog" => Operation::ReadCatalog,
         "read-document-catalog" => Operation::ReadDocumentCatalog(mutations_file),
         "print-layout" if pages_file.is_some() => {
             return Err("--pages-file is not valid for print-layout".into());
@@ -355,7 +353,6 @@ pub(crate) fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Confi
             | Operation::OcrTextVisibility { .. }
             | Operation::PdfConformance
             | Operation::AppendAdmission
-            | Operation::ReadCatalog
             | Operation::ReadDocumentCatalog(..)
     );
     if prints_result && output_path.is_some() {
@@ -389,7 +386,7 @@ pub(crate) fn mutate_pdf(config: Config) -> Result<()> {
                 &mut std::io::stdout().lock(),
             )
         }
-        Operation::ReadCatalog | Operation::ReadDocumentCatalog(..) => {
+        Operation::ReadDocumentCatalog(..) => {
             let incremental = load_readonly_metadata_pdf_path(
                 &config.input_path,
                 config.qpdf_path.as_deref(),
@@ -397,7 +394,6 @@ pub(crate) fn mutate_pdf(config: Config) -> Result<()> {
             )?;
             let source = &incremental;
             let catalog = match &config.operation {
-                Operation::ReadCatalog => serde_json::to_value(read_pdf_combine_catalog(source)?)?,
                 Operation::ReadDocumentCatalog(Some(path)) => {
                     let mutations = read_native_mutations(path)?;
                     let mut bookmarks = mutations.bookmarks.ok_or("Missing bookmarks")?;

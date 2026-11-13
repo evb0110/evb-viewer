@@ -155,7 +155,6 @@ pub(crate) fn edit_page_structure<S>(
             let [insertion] = others else {
                 return Err("insertPages: takes the document and one insertion PDF".into());
             };
-            read_pdf_combine_catalog(*insertion)?;
             if after_page > page_count {
                 return Err("Invalid afterPage".into());
             }
@@ -202,8 +201,7 @@ fn merge_pages(documents: &[&Document]) -> Result<PageSubset> {
     let mut bookmarks = Vec::new();
     for document in documents {
         bookmarks.extend(
-            read_pdf_combine_catalog(*document)?
-                .bookmarks
+            read_pdf_outline(*document, false)?
                 .into_iter()
                 .map(|bookmark| offset_bookmark(bookmark, page_offset)),
         );
@@ -367,6 +365,8 @@ fn page_subset(sources: &[&Document], page_sequence: &[PageCloneSource]) -> Resu
         if let Some(form) = form {
             catalog.set("AcroForm", form);
         }
+    } else {
+        add_imported_fields(&mut clone_context, &mut catalog, page_sequence)?;
     }
     let catalog_id = clone_context.target.add_object(catalog);
     clone_context.target.trailer.set("Root", catalog_id);
@@ -425,11 +425,108 @@ pub(crate) fn preserve_single_source_document_metadata(
     Ok(())
 }
 
+/// Adds the fields of widgets on pages from the other inputs to the output's
+/// form; an input's own form, attachments and scripts stay behind. A field
+/// whose top-level name the form already holds is renamed `name+N`, as qpdf
+/// renames it. A widget without a field type, or with a /Parent loop, keeps
+/// its appearance but joins no field.
+fn add_imported_fields(
+    clone_context: &mut PageCloneContext,
+    catalog: &mut Dictionary,
+    page_sequence: &[PageCloneSource],
+) -> Result<()> {
+    let (mut roots, mut seen) = (Vec::new(), HashSet::new());
+    for page in page_sequence.iter().filter(|page| page.document_index > 0) {
+        let source = clone_context.source(page.document_index)?;
+        for entry in crate::split_navigation::source_annotation_entries(source, page.page_id) {
+            let root = entry
+                .as_reference()
+                .ok()
+                .and_then(|id| field_root(source, id));
+            if let Some(&copy) =
+                root.and_then(|root| clone_context.object_map.get(&(page.document_index, root)))
+            {
+                if seen.insert(copy) {
+                    roots.push((page.document_index, copy));
+                }
+            }
+        }
+    }
+    if roots.is_empty() {
+        return Ok(());
+    }
+    let target = &clone_context.target;
+    let resolved = |document: &Document, object: Option<&Object>| {
+        object
+            .and_then(|object| document.resolved(object).ok())
+            .cloned()
+    };
+    let mut form = resolved(target, catalog.get(b"AcroForm").ok())
+        .and_then(|form| form.as_dict().ok().cloned())
+        .unwrap_or_default();
+    let mut fields = resolved(target, form.get(b"Fields").ok())
+        .and_then(|fields| fields.as_array().ok().cloned())
+        .unwrap_or_default();
+    let field_name = |document: &Document, id: ObjectId| {
+        let field = document.get_dictionary(id).ok()?;
+        lopdf::decode_text_string(field.get(b"T").ok()?).ok()
+    };
+    let mut names = fields
+        .iter()
+        .filter_map(|field| field_name(target, field.as_reference().ok()?))
+        .collect::<HashSet<_>>();
+    for (source_index, copy) in roots {
+        let source = clone_context.source(source_index)?;
+        let appearance = resolved(source, source.catalog()?.get(b"AcroForm").ok())
+            .and_then(|form| form.as_dict().ok()?.get(b"DA").ok().cloned());
+        let name = field_name(&clone_context.target, copy);
+        let field = clone_context.target.get_dictionary_mut(copy)?;
+        if let (false, Some(appearance)) = (field.has(b"DA"), appearance) {
+            field.set("DA", appearance);
+        }
+        if let Some(name) = name {
+            let unique = std::iter::once(name.clone())
+                .chain((1..).map(|suffix| format!("{name}+{suffix}")))
+                .find(|candidate| !names.contains(candidate))
+                .expect("an unused suffix exists");
+            if unique != name {
+                field.set("T", lopdf::text_string(&unique));
+            }
+            names.insert(unique);
+        }
+        fields.push(Object::Reference(copy));
+    }
+    form.set("Fields", fields);
+    catalog.set("AcroForm", form);
+    Ok(())
+}
+
+/// The top of a widget's /Parent chain when that chain is a field: it ends,
+/// and it sets a field type.
+fn field_root(source: &Document, widget: ObjectId) -> Option<ObjectId> {
+    let annotation = source.get_dictionary(widget).ok()?;
+    if annotation.get(b"Subtype").and_then(Object::as_name).ok() != Some(b"Widget") {
+        return None;
+    }
+    let (mut id, mut chain, mut typed) = (widget, HashSet::new(), false);
+    loop {
+        let field = source
+            .get_dictionary(id)
+            .ok()
+            .filter(|_| chain.insert(id))?;
+        typed |= field.has(b"FT");
+        match field.get(b"Parent") {
+            Ok(parent) => id = parent.as_reference().ok()?,
+            Err(_) => return typed.then_some(id),
+        }
+    }
+}
+
 /// Labels each output page as its source labels it, in the fewest ranges: a
 /// page continues the range before it when it shows that range's style and
 /// prefix and, with a style, the next number. Pages of a source without a
-/// label tree keep their numbers there; with no tree in any source the output
-/// has none.
+/// label tree, or an inserted source whose tree cannot be read, keep their
+/// numbers there; with no tree in any source the output has none.
 fn set_subset_page_labels(
     target: &mut Document,
     sources: &[&Document],
@@ -437,12 +534,15 @@ fn set_subset_page_labels(
 ) -> Result<()> {
     let mut labelled = false;
     let mut labels = Vec::with_capacity(sources.len());
-    for document in sources {
+    for (index, document) in sources.iter().enumerate() {
         let pages = document.get_pages();
         let mut ranges = match document.catalog()?.get(b"PageLabels") {
             Ok(tree) => {
                 labelled = true;
-                read_page_label_ranges(*document, tree)?
+                match read_page_label_ranges(*document, tree) {
+                    Err(_) if index > 0 => Vec::new(),
+                    ranges => ranges?,
+                }
             }
             Err(_) => Vec::new(),
         };
