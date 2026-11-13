@@ -435,11 +435,10 @@ jobs:
       - name: Build Windows Job Object launcher
         run: node scripts/build-native-tool.mjs windows-job-launcher
 
-      - name: Run working-copy save witness unit tests
+      - name: Run document store save witness unit tests
         run: >-
           pnpm exec vitest run --project unit-electron
-          tests/unit/electron/originalPathSaveWitness.test.ts
-          tests/unit/electron/workingCopy.test.ts
+          tests/unit/electron/documentStore.test.ts
 
       - name: Run real Windows filesystem acceptance
         run: pnpm exec vitest run --project native-integration tests/integration/native/windowsAtomicPdfReplacement.test.ts

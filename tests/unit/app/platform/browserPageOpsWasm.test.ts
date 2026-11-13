@@ -149,17 +149,14 @@ async function readPasswordProtectedPdf() {
     return Uint8Array.from(Buffer.from(encoded.trim(), 'base64'));
 }
 
-function readPageLabels(pdfDocument: PDFDocument) {
-    const pageLabels = pdfDocument.context.lookup(
-        pdfDocument.catalog.get(PDFName.of('PageLabels')) as PDFRef,
-    ) as PDFDict;
-    const nums = pageLabels.get(PDFName.of('Nums')) as PDFArray;
-    const labels: string[] = [];
-    for (let index = 0; index < nums.size(); index += 2) {
-        const pageLabel = pdfDocument.context.lookup(nums.get(index + 1)) as PDFDict;
-        labels.push((pageLabel.get(PDFName.of('P')) as PDFString).decodeText());
+async function readPageLabels(data: Uint8Array) {
+    const {getDocument} = await import('pdfjs-dist/legacy/build/pdf.mjs');
+    const task = getDocument({data: data.slice()});
+    try {
+        return await (await task.promise).getPageLabels();
+    } finally {
+        await task.destroy();
     }
-    return labels;
 }
 
 function readOutlineDestination(pdfDocument: PDFDocument) {
@@ -1453,7 +1450,7 @@ describe('browser page-ops WASM fast path', () => {
             assertSuccessfulWasmMutation(operation.result);
             const output = await PDFDocument.load(operation.result.data);
             expect(output.catalog.get(PDFName.of('Outlines'))).toBeDefined();
-            expect(readPageLabels(output)).toEqual(operation.labels);
+            expect(await readPageLabels(operation.result.data)).toEqual(operation.labels);
             expect(readOutlineDestination(output).objectNumber)
                 .toBe(output.getPage(operation.destinationPage - 1).ref.objectNumber);
         }
