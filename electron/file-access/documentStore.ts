@@ -16,6 +16,7 @@ import {
     relative,
 } from 'node:path';
 import {collectDocuments} from '@document-store/collectDocuments';
+import {sameWitness} from '@document-store/contentWitness';
 import {
     createDocument,
     decodeManifest,
@@ -630,7 +631,7 @@ export async function saveOpenDocument(entry: IOpenDocument, token: TDocumentRev
     // The renderer keeps the edits it asked to save as pending until a Save succeeds, so a Save the check will
     // refuse must not commit them. Under the replace the check runs again.
     if (options.commit && options.saveAs === undefined && destination !== null && baseline !== null
-        && await getDocumentStore().publication.witness(destination) !== baseline) {
+        && !sameWitness(await getDocumentStore().publication.witness(destination), baseline)) {
         return {status: 'conflict'};
     }
     await clearNextRevision(entry);

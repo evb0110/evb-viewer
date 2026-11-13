@@ -1,6 +1,7 @@
 import {existsSync} from 'node:fs';
 import {
     appendFile,
+    chmod,
     mkdtemp,
     readFile,
     readdir,
@@ -91,8 +92,12 @@ afterEach(async () => {
 });
 
 describe('desktop document store', () => {
-    it('opens a PDF without copying it and reads the PDF itself', async () => {
-        const {entry} = await openPdf();
+    it('opens a PDF without copying or reading it, and reads the PDF itself', async () => {
+        const pdf = await writeTemp('report.pdf', ORIGINAL);
+        // Opening reads the file's metadata only, so a PDF no one may read still opens.
+        await chmod(pdf, 0o200);
+        const entry = await store.openDocumentFromFile(pdf, {ownerWebContentsId: 7});
+        await chmod(pdf, 0o600);
 
         expect(await readAll(entry)).toEqual(ORIGINAL);
         expect(entry.doc.state()).toMatchObject({current: null, dirty: false});

@@ -1,14 +1,13 @@
 import {
     constants,
+    statSync,
     type BigIntStats,
 } from 'node:fs';
 import {
     copyFile,
-    lstat,
     open,
     rename,
     rm,
-    stat,
     truncate,
 } from 'node:fs/promises';
 import {
@@ -16,7 +15,10 @@ import {
     dirname,
     join,
 } from 'node:path';
-import {contentWitness} from '@document-store/contentWitness';
+import {
+    contentWitness,
+    sameWitness,
+} from '@document-store/contentWitness';
 import type {
     IPublicationPort,
     IPublishSource,
@@ -33,12 +35,29 @@ import {withOriginalPathMutationLock} from '@electron/file-access/withOriginalPa
 
 const isMissing = (error: unknown) => isErrnoException(error) && error.code === 'ENOENT';
 
-/** The content witness of the file at `path`, comparable with the store's revision witnesses. */
-export async function fileWitness(path: string) {
+/** `stat` of `path`, or `null` when nothing is there. Synchronous, as metadata reads on Windows must be (ADR 0001). */
+function statOrNull(path: string) {
+    try {
+        return statSync(path, {bigint: true});
+    } catch (error) {
+        if (isMissing(error)) return null;
+        throw error;
+    }
+}
+
+/**
+ * A file version's metadata fact: its size and modification time at the precision the platform records. Equal
+ * facts mean an unchanged file, as long as nothing restores a modification time it changed.
+ */
+const metadataFact = (stats: BigIntStats) => `file-v1:${stats.size}:${stats.mtimeNs}`;
+
+/** The metadata fact of the file at `path` and, with `content`, its content witness (one full read); `null` when missing. */
+async function fileWitness(path: string, content = false) {
+    const stats = statOrNull(path);
+    if (!stats || !content) return stats && metadataFact(stats);
     const handle = await open(path, 'r');
     try {
-        const {size} = await handle.stat();
-        return await contentWitness(size, async (offset, length) => {
+        return `${metadataFact(stats)} ${await contentWitness(Number(stats.size), async (offset, length) => {
             const bytes = new Uint8Array(length);
             let done = 0;
             while (done < length) {
@@ -47,7 +66,7 @@ export async function fileWitness(path: string) {
                 done += bytesRead;
             }
             return bytes.subarray(0, done);
-        });
+        })}`;
     } finally {
         await handle.close();
     }
@@ -68,20 +87,14 @@ const sameBytesOnDisk = (left: BigIntStats, right: BigIntStats) => left.dev === 
  */
 async function settleDisplacedOriginal(destination: string, baseline: string | null, checked?: BigIntStats) {
     const displaced = displacedPath(destination);
-    const found = await lstat(displaced, {bigint: true}).catch((error: unknown) => {
-        if (isMissing(error)) return null;
-        throw error;
-    });
+    const found = statOrNull(displaced);
     if (!found) return undefined;
-    if (!await lstat(destination).then(() => true, (error: unknown) => {
-        if (isMissing(error)) return false;
-        throw error;
-    })) {
+    if (!statOrNull(destination)) {
         await rename(displaced, destination);
         await fsyncParentDirectory(destination);
         return undefined;
     }
-    if ((checked && sameBytesOnDisk(found, checked)) || (baseline !== null && await fileWitness(displaced) === baseline)) {
+    if ((checked && sameBytesOnDisk(found, checked)) || sameWitness(metadataFact(found), baseline)) {
         await rm(displaced, {force: true});
         return undefined;
     }
@@ -97,49 +110,50 @@ class DestinationChanged extends Error {}
 
 async function copyRevision(source: IPublishSource, absolutePath: string, target: string) {
     await copyFile(absolutePath, target, constants.COPYFILE_FICLONE);
-    if ((await stat(target)).size !== source.length) await truncate(target, source.length);
+    if (statSync(target).size !== source.length) await truncate(target, source.length);
 }
 
 /**
- * Publication to files on this computer. A Save checks the destination's content witness against the baseline
- * inside `atomicReplace`, after which the replaced PDF is moved aside rather than deleted; bytes another program
- * wrote between that check and the move stay beside the PDF as "(original)". Save As replaces without a check.
+ * Publication to files on this computer. A destination's witness is its metadata, so opening or checking a file
+ * never reads it; recovery asks for its content too. A Save checks the destination against the baseline inside
+ * `atomicReplace`, after which the replaced PDF is moved aside rather than deleted; bytes another program wrote
+ * between that check and the move stay beside the PDF as "(original)". Save As replaces without a check. The
+ * metadata after the replace joins the published bytes' content witness in the new baseline.
  */
 export function createDesktopPublication(absolute: (storePath: string) => string): IPublicationPort {
     return {
-        async witness(destination) {
-            return fileWitness(destination).catch((error: unknown) => {
-                if (isMissing(error)) return null;
-                throw error;
-            });
-        },
+        witness: fileWitness,
         source: async destination => destination,
         publish: (destination, source, expected) => withOriginalPathMutationLock(destination, async () => {
             await settleDisplacedOriginal(destination, expected);
             const temp = makeSiblingTempPath(destination);
+            const published = (keptOriginal?: string) => ({
+                status: 'published' as const,
+                witness: metadataFact(statSync(destination, {bigint: true})),
+                ...(keptOriginal === undefined ? {} : {keptOriginal}),
+            });
             try {
                 await copyRevision(source, absolute(source.path), temp);
                 if (expected === null) {
                     await atomicReplace(temp, destination);
-                    return {status: 'published'};
+                    return published();
                 }
                 let checked: BigIntStats | undefined;
                 try {
                     await atomicReplace(temp, destination, {
                         destinationBackupPath: displacedPath(destination),
-                        assertDestinationCurrent: async () => {
-                            const before = await stat(destination, {bigint: true}).catch(() => null);
-                            const witness = before && await fileWitness(destination).catch(() => null);
-                            if (witness !== expected) throw new DestinationChanged();
-                            checked = before ?? undefined;
+                        assertDestinationCurrent: () => {
+                            const before = statOrNull(destination);
+                            if (!before || !sameWitness(metadataFact(before), expected)) throw new DestinationChanged();
+                            checked = before;
+                            return Promise.resolve();
                         },
                     });
                 } catch (error) {
                     if (error instanceof DestinationChanged) return {status: 'conflict'};
                     throw error;
                 }
-                const keptOriginal = await settleDisplacedOriginal(destination, expected, checked);
-                return keptOriginal === undefined ? {status: 'published'} : {status: 'published', keptOriginal};
+                return published(await settleDisplacedOriginal(destination, expected, checked));
             } finally {
                 await rm(temp, {force: true});
             }

@@ -1525,52 +1525,6 @@ syncBuiltinESMExports();
         await expect.poll(() => isSaveButtonEnabled(page), {timeout: SAVE_TIMEOUT_MS}).toBe(false);
     }, E2E_TIMEOUT_MS);
 
-    it('saves after another program atomically replaces the original with identical bytes', async () => {
-        const pdfPath = await createMultiPageTextFixturePdf(`save-identical-replace-${Date.now()}.pdf`, 2);
-        const originalBytes = await readFile(pdfPath);
-        session = await startElectronE2ESession(`e2e-save-identical-replace-${Date.now()}`, {
-            clean: true,
-            initialOpenPaths: [pdfPath],
-        });
-        await waitForOpenedPdf(session.page, pdfPath);
-        await openAnnotationsTab(session.page, 30_000);
-        await createFreeTextAnnotationWithPointer(session.page, `Preserved edit ${Date.now()}`, {
-            x: 0.4,
-            y: 0.3,
-        });
-        await waitForSaveFrontierReady(session.page);
-
-        const stagedExternalPath = `${pdfPath}.external`;
-        await writeFile(stagedExternalPath, originalBytes);
-        await rename(stagedExternalPath, pdfPath);
-
-        expect(await clickSaveAndAwaitOutcome(session.page, pdfPath)).toBe('saved');
-        expect((await readPdfTextAnnotationRecords(pdfPath)).some(annotation => (
-            annotation.contents.startsWith('Preserved edit ')
-        ))).toBe(true);
-
-        await session.stop();
-        session = await startElectronE2ESession(`e2e-save-identical-replace-reopen-${Date.now()}`, {
-            clean: true,
-            initialOpenPaths: [pdfPath],
-        });
-        await waitForOpenedPdf(session.page, pdfPath);
-        await session.page.waitForFunction(() => {
-            const expose = (window as Window & {__evbFindWorkspaceExpose?: (options: {requiredProperties: string[]}) => {annotationComments?: unknown[] | {value?: unknown[]};} | null;}).__evbFindWorkspaceExpose?.({requiredProperties: ['annotationComments']});
-            const comments = Array.isArray(expose?.annotationComments)
-                ? expose.annotationComments
-                : expose?.annotationComments?.value;
-            return comments?.some(comment => (
-                typeof comment === 'object'
-                && comment !== null
-                && 'text' in comment
-                && typeof comment.text === 'string'
-                && comment.text.startsWith('Preserved edit ')
-            )) ?? false;
-        }, {timeout: SAVE_TIMEOUT_MS});
-    }, E2E_TIMEOUT_MS);
-
-
     it.each(DAMAGED_XREF_CASES)(
         'damaged xref admission: saves a typed sticky note into a PDF with %s',
         async (_damage, damage) => {

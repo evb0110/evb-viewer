@@ -1,4 +1,7 @@
-import { contentWitness } from './contentWitness';
+import {
+    contentWitness,
+    sameWitness,
+} from './contentWitness';
 import type {
     IStoreFile,
     IStorePort,
@@ -14,7 +17,7 @@ const REVISION_FILE_PATTERN = /^r\d+\.[A-Za-z0-9]{1,16}$/u;
 const DRAFTS_FILE_PATTERN = /^drafts-[A-Za-z0-9-]{1,64}\.json$/u;
 const COPY_BYTES = 4 * 1024 * 1024;
 
-/** The bytes `[0, length)` of `file`. `witness` is their content witness once something computed it. */
+/** The bytes `[0, length)` of `file`. `witness` names them once something established it: a content witness, or the witness of the destination they were copied from. */
 export interface IRevision {
     id: number;
     file: string;
@@ -61,12 +64,16 @@ export interface IPublishSource {
     file: IStoreFile;
 }
 
-export type TPublishResult = { status: 'published'; keptOriginal?: string } | { status: 'conflict' };
+/** `witness`: facts the platform read from the destination after the write, joined to the bytes' witness as the new baseline. */
+export type TPublishResult = { status: 'published'; keptOriginal?: string; witness?: string } | { status: 'conflict' };
 
 /** Everything platform-specific about where a document is saved. */
 export interface IPublicationPort {
-    /** The content witness of the destination now; `null` when it has no readable content. */
-    witness(destination: string): Promise<string | null>;
+    /**
+     * The witness of the destination now; `null` when it has no readable content. A platform may answer with
+     * file metadata alone unless `content` asks for the content witness too, which reads every byte.
+     */
+    witness(destination: string, content?: boolean): Promise<string | null>;
     /** The destination's bytes, to copy in as the first revision. */
     source(destination: string): Promise<TExternalSource>;
     /**
@@ -135,7 +142,7 @@ export function decodeManifest(bytes: Uint8Array): IManifest {
 export function isDirty(manifest: IManifest) {
     const { current } = manifest;
     return manifest.drafts !== undefined || manifest.pendingPublish !== undefined
-        || (current !== undefined && (current.witness === undefined || current.witness !== manifest.baseline));
+        || (current !== undefined && !sameWitness(current.witness, manifest.baseline));
 }
 
 function namedFiles(manifest: IManifest) {
@@ -399,13 +406,14 @@ export class DocumentDirectory {
         if (manifest.destination === undefined) throw new Error(`Document ${this.id} has neither bytes nor a destination`);
         const id = manifest.next;
         const name = `r${id}.${manifest.ext}`;
-        const { file, length, witness } = await this.createRevisionFile(name, await this.store.publication.source(manifest.destination), true);
-        if (witness !== manifest.baseline) {
+        const { file, length } = await this.createRevisionFile(name, await this.store.publication.source(manifest.destination));
+        // The destination still holds the baseline after the copy, so the copy holds the baseline's bytes.
+        if (!sameWitness(await this.store.publication.witness(manifest.destination), manifest.baseline)) {
             await file.close();
             await this.store.port.remove(this.path(name));
             return null;
         }
-        const current = { id, file: name, length, witness };
+        const current = { id, file: name, length, witness: manifest.baseline };
         await this.commit({ ...manifest, next: id + 1, current }, file);
         return current;
     }
@@ -415,10 +423,10 @@ export class DocumentDirectory {
         const { manifest } = this;
         const pending = manifest.pendingPublish;
         if (!pending) return;
-        const witness = await this.store.publication.witness(pending.destination).catch(() => undefined);
+        const witness = await this.store.publication.witness(pending.destination, true).catch(() => undefined);
         // Unreadable now, for example held by another program: the next open or Save decides.
         if (witness === undefined) return;
-        const adopted = witness === pending.witness ? { destination: pending.destination, baseline: witness } : {};
+        const adopted = witness && sameWitness(witness, pending.witness) ? { destination: pending.destination, baseline: witness } : {};
         await this.commit({ ...manifest, ...adopted, pendingPublish: undefined });
     }
 

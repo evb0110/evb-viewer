@@ -230,11 +230,11 @@ After a crash or forced quit during a save, recovery puts the PDF back as it was
 before that save, or keeps the save if it had finished, and acknowledges the
 save only when the PDF holds exactly the bytes it published. EVB's own bytes
 count as unchanged when a sync client only touched their metadata or rewrote
-them identically, so they never become a kept copy. The check compares the
-content of the PDF on disk with the last revision EVB read or wrote: identical
-bytes and a touch that only changes the modification time are admitted, and
-every byte change, including one made while EVB was stopped, is refused with an
-offer to Save As.
+them identically, so they never become a kept copy. Save's check compares the
+size and modification time of the PDF on disk with those of the revision EVB
+last read or wrote, so opening a document never reads the file: every change,
+including one made while EVB was stopped and a rewrite or touch that keeps the
+bytes, is refused with an offer to Save As. Restated 2026-11-13 (#1588).
 Recovery leaves no file of its own beside the PDF. When a save, or recovery
 after a crash, finds the PDF changed elsewhere after the save displaced it, the
 version that was on disk just before that save stays beside the PDF as
