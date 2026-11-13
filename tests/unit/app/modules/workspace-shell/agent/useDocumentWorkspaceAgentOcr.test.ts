@@ -120,6 +120,7 @@ function createAgentOptions(
         viewMode: ref<TPdfViewMode>('single'),
         viewerCapabilities: ref(createDefaultWorkspaceViewerCapabilities()),
         waitForDocumentOpenSettled: vi.fn(async () => undefined),
+        whenDraftsCommitted: vi.fn(async () => undefined),
         workingCopyPath: ref<TDocumentRef | null>(null),
         zoom: ref(1),
         ...overrides,

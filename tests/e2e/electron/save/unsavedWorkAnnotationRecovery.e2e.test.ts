@@ -1423,7 +1423,7 @@ if(process.type==='browser'){
             const imageTab = checkpoint?.tabs.find(tab => tab.fileName === basename(imageDocumentPath));
             const noteTab = checkpoint?.tabs.find(tab => tab.fileName === basename(noteDocumentPath));
             const artifact = noteTab?.annotationRecovery;
-            if (!imageTab?.annotationRecovery || imageTab.annotationRecoveryFailure || !artifact) return null;
+            if (!imageTab?.annotationRecovery || !artifact) return null;
             const payload = JSON.parse((readAnnotationRecoveryDraft(session!.name, artifact.artifactId) ?? '{}')) as {payload?: {entities?: Array<{text?: string}>}};
             return {
                 imageProtected: true,

@@ -37,6 +37,7 @@ import {
     hasRecoverableWorkspaceCheckpoints,
     resumeWorkspaceCheckpoint,
     saveWorkspaceCheckpoint,
+    setWorkspaceDocumentDrafts,
 } from '@electron/workspaceCheckpointStore';
 import { allowOpenPaths } from '@electron/file-access/openPathCapabilities';
 import {runtimeConfig} from '@electron/runtimeConfig';
@@ -155,6 +156,7 @@ export function registerCoreIpcHandlers(
         saveWorkspaceCheckpoint: ({
             sender, senderId,
         }, checkpoint) => saveWorkspaceCheckpoint(checkpoint, senderId, sender),
+        setWorkspaceDocumentDrafts: ({senderId}, drafts) => setWorkspaceDocumentDrafts(drafts, senderId),
         discardWorkspaceCheckpoint: async ({
             sender,
             senderId,

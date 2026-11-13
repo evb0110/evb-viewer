@@ -962,20 +962,6 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
     return {
         annotations,
         annotationApplication,
-        getCanonicalAnnotationRecoveryChangeSignature: () => {
-            void annotationProjection.value;
-            return [
-                annotationApplication.value.store.mutationEpoch,
-                Array.from(textBoxDrafts, ([
-                    id,
-                    text,
-                ]) => [
-                    id,
-                    textBoxDraftGenerations.get(id) ?? 0,
-                    text,
-                ] as const),
-            ] as const;
-        },
         captureCanonicalAnnotationRecovery: (additionalDrafts: TAnnotationRecoveryDraftInput = []): ICanonicalAnnotationRecovery => {
             const drafts = Array.from(
                 textBoxDrafts,

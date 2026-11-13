@@ -25,9 +25,9 @@ interface IUseBrowserWorkspaceRecoveryOptions {
 const RECOVERY_DEBOUNCE_MS = 750;
 
 /**
- * Records the browser window's layout and unsaved annotations shortly after each change: the annotations go
- * into each document's store directory as drafts. The window's checkpoint already names every directory the
- * window holds, written when it opened, so a crash before this record still finds the document's bytes.
+ * Records the browser window's layout shortly after each change. A document commits its unsaved work as the
+ * drafts of its store directory itself, and the window's checkpoint names every directory the window holds from
+ * when it opened, so a crash before this record still finds the document's bytes and drafts.
  */
 export const useBrowserWorkspaceRecovery = (options: IUseBrowserWorkspaceRecoveryOptions) => {
     const recovery = getWindowTabsCapability().browserRecovery;

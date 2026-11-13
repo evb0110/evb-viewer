@@ -297,6 +297,8 @@ export class AnnotationStore {
     readonly #retainedHistoryTargets = new Map<AnnotationId, number>();
     #foreign: readonly IPdfForeignAnnotationRecord[] = [];
     #savedSemanticSnapshot = new Map<AnnotationId, ISavedSemanticEntry>();
+    // What the working bytes hold: a write can put edits there that Save has not published yet.
+    #workingSemanticSnapshot = new Map<AnnotationId, ISavedSemanticEntry>();
     #mutationEpoch = 0;
     #readWholeDocument = false;
     #batchDepth = 0;
@@ -397,16 +399,17 @@ export class AnnotationStore {
             before: current ?? null,
             after: imported,
         }]);
-        if (shouldUpdateSavedBaseline && wasSemanticallyClean) {
-            if (canUseFastPath) {
-                this.#savedSemanticSnapshot.set(imported.identity.id, {
-                    kind: imported.kind,
-                    deleted: imported.deleted,
-                    fingerprint: semanticEntityFingerprint(imported),
-                });
-            } else {
-                this.#savedSemanticSnapshot = semanticSnapshot(this.#entities.values());
-            }
+        if (shouldUpdateSavedBaseline) {
+            // The working bytes hold what was read from them; so does the saved file while nothing was unsaved.
+            const rescanned = wasSemanticallyClean && !canUseFastPath;
+            if (rescanned) this.#savedSemanticSnapshot = semanticSnapshot(this.#entities.values());
+            const entry = (rescanned ? this.#savedSemanticSnapshot.get(imported.identity.id) : undefined) ?? {
+                kind: imported.kind,
+                deleted: imported.deleted,
+                fingerprint: semanticEntityFingerprint(imported),
+            };
+            this.#workingSemanticSnapshot.set(imported.identity.id, entry);
+            if (wasSemanticallyClean && canUseFastPath) this.#savedSemanticSnapshot.set(imported.identity.id, entry);
         } else if (
             canUseFastPath
             && currentSemanticFingerprint !== semanticEntityFingerprint(imported)
@@ -709,6 +712,11 @@ export class AnnotationStore {
 
         const next = new Map<AnnotationId, AnnotationEntity>();
         const nextBaseline = new Map<AnnotationId, ISavedSemanticEntry>();
+        const workingBaseline = scope === null ? new Map<AnnotationId, ISavedSemanticEntry>() : new Map(this.#workingSemanticSnapshot);
+        this.#entities.forEach((entity, id) => {
+            if (inScope(entity)) workingBaseline.delete(id);
+        });
+        semanticSnapshot(parsedById.values()).forEach((entry, id) => workingBaseline.set(id, entry));
         const forgotten = new Set<AnnotationId>();
         this.#entities.forEach((current, id) => {
             const parsed = parsedById.get(id);
@@ -847,6 +855,7 @@ export class AnnotationStore {
         this.#replaceAllEntities(next);
         forgotten.forEach(id => this.#persistenceIdentities.forget(id));
         this.#savedSemanticSnapshot = nextBaseline;
+        this.#workingSemanticSnapshot = workingBaseline;
         if (preserveSavedBaseline) this.#persistenceIdentities.clear();
         this.#foreign = [
             ...this.#foreign.filter(record => !inScope(record)),
@@ -933,6 +942,7 @@ export class AnnotationStore {
                 removed.add(id);
             }
             this.#savedSemanticSnapshot.delete(id);
+            this.#workingSemanticSnapshot.delete(id);
             this.#persistenceIdentities.forget(id);
         });
         if (!removed.size) {
@@ -956,14 +966,15 @@ export class AnnotationStore {
                 id,
                 entity: cloneEntity(entity),
                 saved: this.#savedSemanticSnapshot.get(id),
+                working: this.#workingSemanticSnapshot.get(id),
             }));
         const apply = (mapping: IPageIdentityDelta) => {
             this.#entities.forEach((entity, id) => {
                 const mappedPageNumber = mapPageNumberThroughPageIdentityDelta(mapping, requirePageNumber(entity.pageIndex + 1));
                 const nextPageIndex = mappedPageNumber === null ? undefined : requirePageIndex(mappedPageNumber - 1);
-                const saved = this.#savedSemanticSnapshot.get(id);
-                if (saved !== undefined) {
-                    this.#savedSemanticSnapshot.set(id, {
+                for (const baseline of [this.#savedSemanticSnapshot, this.#workingSemanticSnapshot]) {
+                    const saved = baseline.get(id);
+                    if (saved !== undefined) baseline.set(id, {
                         kind: saved.kind,
                         deleted: saved.deleted || nextPageIndex === undefined,
                         fingerprint: remapSavedSemanticFingerprint(saved.fingerprint, nextPageIndex),
@@ -989,11 +1000,13 @@ export class AnnotationStore {
             undo: () => {
                 apply(invertPageIdentityDelta(delta));
                 removed.forEach(({
-                    id, entity, saved,
+                    id, entity, saved, working,
                 }) => {
                     this.#entities.set(id, cloneEntity(entity));
                     if (saved) this.#savedSemanticSnapshot.set(id, saved);
                     else this.#savedSemanticSnapshot.delete(id);
+                    if (working) this.#workingSemanticSnapshot.set(id, working);
+                    else this.#workingSemanticSnapshot.delete(id);
                 });
                 this.#rebindIdentities();
                 this.#emit();
@@ -1080,6 +1093,7 @@ export class AnnotationStore {
             });
         });
         this.#replaceEntities(updates);
+        saved.forEach((entry, id) => this.#workingSemanticSnapshot.set(id, entry));
         if (!preserveSavedBaseline) saved.forEach((entry, id) => this.#savedSemanticSnapshot.set(id, entry));
         frontier.revisions.forEach((_revision, id) => this.#persistenceIdentities.forget(id));
         this.#saveFrontiers.delete(frontier);
@@ -1095,25 +1109,16 @@ export class AnnotationStore {
         return this.#saveFrontiers.has(frontier);
     }
 
-    adoptEntitiesAsSavedBaseline(ids: ReadonlySet<AnnotationId>) {
-        ids.forEach((id) => {
-            const entity = this.#entities.get(id);
-            if (entity) {
-                this.#savedSemanticSnapshot.set(id, {
-                    kind: entity.kind,
-                    deleted: entity.deleted,
-                    fingerprint: semanticEntityFingerprint(entity),
-                });
-            }
-        });
-        this.#emit();
-    }
-
     hasChangesSinceSavedBaseline(kind?: AnnotationEntity['kind']) {
         return !semanticSnapshotsEqual(
             snapshotOfKind(semanticSnapshot(this.#entities.values()), kind),
             snapshotOfKind(this.#savedSemanticSnapshot, kind),
         );
+    }
+
+    /** Whether `entities` differ from what the current working bytes hold, which a write can advance past the saved file. */
+    hasChangesSinceWorkingBaseline(entities: Iterable<AnnotationEntity> = this.#entities.values()) {
+        return !semanticSnapshotsEqual(semanticSnapshot(entities), this.#workingSemanticSnapshot);
     }
 
     countDirtyPersistedDeletions() {
@@ -1269,6 +1274,7 @@ export class AnnotationStore {
             }
             this.#entities.delete(id);
             this.#savedSemanticSnapshot.delete(id);
+            this.#workingSemanticSnapshot.delete(id);
             this.#persistenceIdentities.forget(id);
             pruned = true;
         });

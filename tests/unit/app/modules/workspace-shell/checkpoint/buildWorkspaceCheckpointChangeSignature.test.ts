@@ -17,22 +17,13 @@ import {
     type TDocumentRef,
 } from '@contracts/documentRef';
 import { requireDocumentInstanceId } from '@contracts/documentInstanceId';
-import {
-    requireDocumentRevisionToken,
-    type IDocumentRevisionInfo,
-} from '@contracts/documentRevision';
 import { requirePaneId } from '@contracts/editorPanes';
-import { requireEpochMs } from '@contracts/timestamps';
 import type { TTabId } from '@contracts/windowTabs';
 import { requireTabId } from '@contracts/windowTabs';
 import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
 import { createDefaultWorkspaceToolbarSnapshot } from '@app/types/workspaceExpose';
 import { createWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
-import type {IWorkspaceDocumentRecovery} from '@app/types/workspaceDocumentRecovery';
-import {
-    createWorkspaceExposeFixture,
-    setTestDocumentDirty,
-} from '@tests/unit/app/modules/workspace-shell/workspaceTestFixtures';
+import { setTestDocumentDirty } from '@tests/unit/app/modules/workspace-shell/workspaceTestFixtures';
 import { buildWorkspaceCheckpointChangeSignature } from '@app/modules/workspace-shell/checkpoint/buildWorkspaceCheckpointChangeSignature';
 import {
     buildWorkspaceCheckpoint,
@@ -55,17 +46,6 @@ function toolbar(overrides: Partial<ReturnType<typeof createDefaultWorkspaceTool
     return {
         ...createDefaultWorkspaceToolbarSnapshot(),
         ...overrides,
-    };
-}
-
-function createIdentity(token: string, contentRevision: number): IDocumentRevisionInfo {
-    return {
-        version: 1,
-        token: requireDocumentRevisionToken(token),
-        documentRef: requireDocumentRef('/doc.pdf'),
-        authority: 'electron-working-copy',
-        contentRevision,
-        mintedAt: requireEpochMs(0),
     };
 }
 
@@ -161,24 +141,10 @@ describe('buildWorkspaceCheckpointChangeSignature', () => {
         expect(afterPaneChange.tabSignatures.get('tab-a')).not.toBe(base.tabSignatures.get('tab-a'));
     });
 
-    it('tracks the document revision identity', () => {
+    it('tracks the document identity', () => {
         const options = createSignatureOptions();
         const session = options.documentSessionsByTabId.value['tab-a'];
-        const commit = (revisionInfo: IDocumentRevisionInfo) => session.commitFile({
-            originalPath: null,
-            isDjvu: false,
-            revisionInfo,
-        });
-        commit(createIdentity('token-1', 1));
         const before = buildWorkspaceCheckpointChangeSignature(options);
-        commit(createIdentity('token-1', 2));
-        const after = buildWorkspaceCheckpointChangeSignature(options);
-        expect(after.tabSignatures.get('tab-a')).not.toBe(before.tabSignatures.get('tab-a'));
-
-        commit(createIdentity('token-2', 2));
-        const afterTokenChange = buildWorkspaceCheckpointChangeSignature(options);
-        expect(afterTokenChange.tabSignatures.get('tab-a')).not.toBe(after.tabSignatures.get('tab-a'));
-
         session.assign({
             fileName: 'tab-a.pdf',
             originalPath: null,
@@ -186,53 +152,14 @@ describe('buildWorkspaceCheckpointChangeSignature', () => {
             isDirty: false,
             isDjvu: false,
         });
-        const afterDocumentInstanceChange = buildWorkspaceCheckpointChangeSignature(options);
-        expect(afterDocumentInstanceChange.tabSignatures.get('tab-a')).not.toBe(afterTokenChange.tabSignatures.get('tab-a'));
-    });
-
-    it('detects successive metadata edits while the document is already dirty', () => {
-        const options = createSignatureOptions();
-        const recovery: IWorkspaceDocumentRecovery = {
-            version: 1,
-            annotationMutationGeneration: 0,
-            entities: [],
-            foreign: [],
-            drafts: [],
-            metadata: {bookmarks: {
-                revision: 1,
-                dirty: true,
-                items: [],
-            }},
-        };
-        const workspace = createWorkspaceExposeFixture({
-            getWorkspaceDocumentRecoveryChangeSignature: () => [
-                recovery.metadata?.bookmarks?.revision ?? null,
-                recovery.metadata?.pageLabels?.revision ?? null,
-            ],
-            captureCanonicalAnnotationRecovery: () => {
-                throw new Error('Signature evaluation must not capture the recovery payload');
-            },
-        });
-        options.documentSessionsByTabId.value['tab-a'].attachWorkspace('tab-a', workspace);
-        const before = buildWorkspaceCheckpointChangeSignature(options);
-        recovery.metadata!.bookmarks!.revision += 1;
-        const after = buildWorkspaceCheckpointChangeSignature(options);
-        expect(after.workspace).not.toBe(before.workspace);
-        recovery.metadata = {pageLabels: {
-            revision: 1,
-            dirty: true,
-            ranges: [],
-        }};
-        const labels = buildWorkspaceCheckpointChangeSignature(options);
-        recovery.metadata.pageLabels!.revision += 1;
-        expect(buildWorkspaceCheckpointChangeSignature(options).workspace).not.toBe(labels.workspace);
+        expect(buildWorkspaceCheckpointChangeSignature(options).tabSignatures.get('tab-a')).not.toBe(before.tabSignatures.get('tab-a'));
     });
 
     it('tracks live document refs owned by a mounted workspace', () => {
         const options = createSignatureOptions();
         let originalPath: TDocumentRef | null = null;
         const workspace = {} as IWorkspaceExpose;
-        workspace.getWorkspaceDocumentRecoveryChangeSignature = () => [
+        workspace.getWorkspaceDocumentRefsSignature = () => [
             originalPath,
             null,
             false,

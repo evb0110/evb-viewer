@@ -318,7 +318,6 @@ export const usePdfViewerPublicApiController = (
         prepareAnnotationToolChange: annotationRuntime.annotationEditorSurface.prepareToolChange,
         handleAnnotationEscape: annotationRuntime.annotationEditorSurface.handleEscape,
         captureCanonicalAnnotationRecovery: annotationRuntime.captureCanonicalAnnotationRecovery,
-        getCanonicalAnnotationRecoveryChangeSignature: annotationRuntime.getCanonicalAnnotationRecoveryChangeSignature,
         restoreCanonicalAnnotationRecovery: annotationRuntime.restoreCanonicalAnnotationRecovery,
         focusAnnotationComment,
         updateAnnotationComment: commentCrud.updateAnnotationComment,

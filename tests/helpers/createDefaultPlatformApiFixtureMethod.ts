@@ -173,6 +173,7 @@ const FEATURE_RESULTS: Readonly<Record<string, unknown>> = {
     'windowTabs.claimPendingExternalOpenPaths': [],
     'windowTabs.acknowledgePendingExternalOpenPaths': undefined,
     'windowTabs.saveWorkspaceCheckpoint': true,
+    'windowTabs.setDocumentDrafts': true,
     'windowTabs.discardWorkspaceCheckpoint': '1',
     'windowTabs.resumeWorkspaceCheckpoint': undefined,
     'windowTabs.claimWorkspaceCheckpoint': null,
