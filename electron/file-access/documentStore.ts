@@ -709,9 +709,12 @@ export async function clearAllWorkingCopies(options: {skipPaths?: ReadonlySet<st
     }));
 }
 
-/** Waits for every queued store operation, so a quit never cuts a commit short. */
+/**
+ * At quit: lets every queued store operation finish, so no commit is cut short, then closes each document's file.
+ * Directories and checkpoints stay; the quit's later steps or the next start decide what to keep.
+ */
 export async function settleOpenDocuments() {
-    await Promise.allSettled([...openDocuments.values()].map(entry => entry.doc.run(() => Promise.resolve())));
+    await Promise.allSettled([...openDocuments.values()].map(entry => entry.doc.close()));
 }
 
 /**
