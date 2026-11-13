@@ -63,6 +63,7 @@ async function rejectRecoverySerialization(page: Page, marker: string, message: 
     }, {marker, message, restoreKey});
 }
 
+// Placement also commits drafts now; hold only the editor text being protected.
 function writeTextProtectionHoldHook(directory: string, message: string) {
     const gate = join(directory, 'checkpoint');
     const hook = join(directory, 'hold-checkpoint.cjs');
@@ -70,12 +71,20 @@ function writeTextProtectionHoldHook(directory: string, message: string) {
 if(process.type==='browser'){
  const gate=${JSON.stringify(gate)},open=fsp.open;
  fsp.open=async(path,...args)=>{
-  if(fs.existsSync(gate+'.arm')&&String(path).includes('document-store')&&/drafts-[^/]+\\.json\\.[^/]+\\.tmp$/.test(String(path))){
-   fs.writeFileSync(gate+'.held','');
-   if(!fs.existsSync(gate+'.release'))await new Promise(resolve=>{const watcher=fs.watch(${JSON.stringify(directory)},()=>{if(fs.existsSync(gate+'.release')){watcher.close();resolve()}})});
-   if(fs.existsSync(gate+'.reject'))throw Object.assign(new Error(${JSON.stringify(message)}),{code:'ENOSPC'});
+  const handle=await open(path,...args);
+  if(String(path).includes('document-store')&&/drafts-[^/]+\\.json\\.[^/]+\\.tmp$/.test(String(path))){
+   const write=handle.writeFile.bind(handle);
+   handle.writeFile=async(bytes,...options)=>{
+    const recovery=JSON.parse(Buffer.from(bytes).toString('utf8')).annotationRecovery?.payload;
+    if(fs.existsSync(gate+'.arm')&&recovery?.drafts?.some(draft=>draft.kind==='text-box'&&draft.text.trim())){
+     fs.writeFileSync(gate+'.held','');
+     if(!fs.existsSync(gate+'.release'))await new Promise(resolve=>{const watcher=fs.watch(${JSON.stringify(directory)},()=>{if(fs.existsSync(gate+'.release')){watcher.close();resolve()}})});
+     if(fs.existsSync(gate+'.reject'))throw Object.assign(new Error(${JSON.stringify(message)}),{code:'ENOSPC'});
+    }
+    return write(bytes,...options);
+   };
   }
-  return open(path,...args);
+  return handle;
  };
  require('node:module').syncBuiltinESMExports();
 }`);
@@ -377,12 +386,20 @@ describe('checkpointed annotation recovery', () => {
 if(process.type==='browser'){
  const gate=${JSON.stringify(gate)},target=${JSON.stringify(sourcePath)},cut=${JSON.stringify(cut)},open=fsp.open,rename=fsp.rename;
  fsp.open=async(path,...args)=>{
-  if(cut!==2&&fs.existsSync(gate+'.arm')&&!fs.existsSync(gate+'.release')&&String(path).includes('document-store')&&/drafts-[^/]+\\.json\\.[^/]+\\.tmp$/.test(String(path))){
-   fs.writeFileSync(gate+'.held','');
-   await new Promise(resolve=>{const watcher=fs.watch(${JSON.stringify(outputDirectory)},()=>{if(fs.existsSync(gate+'.release')){watcher.close();resolve()}})});
-   if(cut===1)throw Object.assign(new Error('ENOSPC: text checkpoint volume is full'),{code:'ENOSPC'});
+  const handle=await open(path,...args);
+  if(String(path).includes('document-store')&&/drafts-[^/]+\\.json\\.[^/]+\\.tmp$/.test(String(path))){
+   const write=handle.writeFile.bind(handle);
+   handle.writeFile=async(bytes,...options)=>{
+    const recovery=JSON.parse(Buffer.from(bytes).toString('utf8')).annotationRecovery?.payload;
+    if(cut!==2&&fs.existsSync(gate+'.arm')&&!fs.existsSync(gate+'.release')&&recovery?.drafts?.some(draft=>draft.kind==='text-box'&&draft.text.trim())){
+     fs.writeFileSync(gate+'.held','');
+     await new Promise(resolve=>{const watcher=fs.watch(${JSON.stringify(outputDirectory)},()=>{if(fs.existsSync(gate+'.release')){watcher.close();resolve()}})});
+     if(cut===1)throw Object.assign(new Error('ENOSPC: text checkpoint volume is full'),{code:'ENOSPC'});
+    }
+    return write(bytes,...options);
+   };
   }
-  return open(path,...args);
+  return handle;
  };
  fsp.rename=async(from,to)=>{await rename(from,to);if(fs.existsSync(gate+'.arm')&&String(from)===target&&String(to).endsWith('.evb-replaced'))fs.writeFileSync(gate+'.displaced','')};
  require('node:module').syncBuiltinESMExports();
@@ -1503,11 +1520,21 @@ if(process.type==='browser'){
             await expect.poll(bookmarkTitle).toBe(titleAt(edit));
         }
         await clickAsUser(session.page, '.editor-pane.is-active .page_container[data-page="1"]');
+        // The title changes before its durable history operation releases the
+        // toolbar. Wait for the next command to be available as a user would.
         for (let edit = 59; edit >= 0; edit -= 1) {
+            await session.page.waitForFunction(() => {
+                const toolbar = (window as IE2EWindow).__evbTestApi?.getActiveWorkspaceHandle()?.getToolbarSnapshot();
+                return toolbar?.canUndo && !toolbar.isHistoryBusy;
+            });
             await activateMenuItemAsUser(session.page, {accelerator: 'CmdOrCtrl+Z'});
             await expect.poll(bookmarkTitle).toBe(titleAt(edit));
         }
         for (let edit = 1; edit <= 60; edit += 1) {
+            await session.page.waitForFunction(() => {
+                const toolbar = (window as IE2EWindow).__evbTestApi?.getActiveWorkspaceHandle()?.getToolbarSnapshot();
+                return toolbar?.canRedo && !toolbar.isHistoryBusy;
+            });
             await activateMenuItemAsUser(session.page, {accelerator: process.platform === 'darwin' ? 'Cmd+Shift+Z' : 'Ctrl+Y'});
             await expect.poll(bookmarkTitle).toBe(titleAt(edit));
         }

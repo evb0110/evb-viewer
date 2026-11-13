@@ -538,6 +538,14 @@ describe('Electron E2E - bookmark destination round trip', () => {
         await expectBookmarkFocus(page, 'Parent');
         await activateMenuItemAsUser(page, {accelerator: 'CmdOrCtrl+Z'});
         await expectBookmarkFocus(page, 'Parent');
+        // Both undos keep focus on Parent. Its restored child can be collapsed;
+        // the expand control and idle toolbar show the first Undo is complete.
+        await waitForFunctionInPage(page, () => {
+            const parent = Array.from(document.querySelectorAll('.document-bookmark-item__row'))
+                .find(row => row.textContent?.trim() === 'Parent');
+            return Boolean(parent?.querySelector('.document-bookmark-item__toggle'))
+                && window.__evbTestApi?.getActiveToolbarSnapshot()?.isHistoryBusy === false;
+        });
         await activateMenuItemAsUser(page, {accelerator: 'CmdOrCtrl+Z'});
         await expectBookmarkFocus(page, 'Parent');
         await findBookmarkRow(page, 'Last');
