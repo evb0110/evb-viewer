@@ -454,27 +454,11 @@ fn malformed_reply_preserves_its_square_and_readable_thread() {
 }
 
 fn metadata_qpdf_path() -> PathBuf {
-    if let Some(path) = std::env::var_os("QPDF_PATH") {
-        return PathBuf::from(path);
+    let bundled = external_tool::bundled_tool_path("qpdf", "qpdf");
+    if std::env::var_os("QPDF_PATH").is_none() && bundled.is_file() {
+        return bundled;
     }
-    let os = match std::env::consts::OS {
-        "macos" => "darwin",
-        "windows" => "win32",
-        os => os,
-    };
-    let arch = match std::env::consts::ARCH {
-        "x86_64" => "x64",
-        "aarch64" => "arm64",
-        arch => arch,
-    };
-    let bundled = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join(format!("../../resources/qpdf/{os}-{arch}/bin"))
-        .join(format!("qpdf{}", std::env::consts::EXE_SUFFIX));
-    if bundled.is_file() {
-        bundled
-    } else {
-        external_tool::tool_path("QPDF_PATH", "qpdf", "qpdf")
-    }
+    external_tool::tool_path("QPDF_PATH", "qpdf", "qpdf")
 }
 
 fn metadata_command(operation: &str, input: &Path, output: Option<&Path>) -> Value {
