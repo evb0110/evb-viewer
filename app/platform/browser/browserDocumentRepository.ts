@@ -535,18 +535,22 @@ export class BrowserDocumentStore {
 
     /**
      * Imports `fromRef`'s bytes anew as `ref`'s, which then start clean: the file as it was last saved, or the
-     * bytes an open made. The directory keeps its id and this window keeps its lock throughout.
+     * bytes an open made. They commit as a rewrite, then become the baseline with no history; the old bytes go
+     * only once a manifest no longer names them.
      */
     public async replaceContent(ref: string, fromRef: string) {
         const entry = await this.requireEntry(ref);
         const doc = this.requireDoc(entry);
         const source = await this.externalSource(fromRef);
         const previous = this.tokenOf(entry);
-        await doc.close();
-        await entry.store!.port.remove(`documents/${doc.id}`);
-        entry.doc = await createDocument(entry.store!, {id: doc.id, ext: extensionOf(entry.fileName), source, imported: true});
+        await doc.run(async () => {
+            const result = await doc.applyMutation(doc.snapshot().current?.id ?? null, {kind: 'rewrite', source, drafts: 'clear'});
+            if (result.status !== 'committed') throw new BrowserDocumentSourceChangedError(entry.ref);
+            const witness = await contentWitness(result.revision.length, (offset, length) => doc.read(offset, length));
+            await doc.commit({...doc.snapshot(), current: {...result.revision, witness}, baseline: witness, history: []});
+        });
         entry.file = null;
-        entry.fileSize = entry.doc.state().current?.length ?? 0;
+        entry.fileSize = doc.state().current?.length ?? 0;
         entry.updatedAt = Date.now();
         this.emitRevision(entry, previous, 'write');
     }

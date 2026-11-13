@@ -22,15 +22,18 @@ import { createFileSystemFileHandle } from '@tests/unit/app/platform/browserPlat
 const encode = (text: string) => new TextEncoder().encode(text);
 const decode = (bytes: Uint8Array) => new TextDecoder().decode(bytes);
 const roots: string[] = [];
+const repositories: BrowserDocumentStore[] = [];
 
 afterEach(async () => {
     vi.restoreAllMocks();
+    await Promise.all(repositories.splice(0).flatMap(repo => repo.openEntries().map(entry => entry.doc?.close())));
     await Promise.all(roots.splice(0).map(root => rm(root, {recursive: true, force: true})));
 });
 
 /** The repository over a store in a temporary directory, through the core's Node port: Node has no origin private file system. */
 async function repository() {
     const repo = new BrowserDocumentStore();
+    repositories.push(repo);
     const root = await mkdtemp(join(process.env.TMPDIR ?? tmpdir(), 'browser-repository-'));
     roots.push(root);
     const store = {port: createNodeStorePort(root), publication: browserPublication};
@@ -169,4 +172,27 @@ it('refuses to acknowledge a Save when another program wrote the file right afte
     expect(await repo.save(working, repo.tokenOf(entry), {commit: encode('EVB D next save')})).toEqual({status: 'conflict'});
     expect(decode(picked.disk.bytes)).toBe('FOREIGN distinct length edit');
     expect(decode(await repo.read(working))).toBe('EVB D next save');
+});
+
+it('leaves the document openable with its old bytes when replacing its content fails, and replaces it cleanly otherwise', async () => {
+    const {repo, store} = await repository();
+    const {ref, doc} = await workingDocument(repo, 'old bytes');
+    const source = await repo.createStoredDocument('source.pdf', encode('replacement'), {mimeType: 'application/pdf'});
+    const writeAtomic = store.port.writeAtomic.bind(store.port);
+    const full = vi.spyOn(store.port, 'writeAtomic').mockImplementation(async (path, bytes) => {
+        if (path === doc.path('manifest.json')) throw new DOMException('The store is full', 'QuotaExceededError');
+        return writeAtomic(path, bytes);
+    });
+
+    await expect(repo.replaceContent(ref, source)).rejects.toThrow('full');
+    full.mockRestore();
+    await doc.close();
+    const reopened = await openDocument(store, doc.id);
+    expect(decode(await reopened.read(0, 100))).toBe('old bytes');
+    await reopened.close();
+
+    const {ref: other, doc: otherDoc} = await workingDocument(repo, 'other old bytes');
+    await repo.replaceContent(other, source);
+    expect(decode(await repo.read(other))).toBe('replacement');
+    expect(otherDoc.state()).toMatchObject({dirty: false, history: []});
 });
