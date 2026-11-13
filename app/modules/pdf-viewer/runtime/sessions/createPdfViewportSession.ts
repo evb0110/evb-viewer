@@ -901,10 +901,19 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
             singlePageScroll.place(getRequestAnchor(undefined, clampPageNumber(render.pageNumber, numPages.value)), 'document-restore');
         }
     }
-    watch(() => singlePageScroll.viewportAuthority.activeIntent.value, (activeIntent) => {
-        if (activeIntent === null) {
-            reconcileIdleOpenSurfaceViewport();
+    watch(() => singlePageScroll.viewportAuthority.activeIntent.value, (activeIntent, previous) => {
+        if (activeIntent !== null) {
+            return;
         }
+        // A settled page-top navigation's place is from now on the centre
+        // point it shows (R3), so a later relayout, such as a tab's return
+        // while its sidebar slides in, keeps that point, not the page top.
+        const anchor = previous?.navigation && viewportAuthority.committedAnchor.value?.affinity === 'start'
+            && viewportAuthority.getTerminalOutcome(previous.id) === 'settled'
+            ? singlePageScroll.captureRelayoutAnchor()
+            : null;
+        if (anchor) viewportAuthority.observeSettledAnchor(anchor);
+        reconcileIdleOpenSurfaceViewport();
     }, { flush: 'sync' });
     watch([
         () => chassisAuthority?.openSurface.snapshot.value.committedRender,

@@ -14,7 +14,10 @@ import {
     createMultiPageTextFixturePdf,
     resolveDjvuFixturePath,
 } from '@tests/e2e/electron/helpers/fixtures';
-import { clickAsUser } from '@tests/e2e/electron/helpers/userInput';
+import {
+    clickAsUser,
+    clickFoundAsUser,
+} from '@tests/e2e/electron/helpers/userInput';
 import { createElectronE2ESessionFixture } from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
 import type { IElectronE2ESession } from '@tests/e2e/electron/helpers/startElectronE2ESession';
 import {assertInactiveDocumentPressureReleased} from '@tests/e2e/electron/helpers/assertInactiveDocumentPressureReleased';
@@ -29,6 +32,7 @@ import {
     goToPageViaToolbar,
     getToolbarCurrentPage,
     openDjvuInApp,
+    openDocumentSidebarTab,
     openPdfInApp,
     setupScrollToPage,
     setTabMemoryPolicyForE2E,
@@ -433,6 +437,37 @@ describe('Electron E2E - Inactive PDF Tabs', () => {
         expect(after.page, detail).toBe(before.page);
         expect(Math.abs(after.offsetPx - before.offsetPx), detail).toBeLessThanOrEqual(1);
         expect(Math.abs(after.offsetXPx - before.offsetXPx), detail).toBeLessThanOrEqual(1);
+    }, 120_000);
+
+    // T1 and R3: a page top reached from the toolbar stays where it was after
+    // another tab, with the Pages panel open and an earlier page rotated.
+    it('keeps a toolbar page-top place on a PDF tab with a rotated earlier page', async () => {
+        const session = sessionFixture.getSession();
+        const pdfPath = await createMultiPageTextFixturePdf(`tab-rotated-place-${Date.now()}.pdf`, 40);
+        const otherPath = await createMultiPageTextFixturePdf(`tab-rotated-other-${Date.now()}.pdf`, 20);
+        await openPdfInApp(session.page, pdfPath);
+        await waitForPdfLoaded(session.page);
+        await openDocumentSidebarTab(session.page, 'Pages');
+        await clickAsUser(session.page, '.editor-pane.is-active .pdf-thumbnails [data-thumbnail-page="2"]', {button: 'right'});
+        await clickFoundAsUser(session.page, () => Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]'))
+            .find(item => item.textContent?.trim() === 'Rotate Clockwise' && item.getBoundingClientRect().width > 0), null, {description: 'Rotate Clockwise'});
+        await session.page.waitForSelector('.tab.is-active.is-dirty');
+        await goToPageViaToolbar(session.page, 17);
+        const before = await readSettledReadingPoint(session);
+
+        await createNewTab(session);
+        await openPdfInApp(session.page, otherPath);
+        await waitForPdfLoaded(session.page);
+        await goToPageViaToolbar(session.page, 6);
+        await activateTab(session, 0);
+        await waitForWorkspaceToolbarSnapshot(session.page, {currentPage: 17});
+        const after = await readSettledReadingPoint(session);
+        const detail = JSON.stringify({
+            before,
+            after,
+        });
+        expect(after.page, detail).toBe(17);
+        expect(Math.abs(after.offsetPx - before.offsetPx), detail).toBeLessThanOrEqual(1);
     }, 120_000);
 
     it('keeps every visible split-pane document rendered while releasing hidden resources', async () => {
