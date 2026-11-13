@@ -553,6 +553,23 @@ describe('save', () => {
         expect(await currentText(doc)).toBe('v2');
     });
 
+    it.each([false, true])('keeps the destination\'s bytes for undo when a Save replaces it or a Save As rebinds it (Save As: %s)', async (saveAs) => {
+        const destination = path.join(workDir, 'paper.pdf');
+        await writeFile(destination, 'v1');
+        const doc = await create(store(), { ext: 'pdf', destination });
+        await doc.mutate(null, rewrite('v2'));
+        await doc.retain([1]);
+        const copy = path.join(workDir, 'copy.pdf');
+        expect(await saveDocument(doc, { expected: 2, ...(saveAs ? { saveAs: copy } : {}) })).toMatchObject({ status: 'saved' });
+        expect(await readFile(saveAs ? copy : destination, 'utf8')).toBe('v2');
+        await doc.close();
+
+        const reopened = await open(store(), doc.id);
+        expect(await reopened.restore(2, 1)).toMatchObject({ status: 'committed', revision: { id: 1 } });
+        expect(await currentText(reopened)).toBe('v1');
+        expect(reopened.state().dirty).toBe(true);
+    });
+
     it('starts an imported document clean and sends it to Save As', async () => {
         const doc = await create(store(), { ext: 'pdf', source: new Blob(['dropped']), imported: true });
         expect(doc.state()).toMatchObject({ destination: null, baseline: await witnessOf(encode('dropped')), dirty: false });

@@ -47,6 +47,7 @@ export function saveDocument(doc: DocumentDirectory, options: ISaveOptions) {
         const current = await doc.ensureCurrent();
         if (!current) return { status: 'conflict' };
         if (saveAs === undefined && sameWitness(current.witness, baseline)) return { status: 'saved', revision: current };
+        await doc.keepDestinationRevision();
 
         let staged = false;
         const published = await doc.store.publication.publish(

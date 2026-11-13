@@ -480,6 +480,25 @@ export class DocumentDirectory {
         return [...history.filter(revision => this.retained.has(revision.id) && revision.id !== replaced?.id), ...replaced ? [replaced] : []];
     }
 
+    /**
+     * Gives revision 1, which history keeps without a file while the destination holds it, a file of its own: a publish
+     * is about to replace the destination's bytes or make another file the destination. Nothing when history keeps no
+     * such revision, or when the destination no longer holds it or cannot be read: the publish goes ahead, and undo to
+     * that revision is refused as before.
+     */
+    async keepDestinationRevision() {
+        const { manifest } = this;
+        const { destination } = manifest;
+        const kept = manifest.history.find(revision => !hasFile(revision));
+        if (!kept || destination === undefined || !sameWitness(kept.witness, manifest.baseline)) return;
+        const name = `r1.${manifest.ext}`;
+        const created = await this.store.publication.source(destination).then(source => this.createFromDestination(name, source)).catch(() => null);
+        if (!created) return;
+        await created.file.close();
+        const revision: IRevision = { id: 1, file: name, length: created.length, witness: kept.witness };
+        await this.commit({ ...manifest, history: manifest.history.map(other => (other === kept ? revision : other)) });
+    }
+
     /** The current revision, copying the destination in as revision 1 when there is none; `null` on a conflict. */
     async ensureCurrent(): Promise<IRevision | null> {
         const { manifest } = this;

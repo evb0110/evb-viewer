@@ -188,6 +188,21 @@ describe('desktop document store', () => {
         expect(await readFile(elsewhere)).toEqual(Buffer.from(EDITED));
     });
 
+    it.each([false, true])('undoes to the PDF as opened after a Save and a restart (Save As: %s)', async (saveAs) => {
+        const {pdf, entry} = await openPdf();
+        await store.rewriteDocument(entry, async (_input, output) => writeFile(output, EDITED), 'page-ops');
+        await store.retainOpenDocumentRevisions(entry, ['1' as never]);
+        const copy = join(tempRoot, 'copy.pdf');
+        expect(await store.saveOpenDocument(entry, store.documentRevisionToken(entry), saveAs ? {saveAs: copy} : {})).toMatchObject({status: 'saved'});
+        expect(await readFile(saveAs ? copy : pdf)).toEqual(Buffer.from(EDITED));
+        const id = entry.doc.id;
+        await restart();
+
+        const reopened = await store.reopenStoredDocument(id, {ownerWebContentsId: 7});
+        await store.restoreOpenDocumentRevision(reopened, '1' as never, store.documentRevisionToken(reopened));
+        expect(await readAll(reopened)).toEqual(ORIGINAL);
+    });
+
     it('refuses a Save as a stale revision without writing anything', async () => {
         const {pdf, entry} = await openPdf();
         const edited = await writeTemp('edited.pdf', EDITED);
