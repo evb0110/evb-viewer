@@ -118,7 +118,7 @@ supported environment override in the app.
 A model's own config can ask Tesseract to load other models beside it
 (`tessedit_load_sublangs`). Tesseract reads them from the same directory and,
 when one is absent, silently recognizes without it. `OCR_MODEL_SUBLANGUAGES`
-in the registry records each pinned model's sub-languages, and every model
+in `packages/contracts/ocrLanguages.ts` records each pinned model's sub-languages, and every model
 download, installed state, bundle and engine mount uses its closure
 (`withOcrModelSublanguages`); the `-l` list stays the user's selection. Modern
 Greek loads Ancient Greek: without `grc`, `ell` read `και` as `καὶ` and `Ο` as
@@ -233,12 +233,6 @@ packaged desktop app carries it unpacked beside the application archive, so
 its worker threads import and compile it by path. When Tesseract rejects a
 parameter it still exits successfully, so the job reports each rejected
 parameter as a per-page warning instead of silently recognizing without it.
-
-Desktop previously ran a native Tesseract binary per page. Measured on a
-50-page book, the WebAssembly engine took 1.21 times the native time on
-macOS arm64 and 1.46 times on Linux x64; the native x64 build's AVX2 and FMA
-paths also read 2 of 50 pages differently from arm64, so one engine gives the
-same words on every desktop and in the browser.
 
 ## Quality evidence
 

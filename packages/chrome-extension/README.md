@@ -45,10 +45,18 @@ no extension that access by itself.
 Local files never reach the network rules: the service worker sends a `file:`
 navigation to the viewer page when the user allowed file access.
 
-A stored document has no folder of its own, so the status bar's folder button
+A stored document has no user-selected filesystem folder, so the status bar's folder button
 saves it to the Downloads folder through Chrome's downloads and shows it there
 (`app/platform/browser-api/showBrowserDocumentInDownloads.ts`). Each revision
 is saved once; a later click shows the same download.
+
+## Document storage
+
+The extension uses the browser's [document store](../document-store/README.md)
+on its own origin: one OPFS directory per document, with a Web Lock held by its
+window. Revision bytes and drafts commit through the manifest. File handles
+stay in IndexedDB; downloads acknowledge the dispatched bytes. All viewer pages
+on the extension origin share this store.
 
 ## Permissions
 
