@@ -37,6 +37,7 @@ import {
 } from './ocrQualityMetrics.mjs';
 import {
     DEGRADATION_PROFILES,
+    encodeOcrQualityPng,
     generateOcrLanguageQualityFixture,
     LANGUAGE_CODES,
     PAGE_DPI,
@@ -120,7 +121,7 @@ function renderCorpusImage(testCase, index) {
         }
     }
     context.putImageData(image, 0, 0);
-    return canvas.encode('png');
+    return encodeOcrQualityPng(canvas);
 }
 
 async function loadProductionRunner() {
@@ -183,7 +184,7 @@ async function writeSinglePageTextLayer(pdfPageOpsBinary, tesseractPdfPath, dire
     const instructionsPath = join(directory, 'text-layer.json');
     await writeFile(instructionsPath, JSON.stringify({pages: [{
         pageNumber: 1,
-        sourcePath: tesseractPdfPath,
+        source: tesseractPdfPath,
         normalizeGreekMicroSign,
     }]}));
     await execFileAsync(pdfPageOpsBinary, [
