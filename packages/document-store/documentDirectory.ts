@@ -99,8 +99,11 @@ export type TMutation = ({ kind: 'append'; bytes: Uint8Array } | { kind: 'rewrit
 export type TStaleRevision = { status: 'stale-revision'; current: IRevision | null };
 export type TMutationResult = { status: 'committed'; revision: IRevision } | TStaleRevision | { status: 'conflict' };
 export type TDraftResult = { status: 'stored'; revision: IRevision | null } | TStaleRevision | { status: 'conflict' };
-/** `imported`: bytes the person supplied without a destination; they are the baseline, so the document starts clean. */
-export type TDocumentInit = { ext: string } & ({ destination: string } | { source: TExternalSource; imported?: boolean });
+/**
+ * `imported`: bytes the person supplied without a destination; they are the baseline, so the document starts clean.
+ * `id`: the directory's id when the caller must know it first, for example to lock it before it exists.
+ */
+export type TDocumentInit = { ext: string; id?: string } & ({ destination: string } | { source: TExternalSource; imported?: boolean });
 
 export function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -183,8 +186,10 @@ export class DocumentDirectory {
 
     static async create(store: IDocumentStore, init: TDocumentInit) {
         if (!EXT_PATTERN.test(init.ext)) throw new Error(`Unsupported document extension: ${init.ext}`);
+        const id = init.id ?? crypto.randomUUID();
+        if (!STORE_ID_PATTERN.test(id)) throw new Error(`Invalid document directory id: ${id}`);
         const manifest: IManifest = { version: 1, ext: init.ext, next: 1, history: [] };
-        const doc = new DocumentDirectory(crypto.randomUUID(), store, manifest, null, undefined);
+        const doc = new DocumentDirectory(id, store, manifest, null, undefined);
         if ('destination' in init) {
             const baseline = await store.publication.witness(init.destination);
             if (baseline === null) throw new Error('The destination has no readable content');
@@ -201,13 +206,13 @@ export class DocumentDirectory {
      * A new, independent directory holding a clone of the source's current bytes with the same revision ids,
      * destination, baseline and drafts, and no history. The caller holds the source's lock.
      */
-    static async fork(store: IDocumentStore, sourceId: string) {
-        if (!STORE_ID_PATTERN.test(sourceId)) throw new Error(`Invalid document directory id: ${sourceId}`);
+    static async fork(store: IDocumentStore, sourceId: string, id: string = crypto.randomUUID()) {
+        if (![sourceId, id].every(value => STORE_ID_PATTERN.test(value))) throw new Error(`Invalid document directory id: ${sourceId} or ${id}`);
         const { port } = store;
         const from = (name: string) => `${DOCUMENTS_DIR}/${sourceId}/${name}`;
         const manifest = decodeManifest(await port.read(from(MANIFEST_NAME)));
         const { current, drafts } = manifest;
-        const doc = new DocumentDirectory(crypto.randomUUID(), store, { ...manifest, current: undefined, history: [], drafts: undefined }, null, undefined);
+        const doc = new DocumentDirectory(id, store, { ...manifest, current: undefined, history: [], drafts: undefined }, null, undefined);
         let value: unknown;
         if (drafts !== undefined) {
             const bytes = await port.read(from(drafts));
@@ -505,4 +510,4 @@ export class DocumentDirectory {
 
 export const createDocument = (store: IDocumentStore, init: TDocumentInit) => DocumentDirectory.create(store, init);
 export const openDocument = (store: IDocumentStore, id: string) => DocumentDirectory.open(store, id);
-export const forkDocument = (store: IDocumentStore, id: string) => DocumentDirectory.fork(store, id);
+export const forkDocument = (store: IDocumentStore, id: string, newId?: string) => DocumentDirectory.fork(store, id, newId);

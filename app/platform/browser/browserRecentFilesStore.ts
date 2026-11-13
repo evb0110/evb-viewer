@@ -1,6 +1,6 @@
 import * as v from 'valibot';
 import { getErrorMessage } from '@app/utils/error';
-import {parseDocumentRef} from '@contracts/documentRef';
+import type {TDocumentRef} from '@contracts/documentRef';
 import {
     RECENT_READING_VIEW_SCHEMA,
     type IRecentReadingView,
@@ -20,13 +20,9 @@ import { BROWSER_RECENT_FILES_STORAGE_KEY } from '@app/utils/browserRuntimePersi
 import {
     expireLegacyRecentFilesCookie,
     parseRecentFilesPayload,
-    parseRecentFilesStorageSnapshot,
     serializeRecentFilesPayload,
 } from '@app/utils/recentFilesPersistence';
-import {DOCUMENTS_STORE} from '@app/platform/browser/browserDocumentConstants';
-import {runObjectStoreTransaction} from '@app/platform/browser/browserDocumentIdb';
-import { buildRecentFilesFromPersistedRecords } from '@app/platform/browser/buildRecentFilesFromPersistedRecords';
-import type { IBrowserPersistedDocumentRecordsLoadResult } from '@app/platform/browser/browserPersistedDocumentRecordsLoadResult';
+import {runBrowserLock} from '@app/platform/browser/runBrowserLock';
 
 export class BrowserRecentFilesStorageUnavailableError extends Error {
     public constructor(cause?: unknown) {
@@ -87,39 +83,11 @@ function commitRecentFilesStorageMutation<T>(
     return next.value;
 }
 
+/** Every window's Recent Files writes take one lock, so no window overwrites another's change. */
 export async function runSerializedRecentFilesStorageMutation<T>(
     mutation: (currentFiles: IRecentFile[]) => IRecentFilesStorageMutation<T>,
 ) {
-    const transactionResult = await runObjectStoreTransaction<
-        {value: T} | {error: unknown}
-    >(
-        DOCUMENTS_STORE,
-        'readwrite',
-        (store, setResult) => {
-            const lockRead = store.get(BROWSER_RECENT_FILES_STORAGE_LOCK_KEY);
-            lockRead.onsuccess = () => {
-                try {
-                    setResult({value: commitRecentFilesStorageMutation(mutation)});
-                } catch (error) {
-                    setResult({error});
-                }
-            };
-        },
-    );
-    if (transactionResult) {
-        if ('error' in transactionResult) {
-            throw transactionResult.error;
-        }
-        return transactionResult.value;
-    }
-
-    // When IndexedDB exists but cannot open or commit, do not fall back to an
-    // unlocked localStorage mutation. Two browser windows could otherwise
-    // overwrite each other's Recent Files list while both report success.
-    if (typeof indexedDB !== 'undefined') {
-        throw new BrowserRecentFilesStorageUnavailableError();
-    }
-    return commitRecentFilesStorageMutation(mutation);
+    return runBrowserLock(BROWSER_RECENT_FILES_STORAGE_LOCK_KEY, async () => commitRecentFilesStorageMutation(mutation));
 }
 
 export function readRecentFilesFromStorage() {
@@ -137,27 +105,6 @@ export function tryReadRecentFilesFromStorage() {
         return readRecentFilesFromStorage();
     } catch {
         return null;
-    }
-}
-
-function hasRecentFilesStorageSnapshot() {
-    const result = readLocalStorageItem(BROWSER_RECENT_FILES_STORAGE_KEY);
-    if (result.status === 'unavailable') {
-        throw new BrowserRecentFilesStorageUnavailableError(result.error);
-    }
-    if (result.status === 'absent') {
-        return false;
-    }
-    const snapshot = parseRecentFilesStorageSnapshot(result.value);
-    return snapshot.hasSnapshot && !snapshot.truncated;
-}
-
-/** Maintenance must not turn a storage outage into an empty-history write. */
-export function tryHasRecentFilesStorageSnapshot() {
-    try {
-        return hasRecentFilesStorageSnapshot();
-    } catch {
-        return false;
     }
 }
 
@@ -214,104 +161,33 @@ export function pruneRecentFiles(recentFiles: IRecentFile[]) {
     };
 }
 
-export interface IBrowserRecentFilesRepository {
-    requireEntry: (ref: string) => Promise<{
-        retention: 'durable' | 'transient';
-        saveName?: string | undefined;
-        fileName: string;
-        fileSize: number;
-        updatedAt: number;
-    }>;
-    getAllPersistedRecords: () => Promise<IBrowserPersistedDocumentRecordsLoadResult>;
-    cleanupEvictedRecentRefs: (refs: string[]) => Promise<void>;
-}
-
+/** Desktop's Recent for the browser: picked files reopen through their stored handles or stored copies. */
 export class BrowserRecentFilesStore {
-    public constructor(private readonly repository: IBrowserRecentFilesRepository) {}
-
-    public async touchRecentFile(ref: string) {
-        const entry = await this.repository.requireEntry(ref);
-        if (entry.retention === 'transient') {
-            await this.removeRecentFile(ref);
-            return;
-        }
-        const evictedRefs = await runSerializedRecentFilesStorageMutation(currentRecentFiles => {
-            const nextRecentFiles = currentRecentFiles.filter(
-                (candidate) => candidate.originalPath !== ref,
-            );
-
-            const originalPath = parseDocumentRef(ref);
-            if (originalPath === null) {
-                throw new TypeError('Recent file reference is invalid');
-            }
+    public async touch(ref: TDocumentRef, fileName: string, fileSize: number) {
+        await runSerializedRecentFilesStorageMutation(currentRecentFiles => {
+            const nextRecentFiles = currentRecentFiles.filter(candidate => candidate.originalPath !== ref);
             nextRecentFiles.unshift({
-                originalPath,
+                originalPath: ref,
                 backend: 'browser',
-                fileName: entry.saveName ?? entry.fileName,
+                fileName,
                 timestamp: createEpochMs(),
-                fileSize: entry.fileSize,
-                modifiedAt: createEpochMs(entry.updatedAt),
+                fileSize,
+                modifiedAt: createEpochMs(),
             });
-
-            const {
-                recentFiles,
-                evictedRefs,
-            } = pruneRecentFiles(nextRecentFiles);
-            return {
-                files: recentFiles,
-                value: evictedRefs,
-            };
+            return {files: pruneRecentFiles(nextRecentFiles).recentFiles, value: undefined};
         });
-        await this.repository.cleanupEvictedRecentRefs(evictedRefs);
     }
 
-    public getRecentFiles() {
+    public list() {
         expireLegacyRecentFilesCookie();
         return readRecentFilesFromStorage().slice(0, RECENT_FILES_LIMIT);
     }
 
-    public async recoverRecentFilesIfStorageMissing() {
-        if (hasRecentFilesStorageSnapshot()) {
-            return this.getRecentFiles();
-        }
-
-        const {
-            available,
-            records,
-        } = await this.repository.getAllPersistedRecords();
-        if (!available) {
-            return [];
-        }
-        const recentFiles = await runSerializedRecentFilesStorageMutation(currentRecentFiles => {
-            if (hasRecentFilesStorageSnapshot()) {
-                return {
-                    files: currentRecentFiles,
-                    value: currentRecentFiles,
-                };
-            }
-            const {recentFiles: recoveredRecentFiles} = pruneRecentFiles(buildRecentFilesFromPersistedRecords(records));
-            return {
-                files: recoveredRecentFiles,
-                value: recoveredRecentFiles,
-            };
+    public async remove(ref: string) {
+        return runSerializedRecentFilesStorageMutation(currentRecentFiles => {
+            const nextRecentFiles = currentRecentFiles.filter(candidate => candidate.originalPath !== ref);
+            return {files: nextRecentFiles, value: nextRecentFiles.length !== currentRecentFiles.length};
         });
-        return recentFiles;
-    }
-
-    public async removeRecentFile(ref: string) {
-        const removed = await runSerializedRecentFilesStorageMutation(currentRecentFiles => {
-            const nextRecentFiles = currentRecentFiles.filter(
-                (candidate) => candidate.originalPath !== ref,
-            );
-            return {
-                files: nextRecentFiles,
-                value: nextRecentFiles.length !== currentRecentFiles.length,
-            };
-        });
-        if (removed) {
-            await this.repository.cleanupEvictedRecentRefs([ref]);
-        }
-        return removed;
     }
 
     /** Remembers where a reader left a document that is already in Recent; never adds an entry. */
@@ -319,16 +195,9 @@ export class BrowserRecentFilesStore {
         await runSerializedRecentFilesStorageMutation((currentFiles) => {
             const readingViews = readStoredReadingViews();
             if (currentFiles.some(file => file.originalPath === ref)) {
-                readingViews.set(ref, {
-                    view,
-                    sourceWitness,
-                });
+                readingViews.set(ref, {view, sourceWitness});
             }
-            return {
-                files: currentFiles,
-                value: undefined,
-                readingViews,
-            };
+            return {files: currentFiles, value: undefined, readingViews};
         });
     }
 
@@ -338,11 +207,7 @@ export class BrowserRecentFilesStore {
         return stored?.sourceWitness === sourceWitness ? stored.view : null;
     }
 
-    public async clearRecentFiles() {
-        const evictedRefs = await runSerializedRecentFilesStorageMutation(currentRecentFiles => ({
-            files: [],
-            value: currentRecentFiles.map(candidate => candidate.originalPath),
-        }));
-        await this.repository.cleanupEvictedRecentRefs(evictedRefs);
+    public async clear() {
+        await runSerializedRecentFilesStorageMutation(() => ({files: [], value: undefined}));
     }
 }

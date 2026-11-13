@@ -543,45 +543,35 @@ describe('browser document lifecycle UI', () => {
                 name: 'Open Note',
                 exact: true,
             }).count();
-            // The recovery owner has built its checkpoint before loading this
-            // record. Hold its first dirty capture outside the document lease,
-            // so ordinary Save As can supersede it at normal CPU speed.
+            // Hold the window's first dirty recovery record, so ordinary Save
+            // As supersedes it at normal CPU speed.
             await page.evaluate(`(async () => {
                 const {getWindowTabsCapability} = await import('/_nuxt/utils/platformWindowTabs.ts');
                 const recovery = getWindowTabsCapability().browserRecovery;
                 if (!recovery) throw new Error('Browser recovery is unavailable');
-                const load = recovery.load.bind(recovery);
-                const clear = recovery.clear.bind(recovery);
+                const save = recovery.save.bind(recovery);
                 let release;
                 let released = false;
+                let holding = false;
                 const held = new Promise(resolve => { release = resolve; });
                 Reflect.set(window, '__releaseForeignCapture', () => {
                     released = true;
-                    recovery.load = load;
                     release();
                 });
                 Reflect.set(window, '__restoreForeignCapture', () => {
-                    recovery.load = load;
-                    recovery.clear = clear;
+                    recovery.save = save;
                     release();
                 });
-                recovery.load = async (...args) => {
+                recovery.save = async (checkpoint) => {
                     const api = Reflect.get(window, '__evbTestApi');
-                    if (!api.getActiveToolbarSnapshot()?.canSave) return load(...args);
-                    recovery.load = load;
-                    const previous = await load(...args);
-                    Reflect.set(window, '__foreignCaptureHeld', {
-                        retainedCopies: (previous?.checkpoint.tabs ?? [])
-                            .filter(tab => tab.isDirty && tab.workingCopyRef)
-                            .map(tab => tab.workingCopyRef),
-                    });
-                    await held;
-                    return previous;
-                };
-                recovery.clear = async (...args) => {
-                    const result = await clear(...args);
-                    if (released) {
-                        recovery.clear = clear;
+                    if (!holding && api.getActiveToolbarSnapshot()?.canSave) {
+                        holding = true;
+                        Reflect.set(window, '__foreignCaptureHeld', {dirtyTabs: checkpoint.tabs.filter(tab => tab.isDirty).length});
+                        await held;
+                    }
+                    const result = await save(checkpoint);
+                    if (released && !checkpoint.tabs.some(tab => tab.isDirty)) {
+                        recovery.save = save;
                         Reflect.set(window, '__foreignCaptureRetired', true);
                     }
                     return result;
@@ -646,7 +636,7 @@ describe('browser document lifecycle UI', () => {
                 exact: true,
             }).click();
             await page.waitForFunction(() => Boolean(Reflect.get(window, '__foreignCaptureHeld')));
-            expect(await page.evaluate(() => Reflect.get(window, '__foreignCaptureHeld').retainedCopies)).toEqual([]);
+            expect(await page.evaluate(() => Reflect.get(window, '__foreignCaptureHeld').dirtyTabs)).toBe(1);
             expect(await page.getByRole('button', {
                 name: 'Save',
                 exact: true,
@@ -680,30 +670,10 @@ describe('browser document lifecycle UI', () => {
             await page.evaluate(() => Reflect.get(window, '__releaseForeignCapture')());
             await page.waitForFunction(() => Reflect.get(window, '__foreignCaptureRetired') === true);
             expect(await readRecoveries(page)).toEqual([]);
-            const recoveryArtifacts = await page.evaluate(async () => {
-                const db = await new Promise<IDBDatabase>((resolveDb, rejectDb) => {
-                    const request = indexedDB.open('evb-viewer-browser-documents');
-                    request.onsuccess = () => resolveDb(request.result);
-                    request.onerror = () => rejectDb(request.error);
-                });
-                try {
-                    return await new Promise<string[]>((resolveArtifacts, rejectArtifacts) => {
-                        const request = db.transaction('documents').objectStore('documents').getAll();
-                        request.onsuccess = () => resolveArtifacts(request.result
-                            .filter((record: {fileName: string}) => record.fileName.endsWith('.recovery.pdf'))
-                            .map((record: {fileName: string}) => record.fileName));
-                        request.onerror = () => rejectArtifacts(request.error);
-                    });
-                } finally {
-                    db.close();
-                }
-            });
-            expect(recoveryArtifacts).toEqual([]);
             writeFileSync(resolve(process.cwd(), `.devkit/browser-foreign-capture-${process.pid}.json`), JSON.stringify({
                 held: await page.evaluate(() => Reflect.get(window, '__foreignCaptureHeld')),
                 retired: await page.evaluate(() => Reflect.get(window, '__foreignCaptureRetired')),
                 recoveryRecords: await readRecoveries(page),
-                recoveryArtifacts,
             }, null, 2));
             // Opening the actual downloaded bytes in a fresh browser page
             // proves this is the saved surface, not the unsaved overlay.

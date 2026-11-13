@@ -420,6 +420,15 @@ describe('fork', () => {
         expect(await saveDocument(source, { expected: 2 })).toMatchObject({ status: 'saved' });
         expect(await readFile(destination, 'utf8')).toBe('v1+a');
     });
+
+    it('creates and forks into the directory the caller names, so it can lock it before it exists', async () => {
+        const named = keep(await create(store(), { ext: 'pdf', source: new Blob([encode('v1')]), imported: true, id: 'chosen-id' }));
+        expect(named.id).toBe('chosen-id');
+        const fork = keep(await forkDocument(store(), named.id, 'fork-id'));
+        expect(fork.id).toBe('fork-id');
+        expect(await currentText(fork)).toBe('v1');
+        await expect(create(store(), { ext: 'pdf', source: new Blob([encode('v1')]), id: '../escape' })).rejects.toThrow('Invalid document directory id');
+    });
 });
 
 describe('workspace checkpoints and collection', () => {

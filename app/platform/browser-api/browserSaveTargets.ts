@@ -7,22 +7,25 @@ import type {
     TDocumentSaveResult,
 } from '@contracts/electronApiDocuments';
 import { browserDocumentStore } from '@app/platform/browserDocumentStore';
+import { BrowserDocumentSourceChangedError } from '@app/platform/browser/browserDocumentRepository';
+import { browserDocumentRefId } from '@app/platform/browser/browserDocumentRefs';
+import {
+    downloadDestination,
+    handleDestination,
+    handleKeyOf,
+    resolveFileHandle,
+    storeFileHandle,
+} from '@app/platform/browser/browserPublication';
 import { buildPdfSaveTypes } from '@app/platform/browser-api/browserFileAccepts';
 import { ensurePdfExtension } from '@app/platform/browser-api/browserFileName';
 import {
-    BrowserFileWriteOutcomeError,
     downloadBrowserBytes,
     downloadBrowserDocument,
     ensureFileHandleWritePermission,
     pickSaveTarget,
-    saveBytesToPickerOrDownload,
+    writeBytesToHandle,
     writeDocumentRefToHandle,
-    writeBytesToHandleInSaveLock,
 } from '@app/platform/browser-api/browserFilePickerAdapter';
-import {
-    reserveBrowserDocumentWorkingCopy, retireBrowserDocumentWorkingCopy,
-    handoffBrowserDocumentWorkingCopy,
-} from '@app/platform/browserWindowTabs';
 import {BROWSER_QPDF_MAX_INPUT_BYTES} from '@contracts/browserQpdfEngine';
 import {BROWSER_PAGE_OPS_MAX_OUTPUT_BYTES} from '@contracts/browserPageOpsLimits';
 import {
@@ -39,118 +42,58 @@ import { getErrorMessage } from '@app/utils/error';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import {copyScanCleanupDocumentPreferences} from '@app/utils/browserScanCleanupPreferences';
 
-export class BrowserExternalSaveSyncRequiredError extends Error {
-    public readonly externalWriteCommitted: boolean | null;
-
-    public constructor(cause: unknown, externalWriteCommitted: boolean | null = true) {
-        super(`Saved the browser document externally, but failed to refresh local save bookkeeping: ${getErrorMessage(cause)}`);
-        this.name = 'BrowserExternalSaveSyncRequiredError';
-        this.externalWriteCommitted = externalWriteCommitted;
-    }
-}
-
+/**
+ * Save: commit the staged edits into the working copy, check its file against the baseline, publish. A
+ * document without a file it can check (dropped in, generated, only downloaded) picks one first, the way
+ * Save As does, and keeps working on it. Write permission is asked for before the save starts, so no prompt
+ * waits inside it. Returns `false` when the picker is cancelled.
+ */
 export async function saveWorkingBytesToSource(
     workingCopyPath: TDocumentRef,
     revisionOptions?: IDocumentMutationRevisionOptions,
     stagedOutput?: ITypedStagedArtifact,
 ) {
-    const sourceRef = await browserDocumentStore.getSourceRef(workingCopyPath);
-    const saveTarget = await browserDocumentStore.getSaveTarget(sourceRef);
-    const pickedTarget = saveTarget.saveHandle
-        ? {
-            canceled: false,
-            fileName: saveTarget.saveHandle.name,
-            handle: saveTarget.saveHandle,
+    const entry = await browserDocumentStore.requireEntry(workingCopyPath);
+    const destination = entry.doc?.state().destination ?? null;
+    const sourceRef = entry.sourceRef ?? null;
+    const key = handleKeyOf(destination);
+    const handle = key === null ? null : await resolveFileHandle(key);
+    let saveAs: string | undefined;
+    let picked: FileSystemFileHandle | null = null;
+    if (handle) {
+        await ensureFileHandleWritePermission(handle);
+    } else if (destination === null || !entry.doc?.state().baseline) {
+        const target = await pickSaveTarget({suggestedName: ensurePdfExtension(entry.saveName), pickerTypes: buildPdfSaveTypes()});
+        if (target.canceled) return false;
+        picked = target.handle;
+        if (picked) {
+            await ensureFileHandleWritePermission(picked);
+            const pickedKey = browserDocumentRefId(sourceRef ?? workingCopyPath);
+            await storeFileHandle(pickedKey, picked);
+            saveAs = handleDestination(pickedKey);
+        } else {
+            saveAs = downloadDestination(ensurePdfExtension(target.fileName));
         }
-        : await pickSaveTarget({
-            suggestedName: ensurePdfExtension(saveTarget.saveName),
-            pickerTypes: buildPdfSaveTypes(),
-        });
-    if (pickedTarget.canceled) {
-        return false;
     }
-    // A stored handle may need its write permission re-granted, which shows a
-    // browser prompt. Ask before the origin-wide save lock, so the prompt does
-    // not hold up other windows' saves. The write inside the lock never prompts.
-    if (pickedTarget.handle) {
-        await ensureFileHandleWritePermission(pickedTarget.handle);
+    const staged = stagedOutput ? await readBrowserStoreStagedArtifact(browserDocumentStore, stagedOutput) : null;
+    if (staged?.artifact.path === workingCopyPath) throw new Error('Browser staged commit requires a different target ref');
+    const result = await browserDocumentStore.save(workingCopyPath, revisionOptions?.expectedDocumentRevisionToken, {
+        ...(staged ? {commit: staged.bytes} : {}),
+        ...(saveAs ? {saveAs} : {}),
+    });
+    if (result.status === 'conflict') throw new BrowserDocumentSourceChangedError(sourceRef ?? workingCopyPath);
+    if (result.status === 'needs-save-as') throw new Error('The document has no file to save to; use Save As.');
+    if (result.status !== 'saved') throw new Error('The document changed while it was being saved');
+    // A picked file takes the source's place, so Recent Files and the next open find it. Without one, the
+    // stored copy Recent Files reopens takes the downloaded bytes.
+    if (picked && sourceRef) await browserDocumentStore.replaceWithHandleBackedDocument(sourceRef, {fileSize: 0, saveHandle: picked, saveName: picked.name});
+    const source = sourceRef ? await browserDocumentStore.ensureEntry(sourceRef).catch(() => null) : null;
+    if (source?.doc && !source.saveHandle && entry.doc?.state().destination?.startsWith('download:')) {
+        await browserDocumentStore.replaceContent(source.ref, workingCopyPath);
     }
-    let externalWriteCommitted: boolean | null = false;
-
-    try {
-        return await browserDocumentStore.runDocumentMutationWithSource(
-            workingCopyPath,
-            sourceRef,
-            revisionOptions?.expectedDocumentRevisionToken,
-            async (mutation) => {
-                const staged = stagedOutput ? await readBrowserStoreStagedArtifact(
-                    browserDocumentStore,
-                    stagedOutput,
-                ) : null;
-                if (staged?.artifact.path === workingCopyPath) throw new Error('Browser staged commit requires a different target ref');
-                if (pickedTarget.handle) await mutation.assertPhysicalSourceBaseCurrent();
-                // The open copy keeps the base its unsaved edits describe until
-                // their bytes go in last, even once the source becomes the saved file.
-                if (staged) await mutation.materializeWorkingCopy();
-                if (pickedTarget.handle) {
-                    if (staged) await writeBytesToHandleInSaveLock(pickedTarget.handle, staged.bytes);
-                    else await writeDocumentRefToHandle(pickedTarget.handle, workingCopyPath);
-                    externalWriteCommitted = true;
-                    const size = staged?.bytes.byteLength ?? (await browserDocumentStore.stat(workingCopyPath)).size;
-                    await browserDocumentStore.replaceWithHandleBackedDocument(sourceRef, {
-                        fileSize: size,
-                        saveHandle: pickedTarget.handle,
-                        saveName: pickedTarget.fileName,
-                    });
-                    await browserDocumentStore.assignSaveTarget(
-                        sourceRef,
-                        pickedTarget.fileName,
-                        saveTarget.saveKind,
-                        pickedTarget.handle,
-                    );
-                } else {
-                    // No handle means no save picker: the file goes out as a download.
-                    const fileName = ensurePdfExtension(pickedTarget.fileName);
-                    if (staged) {
-                        const saveResult = await saveBytesToPickerOrDownload(staged.bytes, {
-                            suggestedName: fileName,
-                            mimeType: 'application/pdf',
-                            pickerTypes: buildPdfSaveTypes(),
-                        });
-                        if (saveResult.canceled) {
-                            return false;
-                        }
-                        externalWriteCommitted = true;
-                        await mutation.writeSource(staged.bytes);
-                    } else {
-                        await downloadBrowserDocument(workingCopyPath, fileName, 'application/pdf');
-                        externalWriteCommitted = true;
-                        await mutation.writeSourceFromDocument();
-                    }
-                    await browserDocumentStore.assignSaveTarget(sourceRef, fileName, 'pdf', null);
-                }
-
-                // The base advances only here, once the physical file has been
-                // written and the target it was written to is the one the source
-                // record points at. Skipping it on the picker branch left the
-                // working copy describing the file it no longer saves to, so the
-                // next ordinary Save reported our own write as an external edit.
-                const documentRevision = await mutation.acknowledgePhysicalSourceCommit();
-                await browserDocumentStore.touchRecentFile(sourceRef);
-                // The authored bytes go in last, so any earlier failure leaves
-                // the working copy at the base its unsaved annotations describe.
-                return staged ? mutation.write(staged.bytes) : documentRevision;
-            },
-        );
-    } catch (error) {
-        if (error instanceof BrowserFileWriteOutcomeError) {
-            externalWriteCommitted = error.externalWriteCommitted;
-        }
-        if (externalWriteCommitted !== false) {
-            throw new BrowserExternalSaveSyncRequiredError(error, externalWriteCommitted);
-        }
-        throw error;
-    }
+    if (sourceRef) await browserDocumentStore.touchRecentFile(sourceRef).catch(() => undefined);
+    if (source?.doc) browserDocumentStore.unload(source.ref);
+    return browserDocumentStore.getDocumentRevision(workingCopyPath);
 }
 
 export async function saveWorkingBytesToSourceStructured(
@@ -158,36 +101,17 @@ export async function saveWorkingBytesToSourceStructured(
     revisionOptions?: IDocumentMutationRevisionOptions,
 ): Promise<TDocumentSaveResult> {
     try {
-        const saved = await saveWorkingBytesToSource(
-            workingCopyPath,
-            revisionOptions,
-        );
-        return {
-            validation: null,
-            ...(saved ? {
-                ok: true,
-                externalWriteCommitted: true,
-                workingCopyRefreshed: true,
-                documentRevision: saved,
-            } : {
-                ok: false,
-                reason: 'user-canceled',
-                externalWriteCommitted: false,
-            }),
-        };
+        const saved = await saveWorkingBytesToSource(workingCopyPath, revisionOptions);
+        return saved
+            ? {validation: null, ok: true, externalWriteCommitted: true, workingCopyRefreshed: true, documentRevision: saved}
+            : {validation: null, ok: false, reason: 'user-canceled', externalWriteCommitted: false};
     } catch (error) {
         return {
             ok: false,
             message: getErrorMessage(error),
             validation: null,
-            ...(error instanceof BrowserExternalSaveSyncRequiredError ? {
-                reason: 'working-copy-sync-required',
-                externalWriteCommitted: error.externalWriteCommitted,
-                workingCopySyncRequired: true,
-            } : {
-                reason: 'write-failed',
-                externalWriteCommitted: false,
-            }),
+            reason: error instanceof BrowserDocumentSourceChangedError ? 'original-changed' : 'write-failed',
+            externalWriteCommitted: false,
         };
     }
 }
@@ -256,7 +180,11 @@ export interface IBrowserFinalizedPublication {
     signal: AbortSignal;
 }
 
-/** Publishes the captured Save As frontier without changing the source or consuming its staging lease. */
+/**
+ * Save As: publishes the working copy, or the staged output that is its next state, to a picked file or a
+ * download, and returns the saved file's ref. The shell opens a new working copy of that file and closes
+ * this one, so this working copy is left as it is.
+ */
 export async function savePdfAsFromWorkingCopy(
     workingCopyPath: TDocumentRef,
     saveOptions?: IPdfSaveAsOptions,
@@ -271,127 +199,74 @@ export async function savePdfAsFromWorkingCopy(
         throw new Error('Browser finalized Save As requires a staged output');
     }
     const signal = publication?.signal;
-    await browserDocumentStore.assertDocumentRevisionCurrent(
-        workingCopyPath,
-        revisionOptions?.expectedDocumentRevisionToken,
-    );
-    const saveTarget =
-        await browserDocumentStore.getSaveTarget(workingCopyPath);
-    const previousSourceRef = publication?.sourceRef
-        ?? await browserDocumentStore.getSourceRef(workingCopyPath);
+    await browserDocumentStore.assertDocumentRevisionCurrent(workingCopyPath, revisionOptions?.expectedDocumentRevisionToken);
+    const saveTarget = await browserDocumentStore.getSaveTarget(workingCopyPath);
+    const previousSourceRef = publication?.sourceRef ?? await browserDocumentStore.getSourceRef(workingCopyPath);
     const saveResult = publication?.target ?? await pickSaveTarget({
         suggestedName: ensurePdfExtension(saveTarget.saveName),
         pickerTypes: buildPdfSaveTypes(),
     });
-
     if (saveResult.canceled) {
         return null;
     }
-    // Same as saveWorkingBytesToSource: the permission prompt runs before the
-    // origin-wide save lock, and the write inside it never prompts.
     if (saveResult.handle) {
         await ensureFileHandleWritePermission(saveResult.handle, signal);
     }
-    let externalWriteCommitted: boolean | null = false;
-    try {
-        return await browserDocumentStore.runDocumentMutationWithSource(
-            workingCopyPath,
-            previousSourceRef,
-            revisionOptions?.expectedDocumentRevisionToken,
-            async () => {
-                signal?.throwIfAborted();
-                const staged = stagedOutput ? await readBrowserStoreStagedArtifact(
-                    browserDocumentStore,
-                    stagedOutput,
-                    {maxBytes: publication ? BROWSER_PAGE_OPS_MAX_OUTPUT_BYTES : BROWSER_QPDF_MAX_INPUT_BYTES},
-                ) : null;
-                signal?.throwIfAborted();
-                const normalizedFileName = saveResult.handle?.name ?? ensurePdfExtension(saveResult.fileName);
-                const sourcePath = staged?.artifact.path ?? workingCopyPath;
-                const {size} = await browserDocumentStore.stat(sourcePath);
-                let publishedBytes = staged?.bytes;
-                if (!publication) {
-                    const source = staged?.bytes ?? (size <= BROWSER_QPDF_MAX_INPUT_BYTES
-                        ? await browserDocumentStore.read(sourcePath, {maxBytes: BROWSER_QPDF_MAX_INPUT_BYTES}) : null);
-                    const validation = source
-                        ? await validateBrowserPdfData(source, {fileName: saveTarget.saveName})
-                        : await validateBrowserPdfPath(sourcePath);
-                    if (!validation.isValid) throw new Error('Working copy is not a valid PDF');
-                    const candidate = source
-                        && (saveOptions?.optimizeLossless === true || size >= PDF_LOSSLESS_OPTIMIZE_MIN_BYTES)
-                        && await isEligibleForSaveAsOptimization(source)
-                        ? await finishBrowserPdfCandidate(source, {fileName: normalizedFileName})
-                        : null;
-                    // Unchanged refs keep the shared streaming path, even after an admitted check.
-                    publishedBytes = candidate ?? staged?.bytes;
-                }
-                signal?.throwIfAborted();
-                if (saveResult.handle) {
-                    if (publishedBytes) await writeBytesToHandleInSaveLock(saveResult.handle, publishedBytes, signal);
-                    else await writeDocumentRefToHandle(saveResult.handle, workingCopyPath);
-                } else if (publication && publishedBytes) {
-                    // The picker already ran in the request's gesture; never reopen it.
-                    downloadBrowserBytes(publishedBytes, normalizedFileName, 'application/pdf', signal);
-                } else if (publishedBytes) {
-                    // No handle means no save picker: the file goes out as a download.
-                    const downloadResult = await saveBytesToPickerOrDownload(publishedBytes, {
-                        suggestedName: normalizedFileName,
-                        mimeType: 'application/pdf',
-                        pickerTypes: buildPdfSaveTypes(),
-                    });
-                    if (downloadResult.canceled) return null;
-                } else {
-                    await downloadBrowserDocument(workingCopyPath, normalizedFileName, 'application/pdf');
-                }
-                // Committed at a successful close or a dispatched download. The
-                // bookkeeping below finishes even if the request aborts now.
-                externalWriteCommitted = true;
-                const sourceRef = await reserveBrowserDocumentWorkingCopy(normalizedFileName);
-                try {
-                    // A downloaded copy's record is created holding its bytes, so
-                    // peer collection never sees an empty committed target.
-                    await browserDocumentStore.createStoredDocument(normalizedFileName, saveResult.handle ? new Uint8Array() : publishedBytes ?? new Uint8Array(), {
-                        ref: sourceRef,
-                        mimeType: 'application/pdf',
-                        saveKind: 'pdf',
-                        kind: 'source',
-                        saveHandle: saveResult.handle,
-                        ...(saveResult.handle ? {storageMode: 'handle' as const} : {}),
-                        ...(!saveResult.handle && !publishedBytes ? {contentFrom: workingCopyPath} : {}),
-                    });
-                    if (saveResult.handle) {
-                        await browserDocumentStore.replaceWithHandleBackedDocument(sourceRef, {
-                            fileSize: publishedBytes?.byteLength ?? size,
-                            saveHandle: saveResult.handle,
-                        });
-                    }
-                    // The browser keys Scan Cleanup settings by document, so the saved
-                    // file takes them before the workspace adopts it. A refused copy
-                    // leaves the saved file at the defaults; the save still stands.
-                    try {
-                        await copyScanCleanupDocumentPreferences([
-                            previousSourceRef,
-                            workingCopyPath,
-                        ], sourceRef);
-                    } catch (error) {
-                        BrowserLogger.warn('browser-save', 'Scan Cleanup settings were not copied to the saved file', error);
-                    }
-                    handoffBrowserDocumentWorkingCopy(sourceRef, workingCopyPath, () => browserDocumentStore.touchRecentFile(sourceRef));
-                    return sourceRef;
-                } catch (error) {
-                    await retireBrowserDocumentWorkingCopy(sourceRef);
-                    throw error;
-                }
-            },
-            signal ? {signal} : {},
-        );
-    } catch (error) {
-        if (error instanceof BrowserFileWriteOutcomeError) {
-            externalWriteCommitted = error.externalWriteCommitted;
-        }
-        if (externalWriteCommitted !== false) {
-            throw new BrowserExternalSaveSyncRequiredError(error, externalWriteCommitted);
-        }
-        throw error;
+    signal?.throwIfAborted();
+    const staged = stagedOutput ? await readBrowserStoreStagedArtifact(
+        browserDocumentStore,
+        stagedOutput,
+        {maxBytes: publication ? BROWSER_PAGE_OPS_MAX_OUTPUT_BYTES : BROWSER_QPDF_MAX_INPUT_BYTES},
+    ) : null;
+    signal?.throwIfAborted();
+    const fileName = saveResult.handle?.name ?? ensurePdfExtension(saveResult.fileName);
+    let publishedBytes = staged?.bytes;
+    if (!publication) {
+        const sourcePath = staged?.artifact.path ?? workingCopyPath;
+        const {size} = await browserDocumentStore.stat(sourcePath);
+        const source = staged?.bytes ?? (size <= BROWSER_QPDF_MAX_INPUT_BYTES
+            ? await browserDocumentStore.read(sourcePath, {maxBytes: BROWSER_QPDF_MAX_INPUT_BYTES}) : null);
+        const validation = source
+            ? await validateBrowserPdfData(source, {fileName: saveTarget.saveName})
+            : await validateBrowserPdfPath(sourcePath);
+        if (!validation.isValid) throw new Error('Working copy is not a valid PDF');
+        const candidate = source
+            && (saveOptions?.optimizeLossless === true || size >= PDF_LOSSLESS_OPTIMIZE_MIN_BYTES)
+            && await isEligibleForSaveAsOptimization(source)
+            ? await finishBrowserPdfCandidate(source, {fileName})
+            : null;
+        // Unchanged bytes keep the streaming path, even after an admitted check.
+        publishedBytes = candidate ?? staged?.bytes;
     }
+    signal?.throwIfAborted();
+    // The picker and the checks above take time; an edit made meanwhile is not in this frontier.
+    await browserDocumentStore.assertDocumentRevisionCurrent(workingCopyPath, revisionOptions?.expectedDocumentRevisionToken);
+    if (saveResult.handle) {
+        if (publishedBytes) await writeBytesToHandle(saveResult.handle, publishedBytes, signal);
+        else await writeDocumentRefToHandle(saveResult.handle, workingCopyPath);
+    } else if (publishedBytes) {
+        // No handle means no save picker: the file goes out as a download.
+        downloadBrowserBytes(publishedBytes, fileName, 'application/pdf', signal);
+    } else {
+        await downloadBrowserDocument(workingCopyPath, fileName, 'application/pdf');
+    }
+    // The file is published. A picked file is opened through its handle; a downloaded one keeps a stored copy
+    // for Recent Files.
+    const sourceRef = await browserDocumentStore.createStoredDocument(fileName, publishedBytes ?? new Uint8Array(), {
+        mimeType: 'application/pdf',
+        saveKind: 'pdf',
+        kind: 'source',
+        saveHandle: saveResult.handle,
+        ...(saveResult.handle ? {storageMode: 'handle' as const} : {}),
+        ...(!saveResult.handle && !publishedBytes ? {contentFrom: workingCopyPath} : {}),
+    });
+    // The browser keys Scan Cleanup settings by document, so the saved file takes them before the workspace
+    // adopts it. A refused copy leaves the saved file at the defaults; the save still stands.
+    try {
+        await copyScanCleanupDocumentPreferences([previousSourceRef, workingCopyPath], sourceRef);
+    } catch (error) {
+        BrowserLogger.warn('browser-save', 'Scan Cleanup settings were not copied to the saved file', error);
+    }
+    await browserDocumentStore.touchRecentFile(sourceRef).catch(() => undefined);
+    return sourceRef;
 }

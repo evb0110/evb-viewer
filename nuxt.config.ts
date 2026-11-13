@@ -311,6 +311,7 @@ export default defineNuxtConfig({
     alias: {
         '@app': appDir,
         '@contracts': fileURLToPath(new URL('./packages/contracts', import.meta.url)),
+        '@document-store': fileURLToPath(new URL('./packages/document-store', import.meta.url)),
         '@pdf-core': fileURLToPath(new URL('./packages/pdf-core', import.meta.url)),
         '@ocr-core': fileURLToPath(new URL('./packages/ocr-core', import.meta.url)),
         '@agent-core': fileURLToPath(new URL('./packages/agent-core', import.meta.url)),

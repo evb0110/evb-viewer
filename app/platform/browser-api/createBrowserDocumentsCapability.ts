@@ -1,7 +1,4 @@
 import type { IDocxExportFileCapability } from '@contracts/docxExport';
-import {
-    reserveBrowserDocumentWorkingCopy, retireBrowserDocumentWorkingCopy,
-} from '@app/platform/browserWindowTabs';
 import type {
     IDocumentsFileIoCapability,
     IDocumentsMenuCapability,
@@ -61,7 +58,6 @@ import {
 } from '@i18n-core';
 import { safeDecodeURIComponent } from '@app/utils/browserSafe';
 import type { TDocumentRef } from '@contracts/documentRef';
-import { browserDocumentStore } from '@app/platform/browserDocumentStore';
 
 interface ICreateBrowserDocumentsCapabilityOptions {clearSearchCaches: (pdfPath?: string) => void | Promise<void>;}
 
@@ -170,34 +166,6 @@ export function createBrowserDocumentsCapability(
         createWorkingCopyFromPath: fileCapability.createWorkingCopyFromPath,
         parsePdfAnnotations: fileCapability.parsePdfAnnotations,
         cleanupFile: fileCapability.cleanupFile,
-        recovery: {
-            async createSnapshot(fileName, from, sourceRef) {
-                const ref = await reserveBrowserDocumentWorkingCopy(fileName, sourceRef);
-                try {
-                    await browserDocumentStore.createStoredDocument(fileName, new Uint8Array(), {
-                        ref,
-                        contentFrom: from,
-                        mimeType: 'application/pdf',
-                        kind: 'working',
-                        retention: 'durable',
-                        saveKind: 'pdf',
-                        ...(sourceRef ? {sourceRef} : {}),
-                    });
-                    return {
-                        ref,
-                        revisionToken: (await fileCapability.getDocumentRevision(ref)).token,
-                    };
-                } catch (error) {
-                    await retireBrowserDocumentWorkingCopy(ref);
-                    await browserDocumentStore.cleanupDetachedDocument(ref).catch(() => undefined);
-                    throw error;
-                }
-            },
-            async cleanupSnapshot(ref) {
-                await retireBrowserDocumentWorkingCopy(ref);
-                await browserDocumentStore.cleanupDetachedDocument(ref);
-            },
-        },
     } satisfies IDocumentsWorkingCopyCapability;
     const optionalDocumentFileMethods = {
         ...(fileCapability.createManagedTempFileHandle

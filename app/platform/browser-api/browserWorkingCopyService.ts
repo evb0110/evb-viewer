@@ -1,14 +1,10 @@
 import {
-    reserveBrowserDocumentWorkingCopy, retireBrowserDocumentWorkingCopy,
-} from '@app/platform/browserWindowTabs';
-import {
     parseDocumentRef,
     type TDocumentRef,
 } from '@contracts/documentRef';
 import type { TOpenFileResult } from '@contracts/electronApiDocuments';
 import { normalizeNonEmptyStringPaths } from '@contracts/shared';
 import {
-    BROWSER_MAX_FULL_READ_BYTES,
     browserDocumentStore,
     getBrowserDocumentFileName,
 } from '@app/platform/browserDocumentStore';
@@ -17,7 +13,6 @@ import {
     isDjvuFileName,
     isPdfFileName,
 } from '@app/platform/browser-api/browserFileName';
-import {toBrowserOwnedArrayBuffer} from '@app/platform/browser-api/browserPlatformHelpers';
 import {
     emitBatchOpenProgress,
     type IBrowserBatchOpenProgressOptions,
@@ -48,9 +43,6 @@ import {BrowserLogger} from '@app/utils/browserLogger';
 import {getErrorMessage} from '@app/utils/error';
 
 async function touchRecentFileForOpen(ref: TDocumentRef) {
-    if ((await browserDocumentStore.requireEntry(ref)).memoryOnly) {
-        return;
-    }
     await browserDocumentStore.touchRecentFile(ref);
 }
 
@@ -154,6 +146,18 @@ async function normalizeBrowserWorkingCopyAppendBase(workingPath: TDocumentRef, 
     BrowserLogger.warn('working-copy', 'Rewrote a PDF whose cross-reference chain cannot take an edit');
 }
 
+/**
+ * Without a file to save back to, the decrypted or rewritten bytes of an opened PDF are what the person
+ * opened: they start the document clean, so no restart offers them as unsaved work. A document with a file
+ * keeps that file's bytes as its baseline, so Save still checks the file.
+ */
+export async function startOpenedWorkingCopyClean(workingPath: TDocumentRef) {
+    const working = await browserDocumentStore.requireEntry(workingPath);
+    if (working.doc && !working.doc.state().destination && working.doc.state().dirty) {
+        await browserDocumentStore.replaceContent(workingPath, workingPath);
+    }
+}
+
 type TBrowserWorkingCopyDecryptionResult = Awaited<ReturnType<typeof decryptBrowserWorkingCopy>>;
 
 export function assertBrowserWorkingCopyDecrypted(
@@ -174,19 +178,20 @@ export async function createBrowserWorkingCopyFromBytes(options: {
     sourceRef?: TDocumentRef;
     password?: string;
 }) {
-    const workingPath = await reserveBrowserDocumentWorkingCopy(options.fileName, options.sourceRef);
-    try {
-        await browserDocumentStore.createStoredDocument(options.fileName, options.data, {
-            ref: workingPath,
+    // The state of a document whose source is a picked file keeps saving to that file.
+    const source = options.sourceRef ? await browserDocumentStore.ensureEntry(options.sourceRef).catch(() => null) : null;
+    const workingPath = source?.saveHandle
+        ? await browserDocumentStore.cloneAsWorkingCopy(source.ref, options.fileName, undefined, options.data)
+        : await browserDocumentStore.createStoredDocument(options.fileName, options.data, {
             mimeType: options.mimeType ?? 'application/pdf',
             saveKind: 'pdf',
             kind: 'working',
             ...(options.sourceRef ? {sourceRef: options.sourceRef} : {}),
         });
+    try {
         assertBrowserWorkingCopyDecrypted(await decryptBrowserWorkingCopy(workingPath, options.password));
         return workingPath;
     } catch (error) {
-        await retireBrowserDocumentWorkingCopy(workingPath);
         await browserDocumentStore.remove(workingPath).catch(() => undefined);
         throw error;
     }
@@ -232,15 +237,11 @@ export async function openDocumentPaths(
     }
 
     if (normalizedPaths.length === 1 && isPdfFileName(firstFileName)) {
-        const sourcePath = await browserDocumentStore.refreshSourceVersionIfChanged(firstPath);
-        const { size } = await browserDocumentStore.stat(sourcePath);
-        if (size <= BROWSER_MAX_FULL_READ_BYTES) {
-            await browserDocumentStore.ensureByteBackedSource(sourcePath);
-        }
-        const workingPath = await reserveBrowserDocumentWorkingCopy(firstFileName, sourcePath);
+        const sourcePath = firstPath;
+        // A picked file opens with its present bytes: the working copy's baseline is their witness.
+        const workingPath = await browserDocumentStore.cloneAsWorkingCopy(sourcePath);
         let published = false;
         try {
-            await browserDocumentStore.cloneAsWorkingCopy(sourcePath, undefined, workingPath);
             const decryption = await decryptBrowserWorkingCopy(workingPath, password);
             if (decryption.outcome === 'needs-password') {
                 await touchRecentFileForOpen(sourcePath);
@@ -256,6 +257,7 @@ export async function openDocumentPaths(
                 } satisfies TOpenFileResult;
             }
             await normalizeBrowserWorkingCopyAppendBase(workingPath, firstFileName);
+            await startOpenedWorkingCopyClean(workingPath);
             await touchRecentFileForOpen(sourcePath);
             browserDocumentStore.unload(sourcePath);
             emitBatchOpenProgress(progressOptions, 1, 1, startedAt);
@@ -268,7 +270,6 @@ export async function openDocumentPaths(
             } satisfies TOpenFileResult;
         } finally {
             if (!published) {
-                await retireBrowserDocumentWorkingCopy(workingPath);
                 await browserDocumentStore.remove(workingPath).catch(() => undefined);
             }
         }
@@ -292,19 +293,8 @@ export async function openDocumentPaths(
             kind: 'source',
             retention: 'durable',
         },
-    ).catch(async () => browserDocumentStore.registerFile(
-        new File([toBrowserOwnedArrayBuffer(combinedPdf)], generatedName, {type: 'application/pdf'}),
-        {
-            kind: 'source',
-            retention: 'durable',
-            saveKind: 'pdf',
-        },
-    ));
-    const workingPath = await reserveBrowserDocumentWorkingCopy(generatedName, originalPath);
-    await browserDocumentStore.cloneAsWorkingCopy(originalPath, undefined, workingPath).catch(async (error: unknown) => {
-        await retireBrowserDocumentWorkingCopy(workingPath);
-        throw error;
-    });
+    );
+    const workingPath = await browserDocumentStore.cloneAsWorkingCopy(originalPath);
     await touchRecentFileForOpen(originalPath);
     browserDocumentStore.unload(originalPath);
 

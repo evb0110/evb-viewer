@@ -8,7 +8,6 @@ import {
     vi,
 } from 'vitest';
 import {
-    FakeIndexedDbFactory,
     MemoryStorage,
 } from '@tests/unit/app/platform/browserPlatformTestDoubles';
 import {BROWSER_PAGE_OPS_MAX_REQUEST_BYTES} from '@contracts/browserPageOpsLimits';
@@ -97,7 +96,6 @@ describe('browser working-copy decryption', () => {
         vi.unstubAllGlobals();
         vi.restoreAllMocks();
         vi.clearAllMocks();
-        vi.stubGlobal('indexedDB', new FakeIndexedDbFactory());
         vi.stubGlobal('window', {localStorage: new MemoryStorage()});
         vi.stubGlobal('document', {cookie: ''});
         serviceState.store = new BrowserDocumentStore();

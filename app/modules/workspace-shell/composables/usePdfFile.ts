@@ -1,5 +1,3 @@
-import {tryOnScopeDispose} from '@vueuse/core';
-import {registerBrowserDocumentDependencyReader} from '@app/platform/browserWindowTabs';
 import { useOcrTextContent } from '@app/modules/pdf-viewer/public';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import {
@@ -34,7 +32,6 @@ export const usePdfFile = (options: IPdfFileOptions) => {
     });
     const {
         isDirty,
-        originalPath,
         workingCopyPath,
         openedWorkingCopyPath,
     } = sessionState;
@@ -59,14 +56,6 @@ export const usePdfFile = (options: IPdfFileOptions) => {
         readPdfStateFromPath: (...args) => documentOpenFlow.readPdfStateFromPath(...args),
         toPdfBlob: (...args) => documentOpenFlow.toPdfBlob(...args),
     });
-    if (!sessionState.isElectron.value) {
-        const readDependencies = () => [
-            workingCopyPath.value,
-            originalPath.value,
-            ...history.readDocumentDependencies(),
-        ].flatMap(ref => ref ? [ref] : []);
-        tryOnScopeDispose(registerBrowserDocumentDependencyReader(readDependencies));
-    }
     const documentOpenFlow: ReturnType<typeof createDocumentOpenFlow> = createDocumentOpenFlow(sessionState, {
         cleanupAbandonedWorkingCopy: path => getDocumentWorkingCopyCapability().cleanupFile(path),
         clearPdfConformanceProfile,
