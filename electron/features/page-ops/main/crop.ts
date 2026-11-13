@@ -25,7 +25,7 @@ import {
 } from '@electron/utils/workerTask';
 import { WORKER_BUNDLES_BY_ID } from '@electron-worker-bundles/electronWorkerBundles.js';
 import type { TCropWorkerInput } from '@electron/features/page-ops/main/cropWorkerProtocol';
-import { materializePageOperationWorkingCopy } from '@electron/features/page-ops/main/qpdf';
+import { materializePageOperationWorkingCopy } from '@electron/features/page-ops/main/pageStructure';
 import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
 import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
 import {resolveNativePageOpsPath} from '@electron/features/page-ops/main/resolveNativePageOpsPath';

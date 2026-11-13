@@ -46,19 +46,21 @@ import {
     removeCropFromPages,
 } from '@electron/features/page-ops/main/crop';
 import {
+    getPdfPageCount,
+    verifyPdfStructureStrict,
+} from '@electron/features/page-ops/main/qpdf';
+import {
     deletePageRanges,
     deletePages,
     extractPageRanges,
     extractPages,
-    getPdfPageCount,
     movePageRanges,
     movePages,
     reorderPages,
     rotatePages,
     materializePageOperationWorkingCopy,
-    verifyPdfStructureStrict,
-} from '@electron/features/page-ops/main/qpdf';
-import type { TRotationAngle } from '@electron/features/page-ops/main/qpdf';
+} from '@electron/features/page-ops/main/pageStructure';
+import type { TRotationAngle } from '@electron/features/page-ops/main/pageStructure';
 import { resolveAllowedWritePath } from '@electron/utils/pathValidator';
 import {
     ensureWorkingCopyDirectory, requireManagedWorkingCopyPath,

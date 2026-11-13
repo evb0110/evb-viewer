@@ -29,15 +29,19 @@ const ensureWorkingCopyDirectoryMock = vi.hoisted(() => vi.fn());
 const createPdfFileFromInputPathsMock = vi.hoisted(() => vi.fn());
 const createPdfFromInputPathsMock = vi.hoisted(() => vi.fn());
 
-interface IInsertRunCommandOptionsExpectation { allowedExitCodes?: number[] }
-
-async function readQpdfArgFile(args: string[]) {
-    const argFile = args[0];
-    if (!argFile?.startsWith('@')) {
-        throw new Error(`Expected qpdf arg file invocation, got ${JSON.stringify(args)}`);
-    }
-
-    return (await readFile(argFile.slice(1), 'utf8')).split('\n');
+/** The engine's insert command, which publishes its output over the working copy. */
+function expectInsertCommand(args: string[], workingCopyPath: string, sourcePdfPath: string) {
+    expect(args).toEqual([
+        'insert-pages',
+        '--input',
+        workingCopyPath,
+        '--output',
+        workingCopyPath,
+        '--source',
+        sourcePdfPath,
+        '--after-page',
+        '1',
+    ]);
 }
 
 async function runTinyPdfSourceBatchInsertion(sourceCount: number) {
@@ -45,7 +49,6 @@ async function runTinyPdfSourceBatchInsertion(sourceCount: number) {
     const workingCopyPath = join(workDir, 'work.pdf');
     const sourcePath = join(workDir, 'source.pdf');
     const tempSourcePdfPath = join(workDir, 'insert-source-fixed-output-id.pdf');
-    const tempOutputPath = join(workDir, 'tmp-fixed-output-id.pdf');
     const sourcePaths = Array.from({length: sourceCount}, () => sourcePath as TOpenPath);
 
     try {
@@ -62,21 +65,9 @@ async function runTinyPdfSourceBatchInsertion(sourceCount: number) {
             stdout: '2\n',
             stderr: '',
         });
-        runNativeToolCommandMock.mockImplementationOnce(async (_qpdf, args: string[]) => {
-            const qpdfArgs = await readQpdfArgFile(args);
-            expect(qpdfArgs).toEqual([
-                workingCopyPath,
-                '--pages',
-                workingCopyPath,
-                '1-1',
-                tempSourcePdfPath,
-                '1-z',
-                workingCopyPath,
-                '2-2',
-                '--',
-                tempOutputPath,
-            ]);
-            await writeFile(tempOutputPath, '%PDF-1.7\ninserted');
+        runNativeToolCommandMock.mockImplementationOnce(async (_binary, args: string[]) => {
+            expectInsertCommand(args, workingCopyPath, tempSourcePdfPath);
+            await writeFile(workingCopyPath, '%PDF-1.7\ninserted');
             return {
                 exitCode: 0,
                 stdout: '',
@@ -105,15 +96,8 @@ vi.mock('node:crypto', async (importOriginal) => {
         randomUUID: () => randomUuidMock(),
     };
 });
-vi.mock('@electron/features/page-ops/public/nativePageOpsPath', () => ({resolveNativePageOpsPath: () => '/mock/pdf-page-ops'}));
-vi.mock('@electron/native-tools/runNativeToolCommand', () => ({runNativeToolCommand: (...args: unknown[]) =>
-    Array.isArray(args[1]) && args[1][0] === 'finalize-subset-forms'
-        ? Promise.resolve({
-            exitCode: 0,
-            stdout: '{}',
-            stderr: '',
-        })
-        : runNativeToolCommandMock(...args)}));
+vi.mock('@electron/features/page-ops/main/resolveNativePageOpsPath', () => ({resolveNativePageOpsPath: () => '/mock/pdf-page-ops'}));
+vi.mock('@electron/native-tools/runNativeToolCommand', () => ({runNativeToolCommand: (...args: unknown[]) => runNativeToolCommandMock(...args)}));
 vi.mock('@electron/pdf/nativeToolPaths', async (importOriginal_1) => ({
     ...(await importOriginal_1<typeof TViMockOriginalModule>()),
     getPdfNativeToolPaths: () => ({ qpdf: '/mock/qpdf' }),
@@ -138,104 +122,6 @@ describe('page-ops insert service', () => {
         ensureWorkingCopyDirectoryMock.mockResolvedValue(true);
         createPdfFileFromInputPathsMock.mockResolvedValue(undefined);
         createPdfFromInputPathsMock.mockResolvedValue(Buffer.from('%PDF-1.7\nmerged'));
-    });
-
-    it('accepts qpdf warning-only insertion when a non-empty PDF was written', async () => {
-        const workDir = await mkdtemp(join(tmpdir(), 'page-ops-insert-'));
-        const workingCopyPath = join(workDir, 'work.pdf');
-        const sourcePath = join(workDir, 'source.pdf');
-        const tempOutputPath = join(workDir, 'tmp-fixed-output-id.pdf');
-
-        try {
-            await writeFile(workingCopyPath, '%PDF-1.7\noriginal');
-            await writeFile(sourcePath, '%PDF-1.7\nsource');
-            runNativeToolCommandMock.mockResolvedValueOnce({
-                exitCode: 0,
-                stdout: '2\n',
-                stderr: '',
-            });
-            runNativeToolCommandMock.mockImplementationOnce(async (
-                _qpdf,
-                args: string[],
-                options: IInsertRunCommandOptionsExpectation,
-            ) => {
-                const qpdfArgs = await readQpdfArgFile(args);
-                expect(qpdfArgs).toEqual([
-                    workingCopyPath,
-                    '--pages',
-                    workingCopyPath,
-                    '1-1',
-                    sourcePath,
-                    '1-z',
-                    workingCopyPath,
-                    '2-2',
-                    '--',
-                    tempOutputPath,
-                ]);
-                expect(options.allowedExitCodes).toEqual([
-                    0,
-                    3,
-                ]);
-                await writeFile(tempOutputPath, '%PDF-1.7\ninserted');
-                return {
-                    exitCode: 3,
-                    stdout: '',
-                    stderr: 'WARNING: repaired object stream\nqpdf: operation succeeded with warnings',
-                };
-            });
-
-            const { insertPagesFromSourcePaths } = await import('@electron/features/page-ops/main/insertPagesFromSourcePaths.service');
-
-            await insertPagesFromSourcePaths(workingCopyPath, 2, [sourcePath as TOpenPath], 1);
-
-            await expect(readFile(workingCopyPath, 'utf8')).resolves.toBe('%PDF-1.7\ninserted');
-            await expect(stat(tempOutputPath)).rejects.toMatchObject({ code: 'ENOENT' });
-        } finally {
-            await rm(workDir, {
-                recursive: true,
-                force: true,
-            });
-        }
-    });
-
-    it('rejects empty qpdf output without replacing the working copy', async () => {
-        const workDir = await mkdtemp(join(tmpdir(), 'page-ops-insert-'));
-        const workingCopyPath = join(workDir, 'work.pdf');
-        const sourcePath = join(workDir, 'source.pdf');
-        const tempOutputPath = join(workDir, 'tmp-fixed-output-id.pdf');
-
-        try {
-            await writeFile(workingCopyPath, '%PDF-1.7\noriginal');
-            await writeFile(sourcePath, '%PDF-1.7\nsource');
-            runNativeToolCommandMock.mockResolvedValueOnce({
-                exitCode: 0,
-                stdout: '2\n',
-                stderr: '',
-            });
-            runNativeToolCommandMock.mockImplementationOnce(async (_qpdf, args: string[]) => {
-                const qpdfArgs = await readQpdfArgFile(args);
-                expect(qpdfArgs.at(-1)).toBe(tempOutputPath);
-                await writeFile(tempOutputPath, new Uint8Array());
-                return {
-                    exitCode: 0,
-                    stdout: '',
-                    stderr: '',
-                };
-            });
-
-            const { insertPagesFromSourcePaths } = await import('@electron/features/page-ops/main/insertPagesFromSourcePaths.service');
-
-            await expect(insertPagesFromSourcePaths(workingCopyPath, 2, [sourcePath as TOpenPath], 1))
-                .rejects.toThrow('Inserting pages failed: qpdf produced an empty PDF');
-
-            await expect(readFile(workingCopyPath, 'utf8')).resolves.toBe('%PDF-1.7\noriginal');
-            await expect(stat(tempOutputPath)).rejects.toMatchObject({ code: 'ENOENT' });
-        } finally {
-            await rm(workDir, {
-                recursive: true,
-                force: true,
-            });
-        }
     });
 
     it('rejects stale renderer page counts before building insertion ranges', async () => {
@@ -267,11 +153,10 @@ describe('page-ops insert service', () => {
         }
     });
 
-    it('passes cancellation options to source combine and qpdf insertion commands', async () => {
+    it('passes cancellation options to source combine and the engine insertion command', async () => {
         const workDir = await mkdtemp(join(tmpdir(), 'page-ops-insert-'));
         const workingCopyPath = join(workDir, 'work.pdf');
         const sourcePath = join(workDir, 'source.png');
-        const tempOutputPath = join(workDir, 'tmp-fixed-output-id.pdf');
         const controller = new AbortController();
         const options = {
             signal: controller.signal,
@@ -286,10 +171,9 @@ describe('page-ops insert service', () => {
                 stdout: '2\n',
                 stderr: '',
             });
-            runNativeToolCommandMock.mockImplementationOnce(async (_qpdf, args: string[]) => {
-                const qpdfArgs = await readQpdfArgFile(args);
-                expect(qpdfArgs.at(-1)).toBe(tempOutputPath);
-                await writeFile(tempOutputPath, '%PDF-1.7\ninserted');
+            runNativeToolCommandMock.mockImplementationOnce(async (_binary, args: string[]) => {
+                expectInsertCommand(args, workingCopyPath, join(workDir, 'insert-source-fixed-output-id.pdf'));
+                await writeFile(workingCopyPath, '%PDF-1.7\ninserted');
                 return {
                     exitCode: 0,
                     stdout: '',
@@ -321,7 +205,6 @@ describe('page-ops insert service', () => {
         const workingCopyPath = join(workDir, 'work.pdf');
         const sourcePath = join(workDir, 'source.png');
         const tempSourcePdfPath = join(workDir, 'insert-source-fixed-output-id.pdf');
-        const tempOutputPath = join(workDir, 'tmp-fixed-output-id.pdf');
 
         try {
             await writeFile(workingCopyPath, '%PDF-1.7\noriginal');
@@ -338,21 +221,9 @@ describe('page-ops insert service', () => {
                 stdout: '2\n',
                 stderr: '',
             });
-            runNativeToolCommandMock.mockImplementationOnce(async (_qpdf, args: string[]) => {
-                const qpdfArgs = await readQpdfArgFile(args);
-                expect(qpdfArgs).toEqual([
-                    workingCopyPath,
-                    '--pages',
-                    workingCopyPath,
-                    '1-1',
-                    tempSourcePdfPath,
-                    '1-z',
-                    workingCopyPath,
-                    '2-2',
-                    '--',
-                    tempOutputPath,
-                ]);
-                await writeFile(tempOutputPath, '%PDF-1.7\ninserted');
+            runNativeToolCommandMock.mockImplementationOnce(async (_binary, args: string[]) => {
+                expectInsertCommand(args, workingCopyPath, tempSourcePdfPath);
+                await writeFile(workingCopyPath, '%PDF-1.7\ninserted');
                 return {
                     exitCode: 0,
                     stdout: '',
