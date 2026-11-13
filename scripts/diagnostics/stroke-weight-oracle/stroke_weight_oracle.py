@@ -1,11 +1,16 @@
 #!/usr/bin/env python3
-"""Component ridge-width measurement for stroke-weight-oracle.mjs.
+"""Component-granularity stroke-weight oracle.
 
-The CLI entry point owns the calibrated constants, the report schema, and the
-exit status. This module owns pixel work only: it decodes a foreground mask,
+Decodes a foreground mask (the exact full-resolution JBIG2 mask of each cleaned
+PDF page, or a rendered page image; never a thresholded composite render),
 finds 8-connected components, measures each component's ridge width from an L2
 distance transform, groups components into text lines, and compares every
 component with the median ridge width of its local neighbours on the same line.
+
+Calibrated defaults come from calibration.json; provenance and the recorded red
+baseline live in README.md. Exit status is 0 when every requested page is
+measured with zero offenders, 1 when the gate is red, and 2 for invalid input
+or measurement failure.
 """
 
 from __future__ import annotations
@@ -14,6 +19,7 @@ import argparse
 import importlib.util
 import json
 import math
+import os
 import statistics
 import subprocess
 import sys
@@ -468,8 +474,6 @@ def measure_image(
 
 
 def measure_pdf(args: argparse.Namespace) -> list[dict[str, Any]]:
-    if args.rendered_metrics is None:
-        raise ValueError('--rendered-metrics is required for --pdf input')
     pages = parse_pages(args.pages, pdf_page_count(args.pdf))
     mapping = output_mapping(args.summary)
     rendered_metrics = load_rendered_metrics(args.rendered_metrics)
@@ -484,25 +488,57 @@ def measure_pdf(args: argparse.Namespace) -> list[dict[str, Any]]:
     return results
 
 
+def positive_number(value: str) -> float:
+    number = float(value)
+    if not math.isfinite(number) or number <= 0:
+        raise argparse.ArgumentTypeError(f'{value!r} must be positive')
+    return number
+
+
+def positive_integer(value: str) -> int:
+    number = int(value)
+    if number <= 0:
+        raise argparse.ArgumentTypeError(f'{value!r} must be a positive integer')
+    return number
+
+
+def report_path(path: Path | None) -> str | None:
+    """Keeps a committed baseline report free of machine-specific home paths."""
+    if path is None:
+        return None
+    absolute = os.path.abspath(path)
+    try:
+        relative = os.path.relpath(absolute)
+    except ValueError:
+        return absolute
+    return absolute if relative.startswith('..') or os.path.isabs(relative) else relative
+
+
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--calibration', type=Path, required=True)
-    parser.add_argument('--pdf', type=Path)
-    parser.add_argument('--image', type=Path, action='append', default=[])
-    parser.add_argument('--dpi', type=float)
+    parser = argparse.ArgumentParser(description=__doc__.split('\n\n')[0])
+    parser.add_argument('--out', type=Path, help='report JSON path')
+    parser.add_argument('--pdf', type=Path, help="cleaned PDF; each page's JBIG2 mask is measured")
+    parser.add_argument('--image', type=Path, action='append', default=[],
+                        help='rendered page image; repeat for several pages')
+    parser.add_argument('--dpi', type=positive_number, help='image-input resolution')
+    parser.add_argument('--summary', type=Path, help='conversion summary for PDF page mapping')
+    parser.add_argument('--pages', help='PDF output pages, e.g. 1-8,11 (default: all)')
+    parser.add_argument('--label', help='ref/build label stored in the report')
+    parser.add_argument('--rendered-metrics', type=Path,
+                        default=Path(__file__).resolve().parent.parent / 'scan-cleanup-rendered-metrics.py')
+    parser.add_argument('--calibration', type=Path,
+                        default=Path(__file__).resolve().parent / 'calibration.json')
     parser.add_argument('--print-eligibility', action='store_true')
-    parser.add_argument('--rendered-metrics', type=Path)
-    parser.add_argument('--summary', type=Path)
-    parser.add_argument('--pages')
-    parser.add_argument('--window-mm', type=float)
-    parser.add_argument('--ratio', type=float)
-    parser.add_argument('--min-local', type=int)
+    parser.add_argument('--window-mm', type=positive_number, help='local horizontal comparison radius')
+    parser.add_argument('--ratio', type=positive_number, help='offender/local-median threshold')
+    parser.add_argument('--min-local', type=positive_integer, help='minimum components in local window')
     return parser
 
 
-def main() -> None:
+def main() -> int:
     global CALIBRATION
-    args = build_parser().parse_args()
+    parser = build_parser()
+    args = parser.parse_args()
     CALIBRATION = json.loads(args.calibration.read_text(encoding='utf-8'))
     if CALIBRATION.get('roundingRule') != 'half-away-from-zero':
         raise ValueError('calibration roundingRule must be half-away-from-zero')
@@ -510,12 +546,18 @@ def main() -> None:
         args.dpi = float(CALIBRATION['calibrationDpi'])
     if args.print_eligibility:
         print(json.dumps(scaled_eligibility_bounds(args.dpi, args.dpi), separators=(',', ':')))
-        return
-    if args.window_mm is None or args.ratio is None or args.min_local is None:
-        raise ValueError('--window-mm, --ratio, and --min-local are required')
-    load_pixel_dependencies()
+        return 0
+    if args.out is None:
+        parser.error('--out is required')
     if bool(args.pdf) == bool(args.image):
-        raise ValueError('exactly one of --pdf or --image inputs is required')
+        parser.error('exactly one of --pdf or --image inputs is required')
+    if args.window_mm is None:
+        args.window_mm = float(CALIBRATION['localWindowMm'])
+    if args.ratio is None:
+        args.ratio = float(CALIBRATION['offenderRatio'])
+    if args.min_local is None:
+        args.min_local = int(CALIBRATION['localWindowMinComponents'])
+    load_pixel_dependencies()
     if args.pdf is not None:
         results = measure_pdf(args)
     else:
@@ -523,26 +565,52 @@ def main() -> None:
             measure_image(path, args.dpi, args.window_mm, args.ratio, args.min_local)
             for path in args.image
         ]
+    for result in results:
+        if 'imagePath' in result:
+            result['imagePath'] = report_path(Path(result['imagePath']))
     measured = [result for result in results if result['status'] == 'measured']
     offenders = sum(result['offenderCount'] for result in measured)
     corpus_max = max((result['maxLineP95P50Ratio'] for result in measured), default=0.0)
-    report = {
-        'pages': results,
-        'summary': {
-            'pageCountRequested': len(results),
-            'pageCountMeasured': len(measured),
-            'pageCountUnmeasured': len(results) - len(measured),
-            'offenderCount': offenders,
-            'subFloorComponentCount': sum(
-                result['subFloorComponentCount'] for result in measured
-            ),
-            'offendingPageCount': sum(result['offenderCount'] > 0 for result in measured),
-            'corpusMaxP95P50Ratio': rounded(corpus_max),
-            'gatePass': len(measured) == len(results) and offenders == 0,
-        },
+    summary = {
+        'pageCountRequested': len(results),
+        'pageCountMeasured': len(measured),
+        'pageCountUnmeasured': len(results) - len(measured),
+        'offenderCount': offenders,
+        'subFloorComponentCount': sum(
+            result['subFloorComponentCount'] for result in measured
+        ),
+        'offendingPageCount': sum(result['offenderCount'] > 0 for result in measured),
+        'corpusMaxP95P50Ratio': rounded(corpus_max),
+        'gatePass': len(measured) == len(results) and offenders == 0,
     }
-    print(json.dumps(report, separators=(',', ':')))
+    report = {
+        'schemaVersion': 3,
+        'oracle': 'component-ridge-width-local-line-median',
+        'label': args.label,
+        'inputs': {
+            'dpi': None if args.pdf else args.dpi,
+            'images': [report_path(path) for path in args.image],
+            'pdf': report_path(args.pdf),
+            'summary': report_path(args.summary),
+        },
+        'calibration': {
+            **CALIBRATION,
+            'localWindowMm': args.window_mm,
+            'localWindowMinComponents': args.min_local,
+            'offenderRatio': args.ratio,
+        },
+        'pages': results,
+        'summary': summary,
+    }
+    args.out.parent.mkdir(parents=True, exist_ok=True)
+    args.out.write_text(f'{json.dumps(report, indent=2)}\n', encoding='utf-8')
+    print(json.dumps(summary, separators=(',', ':')))
+    return 0 if summary['gatePass'] else 1
 
 
 if __name__ == '__main__':
-    main()
+    try:
+        sys.exit(main())
+    except Exception as error:  # noqa: BLE001 - any measurement failure is exit 2
+        print(f'stroke-weight oracle failed: {error!r}', file=sys.stderr)
+        sys.exit(2)

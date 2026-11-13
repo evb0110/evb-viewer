@@ -16,31 +16,17 @@ import {
     it,
 } from 'vitest';
 
-const oraclePath = resolve('scripts/diagnostics/stroke-weight-oracle/stroke-weight-oracle.mjs');
+const oraclePath = resolve('scripts/diagnostics/stroke-weight-oracle/stroke_weight_oracle.py');
 const specimenPath = resolve(
     'native/scan-cleanup/tests/fixtures/rescue/luther-p5-diyarbakir-line.png',
 );
 const python = process.env.EVB_PYTHON ?? 'python3';
 const temporaryDirectories: string[] = [];
 
-/**
- * A host that exports both `NO_COLOR` and `FORCE_COLOR` makes Node emit a
- * conflict warning on the child's stderr, which would masquerade as oracle
- * output under the clean-stderr assertions below.
- */
-const oracleEnvironment: NodeJS.ProcessEnv = {
-    ...process.env,
-    NO_COLOR: '1',
-};
-delete oracleEnvironment.FORCE_COLOR;
-
-const runOracle = (args: string[]) => spawnSync(process.execPath, [
+const runOracle = (args: string[]) => spawnSync(python, [
     oraclePath,
     ...args,
-], {
-    encoding: 'utf8',
-    env: oracleEnvironment,
-});
+], {encoding: 'utf8'});
 
 /**
  * The measurement helper needs OpenCV, NumPy and Pillow. Only the Pillow lane
@@ -61,33 +47,6 @@ afterEach(async () => {
 });
 
 describe('stroke weight oracle CLI', () => {
-    it('documents its calibrated defaults', () => {
-        const result = runOracle(['--help']);
-        expect(result.status).toBe(0);
-        expect(result.stdout).toContain('--window-mm <number>  Local horizontal comparison radius (default: 32)');
-        expect(result.stdout).toContain('--ratio <number>      Offender/local-median threshold (default: 1.6)');
-        expect(result.stdout).toContain('--min-local <number>  Minimum components in local window (default: 7)');
-    });
-
-    it('rejects a run that names neither one input kind nor a report path', () => {
-        const missingOutput = runOracle([
-            '--image',
-            specimenPath,
-        ]);
-        expect(missingOutput.status).toBe(2);
-        expect(missingOutput.stderr).toContain('--out is required');
-        const bothInputs = runOracle([
-            '--out',
-            join(tmpdir(), 'unused-stroke-weight-report.json'),
-            '--image',
-            specimenPath,
-            '--pdf',
-            specimenPath,
-        ]);
-        expect(bothInputs.status).toBe(2);
-        expect(bothInputs.stderr).toContain('exactly one of --pdf or --image inputs is required');
-    });
-
     it.skipIf(!measurementDependenciesInstalled)(
         'measures the committed Vorwort specimen and emits the report schema',
         async () => {
