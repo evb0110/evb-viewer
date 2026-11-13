@@ -49,7 +49,6 @@ import {
     createFixturePath,
     createScannedTextFixturePdf,
     readPdfCatalogWithPdfjs,
-    readPdfPageSnapshots,
     readPdfMetadataWithQpdf,
     readPdfTextAnnotationRecords,
 } from '@tests/e2e/electron/helpers/fixtures';
@@ -93,6 +92,16 @@ const LATE_RESULT_TEXT = 'Copper weather beacon';
 const LATE_RESULT_WORD = 'beacon';
 const ACCEPTED_BOOKMARK = 'Accepted OCR bookmark';
 const ACCEPTED_LABEL_PREFIX = 'Accepted-';
+async function readCurrentDocumentText(page: Page) {
+    const path = createFixturePath(`ocr-current-${Date.now()}.pdf`);
+    await writeFile(path, await readDocumentBytes(page));
+    try {
+        return await extractTextWithPdfjs(path);
+    } finally {
+        await rm(path, {force: true});
+    }
+}
+
 const OCR_TIMEOUT_MS = 180_000;
 const ACTIVE_HOST = '.workspace-host[data-workspace-active="true"]';
 
@@ -1029,7 +1038,7 @@ if (process.versions.electron && process.type === 'browser') {
 
         await activateMenuItemAsUser(page, {accelerator: 'CmdOrCtrl+Z'});
         await expect.poll(async () => {
-            return (await readPdfPageSnapshots(await readDocumentBytes(page)))[0]?.textSnippet.includes(SEARCHED_WORD) ?? false;
+            return (await readCurrentDocumentText(page))[0]?.text.includes(SEARCHED_WORD) ?? false;
         }, {timeout: 60_000}).toBe(false);
         await waitForWorkspaceHistorySettled(page);
         await waitForViewerInteractive(page, 90_000);
@@ -1044,14 +1053,14 @@ if (process.versions.electron && process.type === 'browser') {
         expect(afterUndo, 'Undo OCR must preserve metadata accepted before OCR').toBe(`${ACCEPTED_LABEL_PREFIX}1`);
         expect(rows).toContain(ACCEPTED_BOOKMARK);
         await activateMenuItemAsUser(page, {accelerator: process.platform === 'darwin' ? 'CmdOrCtrl+Shift+Z' : 'Ctrl+Y'});
-        await expect.poll(async () => (await readPdfPageSnapshots(await readDocumentBytes(page)))[0]?.textSnippet.includes(SEARCHED_WORD) ?? false, {timeout: 60_000}).toBe(true);
+        await expect.poll(async () => (await readCurrentDocumentText(page))[0]?.text.includes(SEARCHED_WORD) ?? false, {timeout: 60_000}).toBe(true);
         await waitForWorkspaceHistorySettled(page);
         await waitForViewerInteractive(page, 90_000);
         await waitForTextLayerWord(page);
         expect((await readToolbarPageIndicator(page)).primaryText).toBe(`${ACCEPTED_LABEL_PREFIX}1`);
         await waitForBookmarkRow(page, ACCEPTED_BOOKMARK);
         await activateMenuItemAsUser(page, {accelerator: 'CmdOrCtrl+Z'});
-        await expect.poll(async () => (await readPdfPageSnapshots(await readDocumentBytes(page)))[0]?.textSnippet.includes(SEARCHED_WORD) ?? false, {timeout: 60_000}).toBe(false);
+        await expect.poll(async () => (await readCurrentDocumentText(page))[0]?.text.includes(SEARCHED_WORD) ?? false, {timeout: 60_000}).toBe(false);
         await waitForWorkspaceHistorySettled(page);
         await waitForViewerInteractive(page, 90_000);
         expect((await readToolbarPageIndicator(page)).primaryText).toBe(`${ACCEPTED_LABEL_PREFIX}1`);
@@ -1088,7 +1097,7 @@ if (process.versions.electron && process.type === 'browser') {
         await saveViaVisibleToolbar(page, 90_000, sourcePath);
         await activateMenuItemAsUser(page, {accelerator: 'CmdOrCtrl+Z'});
         await expect.poll(async () => {
-            return (await readPdfPageSnapshots(await readDocumentBytes(page)))[0]?.textSnippet.includes(SEARCHED_WORD) ?? false;
+            return (await readCurrentDocumentText(page))[0]?.text.includes(SEARCHED_WORD) ?? false;
         }, {timeout: 60_000}).toBe(false);
         await waitForWorkspaceHistorySettled(page);
         await waitForViewerInteractive(page, 90_000);

@@ -50,7 +50,7 @@ function writeTextProtectionHoldHook(directory: string, message: string) {
 if(process.type==='browser'){
  const gate=${JSON.stringify(gate)},open=fsp.open;
  fsp.open=async(path,...args)=>{
-  if(fs.existsSync(gate+'.arm')&&String(path).includes('workspace-')){
+  if(fs.existsSync(gate+'.arm')&&String(path).includes('workspaces')&&String(path).endsWith('.tmp')){
    fs.writeFileSync(gate+'.held','');
    if(!fs.existsSync(gate+'.release'))await new Promise(resolve=>{const watcher=fs.watch(${JSON.stringify(directory)},()=>{if(fs.existsSync(gate+'.release')){watcher.close();resolve()}})});
    if(fs.existsSync(gate+'.reject'))throw Object.assign(new Error(${JSON.stringify(message)}),{code:'ENOSPC'});
@@ -358,14 +358,14 @@ describe('checkpointed annotation recovery', () => {
 if(process.type==='browser'){
  const gate=${JSON.stringify(gate)},target=${JSON.stringify(sourcePath)},cut=${JSON.stringify(cut)},open=fsp.open,rename=fsp.rename;
  fsp.open=async(path,...args)=>{
-  if(cut!==2&&fs.existsSync(gate+'.arm')&&!fs.existsSync(gate+'.release')&&String(path).includes('workspace-')){
+  if(cut!==2&&fs.existsSync(gate+'.arm')&&!fs.existsSync(gate+'.release')&&String(path).includes('workspaces')&&String(path).endsWith('.tmp')){
    fs.writeFileSync(gate+'.held','');
    await new Promise(resolve=>{const watcher=fs.watch(${JSON.stringify(outputDirectory)},()=>{if(fs.existsSync(gate+'.release')){watcher.close();resolve()}})});
    if(cut===1)throw Object.assign(new Error('ENOSPC: text checkpoint volume is full'),{code:'ENOSPC'});
   }
   return open(path,...args);
  };
- fsp.rename=async(from,to)=>{await rename(from,to);if(fs.existsSync(gate+'.arm')&&String(from)===target&&String(to).includes('.evb-transition-'))fs.writeFileSync(gate+'.displaced','')};
+ fsp.rename=async(from,to)=>{await rename(from,to);if(fs.existsSync(gate+'.arm')&&String(from)===target&&String(to).endsWith('.evb-replaced'))fs.writeFileSync(gate+'.displaced','')};
  require('node:module').syncBuiltinESMExports();
 }`);
         const extraEnv = {NODE_OPTIONS: `${process.env.NODE_OPTIONS ?? ''} --require=${JSON.stringify(hook)}`};
@@ -1087,7 +1087,11 @@ if (process.type === 'browser') {
     const target = ${JSON.stringify(sourcePath)}, held = ${JSON.stringify(held)}, cut = ${JSON.stringify(cut)};
     const hold = () => { fs.writeFileSync(held, ''); return new Promise(() => {}); };
     const {rename, link} = fsp;
-    fsp.rename = async (from, to) => { await rename(from, to); if (cut === 'displaced' && from === target && String(to).includes('.evb-transition-')) await hold(); };
+    fsp.rename = async (from, to) => {
+        await rename(from, to);
+        if ((cut === 'displaced' && from === target && String(to).endsWith('.evb-replaced'))
+            || (cut === 'published' && to === target)) await hold();
+    };
     fsp.link = async (from, to) => { await link(from, to); if (cut === 'published' && to === target) await hold(); };
 }`);
         const sessionName = `e2e-save-crash-${cut}-${Date.now()}`;
@@ -1161,8 +1165,8 @@ if (process.type === 'browser') {
 if(process.type==='browser'){
  const target=${JSON.stringify(sourcePath)},gate=${JSON.stringify(gate)},fault=${JSON.stringify(fault)};
  const open=fsp.open,rename=fsp.rename;
- fsp.open=async(path,...args)=>{if(fault==='ENOSPC'&&fs.existsSync(gate+'.arm')&&String(path).includes('workspace-')){fs.writeFileSync(gate+'.rejected','');throw Object.assign(new Error('ENOSPC: recovery checkpoint volume is full'),{code:'ENOSPC'})}return open(path,...args)};
- fsp.rename=async(from,to)=>{await rename(from,to);if(fs.existsSync(gate+'.arm')&&String(from)===target&&String(to).includes('.evb-transition-')){fs.writeFileSync(gate+'.displaced','');await new Promise(()=>{})}};
+ fsp.open=async(path,...args)=>{if(fault==='ENOSPC'&&fs.existsSync(gate+'.arm')&&String(path).includes('workspaces')&&String(path).endsWith('.tmp')){fs.writeFileSync(gate+'.rejected','');throw Object.assign(new Error('ENOSPC: recovery checkpoint volume is full'),{code:'ENOSPC'})}return open(path,...args)};
+ fsp.rename=async(from,to)=>{await rename(from,to);if(fs.existsSync(gate+'.arm')&&String(from)===target&&String(to).endsWith('.evb-replaced')){fs.writeFileSync(gate+'.displaced','');await new Promise(()=>{})}};
  require('node:module').syncBuiltinESMExports();
 }`);
         session = await startElectronE2ESession(`e2e-save-protection-${fault}-${Date.now()}`, {
