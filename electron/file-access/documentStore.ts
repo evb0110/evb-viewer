@@ -35,7 +35,6 @@ import {
     saveDocument,
     type TSaveResult,
 } from '@document-store/saveDocument';
-import {readWorkspaceCheckpoints} from '@document-store/workspaceCheckpoint';
 import {
     createMissingRevisionError,
     createStaleRevisionError,
@@ -117,10 +116,11 @@ export interface IOpenDocument {
 /** Every open document, by ref. The main process is the only owner of the store, so this is the registry. */
 export const openDocuments = new Map<string, IOpenDocument>();
 let nextRegistrationId = 1;
-/** Creations whose directory may not have a manifest yet; collection leaves such directories alone meanwhile. */
-let creationsInFlight = 0;
 let storeRoot: string | null = null;
 let store: IDocumentStore | null = null;
+let collection: Promise<{removed: string[]; unsaved: string[]}> | null = null;
+/** Names a document's directory in its window's workspace checkpoint; the checkpoint store provides it. */
+let nameDirectory: (entry: IOpenDocument) => Promise<void> = () => Promise.resolve();
 const revisionListeners = new Set<(event: IDocumentRevisionChangedEvent) => void>();
 
 function getDocumentStoreRoot() {
@@ -133,6 +133,15 @@ export async function setDocumentStoreRootForTests(root: string | null) {
     openDocuments.clear();
     storeRoot = root;
     store = null;
+    collection = null;
+}
+
+/**
+ * Sets how a document's directory is named in its window's workspace checkpoint. That happens before the document's
+ * first edit, so a directory no checkpoint names holds at most what an open made, which collection may remove.
+ */
+export function setDocumentDirectoryNaming(name: (entry: IOpenDocument) => Promise<void>) {
+    nameDirectory = name;
 }
 
 function absolute(storePath: string) {
@@ -222,15 +231,6 @@ function register(doc: DocumentDirectory, options: Omit<IOpenDocument, 'ref' | '
     return entry;
 }
 
-async function trackCreation<T>(create: () => Promise<T>) {
-    creationsInFlight += 1;
-    try {
-        return await create();
-    } finally {
-        creationsInFlight -= 1;
-    }
-}
-
 /** The store keeps a document's bytes under its file's extension, or `pdf` for a name without a usable one. */
 export function extensionOf(path: string) {
     const ext = extname(path).slice(1).trim().toLowerCase();
@@ -248,20 +248,19 @@ export async function openDocumentFromFile(destination: string, options: {
     ownerWebContentsId?: number;
     originalPath?: string;
 }) {
-    return trackCreation(async () => {
-        const before = await stat(destination, {bigint: true});
-        const doc = await createDocument(getDocumentStore(), {destination, ext: extensionOf(destination)});
-        const after = await stat(destination, {bigint: true}).catch(() => null);
-        if (!after || !sameIdentity(before, after)) {
-            await removeDirectory(doc);
-            throw new DocumentOpenRefusalError('source-changed', 'The original document changed while it was being opened');
-        }
-        return register(doc, {
-            originalPath: options.originalPath ?? destination,
-            admission: after,
-            role: 'current',
-            ...(options.ownerWebContentsId === undefined ? {} : {ownerWebContentsId: options.ownerWebContentsId}),
-        });
+    await collected();
+    const before = await stat(destination, {bigint: true});
+    const doc = await createDocument(getDocumentStore(), {destination, ext: extensionOf(destination)});
+    const after = await stat(destination, {bigint: true}).catch(() => null);
+    if (!after || !sameIdentity(before, after)) {
+        await removeDirectory(doc);
+        throw new DocumentOpenRefusalError('source-changed', 'The original document changed while it was being opened');
+    }
+    return register(doc, {
+        originalPath: options.originalPath ?? destination,
+        admission: after,
+        role: 'current',
+        ...(options.ownerWebContentsId === undefined ? {} : {ownerWebContentsId: options.ownerWebContentsId}),
     });
 }
 
@@ -271,7 +270,8 @@ export async function createDocumentFromSource(source: string | Uint8Array, opti
     originalPath?: string;
     ownerWebContentsId?: number;
 }) {
-    return trackCreation(async () => register(
+    await collected();
+    return register(
         await createDocument(getDocumentStore(), {
             ext: options.ext,
             source: typeof source === 'string' ? source : new Blob([new Uint8Array(source)]),
@@ -281,12 +281,12 @@ export async function createDocumentFromSource(source: string | Uint8Array, opti
             ...(options.originalPath === undefined ? {} : {originalPath: options.originalPath}),
             ...(options.ownerWebContentsId === undefined ? {} : {ownerWebContentsId: options.ownerWebContentsId}),
         },
-    ));
+    );
 }
 
 /** An independent copy of an open document, such as a view moved to another window (T4). */
 export async function forkOpenDocument(entry: IOpenDocument, ownerWebContentsId?: number) {
-    return trackCreation(async () => register(
+    return register(
         await entry.doc.run(() => forkDocument(getDocumentStore(), entry.doc.id)),
         {
             role: 'snapshot',
@@ -294,11 +294,12 @@ export async function forkOpenDocument(entry: IOpenDocument, ownerWebContentsId?
             ...(entry.admission === undefined ? {} : {admission: entry.admission}),
             ...(ownerWebContentsId === undefined ? {} : {ownerWebContentsId}),
         },
-    ));
+    );
 }
 
 /** Reopens a document directory a checkpoint names, after a crash or a restart, through the store's recovery steps. */
 export async function reopenStoredDocument(id: string, options: {ownerWebContentsId?: number; originalPath?: string}) {
+    await collected();
     const existing = findByDirectory(id);
     if (existing) {
         if (options.ownerWebContentsId !== undefined) existing.ownerWebContentsId = options.ownerWebContentsId;
@@ -520,6 +521,7 @@ export async function commitDocumentMutation(
     change: TReplacement,
     reason: TDocumentRevisionChangeReason,
 ) {
+    await nameDirectory(entry);
     const previous = documentRevisionToken(entry);
     await clearNextRevision(entry);
     const result = await entry.doc.mutate(expectedRevisionId(entry, token), {...change, drafts: 'clear'});
@@ -531,13 +533,14 @@ export async function commitDocumentMutation(
  * Runs `rewrite`, which reads the document's bytes at `input` (its current revision, or its destination while it has
  * none of its own) and writes a new file at `output`, then commits that file as the next revision. Nothing is copied
  * first: the tool's output is the revision, and the destination's bytes stay revision 1. A failure leaves the
- * document as it was.
+ * document as it was. The rewrite an open makes (`reason` `open`) is not an edit: it leaves the directory unnamed.
  */
 export async function rewriteDocument(
     entry: IOpenDocument,
     rewrite: (input: string, output: string) => Promise<void>,
     reason: TDocumentRevisionChangeReason,
 ) {
+    if (reason !== 'open') await nameDirectory(entry);
     const previous = documentRevisionToken(entry);
     const {current, destination} = entry.doc.state();
     const input = current ? revisionPath(entry, current) : destination;
@@ -575,6 +578,7 @@ export function rewriteOpenDocument(
  * `expected`. Nothing is copied; back on revision 1 without a file, the document reads its destination again.
  */
 export async function restoreOpenDocumentRevision(entry: IOpenDocument, token: TDocumentRevisionToken, expected: TDocumentRevisionToken | null) {
+    await nameDirectory(entry);
     const previous = documentRevisionToken(entry);
     const result = await entry.doc.restore(expectedRevisionId(entry, expected), revisionIdOf(token));
     if (result.status !== 'committed') throwFailedMutation(entry, expected, result);
@@ -602,6 +606,7 @@ export async function saveOpenDocument(entry: IOpenDocument, token: TDocumentRev
     commit?: TReplacement;
     saveAs?: string;
 } = {}): Promise<TSaveResult> {
+    if (options.commit) await nameDirectory(entry);
     const previous = documentRevisionToken(entry);
     await clearNextRevision(entry);
     try {
@@ -629,7 +634,8 @@ async function removeDirectory(doc: DocumentDirectory) {
 
 /**
  * Ends a document: the person closed it or discarded it, or a fork such as a print copy is done. A document a
- * native reader may still hold is quarantined: it closes, and its files stay for the next start to collect.
+ * native reader may still hold is quarantined: it closes, and only its manifest goes, so the next start collects
+ * the rest as an aborted creation rather than offering its work again.
  */
 export async function discardOpenDocument(entry: IOpenDocument) {
     if (openDocuments.get(entry.ref) !== entry) return false;
@@ -637,6 +643,7 @@ export async function discardOpenDocument(entry: IOpenDocument) {
     const current = entry.doc.state().current;
     if (isWorkingCopyQuarantined(entry.ref) || (current && isWorkingCopyQuarantined(revisionPath(entry, current)))) {
         await entry.doc.close();
+        await getDocumentStore().port.remove(entry.doc.path(MANIFEST_NAME));
         return true;
     }
     await removeDirectory(entry.doc);
@@ -699,34 +706,39 @@ export async function settleOpenDocuments() {
 }
 
 /**
- * The startup collection: settles saves a crash interrupted, then removes every document directory that no window
- * holds and no workspace checkpoint names. Unsaved work survives through the checkpoint that names it; an
- * unreadable checkpoint or manifest keeps everything it might protect.
+ * The startup collection, run once before the store opens anything, so no document changes owner while it runs:
+ * settles saves a crash interrupted, then removes the directories nothing needs (see `collectDocuments`). Unsaved
+ * work is never removed: the unsaved directories no window holds are the next workspace claim's to offer.
  */
+function collected() {
+    collection ??= (async () => {
+        const docStore = getDocumentStore();
+        for (const id of await docStore.port.list(DOCUMENTS_DIR)) {
+            if (!STORE_ID_PATTERN.test(id)) continue;
+            try {
+                const manifest = decodeManifest(await docStore.port.read(`${DOCUMENTS_DIR}/${id}/${MANIFEST_NAME}`));
+                if (manifest.pendingPublish || manifest.unsettled) await (await openDocument(docStore, id)).close();
+            } catch (error) {
+                log.debug(`Document ${id} kept an interrupted save for later: ${getErrorMessage(error)}`);
+            }
+        }
+        // Nothing is open yet, so every directory is the collection's to decide.
+        return collectDocuments(docStore, () => Promise.resolve(() => undefined));
+    })().catch((error: unknown) => {
+        log.warn(`Document collection stopped: ${getErrorMessage(error)}`);
+        return {removed: [], unsaved: []};
+    });
+    return collection;
+}
+
+/** Runs the startup collection, if no open has yet, and returns how many directories it removed. */
 export async function collectStaleDocuments() {
-    const docStore = getDocumentStore();
-    const isHeld = (id: string) => Promise.resolve(creationsInFlight > 0 || findByDirectory(id) !== null);
-    for (const id of await docStore.port.list(DOCUMENTS_DIR)) {
-        if (!STORE_ID_PATTERN.test(id) || await isHeld(id)) continue;
-        try {
-            const manifest = decodeManifest(await docStore.port.read(`${DOCUMENTS_DIR}/${id}/${MANIFEST_NAME}`));
-            if (manifest.pendingPublish || manifest.unsettled) await (await openDocument(docStore, id)).close();
-        } catch (error) {
-            log.debug(`Document ${id} kept an interrupted save for later: ${getErrorMessage(error)}`);
-        }
-    }
-    const {removed, unsaved} = await collectDocuments(docStore, isHeld);
-    const checkpoints = [...(await readWorkspaceCheckpoints(docStore.port)).values()];
-    if (checkpoints.every(checkpoint => checkpoint !== null)) {
-        const referenced = new Set(checkpoints.flatMap(checkpoint => Object.values(checkpoint!.tabs).map(tab => tab.directory)));
-        for (const id of unsaved) {
-            if (referenced.has(id) || await isHeld(id)) continue;
-            // No checkpoint restores it, such as a print copy or a document closed while unsaved.
-            await docStore.port.remove(`${DOCUMENTS_DIR}/${id}`);
-            removed.push(id);
-        }
-    }
-    return removed.length;
+    return (await collected()).removed.length;
+}
+
+/** The unsaved directories the startup collection kept that no window holds now, for the recovery offer. */
+export async function unheldUnsavedDocuments() {
+    return (await collected()).unsaved.filter(id => findByDirectory(id) === null);
 }
 
 // Lookups by the file a document was opened from

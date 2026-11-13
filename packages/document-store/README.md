@@ -75,6 +75,18 @@ browser publication uses `createWritable`, write and close. A download's dispatc
 is its receipt.
 
 `workspaces/<window>.json` stores directory references and per-view state in
-its tabs, plus the window layout. Linked views name the same directory.
-Collection uses checkpoint references and live ownership, retaining dirty
-unowned documents for recovery.
+its tabs, plus the window layout. Linked views name the same directory. A
+window names a directory in its checkpoint before the directory's first edit:
+the browser as soon as it holds it, desktop before the first change that is
+not part of opening it (a decrypt or normalize at open is not an edit).
+
+Collection decides each directory while holding it: desktop collects once at
+startup before the store opens anything, the browser takes the directory's
+Web Lock. It removes directories without a manifest and clean ones no
+checkpoint names. Unsaved work is never removed, with one exception: an
+unsaved directory no checkpoint names that holds only what an open made (no
+drafts, no publish to settle, at most two revisions made) is an open a crash
+cut short. Every other unsaved directory no window holds is offered for
+recovery, as a tab of its own when no workspace shows it. A desktop document
+discarded while a native reader still holds its files loses its manifest
+first, so it is collected rather than offered.

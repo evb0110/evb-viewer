@@ -56,17 +56,17 @@ function recentFileIds() {
 }
 
 /**
- * Once per window, before it restores anything: removes the clean directories no window holds and no
- * checkpoint or Recent entry names, and the stored file handles nothing names any more. Returns the
- * unsaved directories no window holds, for the recovery offer. Without Web Locks nothing is known about
- * the other windows, so nothing is removed.
+ * Once per window, before it restores anything: removes the directories nothing needs that no window holds
+ * and no Recent entry names (see `collectDocuments`), each decided while this window holds its lock, and the
+ * stored file handles nothing names any more. Returns the unsaved directories no window holds, for the
+ * recovery offer. Without Web Locks nothing is known about the other windows, so nothing is removed.
  */
 function collectOnce() {
     collection ??= (async () => {
         const {durable} = await browserDocumentStore.stores();
         if (!durable || !await heldBrowserLockNames()) return [];
         const recent = recentFileIds();
-        const {unsaved} = await collectDocuments(durable, async id => recent.has(id) || (await heldBrowserLockNames())?.has(browserDocumentLockName(id)) !== false);
+        const {unsaved} = await collectDocuments(durable, id => (recent.has(id) ? Promise.resolve(null) : holdBrowserLock(browserDocumentLockName(id))));
         const named = new Set(recent);
         for (const id of await durable.port.list(DOCUMENTS_DIR)) {
             const manifest = await durable.port.read(`${DOCUMENTS_DIR}/${id}/${MANIFEST_NAME}`).then(decodeManifest).catch(() => null);
@@ -115,7 +115,7 @@ function directoryOf(ref: string | null) {
     }
 }
 
-/** Opens a tab's unsaved directory here and puts its drafts back on the tab. */
+/** Opens a tab's unsaved directory here and puts its drafts back on the tab; `workingCopyLost` when it would not open. */
 async function restoreUnsavedTab(tab: IWorkspaceCheckpointTab & {workingCopyRef: TDocumentRef}): Promise<IWorkspaceCheckpointTab> {
     browserDocumentStore.nameSource(tab.workingCopyRef, tab.sourceRef ?? tab.workingCopyRef);
     const doc = await browserDocumentStore.documentOf(tab.workingCopyRef);
@@ -142,7 +142,9 @@ async function completeCheckpoint(checkpoint: IWorkspaceCheckpoint | null, orpha
     }
     for (const id of orphans) {
         const tab = await orphanTab(id, paneId);
-        if (tab?.workingCopyRef) tabs.push(await restoreUnsavedTab({...tab, workingCopyRef: tab.workingCopyRef}));
+        const restored = tab?.workingCopyRef ? await restoreUnsavedTab({...tab, workingCopyRef: tab.workingCopyRef}) : null;
+        // One another window opened first stays there.
+        if (restored && !restored.workingCopyLost) tabs.push(restored);
     }
     if (tabs.length === 0) return null;
     const panes = checkpoint?.panes.length ? [...checkpoint.panes] : [{paneId, tabIds: [], activeTabId: null}];
@@ -168,22 +170,16 @@ const namesOf = (checkpoint: ICoreWorkspaceCheckpoint | null | undefined) => Obj
  * The workspace this window restores at startup: its own checkpoint after a reload, else the one of the page
  * this page replaced in its tab, else the newest one whose window is gone, taken by holding that window's lock
  * so no other window takes it too. Only a checkpoint that names unsaved work is restored; one of a window that
- * is gone and left none is removed, so its clean directories can be collected.
+ * is gone and left none is removed, so its clean directories can be collected. Unsaved directories no
+ * checkpoint names come back as tabs of the restored workspace, or of one of their own.
  */
 export async function claimBrowserWorkspaceCheckpoint(windowId: string, inheritedWindowId: string | null = null) {
     const unsaved = new Set(await collectOnce());
     const {durable} = await browserDocumentStore.stores();
     if (!durable) return null;
     const checkpoints = [...await readWorkspaceCheckpoints(durable.port)];
-    // Every window names a directory as soon as it holds it, so an unsaved one no checkpoint names was left by
-    // an open a crash cut short, before anyone could change it.
-    if (checkpoints.every(([, checkpoint]) => checkpoint !== null)) {
-        const named = new Set(checkpoints.flatMap(([, checkpoint]) => namesOf(checkpoint)));
-        for (const id of [...unsaved].filter(id => !named.has(id))) {
-            unsaved.delete(id);
-            await durable.port.remove(`${DOCUMENTS_DIR}/${id}`).catch(() => undefined);
-        }
-    }
+    const named = new Set(checkpoints.flatMap(([, checkpoint]) => namesOf(checkpoint)));
+    const unnamed = [...unsaved].filter(id => !named.has(id));
     const candidates = checkpoints.flatMap(([id, checkpoint]) => checkpoint
         ? [{id, names: namesOf(checkpoint), workspace: decodeStoredWorkspaceCheckpoint(checkpoint.layout)}]
         : []).sort((left, right) => Number(right.id === windowId) - Number(left.id === windowId)
@@ -200,9 +196,10 @@ export async function claimBrowserWorkspaceCheckpoint(windowId: string, inherite
         }
         claimed = {windowId: candidate.id, release};
         const shown = new Set(candidate.workspace?.tabs.map(tab => directoryOf(tab.workingCopyRef)));
-        restored = await completeCheckpoint(candidate.workspace, candidate.names.filter(id => unsaved.has(id) && !shown.has(id)), unsaved);
+        restored = await completeCheckpoint(candidate.workspace, [...candidate.names.filter(id => unsaved.has(id) && !shown.has(id)), ...unnamed], unsaved);
         break;
     }
+    if (restored === null && unnamed.length > 0) restored = await completeCheckpoint(null, unnamed, unsaved);
     // What this window's checkpoint named before is restored and held now, or was clean.
     startCheckpoint = Promise.resolve(null);
     await writeWindowCheckpoint(windowId);
