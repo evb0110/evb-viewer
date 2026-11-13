@@ -6,12 +6,6 @@ use std::{cell::RefCell, slice};
 
 use crate::pdf_conformance_facts;
 use crate::{
-    add_implicit_default_page_label_range, build_browser_page_subset_pdf, build_print_layout,
-    read_pdf_combine_catalog, read_pdf_document_catalog, save_document_to_bytes, set_bookmarks,
-    set_page_labels, BookmarkEntry, BookmarksMutation, PageCloneSource, PageLabelRange,
-    PageLabelsMutation, PrintOrientation, PrintViewMode,
-};
-use crate::{
     append_native_mutations_to_bytes, crop_browser_pdf_bytes, decrypt_browser_pdf_bytes,
     delete_browser_pdf_pages, extract_browser_pdf_pages, get_browser_page_geometry_from_bytes,
     insert_browser_pdf_pages, load_browser_pdf, ocr_text_layer_increment_bytes,
@@ -19,6 +13,10 @@ use crate::{
     rotate_browser_pdf_bytes, serialize_annotation_parse, validate_native_mutations,
     NativeMutationBytesResult, PageMutationBytes, Result, PAGE_OP_WASM_MAX_BUFFER_BYTES,
     PAGE_OP_WASM_MUTATION_HEADER_BYTES,
+};
+use crate::{
+    build_print_layout, page_structure_bytes, read_pdf_document_catalog, save_document_to_bytes,
+    PageStructureEdit, PrintOrientation, PrintViewMode,
 };
 
 use crate::wasm_abi::*;
@@ -334,14 +332,21 @@ fn run_document_list_request(request: &[u8]) -> Result<Vec<u8>> {
         return Err("Invalid page-op WASM document count".into());
     }
     let mut offset = DOCUMENT_LIST_HEADER.bytes;
-    let mut documents = Vec::with_capacity(count);
+    let mut inputs = Vec::with_capacity(count);
     for _ in 0..count {
         let len = read_usize_le(request, &mut offset, "document length")?;
-        documents.push(load_browser_pdf(take_bytes(request, &mut offset, len)?)?);
+        inputs.push(take_bytes(request, &mut offset, len)?);
     }
     if offset != request.len() {
         return Err("Trailing bytes in page-op WASM document-list request".into());
     }
+    if operation == OP_MERGE_PAGES {
+        return encode_mutation(page_structure_bytes(PageStructureEdit::Merge, &inputs)?);
+    }
+    let documents = inputs
+        .into_iter()
+        .map(load_browser_pdf)
+        .collect::<Result<Vec<_>>>()?;
     match operation {
         OP_READ_CATALOG => encode_bytes(
             RESPONSE_JSON,
@@ -351,95 +356,8 @@ fn run_document_list_request(request: &[u8]) -> Result<Vec<u8>> {
             RESPONSE_JSON,
             serde_json::to_vec(&pdf_conformance_facts(&documents[0])?)?,
         ),
-        OP_MERGE_PAGES => {
-            let catalogs = documents
-                .iter()
-                .map(read_pdf_combine_catalog)
-                .collect::<Result<Vec<_>>>()?;
-            let sources = documents.iter().collect::<Vec<_>>();
-            let mut sequence = Vec::new();
-            for (document_index, document) in documents.iter().enumerate() {
-                sequence.extend(document.get_pages().values().copied().map(|page_id| {
-                    PageCloneSource {
-                        document_index,
-                        page_id,
-                    }
-                }));
-            }
-            let merged = build_browser_page_subset_pdf(&sources, &sequence)?;
-            let mut output = load_browser_pdf(&merged.data)?;
-            let mut page_offset = 0u32;
-            let mut bookmarks = Vec::new();
-            let mut page_labels = Vec::new();
-            for (source_index, mut source_catalog) in catalogs.into_iter().enumerate() {
-                add_implicit_default_page_label_range(
-                    &mut source_catalog.page_labels,
-                    documents[source_index].get_pages().len() as u32,
-                );
-                bookmarks.extend(
-                    source_catalog
-                        .bookmarks
-                        .into_iter()
-                        .map(|bookmark| offset_wasm_bookmark(bookmark, page_offset)),
-                );
-                page_labels.extend(source_catalog.page_labels.into_iter().map(|range| {
-                    PageLabelRange {
-                        start_page: range
-                            .page_index
-                            .saturating_add(page_offset)
-                            .saturating_add(1),
-                        style: range.style,
-                        prefix: range.prefix.unwrap_or_default(),
-                        start_number: range.start.unwrap_or(1),
-                    }
-                }));
-                page_offset =
-                    page_offset.saturating_add(documents[source_index].get_pages().len() as u32);
-            }
-            set_page_labels(
-                &mut output,
-                &PageLabelsMutation {
-                    total_pages: merged.page_count,
-                    ranges: page_labels,
-                },
-                false,
-            )?;
-            set_bookmarks(
-                &mut output,
-                &BookmarksMutation {
-                    total_pages: merged.page_count,
-                    untitled_label: "Untitled".to_string(),
-                    items: bookmarks,
-                },
-                None,
-            )?;
-            encode_mutation(PageMutationBytes {
-                page_count: merged.page_count,
-                data: save_document_to_bytes(&mut output)?,
-            })
-        }
         _ => Err(format!("Unsupported page-op WASM document-list operation {operation}").into()),
     }
-}
-
-fn offset_wasm_bookmark(mut bookmark: BookmarkEntry, page_offset: u32) -> BookmarkEntry {
-    use evb_native_support::pdf_catalog::BookmarkSourceTarget::PageIndex;
-    if let Some(index) = &mut bookmark.page_index {
-        *index = index.saturating_add(page_offset);
-    }
-    if let Some(PageIndex(index)) = bookmark
-        .original_destination
-        .as_mut()
-        .map(|destination| &mut destination.source_target)
-    {
-        *index = index.saturating_add(page_offset);
-    }
-    bookmark.items = bookmark
-        .items
-        .into_iter()
-        .map(|item| offset_wasm_bookmark(item, page_offset))
-        .collect();
-    bookmark
 }
 
 // Stream flat and enveloped requests into the same typed mutation decoder.

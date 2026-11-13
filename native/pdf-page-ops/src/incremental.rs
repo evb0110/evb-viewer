@@ -1020,7 +1020,7 @@ fn serialize_xref_stream_object(object_id: ObjectId, mut stream: Stream) -> Resu
     Ok(serialized)
 }
 
-fn consecutive_object_runs(entries: &[(ObjectId, u64)]) -> Vec<&[(ObjectId, u64)]> {
+pub(crate) fn consecutive_object_runs(entries: &[(ObjectId, u64)]) -> Vec<&[(ObjectId, u64)]> {
     if entries.is_empty() {
         return Vec::new();
     }

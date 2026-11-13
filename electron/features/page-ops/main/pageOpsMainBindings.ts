@@ -45,19 +45,19 @@ import {
     removeCropFromPages,
 } from '@electron/features/page-ops/main/crop';
 import {
+    getPdfPageCount,
+    verifyPdfStructureStrict,
+} from '@electron/features/page-ops/main/qpdf';
+import {
     deletePageRanges,
-    deletePages,
     extractPageRanges,
     extractPages,
-    getPdfPageCount,
     movePageRanges,
-    movePages,
     reorderPages,
     rotatePages,
     materializePageOperationWorkingCopy,
-    verifyPdfStructureStrict,
-} from '@electron/features/page-ops/main/qpdf';
-import type { TRotationAngle } from '@electron/features/page-ops/main/qpdf';
+} from '@electron/features/page-ops/main/pageStructure';
+import type { TRotationAngle } from '@electron/features/page-ops/main/pageStructure';
 import { resolveAllowedWritePath } from '@electron/utils/pathValidator';
 import {
     assertQueuedWorkingCopyMutationPreconditions,
@@ -422,15 +422,12 @@ async function handlePageOpsDelete(
             senderId: context.senderId,
             operation,
             options,
-            mutate: async () => isCompactPageSelection(pages)
-                ? {
-                    value: await deletePageRanges(queuedWorkingCopyPath, ranges, expectedTotalPages, context.senderId, nativeOptions),
-                    delta: createDeleteRangesIdentityDelta(expectedTotalPages, ranges),
-                }
-                : {
-                    value: await deletePages(queuedWorkingCopyPath, pages, expectedTotalPages, context.senderId, nativeOptions),
-                    delta: createDeleteIdentityDelta(expectedTotalPages, pages),
-                },
+            mutate: async () => ({
+                value: await deletePageRanges(queuedWorkingCopyPath, ranges, expectedTotalPages, context.senderId, nativeOptions),
+                delta: isCompactPageSelection(pages)
+                    ? createDeleteRangesIdentityDelta(expectedTotalPages, ranges)
+                    : createDeleteIdentityDelta(expectedTotalPages, pages),
+            }),
         });
     });
     return {
@@ -636,11 +633,16 @@ async function handlePageOpsMove(
             operation,
             options,
             mutate: async () => ({
-                value: await movePages(
+                value: await movePageRanges(
                     queuedWorkingCopyPath,
-                    startPage,
-                    endPage,
-                    insertAt,
+                    {
+                        pageCount: actualPageCount,
+                        ranges: [{
+                            startPage,
+                            endPage,
+                        }],
+                        insertAt,
+                    },
                     actualPageCount,
                     context.senderId,
                     nativeOptions,

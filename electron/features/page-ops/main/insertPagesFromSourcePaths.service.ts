@@ -12,21 +12,10 @@ import {
 } from '@electron/image/pdfConversion';
 import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
-import {
-    ensureWorkingCopyDirectory,
-} from '@electron/file-access/documentStore';
-import {
-    cleanupTempOutput,
-    makeTempPdfOutputPath,
-    replaceTempOutput,
-} from '@electron/features/page-ops/main/tempOutput';
-import {
-    assertNonEmptyPdfOutput,
-    getPdfPageCount,
-    QPDF_OUTPUT_SUCCESS_EXIT_CODES,
-    QPDF_TIMEOUT_MS,
-    runQpdfPageOperation,
-} from '@electron/features/page-ops/main/qpdf';
+import { ensureWorkingCopyDirectory } from '@electron/file-access/documentStore';
+import { getPdfPageCount } from '@electron/features/page-ops/main/qpdf';
+import { materializePageOperationWorkingCopy } from '@electron/features/page-ops/main/pageStructure';
+import { runPageStructureCommand } from '@electron/features/page-ops/main/pageStructureCommand';
 import type { TOpenPath } from '@electron/file-access/openPathCapabilities';
 
 const log = createLogger('page-ops-insert-service');
@@ -109,50 +98,21 @@ export async function insertPagesFromSourcePaths(
     if (afterPage > totalPages) {
         throw new Error('Invalid afterPage');
     }
-    const tempPath = makeTempPdfOutputPath(workingCopyPath);
-
     const {
         sourcePdfPath,
         cleanup,
     } = await prepareInsertionSourcePdf(workingCopyPath, sourcePaths, onProgress, options);
 
     try {
-        const pagesArgs: string[] = [];
-
-        if (afterPage >= 1) {
-            pagesArgs.push(workingCopyPath, `1-${afterPage}`);
-        }
-
-        pagesArgs.push(sourcePdfPath, '1-z');
-
-        if (afterPage < totalPages) {
-            pagesArgs.push(workingCopyPath, `${afterPage + 1}-${totalPages}`);
-        }
-
-        const args = [
+        const materializedPath = await materializePageOperationWorkingCopy(
             workingCopyPath,
-            '--pages',
-            ...pagesArgs,
-            '--',
-            tempPath,
-        ];
-        await runQpdfPageOperation(args, {
-            timeoutMs: QPDF_TIMEOUT_MS,
-            allowedExitCodes: QPDF_OUTPUT_SUCCESS_EXIT_CODES,
-            commandLabel: 'qpdf(insert-pages)',
-            ...(options.signal ? { signal: options.signal } : {}),
-            ...(options.cancelGroup ? { cancelGroup: options.cancelGroup } : {}),
-            workingCopyMaterialization: {
-                path: workingCopyPath,
-                ...(senderWebContentsId === undefined ? {} : {senderWebContentsId}),
-                ...(options.signal ? {signal: options.signal} : {}),
-            },
-        });
-        await assertNonEmptyPdfOutput(tempPath, 'Inserting pages');
-        await replaceTempOutput(tempPath, workingCopyPath);
-    } catch (err) {
-        await cleanupTempOutput(tempPath, log, 'temporary insert output');
-        throw err;
+            senderWebContentsId,
+            options.signal,
+        );
+        await runPageStructureCommand('insert-pages', materializedPath, materializedPath, {
+            sources: [sourcePdfPath],
+            afterPage,
+        }, options);
     } finally {
         await cleanup();
     }

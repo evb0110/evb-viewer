@@ -33,10 +33,12 @@ heavy document work. This page is the map. The decisions behind it are in
 
 [ADR 0002](docs/architecture/adr/0002-pdfjs-renders-rust-writes-evb-edits.md) is
 the decision that shapes everything else. PDF.js is a read-only renderer and
-never produces PDF bytes. Each kind of write has one writer: qpdf restructures
-whole files on desktop, the Rust `pdf-page-ops` crate appends incremental edits
-(annotations, rotation, crop, bookmarks, page labels, the OCR text layer) and
-lays out print sheets, and `pdf-image-combine` writes pages from images. The
+never produces PDF bytes. Each kind of write has one writer: the Rust
+`pdf-page-ops` crate rewrites page trees (delete, extract, reorder, insert,
+merge) into fresh files that copy stream data by byte range, appends
+incremental edits (annotations, rotation, crop, bookmarks, page labels, the OCR
+text layer) and lays out print sheets, qpdf optimizes and repairs whole files
+on desktop, and `pdf-image-combine` writes pages from images. The
 app owns the canonical annotation state, and every other view of an annotation,
 on the page, in the sidebar, in the written file, derives from it.
 
