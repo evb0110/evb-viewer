@@ -4,7 +4,6 @@ import {
     type IpcMainInvokeEvent,
     type WebContents,
 } from 'electron';
-import { existsSync } from 'fs';
 import {
     stat, readFile, writeFile,
 } from 'fs/promises';
@@ -61,10 +60,15 @@ import {
 import type { TRotationAngle } from '@electron/features/page-ops/main/qpdf';
 import { resolveAllowedWritePath } from '@electron/utils/pathValidator';
 import {
-    ensureWorkingCopyDirectory, requireManagedWorkingCopyPath,
-} from '@electron/file-access/workingCopyCreation';
-import { findWorkingCopyPathByOriginalPath } from '@electron/file-access/workingCopyStore';
-import { runWithWorkingCopyReadBacking } from '@electron/file-access/runWithWorkingCopyReadBacking';
+    assertQueuedWorkingCopyMutationPreconditions,
+    ensureWorkingCopyDirectory,
+    findWorkingCopyPathByOriginalPath,
+    normalizeExpectedDocumentRevisionToken,
+    requireManagedWorkingCopyPath,
+    runWithWorkingCopyReadBacking,
+    stageWorkingCopyMutation,
+    transitionWorkingCopyContentRevision,
+} from '@electron/file-access/documentStore';
 import { readNativePdfCatalogPart } from '@electron/features/page-ops/main/readNativePdfCatalog';
 import { resolveNativePageOpsPath } from '@electron/features/page-ops/main/resolveNativePageOpsPath';
 import { PDF_BOOKMARK_RECOVERY_ENTRY_SCHEMA } from '@contracts/pdfBookmarkEntry';
@@ -97,7 +101,6 @@ import {
 } from '@contracts/nativePdfMutations';
 import type { IWorkingCopyMutationOperation } from '@electron/file-access/workingCopyMutationQueue';
 import { runWithWorkingCopyMutationCommitSignal } from '@electron/file-access/workingCopyMutationCommitSignal';
-import { transitionWorkingCopyContentRevision } from '@electron/file-access/documentRevisionStore';
 import {
     createCropIdentityDelta,
     createCropRangesIdentityDelta,
@@ -112,10 +115,6 @@ import {
     createRotateIdentityDelta,
     createRotateRangesIdentityDelta,
 } from '@electron/file-access/pageIdentityDelta';
-import {
-    assertQueuedWorkingCopyMutationPreconditions,
-    normalizeExpectedDocumentRevisionToken,
-} from '@electron/file-access/documentMutationGuards';
 import { normalizeOptionalIpcRequestId } from '@electron/utils/ipcLimits';
 import {
     getAutomationSaveDialogPath,
@@ -244,8 +243,9 @@ async function beginQueuedPageMutation(
     expectedDocumentRevisionToken: Parameters<typeof assertQueuedWorkingCopyMutationPreconditions>[1],
 ) {
     const nativeOptions = createNativeOperationOptions(operation);
-    const queuedWorkingCopyPath = await validateWorkingCopyPath(normalizedWorkingCopyPath, senderId);
-    await assertQueuedWorkingCopyMutationPreconditions(queuedWorkingCopyPath, expectedDocumentRevisionToken);
+    await assertQueuedWorkingCopyMutationPreconditions(normalizedWorkingCopyPath, expectedDocumentRevisionToken);
+    // The operation changes a private copy at the next revision's path, which its transition commits.
+    const queuedWorkingCopyPath = await stageWorkingCopyMutation(normalizedWorkingCopyPath, senderId);
     const pageCount = await getPdfPageCount(queuedWorkingCopyPath, nativeOptions);
     return {
         nativeOptions,
@@ -316,8 +316,6 @@ async function transitionPageMutation<T>(input: {
             values.push(mutation.value);
         },
         input.senderId,
-        undefined,
-        input.contentBackupMode,
     ));
     if (values.length !== 1) throw new Error('Page operation did not publish a result');
     if (!committedDelta) throw new Error('Page operation did not publish an identity delta');
@@ -343,9 +341,6 @@ async function validateWorkingCopyPath(path: unknown, senderWebContentsId?: numb
     const resolvedPath = await resolveAllowedWritePath(normalizedPath);
     if (!resolvedPath) {
         throw new Error('Path is outside the allowed working directory');
-    }
-    if (!existsSync(resolvedPath)) {
-        throw new Error(`Working copy not found: ${resolvedPath}`);
     }
 
     return resolvedPath;

@@ -41,12 +41,13 @@ const mocks = vi.hoisted(() => ({
     runNativeToolCommand: vi.fn(),
 }));
 
-vi.mock('@electron/file-access/documentRevisionStore', () => ({
+vi.mock('@electron/file-access/documentStore', async importOriginal => ({
+    ...await importOriginal<Record<string, unknown>>(),
     assertWorkingCopyRevisionCurrent: (...args: unknown[]) => mocks.assertWorkingCopyRevisionCurrent(...args),
     getWorkingCopyRevision: (...args: unknown[]) => mocks.getWorkingCopyRevision(...args),
+    runWithWorkingCopyReadBacking: (...args: unknown[]) => mocks.runWithWorkingCopyReadBacking(...args),
 }));
 vi.mock('@electron/features/documents/main/documentFilePathResolution', () => ({resolveExistingReadablePdfPath: (...args: unknown[]) => mocks.resolveExistingReadablePdfPath(...args)}));
-vi.mock('@electron/file-access/runWithWorkingCopyReadBacking', () => ({runWithWorkingCopyReadBacking: (...args: unknown[]) => mocks.runWithWorkingCopyReadBacking(...args)}));
 vi.mock('@electron/features/page-ops/main/resolveNativePageOpsPath', () => ({resolveNativePageOpsPath: (...args: unknown[]) => mocks.resolveNativePageOpsPath(...args)}));
 vi.mock('@electron/pdf/nativeToolPaths', async (importOriginal) => ({
     ...(await importOriginal<typeof TViMockOriginalModule>()),

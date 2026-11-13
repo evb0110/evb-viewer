@@ -7,7 +7,9 @@ import {
 } from '@electron/platform-ipc/coreContract';
 import type { ILogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
-import { workingCopyMap } from '@electron/file-access/workingCopyStore';
+import {
+    openDocuments,
+} from '@electron/file-access/documentStore';
 import type {IRawIpcRegistrationAudit} from '@electron/platform-ipc/rawIpcRegistration';
 
 export interface IShutdownSaveFlushSummary {
@@ -95,7 +97,7 @@ export async function requestShutdownSaveFlush(options: {
             for (const [
                 workingCopyPath,
                 entry,
-            ] of workingCopyMap) {
+            ] of openDocuments) {
                 if (entry.ownerWebContentsId === senderId) {
                     dirtyWorkingCopyPaths.add(workingCopyPath);
                     flushedWorkingCopyPaths.delete(workingCopyPath);
@@ -176,17 +178,14 @@ export async function requestShutdownSaveFlush(options: {
                     );
                     continue;
                 }
-                const entry = workingCopyMap.get(path);
+                const entry = openDocuments.get(path);
                 if (
                     entry
                     && (
                         entry.ownerWebContentsId === undefined
                         || entry.ownerWebContentsId === event.sender.id
                     )
-                    && (
-                        entry.backingState === 'lazy-original'
-                        || entry.backingState === 'materializing'
-                    )
+                    && entry.doc.state().current === null
                 ) {
                     dirtyWorkingCopyPaths.add(path);
                     flushedWorkingCopyPaths.delete(path);

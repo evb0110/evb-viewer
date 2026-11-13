@@ -1,4 +1,8 @@
-import { contentWitness } from './contentWitness';
+import {
+    contentOf,
+    contentWitness,
+    sameWitness,
+} from './contentWitness';
 import type {
     DocumentDirectory,
     IRevision,
@@ -46,10 +50,10 @@ export function saveDocument(doc: DocumentDirectory, options: ISaveOptions) {
         if (saveAs === undefined && !doc.snapshot().current) return { status: 'saved', revision: null };
         const current = await doc.ensureCurrent();
         if (!current) return { status: 'conflict' };
-        if (saveAs === undefined && current.witness === baseline) return { status: 'saved', revision: current };
+        if (saveAs === undefined && sameWitness(current.witness, baseline)) return { status: 'saved', revision: current };
 
         const file = doc.currentFile();
-        const witness = current.witness ?? await contentWitness(current.length, (offset, length) => file.readAt(offset, length));
+        const witness = contentOf(current.witness) ?? await contentWitness(current.length, (offset, length) => file.readAt(offset, length));
         const revision = { ...current, witness };
         await doc.commit({ ...doc.snapshot(), current: revision, pendingPublish: { destination, witness } });
         const published = await doc.store.publication.publish(
@@ -61,7 +65,8 @@ export function saveDocument(doc: DocumentDirectory, options: ISaveOptions) {
             await doc.commit({ ...doc.snapshot(), pendingPublish: undefined });
             return { status: 'conflict' };
         }
-        await doc.commit({ ...doc.snapshot(), destination, baseline: witness, pendingPublish: undefined });
+        const after = published.witness === undefined ? witness : `${published.witness} ${witness}`;
+        await doc.commit({ ...doc.snapshot(), destination, baseline: after, pendingPublish: undefined });
         return published.keptOriginal === undefined
             ? { status: 'saved', revision }
             : { status: 'saved', revision, keptOriginal: published.keptOriginal };

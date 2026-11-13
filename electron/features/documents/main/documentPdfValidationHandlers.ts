@@ -11,11 +11,13 @@ import {
     validatePdfFileForSave,
 } from '@electron/features/documents/main/pdfConformance';
 import {
-    resolveOriginalBackedReadTransport,
+    resolveDocumentReadTransport,
     withContentReadLease,
 } from '@electron/features/documents/main/documentFileReadHandlers';
 import { resolveExistingReadablePdfPath } from '@electron/features/documents/main/documentFilePathResolution';
-import { getWorkingCopyBackingEntry } from '@electron/file-access/workingCopyStore';
+import {
+    getWorkingCopyBackingEntry,
+} from '@electron/file-access/documentStore';
 import { registerMainOperation } from '@electron/operation-lifecycle/mainOperationLifecycle';
 import type { IDocumentsSenderIdContext } from '@electron/features/documents/documentsContexts';
 
@@ -25,7 +27,7 @@ async function readResolvedPdf<T>(
     read: (physicalPath: string) => Promise<T>,
 ) {
     const resolvedPath = await resolveExistingReadablePdfPath(filePath, context.senderId);
-    const originalBackedRead = resolveOriginalBackedReadTransport(resolvedPath, context.senderId);
+    const originalBackedRead = resolveDocumentReadTransport(resolvedPath, context.senderId);
     return originalBackedRead?.read(read) ?? withContentReadLease(resolvedPath, () => read(resolvedPath));
 }
 

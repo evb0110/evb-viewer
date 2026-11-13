@@ -1,49 +1,42 @@
 import {resolveTypedStagedArtifact} from '@electron/features/documents/main/managedTempFileHandles';
-import { existsSync } from 'fs';
-import {rm} from 'fs/promises';
+import {randomUUID} from 'node:crypto';
+import {constants} from 'node:fs';
+import {
+    copyFile,
+    rm,
+} from 'node:fs/promises';
 import type {
     IDocumentMutationRevisionOptions,
     IPdfSaveAsOptions,
-    IPdfSerializedSaveOptions,
 } from '@contracts/electronApiDocuments';
 import {
     parseDocumentRef,
     type TDocumentRef,
 } from '@contracts/documentRef';
 import {
-    parseDocumentRevisionToken,
-    type TDocumentRevisionToken,
-} from '@contracts/documentRevision';
-import {
     basename,
+    dirname,
     extname,
+    join,
 } from 'path';
 import { addRecentFile } from '@electron/recentFiles';
 import { updateRecentFilesMenu } from '@electron/menu';
 import { allowDocxWritePath } from '@electron/file-access/docxExportPaths';
 import { allowDjvuWritePath } from '@electron/features/djvu/public';
-import { ensureWorkingCopyDirectory } from '@electron/file-access/workingCopyCreation';
 import {
-    getWorkingCopyOriginalPath,
-    setWorkingCopyOriginalPath,
-} from '@electron/file-access/workingCopyStore';
+    assertQueuedWorkingCopyMutationPreconditions,
+    normalizeExpectedDocumentRevisionToken,
+    requireDocumentFile,
+    requireOpenDocument,
+    saveOpenDocument,
+} from '@electron/file-access/documentStore';
 import { allowOpenPath } from '@electron/file-access/openPathCapabilities';
 import { te } from '@electron/te';
-import {makeSiblingTempPath} from '@electron/utils/atomicReplace';
-import { commitPdfTempFile } from '@electron/features/documents/main/commitPdfTempFile';
-import { encodeSerializableErrorEnvelope } from '@contracts/serializableError';
-import { getErrorMessage } from '@electron/utils/error';
 import { validatePdfFile } from '@electron/features/documents/main/pdfConformance';
 import { enqueueWorkingCopyMutation } from '@electron/file-access/workingCopyMutationQueue';
-import { copyFileCopyOnWrite } from '@electron/file-access/workingCopyDirectory';
-import { copyFileAtomic } from '@electron/file-access/documentFileWriteAtomic';
 import { optimizePdfForSaveAs } from '@electron/features/documents/public/pdfSaveAsOptimization';
 import type { IDocumentsDialogContext } from '@electron/features/documents/documentsContexts';
-import {
-    markWorkingCopySyncRequired,
-    markWorkingCopyContentChanged,
-} from '@electron/file-access/documentRevisionStore';
-import { assertQueuedWorkingCopyMutationPreconditions } from '@electron/file-access/documentMutationGuards';
+import {createStaleRevisionError} from '@contracts/documentMutationErrors';
 
 export type TShowSaveDialogWithExtension = (
     context: IDocumentsDialogContext,
@@ -63,35 +56,12 @@ function requireDocumentRef(value: unknown): TDocumentRef {
     return documentRef;
 }
 
-function normalizeExpectedDocumentRevisionToken(options?: IPdfSerializedSaveOptions | null): TDocumentRevisionToken | null {
-    const token = options?.expectedDocumentRevisionToken;
-    if (token === undefined) {
-        return null;
-    }
-    const parsedToken = parseDocumentRevisionToken(token);
-    if (parsedToken === null) {
-        throw new TypeError('expectedDocumentRevisionToken must be a non-empty string');
-    }
-    return parsedToken;
-}
-
-// The target is published either way; the caller learns that the open copy
-// no longer matches it, rather than taking the save for a plain success.
-async function markSaveAsWorkingCopySyncRequired(workingPath: string, error: unknown) {
-    const message = `Target file was saved, but the working copy refresh failed: ${getErrorMessage(error)}`;
-    await markWorkingCopySyncRequired(workingPath, message);
-    return new Error(encodeSerializableErrorEnvelope({
-        code: 'working-copy-sync-required',
-        message,
-    }));
-}
-
 async function promptForPdfSaveAsTarget(
     context: IDocumentsDialogContext,
     workingPath: string,
     showSaveDialogWithExtension: TShowSaveDialogWithExtension,
 ) {
-    const originalPath = getWorkingCopyOriginalPath(workingPath, context.senderId)?.originalPath;
+    const originalPath = requireOpenDocument(workingPath, context.senderId).originalPath;
     const suggestedName = originalPath
         ? basename(originalPath)
         : basename(workingPath);
@@ -119,13 +89,7 @@ export async function savePdfAs(
     if (extension !== '.pdf') {
         throw new Error('Invalid file type: only PDF files are allowed');
     }
-
-    if (!await ensureWorkingCopyDirectory(normalizedWorkingPath, context.senderId)) {
-        throw new Error('Working copy path is not managed');
-    }
-    if (!existsSync(normalizedWorkingPath)) {
-        throw new Error(`File not found: ${normalizedWorkingPath}`);
-    }
+    const entry = requireOpenDocument(normalizedWorkingPath, context.senderId);
     const expectedDocumentRevisionToken = normalizeExpectedDocumentRevisionToken(revisionOptions);
 
     const targetPath = await promptForPdfSaveAsTarget(
@@ -137,54 +101,44 @@ export async function savePdfAs(
         return null;
     }
 
-    const refresh: {syncRequired?: Error} = {};
-    await enqueueWorkingCopyMutation(normalizedWorkingPath, async () => {
-        await assertQueuedWorkingCopyMutationPreconditions(normalizedWorkingPath, expectedDocumentRevisionToken);
-        if (!await ensureWorkingCopyDirectory(normalizedWorkingPath, context.senderId)) {
-            throw new Error('Working copy path is not managed');
-        }
-        if (!existsSync(normalizedWorkingPath)) {
-            throw new Error(`File not found: ${normalizedWorkingPath}`);
-        }
-
-        const tempPath = makeSiblingTempPath(targetPath);
-        let replaced = false;
+    await enqueueWorkingCopyMutation(entry.ref, async () => {
+        await assertQueuedWorkingCopyMutationPreconditions(entry.ref, expectedDocumentRevisionToken);
+        // Pending annotations and an optimization are committed to the working copy first; Save As then
+        // publishes exactly those bytes and makes the new file the document's destination.
+        const tempPath = join(dirname(entry.ref), `.save-as-${randomUUID()}.pdf`);
         try {
             const stagedOutput = options?.stagedOutput
                 ? await resolveTypedStagedArtifact(context, options.stagedOutput)
                 : undefined;
-            const sourcePath = stagedOutput?.path ?? normalizedWorkingPath;
+            const sourcePath = stagedOutput?.path ?? await requireDocumentFile(entry);
             const validation = await validatePdfFile(sourcePath);
             if (!validation.isValid) {
                 throw new Error('Working copy is not a valid PDF');
             }
-
-            await copyFileCopyOnWrite(sourcePath, tempPath);
+            await copyFile(sourcePath, tempPath, constants.COPYFILE_FICLONE);
             const optimizedValidation = await optimizePdfForSaveAs(tempPath, options);
-            await commitPdfTempFile(tempPath, targetPath, {ownerId: `pdf-save-as:${context.senderId}`});
-            replaced = true;
-            try {
-                await setWorkingCopyOriginalPath(normalizedWorkingPath, targetPath, context.senderId);
-                if (optimizedValidation || stagedOutput) {
-                    // Replaced through a temporary file, so a failed copy
-                    // leaves the live working copy as it was.
-                    await copyFileAtomic(targetPath, normalizedWorkingPath);
-                    await markWorkingCopyContentChanged(normalizedWorkingPath, 'save-sync', context.senderId);
-                }
-            } catch (syncError) {
-                refresh.syncRequired = await markSaveAsWorkingCopySyncRequired(normalizedWorkingPath, syncError);
+            const result = await saveOpenDocument(entry, expectedDocumentRevisionToken, {
+                ...(optimizedValidation || stagedOutput ? {commit: {kind: 'rewrite' as const, source: tempPath}} : {}),
+                saveAs: targetPath,
+            });
+            if (result.status === 'stale-revision') {
+                throw createStaleRevisionError({
+                    documentRef: requireDocumentRef(entry.ref),
+                    expectedRevision: expectedDocumentRevisionToken,
+                    actualRevision: null,
+                });
+            }
+            if (result.status !== 'saved') {
+                throw new Error(`Save As did not complete: ${result.status}`);
             }
         } finally {
-            if (!replaced) {
-                await rm(tempPath, { force: true }).catch(() => undefined);
-            }
+            await rm(tempPath, { force: true }).catch(() => undefined);
         }
     });
 
     allowOpenPath(targetPath, context.sender);
     await addRecentFile(targetPath);
     updateRecentFilesMenu();
-    if (refresh.syncRequired) throw refresh.syncRequired;
 
     return requireDocumentRef(targetPath);
 }

@@ -23,3 +23,19 @@ export async function contentWitness(size: number, read: (offset: number, length
     }
     return `content-v2:${size}:${Array.from(digest, byte => byte.toString(16).padStart(2, '0')).join('')}`;
 }
+
+/** The `content-v2:` fact of a witness, if it carries one. */
+export const contentOf = (witness: string | null | undefined) => witness?.split(' ').find(fact => fact.startsWith('content-v2:'));
+
+/**
+ * Witnesses are space-separated facts: the `content-v2:` fact names the bytes, other facts (a platform's
+ * file metadata, which a desktop destination's witness carries) name one version of a file. Two witnesses
+ * match by content when both carry it, otherwise by their other facts.
+ */
+export function sameWitness(left: string | null | undefined, right: string | null | undefined) {
+    if (!left || !right) return false;
+    const content = [contentOf(left), contentOf(right)];
+    if (content[0] && content[1]) return content[0] === content[1];
+    const other = (witness: string) => witness.split(' ').filter(fact => !fact.startsWith('content-v2:')).join(' ');
+    return other(left) !== '' && other(left) === other(right);
+}

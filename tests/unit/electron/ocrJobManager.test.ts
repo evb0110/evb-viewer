@@ -42,7 +42,10 @@ vi.mock('@electron/features/ocr/languageModels', () => ({
     ensureTessdataLanguages: mocks.ensureTessdataLanguages,
     getRuntimeTessdataDir: () => root,
 }));
-vi.mock('@electron/file-access/documentRevisionStore', () => ({getWorkingCopyRevision: mocks.getWorkingCopyRevision}));
+vi.mock('@electron/file-access/documentStore', async importOriginal => ({
+    ...await importOriginal<Record<string, unknown>>(),
+    getWorkingCopyRevision: mocks.getWorkingCopyRevision,
+}));
 
 const jobManager = await import('@electron/features/ocr/main/jobManager');
 

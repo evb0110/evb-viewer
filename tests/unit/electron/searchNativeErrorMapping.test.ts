@@ -163,7 +163,10 @@ vi.mock('@electron/pdf/nativeToolPaths', () => ({getPdfNativeToolPaths: () => ({
     qpdf: '/fake/qpdf',
 })}));
 vi.mock('@electron/native-tools/resolveNativeToolPath', () => ({resolveNativeToolPath: () => '/fake/evb-pdf-search'}));
-vi.mock('@electron/file-access/documentRevisionStore', () => ({assertWorkingCopyRevisionCurrent: async () => undefined}));
+vi.mock('@electron/file-access/documentStore', async importOriginal => ({
+    ...await importOriginal<Record<string, unknown>>(),
+    assertWorkingCopyRevisionCurrent: async () => undefined,
+}));
 // Without evb-pdf-page-ops, text extraction keeps Poppler's layout reading of every page.
 vi.mock('@electron/features/page-ops/public/nativePageOpsPath', () => ({resolveNativePageOpsPath: () => fake.evbOcrText === null ? null : '/fake/evb-pdf-page-ops'}));
 vi.mock('@electron/utils/workerTask', async importOriginal => ({

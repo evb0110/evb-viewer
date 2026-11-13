@@ -36,8 +36,10 @@ import {buildPopplerEnv} from '@electron/native-tools/buildPopplerEnv';
 import type {IOcrCompleteResult} from '@contracts/electronApiOcr';
 import {OCR_LANGUAGE_MODEL_SHA256} from '@contracts/ocrLanguages';
 import {decodeWorkspaceCheckpoint} from '@contracts/workspaceCheckpoint';
-import {readWorkspaceRecoveryRecords} from '@scripts/electron-run/electronRunWorkspaceCheckpoint';
-import {electronUserDataPath} from '@scripts/electron-run/electronRunSessionPaths';
+import {
+    readAnnotationRecoveryDraft,
+    readWorkspaceRecoveryRecords,
+} from '@scripts/electron-run/electronRunWorkspaceCheckpoint';
 import {createElectronE2ESessionFixture} from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
 import {
     activateMenuItemAsUser,
@@ -539,14 +541,11 @@ if (process.versions.electron && process.type === 'browser') {
                 .map(record => decodeWorkspaceCheckpoint(record.checkpoint)).find(Boolean);
             const recovery = checkpoint?.tabs.find(tab => tab.workingCopyRef === workingPath)?.annotationRecovery;
             if (!recovery) return false;
-            const payloadBytes = await readFile(join(
-                electronUserDataPath(session.name), 'workspace-annotation-recovery', `${recovery.artifactId}.json`,
-            ));
-            const payload = JSON.parse(payloadBytes.toString()) as {payload?: {entities?: Array<{contents?: string}>}};
+            const payload = JSON.parse(readAnnotationRecoveryDraft(session.name, recovery.artifactId) ?? '{}') as {payload?: {entities?: Array<{contents?: string}>}};
             const notePresent = payload.payload?.entities?.some(entity => entity.contents === marker) ?? false;
             if (notePresent) {
                 await writeFile(join(evidence, 'workspace-before-crash.json'), JSON.stringify(checkpoint, null, 2));
-                await writeFile(join(evidence, 'annotation-recovery.json'), payloadBytes);
+                await writeFile(join(evidence, 'annotation-recovery.json'), JSON.stringify(payload));
             }
             return notePresent;
         }, {timeout: 30_000}).toBe(true);

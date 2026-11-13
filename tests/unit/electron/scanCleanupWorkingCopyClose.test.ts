@@ -1,12 +1,8 @@
 import type * as TViMockOriginalModule from '@electron/pdf/nativeToolPaths';
-import type * as TViMockOriginalModule2 from '@electron/file-access/workingCopyStore';
-import type * as TWorkingCopyDirectoryModule from '@electron/file-access/workingCopyDirectory';
 import type * as TInputLimits from '@contracts/scan-cleanup/inputLimits';
 
 import {
     existsSync,
-    mkdirSync,
-    realpathSync,
     writeFileSync,
 } from 'node:fs';
 import {
@@ -18,7 +14,6 @@ import {tmpdir} from 'node:os';
 import {
     dirname,
     join,
-    resolve,
 } from 'node:path';
 import {
     afterEach,
@@ -34,7 +29,12 @@ import type * as TJobBrokerModule from '@electron/resources/jobBroker';
 import type * as TPageOpsModule from '@electron/features/page-ops/public';
 import {createScanCleanupService} from '@electron/features/scan-cleanup/createScanCleanupService';
 import {createMainJobRegistry} from '@electron/operation-lifecycle/createMainJobRegistry';
-import {cleanupWorkingCopy} from '@electron/file-access/workingCopyCleanup';
+import {
+    cleanupWorkingCopy,
+    openDocumentFromFile,
+    openDocuments,
+    setDocumentStoreRootForTests,
+} from '@electron/file-access/documentStore';
 import {clearWorkingCopyQuarantinesForTests} from '@electron/file-access/workingCopyQuarantine';
 import {markUnprovenNativeTermination} from '@electron/utils/nativeTerminationProof';
 import {
@@ -65,14 +65,6 @@ vi.mock('@contracts/scan-cleanup/inputLimits', async importOriginal => ({
     SCAN_CLEANUP_STREAMING_BATCH_PAGES: 2,
 }));
 
-interface IWorkingCopyEntry {
-    backingState: 'eager';
-    originalPath: string;
-    ownerWebContentsId: number;
-    registeredAtMs: number;
-    registrationId: number;
-    role: 'current';
-}
 
 const state = vi.hoisted(() => ({
     // Every main-process logger in the close path writes here, so a test can
@@ -83,7 +75,6 @@ const state = vi.hoisted(() => ({
         message: string;
     }>,
     tempRoot: '',
-    workingCopyMap: new Map<string, unknown>(),
 }));
 
 vi.mock('@electron/utils/createLogger', () => ({createLogger: (source: string) => {
@@ -161,49 +152,9 @@ vi.mock('@electron/file-access/openPathCapabilities', () => ({
     OPEN_PATH_CAPABILITY_TTL_MS: 60_000,
 }));
 
-vi.mock('@electron/file-access/workingCopyStore', async (importOriginal_2) => ({
-    ...(await importOriginal_2<typeof TViMockOriginalModule2>()),
-    clearRetiredWorkingCopyOriginals: vi.fn(),
-    forgetRetiredWorkingCopyOriginal: vi.fn(),
-    forgetWorkingCopyOriginalPath: (path: string) => state.workingCopyMap.delete(path),
-    getWorkingCopyBackingEntry: (path: string) => state.workingCopyMap.get(path) ?? null,
-    getWorkingCopyOwnerWebContentsId: (path: string) => (
-        (state.workingCopyMap.get(path) as IWorkingCopyEntry | undefined)?.ownerWebContentsId
-    ),
-    isWorkingCopyOriginalPathRegistered: () => false,
-    normalizePathForLookup: (path: string) => {
-        const resolvedPath = resolve(path.trim());
-        try {
-            return realpathSync.native(resolvedPath);
-        } catch {
-            return resolvedPath;
-        }
-    },
-    rememberRetiredWorkingCopyOriginal: vi.fn(),
-    runWithWorkingCopyRegistrationFence: async (
-        path: string,
-        registrationId: number,
-        operation: (entry: unknown) => unknown,
-    ) => {
-        const entry = state.workingCopyMap.get(path) as IWorkingCopyEntry | undefined;
-        if (!entry || entry.registrationId !== registrationId) {
-            return {matched: false as const};
-        }
-        return {
-            matched: true as const,
-            value: await operation(entry),
-        };
-    },
-    workingCopyMap: state.workingCopyMap,
-}));
-vi.mock('@electron/file-access/workingCopyMaterialization', () => ({
-    cancelWorkingCopyMaterialization: vi.fn(() => false),
+vi.mock('@electron/file-access/documentStore', async importOriginal => ({
+    ...await importOriginal<Record<string, unknown>>(),
     ensureWorkingCopyMaterialized: mocks.ensureMaterialized,
-}));
-vi.mock('@electron/file-access/workingCopyDirectory', async importOriginal => ({
-    ...(await importOriginal<typeof TWorkingCopyDirectoryModule>()),
-    isWorkingCopyDirectoryName: (name: string) => name.startsWith('pdf-work-'),
-    safeRemoveDirectory: vi.fn(async () => false),
 }));
 vi.mock('@electron/utils/appTempDir', () => ({
     getAppTempDir: () => state.tempRoot,
@@ -212,12 +163,6 @@ vi.mock('@electron/utils/appTempDir', () => ({
         state.tempRoot,
         join(dirname(state.tempRoot), 'evb-viewer-retired'),
     ],
-}));
-vi.mock('@electron/file-access/workingCopyMutationQueue', () => ({drainWorkingCopyMutations: vi.fn(async () => undefined)}));
-vi.mock('@electron/file-access/documentRevisionStore', () => ({
-    clearWorkingCopyRevisionInitializations: vi.fn(),
-    forgetWorkingCopyRevisionInitialization: vi.fn(),
-    hasWorkingCopySyncRequired: () => false,
 }));
 vi.mock('@electron/file-access/pageIdentityStore', () => ({
     clearPageIdentityStoreInitializations: vi.fn(),
@@ -280,24 +225,10 @@ function startRequest(sourcePdfPath: string) {
     };
 }
 
-function registerWorkingCopy(workingPath: string, originalPath: string, registrationId = 91) {
-    state.workingCopyMap.set(workingPath, {
-        backingState: 'eager',
-        originalPath,
-        ownerWebContentsId: OWNER_WEB_CONTENTS_ID,
-        registeredAtMs: Date.now(),
-        registrationId,
-        role: 'current',
-    } satisfies IWorkingCopyEntry);
-}
-
 async function createManagedWorkingCopy(name: string) {
     const originalPath = join(state.tempRoot, `${name}-original.pdf`);
-    const workingPath = join(state.tempRoot, `pdf-work-${name}`, 'working.pdf');
-    mkdirSync(dirname(workingPath), {recursive: true});
     writeFileSync(originalPath, 'original');
-    writeFileSync(workingPath, 'managed');
-    registerWorkingCopy(workingPath, originalPath);
+    const {ref: workingPath} = await openDocumentFromFile(originalPath, {ownerWebContentsId: OWNER_WEB_CONTENTS_ID});
     return {
         originalPath,
         workingPath,
@@ -308,7 +239,7 @@ describe('closing a source document during scan cleanup', () => {
     beforeEach(async () => {
         state.tempRoot = await mkdtemp(join(tmpdir(), 'evb-scan-cleanup-close-'));
         mocks.outputRoot = state.tempRoot;
-        state.workingCopyMap.clear();
+        await setDocumentStoreRootForTests(join(state.tempRoot, 'store'));
         mocks.acquire.mockClear();
         mocks.acquire.mockImplementation(async () => ({release: vi.fn()}));
         mocks.ensureMaterialized.mockReset();
@@ -322,6 +253,7 @@ describe('closing a source document during scan cleanup', () => {
     afterEach(async () => {
         resetMainOperationLifecycleForTests();
         clearWorkingCopyQuarantinesForTests();
+        await setDocumentStoreRootForTests(null);
         await rm(state.tempRoot, {
             force: true,
             recursive: true,
@@ -418,7 +350,7 @@ describe('closing a source document during scan cleanup', () => {
             expect(service.cancelDetection(webContents, started.jobId, detection)).toBe(false);
             await cleanupWorkingCopy(workingPath, OWNER_WEB_CONTENTS_ID);
 
-            expect(existsSync(workingPath)).toBe(false);
+            expect(existsSync(dirname(workingPath))).toBe(false);
             const staleClaim = claimScanCleanupDetectionResultStore(storeId!, storeOwner);
             try {
                 expect.soft(staleClaim, 'a closed document must not admit new detection-store borrowers').toBeNull();
@@ -629,41 +561,6 @@ describe('closing a source document during scan cleanup', () => {
         });
     });
 
-    it('deletes nothing when the same path is re-registered while the run is stopping', async () => {
-        const {workingPath} = await createManagedWorkingCopy('reopened');
-        const observed = Promise.withResolvers<AbortSignal>();
-        mocks.runWorker.mockImplementation(async (
-            _request: unknown,
-            _paths: unknown,
-            _policy: unknown,
-            signal: AbortSignal,
-        ) => {
-            observed.resolve(signal);
-            return new Promise<never>((_, reject) => {
-                signal.addEventListener('abort', () => {
-                    // The user reopened the document on this path while the
-                    // close was still waiting for the old run to stop. The bytes
-                    // now belong to a registration nobody asked to close.
-                    registerWorkingCopy(workingPath, join(state.tempRoot, 'reopened-original.pdf'), 92);
-                    setTimeout(() => reject(toAbortError(signal)), 5);
-                }, {once: true});
-            });
-        });
-
-        const service = createScanCleanupService();
-        const webContents = sender();
-        const started = await service.start(webContents, startRequest(workingPath));
-        if (!started.started) throw new Error('Expected scan cleanup to start');
-        await observed.promise;
-
-        await cleanupWorkingCopy(workingPath, OWNER_WEB_CONTENTS_ID);
-
-        expect((state.workingCopyMap.get(workingPath) as IWorkingCopyEntry).registrationId).toBe(92);
-        expect(existsSync(workingPath)).toBe(true);
-        expect(existsSync(dirname(workingPath))).toBe(true);
-        expect(service.getState(webContents, started.jobId, owner)).toMatchObject({status: 'canceled'});
-    });
-
     it('retains the source bytes when the run could not prove its native tree died', async () => {
         const {workingPath} = await createManagedWorkingCopy('unproven');
         const observed = Promise.withResolvers<AbortSignal>();
@@ -698,8 +595,8 @@ describe('closing a source document during scan cleanup', () => {
         // The registration is gone: the document is closed either way. Only the
         // bytes stay, for the stale sweep to reclaim once no process can hold
         // them.
-        expect(state.workingCopyMap.has(workingPath)).toBe(false);
-        expect(existsSync(workingPath)).toBe(true);
+        expect(openDocuments.has(workingPath)).toBe(false);
+        expect(existsSync(dirname(workingPath))).toBe(true);
         expect(service.getState(webContents, started.jobId, owner)).toMatchObject({status: 'canceled'});
     });
 

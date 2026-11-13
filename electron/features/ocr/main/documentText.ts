@@ -10,7 +10,9 @@ import {
 } from '@contracts/documentTextCatalog';
 import { requirePageNumber } from '@contracts/pageNumbers';
 import { streamPdfPageTexts } from '@electron/features/search/public';
-import { assertWorkingCopyRevisionCurrent } from '@electron/file-access/documentRevisionStore';
+import {
+    assertWorkingCopyRevisionCurrent,
+} from '@electron/file-access/documentStore';
 
 // The PDF text layer is the document's only text; OCR writes into it.
 

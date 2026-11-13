@@ -118,7 +118,7 @@ import { waitForAnimationFrames } from '@tests/e2e/electron/helpers/viewerVirtua
 import { getErrorMessage } from '@contracts/getErrorMessage';
 import { expectWithinTimingBudget } from '@tests/e2e/electron/helpers/timingBudget';
 import { getActiveWorkspaceWorkingCopyPath } from '@tests/e2e/electron/helpers/electronApiHelpers';
-import { getWorkingCopyDerivedPath } from '@electron/file-access/workingCopyDirectory';
+import { getWorkingCopyDerivedPath } from '@electron/file-access/documentStore';
 import { createCanonicalTextBoxWithPointer } from '@tests/e2e/electron/helpers/viewerAnnotations';
 import {runNativeToolCommand} from '@electron/native-tools/runNativeToolCommand';
 import {getDjvuNativeToolPaths} from '@electron/features/djvu/main/nativeToolPaths';

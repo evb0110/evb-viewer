@@ -1,5 +1,3 @@
-import type * as TViMockOriginalModule from '@electron/file-access/workingCopyStore';
-
 import {
     beforeEach,
     describe,
@@ -22,7 +20,7 @@ const state = vi.hoisted(() => ({
     }, payload: unknown) => void),
     senderFrame: null as unknown,
     workingCopyMap: new Map<string, {
-        backingState: 'lazy-original' | 'materialized';
+        doc: {state: () => {current: object | null}};
         ownerWebContentsId?: number;
     }>(),
 }));
@@ -38,10 +36,11 @@ vi.mock('electron', () => ({ipcMain: {
     }),
 }}));
 
-vi.mock('@electron/file-access/workingCopyStore', async (importOriginal) => ({
-    ...(await importOriginal<typeof TViMockOriginalModule>()),
-    workingCopyMap: state.workingCopyMap,
-}));
+vi.mock('@electron/file-access/documentStore', () => ({openDocuments: state.workingCopyMap}));
+
+// A document with bytes of its own, and one that still reads its original.
+const withOwnBytes = {state: () => ({current: {}})};
+const withoutOwnBytes = {state: () => ({current: null})};
 
 function createWindow(response: (requestId: string) => Record<string, unknown>) {
     return {
@@ -81,7 +80,7 @@ describe('requestShutdownSaveFlush', () => {
     it('preserves all owned working copies when the renderer flush reports a failure', async () => {
         const workingCopyPath = '/tmp/pdf-work-failed/working.pdf';
         state.workingCopyMap.set(workingCopyPath, {
-            backingState: 'materialized',
+            doc: withOwnBytes,
             ownerWebContentsId: 7,
         });
         const logger = {
@@ -129,7 +128,7 @@ describe('requestShutdownSaveFlush', () => {
     it('rejects a dirty lazy working copy reported as flushed', async () => {
         const workingCopyPath = '/tmp/pdf-work-lazy/working.pdf';
         state.workingCopyMap.set(workingCopyPath, {
-            backingState: 'lazy-original',
+            doc: withoutOwnBytes,
             ownerWebContentsId: 7,
         });
         const logger = {
@@ -160,7 +159,7 @@ describe('requestShutdownSaveFlush', () => {
     it('preserves exact dirty paths when renderer reports conflict with a flush', async () => {
         const workingCopyPath = ' /tmp/pdf-work-conflict/working.pdf ';
         state.workingCopyMap.set(workingCopyPath, {
-            backingState: 'materialized',
+            doc: withOwnBytes,
             ownerWebContentsId: 7,
         });
         const logger = {
@@ -213,7 +212,7 @@ describe('requestShutdownSaveFlush', () => {
     ])('preserves owned working copies for %s', async (_label, response, expected) => {
         const workingCopyPath = '/tmp/pdf-work-untrusted/working.pdf';
         state.workingCopyMap.set(workingCopyPath, {
-            backingState: 'materialized',
+            doc: withOwnBytes,
             ownerWebContentsId: 7,
         });
         const logger = {

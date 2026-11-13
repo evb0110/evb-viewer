@@ -27,9 +27,11 @@ import {
     type TArtifactFileIdentity,
 } from '@contracts/stagedArtifacts';
 import type { IDocumentsSenderIdContext } from '@electron/features/documents/documentsContexts';
-import { readWorkingCopyRevision } from '@electron/file-access/workingCopyManifest';
+import {
+    readWorkingCopyRevision,
+} from '@electron/file-access/documentStore';
 import {fingerprintFileWithUtilityProcess} from '@electron/features/documents/main/fingerprintFileWithUtilityProcess';
-import {resolveOriginalBackedReadTransport} from '@electron/features/documents/main/documentFileReadHandlers';
+import {resolveDocumentReadTransport} from '@electron/features/documents/main/documentFileReadHandlers';
 import {isAllowedOriginalSavePath} from '@electron/file-access/isAllowedOriginalSavePath';
 import {setManagedTempPathAccessValidator} from '@electron/utils/pathValidator';
 import {
@@ -283,7 +285,7 @@ export async function createManagedTempFileHandle(
     options: {cleanupOnRelease?: boolean} = {},
 ): Promise<IManagedTempFileHandle> {
     const path = await resolveExistingReadableDocumentOrImagePath(filePath, context.senderId);
-    const originalBackedRead = resolveOriginalBackedReadTransport(path, context.senderId);
+    const originalBackedRead = resolveDocumentReadTransport(path, context.senderId);
     const [
         inspection,
         currentRevision,
@@ -548,7 +550,7 @@ export async function resolveManagedTempFileHandle(
     if (!lease || lease.invalidated || 'artifact' in lease || lease.ownerId !== context.senderId || lease.path !== handle.path) {
         throw new Error('Managed binary handle lease is missing, expired, or belongs to another renderer');
     }
-    const originalBackedRead = resolveOriginalBackedReadTransport(handle.path, context.senderId);
+    const originalBackedRead = resolveDocumentReadTransport(handle.path, context.senderId);
     const [
         inspection,
         currentRevision,

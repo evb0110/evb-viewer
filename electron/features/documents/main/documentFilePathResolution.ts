@@ -12,13 +12,11 @@ import {
     resolveAllowedReadPath,
     getManagedTempPathAccessDecision,
 } from '@electron/utils/pathValidator';
-import { ensureWorkingCopyDirectory } from '@electron/file-access/workingCopyCreation';
 import {
     findWorkingCopyPathByOriginalPath,
+    getOpenDocument,
     getWorkingCopyBackingEntry,
-    getWorkingCopyOwnerWebContentsId,
-    hasWorkingCopyTransferAccess,
-} from '@electron/file-access/workingCopyStore';
+} from '@electron/file-access/documentStore';
 import { isAllowedDjvuViewingPath } from '@electron/features/djvu/public';
 import { requireOpenPath } from '@electron/file-access/openPathCapabilities';
 
@@ -87,13 +85,9 @@ function pathExists(path: string) {
     return existsSync(path);
 }
 
-function isOriginalBackedManagedRef(
-    normalizedPath: string,
-    senderId?: number,
-) {
-    const entry = getWorkingCopyBackingEntry(normalizedPath, senderId);
-    return entry?.backingState === 'lazy-original'
-        || entry?.backingState === 'materializing';
+/** An open document's ref: its bytes are reached through the document store, not at the path itself. */
+function isManagedRef(normalizedPath: string, senderId?: number) {
+    return getWorkingCopyBackingEntry(normalizedPath, senderId) !== null;
 }
 
 function isReadablePathAllowedForSender(path: string, senderId?: number) {
@@ -103,9 +97,8 @@ function isReadablePathAllowedForSender(path: string, senderId?: number) {
     ) === null) {
         return false;
     }
-    const owner = getWorkingCopyOwnerWebContentsId(path);
-    return owner === undefined || owner === senderId
-        || (typeof senderId === 'number' && hasWorkingCopyTransferAccess(path, senderId));
+    // A file of an open document belongs to the window that owns the document.
+    return getOpenDocument(path) === null || getOpenDocument(path, senderId) !== null;
 }
 
 async function resolveReadablePath(
@@ -116,44 +109,18 @@ async function resolveReadablePath(
     if (!isReadablePathAllowedForSender(normalizedPath, senderId)) {
         return null;
     }
-    if (isOriginalBackedManagedRef(normalizedPath, senderId)) {
+    if (isManagedRef(normalizedPath, senderId)) {
         return normalizedPath;
     }
-
+    // The renderer may still name the original of an open document.
     const mappedWorkingCopyPath = findWorkingCopyPathByOriginalPath(normalizedPath, senderId);
-    if (
-        mappedWorkingCopyPath
-        && isOriginalBackedManagedRef(mappedWorkingCopyPath, senderId)
-    ) {
+    if (mappedWorkingCopyPath) {
         return mappedWorkingCopyPath;
     }
 
     const directResolvedPath = await resolveAllowedReadPath(normalizedPath);
     if (directResolvedPath && isReadablePathAllowedForSender(directResolvedPath, senderId)) {
         return directResolvedPath;
-    }
-
-    if (await ensureWorkingCopyDirectory(normalizedPath, senderId)) {
-        const restoredWorkingCopyPath = await resolveAllowedReadPath(normalizedPath);
-        if (restoredWorkingCopyPath && isReadablePathAllowedForSender(restoredWorkingCopyPath, senderId)) {
-            return restoredWorkingCopyPath;
-        }
-    }
-
-    // When renderer still references the original path, remap it to the active
-    // working copy path to preserve temp-sandboxed reads.
-    if (!mappedWorkingCopyPath) {
-        return resolveGrantedReadablePathSync(normalizedPath, senderId)
-            ?? resolveDirectSourceReadPath(normalizedPath, extension, senderId);
-    }
-
-    const mappedResolvedPath = await resolveAllowedReadPath(mappedWorkingCopyPath);
-    if (
-        mappedResolvedPath
-        && isReadablePathAllowedForSender(mappedWorkingCopyPath, senderId)
-        && isReadablePathAllowedForSender(mappedResolvedPath, senderId)
-    ) {
-        return mappedResolvedPath;
     }
 
     return resolveGrantedReadablePathSync(normalizedPath, senderId)
@@ -177,11 +144,11 @@ function resolveGrantedReadablePathSync(normalizedPath: string, senderId?: numbe
  */
 function describeRejectedReadPath(normalizedPath: string, senderId?: number) {
     const mappedWorkingCopyPath = findWorkingCopyPathByOriginalPath(normalizedPath, senderId);
-    const scopedBacking = getWorkingCopyBackingEntry(normalizedPath, senderId)?.backingState ?? 'none';
-    const unscopedBacking = getWorkingCopyBackingEntry(normalizedPath)?.backingState ?? 'none';
+    const scopedDocument = isManagedRef(normalizedPath, senderId) ? 'yes' : 'no';
+    const unscopedDocument = isManagedRef(normalizedPath) ? 'yes' : 'no';
     return 'Invalid file path: reads only allowed within temp directory '
         + `(rejected: ${normalizedPath}; mapped working copy: ${mappedWorkingCopyPath ?? 'none'}; `
-        + `backing[sender=${senderId ?? 'none'}]=${scopedBacking}; backing[any]=${unscopedBacking}; `
+        + `document[sender=${senderId ?? 'none'}]=${scopedDocument}; document[any]=${unscopedDocument}; `
         + `${describeReadPathValidationForDiagnostics(normalizedPath)})`;
 }
 
@@ -225,7 +192,7 @@ async function resolveExistingReadablePath(
         throw new Error(describeRejectedReadPath(normalizedPath, senderId));
     }
 
-    if (!isOriginalBackedManagedRef(resolvedPath, senderId) && !pathExists(resolvedPath)) {
+    if (!isManagedRef(resolvedPath, senderId) && !pathExists(resolvedPath)) {
         throw new Error(`File not found: ${normalizedPath}`);
     }
 
@@ -244,7 +211,7 @@ export async function resolveExistingReadablePdfPath(filePath: unknown, senderId
         throw new Error(describeRejectedReadPath(normalizedPath, senderId));
     }
 
-    if (!isOriginalBackedManagedRef(resolvedPath, senderId) && !pathExists(resolvedPath)) {
+    if (!isManagedRef(resolvedPath, senderId) && !pathExists(resolvedPath)) {
         throw new Error(`File not found: ${normalizedPath}`);
     }
 
@@ -255,39 +222,14 @@ export function resolveReadablePathSync(normalizedPath: string, senderId?: numbe
     if (!isReadablePathAllowedForSender(normalizedPath, senderId)) {
         return null;
     }
-    if (isOriginalBackedManagedRef(normalizedPath, senderId)) {
+    if (isManagedRef(normalizedPath, senderId)) {
         return normalizedPath;
     }
-
     const mappedWorkingCopyPath = findWorkingCopyPathByOriginalPath(normalizedPath, senderId);
-    if (
-        mappedWorkingCopyPath
-        && isOriginalBackedManagedRef(mappedWorkingCopyPath, senderId)
-    ) {
+    if (mappedWorkingCopyPath) {
         return mappedWorkingCopyPath;
     }
-
-    if (
-        isAllowedReadPath(normalizedPath)
-        && existsSync(normalizedPath)
-        && isReadablePathAllowedForSender(normalizedPath, senderId)
-    ) {
-        return normalizedPath;
-    }
-
-    if (!mappedWorkingCopyPath) {
-        return null;
-    }
-
-    if (
-        !isAllowedReadPath(mappedWorkingCopyPath)
-        || !existsSync(mappedWorkingCopyPath)
-        || !isReadablePathAllowedForSender(mappedWorkingCopyPath, senderId)
-    ) {
-        return null;
-    }
-
-    return mappedWorkingCopyPath;
+    return isAllowedReadPath(normalizedPath) && existsSync(normalizedPath) ? normalizedPath : null;
 }
 
 export function assertWithinIpcReadBudget(resolvedPath: string, knownSize?: number) {

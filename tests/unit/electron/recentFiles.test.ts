@@ -2,7 +2,6 @@ import {
     mkdirSync,
     mkdtempSync,
     readFileSync,
-    realpathSync,
     readdirSync,
     rmSync,
     statSync,
@@ -28,7 +27,7 @@ import {createTestEventSender} from '@tests/helpers/electronEventEmitterHarness'
 // re-import these after resetModules from the transform cache.
 await import('@electron/recentFiles');
 await import('@electron/recentReadingViews');
-await import('@electron/file-access/workingCopyStore');
+await import('@electron/file-access/documentStore');
 await import('@electron/features/djvu/main/viewing');
 await import('@electron/features/djvu/main/djvuPageSourceInfoCache');
 
@@ -96,6 +95,7 @@ describe('recentFiles persistence', () => {
         mocks.resetStat();
         appDataDir = mkdtempSync(join(tmpdir(), 'evb-recentFiles-app-data-'));
         userDataDir = mkdtempSync(join(tmpdir(), 'evb-recentFiles-'));
+
         vi.stubEnv('EVB_APP_STATE_DIR', userDataDir);
         vi.stubEnv('TMPDIR', userDataDir);
         vi.stubEnv('TEMP', userDataDir);
@@ -125,6 +125,21 @@ describe('recentFiles persistence', () => {
             force: true,
         });
     });
+
+    async function openDocument(originalPath: string) {
+        const store = await import('@electron/file-access/documentStore');
+        await store.setDocumentStoreRootForTests(join(userDataDir, 'store'));
+        return (await store.openDocumentFromFile(originalPath, {ownerWebContentsId: 42})).ref;
+    }
+
+    /** The ref of a document opened and closed again: it maps to no file any more. */
+    async function closedDocumentRef() {
+        const store = await import('@electron/file-access/documentStore');
+        await store.setDocumentStoreRootForTests(join(userDataDir, 'store'));
+        const entry = await store.openDocumentFromFile(writeFixture('closed.pdf', 'closed'), {ownerWebContentsId: 42});
+        await store.discardOpenDocument(entry);
+        return entry.ref;
+    }
 
     function writeFixture(name: string, contents = name) {
         const filePath = join(userDataDir, name);
@@ -214,20 +229,16 @@ describe('recentFiles persistence', () => {
 
     it('persists the original document identity instead of a managed working-copy path', async () => {
         const originalPath = writeFixture('original.pdf', 'original');
-        const workingDir = join(userDataDir, 'evb-viewer', 'pdf-work-recent-authority');
-        mkdirSync(workingDir, {recursive: true});
-        const workingPath = join(workingDir, 'original.pdf');
-        writeFileSync(workingPath, 'working');
 
         const recentFiles = await loadRecentFilesModule();
-        const workingCopyStore = await import('@electron/file-access/workingCopyStore');
-        await workingCopyStore.setWorkingCopyOriginalPath(workingPath, originalPath, 42);
+        const workingCopyStore = await import('@electron/file-access/documentStore');
+        const workingPath = await openDocument(originalPath);
 
         await recentFiles.addRecentFile(workingPath, 42);
 
         expect(recentFiles.getRecentFilesSync()).toEqual([originalPath]);
         expect((await recentFiles.getRecentFiles()).map(file => file.originalPath)).toEqual([originalPath]);
-        workingCopyStore.clearWorkingCopyOriginalPaths();
+        await workingCopyStore.setDocumentStoreRootForTests(join(userDataDir, 'store'));
     });
 
     describe('reading views', () => {
@@ -249,20 +260,14 @@ describe('recentFiles persistence', () => {
             return JSON.parse(readFileSync(recentFilesJsonPath(), 'utf8')).files.map((file: {readingView?: unknown}) => file.readingView);
         }
 
-        async function openWorkingCopy(originalPath: string, name: string) {
-            const workingDir = join(userDataDir, 'evb-viewer', `pdf-work-${name}`);
-            mkdirSync(workingDir, {recursive: true});
-            const workingPath = join(workingDir, 'original.pdf');
-            writeFileSync(workingPath, 'working');
-            const workingCopyStore = await import('@electron/file-access/workingCopyStore');
-            await workingCopyStore.setWorkingCopyOriginalPath(workingPath, originalPath, 42);
-            return workingPath;
+        function openWorkingCopy(originalPath: string, _name: string) {
+            return openDocument(originalPath);
         }
 
         async function load() {
             const recentFiles = await loadRecentFilesModule();
             const readingViews = await import('@electron/recentReadingViews');
-            const workingCopyStore = await import('@electron/file-access/workingCopyStore');
+            const workingCopyStore = await import('@electron/file-access/documentStore');
             return {
                 recentFiles,
                 readingViews,
@@ -279,7 +284,7 @@ describe('recentFiles persistence', () => {
             await recentFiles.addRecentFile(firstOpen, 42);
             mocks.settings.rememberDocumentView = false;
             await readingViews.rememberRecentReadingView(firstOpen, readingView, 42);
-            workingCopyStore.clearWorkingCopyOriginalPaths();
+            await workingCopyStore.setDocumentStoreRootForTests(join(userDataDir, 'store'));
 
             const reopened = await openWorkingCopy(originalPath, 'second');
             await recentFiles.addRecentFile(reopened, 42);
@@ -290,7 +295,7 @@ describe('recentFiles persistence', () => {
             expect(await readingViews.getRecentReadingView(reopened, 42)).toEqual(readingView);
             expect(await readingViews.getRecentReadingView(reopened, 7)).toBeNull();
             expect(await recentFiles.getRecentFiles()).toEqual([expect.not.objectContaining({readingView: expect.anything()})]);
-            workingCopyStore.clearWorkingCopyOriginalPaths();
+            await workingCopyStore.setDocumentStoreRootForTests(join(userDataDir, 'store'));
         });
 
         it('starts a changed source at the defaults', async () => {
@@ -301,13 +306,13 @@ describe('recentFiles persistence', () => {
             const firstOpen = await openWorkingCopy(originalPath, 'first');
             await recentFiles.addRecentFile(firstOpen, 42);
             await readingViews.rememberRecentReadingView(firstOpen, readingView, 42);
-            workingCopyStore.clearWorkingCopyOriginalPaths();
+            await workingCopyStore.setDocumentStoreRootForTests(join(userDataDir, 'store'));
 
             writeFileSync(originalPath, 'replaced with longer bytes');
             const reopened = await openWorkingCopy(originalPath, 'second');
 
             expect(await readingViews.getRecentReadingView(reopened, 42)).toBeNull();
-            workingCopyStore.clearWorkingCopyOriginalPaths();
+            await workingCopyStore.setDocumentStoreRootForTests(join(userDataDir, 'store'));
         });
 
         it('does not bring back a removed or cleared entry', async () => {
@@ -328,7 +333,7 @@ describe('recentFiles persistence', () => {
 
             await recentFiles.addRecentFile(workingPath, 42);
             expect(await readingViews.getRecentReadingView(workingPath, 42)).toBeNull();
-            workingCopyStore.clearWorkingCopyOriginalPaths();
+            await workingCopyStore.setDocumentStoreRootForTests(join(userDataDir, 'store'));
         });
 
         async function openDjvu(djvuPath: string, senderId: number) {
@@ -448,7 +453,7 @@ describe('recentFiles persistence', () => {
 
             expect(await readingViews.getRecentReadingView(workingPath, 42)).toBeNull();
             expect((await recentFiles.getRecentFiles()).map(file => file.originalPath)).toEqual([originalPath]);
-            workingCopyStore.clearWorkingCopyOriginalPaths();
+            await workingCopyStore.setDocumentStoreRootForTests(join(userDataDir, 'store'));
         });
 
         it.each([
@@ -480,7 +485,7 @@ describe('recentFiles persistence', () => {
             await recentFiles.addRecentFile(workingPath, 42);
             expect(storedReadingViews()).toEqual([undefined]);
             expect((await recentFiles.getRecentFiles()).map(file => file.originalPath)).toEqual([originalPath]);
-            workingCopyStore.clearWorkingCopyOriginalPaths();
+            await workingCopyStore.setDocumentStoreRootForTests(join(userDataDir, 'store'));
         });
 
         it('restores a view left on a source whose modification time has a fraction', async () => {
@@ -495,33 +500,26 @@ describe('recentFiles persistence', () => {
 
             expect(Number.isInteger(JSON.parse(readFileSync(recentFilesJsonPath(), 'utf8')).files[0].readingView.sourceModifiedAtMs)).toBe(false);
             expect(await readingViews.getRecentReadingView(workingPath, 42)).toEqual(readingView);
-            workingCopyStore.clearWorkingCopyOriginalPaths();
+            await workingCopyStore.setDocumentStoreRootForTests(join(userDataDir, 'store'));
         });
     });
 
     it('persists the exact original identity when its filename ends in whitespace', async () => {
         const originalPath = writeFixture('original.pdf ', 'original');
-        const workingDir = join(userDataDir, 'evb-viewer', 'pdf-work-recent-exact-path');
-        mkdirSync(workingDir, {recursive: true});
-        const workingPath = join(workingDir, 'original.pdf');
-        writeFileSync(workingPath, 'working');
 
         const recentFiles = await loadRecentFilesModule();
-        const workingCopyStore = await import('@electron/file-access/workingCopyStore');
-        await workingCopyStore.setWorkingCopyOriginalPath(workingPath, originalPath, 42);
+        const workingCopyStore = await import('@electron/file-access/documentStore');
+        const workingPath = await openDocument(originalPath);
 
         await recentFiles.addRecentFile(workingPath, 42);
 
         expect(recentFiles.getRecentFilesSync()).toEqual([originalPath]);
-        workingCopyStore.clearWorkingCopyOriginalPaths();
+        await workingCopyStore.setDocumentStoreRootForTests(join(userDataDir, 'store'));
     });
 
     it('refuses to persist an unmapped managed working-copy temp path', async () => {
-        const workingDir = join(userDataDir, 'evb-viewer', 'pdf-work-unmapped');
-        mkdirSync(workingDir, {recursive: true});
-        const workingPath = join(workingDir, 'internal.pdf');
-        writeFileSync(workingPath, 'working');
         const recentFiles = await loadRecentFilesModule();
+        const workingPath = await closedDocumentRef();
 
         await recentFiles.addRecentFile(workingPath, 42);
 
@@ -530,10 +528,8 @@ describe('recentFiles persistence', () => {
     });
 
     it('removes historical unmanaged working-copy entries while loading and rewrites storage', async () => {
-        const workingDir = join(realpathSync.native(userDataDir), 'evb-viewer', 'pdf-work-historical');
-        mkdirSync(workingDir, {recursive: true});
-        const workingPath = join(workingDir, 'internal.pdf');
-        writeFileSync(workingPath, 'working');
+        const recentFiles = await loadRecentFilesModule();
+        const workingPath = await closedDocumentRef();
         const storagePath = join(userDataDir, 'recentFiles.json');
         writeFileSync(storagePath, JSON.stringify({
             version: 1,
@@ -545,7 +541,6 @@ describe('recentFiles persistence', () => {
             }],
         }));
 
-        const recentFiles = await loadRecentFilesModule();
         await expect(recentFiles.getRecentFiles()).resolves.toEqual([]);
         expect(JSON.parse(readFileSync(storagePath, 'utf-8'))).toEqual({
             version: 1,
@@ -594,10 +589,9 @@ describe('recentFiles persistence', () => {
 
     it('migrates a historical owned working-copy entry to its canonical source while loading', async () => {
         const originalPath = writeFixture('historical-original.pdf', 'original');
-        const workingDir = join(userDataDir, 'evb-viewer', 'pdf-work-historical-mapped');
-        mkdirSync(workingDir, {recursive: true});
-        const workingPath = join(workingDir, 'historical-original.pdf');
-        writeFileSync(workingPath, 'working');
+        const recentFiles = await loadRecentFilesModule();
+        const workingCopyStore = await import('@electron/file-access/documentStore');
+        const workingPath = await openDocument(originalPath);
         writeFileSync(join(userDataDir, 'recentFiles.json'), JSON.stringify({
             version: 1,
             files: [{
@@ -607,16 +601,13 @@ describe('recentFiles persistence', () => {
                 fileSize: 7,
             }],
         }));
-        const recentFiles = await loadRecentFilesModule();
-        const workingCopyStore = await import('@electron/file-access/workingCopyStore');
-        await workingCopyStore.setWorkingCopyOriginalPath(workingPath, originalPath, 42);
         await expect(recentFiles.getRecentFiles()).resolves.toMatchObject([{
             originalPath,
             fileName: 'historical-original.pdf',
         }]);
         const persisted = JSON.parse(readFileSync(join(userDataDir, 'recentFiles.json'), 'utf-8')) as {files: Array<{originalPath: string}>};
         expect(persisted.files.map(file => file.originalPath)).toEqual([originalPath]);
-        workingCopyStore.clearWorkingCopyOriginalPaths();
+        await workingCopyStore.setDocumentStoreRootForTests(join(userDataDir, 'store'));
     });
 
     it('does not reject a user document merely because its folder starts with pdf-work-', async () => {

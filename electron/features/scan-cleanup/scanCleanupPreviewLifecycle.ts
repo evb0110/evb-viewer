@@ -31,11 +31,11 @@ import {runScanCleanupSidecar} from '@electron/features/scan-cleanup/worker/runS
 import {createScanCleanupRasterBatchRenderer} from '@electron/features/scan-cleanup/createScanCleanupRasterBatchRenderer';
 import {getAppTempDir} from '@electron/utils/appTempDir';
 import {onSenderLifetimeEnd} from '@electron/utils/onSenderLifetimeEnd';
-import {ensureWorkingCopyMaterialized} from '@electron/file-access/workingCopyMaterialization';
 import {
+    ensureWorkingCopyMaterialized,
     getWorkingCopyBackingEntry,
-    getWorkingCopyBackingMetadata,
-} from '@electron/file-access/workingCopyStore';
+    isWorkingCopyDocumentPath,
+} from '@electron/file-access/documentStore';
 import {getPdfNativeToolPaths} from '@electron/pdf/nativeToolPaths';
 import {detectSourceDpiDetails} from '@electron/pdf/sourceDpiDetection';
 import {resolveNativePdfImageCombinePath} from '@electron/image/tryCreatePdfWithNativeImageCombiner';
@@ -209,10 +209,7 @@ export const defaultDependencies: IScanCleanupPreviewDependencies = {
         return `${sourceStat.size}:${sourceStat.mtimeNs}`;
     },
     materializeWorkingCopy: (logicalRef, options) => {
-        if (
-            !getWorkingCopyBackingEntry(logicalRef, options.ownerWebContentsId)
-            && getWorkingCopyBackingMetadata(logicalRef, options.ownerWebContentsId)?.retired === true
-        ) {
+        if (!getWorkingCopyBackingEntry(logicalRef, options.ownerWebContentsId) && isWorkingCopyDocumentPath(logicalRef)) {
             return Promise.reject(new DOMException('Scan cleanup source is no longer available', 'AbortError'));
         }
         return ensureWorkingCopyMaterialized(logicalRef, options);

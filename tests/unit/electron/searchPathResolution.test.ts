@@ -1,5 +1,3 @@
-import type * as TViMockOriginalModule from '@electron/file-access/workingCopyStore';
-
 import {
     beforeEach,
     describe,
@@ -8,6 +6,7 @@ import {
     vi,
 } from 'vitest';
 import {cast} from '@tests/helpers/cast';
+import type {IOpenDocument} from '@electron/file-access/documentStore';
 
 const mocks = vi.hoisted(() => ({
     app: {
@@ -36,11 +35,24 @@ vi.mock('@electron/features/search/main/searchService', () => ({
     }}),
 }));
 
-vi.mock('@electron/file-access/workingCopyStore', async (importOriginal) => ({
-    ...(await importOriginal<typeof TViMockOriginalModule>()),
+vi.mock('@electron/file-access/documentStore', async importOriginal => ({
+    ...await importOriginal<Record<string, unknown>>(),
     findWorkingCopyPathByOriginalPath: mocks.findWorkingCopyPathByOriginalPath,
-    normalizePathForLookup: (path: string) => path.trim(),
+    ensureWorkingCopyMaterialized: async (path: string) => ({physicalWorkingCopyPath: path}),
 }));
+
+const STORE_ROOT = '/tmp/evb-search-store';
+
+/** An open document of the window `ownerWebContentsId`, as the store registers it. */
+function documentEntry(path: string, ownerWebContentsId: number) {
+    return cast<IOpenDocument>({
+        ref: path,
+        doc: {id: path.split('/').at(-2)},
+        ownerWebContentsId,
+        registrationId: 1,
+        role: 'current',
+    });
+}
 
 describe('resolveSearchablePdfPath', () => {
     beforeEach(() => {
@@ -51,12 +63,15 @@ describe('resolveSearchablePdfPath', () => {
     });
 
     it('returns directly resolved temp path when available', async () => {
-        mocks.resolveAllowedReadPath.mockResolvedValueOnce('/tmp/pdf-work-1/work.pdf');
+        const path = `${STORE_ROOT}/documents/one/document.pdf`;
+        mocks.resolveAllowedReadPath.mockResolvedValueOnce(path);
+        const {setDocumentStoreRootForTests} = await import('@electron/file-access/documentStore');
+        await setDocumentStoreRootForTests(STORE_ROOT);
 
         const { resolveSearchablePdfPath } = await import('@electron/features/search/main/ipc');
-        const resolved = await resolveSearchablePdfPath('/tmp/pdf-work-1/work.pdf');
+        const resolved = await resolveSearchablePdfPath(path);
 
-        expect(resolved).toBe('/tmp/pdf-work-1/work.pdf');
+        expect(resolved).toBe(path);
         expect(mocks.findWorkingCopyPathByOriginalPath).not.toHaveBeenCalled();
     });
 
@@ -85,18 +100,11 @@ describe('resolveSearchablePdfPath', () => {
     });
 
     it('refuses to search another window\'s working copy, whatever revision it names', async () => {
-        const path = '/tmp/pdf-work-victim/document.pdf';
+        const path = `${STORE_ROOT}/documents/victim/document.pdf`;
         mocks.resolveAllowedReadPath.mockResolvedValue(path);
-        const {workingCopyMap} = await import('@electron/file-access/workingCopyStore');
-        workingCopyMap.set(path, cast({
-            logicalPath: path,
-            originalPath: '/private/victim.pdf',
-            backingState: 'materialized',
-            ownerWebContentsId: 222,
-            registeredAtMs: 1,
-            registrationId: 1,
-            role: 'current',
-        }));
+        const {openDocuments: workingCopyMap, setDocumentStoreRootForTests} = await import('@electron/file-access/documentStore');
+        await setDocumentStoreRootForTests(STORE_ROOT);
+        workingCopyMap.set(path, documentEntry(path, 222));
         try {
             const {prepareSearchMainBindings} = await import('@electron/features/search/main/ipc');
             const {SEARCH_PLATFORM_FEATURE} = await import('@contracts/searchPlatformFeature');
@@ -118,9 +126,10 @@ describe('resolveSearchablePdfPath', () => {
     });
 
     it('refuses to search a retired copy kept in quarantine, but not an open one', async () => {
-        const path = '/tmp/pdf-work-retired/document.pdf';
+        const path = `${STORE_ROOT}/documents/retired/document.pdf`;
         mocks.resolveAllowedReadPath.mockResolvedValue(path);
-        const {workingCopyMap} = await import('@electron/file-access/workingCopyStore');
+        const {openDocuments: workingCopyMap, setDocumentStoreRootForTests} = await import('@electron/file-access/documentStore');
+        await setDocumentStoreRootForTests(STORE_ROOT);
         const {
             clearWorkingCopyQuarantinesForTests, quarantineWorkingCopy,
         } = await import('@electron/file-access/workingCopyQuarantine');
@@ -138,15 +147,7 @@ describe('resolveSearchablePdfPath', () => {
         quarantineWorkingCopy(path, 'native sidecar exit was not proven');
         try {
             // Its window still has it open: that window may search it.
-            workingCopyMap.set(path, cast({
-                logicalPath: path,
-                originalPath: '/private/retired.pdf',
-                backingState: 'materialized',
-                ownerWebContentsId: 222,
-                registeredAtMs: 1,
-                registrationId: 1,
-                role: 'current',
-            }));
+            workingCopyMap.set(path, documentEntry(path, 222));
             await expect(search(222)).resolves.toBe('drt1:chosen-by-the-caller');
 
             // Retired: no window owns it, and its kept bytes are nobody's.

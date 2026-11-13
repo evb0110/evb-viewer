@@ -3,7 +3,7 @@ import {
     dirname,
     resolve,
 } from 'path';
-import { normalizePathForLookup } from '@electron/file-access/workingCopyStore';
+import {normalizePathForLookup} from '@electron/file-access/normalizePathForLookup';
 import { buildOutputPathWithSuffix } from '@electron/utils/boundedPathComponent';
 
 interface IImageExportTarget {

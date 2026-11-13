@@ -1,27 +1,23 @@
 import {
-    existsSync,
     readdirSync,
     readFileSync,
     rmSync,
-    unlinkSync,
 } from 'node:fs';
 import { join } from 'node:path';
-import { electronUserDataPath } from '@scripts/electron-run/electronRunSessionPaths';
+import { electronAppTempDirPath } from '@scripts/electron-run/electronRunSessionPaths';
 
-const WORKSPACE_CRASH_CHECKPOINT_FILE_NAME = 'workspace-checkpoint.json';
-const WORKSPACE_RECOVERY_DIRECTORY_NAME = 'workspace-recovery';
-
-/** The single-file journal of earlier versions; the app migrates it on start. */
-export function workspaceCrashCheckpointPath(name: string) {
-    return join(electronUserDataPath(name), WORKSPACE_CRASH_CHECKPOINT_FILE_NAME);
+/** A session's document store keeps one checkpoint per window under `workspaces/`. */
+export function workspaceCheckpointDirectory(name: string) {
+    return join(electronAppTempDirPath(name), 'document-store', 'workspaces');
 }
 
-function workspaceRecoveryDirectory(name: string) {
-    return join(electronUserDataPath(name), WORKSPACE_RECOVERY_DIRECTORY_NAME);
+/** The checkpoint file of the window `windowId` in a session; a test writes one to stand for a window's workspace. */
+export function workspaceCrashCheckpointPath(name: string, windowId = 'automation-window') {
+    return join(workspaceCheckpointDirectory(name), `${windowId}.json`);
 }
 
 function listWorkspaceRecoveryRecordPaths(name: string) {
-    const directory = workspaceRecoveryDirectory(name);
+    const directory = workspaceCheckpointDirectory(name);
     try {
         return readdirSync(directory)
             .filter(entry => entry.endsWith('.json'))
@@ -31,12 +27,13 @@ function listWorkspaceRecoveryRecordPaths(name: string) {
     }
 }
 
-/** One record per window that has recoverable work, newest first. */
+/** The renderer checkpoint of each window that has a workspace to restore, newest first. */
 export function readWorkspaceRecoveryRecords<T extends {checkpoint?: {capturedAt?: number}}>(name: string): T[] {
     return listWorkspaceRecoveryRecordPaths(name)
         .flatMap((path) => {
             try {
-                return [JSON.parse(readFileSync(path, 'utf8')) as T];
+                const stored = JSON.parse(readFileSync(path, 'utf8')) as {layout?: {checkpoint?: unknown}};
+                return stored.layout?.checkpoint ? [{checkpoint: stored.layout.checkpoint} as T] : [];
             } catch {
                 return [];
             }
@@ -45,23 +42,45 @@ export function readWorkspaceRecoveryRecords<T extends {checkpoint?: {capturedAt
 }
 
 export function hasWorkspaceCrashCheckpoint(name: string) {
-    return listWorkspaceRecoveryRecordPaths(name).length > 0
-        || existsSync(workspaceCrashCheckpointPath(name));
+    return listWorkspaceRecoveryRecordPaths(name).length > 0;
 }
 
 export function clearAutomationWorkspaceCrashCheckpoint(name: string) {
-    const hadRecords = listWorkspaceRecoveryRecordPaths(name).length > 0;
-    rmSync(workspaceRecoveryDirectory(name), {
+    const hadRecords = hasWorkspaceCrashCheckpoint(name);
+    rmSync(workspaceCheckpointDirectory(name), {
         force: true,
         recursive: true,
     });
+    return hadRecords;
+}
+
+/**
+ * The unsaved annotations a checkpoint's `artifactId` names, as JSON, once the document's drafts hold them durably;
+ * `null` before. They live with the document the tab shows, not in the checkpoint.
+ */
+export function readAnnotationRecoveryDraft(name: string, artifactId: string) {
+    const documents = join(electronAppTempDirPath(name), 'document-store', 'documents');
+    let directories: string[];
     try {
-        unlinkSync(workspaceCrashCheckpointPath(name));
-        return true;
-    } catch (error) {
-        if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-            return hadRecords;
-        }
-        throw error;
+        directories = readdirSync(documents);
+    } catch {
+        return null;
     }
+    for (const directory of directories) {
+        let entries: string[];
+        try {
+            entries = readdirSync(join(documents, directory));
+        } catch {
+            continue;
+        }
+        for (const entry of entries.filter(file => file.startsWith('drafts-') && file.endsWith('.json'))) {
+            try {
+                const drafts = JSON.parse(readFileSync(join(documents, directory, entry), 'utf8')) as {annotationRecovery?: {artifactId?: string}};
+                if (drafts.annotationRecovery?.artifactId === artifactId) return JSON.stringify(drafts.annotationRecovery);
+            } catch {
+                // A drafts file being replaced; the next look finds its successor.
+            }
+        }
+    }
+    return null;
 }

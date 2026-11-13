@@ -930,25 +930,11 @@ describe('conformance admission through the main handler', () => {
                 }
             },
         }));
-        vi.doMock('@electron/file-access/workingCopyMutationQueue', () => ({
-            isWorkingCopyMutationActive: () => false,
-            onWorkingCopyMutationSettled: () => () => {},
-            onWorkingCopyMutationStarting: () => () => {},
-        }));
-        vi.doMock('@electron/file-access/workingCopyStore', () => ({
-            captureWorkingCopyAdmissionSnapshot: vi.fn(),
-            findWorkingCopyPathByOriginalPath: () => undefined,
-            getWorkingCopyBackingEntry: () => ({
-                backingState: 'materialized',
-                registrationId: 1,
-            }),
-            normalizePathForLookup: (path: string) => path,
-            transitionWorkingCopyBackingState: vi.fn(),
-            workingCopyAdmissionSnapshotsMatch: vi.fn(),
-        }));
-        vi.doMock('@electron/file-access/workingCopyMaterialization', () => ({
-            onWorkingCopyBackingSwapCacheInvalidation: () => () => {},
-            WorkingCopyMaterializationError: class extends Error {},
+        // Each fixture stands for an open document whose bytes are a file of its own.
+        vi.doMock('@electron/file-access/documentStore', () => ({
+            getWorkingCopyBackingEntry: () => ({ref: 'document'}),
+            runWithWorkingCopyReadBacking: (path: string, read: (physicalPath: string) => Promise<unknown>) => read(path),
+            statOpenDocument: () => ({size: 1, modifiedAt: 1}),
         }));
         vi.doMock('@electron/file-access/workingCopyQuarantine', () => ({quarantineWorkingCopy: vi.fn()}));
         vi.doMock('@electron/features/documents/main/documentFilePathResolution', () => ({
@@ -1001,15 +987,12 @@ describe('conformance admission through the main handler', () => {
             async close() {
                 for (const operation of operations.values()) operation.controller.abort(new Error('test cleanup'));
                 for (const record of records) { record.fence?.resolve(0); record.emit('exit', 0); }
-                await reads.closeCachedRangeReadHandles().catch(() => undefined);
                 await Promise.all(handles.map(handle => handle.close().catch(() => undefined)));
                 for (const name of [
                     'fs/promises',
                     '@electron/resources/jobBroker',
                     'worker_threads',
-                    '@electron/file-access/workingCopyMutationQueue',
-                    '@electron/file-access/workingCopyStore',
-                    '@electron/file-access/workingCopyMaterialization',
+                    '@electron/file-access/documentStore',
                     '@electron/file-access/workingCopyQuarantine',
                     '@electron/features/documents/main/documentFilePathResolution',
                     '@electron/operation-lifecycle/mainOperationLifecycle',
@@ -1035,12 +1018,10 @@ describe('conformance admission through the main handler', () => {
         try {
             await vi.waitFor(() => expect(h.records.length > 0 || h.broker.getSnapshot().queued === 12).toBe(true));
             expect(h.records).toHaveLength(0);
-            expect(h.broker.getSnapshot().queued).toBe(12); expect(h.opened.size).toBe(12);
-            const readsClosed = h.reads.closeCachedRangeReadHandles();
+            expect(h.broker.getSnapshot().queued).toBe(12);
             h.operations.get(paths[11]!)!.controller.abort(new Error('working copy closed while queued'));
             expect(await tasks[11]).toBeInstanceOf(Error);
             expect(h.operations.get(paths[11]!)!.completed).toBe(true);
-            await vi.waitFor(() => expect(h.closed.has(paths[11]!)).toBe(true));
             expect(h.records).toHaveLength(0);
             blocker.release();
             await vi.waitFor(() => expect(h.records).toHaveLength(1));
@@ -1063,8 +1044,6 @@ describe('conformance admission through the main handler', () => {
             }
             const results = await Promise.all(tasks.slice(0, 11));
             expect(results).toEqual(Array.from({length: 11}, () => h.profile));
-            await readsClosed;
-            expect(h.closed.size).toBe(12);
             expect(h.active()).toBe(0);
             expect(h.broker.getSnapshot()).toMatchObject({
                 active: 0,

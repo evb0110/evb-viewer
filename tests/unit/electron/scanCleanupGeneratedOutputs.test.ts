@@ -11,6 +11,7 @@ import {
     writeFile,
 } from 'fs/promises';
 import type * as FsPromises from 'fs/promises';
+import {cast} from '@tests/helpers/cast';
 import {tmpdir} from 'os';
 import {
     basename,
@@ -40,10 +41,11 @@ import {
     touchScanCleanupGeneratedOutput,
 } from '@electron/features/scan-cleanup/public/generatedOutputs';
 import {
-    clearWorkingCopyOriginalPaths,
     isWorkingCopyOriginalPathRegistered,
-    setWorkingCopyOriginalPath,
-} from '@electron/file-access/workingCopyStore';
+    openDocumentFromFile,
+    openDocuments,
+    setDocumentStoreRootForTests,
+} from '@electron/file-access/documentStore';
 
 const electronPaths = vi.hoisted(() => ({
     temp: '',
@@ -109,8 +111,8 @@ async function writeGeneratedOutput(baseDir: string, runId: string, createdAtMs:
 }
 
 beforeEach(async () => {
-    clearWorkingCopyOriginalPaths();
     electronPaths.userData = await createManagedTempDir('scan-cleanup-app-data-');
+    await setDocumentStoreRootForTests(join(electronPaths.userData, 'store'));
     electronPaths.temp = await createManagedTempDir('scan-cleanup-os-temp-');
     vi.stubEnv('TMPDIR', electronPaths.temp);
     vi.stubEnv('TEMP', electronPaths.temp);
@@ -119,7 +121,7 @@ beforeEach(async () => {
 
 afterEach(async () => {
     vi.unstubAllEnvs();
-    clearWorkingCopyOriginalPaths();
+    await setDocumentStoreRootForTests(null);
     const {rm} = await import('fs/promises');
     // Remove child fixtures before their parent; concurrent nested rmdir fails on Windows.
     for (const path of tempDirs.splice(0).reverse()) {
@@ -445,8 +447,8 @@ describe('scan cleanup generated output pruning', () => {
             utimes(orphan, oldSeconds, oldSeconds),
         ]);
         await Promise.all([
-            setWorkingCopyOriginalPath('/working/first.pdf', firstPdf, 101, {deferOriginalFileExpectation: true}),
-            setWorkingCopyOriginalPath('/working/second.pdf', secondPdf, 202, {deferOriginalFileExpectation: true}),
+            openDocumentFromFile(firstPdf, {ownerWebContentsId: 101}),
+            openDocumentFromFile(secondPdf, {ownerWebContentsId: 202}),
         ]);
 
         await expect(pruneScanCleanupGeneratedOutputs({
@@ -471,7 +473,7 @@ describe('scan cleanup generated output pruning', () => {
         const oldSeconds = (nowMs - SCAN_CLEANUP_OUTPUT_MAX_AGE_MS - 1_000) / 1_000;
         await utimes(candidate, oldSeconds, oldSeconds);
         let initialCheck = true;
-        let registration: Promise<void> | null = null;
+        const opened = '/working/newly-opened.pdf';
 
         await expect(pruneScanCleanupGeneratedOutputs({
             baseDirs: [outputBaseDir],
@@ -479,20 +481,14 @@ describe('scan cleanup generated output pruning', () => {
                 const liveAtCheckStart = isWorkingCopyOriginalPathRegistered(outputPath);
                 if (initialCheck) {
                     initialCheck = false;
-                    registration = setWorkingCopyOriginalPath(
-                        '/working/newly-opened.pdf',
-                        outputPath,
-                        303,
-                        {deferOriginalFileExpectation: true},
-                    );
+                    // A window opens the output between the sweep's first look and its removal.
+                    openDocuments.set(opened, cast({ref: opened, originalPath: outputPath, role: 'current', registrationId: 1}));
                 }
                 return liveAtCheckStart;
             },
             nowMs,
         })).resolves.toBe(0);
-        if (registration !== null) {
-            await Promise.resolve(registration);
-        }
+        openDocuments.delete(opened);
         await expect(stat(candidate)).resolves.toBeDefined();
     });
 

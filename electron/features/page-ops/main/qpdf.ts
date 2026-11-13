@@ -25,9 +25,11 @@ import {
     makeTempPdfOutputPath,
     replaceTempOutput,
 } from '@electron/features/page-ops/main/tempOutput';
-import { ensureWorkingCopyDirectory } from '@electron/file-access/workingCopyCreation';
-import { ensureWorkingCopyMaterialized } from '@electron/file-access/workingCopyMaterialization';
-import { getWorkingCopyBackingEntry } from '@electron/file-access/workingCopyStore';
+import {
+    ensureWorkingCopyDirectory,
+    ensureWorkingCopyMaterialized,
+    getWorkingCopyBackingEntry,
+} from '@electron/file-access/documentStore';
 import {
     createManagedScratchTempDir, usingManagedScratchScope,
 } from '@electron/utils/managedScratchTemp';

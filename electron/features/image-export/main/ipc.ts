@@ -15,8 +15,10 @@ import {requireOpenPath} from '@electron/file-access/openPathCapabilities';
 import {
     getAdmittedDjvuViewingSource, isAllowedDjvuViewingPath,
 } from '@electron/features/djvu/public';
-import {getWorkingCopyBackingEntry} from '@electron/file-access/workingCopyStore';
-import {runWithWorkingCopyReadBacking} from '@electron/file-access/runWithWorkingCopyReadBacking';
+import {
+    getWorkingCopyBackingEntry,
+    runWithWorkingCopyReadBacking,
+} from '@electron/file-access/documentStore';
 import {
     IMAGE_EXPORT_OUTPUT_BUDGET_ERROR_NAME,
     ImageExportOutputBudgetError,

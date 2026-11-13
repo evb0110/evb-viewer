@@ -278,11 +278,12 @@ describe('atomicReplace', () => {
                 throw Object.assign(new Error('sharing violation'), {code: 'EBUSY'});
             });
             mocks.rename.mockImplementation(actualFs.rename);
-            const {capturePathSaveWitness} = await import('@electron/file-access/originalPathSaveWitness');
-            const witness = await capturePathSaveWitness(destinationPath);
+            const admitted = readFileSync(destinationPath, 'utf8');
             const {atomicReplace} = await import('@electron/utils/atomicReplace');
 
-            const assertDestinationCurrent = () => witness!.assertCurrent();
+            const assertDestinationCurrent = async () => {
+                if (readFileSync(destinationPath, 'utf8') !== admitted) throw new Error('Original file changed on disk');
+            };
 
             await expect(atomicReplace(sourcePath, destinationPath, {assertDestinationCurrent}))
                 .rejects.toThrow('Original file changed on disk');

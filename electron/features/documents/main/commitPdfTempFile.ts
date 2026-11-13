@@ -1,6 +1,5 @@
 import { stat } from 'node:fs/promises';
 import { dirname } from 'node:path';
-import { markActiveWorkingCopyMutationCommitStarted } from '@electron/file-access/workingCopyMutationCommitSignal';
 import { mainJobBroker } from '@electron/resources/jobBroker';
 import type { IJobBrokerLease } from '@electron/resources/jobBroker';
 import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
@@ -17,12 +16,15 @@ function shouldUseDocumentSaveUtility(bytes: number) {
     return bytes >= SAVE_UTILITY_THRESHOLD;
 }
 
-export async function commitPdfTempFile(sourcePath: string, targetPath: string, options: {
+/**
+ * Verifies a PDF written beside `targetPath` before it replaces anything there: a large output or a targeted edit is
+ * validated by the document save utility, in its own process. The caller commits it.
+ */
+export async function verifyPdfTempFile(sourcePath: string, targetPath: string, options: {
     expectedBytes?: number;
     signal?: AbortSignal;
     ownerId?: string;
     changedObjectRefs?: string[];
-    assertDestinationCurrent?: () => Promise<void>;
     receipt?: {
         artifact: ITypedStagedArtifact;
         context: IDocumentsSenderIdContext;
@@ -52,12 +54,6 @@ export async function commitPdfTempFile(sourcePath: string, targetPath: string, 
             ?? stagedArtifact?.size
             ?? (await stat(sourcePath)).size;
         if (!shouldUseDocumentSaveUtility(expectedBytes) && !options.changedObjectRefs?.length) {
-            const {atomicReplace} = await import('@electron/utils/atomicReplace');
-            if (options.assertDestinationCurrent === undefined) {
-                await atomicReplace(sourcePath, targetPath);
-            } else {
-                await atomicReplace(sourcePath, targetPath, {assertDestinationCurrent: options.assertDestinationCurrent});
-            }
             return null;
         }
         lease = await mainJobBroker.acquire({
@@ -72,9 +68,6 @@ export async function commitPdfTempFile(sourcePath: string, targetPath: string, 
             },
             ...(signal ? {signal} : {}),
         });
-        if (options.assertDestinationCurrent === undefined) {
-            markActiveWorkingCopyMutationCommitStarted();
-        }
         utilityOwnsLease = true;
         const result = await runDocumentSaveUtilityProcess({
             cwd: dirname(sourcePath),
@@ -90,14 +83,10 @@ export async function commitPdfTempFile(sourcePath: string, targetPath: string, 
                 validationBinary: getPdfNativeToolPaths().qpdf,
                 ...(options.changedObjectRefs?.length ? {changedObjectRefs: options.changedObjectRefs} : {}),
                 ...(stagedArtifact === undefined ? {} : {stagedArtifact}),
-                ...(options.assertDestinationCurrent === undefined ? {} : {validateOnly: true}),
+                validateOnly: true,
             },
             resourceLease: lease,
         });
-        if (options.assertDestinationCurrent !== undefined) {
-            const {atomicReplace} = await import('@electron/utils/atomicReplace');
-            await atomicReplace(sourcePath, targetPath, {assertDestinationCurrent: options.assertDestinationCurrent});
-        }
         return result;
     } finally {
         if (!utilityOwnsLease) {
