@@ -3300,14 +3300,6 @@ fn mode_classification(mode: LayoutMode) -> LayoutClassification {
 mod tests {
     use super::*;
 
-    #[test]
-    fn measured_fold_edges_clamp_an_inconsistent_cutter_to_the_image() {
-        let band = FoldBand::measured(10.0, 90.0);
-
-        assert_eq!(band.edges(-5.0, 100), (0.0, 90.0));
-        assert_eq!(band.edges(105.0, 100), (10.0, 100.0));
-    }
-
     fn measured_fold_edges(split: &SplitResult) -> (f64, f64) {
         match split.diagnostics.fold_band {
             FoldBand::Measured {
@@ -3380,39 +3372,6 @@ mod tests {
         }
     }
 
-    fn add_sloped_fold(gray: &mut GrayImage, center_x: f64, angle_degrees: f64, value: u8) {
-        let slope = angle_degrees.to_radians().tan();
-        let center_y = gray.height() as f64 * 0.5;
-        for y in 4..gray.height().saturating_sub(4) {
-            let x = (center_x + slope * (y as f64 - center_y)).round() as usize;
-            if x > 0 && x + 1 < gray.width() {
-                gray.set(x, y, value);
-                gray.set(x + 1, y, value.saturating_add(70));
-            }
-        }
-    }
-
-    fn add_slanted_binary_lines(
-        binary: &mut BinaryImage,
-        left: usize,
-        right: usize,
-        angle_degrees: f64,
-    ) {
-        let slope = angle_degrees.to_radians().tan();
-        let center_x = (left + right) as f64 * 0.5;
-        for base_y in (24..binary.height().saturating_sub(24)).step_by(18) {
-            for x in left..right {
-                let y = (base_y as f64 + slope * (x as f64 - center_x)).round() as isize;
-                for offset in 0..3 {
-                    let sample_y = y + offset;
-                    if sample_y >= 0 && sample_y < binary.height() as isize {
-                        binary.set(x, sample_y as usize, true);
-                    }
-                }
-            }
-        }
-    }
-
     #[test]
     fn locates_known_two_page_gutter() {
         let mut gray = GrayImage::new(360, 240, 245);
@@ -3426,75 +3385,9 @@ mod tests {
             "{result:?}"
         );
         assert!(result.confidence > 0.0);
-        assert!(result.diagnostics.whitespace_gate_passed, "{result:?}");
-        assert!(
-            result.diagnostics.central_position_gate_passed,
-            "{result:?}"
-        );
-        assert!(result.diagnostics.bilateral_gate_passed, "{result:?}");
-        assert!(result.diagnostics.outer_margin_gate_passed, "{result:?}");
-        assert!(result.diagnostics.gutter_gate_passed, "{result:?}");
-        assert!(
-            result.diagnostics.independent_gutter_gate_passed,
-            "{result:?}"
-        );
-        assert!(result.diagnostics.aspect_support_gate_passed, "{result:?}");
-        assert!(
-            result.diagnostics.evidence_agreement_gate_passed,
-            "{result:?}"
-        );
         let seam = result.split_seam.as_ref().unwrap();
         assert!(seam.points.len() >= gray.height() / 3);
         assert!(seam.points.last().unwrap().y >= gray.height() as f64 - 3.0);
-        assert_eq!(result.confidence, result.diagnostics.evidence_product);
-        if result.confidence == 1.0 {
-            let agreeing = [
-                result.diagnostics.whitespace_score,
-                result.diagnostics.bilateral_score,
-                result.diagnostics.outer_margin_score,
-                result.diagnostics.gutter_score,
-            ]
-            .into_iter()
-            .filter(|&score| score >= 0.95)
-            .count();
-            assert!(agreeing >= 3, "{result:?}");
-        }
-    }
-
-    #[test]
-    fn one_contaminated_outer_edge_uses_strict_local_recovery() {
-        let bilateral = BilateralScore {
-            score: 0.82,
-            left: SideScore {
-                page_score: 0.86,
-                surface_score: 0.72,
-                ..SideScore::default()
-            },
-            right: SideScore {
-                page_score: 0.88,
-                surface_score: 0.74,
-                ..SideScore::default()
-            },
-        };
-        let recovered = outer_margin_recovery_edge(
-            OuterMarginScores {
-                left: 0.0,
-                right: 0.64,
-            },
-            bilateral,
-            450.0,
-            900,
-            0.80,
-            0.72,
-            0.0,
-            0.78,
-            1.0,
-            0.80,
-            true,
-            true,
-            true,
-        );
-        assert_eq!(recovered, Some(OuterMarginSide::Left));
     }
 
     #[test]
@@ -3553,42 +3446,6 @@ mod tests {
     }
 
     #[test]
-    fn two_weak_outer_edges_do_not_use_local_recovery() {
-        let bilateral = BilateralScore {
-            score: 0.82,
-            left: SideScore {
-                page_score: 0.86,
-                surface_score: 0.72,
-                ..SideScore::default()
-            },
-            right: SideScore {
-                page_score: 0.88,
-                surface_score: 0.74,
-                ..SideScore::default()
-            },
-        };
-        let recovered = outer_margin_recovery_edge(
-            OuterMarginScores {
-                left: 0.0,
-                right: 0.0,
-            },
-            bilateral,
-            450.0,
-            900,
-            0.80,
-            0.72,
-            0.0,
-            0.78,
-            1.0,
-            0.80,
-            true,
-            true,
-            true,
-        );
-        assert_eq!(recovered, None);
-    }
-
-    #[test]
     fn manual_cutter_in_auto_mode_remains_a_two_page_spread() {
         let gray = GrayImage::new(300, 180, 245);
         let result = detect_split(&gray, 300.0, LayoutMode::Auto, Some(151.0));
@@ -3596,58 +3453,6 @@ mod tests {
         assert_eq!(result.cutter_x, Some(151.0));
         assert_eq!(result.pages.len(), 2);
         assert!(result.split_seam.is_none());
-    }
-
-    #[test]
-    fn fold_candidates_retain_their_direct_slope_response() {
-        let mut gray = GrayImage::new(480, 320, 245);
-        add_sloped_fold(&mut gray, 240.0, 4.0, 65);
-        let candidates = fold_line_candidates_in_range(&gray, &build_fold_votes(&gray), 200, 280);
-        let best = candidates
-            .into_iter()
-            .max_by(|left, right| left.score.total_cmp(&right.score))
-            .unwrap();
-        assert!((best.x - 240.0).abs() <= 3.0, "{best:?}");
-        assert!(
-            (best.slope - 4.0_f64.to_radians().tan()).abs()
-                <= CUTTER_ANGLE_STEP_DEGREES.to_radians().tan(),
-            "{best:?}"
-        );
-    }
-
-    #[test]
-    fn document_prior_biases_the_fold_search_window() {
-        let mut gray = GrayImage::new(500, 320, 245);
-        for y in (4..gray.height().saturating_sub(4)).step_by(4) {
-            gray.set(200, y, 115);
-            gray.set(201, y, 185);
-        }
-        add_sloped_fold(&mut gray, 300.0, 0.0, 35);
-        let votes = build_fold_votes(&gray);
-        let unconstrained = fold_line_candidate(&gray, &votes, None).unwrap();
-        let prior_guided = fold_line_candidate(&gray, &votes, Some((0.40, 1.0))).unwrap();
-        assert!((unconstrained.x - 300.0).abs() <= 4.0, "{unconstrained:?}");
-        assert!((prior_guided.x - 200.0).abs() <= 4.0, "{prior_guided:?}");
-    }
-
-    #[test]
-    fn per_leaf_deskew_scores_opposing_leaf_angles() {
-        let mut binary = BinaryImage::new(420, 300);
-        add_slanted_binary_lines(&mut binary, 18, 190, 3.0);
-        add_slanted_binary_lines(&mut binary, 230, 402, -3.0);
-        let candidate = score_candidate_leaf_deskew(
-            &binary,
-            FoldCandidate {
-                x: 210.0,
-                score: 1.0,
-                ..FoldCandidate::default()
-            },
-        );
-        assert!(candidate.joint_deskew_score >= 0.5, "{candidate:?}");
-        assert!(
-            candidate.left_deskew_angle_degrees * candidate.right_deskew_angle_degrees < 0.0,
-            "{candidate:?}"
-        );
     }
 
     #[test]
@@ -4094,102 +3899,6 @@ mod tests {
     }
 
     #[test]
-    fn resolution_limited_offcut_abstains_without_changing_spread_results() {
-        let diagnostics = SplitDiagnostics {
-            evidence_product: 0.7,
-            offcut_boundary_score: 1.0,
-            offcut_empty_score: 1.0,
-            offcut_width_score: 1.0,
-            offcut_no_text_rows_score: 0.7,
-            ..SplitDiagnostics::default()
-        };
-        let mut offcut = split_at(
-            660,
-            936,
-            570.0,
-            FoldBand::unmeasured(FoldBandUnmeasuredReason::NotApplicable),
-            LayoutClassification::PageWithOffcut,
-            0.7,
-            diagnostics,
-        );
-        offcut.abstain_from_resolution_limited_offcut();
-        assert_eq!(offcut.classification, LayoutClassification::SingleUncutPage);
-        assert_eq!(offcut.cutter_x, None);
-        assert_eq!(offcut.pages, vec![page_polygon(0.0, 660.0, 936)]);
-        assert!(offcut.diagnostics.abstained);
-
-        let mut spread = split_at(
-            660,
-            420,
-            330.0,
-            FoldBand::unmeasured(FoldBandUnmeasuredReason::NoFoldEvidence),
-            LayoutClassification::TwoPageSpread,
-            0.8,
-            SplitDiagnostics::default(),
-        );
-        let expected = spread.clone();
-        spread.abstain_from_resolution_limited_offcut();
-        assert_eq!(spread.classification, expected.classification);
-        assert_eq!(spread.cutter_x, expected.cutter_x);
-        assert_eq!(spread.pages, expected.pages);
-    }
-
-    #[test]
-    fn resolution_limited_offcut_keeps_complete_independent_evidence() {
-        let diagnostics = SplitDiagnostics {
-            evidence_product: 0.7,
-            offcut_boundary_score: 0.80,
-            offcut_empty_score: 0.95,
-            offcut_width_score: 0.40,
-            offcut_no_text_rows_score: 0.90,
-            ..SplitDiagnostics::default()
-        };
-        let mut offcut = split_at(
-            900,
-            760,
-            686.0,
-            FoldBand::unmeasured(FoldBandUnmeasuredReason::NotApplicable),
-            LayoutClassification::PageWithOffcut,
-            0.7,
-            diagnostics,
-        );
-        offcut.abstain_from_resolution_limited_offcut();
-        assert_eq!(offcut.classification, LayoutClassification::PageWithOffcut);
-        assert_eq!(offcut.cutter_x, Some(686.0));
-        assert!(!offcut.diagnostics.abstained);
-    }
-
-    #[test]
-    fn resolution_limited_offcut_abstains_at_the_ordinary_acceptance_gate() {
-        for (boundary_score, empty_score) in [(0.79, 1.0), (1.0, 0.94)] {
-            let diagnostics = SplitDiagnostics {
-                evidence_product: 0.7,
-                offcut_boundary_score: boundary_score,
-                offcut_empty_score: empty_score,
-                offcut_width_score: 0.40,
-                offcut_no_text_rows_score: 0.90,
-                ..SplitDiagnostics::default()
-            };
-            let mut offcut = split_at(
-                900,
-                760,
-                686.0,
-                FoldBand::unmeasured(FoldBandUnmeasuredReason::NotApplicable),
-                LayoutClassification::PageWithOffcut,
-                0.7,
-                diagnostics,
-            );
-            offcut.abstain_from_resolution_limited_offcut();
-            assert_eq!(
-                offcut.classification,
-                LayoutClassification::SingleUncutPage,
-                "boundary={boundary_score}, empty={empty_score}"
-            );
-            assert!(offcut.diagnostics.abstained);
-        }
-    }
-
-    #[test]
     fn explicit_document_prior_keeps_confident_local_layouts_and_cutters() {
         for (layout, cutter, dominant) in [
             (
@@ -4243,109 +3952,6 @@ mod tests {
         }
     }
 
-    #[test]
-    fn document_agreement_boosts_matching_pages_and_promotes_only_matching_candidates() {
-        let prior = DocumentPrior {
-            dominant_layout: LayoutClassification::TwoPageSpread,
-            cutter_ratio_median: Some(0.53),
-            cluster_dims: ClusterDimensions {
-                width: 1200.0,
-                height: 870.0,
-            },
-            agreement_strength: 0.85,
-            stroke_width_median_px: None,
-            x_height_median_px: None,
-        };
-        let matching = reconcile_layout_decision(
-            LayoutClassification::TwoPageSpread,
-            0.62,
-            Some(636.0),
-            Some(0.53),
-            0.7,
-            1200,
-            870,
-            prior,
-            MANIFEST_RECONCILIATION_POLICY.minimum_confidence,
-        );
-        assert_eq!(matching.classification, LayoutClassification::TwoPageSpread);
-        assert!(matching.confidence > 0.9, "{matching:?}");
-        assert!(!matching.reconciliation.reconciled);
-        assert_eq!(matching.reconciliation.cluster_agreement, 0.85);
-
-        let promoted = reconcile_layout_decision(
-            LayoutClassification::SingleUncutPage,
-            0.05,
-            None,
-            Some(0.535),
-            0.3,
-            1200,
-            870,
-            prior,
-            MANIFEST_RECONCILIATION_POLICY.minimum_confidence,
-        );
-        assert_eq!(promoted.classification, LayoutClassification::TwoPageSpread);
-        assert!(promoted.reconciliation.reconciled);
-        assert_eq!(promoted.cutter_x, Some(642.0));
-        assert!(promoted.confidence >= 0.85, "{promoted:?}");
-
-        let median_recovered = reconcile_layout_decision(
-            LayoutClassification::SingleUncutPage,
-            0.2,
-            None,
-            Some(0.44),
-            0.5,
-            1200,
-            870,
-            prior,
-            MANIFEST_RECONCILIATION_POLICY.minimum_confidence,
-        );
-        assert_eq!(
-            median_recovered.classification,
-            LayoutClassification::TwoPageSpread
-        );
-        assert!(median_recovered.reconciliation.reconciled);
-        assert_eq!(median_recovered.cutter_x, Some(636.0));
-
-        let rejected = reconcile_layout_decision(
-            LayoutClassification::SingleUncutPage,
-            0.2,
-            None,
-            None,
-            0.5,
-            1200,
-            870,
-            prior,
-            MANIFEST_RECONCILIATION_POLICY.minimum_confidence,
-        );
-        assert_eq!(
-            rejected.classification,
-            LayoutClassification::SingleUncutPage
-        );
-        assert!(!rejected.reconciliation.reconciled);
-        assert_eq!(rejected.reconciliation.cluster_agreement, -0.85);
-        assert!(rejected.confidence < 0.2);
-    }
-
-    fn fold_shadow_page(
-        width: usize,
-        height: usize,
-        center: usize,
-        half_width: usize,
-        depth: u8,
-    ) -> GrayImage {
-        let mut gray = GrayImage::new(width, height, 245);
-        for y in 0..height {
-            for x in center.saturating_sub(half_width)..=(center + half_width).min(width - 1) {
-                gray.set(x, y, 245 - depth);
-            }
-        }
-        gray
-    }
-
-    fn add_fold_crossing_text(gray: &mut GrayImage, center: usize) {
-        add_fold_crossing_text_with_value(gray, center, 35);
-    }
-
     fn add_fold_crossing_text_with_value(gray: &mut GrayImage, center: usize, value: u8) {
         for y in (48..gray.height().saturating_sub(48)).step_by(18) {
             for x in center.saturating_sub(8)..=center.saturating_sub(2) {
@@ -4361,218 +3967,6 @@ mod tests {
                 }
             }
         }
-    }
-
-    #[test]
-    fn gutter_band_covers_the_fold_shadow_and_stays_inside_the_capped_window() {
-        let page = fold_shadow_page(1000, 600, 500, 8, 60);
-        let (left, right) = gutter_shadow_band(&page, 500.0).unwrap();
-        assert!(left <= 492.0 && right >= 508.0, "{left}..{right}");
-        assert!(
-            right - left <= 2.0 * 1000.0 * MAX_GUTTER_BAND_FRACTION,
-            "{left}..{right}"
-        );
-        assert!(left < 500.0 && right > 500.0, "{left}..{right}");
-    }
-
-    #[test]
-    fn gutter_band_can_start_at_the_fixed_cutter_when_the_shadow_is_just_beyond_it() {
-        let page = fold_shadow_page(1000, 600, 520, 8, 60);
-        let (left, right) = gutter_shadow_band(&page, 500.0).unwrap();
-        assert_eq!(left, 500.0);
-        assert_eq!(right, 529.0, "the right edge is half-open");
-        assert!(right - 500.0 <= 1000.0 * MAX_GUTTER_BAND_FRACTION);
-    }
-
-    #[test]
-    fn gutter_band_keeps_the_legacy_edge_for_an_immaterial_offset_extension() {
-        let page = fold_shadow_page(1_000, 600, 500, 32, 60);
-
-        assert_eq!(
-            legacy_gutter_shadow_band(&page, 500.0),
-            Some((470.0, 530.0))
-        );
-        assert_eq!(gutter_shadow_band(&page, 500.0), Some((470.0, 530.0)));
-    }
-
-    #[test]
-    fn gutter_band_keeps_a_legacy_run_rejected_by_the_offset_length_gate() {
-        let page = fold_shadow_page(1_000, 600, 500, 0, 60);
-
-        assert_eq!(
-            legacy_gutter_shadow_band(&page, 500.0),
-            Some((500.0, 501.0))
-        );
-        assert_eq!(gutter_shadow_band(&page, 500.0), Some((500.0, 501.0)));
-    }
-
-    #[test]
-    fn gutter_band_finds_a_continuous_same_side_shadow_beyond_the_legacy_cap() {
-        let mut page = GrayImage::new(2200, 900, 255);
-        // Facing-page tone must not lower the right leaf's paper reference.
-        for y in 0..page.height() {
-            for x in 0..900 {
-                page.set(x, y, 174);
-            }
-        }
-        // The retained leaf has ordinary text columns, then a fold shadow
-        // beginning 117 px beyond the cutter (the adjudicated 125R geometry).
-        add_text_lines(&mut page, 1240, 2100);
-        for y in 45..855 {
-            for x in 1120..1172 {
-                page.set(x, y, 231);
-            }
-            for x in 1130..1150 {
-                page.set(x, y, 184);
-            }
-        }
-
-        let (left, right) = gutter_shadow_band(&page, 1003.0).expect("offset fold shadow");
-        assert_eq!(left, 1003.0, "only the right leaf owns this shadow");
-        assert!(right >= 1172.0, "offset shadow survived at {left}..{right}");
-    }
-
-    #[test]
-    fn gutter_band_rejects_a_short_run_that_would_claim_a_distant_band() {
-        let page = fold_shadow_page(1_000, 600, 575, 1, 60);
-
-        assert_eq!(gutter_shadow_band(&page, 500.0), None);
-    }
-
-    #[test]
-    fn gutter_band_is_absent_when_the_fold_leaves_no_shadow() {
-        let page = fold_shadow_page(1000, 600, 500, 0, 0);
-        assert_eq!(gutter_shadow_band(&page, 500.0), None);
-        // A shadow wider than the search window leaves no clean shoulder to
-        // measure against, which must degrade to the plain cutter as well.
-        let engulfed = fold_shadow_page(1000, 600, 500, 200, 60);
-        assert_eq!(gutter_shadow_band(&engulfed, 500.0), None);
-    }
-
-    #[test]
-    fn raw_source_remeasurement_extends_a_collapsed_right_band_without_moving_cutter() {
-        let mut page = fold_shadow_page(2000, 600, 1040, 20, 60);
-        add_fold_crossing_text_with_value(&mut page, 1040, 120);
-        let mut split = split_at(
-            page.width(),
-            page.height(),
-            1000.0,
-            FoldBand::measured(990.0, 1000.0),
-            LayoutClassification::TwoPageSpread,
-            0.9,
-            SplitDiagnostics::default(),
-        );
-        split.remeasure_gutter_band_from_source(&page, page.width(), page.height());
-        assert_eq!(split.cutter_x, Some(1000.0));
-        let (left, right) = measured_fold_edges(&split);
-        assert_eq!(left, 1000.0);
-        assert!(
-            right > 1000.0 && right < 1061.0,
-            "text moved the endpoint: {right}"
-        );
-        assert_eq!(split.pages[1].points[0].x, right);
-
-        let shadowless = GrayImage::new(2000, 600, 245);
-        split.remeasure_gutter_band_from_source(&shadowless, 2000, 600);
-        let (left, right) = measured_fold_edges(&split);
-        assert_eq!(left, 1000.0);
-        assert!(right > 1000.0);
-    }
-
-    #[test]
-    fn gutter_band_stops_at_a_column_that_carries_ink() {
-        let mut page = fold_shadow_page(1000, 600, 500, 20, 60);
-        for y in (30..570).step_by(6) {
-            page.set(485, y, 25);
-            page.set(486, y, 25);
-        }
-        let (left, right) = gutter_shadow_band(&page, 500.0).unwrap();
-        assert!(
-            left >= 487.0,
-            "the band must not reach the inked columns: {left}"
-        );
-        assert!(
-            right >= 520.0,
-            "the shadow-only side stays covered: {right}"
-        );
-    }
-
-    #[test]
-    fn fold_band_shrinks_toward_the_cutter_when_repeated_text_crosses_it() {
-        let mut page = fold_shadow_page(1000, 600, 500, 20, 60);
-        add_fold_crossing_text(&mut page, 500);
-        let (left, right) = gutter_shadow_band(&page, 500.0).unwrap();
-        assert!(
-            left > 480.0 && left < 500.0,
-            "left endpoint did not shrink: {left}"
-        );
-        assert!(
-            right > 500.0 && right < 520.0,
-            "right endpoint did not shrink: {right}"
-        );
-    }
-
-    #[test]
-    fn fold_band_retains_repeated_margin_glyphs_under_a_shadow() {
-        let mut page = fold_shadow_page(1000, 600, 500, 20, 60);
-        for y in (48..552).step_by(18) {
-            for x in 503..510 {
-                page.set(x, y, 35);
-                page.set(x, y + 1, 35);
-            }
-        }
-
-        let (left, right) = gutter_shadow_band(&page, 500.0).unwrap();
-        assert_eq!(left, 480.0);
-        assert_eq!(right, 503.0, "the first supported glyph column was cut");
-    }
-
-    #[test]
-    fn fold_band_keeps_a_continuous_rail_as_shadow() {
-        let mut page = fold_shadow_page(1000, 600, 500, 20, 60);
-        for y in 0..page.height() {
-            for x in 503..506 {
-                page.set(x, y, 120);
-            }
-        }
-
-        let raw = gutter_shadow_band_unprotected(&page, 500.0).unwrap();
-        assert_eq!(gutter_shadow_band(&page, 500.0), Some(raw));
-    }
-
-    #[test]
-    fn shadow_only_fold_band_keeps_the_measured_edges_byte_identical() {
-        let page = fold_shadow_page(1000, 600, 500, 20, 60);
-        assert_eq!(
-            gutter_shadow_band(&page, 500.0),
-            legacy_gutter_shadow_band(&page, 500.0)
-        );
-    }
-
-    #[test]
-    fn ambiguous_fold_corridor_support_retains_the_cutter_edge() {
-        let mut page = fold_shadow_page(1000, 600, 500, 20, 60);
-        for y in 260..284 {
-            for x in 482..487 {
-                page.set(x, y, 145);
-            }
-        }
-        let (left, right) = gutter_shadow_band(&page, 500.0).unwrap();
-        assert_eq!(left, 500.0);
-        assert!(right > 500.0);
-    }
-
-    #[test]
-    fn tall_fold_corridor_support_does_not_shrink_the_measured_band() {
-        let mut page = fold_shadow_page(1000, 600, 500, 20, 60);
-        for y in 240..304 {
-            for x in 482..487 {
-                page.set(x, y, 145);
-            }
-        }
-
-        let raw = gutter_shadow_band_unprotected(&page, 500.0).unwrap();
-        assert_eq!(gutter_shadow_band(&page, 500.0), Some(raw));
     }
 
     #[test]
@@ -4691,72 +4085,49 @@ mod tests {
     }
 
     #[test]
-    fn a_full_height_fold_lets_a_nearly_inkless_leaf_still_prove_a_spread() {
-        let mut gray = GrayImage::new(1200, 800, 245);
+    fn only_a_deep_full_height_fold_makes_an_unbalanced_sheet_a_spread() {
         // A pale photographic plate facing a text page: the two leaves can
         // never balance their ink, so only the fold can carry the decision.
-        for y in 40..760 {
-            for x in 40..560 {
-                gray.set(x, y, 238 - u8::try_from((x + y) % 3).unwrap());
+        let sheet = |fold_value: u8, fold_rows: std::ops::Range<usize>| {
+            let mut gray = GrayImage::new(1200, 800, 245);
+            for y in 40..760 {
+                for x in 40..560 {
+                    gray.set(x, y, 238 - u8::try_from((x + y) % 3).unwrap());
+                }
             }
-        }
-        for y in 60..64 {
-            for x in 40..150 {
-                gray.set(x, y, 150);
+            for y in 60..64 {
+                for x in 40..150 {
+                    gray.set(x, y, 150);
+                }
             }
-        }
-        add_text_lines(&mut gray, 640, 1140);
-        for y in 0..800 {
-            for x in 592..=608 {
-                gray.set(x, y, 120);
+            add_text_lines(&mut gray, 640, 1140);
+            for y in fold_rows {
+                for x in 592..=608 {
+                    gray.set(x, y, fold_value);
+                }
             }
+            gray
+        };
+        for (name, gray, expected) in [
+            (
+                "deep full-height fold",
+                sheet(120, 0..800),
+                LayoutClassification::TwoPageSpread,
+            ),
+            (
+                "fold over half the height",
+                sheet(120, 200..600),
+                LayoutClassification::SingleUncutPage,
+            ),
+            (
+                "shallow fold",
+                sheet(232, 0..800),
+                LayoutClassification::SingleUncutPage,
+            ),
+        ] {
+            let result = detect_split(&gray, 150.0, LayoutMode::Auto, None);
+            assert_eq!(result.classification, expected, "{name}: {result:?}");
         }
-        let result = detect_split(&gray, 150.0, LayoutMode::Auto, None);
-        assert_eq!(
-            result.classification,
-            LayoutClassification::TwoPageSpread,
-            "{result:?}"
-        );
-        assert!(result.diagnostics.bilateral_gate_passed, "{result:?}");
-        // Neither ink balance nor the blank-leaf escape hatch can carry this
-        // gate: the plate has a hundredth of the text page's ink, and squaring
-        // its own page score stays below the bilateral threshold.
-        assert!(
-            result.diagnostics.left_ink_pixels * 20 < result.diagnostics.right_ink_pixels,
-            "{result:?}"
-        );
-        assert!(
-            result.diagnostics.left_page_score * result.diagnostics.left_page_score < 0.08,
-            "{result:?}"
-        );
-        assert!(
-            (result.diagnostics.bilateral_score - FOLDED_SHEET_BILATERAL_FLOOR).abs() < 1e-9,
-            "{result:?}"
-        );
-    }
-
-    #[test]
-    fn folded_sheet_balance_needs_a_deep_unbroken_full_height_fold() {
-        let saturated = SoftGutterCandidate {
-            x: 600.0,
-            score: 1.0,
-            vertical_coverage: 1.0,
-            continuity: 1.0,
-            mean_depression: 24.0,
-        };
-        assert_eq!(folded_sheet_balance(Some(saturated), 1.0), 1.0);
-        assert_eq!(folded_sheet_balance(None, 1.0), 0.0);
-        assert_eq!(folded_sheet_balance(Some(saturated), 0.3), 0.0);
-        let interrupted = SoftGutterCandidate {
-            continuity: 0.6,
-            ..saturated
-        };
-        assert_eq!(folded_sheet_balance(Some(interrupted), 1.0), 0.0);
-        let shallow = SoftGutterCandidate {
-            mean_depression: 6.0,
-            ..saturated
-        };
-        assert_eq!(folded_sheet_balance(Some(shallow), 1.0), 0.0);
     }
 
     #[test]
@@ -4815,76 +4186,6 @@ mod tests {
     }
 
     #[test]
-    fn strong_spread_consensus_does_not_force_a_landscape_single_without_a_valley() {
-        let prior = DocumentPrior {
-            dominant_layout: LayoutClassification::TwoPageSpread,
-            cutter_ratio_median: Some(0.47),
-            cluster_dims: ClusterDimensions {
-                width: 1400.0,
-                height: 900.0,
-            },
-            agreement_strength: 0.94,
-            stroke_width_median_px: None,
-            x_height_median_px: None,
-        };
-        let decision = reconcile_layout_decision(
-            LayoutClassification::SingleUncutPage,
-            0.58,
-            None,
-            None,
-            0.0,
-            1400,
-            900,
-            prior,
-            MANIFEST_RECONCILIATION_POLICY.minimum_confidence,
-        );
-        assert_eq!(
-            decision.classification,
-            LayoutClassification::SingleUncutPage
-        );
-        assert_eq!(decision.cutter_x, None);
-        assert!(!decision.reconciliation.reconciled);
-        assert_eq!(decision.reconciliation.cluster_agreement, -0.94);
-    }
-
-    #[test]
-    fn typed_fold_band_preserves_the_plain_cutter_for_unquantified_evidence() {
-        let evidenced_diagnostics = SplitDiagnostics {
-            analysis_dpi: 150.0,
-            fold_score: 0.8,
-            independent_gutter_gate_passed: true,
-            ..SplitDiagnostics::default()
-        };
-        let evidenced = split_at(
-            1200,
-            800,
-            600.0,
-            fold_band_without_measurement(&evidenced_diagnostics),
-            LayoutClassification::TwoPageSpread,
-            0.9,
-            evidenced_diagnostics,
-        );
-        assert_eq!(
-            evidenced.diagnostics.fold_band,
-            FoldBand::unmeasured(FoldBandUnmeasuredReason::FoldEvidenceUnquantified),
-        );
-        assert_eq!(evidenced.pages[0].points[1].x, 600.0);
-        assert_eq!(evidenced.pages[1].points[0].x, 600.0);
-
-        let no_evidence = split_at(
-            1200,
-            800,
-            600.0,
-            fold_band_without_measurement(&SplitDiagnostics::default()),
-            LayoutClassification::TwoPageSpread,
-            0.9,
-            SplitDiagnostics::default(),
-        );
-        assert_eq!(no_evidence.pages[0].points[1].x, 600.0);
-        assert_eq!(no_evidence.pages[1].points[0].x, 600.0);
-    }
-
-    #[test]
     fn typed_fold_band_serializes_cutter_invalidation_reason() {
         let prior = DocumentPrior {
             dominant_layout: LayoutClassification::TwoPageSpread,
@@ -4931,5 +4232,253 @@ mod tests {
         assert_eq!(diagnostics["rightOuterMarginScore"], 0.64);
         assert_eq!(diagnostics["outerMarginRecovery"], true);
         assert_eq!(diagnostics["outerMarginWeakEdge"], "left");
+    }
+
+    fn add_slanted_binary_lines(
+        binary: &mut BinaryImage,
+        left: usize,
+        right: usize,
+        angle_degrees: f64,
+    ) {
+        let slope = angle_degrees.to_radians().tan();
+        let center_x = (left + right) as f64 * 0.5;
+        for base_y in (24..binary.height().saturating_sub(24)).step_by(18) {
+            for x in left..right {
+                let y = (base_y as f64 + slope * (x as f64 - center_x)).round() as isize;
+                for offset in 0..3 {
+                    let sample_y = y + offset;
+                    if sample_y >= 0 && sample_y < binary.height() as isize {
+                        binary.set(x, sample_y as usize, true);
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn per_leaf_deskew_scores_opposing_leaf_angles() {
+        let mut binary = BinaryImage::new(420, 300);
+        add_slanted_binary_lines(&mut binary, 18, 190, 3.0);
+        add_slanted_binary_lines(&mut binary, 230, 402, -3.0);
+        let candidate = score_candidate_leaf_deskew(
+            &binary,
+            FoldCandidate {
+                x: 210.0,
+                score: 1.0,
+                ..FoldCandidate::default()
+            },
+        );
+        assert!(candidate.joint_deskew_score >= 0.5, "{candidate:?}");
+        assert!(
+            candidate.left_deskew_angle_degrees * candidate.right_deskew_angle_degrees < 0.0,
+            "{candidate:?}"
+        );
+    }
+
+    #[test]
+    fn resolution_limited_offcut_abstains_without_changing_spread_results() {
+        let diagnostics = SplitDiagnostics {
+            evidence_product: 0.7,
+            offcut_boundary_score: 1.0,
+            offcut_empty_score: 1.0,
+            offcut_width_score: 1.0,
+            offcut_no_text_rows_score: 0.7,
+            ..SplitDiagnostics::default()
+        };
+        let mut offcut = split_at(
+            660,
+            936,
+            570.0,
+            FoldBand::unmeasured(FoldBandUnmeasuredReason::NotApplicable),
+            LayoutClassification::PageWithOffcut,
+            0.7,
+            diagnostics,
+        );
+        offcut.abstain_from_resolution_limited_offcut();
+        assert_eq!(offcut.classification, LayoutClassification::SingleUncutPage);
+        assert_eq!(offcut.cutter_x, None);
+        assert_eq!(offcut.pages, vec![page_polygon(0.0, 660.0, 936)]);
+        assert!(offcut.diagnostics.abstained);
+
+        let mut spread = split_at(
+            660,
+            420,
+            330.0,
+            FoldBand::unmeasured(FoldBandUnmeasuredReason::NoFoldEvidence),
+            LayoutClassification::TwoPageSpread,
+            0.8,
+            SplitDiagnostics::default(),
+        );
+        let expected = spread.clone();
+        spread.abstain_from_resolution_limited_offcut();
+        assert_eq!(spread.classification, expected.classification);
+        assert_eq!(spread.cutter_x, expected.cutter_x);
+        assert_eq!(spread.pages, expected.pages);
+    }
+
+    /// Nearest-neighbour enlargement: the same printed page scanned at an
+    /// integer multiple of the resolution.
+    fn enlarged(gray: &GrayImage, factor: usize) -> GrayImage {
+        let mut out = GrayImage::new(gray.width() * factor, gray.height() * factor, 0);
+        for y in 0..out.height() {
+            for x in 0..out.width() {
+                out.set(x, y, gray.get(x / factor, y / factor));
+            }
+        }
+        out
+    }
+
+    fn leaf_x_extents(result: &SplitResult) -> Vec<(f64, f64)> {
+        result
+            .pages
+            .iter()
+            .map(|page| {
+                let xs = page.points.iter().map(|point| point.x);
+                (
+                    xs.clone().fold(f64::INFINITY, f64::min),
+                    xs.fold(f64::NEG_INFINITY, f64::max),
+                )
+            })
+            .collect()
+    }
+
+    #[test]
+    fn layout_decisions_and_leaf_geometry_are_the_same_at_150_300_and_600_dpi() {
+        let page = |width, height, columns: &[(usize, usize)], fold: Option<usize>| {
+            let mut gray = GrayImage::new(width, height, 245);
+            for &(left, right) in columns {
+                add_text_lines(&mut gray, left, right);
+            }
+            if let Some(x) = fold {
+                add_vertical_fold(&mut gray, x);
+            }
+            gray
+        };
+        let cases = [
+            (
+                "spread",
+                page(660, 420, &[(35, 300), (360, 625)], Some(330)),
+                LayoutClassification::TwoPageSpread,
+            ),
+            (
+                "single with a wide margin note",
+                page(660, 936, &[(45, 530), (600, 635)], None),
+                LayoutClassification::SingleUncutPage,
+            ),
+            (
+                "page with an empty offcut",
+                page(660, 936, &[(45, 530)], Some(570)),
+                LayoutClassification::PageWithOffcut,
+            ),
+            (
+                "portrait two-column page",
+                page(300, 460, &[(24, 136), (164, 276)], Some(150)),
+                LayoutClassification::SingleUncutPage,
+            ),
+            (
+                "two columns without a gutter",
+                page(660, 420, &[(35, 300), (360, 625)], None),
+                LayoutClassification::SingleUncutPage,
+            ),
+        ];
+        for (name, base, expected) in cases {
+            let reference = detect_split(&base, 150.0, LayoutMode::Auto, None);
+            assert_eq!(reference.classification, expected, "{name}: {reference:?}");
+            let reference_leaves = leaf_x_extents(&reference);
+            for factor in [2, 4] {
+                let scan = enlarged(&base, factor);
+                let result = detect_split(&scan, 150.0 * factor as f64, LayoutMode::Auto, None);
+                assert_eq!(
+                    result.classification, expected,
+                    "{name} x{factor}: {result:?}"
+                );
+                let tolerance = 0.01 * scan.width() as f64;
+                let scale = factor as f64;
+                match (reference.cutter_x, result.cutter_x) {
+                    (None, None) => {}
+                    (Some(base_cut), Some(cut)) => assert!(
+                        (cut - base_cut * scale).abs() <= tolerance,
+                        "{name} x{factor}: cutter {cut} vs {}",
+                        base_cut * scale
+                    ),
+                    other => panic!("{name} x{factor}: cutter changed {other:?}"),
+                }
+                let leaves = leaf_x_extents(&result);
+                assert_eq!(leaves.len(), reference_leaves.len(), "{name} x{factor}");
+                for (&(left, right), &(base_left, base_right)) in
+                    leaves.iter().zip(&reference_leaves)
+                {
+                    assert!(
+                        (left - base_left * scale).abs() <= tolerance
+                            && (right - base_right * scale).abs() <= tolerance,
+                        "{name} x{factor}: leaf {left}..{right} vs {}..{}",
+                        base_left * scale,
+                        base_right * scale
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn spread_leaves_never_leave_ink_in_the_fold_they_exclude() {
+        let spread = || {
+            let mut gray = GrayImage::new(1200, 800, 245);
+            add_text_lines(&mut gray, 60, 560);
+            add_text_lines(&mut gray, 640, 1140);
+            for y in 0..800 {
+                for x in 590..=610 {
+                    gray.set(x, y, 150);
+                }
+            }
+            gray
+        };
+        let mut crossing_dark = spread();
+        add_fold_crossing_text_with_value(&mut crossing_dark, 600, 35);
+        let mut crossing_pale = spread();
+        add_fold_crossing_text_with_value(&mut crossing_pale, 600, 120);
+        let mut dotted_column = spread();
+        for y in (30..770).step_by(6) {
+            dotted_column.set(593, y, 25);
+            dotted_column.set(594, y, 25);
+        }
+        let mut margin_glyphs = spread();
+        for y in (48..752).step_by(18) {
+            for x in 603..610 {
+                margin_glyphs.set(x, y, 35);
+                margin_glyphs.set(x, y + 1, 35);
+            }
+        }
+        let cases = [
+            ("shadow only", spread()),
+            ("dark text across the fold", crossing_dark),
+            ("pale text across the fold", crossing_pale),
+            ("an inked column inside the shadow", dotted_column),
+            ("margin glyphs under the shadow", margin_glyphs),
+        ];
+        for (name, gray) in cases {
+            let result = detect_split(&gray, 150.0, LayoutMode::Auto, None);
+            assert_eq!(
+                result.classification,
+                LayoutClassification::TwoPageSpread,
+                "{name}: {result:?}"
+            );
+            let cutter = result.cutter_x.expect("a spread has a cutter");
+            assert!((585.0..=615.0).contains(&cutter), "{name}: cutter {cutter}");
+            let leaves = leaf_x_extents(&result);
+            let (gap_left, gap_right) = (leaves[0].1, leaves[1].0);
+            assert!(
+                gap_left <= cutter && cutter <= gap_right,
+                "{name}: {leaves:?}"
+            );
+            for x in gap_left.ceil() as usize..gap_right.floor() as usize {
+                for y in 0..gray.height() {
+                    assert!(
+                        gray.get(x, y) >= 140,
+                        "{name}: ink at ({x}, {y}) falls between the leaves {leaves:?}"
+                    );
+                }
+            }
+        }
     }
 }

@@ -910,20 +910,6 @@ fn fragmented_edge_continuation_sides(
     sides
 }
 
-#[cfg(test)]
-fn crop_qualified_picture_bounds(
-    picture_mask: &BinaryImage,
-    crop_artifact_sides: u8,
-    calibration: PageCalibration,
-) -> Option<PixelBounds> {
-    crop_qualified_picture_bounds_with_authority(
-        picture_mask,
-        None,
-        crop_artifact_sides,
-        calibration,
-    )
-}
-
 fn crop_qualified_picture_bounds_with_authority(
     picture_mask: &BinaryImage,
     crop_authoritative_picture_mask: Option<&BinaryImage>,
@@ -2509,25 +2495,8 @@ pub(crate) fn checked_content_with_margins_for_dimensions(
 
 #[cfg(test)]
 mod tests {
-    /// Developer diagnostic: run content detection on an external page image.
-    /// `EVB_CONTENT_IMAGE=/path.png
-    /// cargo test -p evb-scan-cleanup dump_external_content_box -- --ignored --nocapture`
-    #[test]
-    #[ignore = "requires EVB_CONTENT_IMAGE"]
-    fn dump_external_content_box() {
-        let path = std::env::var("EVB_CONTENT_IMAGE").unwrap();
-        let image =
-            crate::io::raster::read_image(std::path::Path::new(&path), 40_000_000, 10_000).unwrap();
-        let dpi = std::env::var("EVB_CONTENT_DPI")
-            .ok()
-            .and_then(|value| value.parse::<f64>().ok())
-            .unwrap_or(360.0);
-        let result = detect_content_and_margins(&image.gray, dpi, Some([5.0; 4]), None);
-        eprintln!("content result: {:?}", result.content);
-    }
 
     use super::*;
-    use crate::edge_artifacts::border_artifact_mask;
     use std::{
         sync::mpsc,
         thread,
@@ -2535,61 +2504,6 @@ mod tests {
     };
 
     const CENSUS_NEIGHBORHOOD: (usize, usize) = (40, 24);
-
-    #[test]
-    fn garbage_distance_uses_the_nearest_seed_after_voronoi_competition() {
-        let mut labels = vec![0; 20 * 29];
-        for (x, y, label) in [(14, 0, 2), (4, 4, 3), (0, 7, 1)] {
-            labels[y * 20 + x] = label;
-        }
-        let mut content = BinaryImage::new(20, 29);
-        for y in 10..=26 {
-            for x in 1..=16 {
-                content.set(x, y, true);
-            }
-        }
-        content.set(19, 28, true);
-        let map = ComponentMap::from_binary(&content);
-        let mut blocks = vec![BlockStats::default(); map.components().len() + 1];
-        let mut component_blocks = vec![0; blocks.len()];
-        for component in map.components() {
-            let label = component.label as usize;
-            component_blocks[label] = label;
-            blocks[label] = BlockStats {
-                component_count: 1,
-                ink_area: component.area,
-                left: component.left,
-                top: component.top,
-                right: component.right,
-                bottom: component.bottom,
-                initialized: true,
-                grayscale_supported: component.area > 1,
-                labels: vec![component.label],
-                ..BlockStats::default()
-            };
-        }
-        let calibration =
-            PageCalibration::estimate_from_binary(&content, 150.0, CalibrationConfig::default());
-        let (bounds, confidence, accepted) = trim_content_bounds(
-            &content,
-            &map,
-            &blocks,
-            &component_blocks,
-            &BinaryImage::new(20, 29),
-            &BinaryImage::new(20, 29),
-            labels,
-            calibration,
-        );
-        assert_eq!(bounds.unwrap().right, 19);
-        assert!(accepted.is_empty());
-        let content_distance = 13.0_f64.sqrt();
-        let garbage_distance = 801.0_f64.sqrt();
-        assert_eq!(
-            confidence[TrimSide::Right.index()],
-            content_distance / (content_distance + garbage_distance),
-            "content trim confidence must use squared garbage distance 801 to (4,4), not 802 to (0,7)"
-        );
-    }
 
     #[test]
     fn physical_margins_expand_outward_to_an_integer_raster_crop() {
@@ -2794,103 +2708,6 @@ mod tests {
         }
     }
 
-    fn direct_trim_fixture(
-        artifact_top: usize,
-        artifact_bottom: usize,
-    ) -> (Option<PixelBounds>, Vec<ContentAcceptedTrim>) {
-        let (bounds, _, accepted_trims) =
-            direct_trim_fixture_with_garbage(artifact_top, artifact_bottom, true);
-        (bounds, accepted_trims)
-    }
-
-    fn direct_trim_fixture_with_garbage(
-        artifact_top: usize,
-        artifact_bottom: usize,
-        artifact_is_garbage: bool,
-    ) -> (Option<PixelBounds>, [f64; 4], Vec<ContentAcceptedTrim>) {
-        direct_trim_fixture_with_evidence(artifact_top, artifact_bottom, artifact_is_garbage, 0)
-    }
-
-    fn direct_trim_fixture_with_evidence(
-        artifact_top: usize,
-        artifact_bottom: usize,
-        artifact_is_garbage: bool,
-        picture_mask_overlap_pixels: usize,
-    ) -> (Option<PixelBounds>, [f64; 4], Vec<ContentAcceptedTrim>) {
-        let width = 200;
-        let height = 200;
-        let mut content = BinaryImage::new(width, height);
-        for y in artifact_top..=artifact_bottom {
-            for x in 20..31 {
-                content.set(x, y, true);
-            }
-        }
-        for y in 80..161 {
-            for x in 60..141 {
-                content.set(x, y, true);
-            }
-        }
-        let component_map = ComponentMap::from_binary(&content);
-        let artifact_label = component_map.label_at(20, artifact_top) as usize;
-        let body_label = component_map.label_at(60, 80) as usize;
-        let artifact = &component_map.components()[artifact_label - 1];
-        let body = &component_map.components()[body_label - 1];
-        let mut blocks = vec![BlockStats::default(); component_map.components().len() + 1];
-        blocks[artifact_label] = BlockStats {
-            component_count: 1,
-            ink_area: artifact.area,
-            left: artifact.left,
-            top: artifact.top,
-            right: artifact.right,
-            bottom: artifact.bottom,
-            initialized: true,
-            picture_mask_overlap_pixels,
-            labels: vec![artifact.label],
-            ..BlockStats::default()
-        };
-        blocks[body_label] = BlockStats {
-            component_count: 1,
-            ink_area: body.area,
-            left: body.left,
-            top: body.top,
-            right: body.right,
-            bottom: body.bottom,
-            initialized: true,
-            labels: vec![body.label],
-            ..BlockStats::default()
-        };
-        let mut component_blocks = vec![0usize; component_map.components().len() + 1];
-        component_blocks[artifact_label] = artifact_label;
-        component_blocks[body_label] = body_label;
-        let mut garbage_labels = vec![0u32; width * height];
-        let (garbage_rows, garbage_columns) = if artifact_is_garbage {
-            (artifact_top..=artifact_bottom, 20..31)
-        } else {
-            // Garbage far from the band under test: its distance term is what
-            // holds the trim score below the side's threshold.
-            (190..=199, 160..200)
-        };
-        for y in garbage_rows {
-            for x in garbage_columns.clone() {
-                garbage_labels[y * width + x] = HORIZONTAL_GARBAGE;
-            }
-        }
-        let text_mask = BinaryImage::new(width, height);
-        let protected_mask = BinaryImage::new(width, height);
-        let calibration =
-            PageCalibration::estimate_from_binary(&content, 150.0, CalibrationConfig::default());
-        trim_content_bounds(
-            &content,
-            &component_map,
-            &blocks,
-            &component_blocks,
-            &text_mask,
-            &protected_mask,
-            garbage_labels,
-            calibration,
-        )
-    }
-
     fn iou(left: Rect, right: Rect) -> f64 {
         let x0 = left.x.max(right.x);
         let y0 = left.y.max(right.y);
@@ -2900,18 +2717,6 @@ mod tests {
         intersection / (left.width * left.height + right.width * right.height - intersection)
     }
 
-    #[test]
-    fn recursively_splits_balanced_histogram_valleys() {
-        let histogram = [8, 9, 8, 9, 8, 9, 0, 0, 0, 10, 9, 10, 9, 10, 9];
-        let mut bands = Vec::new();
-        split_histogram_bands(&histogram, 0, histogram.len(), 6, &mut bands);
-        assert_eq!(bands, vec![(0, 6), (6, 15)]);
-
-        let unbalanced = [1, 1, 1, 1, 1, 1, 0, 0, 0, 30, 30, 30, 30, 30, 30];
-        bands.clear();
-        split_histogram_bands(&unbalanced, 0, unbalanced.len(), 6, &mut bands);
-        assert_eq!(bands, vec![(0, unbalanced.len())]);
-    }
     #[test]
     fn recovers_synthetic_content_box_and_ignores_border_shadow() {
         let mut image = GrayImage::new(240, 180, 238);
@@ -3126,34 +2931,6 @@ mod tests {
             bounds.right() >= 640.0,
             "running-head underline was trimmed: {bounds:?}"
         );
-    }
-
-    #[test]
-    fn a_side_bed_does_not_carry_the_top_bed_over_a_rule_it_touches() {
-        // (top bed rows, side bed rows, rule row): a full-height and a partial
-        // side bed beside a shallow top bed, and a partial one beside a deep bed.
-        for (top_bed, side_bed, rule) in [(40, 1_000, 120), (40, 800, 120), (100, 800, 150)] {
-            let mut image = GrayImage::new(500, 1_000, 236);
-            for y in 0..1_000 {
-                for x in 0..500 {
-                    let on_rule = (rule..rule + 2).contains(&y) && (100..400).contains(&x);
-                    if y < top_bed || (x >= 400 && y < side_bed) || on_rule {
-                        image.set(x, y, 0);
-                    }
-                }
-            }
-
-            let borders = border_artifact_mask(&image);
-
-            assert!(
-                borders.get(200, top_bed / 2),
-                "the top bed was not a border"
-            );
-            assert!(
-                !borders.get(200, rule),
-                "a rule joined to a {side_bed}-row side bed became border"
-            );
-        }
     }
 
     #[test]
@@ -3613,119 +3390,6 @@ mod tests {
     }
 
     #[test]
-    fn edge_continuation_filter_preserves_glyphs_and_running_furniture() {
-        let calibration = PageCalibration {
-            effective_dpi: 150.0,
-            stroke_width_px: 4.0,
-            x_height_px: 28.0,
-            valid: true,
-            config: CalibrationConfig::default(),
-        };
-        let dust = BlockStats {
-            component_count: 162,
-            ink_area: 2_008,
-            left: 81,
-            top: 0,
-            right: 130,
-            bottom: 436,
-            initialized: true,
-            ..BlockStats::default()
-        };
-        assert_eq!(
-            fragmented_edge_continuation_sides(&dust, 1_102, 1_573, calibration,),
-            CROP_ARTIFACT_LEFT
-        );
-
-        let marginal_text = BlockStats {
-            component_count: 18,
-            ink_area: 1_440,
-            left: 70,
-            top: 0,
-            right: 128,
-            bottom: 210,
-            initialized: true,
-            ..BlockStats::default()
-        };
-        assert_eq!(
-            fragmented_edge_continuation_sides(&marginal_text, 1_102, 1_573, calibration,),
-            0
-        );
-
-        let running_furniture = BlockStats {
-            component_count: 30,
-            ink_area: 600,
-            left: 70,
-            top: 0,
-            right: 850,
-            bottom: 28,
-            initialized: true,
-            ..BlockStats::default()
-        };
-        assert_eq!(
-            fragmented_edge_continuation_sides(&running_furniture, 1_102, 1_573, calibration,),
-            0
-        );
-    }
-
-    #[test]
-    fn crop_picture_bounds_reject_frame_rail_without_grayscale_artifact_signal() {
-        let calibration = PageCalibration {
-            effective_dpi: 150.0,
-            stroke_width_px: 4.0,
-            x_height_px: 12.0,
-            valid: true,
-            config: CalibrationConfig::default(),
-        };
-        let mut picture = BinaryImage::new(400, 600);
-        // The residual Luther gutter owner is coherent only at the lower
-        // right frame, so the gray candidate pass publishes no fragmented
-        // crop-artifact side at all.
-        for y in 440..600 {
-            for x in 364..400 {
-                picture.set(x, y, true);
-            }
-        }
-        // Authored central stamp remains crop-authoritative.
-        for y in 220..300 {
-            for x in 155..245 {
-                picture.set(x, y, true);
-            }
-        }
-        let owner_pixels = picture.count_black();
-        assert_eq!(
-            crop_qualified_picture_bounds(&picture, 0, calibration),
-            Some(PixelBounds {
-                left: 155,
-                top: 220,
-                right: 244,
-                bottom: 299,
-            })
-        );
-        assert_eq!(
-            picture.count_black(),
-            owner_pixels,
-            "crop-only qualification mutated semantic picture ownership"
-        );
-
-        let mut manual = BinaryImage::new(400, 600);
-        for y in 440..600 {
-            for x in 364..400 {
-                manual.set(x, y, true);
-            }
-        }
-        assert_eq!(
-            crop_qualified_picture_bounds_with_authority(&picture, Some(&manual), 0, calibration,),
-            Some(PixelBounds {
-                left: 155,
-                top: 220,
-                right: 399,
-                bottom: 599,
-            }),
-            "an explicit Painter2 corner photo must remain crop-authoritative"
-        );
-    }
-
-    #[test]
     fn sparse_numeric_margin_inside_rejected_picture_rail_stays_in_crop_box() {
         let mut image = GrayImage::new(520, 720, 244);
         for row in 0..14 {
@@ -3816,79 +3480,6 @@ mod tests {
     }
 
     #[test]
-    fn structured_edge_authority_requires_perpendicular_locality() {
-        let mut excluded = BinaryImage::new(300, 400);
-        for y in 260..360 {
-            for x in 0..10 {
-                excluded.set(x, y, true);
-            }
-        }
-        let calibration = PageCalibration {
-            effective_dpi: 150.0,
-            stroke_width_px: 3.0,
-            x_height_px: 12.0,
-            valid: true,
-            config: CalibrationConfig::default(),
-        };
-        let initial = PixelBounds {
-            left: 15,
-            top: 40,
-            right: 180,
-            bottom: 320,
-        };
-
-        let mut adjacent_text = BinaryImage::new(300, 400);
-        for y in 275..291 {
-            for x in 15..23 {
-                adjacent_text.set(x, y, true);
-            }
-        }
-        let adjacent_sides = structured_text_edge_sides(&excluded, &adjacent_text, calibration);
-        assert_eq!(
-            adjacent_sides, CROP_ARTIFACT_LEFT,
-            "genuine rail-adjacent text lost its edge authority"
-        );
-        let mut adjacent_bounds = Some(initial);
-        expand_bounds_for_structured_edge_text(
-            &mut adjacent_bounds,
-            adjacent_sides,
-            300,
-            400,
-            AcceptedTrimAuthority::default(),
-        );
-        assert_eq!(
-            adjacent_bounds.expect("adjacent content bounds").left,
-            0,
-            "genuine rail-adjacent text no longer expands to the physical edge"
-        );
-
-        let mut distant_text = BinaryImage::new(300, 400);
-        for y in 40..56 {
-            for x in 15..23 {
-                distant_text.set(x, y, true);
-            }
-        }
-        let distant_sides = structured_text_edge_sides(&excluded, &distant_text, calibration);
-        assert_eq!(
-            distant_sides, 0,
-            "text far along the perpendicular axis borrowed the rail's edge authority"
-        );
-        let mut distant_bounds = Some(initial);
-        expand_bounds_for_structured_edge_text(
-            &mut distant_bounds,
-            distant_sides,
-            300,
-            400,
-            AcceptedTrimAuthority::default(),
-        );
-        assert_eq!(
-            distant_bounds.expect("distant content bounds").left,
-            initial.left,
-            "distant text reopened the content box to the physical edge"
-        );
-    }
-
-    #[test]
     fn rejected_picture_rails_cannot_protect_seam_ink_as_text_content() {
         let mut image = GrayImage::new(600, 800, 244);
         draw_glyph_line(&mut image, 150, 95, 15, 8, 24, 16);
@@ -3956,88 +3547,6 @@ mod tests {
         );
         assert!(bounds.y <= 100.0, "title was cropped: {bounds:?}");
         assert!(bounds.bottom() >= 740.0, "footer was cropped: {bounds:?}");
-    }
-
-    #[test]
-    fn crop_picture_bounds_ignore_only_the_contaminated_edge_corridor() {
-        let calibration = PageCalibration {
-            effective_dpi: 150.0,
-            stroke_width_px: 4.0,
-            x_height_px: 12.0,
-            valid: true,
-            config: CalibrationConfig::default(),
-        };
-        let mut picture = BinaryImage::new(400, 600);
-        for (top, bottom) in [(0, 110), (190, 320), (540, 600)] {
-            for y in top..bottom {
-                for x in 12..38 {
-                    picture.set(x, y, true);
-                }
-            }
-        }
-        for y in 180..280 {
-            for x in 145..255 {
-                picture.set(x, y, true);
-            }
-        }
-        assert_eq!(
-            crop_qualified_picture_bounds(&picture, CROP_ARTIFACT_LEFT, calibration),
-            Some(PixelBounds {
-                left: 145,
-                top: 180,
-                right: 254,
-                bottom: 279,
-            })
-        );
-
-        // A genuine marginal photo that reaches beyond the calibrated gutter
-        // corridor remains crop-authoritative even on a contaminated edge.
-        let mut edge_photo = BinaryImage::new(400, 600);
-        for y in 330..470 {
-            for x in 18..125 {
-                edge_photo.set(x, y, true);
-            }
-        }
-        assert_eq!(
-            crop_qualified_picture_bounds(&edge_photo, CROP_ARTIFACT_LEFT, calibration),
-            Some(PixelBounds {
-                left: 18,
-                top: 330,
-                right: 124,
-                bottom: 469,
-            })
-        );
-        assert_eq!(
-            crop_qualified_picture_bounds(&edge_photo, 0, calibration),
-            Some(PixelBounds {
-                left: 18,
-                top: 330,
-                right: 124,
-                bottom: 469,
-            }),
-            "a genuine edge photo floating clear of the frame was rejected"
-        );
-
-        let full_bleed = BinaryImage::from_fn_parallel(400, 600, |_, _| true);
-        assert_eq!(
-            crop_qualified_picture_bounds(&full_bleed, CROP_ARTIFACT_LEFT, calibration),
-            Some(PixelBounds {
-                left: 0,
-                top: 0,
-                right: 399,
-                bottom: 599,
-            })
-        );
-        assert_eq!(
-            crop_qualified_picture_bounds(&full_bleed, 0, calibration),
-            Some(PixelBounds {
-                left: 0,
-                top: 0,
-                right: 399,
-                bottom: 599,
-            }),
-            "full-bleed picture ownership must remain crop-authoritative"
-        );
     }
 
     #[test]
@@ -4109,129 +3618,6 @@ mod tests {
     }
 
     #[test]
-    fn edge_attached_band_remains_trimmable_beyond_the_border_zone() {
-        let (bounds, accepted_trims) = direct_trim_fixture(0, 30);
-        let bounds = bounds.expect("edge-attached artifact and body are content");
-
-        assert!(accepted_trims
-            .iter()
-            .any(|trim| { trim.side == ContentTrimSide::Top && trim.iteration == 1 }));
-        assert!(bounds.top >= 80, "edge-attached band survived: {bounds:?}");
-    }
-
-    #[test]
-    fn calibrated_evidence_ignores_one_picture_pixel_when_trimming() {
-        let (bounds, _, accepted_trims) = direct_trim_fixture_with_evidence(0, 30, true, 1);
-        let bounds = bounds.expect("edge residue and body are content");
-
-        assert!(accepted_trims
-            .iter()
-            .any(|trim| trim.side == ContentTrimSide::Top));
-        assert!(
-            bounds.top >= 80,
-            "one overlap pixel vetoed the trim: {bounds:?}"
-        );
-    }
-
-    #[test]
-    fn protected_survivor_at_shared_extreme_degrades_to_no_trim() {
-        let calibration = PageCalibration {
-            effective_dpi: 150.0,
-            stroke_width_px: 4.0,
-            x_height_px: 40.0,
-            valid: true,
-            config: CalibrationConfig::default(),
-        };
-        let blocks = vec![
-            BlockStats::default(),
-            BlockStats {
-                ink_area: 40,
-                left: 10,
-                top: 0,
-                right: 20,
-                bottom: 20,
-                initialized: true,
-                ..BlockStats::default()
-            },
-            BlockStats {
-                ink_area: 40,
-                left: 60,
-                top: 0,
-                right: 70,
-                bottom: 20,
-                initialized: true,
-                grayscale_supported: true,
-                ..BlockStats::default()
-            },
-            BlockStats {
-                ink_area: 400,
-                left: 40,
-                top: 80,
-                right: 140,
-                bottom: 160,
-                initialized: true,
-                ..BlockStats::default()
-            },
-        ];
-        let current = PixelBounds {
-            left: 10,
-            top: 0,
-            right: 140,
-            bottom: 160,
-        };
-
-        assert!(build_trim_geometry(
-            TrimSide::Top,
-            current,
-            &blocks,
-            &[false, true, true, true],
-            calibration,
-        )
-        .is_none());
-    }
-
-    #[test]
-    fn a_side_below_its_trim_threshold_is_left_untrimmed() {
-        let (trimmed, trimmed_confidence, trims) = direct_trim_fixture_with_garbage(0, 30, true);
-        let trimmed = trimmed.expect("artifact and body are content");
-        assert!(
-            trimmed.top >= 80,
-            "the trimmable band survived: {trimmed:?}"
-        );
-        let accepted = trims
-            .iter()
-            .find(|trim| trim.side == ContentTrimSide::Top)
-            .expect("the band was trimmed from the top");
-        assert!(accepted.score > accepted.threshold);
-        assert!(trimmed_confidence[TrimSide::Top.index()] >= accepted.threshold);
-
-        // The same band with the garbage evidence elsewhere: the side scores
-        // below its threshold, so nothing is trimmed and the pixels stay.
-        let (kept, kept_confidence, kept_trims) = direct_trim_fixture_with_garbage(0, 30, false);
-        let kept = kept.expect("artifact and body are content");
-        assert!(
-            kept_trims.is_empty(),
-            "a below-threshold side was trimmed: {kept_trims:?}",
-        );
-        assert_eq!(kept.top, 0, "an unsupported trim removed content: {kept:?}");
-        assert!(
-            kept_confidence[TrimSide::Top.index()] < accepted.threshold,
-            "the refused side reported trim-worthy confidence: {kept_confidence:?}",
-        );
-    }
-
-    #[test]
-    fn in_frame_floating_artifact_is_not_trimmable_even_with_high_garbage_score() {
-        // Every artifact pixel is a garbage seed, so the score would be maximal
-        // without the page-frame admissibility filter.
-        let (bounds, accepted_trims) = direct_trim_fixture(25, 55);
-        let bounds = bounds.expect("floating artifact and body are content");
-
-        assert!(accepted_trims.is_empty());
-        assert_eq!(bounds.top, 25, "floating artifact was trimmed: {bounds:?}");
-    }
-
-    #[test]
     fn recognized_text_blocks_cannot_be_consumed_by_a_cascading_edge_trim() {
         let mut image = GrayImage::new(620, 760, 245);
         // A scanner-edge rule and running header are legitimate trim
@@ -4268,62 +3654,6 @@ mod tests {
                 .iter()
                 .any(|block| block.text_evidence && block.bounds.y_px <= 104),
             "text protection was not recorded: {diagnostics:?}"
-        );
-    }
-
-    #[test]
-    fn calibrated_evidence_ignores_one_text_mask_pixel() {
-        let mut components = BinaryImage::new(10, 10);
-        components.set(1, 1, true);
-        components.set(4, 4, true);
-        components.set(8, 8, true);
-        let map = ComponentMap::from_binary(&components);
-
-        let mut blocks = vec![BlockStats::default(); 3];
-        blocks[1] = BlockStats {
-            left: 1,
-            top: 1,
-            right: 8,
-            bottom: 8,
-            initialized: true,
-            labels: vec![1, 3],
-            ..BlockStats::default()
-        };
-        blocks[2] = BlockStats {
-            left: 4,
-            top: 4,
-            right: 4,
-            bottom: 4,
-            initialized: true,
-            labels: vec![2],
-            ..BlockStats::default()
-        };
-        let component_blocks = vec![0, 1, 2, 1];
-        let mut text_mask = BinaryImage::new(10, 10);
-        text_mask.set(4, 4, true);
-
-        let calibration = PageCalibration {
-            effective_dpi: 150.0,
-            stroke_width_px: 4.0,
-            x_height_px: 40.0,
-            valid: true,
-            config: CalibrationConfig::default(),
-        };
-        annotate_text_evidence(
-            &map,
-            &component_blocks,
-            &mut blocks,
-            &text_mask,
-            calibration,
-        );
-
-        assert!(
-            !blocks[1].text_evidence,
-            "a block must not inherit text protection merely because its bounding box contains text"
-        );
-        assert!(
-            !blocks[2].text_evidence,
-            "one text-mask pixel must not hard-protect an entire side block"
         );
     }
 

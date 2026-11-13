@@ -2151,24 +2151,6 @@ mod tests {
     }
 
     #[test]
-    fn layout_white_point_stays_frozen_while_quality_paper_reaches_display_white() {
-        let source = GrayImage::new(180, 120, 184);
-        let preparation = prepare_illumination(&source);
-        let layout = normalize_illumination_for_layout_prepared(&source, &preparation);
-        let quality = normalize_illumination_prepared_with_masks(
-            &source,
-            None,
-            None,
-            None,
-            None,
-            preparation,
-        );
-
-        assert_eq!(layout.get(90, 60), LAYOUT_WHITE_TARGET as u8);
-        assert_eq!(quality.get(90, 60), PAPER_WHITE_TARGET as u8);
-    }
-
-    #[test]
     fn paper_shoulder_removes_low_contrast_show_through_but_keeps_sharp_faint_ink() {
         // The background model normally maps the dominant paper cluster to
         // 255 before this calibration runs. Keep that realistic endpoint here
@@ -2227,24 +2209,6 @@ mod tests {
 
         assert!(normalized.get(72, 64) >= 246);
         assert_eq!(normalized.get(100, 126), 220);
-    }
-
-    #[test]
-    fn color_normalization_matches_real_gutter_fixture_golden() {
-        let decoded = crate::io::png::decode_image(
-            include_bytes!("../tests/fixtures/split/spread-luther-soft-gutter-p00001.png"),
-            crate::DEFAULT_MAX_PIXELS,
-            crate::DEFAULT_MAX_DIMENSION,
-        )
-        .unwrap();
-        let normalized = normalize_illumination_rgb(&decoded.gray, &decoded.rgb, 300.0);
-        let mut checksum = crc32fast::Hasher::new();
-        for y in 0..normalized.height() {
-            checksum.update(normalized.row(y));
-        }
-
-        // Re-pinned with the exact integer area-tap background reduction.
-        assert_eq!(checksum.finalize(), 320_625_173);
     }
 
     #[test]

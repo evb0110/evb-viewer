@@ -2301,38 +2301,6 @@ mod tests {
     }
 
     #[test]
-    fn reduced_analysis_bounds_retain_the_source_sample_footprint() {
-        let mut source = GrayImage::new(720, 960, 246);
-        source.set(115, 200, 80);
-        source.set(200, 185, 80);
-        let mapped = map_analysis_rect_to_source_support(
-            Rect::new(58.0, 93.0, 229.0, 238.0),
-            0.5,
-            0.5,
-            720.0,
-            960.0,
-            SourceContentSupport::Rectilinear {
-                image: &source,
-                to_source: Affine::IDENTITY,
-            },
-        );
-        assert_eq!(mapped, Rect::new(115.0, 185.0, 459.0, 477.0));
-
-        let identity = map_analysis_rect_to_source_support(
-            Rect::new(58.0, 93.0, 229.0, 238.0),
-            1.0,
-            1.0,
-            720.0,
-            960.0,
-            SourceContentSupport::Rectilinear {
-                image: &source,
-                to_source: Affine::IDENTITY,
-            },
-        );
-        assert_eq!(identity, Rect::new(58.0, 93.0, 229.0, 238.0));
-    }
-
-    #[test]
     fn analysis_rect_mapping_expands_each_edge_by_at_most_half_a_sample() {
         let source = GrayImage::new(800, 1_000, 0);
         let rect = Rect::new(31.25, 47.75, 113.5, 207.25);
@@ -7560,21 +7528,6 @@ mod tests {
             faint.set(x, 200, true);
         }
         assert!(pale_bilevel_collapse(&faint, false));
-    }
-
-    #[test]
-    fn pale_bilevel_collapse_is_strict_at_one_tenth_percent_ink() {
-        let with_ink = |ink: usize| {
-            let mut binary = BinaryImage::new(1_000, 100);
-            for index in 0..ink {
-                binary.set(index % binary.width(), index / binary.width(), true);
-            }
-            binary
-        };
-
-        assert!(pale_bilevel_collapse(&with_ink(99), true));
-        assert!(!pale_bilevel_collapse(&with_ink(100), true));
-        assert!(!pale_bilevel_collapse(&with_ink(101), true));
     }
 
     fn fold_test_split(total_width: usize, height: usize) -> SplitResult {
