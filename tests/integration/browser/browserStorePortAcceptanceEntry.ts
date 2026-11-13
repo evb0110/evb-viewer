@@ -14,7 +14,7 @@ const publication: IDocumentStore['publication'] = {
     source: async () => {
         throw new Error('No destination in this acceptance');
     },
-    publish: async () => ({status: 'published'}),
+    publish: async () => ({status: 'published', witness: 'unused'}),
 };
 
 function openPort() {

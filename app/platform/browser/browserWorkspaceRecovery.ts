@@ -30,9 +30,11 @@ import { createPaneId } from '@contracts/editorPanes';
 import { createEpochMs } from '@contracts/timestamps';
 import { createTabId } from '@contracts/windowTabs';
 import {
+    decodeStoredWorkspaceCheckpoint,
     decodeWorkspaceCheckpoint,
     type IWorkspaceCheckpoint,
     type IWorkspaceCheckpointTab,
+    toStoredWorkspaceCheckpoint,
 } from '@contracts/workspaceCheckpoint';
 
 const WINDOW_LOCK_PREFIX = 'evb-window:';
@@ -134,7 +136,7 @@ async function completeCheckpoint(checkpoint: IWorkspaceCheckpoint | null, orpha
     for (const tab of checkpoint?.tabs ?? []) {
         const {workingCopyRef} = tab;
         const directory = directoryOf(workingCopyRef);
-        tabs.push(workingCopyRef && (tab.isDirty || (directory !== null && unsaved.has(directory)))
+        tabs.push(workingCopyRef && directory !== null && unsaved.has(directory)
             ? await restoreUnsavedTab({...tab, workingCopyRef})
             : tab);
     }
@@ -183,7 +185,7 @@ export async function claimBrowserWorkspaceCheckpoint(windowId: string, inherite
         }
     }
     const candidates = checkpoints.flatMap(([id, checkpoint]) => checkpoint
-        ? [{id, names: namesOf(checkpoint), workspace: decodeWorkspaceCheckpoint(checkpoint.layout)}]
+        ? [{id, names: namesOf(checkpoint), workspace: decodeStoredWorkspaceCheckpoint(checkpoint.layout)}]
         : []).sort((left, right) => Number(right.id === windowId) - Number(left.id === windowId)
         || Number(right.id === inheritedWindowId) - Number(left.id === inheritedWindowId)
         || (right.workspace?.capturedAt ?? 0) - (left.workspace?.capturedAt ?? 0));
@@ -229,7 +231,7 @@ const heldDirectories = new Set<string>();
 /** This window's checkpoint as the page found it, named on until the page has claimed what it restores. */
 let startCheckpoint: Promise<ICoreWorkspaceCheckpoint | null | undefined> | null = null;
 /** The layout this page recorded last. */
-let layout: IWorkspaceCheckpoint | null = null;
+let layout: ReturnType<typeof toStoredWorkspaceCheckpoint> | null = null;
 let writing = Promise.resolve();
 
 /** Writes this window's checkpoint: the directories it names, then the layout last recorded. One write at a time. */
@@ -284,6 +286,6 @@ export async function saveBrowserWorkspaceCheckpoint(windowId: string, checkpoin
             await entry.doc.setDrafts(entry.doc.state().current?.id ?? null, undefined);
         }
     }
-    layout = {...checkpoint, tabs: checkpoint.tabs.map(({annotationRecovery: _drafts, ...tab}) => tab)};
+    layout = toStoredWorkspaceCheckpoint(checkpoint);
     await writeWindowCheckpoint(windowId);
 }

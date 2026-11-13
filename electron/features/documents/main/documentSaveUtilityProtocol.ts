@@ -1,8 +1,5 @@
 import {createHash} from 'node:crypto';
-import {
-    isAbsolute,
-    dirname,
-} from 'node:path';
+import {isAbsolute} from 'node:path';
 import {
     isBrowserStoreFileIdentity,
     TYPED_STAGED_ARTIFACT_SCHEMA,
@@ -17,10 +14,10 @@ const MAX_CHANGED_OBJECT_REFS = 128;
 const positiveSafeIntegerSchema = v.pipe(v.number(), v.safeInteger(), v.minValue(1));
 const absolutePathSchema = v.pipe(v.string(), v.check(isAbsolute));
 const stagedArtifactSchema = TYPED_STAGED_ARTIFACT_SCHEMA;
-const commitRequestSchema = v.pipe(v.object({
-    type: v.literal('commit'),
+/** Checks a PDF a save wrote before the main process publishes it. */
+const validateRequestSchema = v.pipe(v.object({
+    type: v.literal('validate'),
     sourcePath: absolutePathSchema,
-    targetPath: absolutePathSchema,
     expectedBytes: positiveSafeIntegerSchema,
     validationBinary: v.optional(absolutePathSchema),
     changedObjectRefs: v.optional(v.pipe(
@@ -28,38 +25,27 @@ const commitRequestSchema = v.pipe(v.object({
         v.maxLength(MAX_CHANGED_OBJECT_REFS),
     )),
     stagedArtifact: v.optional(stagedArtifactSchema),
-    validateOnly: v.optional(v.literal(true)),
 }),
 v.check(({
     sourcePath,
-    targetPath,
     expectedBytes,
     stagedArtifact,
-}) => (
-    dirname(sourcePath) === dirname(targetPath)
-    && sourcePath !== targetPath
-    && (stagedArtifact === undefined
-        || stagedArtifact.path === sourcePath && stagedArtifact.size === expectedBytes)
-)),
+}) => stagedArtifact === undefined || (stagedArtifact.path === sourcePath && stagedArtifact.size === expectedBytes)),
 // Keep optional protocol keys absent when in-process callers supply undefined.
 v.transform(({
     type,
     sourcePath,
-    targetPath,
     expectedBytes,
     validationBinary,
     changedObjectRefs,
     stagedArtifact,
-    validateOnly,
 }) => ({
     type,
     sourcePath,
-    targetPath,
     expectedBytes,
     ...(validationBinary === undefined ? {} : {validationBinary}),
     ...(changedObjectRefs === undefined ? {} : {changedObjectRefs}),
     ...(stagedArtifact === undefined ? {} : {stagedArtifact}),
-    ...(validateOnly === undefined ? {} : {validateOnly}),
 })));
 const inspectRequestSchema = v.object({
     type: v.literal('inspect'),
@@ -68,12 +54,12 @@ const inspectRequestSchema = v.object({
 });
 const documentSaveUtilityRequestSchema = v.variant('type', [
     inspectRequestSchema,
-    commitRequestSchema,
+    validateRequestSchema,
 ]);
 
-export type IDocumentSaveUtilityCommitRequest = Extract<
+export type IDocumentSaveUtilityValidateRequest = Extract<
     v.InferOutput<typeof documentSaveUtilityRequestSchema>,
-    {type: 'commit'}
+    {type: 'validate'}
 >;
 export type IDocumentSaveUtilityInspectRequest = Extract<
     v.InferOutput<typeof documentSaveUtilityRequestSchema>,
@@ -99,7 +85,6 @@ export interface IDocumentSaveUtilityReusePlan {
     qpdfCheck: boolean;
     nativeIncrementalCheck: boolean;
     changedObjectRefsCheck: boolean;
-    fileSync: boolean;
 }
 
 const documentSaveUtilityResultSchema = v.variant('ok', [
@@ -135,7 +120,7 @@ export function createNativeIncrementalMutationSemanticScopeSha256() {
 }
 
 export function getDocumentSaveUtilityReusePlan(
-    request: IDocumentSaveUtilityCommitRequest,
+    request: IDocumentSaveUtilityValidateRequest,
 ): IDocumentSaveUtilityReusePlan {
     const artifact = request.stagedArtifact;
     if (artifact && isBrowserStoreFileIdentity(artifact.fileIdentity)) {
@@ -145,7 +130,6 @@ export function getDocumentSaveUtilityReusePlan(
             qpdfCheck: false,
             nativeIncrementalCheck: false,
             changedObjectRefsCheck: false,
-            fileSync: false,
         };
     }
     const receiptReuseEnabled = process.platform !== 'win32'
@@ -165,7 +149,6 @@ export function getDocumentSaveUtilityReusePlan(
             && changedObjectRefs.length > 0
             && artifact.validations.changedObjectRefsSha256
                 === createChangedObjectRefsSha256(changedObjectRefs),
-        fileSync: receiptReuseEnabled && artifact.validations.fsynced === true,
     };
 }
 

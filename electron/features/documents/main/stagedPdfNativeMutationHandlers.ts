@@ -107,7 +107,7 @@ export async function handleReplaceWorkingCopyFromStagedPdfNativeMutation(
         assertConsumableStagedPdf(stagedOutput);
         return await enqueueWorkingCopyMutation(entry.ref, async () => {
             await assertQueuedWorkingCopyMutationPreconditions(entry.ref, expectedDocumentRevisionToken);
-            await commitDocumentMutation(entry, expectedDocumentRevisionToken, {kind: 'rewrite', source: stagedOutput.path}, 'native-mutation');
+            await commitDocumentMutation(entry, expectedDocumentRevisionToken, {kind: 'move', file: stagedOutput.path}, 'native-mutation');
             return true;
         }, {
             kind: 'native-pdf-mutation-staged-working-copy',

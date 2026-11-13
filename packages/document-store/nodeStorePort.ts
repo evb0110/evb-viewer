@@ -136,6 +136,19 @@ export function createNodeStorePort(root: string): IStorePort {
         },
         copyIn,
         copy: (from, to) => copyIn(resolve(from), to),
+        async move(file, relative) {
+            const target = resolve(relative);
+            await ensureDirectory(path.dirname(target));
+            await fs.link(file, target);
+            await fs.rm(file, { force: true });
+            const handle = await fs.open(target, 'r+');
+            try {
+                await handle.sync();
+            } finally {
+                await handle.close();
+            }
+            await syncDirectory(path.dirname(target));
+        },
         remove: file => fs.rm(resolve(file), { recursive: true, force: true }),
     };
 }

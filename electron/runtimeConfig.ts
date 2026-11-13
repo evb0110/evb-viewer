@@ -100,21 +100,6 @@ export const runtimeConfig = {
     },
     get test() {
         return {
-            get atomicReplaceBarrier() { // unset; stop Windows atomic replacement at one test stage
-                return process.env.EVB_ATOMIC_REPLACE_TEST_BARRIER;
-            },
-            get atomicReplaceBarrierFile() { // unset; coordinate the Windows atomic replacement test
-                return process.env.EVB_ATOMIC_REPLACE_TEST_BARRIER_FILE;
-            },
-            get documentSaveUtilityThresholdBytes() { // 64 MiB; let the Windows publication test enter the utility path with a small fixture
-                return integer(
-                    process.env.EVB_DOCUMENT_SAVE_UTILITY_THRESHOLD_BYTES,
-                    64 * 1024 * 1024,
-                    1,
-                    Number.MAX_SAFE_INTEGER,
-                    false,
-                );
-            },
             get e2eOpenDialogPath() { // unset; answer the native open dialog in automation
                 return process.env.EVB_E2E_OPEN_DIALOG_PATH?.trim();
             },

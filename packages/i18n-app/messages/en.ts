@@ -1215,7 +1215,6 @@ export default {
     'dialogs': {
         'openDocument': 'Open Document',
         'openImage': 'Open Image',
-        'openFolder': 'Open Folder',
         'combineFiles': 'Combine Files',
         'documentsFilter': 'Documents',
         'imagesFilter': 'Images',
@@ -1587,8 +1586,6 @@ export default {
         'fileSizeValue': 'Size: {size}',
         'zoomUnknown': 'Zoom: -',
         'zoomValue': 'Zoom: {zoom}%',
-        'preparingDocument': 'Preparing document',
-        'preparingDocumentProgress': 'Preparing document · {progress}%',
         'showInDownloads': 'Save to Downloads and Reveal',
         'showInFolder': 'Reveal in Folder',
         'showInFolderUnavailableWeb': 'Stored in this browser',
@@ -1849,7 +1846,6 @@ export default {
             'changedWhileOpening': 'The file changed while it was being opened. Open it again.',
             'invalid': 'The file is damaged or is not a supported document.',
             'emptyPdf': 'The PDF file is empty (0 bytes)',
-            'folderEmpty': 'No supported documents were found in the selected folder',
             'save': 'Failed to save file',
             'originalSavedOtherKept': 'The PDF changed elsewhere while it was being saved. The version that was on disk just before your save was kept next to it as {path}. Your changes are still open here; use Save As to keep them.',
             'recoveryKeptOriginalTitle': 'A version was kept beside this PDF',
@@ -1860,8 +1856,6 @@ export default {
         'save': {
             'recoverySettlementTitle': 'PDF saved, but recovery could not be updated',
             'recoverySettlementDescription': 'Your changes were written to the PDF. Any newer unsaved edits remain open here.',
-            'workingCopySyncRequiredTitle': 'Could not update the open document after Save',
-            'workingCopySyncRequiredUnknown': 'The file may have been written. Your edits remain open here; check the file, or use Save As to save them elsewhere.',
             'validation': 'The document did not pass its validity check, so nothing was written.',
             'openNotes': 'Open notes could not be saved, so the document was not written.',
             'documentChanged': 'The document changed before the save finished, so nothing was written.',

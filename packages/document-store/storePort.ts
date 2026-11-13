@@ -22,6 +22,11 @@ export interface IStorePort {
     copyIn(source: TExternalSource, path: string): Promise<void>;
     /** Copies the store file `from` to a new path `to`, as `copyIn` does. */
     copy(from: string, to: string): Promise<void>;
+    /**
+     * Moves `file`, which the caller wrote and gives up, to a new `path`; durable when resolved. Only a port
+     * over the file system the caller writes to has it.
+     */
+    move?(file: string, path: string): Promise<void>;
     /** Removes a file or a directory tree; a missing path is not an error. */
     remove(path: string): Promise<void>;
 }

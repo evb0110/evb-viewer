@@ -1216,7 +1216,6 @@ export default {
     'dialogs': {
         'openDocument': 'Ouvrir un document',
         'openImage': 'Ouvrir une image',
-        'openFolder': 'Ouvrir un dossier',
         'combineFiles': 'Combiner des fichiers',
         'documentsFilter': 'Documents',
         'imagesFilter': 'Images',
@@ -1594,8 +1593,6 @@ export default {
         'fileSizeValue': 'Taille : {size}',
         'zoomUnknown': 'Zoom : -',
         'zoomValue': 'Zoom : {zoom}%',
-        'preparingDocument': 'Préparation du document',
-        'preparingDocumentProgress': 'Préparation du document · {progress}%',
         'showInDownloads': 'Enregistrer dans Téléchargements et afficher',
         'showInFolder': 'Afficher dans le dossier',
         'showInFolderUnavailableWeb': 'Stocké dans ce navigateur',
@@ -1860,7 +1857,6 @@ export default {
             'changedWhileOpening': 'Le fichier a été modifié pendant son ouverture. Ouvrez-le à nouveau.',
             'invalid': 'Le fichier est endommagé ou n’est pas un document pris en charge.',
             'emptyPdf': 'Le fichier PDF est vide (0 octet)',
-            'folderEmpty': 'Aucun document pris en charge n’a été trouvé dans le dossier sélectionné',
             'save': 'Échec de l’enregistrement du fichier',
             'originalSavedOtherKept': 'Le PDF a été modifié ailleurs pendant l’enregistrement. La version qui se trouvait sur le disque juste avant votre enregistrement a été conservée à côté sous le nom {path}. Vos modifications sont toujours ouvertes ici ; utilisez « Enregistrer sous » pour les conserver.',
             'recoveryKeptOriginalTitle': 'Une version a été conservée à côté de ce PDF',
@@ -1871,8 +1867,6 @@ export default {
         'save': {
             'recoverySettlementTitle': 'PDF enregistré, mais la récupération n’a pas pu être mise à jour',
             'recoverySettlementDescription': 'Vos modifications ont été enregistrées dans le PDF. Les modifications ultérieures non enregistrées restent ouvertes ici.',
-            'workingCopySyncRequiredTitle': 'Impossible de mettre à jour le document ouvert après l’enregistrement',
-            'workingCopySyncRequiredUnknown': 'Le fichier a peut-être été écrit. Vos modifications restent ouvertes ici ; vérifiez le fichier ou utilisez Enregistrer sous pour les enregistrer ailleurs.',
             'validation': 'Le document n’a pas passé le contrôle de validité, rien n’a été écrit.',
             'openNotes': 'Les notes ouvertes n’ont pas pu être enregistrées, le document n’a pas été écrit.',
             'documentChanged': 'Le document a changé avant la fin de l’enregistrement, rien n’a été écrit.',

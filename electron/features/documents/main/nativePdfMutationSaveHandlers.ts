@@ -462,7 +462,7 @@ export async function handleCommitStagedPdfNativeMutations(
             await assertQueuedWorkingCopyMutationPreconditions(entry.ref, expectedDocumentRevisionToken);
             const currentArtifact = await resolveTypedStagedArtifact(context, stagedOutput);
             const saved = toDocumentSaveResult(entry, await saveOpenDocument(entry, expectedDocumentRevisionToken, {
-                commit: {kind: 'rewrite', source: currentArtifact.path},
+                commit: {kind: 'move', file: currentArtifact.path},
             }), createNativeValidationResult());
             if (saved.ok) {
                 return {

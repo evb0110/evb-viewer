@@ -8,7 +8,6 @@ import {
 import {resolve} from 'path';
 import {
     describeReadPathValidationForDiagnostics,
-    isAllowedReadPath,
     resolveAllowedReadPath,
     getManagedTempPathAccessDecision,
 } from '@electron/utils/pathValidator';
@@ -216,20 +215,6 @@ export async function resolveExistingReadablePdfPath(filePath: unknown, senderId
     }
 
     return resolvedPath;
-}
-
-export function resolveReadablePathSync(normalizedPath: string, senderId?: number) {
-    if (!isReadablePathAllowedForSender(normalizedPath, senderId)) {
-        return null;
-    }
-    if (isManagedRef(normalizedPath, senderId)) {
-        return normalizedPath;
-    }
-    const mappedWorkingCopyPath = findWorkingCopyPathByOriginalPath(normalizedPath, senderId);
-    if (mappedWorkingCopyPath) {
-        return mappedWorkingCopyPath;
-    }
-    return isAllowedReadPath(normalizedPath) && existsSync(normalizedPath) ? normalizedPath : null;
 }
 
 export function assertWithinIpcReadBudget(resolvedPath: string, knownSize?: number) {

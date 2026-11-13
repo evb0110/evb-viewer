@@ -103,12 +103,13 @@ async function settleDisplacedOriginal(destination: string, baseline: string | n
 }
 
 /**
- * Settles a save a crash interrupted, before the document that made it reopens: the save finished only if the PDF holds
- * exactly the bytes it was publishing, `published`. A PDF that cannot be read now is left for the next start.
+ * Settles a save a crash interrupted, before the document that made it reopens: the save finished only if the PDF is
+ * the file it was publishing, whose metadata it staged as `published`. A PDF that cannot be read now is left for the
+ * next start.
  */
 export function recoverInterruptedPublish(destination: string, baseline: string | null, published: string) {
     return withOriginalPathMutationLock(destination, async () => {
-        const now = await fileWitness(destination, true).catch(() => undefined);
+        const now = await fileWitness(destination).catch(() => undefined);
         return now === undefined ? undefined : settleDisplacedOriginal(destination, baseline, sameWitness(now, published));
     });
 }
@@ -121,23 +122,24 @@ async function copyRevision(source: IPublishSource, absolutePath: string, target
 }
 
 /**
- * Publication to files on this computer. A destination's witness is its metadata, so opening or checking a file
- * never reads it; recovery asks for its content too. A Save checks the destination against the baseline inside
- * `atomicReplace`, after which the replaced PDF is moved aside rather than deleted; bytes another program wrote
- * between that check and the move stay beside the PDF as "(original)". Save As replaces without a check. The
- * acknowledged witness is the metadata of the file EVB installed; a PDF that no longer is that file when the save
- * acknowledges it was changed by another program, and the save is refused with the displaced original kept.
+ * Publication to files on this computer. A destination's witness is its metadata, so opening, checking or saving
+ * a file never reads it. The bytes are copied beside the destination, and that copy's metadata is the witness staged
+ * before the replace: a rename keeps it. A Save checks the destination against the baseline inside `atomicReplace`,
+ * after which the replaced PDF is moved aside rather than deleted; bytes another program wrote between that check and
+ * the move stay beside the PDF as "(original)". Save As replaces without a check. A PDF that no longer has the staged
+ * witness after the replace was changed by another program: the save is refused with the displaced original kept.
  */
 export function createDesktopPublication(absolute: (storePath: string) => string): IPublicationPort {
     return {
         witness: fileWitness,
         source: async destination => destination,
-        publish: (destination, source, expected) => withOriginalPathMutationLock(destination, async () => {
+        publish: (destination, source, expected, stage) => withOriginalPathMutationLock(destination, async () => {
             await settleDisplacedOriginal(destination, expected);
             const temp = makeSiblingTempPath(destination);
             try {
                 await copyRevision(source, absolute(source.path), temp);
-                const ours = statSync(temp, {bigint: true});
+                const staged = metadataFact(statSync(temp, {bigint: true}));
+                await stage(staged);
                 let checked: BigIntStats | undefined;
                 try {
                     await atomicReplace(temp, destination, expected === null ? {} : {
@@ -153,11 +155,10 @@ export function createDesktopPublication(absolute: (storePath: string) => string
                     if (error instanceof DestinationChanged) return {status: 'conflict'};
                     throw error;
                 }
-                const now = statOrNull(destination);
-                const installed = now !== null && sameBytesOnDisk(now, ours);
+                const installed = await fileWitness(destination) === staged;
                 const keptOriginal = await settleDisplacedOriginal(destination, expected, installed, checked);
                 const kept = keptOriginal === undefined ? {} : {keptOriginal};
-                return installed ? {status: 'published', witness: metadataFact(ours), ...kept} : {status: 'conflict', ...kept};
+                return installed ? {status: 'published', witness: staged, ...kept} : {status: 'conflict', ...kept};
             } finally {
                 await rm(temp, {force: true});
             }

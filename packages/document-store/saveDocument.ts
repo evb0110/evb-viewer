@@ -1,8 +1,4 @@
-import {
-    contentOf,
-    contentWitness,
-    sameWitness,
-} from './contentWitness';
+import { sameWitness } from './contentWitness';
 import type {
     DocumentDirectory,
     IRevision,
@@ -27,10 +23,10 @@ export type TSaveResult = { status: 'saved'; revision: IRevision | null; keptOri
     | { status: 'needs-save-as' };
 
 /**
- * Save: commit the pending edits as a mutation, so the work is durable whatever happens next; record the
- * witness about to be published as `pendingPublish`; publish, with the destination check done by the
- * publication port; acknowledge by making that witness the baseline. Conflicts and stale revisions are
- * returned once; nothing retries.
+ * Save: commit the pending edits as a mutation, so the work is durable whatever happens next; publish, with
+ * the destination check done by the publication port, which names the witness the destination is about to
+ * have so it is recorded as `pendingPublish` first; acknowledge by making the destination's witness after the
+ * write the baseline. Conflicts and stale revisions are returned once; nothing retries.
  */
 export function saveDocument(doc: DocumentDirectory, options: ISaveOptions) {
     return doc.run(async (): Promise<TSaveResult> => {
@@ -52,22 +48,26 @@ export function saveDocument(doc: DocumentDirectory, options: ISaveOptions) {
         if (!current) return { status: 'conflict' };
         if (saveAs === undefined && sameWitness(current.witness, baseline)) return { status: 'saved', revision: current };
 
-        const file = doc.currentFile();
-        const witness = contentOf(current.witness) ?? await contentWitness(current.length, (offset, length) => file.readAt(offset, length));
-        const revision = { ...current, witness };
-        await doc.commit({ ...doc.snapshot(), current: revision, pendingPublish: { destination, witness } });
+        let staged = false;
         const published = await doc.store.publication.publish(
             destination,
-            { path: doc.path(revision.file), length: revision.length, file },
+            { path: doc.path(current.file), length: current.length, file: doc.currentFile(), witness: current.witness },
             saveAs === undefined ? baseline ?? null : null,
+            // The current bytes carry the witness too, so recovery that adopts it leaves the document clean.
+            async (witness) => {
+                await doc.commit({ ...doc.snapshot(), current: { ...current, witness }, pendingPublish: { destination, witness } });
+                staged = true;
+            },
         );
         const kept = published.keptOriginal === undefined ? {} : { keptOriginal: published.keptOriginal };
         if (published.status === 'conflict') {
-            await doc.commit({ ...doc.snapshot(), pendingPublish: undefined });
+            // The staged witness named a file the destination did not end up holding: `current` gets its own back.
+            if (staged) await doc.commit({ ...doc.snapshot(), current, pendingPublish: undefined });
             return { status: 'conflict', ...kept };
         }
-        const after = published.witness === undefined ? witness : `${published.witness} ${witness}`;
-        await doc.commit({ ...doc.snapshot(), destination, baseline: after, pendingPublish: undefined });
+        // The current bytes are now the destination's: both carry its witness.
+        const revision = { ...current, witness: published.witness };
+        await doc.commit({ ...doc.snapshot(), current: revision, destination, baseline: published.witness, pendingPublish: undefined });
         return { status: 'saved', revision, ...kept };
     });
 }

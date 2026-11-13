@@ -16,7 +16,6 @@ import {normalizePathForLookup} from '@electron/file-access/normalizePathForLook
 import {
     assertWithinIpcReadBudget,
     resolveExistingReadableDocumentOrImagePath,
-    resolveReadablePathSync,
 } from '@electron/features/documents/main/documentFilePathResolution';
 import type { IDocumentsSenderIdContext } from '@electron/features/documents/documentsContexts';
 import {quarantineWorkingCopy} from '@electron/file-access/workingCopyQuarantine';
@@ -231,18 +230,3 @@ export async function handleFileReadRange(
     });
 }
 
-export function handleFileExists(
-    context: IDocumentsSenderIdContext,
-    filePath: unknown,
-) {
-    if (typeof filePath !== 'string') {
-        return false;
-    }
-
-    const normalizedPath = filePath.trim();
-    if (!normalizedPath) {
-        return false;
-    }
-
-    return resolveReadablePathSync(normalizedPath, context.senderId) !== null;
-}

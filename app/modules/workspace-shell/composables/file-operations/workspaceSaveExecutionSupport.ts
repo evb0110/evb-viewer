@@ -4,7 +4,6 @@ import type {
 import type {TDocumentRef} from '@contracts/documentRef';
 import type {TDocumentRevisionToken} from '@contracts/documentRevision';
 import type {TRequestId} from '@contracts/shared';
-import type {IWorkspaceCheckpointAnnotationRecovery} from '@contracts/workspaceCheckpoint';
 import type {
     IPdfBookmarkEntry,
     IPdfPageLabelRange,
@@ -34,9 +33,7 @@ import type {TDocumentOperationKind} from '@app/types/documentOperationKind';
 import type {TWorkspaceFailureSurface} from '@app/modules/workspace-shell/composables/useWorkspaceFailureSurface';
 import {collectDirtyState} from '@app/modules/workspace-shell/composables/file-operations/workspaceSaveState';
 import {isNativeDocumentRef} from '@app/utils/documentRef';
-import {
-    getDocumentFilesCapability, getDocumentWorkingCopyCapability,
-} from '@app/utils/platformDocuments';
+import {getDocumentFilesCapability} from '@app/utils/platformDocuments';
 import {
     consumeNativePdfMutationProjection,
     type INativePdfSaveTransactionOptions,
@@ -587,94 +584,4 @@ export function createPageMutationWriterSave(deps: {
         await reloadPromise;
         return isCapturedTargetCurrent(false);
     };
-}
-
-export interface IRecoverySnapshotTarget {
-    fileName: string;
-    sourceRef?: TDocumentRef | null;
-}
-
-/**
- * A durable recovery copy of the document's current state, made under the
- * document lease. It is copied in storage, chunk by chunk, so a document of
- * any size the browser can open gets one.
- */
-export function createRecoverySnapshot(
-    deps: IWorkspaceSaveDependencies,
-    runWithDocumentOperationLease: IWorkspaceSaveDependencies['runWithDocumentOperationLease'],
-) {
-    async function createRecoverySnapshotUnlocked(target: IRecoverySnapshotTarget, recovery?: IWorkspaceCheckpointAnnotationRecovery) {
-        const capturedWorkingCopyPath = deps.document.workingCopyPath.value;
-        const capturedDocumentRevisionToken = deps.document.revisionToken.value;
-        const ownsCapturedDocument = () => (
-            deps.document.workingCopyPath.value === capturedWorkingCopyPath
-            && deps.document.revisionToken.value === capturedDocumentRevisionToken
-        );
-        if (!capturedWorkingCopyPath || capturedDocumentRevisionToken === null
-            || isNativeDocumentRef(capturedWorkingCopyPath)
-            || deps.hasPendingUnsavedChanges?.value !== true) return null;
-        const recoverySnapshots = getDocumentWorkingCopyCapability().recovery;
-        if (!recoverySnapshots) return null;
-        // The copy belongs to the captured state only if nothing replaced it meanwhile.
-        const copyIfStillOwned = async (from: TDocumentRef, assertCurrent?: () => Promise<void> | void) => {
-            const snapshot = await recoverySnapshots.createSnapshot(target.fileName, from, target.sourceRef ?? undefined);
-            try {
-                await assertCurrent?.();
-            } catch (error) {
-                await recoverySnapshots.cleanupSnapshot(snapshot.ref);
-                throw error;
-            }
-            if (ownsCapturedDocument()) return snapshot;
-            await recoverySnapshots.cleanupSnapshot(snapshot.ref);
-            return null;
-        };
-        const dirtyState = collectDirtyState(deps);
-        // Drafts replay against the unchanged byte base they were captured from.
-        // Materializing that base would mint identities the draft does not own.
-        // Already committed edits belong to the working copy, not the renderer
-        // being replaced by their reload. Only unapplied edits need a writer.
-        if (recovery || !Object.values(dirtyState).some(Boolean)) {
-            if (recovery && (recovery.workingCopyRef !== capturedWorkingCopyPath
-                || recovery.workingByteRevision !== capturedDocumentRevisionToken)) return null;
-            return copyIfStillOwned(capturedWorkingCopyPath);
-        }
-        const shapeStateDirty = dirtyState.shapes;
-        const result = await deps.pdf.runSaveTransaction({
-            mode: 'snapshot',
-            saveMode: 'rewrite',
-            saveFlowMode: 'save',
-            includeManagedShapes: shapeStateDirty,
-            rewriteShapeState: shapeStateDirty,
-            forceRewrite: deps.metadata.pageLabelsDirty.value
-                || deps.metadata.bookmarksDirty.value
-                || shapeStateDirty,
-            ...getNativeSaveTransactionOptions(deps),
-            source: {getSourcePdfData: deps.pdf.getSourceData},
-        });
-        if (!ownsCapturedDocument()) return null;
-        if (result.verifiedUnchangedWorkingCopy) {
-            await result.assertAnnotationSaveCurrent?.();
-            return copyIfStillOwned(capturedWorkingCopyPath, result.assertAnnotationSaveCurrent);
-        }
-        if (result.nativeRequiredFailure) throw new NativePdfSaveRequiredError(result.nativeRequiredFailure);
-        if (!result.nativeMutationProjection) return null;
-        const snapshotRef = await consumeNativePdfMutationProjection({
-            workingPath: capturedWorkingCopyPath,
-            expectedDocumentRevisionToken: capturedDocumentRevisionToken,
-            projection: result.nativeMutationProjection,
-            operation: 'clone',
-            originalPath: deps.document.originalPath.value,
-            ...(result.verifyAnnotationSavePath ? {verifyPathBeforeExpose: result.verifyAnnotationSavePath} : {}),
-            ...(result.assertAnnotationSaveCurrent ? {assertBeforeExpose: result.assertAnnotationSaveCurrent} : {}),
-        });
-        if (!snapshotRef) return null;
-        try {
-            return await copyIfStillOwned(snapshotRef, result.assertAnnotationSaveCurrent);
-        } finally {
-            await getDocumentWorkingCopyCapability().cleanupFile(snapshotRef);
-        }
-    }
-    return (target: IRecoverySnapshotTarget, recovery?: IWorkspaceCheckpointAnnotationRecovery) => runWithDocumentOperationLease(
-        'recovery-snapshot', () => createRecoverySnapshotUnlocked(target, recovery),
-    );
 }

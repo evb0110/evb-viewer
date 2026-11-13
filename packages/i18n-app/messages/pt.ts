@@ -1217,7 +1217,6 @@ export default {
     'dialogs': {
         'openDocument': 'Abrir Documento',
         'openImage': 'Abrir imagem',
-        'openFolder': 'Abrir pasta',
         'combineFiles': 'Combinar ficheiros',
         'documentsFilter': 'Documentos',
         'imagesFilter': 'Imagens',
@@ -1595,8 +1594,6 @@ export default {
         'fileSizeValue': 'Tamanho: {size}',
         'zoomUnknown': 'Zoom: -',
         'zoomValue': 'Zoom: {zoom}%',
-        'preparingDocument': 'A preparar documento',
-        'preparingDocumentProgress': 'A preparar documento · {progress}%',
         'showInDownloads': 'Guardar em Transferências e mostrar',
         'showInFolder': 'Mostrar na pasta',
         'showInFolderUnavailableWeb': 'Guardado neste navegador',
@@ -1861,7 +1858,6 @@ export default {
             'changedWhileOpening': 'O ficheiro foi alterado enquanto estava a ser aberto. Abra-o novamente.',
             'invalid': 'O ficheiro está danificado ou não é um documento suportado.',
             'emptyPdf': 'O ficheiro PDF está vazio (0 bytes)',
-            'folderEmpty': 'Não foram encontrados documentos compatíveis na pasta selecionada',
             'save': 'Falha ao guardar ficheiro',
             'originalSavedOtherKept': 'O PDF foi alterado noutro programa durante a gravação. A versão que estava no disco imediatamente antes da sua gravação foi conservada ao lado como {path}. As suas alterações continuam abertas aqui; use «Guardar Como» para as conservar.',
             'recoveryKeptOriginalTitle': 'Foi conservada uma versão ao lado deste PDF',
@@ -1872,8 +1868,6 @@ export default {
         'save': {
             'recoverySettlementTitle': 'PDF guardado, mas não foi possível atualizar a recuperação',
             'recoverySettlementDescription': 'As suas alterações foram gravadas no PDF. As alterações posteriores por guardar continuam abertas aqui.',
-            'workingCopySyncRequiredTitle': 'Não foi possível atualizar o documento aberto após guardar',
-            'workingCopySyncRequiredUnknown': 'O ficheiro pode ter sido escrito. As suas alterações continuam abertas aqui; verifique o ficheiro ou utilize Guardar como para as guardar noutro local.',
             'validation': 'O documento não passou na verificação de validade, por isso nada foi escrito.',
             'openNotes': 'Não foi possível guardar as notas abertas, por isso o documento não foi escrito.',
             'documentChanged': 'O documento mudou antes de o guardar terminar, por isso nada foi escrito.',
