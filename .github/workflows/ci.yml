@@ -486,7 +486,11 @@ jobs:
 
       - name: Browser integration tests
         timeout-minutes: 9
-        run: pnpm run test:integration:browser -- --shard=${{ matrix.shard }}/8 --maxWorkers=1
+        # Vitest reports the other store-port engines as not selected. Their
+        # acceptance cases run with their installed engines in CI Nightly.
+        run: >-
+          pnpm run test:integration:browser -- --shard=${{ matrix.shard }}/8 --maxWorkers=1
+          --testNamePattern '^(?!.*browser store port on the origin private file system.*(?:firefox|webkit)).*$'
 
   scan_cleanup_oracles:
     name: Scan Cleanup Export Oracles

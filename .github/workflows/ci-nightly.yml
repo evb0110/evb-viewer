@@ -35,6 +35,32 @@ env:
   EVB_E2E_PRESERVE_ARTIFACTS: '1'
 
 jobs:
+  nightly_browser_store_port:
+    name: Browser Store Port (Firefox and WebKit)
+    runs-on: ubuntu-26.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup CI environment
+        uses: ./.github/actions/setup-ci-env
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install Playwright Firefox and WebKit
+        run: |
+          scripts/ci/select-apt-mirrors.sh
+          pnpm exec playwright install --with-deps firefox webkit
+
+      - name: Browser store-port acceptance
+        run: >-
+          pnpm exec vitest run --project browser-integration
+          tests/integration/browser/browserStorePortAcceptance.test.ts
+          --testNamePattern 'browser store port on the origin private file system.*(?:firefox|webkit)'
+
   release_mirror_health:
     name: Public release mirror health
     runs-on: ubuntu-26.04
@@ -405,6 +431,7 @@ jobs:
   report:
     name: Report nightly result
     needs:
+      - nightly_browser_store_port
       - release_mirror_health
       - nightly_scan_cleanup_heavy
       - nightly_rust_tests_arm64
