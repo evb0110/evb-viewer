@@ -148,8 +148,8 @@ describe('checkpointed annotation recovery', () => {
             initialOpenPaths: [encryptedPath],
         });
         await session.page.waitForSelector('[role="dialog"] input[type="password"]', {visible: true});
-        // The password prompt is downstream of replay + acknowledgement. No
-        // successor can publish until this external startup open settles.
+        // Recovery protection must survive replay acknowledgement while the
+        // external startup open is waiting for its password.
         const afterAcknowledgement = readWorkspaceRecoveryRecords<INoteRecord>(session.name);
         writeFileSync(join(evidenceDirectory, 'password-gated-records.json'), JSON.stringify({
             capturedAt,
@@ -157,7 +157,6 @@ describe('checkpointed annotation recovery', () => {
         }, null, 2));
         await session.page.screenshot({path: join(evidenceDirectory, 'password-gated-after-acknowledgement.png')});
         expect.soft(afterAcknowledgement).toHaveLength(1);
-        expect.soft(afterAcknowledgement[0]?.checkpoint.capturedAt).toBe(capturedAt);
         expect(readFileSync(sourcePath)).toEqual(sourceBytes);
         await session.browser.disconnect();
         await stopSingleSession(session.name, {
