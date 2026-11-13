@@ -7,6 +7,7 @@ export const REQUEST_VERSION = 2;
 export const REQUEST_VERSION_DOCUMENT_LIST = 3;
 export const REQUEST_VERSION_ORIGINAL_APPEARANCE_SOURCE = 4;
 export const REQUEST_VERSION_INSTRUCTED = 5;
+export const REQUEST_VERSION_FILES = 6;
 export const U32_BYTES = 4;
 export const F64_BYTES = 8;
 export const MAX_BUFFER_BYTES = 2147483647;
@@ -19,6 +20,7 @@ export const RESPONSE_INCREMENT = 7;
 export const RESPONSE_REPORTED_PDF = 8;
 export const RESPONSE_REPORTED_INCREMENT = 9;
 export const RESPONSE_REPORTED_RASTER = 10;
+export const RESPONSE_WRITTEN = 11;
 export const NATIVE_MUTATION_POSTCONDITIONS_VERIFIED = 1;
 export const MAX_U32 = 4294967295;
 export const MAX_CATALOG_ENTRIES = 100000;
@@ -48,6 +50,7 @@ export const OPERATION_CODES = {
     replacePageImages: 22,
     inspectScanCleanupPdf: 23,
     renderScanCleanupRaster: 24,
+    verifyWritten: 25,
 } as const;
 
 export const REQUEST_HEADER = {
@@ -56,16 +59,15 @@ export const REQUEST_HEADER = {
     operation: 8,
     pageCount: 12,
     pageNumber: 16,
-    afterPage: 20,
-    angle: 24,
-    top: 28,
-    bottom: 36,
-    left: 44,
-    right: 52,
-    dataLength: 60,
-    insertionDataLength: 64,
-    passwordLength: 68,
-    bytes: 72,
+    angle: 20,
+    top: 24,
+    bottom: 32,
+    left: 40,
+    right: 48,
+    dataLength: 56,
+    insertionDataLength: 60,
+    passwordLength: 64,
+    bytes: 68,
 } as const;
 
 export const DOCUMENT_LIST_HEADER = {
@@ -84,6 +86,23 @@ export const INSTRUCTED_REQUEST_HEADER = {
     instructionsLength: 16,
     attachmentCount: 20,
     bytes: 24,
+} as const;
+
+export const FILE_REQUEST_HEADER = {
+    magic: 0,
+    version: 4,
+    operation: 8,
+    sourceCount: 12,
+    afterPage: 16,
+    pageCount: 20,
+    bytes: 24,
+} as const;
+
+export const WRITTEN_HEADER = {
+    kind: 0,
+    pageCount: 4,
+    length: 8,
+    bytes: 16,
 } as const;
 
 export const MUTATION_HEADER = {
@@ -124,6 +143,6 @@ export const NATIVE_MUTATION_HEADER = {
 } as const;
 
 export const REQUEST_ORIGINAL_APPEARANCE_SOURCE_HEADER = {
-    sourceDataLength: 72,
-    bytes: 76,
+    sourceDataLength: 68,
+    bytes: 72,
 } as const;

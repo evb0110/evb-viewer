@@ -304,3 +304,39 @@ fn print_annotation_appearance(document: &Document) -> Option<Vec<u8>> {
             .map(|range| range.page_index)
             .collect()
     }
+
+    /// A page-structure edit of PDFs in memory, written and verified as the
+    /// engine writes a file.
+    fn page_structure_bytes(edit: PageStructureEdit, inputs: &[&[u8]]) -> Result<PageMutationBytes> {
+        let sources = inputs
+            .iter()
+            .map(|data| SourcePdf::open(*data, data.len() as u64))
+            .collect::<Result<Vec<_>>>()?;
+        let subset = edit_page_structure(edit, &sources)?;
+        let data = subset.write(&sources, Vec::new())?;
+        subset.verify(&sources, &data.as_slice(), data.len() as u64)?;
+        Ok(PageMutationBytes {
+            data,
+            page_count: subset.page_count,
+        })
+    }
+
+    fn delete_browser_pdf_pages(data: &[u8], pages: &[u32]) -> Result<PageMutationBytes> {
+        page_structure_bytes(PageStructureEdit::Delete(pages), &[data])
+    }
+
+    fn extract_browser_pdf_pages(data: &[u8], pages: &[u32]) -> Result<PageMutationBytes> {
+        page_structure_bytes(PageStructureEdit::Extract(pages), &[data])
+    }
+
+    fn reorder_browser_pdf_pages(data: &[u8], pages: &[u32]) -> Result<PageMutationBytes> {
+        page_structure_bytes(PageStructureEdit::Reorder(pages), &[data])
+    }
+
+    fn insert_browser_pdf_pages(
+        data: &[u8],
+        insertion_data: &[u8],
+        after_page: u32,
+    ) -> Result<PageMutationBytes> {
+        page_structure_bytes(PageStructureEdit::Insert { after_page }, &[data, insertion_data])
+    }

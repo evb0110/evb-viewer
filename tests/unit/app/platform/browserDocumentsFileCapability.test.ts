@@ -29,11 +29,7 @@ import {requireRequestId} from '@contracts/shared';
 import type { BrowserDocumentStore } from '@app/platform/browserDocumentStore';
 import {BROWSER_MAX_FULL_READ_BYTES as BROWSER_FULL_READ_LIMIT} from '@app/platform/browser/browserDocumentConstants';
 import {BROWSER_PDF_COMBINE_MAX_REQUEST_BYTES} from '@contracts/browserPdfCombineWorker';
-import {BROWSER_PAGE_OPS_MAX_REQUEST_BYTES} from '@contracts/browserPageOpsLimits';
 import {BROWSER_QPDF_MAX_INPUT_BYTES} from '@contracts/browserQpdfEngine';
-import {
-    DOCUMENT_LIST_HEADER, U32_BYTES,
-} from '@contracts/browserPageOpsWasm.generated';
 import {
     FakeLockManager,
     MemoryStorage,
@@ -946,7 +942,7 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
             {...PDF_SOURCE_OPTIONS},
         );
         browserPdfCombineWorkerMock.canUse.mockReturnValue(true);
-        browserPdfCombineWorkerMock.run.mockResolvedValue({data: Uint8Array.of(9, 8, 7)});
+        browserAnnotationParseMock.run.mockResolvedValue({status: 'written', pageCount: 2, length: 3, data: Uint8Array.of(9, 8, 7)});
 
         const progressEvents: Array<{
             operation: string;
@@ -990,14 +986,11 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
         ]));
     });
 
+    // PDFs are merged by range and have no such budget.
     it.each([
         [
             'png',
             BROWSER_PDF_COMBINE_MAX_REQUEST_BYTES,
-        ],
-        [
-            'pdf',
-            BROWSER_PAGE_OPS_MAX_REQUEST_BYTES - DOCUMENT_LIST_HEADER.bytes - 2 * U32_BYTES,
         ],
     ] as const)('rejects a %s selection exceeding its combined request budget before reading its files', async (extension, budget) => {
         const {browserDocumentStore} = await loadBrowserDocumentsFileCapability();
@@ -1048,24 +1041,26 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
             },
         );
         browserPdfCombineWorkerMock.canUse.mockReturnValue(true);
-        browserPdfCombineWorkerMock.run.mockResolvedValue({data: Uint8Array.of(7, 8, 9)});
+        browserPdfCombineWorkerMock.run.mockResolvedValue({data: Uint8Array.of(7, 8)});
+        browserAnnotationParseMock.run.mockResolvedValue({status: 'written', pageCount: 2, length: 3, data: Uint8Array.of(7, 8, 9)});
 
         const result = await createCombinedPdfFromPaths([
             pdfRef,
             imageRef,
         ]);
 
-        expect(result).toEqual(Uint8Array.of(7, 8, 9));
-        expect(browserPdfCombineWorkerMock.run).toHaveBeenCalledWith('combinePdfs', {inputs: [
-            {
-                fileName: 'first.pdf',
-                data: Uint8Array.of(1, 2, 3),
-            },
-            {
-                fileName: 'photo.png',
-                data: Uint8Array.of(4, 5, 6),
-            },
-        ]});
+        await expect(browserDocumentStore.read(result)).resolves.toEqual(Uint8Array.of(7, 8, 9));
+        // The image becomes a PDF in the combine worker; the page tool merges it after the PDF, read in place.
+        expect(browserPdfCombineWorkerMock.run).toHaveBeenCalledWith('combinePdfs', {inputs: [{
+            fileName: 'photo.png',
+            data: Uint8Array.of(4, 5, 6),
+        }]});
+        const [type, request] = browserAnnotationParseMock.run.mock.calls[0]!;
+        expect(type).toBe('pageStructure');
+        expect(request).toMatchObject({edit: {kind: 'merge'}, output: null});
+        const sources = (request as {sources: Blob[]}).sources;
+        await expect(Promise.all(sources.map(async source => [...new Uint8Array(await source.arrayBuffer())])))
+            .resolves.toEqual([[1, 2, 3], [7, 8]]);
     });
 
     it('does not publish a direct batch when the browser combine worker is unavailable', async () => {
@@ -1154,18 +1149,18 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
             };
         });
         browserPdfCombineWorkerMock.canUse.mockReturnValue(true);
-        browserPdfCombineWorkerMock.run.mockImplementation(async (_type, payload) => {
+        browserAnnotationParseMock.run.mockImplementation(async (_type, payload) => {
             const combinedDocument = await PDFDocument.create();
-            const inputs = (payload as {inputs: Array<{data: Uint8Array;}>}).inputs;
-            for (const input of inputs) {
-                const sourceDocument = await PDFDocument.load(input.data);
+            for (const source of (payload as {sources: Blob[]}).sources) {
+                const sourceDocument = await PDFDocument.load(await source.arrayBuffer());
                 const pages = await combinedDocument.copyPages(
                     sourceDocument,
                     sourceDocument.getPageIndices(),
                 );
                 pages.forEach(page => combinedDocument.addPage(page));
             }
-            return {data: new Uint8Array(await combinedDocument.save())};
+            const data = new Uint8Array(await combinedDocument.save());
+            return {status: 'written', pageCount: combinedDocument.getPageCount(), length: data.byteLength, data};
         });
 
         const result = await capability.openDocumentDirectBatch([
@@ -1240,7 +1235,7 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
             };
         });
         browserPdfCombineWorkerMock.canUse.mockReturnValue(true);
-        browserPdfCombineWorkerMock.run.mockRejectedValue(new Error('browser worker failed'));
+        browserAnnotationParseMock.run.mockRejectedValue(new Error('browser worker failed'));
 
         await expect(capability.openDocumentDirectBatch([
             pdfRef,
@@ -1350,7 +1345,7 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
             return {success: true};
         });
         browserPdfCombineWorkerMock.canUse.mockReturnValue(true);
-        browserPdfCombineWorkerMock.run.mockResolvedValue({data: pdfBytes});
+        browserAnnotationParseMock.run.mockResolvedValue({status: 'written', pageCount: 2, length: pdfBytes.byteLength, data: pdfBytes});
 
         const result = await capability.openDocumentDirectBatch([
             pdfRef,

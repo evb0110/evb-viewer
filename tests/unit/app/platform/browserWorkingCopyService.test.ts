@@ -67,8 +67,13 @@ vi.mock('@app/platform/browser-api/tryRunBrowserPageOpsWithWasm', () => ({
     ),
     tryRunBrowserPageOpsWithWasm: wasmRun,
 }));
+// The combine stores its output as the document the caller names; here its bytes come from `combinedPdfRun`.
 vi.mock('@app/platform/browser-api/createCombinedPdfFromPaths', () => ({
-    createCombinedPdfFromPaths: combinedPdfRun,
+    createCombinedPdfFromPaths: async (paths: string[], progress: unknown, output: {fileName: string}) => serviceState.store!.createStoredDocument(
+        output.fileName,
+        await combinedPdfRun(paths, progress),
+        {...output, mimeType: 'application/pdf', saveKind: 'pdf'},
+    ),
     emitBatchOpenProgress: emitBatchOpenProgressMock,
 }));
 const PDF_SOURCE_OPTIONS = {
