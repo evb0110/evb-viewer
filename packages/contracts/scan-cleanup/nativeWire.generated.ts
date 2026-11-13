@@ -7,6 +7,31 @@
 
 export type Affine = { matrix: [[number, number, number], [number, number, number], [number, number, number]], };
 
+/**
+ * A wider view of the page than the one its primary analysis reads: the PDF
+ * MediaBox around a CropBox. Sizes are in PDF points.
+ */
+
+export type AlternateView = { primaryWidthPoints: number, primaryHeightPoints: number, widthPoints: number, heightPoints: number, 
+/**
+ * The options the alternate raster is analyzed with, at its resolution.
+ */
+options: CleanupOptions, };
+
+/**
+ * One page analysis the engine needs next.
+ */
+
+export type AnalysisJob = { 
+/**
+ * The page's position in the document.
+ */
+index: number, view: AnalysisView, 
+/**
+ * Whether this analyzes the view again under the prior reconciliation chose.
+ */
+rerun: boolean, documentPrior?: DocumentPrior, };
+
 export type AnalysisOutputMetadata = { half: PageHalf, sourceRegion: PixelRect, contentBox: PixelRect | null, contentDiagnostics?: ContentDiagnostics, textToneDiagnostics?: TextToneDiagnostics, cropRect: PixelRect, appliedMargins: AppliedMargins, inputWidthPx: number, inputHeightPx: number, 
 /**
  * Present when the manifest page carries its PDF geometry for the
@@ -15,6 +40,12 @@ export type AnalysisOutputMetadata = { half: PageHalf, sourceRegion: PixelRect, 
 pdfPlacement?: LosslessPlacement, };
 
 export type AnalysisPurpose = "classification" | "page-plan";
+
+/**
+ * Which raster of the page a job reads.
+ */
+
+export type AnalysisView = "primary" | "alternate";
 
 export type AppliedMargins = { leftPx: number, topPx: number, rightPx: number, bottomPx: number, };
 
@@ -212,10 +243,6 @@ topCurve: Array<Point>, bottomCurve: Array<Point>, depth: number, };
 
 export type DocumentCanvas = { widthPoints: number, heightPoints: number, widthPx: number, heightPx: number, };
 
-export type DocumentInkPrior = { sampleCount: number, survivalP10: number, survivalMedian: number, survivalP90: number, referenceWidth: number, referenceHeight: number, };
-
-export type DocumentInkSample = { metrics: StrokeMassMetrics, width: number, height: number, };
-
 export type DocumentPrior = { dominantLayout: LayoutClassification, cutterRatioMedian?: number | null, clusterDims: ClusterDimensions, agreementStrength: number, 
 /**
  * Robust document-level body-text calibration, measured in the analysis
@@ -360,37 +387,38 @@ options: CleanupOptions, documentPrior?: DocumentPrior | null, detailRenderPlan?
  * The source page's PDF geometry. When present, outputs also report their
  * placement in PDF points for the lossless assembler.
  */
-pdfPage?: PdfPageGeometry | null, outputs: Array<PageOutput>, };
+pdfPage?: PdfPageGeometry | null, 
+/**
+ * Where the owning process publishes the page's alternate view raster
+ * once the engine announces that lease; an empty file declines it.
+ */
+alternateInputPath?: string | null, 
+/**
+ * A wider view an analysis may read when the primary one seems to hide
+ * a spread.
+ */
+alternateView?: AlternateView | null, outputs: Array<PageOutput>, };
 
 export type PageAlignment = "top-left" | "top-center" | "top-right" | "center-left" | "center" | "center-right" | "bottom-left" | "bottom-center" | "bottom-right" | "ink";
 
 export type PageHalf = "full" | "left" | "right";
 
-/**
- * Batch-owned runtime evidence for applying one document prior to a specific
- * producer-authored mask. The source sample keeps dense-text eligibility in
- * the uncropped mask coordinate system; crop geometry must not change whether
- * a page belongs to the document's body-text population.
- */
-
-export type PageInkConsistencyContext = { prior: DocumentInkPrior, sourceSample: DocumentInkSample, };
-
 export type PageOutput = { outputPath: string, metadataPath: string, bilevelOutputPath?: string | null, backgroundOutputPath?: string | null, foregroundMaskOutputPath?: string | null, foregroundAlphaOutputPath?: string | null, pictureMaskOutputPath?: string | null, tonePreservationAlphaOutputPath?: string | null, };
 
 /**
- * How document reconciliation revises one analyzed page.
- */
-
-export type PageReconciliation = { "kind": "rerun", prior: DocumentPrior, tier1: Tier1Provenance, } | { "kind": "update", prior: DocumentPrior, classification: LayoutClassification, confidence: number, cutterX: number | null, tier1Verdict: LayoutClassification, reconciled: boolean, clusterAgreement: number, outputCount: number, };
-
-/**
  * One page's result metadata, as a manifest writes it to the page's metadata
- * file. Reading it back is how the browser engine revises an analysis it
- * returned earlier, so every field the file carries round-trips exactly; the
- * skipped fields are reconciliation inputs the file never carries.
+ * file. The browser engine hands an analysis back to plan the next step, so
+ * every field the file carries round-trips exactly; the skipped fields are
+ * reconciliation inputs the file never carries, which travel beside it as a
+ * [`ReconciliationCandidate`](crate::engine::batch_reconciliation::ReconciliationCandidate).
  */
 
-export type PageResultMetadata = { version: number, sourcePageIndex: number, layoutClassification: LayoutClassification, layoutConfidence: number, cutterXPx: number | null, splitSeam: SplitSeamPolyline | null, rotationDegrees: OrthogonalRotation, canvasScope: CanvasScope, excluded: boolean, blankOutputsSkipped: number, outputCount: number, outputs?: Array<AnalysisOutputMetadata>, tier1Verdict: LayoutClassification, reconciled: boolean, clusterAgreement: number, splitDiagnostics: SplitDiagnostics, documentPrior: DocumentPrior | null, textAxis: TextAxisHint | null, recommendedOutputMode: OutputMode | null, recommendedOutputModeConfidence: number | null, recommendedOutputModeReason: OutputModeRecommendationReason | null, softAlphaForegroundRecommendation: boolean | null, outputModeDiagnostics: OutputModeDiagnostics | null, };
+export type PageResultMetadata = { version: number, sourcePageIndex: number, layoutClassification: LayoutClassification, layoutConfidence: number, cutterXPx: number | null, splitSeam: SplitSeamPolyline | null, rotationDegrees: OrthogonalRotation, canvasScope: CanvasScope, excluded: boolean, blankOutputsSkipped: number, outputCount: number, outputs?: Array<AnalysisOutputMetadata>, tier1Verdict: LayoutClassification, reconciled: boolean, clusterAgreement: number, splitDiagnostics: SplitDiagnostics, documentPrior: DocumentPrior | null, textAxis: TextAxisHint | null, recommendedOutputMode: OutputMode | null, recommendedOutputModeConfidence: number | null, recommendedOutputModeReason: OutputModeRecommendationReason | null, softAlphaForegroundRecommendation: boolean | null, outputModeDiagnostics: OutputModeDiagnostics | null, 
+/**
+ * The analysis is of the page's alternate view, which proved a spread
+ * its primary view hid.
+ */
+alternateView?: boolean, };
 
 export type PageStageTimings = { decodeMs?: number, analysisLevelMs?: number, normalizationMs?: number, illuminationPreparationMs?: number, layoutNormalizationMs?: number, calibrationMs?: number, pictureMaskMs?: number, modeRecommendationMs?: number, qualityNormalizationMs?: number, textAxisMs?: number, splitMs?: number, deskewMs?: number, contentMs?: number, rasterizationMs?: number, maskRasterizationMs?: number, binarizationMs?: number, thresholdPreparationMs?: number, thresholdingMs?: number, binaryPostprocessMs?: number, mixedCompositionMs?: number, outputProcessingMs?: number, renderMs?: number, writeMs?: number, };
 
@@ -445,7 +473,11 @@ export type Progress = { stage: ProgressStage,
  * `page_number` can be out of source order. `page-complete` carries the
  * source-order completed prefix for render work and final Analyze results.
  */
-completedPages: number, totalPages: number, pageNumber: number | null, outputPaths: Array<string> | null, classification: LayoutClassification | null, confidence: number | null, cutterXPx: number | null, tier1Verdict: LayoutClassification | null, reconciled: boolean | null, clusterAgreement: number | null, documentPrior: DocumentPrior | null, textAxis: TextAxisHint | null, stageTimings: PageStageTimings | null, recommendedOutputMode: OutputMode | null, recommendedOutputModeConfidence: number | null, recommendedOutputModeReason: OutputModeRecommendationReason | null, softAlphaForegroundRecommendation: boolean | null, outputModeDiagnostics: OutputModeDiagnostics | null, };
+completedPages: number, totalPages: number, pageNumber: number | null, outputPaths: Array<string> | null, classification: LayoutClassification | null, confidence: number | null, cutterXPx: number | null, tier1Verdict: LayoutClassification | null, reconciled: boolean | null, clusterAgreement: number | null, documentPrior: DocumentPrior | null, textAxis: TextAxisHint | null, stageTimings: PageStageTimings | null, recommendedOutputMode: OutputMode | null, recommendedOutputModeConfidence: number | null, recommendedOutputModeReason: OutputModeRecommendationReason | null, softAlphaForegroundRecommendation: boolean | null, outputModeDiagnostics: OutputModeDiagnostics | null, 
+/**
+ * A lease of the page's alternate view raster rather than its input.
+ */
+alternateView?: boolean, };
 
 export type ProgressEnvelope = { version: number, type: string, progress: Progress, };
 
@@ -480,20 +512,11 @@ export type SpreadBinarizationPlanDecision = "sharedJoint" | "perLeafAnchorDrift
 
 export type SpreadBinarizationPlanDiagnostics = { route: BinarizationMode, thresholdAnchor: number, thresholdRadius: number, strokeWidthAnchorPx: number, xHeightAnchorPx: number, documentAnchor: boolean, jointCandidateRoute: BinarizationMode, leftCandidateRoute: BinarizationMode, rightCandidateRoute: BinarizationMode, decision: SpreadBinarizationPlanDecision, };
 
-export type StrokeMassMetrics = { inkFraction: number, erosionSurvival: number, };
-
 export type TextAxisHint = { sideways: boolean, confidence: number, };
 
 export type TextToneDiagnostics = { applied: boolean, rule: TextToneRule, textLineCount: number, textInkPixels: number, pictureFraction: number, outsideMidtoneFraction: number, outsideMidtoneLargestComponentFraction: number, outsideMidtoneLargestComponentWidthFraction: number, outsideMidtoneLargestComponentHeightFraction: number, inkAnchor?: number | null, blackPoint?: number | null, slope?: number | null, };
 
 export type TextToneRule = "applied" | "picture-evidence" | "insufficient-text" | "tonal-mass-outside-text" | "already-dark";
-
-/**
- * A page's first-pass layout verdict, kept as provenance when reconciliation
- * analyzes the page again under the document prior.
- */
-
-export type Tier1Provenance = { verdict: LayoutClassification, confidence: number, candidateCutterRatio: number | null, whitespaceScore: number, };
 
 /**
  * Unit a warning event's physical extents are measured in. Native placement
@@ -502,6 +525,20 @@ export type Tier1Provenance = { verdict: LayoutClassification, confidence: numbe
  */
 
 export type WarningExtentUnit = "px" | "pt";
+
+/**
+ * One page of a document analysis.
+ */
+
+export type WasmAnalysisPageV3 = { 
+/**
+ * The options its primary analysis runs with.
+ */
+options: CleanupOptions, sourcePageIndex: number, documentPrior?: DocumentPrior, 
+/**
+ * Where the finished analysis is placed on the PDF page.
+ */
+pdfPage?: PdfPageGeometry, alternateView?: AlternateView, };
 
 /**
  * What an analysis returns beside its page metadata.
@@ -517,45 +554,25 @@ export type WasmAnalyzePageDetailsV2 = { reconciliation: ReconciliationCandidate
 export type WasmAnalyzePageRequestV2 = { options: CleanupOptions, sourcePageIndex: number, canvasScope: CanvasScope, analysisPurpose?: AnalysisPurpose, documentPrior?: DocumentPrior | null, };
 
 /**
- * One render manifest batch's samples, in page order.
+ * One analysis a plan asked for, as the analyze operation returned it: its
+ * page metadata JSON verbatim, so every value round-trips exactly, or none
+ * where the host could not supply an alternate raster.
  */
 
-export type WasmDeriveInkContextsRequestV2 = { samples: Array<DocumentInkSample | null>, };
+export type WasmPageAnalysisV3 = { job: AnalysisJob, pageMetadataJson?: string, reconciliation?: ReconciliationCandidate, };
 
 /**
- * Each page's context for its render request's `pageInkConsistency`.
+ * One analyze manifest's pages and the analyses its plan has asked for.
  */
 
-export type WasmDeriveInkContextsResultV2 = { contexts: Array<PageInkConsistencyContext | null>, };
+export type WasmPlanAnalysisRequestV3 = { renderMode: RenderMode, documentCanvas?: DocumentCanvas, pages: Array<WasmAnalysisPageV3>, analyses?: Array<WasmPageAnalysisV3>, };
 
 /**
- * Finishes an analysis carried as the `pageMetadata` attachment: the page's
- * own, or its rerun's when its reconciliation is a rerun.
+ * The analyses to run next, or every page's finished metadata JSON, exactly
+ * as an analyze manifest writes its page files.
  */
 
-export type WasmFinishPageAnalysisRequestV2 = { reconciliation?: PageReconciliation | null, pdfPlacement?: WasmPdfPlacementV2 | null, };
-
-/**
- * Where a lossless analysis places its outputs on the PDF page.
- */
-
-export type WasmPdfPlacementV2 = { pdfPage: PdfPageGeometry, 
-/**
- * The page's options as its analysis request carried them.
- */
-options: CleanupOptions, renderMode: RenderMode, documentCanvas?: DocumentCanvas | null, };
-
-/**
- * One manifest batch's analyzed pages, in page order.
- */
-
-export type WasmReconcileDocumentRequestV2 = { candidates: Array<ReconciliationCandidate>, };
-
-/**
- * Each page's reconciliation, or `null` where its analysis stands.
- */
-
-export type WasmReconcileDocumentResultV2 = { pages: Array<PageReconciliation | null>, };
+export type WasmPlanAnalysisResultV3 = { "kind": "analyze", jobs: Array<AnalysisJob>, } | { "kind": "finished", pages: Array<string>, };
 
 /**
  * A render request: one page of a render manifest. Its input raster is the
@@ -573,23 +590,10 @@ analysisDpi?: number | null, analysisIsInput?: boolean, documentPrior?: Document
  * The trusted foreground selection is a PDF JBIG2 generic region, which
  * the CLI recognizes by its `.jb2e` file type, rather than a raster.
  */
-trustedForegroundJbig2?: boolean, detailRenderPlan?: DetailRenderGeometry | null, pdfPage?: PdfPageGeometry | null, pageInkConsistency?: PageInkConsistencyContext | null, 
+trustedForegroundJbig2?: boolean, detailRenderPlan?: DetailRenderGeometry | null, pdfPage?: PdfPageGeometry | null, 
 /**
  * Each output destination's planes, as a manifest page's `outputs` list
  * them. Absent, every output takes its composite only, as the direct
  * CLI's destinations do.
  */
 outputs?: Array<OutputPlanes> | null, };
-
-/**
- * Samples one page's producer MRC layers, carried as the trusted foreground
- * selection and background attachments.
- */
-
-export type WasmSamplePageInkRequestV2 = { options: CleanupOptions, sourcePageIndex: number, trustedForegroundJbig2?: boolean, };
-
-/**
- * The page's sample, or `null` when the page cannot join the ink prior.
- */
-
-export type WasmSamplePageInkResultV2 = { sample: DocumentInkSample | null, };

@@ -77,16 +77,12 @@ fn generated() -> String {
     // The browser engine's requests reuse the manifest's page shapes.
     declarations.visit::<crate::wasm::WasmRenderPageRequestV2>();
     declarations.visit::<crate::wasm::WasmAnalyzePageRequestV2>();
-    declarations.visit::<crate::wasm::WasmReconcileDocumentRequestV2>();
-    declarations.visit::<crate::wasm::WasmFinishPageAnalysisRequestV2>();
-    declarations.visit::<crate::wasm::WasmSamplePageInkRequestV2>();
-    declarations.visit::<crate::wasm::WasmDeriveInkContextsRequestV2>();
     declarations.preserve_optional_null = false;
     declarations.visit::<crate::wasm::WasmAnalyzePageDetailsV2>();
-    declarations.visit::<crate::wasm::WasmReconcileDocumentResultV2>();
-    declarations.visit::<crate::wasm::WasmSamplePageInkResultV2>();
-    declarations.visit::<crate::wasm::WasmDeriveInkContextsResultV2>();
+    declarations.visit::<crate::wasm::WasmPlanAnalysisResultV3>();
     declarations.visit::<crate::engine::page_workflow::PageResultMetadata>();
+    // Its records are analyses the engine returned, so they keep that shape.
+    declarations.visit::<crate::wasm::WasmPlanAnalysisRequestV3>();
     declarations.visit::<crate::engine::render::CleanupMetadata>();
     declarations.visit::<super::progress::ProgressEnvelope>();
     declarations.visit::<super::result::ResultEnvelope>();

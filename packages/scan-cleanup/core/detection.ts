@@ -51,7 +51,7 @@ import {
     resolveScanCleanupRasterRenderLimits as resolveRasterRenderLimits,
     SCAN_CLEANUP_RASTER_MAX_PIXELS,
     toCropBoxPageSize,
-    toMediaBoxPageSize,
+    describeScanCleanupAlternateView,
 } from '@evb/scan-cleanup/core/policy/scanCleanupRasterPolicy';
 import {
     collectScanCleanupPageScopeBatch,
@@ -219,6 +219,7 @@ export interface IScanCleanupDetectionDependencies {
         mkdtemp: (prefix: string) => Promise<string>;
         open: (path: string, flags: 'r' | 'w+') => Promise<FileHandle>;
         readFile: (path: string, encoding: 'utf8') => Promise<string>;
+        rename: (source: string, destination: string) => Promise<void>;
         readdir: (path: string, options: {withFileTypes: true}) => Promise<ReadonlyArray<{
             isFile: () => boolean;
             name: string;
@@ -718,6 +719,7 @@ async function runBatchedScanCleanupDetection<TDocument>(
             },
         });
         let batchCompleted = false;
+        const alternateMediaByPage = new Map<number, IPdfPageSize>();
         const manifestPages = batchPageNumbers.map(pageNumber => {
             const sourcePage = batchPageByNumber.get(pageNumber);
             const sourceRaster = batchRasterByNumber.get(pageNumber);
@@ -725,17 +727,74 @@ async function runBatchedScanCleanupDetection<TDocument>(
             const sourceDpi = sourcePage === undefined
                 ? undefined
                 : resolveRasterPageDpi(resolvedSourceRasterStructure, sourcePage, sourceRaster);
-            return {
-                inputPath: stagedPathByPage.get(pageNumber)!,
+            const facts = {
                 pageNumber,
                 dpi: analysisDpi(pageNumber),
                 sourceDpi: sourceDpi ?? analysisDpi(pageNumber),
                 sourceHasBilevelLayer: sourceRaster?.hasBilevelLayer ?? false,
                 ...(sourceBackgroundDpi === undefined ? {} : {sourceBackgroundDpi}),
                 facingPairGeometry: sourcePage !== undefined && recorder.isFacingPair(sourcePage),
+            };
+            const alternate = sourcePage === undefined ? undefined : describeScanCleanupAlternateView(sourcePage, facts);
+            if (alternate !== undefined) alternateMediaByPage.set(pageNumber, alternate.media);
+            return {
+                inputPath: stagedPathByPage.get(pageNumber)!,
+                ...facts,
                 pageMetadataPath: join(scratch, `page-${pageNumber}.json`),
+                ...(alternate === undefined
+                    ? {}
+                    : {
+                        alternateInputPath: join(scratch, `alternate-${pageNumber}.png`),
+                        alternateView: alternate.input,
+                    }),
             };
         });
+        const alternateMaxPixels = Math.min(
+            policy.rasterMaxPixels ?? SCAN_CLEANUP_RASTER_MAX_PIXELS,
+            SCAN_CLEANUP_RASTER_MAX_PIXELS,
+        );
+        /**
+         * Publishes the MediaBox raster the engine asked for at its alternate
+         * path, or an empty file there when it cannot be rendered: that view is
+         * optional, and declining it keeps the CropBox analysis.
+         */
+        const stageAlternate = async (manifestPage: typeof manifestPages[number]) => {
+            const path = manifestPage.alternateInputPath!;
+            const scratchPath = `${path}.partial.png`;
+            try {
+                await renderRasterToDisk(
+                    request.sourcePdfPath,
+                    manifestPage.pageNumber,
+                    scratchPath,
+                    operationSignal,
+                    {
+                        ...dependencies,
+                        fileSystem,
+                    },
+                    log,
+                    manifestPage.alternateView!.page.dpi,
+                    undefined,
+                    undefined,
+                    'png',
+                    resolveRasterRenderLimits(
+                        alternateMediaByPage.get(manifestPage.pageNumber),
+                        manifestPage.alternateView!.page.dpi,
+                        alternateMaxPixels,
+                    ),
+                    'MediaBox raster',
+                    'MediaBox view',
+                    'mediabox',
+                );
+            } catch (error) {
+                if (operationSignal.aborted || getUnprovenNativeTerminationDetail(error) !== undefined) throw error;
+                log(
+                    'warn',
+                    `Scan cleanup kept the first-pass classification for page ${String(manifestPage.pageNumber)} because its MediaBox view failed: ${getErrorMessage(error)}`,
+                );
+                await fileSystem.writeFile(scratchPath, '');
+            }
+            await fileSystem.rename(scratchPath, path);
+        };
         const sourcePageByManifestIndex = new Map(manifestPages.map((page, index) => [
             index + 1,
             page.pageNumber,
@@ -797,22 +856,28 @@ async function runBatchedScanCleanupDetection<TDocument>(
             nativeProgress: TNativeScanCleanupProgressV3,
             sourcePageNumber: number,
         ) => {
-            const sourcePage = batchPageByNumber.get(sourcePageNumber);
+            const metadata = decodeNativeScanCleanupPageMetadataJson(await fileSystem.readFile(
+                manifestPages[nativeProgress.pageNumber! - 1]!.pageMetadataPath, 'utf8',
+            ));
+            // An accepted wider view replaces the page's geometry with its MediaBox.
+            const sourcePage = metadata.alternateView === true
+                ? alternateMediaByPage.get(sourcePageNumber)
+                : batchPageByNumber.get(sourcePageNumber);
             if (sourcePage === undefined) {
                 throw new ScanCleanupContractError(
                     `Scan cleanup detection reported page ${String(sourcePageNumber)} outside its geometry batch`,
                 );
             }
+            const sourceDpi = resolveRasterPageDpi(
+                resolvedSourceRasterStructure,
+                sourcePage,
+                batchRasterByNumber.get(sourcePageNumber),
+            );
             return {
                 sourcePage,
-                sourceDpi: resolveRasterPageDpi(
-                    resolvedSourceRasterStructure,
-                    sourcePage,
-                    batchRasterByNumber.get(sourcePageNumber),
-                ),
-                metadata: decodeNativeScanCleanupPageMetadataJson(await fileSystem.readFile(
-                    manifestPages[nativeProgress.pageNumber! - 1]!.pageMetadataPath, 'utf8',
-                )),
+                // A MediaBox view is only reproducible with its geometry recorded.
+                sourceDpi: metadata.alternateView === true ? sourceDpi ?? DETECTION_DPI : sourceDpi,
+                metadata,
             };
         };
         let batchFailure: unknown;
@@ -828,6 +893,26 @@ async function runBatchedScanCleanupDetection<TDocument>(
                         throw new ScanCleanupContractError(
                             `Scan cleanup detection reported ${String(nativeProgress.totalPages)} pages for ${String(manifestPages.length)} submitted pages`,
                         );
+                    }
+                    const alternatePage = nativeProgress.alternateView === true && nativeProgress.pageNumber !== undefined
+                        ? manifestPages[nativeProgress.pageNumber - 1]
+                        : undefined;
+                    if (nativeProgress.alternateView === true) {
+                        if (alternatePage?.alternateInputPath === undefined) {
+                            throw new ScanCleanupContractError(
+                                `Scan cleanup detection leased an alternate view page ${String(nativeProgress.pageNumber)} does not have`,
+                            );
+                        }
+                        if (nativeProgress.stage === 'page-input-required') {
+                            batchRecorder.noteInputRequired();
+                            void stageAlternate(alternatePage).catch((error: unknown) => {
+                                stagingError ??= error;
+                                stagingAbort.abort(error);
+                            });
+                        } else if (nativeProgress.stage === 'page-input-released') {
+                            await fileSystem.rm(alternatePage.alternateInputPath, {force: true});
+                        }
+                        return;
                     }
                     if (
                         nativeProgress.stage === 'page-input-required'
@@ -885,10 +970,7 @@ async function runBatchedScanCleanupDetection<TDocument>(
                     allowedPathRoot: dependencies.getTempDir(),
                 },
             );
-            batchRecorder.end(manifestPages.map(page => ({
-                pageNumber: page.pageNumber,
-                sourcePage: batchPageByNumber.get(page.pageNumber),
-            })));
+            batchRecorder.end();
             for (const page of manifestPages) {
                 await fileSystem.rm(page.pageMetadataPath, {force: true});
             }
@@ -915,213 +997,6 @@ async function runBatchedScanCleanupDetection<TDocument>(
     }
 
     recorder.assertComplete('evb-scan-cleanup');
-    const mediaBoxRetryCandidates = recorder.mediaBoxRetryCandidates;
-    if (mediaBoxRetryCandidates.length > 0) {
-        const retryMaxPixels = Math.min(
-            policy.rasterMaxPixels ?? SCAN_CLEANUP_RASTER_MAX_PIXELS,
-            SCAN_CLEANUP_RASTER_MAX_PIXELS,
-        );
-        // The retry renders the wider MediaBox, so its plane is planned for
-        // that geometry rather than reused from the CropBox pass.
-        const retryAnalysisDpiByPage = new Map(mediaBoxRetryCandidates.map(candidate => [
-            candidate.pageNumber,
-            resolveScanCleanupAnalysisDpi(toMediaBoxPageSize(candidate.sourcePage)),
-        ]));
-        const retryPlans = mediaBoxRetryCandidates.map(candidate => {
-            const mediaPage = toMediaBoxPageSize(candidate.sourcePage);
-            const dpi = retryAnalysisDpiByPage.get(candidate.pageNumber)!;
-            const limits = resolveRasterRenderLimits(mediaPage, dpi, retryMaxPixels);
-            return {
-                renderDpi: dpi,
-                raster: {
-                    dpi,
-                    width: limits.expectedWidthPx,
-                    height: limits.expectedHeightPx,
-                },
-            };
-        });
-        const retryAdmission = await resolveStagedRasterWindow(
-            retryPlans,
-            retryPlans.length,
-            scratch,
-            getAvailableScratchBytes,
-        );
-        let candidates = mediaBoxRetryCandidates;
-        if (
-            !retryAdmission.admitted
-            || retryAdmission.windowPages < mediaBoxRetryCandidates.length
-        ) {
-            log(
-                'warn',
-                'Scan cleanup skipped optional MediaBox retry because its rasters do not fit the remaining scratch budget',
-            );
-            candidates = [];
-        }
-        const retryRoot = join(scratch, 'mediabox-retry');
-        await fileSystem.mkdir(retryRoot, {recursive: true});
-        const renderedRetryPages: Array<{
-            sourcePage: IPdfPageSize;
-            pageNumber: number;
-            dpi: number;
-            path: string;
-            metadataPath: string;
-            width: number;
-            height: number;
-        }> = [];
-        let retryFailure: unknown;
-        try {
-            for (const candidate of candidates) {
-                signal.throwIfAborted();
-                const mediaPage = toMediaBoxPageSize(candidate.sourcePage);
-                const dpi = retryAnalysisDpiByPage.get(candidate.pageNumber)!;
-                const path = join(retryRoot, `page-${String(candidate.pageNumber)}.png`);
-                let dimensions;
-                try {
-                    dimensions = await renderRasterToDisk(
-                        request.sourcePdfPath,
-                        candidate.pageNumber,
-                        path,
-                        signal,
-                        {
-                            ...dependencies,
-                            fileSystem,
-                        },
-                        log,
-                        dpi,
-                        undefined,
-                        undefined,
-                        'png',
-                        resolveRasterRenderLimits(mediaPage, dpi, retryMaxPixels),
-                        'MediaBox retry raster',
-                        'MediaBox retry',
-                        'mediabox',
-                    );
-                    recorder.markRechecked();
-                } catch (error) {
-                    if (signal.aborted || getUnprovenNativeTerminationDetail(error) !== undefined) throw error;
-                    log(
-                        'warn',
-                        `Scan cleanup kept the first-pass classification for page ${String(candidate.pageNumber)} because its optional MediaBox retry failed: ${getErrorMessage(error)}`,
-                    );
-                    continue;
-                }
-                renderedRetryPages.push({
-                    sourcePage: candidate.sourcePage,
-                    pageNumber: candidate.pageNumber,
-                    dpi,
-                    path,
-                    metadataPath: join(retryRoot, `page-${String(candidate.pageNumber)}.json`),
-                    width: dimensions.width,
-                    height: dimensions.height,
-                });
-            }
-            const retryRasterByNumber = new Map(await Promise.all(renderedRetryPages.map(async page => [
-                page.pageNumber,
-                await getPageRaster(resolvedSourceRasterStructure, page.pageNumber),
-            ] as const)));
-            // The manifest names each source page, whose authored overrides it
-            // resolves; native progress counts manifest ordinals separately.
-            const retryManifestPages = renderedRetryPages.map((page) => {
-                const sourceRaster = retryRasterByNumber.get(page.pageNumber);
-                const sourceBackgroundDpi = sourceRaster?.backgroundDpi;
-                return {
-                    inputPath: page.path,
-                    pageNumber: page.pageNumber,
-                    dpi: page.dpi,
-                    sourceDpi: resolvePageGeometrySourceDpi(
-                        page.sourcePage,
-                        undefined,
-                    ) ?? sourceRaster?.dpi ?? getRasterDocumentDpi(resolvedSourceRasterStructure) ?? DETECTION_DPI,
-                    sourceHasBilevelLayer: sourceRaster?.hasBilevelLayer ?? false,
-                    ...(sourceBackgroundDpi === undefined ? {} : {sourceBackgroundDpi}),
-                    pageMetadataPath: page.metadataPath,
-                };
-            });
-            if (retryManifestPages.length > 0) {
-                const retryManifestPath = join(retryRoot, 'classify-manifest.json');
-                await fileSystem.writeFile(retryManifestPath, JSON.stringify(buildRunnableNativeScanCleanupManifest({
-                    operation: 'analyze',
-                    analysisPurpose: 'page-plan',
-                    renderMode: 'preview',
-                    canvasScope: 'page',
-                    qualityPath: request.options.preserveOriginalQuality ? 'lossless' : 'raster',
-                    options: request.options,
-                    ...(policy.rasterMaxPixels === undefined ? {} : {rasterMaxPixels: policy.rasterMaxPixels}),
-                    ...(policy.totalRamBytes === undefined ? {} : {hostMemoryBytes: policy.totalRamBytes}),
-                    experimental: {
-                        autoDewarp: request.options.autoDewarp ?? false,
-                        ...(request.options.autoDewarpDepth === undefined
-                            ? {}
-                            : {autoDewarpDepth: request.options.autoDewarpDepth}),
-                    },
-                    pages: retryManifestPages,
-                    allowedPathRoot: dependencies.getTempDir(),
-                })));
-                const retryProgressByManifestPage = new Map<number, TNativeScanCleanupProgressV3>();
-                await dependencies.runSidecar(
-                    binary,
-                    retryManifestPath,
-                    signal,
-                    log,
-                    nativeProgress => {
-                        if (nativeProgress.totalPages !== retryManifestPages.length) {
-                            throw new ScanCleanupContractError(
-                                `MediaBox retry reported ${String(nativeProgress.totalPages)} pages for ${String(retryManifestPages.length)} inputs`,
-                            );
-                        }
-                        if (
-                            nativeProgress.stage === 'page-complete'
-                            && nativeProgress.pageNumber !== undefined
-                            && nativeProgress.pageNumber >= 1
-                            && nativeProgress.pageNumber <= retryManifestPages.length
-                        ) {
-                            retryProgressByManifestPage.set(nativeProgress.pageNumber, nativeProgress);
-                        }
-                    },
-                    {
-                        priority: 'background',
-                        allowedPathRoot: dependencies.getTempDir(),
-                    },
-                );
-                for (const [
-                    index,
-                    page,
-                ] of renderedRetryPages.entries()) {
-                    const retryProgress = retryProgressByManifestPage.get(index + 1);
-                    if (retryProgress === undefined) continue;
-                    const retryMetadata = decodeNativeScanCleanupPageMetadataJson(
-                        await fileSystem.readFile(page.metadataPath, 'utf8'),
-                    );
-                    const accepted = await recorder.acceptMediaBoxRetry({
-                        pageNumber: page.pageNumber,
-                        verdict: retryProgress,
-                        metadata: retryMetadata,
-                        rasterWidth: page.width,
-                        rasterHeight: page.height,
-                        mediaPage: toMediaBoxPageSize(page.sourcePage),
-                        sourceDpi: resolveRasterPageDpi(
-                            resolvedSourceRasterStructure,
-                            page.sourcePage,
-                            retryRasterByNumber.get(page.pageNumber),
-                        ) ?? DETECTION_DPI,
-                    });
-                    if (!accepted) continue;
-                    log(
-                        'debug',
-                        `MediaBox retry accepted page ${String(page.pageNumber)} as a two-page spread`,
-                    );
-                }
-            }
-        } catch (error) {
-            retryFailure = error;
-            throw error;
-        } finally {
-            if (getUnprovenNativeTerminationDetail(retryFailure) === undefined) await fileSystem.rm(retryRoot, {
-                recursive: true,
-                force: true,
-            });
-        }
-    }
     return recorder.finish();
 }
 

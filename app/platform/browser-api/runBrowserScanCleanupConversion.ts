@@ -115,9 +115,9 @@ import {
 import {runBrowserQpdfCommand} from '@app/platform/browser-api/browserQpdfEngineClient';
 import {
     renderPageRaster,
+    runBrowserScanCleanupAnalysis,
     unwrapBrowserScanCleanupOutcome,
     type IBrowserScanCleanupSource,
-    type IPageRaster,
 } from '@app/platform/browser-api/browserScanCleanupJob';
 
 
@@ -922,61 +922,33 @@ async function runLosslessConversion(
             })),
         });
         pagePlanResolver.report();
-        const pages = facts.map((page, index) => {
-            const options = manifest.pages[index]!.options;
-            nativeOptionsBySource.set(page.pageNumber, options);
-            return {
-                ...page,
-                options,
-            };
-        });
-        const analyze = async (page: typeof pages[number], documentPrior?: unknown) => {
-            const raster: IPageRaster = await rasterizePage(context, page.view, page.analysisDpi, SCAN_CLEANUP_RASTER_MAX_PIXELS);
-            return unwrapBrowserScanCleanupOutcome(await runBrowserScanCleanupWorkerRequest('analyze-page', {
-                input: raster.ppm,
-                page: {
-                    options: page.options,
-                    sourcePageIndex: page.pageNumber - 1,
-                    canvasScope: 'document',
-                    ...(documentPrior === undefined ? {} : {documentPrior: documentPrior as never}),
-                },
-            }, signal, context.engines.observe('scanCleanup')));
-        };
-        const firstPass = [];
-        for (const page of pages) {
-            emitProgress('classifying', completed.size, pageCount, completed);
-            firstPass.push(await analyze(page));
-        }
-        const {pages: decisions} = unwrapBrowserScanCleanupOutcome(await runBrowserScanCleanupWorkerRequest(
-            'reconcile-document',
-            {candidates: firstPass.map(entry => entry.reconciliation)},
-            signal, context.engines.observe('scanCleanup')));
         for (const [
             index,
             page,
-        ] of pages.entries()) {
+        ] of facts.entries()) nativeOptionsBySource.set(page.pageNumber, manifest.pages[index]!.options);
+        const finishedPages = await runBrowserScanCleanupAnalysis({
+            pages: facts.map((page, index) => ({
+                options: manifest.pages[index]!.options,
+                sourcePageIndex: page.pageNumber - 1,
+                pdfPage: manifest.pages[index]!.pdfPage!,
+            })),
+            canvasScope: 'document',
+            renderMode: 'final',
+            ...(documentCanvas === null ? {} : {documentCanvas}),
+            signal,
+            onEngineIdentity: context.engines.observe('scanCleanup'),
+            rasterize: async job => {
+                const page = facts[job.index]!;
+                return (await rasterizePage(context, page.view, page.analysisDpi, SCAN_CLEANUP_RASTER_MAX_PIXELS)).ppm;
+            },
+            onAnalyzed: () => emitProgress('classifying', completed.size, pageCount, completed),
+        });
+        for (const [
+            index,
+            finished,
+        ] of finishedPages.entries()) {
             signal.throwIfAborted();
-            const decision = decisions[index] ?? null;
-            const analysisJson = decision?.kind === 'rerun'
-                ? (await analyze(page, decision.prior)).pageMetadataJson
-                : firstPass[index]!.pageMetadataJson;
-            const finished = unwrapBrowserScanCleanupOutcome(await runBrowserScanCleanupWorkerRequest('finish-page-analysis', {
-                pageMetadataJson: analysisJson,
-                ...(decision === null ? {} : {reconciliation: decision}),
-                pdfPlacement: {
-                    pdfPage: {
-                        xPoints: page.view.xPoints,
-                        yPoints: page.view.yPoints,
-                        widthPoints: page.view.widthPoints,
-                        heightPoints: page.view.heightPoints,
-                        rotation: page.view.rotation,
-                        sourceDpi: page.sourceDpi,
-                    },
-                    options: page.options,
-                    renderMode: 'final',
-                    ...(documentCanvas === null ? {} : {documentCanvas}),
-                },
-            }, signal, context.engines.observe('scanCleanup')));
+            const page = facts[index]!;
             const metadata = finished.pageMetadata;
             // Placement is planned from the canvas, not observed on the page,
             // so the provenance evidence stays the analysis alone.

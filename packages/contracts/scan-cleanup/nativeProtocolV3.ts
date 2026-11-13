@@ -323,6 +323,8 @@ const progress = v.pipe(v.object({
         'Invalid evb-scan-cleanup recommendation reason')),
     softAlphaForegroundRecommendation: v.optional(v.boolean()),
     outputModeDiagnostics: v.optional(outputModeDiagnostics),
+    /** A lease of the page's alternate (MediaBox) raster rather than its input. */
+    alternateView: v.optional(v.literal(true)),
 }), v.check(value => value.completedPages <= value.totalPages,
     'Invalid evb-scan-cleanup progress page counts'), v.check(value =>
     value.pageNumber === undefined

@@ -3,9 +3,9 @@ use crate::adapters::manifest_publication::{
     run_publication_transaction,
 };
 use crate::adapters::single_ocr_cli::{invalid, parse_options};
-use crate::engine::batch_reconciliation::{
-    apply_reconciliation_actions, reconcile_classification_batch, reconciliation_candidates,
-    MANIFEST_RECONCILIATION_POLICY,
+use crate::cache::ByteLru;
+use crate::engine::document_analysis::{
+    next_analysis_step, AnalysisDocument, AnalysisPage, AnalysisStep, AnalysisView, PageAnalysis,
 };
 use crate::engine::lossless_placement::{plan_lossless_page, record_source_preservation};
 use crate::engine::output_geometry::{match_page_sizes, write_json_atomic};
@@ -18,10 +18,9 @@ use crate::engine::resource_planning::{
     run_page_jobs_with_worker_threads, run_regular_page_jobs, PageDescriptor, PlanningOperation,
 };
 use crate::engine::staged_input::{
-    acquire_staged_page_input, assert_paths_within_root, finish_staged_rerun, page_from_staged,
-    planning_operation, planning_page, preflight_paths, release_staged_page_input,
-    run_one_staged_page_job, staged_lease, staged_path_plan, with_announced_staged_page_input,
-    LeaseEvent, StagedPathPlan,
+    assert_paths_within_root, planning_operation, planning_page, preflight_paths, staged_lease,
+    staged_path_plan, with_announced_staged_page_input, LeaseAnnouncer, LeaseEvent,
+    StagedLeaseDescriptor, StagedPathPlan,
 };
 use crate::{
     protocol::{
@@ -29,7 +28,7 @@ use crate::{
             AnalysisPurpose, CanvasScope, ManifestV3, Operation, Page, RenderMode,
             MAX_MANIFEST_BYTES,
         },
-        progress::{Progress, ProgressEnvelope, ProgressStage},
+        progress::{PageStageTimings, Progress, ProgressEnvelope, ProgressStage},
         result::ResultEnvelope,
     },
     split::LayoutClassification,
@@ -41,9 +40,10 @@ use serde::Serialize;
 use std::{
     collections::HashSet,
     error::Error,
+    fs,
     io::{self, Write},
     path::{Path, PathBuf},
-    sync::{atomic::AtomicBool, Mutex},
+    sync::{atomic::AtomicBool, Arc, Mutex},
 };
 
 const CANCELLATION_EXIT_CODE: i32 = 130;
@@ -223,6 +223,8 @@ fn run_inner(
         document_prior: None,
         detail_render_plan: None,
         pdf_page: None,
+        alternate_input_path: None,
+        alternate_view: None,
     };
     let cache = manifest_cache(PlanningOperation::Render, None);
     let page_cache = page_cache_for(&planning_page(&page), &cache)?;
@@ -311,27 +313,11 @@ fn run_manifest_inner(
     if is_canceled.load(std::sync::atomic::Ordering::Acquire) {
         return Err(crate::engine::cancellation_error().into());
     }
-    write_progress(Progress {
-        stage: ProgressStage::Started,
-        completed_pages: 0,
-        total_pages: manifest.pages.len(),
-        page_number: None,
-        output_paths: None,
-        classification: None,
-        confidence: None,
-        cutter_x_px: None,
-        tier1_verdict: None,
-        reconciled: None,
-        cluster_agreement: None,
-        document_prior: None,
-        text_axis: None,
-        stage_timings: None,
-        recommended_output_mode: None,
-        recommended_output_mode_confidence: None,
-        recommended_output_mode_reason: None,
-        soft_alpha_foreground_recommendation: None,
-        output_mode_diagnostics: None,
-    })?;
+    write_progress(Progress::new(
+        ProgressStage::Started,
+        0,
+        manifest.pages.len(),
+    ))?;
     let cache = manifest_cache(
         planning_operation(manifest.operation),
         manifest.host_memory_bytes,
@@ -406,7 +392,7 @@ fn run_manifest_inner(
             LeaseEvent::Required => ProgressStage::PageInputRequired,
             LeaseEvent::Released => ProgressStage::PageInputReleased,
         };
-        write_progress(Progress::page_input(stage, page_number, total)).map_err(|error| {
+        write_progress(Progress::page_input(stage, page_number, total, false)).map_err(|error| {
             NativeError::new(
                 NativeErrorCode::NativeFailure,
                 format!("Unable to publish scan-cleanup staged input lease: {error}"),
@@ -414,131 +400,102 @@ fn run_manifest_inner(
         })
     };
     let analyzing = manifest.operation == Operation::Analyze;
-    let page_ink_contexts = if analyzing {
-        vec![None; manifest.pages.len()]
-    } else {
-        let planning_pages = manifest.pages.iter().map(planning_page).collect::<Vec<_>>();
-        let samples = if planning_pages.iter().any(page_needs_ink_sample) {
-            run_regular_page_jobs(
+    let plan_content = manifest.analysis_purpose == AnalysisPurpose::PagePlan;
+    let mut page_results = if analyzing {
+        let run_primary =
+            |(index, descriptor): (usize, &PageDescriptor)| -> Result<PageRunResult, NativeError> {
+                let page = &manifest.pages[index];
+                let lease = staged_lease(manifest, index, page);
+                let result =
+                    with_announced_staged_page_input(&lease, &announce_lease, is_canceled, || {
+                        let page_cache = page_cache_for(descriptor, &cache)?;
+                        run_classification(
+                            page,
+                            manifest.canvas_scope,
+                            page.document_prior,
+                            true,
+                            plan_content,
+                            &page_cache,
+                            is_canceled,
+                        )
+                        .map_err(|error| map_page_error(error.as_ref()))
+                    })?;
+                // The same page plan backs previews before and after reconciliation.
+                write_json_atomic(&result.page_metadata_path, &result.metadata)
+                    .map_err(|error| map_page_error(error.as_ref()))?;
+                let mut progress = page_complete_progress(&result, index, total_pages);
+                progress.stage = ProgressStage::PageAnalyzed;
+                progress.output_paths = None;
+                report_analyzed(index, progress)?;
+                Ok(result)
+            };
+        analyze_document(manifest, is_canceled, &cache, &announce_lease, || {
+            run_page_jobs_with_worker_threads(
                 manifest,
                 is_canceled,
-                |(_, page)| derive_page_ink_sample(page),
+                run_primary,
                 worker_threads,
                 processing_threads,
-            )?
-        } else {
-            vec![None; planning_pages.len()]
-        };
-        derive_page_ink_contexts(&samples)
-    };
-    let plan_content = manifest.analysis_purpose == AnalysisPurpose::PagePlan;
-    let run_analysis =
-        |(index, descriptor): (usize, &PageDescriptor)| -> Result<PageRunResult, NativeError> {
-            let page = page_from_staged(&manifest.pages[index], descriptor);
-            let lease = staged_lease(manifest, index, &page);
-            let result =
-                with_announced_staged_page_input(&lease, &announce_lease, is_canceled, || {
-                    let page_cache = page_cache_for(descriptor, &cache)?;
-                    run_classification(
-                        &page,
-                        manifest.canvas_scope,
-                        page.document_prior,
-                        true,
-                        plan_content,
-                        &page_cache,
-                        is_canceled,
-                    )
-                    .map_err(|error| map_page_error(error.as_ref()))
-                })?;
-            // The same page plan backs previews before and after reconciliation.
-            write_json_atomic(&result.page_metadata_path, &result.metadata)
-                .map_err(|error| map_page_error(error.as_ref()))?;
-            let mut progress = page_complete_progress(&result, index, total_pages);
-            progress.stage = ProgressStage::PageAnalyzed;
-            progress.output_paths = None;
-            report_analyzed(index, progress)?;
-            Ok(result)
-        };
-    let run_one =
-        |(index, descriptor): (usize, &PageDescriptor)| -> Result<PageRunResult, NativeError> {
-            let page = page_from_staged(&manifest.pages[index], descriptor);
-            let page_cache = page_cache_for(descriptor, &cache)?;
-            let result = run_page(
-                &page,
-                manifest.canvas_scope,
-                manifest.render_mode == RenderMode::Final,
-                manifest.document_canvas,
-                None,
-                page_ink_contexts[index],
-                &page_cache,
-                is_canceled,
             )
-            .map_err(|error| map_page_error(error.as_ref()))?;
-            report_page(index, page_complete_progress(&result, index, total_pages))?;
-            Ok(result)
-        };
-    let mut page_results = if analyzing {
-        run_page_jobs_with_worker_threads(
-            manifest,
-            is_canceled,
-            run_analysis,
-            worker_threads,
-            processing_threads,
-        )?
+        })?
     } else {
-        run_page_jobs_with_worker_threads(
+        let page_ink_contexts = {
+            let planning_pages = manifest.pages.iter().map(planning_page).collect::<Vec<_>>();
+            let samples = if planning_pages.iter().any(page_needs_ink_sample) {
+                run_regular_page_jobs(
+                    manifest,
+                    is_canceled,
+                    |(_, page)| derive_page_ink_sample(page),
+                    worker_threads,
+                    processing_threads,
+                )?
+            } else {
+                vec![None; planning_pages.len()]
+            };
+            derive_page_ink_contexts(&samples)
+        };
+        let run_one =
+            |(index, descriptor): (usize, &PageDescriptor)| -> Result<PageRunResult, NativeError> {
+                let page = &manifest.pages[index];
+                let page_cache = page_cache_for(descriptor, &cache)?;
+                let result = run_page(
+                    page,
+                    manifest.canvas_scope,
+                    manifest.render_mode == RenderMode::Final,
+                    manifest.document_canvas,
+                    None,
+                    page_ink_contexts[index],
+                    &page_cache,
+                    is_canceled,
+                )
+                .map_err(|error| map_page_error(error.as_ref()))?;
+                report_page(index, page_complete_progress(&result, index, total_pages))?;
+                Ok(result)
+            };
+        let mut page_results = run_page_jobs_with_worker_threads(
             manifest,
             is_canceled,
             run_one,
             worker_threads,
             processing_threads,
-        )?
+        )?;
+        for (page, page_result) in manifest.pages.iter().zip(&mut page_results) {
+            if let Some(pdf_page) = &page.pdf_page {
+                plan_lossless_page(
+                    &mut page_result.metadata.outputs,
+                    pdf_page,
+                    page_result.metadata.rotation_degrees,
+                    &page.options,
+                    manifest.document_canvas,
+                    manifest.render_mode == RenderMode::Preview,
+                );
+            }
+        }
+        page_results
     };
-
-    // Reconciliation only ever revises classification-pass results; a render pass
-    // has already published its pages by the time it returns.
-    if analyzing {
-        let candidates = reconciliation_candidates(&page_results);
-        let actions = reconcile_classification_batch(&candidates, MANIFEST_RECONCILIATION_POLICY);
-        let rerun = |index, prior| {
-            let page = &manifest.pages[index];
-            let lease = staged_lease(manifest, index, page);
-            acquire_staged_page_input(&lease, &announce_lease, is_canceled)?;
-            let rerun_result =
-                run_one_staged_page_job(manifest, index, is_canceled, |(_, descriptor)| {
-                    let page = page_from_staged(&manifest.pages[index], descriptor);
-                    let page_cache = page_cache_for(descriptor, &cache)?;
-                    run_classification(
-                        &page,
-                        manifest.canvas_scope,
-                        Some(prior),
-                        manifest.operation == Operation::Analyze
-                            || page.options.output_mode == crate::OutputMode::Auto,
-                        manifest.analysis_purpose == AnalysisPurpose::PagePlan,
-                        &page_cache,
-                        is_canceled,
-                    )
-                    .map_err(|error| map_page_error(error.as_ref()))
-                });
-            let released = release_staged_page_input(&lease, &announce_lease);
-            finish_staged_rerun(rerun_result, released)
-        };
-        apply_reconciliation_actions(&mut page_results, &actions, rerun)?;
-    }
     for (index, page_result) in page_results.iter_mut().enumerate() {
         if is_canceled.load(std::sync::atomic::Ordering::Acquire) {
             return Err(crate::engine::cancellation_error().into());
-        }
-        let page = &manifest.pages[index];
-        if let Some(pdf_page) = &page.pdf_page {
-            plan_lossless_page(
-                &mut page_result.metadata.outputs,
-                pdf_page,
-                page_result.metadata.rotation_degrees,
-                &page.options,
-                manifest.document_canvas,
-                manifest.render_mode == RenderMode::Preview,
-            );
         }
         write_json_atomic(&page_result.page_metadata_path, &page_result.metadata)?;
         if analyzing {
@@ -560,28 +517,148 @@ fn run_manifest_inner(
             }
         }
     }
-    write_progress(Progress {
-        stage: ProgressStage::Completed,
-        completed_pages: manifest.pages.len(),
-        total_pages: manifest.pages.len(),
-        page_number: None,
-        output_paths: None,
-        classification: None,
-        confidence: None,
-        cutter_x_px: None,
-        tier1_verdict: None,
-        reconciled: None,
-        cluster_agreement: None,
-        document_prior: None,
-        text_axis: None,
-        stage_timings: None,
-        recommended_output_mode: None,
-        recommended_output_mode_confidence: None,
-        recommended_output_mode_reason: None,
-        soft_alpha_foreground_recommendation: None,
-        output_mode_diagnostics: None,
-    })?;
+    write_progress(Progress::new(
+        ProgressStage::Completed,
+        manifest.pages.len(),
+        manifest.pages.len(),
+    ))?;
     Ok(())
+}
+
+/// Runs an analyze manifest's document sequence as the engine plans it: the
+/// primary pass over every page in parallel, then each rerun and alternate
+/// view the plan asks for, one at a time under its own staged lease.
+fn analyze_document(
+    manifest: &ManifestV3,
+    is_canceled: &AtomicBool,
+    cache: &Arc<Mutex<ByteLru>>,
+    announce_lease: LeaseAnnouncer<'_>,
+    primary_pass: impl FnOnce() -> Result<Vec<PageRunResult>, Box<dyn Error>>,
+) -> Result<Vec<PageRunResult>, Box<dyn Error>> {
+    let document = AnalysisDocument {
+        pages: manifest
+            .pages
+            .iter()
+            .map(|page| AnalysisPage {
+                document_prior: page.document_prior,
+                alternate_view: page.alternate_view.as_ref(),
+                placement: page
+                    .pdf_page
+                    .as_ref()
+                    .map(|pdf_page| (pdf_page, &page.options)),
+            })
+            .collect(),
+        document_canvas: manifest.document_canvas,
+        preview: manifest.render_mode == RenderMode::Preview,
+    };
+    let announce_alternate = |event: LeaseEvent, page_number: usize, total: usize| {
+        let stage = match event {
+            LeaseEvent::Required => ProgressStage::PageInputRequired,
+            LeaseEvent::Released => ProgressStage::PageInputReleased,
+        };
+        write_progress(Progress::page_input(stage, page_number, total, true)).map_err(|error| {
+            NativeError::new(
+                NativeErrorCode::NativeFailure,
+                format!("Unable to publish scan-cleanup alternate input lease: {error}"),
+            )
+        })
+    };
+    let mut timings = vec![PageStageTimings::default(); manifest.pages.len()];
+    let mut analyses = Vec::<PageAnalysis>::new();
+    let mut primary_pass = Some(primary_pass);
+    loop {
+        let jobs = match next_analysis_step(&document, &analyses)? {
+            AnalysisStep::Analyze(jobs) => jobs,
+            AnalysisStep::Finished(pages) => {
+                return Ok(pages
+                    .into_iter()
+                    .zip(timings)
+                    .zip(&manifest.pages)
+                    .map(|((metadata, timings), page)| PageRunResult {
+                        outputs: Vec::new(),
+                        metadata,
+                        page_metadata_path: page.page_metadata_path.clone(),
+                        timings,
+                    })
+                    .collect());
+            }
+        };
+        if let Some(primary_pass) = primary_pass.take() {
+            // The first step is every page's primary view, in page order.
+            for (job, result) in jobs.into_iter().zip(primary_pass()?) {
+                timings[job.index] += result.timings;
+                analyses.push(PageAnalysis {
+                    job,
+                    metadata: Some(result.metadata),
+                });
+            }
+            continue;
+        }
+        for job in jobs {
+            let manifest_page = &manifest.pages[job.index];
+            let alternate = job.view == AnalysisView::Alternate;
+            let mut page = manifest_page.clone();
+            if alternate {
+                let (Some(path), Some(view)) = (
+                    &manifest_page.alternate_input_path,
+                    &manifest_page.alternate_view,
+                ) else {
+                    return Err(
+                        invalid("An alternate analysis needs the page's alternate view").into(),
+                    );
+                };
+                page.input_path = path.clone();
+                page.options = view.options.clone();
+            }
+            let lease = StagedLeaseDescriptor {
+                enabled: alternate || manifest.staged_input_window.is_some(),
+                ..staged_lease(manifest, job.index, &page)
+            };
+            let announce: LeaseAnnouncer<'_> = if alternate {
+                &announce_alternate
+            } else {
+                announce_lease
+            };
+            let analyzed = with_announced_staged_page_input(&lease, announce, is_canceled, || {
+                // An empty alternate raster is the owning process declining it.
+                if alternate
+                    && fs::metadata(&page.input_path)
+                        .map_err(|error| {
+                            NativeError::new(
+                                NativeErrorCode::Io,
+                                format!(
+                                    "Unable to read the alternate view of page {}: {error}",
+                                    lease.page_number
+                                ),
+                            )
+                        })?
+                        .len()
+                        == 0
+                {
+                    return Ok(None);
+                }
+                let page_cache = page_cache_for(&planning_page(&page), cache)?;
+                run_classification(
+                    &page,
+                    manifest.canvas_scope,
+                    job.document_prior,
+                    true,
+                    manifest.analysis_purpose == AnalysisPurpose::PagePlan,
+                    &page_cache,
+                    is_canceled,
+                )
+                .map(Some)
+                .map_err(|error| map_page_error(error.as_ref()))
+            })?;
+            if let Some(result) = &analyzed {
+                timings[job.index] += result.timings;
+            }
+            analyses.push(PageAnalysis {
+                job,
+                metadata: analyzed.map(|result| result.metadata),
+            });
+        }
+    }
 }
 
 pub(crate) fn write_progress(progress: Progress) -> Result<(), Box<dyn Error>> {
@@ -648,6 +725,7 @@ fn page_complete_progress(result: &PageRunResult, index: usize, total_pages: usi
         recommended_output_mode_reason: metadata.recommended_output_mode_reason,
         soft_alpha_foreground_recommendation: metadata.soft_alpha_foreground_recommendation,
         output_mode_diagnostics: metadata.output_mode_diagnostics,
+        alternate_view: false,
     }
 }
 

@@ -53,6 +53,7 @@ const fileSystem = {
         return undefined;
     },
     readFile: async (path: string, encoding: 'utf8') => readFile(path, encoding),
+    rename,
     mkdtemp,
     open: async (path: string, flags: 'r' | 'w+') => fsOpen(path, flags),
     readdir,

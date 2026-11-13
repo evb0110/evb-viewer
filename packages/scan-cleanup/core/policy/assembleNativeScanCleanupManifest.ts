@@ -36,6 +36,18 @@ export interface IScanCleanupManifestPageInput extends IScanCleanupManifestPageF
     pageMetadataPath: string;
     outputs?: INativeScanCleanupOutputV3[];
     detailRenderPlan?: INativeScanCleanupManifestV3['pages'][number]['detailRenderPlan'];
+    /** Where the page's wider view is staged when the engine asks for it. */
+    alternateInputPath?: string;
+    alternateView?: IScanCleanupAlternateViewInput;
+}
+
+/** A wider view of the page (its MediaBox) and the facts its analysis is resolved from. */
+export interface IScanCleanupAlternateViewInput {
+    primaryWidthPoints: number;
+    primaryHeightPoints: number;
+    widthPoints: number;
+    heightPoints: number;
+    page: IScanCleanupManifestPageFacts;
 }
 
 export interface IBuildNativeScanCleanupManifestInput {
@@ -123,6 +135,10 @@ export const MANIFEST_PAGE_PATH_FIELDS = defineManifestPathFields<TManifestPage 
     {
         field: 'trustedMrcBackgroundPath',
         label: 'trusted MRC background path',
+    },
+    {
+        field: 'alternateInputPath',
+        label: 'alternate input path',
     },
 ]);
 
@@ -260,15 +276,22 @@ export function assembleNativeScanCleanupManifest({
                     `page ${String(pageIndex + 1)} fixed analysis input requires a positive analysisDpi`,
                 );
             }
+            if ((page.alternateInputPath === undefined) !== (page.alternateView === undefined)) {
+                throw new ScanCleanupContractError(
+                    `page ${String(pageIndex + 1)} alternate view requires its alternate input path`,
+                );
+            }
             pathCheck?.page(page, pageIndex);
-            const pageOptions = resolveScanCleanupManifestPageOptions({
+            const resolvePageOptions = (facts: IScanCleanupManifestPageFacts) => resolveScanCleanupManifestPageOptions({
                 options,
                 ...(analysisPurpose === undefined ? {} : {analysisPurpose}),
                 qualityPath,
                 ...(experimental === undefined ? {} : {experimental}),
                 ...(rasterMaxPixels === undefined ? {} : {rasterMaxPixels}),
-                page,
+                page: facts,
             });
+            const pageOptions = resolvePageOptions(page);
+            const alternate = page.alternateView;
             return {
                 inputPath: page.inputPath,
                 ...(page.analysisInputPath === undefined
@@ -292,6 +315,18 @@ export function assembleNativeScanCleanupManifest({
                     : {documentPrior: serializeScanCleanupManifestDocumentPrior(page.documentPrior)}),
                 ...(page.detailRenderPlan === undefined ? {} : {detailRenderPlan: page.detailRenderPlan}),
                 ...(page.pdfPage === undefined ? {} : {pdfPage: page.pdfPage}),
+                ...(alternate === undefined
+                    ? {}
+                    : {
+                        alternateInputPath: page.alternateInputPath,
+                        alternateView: {
+                            primaryWidthPoints: alternate.primaryWidthPoints,
+                            primaryHeightPoints: alternate.primaryHeightPoints,
+                            widthPoints: alternate.widthPoints,
+                            heightPoints: alternate.heightPoints,
+                            options: resolvePageOptions(alternate.page),
+                        },
+                    }),
             };
         }),
     };

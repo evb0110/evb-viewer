@@ -4,6 +4,7 @@ import type {
     mkdir,
     mkdtemp,
     open,
+    rename,
     rm,
     stat,
     writeFile,
@@ -401,6 +402,7 @@ export interface IScanCleanupFileSystem {
         isFile: () => boolean;
         name: string;
     }>>;
+    rename: typeof rename;
     rm: typeof rm;
     stat: typeof stat;
     writeFile: typeof writeFile;

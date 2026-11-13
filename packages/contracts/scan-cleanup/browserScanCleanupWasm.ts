@@ -5,16 +5,12 @@ import {
     SCAN_CLEANUP_WASM_ATTACHMENT_DETAIL_BASE_SOURCE,
     SCAN_CLEANUP_WASM_ATTACHMENT_HEADER_BYTES,
     SCAN_CLEANUP_WASM_ATTACHMENT_INPUT,
-    SCAN_CLEANUP_WASM_ATTACHMENT_PAGE_METADATA,
     SCAN_CLEANUP_WASM_ATTACHMENT_TRUSTED_FOREGROUND_SELECTION,
     SCAN_CLEANUP_WASM_ATTACHMENT_TRUSTED_MRC_BACKGROUND,
     SCAN_CLEANUP_WASM_MAX_REQUEST_JSON_BYTES,
     SCAN_CLEANUP_WASM_OP_ANALYZE_PAGE,
-    SCAN_CLEANUP_WASM_OP_DERIVE_INK_CONTEXTS,
-    SCAN_CLEANUP_WASM_OP_FINISH_PAGE_ANALYSIS,
-    SCAN_CLEANUP_WASM_OP_RECONCILE_DOCUMENT,
+    SCAN_CLEANUP_WASM_OP_PLAN_ANALYSIS,
     SCAN_CLEANUP_WASM_OP_RENDER_PAGE,
-    SCAN_CLEANUP_WASM_OP_SAMPLE_PAGE_INK,
     SCAN_CLEANUP_WASM_OUTPUT_HEADER_BYTES,
     SCAN_CLEANUP_WASM_PLANE_ENCODING_PBM,
     SCAN_CLEANUP_WASM_PLANE_ENCODING_PGM,
@@ -46,25 +42,19 @@ import {
     type TNativeScanCleanupOutputArtifactMetadataV3,
 } from '@contracts/scan-cleanup/nativeArtifactCodecs';
 import type {
+    AnalysisJob,
     DetailRenderGeometry,
-    DocumentInkSample,
-    PageInkConsistencyContext,
-    PageReconciliation,
     ReconciliationCandidate,
     WasmAnalyzePageRequestV2,
-    WasmDeriveInkContextsRequestV2,
-    WasmFinishPageAnalysisRequestV2,
-    WasmReconcileDocumentRequestV2,
+    WasmPlanAnalysisRequestV3,
     WasmRenderPageRequestV2,
-    WasmSamplePageInkRequestV2,
 } from '@contracts/scan-cleanup/nativeWire.generated';
 
 /**
  * The browser scan-cleanup engine: `public/wasm/evb-scan-cleanup.wasm`, built
  * from `native/scan-cleanup/src/wasm.rs`. Each request is one page of a
- * desktop manifest, or one document-level step a manifest takes between its
- * pages, run by the same Rust code the desktop CLI runs, from bytes instead of
- * files.
+ * desktop manifest, or the plan of an analyze manifest's document sequence,
+ * run by the same Rust code the desktop CLI runs, from bytes instead of files.
  */
 export const BROWSER_SCAN_CLEANUP_WASM_PATH = '/wasm/evb-scan-cleanup.wasm';
 
@@ -204,29 +194,22 @@ export interface IScanCleanupWasmAnalyzeRequest {
 /** An analysis, and what document reconciliation reads from its page. */
 export interface IScanCleanupWasmAnalyzeResult extends IScanCleanupWasmPageResult {reconciliation: ReconciliationCandidate;}
 
-/** Reconciles one manifest batch's analyzed pages, in page order. */
-export type TScanCleanupWasmReconcileDocumentRequest = WasmReconcileDocumentRequestV2;
-
-/** Each page's reconciliation, or null where its analysis stands. */
-export interface IScanCleanupWasmReconcileDocumentResult {pages: Array<PageReconciliation | null>;}
-
 /**
- * Finishes one analysis: applies its reconciliation and PDF placement. The
- * analysis is the page's own, or the rerun's when the reconciliation is one.
+ * One analyze manifest's pages and the analyses its plan asked for so far. A
+ * record is an analyze result handed back unchanged, or a declined alternate.
  */
-export interface IScanCleanupWasmFinishPageAnalysisRequest extends WasmFinishPageAnalysisRequestV2 {pageMetadataJson: string;}
+export type TScanCleanupWasmPlanAnalysisRequest = WasmPlanAnalysisRequestV3;
 
-export interface IScanCleanupWasmSamplePageInkRequest {
-    trustedMrc: IScanCleanupWasmTrustedMrcLayers;
-    page: Omit<WasmSamplePageInkRequestV2, 'trustedForegroundJbig2'>;
-}
-
-export interface IScanCleanupWasmSamplePageInkResult {sample: DocumentInkSample | null;}
-
-/** Derives each page's ink context from one render manifest batch's samples. */
-export type TScanCleanupWasmDeriveInkContextsRequest = WasmDeriveInkContextsRequestV2;
-
-export interface IScanCleanupWasmDeriveInkContextsResult {contexts: Array<PageInkConsistencyContext | null>;}
+/** The analyses the engine needs next, or every page's finished metadata. */
+export type TScanCleanupWasmPlanAnalysisResult =
+    | {
+        kind: 'analyze';
+        jobs: AnalysisJob[];
+    }
+    | {
+        kind: 'finished';
+        pages: IScanCleanupWasmPageResult[];
+    };
 
 const PLANE_ROLES = new Map<number, TScanCleanupWasmPlaneRole>([
     [
@@ -443,43 +426,8 @@ export function encodeScanCleanupWasmAnalyzeRequest(request: IScanCleanupWasmAna
     ]]);
 }
 
-export function encodeScanCleanupWasmReconcileDocumentRequest(request: TScanCleanupWasmReconcileDocumentRequest) {
-    return encodeFrame(SCAN_CLEANUP_WASM_OP_RECONCILE_DOCUMENT, SCAN_CLEANUP_WASM_PLANES_RAW, request);
-}
-
-export function encodeScanCleanupWasmFinishPageAnalysisRequest({
-    pageMetadataJson,
-    ...request
-}: IScanCleanupWasmFinishPageAnalysisRequest) {
-    return encodeFrame(SCAN_CLEANUP_WASM_OP_FINISH_PAGE_ANALYSIS, SCAN_CLEANUP_WASM_PLANES_RAW, request, [[
-        SCAN_CLEANUP_WASM_ATTACHMENT_PAGE_METADATA,
-        new TextEncoder().encode(pageMetadataJson),
-    ]]);
-}
-
-export function encodeScanCleanupWasmSamplePageInkRequest(request: IScanCleanupWasmSamplePageInkRequest) {
-    return encodeFrame(
-        SCAN_CLEANUP_WASM_OP_SAMPLE_PAGE_INK,
-        SCAN_CLEANUP_WASM_PLANES_RAW,
-        {
-            ...request.page,
-            ...(request.trustedMrc.selectionEncoding === 'jbig2' ? {trustedForegroundJbig2: true} : {}),
-        } satisfies WasmSamplePageInkRequestV2,
-        [
-            [
-                SCAN_CLEANUP_WASM_ATTACHMENT_TRUSTED_FOREGROUND_SELECTION,
-                request.trustedMrc.selection,
-            ],
-            [
-                SCAN_CLEANUP_WASM_ATTACHMENT_TRUSTED_MRC_BACKGROUND,
-                request.trustedMrc.background,
-            ],
-        ],
-    );
-}
-
-export function encodeScanCleanupWasmDeriveInkContextsRequest(request: TScanCleanupWasmDeriveInkContextsRequest) {
-    return encodeFrame(SCAN_CLEANUP_WASM_OP_DERIVE_INK_CONTEXTS, SCAN_CLEANUP_WASM_PLANES_RAW, request);
+export function encodeScanCleanupWasmPlanAnalysisRequest(request: TScanCleanupWasmPlanAnalysisRequest) {
+    return encodeFrame(SCAN_CLEANUP_WASM_OP_PLAN_ANALYSIS, SCAN_CLEANUP_WASM_PLANES_RAW, request);
 }
 
 class FrameReader {
@@ -602,19 +550,6 @@ function decodeDetails(detailsJson: string, field: string, accepts: (value: unkn
 }
 
 const isObject = (value: unknown) => typeof value === 'object' && value !== null && !Array.isArray(value);
-const isObjectOrNullArray = (value: unknown) => Array.isArray(value) && value.every(entry => entry === null || isObject(entry));
-
-function decodeDocumentStep(output: Uint8Array) {
-    const {
-        pageMetadataJson,
-        detailsJson,
-        outputs,
-    } = decodeFrame(output);
-    if (pageMetadataJson !== '' || outputs.length !== 0) {
-        throw new InvalidScanCleanupWasmResultError('a document step carries no page');
-    }
-    return detailsJson;
-}
 
 export function decodeScanCleanupWasmRenderPageResult(output: Uint8Array): IScanCleanupWasmRenderPageResult {
     const {
@@ -661,26 +596,25 @@ export function decodeScanCleanupWasmAnalyzeResult(output: Uint8Array): IScanCle
     };
 }
 
-export function decodeScanCleanupWasmReconcileDocumentResult(output: Uint8Array): IScanCleanupWasmReconcileDocumentResult {
-    return {pages: decodeDetails(decodeDocumentStep(output), 'pages', isObjectOrNullArray) as Array<PageReconciliation | null>};
-}
-
-export function decodeScanCleanupWasmFinishPageAnalysisResult(output: Uint8Array): IScanCleanupWasmPageResult {
+export function decodeScanCleanupWasmPlanAnalysisResult(output: Uint8Array): TScanCleanupWasmPlanAnalysisResult {
     const {
         pageMetadataJson,
         detailsJson,
         outputs,
     } = decodeFrame(output);
-    if (detailsJson !== '' || outputs.length !== 0) {
-        throw new InvalidScanCleanupWasmResultError('a finished analysis carries its page only');
+    if (pageMetadataJson !== '' || outputs.length !== 0) {
+        throw new InvalidScanCleanupWasmResultError('an analysis plan carries no page');
     }
-    return decodePage(pageMetadataJson);
-}
-
-export function decodeScanCleanupWasmSamplePageInkResult(output: Uint8Array): IScanCleanupWasmSamplePageInkResult {
-    return {sample: decodeDetails(decodeDocumentStep(output), 'sample', value => value === null || isObject(value)) as DocumentInkSample | null};
-}
-
-export function decodeScanCleanupWasmDeriveInkContextsResult(output: Uint8Array): IScanCleanupWasmDeriveInkContextsResult {
-    return {contexts: decodeDetails(decodeDocumentStep(output), 'contexts', isObjectOrNullArray) as Array<PageInkConsistencyContext | null>};
+    const kind = decodeDetails(detailsJson, 'kind', value => value === 'analyze' || value === 'finished');
+    if (kind === 'analyze') {
+        return {
+            kind,
+            jobs: decodeDetails(detailsJson, 'jobs', value => Array.isArray(value) && value.length > 0 && value.every(isObject)) as AnalysisJob[],
+        };
+    }
+    const pages = decodeDetails(detailsJson, 'pages', value => Array.isArray(value) && value.every(page => typeof page === 'string')) as string[];
+    return {
+        kind: 'finished',
+        pages: pages.map(decodePage),
+    };
 }

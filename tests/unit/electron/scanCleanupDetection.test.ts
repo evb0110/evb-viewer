@@ -65,6 +65,7 @@ const fileSystem = {
     },
     open: async (path: string, flags: 'r' | 'w+') => fsOpen(path, flags),
     readFile: async (path: string, encoding: 'utf8') => readFile(path, encoding),
+    rename,
     mkdtemp,
     readdir,
     rm: async (
@@ -1999,15 +2000,12 @@ describe('runScanCleanupDetection non-stream raster admission', () => {
             mediaHeightPoints: 633.89,
         }));
         if (withOverrides) {
-            // Only source page 2 retries. Its local retry ordinal is 1, whose
-            // authored rotation belongs to a different source page.
+            // Page 1 keeps no wider view, and its authored rotation must not
+            // reach page 2's alternate options.
             pageSizes[0]!.mediaWidthPoints = pageSizes[0]!.widthPoints;
             pageSizes[0]!.mediaHeightPoints = pageSizes[0]!.heightPoints;
         }
-        const retryPages: Array<{
-            sourcePageIndex: number;
-            options: {rotationDegrees: number}
-        }> = [];
+        const retryPages: IRetryManifest['pages'] = [];
         const retention: IScanCleanupDetectionRetention<{id: string}> = {
             openDocument: vi.fn(async () => ({id: 'document'})),
             pageCount: vi.fn(async () => pageSizes.length),
@@ -2036,7 +2034,8 @@ describe('runScanCleanupDetection non-stream raster admission', () => {
             releaseRaster: vi.fn(async () => undefined),
             release: vi.fn(async () => undefined),
         };
-        let sidecarCalls = 0;
+        // The engine asks for the MediaBox view of every page that has one and
+        // accepts it where the owner published a raster.
         const runSidecar = vi.fn(async (
             _binary: string,
             manifestPath: string,
@@ -2044,43 +2043,59 @@ describe('runScanCleanupDetection non-stream raster admission', () => {
             _log: unknown,
             onProgress: (progress: TNativeScanCleanupProgressV3) => void | Promise<void>,
         ) => {
-            sidecarCalls += 1;
             const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as IRetryManifest;
-            if (sidecarCalls === 2) retryPages.push(...manifest.pages);
-            await Promise.all(manifest.pages.map(async (page, index) => {
-                const retry = sidecarCalls === 2;
-                const pageNumber = page.sourcePageIndex + 1;
+            retryPages.push(...manifest.pages.filter(page => page.alternateView != null));
+            for (const [
+                index,
+                page,
+            ] of manifest.pages.entries()) {
+                const pageNumber = requirePageNumber(index + 1);
+                let accepted = false;
+                if (page.alternateInputPath != null) {
+                    await onProgress({
+                        stage: 'page-input-required',
+                        completedPages: 0,
+                        totalPages: manifest.pages.length,
+                        pageNumber,
+                        alternateView: true,
+                    });
+                    await vi.waitFor(async () => {
+                        accepted = (await stat(page.alternateInputPath!)).size > 0;
+                    });
+                    await onProgress({
+                        stage: 'page-input-released',
+                        completedPages: 0,
+                        totalPages: manifest.pages.length,
+                        pageNumber,
+                        alternateView: true,
+                    });
+                }
                 const diagnostics = splitDiagnostics();
                 diagnostics.decisionX = 0.5;
                 await writeFile(page.pageMetadataPath, JSON.stringify({
-                    layoutClassification: retry
-                        ? 'two-page-spread'
-                        : 'single-uncut-page',
-                    layoutConfidence: retry ? 0.9 : 0.5,
-                    cutterXPx: retry ? 0.5 : null,
+                    layoutClassification: accepted ? 'two-page-spread' : 'single-uncut-page',
+                    layoutConfidence: accepted ? 0.9 : 0.5,
+                    cutterXPx: accepted ? 0.5 : null,
                     rotationDegrees: 0,
                     canvasScope: 'page',
                     excluded: false,
                     blankOutputsSkipped: 0,
                     outputCount: 0,
-                    ...(retry || pageNumber === 2 ? {splitDiagnostics: diagnostics} : {}),
+                    splitDiagnostics: diagnostics,
+                    ...(accepted ? {alternateView: true} : {}),
                 }));
                 await onProgress({
                     stage: 'page-complete',
                     completedPages: index + 1,
                     totalPages: manifest.pages.length,
-                    pageNumber: requirePageNumber(index + 1),
-                    classification: retry
-                        ? 'two-page-spread'
-                        : 'single-uncut-page',
-                    confidence: retry ? 0.9 : 0.5,
-                    ...(retry ? {cutterXPx: 0.5} : {}),
-                    tier1Verdict: retry
-                        ? 'two-page-spread'
-                        : 'single-uncut-page',
+                    pageNumber,
+                    classification: accepted ? 'two-page-spread' : 'single-uncut-page',
+                    confidence: accepted ? 0.9 : 0.5,
+                    ...(accepted ? {cutterXPx: 0.5} : {}),
+                    tier1Verdict: accepted ? 'two-page-spread' : 'single-uncut-page',
                     reconciled: false,
                 });
-            }));
+            }
         });
 
         const request = createRequest();
@@ -2120,31 +2135,35 @@ describe('runScanCleanupDetection non-stream raster admission', () => {
 
         resultStores.push(detection.resultStore);
         if (withOverrides) {
-            expect(retryPages).toMatchObject([{
-                sourcePageIndex: 1,
-                options: {rotationDegrees: 0},
-            }]);
+            // Page 1 has no wider view; page 2's alternate options are its own.
+            expect(retryPages).toMatchObject([
+                {
+                    sourcePageIndex: 1,
+                    alternateView: {options: {rotationDegrees: 0}},
+                },
+                {sourcePageIndex: 2},
+            ]);
             expect(detection.results[1]?.sourcePageMetadata?.renderBox).toBe('mediabox');
             return;
         }
-        expect(sidecarCalls).toBe(2);
+        expect(runSidecar).toHaveBeenCalledOnce();
         expect(renderBoxes).toEqual([
             'cropbox',
             'cropbox',
             'cropbox',
             'mediabox',
             'mediabox',
+            'mediabox',
         ]);
-        expect(detection.results).toHaveLength(3);
         expect(detection.results.map(result => result.classification)).toEqual([
             'two-page-spread',
             'two-page-spread',
-            'single-uncut-page',
+            'two-page-spread',
         ]);
         expect(detection.results.map(result => result.sourcePageMetadata?.renderBox)).toEqual([
             'mediabox',
             'mediabox',
-            undefined,
+            'mediabox',
         ]);
     });
 });
