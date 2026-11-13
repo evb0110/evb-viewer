@@ -1,6 +1,6 @@
 # EVB Viewer agent rules
 
-Start with [ARCHITECTURE.md](ARCHITECTURE.md) for the engineering map and the [design charter](docs/architecture/design-charter.md) for the binding design rules. Domain terms are in `docs/architecture/glossary.md` (the `CONTEXT.md` that skills mention) and decisions in `docs/architecture/adr/`. Shared personal preferences live in `~/AGENTS.md`.
+Start with [ARCHITECTURE.md](ARCHITECTURE.md) for the engineering map and the [design charter](docs/architecture/design-charter.md) for the binding design rules. Domain terms are in `docs/architecture/glossary.md` (the `CONTEXT.md` that skills mention) and decisions in `docs/architecture/adr/`. Storage details are in [the document store](packages/document-store/README.md), PDF writing in [the page engine](native/pdf-page-ops/README.md), and recognition in [OCR](docs/architecture/ocr.md). Shared personal preferences live in `~/AGENTS.md`.
 
 ## Design
 

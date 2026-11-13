@@ -1,0 +1,45 @@
+# PDF page operations
+
+The Rust PDF writer used by desktop as a sidecar and by the browser as
+WebAssembly. PDF.js renders; this crate writes document changes, as
+[ADR 0002](../../docs/architecture/adr/0002-pdfjs-renders-rust-writes-evb-edits.md)
+defines.
+
+## Page structure
+
+`pdf_source.rs` indexes cross-reference sections and reads reachable objects
+through a random-access source. `page_structure_edit.rs` selects and remaps the page
+and document graphs. `pdf_writer.rs` writes a fresh PDF, renumbering objects
+and copying stream data by byte range. Path operations stream from file to
+file; browser byte operations use the same writer with in-memory sources and
+an output buffer bounded by the wasm32 transport.
+
+Delete, extract, reorder, insert and merge use this engine. Split uses the
+crate's separate split writer. Inserted pages retain their source labels. Widgets retain appearances; safe fields are
+carried into the destination, while source document attachments and JavaScript
+are not imported. Output verification reopens the result and compares its objects and stream
+boundaries with the planned output, checks reachable references and the page
+tree, and samples the ends of copied streams. It does not decode every image
+stream.
+
+On desktop the engine writes directly to the next revision file in the
+[document store](../../packages/document-store/README.md); its manifest commits
+only after output verification and the host's page-count check.
+
+## Incremental changes
+
+`incremental.rs` applies annotation, rotation, page-label and bookmark mutations
+through one implementation for file and byte writers. OCR text layers and print layout
+also live in this crate. The desktop structural reader can use bundled libqpdf
+for object projections and qpdf JSON for its large-file fallback. Page-structure
+rewrites use their own reader and verifier.
+
+## Remaining qpdf uses
+
+The application retains qpdf for whole-file optimization, repair and
+normalization; conformance checks and page counts; image-export subsets;
+DjVu conversion joins; and scan-cleanup joins, validation and MRC mask
+dictionaries. The desktop incremental reader also uses qpdf for structural
+objects and annotation streams. Crop and crop removal keep the host's strict qpdf
+structure gate; streaming page-structure outputs use their own verification.
+Browser qpdf WASM serves normalization, validation and conversion paths.
