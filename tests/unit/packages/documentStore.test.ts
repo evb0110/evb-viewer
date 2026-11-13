@@ -1,3 +1,4 @@
+import { promises } from 'node:fs';
 import {
     mkdtemp,
     readFile,
@@ -15,6 +16,7 @@ import {
     describe,
     expect,
     it,
+    vi,
 } from 'vitest';
 import { collectDocuments } from '@document-store/collectDocuments';
 import { contentWitness } from '@document-store/contentWitness';
@@ -682,4 +684,20 @@ describe('workspace checkpoints and collection', () => {
         await collectDocuments(store(watched), async id => (steps.push(`hold ${id}`), () => steps.push(`release ${id}`)));
         expect(steps).toEqual([`hold ${doc.id}`, `remove documents/${doc.id}`, `release ${doc.id}`]);
     });
+});
+
+describe('node store port', () => {
+    it('creates missing directories when Node names the first one differently, as Windows does', async () => {
+        const mkdir = promises.mkdir.bind(promises);
+        const spy = vi.spyOn(promises, 'mkdir').mockImplementation((async (dir: string, options?: { recursive?: boolean }) => {
+            const first = await mkdir(dir, options);
+            return typeof first === 'string' ? `\\\\?\\${first}` : first;
+        }) as typeof promises.mkdir);
+        try {
+            await createNodeStorePort(root).writeAtomic('documents/a/manifest.json', encode('{}'));
+        } finally {
+            spy.mockRestore();
+        }
+        expect(await readFile(path.join(root, 'documents', 'a', 'manifest.json'), 'utf8')).toBe('{}');
+    }, 5_000);
 });

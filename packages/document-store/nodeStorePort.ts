@@ -10,9 +10,8 @@ import type {
     TExternalSource,
 } from './storePort';
 
-function isMissing(error: unknown) {
-    return error instanceof Error && 'code' in error && error.code === 'ENOENT';
-}
+const hasCode = (error: unknown, code: string) => error instanceof Error && 'code' in error && error.code === code;
+const isMissing = (error: unknown) => hasCode(error, 'ENOENT');
 
 /** Makes `dir`'s entries durable. Windows cannot open a directory for flushing; NTFS journals entries. */
 async function syncDirectory(dir: string) {
@@ -25,14 +24,22 @@ async function syncDirectory(dir: string) {
     }
 }
 
-/** Creates `dir` and its missing parents, each durably entered in its own parent. */
-async function ensureDirectory(dir: string) {
-    const first = await fs.mkdir(dir, { recursive: true });
-    if (first === undefined) return;
-    for (let created = dir; ; created = path.dirname(created)) {
-        await syncDirectory(path.dirname(created));
-        if (path.resolve(created) === path.resolve(first)) return;
+/**
+ * Creates `dir` and its missing parents, each durably entered in its own parent. It climbs only while a parent is
+ * missing, so it ends at the root at the latest; it never compares the paths Node names (Windows prefixes them).
+ */
+async function ensureDirectory(dir: string): Promise<void> {
+    try {
+        await fs.mkdir(dir);
+    } catch (error) {
+        if (hasCode(error, 'EEXIST')) return;
+        if (!isMissing(error) || path.dirname(dir) === dir) throw error;
+        await ensureDirectory(path.dirname(dir));
+        await fs.mkdir(dir).catch((again: unknown) => {
+            if (!hasCode(again, 'EEXIST')) throw again;
+        });
     }
+    await syncDirectory(path.dirname(dir));
 }
 
 function nodeStoreFile(handle: fs.FileHandle): IStoreFile {
