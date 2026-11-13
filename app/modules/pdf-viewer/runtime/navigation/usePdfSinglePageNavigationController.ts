@@ -774,10 +774,12 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
      * current layout and reports the result as the committed position.
      * A ticket's execution ends in the same write and report.
      */
-    function place(anchor: IPdfSemanticAnchor, kind: 'relayout' | 'document-restore' | 'navigate') {
+    function place(point: IPdfSemanticAnchor, kind: 'relayout' | 'document-restore' | 'navigate') {
         if (!isNavigationRuntimeReady()) {
             return false;
         }
+        // A point carried through a page edit can name a deleted final page.
+        const anchor = {...point, page: toBoundedPageNumber(point.page)};
         const written = writeAnchor(anchor, kind, kind === 'navigate');
         if (!written) {
             return false;
@@ -786,7 +788,7 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
             container,
             snapshot,
         } = written;
-        let committed = anchor;
+        let committed: IPdfSemanticAnchor = anchor;
         if (kind === 'relayout') {
             heldRelayoutAnchor = {
                 anchor,
@@ -796,7 +798,7 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
             // A pointer anchor keeps its point under the pointer; the
             // committed reading point is the viewport centre (R3).
             if (anchor.affinity !== 'start' && (anchor.viewportXFraction !== 0.5 || anchor.viewportYFraction !== 0.5)) {
-                committed = resolveAnchorForViewport(snapshot, toBoundedPageNumber(anchor.page));
+                committed = resolveAnchorForViewport(snapshot, anchor.page);
             }
         }
         return viewportAuthority.commitSettledPosition({
@@ -854,7 +856,11 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
         // paints the previous page track. Sample the mounted reading point,
         // rather than interpreting its scroll offset with next-scale metrics.
         const mounted = container ? captureDocumentViewportResizeAnchor(container, viewportPoint ? {viewportPoint} : undefined) : null;
-        if (mounted) {
+        // A point in a paged spread's gutter is on neither page; it stays on
+        // the current page instead of the half that rounds nearer.
+        const offPage = mounted && !options.continuousScroll.value && mounted.pageNumber !== viewportAuthority.currentPage.value
+            && [mounted.pageRatioX, mounted.pageRatioY].some(ratio => ratio === 0 || ratio === 1);
+        if (mounted && !offPage) {
             return {
                 page: mounted.pageNumber,
                 pageXFraction: mounted.pageRatioX,

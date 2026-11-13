@@ -305,7 +305,6 @@ describe('viewer invariant checker against real Chromium layout', () => {
                         const runtime = reactive(useDocumentPageSourceRuntime({
                             readProps: () => props,
                             emit: (event, value) => {
-                                if (event === 'update:currentPage') props.currentPage = value;
                                 if (event === 'loadError') throw value;
                             },
                         }));
@@ -313,7 +312,7 @@ describe('viewer invariant checker against real Chromium layout', () => {
                             h('input', { id: 'page-number', 'aria-label': 'Page',
                                 onKeydown: event => { if (event.key === 'Enter') runtime.viewerExpose.scrollToPage(Number(event.target.value)); } }),
                             h('button', { id: 'zoom', onClick: () => { props.zoom = props.zoom === 10 ? 8 : 10; } }, 'Zoom'),
-                            h('output', { id: 'indicator', 'data-lifecycle': authority.openSurface.viewportSession.value.lifecycle }, String(props.currentPage)),
+                            h('output', { id: 'indicator', 'data-lifecycle': authority.openSurface.viewportSession.value.lifecycle }, String(authority.currentPage.value)),
                             h('div', { id: 'track', style: { position: 'relative', ...runtime.surfaceStyle } },
                                 runtime.mountedPages.map(pageNumber => {
                                     const surface = runtime.presentation.getSurface(pageNumber);

@@ -66,7 +66,7 @@ import {
     commitDocumentMutation,
     requireOpenDocument,
 } from '@electron/file-access/documentStore';
-import { verifyPdfTempFile } from '@electron/features/documents/main/commitPdfTempFile';
+import { verifyPdfTempFile } from '@electron/features/documents/main/verifyPdfTempFile';
 import type {
     IDocumentsSenderIdContext,
     IDocumentsWebContentsContext,
@@ -490,7 +490,7 @@ async function commitSession(
             session.workingPath,
             session.expectedDocumentRevisionToken,
         );
-        await verifyPdfTempFile(session.tempPath, session.workingPath, {
+        await verifyPdfTempFile(session.tempPath, {
             signal: session.lifecycleOperation.signal,
             ownerId: `serialized-pdf:${session.id}`,
             receipt: {
@@ -502,7 +502,7 @@ async function commitSession(
         await commitDocumentMutation(
             requireOpenDocument(session.workingPath, session.senderId),
             session.expectedDocumentRevisionToken,
-            {kind: 'rewrite', source: session.tempPath},
+            {kind: 'move', file: session.tempPath},
             'replace-working-copy',
         );
     }, {ownerWebContentsId: session.senderId});

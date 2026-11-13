@@ -108,7 +108,8 @@ export const workspaceAnnotationRecoveryRefSchema = v.object({
     workingByteRevision: v.pipe(v.string(), v.minLength(1), v.maxLength(512)),
     annotationMutationGeneration: v.pipe(v.number(), v.check(value => Number.isSafeInteger(value)), v.minValue(0)),
 });
-const annotationRecoverySchema = v.object({
+/** A document's unsaved annotations and metadata, bound to the revision they apply to; no payload clears them. */
+export const workspaceAnnotationRecoverySchema = v.object({
     ...workspaceAnnotationRecoveryRefSchema.entries,
     payload: v.optional(v.unknown()),
 });
@@ -139,12 +140,8 @@ const checkpointTabSchema = v.object({
     continuousScroll: v.optional(v.nullable(v.boolean())),
     viewMode: v.optional(v.nullable(viewModeSchema)),
     viewRotation: v.optional(v.nullable(viewRotationSchema)),
-    annotationRecovery: v.optional(annotationRecoverySchema),
+    annotationRecovery: v.optional(workspaceAnnotationRecoverySchema),
     workingCopyLost: v.optional(v.literal(true)),
-    annotationRecoveryFailure: v.optional(v.object({
-        reason: v.literal('capture-rejected'),
-        message: v.pipe(v.string(), v.maxLength(4096)),
-    })),
     surfaceMode: v.optional(v.picklist([
         'reader',
         'scan-cleanup',
@@ -165,11 +162,35 @@ export const workspaceCheckpointSchema = v.object({
     }))),
 });
 
-export type IWorkspaceCheckpointAnnotationRecovery = v.InferOutput<typeof annotationRecoverySchema>;
+export type IWorkspaceCheckpointAnnotationRecovery = v.InferOutput<typeof workspaceAnnotationRecoverySchema>;
 export type IWorkspaceCheckpointTab = v.InferOutput<typeof checkpointTabSchema>;
 export type IWorkspaceCheckpoint = v.InferOutput<typeof workspaceCheckpointSchema>;
 
 export function decodeWorkspaceCheckpoint(value: unknown): IWorkspaceCheckpoint | null {
     const result = v.safeParse(workspaceCheckpointSchema, value, {abortEarly: true});
     return result.success ? result.output : null;
+}
+
+/**
+ * The checkpoint as the document store keeps it: tabs, panes, views and document references. Whether a tab holds
+ * unsaved work and its drafts are its document's manifest's.
+ */
+export function toStoredWorkspaceCheckpoint(checkpoint: IWorkspaceCheckpoint) {
+    return {
+        ...checkpoint,
+        tabs: checkpoint.tabs.map(({
+            isDirty: _dirty,
+            keptOriginalPath: _kept,
+            annotationRecovery: _drafts,
+            workingCopyLost: _lost,
+            ...tab
+        }) => tab),
+    };
+}
+
+/** A stored checkpoint read back. Its tabs read as clean until their manifests are consulted. */
+export function decodeStoredWorkspaceCheckpoint(value: unknown) {
+    return isRecord(value) && Array.isArray(value.tabs)
+        ? decodeWorkspaceCheckpoint({...value, tabs: value.tabs.map((tab: unknown) => (isRecord(tab) ? {...tab, isDirty: false} : tab))})
+        : null;
 }

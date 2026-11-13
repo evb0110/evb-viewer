@@ -20,17 +20,6 @@ export function normalizeBoundedString(
     return normalized;
 }
 
-export function normalizeOptionalBoundedString(
-    value: unknown,
-    fieldName: string,
-    maxLength = IPC_DEFAULT_STRING_MAX_LENGTH,
-) {
-    if (value === null || value === undefined) {
-        return null;
-    }
-    return normalizeBoundedString(value, fieldName, maxLength);
-}
-
 export function normalizeOptionalIpcRequestId(value: unknown, fieldName = 'requestId') {
     if (value === null || value === undefined) {
         return undefined;

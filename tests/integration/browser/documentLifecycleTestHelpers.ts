@@ -253,19 +253,30 @@ export async function readRecoveries(page: Page, subtype?: '/Text') {
                     entities?: Array<{kind: string; contents?: string; text?: string}>;
                 }}
             }>}}).layout;
-            // A window's checkpoint names every document it holds; a recovery record is one with unsaved work.
-            const tab = checkpoint?.tabs.find(candidate => candidate.isDirty);
-            if (!checkpoint || !tab) continue;
-            const id = tab.workingCopyRef?.slice('browser://documents/'.length).split('/')[0];
-            if (id) {
+            if (!checkpoint) continue;
+            // The checkpoint keeps references; whether a tab holds unsaved work is its document manifest's, as the store decides it.
+            const content = (witness?: string) => witness?.split(' ').find(fact => fact.startsWith('content-v2:'));
+            const other = (witness?: string) => witness?.split(' ').filter(fact => !fact.startsWith('content-v2:')).join(' ') ?? '';
+            const same = (left?: string, right?: string) => Boolean(left && right) && (content(left) && content(right)
+                ? content(left) === content(right)
+                : other(left) !== '' && other(left) === other(right));
+            for (const candidate of checkpoint.tabs) {
+                candidate.isDirty = false;
+                const id = candidate.workingCopyRef?.slice('browser://documents/'.length).split('/')[0];
+                if (!id) continue;
                 try {
                     const dir = await (await root.getDirectoryHandle('documents')).getDirectoryHandle(id);
-                    const manifest = await readJson(dir, 'manifest.json') as {drafts?: string};
-                    if (manifest.drafts) tab.annotationRecovery = await readJson(dir, manifest.drafts) as NonNullable<typeof tab.annotationRecovery>;
+                    const manifest = await readJson(dir, 'manifest.json') as {drafts?: string; pendingPublish?: unknown; baseline?: string; current?: {witness?: string}};
+                    candidate.isDirty = manifest.drafts !== undefined || manifest.pendingPublish !== undefined
+                        || (manifest.current !== undefined && !same(manifest.current.witness, manifest.baseline));
+                    if (manifest.drafts) candidate.annotationRecovery = await readJson(dir, manifest.drafts) as NonNullable<typeof candidate.annotationRecovery>;
                 } catch {
                     // The directory is gone: the checkpoint names a document it cannot restore.
                 }
             }
+            // A window's checkpoint names every document it holds; a recovery record is one with unsaved work.
+            const tab = checkpoint.tabs.find(candidate => candidate.isDirty);
+            if (!tab) continue;
             rows.push({ownerId: name.slice(0, -'.json'.length), checkpoint, tab});
         }
         return rows;

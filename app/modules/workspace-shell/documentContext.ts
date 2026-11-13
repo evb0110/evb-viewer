@@ -1,6 +1,5 @@
 import type { InjectionKey } from 'vue';
-import {crashCheckpointBeforeSaveKey} from '@app/modules/workspace-shell/checkpoint/useWorkspaceCrashCheckpoint';
-import {hasElectronAPI} from '@app/utils/platform';
+import {createWorkspaceDocumentRecovery} from '@app/modules/workspace-shell/checkpoint/createWorkspaceDocumentRecovery';
 import {BrowserLogger} from '@app/utils/browserLogger';
 import {getErrorMessage} from '@app/utils/error';
 import {getFailureReceipt} from '@contracts/diagnostics/failureReceipt';
@@ -104,6 +103,21 @@ export const createDocumentContext = ({controller}: {controller: IWorkspaceDocum
         documentLifecycleKey: computed(() => file.originalPath.value ?? pendingDocumentPath.value),
     });
 
+    // Work that could not be stored as drafts is told to the user; the error carries what was told.
+    const reportRecoveryFailure = (cause: unknown) => {
+        const message = getErrorMessage(cause);
+        const presentation = {
+            failure: getFailureReceipt(cause) ?? BrowserLogger.error('annotations', 'Failed to store unsaved work', cause, {code: 'RENDERER_WORKSPACE_OPERATION_FAILED'}),
+            title: t('errors.workspace.recoveryProtectionTitle'),
+            description: t('errors.workspace.recoveryProtectionDescription', {
+                fileName: file.fileName.value ?? controller.snapshot.value.identity.workingCopyPath ?? '',
+                message,
+            }),
+            technicalDetails: message,
+        };
+        failure.reportFailure(presentation);
+        return Object.assign(cause instanceof Error ? cause : new Error(message), presentation);
+    };
     const metadata = useMetadataSession({
         pdfDocument,
         totalPages,
@@ -111,34 +125,21 @@ export const createDocumentContext = ({controller}: {controller: IWorkspaceDocum
         documentRevisionToken: file.documentRevisionToken,
         markDirty: file.markDirty,
         setWorkspaceCommandSink: file.setWorkspaceCommandSink,
+        commitAcceptedEdit: () => recovery.commitAcceptedEdit(),
     });
-    const persistCrashCheckpoint = inject(crashCheckpointBeforeSaveKey, null);
     const pdfDocumentAnnotations = createPdfDocumentAnnotations({
         workingCopyPath: file.workingCopyPath,
         source: file.pdfSrc,
         documentRevisionToken: file.documentRevisionToken,
         documentSession: file.fileHistorySessionVersion,
-        protectTextBoxDraft: hasElectronAPI() ? async (assertCurrent) => {
-            const target = controller.snapshot.value.identity;
-            try {
-                if (!persistCrashCheckpoint) throw new Error('Recovery protection is unavailable for the text transaction');
-                await persistCrashCheckpoint(target.workingCopyPath, assertCurrent);
-            } catch (cause) {
-                if ((cause instanceof DOMException && cause.name === 'AbortError') || controller.snapshot.value.identity.documentInstanceId !== target.documentInstanceId || (!controller.snapshot.value.dirty && pdfDocumentAnnotations.textBoxDrafts.size === 0)) throw new DOMException('The text transaction was cancelled', 'AbortError');
-                const message = getErrorMessage(cause);
-                const presentation = {
-                    failure: getFailureReceipt(cause) ?? BrowserLogger.error('annotations', 'Failed to protect a text draft', cause, {code: 'RENDERER_WORKSPACE_OPERATION_FAILED'}),
-                    title: t('errors.workspace.recoveryProtectionTitle'),
-                    description: t('errors.workspace.recoveryProtectionDescription', {
-                        fileName: file.fileName.value ?? target.workingCopyPath ?? target.documentInstanceId ?? '',
-                        message,
-                    }),
-                    technicalDetails: message,
-                };
-                failure.reportFailure(presentation);
-                throw Object.assign(cause instanceof Error ? cause : new Error(message), presentation);
-            }
-        } : undefined,
+        // An accepted text is stored with the drafts before the box takes it.
+        protectTextBoxDraft: async () => {
+            const instance = controller.snapshot.value.identity.documentInstanceId;
+            await recovery.commitDrafts().catch((cause: unknown) => {
+                if (controller.snapshot.value.identity.documentInstanceId !== instance) throw new DOMException('The text transaction was cancelled', 'AbortError');
+                throw reportRecoveryFailure(cause);
+            });
+        },
     });
     const { clearCache: clearOcrCache } = useOcrTextContent();
 
@@ -146,6 +147,14 @@ export const createDocumentContext = ({controller}: {controller: IWorkspaceDocum
         views,
         pdfDocument,
         reportNoteFailure: failure.reportNoteFailure,
+    });
+    const recovery = createWorkspaceDocumentRecovery({
+        controller,
+        pdfViewer: () => pdfViewerRef.value,
+        pdfDocumentAnnotations,
+        annotations,
+        metadata,
+        reportFailure: reportRecoveryFailure,
     });
     const hasPendingUnsavedChanges = computed(() => (
         pdfViewerRef.value?.hasCanonicalAnnotationChanges?.() === true
@@ -545,6 +554,7 @@ export const createDocumentContext = ({controller}: {controller: IWorkspaceDocum
         viewerCapabilities: computed(() => driver.activeDocumentDriver.value?.capabilities),
         metadata,
         annotations,
+        recovery,
         pdfDocumentAnnotations,
         pdfDocumentSessionSlot,
         saveService,

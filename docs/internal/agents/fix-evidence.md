@@ -108,9 +108,14 @@ reproduction but not edit it.
 
 ## Red `main`
 
-Wait for the required verdict: `ci-wait -w CI <sha>` as a background task,
-about 15 minutes. The nightly run reports separately and does not block your
-push. A failure your commit introduced is yours: repair it promptly or revert
+Wait for the required verdict: `ci-wait -w CI <sha>`. The required workflow's
+`gates_ok` job aggregates the selected checks. When a merge has the same tree
+as an already-passing pull request head and its base has a successful push run,
+CI reuses that proof and runs the smoke lane. Otherwise changed-area detection
+selects checks against the last successful push. A dispatched run selects every
+job. The nightly workflow reports separately; macOS runs smoke nightly and all
+lanes on Sunday or dispatch. Heavy, large-PDF and visible-window nightly jobs
+keep their own schedules and do not gate publication. A failure your commit introduced is yours: repair it promptly or revert
 your commit. Do not widen a tolerance, skip a test, or mark a step allowed to
 fail to get green. `node scripts/ci/ci-health.mjs` reports failure trends across
 recent runs.

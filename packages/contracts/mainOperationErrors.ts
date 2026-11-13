@@ -8,8 +8,6 @@ import * as v from 'valibot';
 
 export const MAIN_OPERATION_ERROR_PREFIX = 'EVB_MAIN_OPERATION_ERROR:';
 
-export type TMainOperationErrorCode = 'shutting-down';
-
 export const MAIN_OPERATION_ERROR_ENVELOPE_SCHEMA = v.object({
     ...SERIALIZABLE_ERROR_ENVELOPE_SCHEMA.entries,
     code: v.literal('shutting-down'),

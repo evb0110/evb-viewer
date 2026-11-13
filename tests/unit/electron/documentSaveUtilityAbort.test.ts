@@ -570,7 +570,7 @@ describe('runDocumentSaveUtilityProcess cancellation', () => {
 });
 
 
-// Child-module harness: real staged/target bytes and the real targeted loop.
+// Child-module harness: real staged bytes and the real targeted loop.
 // doMock is deliberately scoped so the parent-adapter harness above keeps its seams.
 describe('document save utility child shutdown proof', () => {
     async function childHarness() {
@@ -579,10 +579,8 @@ describe('document save utility child shutdown proof', () => {
         const {tmpdir} = await import('node:os');
         const directory = await fs.mkdtemp(join(tmpdir(), 'save-child-shutdown-'));
         const sourcePath = join(directory, 'staged.pdf');
-        const targetPath = join(directory, 'target.pdf');
         const source = '%PDF-1.4\n1 0 obj <<>> endobj\n%%EOF\n';
         await fs.writeFile(sourcePath, source);
-        await fs.writeFile(targetPath, 'original target bytes');
         const parent = Object.assign(new EventEmitter(), {postMessage: vi.fn()});
         const descriptor = Object.getOwnPropertyDescriptor(process, 'parentPort');
         const termHandlers = new Set(process.listeners('SIGTERM'));
@@ -605,12 +603,10 @@ describe('document save utility child shutdown proof', () => {
             tool,
             parent,
             sourcePath,
-            targetPath,
-            commit() {
+            validate() {
                 parent.emit('message', {data: {
-                    type: 'commit',
+                    type: 'validate',
                     sourcePath,
-                    targetPath,
                     expectedBytes: Buffer.byteLength(source),
                     validationBinary: '/qpdf',
                     changedObjectRefs: [
@@ -667,13 +663,12 @@ describe('document save utility child shutdown proof', () => {
             return pending.promise;
         });
         try {
-            h.commit();
+            h.validate();
             const signal = await started.promise;
             h.shutdown('first');
             expect(signal?.aborted).toBe(true);
             await Promise.resolve();
             expect(h.parent.postMessage.mock.calls.some(([frame]) => frame.type === 'shutdown-complete')).toBe(false);
-            expect(await h.fs.readFile(h.targetPath, 'utf8')).toBe('original target bytes');
             if (marked) pending.reject(failure);
             else pending.resolve({
                 exitCode: 0,
@@ -695,12 +690,11 @@ describe('document save utility child shutdown proof', () => {
                 '--show-object=3,0',
                 h.sourcePath,
             ]]);
-            expect(await h.fs.readFile(h.targetPath, 'utf8')).toBe('original target bytes');
             expect(await h.fs.readFile(h.sourcePath, 'utf8')).toContain('%%EOF');
         } finally { await h.close(); }
     });
 
-    it('acknowledges an empty shutdown and rejects subsequent publication', async () => {
+    it('acknowledges an empty shutdown and refuses later validation', async () => {
         const h = await childHarness();
         try {
             h.shutdown('empty');
@@ -709,16 +703,15 @@ describe('document save utility child shutdown proof', () => {
                 requestId: 'empty',
                 terminated: true,
             }));
-            h.commit();
+            h.validate();
             await vi.waitFor(() => expect(h.parent.postMessage).toHaveBeenCalledWith(expect.objectContaining({
                 type: 'result',
                 ok: false,
             })));
-            expect(await h.fs.readFile(h.targetPath, 'utf8')).toBe('original target bytes');
         } finally { await h.close(); }
     });
 
-    it('publishes a normal targeted commit with an object between 256 KiB and 1 MiB', async () => {
+    it('validates a targeted save with an object between 256 KiB and 1 MiB', async () => {
         const h = await childHarness();
         const object = `<< /Payload (${'.'.repeat(300 * 1024)}) >>`;
         h.tool.mockImplementation(async (_binary, args, options) => {
@@ -739,12 +732,11 @@ describe('document save utility child shutdown proof', () => {
             };
         });
         try {
-            h.commit();
+            h.validate();
             await vi.waitFor(() => expect(h.parent.postMessage).toHaveBeenCalledWith(expect.objectContaining({
                 type: 'result',
                 ok: true,
             })));
-            expect(await h.fs.readFile(h.targetPath, 'utf8')).toContain('%%EOF');
             h.shutdown('normal');
             await vi.waitFor(() => expect(h.parent.postMessage).toHaveBeenCalledWith({
                 type: 'shutdown-complete',

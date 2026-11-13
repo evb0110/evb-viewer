@@ -6,6 +6,7 @@ import {
     openDocument,
     type TDocumentInit,
     type TMutation,
+    type TMutationResult,
 } from '@document-store/documentDirectory';
 import {
     saveDocument,
@@ -27,7 +28,10 @@ import {
 } from '@app/platform/browser/browserDocumentReadError';
 import { emitBrowserDocumentPersistenceWarning } from '@app/platform/browser/browserDocumentPersistenceWarnings';
 import { fileHandleStore } from '@app/platform/browser/browserFileHandleStore';
-import { sameWitness } from '@document-store/contentWitness';
+import {
+    contentWitness,
+    sameWitness,
+} from '@document-store/contentWitness';
 import {
     browserPublication,
     fileFact,
@@ -40,9 +44,11 @@ import {
 import { BrowserRecentFilesStore } from '@app/platform/browser/browserRecentFilesStore';
 import {
     createMemoryStorePort,
+    isOpfsStorePort,
     openBrowserStorePort,
 } from '@app/platform/browser/browserStorePort';
 import { holdBrowserLock } from '@app/platform/browser/runBrowserLock';
+import { opfsFileHandle } from '@app/platform/browser/opfsFileHandle';
 import {
     createMissingRevisionError,
     createStaleRevisionError,
@@ -177,7 +183,7 @@ export class BrowserDocumentStore {
     /** The durable store (the origin private file system) when the browser offers one, and the memory store. */
     public stores() {
         this.storesPromise ??= (async () => {
-            const store = (port: IDocumentStore['port']): IDocumentStore => ({port, publication: browserPublication, historyBudget: 0});
+            const store = (port: IDocumentStore['port']): IDocumentStore => ({port, publication: browserPublication});
             const opened = await openBrowserStorePort();
             return {
                 durable: opened.durable ? store(opened.port) : null,
@@ -287,7 +293,7 @@ export class BrowserDocumentStore {
         } else if (source.doc && source.store) {
             const id = browserDocumentRefId(workingRef);
             const release = await this.lock(id, 0);
-            const store = {...source.store, historyBudget: 0};
+            const store = source.store;
             try {
                 const forked = this.docEntry(workingRef, await forkDocument(store, source.doc.id, id), store, release, meta);
                 forked.memoryOnly = source.memoryOnly;
@@ -403,6 +409,72 @@ export class BrowserDocumentStore {
         return true;
     }
 
+    /**
+     * Commits a revision that `write` makes from `source`, the document's present bytes read in place: it writes
+     * the new revision file at the store path `output`, or returns the bytes when the document's store is not
+     * the origin private file system (`output` null), such as a window's memory store. As on desktop, a document without bytes of its own is read from its file, which must
+     * still hold the bytes the person saw when the revision commits; no copy of it is made first. `imported`:
+     * the new bytes are the document's baseline, as for bytes the person supplied, so it stays clean.
+     */
+    public async rewrite(
+        ref: string,
+        token: TDocumentRevisionToken | null | undefined,
+        write: (source: Blob, output: string | null) => Promise<Uint8Array | undefined>,
+        {imported = false} = {},
+    ) {
+        const entry = await this.requireEntry(ref);
+        const doc = this.requireDoc(entry);
+        const previous = this.tokenOf(entry);
+        this.expectedRevision(entry, token);
+        const source = await this.readableBlob(ref);
+        let info: IDocumentRevisionInfo;
+        if (!isOpfsStorePort(entry.store!.port)) {
+            const bytes = await write(source, null);
+            if (!bytes) throw new Error('The rewrite returned no bytes');
+            info = await this.mutate(entry, token, {kind: 'rewrite', source: bytesBlob(bytes), drafts: 'clear'}, 'write');
+        } else {
+            const {current, next, ext} = doc.snapshot();
+            const name = `r${current ? next : next + 1}.${ext}`;
+            const output = doc.path(name);
+            try {
+                await write(source, output);
+                info = this.settle(entry, token, previous, await doc.run(async (): Promise<TMutationResult> => {
+                    const manifest = doc.snapshot();
+                    if (this.tokenOf(entry) !== previous) return {status: 'stale-revision', current: manifest.current ?? null};
+                    // A first copy of the file made meanwhile is revision `next`, and `name` is its next revision.
+                    if (manifest.current) return doc.applyMutation(manifest.current.id, {kind: 'rewrite', source: () => Promise.resolve(), drafts: 'clear'});
+                    if (!sameWitness(await browserPublication.witness(manifest.destination!), manifest.baseline)) return {status: 'conflict'};
+                    const file = await entry.store!.port.open(output);
+                    const revision = {id: next + 1, file: name, length: await file.size()};
+                    await file.flush();
+                    await doc.commit({...manifest, next: revision.id + 1, current: revision, drafts: undefined}, file);
+                    return {status: 'committed', revision};
+                }), 'write');
+            } catch (error) {
+                await entry.store!.port.remove(output).catch(() => undefined);
+                throw error;
+            }
+        }
+        if (imported) {
+            const current = doc.state().current!;
+            const witness = await contentWitness(current.length, (offset, length) => doc.read(offset, length));
+            await doc.run(() => doc.commit({...doc.snapshot(), current: {...current, witness}, baseline: witness}));
+        }
+        return info;
+    }
+
+    /**
+     * The document's present bytes as a Blob read in place, for a worker that reads them by range: its current
+     * revision's file, or its file before it has bytes of its own. Valid until the document next changes.
+     */
+    public async readableBlob(ref: string): Promise<Blob> {
+        const entry = await this.requireEntry(ref);
+        const current = entry.doc?.state().current;
+        if (!entry.doc || !current) return this.fileOf(entry);
+        if (!isOpfsStorePort(entry.store!.port)) return this.externalSource(ref) as Promise<Blob>;
+        return (await (await opfsFileHandle(entry.doc.path(current.file))).getFile()).slice(0, current.length);
+    }
+
     /** Commits a staged output into `targetRef` when both are still the revisions it was staged against. */
     public async commitStagedDocument(
         stagedRef: string,
@@ -463,18 +535,22 @@ export class BrowserDocumentStore {
 
     /**
      * Imports `fromRef`'s bytes anew as `ref`'s, which then start clean: the file as it was last saved, or the
-     * bytes an open made. The directory keeps its id and this window keeps its lock throughout.
+     * bytes an open made. They commit as a rewrite, then become the baseline with no history; the old bytes go
+     * only once a manifest no longer names them.
      */
     public async replaceContent(ref: string, fromRef: string) {
         const entry = await this.requireEntry(ref);
         const doc = this.requireDoc(entry);
         const source = await this.externalSource(fromRef);
         const previous = this.tokenOf(entry);
-        await doc.close();
-        await entry.store!.port.remove(`documents/${doc.id}`);
-        entry.doc = await createDocument(entry.store!, {id: doc.id, ext: extensionOf(entry.fileName), source, imported: true});
+        await doc.run(async () => {
+            const result = await doc.applyMutation(doc.snapshot().current?.id ?? null, {kind: 'rewrite', source, drafts: 'clear'});
+            if (result.status !== 'committed') throw new BrowserDocumentSourceChangedError(entry.ref);
+            const witness = await contentWitness(result.revision.length, (offset, length) => doc.read(offset, length));
+            await doc.commit({...doc.snapshot(), current: {...result.revision, witness}, baseline: witness, history: []});
+        });
         entry.file = null;
-        entry.fileSize = entry.doc.state().current?.length ?? 0;
+        entry.fileSize = doc.state().current?.length ?? 0;
         entry.updatedAt = Date.now();
         this.emitRevision(entry, previous, 'write');
     }
@@ -495,49 +571,56 @@ export class BrowserDocumentStore {
 
     /**
      * Save, or Save As with `saveAs`: commit `commit` into the bytes, check the destination against the
-     * baseline, publish. The caller asked for write permission before; the document's lock is held.
+     * baseline, publish. The caller asked for write permission before; the document's lock is held. Every window
+     * learns of a revision the Save committed whatever happens after the commit: the edits are in the working
+     * copy, unsaved until a Save publishes them, so a retry or Save As writes them once.
      */
     public async save(ref: string, token: TDocumentRevisionToken | null | undefined, options: {commit?: Uint8Array; saveAs?: string} = {}): Promise<TSaveResult> {
         const entry = await this.requireEntry(ref);
         const doc = this.requireDoc(entry);
         const previous = this.tokenOf(entry);
-        // The shell keeps a refused save's edits pending and stages them again for Save As, so a save the
-        // file's change refuses must not commit them first. The core checks again under the write.
-        const {destination, baseline} = doc.state();
-        if (options.commit && !options.saveAs && baseline && handleKeyOf(destination) !== null
-            && !sameWitness(await browserPublication.witness(destination!), baseline)) {
-            return {status: 'conflict'};
-        }
-        // A save that commits the shell's edits and then fails puts the revision the shell knows back: its
-        // edits stay pending there, and a retry must not apply them twice.
-        const base = doc.snapshot().current?.id ?? doc.snapshot().next;
-        const rollBack = async () => {
-            if (options.commit && doc.state().current?.id !== base && doc.state().history.some(revision => revision.id === base)) {
-                await doc.restore(base);
-            }
-        };
-        let result: TSaveResult;
-        entry.store!.historyBudget = options.commit ? Number.MAX_SAFE_INTEGER : 0;
         try {
-            result = await saveDocument(doc, {
+            const result = await saveDocument(doc, {
                 expected: this.expectedRevision(entry, token),
-                ...(options.commit ? {commit: {kind: 'rewrite', source: bytesBlob(options.commit), drafts: 'clear'} satisfies TMutation} : {}),
+                ...(options.commit ? {commit: {kind: 'rewrite', source: bytesBlob(options.commit), drafts: 'clear'}} : {}),
                 ...(options.saveAs ? {saveAs: options.saveAs} : {}),
             });
-        } catch (error) {
-            await rollBack();
-            throw error;
-        } finally {
-            entry.store!.historyBudget = 0;
-        }
-        if (result.status !== 'saved') {
-            await rollBack();
             if (result.status === 'stale-revision') this.throwStale(entry, token);
             return result;
+        } finally {
+            if (this.tokenOf(entry) !== previous) {
+                entry.file = null;
+                entry.fileSize = doc.state().current?.length ?? entry.fileSize;
+                entry.updatedAt = Date.now();
+                this.emitRevision(entry, previous, 'save-sync');
+            }
         }
+    }
+
+    /** Undo or redo: makes `revision`, which the document keeps for its undo history, current again. Nothing is copied. */
+    public async restoreRevision(ref: string, revision: TDocumentRevisionToken, token: TDocumentRevisionToken | null | undefined) {
+        const entry = await this.requireEntry(ref);
+        const doc = this.requireDoc(entry);
+        const previous = this.tokenOf(entry);
+        const result = await doc.restore(this.expectedRevision(entry, token), this.revisionIdOf(doc, revision));
+        if (result.status === 'stale-revision') this.throwStale(entry, token);
+        if (result.status === 'conflict') throw new BrowserDocumentSourceChangedError(entry.ref);
+        entry.file = null;
+        entry.fileSize = await this.sizeOf(entry);
         entry.updatedAt = Date.now();
-        if (this.tokenOf(entry) !== previous) this.emitRevision(entry, previous, 'save-sync');
-        return result;
+        this.emitRevision(entry, previous, 'write');
+        return this.revisionInfo(entry);
+    }
+
+    /** Keeps exactly the revisions `revisions` names for undo and redo; the files no revision names any more go. */
+    public async retainRevisions(ref: string, revisions: readonly TDocumentRevisionToken[]) {
+        const doc = this.requireDoc(await this.requireEntry(ref));
+        await doc.retain(revisions.map(revision => this.revisionIdOf(doc, revision)));
+    }
+
+    private revisionIdOf(doc: DocumentDirectory, revision: TDocumentRevisionToken) {
+        const id = Number(revision.slice(revision.lastIndexOf(':') + 1));
+        return Number.isSafeInteger(id) && this.revisionToken(doc, id) === revision ? id : -1;
     }
 
     // Lifecycle ----------------------------------------------------------------------------------------------
@@ -736,15 +819,14 @@ export class BrowserDocumentStore {
         const fileName = meta.fileName ?? getBrowserDocumentFileName(ref);
         const documentInit = {...init, id, ext: extensionOf(fileName)} as TDocumentInit;
         try {
-            // Each document has its own store record, so a Save can keep its base revision for a rollback.
-            let store = {...(durable ?? memory)};
+            let store = durable ?? memory;
             let doc: DocumentDirectory;
             try {
                 doc = await createDocument(store, documentInit);
             } catch (error) {
                 if (!durable || !isQuotaError(error)) throw error;
                 await store.port.remove(`documents/${id}`).catch(() => undefined);
-                store = {...memory};
+                store = memory;
                 doc = await createDocument(store, documentInit);
             }
             const entry = this.docEntry(ref, doc, store, release, {...meta, fileName});
@@ -778,7 +860,7 @@ export class BrowserDocumentStore {
         if (!durable || !(await durable.port.list('documents')).includes(id)) return null;
         const release = await this.lock(id, DOCUMENT_LOCK_WAIT_MS);
         try {
-            const store = {...durable};
+            const store = durable;
             const doc = await openDocument(store, id);
             const sourceRef = this.namedSources.get(parsed);
             // A named directory is a working copy; one opened from Recent Files is a stored source.
@@ -869,23 +951,23 @@ export class BrowserDocumentStore {
         return new Uint8Array(await file.slice(offset, offset + length).arrayBuffer());
     }
 
-    /** A store document's revision is its directory and the revision its manifest names. */
+    /** A store document's revision is its directory and the revision its manifest names; 1 is its destination's bytes. */
     public tokenOf(entry: IBrowserDocumentEntry) {
-        if (entry.doc) {
-            const manifest = entry.doc.snapshot();
-            return requireDocumentRevisionToken(`drt1:browser:${entry.doc.id}:${manifest.current?.id ?? manifest.next}`);
-        }
+        if (entry.doc) return this.revisionToken(entry.doc, entry.doc.state().current?.id ?? 1);
         return requireDocumentRevisionToken(`drt1:browser:${browserDocumentRefId(entry.ref)}:f${entry.file?.lastModified ?? 0}-${entry.file?.size ?? 0}`);
     }
 
+    private revisionToken(doc: DocumentDirectory, revisionId: number) {
+        return requireDocumentRevisionToken(`drt1:browser:${doc.id}:${revisionId}`);
+    }
+
     private revisionInfo(entry: IBrowserDocumentEntry, documentRef = entry.ref): IDocumentRevisionInfo {
-        const manifest = entry.doc?.snapshot();
         return {
             version: 1,
             documentRef,
             authority: 'browser-document-store',
             token: this.tokenOf(entry),
-            contentRevision: manifest ? manifest.current?.id ?? manifest.next : 1,
+            contentRevision: entry.doc?.state().current?.id ?? 1,
             mintedAt: createEpochMs(entry.updatedAt),
         };
     }
@@ -917,7 +999,17 @@ export class BrowserDocumentStore {
     ) {
         const doc = this.requireDoc(entry);
         const previous = this.tokenOf(entry);
-        const result = await doc.mutate(this.expectedRevision(entry, token), mutation);
+        return this.settle(entry, token, previous, await doc.mutate(this.expectedRevision(entry, token), mutation), reason, announce);
+    }
+
+    private settle(
+        entry: IBrowserDocumentEntry,
+        token: TDocumentRevisionToken | null | undefined,
+        previous: TDocumentRevisionToken,
+        result: TMutationResult,
+        reason: TDocumentRevisionChangeReason,
+        announce = true,
+    ) {
         if (result.status === 'stale-revision') this.throwStale(entry, token);
         if (result.status === 'conflict') throw new BrowserDocumentSourceChangedError(entry.ref);
         entry.file = null;

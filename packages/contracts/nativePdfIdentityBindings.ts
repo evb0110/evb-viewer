@@ -1,6 +1,5 @@
 import type {
     IPdfNativeAnnotationIdentityBinding,
-    IPdfNativeStagedCommitOptions,
 } from '@contracts/electronApiDocuments';
 import {isRecord} from '@contracts/runtimeGuards';
 
@@ -108,21 +107,4 @@ export function normalizePdfNativeAnnotationIdentityBindings(
         failIdentityBindingValidation(`${label} exceeds the native report byte budget`, options);
     }
     return bindings;
-}
-
-export function appendPdfNativeAnnotationIdentityBindings(
-    options: IPdfNativeStagedCommitOptions,
-    value: unknown,
-    label: string,
-): IPdfNativeStagedCommitOptions {
-    if (!isRecord(value) || value.identityBindings === undefined) {
-        return options;
-    }
-    return {
-        ...options,
-        identityBindings: normalizePdfNativeAnnotationIdentityBindings(
-            value.identityBindings,
-            `${label}.identityBindings`,
-        ),
-    };
 }

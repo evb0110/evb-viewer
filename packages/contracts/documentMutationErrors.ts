@@ -19,7 +19,6 @@ export const DOCUMENT_MUTATION_ERROR_PREFIX = 'EVB_DOCUMENT_MUTATION_ERROR:';
 const DOCUMENT_MUTATION_ERROR_CODES = [
     'MISSING_REVISION',
     'STALE_REVISION',
-    'WORKING_COPY_SYNC_REQUIRED',
 ] as const;
 
 export type TDocumentMutationErrorCode = typeof DOCUMENT_MUTATION_ERROR_CODES[number];
@@ -156,16 +155,8 @@ function getDefaultDocumentMutationErrorMessage(code: TDocumentMutationErrorCode
     return 'Working copy must be resynced before further edits';
 }
 
-export function isMissingRevisionError(error: unknown) {
-    return isDocumentMutationErrorCode(error, 'MISSING_REVISION');
-}
-
 export function isStaleRevisionError(error: unknown) {
     return isDocumentMutationErrorCode(error, 'STALE_REVISION');
-}
-
-export function isWorkingCopySyncRequiredError(error: unknown) {
-    return isDocumentMutationErrorCode(error, 'WORKING_COPY_SYNC_REQUIRED');
 }
 
 export function createStaleRevisionError(payload: {
@@ -197,13 +188,3 @@ export function createMissingRevisionError(payload: {
     });
 }
 
-export function createWorkingCopySyncRequiredError(payload: {
-    documentRef?: TDocumentRef;
-    message?: string;
-}) {
-    return new DocumentMutationError({
-        code: 'WORKING_COPY_SYNC_REQUIRED',
-        message: payload.message ?? 'Working copy must be resynced before further edits',
-        ...(payload.documentRef === undefined ? {} : {details: {documentRef: payload.documentRef}}),
-    });
-}

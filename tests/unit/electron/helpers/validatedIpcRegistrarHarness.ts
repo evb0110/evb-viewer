@@ -150,6 +150,14 @@ const schemaArgsExamples: Readonly<Record<string, unknown[]>> = {
         '/tmp/fixture.pdf',
         {expectedDocumentRevisionToken: 'drt1:fixture'},
     ],
+    'working-copy:restoreRevision': [
+        '/tmp/fixture.pdf',
+        '1',
+    ],
+    'working-copy:retainRevisions': [
+        '/tmp/fixture.pdf',
+        ['1'],
+    ],
     'file:cleanup': ['/tmp/fixture.pdf'],
     'file:read': ['/tmp/fixture.pdf'],
     'pdf:pageLabels:read': ['/tmp/fixture.pdf'],
@@ -167,19 +175,8 @@ const schemaArgsExamples: Readonly<Record<string, unknown[]>> = {
             expectedDocumentRevisionToken: 'drt1:fixture',
         },
     ],
-    'pdf:embeddedShapeIndex:begin': [
-        '/tmp/fixture.pdf',
-        {expectedDocumentRevisionToken: 'drt1:fixture'},
-    ],
-    'pdf:embeddedShapeIndex:readChunk': [
-        'session-fixture',
-        0,
-    ],
-    'pdf:embeddedShapeIndex:release': ['session-fixture'],
     'file:readText': ['/tmp/fixture.pdf'],
-    'file:exists': ['/tmp/fixture.pdf'],
     'document:revision:get': ['/tmp/fixture.pdf'],
-    'working-copy:backing-status:get': ['/tmp/fixture.pdf'],
     'dialog:savePdfDialog': ['fixture.pdf'],
     'dialog:savePdfAs': [
         '/tmp/fixture.pdf',

@@ -4,6 +4,10 @@ import {
     rmSync,
 } from 'node:fs';
 import { join } from 'node:path';
+import {
+    decodeManifest,
+    isDirty,
+} from '@document-store/documentDirectory';
 import { electronAppTempDirPath } from '@scripts/electron-run/electronRunSessionPaths';
 
 /** A session's document store keeps one checkpoint per window under `workspaces/`. */
@@ -27,13 +31,43 @@ function listWorkspaceRecoveryRecordPaths(name: string) {
     }
 }
 
-/** The renderer checkpoint of each window that has a workspace to restore, newest first. */
+interface IStoredRecord {
+    tabs?: Record<string, {directory?: string}>;
+    layout?: {checkpoint?: {tabs?: Array<Record<string, unknown> & {tabId?: string}>}};
+}
+
+/**
+ * Each tab as the app restores it: whether it holds unsaved work and its unsaved annotations come from its document's
+ * manifest and drafts, which the checkpoint names but does not copy.
+ */
+function withDocumentState(name: string, stored: IStoredRecord) {
+    const documents = join(electronAppTempDirPath(name), 'document-store', 'documents');
+    const checkpoint = stored.layout?.checkpoint;
+    return checkpoint && {
+        ...checkpoint,
+        tabs: (checkpoint.tabs ?? []).map((tab) => {
+            const directory = tab.tabId === undefined ? undefined : stored.tabs?.[tab.tabId]?.directory;
+            try {
+                if (directory === undefined) return {...tab, isDirty: false};
+                const manifest = decodeManifest(readFileSync(join(documents, directory, 'manifest.json')));
+                const drafts = manifest.drafts === undefined
+                    ? undefined
+                    : (JSON.parse(readFileSync(join(documents, directory, manifest.drafts), 'utf8')) as {annotationRecovery?: unknown}).annotationRecovery;
+                return {...tab, isDirty: isDirty(manifest), ...(drafts === undefined ? {} : {annotationRecovery: drafts})};
+            } catch {
+                return {...tab, isDirty: false};
+            }
+        }),
+    };
+}
+
+/** The renderer checkpoint of each window that has a workspace to restore, with its tabs' document state, newest first. */
 export function readWorkspaceRecoveryRecords<T extends {checkpoint?: {capturedAt?: number}}>(name: string): T[] {
     return listWorkspaceRecoveryRecordPaths(name)
         .flatMap((path) => {
             try {
-                const stored = JSON.parse(readFileSync(path, 'utf8')) as {layout?: {checkpoint?: unknown}};
-                return stored.layout?.checkpoint ? [{checkpoint: stored.layout.checkpoint} as T] : [];
+                const checkpoint = withDocumentState(name, JSON.parse(readFileSync(path, 'utf8')) as IStoredRecord);
+                return checkpoint ? [{checkpoint} as unknown as T] : [];
             } catch {
                 return [];
             }

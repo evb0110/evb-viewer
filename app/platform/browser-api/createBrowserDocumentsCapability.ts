@@ -123,16 +123,12 @@ export function createBrowserDocumentsCapability(
 ): IBrowserDocumentCapabilities {
     const errorMessageProvider = {
         saveExtensionMismatch: (extensions: string) => translateBrowserMessage('errors.browser.saveExtensionMismatch', {extensions}),
-        folderEmpty: () => translateBrowserMessage('errors.file.folderEmpty'),
     };
     configureBrowserFilePickerMessages(errorMessageProvider);
     configureBrowserFilePickerDescriptions((key) =>
         translateBrowserMessage(BROWSER_FILE_PICKER_DESCRIPTION_MESSAGE_KEYS[key]),
     );
-    const fileCapability = createBrowserDocumentsFileCapability({
-        ...options,
-        errorMessageProvider,
-    });
+    const fileCapability = createBrowserDocumentsFileCapability(options);
     const imageExportCapability = createBrowserImageExportCapability();
     const pageOpsCapability = createBrowserPageOpsCapability({
         clearSearchCaches: options.clearSearchCaches,
@@ -147,7 +143,6 @@ export function createBrowserDocumentsCapability(
     const documentPicker = {
         openDocumentDialog: fileCapability.openDocumentDialog,
         openCombineDialog: fileCapability.openCombineDialog,
-        openFolderDialog: fileCapability.openFolderDialog,
         openImageDialog: fileCapability.openImageDialog,
         getPathForFile: fileCapability.getPathForFile,
         getPathsForFiles: fileCapability.getPathsForFiles,
@@ -165,6 +160,8 @@ export function createBrowserDocumentsCapability(
         createWorkingCopyFromData: fileCapability.createWorkingCopyFromData,
         createWorkingCopyFromPath: fileCapability.createWorkingCopyFromPath,
         parsePdfAnnotations: fileCapability.parsePdfAnnotations,
+        restoreDocumentRevision: fileCapability.restoreDocumentRevision,
+        retainDocumentRevisions: fileCapability.retainDocumentRevisions,
         cleanupFile: fileCapability.cleanupFile,
     } satisfies IDocumentsWorkingCopyCapability;
     const optionalDocumentFileMethods = {
@@ -195,7 +192,6 @@ export function createBrowserDocumentsCapability(
         readPdfPageLabelRanges: fileCapability.readPdfPageLabelRanges,
         statFile: fileCapability.statFile,
         readFileRange: fileCapability.readFileRange,
-        fileExists: fileCapability.fileExists,
         getDocumentRevision: fileCapability.getDocumentRevision,
         onDocumentRevisionChanged: fileCapability.onDocumentRevisionChanged,
         savePdfAs: fileCapability.savePdfAs,

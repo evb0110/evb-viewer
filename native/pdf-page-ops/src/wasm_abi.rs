@@ -66,6 +66,9 @@ abi! {
         REQUEST_VERSION_ORIGINAL_APPEARANCE_SOURCE: u32 = 4;
         // INSTRUCTED_REQUEST_HEADER framing.
         REQUEST_VERSION_INSTRUCTED: u32 = 5;
+        // FILE_REQUEST_HEADER framing: a page-structure edit whose inputs are
+        // the host's source files and whose output is its sink file.
+        REQUEST_VERSION_FILES: u32 = 6;
         U32_BYTES: usize = std::mem::size_of::<u32>();
         F64_BYTES: usize = std::mem::size_of::<f64>();
         // One request or one framed response, up to the largest single
@@ -87,9 +90,13 @@ abi! {
         // of their width, height and sample compatibility, or no rows and the
         // reason the page has no scan raster.
         RESPONSE_REPORTED_RASTER: u32 = 10;
+        // WRITTEN_HEADER layout: the page count and byte length of what the
+        // engine wrote to the host's sink and verified there.
+        RESPONSE_WRITTEN: u32 = 11;
         NATIVE_MUTATION_POSTCONDITIONS_VERIFIED: u32 = 1;
     }
     operations {
+        // The five page-structure edits use FILE_REQUEST_HEADER framing.
         OP_DELETE_PAGES = 1 => "deletePages";
         OP_EXTRACT_PAGES = 2 => "extractPages";
         OP_REORDER_PAGES = 3 => "reorderPages";
@@ -128,11 +135,14 @@ abi! {
         // No attachments; the instructions are the raster request. Answers
         // RESPONSE_REPORTED_RASTER.
         OP_RENDER_SCAN_CLEANUP_RASTER = 24 => "renderScanCleanupRaster";
+        // FILE_REQUEST_HEADER framing with no sources or pages: verifies the
+        // output of the edit before it, once the host has copied its streams.
+        OP_VERIFY_WRITTEN = 25 => "verifyWritten";
     }
     layouts {
         REQUEST_HEADER: RequestHeader {
             magic: REQUEST_MAGIC.len(), version: U32_BYTES, operation: U32_BYTES,
-            page_count: U32_BYTES, page_number: U32_BYTES, after_page: U32_BYTES,
+            page_count: U32_BYTES, page_number: U32_BYTES,
             // For crop, angle is 0 for raw units or 1 for physical points.
             angle: U32_BYTES, top: F64_BYTES, bottom: F64_BYTES,
             left: F64_BYTES, right: F64_BYTES, data_length: U32_BYTES,
@@ -148,6 +158,16 @@ abi! {
             magic: REQUEST_MAGIC.len(), version: U32_BYTES, operation: U32_BYTES,
             data_length: U32_BYTES, instructions_length: U32_BYTES,
             attachment_count: U32_BYTES,
+        }
+        // Followed by the page list. Delete, extract and reorder edit source 0
+        // with the listed pages; insert puts source 1 after `after_page` of
+        // source 0; merge joins every source in order.
+        FILE_REQUEST_HEADER: FileRequestHeader {
+            magic: REQUEST_MAGIC.len(), version: U32_BYTES, operation: U32_BYTES,
+            source_count: U32_BYTES, after_page: U32_BYTES, page_count: U32_BYTES,
+        }
+        WRITTEN_HEADER: WrittenHeader {
+            kind: U32_BYTES, page_count: U32_BYTES, length: F64_BYTES,
         }
         MUTATION_HEADER: MutationHeader {
             kind: U32_BYTES, page_count: U32_BYTES, data_length: U32_BYTES,
@@ -219,7 +239,6 @@ pub(crate) struct ParsedRequest<'a> {
     pub(crate) operation: u32,
     pub(crate) pages: Vec<u32>,
     pub(crate) page_number: u32,
-    pub(crate) after_page: u32,
     pub(crate) angle: i64,
     pub(crate) margins: CropMargins,
     pub(crate) data: &'a [u8],
@@ -245,7 +264,6 @@ pub(crate) fn parse_request(request: &[u8]) -> Result<ParsedRequest<'_>> {
     }
     let page_count = read_usize_at(request, REQUEST_HEADER.page_count, "page_count")?;
     let page_number = read_u32_at(request, REQUEST_HEADER.page_number)?;
-    let after_page = read_u32_at(request, REQUEST_HEADER.after_page)?;
     let angle = i64::from(read_u32_at(request, REQUEST_HEADER.angle)?);
     let margins = CropMargins {
         physical: operation == OP_CROP && angle == 1,
@@ -322,7 +340,6 @@ pub(crate) fn parse_request(request: &[u8]) -> Result<ParsedRequest<'_>> {
         operation,
         pages,
         page_number,
-        after_page,
         angle,
         margins,
         data,

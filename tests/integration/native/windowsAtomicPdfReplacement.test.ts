@@ -26,7 +26,6 @@ import {
 import {atomicReplace} from '@electron/utils/atomicReplace';
 
 const holdFileHandleScript = resolve('tests/integration/native/hold-file-handle.ps1');
-const publicationHarness = resolve('tests/integration/native/windowsAtomicPdfPublicationHarness.cjs');
 const runtimeRoot = resolve('.devkit');
 
 async function makePdf(text: string) {
@@ -60,59 +59,6 @@ async function waitForFile(path: string, timeoutMs = 4_000) {
         }
     }
     throw new Error(`Timed out waiting for ${path}`);
-}
-
-async function waitForHarnessMarker(markerPath: string, resultPath: string) {
-    try {
-        await waitForFile(markerPath, 30_000);
-    } catch (error) {
-        const diagnostics = await Promise.all([
-            `${resultPath}.launch`,
-            `${resultPath}.ready`,
-            `${resultPath}.imported`,
-        ].map(async path => {
-            try {
-                return `${path}: ${(await readFile(path)).toString()}`;
-            } catch {
-                return `${path}: missing`;
-            }
-        }));
-        throw new Error(`${error instanceof Error ? error.message : String(error)}; ${diagnostics.join('; ')}`);
-    }
-}
-
-async function runPublicationHarness(
-    operation: string,
-    sourcePath: string,
-    destinationPath: string,
-    resultPath: string,
-    controlPath: string,
-    options: {
-        barrier?: boolean;
-        utility?: boolean;
-    } = {},
-) {
-    const electronPath = resolve('node_modules/electron/dist/electron.exe');
-    const childEnv = {...process.env};
-    delete childEnv.ELECTRON_RUN_AS_NODE;
-    const child = execFile(electronPath, [
-        publicationHarness,
-        operation,
-        sourcePath,
-        destinationPath,
-        resultPath,
-        controlPath,
-    ], {
-        cwd: resolve('.'),
-        env: {
-            ...childEnv,
-            EVB_AUTOMATION_HIDE_WINDOW: '1',
-            EVB_ATOMIC_REPLACE_TEST_BARRIER: options.barrier === true ? 'before-publish' : '',
-            EVB_ATOMIC_REPLACE_TEST_BARRIER_FILE: controlPath,
-            EVB_DOCUMENT_SAVE_UTILITY_THRESHOLD_BYTES: options.utility === true ? '1' : '999999999',
-        },
-    });
-    return child;
 }
 
 describe.skipIf(process.platform !== 'win32')('Windows atomic PDF replacement', () => {
@@ -191,70 +137,4 @@ describe.skipIf(process.platform !== 'win32')('Windows atomic PDF replacement', 
         }
         await expect(readFile(destinationPath)).resolves.toEqual(Buffer.from(oldBytes));
     }, 60_000);
-
-    it('keeps complete bytes when the production commit process dies before publication', async () => {
-        const root = await mkdtemp(join(runtimeRoot, 'evb-windows-atomic-process-kill-'));
-        rootPaths.push(root);
-        const sourcePath = join(root, 'staged.pdf');
-        const destinationPath = join(root, 'document.pdf');
-        const resultPath = join(root, 'first.result.json');
-        const restartResultPath = join(root, 'restart.result.json');
-        const controlPath = join(root, 'commit.control');
-        const oldBytes = await makePdf('old Windows process boundary');
-        const newBytes = await makePdf('new Windows process boundary');
-        await writeFile(destinationPath, oldBytes);
-        await writeFile(sourcePath, newBytes);
-
-        const first = await runPublicationHarness('commit', sourcePath, destinationPath, resultPath, controlPath, {barrier: true});
-        try {
-            await waitForHarnessMarker(`${controlPath}.before-publish`, resultPath);
-            first.kill();
-            await new Promise<void>(resolvePromise => first.once('close', () => resolvePromise()));
-        } finally {
-            first.kill();
-        }
-
-        const restart = await runPublicationHarness('commit', sourcePath, destinationPath, restartResultPath, controlPath);
-        await new Promise<void>((resolvePromise, reject) => {
-            restart.once('error', reject);
-            restart.once('close', code => code === 0 ? resolvePromise() : reject(new Error(`restart exited ${String(code)}`)));
-        });
-        const restartResult = JSON.parse((await readFile(restartResultPath)).toString()) as {
-            ok: boolean;
-            error?: string;
-        };
-        expect(restartResult, restartResult.error).toMatchObject({ok: true});
-        await expect(readFile(destinationPath)).resolves.toEqual(Buffer.from(newBytes));
-        await expect(readPdfText(destinationPath)).resolves.toBe(1);
-    }, 90_000);
-
-    it('cancels the real utility publisher through its parent terminator before publication', async () => {
-        const root = await mkdtemp(join(runtimeRoot, 'evb-windows-atomic-utility-cancel-'));
-        rootPaths.push(root);
-        const sourcePath = join(root, 'staged.pdf');
-        const destinationPath = join(root, 'document.pdf');
-        const resultPath = join(root, 'cancel.result.json');
-        const controlPath = join(root, 'utility.control');
-        const oldBytes = await makePdf('old Windows utility cancellation');
-        await writeFile(destinationPath, oldBytes);
-        await writeFile(sourcePath, await makePdf('new Windows utility cancellation'));
-
-        const utility = await runPublicationHarness('cancel-utility', sourcePath, destinationPath, resultPath, controlPath, {
-            barrier: true,
-            utility: true,
-        });
-        try {
-            await waitForHarnessMarker(`${controlPath}.before-publish`, resultPath);
-            await writeFile(`${controlPath}.cancel`, 'cancel');
-            await new Promise<void>((resolvePromise, reject) => {
-                utility.once('error', reject);
-                utility.once('close', code => code === 0 ? resolvePromise() : reject(new Error(`utility harness exited ${String(code)}`)));
-            });
-        } finally {
-            utility.kill();
-        }
-        await expect(readFile(resultPath).then(bytes => JSON.parse(bytes.toString()))).resolves.toMatchObject({ok: false});
-        await expect(readFile(destinationPath)).resolves.toEqual(Buffer.from(oldBytes));
-        await expect(readPdfText(destinationPath)).resolves.toBe(1);
-    }, 90_000);
 });

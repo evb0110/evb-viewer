@@ -173,6 +173,7 @@ const FEATURE_RESULTS: Readonly<Record<string, unknown>> = {
     'windowTabs.claimPendingExternalOpenPaths': [],
     'windowTabs.acknowledgePendingExternalOpenPaths': undefined,
     'windowTabs.saveWorkspaceCheckpoint': true,
+    'windowTabs.setDocumentDrafts': true,
     'windowTabs.discardWorkspaceCheckpoint': '1',
     'windowTabs.resumeWorkspaceCheckpoint': undefined,
     'windowTabs.claimWorkspaceCheckpoint': null,
@@ -260,6 +261,7 @@ const FEATURE_RESULTS: Readonly<Record<string, unknown>> = {
         estimatedBytes: 1,
     }],
     'djvu.cleanupTemp': undefined,
+    'documentWorkingCopy.retainDocumentRevisions': undefined,
 };
 
 function createAsyncDefault(path: string) {
@@ -283,9 +285,6 @@ function createAsyncDefault(path: string) {
     }
     if (path.endsWith('.getMemoryInfo')) {
         return vi.fn(() => null);
-    }
-    if (path.endsWith('.fileExists')) {
-        return vi.fn(async () => false);
     }
     if (path.endsWith('.readFile') || path.endsWith('.readFileRange')) {
         return vi.fn(async () => new Uint8Array());

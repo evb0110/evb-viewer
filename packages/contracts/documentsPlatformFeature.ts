@@ -3,14 +3,11 @@ import type {
 } from '@contracts/electronApiDocuments';
 import {
     PDF_SERIALIZED_COMMIT_CALLBACKS_SCHEMA,
-    WORKING_COPY_BACKING_STATUS_SCHEMA,
 } from '@contracts/electronApiDocuments';
 import {
     definePlatformFeature,
     type TPlatformFeatureSchema,
-    type TFeatureCapability,
     type TFeatureEventMap,
-    type TFeatureInvokeMap,
 } from '@contracts/platformFeature';
 import {
     applyNativeMutationsArgs,
@@ -28,7 +25,6 @@ import {
     documentRevisionArgs,
     documentRevisionEvent,
     documentSaveResult,
-    fileExistsArgs,
     fileStatResult,
     longNativeIpcTimeoutMs,
     managedHandleArgs,
@@ -64,6 +60,8 @@ import {
     repairPdfArgs,
     replaceWorkingCopyArgs,
     replaceWorkingCopyFromStagedNativeMutationArgs,
+    restoreDocumentRevisionArgs,
+    retainDocumentRevisionsArgs,
     revisionResult,
     saveFileStructuredArgs,
     savePdfAsArgs,
@@ -77,13 +75,6 @@ import {
     parsePdfAnnotationsArgs,
     pdfAnnotationParseResult,
 } from '@contracts/pdfAnnotationParseSchemas';
-import {
-    beginPdfEmbeddedShapeIndexArgs,
-    pdfEmbeddedShapeIndexChunkResult,
-    pdfEmbeddedShapeIndexSessionResult,
-    readPdfEmbeddedShapeIndexChunkArgs,
-    releasePdfEmbeddedShapeIndexArgs,
-} from '@contracts/pdfEmbeddedShapeIndexSchemas';
 import {pdfValidationPathArgs} from '@contracts/pdfValidationPathArgs';
 import {
     parseDocumentRef,
@@ -132,9 +123,6 @@ const combinedFilesArgs = v.strictTuple([
     v.optional(combinedFilesOptionsSchema),
 ]);
 const combinedPdfResult = v.custom<Uint8Array>((value): value is Uint8Array => value instanceof Uint8Array);
-const workingCopyBackingStatusArgs = pathArgs('path');
-const workingCopyBackingStatus = WORKING_COPY_BACKING_STATUS_SCHEMA;
-const nullableWorkingCopyBackingStatus = v.nullable(WORKING_COPY_BACKING_STATUS_SCHEMA);
 
 function defineIpcMethod<
     const TName extends string,
@@ -223,9 +211,6 @@ export const DOCUMENT_PICKER_PLATFORM_FEATURE = definePlatformFeature({
         openDocumentDialog,
         openCombineDialog: defineIpcMethod(
             'openCombineDialog', 'dialog:openCombine', noArgs, openFileResult, 'openCombineDialog', 'sender',
-        ),
-        openFolderDialog: defineIpcMethod(
-            'openFolderDialog', 'dialog:openFolder', noArgs, openFileResult, 'openFolderDialog', 'sender',
         ),
         openImageDialog: defineIpcMethod(
             'openImageDialog', 'dialog:openImage', noArgs, nullableStringResult, 'openImageDialog', 'sender',
@@ -343,6 +328,22 @@ export const DOCUMENT_WORKING_COPY_PLATFORM_FEATURE = definePlatformFeature({
                 timeoutMs: longNativeIpcTimeoutMs,
             },
         },
+        restoreDocumentRevision: defineIpcMethod(
+            'restoreDocumentRevision',
+            'working-copy:restoreRevision',
+            restoreDocumentRevisionArgs,
+            revisionResult,
+            'restoreDocumentRevision',
+            'sender',
+        ),
+        retainDocumentRevisions: defineIpcMethod(
+            'retainDocumentRevisions',
+            'working-copy:retainRevisions',
+            retainDocumentRevisionsArgs,
+            voidResult,
+            'retainDocumentRevisions',
+            'sender',
+        ),
         cleanupFile: defineIpcMethod(
             'cleanupFile',
             'file:cleanup',
@@ -416,50 +417,10 @@ export const DOCUMENT_FILES_PLATFORM_FEATURE = definePlatformFeature({
             },
             ...electronImplementedOptional,
         },
-        beginPdfEmbeddedShapeIndex: {
-            ...defineIpcMethod(
-                'beginPdfEmbeddedShapeIndex', 'pdf:embeddedShapeIndex:begin', beginPdfEmbeddedShapeIndexArgs,
-                pdfEmbeddedShapeIndexSessionResult, 'beginPdfEmbeddedShapeIndex', 'sender',
-            ),
-            ipc: {
-                args: beginPdfEmbeddedShapeIndexArgs,
-                result: pdfEmbeddedShapeIndexSessionResult,
-                timeoutMs: longNativeIpcTimeoutMs,
-            },
-            ...electronImplementedOptional,
-        },
-        readPdfEmbeddedShapeIndexChunk: {
-            ...defineIpcMethod(
-                'readPdfEmbeddedShapeIndexChunk', 'pdf:embeddedShapeIndex:readChunk', readPdfEmbeddedShapeIndexChunkArgs,
-                pdfEmbeddedShapeIndexChunkResult, 'readPdfEmbeddedShapeIndexChunk', 'sender',
-            ),
-            ...electronImplementedOptional,
-        },
-        releasePdfEmbeddedShapeIndex: {
-            ...defineIpcMethod(
-                'releasePdfEmbeddedShapeIndex', 'pdf:embeddedShapeIndex:release', releasePdfEmbeddedShapeIndexArgs,
-                booleanResult, 'releasePdfEmbeddedShapeIndex', 'sender',
-            ),
-            ...electronImplementedOptional,
-        },
-        fileExists: defineIpcMethod(
-            'fileExists', 'file:exists', fileExistsArgs, booleanResult, 'fileExists', 'sender',
-        ),
         getDocumentRevision: defineIpcMethod(
             'getDocumentRevision', 'document:revision:get', documentRevisionArgs,
             revisionResult, 'getDocumentRevision', 'sender',
         ),
-        getWorkingCopyBackingStatus: {
-            ...defineIpcMethod(
-                'getWorkingCopyBackingStatus',
-                'working-copy:backing-status:get',
-                workingCopyBackingStatusArgs,
-                nullableWorkingCopyBackingStatus,
-                'getWorkingCopyBackingStatus',
-                'sender',
-            ),
-            ...electronImplementedOptional,
-        },
         savePdfAs: defineIpcMethod(
             'savePdfAs', 'dialog:savePdfAs', savePdfAsArgs, nullableDocumentRefResult, 'savePdfAs', 'sender',
         ),
@@ -606,14 +567,6 @@ export const DOCUMENT_FILES_PLATFORM_FEATURE = definePlatformFeature({
             'document:revision:changed',
             documentRevisionEvent,
         ),
-        onWorkingCopyBackingStatusChanged: {
-            ...defineEvent(
-                'onWorkingCopyBackingStatusChanged',
-                'working-copy:backing-status:changed',
-                workingCopyBackingStatus,
-            ),
-            ...electronImplementedOptional,
-        },
     },
 });
 
@@ -798,49 +751,5 @@ export const DOCUMENT_PLATFORM_FEATURES = [
     DOCUMENT_WINDOW_PLATFORM_FEATURE,
     DOCUMENT_MENU_PLATFORM_FEATURE,
 ] as const;
-
-/**
- * These public methods remain direct preload/browser bindings because their
- * callback, AbortSignal, AsyncIterable, or MessagePort transfer semantics
- * cannot be represented by invoke/event specs without changing the protocol.
- */
-export const DOCUMENTS_DIRECT_BINDING_METHODS = ['documentFiles.savePdfData'] as const;
-
-export type IDocumentPickerPlatformCapability =
-    TFeatureCapability<typeof DOCUMENT_PICKER_PLATFORM_FEATURE>;
-export type IDocumentOpenPlatformCapability =
-    TFeatureCapability<typeof DOCUMENT_OPEN_PLATFORM_FEATURE>;
-export type IDocumentWorkingCopyPlatformCapability =
-    TFeatureCapability<typeof DOCUMENT_WORKING_COPY_PLATFORM_FEATURE>;
-export type IDocumentFilesPlatformCapability =
-    TFeatureCapability<typeof DOCUMENT_FILES_PLATFORM_FEATURE>;
-export type IDocumentPdfPlatformCapability =
-    TFeatureCapability<typeof DOCUMENT_PDF_PLATFORM_FEATURE>;
-export type IDocumentRecentFilesPlatformCapability =
-    TFeatureCapability<typeof DOCUMENT_RECENT_FILES_PLATFORM_FEATURE>;
-export type IDocumentWindowPlatformCapability =
-    TFeatureCapability<typeof DOCUMENT_WINDOW_PLATFORM_FEATURE>;
-export type IDocumentMenuPlatformCapability =
-    TFeatureCapability<typeof DOCUMENT_MENU_PLATFORM_FEATURE>;
-export type IDocumentPickerInvokeMap =
-    TFeatureInvokeMap<typeof DOCUMENT_PICKER_PLATFORM_FEATURE>;
-export type IDocumentOpenInvokeMap =
-    TFeatureInvokeMap<typeof DOCUMENT_OPEN_PLATFORM_FEATURE>;
-export type IDocumentWorkingCopyInvokeMap =
-    TFeatureInvokeMap<typeof DOCUMENT_WORKING_COPY_PLATFORM_FEATURE>;
-export type IDocumentFilesInvokeMap =
-    TFeatureInvokeMap<typeof DOCUMENT_FILES_PLATFORM_FEATURE>;
-export type IDocumentPdfInvokeMap =
-    TFeatureInvokeMap<typeof DOCUMENT_PDF_PLATFORM_FEATURE>;
-export type IDocumentRecentFilesInvokeMap =
-    TFeatureInvokeMap<typeof DOCUMENT_RECENT_FILES_PLATFORM_FEATURE>;
-export type IDocumentWindowInvokeMap =
-    TFeatureInvokeMap<typeof DOCUMENT_WINDOW_PLATFORM_FEATURE>;
-export type IDocumentMenuInvokeMap =
-    TFeatureInvokeMap<typeof DOCUMENT_MENU_PLATFORM_FEATURE>;
 export type IDocumentMenuEventMap =
     TFeatureEventMap<typeof DOCUMENT_MENU_PLATFORM_FEATURE>;
-export type IDocumentOpenEventMap =
-    TFeatureEventMap<typeof DOCUMENT_OPEN_PLATFORM_FEATURE>;
-export type IDocumentFilesEventMap =
-    TFeatureEventMap<typeof DOCUMENT_FILES_PLATFORM_FEATURE>;

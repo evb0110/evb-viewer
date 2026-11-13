@@ -396,15 +396,19 @@ function createOutputPages(signal: AbortSignal, onEngineIdentity: (sha256: strin
         append: (pagePdf: Uint8Array) => pages.push(pagePdf),
         async merge() {
             if (pages.length < 2) return pages[0] ?? null;
-            const result = await runBrowserPageOpsWorkerRequest('mergePages', {documents: pages}, {
+            const result = await runBrowserPageOpsWorkerRequest('pageStructure', {
+                edit: {kind: 'merge'},
+                sources: pages.map(page => new Blob([page as Uint8Array<ArrayBuffer>])),
+                output: null,
+            }, {
                 signal,
                 dedicated: true,
                 requireWorker: true,
-                transferInput: true,
                 onEngineIdentity,
             });
-            if (isBrowserPageOpsWasmFailure(result)) {
-                throw new ScanCleanupContractError(`Scan cleanup could not merge its output pages: ${result.error.message}`);
+            if (result.status !== 'written' || !result.data) {
+                const reason = result.status === 'failed' ? result.error.message : 'the browser\'s storage is full';
+                throw new ScanCleanupContractError(`Scan cleanup could not merge its output pages: ${reason}`);
             }
             return result.data;
         },

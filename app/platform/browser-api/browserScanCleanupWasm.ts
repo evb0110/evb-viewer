@@ -87,11 +87,6 @@ async function run<TResult>(
     }
 }
 
-/** Loads the engine ahead of the first page, so its download overlaps other work. */
-export function preloadBrowserScanCleanupEngine() {
-    return engine.load().then(() => undefined);
-}
-
 /** Renders one page the way the desktop preview does: each output's composite. */
 export function renderBrowserScanCleanupPreview(request: IScanCleanupWasmRenderPreviewRequest) {
     return run(

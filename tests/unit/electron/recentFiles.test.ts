@@ -488,18 +488,43 @@ describe('recentFiles persistence', () => {
             await workingCopyStore.setDocumentStoreRootForTests(join(userDataDir, 'store'));
         });
 
-        it('restores a view left on a source whose modification time has a fraction', async () => {
+        it('binds a view left after a Save to the saved file, so it reopens where the reader left it', async () => {
+            const originalPath = writeFixture('saved.pdf', 'saved bytes');
+            const {
+                recentFiles, readingViews, workingCopyStore,
+            } = await load();
+            const workingPath = await openWorkingCopy(originalPath, 'saved');
+            await recentFiles.addRecentFile(workingPath, 42);
+            const entry = workingCopyStore.requireOpenDocument(workingPath);
+            const edited = writeFixture('edited.pdf', 'edited and longer bytes');
+            expect(await workingCopyStore.saveOpenDocument(entry, '1' as never, {commit: {kind: 'rewrite', source: edited}})).toMatchObject({status: 'saved'});
+            await readingViews.rememberRecentReadingView(workingPath, readingView, 42);
+            await workingCopyStore.discardOpenDocument(entry);
+
+            expect(readFileSync(originalPath, 'utf8')).toBe('edited and longer bytes');
+            expect(await readingViews.readRecentReadingViewOf({
+                originalPath,
+                ...readingViews.readingViewSourceOf(statSync(originalPath, {bigint: true})),
+            })).toEqual(readingView);
+            await workingCopyStore.setDocumentStoreRootForTests(join(userDataDir, 'store'));
+        });
+
+        it('restores a view through the opening preflight\'s own stat of a source with a sub-millisecond modification time', async () => {
+            // A freshly written file keeps the file system's nanoseconds; `utimes` would round them to microseconds.
             const originalPath = writeFixture('fractional.pdf', 'fractional bytes');
-            utimesSync(originalPath, 1_700_000_000.25, 1_700_000_000.123_456);
             const {
                 recentFiles, readingViews, workingCopyStore,
             } = await load();
             const workingPath = await openWorkingCopy(originalPath, 'fractional');
             await recentFiles.addRecentFile(workingPath, 42);
             await readingViews.rememberRecentReadingView(workingPath, readingView, 42);
+            await workingCopyStore.discardOpenDocument(workingCopyStore.requireOpenDocument(workingPath));
 
             expect(Number.isInteger(JSON.parse(readFileSync(recentFilesJsonPath(), 'utf8')).files[0].readingView.sourceModifiedAtMs)).toBe(false);
-            expect(await readingViews.getRecentReadingView(workingPath, 42)).toEqual(readingView);
+            expect(await readingViews.readRecentReadingViewOf({
+                originalPath,
+                ...readingViews.readingViewSourceOf(statSync(originalPath, {bigint: true})),
+            })).toEqual(readingView);
             await workingCopyStore.setDocumentStoreRootForTests(join(userDataDir, 'store'));
         });
     });

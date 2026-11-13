@@ -19,6 +19,7 @@ import {
     claimBrowserWorkspaceCheckpoint,
     nameBrowserWorkspaceDirectory,
     saveBrowserWorkspaceCheckpoint,
+    setBrowserDocumentDrafts,
 } from '@app/platform/browser/browserWorkspaceRecovery';
 import {browserDocumentStore} from '@app/platform/browser/browserDocumentRepository';
 import {holdBrowserLock} from '@app/platform/browser/runBrowserLock';
@@ -866,6 +867,7 @@ export const browserWindowTabsCapability: IWindowTabsCapability = {
             if (windowId) await saveBrowserWorkspaceCheckpoint(windowId, checkpoint);
         },
     },
+    setDocumentDrafts: setBrowserDocumentDrafts,
     async acknowledgeWorkspaceCheckpoint() {
         const windowId = getBrowserWindowId();
         if (windowId) await acknowledgeBrowserWorkspaceCheckpoint(windowId);

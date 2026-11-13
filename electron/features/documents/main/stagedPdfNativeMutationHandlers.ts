@@ -1,4 +1,3 @@
-import {rm} from 'node:fs/promises';
 import type {IDocumentMutationRevisionOptions} from '@contracts/electronApiDocuments';
 import {requireDocumentRef} from '@contracts/documentRef';
 import type {ITypedStagedArtifact} from '@contracts/stagedArtifacts';
@@ -50,10 +49,6 @@ function assertConsumableStagedPdf(artifact: ITypedStagedArtifact) {
     }
 }
 
-async function cleanupStagedPath(path: string) {
-    await rm(path, {force: true}).catch(() => undefined);
-}
-
 // The resolved receipt lease is the only admission for a staged path; no
 // renderer open-path capability is ever granted for it.
 function toStagedSourcePath(stagedOutput: ITypedStagedArtifact) {
@@ -62,9 +57,10 @@ function toStagedSourcePath(stagedOutput: ITypedStagedArtifact) {
 
 /**
  * Consumes a lease-backed native mutation receipt into a disposable snapshot.
- * The receipt is the only authority used to read the staged path. It is
- * released on every successful resolution path, and the original document is
- * never opened or written here.
+ * The receipt is the only authority used to read the staged path: the source
+ * document's own file, extended past its committed bytes, which the receipt's
+ * end cuts again. It is released on every resolution path, and the original
+ * document is never opened or written here.
  */
 export async function handleCloneStagedPdfNativeMutationToWorkingCopy(
     context: IDocumentsSenderIdContext,
@@ -76,18 +72,25 @@ export async function handleCloneStagedPdfNativeMutationToWorkingCopy(
     try {
         assertConsumableStagedPdf(stagedOutput);
         const normalizedOriginalPath = normalizeOptionalOriginalPath(originalPath);
-        const entry = await createDocumentForOriginal(toStagedSourcePath(stagedOutput), normalizedOriginalPath, senderId);
+        const source = requireOpenDocument(stagedOutput.path, senderId);
+        const entry = await enqueueWorkingCopyMutation(source.ref, async () => {
+            await resolveTypedStagedArtifact(context, stagedOutput);
+            return createDocumentForOriginal(toStagedSourcePath(stagedOutput), normalizedOriginalPath, senderId);
+        }, {
+            kind: 'native-pdf-mutation-staged-clone',
+            ownerWebContentsId: senderId,
+        });
         return requireDocumentRef(entry.ref);
     } finally {
         releaseManagedTempFileHandle(context, stagedOutput.leaseId);
-        await cleanupStagedPath(stagedOutput.path);
     }
 }
 
 /**
- * Replaces only a managed working copy with a lease-backed native mutation.
- * The original path is deliberately not consulted, so page operations can
- * refresh the working document without committing user data.
+ * Commits a lease-backed native mutation, appended to the managed working
+ * copy's own file, as its next revision. The original path is deliberately not
+ * consulted, so page operations can refresh the working document without
+ * committing user data.
  */
 export async function handleReplaceWorkingCopyFromStagedPdfNativeMutation(
     context: IDocumentsSenderIdContext,
@@ -107,7 +110,8 @@ export async function handleReplaceWorkingCopyFromStagedPdfNativeMutation(
         assertConsumableStagedPdf(stagedOutput);
         return await enqueueWorkingCopyMutation(entry.ref, async () => {
             await assertQueuedWorkingCopyMutationPreconditions(entry.ref, expectedDocumentRevisionToken);
-            await commitDocumentMutation(entry, expectedDocumentRevisionToken, {kind: 'rewrite', source: stagedOutput.path}, 'native-mutation');
+            await resolveTypedStagedArtifact(context, stagedOutput);
+            await commitDocumentMutation(entry, expectedDocumentRevisionToken, {kind: 'extend'}, 'native-mutation');
             return true;
         }, {
             kind: 'native-pdf-mutation-staged-working-copy',
@@ -115,6 +119,5 @@ export async function handleReplaceWorkingCopyFromStagedPdfNativeMutation(
         });
     } finally {
         releaseManagedTempFileHandle(context, stagedOutput.leaseId);
-        await cleanupStagedPath(stagedOutput.path);
     }
 }

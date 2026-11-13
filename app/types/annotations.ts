@@ -15,7 +15,6 @@ import type { TEpochMs } from '@contracts/timestamps';
 import type { IPdfAnnotationNoteReply } from '@contracts/pdfAnnotationParseTypes';
 import type { AnnotationEntity } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import type {
-    Except,
     TaggedUnion,
 } from 'type-fest';
 export {
@@ -55,7 +54,6 @@ export type TDrawableShapeType = TDrawableShapeTool;
 
 export type TLineEndStyle = TPdfAnnotationLineEndStyle;
 export type TEmbeddedPdfShapeSubtype = TPdfAnnotationShapePdfSubtype;
-export type TShapeResizeHandle = 'nw' | 'ne' | 'sw' | 'se';
 
 export type IShapePoint = IPoint2D;
 
@@ -102,7 +100,6 @@ export type TAnnotationStableKey =
     | `ann:${number}:${string}`;
 
 export type TImmutableShapeKey = 'id' | 'pageIndex';
-export type TShapeAnnotationPatch = Partial<Except<IShapeAnnotation, TImmutableShapeKey>>;
 
 export type TAnnotationSettingChange = {
     [K in keyof IAnnotationSettings]: {
@@ -163,16 +160,6 @@ export interface IAnnotationEditorState {
 export interface IAnnotationModifiedPayload { forceDirty?: boolean }
 
 export type IAnnotationMarkerRect = IMarkerRect;
-
-export interface ITextMarkupAnnotationProperties {
-    id: string;
-    pageIndex: number;
-    subtype: TMarkupSubtype;
-    color: string;
-    markerRect: IAnnotationMarkerRect | null;
-    opacity?: number | null;
-    contents?: string;
-}
 
 export interface ILinkAnnotation {
     id: string;

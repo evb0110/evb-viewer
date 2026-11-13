@@ -198,6 +198,7 @@ export const createDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgent
         viewMode,
         viewerCapabilities,
         waitForDocumentOpenSettled,
+        whenDraftsCommitted,
         workingCopyPath,
         zoom,
     } = options;
@@ -312,9 +313,11 @@ export const createDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgent
         parseEmptyAgentActionInput,
     } = createDocumentWorkspaceAgentParsers({ totalPages });
 
+    // A command answers once its edit is drawn and stored with the document's drafts.
     async function waitForAgentMutationStateSettled() {
         await nextTick();
         await nextTick();
+        await whenDraftsCommitted();
     }
 
     function createSettledMutationRunner(applyMutation: (input: Record<string, unknown>, actionId: string) => object, settle: () => Promise<void> = waitForAgentMutationStateSettled) {
@@ -1145,6 +1148,7 @@ export const useDocumentWorkspaceAgent = (
         ...viewContext.pageOps,
         ...viewContext.print,
         documentIdentity: document.file.documentRevisionInfo,
+        whenDraftsCommitted: document.recovery.whenCommitted,
         viewerCapabilities,
         ocr: document.ocr,
         tabId: viewContext.tabId,

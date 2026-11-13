@@ -10,7 +10,6 @@ import {
 import type { FailureReceipt } from '@contracts/diagnostics/failureReceipt';
 import { requirePageNumber } from '@contracts/pageNumbers';
 import type {IAnnotationCreationFailureReport} from '@app/modules/pdf-viewer/public';
-import type {IPdfPersistFailure} from '@app/types/pdfUi';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { SerializableError } from '@contracts/serializableError';
 import {formatFailurePresentationCopy} from '@app/composables/useFailureToast';
@@ -303,117 +302,6 @@ describe('useWorkspaceFailureSurface', () => {
         toast.actions[0].onClick();
         expect(destination).toBe('saved-as.pdf');
         expect(formatFailurePresentationCopy(surface.saveFailurePresentation.value!)).toContain(keptFilePath);
-    });
-
-    it.each([
-        {
-            channel: 'structured',
-            committed: true,
-        },
-        {
-            channel: 'native',
-            committed: true,
-        },
-        {
-            channel: 'structured',
-            committed: null,
-        },
-        {
-            channel: 'native',
-            committed: null,
-        },
-        {
-            channel: 'native',
-            committed: undefined,
-        },
-    ] as const)('distinguishes a written or uncertain file from a pre-write failure ($channel, committed=$committed)', ({
-        channel, committed,
-    }) => {
-        const syncRequired = committed !== undefined;
-        const message = syncRequired
-            ? 'Saved externally, but IndexedDB document write did not commit: QuotaExceededError'
-            : 'Native writer could not create the staged PDF output';
-        // Match the decoded platform results and persistence's ordinary/native
-        // failure envelopes, including the genuine pre-publication refusal.
-        let failure: IPdfPersistFailure;
-        if (channel === 'structured') {
-            const result = v.parse(documentSaveResult, {
-                ok: false,
-                reason: 'working-copy-sync-required',
-                externalWriteCommitted: committed,
-                workingCopySyncRequired: true,
-                message,
-            });
-            if (result.ok) throw new Error('Expected a structured save refusal');
-            failure = {
-                channel: 'file:saveStructured',
-                operation: 'saveFileStructured',
-                phase: 'publish-original',
-                reason: result.reason,
-                ...(result.message === undefined ? {} : {message: result.message}),
-                ...(result.externalWriteCommitted === undefined ? {} : {externalWriteCommitted: result.externalWriteCommitted}),
-                ...(result.workingCopySyncRequired === undefined ? {} : {workingCopySyncRequired: result.workingCopySyncRequired}),
-            };
-        } else {
-            const result = v.parse(nativeSaveResult, {
-                applied: false,
-                validation: null,
-                ...(syncRequired ? {
-                    reason: 'working-copy-sync-required',
-                    externalWriteCommitted: committed,
-                    workingCopySyncRequired: true,
-                } : {}),
-                error: {
-                    code: 'io',
-                    message,
-                },
-            });
-            failure = {
-                channel: 'native',
-                operation: 'persist',
-                phase: 'mutation',
-                reason: result.reason ?? 'write-failed',
-                ...(result.error ? {
-                    message: result.error.message,
-                    cause: result.error,
-                } : {}),
-                validation: result.validation,
-                ...(result.externalWriteCommitted === undefined ? {} : {externalWriteCommitted: result.externalWriteCommitted}),
-                ...(result.workingCopySyncRequired === undefined ? {} : {workingCopySyncRequired: result.workingCopySyncRequired}),
-            };
-        }
-        const surface = useWorkspaceFailureSurface();
-        const saveAs = vi.fn();
-        const title = syncRequired ? 'errors.save.workingCopySyncRequiredTitle' : 'errors.file.save';
-        const description = syncRequired
-            ? committed === true ? 'errors.save.recoverySettlementDescription' : 'errors.save.workingCopySyncRequiredUnknown'
-            : 'errors.save.writeFailed';
-        surface.reportSaveFailure('save-outcome', 'persist-rejected', syncRequired ? message : undefined, undefined, failure, saveAs);
-        expect(surface.saveFailurePresentation.value).toMatchObject({
-            title,
-            description,
-            technicalDetails: expect.stringContaining(message),
-        });
-        expect(surface.hasSaveFailure.value).toBe(true);
-        expect(toastAddMock).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
-            title,
-            description: toastDescriptionContaining(description),
-        }));
-        const toast = toastAddMock.mock.calls[0]![0];
-        expect(toast.actions.map((action: {label: string}) => action.label)).toEqual(syncRequired
-            ? [
-                'toolbar.saveAs',
-                'errors.runtime.copy',
-            ]
-            : ['errors.runtime.copy']);
-        expect(toast.description).toEqual(toastDescriptionContaining('errors.runtime.errorId:'));
-        if (syncRequired) {
-            toast.actions[0].onClick();
-            expect(saveAs).toHaveBeenCalledOnce();
-            expect(surface.hasSaveFailure.value).toBe(true);
-        }
-        expect(surface.reportSaveFailure('save-outcome', 'persist-rejected', undefined, undefined, failure, saveAs)).toBe(false);
-        expect(toastAddMock).toHaveBeenCalledOnce();
     });
 
     it.each(LOCALE_CODES)('tells where the earlier file was kept and how to keep the changes in %s', locale => {

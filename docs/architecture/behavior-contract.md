@@ -202,39 +202,36 @@ the page, zoom, annotations, or responsiveness of another.
 unsaved changes asks first, and a crash or forced quit leaves recoverable work,
 also when the computer restarts before EVB does. An accepted edit, and the
 annotations and metadata not yet written into the PDF, are committed to the
-document's own working copy as one step before anything else happens to them,
+document's own durable state as one step before anything else happens to them,
 so a crash at any later moment finds them there and the next start offers them
 again. Recovery data and caches that versions before 2026-11 wrote are not
-read; the files those versions saved open and save as before. Restated
-2026-11-13 for the document store (#1588).
+read; the files those versions saved open and save as before.
 
 **T3. Output is complete and usable.** A saved or exported file opens in this
 viewer and in a stock reader, with all pages and the saved annotations.
 
-Save takes four steps in this order. Commit: the pending edits go into the
-working copy, so the work is safe whatever happens next. Check: the PDF on disk
-must still hold the bytes EVB last read from it or wrote to it. Publish: the
-working copy's bytes replace the PDF in one step. Acknowledge: those bytes
-become the saved state the next check compares with. The PDF is never copied
-back into the working copy. Restated 2026-11-13 for the document store (#1588).
+Save takes four steps in this order. Commit: the pending edits become durable,
+so the work is safe whatever happens next. Check: the file's size and modification
+time must equal those EVB last read or wrote. Publish: the committed bytes
+replace the PDF in one step. Acknowledge: the published revision becomes the
+saved state. A rewrite with identical bytes or a bare touch changes the file's
+metadata and gives the conflict result, with Save As offered.
+
+A Save or Save As never fails because of an edit made during it. Edits accepted
+after the Save's commit moment stay unsaved work.
+
+An inserted page keeps the page label it had in its source document.
 
 On ext4, NTFS or APFS paths where hard links are unsupported, save and recovery
-use rename after displacement or a missing-path check. Another program can
-recreate that pathname before installation or restoration, and Node's rename
-can overwrite that new revision. The person keeps EVB's complete saved or
-working revision; displaced external bytes are restored or retained on a
-baseline mismatch, but the recreated revision can be lost. Closing this window
-requires an OS-level no-replace rename that Node does not expose.
+can race another program recreating the destination pathname. That revision can
+be overwritten. The person keeps EVB's complete saved or working revision;
+displaced external bytes are restored or retained on a baseline mismatch.
 
 After a crash or forced quit during a save, recovery puts the PDF back as it was
 before that save, or keeps the save if it had finished, and acknowledges the
-save only when the PDF holds exactly the bytes it published. EVB's own bytes
-count as unchanged when a sync client only touched their metadata or rewrote
-them identically, so they never become a kept copy. Save's check compares the
-size and modification time of the PDF on disk with those of the revision EVB
-last read or wrote, so opening a document never reads the file: every change,
-including one made while EVB was stopped and a rewrite or touch that keeps the
-bytes, is refused with an offer to Save As. Restated 2026-11-13 (#1588).
+save only when the PDF holds exactly the bytes it published. Save detects
+external changes by size and modification time, including changes made while
+EVB was stopped.
 Recovery leaves no file of its own beside the PDF. When a save, or recovery
 after a crash, finds the PDF changed elsewhere after the save displaced it, the
 version that was on disk just before that save stays beside the PDF as
@@ -242,7 +239,7 @@ version that was on disk just before that save stays beside the PDF as
 an existing file. A live save's refusal names that file, and every later open
 of that PDF names it again and says to compare the two and keep one, until the
 person dismisses that notice. While another program holds the PDF after a
-crash, the document still opens with its working copy, and Save is
+crash, the document still opens with its recoverable work, and Save is
 refused, saying another program is using the file, until it lets go. If the
 person closes that document, reopens the PDF and saves it, that save stands and
 nothing more is kept beside it. While another program holds open a file a

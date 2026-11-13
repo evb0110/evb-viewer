@@ -1,4 +1,5 @@
 import {
+    contentOf,
     contentWitness,
     sameWitness,
 } from './contentWitness';
@@ -25,23 +26,42 @@ export interface IRevision {
     witness?: string | undefined;
 }
 
+/**
+ * Revision 1 of a document opened from a destination, kept for undo while no file of the store holds it: the
+ * destination's bytes, as long as the destination still has `witness`.
+ */
+export interface IDestinationRevision {
+    id: 1;
+    witness: string;
+}
+
+export type THistoryRevision = IRevision | IDestinationRevision;
+
+const hasFile = (revision: THistoryRevision): revision is IRevision => 'file' in revision;
+
+/** A publish whose outcome is unknown: `witness` is what `destination` holds if it finished. */
 interface IPendingPublish {
     destination: string;
     witness: string;
+    /** What the destination held before, for an `unsettled` record; the latest publish's is the manifest's `baseline`. */
+    baseline?: string | undefined;
 }
 
 export interface IManifest {
     version: 1;
     ext: string;
-    /** The id of the next revision, which also names its file when it needs one. */
+    /** The id of the next revision, which also names its file. Revision 1 is the destination's bytes as opened. */
     next: number;
     current?: IRevision | undefined;
-    /** Revisions kept for undo and redo, oldest first; never contains `current`. */
-    history: IRevision[];
+    /** Revisions kept for undo and redo; never contains `current`. */
+    history: THistoryRevision[];
     destination?: string | undefined;
     /** The witness of the bytes last read from or published to `destination`. */
     baseline?: string | undefined;
+    /** The latest publish while its outcome is unknown; recovery adopts it when the destination holds what it published. */
     pendingPublish?: IPendingPublish | undefined;
+    /** Earlier publishes a later one followed before they could be settled, for example while their destination could not be read. */
+    unsettled?: IPendingPublish[] | undefined;
     /** The immutable file holding the drafts that apply to `current`; absent when there are none. */
     drafts?: string | undefined;
 }
@@ -49,26 +69,29 @@ export interface IManifest {
 export interface IDocumentState {
     id: string;
     current: IRevision | null;
-    history: readonly IRevision[];
+    history: readonly THistoryRevision[];
     destination: string | null;
     baseline: string | null;
     /** Unsaved state not yet in the bytes, applying to `current`; `undefined` when there is none. */
     drafts: unknown;
     dirty: boolean;
+    /** Its unsaved work is in a revision file this computer cannot read; see `DamagedDocumentError`. */
+    damaged: boolean;
 }
 
-/** Bytes to publish: exactly `[0, length)` of `file`, which lives at the store-relative `path`. */
+/** Bytes to publish: exactly `[0, length)` of `file`, which lives at the store-relative `path`; `witness`, what is known of them. */
 export interface IPublishSource {
     path: string;
     length: number;
     file: IStoreFile;
+    witness?: string | undefined;
 }
 
 /**
- * `witness`: facts the platform knows of the file it wrote, joined to the bytes' witness as the new baseline.
- * `keptOriginal`: where bytes another program wrote around the publication were kept.
+ * `witness`: the destination's witness after the write, the new baseline. `keptOriginal`: where bytes another program
+ * wrote around the publication were kept; with `conflict`, that program also changed the destination after the write.
  */
-export type TPublishResult = { status: 'published' | 'conflict'; keptOriginal?: string; witness?: string };
+export type TPublishResult = { status: 'published'; keptOriginal?: string; witness: string } | { status: 'conflict'; keptOriginal?: string };
 
 /** Everything platform-specific about where a document is saved. */
 export interface IPublicationPort {
@@ -77,36 +100,56 @@ export interface IPublicationPort {
      * file metadata alone unless `content` asks for the content witness too, which reads every byte.
      */
     witness(destination: string, content?: boolean): Promise<string | null>;
+    /**
+     * Ends what an interrupted publish of `published` left at `destination`, which held `baseline` before (on desktop,
+     * the file it moved aside), then answers as `witness` does. Throws while the destination cannot be read. Without
+     * it, recovery asks `witness`, for the content when `published` names it.
+     */
+    settle?(destination: string, published: string, baseline: string | null): Promise<string | null>;
     /** The destination's bytes, to copy in as the first revision. */
     source(destination: string): Promise<TExternalSource>;
     /**
-     * Writes `source` to `destination`. With `expected`, refuses with `conflict` unless the destination's
-     * witness still equals it, checked as close to the write as the platform allows. Refusals of another
-     * kind (locked, read-only, folder not writable) throw the adapter's own error.
+     * Writes `source` to `destination`. Before the destination changes, `stage` receives the witness the
+     * destination will have, and is awaited: the core records it as the pending publish. With `expected`, refuses
+     * with `conflict` unless the destination's witness still equals it, checked as close to the write as the
+     * platform allows. Refusals of another kind (locked, read-only, folder not writable) throw the adapter's own error.
      */
-    publish(destination: string, source: IPublishSource, expected: string | null): Promise<TPublishResult>;
+    publish(destination: string, source: IPublishSource, expected: string | null, stage: (witness: string) => Promise<void>): Promise<TPublishResult>;
 }
 
 export interface IDocumentStore {
     port: IStorePort;
     publication: IPublicationPort;
-    /** Bytes that revision files kept only for undo may occupy; the oldest revisions go first. */
-    historyBudget: number;
 }
 
 export type TRevisionWriter = (file: IStoreFile) => Promise<void>;
+/** Where a new revision file's bytes come from: copied in, written, or a file the store takes over. */
+type TRevisionSource = TExternalSource | TRevisionWriter | { move: string };
 /** The drafts a mutation leaves: the current ones, new ones (`undefined` clears), or none. */
 export type TDraftsAfter = 'keep' | 'clear' | { replace: unknown };
-export type TMutation = ({ kind: 'append'; bytes: Uint8Array } | { kind: 'rewrite'; source: TExternalSource | TRevisionWriter })
-    & { drafts: TDraftsAfter };
+/**
+ * New bytes for a document: written from `source`; `move`: a file the caller wrote on the store's file system and
+ * gives up; `extend`: what the caller appended to the current file, up to its end, after `ownCurrentFile`.
+ */
+export type TReplacement = { kind: 'rewrite'; source: TExternalSource | TRevisionWriter } | { kind: 'move'; file: string } | { kind: 'extend' };
+export type TMutation = ({ kind: 'append'; bytes: Uint8Array } | TReplacement) & { drafts: TDraftsAfter };
 export type TStaleRevision = { status: 'stale-revision'; current: IRevision | null };
 export type TMutationResult = { status: 'committed'; revision: IRevision } | TStaleRevision | { status: 'conflict' };
 export type TDraftResult = { status: 'stored'; revision: IRevision | null } | TStaleRevision | { status: 'conflict' };
+/** `revision` is `null` after a restore to the destination's bytes: the document reads its destination again. */
+export type TRestoreResult = { status: 'committed'; revision: IRevision | null } | TStaleRevision | { status: 'conflict' };
 /**
  * `imported`: bytes the person supplied without a destination; they are the baseline, so the document starts clean.
  * `id`: the directory's id when the caller must know it first, for example to lock it before it exists.
  */
 export type TDocumentInit = { ext: string; id?: string } & ({ destination: string } | { source: TExternalSource; imported?: boolean });
+
+/**
+ * The manifest names a current revision whose file is missing or short, as when a profile comes back without it. The
+ * directory stays as it is for an open that finds the file; meanwhile it reads as its destination, stays unsaved, and
+ * refuses every change and Save with this.
+ */
+export class DamagedDocumentError extends Error {}
 
 export function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -128,14 +171,19 @@ function isRevision(value: unknown): value is IRevision {
         && isCount(value.length) && isOptionalString(value.witness);
 }
 
+const isDestinationRevision = (value: unknown) => isRecord(value) && value.id === 1 && typeof value.witness === 'string' && !('file' in value);
+const isPendingPublish = (value: unknown) => isRecord(value) && typeof value.destination === 'string' && typeof value.witness === 'string'
+    && isOptionalString(value.baseline);
+
 function isManifest(value: unknown): value is IManifest {
     return isRecord(value) && value.version === 1 && typeof value.ext === 'string' && EXT_PATTERN.test(value.ext)
-        && isCount(value.next) && Array.isArray(value.history) && value.history.every(isRevision)
+        && isCount(value.next) && Array.isArray(value.history)
+        && value.history.every(revision => isRevision(revision) || isDestinationRevision(revision))
         && (value.current === undefined || isRevision(value.current))
         && isOptionalString(value.destination) && isOptionalString(value.baseline)
         && (value.drafts === undefined || (typeof value.drafts === 'string' && DRAFTS_FILE_PATTERN.test(value.drafts)))
-        && (value.pendingPublish === undefined || (isRecord(value.pendingPublish)
-            && typeof value.pendingPublish.destination === 'string' && typeof value.pendingPublish.witness === 'string'));
+        && (value.pendingPublish === undefined || isPendingPublish(value.pendingPublish))
+        && (value.unsettled === undefined || (Array.isArray(value.unsettled) && value.unsettled.every(isPendingPublish)));
 }
 
 export function decodeManifest(bytes: Uint8Array): IManifest {
@@ -147,36 +195,28 @@ export function decodeManifest(bytes: Uint8Array): IManifest {
 /** Dirty: drafts exist, a publish is unresolved, or the current bytes are not known to equal the baseline. */
 export function isDirty(manifest: IManifest) {
     const { current } = manifest;
-    return manifest.drafts !== undefined || manifest.pendingPublish !== undefined
+    return manifest.drafts !== undefined || manifest.pendingPublish !== undefined || manifest.unsettled !== undefined
         || (current !== undefined && !sameWitness(current.witness, manifest.baseline));
 }
 
 function namedFiles(manifest: IManifest) {
-    const files = [manifest.current, ...manifest.history].flatMap(revision => revision ? [revision.file] : []);
+    const files = [manifest.current, ...manifest.history].flatMap(revision => revision && hasFile(revision) ? [revision.file] : []);
     return new Set(manifest.drafts === undefined ? files : [...files, manifest.drafts]);
-}
-
-/** Drops the oldest revisions until the files only history keeps fit the budget. */
-function trimHistory(history: IRevision[], current: IRevision, budget: number) {
-    const kept = [...history];
-    const historyBytes = () => {
-        const lengths = new Map<string, number>();
-        for (const revision of kept) {
-            if (revision.file !== current.file) lengths.set(revision.file, Math.max(lengths.get(revision.file) ?? 0, revision.length));
-        }
-        return [...lengths.values()].reduce((sum, length) => sum + length, 0);
-    };
-    while (kept.length > 0 && historyBytes() > budget) kept.shift();
-    return kept;
 }
 
 /**
  * One document directory: `manifest.json` (the only commit point), revision files `r<id>.<ext>` that are
  * immutable up to the lengths the manifest names, and the immutable drafts file it names. Calls run one at a
  * time in call order.
+ *
+ * Undo is a restore to a revision `history` keeps. History keeps the revisions the caller last asked to
+ * retain, and the one the latest change replaced; a file nothing names is deleted.
  */
 export class DocumentDirectory {
     private tail: Promise<unknown> = Promise.resolve();
+    private retained: ReadonlySet<number> = new Set();
+    /** Why every call is refused until the directory is opened again; see `commit`. */
+    private refusal: Error | null = null;
 
     private constructor(
         readonly id: string,
@@ -185,13 +225,14 @@ export class DocumentDirectory {
         /** The open handle on the current revision's file. */
         private file: IStoreFile | null,
         private drafts: unknown,
+        readonly damaged = false,
     ) {}
 
     static async create(store: IDocumentStore, init: TDocumentInit) {
         if (!EXT_PATTERN.test(init.ext)) throw new Error(`Unsupported document extension: ${init.ext}`);
         const id = init.id ?? crypto.randomUUID();
         if (!STORE_ID_PATTERN.test(id)) throw new Error(`Invalid document directory id: ${id}`);
-        const manifest: IManifest = { version: 1, ext: init.ext, next: 1, history: [] };
+        const manifest: IManifest = { version: 1, ext: init.ext, next: 2, history: [] };
         const doc = new DocumentDirectory(id, store, manifest, null, undefined);
         if ('destination' in init) {
             const baseline = await store.publication.witness(init.destination);
@@ -200,7 +241,7 @@ export class DocumentDirectory {
         } else {
             const name = `r1.${init.ext}`;
             const { file, length, witness } = await doc.createRevisionFile(name, init.source, init.imported === true);
-            await doc.commit({ ...manifest, next: 2, current: { id: 1, file: name, length, witness }, baseline: witness }, file);
+            await doc.commit({ ...manifest, current: { id: 1, file: name, length, witness }, baseline: witness }, file);
         }
         return doc;
     }
@@ -222,9 +263,11 @@ export class DocumentDirectory {
             await port.writeAtomic(doc.path(drafts), bytes);
             value = decodeJson(bytes);
         }
-        // Bytes past `current.length` (a redo tail) are never read, and the next open cuts them.
         if (current) await port.copy(from(current.file), doc.path(current.file));
-        await doc.commit({ ...manifest, history: [] }, current ? await port.open(doc.path(current.file)) : null, value);
+        const file = current ? await port.open(doc.path(current.file)) : null;
+        // Native tools read the copy to its end: what lies past `current.length` (a redo, an uncommitted append) goes.
+        if (current && file && await file.size() > current.length) await file.truncate(current.length);
+        await doc.commit({ ...manifest, history: [] }, file, value);
         return doc;
     }
 
@@ -235,8 +278,13 @@ export class DocumentDirectory {
         const dir = `${DOCUMENTS_DIR}/${id}`;
         const names = await port.list(dir);
         const manifest = decodeManifest(await port.read(`${dir}/${MANIFEST_NAME}`));
-        const file = manifest.current ? await port.open(`${dir}/${manifest.current.file}`) : null;
+        const { current } = manifest;
+        const file = current && names.includes(current.file) ? await port.open(`${dir}/${current.file}`) : null;
         try {
+            if (current && (!file || await file.size() < current.length)) {
+                await file?.close();
+                return new DocumentDirectory(id, store, { ...manifest, current: undefined, history: [], drafts: undefined }, null, undefined, true);
+            }
             return await DocumentDirectory.recover(store, id, names, manifest, file);
         } catch (error) {
             await file?.close().catch(() => undefined);
@@ -251,10 +299,7 @@ export class DocumentDirectory {
         if (current && file) {
             // 1. Cut an unfinished append. A redo revision can name the same file further than `current`.
             const size = await file.size();
-            const named = Math.max(...[current, ...manifest.history].filter(revision => revision.file === current.file).map(revision => revision.length));
-            if (size < current.length) {
-                throw new Error(`Revision file ${current.file} of document ${id} is shorter than its manifest`);
-            }
+            const named = Math.max(...[current, ...manifest.history.filter(hasFile)].filter(revision => revision.file === current.file).map(revision => revision.length));
             if (size > named) {
                 await file.truncate(named);
                 await file.flush();
@@ -281,7 +326,8 @@ export class DocumentDirectory {
             destination: manifest.destination ?? null,
             baseline: manifest.baseline ?? null,
             drafts: this.drafts,
-            dirty: isDirty(manifest),
+            dirty: this.damaged || isDirty(manifest),
+            damaged: this.damaged,
         };
     }
 
@@ -296,31 +342,49 @@ export class DocumentDirectory {
         return this.run(() => this.applyMutation(expected, mutation));
     }
 
-    /** Makes a retained revision current again: undo, or redo after an undo. */
-    restore(revisionId: number) {
-        return this.run(async (): Promise<TMutationResult> => {
+    /**
+     * Makes revision `revisionId` that history keeps current again, on top of revision `expected`: undo, or redo
+     * after an undo. One manifest replace; nothing is copied. Drafts described the replaced bytes, so they go.
+     */
+    restore(expected: number | null, revisionId: number) {
+        return this.run(async (): Promise<TRestoreResult> => {
+            const stale = this.staleRevision(expected);
+            if (stale) return stale;
             const { manifest } = this;
             const { current } = manifest;
-            if (current?.id === revisionId) return { status: 'committed', revision: current };
+            if ((current?.id ?? 1) === revisionId) return { status: 'committed', revision: current ?? null };
             const target = manifest.history.find(revision => revision.id === revisionId);
-            if (!current || !target) return { status: 'stale-revision', current: current ?? null };
-            const file = target.file === current.file ? this.file : await this.store.port.open(this.path(target.file));
+            if (!target) return { status: 'stale-revision', current: current ?? null };
+            if (!hasFile(target) && !(sameWitness(target.witness, manifest.baseline) && manifest.destination !== undefined
+                && sameWitness(await this.store.publication.witness(manifest.destination), target.witness))) return { status: 'conflict' };
+            const file = !hasFile(target) ? null : target.file === current?.file ? this.file : await this.store.port.open(this.path(target.file));
             await this.commit({
                 ...manifest,
-                current: target,
-                history: [...manifest.history.filter(revision => revision !== target), current],
+                current: hasFile(target) ? target : undefined,
+                history: this.historyAfter(manifest.history.filter(revision => revision !== target)),
                 drafts: undefined,
             }, file);
-            return { status: 'committed', revision: target };
+            return { status: 'committed', revision: hasFile(target) ? target : null };
         });
     }
 
-    /** Stores unsaved state for revision `expected`; `undefined` deletes it. The first drafts copy the bytes in. */
+    /** Keeps exactly the revisions `revisionIds` names in history, from now on and after every change. */
+    retain(revisionIds: readonly number[]) {
+        return this.run(async () => {
+            this.retained = new Set(revisionIds);
+            const history = this.manifest.history.filter(revision => this.retained.has(revision.id));
+            if (history.length < this.manifest.history.length) await this.commit({ ...this.manifest, history });
+        });
+    }
+
+    /**
+     * Stores unsaved state for revision `expected`; `undefined` deletes it. Nothing is copied: without bytes of its own
+     * the drafts apply to the destination the baseline names, and a Save meets a destination changed since as a conflict.
+     */
     setDrafts(expected: number | null, drafts: unknown) {
         return this.run(async (): Promise<TDraftResult> => {
             const stale = this.staleRevision(expected);
             if (stale) return stale;
-            if (drafts !== undefined && !await this.ensureCurrent()) return { status: 'conflict' };
             const after = await this.writeDrafts({ replace: drafts });
             await this.commit({ ...this.manifest, drafts: after.name }, this.file, after.value);
             return { status: 'stored', revision: this.manifest.current ?? null };
@@ -336,6 +400,35 @@ export class DocumentDirectory {
     }
 
     /**
+     * Makes the current revision's file hold exactly its bytes, for readers that read a file to its end and for a
+     * caller that appends to it in place and commits with `extend`. Revisions that name more of the file, such as a
+     * redo after an undo, move to a copy of it; bytes past the revision, which belong to nobody (what a failed append
+     * left, say), are cut. Returns the current revision; `null`, changing nothing, when the document has no bytes of
+     * its own.
+     */
+    ownCurrentFile() {
+        return this.run(async () => {
+            const { current } = this.manifest;
+            if (!current) return null;
+            const longer = this.longerThanCurrent();
+            if (longer.length > 0) await this.moveToCopy(longer);
+            if (await this.currentFile().size() > current.length) await this.currentFile().truncate(current.length);
+            return current;
+        });
+    }
+
+    /**
+     * Stops using the current file: every revision in it moves to a copy holding exactly what they name, so a writer
+     * that may still be appending to the old file writes where nobody reads. The old file goes once nothing holds it.
+     */
+    abandonCurrentFile() {
+        return this.run(async () => {
+            const { current, history } = this.manifest;
+            if (current) await this.moveToCopy([current, ...history.filter(hasFile).filter(other => other.file === current.file)]);
+        });
+    }
+
+    /**
      * The store path the next revision's file will have. A caller may prepare that file itself, such as a native
      * tool's output, and commit it with a rewrite whose writer leaves it as it is; while no manifest names it,
      * recovery removes it. Valid until the next change to this directory commits.
@@ -345,17 +438,23 @@ export class DocumentDirectory {
     }
 
     close() {
-        return this.run(async () => {
+        const closed = this.tail.then(async () => {
             await this.file?.close();
             this.file = null;
         });
+        this.tail = closed.catch(() => undefined);
+        return closed;
     }
 
     // The members below are the steps `saveDocument` composes; application code uses the methods above.
 
-    /** Runs `task` after every earlier call on this directory has settled. */
+    /** Runs `task` after every earlier call on this directory has settled; a damaged or refusing directory runs nothing. */
     run<T>(task: () => Promise<T>): Promise<T> {
-        const result = this.tail.then(task);
+        if (this.damaged) return Promise.reject(new DamagedDocumentError(`The unsaved changes of document ${this.id} are in a revision file that is missing or cut short`));
+        const result = this.tail.then(() => {
+            if (this.refusal) throw this.refusal;
+            return task();
+        });
         this.tail = result.catch(() => undefined);
         return result;
     }
@@ -378,80 +477,164 @@ export class DocumentDirectory {
         return (current?.id ?? null) === expected ? null : { status: 'stale-revision', current };
     }
 
+    /**
+     * A rewrite or move supplies all the new bytes: on a document without bytes of its own nothing is copied in, the
+     * destination's bytes stay revision 1 for undo, and the baseline still guards the publication. An append needs
+     * them in front, so it copies them in. An append or extend grows the current file in place unless another
+     * revision names more of it.
+     */
     async applyMutation(expected: number | null, mutation: TMutation): Promise<TMutationResult> {
         const stale = this.staleRevision(expected);
         if (stale) return stale;
-        const base = await this.ensureCurrent();
-        if (!base) return { status: 'conflict' };
-        const drafts = await this.writeDrafts(mutation.drafts);
+        const base = mutation.kind === 'append' ? await this.ensureCurrent() : this.manifest.current;
+        if (base === null) return { status: 'conflict' };
         const manifest = this.manifest;
         const id = manifest.next;
         let revision: IRevision;
         let file = this.file;
-        const redoSharesFile = manifest.history.some(other => other.file === base.file && other.length > base.length);
-        if (mutation.kind === 'append' && !redoSharesFile) {
-            await this.currentFile().writeAt(base.length, mutation.bytes);
+        const extended = base && this.longerThanCurrent().length === 0 ? base : null;
+        if ((mutation.kind === 'append' || mutation.kind === 'extend') && extended) {
+            if (mutation.kind === 'append') await this.currentFile().writeAt(extended.length, mutation.bytes);
             await this.currentFile().flush();
-            revision = { id, file: base.file, length: base.length + mutation.bytes.byteLength };
+            const length = mutation.kind === 'append' ? extended.length + mutation.bytes.byteLength : await this.currentFile().size();
+            revision = { id, file: extended.file, length };
+        } else if (mutation.kind === 'extend') {
+            throw new Error(`Document ${this.id} cannot extend a file another revision extends`);
         } else {
             const name = `r${id}.${manifest.ext}`;
-            const created = await this.createRevisionFile(name, mutation.kind === 'rewrite' ? mutation.source : this.copyThenAppend(base, mutation.bytes));
+            const source = mutation.kind === 'rewrite' ? mutation.source
+                : mutation.kind === 'move' ? { move: mutation.file } : this.copyThenAppend(base!, mutation.bytes);
+            const created = await this.createRevisionFile(name, source);
             file = created.file;
             revision = { id, file: name, length: created.length };
         }
-        const history = trimHistory([...manifest.history, base], revision, this.store.historyBudget);
-        await this.commit({ ...manifest, next: id + 1, current: revision, history, drafts: drafts.name }, file, drafts.value);
+        const drafts = await this.writeDrafts(mutation.drafts);
+        await this.commit({ ...manifest, next: id + 1, current: revision, history: this.historyAfter(manifest.history), drafts: drafts.name }, file, drafts.value);
         return { status: 'committed', revision };
     }
 
+    /** Moves `moved`, revisions in one file, to a copy of it cut to the most they name: one manifest replace. */
+    private async moveToCopy(moved: IRevision[]) {
+        const { manifest } = this;
+        const name = `r${manifest.next}.${manifest.ext}`;
+        await this.store.port.copy(this.path(moved[0]!.file), this.path(name)).catch(async (error: unknown) => {
+            await this.store.port.remove(this.path(name));
+            throw error;
+        });
+        const file = await this.store.port.open(this.path(name));
+        const length = Math.max(...moved.map(revision => revision.length));
+        if (await file.size() > length) await file.truncate(length);
+        const rename = <T extends THistoryRevision>(revision: T): T => (moved.includes(revision as IRevision) ? { ...revision, file: name } as T : revision);
+        const current = manifest.current && rename(manifest.current);
+        if (current === manifest.current) await file.close();
+        await this.commit({ ...manifest, next: manifest.next + 1, current, history: manifest.history.map(rename) }, current === manifest.current ? this.file : file);
+    }
+
+    /** The revisions that name more of the current file than the current revision: it may grow in place without them. */
+    private longerThanCurrent() {
+        const { current, history } = this.manifest;
+        return history.filter(hasFile).filter(other => current !== undefined && other.file === current.file && other.length > current.length);
+    }
+
+    /** The history a change leaves: what the caller retains, and the revision the change replaces. */
+    private historyAfter(history: readonly THistoryRevision[]): THistoryRevision[] {
+        const { current, baseline } = this.manifest;
+        const replaced: THistoryRevision | undefined = current ?? (baseline === undefined ? undefined : { id: 1, witness: baseline });
+        return [...history.filter(revision => this.retained.has(revision.id) && revision.id !== replaced?.id), ...replaced ? [replaced] : []];
+    }
+
     /**
-     * The current revision, copying the destination in as the first one when there is none. `null` when the
-     * destination no longer holds the baseline: edits must not land on bytes the person has not seen.
+     * Gives revision 1, which history keeps without a file while the destination holds it, a file of its own: a publish
+     * is about to replace the destination's bytes or make another file the destination. Nothing when history keeps no
+     * such revision, or when the destination no longer holds it or cannot be read: the publish goes ahead, and undo to
+     * that revision is refused as before.
      */
+    async keepDestinationRevision() {
+        const { manifest } = this;
+        const { destination } = manifest;
+        const kept = manifest.history.find(revision => !hasFile(revision));
+        if (!kept || destination === undefined || !sameWitness(kept.witness, manifest.baseline)) return;
+        const name = `r1.${manifest.ext}`;
+        const created = await this.store.publication.source(destination).then(source => this.createFromDestination(name, source)).catch(() => null);
+        if (!created) return;
+        await created.file.close();
+        const revision: IRevision = { id: 1, file: name, length: created.length, witness: kept.witness };
+        await this.commit({ ...manifest, history: manifest.history.map(other => (other === kept ? revision : other)) });
+    }
+
+    /** The current revision, copying the destination in as revision 1 when there is none; `null` on a conflict. */
     async ensureCurrent(): Promise<IRevision | null> {
         const { manifest } = this;
         if (manifest.current) return manifest.current;
         if (manifest.destination === undefined) throw new Error(`Document ${this.id} has neither bytes nor a destination`);
-        const id = manifest.next;
-        const name = `r${id}.${manifest.ext}`;
-        const { file, length } = await this.createRevisionFile(name, await this.store.publication.source(manifest.destination));
-        // The destination still holds the baseline after the copy, so the copy holds the baseline's bytes.
-        if (!sameWitness(await this.store.publication.witness(manifest.destination), manifest.baseline)) {
-            await file.close();
-            await this.store.port.remove(this.path(name));
-            return null;
-        }
-        const current = { id, file: name, length, witness: manifest.baseline };
-        await this.commit({ ...manifest, next: id + 1, current }, file);
+        const name = `r1.${manifest.ext}`;
+        const created = await this.createFromDestination(name, await this.store.publication.source(manifest.destination));
+        if (!created) return null;
+        const current = { id: 1, file: name, length: created.length, witness: manifest.baseline };
+        await this.commit({ ...manifest, current }, created.file);
         return current;
     }
 
-    /** Recovery step 3, also run before every Save: adopt or drop a publish whose outcome is unknown. */
+    /**
+     * A revision file made from bytes read from the destination. `null`, and no file, when the destination no
+     * longer holds the baseline afterwards: edits must not land on bytes the person has not seen.
+     */
+    private async createFromDestination(name: string, source: TRevisionSource) {
+        const created = await this.createRevisionFile(name, source);
+        if (sameWitness(await this.store.publication.witness(this.manifest.destination!), this.manifest.baseline)) return created;
+        await created.file.close();
+        await this.store.port.remove(this.path(name));
+        return null;
+    }
+
+    /**
+     * Recovery step 3, also run before every Save: settles each publish whose outcome is unknown and drops its record,
+     * adopting the latest when its destination holds what it published. A record whose destination cannot be read
+     * now, for example held by another program, stays for the next open or Save.
+     */
     async resolvePending() {
         const { manifest } = this;
-        const pending = manifest.pendingPublish;
-        if (!pending) return;
-        const witness = await this.store.publication.witness(pending.destination, true).catch(() => undefined);
-        // Unreadable now, for example held by another program: the next open or Save decides.
-        if (witness === undefined) return;
-        const adopted = witness && sameWitness(witness, pending.witness) ? { destination: pending.destination, baseline: witness } : {};
-        await this.commit({ ...manifest, ...adopted, pendingPublish: undefined });
+        const { pendingPublish: pending, unsettled = [] } = manifest;
+        if (!pending && unsettled.length === 0) return;
+        const { publication } = this.store;
+        // A witness without content names the published file by its metadata, which is enough to compare.
+        const settle = (record: IPendingPublish, baseline: string | undefined) => (publication.settle
+            ? publication.settle(record.destination, record.witness, baseline ?? null)
+            : publication.witness(record.destination, contentOf(record.witness) !== undefined)).catch(() => undefined);
+        const left: IPendingPublish[] = [];
+        for (const record of unsettled) {
+            if (await settle(record, record.baseline) === undefined) left.push(record);
+        }
+        const witness = pending && await settle(pending, manifest.baseline);
+        const adopted = pending && witness && sameWitness(witness, pending.witness) ? { destination: pending.destination, baseline: witness } : {};
+        const next = { ...manifest, ...adopted, pendingPublish: witness === undefined ? pending : undefined, unsettled: left.length > 0 ? left : undefined };
+        if (JSON.stringify(next) !== JSON.stringify(manifest)) await this.commit(next);
     }
 
     /**
      * Replaces the manifest, the only commit point, then makes `file` the current file's handle and `drafts`
      * the value of the drafts file it names, and deletes the files the new manifest no longer names. Failures
      * after the replace are left to recovery, which deletes the same things, so a committed change never
-     * reports failure. A new `file` is closed when the replace fails.
+     * reports failure. A replace that fails may still have landed (its directory flush failed, say), so this
+     * continues from the manifest the disk holds: the new one, kept without deleting what the old one named,
+     * since it may not be durable; or the old one, closing a new `file`. A disk that shows neither leaves the
+     * directory refusing everything until it is opened again.
      */
     async commit(next: IManifest, file: IStoreFile | null = this.file, drafts: unknown = this.drafts) {
         const { port } = this.store;
         const before = this.manifest;
+        const text = JSON.stringify(next);
+        let failure: unknown;
         try {
-            await port.writeAtomic(this.path(MANIFEST_NAME), encodeJson(next));
+            await port.writeAtomic(this.path(MANIFEST_NAME), new TextEncoder().encode(text));
         } catch (error) {
-            if (file !== this.file) await file?.close().catch(() => undefined);
-            throw error;
+            failure = error;
+            const onDisk = await port.read(this.path(MANIFEST_NAME)).then(bytes => new TextDecoder().decode(bytes), () => null);
+            if (onDisk !== text) {
+                if (file !== this.file) await file?.close().catch(() => undefined);
+                if (onDisk !== JSON.stringify(before)) this.refusal = new Error(`Document ${this.id} lost track of its manifest; open it again`, { cause: error });
+                throw error;
+            }
         }
         this.manifest = next;
         this.drafts = next.drafts === undefined ? undefined : drafts;
@@ -459,6 +642,7 @@ export class DocumentDirectory {
             await this.file?.close().catch(() => undefined);
             this.file = file;
         }
+        if (failure !== undefined) throw failure;
         const named = namedFiles(next);
         for (const name of namedFiles(before)) {
             if (!named.has(name)) await port.remove(this.path(name)).catch(() => undefined);
@@ -475,11 +659,16 @@ export class DocumentDirectory {
     }
 
     /** Creates a revision file from `source`; with `withWitness`, also returns the content witness of its bytes. */
-    private async createRevisionFile(name: string, source: TExternalSource | TRevisionWriter, withWitness = false) {
+    private async createRevisionFile(name: string, source: TRevisionSource, withWitness = false) {
         const { port } = this.store;
         const path = this.path(name);
         try {
-            if (typeof source !== 'function') await port.copyIn(source, path);
+            if (typeof source === 'object' && 'move' in source) {
+                if (!port.move) throw new Error('This store cannot take files in');
+                await port.move(source.move, path);
+            } else if (typeof source !== 'function') {
+                await port.copyIn(source, path);
+            }
             const file = await port.open(path);
             try {
                 if (typeof source === 'function') {

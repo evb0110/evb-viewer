@@ -29,11 +29,7 @@ import {requireRequestId} from '@contracts/shared';
 import type { BrowserDocumentStore } from '@app/platform/browserDocumentStore';
 import {BROWSER_MAX_FULL_READ_BYTES as BROWSER_FULL_READ_LIMIT} from '@app/platform/browser/browserDocumentConstants';
 import {BROWSER_PDF_COMBINE_MAX_REQUEST_BYTES} from '@contracts/browserPdfCombineWorker';
-import {BROWSER_PAGE_OPS_MAX_REQUEST_BYTES} from '@contracts/browserPageOpsLimits';
 import {BROWSER_QPDF_MAX_INPUT_BYTES} from '@contracts/browserQpdfEngine';
-import {
-    DOCUMENT_LIST_HEADER, U32_BYTES,
-} from '@contracts/browserPageOpsWasm.generated';
 import {
     FakeLockManager,
     MemoryStorage,
@@ -345,8 +341,8 @@ async function loadBrowserDocumentsFileCapability(
     const storeRoot = await mkdtemp(join(process.env.TMPDIR ?? tmpdir(), 'browser-document-store-'));
     storeRoots.push(storeRoot);
     vi.spyOn(browserDocumentStore, 'stores').mockResolvedValue({
-        durable: {port: createNodeStorePort(storeRoot), publication: browserPublication, historyBudget: 0},
-        memory: {port: createMemoryStorePort(), publication: browserPublication, historyBudget: 0},
+        durable: {port: createNodeStorePort(storeRoot), publication: browserPublication},
+        memory: {port: createMemoryStorePort(), publication: browserPublication},
     });
 
     return {
@@ -453,9 +449,12 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
             expect(downloads).toHaveLength(1);
             expect(new Uint8Array(await downloads[0]!.arrayBuffer())).toEqual(edited);
         } else expect(physical).toEqual(expected);
-        await expect(store.read(working)).resolves.toEqual(expected);
+        // A Save the file refused keeps the edits it committed in the working copy, unsaved; a cancelled pick commits nothing.
+        await expect(store.read(working)).resolves.toEqual(outcome === 'cancel' ? original : edited);
         await expect(store.read(source)).resolves.toEqual(expected);
-        if (outcome === 'cancel' || outcome === 'denied') expect((await store.getDocumentRevision(working)).token).toBe(revision.token);
+        const token = (await store.getDocumentRevision(working)).token;
+        if (outcome === 'cancel') expect(token).toBe(revision.token);
+        if (outcome === 'denied') expect(token).not.toBe(revision.token);
     });
 
     it.each([
@@ -551,101 +550,6 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
         const { capability } = await loadBrowserDocumentsFileCapability();
 
         await expect(capability.showItemInFolder(requireDocumentRef('browser://documents/source.pdf'))).resolves.toBe(false);
-    });
-
-    it('opens a chosen folder\'s own supported files in natural name order, as desktop does', async () => {
-        const folder = (entries: Array<{
-            name: string;
-            kind: 'file' | 'directory'
-        }>) => ({
-            kind: 'directory',
-            name: 'scans',
-            async* values() {
-                for (const entry of entries) {
-                    yield entry.kind === 'file'
-                        ? createFileSystemFileHandle({
-                            name: entry.name,
-                            getFile: async () => new File([Uint8Array.of(entry.name.length)], entry.name),
-                        })
-                        : {
-                            kind: 'directory',
-                            name: entry.name,
-                        };
-                }
-            },
-        });
-        let chosen: ReturnType<typeof folder> | null = folder([
-            {
-                name: 'page-10.pdf',
-                kind: 'file',
-            },
-            {
-                name: 'notes.txt',
-                kind: 'file',
-            },
-            {
-                name: 'page-2.PNG',
-                kind: 'file',
-            },
-            {
-                name: 'nested.pdf',
-                kind: 'directory',
-            },
-            {
-                name: 'page-1.pdf',
-                kind: 'file',
-            },
-        ]);
-        const {capability} = await loadBrowserDocumentsFileCapability({windowOverrides: {showDirectoryPicker: async () => {
-            if (!chosen) throw new DOMException('Canceled', 'AbortError');
-            return chosen;
-        }}});
-        browserPdfCombineWorkerMock.canUse.mockReturnValue(true);
-        browserPdfCombineWorkerMock.run.mockResolvedValue({data: await createPdfBytes()});
-
-        await expect(capability.openFolderDialog()).resolves.toMatchObject({
-            kind: 'pdf',
-            isGenerated: true,
-        });
-        expect(browserPdfCombineWorkerMock.run).toHaveBeenCalledWith('combinePdfs', {inputs: [
-            'page-1.pdf',
-            'page-2.PNG',
-            'page-10.pdf',
-        ].map(fileName => ({
-            fileName,
-            data: Uint8Array.of(fileName.length),
-        }))});
-
-        chosen = folder([{
-            name: 'notes.txt',
-            kind: 'file',
-        }]);
-        await expect(capability.openFolderDialog()).rejects.toThrow('No supported documents were found in the selected folder');
-        chosen = null;
-        await expect(capability.openFolderDialog()).resolves.toBeNull();
-    });
-
-    it('opens a lone supported file of a folder chosen through a directory input as itself', async () => {
-        const pdfBytes = await createPdfBytes();
-        const inFolder = (relativePath: string, data: Uint8Array<ArrayBuffer>) => {
-            const file = new File([data], relativePath.split('/').at(-1)!, {type: 'application/pdf'});
-            Object.defineProperty(file, 'webkitRelativePath', {value: relativePath});
-            return file;
-        };
-        const {
-            capability, browserDocumentStore,
-        } = await loadBrowserDocumentsFileCapability({inputFiles: [
-            inFolder('scans/sub/deeper.pdf', Uint8Array.of(1)),
-            inFolder('scans/readme.txt', Uint8Array.of(2)),
-            inFolder('scans/only.pdf', pdfBytes),
-        ]});
-
-        const opened = await capability.openFolderDialog();
-
-        if (opened?.kind !== 'pdf') throw new Error('Expected the folder\'s PDF to open');
-        expect(opened).not.toHaveProperty('isGenerated');
-        await expect(browserDocumentStore.read(opened.workingPath)).resolves.toEqual(pdfBytes);
-        expect((await capability.recentFiles.get()).map(file => file.fileName)).toEqual(['only.pdf']);
     });
 
     it('parses a working copy through WASM after checking the browser full-read budget', async () => {
@@ -1041,7 +945,7 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
             {...PDF_SOURCE_OPTIONS},
         );
         browserPdfCombineWorkerMock.canUse.mockReturnValue(true);
-        browserPdfCombineWorkerMock.run.mockResolvedValue({data: Uint8Array.of(9, 8, 7)});
+        browserAnnotationParseMock.run.mockResolvedValue({status: 'written', pageCount: 2, length: 3, data: Uint8Array.of(9, 8, 7)});
 
         const progressEvents: Array<{
             operation: string;
@@ -1085,14 +989,11 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
         ]));
     });
 
+    // PDFs are merged by range and have no such budget.
     it.each([
         [
             'png',
             BROWSER_PDF_COMBINE_MAX_REQUEST_BYTES,
-        ],
-        [
-            'pdf',
-            BROWSER_PAGE_OPS_MAX_REQUEST_BYTES - DOCUMENT_LIST_HEADER.bytes - 2 * U32_BYTES,
         ],
     ] as const)('rejects a %s selection exceeding its combined request budget before reading its files', async (extension, budget) => {
         const {browserDocumentStore} = await loadBrowserDocumentsFileCapability();
@@ -1143,24 +1044,26 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
             },
         );
         browserPdfCombineWorkerMock.canUse.mockReturnValue(true);
-        browserPdfCombineWorkerMock.run.mockResolvedValue({data: Uint8Array.of(7, 8, 9)});
+        browserPdfCombineWorkerMock.run.mockResolvedValue({data: Uint8Array.of(7, 8)});
+        browserAnnotationParseMock.run.mockResolvedValue({status: 'written', pageCount: 2, length: 3, data: Uint8Array.of(7, 8, 9)});
 
         const result = await createCombinedPdfFromPaths([
             pdfRef,
             imageRef,
         ]);
 
-        expect(result).toEqual(Uint8Array.of(7, 8, 9));
-        expect(browserPdfCombineWorkerMock.run).toHaveBeenCalledWith('combinePdfs', {inputs: [
-            {
-                fileName: 'first.pdf',
-                data: Uint8Array.of(1, 2, 3),
-            },
-            {
-                fileName: 'photo.png',
-                data: Uint8Array.of(4, 5, 6),
-            },
-        ]});
+        await expect(browserDocumentStore.read(result)).resolves.toEqual(Uint8Array.of(7, 8, 9));
+        // The image becomes a PDF in the combine worker; the page tool merges it after the PDF, read in place.
+        expect(browserPdfCombineWorkerMock.run).toHaveBeenCalledWith('combinePdfs', {inputs: [{
+            fileName: 'photo.png',
+            data: Uint8Array.of(4, 5, 6),
+        }]});
+        const [type, request] = browserAnnotationParseMock.run.mock.calls[0]!;
+        expect(type).toBe('pageStructure');
+        expect(request).toMatchObject({edit: {kind: 'merge'}, output: null});
+        const sources = (request as {sources: Blob[]}).sources;
+        await expect(Promise.all(sources.map(async source => [...new Uint8Array(await source.arrayBuffer())])))
+            .resolves.toEqual([[1, 2, 3], [7, 8]]);
     });
 
     it('does not publish a direct batch when the browser combine worker is unavailable', async () => {
@@ -1249,18 +1152,18 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
             };
         });
         browserPdfCombineWorkerMock.canUse.mockReturnValue(true);
-        browserPdfCombineWorkerMock.run.mockImplementation(async (_type, payload) => {
+        browserAnnotationParseMock.run.mockImplementation(async (_type, payload) => {
             const combinedDocument = await PDFDocument.create();
-            const inputs = (payload as {inputs: Array<{data: Uint8Array;}>}).inputs;
-            for (const input of inputs) {
-                const sourceDocument = await PDFDocument.load(input.data);
+            for (const source of (payload as {sources: Blob[]}).sources) {
+                const sourceDocument = await PDFDocument.load(await source.arrayBuffer());
                 const pages = await combinedDocument.copyPages(
                     sourceDocument,
                     sourceDocument.getPageIndices(),
                 );
                 pages.forEach(page => combinedDocument.addPage(page));
             }
-            return {data: new Uint8Array(await combinedDocument.save())};
+            const data = new Uint8Array(await combinedDocument.save());
+            return {status: 'written', pageCount: combinedDocument.getPageCount(), length: data.byteLength, data};
         });
 
         const result = await capability.openDocumentDirectBatch([
@@ -1335,7 +1238,7 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
             };
         });
         browserPdfCombineWorkerMock.canUse.mockReturnValue(true);
-        browserPdfCombineWorkerMock.run.mockRejectedValue(new Error('browser worker failed'));
+        browserAnnotationParseMock.run.mockRejectedValue(new Error('browser worker failed'));
 
         await expect(capability.openDocumentDirectBatch([
             pdfRef,
@@ -1445,7 +1348,7 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
             return {success: true};
         });
         browserPdfCombineWorkerMock.canUse.mockReturnValue(true);
-        browserPdfCombineWorkerMock.run.mockResolvedValue({data: pdfBytes});
+        browserAnnotationParseMock.run.mockResolvedValue({status: 'written', pageCount: 2, length: pdfBytes.byteLength, data: pdfBytes});
 
         const result = await capability.openDocumentDirectBatch([
             pdfRef,
@@ -1750,10 +1653,13 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
             grantedModes.add(descriptor?.mode ?? '');
             return 'granted' as const;
         });
-        const createWritable = vi.fn(async () => createFileSystemWritableFileStream({write: vi.fn(async (_chunk: FileSystemWriteChunkType) => {})}));
+        let physical = Uint8Array.of(1);
+        const createWritable = vi.fn(async () => createFileSystemWritableFileStream({write: vi.fn(async (chunk: FileSystemWriteChunkType) => {
+            physical = new Uint8Array(requireArrayBufferChunk(chunk));
+        })}));
         const handle = createFileSystemFileHandle({
             name: 'needs-permission.pdf',
-            getFile: vi.fn(async () => new File([Uint8Array.of(1)], 'needs-permission.pdf', {
+            getFile: vi.fn(async () => new File([physical], 'needs-permission.pdf', {
                 type: 'application/pdf',
                 lastModified: 1,
             })),

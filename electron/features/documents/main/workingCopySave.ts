@@ -10,6 +10,7 @@ import {
     dirname,
     join,
 } from 'node:path';
+import {DamagedDocumentError} from '@document-store/documentDirectory';
 import type {TSaveResult} from '@document-store/saveDocument';
 import type { IPdfValidationResult } from '@contracts/pdfConformance';
 import type {
@@ -118,7 +119,7 @@ async function saveRewritten(
         const optimized = await rewrite(await requireDocumentFile(entry), tempPath);
         const validation = optimized ?? await validatePdfFile(tempPath);
         if (!validation.isValid) return validation;
-        const saved = await saveOpenDocument(entry, token, {commit: {kind: 'rewrite', source: tempPath}});
+        const saved = await saveOpenDocument(entry, token, {commit: {kind: 'move', file: tempPath}});
         return saved.status === 'saved' && saved.keptOriginal === undefined ? validation : createOriginalChangedValidationResult();
     } finally {
         await rm(tempPath, {force: true}).catch(() => undefined);
@@ -177,7 +178,7 @@ export async function handleFileSaveStructured(
         });
         return {
             ok: false,
-            reason: 'write-failed',
+            reason: err instanceof DamagedDocumentError ? 'working-copy-missing' : 'write-failed',
             message: getErrorMessage(error),
             externalWriteCommitted: false,
             validation: null,

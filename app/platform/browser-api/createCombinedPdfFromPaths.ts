@@ -34,10 +34,8 @@ import {
 import {PdfCombineCapabilityError} from '@contracts/pdfCombineErrors';
 import {createBrowserPdfCombineOutputError} from '@app/platform/browser-api/browserPdfCombineLimits';
 import {BROWSER_PDF_COMBINE_MAX_REQUEST_BYTES} from '@contracts/browserPdfCombineWorker';
-import {BROWSER_PAGE_OPS_MAX_REQUEST_BYTES} from '@contracts/browserPageOpsLimits';
-import {
-    DOCUMENT_LIST_HEADER, U32_BYTES,
-} from '@contracts/browserPageOpsWasm.generated';
+import type {ICreateStoredDocumentOptions} from '@app/platform/browser/browserDocumentRepository';
+import {writePageStructureDocument} from '@app/platform/browser-api/createBrowserPageOpsCapability';
 
 export interface IBrowserBatchOpenProgress {
     processed: number;
@@ -73,6 +71,11 @@ function assertBrowserCombineSources(paths: string[]) {
         `Browser PDF combine cannot process a native document path: ${nativePath}`,
         {operation: 'pdf-combine'},
     );
+}
+
+/** The stored document a combine writes: by default a transient output its caller removes. */
+export interface ICombinedPdfDocument extends Omit<ICreateStoredDocumentOptions, 'mimeType' | 'saveKind'> {
+    fileName: string;
 }
 
 export function assertBrowserCombinedPdfOutputBytes(bytes: Uint8Array) {
@@ -215,9 +218,11 @@ async function createBrowserCombineInputPaths(paths: string[], signal?: AbortSig
     }
 }
 
+/** Combines the files at `paths` into the new stored document `output` and returns its ref. */
 export async function createCombinedPdfFromPaths(
     paths: string[],
     progressOptions?: IBrowserBatchOpenProgressOptions,
+    output: ICombinedPdfDocument = {fileName: 'combined.pdf', kind: 'output', retention: 'transient'},
 ) {
     throwIfCombineAborted(progressOptions?.signal);
     assertBrowserCombineSources(paths);
@@ -226,7 +231,7 @@ export async function createCombinedPdfFromPaths(
         convertedRefs,
     } = await createBrowserCombineInputPaths(paths, progressOptions?.signal);
     try {
-        return await createCombinedPdfFromPreparedPaths(combinePaths, progressOptions);
+        return await createCombinedPdfFromPreparedPaths(combinePaths, output, progressOptions);
     } finally {
         if (convertedRefs.length > 0) {
             await Promise.allSettled(convertedRefs.map(ref => browserDocumentStore.remove(ref)));
@@ -234,13 +239,46 @@ export async function createCombinedPdfFromPaths(
     }
 }
 
+async function combineImages(paths: string[], signal: AbortSignal | undefined) {
+    const inputs = [];
+    for (const path of paths) {
+        throwIfCombineAborted(signal);
+        inputs.push(cloneCombineWorkerInput(
+            getBrowserDocumentFileName(path),
+            await browserDocumentStore.read(path, {maxBytes: BROWSER_PDF_COMBINE_MAX_REQUEST_BYTES}),
+        ));
+    }
+    try {
+        const result = await runBrowserPdfCombineWorkerRequest('combinePdfs', {inputs}, signal);
+        assertBrowserCombinedPdfOutputBytes(result.data);
+        return result.data;
+    } catch (error) {
+        if (error instanceof BrowserPdfCombineWorkerUnavailableError) {
+            throw new PdfCombineCapabilityError(
+                'native-unavailable',
+                'Browser PDF combine worker failed to start',
+                {
+                    operation: 'pdf-combine',
+                    cause: error,
+                },
+            );
+        }
+        throw error;
+    }
+}
+
+/**
+ * PDFs are merged by the page tool, which reads each where it is and writes the output into the stored
+ * document; each run of images becomes one PDF first.
+ */
 async function createCombinedPdfFromPreparedPaths(
     paths: string[],
+    output: ICombinedPdfDocument,
     progressOptions?: IBrowserBatchOpenProgressOptions,
 ) {
-    throwIfCombineAborted(progressOptions?.signal);
+    const signal = progressOptions?.signal;
+    throwIfCombineAborted(signal);
     const startedAt = Date.now();
-    const totalPaths = paths.length;
 
     if (!canCombineBrowserPathsOffThread(paths)) {
         throw new PdfCombineCapabilityError(
@@ -258,51 +296,41 @@ async function createCombinedPdfFromPreparedPaths(
         );
     }
 
-    let remainingBytes = paths.every(path => isPdfFileName(getBrowserDocumentFileName(path)))
-        ? BROWSER_PAGE_OPS_MAX_REQUEST_BYTES - DOCUMENT_LIST_HEADER.bytes - paths.length * U32_BYTES
-        : BROWSER_PDF_COMBINE_MAX_REQUEST_BYTES;
-    const metadata = await Promise.all(paths.map(path => browserDocumentStore.stat(path)));
-    if (metadata.reduce((total, {size}) => total + size, 0) > remainingBytes) {
-        throw buildBrowserByteLimitError('Combining these files', remainingBytes, 'inputs');
+    const isPdf = (path: string) => isPdfFileName(getBrowserDocumentFileName(path));
+    const images = paths.filter(path => !isPdf(path));
+    const imageBytes = (await Promise.all(images.map(path => browserDocumentStore.stat(path)))).reduce((total, {size}) => total + size, 0);
+    if (imageBytes > BROWSER_PDF_COMBINE_MAX_REQUEST_BYTES) {
+        throw buildBrowserByteLimitError('Combining these images', BROWSER_PDF_COMBINE_MAX_REQUEST_BYTES, 'inputs');
     }
-    const inputs = [];
+    const {fileName, ...stored} = output;
+    const options = {...stored, mimeType: 'application/pdf', saveKind: 'pdf'} as const;
+    if (images.length === paths.length) {
+        const data = await combineImages(paths, signal);
+        emitBatchOpenProgress(progressOptions, paths.length, paths.length, startedAt, 95);
+        return browserDocumentStore.createStoredDocument(fileName, data, options);
+    }
 
-    for (let index = 0; index < paths.length; index += 1) {
-        throwIfCombineAborted(progressOptions?.signal);
-        if (index > 0) {
-            await yieldToBrowser();
+    const sources: Blob[] = [];
+    for (let index = 0; index < paths.length;) {
+        throwIfCombineAborted(signal);
+        if (isPdf(paths[index]!)) {
+            sources.push(await browserDocumentStore.readableBlob(paths[index]!));
+            index += 1;
+        } else {
+            let end = index;
+            while (end < paths.length && !isPdf(paths[end]!)) end += 1;
+            sources.push(new Blob([await combineImages(paths.slice(index, end), signal) as Uint8Array<ArrayBuffer>]));
+            index = end;
         }
-
-        const path = paths[index]!;
-        const data = await browserDocumentStore.read(path, {maxBytes: remainingBytes});
-        remainingBytes -= data.byteLength;
-        inputs.push(cloneCombineWorkerInput(
-            getBrowserDocumentFileName(path),
-            data,
-        ));
-        emitBatchOpenProgress(progressOptions, index + 1, totalPaths, startedAt, 80);
+        emitBatchOpenProgress(progressOptions, index, paths.length, startedAt, 80);
     }
-
+    const ref = await browserDocumentStore.createStoredDocument(fileName, new Uint8Array(), options);
     try {
-        const result = await runBrowserPdfCombineWorkerRequest(
-            'combinePdfs',
-            { inputs },
-            progressOptions?.signal,
-        );
-        assertBrowserCombinedPdfOutputBytes(result.data);
-        emitBatchOpenProgress(progressOptions, totalPaths, totalPaths, startedAt, 95);
-        return result.data;
+        await writePageStructureDocument(ref, {kind: 'merge'}, sources, signal);
     } catch (error) {
-        if (error instanceof BrowserPdfCombineWorkerUnavailableError) {
-            throw new PdfCombineCapabilityError(
-                'native-unavailable',
-                'Browser PDF combine worker failed to start',
-                {
-                    operation: 'pdf-combine',
-                    cause: error,
-                },
-            );
-        }
+        await browserDocumentStore.remove(ref).catch(() => undefined);
         throw error;
     }
+    emitBatchOpenProgress(progressOptions, paths.length, paths.length, startedAt, 95);
+    return ref;
 }

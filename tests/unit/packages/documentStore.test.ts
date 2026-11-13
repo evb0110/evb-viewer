@@ -1,9 +1,11 @@
+import { promises } from 'node:fs';
 import {
     mkdtemp,
     readFile,
     readdir,
     rm,
     stat,
+    truncate,
     writeFile,
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -14,11 +16,13 @@ import {
     describe,
     expect,
     it,
+    vi,
 } from 'vitest';
 import { collectDocuments } from '@document-store/collectDocuments';
 import { contentWitness } from '@document-store/contentWitness';
 import {
     createDocument,
+    DamagedDocumentError,
     type DocumentDirectory,
     forkDocument,
     type IDocumentStore,
@@ -42,6 +46,7 @@ import {
 const TWO_GIB = 2 ** 31;
 const encode = (text: string) => new TextEncoder().encode(text);
 const append = (text: string, drafts: TDraftsAfter = 'clear') => ({ kind: 'append' as const, bytes: encode(text), drafts });
+const rewrite = (text: string) => ({ kind: 'rewrite' as const, source: (file: IStoreFile) => file.writeAt(0, encode(text)), drafts: 'clear' as const });
 const witnessOf = (bytes: Uint8Array) => contentWitness(bytes.byteLength, async (offset, length) => bytes.subarray(offset, offset + length));
 
 let workDir = '';
@@ -65,16 +70,19 @@ function filePublication(onPublished = () => {}): IPublicationPort {
     return {
         witness,
         source: async destination => destination,
-        async publish(destination, source, expected) {
+        async publish(destination, source, expected, stage) {
             if (expected !== null && await witness(destination) !== expected) return { status: 'conflict' };
-            await writeFile(destination, await source.file.readAt(0, source.length));
+            const bytes = await source.file.readAt(0, source.length);
+            const published = await witnessOf(bytes);
+            await stage(published);
+            await writeFile(destination, bytes);
             onPublished();
-            return { status: 'published' };
+            return { status: 'published', witness: published };
         },
     };
 }
 
-const store = (port: IStorePort = createNodeStorePort(root), publication = filePublication(), historyBudget = 1 << 20): IDocumentStore => ({ port, publication, historyBudget });
+const store = (port: IStorePort = createNodeStorePort(root), publication = filePublication()): IDocumentStore => ({ port, publication });
 const keep = (doc: DocumentDirectory) => (live.push(doc), doc);
 const create = async (into: IDocumentStore, init: TDocumentInit) => keep(await createDocument(into, init));
 const open = async (from: IDocumentStore, id: string) => keep(await openDocument(from, id));
@@ -117,6 +125,7 @@ function crashingPort(port: IStorePort, at: (operation: string, target: string) 
         },
         copyIn: async (source, target) => (check('copyIn', target), port.copyIn(source, target)),
         copy: async (from, target) => (check('copy', target), port.copy(from, target)),
+        move: async (from, target) => (check('move', target), port.move!(from, target)),
         remove: async target => (check('remove', target), port.remove(target)),
     };
     return { port: crashing, kill: () => Promise.all(opened.map(file => file.close().catch(() => undefined))) };
@@ -152,6 +161,37 @@ describe('document directory', () => {
         expect(await readFile(destination, 'utf8')).toBe('v1');
     });
 
+    it('takes a file the caller wrote in as the next revision without copying it', async () => {
+        const destination = path.join(workDir, 'paper.pdf');
+        await writeFile(destination, 'v1');
+        const doc = await create(store(), { ext: 'pdf', destination });
+        const output = path.join(docDir(doc), '.tool-output.pdf');
+        await writeFile(output, 'v2 from a tool');
+        const { ino } = await stat(output);
+
+        expect(await doc.mutate(null, { kind: 'move', file: output, drafts: 'clear' })).toMatchObject({ status: 'committed' });
+        expect(await currentText(doc)).toBe('v2 from a tool');
+        expect((await stat(path.join(docDir(doc), doc.state().current!.file))).ino).toBe(ino);
+        await expect(stat(output)).rejects.toThrow();
+        // The destination's bytes were not copied in: they stay revision 1, and undo reads them again.
+        expect((await readdir(docDir(doc))).sort()).toEqual(['manifest.json', 'r2.pdf']);
+        expect(await doc.restore(2, 1)).toEqual({ status: 'committed', revision: null });
+    });
+
+    it('takes a file in as the first revision once the destination changed, and Save refuses to publish over it', async () => {
+        const destination = path.join(workDir, 'paper.pdf');
+        await writeFile(destination, 'v1');
+        const doc = await create(store(), { ext: 'pdf', destination });
+        const output = path.join(docDir(doc), '.tool-output.pdf');
+        await writeFile(output, 'v2 from a tool');
+        await writeFile(destination, 'changed elsewhere');
+
+        expect(await doc.mutate(null, { kind: 'move', file: output, drafts: 'clear' })).toMatchObject({ status: 'committed', revision: { id: 2 } });
+        expect(await saveDocument(doc, { expected: 2 })).toEqual({ status: 'conflict' });
+        expect(await readFile(destination, 'utf8')).toBe('changed elsewhere');
+        expect(await currentText(doc)).toBe('v2 from a tool');
+    });
+
     it('returns stale revisions and a changed destination as results', async () => {
         const destination = path.join(workDir, 'paper.pdf');
         await writeFile(destination, 'v1');
@@ -163,36 +203,118 @@ describe('document directory', () => {
         expect(await readdir(docDir(doc))).toEqual(['manifest.json']);
     });
 
-    it('keeps history within its budget and undoes and redoes across revisions', async () => {
-        const doc = await create(store(undefined, undefined, 10), { ext: 'pdf', source: new Blob(['aaaa']) });
-        const rewrite = (text: string) => ({ kind: 'rewrite' as const, source: (file: IStoreFile) => file.writeAt(0, encode(text)), drafts: 'clear' as const });
+    it('keeps the revisions the caller retains and the one the latest change replaced, and restores them without copying', async () => {
+        const doc = await create(store(), { ext: 'pdf', source: new Blob(['aaaa']) });
         await doc.mutate(1, rewrite('bbbbbbbb'));
         await doc.mutate(2, rewrite('cccccccc'));
         expect(doc.state().history.map(revision => revision.id)).toEqual([2]);
         expect((await readdir(docDir(doc))).sort()).toEqual(['manifest.json', 'r2.pdf', 'r3.pdf']);
-        expect(await doc.restore(1)).toMatchObject({ status: 'stale-revision' });
+        expect(await doc.restore(3, 1)).toMatchObject({ status: 'stale-revision' });
 
-        await doc.restore(2);
+        await doc.retain([2, 3]);
+        await doc.mutate(3, rewrite('dddd'));
+        expect(doc.state().history.map(revision => revision.id).sort()).toEqual([2, 3]);
+        expect(await doc.restore(2, 2)).toMatchObject({ status: 'stale-revision' });
+        await doc.restore(4, 2);
         expect(await currentText(doc)).toBe('bbbbbbbb');
-        await doc.restore(3);
-        expect(await currentText(doc)).toBe('cccccccc');
+        await doc.restore(2, 4);
+        expect(await currentText(doc)).toBe('dddd');
+        expect((await readdir(docDir(doc))).sort()).toEqual(['manifest.json', 'r2.pdf', 'r3.pdf', 'r4.pdf']);
+
+        // A new edit after an undo: the caller drops the redo revision, and its file goes.
+        await doc.restore(4, 3);
+        await doc.retain([2, 3]);
+        await doc.mutate(3, rewrite('eeee'));
+        expect(doc.state().history.map(revision => revision.id).sort()).toEqual([2, 3]);
+        expect((await readdir(docDir(doc))).sort()).toEqual(['manifest.json', 'r2.pdf', 'r3.pdf', 'r5.pdf']);
+        await doc.retain([]);
+        expect((await readdir(docDir(doc))).sort()).toEqual(['manifest.json', 'r5.pdf']);
+    });
+
+    it('rewrites a document without bytes of its own without copying it in, and undoes to its destination', async () => {
+        const destination = path.join(workDir, 'paper.pdf');
+        await writeFile(destination, 'v1');
+        const doc = await create(store(), { ext: 'pdf', destination });
+        expect(await doc.mutate(null, rewrite('v2'))).toMatchObject({ status: 'committed', revision: { id: 2, file: 'r2.pdf' } });
+        expect((await readdir(docDir(doc))).sort()).toEqual(['manifest.json', 'r2.pdf']);
+        expect(doc.state()).toMatchObject({ history: [{ id: 1 }], dirty: true });
+
+        expect(await doc.restore(2, 1)).toEqual({ status: 'committed', revision: null });
+        expect(doc.state()).toMatchObject({ current: null, history: [{ id: 2 }], dirty: false });
+        await doc.restore(null, 2);
+        expect(await currentText(doc)).toBe('v2');
+
+        await writeFile(destination, 'changed elsewhere');
+        expect(await doc.restore(2, 1)).toEqual({ status: 'conflict' });
+        expect(await currentText(doc)).toBe('v2');
+    });
+
+    it('extends the file a caller appended to, and after an undo gives the redo revision a copy so the file holds what is current', async () => {
+        const doc = await create(store(), { ext: 'pdf', source: new Blob(['base']) });
+        const file = path.join(docDir(doc), 'r1.pdf');
+        await writeFile(file, 'base+stale');
+        expect(await doc.ownCurrentFile()).toMatchObject({ id: 1, length: 4 });
+        expect(await readFile(file, 'utf8')).toBe('base');
+
+        await writeFile(file, 'base+1');
+        expect(await doc.mutate(1, { kind: 'extend', drafts: 'clear' })).toMatchObject({ revision: { id: 2, file: 'r1.pdf', length: 6 } });
+        await doc.restore(2, 1);
+        await doc.ownCurrentFile();
+        expect(await readFile(file, 'utf8')).toBe('base');
+        expect(doc.state().history).toMatchObject([{ id: 2, file: 'r3.pdf', length: 6 }]);
+        await doc.restore(1, 2);
+        expect(await currentText(doc)).toBe('base+1');
+
+        // A writer that may still append to the file is left a file nobody reads.
+        await writeFile(path.join(docDir(doc), 'r3.pdf'), 'base+1+late', { flag: 'w' });
+        await doc.abandonCurrentFile();
+        expect(doc.state().current).toMatchObject({ id: 2, file: 'r4.pdf', length: 6 });
+        expect(await readFile(path.join(docDir(doc), 'r4.pdf'), 'utf8')).toBe('base+1');
     });
 
     it('appends after an undo into a new file, so the redo revision keeps its bytes', async () => {
         const doc = await create(store(), { ext: 'pdf', source: new Blob(['base']) });
         await doc.mutate(1, append('+1'));
-        await doc.restore(1);
+        await doc.restore(2, 1);
         expect(await doc.mutate(1, append('+2'))).toMatchObject({ revision: { id: 3, file: 'r3.pdf' } });
         await doc.close();
 
         const reopened = await open(store(), doc.id);
         expect(await currentText(reopened)).toBe('base+2');
-        await reopened.restore(2);
-        expect(await currentText(reopened)).toBe('base+1');
+        await reopened.restore(3, 1);
+        expect(await currentText(reopened)).toBe('base');
     });
 });
 
 describe('recovery after a crash', () => {
+    it.each(['missing', 'cut short'] as const)('leaves a directory whose current revision file is %s as it is until the file is back', async (damage) => {
+        const destination = path.join(workDir, 'report.pdf');
+        await writeFile(destination, 'saved');
+        const doc = await create(store(), { ext: 'pdf', destination });
+        await doc.mutate(null, append('-edited'));
+        await doc.close();
+        const revision = path.join(docDir(doc), 'r1.pdf');
+        const bytes = await readFile(revision);
+        await (damage === 'missing' ? rm(revision) : truncate(revision, 3));
+        const files = async () => Promise.all((await readdir(docDir(doc))).sort().map(async name => [name, await readFile(path.join(docDir(doc), name))]));
+        const before = await files();
+
+        const damaged = await open(store(), doc.id);
+        expect(damaged.state()).toMatchObject({ current: null, destination, dirty: true, damaged: true, drafts: undefined });
+        await expect(damaged.mutate(null, append('-more'))).rejects.toThrow(DamagedDocumentError);
+        await expect(damaged.setDrafts(null, { note: 'kept' })).rejects.toThrow(DamagedDocumentError);
+        await expect(damaged.restore(null, 1)).rejects.toThrow(DamagedDocumentError);
+        await expect(saveDocument(damaged, { expected: null })).rejects.toThrow(DamagedDocumentError);
+        await damaged.close();
+        expect(await files()).toEqual(before);
+        expect(await readFile(destination, 'utf8')).toBe('saved');
+
+        await writeFile(revision, bytes);
+        const recovered = await open(store(), doc.id);
+        expect(recovered.state()).toMatchObject({ dirty: true, damaged: false });
+        expect(await currentText(recovered)).toBe('saved-edited');
+    });
+
     it('cuts an append that crashed while writing', async () => {
         const doc = await create(store(), { ext: 'pdf', source: new Blob(['base']) });
         await crashDuring(doc, (operation, target) => operation === 'writeAt' && target.endsWith('r1.pdf'), crashed => crashed.mutate(1, append('-appended')));
@@ -227,6 +349,52 @@ describe('recovery after a crash', () => {
         expect((await readdir(docDir(doc))).sort()).toEqual(['manifest.json', 'r1.pdf']);
     });
 
+    it('deletes a file taken in as the first revision when the move crashes before its manifest replace', async () => {
+        const destination = path.join(workDir, 'paper.pdf');
+        await writeFile(destination, 'v1');
+        const doc = await create(store(), { ext: 'pdf', destination });
+        const output = path.join(workDir, 'tool-output.pdf');
+        await writeFile(output, 'v2 from a tool');
+        await crashDuring(doc, (operation, target) => operation === 'writeAtomic' && target.endsWith('manifest.json'), crashed => crashed.mutate(null, { kind: 'move', file: output, drafts: 'clear' }));
+        expect((await readdir(docDir(doc))).sort()).toEqual(['manifest.json', 'r2.pdf']);
+
+        const reopened = await open(store(), doc.id);
+        expect(reopened.state()).toMatchObject({ current: null, history: [], dirty: false });
+        expect(await readdir(docDir(doc))).toEqual(['manifest.json']);
+        expect(await readFile(destination, 'utf8')).toBe('v1');
+    });
+
+    it('continues from the manifest a failed replace left on disk, so the next append cannot overwrite committed bytes', async () => {
+        const doc = await create(store(), { ext: 'pdf', source: new Blob(['base']) });
+        await doc.close();
+        const port = createNodeStorePort(root);
+        let manifestWrite: 'lands then fails' | 'fails' | 'unreadable' = 'lands then fails';
+        const flaky: IStorePort = {
+            ...port,
+            async writeAtomic(target, bytes) {
+                if (!target.endsWith('manifest.json')) return port.writeAtomic(target, bytes);
+                if (manifestWrite === 'lands then fails') await port.writeAtomic(target, bytes);
+                throw new Error(`manifest write ${manifestWrite}`);
+            },
+            read: async target => (manifestWrite === 'unreadable' && target.endsWith('manifest.json') ? Promise.reject(new Error('EIO')) : port.read(target)),
+        };
+        const live = await open(store(flaky), doc.id);
+
+        // The rename landed and the directory flush failed: the disk names AAA.
+        await expect(live.mutate(1, append('AAA'))).rejects.toThrow('lands then fails');
+        expect(live.state().current).toMatchObject({ id: 2, length: 7 });
+        // The next append starts after AAA; its own manifest write fails before landing.
+        manifestWrite = 'fails';
+        await expect(live.mutate(2, append('BBB'))).rejects.toThrow('fails');
+        expect(live.state().current).toMatchObject({ id: 2, length: 7 });
+        manifestWrite = 'unreadable';
+        await expect(live.mutate(2, append('CCC'))).rejects.toThrow('unreadable');
+        await expect(live.mutate(2, append('DDD'))).rejects.toThrow('open it again');
+        await live.close();
+
+        expect(await currentText(await open(store(), doc.id))).toBe('baseAAA');
+    });
+
     it('keeps the drafts a mutation keeps when it crashes right after its manifest replace', async () => {
         const doc = await create(store(), { ext: 'pdf', source: new Blob(['base']) });
         await doc.setDrafts(1, { note: 'first' });
@@ -256,6 +424,30 @@ describe('recovery after a crash', () => {
         await reopened.mutate(2, append('+more'));
         expect(reopened.state().drafts).toBeUndefined();
         expect((await readdir(docDir(doc))).sort()).toEqual(['manifest.json', 'r1.pdf']);
+    });
+
+    it.each([
+        ['before', false, 'three', ['manifest.json', 'r1.pdf', 'r2.pdf', 'r3.pdf']],
+        ['right after', true, 'one', ['manifest.json', 'r1.pdf', 'r3.pdf']],
+    ])('leaves the old or the restored revision when an undo crashes %s its manifest replace', async (_label, afterReplace, text, files) => {
+        const doc = await create(store(), { ext: 'pdf', source: new Blob(['one']) });
+        await doc.mutate(1, rewrite('two'));
+        await doc.retain([1]);
+        await doc.mutate(2, rewrite('three'));
+        let replaced = false;
+        await crashDuring(doc, (operation, target) => {
+            const manifest = operation === 'writeAtomic' && target.endsWith('manifest.json');
+            if (!afterReplace || replaced) return manifest || replaced;
+            replaced = manifest;
+            return false;
+        }, async crashed => {
+            await crashed.restore(3, 1);
+            await crashed.setDrafts(1, { note: 'lost' });
+        });
+
+        const reopened = await open(store(), doc.id);
+        expect(await currentText(reopened)).toBe(text);
+        expect((await readdir(docDir(doc))).sort()).toEqual(files);
     });
 
     it.each([
@@ -338,16 +530,19 @@ describe('save', () => {
         await writeFile(destination, 'v1');
         const doc = await create(store(), { ext: 'pdf', destination });
         await doc.setDrafts(null, { note: 'unsaved' });
+        // Drafts alone copy nothing: they apply to the destination.
+        expect(doc.state()).toMatchObject({ current: null, drafts: { note: 'unsaved' }, dirty: true });
+        expect((await readdir(docDir(doc))).filter(name => name.startsWith('r'))).toEqual([]);
 
-        const saved = await saveDocument(doc, { expected: 1, commit: append('+note') });
+        const saved = await saveDocument(doc, { expected: null, commit: append('+note') });
         expect(saved).toMatchObject({ status: 'saved', revision: { id: 2 } });
         expect(await readFile(destination, 'utf8')).toBe('v1+note');
         expect(doc.state()).toMatchObject({ drafts: undefined, dirty: false });
         expect(await saveDocument(doc, { expected: 2 })).toMatchObject({ status: 'saved' });
 
-        await doc.restore(1);
+        await doc.restore(2, 1);
         expect(doc.state().dirty).toBe(true);
-        await doc.restore(2);
+        await doc.restore(1, 2);
         expect(doc.state().dirty).toBe(false);
     });
 
@@ -368,6 +563,40 @@ describe('save', () => {
         expect(await saveDocument(doc, { expected: 3, saveAs: copy })).toMatchObject({ status: 'saved' });
         expect(await readFile(copy, 'utf8')).toBe('v1+mine+more');
         expect(doc.state()).toMatchObject({ destination: copy, dirty: false });
+    });
+
+    it('saves a document undone to its destination\'s bytes as those bytes, with nothing to write in place', async () => {
+        const destination = path.join(workDir, 'paper.pdf');
+        await writeFile(destination, 'v1');
+        const doc = await create(store(), { ext: 'pdf', destination });
+        await doc.mutate(null, rewrite('v2'));
+        await doc.restore(2, 1);
+        expect(await saveDocument(doc, { expected: null })).toEqual({ status: 'saved', revision: null });
+
+        const copy = path.join(workDir, 'copy.pdf');
+        const saved = await saveDocument(doc, { expected: null, saveAs: copy });
+        expect(saved).toMatchObject({ status: 'saved', revision: { id: 1, witness: await witnessOf(encode('v1')) } });
+        expect(await readFile(copy, 'utf8')).toBe('v1');
+        expect(doc.state()).toMatchObject({ current: { id: 1 }, destination: copy, dirty: false, history: [{ id: 2 }] });
+        await doc.restore(1, 2);
+        expect(await currentText(doc)).toBe('v2');
+    });
+
+    it.each([false, true])('keeps the destination\'s bytes for undo when a Save replaces it or a Save As rebinds it (Save As: %s)', async (saveAs) => {
+        const destination = path.join(workDir, 'paper.pdf');
+        await writeFile(destination, 'v1');
+        const doc = await create(store(), { ext: 'pdf', destination });
+        await doc.mutate(null, rewrite('v2'));
+        await doc.retain([1]);
+        const copy = path.join(workDir, 'copy.pdf');
+        expect(await saveDocument(doc, { expected: 2, ...(saveAs ? { saveAs: copy } : {}) })).toMatchObject({ status: 'saved' });
+        expect(await readFile(saveAs ? copy : destination, 'utf8')).toBe('v2');
+        await doc.close();
+
+        const reopened = await open(store(), doc.id);
+        expect(await reopened.restore(2, 1)).toMatchObject({ status: 'committed', revision: { id: 1 } });
+        expect(await currentText(reopened)).toBe('v1');
+        expect(reopened.state().dirty).toBe(true);
     });
 
     it('starts an imported document clean and sends it to Save As', async () => {
@@ -396,7 +625,7 @@ describe('fork', () => {
         const source = await create(store(), { ext: 'pdf', destination });
         await source.mutate(null, append('+a'));
         await source.mutate(2, append('+redo'));
-        await source.restore(2);
+        await source.restore(3, 2);
         await source.setDrafts(2, { note: 'unsaved' });
 
         const fork = keep(await forkDocument(store(), source.id));
@@ -432,15 +661,23 @@ describe('fork', () => {
 });
 
 describe('workspace checkpoints and collection', () => {
-    it('removes clean, unreferenced, unheld directories and reports unsaved ones', async () => {
+    it('removes clean unreferenced directories and what an interrupted open left, and keeps all other unsaved work', async () => {
         const destination = path.join(workDir, 'paper.pdf');
         await writeFile(destination, 'v1');
-        const [unreferenced, referenced, held, unsaved] = await Promise.all([
+        const [unreferenced, referenced, held, openOnly, decrypted, drafted, edited] = await Promise.all([
             create(store(), { ext: 'pdf', destination }),
             create(store(), { ext: 'pdf', destination }),
             create(store(), { ext: 'pdf', destination }),
             create(store(), { ext: 'pdf', source: new Blob(['new']) }),
+            create(store(), { ext: 'pdf', destination }),
+            create(store(), { ext: 'pdf', source: new Blob(['new']) }),
+            create(store(), { ext: 'pdf', source: new Blob(['new']) }),
         ]);
+        // An open's own rewrite (decrypting, normalizing) leaves an unnamed directory that only an open made.
+        await decrypted.mutate(null, rewrite('decrypted'));
+        await drafted.setDrafts(1, { note: 'committed before any checkpoint named it' });
+        await edited.mutate(1, append('+1'));
+        await edited.mutate(2, append('+2'));
         const port = createNodeStorePort(root);
         await writeWorkspaceCheckpoint(port, 'window-1', {
             tabs: { a: { directory: referenced.id, view: { page: 3 } }, b: { directory: referenced.id, view: { page: 9 } } },
@@ -450,12 +687,44 @@ describe('workspace checkpoints and collection', () => {
 
         await writeFile(path.join(root, 'workspaces', 'window-2.json'), '{"version":1,"tabs":{"a":{}}}');
         await writeFile(path.join(root, 'workspaces', 'window-1.json.crashed.tmp'), '{"version":1');
-        const isHeld = async (id: string) => id === held.id;
-        expect(await collectDocuments(store(port), isHeld)).toEqual({ removed: [], unsaved: [unsaved.id] });
+        const hold = async (id: string) => (id === held.id ? null : () => {});
+        const unsaved = [openOnly.id, decrypted.id, drafted.id, edited.id].sort();
+        const sorted = (result: { removed: string[]; unsaved: string[] }) => ({ removed: result.removed.sort(), unsaved: result.unsaved.sort() });
+        // An unreadable checkpoint might name anything: nothing goes.
+        expect(sorted(await collectDocuments(store(port), hold))).toEqual({ removed: [], unsaved });
 
         await removeWorkspaceCheckpoint(port, 'window-2');
-        expect(await collectDocuments(store(port), isHeld)).toEqual({ removed: [unreferenced.id], unsaved: [unsaved.id] });
-        expect((await readdir(path.join(root, 'documents'))).sort()).toEqual([referenced.id, held.id, unsaved.id].sort());
+        expect(sorted(await collectDocuments(store(port), hold))).toEqual({
+            removed: [unreferenced.id, openOnly.id, decrypted.id].sort(),
+            unsaved: [drafted.id, edited.id].sort(),
+        });
+        expect((await readdir(path.join(root, 'documents'))).sort()).toEqual([referenced.id, held.id, drafted.id, edited.id].sort());
         expect(await readdir(path.join(root, 'workspaces'))).toEqual(['window-1.json']);
     });
+
+    it('decides and removes each directory while holding it', async () => {
+        const doc = await create(store(), { ext: 'pdf', source: new Blob(['new']), imported: true });
+        await doc.close();
+        const port = createNodeStorePort(root);
+        const steps: string[] = [];
+        const watched: IStorePort = { ...port, remove: async target => (steps.push(`remove ${target}`), port.remove(target)) };
+        await collectDocuments(store(watched), async id => (steps.push(`hold ${id}`), () => steps.push(`release ${id}`)));
+        expect(steps).toEqual([`hold ${doc.id}`, `remove documents/${doc.id}`, `release ${doc.id}`]);
+    });
+});
+
+describe('node store port', () => {
+    it('creates missing directories when Node names the first one differently, as Windows does', async () => {
+        const mkdir = promises.mkdir.bind(promises);
+        const spy = vi.spyOn(promises, 'mkdir').mockImplementation((async (dir: string, options?: { recursive?: boolean }) => {
+            const first = await mkdir(dir, options);
+            return typeof first === 'string' ? `\\\\?\\${first}` : first;
+        }) as typeof promises.mkdir);
+        try {
+            await createNodeStorePort(root).writeAtomic('documents/a/manifest.json', encode('{}'));
+        } finally {
+            spy.mockRestore();
+        }
+        expect(await readFile(path.join(root, 'documents', 'a', 'manifest.json'), 'utf8')).toBe('{}');
+    }, 5_000);
 });

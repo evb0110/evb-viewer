@@ -6,6 +6,8 @@ import {
     readdir,
     rename,
     rm,
+    stat,
+    utimes,
     writeFile,
 } from 'node:fs/promises';
 import {tmpdir} from 'node:os';
@@ -40,6 +42,7 @@ const checkpoints = await import('@electron/workspaceCheckpointStore');
 const {findKeptOriginal} = await import('@electron/file-access/keptOriginalNotices');
 const {registerMainOperation} = await import('@electron/operation-lifecycle/mainOperationLifecycle');
 const {handleFileReadRange} = await import('@electron/features/documents/main/documentFileReadHandlers');
+const {clearWorkingCopyQuarantinesForTests, quarantineWorkingCopy} = await import('@electron/file-access/workingCopyQuarantine');
 
 const ORIGINAL = new TextEncoder().encode('%PDF-1.7\noriginal bytes\n%%EOF\n');
 const EDITED = new TextEncoder().encode('%PDF-1.7\nedited bytes\n%%EOF\n');
@@ -67,17 +70,32 @@ function restart() {
 
 const displaced = (pdf: string) => join(dirname(pdf), `.${basename(pdf)}.evb-replaced`);
 
+function gate() {
+    let resolve!: () => void;
+    const promise = new Promise<void>(done => {
+        resolve = done;
+    });
+    return {promise, resolve};
+}
+
 /** Leaves the document as a crash during its Save's publish would: the witness about to be published is recorded. */
+/**
+ * A Save that crashed after staging its publish: the edits are committed and the copy that would replace the PDF lies
+ * beside it, its metadata staged as `pendingPublish`, as Save stages it. Returns that copy, which a test renames over
+ * the PDF to model a replace that finished.
+ */
 async function crashDuringPublish(entry: Awaited<ReturnType<typeof store.openDocumentFromFile>>, edited: string) {
     await store.commitDocumentMutation(entry, store.documentRevisionToken(entry), {kind: 'rewrite', source: edited}, 'write');
     const {doc} = entry;
+    const destination = doc.state().destination!;
+    const copy = join(dirname(destination), '.publishing.tmp');
+    await writeFile(copy, await readAll(entry));
+    const witness = (await doc.store.publication.witness(copy))!;
     await doc.run(async () => {
         const current = (await doc.ensureCurrent())!;
-        const {contentWitness} = await import('@document-store/contentWitness');
-        const file = doc.currentFile();
-        const witness = await contentWitness(current.length, (offset, length) => file.readAt(offset, length));
-        await doc.commit({...doc.snapshot(), current: {...current, witness}, pendingPublish: {destination: doc.state().destination!, witness}});
+        await doc.commit({...doc.snapshot(), current: {...current, witness}, pendingPublish: {destination, witness}});
     });
+    return copy;
 }
 
 beforeEach(async () => {
@@ -86,6 +104,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+    clearWorkingCopyQuarantinesForTests();
     await store.setDocumentStoreRootForTests(null);
     await rm(tempRoot, {recursive: true, force: true});
 });
@@ -142,6 +161,24 @@ describe('desktop document store', () => {
         expect(existsSync(displaced(pdf))).toBe(false);
     });
 
+    it('refuses a Save when another program put a file of the same size and modification time in place of the PDF', async () => {
+        const pdf = await writeTemp('report.pdf', ORIGINAL);
+        await utimes(pdf, 1_700_000_000, 1_700_000_000);
+        const entry = await store.openDocumentFromFile(pdf, {ownerWebContentsId: 7});
+        await store.commitDocumentMutation(entry, '1' as never, {kind: 'rewrite', source: await writeTemp('edited.pdf', EDITED)}, 'write');
+        const foreign = new TextEncoder().encode('%PDF-1.7\nforeign! bytes\n%%EOF\n');
+        const replacement = await writeTemp('replacement.pdf', foreign);
+        await utimes(replacement, 1_700_000_000, 1_700_000_000);
+        const before = await stat(pdf, {bigint: true});
+        await rename(replacement, pdf);
+        const after = await stat(pdf, {bigint: true});
+        expect([after.size, after.mtimeNs]).toEqual([before.size, before.mtimeNs]);
+
+        expect(await store.saveOpenDocument(entry, store.documentRevisionToken(entry))).toEqual({status: 'conflict'});
+        expect(await readFile(pdf)).toEqual(Buffer.from(foreign));
+        expect(await readAll(entry)).toEqual(EDITED);
+    });
+
     it('commits the edits a refused Save carried and tells every window, so Save As publishes them elsewhere', async () => {
         const {pdf, entry} = await openPdf();
         const edited = await writeTemp('edited.pdf', EDITED);
@@ -159,6 +196,21 @@ describe('desktop document store', () => {
         const elsewhere = join(tempRoot, 'elsewhere.pdf');
         expect(await store.saveOpenDocument(entry, committed, {saveAs: elsewhere})).toMatchObject({status: 'saved'});
         expect(await readFile(elsewhere)).toEqual(Buffer.from(EDITED));
+    });
+
+    it.each([false, true])('undoes to the PDF as opened after a Save and a restart (Save As: %s)', async (saveAs) => {
+        const {pdf, entry} = await openPdf();
+        await store.rewriteDocument(entry, async (_input, output) => writeFile(output, EDITED), 'page-ops');
+        await store.retainOpenDocumentRevisions(entry, ['1' as never]);
+        const copy = join(tempRoot, 'copy.pdf');
+        expect(await store.saveOpenDocument(entry, store.documentRevisionToken(entry), saveAs ? {saveAs: copy} : {})).toMatchObject({status: 'saved'});
+        expect(await readFile(saveAs ? copy : pdf)).toEqual(Buffer.from(EDITED));
+        const id = entry.doc.id;
+        await restart();
+
+        const reopened = await store.reopenStoredDocument(id, {ownerWebContentsId: 7});
+        await store.restoreOpenDocumentRevision(reopened, '1' as never, store.documentRevisionToken(reopened));
+        expect(await readAll(reopened)).toEqual(ORIGINAL);
     });
 
     it('refuses a Save as a stale revision without writing anything', async () => {
@@ -187,9 +239,9 @@ describe('desktop document store', () => {
 
     it('keeps a save that finished installing before the crash and acknowledges it', async () => {
         const {pdf, entry} = await openPdf();
-        await crashDuringPublish(entry, await writeTemp('edited.pdf', EDITED));
+        const copy = await crashDuringPublish(entry, await writeTemp('edited.pdf', EDITED));
         await rename(pdf, displaced(pdf));
-        await writeFile(pdf, EDITED);
+        await rename(copy, pdf);
         const id = entry.doc.id;
         await restart();
 
@@ -203,11 +255,11 @@ describe('desktop document store', () => {
 
     it('keeps bytes another program wrote before a crashed save displaced them, and names them on the next open', async () => {
         const {pdf, entry} = await openPdf();
-        await crashDuringPublish(entry, await writeTemp('edited.pdf', EDITED));
+        const copy = await crashDuringPublish(entry, await writeTemp('edited.pdf', EDITED));
         const outside = new TextEncoder().encode('%PDF-1.7\nwritten elsewhere\n%%EOF\n');
         await writeFile(pdf, outside);
         await rename(pdf, displaced(pdf));
-        await writeFile(pdf, EDITED);
+        await rename(copy, pdf);
         const id = entry.doc.id;
         await restart();
 
@@ -236,6 +288,34 @@ describe('desktop document store', () => {
         expect(await findKeptOriginal(pdf)).toBe(kept);
         expect(reopened.doc.state().dirty).toBe(true);
         expect(await readAll(reopened)).toEqual(EDITED);
+    });
+
+    it.each([true, false])('settles an interrupted Save before a Save As elsewhere, or keeps it to settle later (PDF readable: %s)', async (readable) => {
+        const {pdf, entry} = await openPdf();
+        await crashDuringPublish(entry, await writeTemp('edited.pdf', EDITED));
+        // The Save moved the PDF aside and stopped before installing its bytes.
+        await rename(pdf, displaced(pdf));
+        const {publication} = entry.doc.store;
+        const real = {...publication};
+        const unreadable = (destination: string) => !readable && destination === pdf;
+        publication.witness = (destination, content) => (unreadable(destination) ? Promise.reject(new Error('EACCES')) : real.witness(destination, content));
+        if (real.settle) publication.settle = (destination, ...rest) => (unreadable(destination) ? Promise.reject(new Error('EACCES')) : real.settle!(destination, ...rest));
+        const copy = join(tempRoot, 'copy.pdf');
+        try {
+            expect(await store.saveOpenDocument(entry, store.documentRevisionToken(entry), {saveAs: copy})).toMatchObject({status: 'saved'});
+        } finally {
+            Object.assign(publication, real);
+        }
+        expect(await readFile(copy)).toEqual(Buffer.from(EDITED));
+        expect(existsSync(pdf)).toBe(readable);
+        expect(entry.doc.snapshot().unsettled?.map(record => record.destination)).toEqual(readable ? undefined : [pdf]);
+        const id = entry.doc.id;
+        await restart();
+
+        expect((await store.reopenStoredDocument(id, {ownerWebContentsId: 8})).doc.snapshot().unsettled).toBeUndefined();
+        expect(await readFile(pdf)).toEqual(Buffer.from(ORIGINAL));
+        expect(existsSync(displaced(pdf))).toBe(false);
+        expect(await findKeptOriginal(pdf)).toBeUndefined();
     });
 
     it('commits a native tool\'s output as the next revision without copying the document first, and drops it when the tool fails', async () => {
@@ -269,15 +349,25 @@ describe('desktop document store', () => {
         // The first rewrite read the person's file itself; the second read the revision the first wrote.
         expect(inputs[0]).toBe(pdf);
         expect(dirname(inputs[1]!)).toBe(dirname(entry.ref));
-        expect((await readdir(dirname(entry.ref))).filter(name => name.startsWith('r'))).toHaveLength(1);
+        // The current revision and the one it replaced, kept for its undo; nothing else is copied or kept.
+        expect((await readdir(dirname(entry.ref))).filter(name => name.startsWith('r')).sort()).toEqual(['r2.pdf', 'r3.pdf']);
         expect(await readFile(pdf)).toEqual(Buffer.from(ORIGINAL));
     });
 
-    it('offers unsaved annotations again after a restart, bound to the revision they were captured on', async () => {
+    // The drafts commit when the edit is accepted; the window's layout may still describe the document as clean.
+    it.each([true, false])('offers unsaved annotations again after a restart, bound to the revision they were captured on (layout dirty: %s)', async (layoutDirty) => {
         const {pdf, entry} = await openPdf();
         const paneId = requirePaneId('pane-1');
         const tabId = requireTabId('tab-1');
         const token = store.documentRevisionToken(entry);
+        const drafts = {
+            artifactId: 'artifact-1',
+            documentInstanceId: 'instance-1',
+            workingCopyRef: entry.ref as never,
+            workingByteRevision: token,
+            annotationMutationGeneration: 4,
+            payload: {entities: [{kind: 'note', text: 'unsaved'}]},
+        };
         const checkpoint: IWorkspaceCheckpoint = {
             version: 1,
             capturedAt: requireEpochMs(Date.now()),
@@ -291,23 +381,16 @@ describe('desktop document store', () => {
                 fileName: 'report.pdf',
                 sourceRef: pdf as never,
                 workingCopyRef: entry.ref as never,
-                isDirty: true,
+                isDirty: layoutDirty,
                 isDjvu: false,
                 currentPage: 3,
                 zoom: 1.5,
                 zoomMode: null,
-                annotationRecovery: {
-                    artifactId: 'artifact-1',
-                    documentInstanceId: 'instance-1',
-                    workingCopyRef: entry.ref as never,
-                    workingByteRevision: token,
-                    annotationMutationGeneration: 4,
-                    payload: {entities: [{kind: 'note', text: 'unsaved'}]},
-                },
             }],
         };
 
         expect(await checkpoints.saveWorkspaceCheckpoint(checkpoint, 7)).toBe(true);
+        expect(await checkpoints.setWorkspaceDocumentDrafts(drafts, 7)).toBe(true);
         await restart();
         const claimed = await checkpoints.claimWorkspaceCheckpoint(9);
 
@@ -319,6 +402,61 @@ describe('desktop document store', () => {
         });
         const reopened = store.getWorkingCopyBackingEntry(entry.ref, 9);
         expect(reopened && store.documentRevisionToken(reopened)).toBe(token);
+        expect(await readFile(pdf)).toEqual(Buffer.from(ORIGINAL));
+    });
+
+    it('clears a document\'s drafts when the working bytes hold everything, and refuses drafts of an outdated revision', async () => {
+        const {entry} = await openPdf();
+        const drafts = {
+            artifactId: 'artifact-1', documentInstanceId: 'instance-1', workingCopyRef: entry.ref as never,
+            workingByteRevision: store.documentRevisionToken(entry), annotationMutationGeneration: 1,
+        };
+        expect(await checkpoints.setWorkspaceDocumentDrafts({...drafts, payload: {entities: []}}, 7)).toBe(true);
+        expect(entry.doc.state()).toMatchObject({dirty: true});
+        expect(await checkpoints.setWorkspaceDocumentDrafts(drafts, 7)).toBe(true);
+        expect(entry.doc.state()).toMatchObject({drafts: undefined, dirty: false});
+        expect(await checkpoints.setWorkspaceDocumentDrafts({...drafts, workingByteRevision: '2' as never, payload: {}}, 7)).toBe(false);
+        expect(entry.doc.state().drafts).toBeUndefined();
+    });
+
+    it('restores a tab whose unsaved bytes are missing as unsaved, showing the PDF as saved, until a start finds them', async () => {
+        const {pdf, entry} = await openPdf();
+        await store.commitDocumentMutation(entry, '1' as never, {kind: 'rewrite', source: await writeTemp('edited.pdf', EDITED)}, 'write');
+        const paneId = requirePaneId('pane-1');
+        const tabId = requireTabId('tab-1');
+        const checkpoint: IWorkspaceCheckpoint = {
+            version: 1,
+            capturedAt: requireEpochMs(Date.now()),
+            activePaneId: paneId,
+            activeTabId: tabId,
+            layout: {type: 'leaf', paneId},
+            panes: [{paneId, tabIds: [tabId], activeTabId: tabId}],
+            tabs: [{
+                tabId, paneId, fileName: 'report.pdf', sourceRef: pdf as never, workingCopyRef: entry.ref as never,
+                isDirty: true, isDjvu: false, currentPage: null, zoom: null, zoomMode: null,
+            }],
+        };
+        await checkpoints.saveWorkspaceCheckpoint(checkpoint, 7);
+        const revision = join(dirname(entry.ref), entry.doc.state().current!.file);
+        await restart();
+        await rename(revision, `${revision}.away`);
+
+        const claimed = await checkpoints.claimWorkspaceCheckpoint(9);
+        expect(claimed?.tabs[0]).toMatchObject({workingCopyRef: entry.ref, sourceRef: pdf, isDirty: true, workingCopyLost: true});
+        const standIn = store.requireOpenDocument(entry.ref, 9);
+        expect(await readAll(standIn)).toEqual(ORIGINAL);
+        await expect(store.saveOpenDocument(standIn, '1' as never)).rejects.toThrow('missing or cut short');
+        // The damaged document takes no drafts: its directory stays as it is for a start that can read it.
+        expect(await checkpoints.setWorkspaceDocumentDrafts({
+            artifactId: 'artifact-1', documentInstanceId: 'instance-1', workingCopyRef: entry.ref as never,
+            workingByteRevision: '1', annotationMutationGeneration: 1, payload: {entities: []},
+        }, 9)).toBe(true);
+        expect(existsSync(revision)).toBe(false);
+
+        await restart();
+        await rename(`${revision}.away`, revision);
+        expect((await checkpoints.claimWorkspaceCheckpoint(11))?.tabs[0]).toMatchObject({workingCopyRef: entry.ref, isDirty: true});
+        expect(await readAll(store.requireOpenDocument(entry.ref, 11))).toEqual(EDITED);
         expect(await readFile(pdf)).toEqual(Buffer.from(ORIGINAL));
     });
 
@@ -345,6 +483,76 @@ describe('desktop document store', () => {
         expect(await store.collectStaleDocuments()).toBe(1);
         expect(existsSync(dirname(snapshot.ref))).toBe(false);
         expect(existsSync(dirname(entry.ref))).toBe(true);
+    });
+
+    it('keeps unsaved work no checkpoint names and offers it at the next claim', async () => {
+        const entry = await store.createDocumentFromSource(new TextEncoder().encode('UNSAVED'), {ext: 'pdf', ownerWebContentsId: 7});
+        await entry.doc.setDrafts(1, {note: 'committed before any checkpoint named it'});
+        await restart();
+
+        expect(await store.collectStaleDocuments()).toBe(0);
+        const claimed = await checkpoints.claimWorkspaceCheckpoint(9);
+        expect(claimed?.tabs).toMatchObject([{workingCopyRef: entry.ref, isDirty: true, requiresSaveAsOnFirstSave: true}]);
+        expect(claimed?.panes[0]?.tabIds).toEqual([claimed?.tabs[0]?.tabId]);
+        expect(store.requireOpenDocument(entry.ref, 9).doc.state().drafts).toEqual({note: 'committed before any checkpoint named it'});
+    });
+
+    it('names a document in its window\'s checkpoint before its first edit, so a crash before the next checkpoint loses nothing', async () => {
+        const {pdf, entry} = await openPdf();
+        await store.rewriteDocument(entry, async (_input, output) => writeFile(output, EDITED), 'page-ops');
+        await restart();
+
+        const claimed = await checkpoints.claimWorkspaceCheckpoint(9);
+        expect(claimed?.tabs).toMatchObject([{workingCopyRef: entry.ref, sourceRef: pdf, fileName: 'report.pdf', isDirty: true}]);
+        expect(await readAll(store.requireOpenDocument(entry.ref, 9))).toEqual(EDITED);
+        expect(await checkpoints.hasRecoverableWorkspaceCheckpoints(10)).toBe(false);
+    });
+
+    it('removes what an open a crash cut short made, and a discarded document whose files a reader kept', async () => {
+        const {entry} = await openPdf();
+        await store.rewriteDocument(entry, async (_input, output) => writeFile(output, EDITED), 'open');
+        const kept = await store.openDocumentFromFile(await writeTemp('kept.pdf', ORIGINAL), {ownerWebContentsId: 7});
+        await store.commitDocumentMutation(kept, '1' as never, {kind: 'rewrite', source: await writeTemp('edited.pdf', EDITED)}, 'write');
+        quarantineWorkingCopy(kept.ref, 'a reader would not stop');
+        await store.discardOpenDocument(kept);
+        expect(existsSync(dirname(kept.ref))).toBe(true);
+        await restart();
+
+        expect(await store.collectStaleDocuments()).toBe(2);
+        expect(existsSync(dirname(entry.ref))).toBe(false);
+        expect(existsSync(dirname(kept.ref))).toBe(false);
+        expect(await checkpoints.claimWorkspaceCheckpoint(9)).toBeNull();
+    });
+
+    it('opens nothing while the startup collection runs, so it never removes a directory changing owner', async () => {
+        const {entry} = await openPdf();
+        const id = entry.doc.id;
+        await restart();
+        const docStore = store.getDocumentStore();
+        const {port} = docStore;
+        const removing = gate();
+        const go = gate();
+        docStore.port = {...port, remove: async (target) => {
+            if (target === `documents/${id}`) {
+                removing.resolve();
+                await go.promise;
+            }
+            return port.remove(target);
+        }};
+        const collecting = store.collectStaleDocuments();
+        await removing.promise;
+        let reopened = false;
+        const reopening = store.reopenStoredDocument(id, {ownerWebContentsId: 7}).then(() => {
+            reopened = true;
+        }, () => undefined);
+        await new Promise(resolve => setImmediate(resolve));
+        expect(reopened).toBe(false);
+
+        go.resolve();
+        expect(await collecting).toBe(1);
+        await reopening;
+        expect(reopened).toBe(false);
+        expect(existsSync(dirname(entry.ref))).toBe(false);
     });
 
     it('stops an operation reading a closing document before its files go', async () => {

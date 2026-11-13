@@ -66,9 +66,8 @@ function createStagedArtifact(overrides: {
 describe('document save utility protocol', () => {
     it('accepts a bounded changed-object xref validation set', () => {
         expect(decodeDocumentSaveUtilityRequest({
-            type: 'commit',
+            type: 'validate',
             sourcePath: '/tmp/output.tmp',
-            targetPath: '/tmp/output.pdf',
             expectedBytes: 100,
             changedObjectRefs: [
                 '12 0 R',
@@ -80,41 +79,16 @@ describe('document save utility protocol', () => {
         ]});
     });
 
-    it('accepts a sibling absolute staging and target path', () => {
+    it('accepts an absolute staging path', () => {
         expect(decodeDocumentSaveUtilityRequest({
-            type: 'commit',
+            type: 'validate',
             sourcePath: '/tmp/.document.tmp',
-            targetPath: '/tmp/document.pdf',
             expectedBytes: 123,
         })).toEqual({
-            type: 'commit',
+            type: 'validate',
             sourcePath: '/tmp/.document.tmp',
-            targetPath: '/tmp/document.pdf',
             expectedBytes: 123,
         });
-    });
-
-    it('preserves a validation-only commit request for main-process publication', () => {
-        expect(decodeDocumentSaveUtilityRequest({
-            type: 'commit',
-            sourcePath: '/tmp/.document.tmp',
-            targetPath: '/tmp/document.pdf',
-            expectedBytes: 123,
-            validateOnly: true,
-        })).toEqual({
-            type: 'commit',
-            sourcePath: '/tmp/.document.tmp',
-            targetPath: '/tmp/document.pdf',
-            expectedBytes: 123,
-            validateOnly: true,
-        });
-        expect(decodeDocumentSaveUtilityRequest({
-            type: 'commit',
-            sourcePath: '/tmp/.document.tmp',
-            targetPath: '/tmp/document.pdf',
-            expectedBytes: 123,
-            validateOnly: false,
-        })).toBeNull();
     });
 
     it('accepts a bounded inspection request without a target path', () => {
@@ -134,23 +108,10 @@ describe('document save utility protocol', () => {
         })).toBeNull();
     });
 
-    it.each([
-        {
-            sourcePath: 'relative.tmp',
-            targetPath: '/tmp/document.pdf',
-        },
-        {
-            sourcePath: '/tmp/document.tmp',
-            targetPath: '/other/document.pdf',
-        },
-        {
-            sourcePath: '/tmp/document.pdf',
-            targetPath: '/tmp/document.pdf',
-        },
-    ])('rejects unsafe path pairing: $sourcePath', paths => {
+    it('rejects a relative staging path', () => {
         expect(decodeDocumentSaveUtilityRequest({
-            type: 'commit',
-            ...paths,
+            type: 'validate',
+            sourcePath: 'relative.tmp',
             expectedBytes: 123,
         })).toBeNull();
     });
@@ -179,9 +140,8 @@ describe('document save utility protocol', () => {
         const stagedArtifact = createStagedArtifact();
 
         expect(decodeDocumentSaveUtilityRequest({
-            type: 'commit',
+            type: 'validate',
             sourcePath: '/tmp/output.tmp',
-            targetPath: '/tmp/output.pdf',
             expectedBytes: 100,
             stagedArtifact,
         })).toMatchObject({stagedArtifact: {validations: {qpdfResult: {warnings: ['recoverable qpdf warning']}}}});
@@ -191,16 +151,14 @@ describe('document save utility protocol', () => {
         const stagedArtifact = createStagedArtifact();
 
         expect(decodeDocumentSaveUtilityRequest({
-            type: 'commit',
+            type: 'validate',
             sourcePath: '/tmp/other.tmp',
-            targetPath: '/tmp/output.pdf',
             expectedBytes: 100,
             stagedArtifact,
         })).toBeNull();
         expect(decodeDocumentSaveUtilityRequest({
-            type: 'commit',
+            type: 'validate',
             sourcePath: '/tmp/output.tmp',
-            targetPath: '/tmp/output.pdf',
             expectedBytes: 101,
             stagedArtifact,
         })).toBeNull();
@@ -212,17 +170,16 @@ describe('document save utility protocol', () => {
             '12 0 R',
         ];
         const request = decodeDocumentSaveUtilityRequest({
-            type: 'commit',
+            type: 'validate',
             sourcePath: '/tmp/output.tmp',
-            targetPath: '/tmp/output.pdf',
             expectedBytes: 100,
             changedObjectRefs,
             stagedArtifact: createStagedArtifact({changedObjectRefsSha256: createChangedObjectRefsSha256(changedObjectRefs)}),
         });
 
-        expect(request?.type).toBe('commit');
-        if (!request || request.type !== 'commit') {
-            throw new Error('Expected a decoded commit request');
+        expect(request?.type).toBe('validate');
+        if (!request || request.type !== 'validate') {
+            throw new Error('Expected a decoded validate request');
         }
         expect(getDocumentSaveUtilityReusePlan(request)).toEqual(
             process.platform === 'win32'
@@ -232,7 +189,6 @@ describe('document save utility protocol', () => {
                     qpdfCheck: false,
                     nativeIncrementalCheck: false,
                     changedObjectRefsCheck: false,
-                    fileSync: false,
                 }
                 : {
                     fingerprint: true,
@@ -240,16 +196,14 @@ describe('document save utility protocol', () => {
                     qpdfCheck: true,
                     nativeIncrementalCheck: false,
                     changedObjectRefsCheck: true,
-                    fileSync: true,
                 },
         );
     });
 
     it('reuses native incremental postconditions instead of rescanning unchanged PDF streams', () => {
         const request = decodeDocumentSaveUtilityRequest({
-            type: 'commit',
+            type: 'validate',
             sourcePath: '/tmp/output.tmp',
-            targetPath: '/tmp/output.pdf',
             expectedBytes: 100,
             stagedArtifact: createStagedArtifact({
                 qpdfCheck: false,
@@ -258,8 +212,8 @@ describe('document save utility protocol', () => {
             }),
         });
 
-        if (!request || request.type !== 'commit') {
-            throw new Error('Expected a decoded commit request');
+        if (!request || request.type !== 'validate') {
+            throw new Error('Expected a decoded validate request');
         }
         expect(getDocumentSaveUtilityReusePlan(request)).toMatchObject(
             process.platform === 'win32'
@@ -272,40 +226,23 @@ describe('document save utility protocol', () => {
                     nativeIncrementalCheck: true,
                     qpdfCheck: false,
                     tailCheck: true,
-                    fileSync: true,
                 },
         );
     });
 
     it('reruns targeted validation when the changed-object scope differs', () => {
         const request = decodeDocumentSaveUtilityRequest({
-            type: 'commit',
+            type: 'validate',
             sourcePath: '/tmp/output.tmp',
-            targetPath: '/tmp/output.pdf',
             expectedBytes: 100,
             changedObjectRefs: ['12 0 R'],
             stagedArtifact: createStagedArtifact({changedObjectRefsSha256: createChangedObjectRefsSha256(['44 2 R'])}),
         });
 
-        if (!request || request.type !== 'commit') {
-            throw new Error('Expected a decoded commit request');
+        if (!request || request.type !== 'validate') {
+            throw new Error('Expected a decoded validate request');
         }
         expect(getDocumentSaveUtilityReusePlan(request).changedObjectRefsCheck).toBe(false);
-    });
-
-    it('does not inherit file durability across an unsynced byte-preserving copy', () => {
-        const request = decodeDocumentSaveUtilityRequest({
-            type: 'commit',
-            sourcePath: '/tmp/output.tmp',
-            targetPath: '/tmp/output.pdf',
-            expectedBytes: 100,
-            stagedArtifact: createStagedArtifact({fsynced: false}),
-        });
-
-        if (!request || request.type !== 'commit') {
-            throw new Error('Expected a decoded commit request');
-        }
-        expect(getDocumentSaveUtilityReusePlan(request).fileSync).toBe(false);
     });
 
     it('does not route a browser-store receipt through native utility reuse', () => {
@@ -328,9 +265,8 @@ describe('document save utility protocol', () => {
         } as const;
 
         expect(getDocumentSaveUtilityReusePlan({
-            type: 'commit',
+            type: 'validate',
             sourcePath: requireDocumentRef('/tmp/output.tmp'),
-            targetPath: requireDocumentRef('/tmp/output.pdf'),
             expectedBytes: 100,
             changedObjectRefs,
             stagedArtifact: browserArtifact,
@@ -340,7 +276,6 @@ describe('document save utility protocol', () => {
             qpdfCheck: false,
             nativeIncrementalCheck: false,
             changedObjectRefsCheck: false,
-            fileSync: false,
         });
     });
 

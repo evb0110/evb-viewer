@@ -62,10 +62,3 @@ export function resolveSuffixedOutputPathConflicts(
         allowOverwrite: targets.length === 1 && allowSingleOverwrite,
     }, reservedPaths));
 }
-
-export function resolveOutputPathConflicts(targetPaths: string[], allowSingleOverwrite = true) {
-    return resolveSuffixedOutputPathConflicts(targetPaths.map(path => ({
-        path,
-        suffix: '',
-    })), allowSingleOverwrite);
-}

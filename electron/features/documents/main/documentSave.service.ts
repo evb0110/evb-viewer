@@ -118,7 +118,7 @@ export async function savePdfAs(
             await copyFile(sourcePath, tempPath, constants.COPYFILE_FICLONE);
             const optimizedValidation = await optimizePdfForSaveAs(tempPath, options);
             const result = await saveOpenDocument(entry, expectedDocumentRevisionToken, {
-                ...(optimizedValidation || stagedOutput ? {commit: {kind: 'rewrite' as const, source: tempPath}} : {}),
+                ...(optimizedValidation || stagedOutput ? {commit: {kind: 'move' as const, file: tempPath}} : {}),
                 saveAs: targetPath,
             });
             if (result.status === 'stale-revision') {

@@ -19,8 +19,6 @@ import type {
     TPreparedPdfOptimizeCopy,
 } from '@contracts/electronApiDocuments';
 import { isStaleRevisionError } from '@contracts/documentMutationErrors';
-import { findSerializableErrorEnvelope } from '@contracts/serializableError';
-import { SAVE_AS_SYNC_REQUIRED_ERROR_ENVELOPE_SCHEMA } from '@contracts/documentsPersistenceSchemas';
 import type { IDocumentSessionState } from '@app/modules/workspace-shell/composables/document-session/documentSessionState';
 import type {IPdfLoadedState} from '@app/modules/workspace-shell/composables/document-session/createDocumentHistory';
 import { createDocumentPersistResults } from '@app/modules/workspace-shell/composables/document-session/createDocumentPersistResults';
@@ -56,12 +54,7 @@ interface IPdfPersistPhaseTiming {
 interface ICreateDocumentPersistenceDeps {
     refreshDocumentRevisionToken: (path: TDocumentRef, isCurrent: () => boolean) => Promise<boolean>;
     deferPdfConformanceProfile: (path: TDocumentRef) => void;
-    ensureHistoryBaselineForMutation: () => Promise<boolean>;
     captureHistoryCleanState: () => () => Promise<void>;
-    pushHistorySnapshot: (
-        snapshot: Uint8Array,
-        options?: { reuseSnapshot?: boolean },
-    ) => Promise<boolean>;
     readPdfStateFromPath: (path: TDocumentRef) => Promise<IPdfLoadedState>;
     shouldForceSaveAsForWorkingCopy: (
         saveMode: TPdfSaveMode,
@@ -210,7 +203,7 @@ export function createDocumentPersistence(
         channel: string,
         phase: string,
         reason: IPdfPersistFailure['reason'],
-        detail: Pick<IPdfPersistFailure, 'message' | 'validation' | 'cause' | 'keptFilePath' | 'externalWriteCommitted' | 'workingCopySyncRequired'>,
+        detail: Pick<IPdfPersistFailure, 'message' | 'validation' | 'cause' | 'keptFilePath' | 'externalWriteCommitted'>,
     ): IPdfPersistFailure {
         return {
             channel,
@@ -231,12 +224,9 @@ export function createDocumentPersistence(
         return createStalePersistResult(saveMode, didSaveAs);
     }
 
-    /** Whether a refused save still wrote the file, and that the open copy needs syncing. */
-    function saveOutcomeFields(result: Pick<IPdfPersistFailure, 'externalWriteCommitted' | 'workingCopySyncRequired'>) {
-        return {
-            ...(result.externalWriteCommitted === undefined ? {} : {externalWriteCommitted: result.externalWriteCommitted}),
-            ...(result.workingCopySyncRequired ? {workingCopySyncRequired: true} : {}),
-        };
+    /** Whether a refused save still wrote the file. */
+    function saveOutcomeFields(result: Pick<IPdfPersistFailure, 'externalWriteCommitted'>) {
+        return result.externalWriteCommitted === undefined ? {} : {externalWriteCommitted: result.externalWriteCommitted};
     }
 
     function roundDurationMs(durationMs: number) {
@@ -288,21 +278,10 @@ export function createDocumentPersistence(
             if (isStaleRevisionError(e) || (e instanceof DOMException && e.name === 'AbortError')) {
                 throw e;
             }
-            // Save As that wrote its file but could not refresh this copy from it.
-            const syncRequired = findSerializableErrorEnvelope(e, SAVE_AS_SYNC_REQUIRED_ERROR_ENVELOPE_SCHEMA) !== null;
-            return createFailedPersistResult(saveMode, didSaveAs, refusedPersistFailure(
-                'persist',
-                'write',
-                syncRequired ? 'working-copy-sync-required' : 'write-failed',
-                {
-                    message: getErrorMessage(e),
-                    cause: e,
-                    ...(syncRequired ? saveOutcomeFields({
-                        externalWriteCommitted: true,
-                        workingCopySyncRequired: true,
-                    }) : {}),
-                },
-            ));
+            return createFailedPersistResult(saveMode, didSaveAs, refusedPersistFailure('persist', 'write', 'write-failed', {
+                message: getErrorMessage(e),
+                cause: e,
+            }));
         }
     }
 
@@ -326,43 +305,6 @@ export function createDocumentPersistence(
             expectedDocumentRevisionToken,
             forceSaveAs,
         };
-    }
-
-    async function persistPdfDataSilently(data: Uint8Array) {
-        const expectedWorkingPath = state.workingCopyPath.value;
-        const snapshot = data.slice();
-        if (!await deps.ensureHistoryBaselineForMutation()) {
-            return false;
-        }
-        if (expectedWorkingPath !== state.workingCopyPath.value) {
-            return false;
-        }
-        if (expectedWorkingPath) {
-            await getDocumentFilesCapability().writeFile(
-                expectedWorkingPath,
-                snapshot,
-                createDocumentMutationRevisionOptions(state.documentRevisionToken.value),
-            );
-            if (!state.isActiveWorkingCopy(expectedWorkingPath)) {
-                BrowserLogger.debug('pdf-file', 'Skipped stale silent PDF data persistence', {
-                    expectedWorkingPath,
-                    currentWorkingPath: state.workingCopyPath.value,
-                });
-                return false;
-            }
-        } else if (state.workingCopyPath.value !== null) {
-            return false;
-        }
-
-        state.pdfData.value = snapshot;
-        state.pdfSrc.value = deps.toPdfBlob(snapshot);
-        state.pdfReloadSrc.value = state.pdfSrc.value;
-        await deps.pushHistorySnapshot(snapshot, { reuseSnapshot: true });
-
-        if (expectedWorkingPath) {
-            deps.deferPdfConformanceProfile(expectedWorkingPath);
-        }
-        return true;
     }
 
     async function saveWorkingCopy(
@@ -1071,7 +1013,6 @@ export function createDocumentPersistence(
     }
 
     return {
-        persistPdfDataSilently,
         repairWorkingCopy,
         optimizeWorkingCopy,
         optimizeWorkingCopyAsCopy,

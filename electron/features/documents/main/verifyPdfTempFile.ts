@@ -8,19 +8,18 @@ import type {IDocumentsSenderIdContext} from '@electron/features/documents/docum
 import {resolveTypedStagedArtifact} from '@electron/features/documents/main/managedTempFileHandles';
 import {runDocumentSaveUtilityProcess} from '@electron/features/documents/main/fingerprintFileWithUtilityProcess';
 import {DOCUMENT_SAVE_SERVICE_NAME} from '@electron/processDeathRecovery';
-import {runtimeConfig} from '@electron/runtimeConfig';
 
-const SAVE_UTILITY_THRESHOLD = runtimeConfig.test.documentSaveUtilityThresholdBytes;
+const SAVE_UTILITY_THRESHOLD = 64 * 1024 * 1024;
 
 function shouldUseDocumentSaveUtility(bytes: number) {
     return bytes >= SAVE_UTILITY_THRESHOLD;
 }
 
 /**
- * Verifies a PDF written beside `targetPath` before it replaces anything there: a large output or a targeted edit is
- * validated by the document save utility, in its own process. The caller commits it.
+ * Verifies a PDF a save wrote before it is published: a large output or a targeted edit is validated by the document
+ * save utility, in its own process. The caller commits it.
  */
-export async function verifyPdfTempFile(sourcePath: string, targetPath: string, options: {
+export async function verifyPdfTempFile(sourcePath: string, options: {
     expectedBytes?: number;
     signal?: AbortSignal;
     ownerId?: string;
@@ -57,7 +56,7 @@ export async function verifyPdfTempFile(sourcePath: string, targetPath: string, 
             return null;
         }
         lease = await mainJobBroker.acquire({
-            ownerId: options.ownerId ?? `document-save:${targetPath}`,
+            ownerId: options.ownerId ?? `document-save:${sourcePath}`,
             kind: 'document-save-utility',
             priority: 'user',
             resources: {
@@ -76,14 +75,12 @@ export async function verifyPdfTempFile(sourcePath: string, targetPath: string, 
             timeoutMs: 10 * 60_000,
             ...(signal ? {signal} : {}),
             request: {
-                type: 'commit',
+                type: 'validate',
                 sourcePath,
-                targetPath,
                 expectedBytes,
                 validationBinary: getPdfNativeToolPaths().qpdf,
                 ...(options.changedObjectRefs?.length ? {changedObjectRefs: options.changedObjectRefs} : {}),
                 ...(stagedArtifact === undefined ? {} : {stagedArtifact}),
-                validateOnly: true,
             },
             resourceLease: lease,
         });

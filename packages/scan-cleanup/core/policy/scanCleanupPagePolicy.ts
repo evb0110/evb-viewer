@@ -35,8 +35,6 @@ import {
     type IScanCleanupPaperCohortTally,
 } from '@evb/scan-cleanup/core/policy/scanCleanupPaperCohort';
 
-export type TScanCleanupResolvedPageLayout = ReturnType<typeof resolveScanCleanupPageLayout>;
-
 export function usesScanCleanupInkAlignment(options: IScanCleanupOptions) {
     return options.matchPageSize
         && (options.pageAlignment === 'ink'

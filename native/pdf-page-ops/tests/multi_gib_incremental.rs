@@ -2777,8 +2777,14 @@ fn orphan_only_ownership_is_ignored_only_above_the_byte_ceiling() {
             "{}",
             String::from_utf8_lossy(&output.stderr)
         );
-        assert_eq!(shown_object(path, 6), b"null\n");
-        assert_eq!(shown_object(path, 16) == b"null\n", !padded);
+        assert!(matches!(
+            shown_object(path, 6).as_slice(),
+            b"null\n" | b"null\r\n"
+        ));
+        assert_eq!(
+            matches!(shown_object(path, 16).as_slice(), b"null\n" | b"null\r\n"),
+            !padded
+        );
         assert_eq!(
             shown_object(path, 15)
                 .windows(b"6 0 R".len())

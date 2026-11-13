@@ -34,7 +34,8 @@ review instructions here.
 - Wire shapes, schemas and guards for IPC, workers and native tools live in
   `packages/contracts`, imported through an owned `@contracts/<subpath>` entry
   point. Contracts depend only on themselves and `@i18n-core`. Domain algorithms
-  belong in their owning module.
+  belong in their owning module. Scan-cleanup wire declarations are generated
+  from the Rust protocol types into that contracts package.
 - Native tools write into managed scratch. Electron or Node validates the result
   and publishes it atomically, so an interrupted tool never leaves a partial file
   at a path the user chose.
@@ -44,7 +45,9 @@ review instructions here.
 - OCR quality and robustness take priority over tool, language, or bundle-size
   constraints.
 - Use `tessdata-best` models from <https://github.com/tesseract-ocr/tessdata_best>.
-- OCR language models and the canonical registry stay in sync.
+- OCR language models, pinned digests and the sub-language dependency table in
+  `packages/contracts/ocrLanguages.ts` stay in sync. Packaging, downloads and
+  engine mounts use that table's dependency closure.
 
 ## UI
 

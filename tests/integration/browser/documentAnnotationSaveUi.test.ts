@@ -179,20 +179,20 @@ describe('browser document lifecycle UI', () => {
                     Reflect.set(window, '__releaseTextLayerPublication', resolvePublication);
                 }));
             });
-            await page.route('**/*usePdfRendererTextLayerController.ts*', async route => {
+            await page.route('**/*usePdfTextLayerRenderer.ts*', async route => {
                 const response = await route.fetch();
                 const source = await response.text();
-                const publication = 'if (!publish()) {';
-                const completed = 'if (!isTextLayerRendered) return failure ?? false;';
-                if (!source.includes(publication) || !source.includes(completed)) {
+                const publication = 'setupTextLayer(textLayerDiv);';
+                if (!source.includes(publication)) {
                     throw new Error('Initial text-layer publication seam was not found');
                 }
                 await route.fulfill({
                     response,
                     body: source.replace(publication,
                         `document.body.dataset.textLayerPublication = 'held';
-                        await Reflect.get(window, '__heldTextLayerPublication'); ${publication}`)
-                        .replace(completed, `${completed} document.body.dataset.textLayerPublication = 'published';`),
+                        await Reflect.get(window, '__heldTextLayerPublication');
+                        ${publication}
+                        document.body.dataset.textLayerPublication = 'published';`),
                 });
             });
             await openPdfFromChooser(page, resolve(process.cwd(), 'tests/fixtures/electron/interop/synthetic-annotation-interoperability.pdf'));

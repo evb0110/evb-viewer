@@ -37,10 +37,8 @@ import {
 import {
     ensureDocxExtension,
     ensurePdfExtension,
-    getExtension,
     getOptimizedPdfName,
 } from '@app/platform/browser-api/browserFileName';
-import type { IBrowserBatchOpenProgressOptions } from '@app/platform/browser-api/createCombinedPdfFromPaths';
 import {
     analyzeBrowserPdfConformance,
     validateBrowserPdfData,
@@ -50,7 +48,6 @@ import {
     openBrowserOutputSink,
     type IPickedBrowserFile,
     pickFiles,
-    pickFolderFiles,
     pickSaveTarget,
     pickSingleFile,
     type IBrowserOutputSink,
@@ -95,20 +92,14 @@ import {
 } from '@contracts/browserPageOpsWasm.generated';
 import { createEpochMs } from '@contracts/timestamps';
 import { isOneOf } from '@contracts/runtimeGuards';
-import {
-    compareFolderEntryNames,
-    isSupportedOpenExtension,
-    MAX_OPEN_INPUT_PATHS,
-} from '@pdf-core/documentOpenFileTypes';
 
 const BROWSER_NATIVE_PRINT_UNSUPPORTED = 'Printing via the native desktop dialog is unavailable in the browser capability';
 
 export async function createBrowserCombinedPdfFromPaths(
-    paths: string[],
-    progressOptions?: IBrowserBatchOpenProgressOptions,
+    ...args: Parameters<typeof import('@app/platform/browser-api/createCombinedPdfFromPaths').createCombinedPdfFromPaths>
 ) {
     const module = await import('@app/platform/browser-api/createCombinedPdfFromPaths');
-    return module.createCombinedPdfFromPaths(paths, progressOptions);
+    return module.createCombinedPdfFromPaths(...args);
 }
 
 interface IBrowserNativeMutationLease {
@@ -118,7 +109,6 @@ interface IBrowserNativeMutationLease {
 
 interface ICreateBrowserDocumentsFileCapabilityOptions {
     clearSearchCaches: (pdfPath?: string) => void | Promise<void>;
-    errorMessageProvider?: {folderEmpty?: () => string;};
 }
 type TCanonicalDocumentsFileCapability = IDocumentsFileCapability & IDocxExportFileCapability;
 const DOCX_MIME_TYPE = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
@@ -171,8 +161,6 @@ export function createBrowserDocumentsFileCapability(
         if (!sink) throw new Error('Unknown DOCX stream session');
         return sink;
     }
-    const folderEmptyMessageProvider = options.errorMessageProvider?.folderEmpty
-        ?? (() => 'No supported documents were found in the selected folder');
 
     async function discardWorkingCopy(path: TDocumentRef, leaseId?: string) {
         if (leaseId !== undefined) browserNativeMutationLeases.delete(leaseId);
@@ -261,25 +249,6 @@ export function createBrowserDocumentsFileCapability(
             }
             const picked = indirectDjvu?.index ?? pickedFiles[0];
             return picked ? openPickedDocument(picked, indirectDjvu?.components) : null;
-        },
-        // As on desktop: the folder's own supported files, in natural name
-        // order, open as the Open dialog would open them.
-        async openFolderDialog() {
-            const pickedFiles = await pickFolderFiles();
-            if (!pickedFiles) {
-                return null;
-            }
-            const supported = pickedFiles
-                .filter(({file}) => isSupportedOpenExtension(getExtension(file.name)))
-                .sort((left, right) => compareFolderEntryNames(left.file.name, right.file.name));
-            const [first] = supported;
-            if (!first) {
-                throw new Error(folderEmptyMessageProvider());
-            }
-            if (supported.length > MAX_OPEN_INPUT_PATHS) {
-                throw new Error(`Open batch exceeds maximum size (${MAX_OPEN_INPUT_PATHS})`);
-            }
-            return supported.length === 1 ? openPickedDocument(first) : openPickedBatch(supported);
         },
         async openCombineDialog() {
             const pickedFiles = await pickFiles({
@@ -521,7 +490,6 @@ export function createBrowserDocumentsFileCapability(
         readFileRange(path, offset, length) {
             return browserDocumentStore.readRange(path, offset, length);
         },
-        fileExists: path => browserDocumentStore.exists(path),
         getDocumentRevision(path) {
             return browserDocumentStore.getDocumentRevision(path);
         },
@@ -654,6 +622,12 @@ export function createBrowserDocumentsFileCapability(
             }
             return result;
         },
+        restoreDocumentRevision(path, revision, options) {
+            return browserDocumentStore.restoreRevision(path, revision, options?.expectedDocumentRevisionToken);
+        },
+        retainDocumentRevisions(path, revisions) {
+            return browserDocumentStore.retainRevisions(path, revisions);
+        },
         async cleanupFile(path) {
             await closeBrowserWorkingCopyWork(path);
             const sourceRef = await browserDocumentStore.getSourceRef(path).catch(() => path);
@@ -742,7 +716,13 @@ export function createBrowserDocumentsFileCapability(
             }
 
             try {
-                return await createBrowserCombinedPdfFromPaths(refs, options);
+                // The capability answers bytes, so the combined document is read back whole, as the engine returned it.
+                const combined = await createBrowserCombinedPdfFromPaths(refs, options);
+                try {
+                    return await browserDocumentStore.read(combined, {maxBytes: BROWSER_PAGE_OPS_MAX_REQUEST_BYTES});
+                } finally {
+                    await browserDocumentStore.remove(combined);
+                }
             } finally {
                 await cleanupTransientOpenRefs(refs);
             }

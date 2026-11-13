@@ -2,6 +2,7 @@ import {
     decodeManifest,
     DOCUMENTS_DIR,
     type IDocumentStore,
+    type IManifest,
     isDirty,
     MANIFEST_NAME,
     STORE_ID_PATTERN,
@@ -13,13 +14,24 @@ import {
 } from './workspaceCheckpoint';
 
 /**
- * Removes document directories that are clean, named by no workspace checkpoint and not held by a window,
- * and returns the unsaved ones no window holds, for the recovery offer. A directory without a manifest is
- * an aborted creation and goes too. What cannot be read is kept: an unreadable manifest keeps its
- * directory, and an unreadable checkpoint keeps every clean one it might name. Temporary files of checkpoint
- * writes that crashed are removed.
+ * What an open leaves, with nothing done since: no drafts, no publish to settle, and at most two revisions made (the
+ * one it created or copied in, and one it wrote, such as a decrypted or normalized PDF). A window names a directory
+ * in its checkpoint before the first edit, so an unsaved directory no checkpoint names that looks like this is an
+ * open a crash cut short.
  */
-export async function collectDocuments(store: IDocumentStore, isHeld: (id: string) => Promise<boolean>) {
+const isOpenOnly = (manifest: IManifest) => manifest.drafts === undefined && manifest.pendingPublish === undefined
+    && manifest.unsettled === undefined && manifest.next <= 3;
+
+/**
+ * Removes the document directories nothing needs and returns the unsaved ones no window holds, for the recovery
+ * offer. `hold` takes a directory, or answers `null` when a window has it; each directory is decided and removed
+ * while held, so collection never races a window opening it. Removed: a directory without a manifest (an aborted
+ * creation), a clean one no workspace checkpoint names, and an unsaved one no checkpoint names that holds only what
+ * an open made. Every other unsaved directory is kept, named or not. What cannot be read is kept: an unreadable
+ * manifest keeps its directory, and an unreadable checkpoint keeps every directory it might name. Temporary files of
+ * checkpoint writes that crashed are removed.
+ */
+export async function collectDocuments(store: IDocumentStore, hold: (id: string) => Promise<(() => void) | null>) {
     const { port } = store;
     for (const name of await port.list(WORKSPACES_DIR)) {
         // A temporary file another window still has open refuses removal; it is that window's to finish.
@@ -31,18 +43,24 @@ export async function collectDocuments(store: IDocumentStore, isHeld: (id: strin
     const removed: string[] = [];
     const unsaved: string[] = [];
     for (const id of await port.list(DOCUMENTS_DIR)) {
-        if (!STORE_ID_PATTERN.test(id) || await isHeld(id)) continue;
-        const dir = `${DOCUMENTS_DIR}/${id}`;
-        const names = await port.list(dir);
-        const manifest = names.includes(MANIFEST_NAME)
-            ? await port.read(`${dir}/${MANIFEST_NAME}`).then(decodeManifest).catch(() => null)
-            : undefined;
-        if (manifest === null) continue;
-        if (manifest && isDirty(manifest)) {
-            unsaved.push(id);
-        } else if (!manifest || (referencesKnown && !referenced.has(id))) {
-            await port.remove(dir);
-            removed.push(id);
+        if (!STORE_ID_PATTERN.test(id)) continue;
+        const release = await hold(id);
+        if (!release) continue;
+        try {
+            const dir = `${DOCUMENTS_DIR}/${id}`;
+            const manifest = (await port.list(dir)).includes(MANIFEST_NAME)
+                ? await port.read(`${dir}/${MANIFEST_NAME}`).then(decodeManifest).catch(() => null)
+                : undefined;
+            if (manifest === null) continue;
+            const unnamed = referencesKnown && !referenced.has(id);
+            if (manifest && isDirty(manifest) && !(unnamed && isOpenOnly(manifest))) {
+                unsaved.push(id);
+            } else if (!manifest || unnamed) {
+                await port.remove(dir);
+                removed.push(id);
+            }
+        } finally {
+            release();
         }
     }
     return { removed, unsaved };

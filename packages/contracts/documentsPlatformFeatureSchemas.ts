@@ -203,11 +203,19 @@ const pageSizesArgs = v.strictTuple([
     documentRefSchema,
     PDF_NATIVE_PAGE_SIZES_EXACT_OPTIONS_SCHEMA,
 ]);
-const fileExistsArgs = pdfPathSchema;
 const writeFileArgs = v.strictTuple([
     documentRefSchema,
     uint8ArraySchema,
     optionalRevisionOptionsSchema,
+]);
+const restoreDocumentRevisionArgs = v.strictTuple([
+    documentRefSchema,
+    documentRevisionTokenSchema,
+    optionalRevisionOptionsSchema,
+]);
+const retainDocumentRevisionsArgs = v.strictTuple([
+    documentRefSchema,
+    v.pipe(v.array(documentRevisionTokenSchema), v.maxLength(256)),
 ]);
 const replaceWorkingCopyArgs = v.strictTuple([
     documentRefSchema,
@@ -375,7 +383,6 @@ const documentSaveFailureReasons = [
     'original-changed',
     'write-failed',
     'refresh-failed',
-    'working-copy-sync-required',
     'unsupported',
     'stale',
     'unknown',
@@ -406,7 +413,6 @@ const documentSaveResultSchema = v.variant('ok', [
         keptFilePath: v.exactOptional(v.string()),
         message: v.exactOptional(v.string()),
         externalWriteCommitted: v.exactOptional(v.nullable(v.boolean())),
-        workingCopySyncRequired: v.exactOptional(v.boolean()),
         validation: v.exactOptional(v.nullable(PDF_VALIDATION_RESULT_SCHEMA)),
     }),
 ]);
@@ -447,14 +453,10 @@ const nativeSaveResultSchema = v.object({
     applied: v.boolean(),
     documentRevision: v.exactOptional(revisionInfoSchema),
     validation: v.nullable(PDF_VALIDATION_RESULT_SCHEMA),
-    reason: v.exactOptional(v.picklist([
-        'original-changed',
-        'working-copy-sync-required',
-    ])),
+    reason: v.exactOptional(v.literal('original-changed')),
     keptFilePath: v.exactOptional(v.string()),
-    // As in a structured save result: whether the file was written, and that the open copy needs syncing.
+    // As in a structured save result: whether the file was written.
     externalWriteCommitted: v.exactOptional(v.nullable(v.boolean())),
-    workingCopySyncRequired: v.exactOptional(v.boolean()),
     nativeMutationPostconditionsVerified: v.exactOptional(v.literal(true, 'invalid native PDF save result')),
     identityBindings: v.exactOptional(v.pipe(
         v.unknown(),
@@ -523,7 +525,6 @@ export {
     documentRevisionArgs,
     documentRevisionEvent,
     documentSaveResult,
-    fileExistsArgs,
     fileStatResult,
     managedHandleArgs,
     managedHandleResult,
@@ -561,6 +562,8 @@ export {
     repairPdfArgs,
     replaceWorkingCopyArgs,
     replaceWorkingCopyFromStagedNativeMutationArgs,
+    restoreDocumentRevisionArgs,
+    retainDocumentRevisionsArgs,
     revisionResult,
     saveFileStructuredArgs,
     savePdfAsArgs,

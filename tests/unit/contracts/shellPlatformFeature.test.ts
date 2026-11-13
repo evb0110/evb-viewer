@@ -27,6 +27,7 @@ describe('platform wire compatibility', () => {
             invoke: 'transfer=tabs:transfer transferAck=tabs:transferAck listTargetWindows=tabs:listTargets closeCurrentWindow=window:closeCurrent ' +
                 'claimPendingExternalOpenPaths=app:claimPendingExternalOpenPaths ' +
                 'acknowledgePendingExternalOpenPaths=app:acknowledgePendingExternalOpenPaths saveWorkspaceCheckpoint=workspace:checkpointSave ' +
+                'setDocumentDrafts=workspace:setDocumentDrafts ' +
                 'discardWorkspaceCheckpoint=workspace:checkpointDiscard resumeWorkspaceCheckpoint=workspace:checkpointResume ' +
                 'claimWorkspaceCheckpoint=workspace:checkpointClaim acknowledgeWorkspaceCheckpoint=workspace:checkpointAcknowledge',
             events: 'onIncomingTransfer=tabs:incomingTransfer onWindowAction=menu:windowTabsAction onMenuNewTab=menu:newTab ' +

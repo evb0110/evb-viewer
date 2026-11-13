@@ -11,12 +11,18 @@ import {
     findWorkingCopyPathByOriginalPath,
     forkOpenDocument,
     getWorkingCopyBackingEntry,
+    normalizeExpectedDocumentRevisionToken,
     openDocumentFromFile,
     requireDocumentFile,
     requireOpenDocument,
+    restoreOpenDocumentRevision,
+    retainOpenDocumentRevisions,
     rewriteOpenDocument,
     type IOpenDocument,
 } from '@electron/file-access/documentStore';
+import { enqueueWorkingCopyMutation } from '@electron/file-access/workingCopyMutationQueue';
+import type { IDocumentMutationRevisionOptions } from '@contracts/electronApiDocuments';
+import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import { isPdfFileEncrypted } from '@electron/file-access/isPdfFileEncrypted';
 import {
     decryptWorkingCopyWithWriter,
@@ -106,8 +112,8 @@ export async function createDocumentFromFile(source: TOpenPath, originalPath: st
 }
 
 /**
- * New bytes for a document already open from `originalPath`, such as an undo snapshot: a copy of that document,
- * so its Save keeps checking and replacing the same file, rewritten with `source`.
+ * New bytes for a document already open from `originalPath`, such as a moved tab's unsaved state: a copy of that
+ * document, so its Save keeps checking and replacing the same file, rewritten with `source`.
  */
 async function createRevisionOf(document: IOpenDocument, source: string | Uint8Array, ownerWebContentsId?: number) {
     const entry = await forkOpenDocument(document, ownerWebContentsId);
@@ -187,4 +193,20 @@ export async function handleCreateWorkingCopyFromPath(
         : resolveTrustedOriginalDocument(originalPath, 'createWorkingCopyFromPath', context.senderId);
     if (document) return (await createRevisionOf(document, sourcePath, context.senderId)).ref;
     return (await openFileAsDocument(sourcePath, context.senderId, {password: validatedPassword})).entry.ref;
+}
+
+/** Undo or redo of the document's bytes, in order with its other mutations. */
+export function handleRestoreDocumentRevision(
+    context: IDocumentsSenderIdContext,
+    workingPath: string,
+    revision: TDocumentRevisionToken,
+    options?: IDocumentMutationRevisionOptions,
+) {
+    const entry = requireOpenDocument(workingPath, context.senderId);
+    const expected = normalizeExpectedDocumentRevisionToken(options);
+    return enqueueWorkingCopyMutation(entry.ref, () => restoreOpenDocumentRevision(entry, revision, expected));
+}
+
+export function handleRetainDocumentRevisions(context: IDocumentsSenderIdContext, workingPath: string, revisions: TDocumentRevisionToken[]) {
+    return retainOpenDocumentRevisions(requireOpenDocument(workingPath, context.senderId), revisions).then(() => undefined);
 }

@@ -172,8 +172,6 @@ export interface IPdfViewerAnnotationCommandExpose {
     canRotateSelectedAnnotations?: (delta: -90 | 90) => boolean;
     prepareAnnotationToolChange?: () => void | Promise<void>;
     handleAnnotationEscape?: () => boolean;
-    /** Renderer-owned canonical state for main-process recovery publication. */
-    getCanonicalAnnotationRecoveryChangeSignature?: () => readonly [number, ReadonlyArray<readonly [string, number, string]>];
     captureCanonicalAnnotationRecovery?: (drafts?: TAnnotationRecoveryDraftInput) => ICanonicalAnnotationRecovery;
     restoreCanonicalAnnotationRecovery?: (value: unknown) => ICanonicalAnnotationRecovery;
 }
