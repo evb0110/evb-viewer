@@ -178,7 +178,7 @@ describe('document directory', () => {
         expect(await doc.restore(2, 1)).toEqual({ status: 'committed', revision: null });
     });
 
-    it('refuses to take a file in as the first revision once the destination changed, and drops the file', async () => {
+    it('takes a file in as the first revision once the destination changed, and Save refuses to publish over it', async () => {
         const destination = path.join(workDir, 'paper.pdf');
         await writeFile(destination, 'v1');
         const doc = await create(store(), { ext: 'pdf', destination });
@@ -186,9 +186,10 @@ describe('document directory', () => {
         await writeFile(output, 'v2 from a tool');
         await writeFile(destination, 'changed elsewhere');
 
-        expect(await doc.mutate(null, { kind: 'move', file: output, drafts: 'clear' })).toEqual({ status: 'conflict' });
-        expect(doc.state()).toMatchObject({ current: null, history: [] });
-        expect(await readdir(docDir(doc))).toEqual(['manifest.json']);
+        expect(await doc.mutate(null, { kind: 'move', file: output, drafts: 'clear' })).toMatchObject({ status: 'committed', revision: { id: 2 } });
+        expect(await saveDocument(doc, { expected: 2 })).toEqual({ status: 'conflict' });
+        expect(await readFile(destination, 'utf8')).toBe('changed elsewhere');
+        expect(await currentText(doc)).toBe('v2 from a tool');
     });
 
     it('returns stale revisions and a changed destination as results', async () => {
@@ -246,6 +247,23 @@ describe('document directory', () => {
         await writeFile(destination, 'changed elsewhere');
         expect(await doc.restore(2, 1)).toEqual({ status: 'conflict' });
         expect(await currentText(doc)).toBe('v2');
+    });
+
+    it('extends the file a caller appended to, and after an undo gives the redo revision a copy so the file holds what is current', async () => {
+        const doc = await create(store(), { ext: 'pdf', source: new Blob(['base']) });
+        const file = path.join(docDir(doc), 'r1.pdf');
+        await writeFile(file, 'base+stale');
+        expect(await doc.ownCurrentFile()).toMatchObject({ id: 1, length: 4 });
+        expect(await readFile(file, 'utf8')).toBe('base');
+
+        await writeFile(file, 'base+1');
+        expect(await doc.mutate(1, { kind: 'extend', drafts: 'clear' })).toMatchObject({ revision: { id: 2, file: 'r1.pdf', length: 6 } });
+        await doc.restore(2, 1);
+        await doc.ownCurrentFile();
+        expect(await readFile(file, 'utf8')).toBe('base');
+        expect(doc.state().history).toMatchObject([{ id: 2, file: 'r3.pdf', length: 6 }]);
+        await doc.restore(1, 2);
+        expect(await currentText(doc)).toBe('base+1');
     });
 
     it('appends after an undo into a new file, so the redo revision keeps its bytes', async () => {
@@ -506,8 +524,11 @@ describe('save', () => {
         await writeFile(destination, 'v1');
         const doc = await create(store(), { ext: 'pdf', destination });
         await doc.setDrafts(null, { note: 'unsaved' });
+        // Drafts alone copy nothing: they apply to the destination.
+        expect(doc.state()).toMatchObject({ current: null, drafts: { note: 'unsaved' }, dirty: true });
+        expect((await readdir(docDir(doc))).filter(name => name.startsWith('r'))).toEqual([]);
 
-        const saved = await saveDocument(doc, { expected: 1, commit: append('+note') });
+        const saved = await saveDocument(doc, { expected: null, commit: append('+note') });
         expect(saved).toMatchObject({ status: 'saved', revision: { id: 2 } });
         expect(await readFile(destination, 'utf8')).toBe('v1+note');
         expect(doc.state()).toMatchObject({ drafts: undefined, dirty: false });

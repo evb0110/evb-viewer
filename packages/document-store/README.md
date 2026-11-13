@@ -16,10 +16,15 @@ Each `documents/<id>/` directory contains:
 | `drafts-<uuid>.json` | Immutable annotations and metadata not yet written into the document bytes. |
 
 A path-backed document can start without a revision file. Reads use its
-destination until the first mutation needs private bytes. Append mutations flush
-an extended revision; rewrites flush a new file. Replacing the manifest commits
-the revision and its kept, replaced or cleared drafts together. A drafts-only
-change also commits by replacing the manifest.
+destination until the first append needs private bytes; drafts never copy it,
+and a rewrite supplies all its bytes. Append mutations flush an extended
+revision (`extend` commits what a native tool appended to the current file
+itself); rewrites flush a new file. Replacing the manifest commits the revision
+and its kept, replaced or cleared drafts together. A drafts-only change also
+commits by replacing the manifest. Desktop tools read a revision file to its
+end, so before such a tool runs and after an undo, `ownCurrentFile` moves redo
+revisions that extend the current file to a copy and cuts what no revision
+names.
 
 On open, recovery truncates an unfinished append beyond the greatest length
 that current or history names in that file, removes unreferenced files and

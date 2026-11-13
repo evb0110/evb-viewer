@@ -5,11 +5,8 @@ import {withContentReadLease} from '@electron/features/documents/main/documentFi
 import {getAppTempDir} from '@electron/utils/appTempDir';
 import {usingManagedScratchScope} from '@electron/utils/managedScratchTemp';
 import {getUnprovenNativeTerminationDetail} from '@electron/utils/nativeTerminationProof';
-import {constants, existsSync} from 'fs';
 import {
-    copyFile,
     readFile,
-    rm,
     stat,
     writeFile,
 } from 'fs/promises';
@@ -39,15 +36,15 @@ import {hasNativeErrorCode} from '@contracts/nativeErrors';
 import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
 import {getPdfNativeToolPaths} from '@electron/pdf/nativeToolPaths';
 import {resolveNativePageOpsPath} from '@electron/features/page-ops/public';
-import {makeSiblingTempPath} from '@electron/utils/atomicReplace';
 import {
     enqueueWorkingCopyMutation,
     type IWorkingCopyMutationOperation,
 } from '@electron/file-access/workingCopyMutationQueue';
 import {
     assertQueuedWorkingCopyMutationPreconditions,
+    discardDocumentAppend,
     normalizeExpectedDocumentRevisionToken,
-    requireDocumentFile,
+    prepareDocumentAppend,
     requireOpenDocument,
     runWithWorkingCopyReadBacking,
     saveOpenDocument,
@@ -110,10 +107,12 @@ async function enterQueuedNativeNoteCommand(
         workingPath,
         expectedDocumentRevisionToken,
     );
+    const entry = requireOpenDocument(workingPath, senderId);
     return {
         phaseTimings,
         operationStart,
-        sourcePath: await requireDocumentFile(requireOpenDocument(workingPath, senderId)),
+        entry,
+        targetPath: await prepareDocumentAppend(entry),
     };
 }
 
@@ -206,15 +205,6 @@ async function assertNativeOutputReady(outputPath: string): Promise<void> {
     }
 }
 
-async function cleanupTempPath(path: string): Promise<void> {
-    await rm(path, {force: true}).catch((error: unknown) => {
-        log.debug('Failed to cleanup native note text temp file', {
-            path,
-            error: getErrorMessage(error),
-        });
-    });
-}
-
 async function measureNativeNotePhase<T>(
     phaseTimings: INativeNotePhaseTiming[],
     phase: string,
@@ -243,17 +233,11 @@ async function prepareNativeNoteMutation(options: {
     mutationOperation: IWorkingCopyMutationOperation;
     payloadFilePath: string;
     phaseTimings: INativeNotePhaseTiming[];
-    sourcePath: string;
-    tempPath: string;
+    targetPath: string;
 }) {
     const mutationChunks = splitPdfNativeMutationSetIntoBoundedChunks(options.mutations);
     const needsBindings = needsNativeSaveReport(options.mutations);
-    await measureNativeNotePhase(
-        options.phaseTimings,
-        'clone-working-to-temp',
-        () => copyFile(options.sourcePath, options.tempPath, constants.COPYFILE_FICLONE),
-    );
-    const sourceBytes = (await stat(options.tempPath)).size;
+    const sourceBytes = (await stat(options.targetPath)).size;
     const deleteEffects: TNativeAnnotationDeleteEffects[] = [];
     let completeDeleteEffects = true;
     const identityBindings: Array<NonNullable<IPdfNativeNoteTextSaveResult['identityBindings']>[number]> = [];
@@ -279,9 +263,9 @@ async function prepareNativeNoteMutation(options: {
                 const run = (source?: string) => runNativeToolCommand(options.binaryPath, [
                     'save-mutations',
                     '--input',
-                    options.tempPath,
+                    options.targetPath,
                     '--output',
-                    options.tempPath,
+                    options.targetPath,
                     '--mutations-file',
                     payloadFilePath,
                     ...(source === undefined ? [] : [
@@ -315,7 +299,7 @@ async function prepareNativeNoteMutation(options: {
                     {ownerWebContentsId: requireSenderId(options.context)},
                 )));
                 await measureNativeNotePhase(options.phaseTimings, 'assert-output', () =>
-                    assertNativeOutputReady(options.tempPath));
+                    assertNativeOutputReady(options.targetPath));
                 if (identityBindingsFileName) {
                     const report = await measureNativeNotePhase(
                         options.phaseTimings,
@@ -363,19 +347,14 @@ async function runNativeWorkingCopyCommand(
         const {
             phaseTimings,
             operationStart,
-            sourcePath,
+            entry,
+            targetPath,
         } = await enterQueuedNativeNoteCommand(
             normalizedWorkingPath,
             senderId,
             expectedDocumentRevisionToken,
         );
         const operationStartedAtEpochMs: number = Date.now();
-
-        // Managed binary handles validate the artifact type from its extension.
-        // Keep this staging path recognizable as a PDF even though it is also a
-        // sibling temporary file used for atomic promotion.
-        const tempPath = `${makeSiblingTempPath(normalizedWorkingPath)}.pdf`;
-        let staged = false;
         try {
             return await usingManagedScratchScope('pdf-page-ops-', getAppTempDir(), async tempDir => {
                 const payloadFilePath = join(tempDir, 'mutations.json');
@@ -387,8 +366,7 @@ async function runNativeWorkingCopyCommand(
                     mutationOperation,
                     payloadFilePath,
                     phaseTimings,
-                    sourcePath,
-                    tempPath,
+                    targetPath,
                 });
                 const {
                     validation,
@@ -396,14 +374,15 @@ async function runNativeWorkingCopyCommand(
                     annotationDeleteEffects,
                 } = prepared;
 
-                const stagedOutput = await createOpaqueNativePdfStagedArtifact(context, tempPath, {
+                // The receipt names the document's own file, extended past its committed bytes: a later commit
+                // `extend`s the document, and the next append cuts what no commit claimed.
+                const stagedOutput = await createOpaqueNativePdfStagedArtifact(context, targetPath, {
                     qpdfCheck: false,
                     tailCheck: true,
                     semanticCheck: true,
                     semanticScopeSha256: createNativeIncrementalMutationSemanticScopeSha256(),
                     fsynced: true,
-                }, {cleanupOnRelease: true});
-                staged = true;
+                });
                 const totalMs = Math.round((performance.now() - operationStart) * 10) / 10;
                 const logTimings = totalMs >= 1_000 ? log.info.bind(log) : log.debug.bind(log);
                 logTimings('Native working-copy mutation phase timings', {
@@ -423,8 +402,9 @@ async function runNativeWorkingCopyCommand(
                 };
             });
         } catch (error) {
-            if (!staged && getUnprovenNativeTerminationDetail(error) === undefined) {
-                await cleanupTempPath(tempPath);
+            // A tool that may still be running keeps its bytes until the next append cuts them.
+            if (getUnprovenNativeTerminationDetail(error) === undefined) {
+                await discardDocumentAppend(entry);
             }
             log.warn('Native working-copy mutation failed', {
                 command: 'save-mutations',
@@ -443,8 +423,8 @@ async function runNativeWorkingCopyCommand(
 }
 
 /**
- * Save with pending annotations: the verified native artifact becomes the working copy's revision, then the
- * document is checked against the PDF on disk and published to it.
+ * Save with pending annotations: the verified native artifact, the document's own file extended in place, becomes
+ * its next revision, then the document is checked against the PDF on disk and published to it.
  */
 export async function handleCommitStagedPdfNativeMutations(
     context: IDocumentsSenderIdContext,
@@ -460,10 +440,10 @@ export async function handleCommitStagedPdfNativeMutations(
     try {
         return await enqueueWorkingCopyMutation(entry.ref, async () => {
             await assertQueuedWorkingCopyMutationPreconditions(entry.ref, expectedDocumentRevisionToken);
-            const currentArtifact = await resolveTypedStagedArtifact(context, stagedOutput);
+            await resolveTypedStagedArtifact(context, stagedOutput);
             const saved = toDocumentSaveResult(entry, await saveOpenDocument(entry, expectedDocumentRevisionToken, {
-                commit: {kind: 'move', file: currentArtifact.path},
-            }), createNativeValidationResult());
+                commit: {kind: 'extend'},
+            }).finally(() => discardDocumentAppend(entry)), createNativeValidationResult());
             if (saved.ok) {
                 return {
                     applied: true,
@@ -487,7 +467,6 @@ export async function handleCommitStagedPdfNativeMutations(
         throw await explainWriteRefusal(error, entry.originalPath ?? '');
     } finally {
         releaseManagedTempFileHandle(context, stagedOutput.leaseId);
-        if (existsSync(stagedOutput.path)) await cleanupTempPath(stagedOutput.path);
         log.debug('Native staged mutation commit timings', {totalMs: Math.round((performance.now() - operationStart) * 10) / 10});
     }
 }

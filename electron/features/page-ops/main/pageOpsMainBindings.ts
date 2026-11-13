@@ -5,9 +5,9 @@ import {
     type WebContents,
 } from 'electron';
 import {
-    copyFile, readFile, stat, writeFile,
+    readFile, stat, writeFile,
 } from 'fs/promises';
-import {constants} from 'node:fs';
+import {copyNewFile} from '@document-store/nodeStorePort';
 import {usingManagedScratchScope} from '@electron/utils/managedScratchTemp';
 import {
     basename,
@@ -67,6 +67,7 @@ import {
     normalizeExpectedDocumentRevisionToken,
     getWorkingCopyOriginalPath,
     requireManagedWorkingCopyPath,
+    appendToDocument,
     requireOpenDocument,
     rewriteDocument,
     runWithWorkingCopyReadBacking,
@@ -247,10 +248,11 @@ const DEFERRED_COMMIT_SIGNAL = {markCommitStarted: () => undefined};
 /**
  * Runs one page operation as a rewrite of the document: `mutate` reads its
  * current bytes at `source` and writes the next revision at `target`, which
- * the store commits once the page count and structure checks pass. An edit
- * that appends in place clones `source` to `target` first. The page-structure
- * engine and the incremental writer verify what they write; a tool that does
- * not asks for `strictStructureCheck`.
+ * the store commits once the page count and structure checks pass. With
+ * `write: appendToDocument` the edit appends to the document's own file:
+ * `source` and `target` are that file. The page-structure engine and the
+ * incremental writer verify what they write; a tool that does not asks for
+ * `strictStructureCheck`.
  */
 async function runPageMutation<T>(input: {
     ref: string;
@@ -261,6 +263,7 @@ async function runPageMutation<T>(input: {
     operation: IWorkingCopyMutationOperation;
     skipPageMetadataRemap?: boolean;
     strictStructureCheck?: boolean;
+    write?: typeof rewriteDocument;
     mutate: (source: string, target: string, pageCount: number) => Promise<{
         value: T;
         delta: IPageIdentityDelta
@@ -269,7 +272,7 @@ async function runPageMutation<T>(input: {
     await assertQueuedWorkingCopyMutationPreconditions(input.ref, input.token);
     const nativeOptions = createNativeOperationOptions(input.operation);
     let committed = null as {value: T; delta: IPageIdentityDelta} | null;
-    const documentRevision = await runWithWorkingCopyMutationCommitSignal(DEFERRED_COMMIT_SIGNAL, () => rewriteDocument(
+    const documentRevision = await runWithWorkingCopyMutationCommitSignal(DEFERRED_COMMIT_SIGNAL, () => (input.write ?? rewriteDocument)(
         requireOpenDocument(input.ref, input.senderId),
         async (source, target) => {
             const pageCount = await getPdfPageCount(source, nativeOptions);
@@ -308,10 +311,6 @@ async function runPageMutation<T>(input: {
         documentRevision,
         pageIdentityDelta: committed.delta,
     };
-}
-
-function cloneSource(source: string, target: string) {
-    return copyFile(source, target, constants.COPYFILE_FICLONE);
 }
 
 async function validateWorkingCopyPath(path: unknown, senderWebContentsId?: number) {
@@ -720,9 +719,9 @@ async function handlePageOpsRotate(
         operation,
         options,
         skipPageMetadataRemap: true,
-        mutate: async (source, target, pageCount) => {
+        write: appendToDocument,
+        mutate: async (_source, target, pageCount) => {
             const ranges = validatePageOpsSelection(pages, pageCount, 'rotatePages');
-            await cloneSource(source, target);
             for (const batch of iteratePageRangeBatches(ranges, PAGE_MUTATION_BATCH_SIZE)) {
                 await rotatePages(target, batch, angle, createNativeOperationOptions(operation));
             }
@@ -810,7 +809,7 @@ async function handlePageOpsCrop(
         strictStructureCheck: true,
         mutate: async (source, target, pageCount) => {
             const ranges = validatePageOpsSelection(pages, pageCount, 'cropPages');
-            await cloneSource(source, target);
+            await copyNewFile(source, target);
             for (const batch of iteratePageRangeBatches(ranges, PAGE_MUTATION_BATCH_SIZE)) {
                 await cropPages(target, batch, normalizedMargins, context.senderId, operation.signal);
             }
@@ -850,7 +849,7 @@ async function handlePageOpsRemoveCrop(
         strictStructureCheck: true,
         mutate: async (source, target, pageCount) => {
             const ranges = validatePageOpsSelection(pages, pageCount, 'removeCrop');
-            await cloneSource(source, target);
+            await copyNewFile(source, target);
             for (const batch of iteratePageRangeBatches(ranges, PAGE_MUTATION_BATCH_SIZE)) {
                 await removeCropFromPages(target, batch, context.senderId, operation.signal);
             }

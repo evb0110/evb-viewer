@@ -1,10 +1,8 @@
 import {
-    constants,
     statSync,
     type BigIntStats,
 } from 'node:fs';
 import {
-    copyFile,
     open,
     rm,
     stat,
@@ -30,7 +28,10 @@ import {
     type TReplacement,
     type TStaleRevision,
 } from '@document-store/documentDirectory';
-import {createNodeStorePort} from '@document-store/nodeStorePort';
+import {
+    copyNewFile,
+    createNodeStorePort,
+} from '@document-store/nodeStorePort';
 import {
     saveDocument,
     type TSaveResult,
@@ -542,7 +543,9 @@ export async function rewriteDocument(
 ) {
     if (reason !== 'open') await nameDirectory(entry);
     const previous = documentRevisionToken(entry);
-    const {current, destination} = entry.doc.state();
+    // The tool reads its input to the end, where an append no one committed may still be.
+    const current = await entry.doc.ownCurrentFile();
+    const {destination} = entry.doc.state();
     const input = current ? revisionPath(entry, current) : destination;
     if (input === null) throw new WorkingCopyMissingError();
     const output = absolute(entry.doc.nextRevisionPath());
@@ -561,6 +564,46 @@ export async function rewriteDocument(
     return notifyRevisionChanged(entry, previous, reason);
 }
 
+/**
+ * The file a native tool appends an incremental update of the document to: its current revision file, copied in from
+ * the destination first when it has none and holding exactly that revision's bytes. Commit what the tool appended
+ * with an `extend`; `discardDocumentAppend` cuts it otherwise. Call it, the tool and the commit in the document's
+ * mutation queue.
+ */
+export async function prepareDocumentAppend(entry: IOpenDocument) {
+    const revision = await entry.doc.materialize() && await entry.doc.ownCurrentFile();
+    if (!revision) throw sourceChangedError();
+    return revisionPath(entry, revision);
+}
+
+/** Cuts what an append that was not committed left past the document's bytes, so no reader of its file meets it. */
+export async function discardDocumentAppend(entry: IOpenDocument) {
+    await entry.doc.ownCurrentFile().catch(() => undefined);
+}
+
+/**
+ * Runs `append`, a native tool that appends an incremental update to the PDF at the path it is given (its input and
+ * output are the same file, see `prepareDocumentAppend`), and commits it. A failure leaves the document as it was.
+ */
+export async function appendToDocument(
+    entry: IOpenDocument,
+    append: (input: string, output: string) => Promise<void>,
+    reason: TDocumentRevisionChangeReason,
+) {
+    await nameDirectory(entry);
+    const previous = documentRevisionToken(entry);
+    const path = await prepareDocumentAppend(entry);
+    try {
+        await append(path, path);
+        const result = await entry.doc.mutate(expectedRevisionId(entry, previous), {kind: 'extend', drafts: 'clear'});
+        if (result.status !== 'committed') throwFailedMutation(entry, previous, result);
+    } catch (error) {
+        await discardDocumentAppend(entry);
+        throw error;
+    }
+    return notifyRevisionChanged(entry, previous, reason);
+}
+
 /** Runs a native tool that edits a private clone of the document's bytes in place, and commits the result. */
 export function rewriteOpenDocument(
     entry: IOpenDocument,
@@ -568,20 +611,23 @@ export function rewriteOpenDocument(
     reason: TDocumentRevisionChangeReason,
 ) {
     return rewriteDocument(entry, async (input, output) => {
-        await copyFile(input, output, constants.COPYFILE_FICLONE);
+        await copyNewFile(input, output);
         await rewrite(output);
     }, reason);
 }
 
 /**
  * Undo or redo: makes revision `token`, which the document's history keeps, current again on top of revision
- * `expected`. Nothing is copied; back on revision 1 without a file, the document reads its destination again.
+ * `expected`. Back on revision 1 without a file, the document reads its destination again. Undoing an append that
+ * extended the current file moves the redo revision to a copy (a clone where the volume can).
  */
 export async function restoreOpenDocumentRevision(entry: IOpenDocument, token: TDocumentRevisionToken, expected: TDocumentRevisionToken | null) {
     await nameDirectory(entry);
     const previous = documentRevisionToken(entry);
     const result = await entry.doc.restore(expectedRevisionId(entry, expected), revisionIdOf(token));
     if (result.status !== 'committed') throwFailedMutation(entry, expected, result);
+    // Native tools read the current file to its end: an undone append must not be there.
+    await entry.doc.ownCurrentFile();
     if (!result.revision) entry.admission = await stat(entry.doc.state().destination!, {bigint: true});
     return notifyRevisionChanged(entry, previous, 'write');
 }
