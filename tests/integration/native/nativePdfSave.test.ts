@@ -142,7 +142,7 @@ describe('native PDF save integration', () => {
         await expect(runQpdf([
             '--show-npages',
             nativeOutputPath,
-        ])).resolves.toMatchObject({stdout: '1\n'});
+        ])).resolves.toMatchObject({stdout: expect.stringMatching(/^1\r?\n$/u)});
 
         await copyFileAtomic(nativeOutputPath, publishedPath);
         await expect(runQpdf([
@@ -152,7 +152,7 @@ describe('native PDF save integration', () => {
         await expect(runQpdf([
             '--show-npages',
             publishedPath,
-        ])).resolves.toMatchObject({stdout: '1\n'});
+        ])).resolves.toMatchObject({stdout: expect.stringMatching(/^1\r?\n$/u)});
         await expect(PDFDocument.load(await readFile(publishedPath))).resolves.toMatchObject({getPageCount: expect.any(Function)});
         const publishedBeforeFailure = await readFile(publishedPath);
 
@@ -180,7 +180,7 @@ describe('native PDF save integration', () => {
         await expect(runQpdf([
             '--show-npages',
             publishedPath,
-        ])).resolves.toMatchObject({stdout: '1\n'});
+        ])).resolves.toMatchObject({stdout: expect.stringMatching(/^1\r?\n$/u)});
         await expect(readFile(publishedPath)).resolves.toEqual(publishedBeforeFailure);
         await expect(PDFDocument.load(await readFile(publishedPath))).resolves.toMatchObject({getPageCount: expect.any(Function)});
     }, NATIVE_INTEGRATION_TIMEOUT_MS);

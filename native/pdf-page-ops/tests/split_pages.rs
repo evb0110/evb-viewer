@@ -3083,12 +3083,12 @@ fn compact_catalog_follows_raster_replacements_at_every_size() {
                         .unwrap();
                     let id = document.new_object_id().0;
                     let mut file = std::fs::OpenOptions::new()
-                        .append(true)
+                        .write(true)
                         .open(file_path)
                         .unwrap();
                     let offset = file.seek(SeekFrom::End(0)).unwrap();
                     writeln!(file, "{id} 0 obj\n<</Length 537919488>>\nstream").unwrap();
-                    // append mode ignores seeks for writes; extend the file first.
+                    // Extend the stream body before writing its trailer.
                     let end = file.stream_position().unwrap() + 513 * 1024 * 1024;
                     file.set_len(end).unwrap();
                     file.seek(SeekFrom::End(0)).unwrap();

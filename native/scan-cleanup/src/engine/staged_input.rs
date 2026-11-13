@@ -641,12 +641,12 @@ mod moved_tests {
     };
     use crate::CleanupOptions;
     use evb_native_support::NativeError;
-    use std::{fs, path::PathBuf};
+    use std::fs;
 
     #[cfg(unix)]
     use crate::protocol::manifest_v3::{DetailPixelRect, DetailRenderGeometry, DetailRenderPlan};
     #[cfg(unix)]
-    use std::path::Path;
+    use std::path::{Path, PathBuf};
 
     #[cfg(unix)]
     fn assert_manifest_paths_within_root(
