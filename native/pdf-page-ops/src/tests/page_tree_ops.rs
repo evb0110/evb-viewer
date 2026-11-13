@@ -1805,3 +1805,64 @@ fn page_structure_edits_keep_each_page_label_in_the_fewest_ranges() {
         assert_eq!(page_label_starts(&output), starts, "{name}");
     }
 }
+
+#[test]
+fn page_structure_output_verification_catches_writer_faults() {
+    let (mut document, page) = create_test_document();
+    let content = document.add_object(Stream::new(
+        dictionary! {},
+        b"BT /F1 12 Tf 20 50 Td (verified page) Tj ET".to_vec(),
+    ));
+    document
+        .get_dictionary_mut(page)
+        .unwrap()
+        .set("Contents", content);
+    let mut input = Vec::new();
+    document.save_to(&mut input).unwrap();
+    let sources = [SourcePdf::open(input.as_slice(), input.len() as u64).unwrap()];
+    let subset = edit_page_structure(PageStructureEdit::Extract(&[1]), &sources).unwrap();
+    let verify = |bytes: &[u8]| subset.verify(&sources, &bytes, bytes.len() as u64);
+    let good = subset.write(&sources, Vec::new()).unwrap();
+    verify(&good).unwrap();
+
+    let stream = *subset
+        .document
+        .objects
+        .iter()
+        .find(|(_, object)| object.as_stream().is_ok())
+        .unwrap()
+        .0;
+    let shifted = write_document(
+        &subset.document,
+        |id| {
+            subset
+                .raw(&sources, id)
+                .map(|(source, offset, len)| (source, offset + 1, len))
+        },
+        Vec::new(),
+    )
+    .unwrap();
+    let mut dropped = subset.document.clone();
+    dropped.objects.remove(&stream);
+    let dropped = write_document(&dropped, |id| subset.raw(&sources, id), Vec::new()).unwrap();
+    let xref = good.windows(6).position(|window| window == b"\nxref\n").unwrap() + 1;
+    let entry = xref + good[xref..].windows(3).position(|w| w == b" n ").unwrap() - 15;
+    let mut misplaced = good.clone();
+    misplaced[entry + 9] = if misplaced[entry + 9] == b'9' { b'0' } else { misplaced[entry + 9] + 1 };
+    let length = format!("/Length {}", subset.raw(&sources, stream).unwrap().2);
+    let at = good.windows(length.len()).position(|w| w == length.as_bytes()).unwrap();
+    let mut misstated = good.clone();
+    misstated[at + length.len() - 1] -= 1;
+    let faults = [
+        ("a stream copied from a range shifted by one byte", shifted),
+        ("an object left out", dropped),
+        ("one cross-reference offset off by one", misplaced),
+        ("a stream length one byte short", misstated),
+        ("a file cut before %%EOF", good[..good.len() - 2].to_vec()),
+        ("a file cut inside its cross-reference table", good[..xref + 30].to_vec()),
+        ("a file cut in half", good[..good.len() / 2].to_vec()),
+    ];
+    for (fault, bytes) in faults {
+        assert!(verify(&bytes).is_err(), "{fault} was not caught");
+    }
+}

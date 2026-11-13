@@ -80,14 +80,27 @@ impl PageSubset {
         sources: &[SourcePdf<S>],
         output: W,
     ) -> Result<W> {
-        write_document(
-            &self.document,
-            |id| {
-                let (index, source_id) = self.origins.get(&id)?;
-                sources.get(*index)?.stream_range(*source_id)
-            },
-            output,
-        )
+        write_document(&self.document, |id| self.raw(sources, id), output)
+    }
+
+    /// Checks the `len` bytes `write` wrote to `output`; see `verify_written`.
+    pub(crate) fn verify<S: ByteSource, O: ByteSource>(
+        &self,
+        sources: &[SourcePdf<S>],
+        output: &O,
+        len: u64,
+    ) -> Result<()> {
+        verify_written(&self.document, |id| self.raw(sources, id), output, len)
+    }
+
+    /// The source range of a copied stream.
+    pub(crate) fn raw<'a, S: ByteSource>(
+        &self,
+        sources: &'a [SourcePdf<S>],
+        id: ObjectId,
+    ) -> Option<(&'a S, u64, u64)> {
+        let (index, source_id) = self.origins.get(&id)?;
+        sources.get(*index)?.stream_range(*source_id)
     }
 }
 
@@ -257,13 +270,13 @@ pub(crate) fn write_page_structure_path(
         .collect::<Result<Vec<_>>>()?;
     let subset = edit_page_structure(edit, &sources)?;
     let staged = AtomicOutput::create(output).map_err(io_domain_error)?;
+    let file = staged.file().map_err(io_domain_error)?;
     subset
-        .write(
-            &sources,
-            std::io::BufWriter::with_capacity(1 << 20, staged.file().map_err(io_domain_error)?),
-        )?
+        .write(&sources, std::io::BufWriter::with_capacity(1 << 20, file))?
         .into_inner()
         .map_err(|error| io_domain_error(error.into_error()))?;
+    let len = file.metadata().map_err(io_domain_error)?.len();
+    subset.verify(&sources, file, len)?;
     // Windows cannot replace a file this process still holds open.
     drop(sources);
     staged.publish().map_err(io_domain_error)
