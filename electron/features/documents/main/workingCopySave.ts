@@ -10,6 +10,7 @@ import {
     dirname,
     join,
 } from 'node:path';
+import {DamagedDocumentError} from '@document-store/documentDirectory';
 import type {TSaveResult} from '@document-store/saveDocument';
 import type { IPdfValidationResult } from '@contracts/pdfConformance';
 import type {
@@ -177,7 +178,7 @@ export async function handleFileSaveStructured(
         });
         return {
             ok: false,
-            reason: 'write-failed',
+            reason: err instanceof DamagedDocumentError ? 'working-copy-missing' : 'write-failed',
             message: getErrorMessage(error),
             externalWriteCommitted: false,
             validation: null,

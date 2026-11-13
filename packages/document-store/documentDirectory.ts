@@ -55,6 +55,8 @@ export interface IDocumentState {
     /** Unsaved state not yet in the bytes, applying to `current`; `undefined` when there is none. */
     drafts: unknown;
     dirty: boolean;
+    /** Its unsaved work is in a revision file this computer cannot read; see `DamagedDocumentError`. */
+    damaged: boolean;
 }
 
 /** Bytes to publish: exactly `[0, length)` of `file`, which lives at the store-relative `path`. */
@@ -107,6 +109,13 @@ export type TDraftResult = { status: 'stored'; revision: IRevision | null } | TS
  * `id`: the directory's id when the caller must know it first, for example to lock it before it exists.
  */
 export type TDocumentInit = { ext: string; id?: string } & ({ destination: string } | { source: TExternalSource; imported?: boolean });
+
+/**
+ * The manifest names a current revision whose file is missing or short, as when a profile comes back without it. The
+ * directory stays as it is for an open that finds the file; meanwhile it reads as its destination, stays unsaved, and
+ * refuses every change and Save with this.
+ */
+export class DamagedDocumentError extends Error {}
 
 export function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -185,6 +194,7 @@ export class DocumentDirectory {
         /** The open handle on the current revision's file. */
         private file: IStoreFile | null,
         private drafts: unknown,
+        readonly damaged = false,
     ) {}
 
     static async create(store: IDocumentStore, init: TDocumentInit) {
@@ -235,8 +245,13 @@ export class DocumentDirectory {
         const dir = `${DOCUMENTS_DIR}/${id}`;
         const names = await port.list(dir);
         const manifest = decodeManifest(await port.read(`${dir}/${MANIFEST_NAME}`));
-        const file = manifest.current ? await port.open(`${dir}/${manifest.current.file}`) : null;
+        const { current } = manifest;
+        const file = current && names.includes(current.file) ? await port.open(`${dir}/${current.file}`) : null;
         try {
+            if (current && (!file || await file.size() < current.length)) {
+                await file?.close();
+                return new DocumentDirectory(id, store, { ...manifest, current: undefined, history: [], drafts: undefined }, null, undefined, true);
+            }
             return await DocumentDirectory.recover(store, id, names, manifest, file);
         } catch (error) {
             await file?.close().catch(() => undefined);
@@ -252,9 +267,6 @@ export class DocumentDirectory {
             // 1. Cut an unfinished append. A redo revision can name the same file further than `current`.
             const size = await file.size();
             const named = Math.max(...[current, ...manifest.history].filter(revision => revision.file === current.file).map(revision => revision.length));
-            if (size < current.length) {
-                throw new Error(`Revision file ${current.file} of document ${id} is shorter than its manifest`);
-            }
             if (size > named) {
                 await file.truncate(named);
                 await file.flush();
@@ -281,7 +293,8 @@ export class DocumentDirectory {
             destination: manifest.destination ?? null,
             baseline: manifest.baseline ?? null,
             drafts: this.drafts,
-            dirty: isDirty(manifest),
+            dirty: this.damaged || isDirty(manifest),
+            damaged: this.damaged,
         };
     }
 
@@ -345,7 +358,7 @@ export class DocumentDirectory {
     }
 
     close() {
-        return this.run(async () => {
+        return this.damaged ? Promise.resolve() : this.run(async () => {
             await this.file?.close();
             this.file = null;
         });
@@ -353,8 +366,9 @@ export class DocumentDirectory {
 
     // The members below are the steps `saveDocument` composes; application code uses the methods above.
 
-    /** Runs `task` after every earlier call on this directory has settled. */
+    /** Runs `task` after every earlier call on this directory has settled; a damaged directory runs nothing. */
     run<T>(task: () => Promise<T>): Promise<T> {
+        if (this.damaged) return Promise.reject(new DamagedDocumentError(`The unsaved changes of document ${this.id} are in a revision file that is missing or cut short`));
         const result = this.tail.then(task);
         this.tail = result.catch(() => undefined);
         return result;

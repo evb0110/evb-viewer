@@ -3,7 +3,7 @@ import {isEqual} from 'es-toolkit/predicate';
 import type {IRecentReadingView} from '@contracts/recentReadingView';
 import {parseDocumentRef} from '@contracts/documentRef';
 import {
-    getWorkingCopyOriginalFileExpectation,
+    getBaselineFileVersion,
     getWorkingCopyOriginalPath,
 } from '@electron/file-access/documentStore';
 import {getAdmittedDjvuViewingSource} from '@electron/features/djvu/public';
@@ -12,25 +12,19 @@ import {
     readRecentFilesData,
 } from '@electron/recentFiles';
 
-// Reading views are stored with their Recent entries, but which source bytes a
-// view belongs to is the working-copy registry's knowledge, not the list's.
+/** A file version as a reading view names it: its size, and its modification time in fractional milliseconds. */
+export function readingViewSourceOf(version: {size: bigint; mtimeNs: bigint}) {
+    return {sourceSize: Number(version.size), sourceModifiedAtMs: Number(version.mtimeNs) / 1_000_000};
+}
 
-// The source a document was admitted from, with the size and modification
-// time it had then: the identity a reading view belongs to. A PDF is shown
-// from a working copy whose registry recorded its source; a DjVu is read live
-// from its source, whose open recorded the metadata its probe read. Read when
-// the call arrives, while the sender still owns the working copy or grant.
+// A reading view, stored with its Recent entry, belongs to a version of its file: for a PDF the one its document last
+// read or saved (its baseline, so a Save moves the view along), for a DjVu the one its open probed. Read while the
+// sender still owns the document or grant.
 async function readAdmittedSource(documentPath: string, senderWebContentsId: number) {
     const mapped = getWorkingCopyOriginalPath(documentPath, senderWebContentsId);
-    const expectation = getWorkingCopyOriginalFileExpectation(documentPath, senderWebContentsId);
+    const version = getBaselineFileVersion(documentPath, senderWebContentsId);
     const originalPath = mapped ? parseDocumentRef(mapped.originalPath) : null;
-    if (originalPath && expectation) {
-        return {
-            originalPath,
-            sourceSize: expectation.size,
-            sourceModifiedAtMs: expectation.mtimeMs,
-        };
-    }
+    if (originalPath && version) return {originalPath, ...readingViewSourceOf(version)};
     const djvu = await getAdmittedDjvuViewingSource(documentPath, senderWebContentsId);
     const djvuPath = djvu ? parseDocumentRef(djvu.originalPath) : null;
     return djvu && djvuPath

@@ -17,7 +17,10 @@ import { resolveDocumentReadTransport } from '@electron/features/documents/main/
 import { resolveExistingReadablePdfPath } from '@electron/features/documents/main/documentFilePathResolution';
 import { allowOpenPath } from '@electron/file-access/openPathCapabilities';
 import { getRecentFiles } from '@electron/recentFiles';
-import { readRecentReadingViewOf } from '@electron/recentReadingViews';
+import {
+    readingViewSourceOf,
+    readRecentReadingViewOf,
+} from '@electron/recentReadingViews';
 import { buildPopplerEnv } from '@electron/native-tools/buildPopplerEnv';
 import {
     runNativeToolCommand,
@@ -343,15 +346,9 @@ export async function handlePdfPageLabelRanges(
 
 async function readPdfOpeningGeometryIdentity(resolvedPath: string) {
     try {
-        // The modification time as the working-copy registry reads it, so a
-        // Recent reading view's witness compares exactly.
-        const fileStat = await stat(resolvedPath, {bigint: true});
-        const mtimeMs = Number(fileStat.mtimeNs) / 1_000_000;
-        return {
-            size: Number(fileStat.size),
-            modifiedAt: requireEpochMs(Math.trunc(mtimeMs)),
-            mtimeMs,
-        };
+        // The file version as a Recent reading view names it, so a remembered view compares exactly.
+        const source = readingViewSourceOf(await stat(resolvedPath, {bigint: true}));
+        return {...source, size: source.sourceSize, modifiedAt: requireEpochMs(Math.trunc(source.sourceModifiedAtMs))};
     } catch (error) {
         if (isMissingPdfOpeningGeometrySource(error)) {
             return null;
@@ -408,11 +405,7 @@ export async function handlePdfOpeningGeometry(
     // Where the reader left these bytes, matched against main's own stat of
     // them, names the page the open shows first; a changed file has none.
     const readingView = typeof filePath === 'string'
-        ? await readRecentReadingViewOf({
-            originalPath: filePath,
-            sourceSize: identityBefore.size,
-            sourceModifiedAtMs: identityBefore.mtimeMs,
-        })
+        ? await readRecentReadingViewOf({...identityBefore, originalPath: filePath})
         : null;
     // With no reading view, the admitted copy's exact table owns the first
     // layout. Managed-copy callers still need its count to admit a restore.
@@ -421,7 +414,7 @@ export async function handlePdfOpeningGeometry(
     const shape = await readPdfOpeningGeometry(context, resolvedPath, null, identityBefore, readingPage);
     const matched = readingView !== null && shape?.pageNumber === readingPage && shape.pageCount === readingView.pageCount;
     const identityAfter = await readPdfOpeningGeometryIdentity(resolvedPath);
-    if (identityAfter?.size !== identityBefore.size || identityAfter.mtimeMs !== identityBefore.mtimeMs) {
+    if (identityAfter?.size !== identityBefore.size || identityAfter.sourceModifiedAtMs !== identityBefore.sourceModifiedAtMs) {
         return null;
     }
     return shape && (matched || shape.pageNumber === 1) ? {
