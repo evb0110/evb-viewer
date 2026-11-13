@@ -715,11 +715,11 @@ impl<'a> AdmissionLexer<'a> {
     }
 }
 
-fn is_pdf_whitespace(byte: u8) -> bool {
+pub(crate) fn is_pdf_whitespace(byte: u8) -> bool {
     matches!(byte, 0 | b'\t' | b'\n' | 12 | b'\r' | b' ')
 }
 
-fn is_pdf_delimiter(byte: u8) -> bool {
+pub(crate) fn is_pdf_delimiter(byte: u8) -> bool {
     matches!(
         byte,
         b'(' | b')' | b'<' | b'>' | b'[' | b']' | b'{' | b'}' | b'/' | b'%'
