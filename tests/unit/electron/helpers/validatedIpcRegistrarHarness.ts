@@ -432,6 +432,13 @@ const schemaArgsExamples: Readonly<Record<string, unknown[]>> = {
         tabs: [],
     }],
     'workspace:checkpointResume': ['7'],
+    'workspace:setDocumentDrafts': [{
+        artifactId: 'drafts-fixture',
+        documentInstanceId: 'document-fixture',
+        workingCopyRef: '/tmp/document.pdf',
+        workingByteRevision: '1',
+        annotationMutationGeneration: 1,
+    }],
     'host:setZenMode': [true],
     'host:writeBugReportBundle': [{
         reportJson: '{}',
