@@ -6,6 +6,8 @@ import {
     type IScanCleanupRasterRenderLimits,
 } from '@evb/scan-cleanup/core/types';
 import {SCAN_CLEANUP_MAX_DIMENSION_PX} from '@contracts/scan-cleanup/inputLimits';
+import type {IScanCleanupAlternateViewInput} from '@evb/scan-cleanup/core/policy/assembleNativeScanCleanupManifest';
+import type {IScanCleanupManifestPageFacts} from '@evb/scan-cleanup/core/policy/scanCleanupManifestPagePolicy';
 
 /*
  * Page geometry and raster resolution, decided from a page's geometry record
@@ -177,10 +179,6 @@ export function resolveScanCleanupRasterRenderLimits(
     };
 }
 
-const LANDSCAPE_GEOMETRY_RATIO = 1.1;
-/** A retry candidate must lose at least this share of its physical paper. */
-const MATERIAL_CROP_AREA_RATIO = 0.8;
-
 export function invalidPdfPageNumbering(reason: string) {
     return new Error(`evb-pdf-page-ops returned invalid page numbering: ${reason}`);
 }
@@ -218,10 +216,6 @@ export function toCropBoxPageSize(page: IPdfPageSize): IPdfPageSize {
     };
 }
 
-function isLandscape(widthPoints: number, heightPoints: number) {
-    return widthPoints >= heightPoints * LANDSCAPE_GEOMETRY_RATIO;
-}
-
 function hasMediaGeometry(page: IPdfPageSize): page is IPdfPageSize & {
     mediaXPoints: number;
     mediaYPoints: number;
@@ -240,30 +234,6 @@ function hasMediaGeometry(page: IPdfPageSize): page is IPdfPageSize & {
         && page.mediaHeightPoints > 0;
 }
 
-export function isCropBoxOrientationMismatch(page: IPdfPageSize) {
-    return page.heightPoints >= page.widthPoints * LANDSCAPE_GEOMETRY_RATIO
-        && hasMediaGeometry(page)
-        && isLandscape(page.mediaWidthPoints, page.mediaHeightPoints);
-}
-
-/**
- * A large area difference alone is not enough to render a page twice. This
- * predicate is for the native retry after a first-pass classification has
- * supplied content evidence, not for the ordinary renderer fallback.
- */
-export function isMateriallySmallerCropBox(page: IPdfPageSize) {
-    if (!hasMediaGeometry(page)) {
-        return false;
-    }
-    const cropArea = page.widthPoints * page.heightPoints;
-    const mediaArea = page.mediaWidthPoints * page.mediaHeightPoints;
-    return Number.isFinite(cropArea)
-        && Number.isFinite(mediaArea)
-        && cropArea > 0
-        && mediaArea > 0
-        && cropArea / mediaArea < MATERIAL_CROP_AREA_RATIO;
-}
-
 export function toMediaBoxPageSize(page: IPdfPageSize): IPdfPageSize {
     if (!hasMediaGeometry(page)) {
         return page;
@@ -275,6 +245,34 @@ export function toMediaBoxPageSize(page: IPdfPageSize): IPdfPageSize {
         widthPoints: page.mediaWidthPoints,
         heightPoints: page.mediaHeightPoints,
         renderBox: 'mediabox',
+    };
+}
+
+/**
+ * A page view's wider MediaBox view, when the PDF declares one: the view the
+ * engine may ask to analyze when the primary one seems to hide a spread, and
+ * the facts that analysis is resolved from at the wider view's own plane.
+ */
+export function describeScanCleanupAlternateView(view: IPdfPageSize, facts: IScanCleanupManifestPageFacts) {
+    const media = toMediaBoxPageSize(view);
+    if (
+        media.xPoints === view.xPoints && media.yPoints === view.yPoints
+        && media.widthPoints === view.widthPoints && media.heightPoints === view.heightPoints
+    ) return undefined;
+    const input: IScanCleanupAlternateViewInput = {
+        primaryWidthPoints: view.widthPoints,
+        primaryHeightPoints: view.heightPoints,
+        widthPoints: media.widthPoints,
+        heightPoints: media.heightPoints,
+        page: {
+            ...facts,
+            dpi: resolveScanCleanupAnalysisDpi(media),
+            facingPairGeometry: false,
+        },
+    };
+    return {
+        media,
+        input,
     };
 }
 

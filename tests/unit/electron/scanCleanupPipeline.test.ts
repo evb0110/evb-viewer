@@ -69,13 +69,10 @@ import {
 import {PDF_COMBINE_MAX_OUTPUT_BYTES} from '@contracts/pdfCombineOutputPolicy';
 import {
     analyzeBrowserScanCleanupPage,
-    deriveBrowserScanCleanupInkContexts,
-    finishBrowserScanCleanupPageAnalysis,
+    planBrowserScanCleanupAnalysis,
     preprocessBrowserOcrPage,
-    reconcileBrowserScanCleanupDocument,
     renderBrowserScanCleanupPage,
     renderBrowserScanCleanupPreview,
-    sampleBrowserScanCleanupPageInk,
     type TBrowserScanCleanupOutcome,
 } from '@app/platform/browser-api/browserScanCleanupWasm';
 import type {
@@ -84,7 +81,7 @@ import type {
 } from '@contracts/scan-cleanup/browserScanCleanupWasm';
 import type {
     OutputPlanes,
-    PageReconciliation,
+    WasmPageAnalysisV3,
 } from '@contracts/scan-cleanup/nativeWire.generated';
 import {
     createOcrScanCleanupOptions,
@@ -6811,43 +6808,6 @@ const PARITY_FINAL_CASES: Array<{
     })),
 ];
 
-/** Twelve producer MRC pages: enough body text for a document ink prior. */
-function mrcParityPages() {
-    const textPage = (glyphWidth: number, glyphHeight: number) => {
-        const width = 120;
-        const height = 100;
-        const raw = new Uint8Array(width * height).fill(250);
-        const selection = new Uint8Array(width * height).fill(255);
-        for (let row = 0; row < 4; row += 1) {
-            for (let column = 0; column < 6; column += 1) {
-                const left = 5 + column * 18;
-                const top = 5 + row * 23;
-                for (let y = Math.max(0, top - 1); y < Math.min(height, top + glyphHeight + 1); y += 1) {
-                    for (let x = Math.max(0, left - 1); x < Math.min(width, left + glyphWidth + 1); x += 1) raw[y * width + x] = 180;
-                }
-                for (let y = top; y < top + glyphHeight; y += 1) {
-                    for (let x = left; x < left + glyphWidth; x += 1) {
-                        raw[y * width + x] = 32;
-                        selection[y * width + x] = 0;
-                    }
-                }
-            }
-        }
-        const png = (data: Uint8Array) => encodePng({
-            width,
-            height,
-            data,
-            channels: 1,
-            depth: 8,
-        });
-        return {
-            input: png(raw),
-            selection: png(selection),
-        };
-    };
-    return Array.from({length: 12}, (_, index) => index === 0 ? textPage(4, 20) : textPage(5, 16));
-}
-
 describe.skipIf(missingParityTools.length > 0)(`browser scan-cleanup WASM final render and document steps against the native CLI${missingParityTools.length ? ` (skipped: missing ${missingParityTools.join(', ')})` : ''}`, () => {
     for (const parityCase of PARITY_FINAL_CASES) {
         it(`renders ${parityCase.label} to the files a final manifest publishes`, async () => {
@@ -7112,112 +7072,6 @@ describe.skipIf(missingParityTools.length > 0)(`browser scan-cleanup WASM final 
         await expectPublished('detail', browser.outputs[0]!, detail);
     });
 
-    it('renders producer MRC pages under the document ink prior a render manifest derives', async () => {
-        stubBrowserWasmGlobals();
-        const dir = await createParityDir();
-        const pages = mrcParityPages();
-        const background = encodePng({
-            width: 60,
-            height: 50,
-            data: new Uint8Array(60 * 50).fill(250),
-            channels: 1,
-            depth: 8,
-        });
-        const backgroundPath = join(dir, 'background.png');
-        await writeFile(backgroundPath, background);
-        const options = renderOptions(150, {
-            sourceHasBilevelLayer: true,
-            sourceBackgroundDpi: 75,
-            outputMode: 'bw',
-            layout: 'force-single',
-            normalizeIllumination: false,
-            margins: {
-                leftMm: 0,
-                topMm: 0,
-                rightMm: 0,
-                bottomMm: 0,
-            },
-            automaticContentBoxes: {full: {
-                xNormalized: 0.04,
-                yNormalized: 0.04,
-                widthNormalized: 0.9,
-                heightNormalized: 0.92,
-                rotationDegrees: 0,
-            }},
-        });
-        const destinations = pages.map((_, index) => parityDestination(dir, `out-${String(index)}`, 'ppm'));
-        const manifestPages = [];
-        for (const [
-            index,
-            page,
-        ] of pages.entries()) {
-            const inputPath = join(dir, `input-${String(index)}.png`);
-            const selectionPath = join(dir, `selection-${String(index)}.png`);
-            await writeFile(inputPath, page.input);
-            await writeFile(selectionPath, page.selection);
-            manifestPages.push({
-                inputPath,
-                trustedForegroundMaskPath: selectionPath,
-                trustedMrcBackgroundPath: backgroundPath,
-                sourcePageIndex: index,
-                pageMetadataPath: join(dir, `page-${String(index)}.json`),
-                options,
-                outputs: [manifestOutput(destinations[index]!)],
-            });
-        }
-        await runCliManifest(dir, {
-            version: 3,
-            operation: 'render',
-            renderMode: 'final',
-            canvasScope: 'document',
-            pages: manifestPages,
-        });
-        const samples = [];
-        for (const [
-            index,
-            page,
-        ] of pages.entries()) {
-            samples.push(unwrap(await sampleBrowserScanCleanupPageInk({
-                trustedMrc: {
-                    selection: page.selection,
-                    selectionEncoding: 'raster',
-                    background,
-                },
-                page: {
-                    options,
-                    sourcePageIndex: index,
-                },
-            })).sample);
-        }
-        expect(samples.every(sample => sample !== null)).toBe(true);
-        const {contexts} = unwrap(await deriveBrowserScanCleanupInkContexts({samples}));
-        for (const [
-            index,
-            page,
-        ] of pages.entries()) {
-            const browser = unwrap(await renderBrowserScanCleanupPage({
-                input: page.input,
-                trustedMrc: {
-                    selection: page.selection,
-                    selectionEncoding: 'raster',
-                    background,
-                },
-                page: {
-                    options,
-                    sourcePageIndex: index,
-                    canvasScope: 'document',
-                    renderMode: 'final',
-                    pageInkConsistency: contexts[index]!,
-                    outputs: [everyPlane('ppm')],
-                },
-                planes: 'encoded',
-            }));
-            expect(browser.pageMetadataJson).toBe(await readFile(join(dir, `page-${String(index)}.json`), 'utf8'));
-            await expectPublished(`MRC page ${String(index)}`, browser.outputs[0]!, destinations[index]!);
-        }
-        expect(JSON.parse(await readFile(destinations[0]!.metadata, 'utf8')).inkConsistencyDiagnostics.applied).toBe(true);
-    }, 120_000);
-
     for (const lossless of [
         false,
         true,
@@ -7272,50 +7126,44 @@ describe.skipIf(missingParityTools.length > 0)(`browser scan-cleanup WASM final 
                 ...(lossless ? {documentCanvas: SPREAD_LEAF_CANVAS} : {}),
                 pages: manifestPages,
             });
-            const analyze = async (index: number, documentPrior?: PageReconciliation['prior']) => unwrap(await analyzeBrowserScanCleanupPage({
-                input: pages[index]!,
-                page: {
-                    options,
-                    sourcePageIndex: index,
-                    canvasScope,
-                    ...(documentPrior === undefined ? {} : {documentPrior}),
-                },
-            }));
-            const firstPass = [];
-            for (const index of pages.keys()) firstPass.push(await analyze(index));
-            const {pages: decisions} = unwrap(await reconcileBrowserScanCleanupDocument({candidates: firstPass.map(page => page.reconciliation)}));
-            expect(decisions.map(decision => decision?.kind ?? 'none')).toEqual(pages.map(() => 'update'));
-            for (const [
-                index,
-                decision,
-            ] of decisions.entries()) {
-                const candidate = firstPass[index]!.reconciliation;
-                expect(candidate.tier1Confidence).toBeGreaterThanOrEqual(0.60);
-                if (decision?.kind !== 'update') throw new Error('Confident pages must preserve their local layout');
-                expect(decision.classification).toBe(candidate.tier1Verdict);
-                expect(decision.cutterX).toBe(candidate.cutterX);
-            }
-            for (const [
-                index,
-                decision,
-            ] of decisions.entries()) {
-                const analysis = decision?.kind === 'rerun'
-                    ? await analyze(index, decision.prior)
-                    : firstPass[index]!;
-                const finished = unwrap(await finishBrowserScanCleanupPageAnalysis({
-                    pageMetadataJson: analysis.pageMetadataJson,
-                    ...(decision === null ? {} : {reconciliation: decision}),
-                    ...(lossless
-                        ? {pdfPlacement: {
-                            pdfPage,
-                            options,
-                            renderMode,
-                            documentCanvas: SPREAD_LEAF_CANVAS,
-                        }}
-                        : {}),
+            const analyses: WasmPageAnalysisV3[] = [];
+            for (;;) {
+                const plan = unwrap(await planBrowserScanCleanupAnalysis({
+                    renderMode,
+                    ...(lossless ? {documentCanvas: SPREAD_LEAF_CANVAS} : {}),
+                    pages: pages.map((_, index) => ({
+                        options,
+                        sourcePageIndex: index,
+                        ...(lossless ? {pdfPage} : {}),
+                    })),
+                    analyses,
                 }));
-                expect(finished.pageMetadataJson, `page ${String(index)} (${decision?.kind ?? 'none'})`)
-                    .toBe(await readFile(join(dir, `page-${String(index)}.json`), 'utf8'));
+                if (plan.kind === 'finished') {
+                    for (const [
+                        index,
+                        finished,
+                    ] of plan.pages.entries()) {
+                        expect(finished.pageMetadataJson, `page ${String(index)}`)
+                            .toBe(await readFile(join(dir, `page-${String(index)}.json`), 'utf8'));
+                    }
+                    break;
+                }
+                for (const job of plan.jobs) {
+                    const analysis = unwrap(await analyzeBrowserScanCleanupPage({
+                        input: pages[job.index]!,
+                        page: {
+                            options,
+                            sourcePageIndex: job.index,
+                            canvasScope,
+                            ...(job.documentPrior == null ? {} : {documentPrior: job.documentPrior}),
+                        },
+                    }));
+                    analyses.push({
+                        job,
+                        pageMetadataJson: analysis.pageMetadataJson,
+                        reconciliation: analysis.reconciliation,
+                    });
+                }
             }
         }, 180_000);
     }

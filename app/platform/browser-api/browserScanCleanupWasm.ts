@@ -8,36 +8,24 @@ import type {TScanCleanupWasmOutcome} from '@contracts/scan-cleanup/browserScanC
 import {
     BROWSER_SCAN_CLEANUP_WASM_PATH,
     decodeScanCleanupWasmAnalyzeResult,
-    decodeScanCleanupWasmDeriveInkContextsResult,
-    decodeScanCleanupWasmFinishPageAnalysisResult,
-    decodeScanCleanupWasmReconcileDocumentResult,
+    decodeScanCleanupWasmPlanAnalysisResult,
     decodeScanCleanupWasmRenderPageResult,
     decodeScanCleanupWasmRenderPreviewResult,
-    decodeScanCleanupWasmSamplePageInkResult,
     encodeScanCleanupWasmAnalyzeRequest,
-    encodeScanCleanupWasmDeriveInkContextsRequest,
-    encodeScanCleanupWasmFinishPageAnalysisRequest,
-    encodeScanCleanupWasmReconcileDocumentRequest,
+    encodeScanCleanupWasmPlanAnalysisRequest,
     encodeScanCleanupWasmRenderPageRequest,
     encodeScanCleanupWasmRenderPreviewRequest,
-    encodeScanCleanupWasmSamplePageInkRequest,
     type IScanCleanupWasmAnalyzeRequest,
     type IScanCleanupWasmAnalyzeResult,
-    type IScanCleanupWasmDeriveInkContextsResult,
-    type IScanCleanupWasmFinishPageAnalysisRequest,
-    type IScanCleanupWasmPageResult,
     type IScanCleanupWasmPlane,
-    type IScanCleanupWasmReconcileDocumentResult,
     type IScanCleanupWasmRenderPageRequest,
     type IScanCleanupWasmRenderPageResult,
     type IScanCleanupWasmRenderPreviewRequest,
     type IScanCleanupWasmRenderPreviewResult,
-    type IScanCleanupWasmSamplePageInkRequest,
-    type IScanCleanupWasmSamplePageInkResult,
     type TScanCleanupEncodedRaster,
-    type TScanCleanupWasmDeriveInkContextsRequest,
+    type TScanCleanupWasmPlanAnalysisRequest,
+    type TScanCleanupWasmPlanAnalysisResult,
     type TScanCleanupWasmPreviewEncoding,
-    type TScanCleanupWasmReconcileDocumentRequest,
 } from '@contracts/scan-cleanup/browserScanCleanupWasm';
 import {
     SCAN_CLEANUP_WASM_MAX_OUTPUT_BYTES,
@@ -125,10 +113,7 @@ export function renderBrowserScanCleanupPage(request: IScanCleanupWasmRenderPage
     ) satisfies Promise<TBrowserScanCleanupOutcome<IScanCleanupWasmRenderPageResult>>;
 }
 
-/**
- * Analyzes one page the way a desktop analyze manifest's first pass does, or
- * its rerun under a document prior, with what reconciliation reads from it.
- */
+/** Runs one page analysis an analysis plan asked for. */
 export function analyzeBrowserScanCleanupPage(request: IScanCleanupWasmAnalyzeRequest) {
     return run(
         () => encodeScanCleanupWasmAnalyzeRequest(request),
@@ -137,43 +122,15 @@ export function analyzeBrowserScanCleanupPage(request: IScanCleanupWasmAnalyzeRe
 }
 
 /**
- * Reconciles one manifest batch of analyzed pages the way a desktop analyze
- * manifest does once its first pass ends. A rerun decision asks for the page
- * to be analyzed again under its prior; every page then goes through
- * {@link finishBrowserScanCleanupPageAnalysis}.
+ * Plans an analyze manifest's document sequence from the analyses so far, as
+ * the desktop CLI does between its pages: the next analyses, or every page's
+ * finished metadata.
  */
-export function reconcileBrowserScanCleanupDocument(request: TScanCleanupWasmReconcileDocumentRequest) {
+export function planBrowserScanCleanupAnalysis(request: TScanCleanupWasmPlanAnalysisRequest) {
     return run(
-        () => encodeScanCleanupWasmReconcileDocumentRequest(request),
-        decodeScanCleanupWasmReconcileDocumentResult,
-    ) satisfies Promise<TBrowserScanCleanupOutcome<IScanCleanupWasmReconcileDocumentResult>>;
-}
-
-/** The page metadata a desktop analyze manifest finally writes for one page. */
-export function finishBrowserScanCleanupPageAnalysis(request: IScanCleanupWasmFinishPageAnalysisRequest) {
-    return run(
-        () => encodeScanCleanupWasmFinishPageAnalysisRequest(request),
-        decodeScanCleanupWasmFinishPageAnalysisResult,
-    ) satisfies Promise<TBrowserScanCleanupOutcome<IScanCleanupWasmPageResult>>;
-}
-
-/** Measures one producer MRC page's ink for its render batch's document prior. */
-export function sampleBrowserScanCleanupPageInk(request: IScanCleanupWasmSamplePageInkRequest) {
-    return run(
-        () => encodeScanCleanupWasmSamplePageInkRequest(request),
-        decodeScanCleanupWasmSamplePageInkResult,
-    ) satisfies Promise<TBrowserScanCleanupOutcome<IScanCleanupWasmSamplePageInkResult>>;
-}
-
-/**
- * Each page's `pageInkConsistency` for its render, from its render batch's
- * samples, as a desktop render manifest derives them before its pages.
- */
-export function deriveBrowserScanCleanupInkContexts(request: TScanCleanupWasmDeriveInkContextsRequest) {
-    return run(
-        () => encodeScanCleanupWasmDeriveInkContextsRequest(request),
-        decodeScanCleanupWasmDeriveInkContextsResult,
-    ) satisfies Promise<TBrowserScanCleanupOutcome<IScanCleanupWasmDeriveInkContextsResult>>;
+        () => encodeScanCleanupWasmPlanAnalysisRequest(request),
+        decodeScanCleanupWasmPlanAnalysisResult,
+    ) satisfies Promise<TBrowserScanCleanupOutcome<TScanCleanupWasmPlanAnalysisResult>>;
 }
 
 export interface IBrowserOcrScanCleanupResult extends IOcrScanCleanupGeometry {plane: IScanCleanupWasmPlane;}

@@ -6,7 +6,6 @@ use crate::io::raster;
 use crate::protocol::manifest_v3::{normalized_path, ManifestV3, Operation, Page};
 use evb_native_support::{output::existing_file_identity, NativeError, NativeErrorCode};
 use std::collections::HashSet;
-use std::error::Error;
 use std::ffi::OsString;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -51,29 +50,6 @@ pub(crate) fn planning_page(page: &Page) -> PageDescriptor {
             thickness: page.options.thickness,
         },
     }
-}
-
-pub(crate) fn page_from_staged(page: &Page, staged: &PageDescriptor) -> Page {
-    let mut translated = page.clone();
-    translated.input_path = staged.input_path.clone();
-    translated
-}
-
-pub(crate) fn run_one_staged_page_job<T, F>(
-    manifest: &ManifestV3,
-    index: usize,
-    is_canceled: &AtomicBool,
-    task: F,
-) -> Result<T, Box<dyn Error>>
-where
-    T: Send,
-    F: Fn((usize, &PageDescriptor)) -> Result<T, NativeError> + Send + Sync,
-{
-    if is_canceled.load(Ordering::Acquire) {
-        return Err(crate::engine::cancellation_error().into());
-    }
-    let descriptor = planning_page(&manifest.pages[index]);
-    task((index, &descriptor)).map_err(Into::into)
 }
 
 pub(crate) fn staged_path_plan(manifest: &ManifestV3) -> StagedPathPlan {
@@ -134,22 +110,6 @@ impl PlanningManifest for ManifestV3 {
 
     fn page(&self, index: usize) -> PageDescriptor {
         planning_page(&self.pages[index])
-    }
-}
-
-pub(crate) fn finish_staged_rerun<T>(
-    rerun_result: Result<T, Box<dyn Error>>,
-    release_result: Result<(), NativeError>,
-) -> Result<T, Box<dyn Error>> {
-    match release_result {
-        Ok(()) => rerun_result,
-        Err(release_error) => match rerun_result {
-            Ok(_) => Err(Box::new(release_error)),
-            Err(rerun_error) => {
-                eprintln!("Unable to release reconciliation staged input: {release_error}");
-                Err(rerun_error)
-            }
-        },
     }
 }
 
@@ -748,6 +708,8 @@ mod moved_tests {
                 document_prior: None,
                 detail_render_plan: None,
                 pdf_page: None,
+                alternate_input_path: None,
+                alternate_view: None,
                 outputs: vec![PageOutput {
                     output_path: output,
                     metadata_path: root.join("output.json"),
@@ -993,6 +955,8 @@ mod moved_tests {
                 document_prior: None,
                 detail_render_plan: None,
                 pdf_page: None,
+                alternate_input_path: None,
+                alternate_view: None,
                 outputs: Vec::new(),
             }],
         };

@@ -1,34 +1,31 @@
 //! Browser entry for the scan-cleanup engine on `wasm32-unknown-unknown`.
 //!
-//! A request frame carries a versioned JSON request and the page's rasters and
-//! earlier results as role-tagged attachments; the result frame carries the
-//! page's metadata JSON, the operation's details JSON, and each output's
-//! metadata and planes. Every operation is one page of a manifest, or one step
-//! of the document-level work a manifest does between its pages, run by the
-//! same cores the CLI runs: `render_page` and `finish_page` for a render,
-//! `classify_page` and document reconciliation for an analysis, and the
-//! document ink prior for producer MRC pages. The CLI then publishes files;
-//! this entry returns the same bytes in the result frame instead, so a page
-//! with the same rasters and options comes out byte-identical on either
-//! platform. Manifests, staging and file publication stay in the native CLI.
+//! A request frame carries a versioned JSON request and the page's rasters as
+//! role-tagged attachments; the result frame carries the page's metadata JSON,
+//! the operation's details JSON, and each output's metadata and planes. Every
+//! operation runs the same cores the CLI runs: `render_page` and `finish_page`
+//! for a render, `classify_page` for one page analysis, and
+//! `next_analysis_step` for the document sequence an analyze manifest runs
+//! between its pages. The CLI then publishes files; this entry returns the
+//! same bytes in the result frame instead, so a page with the same rasters and
+//! options comes out byte-identical on either platform. Manifests, staging and
+//! file publication stay in the native CLI.
 //!
 //! The module is single-threaded: Rayon runs on the calling thread, and a
 //! request cannot be cancelled once it has entered the engine. The host stops
 //! work by terminating the worker that owns the instance.
 
 use crate::cache::{PageCache, SourceFingerprint};
-use crate::engine::batch_reconciliation::{
-    reconcile_classification_batch, PageReconciliation, ReconciliationCandidate,
-    MANIFEST_RECONCILIATION_POLICY,
+use crate::engine::batch_reconciliation::ReconciliationCandidate;
+use crate::engine::document_analysis::{
+    next_analysis_step, AlternateView, AnalysisDocument, AnalysisJob, AnalysisPage, AnalysisStep,
+    PageAnalysis,
 };
 use crate::engine::lossless_placement::{
     plan_lossless_page, record_source_preservation_json, PdfPageGeometry,
 };
 use crate::engine::output_geometry::{
     place_metadata_on_document_canvas, plan_document_canvas_placements,
-};
-use crate::engine::page_statistics::{
-    derive_page_ink_contexts, ink_sample_eligible, ink_sample_of,
 };
 use crate::engine::page_workflow::{
     classify_page, finish_page, render_page, DetailSourceRasters, FinishedPage, OutputPlane,
@@ -37,7 +34,6 @@ use crate::engine::page_workflow::{
 };
 use crate::engine::render::CleanupMetadata;
 use crate::engine::resource_planning::{manifest_cache, PlanningOperation};
-use crate::ink_consistency::{DocumentInkSample, PageInkConsistencyContext};
 use crate::io::{pbm, raster};
 use crate::protocol::manifest_v3::{
     validate_document_canvas, validate_matched_canvas_plan, validate_page_options, AnalysisPurpose,
@@ -58,21 +54,15 @@ use serde::{Deserialize, Serialize};
 use std::{cell::RefCell, error::Error, slice, sync::atomic::AtomicBool};
 
 pub(crate) const REQUEST_MAGIC: &[u8; 4] = b"ESCW";
-pub(crate) const REQUEST_VERSION: u32 = 2;
+pub(crate) const REQUEST_VERSION: u32 = 3;
 /// Renders one page as a one-page render manifest does, preview or final.
 pub(crate) const OP_RENDER_PAGE: u32 = 1;
-/// Analyzes one page as an analyze manifest's first pass does, and returns
-/// what document reconciliation reads from it.
+/// Runs one page analysis a document plan asked for, and returns what the
+/// next plan reads from it.
 pub(crate) const OP_ANALYZE_PAGE: u32 = 2;
-/// Reconciles one manifest batch of analyzed pages into a decision per page.
-pub(crate) const OP_RECONCILE_DOCUMENT: u32 = 3;
-/// Applies a page's reconciliation and PDF placement to its analysis: the
-/// page metadata an analyze manifest finally writes.
-pub(crate) const OP_FINISH_PAGE_ANALYSIS: u32 = 4;
-/// Measures one producer MRC page's ink for the document ink prior.
-pub(crate) const OP_SAMPLE_PAGE_INK: u32 = 5;
-/// Derives each page's ink consistency context from one batch's samples.
-pub(crate) const OP_DERIVE_INK_CONTEXTS: u32 = 6;
+/// Plans an analyze manifest's document sequence from the analyses so far:
+/// the next jobs, or every page's finished metadata.
+pub(crate) const OP_PLAN_ANALYSIS: u32 = 3;
 /// Planes come back as pixels.
 pub(crate) const PLANES_RAW: u32 = 0;
 /// Planes come back as the file bytes the CLI writes to their destination.
@@ -84,8 +74,7 @@ pub(crate) const ATTACHMENT_TRUSTED_MRC_BACKGROUND: u32 = 4;
 pub(crate) const ATTACHMENT_DETAIL_BASE_METADATA: u32 = 5;
 pub(crate) const ATTACHMENT_DETAIL_BASE_SOURCE: u32 = 6;
 pub(crate) const ATTACHMENT_DETAIL_BASE_CLEANED: u32 = 7;
-pub(crate) const ATTACHMENT_PAGE_METADATA: u32 = 8;
-const ATTACHMENT_ROLES: usize = 8;
+const ATTACHMENT_ROLES: usize = 7;
 pub(crate) const PLANE_ROLE_COMPOSITE: u32 = 1;
 pub(crate) const PLANE_ROLE_BILEVEL: u32 = 2;
 pub(crate) const PLANE_ROLE_BACKGROUND: u32 = 3;
@@ -164,9 +153,6 @@ pub(crate) struct WasmRenderPageRequestV2 {
     #[serde(default)]
     #[cfg_attr(test, ts(optional = nullable))]
     pub(crate) pdf_page: Option<PdfPageGeometry>,
-    #[serde(default)]
-    #[cfg_attr(test, ts(optional = nullable))]
-    pub(crate) page_ink_consistency: Option<PageInkConsistencyContext>,
     /// Each output destination's planes, as a manifest page's `outputs` list
     /// them. Absent, every output takes its composite only, as the direct
     /// CLI's destinations do.
@@ -200,85 +186,65 @@ pub(crate) struct WasmAnalyzePageDetailsV2 {
     pub(crate) reconciliation: ReconciliationCandidate,
 }
 
-/// One manifest batch's analyzed pages, in page order.
+/// One page of a document analysis.
 #[derive(Debug, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub(crate) struct WasmReconcileDocumentRequestV2 {
-    pub(crate) candidates: Vec<ReconciliationCandidate>,
-}
-
-/// Each page's reconciliation, or `null` where its analysis stands.
-#[derive(Debug, Serialize)]
-#[cfg_attr(test, derive(ts_rs::TS))]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct WasmReconcileDocumentResultV2 {
-    pub(crate) pages: Vec<Option<PageReconciliation>>,
-}
-
-/// Where a lossless analysis places its outputs on the PDF page.
-#[derive(Debug, Deserialize)]
-#[cfg_attr(test, derive(ts_rs::TS))]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub(crate) struct WasmPdfPlacementV2 {
-    pub(crate) pdf_page: PdfPageGeometry,
-    /// The page's options as its analysis request carried them.
-    pub(crate) options: CleanupOptions,
-    pub(crate) render_mode: RenderMode,
-    #[serde(default)]
-    #[cfg_attr(test, ts(optional = nullable))]
-    pub(crate) document_canvas: Option<DocumentCanvas>,
-}
-
-/// Finishes an analysis carried as the `pageMetadata` attachment: the page's
-/// own, or its rerun's when its reconciliation is a rerun.
-#[derive(Debug, Deserialize)]
-#[cfg_attr(test, derive(ts_rs::TS))]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub(crate) struct WasmFinishPageAnalysisRequestV2 {
-    #[serde(default)]
-    #[cfg_attr(test, ts(optional = nullable))]
-    pub(crate) reconciliation: Option<PageReconciliation>,
-    #[serde(default)]
-    #[cfg_attr(test, ts(optional = nullable))]
-    pub(crate) pdf_placement: Option<WasmPdfPlacementV2>,
-}
-
-/// Samples one page's producer MRC layers, carried as the trusted foreground
-/// selection and background attachments.
-#[derive(Debug, Deserialize)]
-#[cfg_attr(test, derive(ts_rs::TS))]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub(crate) struct WasmSamplePageInkRequestV2 {
+pub(crate) struct WasmAnalysisPageV3 {
+    /// The options its primary analysis runs with.
     pub(crate) options: CleanupOptions,
     pub(crate) source_page_index: usize,
     #[serde(default)]
     #[cfg_attr(test, ts(optional = nullable))]
-    pub(crate) trusted_foreground_jbig2: bool,
+    pub(crate) document_prior: Option<DocumentPrior>,
+    /// Where the finished analysis is placed on the PDF page.
+    #[serde(default)]
+    #[cfg_attr(test, ts(optional = nullable))]
+    pub(crate) pdf_page: Option<PdfPageGeometry>,
+    #[serde(default)]
+    #[cfg_attr(test, ts(optional = nullable))]
+    pub(crate) alternate_view: Option<AlternateView>,
 }
 
-/// The page's sample, or `null` when the page cannot join the ink prior.
-#[derive(Debug, Serialize)]
-#[cfg_attr(test, derive(ts_rs::TS))]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct WasmSamplePageInkResultV2 {
-    pub(crate) sample: Option<DocumentInkSample>,
-}
-
-/// One render manifest batch's samples, in page order.
-#[derive(Debug, Deserialize)]
+/// One analysis a plan asked for, as the analyze operation returned it: its
+/// page metadata JSON verbatim, so every value round-trips exactly, or none
+/// where the host could not supply an alternate raster.
+#[derive(Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub(crate) struct WasmDeriveInkContextsRequestV2 {
-    pub(crate) samples: Vec<Option<DocumentInkSample>>,
+pub(crate) struct WasmPageAnalysisV3 {
+    pub(crate) job: AnalysisJob,
+    #[serde(default)]
+    #[cfg_attr(test, ts(optional = nullable))]
+    pub(crate) page_metadata_json: Option<String>,
+    #[serde(default)]
+    #[cfg_attr(test, ts(optional = nullable))]
+    pub(crate) reconciliation: Option<ReconciliationCandidate>,
 }
 
-/// Each page's context for its render request's `pageInkConsistency`.
-#[derive(Debug, Serialize)]
+/// One analyze manifest's pages and the analyses its plan has asked for.
+#[derive(Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct WasmDeriveInkContextsResultV2 {
-    pub(crate) contexts: Vec<Option<PageInkConsistencyContext>>,
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct WasmPlanAnalysisRequestV3 {
+    pub(crate) render_mode: RenderMode,
+    #[serde(default)]
+    #[cfg_attr(test, ts(optional = nullable))]
+    pub(crate) document_canvas: Option<DocumentCanvas>,
+    pub(crate) pages: Vec<WasmAnalysisPageV3>,
+    #[serde(default)]
+    #[cfg_attr(test, ts(optional = nullable))]
+    pub(crate) analyses: Vec<WasmPageAnalysisV3>,
+}
+
+/// The analyses to run next, or every page's finished metadata JSON, exactly
+/// as an analyze manifest writes its page files.
+#[derive(Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[serde(tag = "kind", rename_all = "kebab-case")]
+pub(crate) enum WasmPlanAnalysisResultV3 {
+    Analyze { jobs: Vec<AnalysisJob> },
+    Finished { pages: Vec<String> },
 }
 
 struct RequestFrame<'a> {
@@ -574,10 +540,7 @@ pub(crate) fn run_request(request: &[u8]) -> Result<Vec<u8>, Box<dyn Error>> {
     match frame.operation {
         OP_RENDER_PAGE => run_render_page(&frame),
         OP_ANALYZE_PAGE => run_analyze_page(&frame),
-        OP_RECONCILE_DOCUMENT => run_reconcile_document(&frame),
-        OP_FINISH_PAGE_ANALYSIS => run_finish_page_analysis(&frame),
-        OP_SAMPLE_PAGE_INK => run_sample_page_ink(&frame),
-        OP_DERIVE_INK_CONTEXTS => run_derive_ink_contexts(&frame),
+        OP_PLAN_ANALYSIS => run_plan_analysis(&frame),
         operation => Err(invalid(format!(
             "Unsupported scan-cleanup WASM operation: {operation}"
         ))
@@ -798,9 +761,6 @@ fn run_render_page(frame: &RequestFrame<'_>) -> Result<Vec<u8>, Box<dyn Error>> 
         request.document_canvas,
         std::iter::once(&request.options),
     )?;
-    if let Some(context) = request.page_ink_consistency {
-        context.validate().map_err(invalid)?;
-    }
     let detail_attachments = [
         frame.attachment(ATTACHMENT_DETAIL_BASE_METADATA),
         frame.attachment(ATTACHMENT_DETAIL_BASE_SOURCE),
@@ -833,7 +793,7 @@ fn run_render_page(frame: &RequestFrame<'_>) -> Result<Vec<u8>, Box<dyn Error>> 
             canvas_scope: request.canvas_scope,
             final_render,
             layer_destinations: OutputPlanes::take_layers(declared),
-            page_ink_consistency: request.page_ink_consistency,
+            page_ink_consistency: None,
         },
         &page_cache(request.source_page_index),
         &NEVER_CANCELED,
@@ -963,162 +923,79 @@ fn run_analyze_page(frame: &RequestFrame<'_>) -> Result<Vec<u8>, Box<dyn Error>>
     )
 }
 
-fn run_reconcile_document(frame: &RequestFrame<'_>) -> Result<Vec<u8>, Box<dyn Error>> {
+fn run_plan_analysis(frame: &RequestFrame<'_>) -> Result<Vec<u8>, Box<dyn Error>> {
     frame.admit(&[], &[PLANES_RAW])?;
-    let request: WasmReconcileDocumentRequestV2 =
-        deserialize_json_slice(frame.request_json, "scan-cleanup WASM reconcile request")?;
-    if request.candidates.len() > MAX_MANIFEST_PAGES_PER_BATCH {
+    let request: WasmPlanAnalysisRequestV3 = deserialize_json_slice(
+        frame.request_json,
+        "scan-cleanup WASM analysis plan request",
+    )?;
+    if request.pages.len() > MAX_MANIFEST_PAGES_PER_BATCH {
         return Err(NativeError::new(
             NativeErrorCode::TooLarge,
             format!(
-                "Scan-cleanup reconciliation exceeds the {MAX_MANIFEST_PAGES_PER_BATCH}-page batch limit"
+                "Scan-cleanup analysis exceeds the {MAX_MANIFEST_PAGES_PER_BATCH}-page batch limit"
             ),
         )
         .into());
     }
-    for candidate in &request.candidates {
-        let finite = [
-            Some(candidate.tier1_confidence),
-            Some(candidate.whitespace_score),
-            candidate.cutter_x,
-            candidate.candidate_cutter_ratio,
-            candidate.calibration_stroke_width_px,
-            candidate.calibration_x_height_px,
-        ]
-        .into_iter()
-        .flatten()
-        .all(f64::is_finite);
-        if !finite {
-            return Err(invalid("Reconciliation candidate values must be finite").into());
-        }
-        if let Some(prior) = candidate.document_prior {
+    validate_document_canvas(request.document_canvas)?;
+    for page in &request.pages {
+        validate_page_options(&page.options, page.source_page_index, false)?;
+        if let Some(prior) = page.document_prior {
             prior.validate().map_err(invalid)?;
         }
-    }
-    let mut pages = vec![None; request.candidates.len()];
-    for action in
-        reconcile_classification_batch(&request.candidates, MANIFEST_RECONCILIATION_POLICY)
-    {
-        pages[action.index] = Some(action.change);
-    }
-    encode_result(
-        &[],
-        &serde_json::to_vec(&WasmReconcileDocumentResultV2 { pages })?,
-        &[],
-    )
-}
-
-fn run_finish_page_analysis(frame: &RequestFrame<'_>) -> Result<Vec<u8>, Box<dyn Error>> {
-    frame.admit(&[ATTACHMENT_PAGE_METADATA], &[PLANES_RAW])?;
-    let request: WasmFinishPageAnalysisRequestV2 = deserialize_json_slice(
-        frame.request_json,
-        "scan-cleanup WASM finish-analysis request",
-    )?;
-    let mut metadata: PageResultMetadata = deserialize_json_slice(
-        frame.required(ATTACHMENT_PAGE_METADATA, "page metadata")?,
-        "scan-cleanup page metadata",
-    )?;
-    if let Some(reconciliation) = &request.reconciliation {
-        let prior = reconciliation.prior();
-        prior.validate().map_err(invalid)?;
-        // A rerun's analysis was made under the prior; an updated page's
-        // first pass had none, which is what made it eligible.
-        let analyzed_under = match reconciliation {
-            PageReconciliation::Rerun { .. } => Some(prior),
-            PageReconciliation::Update { .. } => None,
-        };
-        if metadata.document_prior != analyzed_under {
-            return Err(invalid("The page analysis does not belong to its reconciliation").into());
+        if let Some(view) = &page.alternate_view {
+            view.validate().map_err(invalid)?;
         }
-        reconciliation.apply(&mut metadata);
     }
-    if let Some(placement) = &request.pdf_placement {
-        validate_page_options(&placement.options, metadata.source_page_index, false)?;
-        validate_document_canvas(placement.document_canvas)?;
-        plan_lossless_page(
-            &mut metadata.outputs,
-            &placement.pdf_page,
-            metadata.rotation_degrees,
-            &placement.options,
-            placement.document_canvas,
-            placement.render_mode == RenderMode::Preview,
-        );
-    }
-    encode_result(&serde_json::to_vec(&metadata)?, &[], &[])
-}
-
-fn run_sample_page_ink(frame: &RequestFrame<'_>) -> Result<Vec<u8>, Box<dyn Error>> {
-    frame.admit(
-        &[
-            ATTACHMENT_TRUSTED_FOREGROUND_SELECTION,
-            ATTACHMENT_TRUSTED_MRC_BACKGROUND,
-        ],
-        &[PLANES_RAW],
-    )?;
-    let request: WasmSamplePageInkRequestV2 =
-        deserialize_json_slice(frame.request_json, "scan-cleanup WASM ink sample request")?;
-    validate_page_options(&request.options, request.source_page_index, false)?;
-    let options = &request.options;
-    let sample = if ink_sample_eligible(
-        options.output_mode,
-        options.source_has_bilevel_layer,
-        options.thickness,
-    ) {
-        let rasters = RequestRasters {
-            input: &[],
-            analysis: AnalysisRaster::None,
-            trusted_foreground_selection: Some(frame.required(
-                ATTACHMENT_TRUSTED_FOREGROUND_SELECTION,
-                "trusted foreground selection",
-            )?),
-            trusted_foreground_jbig2: request.trusted_foreground_jbig2,
-            trusted_mrc_background: Some(
-                frame.required(ATTACHMENT_TRUSTED_MRC_BACKGROUND, "trusted MRC background")?,
-            ),
-            detail_base_metadata: None,
-            detail_base_source: None,
-            detail_base_cleaned: None,
-            source_page_index: request.source_page_index,
+    let mut analyses = Vec::with_capacity(request.analyses.len());
+    for analysis in request.analyses {
+        let metadata = match (analysis.page_metadata_json, analysis.reconciliation) {
+            (Some(json), Some(candidate)) => {
+                let mut metadata: PageResultMetadata =
+                    deserialize_json_slice(json.as_bytes(), "scan-cleanup page analysis")?;
+                candidate.restore(&mut metadata).map_err(invalid)?;
+                Some(metadata)
+            }
+            (None, None) => None,
+            _ => {
+                return Err(invalid(
+                    "A page analysis carries its metadata and reconciliation together",
+                )
+                .into())
+            }
         };
-        let selection =
-            rasters.read_foreground_selection(PageRaster::TrustedForegroundMask, options)?;
-        let (background_width, _) = rasters.decode(
-            "TrustedMrcBackground",
-            rasters.bytes(PageRaster::TrustedMrcBackground)?,
-            |bytes| {
-                raster::decode_dimensions_bytes(bytes, options.max_pixels, options.max_dimension)
-            },
-        )?;
-        ink_sample_of(&selection, background_width)
-    } else {
-        None
-    };
-    encode_result(
-        &[],
-        &serde_json::to_vec(&WasmSamplePageInkResultV2 { sample })?,
-        &[],
-    )
-}
-
-fn run_derive_ink_contexts(frame: &RequestFrame<'_>) -> Result<Vec<u8>, Box<dyn Error>> {
-    frame.admit(&[], &[PLANES_RAW])?;
-    let request: WasmDeriveInkContextsRequestV2 =
-        deserialize_json_slice(frame.request_json, "scan-cleanup WASM ink context request")?;
-    if request.samples.len() > MAX_MANIFEST_PAGES_PER_BATCH {
-        return Err(NativeError::new(
-            NativeErrorCode::TooLarge,
-            format!(
-                "Scan-cleanup ink contexts exceed the {MAX_MANIFEST_PAGES_PER_BATCH}-page batch limit"
-            ),
-        )
-        .into());
+        analyses.push(PageAnalysis {
+            job: analysis.job,
+            metadata,
+        });
     }
-    let contexts = derive_page_ink_contexts(&request.samples);
-    encode_result(
-        &[],
-        &serde_json::to_vec(&WasmDeriveInkContextsResultV2 { contexts })?,
-        &[],
-    )
+    let document = AnalysisDocument {
+        pages: request
+            .pages
+            .iter()
+            .map(|page| AnalysisPage {
+                document_prior: page.document_prior,
+                alternate_view: page.alternate_view.as_ref(),
+                placement: page
+                    .pdf_page
+                    .as_ref()
+                    .map(|pdf_page| (pdf_page, &page.options)),
+            })
+            .collect(),
+        document_canvas: request.document_canvas,
+        preview: request.render_mode == RenderMode::Preview,
+    };
+    let result = match next_analysis_step(&document, &analyses)? {
+        AnalysisStep::Analyze(jobs) => WasmPlanAnalysisResultV3::Analyze { jobs },
+        AnalysisStep::Finished(pages) => WasmPlanAnalysisResultV3::Finished {
+            pages: pages
+                .iter()
+                .map(serde_json::to_string)
+                .collect::<Result<_, _>>()?,
+        },
+    };
+    encode_result(&[], &serde_json::to_vec(&result)?, &[])
 }
 
 fn encode_result(

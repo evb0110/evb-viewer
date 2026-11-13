@@ -30,11 +30,7 @@ import {usesScanCleanupInkAlignment} from '@evb/scan-cleanup/core/policy/scanCle
 import {createScanCleanupFacingPairGeometry} from '@evb/scan-cleanup/core/policy/createScanCleanupFacingPairGeometry';
 import {
     completedPageProgress,
-    isStrongMediaBoxSpread,
-    MAX_MEDIA_BOX_RETRY_PAGES,
     projectScanCleanupDetectionResult,
-    projectScanCleanupMediaBoxRetryResult,
-    shouldRetryMediaBoxPage,
     type TScanCleanupAnalysisVerdict,
 } from '@evb/scan-cleanup/core/policy/scanCleanupDetectionResultPolicy';
 
@@ -55,12 +51,6 @@ export type TScanCleanupDetectionPublish = (
     progress: TScanCleanupProgress,
     documentCanvasSignature: string,
 ) => void;
-
-export interface IScanCleanupMediaBoxRetryCandidate {
-    pageNumber: number;
-    result: IScanCleanupDetectionResult;
-    sourcePage: IPdfPageSize;
-}
 
 export interface IScanCleanupDetectionOutcome {
     blankPageCount: number;
@@ -86,8 +76,9 @@ export interface IScanCleanupDetectionVerdictInput {
     /** Pages this batch's engine has reported in this stage. */
     completedPages: number;
     /**
-     * The analyzed page: its CropBox view, source resolution and metadata.
-     * Read only when the verdict carries a classification and confidence.
+     * The analyzed page: the view the engine kept (its CropBox, or its MediaBox
+     * when that analysis was accepted), source resolution and metadata. Read
+     * only when the verdict carries a classification and confidence.
      */
     read: () => Promise<{
         sourcePage: IPdfPageSize;
@@ -100,7 +91,7 @@ export interface IScanCleanupDetectionVerdictInput {
  * Turns a detection run's analyzed pages into published detection results, as
  * every host must: revisions, the result store, small-document results or a
  * large document's recent tail, the matched-canvas signature, progress counts
- * and throttling, MediaBox retry candidates, and the final summary. The host
+ * and throttling, and the final summary. The host
  * transport owns rasters and the engine; it reports milestones here.
  */
 export function createScanCleanupDetectionRecorder({
@@ -121,9 +112,8 @@ export function createScanCleanupDetectionRecorder({
     // Keep the provisional summary used while reconciliation is still open
     // separate from the resolved summary. The former contains every automatic
     // page as unclassified geometry; the latter receives each page once its
-    // layout is final, when its batch ends or, for a MediaBox retry
-    // candidate, when the retries are decided. It can therefore answer the
-    // final document-canvas question without retaining a layout map.
+    // layout is final, when its batch ends. It can therefore answer the final
+    // document-canvas question without retaining a layout map.
     const resolvedCanvasAccumulator = createScanCleanupDocumentCanvasAccumulator();
     let layoutEvidenceComplete = false;
     const addResolvedPage = (sourcePage: IPdfPageSize, result: IScanCleanupDetectionResult) => {
@@ -196,12 +186,6 @@ export function createScanCleanupDetectionRecorder({
     let lastReadOnlyPublishAt = Number.NEGATIVE_INFINITY;
     const reportedPageNumbers = new Set<number>();
     const etaEstimator = createScanCleanupProgressEtaEstimator();
-    const mediaBoxRetryCandidates: IScanCleanupMediaBoxRetryCandidate[] = [];
-    /** Accepted MediaBox retries, by page: the geometry and result that replaced the first pass. */
-    const acceptedMediaBoxRetries = new Map<number, {
-        mediaPage: IPdfPageSize;
-        result: IScanCleanupDetectionResult
-    }>();
     // The large-document path deliberately sends no document-sized completion
     // list through progress. A batch-local list still lets the UI identify the
     // pages represented by the latest frame without retaining a million page
@@ -307,11 +291,6 @@ export function createScanCleanupDetectionRecorder({
         },
         /** Publishes a changed raster or recheck count, throttled. */
         markProgress,
-        /** One page analyzed again after the first pass: a MediaBox retry raster. */
-        markRechecked() {
-            recheckedPages += 1;
-            markProgress();
-        },
         /** One bounded batch of the document, analyzed and reconciled together. */
         beginBatch(batch: {
             startOffset: number;
@@ -443,41 +422,12 @@ export function createScanCleanupDetectionRecorder({
                         },
                     ), documentCanvasSignature());
                 },
-                /**
-                 * After the batch ends, collects its single pages whose CropBox
-                 * may hide a spread, in page order, and adds every other page's
-                 * final layout to the resolved canvas.
-                 */
-                end(pages: ReadonlyArray<{
-                    pageNumber: number;
-                    sourcePage: IPdfPageSize | undefined
-                }>) {
-                    const candidatePages = new Set<number>();
-                    for (const {
-                        pageNumber,
-                        sourcePage,
-                    } of pages) {
-                        const result = batchResults.get(pageNumber);
-                        if (
-                            result !== undefined && sourcePage !== undefined
-                            && mediaBoxRetryCandidates.length < MAX_MEDIA_BOX_RETRY_PAGES
-                            && result.classification === 'single-uncut-page'
-                            && shouldRetryMediaBoxPage(sourcePage, result)
-                        ) {
-                            candidatePages.add(pageNumber);
-                            mediaBoxRetryCandidates.push({
-                                pageNumber,
-                                result,
-                                sourcePage,
-                            });
-                        }
-                    }
+                /** After the batch ends, adds every page's final layout to the resolved canvas. */
+                end() {
                     for (const [
                         pageNumber,
                         result,
-                    ] of batchResults) {
-                        if (!candidatePages.has(pageNumber)) addResolvedPage(batchSourcePages.get(pageNumber)!, result);
-                    }
+                    ] of batchResults) addResolvedPage(batchSourcePages.get(pageNumber)!, result);
                 },
             };
         },
@@ -488,49 +438,8 @@ export function createScanCleanupDetectionRecorder({
                 throw new Error(`${engineName} returned ${resultStore.resultCount} classifications for ${totalPages} pages`);
             }
         },
-        get mediaBoxRetryCandidates(): readonly IScanCleanupMediaBoxRetryCandidate[] {
-            return mediaBoxRetryCandidates;
-        },
-        /**
-         * Replaces a page's result with its MediaBox retry when the retry proves
-         * a spread locally; returns whether it did.
-         */
-        async acceptMediaBoxRetry(input: {
-            pageNumber: number;
-            verdict: TScanCleanupAnalysisVerdict;
-            metadata: INativeScanCleanupPageMetadataV3;
-            rasterWidth: number;
-            rasterHeight: number;
-            mediaPage: IPdfPageSize;
-            sourceDpi: number;
-        }) {
-            if (!isStrongMediaBoxSpread(input.verdict, input.metadata, input.rasterWidth, input.rasterHeight)) {
-                return false;
-            }
-            const result = await resultStore.getPage(input.pageNumber);
-            if (result === undefined) return false;
-            const accepted = projectScanCleanupMediaBoxRetryResult({
-                previous: result,
-                verdict: input.verdict,
-                metadata: input.metadata,
-                mediaPage: input.mediaPage,
-                sourceDpi: input.sourceDpi,
-                includeContentBoxes,
-            });
-            await resultStore.replace(input.pageNumber, accepted);
-            compatibilityResults?.set(input.pageNumber, accepted);
-            acceptedMediaBoxRetries.set(input.pageNumber, {
-                mediaPage: input.mediaPage,
-                result: accepted,
-            });
-            return true;
-        },
         /** Publishes the last pending frame and summarizes the stored results. */
         async finish(): Promise<IScanCleanupDetectionOutcome> {
-            for (const candidate of mediaBoxRetryCandidates) {
-                const retry = acceptedMediaBoxRetries.get(candidate.pageNumber);
-                addResolvedPage(retry?.mediaPage ?? candidate.sourcePage, retry?.result ?? candidate.result);
-            }
             // The last frame carries the canvas of every page's final layout.
             layoutEvidenceComplete = true;
             if (documentCanvasSignature() !== publishedCanvasSignature) readOnlyProgressDirty = true;

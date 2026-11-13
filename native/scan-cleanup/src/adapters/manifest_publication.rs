@@ -500,6 +500,8 @@ mod tests {
                     document_prior: None,
                     detail_render_plan: None,
                     pdf_page: None,
+                    alternate_input_path: None,
+                    alternate_view: None,
                     outputs: vec![output(page)],
                 })
                 .collect(),
@@ -661,6 +663,8 @@ mod tests {
                 document_prior: None,
                 detail_render_plan: None,
                 pdf_page: None,
+                alternate_input_path: None,
+                alternate_view: None,
                 outputs: vec![PageOutput {
                     output_path: output.clone(),
                     metadata_path: metadata,

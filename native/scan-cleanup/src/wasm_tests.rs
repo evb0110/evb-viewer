@@ -785,129 +785,6 @@ fn detail_render_matches_a_detail_manifest() {
 
 /// Twelve producer MRC pages: enough body text for a document ink prior. The
 /// first page's selection is thinner than the rest, so the prior restores it.
-fn mrc_pages() -> Vec<(Vec<u8>, Vec<u8>)> {
-    fn text_page(glyph_width: usize, glyph_height: usize) -> (Vec<u8>, Vec<u8>) {
-        let mut raw = GrayImage::new(120, 100, 250);
-        let mut selection = GrayImage::new(120, 100, 255);
-        for row in 0usize..4 {
-            for column in 0usize..6 {
-                let left = 5 + column * 18;
-                let top = 5 + row * 23;
-                for y in top.saturating_sub(1)..(top + glyph_height + 1).min(raw.height()) {
-                    for x in left.saturating_sub(1)..(left + glyph_width + 1).min(raw.width()) {
-                        raw.set(x, y, 180);
-                    }
-                }
-                for y in top..top + glyph_height {
-                    for x in left..left + glyph_width {
-                        raw.set(x, y, 32);
-                        selection.set(x, y, 0);
-                    }
-                }
-            }
-        }
-        (encode_gray(&raw).unwrap(), encode_gray(&selection).unwrap())
-    }
-    (0..12)
-        .map(|index| {
-            if index == 0 {
-                text_page(4, 20)
-            } else {
-                text_page(5, 16)
-            }
-        })
-        .collect()
-}
-
-fn mrc_options() -> serde_json::Value {
-    options(serde_json::json!({
-        "dpi": 150, "sourceDpi": 150, "sourceHasBilevelLayer": true, "sourceBackgroundDpi": 75,
-        "outputMode": "bw", "layout": "force-single", "normalizeIllumination": false,
-        "cropContent": true, "matchPageSize": false,
-        "margins": {"leftMm": 0, "topMm": 0, "rightMm": 0, "bottomMm": 0},
-        "automaticContentBoxes": {"full": {"xNormalized": 0.04, "yNormalized": 0.04, "widthNormalized": 0.90, "heightNormalized": 0.92, "rotationDegrees": 0}},
-    }))
-}
-
-#[test]
-fn producer_mrc_pages_render_with_the_document_ink_prior_a_render_manifest_derives() {
-    let scratch = Scratch::new("ink-prior");
-    let pages = mrc_pages();
-    let background = encode_gray(&GrayImage::new(60, 50, 250)).unwrap();
-    let background_path = scratch.write("background.png", &background);
-    let options = mrc_options();
-    let destinations = (0..pages.len())
-        .map(|index| Destination::new(&scratch, &format!("out-{index}"), "ppm"))
-        .collect::<Vec<_>>();
-    run_manifest(
-        &scratch,
-        serde_json::json!({
-            "version": 3, "operation": "render", "renderMode": "final", "canvasScope": "document",
-            "pages": pages.iter().enumerate().map(|(index, (input, selection))| serde_json::json!({
-                "inputPath": scratch.write(&format!("input-{index}.png"), input),
-                "trustedForegroundMaskPath": scratch.write(&format!("selection-{index}.png"), selection),
-                "trustedMrcBackgroundPath": background_path,
-                "sourcePageIndex": index,
-                "pageMetadataPath": scratch.path(&format!("page-{index}.json")),
-                "options": options,
-                "outputs": [destinations[index].manifest()],
-            })).collect::<Vec<_>>(),
-        }),
-    );
-    let samples = pages
-        .iter()
-        .enumerate()
-        .map(|(index, (_, selection))| {
-            let result = run(&frame(
-                OP_SAMPLE_PAGE_INK,
-                PLANES_RAW,
-                &serde_json::json!({"options": options, "sourcePageIndex": index}),
-                &[
-                    (ATTACHMENT_TRUSTED_FOREGROUND_SELECTION, selection),
-                    (ATTACHMENT_TRUSTED_MRC_BACKGROUND, &background),
-                ],
-            ));
-            serde_json::from_slice::<serde_json::Value>(&result.details).unwrap()["sample"].clone()
-        })
-        .collect::<Vec<_>>();
-    assert!(samples.iter().all(|sample| sample.is_object()));
-    let contexts = run(&frame(
-        OP_DERIVE_INK_CONTEXTS,
-        PLANES_RAW,
-        &serde_json::json!({"samples": samples}),
-        &[],
-    ));
-    let contexts =
-        serde_json::from_slice::<serde_json::Value>(&contexts.details).unwrap()["contexts"].clone();
-    for (index, (input, selection)) in pages.iter().enumerate() {
-        let result = run(&frame(
-            OP_RENDER_PAGE,
-            PLANES_ENCODED,
-            &serde_json::json!({
-                "options": options, "sourcePageIndex": index, "canvasScope": "document",
-                "renderMode": "final", "pageInkConsistency": contexts[index],
-                "outputs": [Destination::request("ppm")],
-            }),
-            &[
-                (ATTACHMENT_INPUT, input),
-                (ATTACHMENT_TRUSTED_FOREGROUND_SELECTION, selection),
-                (ATTACHMENT_TRUSTED_MRC_BACKGROUND, &background),
-            ],
-        ));
-        assert_eq!(
-            String::from_utf8_lossy(&result.page),
-            String::from_utf8_lossy(
-                &fs::read(scratch.path(&format!("page-{index}.json"))).unwrap()
-            ),
-            "page {index}"
-        );
-        destinations[index].assert_published(&format!("MRC page {index}"), &result.outputs[0]);
-    }
-    let first: serde_json::Value =
-        serde_json::from_slice(&fs::read(&destinations[0].metadata).unwrap()).unwrap();
-    assert_eq!(first["inkConsistencyDiagnostics"]["applied"], true);
-}
-
 #[test]
 fn analyze_matches_a_single_page_analyze_manifest() {
     let input = fixture(GLYPH_FIXTURE);
@@ -1007,94 +884,78 @@ fn document_reconciliation_matches_a_multi_page_analyze_manifest() {
                 &[(ATTACHMENT_INPUT, &pages[index])],
             ))
         };
-        let first_pass = (0..pages.len())
-            .map(|index| analyze(index, None))
-            .collect::<Vec<_>>();
-        let candidates = first_pass
-            .iter()
-            .map(|result| {
-                serde_json::from_slice::<serde_json::Value>(&result.details).unwrap()
-                    ["reconciliation"]
-                    .clone()
-            })
-            .collect::<Vec<_>>();
-        let reconciled = run(&frame(
-            OP_RECONCILE_DOCUMENT,
-            PLANES_RAW,
-            &serde_json::json!({"candidates": candidates}),
-            &[],
-        ));
-        let decisions = serde_json::from_slice::<serde_json::Value>(&reconciled.details).unwrap()
-            ["pages"]
-            .as_array()
-            .unwrap()
-            .clone();
-        let kinds = decisions
-            .iter()
-            .map(|decision| decision["kind"].as_str().unwrap_or("none").to_owned())
-            .collect::<Vec<_>>();
-        assert_eq!(kinds, vec!["update"; pages.len()], "{label}");
-        for (candidate, decision) in candidates.iter().zip(&decisions) {
-            assert!(
-                candidate["tier1Confidence"].as_f64().unwrap()
-                    >= MANIFEST_RECONCILIATION_POLICY.minimum_confidence
-            );
-            assert_eq!(decision["classification"], candidate["tier1Verdict"]);
-            assert_eq!(decision["cutterX"], candidate["cutterX"]);
+        let mut plan_request = serde_json::json!({
+            "renderMode": render_mode,
+            "pages": (0..pages.len()).map(|index| {
+                let mut page = serde_json::json!({"options": options, "sourcePageIndex": index});
+                if lossless {
+                    page["pdfPage"] = pdf_page.clone();
+                }
+                page
+            }).collect::<Vec<_>>(),
+            "analyses": [],
+        });
+        if lossless {
+            plan_request["documentCanvas"] = canvas.clone();
         }
-        for (index, decision) in decisions.iter().enumerate() {
-            let analysis = if decision["kind"] == "rerun" {
-                analyze(index, Some(&decision["prior"])).page
-            } else {
-                first_pass[index].page.clone()
-            };
-            let mut request = serde_json::json!({});
-            if !decision.is_null() {
-                request["reconciliation"] = decision.clone();
+        let finished = loop {
+            let plan = run(&frame(OP_PLAN_ANALYSIS, PLANES_RAW, &plan_request, &[]));
+            let plan: serde_json::Value = serde_json::from_slice(&plan.details).unwrap();
+            if plan["kind"] == "finished" {
+                break plan["pages"].as_array().unwrap().clone();
             }
-            if lossless {
-                request["pdfPlacement"] = serde_json::json!({"pdfPage": pdf_page, "options": options,
-                    "renderMode": render_mode, "documentCanvas": canvas});
+            for job in plan["jobs"].as_array().unwrap() {
+                assert_eq!(job["view"], "primary", "{label}");
+                let index = job["index"].as_u64().unwrap() as usize;
+                let analysis = analyze(index, job.get("documentPrior"));
+                let details: serde_json::Value = serde_json::from_slice(&analysis.details).unwrap();
+                plan_request["analyses"]
+                    .as_array_mut()
+                    .unwrap()
+                    .push(serde_json::json!({
+                        "job": job,
+                        "pageMetadataJson": String::from_utf8(analysis.page).unwrap(),
+                        "reconciliation": details["reconciliation"],
+                    }));
             }
-            let finished = run(&frame(
-                OP_FINISH_PAGE_ANALYSIS,
-                PLANES_RAW,
-                &request,
-                &[(ATTACHMENT_PAGE_METADATA, &analysis)],
-            ));
+        };
+        for (index, page) in finished.iter().enumerate() {
             assert_eq!(
-                String::from_utf8_lossy(&finished.page),
-                String::from_utf8_lossy(
-                    &fs::read(scratch.path(&format!("{label}-page-{index}.json"))).unwrap()
-                ),
-                "{label} page {index} ({})",
-                kinds[index]
+                page.as_str().unwrap(),
+                String::from_utf8(
+                    fs::read(scratch.path(&format!("{label}-page-{index}.json"))).unwrap()
+                )
+                .unwrap(),
+                "{label} page {index}"
             );
         }
     }
 }
 
 #[test]
-fn a_finished_analysis_must_belong_to_its_reconciliation() {
+fn a_plan_refuses_an_analysis_whose_reconciliation_inputs_belong_to_another_page() {
     let input = fixture(GLYPH_FIXTURE);
+    let options = options(serde_json::json!({}));
     let analysis = run(&frame(
         OP_ANALYZE_PAGE,
         PLANES_RAW,
-        &serde_json::json!({"options": options(serde_json::json!({})), "sourcePageIndex": 0, "canvasScope": "page"}),
+        &serde_json::json!({"options": options, "sourcePageIndex": 0, "canvasScope": "page"}),
         &[(ATTACHMENT_INPUT, &input)],
-    ))
-    .page;
-    let prior = serde_json::json!({"dominantLayout": "two-page-spread", "cutterRatioMedian": 0.5,
-        "clusterDims": {"widthPx": 880.0, "heightPx": 600.0}, "agreementStrength": 0.8});
-    let request = serde_json::json!({"reconciliation": {"kind": "rerun", "prior": prior,
-        "tier1": {"verdict": "single-uncut-page", "confidence": 0.4, "candidateCutterRatio": null, "whitespaceScore": 0.1}}});
-    let message = error_of(&frame(
-        OP_FINISH_PAGE_ANALYSIS,
-        PLANES_RAW,
-        &request,
-        &[(ATTACHMENT_PAGE_METADATA, &analysis)],
-    ))
-    .message;
+    ));
+    let mut candidate = serde_json::from_slice::<serde_json::Value>(&analysis.details).unwrap()
+        ["reconciliation"]
+        .clone();
+    candidate["excluded"] = (!candidate["excluded"].as_bool().unwrap()).into();
+    let request = serde_json::json!({
+        "renderMode": "preview",
+        "pages": [{"options": options, "sourcePageIndex": 0}],
+        "analyses": [{
+            "job": {"index": 0, "view": "primary", "rerun": false},
+            "pageMetadataJson": String::from_utf8(analysis.page).unwrap(),
+            "reconciliation": candidate,
+        }],
+    });
+    let message = error_of(&frame(OP_PLAN_ANALYSIS, PLANES_RAW, &request, &[])).message;
     assert!(message.contains("does not belong"), "{message}");
 }
 
@@ -1174,12 +1035,12 @@ fn rejects_malformed_frames_and_requests() {
     .message
     .contains("repeats"));
     assert!(error_of(&frame(
-        OP_RENDER_PAGE,
-        PLANES_ENCODED,
+        OP_ANALYZE_PAGE,
+        PLANES_RAW,
         &request,
         &[
             (ATTACHMENT_INPUT, &input),
-            (ATTACHMENT_PAGE_METADATA, b"{}")
+            (ATTACHMENT_TRUSTED_MRC_BACKGROUND, &input)
         ]
     ))
     .message
@@ -1275,41 +1136,26 @@ fn rejects_malformed_frames_and_requests() {
     ))
     .message
     .contains("Unable to read scan-cleanup raster for page 1"));
-    let mut bad_context = request.clone();
-    bad_context["pageInkConsistency"] = serde_json::json!({
-        "prior": {"sampleCount": 12, "survivalP10": 0.2, "survivalMedian": 2.0, "survivalP90": 0.9,
-            "referenceWidth": 10, "referenceHeight": 10},
-        "sourceSample": {"metrics": {"inkFraction": 0.2, "erosionSurvival": 0.5}, "width": 10, "height": 10},
-    });
     assert!(error_of(&frame(
-        OP_RENDER_PAGE,
-        PLANES_ENCODED,
-        &bad_context,
-        &attachments
-    ))
-    .message
-    .contains("out of range"));
-    assert!(error_of(&frame(
-        OP_RECONCILE_DOCUMENT,
+        OP_PLAN_ANALYSIS,
         PLANES_RAW,
-        &serde_json::json!({"candidates": [{"cutterX": null, "tier1Verdict": "two-page-spread",
-            "tier1Confidence": 0.9, "candidateCutterRatio": null, "whitespaceScore": 0.5,
-            "rotatedWidth": 10, "rotatedHeight": 10, "calibrationStrokeWidthPx": null,
-            "calibrationXHeightPx": null, "reconciliationEligible": true, "excluded": false,
-            "documentPrior": {"dominantLayout": "two-page-spread", "cutterRatioMedian": 2.0,
-                "clusterDims": {"widthPx": 10.0, "heightPx": 10.0}, "agreementStrength": 0.5}}]}),
+        &serde_json::json!({"renderMode": "preview", "pages": [{"options": options(serde_json::json!({})),
+            "sourcePageIndex": 0, "documentPrior": {"dominantLayout": "two-page-spread",
+                "cutterRatioMedian": 2.0, "clusterDims": {"widthPx": 10.0, "heightPx": 10.0},
+                "agreementStrength": 0.5}}]}),
         &[]
     ))
     .code
     .eq(&NativeErrorCode::InvalidRequest));
     assert!(error_of(&frame(
-        OP_FINISH_PAGE_ANALYSIS,
+        OP_PLAN_ANALYSIS,
         PLANES_RAW,
-        &serde_json::json!({}),
+        &serde_json::json!({"renderMode": "preview", "pages": [],
+            "analyses": [{"job": {"index": 0, "view": "primary", "rerun": false}}]}),
         &[]
     ))
     .message
-    .contains("page metadata"));
+    .contains("outside the document"));
 }
 
 #[test]
@@ -1363,10 +1209,7 @@ fn generated() -> String {
         ("REQUEST_VERSION", REQUEST_VERSION as usize),
         ("OP_RENDER_PAGE", OP_RENDER_PAGE as usize),
         ("OP_ANALYZE_PAGE", OP_ANALYZE_PAGE as usize),
-        ("OP_RECONCILE_DOCUMENT", OP_RECONCILE_DOCUMENT as usize),
-        ("OP_FINISH_PAGE_ANALYSIS", OP_FINISH_PAGE_ANALYSIS as usize),
-        ("OP_SAMPLE_PAGE_INK", OP_SAMPLE_PAGE_INK as usize),
-        ("OP_DERIVE_INK_CONTEXTS", OP_DERIVE_INK_CONTEXTS as usize),
+        ("OP_PLAN_ANALYSIS", OP_PLAN_ANALYSIS as usize),
         ("PLANES_RAW", PLANES_RAW as usize),
         ("PLANES_ENCODED", PLANES_ENCODED as usize),
         ("ATTACHMENT_INPUT", ATTACHMENT_INPUT as usize),
@@ -1390,10 +1233,6 @@ fn generated() -> String {
         (
             "ATTACHMENT_DETAIL_BASE_CLEANED",
             ATTACHMENT_DETAIL_BASE_CLEANED as usize,
-        ),
-        (
-            "ATTACHMENT_PAGE_METADATA",
-            ATTACHMENT_PAGE_METADATA as usize,
         ),
         ("PLANE_ROLE_COMPOSITE", PLANE_ROLE_COMPOSITE as usize),
         ("PLANE_ROLE_BILEVEL", PLANE_ROLE_BILEVEL as usize),

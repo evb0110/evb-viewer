@@ -18,18 +18,12 @@ import {
 import type {
     IScanCleanupWasmAnalyzeRequest,
     IScanCleanupWasmAnalyzeResult,
-    IScanCleanupWasmDeriveInkContextsResult,
-    IScanCleanupWasmFinishPageAnalysisRequest,
-    IScanCleanupWasmPageResult,
-    IScanCleanupWasmReconcileDocumentResult,
     IScanCleanupWasmRenderPageRequest,
     IScanCleanupWasmRenderPageResult,
     IScanCleanupWasmRenderPreviewRequest,
     IScanCleanupWasmRenderPreviewResult,
-    IScanCleanupWasmSamplePageInkRequest,
-    IScanCleanupWasmSamplePageInkResult,
-    TScanCleanupWasmDeriveInkContextsRequest,
-    TScanCleanupWasmReconcileDocumentRequest,
+    TScanCleanupWasmPlanAnalysisRequest,
+    TScanCleanupWasmPlanAnalysisResult,
 } from '@contracts/scan-cleanup/browserScanCleanupWasm';
 
 /**
@@ -59,10 +53,7 @@ export interface IBrowserScanCleanupWorkerRequestMap {
     'render-preview': IScanCleanupWasmRenderPreviewRequest;
     'render-page': IScanCleanupWasmRenderPageRequest;
     'analyze-page': IScanCleanupWasmAnalyzeRequest;
-    'reconcile-document': TScanCleanupWasmReconcileDocumentRequest;
-    'finish-page-analysis': IScanCleanupWasmFinishPageAnalysisRequest;
-    'sample-page-ink': IScanCleanupWasmSamplePageInkRequest;
-    'derive-ink-contexts': TScanCleanupWasmDeriveInkContextsRequest;
+    'plan-analysis': TScanCleanupWasmPlanAnalysisRequest;
 }
 
 export interface IBrowserScanCleanupWorkerResultMap {
@@ -71,10 +62,7 @@ export interface IBrowserScanCleanupWorkerResultMap {
     'render-preview': TScanCleanupWasmOutcome<IScanCleanupWasmRenderPreviewResult>;
     'render-page': TScanCleanupWasmOutcome<IScanCleanupWasmRenderPageResult>;
     'analyze-page': TScanCleanupWasmOutcome<IScanCleanupWasmAnalyzeResult>;
-    'reconcile-document': TScanCleanupWasmOutcome<IScanCleanupWasmReconcileDocumentResult>;
-    'finish-page-analysis': TScanCleanupWasmOutcome<IScanCleanupWasmPageResult>;
-    'sample-page-ink': TScanCleanupWasmOutcome<IScanCleanupWasmSamplePageInkResult>;
-    'derive-ink-contexts': TScanCleanupWasmOutcome<IScanCleanupWasmDeriveInkContextsResult>;
+    'plan-analysis': TScanCleanupWasmOutcome<TScanCleanupWasmPlanAnalysisResult>;
 }
 
 export type TBrowserScanCleanupWorkerRequestType = keyof IBrowserScanCleanupWorkerRequestMap;
@@ -85,10 +73,7 @@ export const BROWSER_SCAN_CLEANUP_WORKER_REQUEST_TYPES = [
     'render-preview',
     'render-page',
     'analyze-page',
-    'reconcile-document',
-    'finish-page-analysis',
-    'sample-page-ink',
-    'derive-ink-contexts',
+    'plan-analysis',
 ] as const satisfies readonly TBrowserScanCleanupWorkerRequestType[];
 
 export type TBrowserScanCleanupWorkerRequest = {

@@ -5975,3 +5975,75 @@ fn direct_split_restores_prior_outputs_on_failure_and_keeps_what_it_does_not_wri
         "a split leaves the unsuffixed file alone"
     );
 }
+
+/// A single page whose CropBox is a portrait crop of a landscape sheet: the
+/// engine asks for its MediaBox view through an alternate lease, analyzes it,
+/// and keeps the primary analysis when the owner declines with an empty file.
+#[test]
+fn analysis_asks_for_a_wider_alternate_view_and_keeps_the_primary_when_declined() {
+    for offered in [false, true] {
+        let scratch = Scratch::new("alternate-view");
+        let input = scratch.path("page.png");
+        let alternate = scratch.path("page-media.png");
+        let metadata = scratch.path("page.json");
+        let manifest = scratch.path("manifest.json");
+        fs::write(&input, encode_gray(&GrayImage::new(200, 280, 245)).unwrap()).unwrap();
+        let alternate_bytes = if offered {
+            fs::read("tests/fixtures/split/spread-luther-soft-gutter-p00001.png").unwrap()
+        } else {
+            Vec::new()
+        };
+        fs::write(&alternate, &alternate_bytes).unwrap();
+        let options = unmatched_options();
+        let payload = serde_json::json!({
+            "version": 3, "operation": "analyze", "analysisPurpose": "page-plan",
+            "renderMode": "preview", "canvasScope": "page",
+            "pages": [{
+                "inputPath": input, "sourcePageIndex": 0, "pageMetadataPath": metadata,
+                "options": options, "outputs": [],
+                "alternateInputPath": alternate,
+                "alternateView": {"primaryWidthPoints": 300.0, "primaryHeightPoints": 420.0,
+                    "widthPoints": 600.0, "heightPoints": 420.0, "options": options},
+            }],
+        });
+        fs::write(&manifest, serde_json::to_vec(&payload).unwrap()).unwrap();
+        let result = Command::new(env!("CARGO_BIN_EXE_evb-scan-cleanup"))
+            .args(["--manifest", manifest.to_str().unwrap()])
+            .output()
+            .unwrap();
+        assert!(
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        let events = String::from_utf8(result.stdout)
+            .unwrap()
+            .lines()
+            .map(|line| serde_json::from_str::<Value>(line).unwrap())
+            .collect::<Vec<_>>();
+        let leases = events
+            .iter()
+            .filter(|event| event["progress"]["alternateView"] == true)
+            .map(|event| event["progress"]["stage"].as_str().unwrap().to_owned())
+            .collect::<Vec<_>>();
+        assert_eq!(leases, ["page-input-required", "page-input-released"]);
+        let page: Value = serde_json::from_slice(&fs::read(&metadata).unwrap()).unwrap();
+        let complete = events
+            .iter()
+            .find(|event| event["progress"]["stage"] == "page-complete")
+            .unwrap();
+        assert_eq!(
+            complete["progress"]["classification"],
+            page["layoutClassification"]
+        );
+        if offered {
+            assert_eq!(
+                page["alternateView"] == true,
+                page["layoutClassification"] == "two-page-spread"
+            );
+        } else {
+            assert_eq!(page["layoutClassification"], "single-uncut-page");
+            assert!(page.get("alternateView").is_none());
+        }
+    }
+}

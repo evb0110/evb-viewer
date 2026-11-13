@@ -1314,6 +1314,8 @@ mod moved_tests {
                     document_prior: None,
                     detail_render_plan: None,
                     pdf_page: None,
+                    alternate_input_path: None,
+                    alternate_view: None,
                     outputs: vec![duplicate_output.clone()],
                 })
                 .collect(),
