@@ -251,4 +251,3 @@ pub(crate) fn get_browser_page_geometry_from_bytes(
     let document = load_browser_pdf(data)?;
     get_browser_page_geometry(&document, page_number)
 }
-
