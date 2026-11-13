@@ -447,7 +447,7 @@ pub(crate) fn resolve_bookmark_destination_position(
 }
 
 pub(crate) fn set_bookmark_destination(
-    base_document: &Document,
+    base_document: &impl PdfObjectSource,
     page_resolver: &PageLookup<'_>,
     dict: &mut Dictionary,
     item: &BookmarkEntry,
@@ -513,9 +513,9 @@ struct OutlineObjects {
 }
 
 impl OutlineObjects {
-    fn after(target: &Document) -> Self {
+    fn after(target: &impl PdfObjectStore) -> Self {
         Self {
-            max_id: target.max_id,
+            max_id: target.max_id(),
             objects: Vec::new(),
         }
     }
@@ -529,7 +529,7 @@ impl OutlineObjects {
     /// Siblings take consecutive numbers before any of their children.
     fn level(
         &mut self,
-        source: &Document,
+        source: &impl PdfObjectSource,
         page_resolver: &PageLookup<'_>,
         items: &[BookmarkEntry],
         parent_ref: ObjectId,
@@ -571,7 +571,7 @@ impl OutlineObjects {
     /// `None` for an empty outline.
     fn outline(
         &mut self,
-        source: &Document,
+        source: &impl PdfObjectSource,
         page_resolver: &PageLookup<'_>,
         items: &[BookmarkEntry],
     ) -> Result<Option<ObjectId>> {
@@ -595,10 +595,9 @@ impl OutlineObjects {
         Ok(Some(outlines_ref))
     }
 
-    fn add_to(self, target: &mut Document) {
-        target.max_id = self.max_id;
+    fn add_to(self, target: &mut impl PdfObjectStore) {
         for (id, dict) in self.objects {
-            target.set_object(id, dict);
+            target.put_object(id, Object::Dictionary(dict));
         }
     }
 }
@@ -642,7 +641,7 @@ pub(crate) fn bookmark_pages(bookmarks: Option<&BookmarksMutation>) -> Option<BT
 }
 
 fn normalized_bookmarks(
-    source: &Document,
+    source: &impl PdfObjectSource,
     page_resolver: &PageLookup<'_>,
     bookmarks: &BookmarksMutation,
 ) -> Result<Vec<BookmarkEntry>> {
@@ -660,50 +659,33 @@ fn normalized_bookmarks(
     Ok(normalized)
 }
 
-pub(crate) fn set_bookmarks(document: &mut Document, bookmarks: &BookmarksMutation) -> Result<()> {
-    let page_resolver = PageLookup::new(document, None)?;
-    let normalized = normalized_bookmarks(document, &page_resolver, bookmarks)?;
-    let mut objects = OutlineObjects::after(document);
-    let outlines = objects.outline(document, &page_resolver, &normalized)?;
-    objects.add_to(document);
-    set_catalog_outlines(document.catalog_mut()?, outlines);
-    Ok(())
-}
-
-pub(crate) fn set_bookmarks_incremental(
-    incremental: &mut IncrementalDocument,
+/// Writes the outline. A later chunk of a chunked save (`continuation`)
+/// appends its items under the outline item its bookmark path names; any
+/// other save replaces the outline.
+pub(crate) fn set_bookmarks(
+    document: &mut impl PdfObjectStore,
     bookmarks: &BookmarksMutation,
     continuation: Option<&NativeMutationContinuation>,
 ) -> Result<()> {
     // A page-local load holds only the pages the bookmarks name.
-    let located = incremental.located_pages.clone();
-    let page_resolver = PageLookup::new(incremental.get_prev_documents(), located.as_ref())?;
-    let normalized =
-        normalized_bookmarks(incremental.get_prev_documents(), &page_resolver, bookmarks)?;
-    if continuation.is_some_and(|value| value.family == NativeMutationContinuationFamily::Bookmarks)
+    let located = document.located_pages().cloned();
+    let page_resolver = PageLookup::new(document, located.as_ref())?;
+    let normalized = normalized_bookmarks(document, &page_resolver, bookmarks)?;
+    if let Some(continuation) =
+        continuation.filter(|value| value.family == NativeMutationContinuationFamily::Bookmarks)
     {
-        return append_bookmarks_incremental(
-            incremental,
+        return append_bookmarks(
+            document,
             &page_resolver,
             &normalized,
-            continuation.and_then(|value| {
-                (!value.bookmark_path.is_empty()).then_some(value.bookmark_path.as_slice())
-            }),
+            &continuation.bookmark_path,
         );
     }
-    let catalog_id = incremental.get_prev_documents().root_id()?;
-    incremental.opt_clone_object_to_new_document(catalog_id)?;
-    let mut objects = OutlineObjects::after(&incremental.new_document);
-    let outlines = objects.outline(
-        incremental.get_prev_documents(),
-        &page_resolver,
-        &normalized,
-    )?;
-    objects.add_to(&mut incremental.new_document);
-    set_catalog_outlines(
-        incremental.new_document.get_dictionary_mut(catalog_id)?,
-        outlines,
-    );
+    let mut objects = OutlineObjects::after(document);
+    let outlines = objects.outline(document, &page_resolver, &normalized)?;
+    objects.add_to(document);
+    let catalog_id = document.root_id()?;
+    set_catalog_outlines(document.dictionary_mut(catalog_id)?, outlines);
     Ok(())
 }
 
@@ -756,71 +738,61 @@ pub(crate) fn load_outline_path(
     }
 }
 
-fn append_bookmarks_incremental(
-    incremental: &mut IncrementalDocument,
+fn append_bookmarks(
+    document: &mut impl PdfObjectStore,
     page_resolver: &PageLookup<'_>,
     items: &[BookmarkEntry],
-    bookmark_path: Option<&[u32]>,
+    bookmark_path: &[u32],
 ) -> Result<()> {
-    let catalog_id = incremental.get_prev_documents().root_id()?;
-    let previous_catalog = incremental.get_prev_documents().dictionary(catalog_id)?;
-    let outlines_id = previous_catalog.get(b"Outlines")?.as_reference()?;
+    let catalog_id = document.root_id()?;
+    let outlines_id = document
+        .dictionary(catalog_id)?
+        .get(b"Outlines")?
+        .as_reference()?;
     let mut parent_id = outlines_id;
     let mut ancestor_ids = vec![outlines_id];
-    incremental.opt_clone_object_to_new_document(catalog_id)?;
-    incremental.opt_clone_object_to_new_document(outlines_id)?;
-    if let Some(path) = bookmark_path {
-        for index in path {
-            parent_id = outline_level_item_at(incremental.get_prev_documents(), parent_id, *index)?;
-            incremental.opt_clone_object_to_new_document(parent_id)?;
-            ancestor_ids.push(parent_id);
-        }
+    // The chunk rewrites the outline path it extends, even with no items.
+    document.object_mut(catalog_id)?;
+    document.object_mut(outlines_id)?;
+    for index in bookmark_path {
+        parent_id = outline_level_item_at(document, parent_id, *index)?;
+        document.object_mut(parent_id)?;
+        ancestor_ids.push(parent_id);
     }
     if items.is_empty() {
         return Ok(());
     }
-    let mut objects = OutlineObjects::after(&incremental.new_document);
-    let tree = objects.level(
-        incremental.get_prev_documents(),
-        page_resolver,
-        items,
-        parent_id,
-    )?;
-    objects.add_to(&mut incremental.new_document);
+    let mut objects = OutlineObjects::after(document);
+    let tree = objects.level(document, page_resolver, items, parent_id)?;
+    objects.add_to(document);
     let (Some(first), Some(last)) = (tree.first, tree.last) else {
         return Ok(());
     };
-    let previous_last = incremental
-        .get_prev_documents()
+    let previous_last = document
         .dictionary(parent_id)
         .ok()
         .and_then(|dict| dict.get(b"Last").ok())
         .and_then(|value| value.as_reference().ok());
     if let Some(previous_last) = previous_last {
-        incremental.opt_clone_object_to_new_document(previous_last)?;
-        incremental
-            .new_document
-            .get_dictionary_mut(previous_last)?
+        document
+            .dictionary_mut(previous_last)?
             .set("Next", Object::Reference(first));
-        incremental
-            .new_document
-            .get_dictionary_mut(first)?
+        document
+            .dictionary_mut(first)?
             .set("Prev", Object::Reference(previous_last));
     } else {
-        incremental
-            .new_document
-            .get_dictionary_mut(parent_id)?
+        document
+            .dictionary_mut(parent_id)?
             .set("First", Object::Reference(first));
     }
-    let parent = incremental.new_document.get_dictionary_mut(parent_id)?;
+    let parent = document.dictionary_mut(parent_id)?;
     parent.set("Last", Object::Reference(last));
     add_outline_visible_count(parent, tree.visible_count);
     for ancestor_id in ancestor_ids
         .iter()
         .take(ancestor_ids.len().saturating_sub(1))
     {
-        let ancestor = incremental.new_document.get_dictionary_mut(*ancestor_id)?;
-        add_outline_visible_count(ancestor, tree.visible_count);
+        add_outline_visible_count(document.dictionary_mut(*ancestor_id)?, tree.visible_count);
     }
     Ok(())
 }

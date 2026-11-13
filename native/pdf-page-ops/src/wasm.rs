@@ -402,6 +402,7 @@ fn run_document_list_request(request: &[u8]) -> Result<Vec<u8>> {
                     total_pages: merged.page_count,
                     ranges: page_labels,
                 },
+                false,
             )?;
             set_bookmarks(
                 &mut output,
@@ -410,6 +411,7 @@ fn run_document_list_request(request: &[u8]) -> Result<Vec<u8>> {
                     untitled_label: "Untitled".to_string(),
                     items: bookmarks,
                 },
+                None,
             )?;
             encode_mutation(PageMutationBytes {
                 page_count: merged.page_count,

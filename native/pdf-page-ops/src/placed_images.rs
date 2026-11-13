@@ -682,7 +682,7 @@ fn patch_placed_image_stamp_dict(
 }
 
 pub(crate) fn apply_placed_images(
-    document: &mut Document,
+    document: &mut impl PdfObjectStore,
     images: &[PlacedImage],
     image_bytes: Vec<Vec<u8>>,
     chunk_index: u32,
@@ -693,7 +693,8 @@ pub(crate) fn apply_placed_images(
         return Ok(());
     }
 
-    let page_map = document.get_pages();
+    let located = document.located_pages().cloned();
+    let pages = PageLookup::new(document, located.as_ref())?;
     if images.len() != image_bytes.len() {
         return Err("Placed image validation cache does not match its manifest".into());
     }
@@ -704,7 +705,7 @@ pub(crate) fn apply_placed_images(
             .page_index
             .checked_add(1)
             .ok_or("Invalid placed image page index")?;
-        let page_id = resolve_page_id(&page_map, page_number)?;
+        let page_id = pages.page_id(document, page_number)?;
         if let std::collections::hash_map::Entry::Vacant(entry) = annotation_indexes.entry(page_id)
         {
             entry.insert(build_page_annotation_index(document, page_id)?.0);
@@ -735,7 +736,7 @@ pub(crate) fn apply_placed_images(
                 .set("SMask", Object::Reference(document.add_object(mask)));
         }
         let image_ref = if let Some((_, image_ref)) = existing_appearance.filter(|_| private.1) {
-            document.set_object(image_ref, Object::Stream(image_stream));
+            document.put_object(image_ref, Object::Stream(image_stream));
             image_ref
         } else {
             document.add_object(image_stream)
@@ -745,13 +746,13 @@ pub(crate) fn apply_placed_images(
             build_placed_image_appearance_stream(image_ref, &geometry, &image_name);
         let appearance_ref =
             if let Some((appearance_ref, _)) = existing_appearance.filter(|_| private.0) {
-                document.set_object(appearance_ref, Object::Stream(appearance_stream));
+                document.put_object(appearance_ref, Object::Stream(appearance_stream));
                 appearance_ref
             } else {
                 document.add_object(appearance_stream)
             };
         let stamp_ref = if let Some(stamp_ref) = existing_stamp_ref {
-            let stamp_dict = document.get_dictionary_mut(stamp_ref)?;
+            let stamp_dict = document.dictionary_mut(stamp_ref)?;
             patch_placed_image_stamp_dict(
                 stamp_dict,
                 &geometry,
@@ -771,7 +772,7 @@ pub(crate) fn apply_placed_images(
                 chunk_index,
                 modified_at,
             );
-            document.set_object(stamp_ref, Object::Dictionary(stamp_dict));
+            document.put_object(stamp_ref, Object::Dictionary(stamp_dict));
             stamp_ref
         };
         if existing_stamp_ref.is_none() {
@@ -858,7 +859,7 @@ pub(crate) fn materialize_stamp_recovery_sources(
                 .checked_sub(size)
                 .ok_or("Stamp recovery sources exceed the aggregate byte ceiling")?;
         }
-        validate_recovery_image(&AppendedRevision::new(incremental), source)?;
+        validate_recovery_image(incremental, source)?;
     }
     Ok(())
 }
@@ -884,7 +885,7 @@ pub(crate) fn validate_recovery_image(
 
 #[allow(clippy::too_many_arguments)]
 fn recreate_placed_image(
-    document: &mut Document,
+    document: &mut impl PdfObjectStore,
     update: &PlacedImageGeometryUpdate,
     probe: &PlacedImage,
     geometry: &PlacedImageGeometry,
@@ -915,18 +916,19 @@ fn recreate_placed_image(
 }
 
 pub(crate) fn apply_placed_image_geometry_updates(
-    document: &mut Document,
+    document: &mut impl PdfObjectStore,
     updates: &[PlacedImageGeometryUpdate],
     modified_at: &str,
     identity_bindings: &mut Option<&mut Vec<AnnotationIdentityBinding>>,
 ) -> Result<()> {
-    let page_map = document.get_pages();
+    let located = document.located_pages().cloned();
+    let pages = PageLookup::new(document, located.as_ref())?;
     for update in updates {
         let page_number = update
             .page_index
             .checked_add(1)
             .ok_or("Invalid placed image page index")?;
-        let page_id = resolve_page_id(&page_map, page_number)?;
+        let page_id = pages.page_id(document, page_number)?;
         let page_view = resolve_page_view(document, page_id)?;
         let page_rotation = resolve_page_rotation(document, page_id)?;
         let probe = placed_image_geometry_probe(update);
@@ -954,7 +956,7 @@ pub(crate) fn apply_placed_image_geometry_updates(
                 let mut annots = get_page_annots(document, page_id)?;
                 annots.push(Object::Reference(stamp_ref));
                 document
-                    .get_dictionary_mut(page_id)?
+                    .dictionary_mut(page_id)?
                     .set("Annots", Object::Array(annots));
                 continue;
             }
@@ -968,230 +970,12 @@ pub(crate) fn apply_placed_image_geometry_updates(
         );
         let appearance_ref =
             if private_placed_image_refs(document, stamp_ref, appearance_ref, image_ref).0 {
-                document.set_object(appearance_ref, Object::Stream(appearance));
+                document.put_object(appearance_ref, Object::Stream(appearance));
                 appearance_ref
             } else {
                 document.add_object(appearance)
             };
-        let stamp = document.get_dictionary_mut(stamp_ref)?;
-        patch_placed_image_stamp_dict(
-            stamp,
-            &geometry,
-            appearance_ref,
-            expected_name,
-            modified_at,
-            update.author.as_deref(),
-        );
-    }
-    Ok(())
-}
-
-pub(crate) fn apply_placed_images_incremental(
-    incremental: &mut IncrementalDocument,
-    images: &[PlacedImage],
-    image_bytes: Vec<Vec<u8>>,
-    chunk_index: u32,
-    modified_at: &str,
-    identity_bindings: &mut Option<&mut Vec<AnnotationIdentityBinding>>,
-) -> Result<()> {
-    if images.is_empty() {
-        return Ok(());
-    }
-
-    let pages = PageLookup::new(
-        incremental.get_prev_documents(),
-        incremental.located_pages.as_ref(),
-    )?;
-    if images.len() != image_bytes.len() {
-        return Err("Placed image validation cache does not match its manifest".into());
-    }
-    let mut image_pages = Vec::with_capacity(images.len());
-    let mut annotation_indexes = HashMap::new();
-    for image in images {
-        let page_number = image
-            .page_index
-            .checked_add(1)
-            .ok_or("Invalid placed image page index")?;
-        let page_id = pages.page_id(incremental.get_prev_documents(), page_number)?;
-        if let std::collections::hash_map::Entry::Vacant(entry) = annotation_indexes.entry(page_id)
-        {
-            entry.insert(build_incremental_page_annotation_index(incremental, page_id)?.0);
-        }
-        image_pages.push(page_id);
-    }
-    for (index, ((image, image_bytes), page_id)) in
-        images.iter().zip(image_bytes).zip(image_pages).enumerate()
-    {
-        let page_view = resolve_page_view(incremental.get_prev_documents(), page_id)?;
-        let page_rotation = resolve_page_rotation(incremental.get_prev_documents(), page_id)?;
-        let geometry = placed_image_geometry(image, page_view, page_rotation)?;
-        let expected_name = placed_image_annotation_name(image, index, chunk_index, modified_at);
-        let existing_stamp_ref = resolve_placed_image_target(
-            &AppendedRevision::new(incremental),
-            page_id,
-            image,
-            &expected_name,
-        )?;
-        let existing_appearance = existing_stamp_ref.and_then(|stamp_ref| {
-            placed_image_appearance_refs(&AppendedRevision::new(incremental), stamp_ref)
-        });
-        let private = existing_stamp_ref
-            .zip(existing_appearance)
-            .map(|(stamp, (appearance, image))| {
-                private_placed_image_refs(
-                    &AppendedRevision::new(incremental),
-                    stamp,
-                    appearance,
-                    image,
-                )
-            })
-            .unwrap_or((false, false));
-        let (mut image_stream, mask_stream) = build_placed_raster_streams(image_bytes, image)?;
-        if let Some(mask) = mask_stream {
-            image_stream.dict.set(
-                "SMask",
-                Object::Reference(incremental.new_document.add_object(mask)),
-            );
-        }
-        let image_ref = if let Some((_, image_ref)) = existing_appearance.filter(|_| private.1) {
-            incremental
-                .new_document
-                .set_object(image_ref, Object::Stream(image_stream));
-            image_ref
-        } else {
-            incremental.new_document.add_object(image_stream)
-        };
-        let image_name = format!("Im{}", image_ref.0);
-        let appearance_stream =
-            build_placed_image_appearance_stream(image_ref, &geometry, &image_name);
-        let appearance_ref =
-            if let Some((appearance_ref, _)) = existing_appearance.filter(|_| private.0) {
-                incremental
-                    .new_document
-                    .set_object(appearance_ref, Object::Stream(appearance_stream));
-                appearance_ref
-            } else {
-                incremental.new_document.add_object(appearance_stream)
-            };
-        let stamp_ref = if let Some(stamp_ref) = existing_stamp_ref {
-            incremental.opt_clone_object_to_new_document(stamp_ref)?;
-            let stamp_dict = incremental.new_document.get_dictionary_mut(stamp_ref)?;
-            patch_placed_image_stamp_dict(
-                stamp_dict,
-                &geometry,
-                appearance_ref,
-                &expected_name,
-                modified_at,
-                image.author.as_deref(),
-            );
-            stamp_ref
-        } else {
-            let stamp_ref = incremental.new_document.new_object_id();
-            let stamp_dict = build_placed_image_stamp_dict(
-                image,
-                &geometry,
-                appearance_ref,
-                index,
-                chunk_index,
-                modified_at,
-            );
-            incremental
-                .new_document
-                .set_object(stamp_ref, Object::Dictionary(stamp_dict));
-            stamp_ref
-        };
-        if existing_stamp_ref.is_none() {
-            report_stamp_identity_binding(identity_bindings, image, stamp_ref);
-            annotation_indexes
-                .get_mut(&page_id)
-                .expect("Placed-image pages are indexed before mutation")
-                .append_missing_refs(&[stamp_ref]);
-        }
-    }
-    for (page_id, index) in annotation_indexes {
-        write_page_annotation_index_incremental(incremental, page_id, index)?;
-    }
-    Ok(())
-}
-
-pub(crate) fn apply_placed_image_geometry_updates_incremental(
-    incremental: &mut IncrementalDocument,
-    updates: &[PlacedImageGeometryUpdate],
-    modified_at: &str,
-    identity_bindings: &mut Option<&mut Vec<AnnotationIdentityBinding>>,
-) -> Result<()> {
-    let located = incremental.located_pages.clone();
-    let pages = PageLookup::new(incremental.get_prev_documents(), located.as_ref())?;
-    for update in updates {
-        let page_number = update
-            .page_index
-            .checked_add(1)
-            .ok_or("Invalid placed image page index")?;
-        let page_id = pages.page_id(incremental.get_prev_documents(), page_number)?;
-        let page_view = resolve_page_view(incremental.get_prev_documents(), page_id)?;
-        let page_rotation = resolve_page_rotation(incremental.get_prev_documents(), page_id)?;
-        let probe = placed_image_geometry_probe(update);
-        let expected_name = update.stable_key.as_deref().unwrap_or_default();
-        let geometry = placed_image_geometry(&probe, page_view, page_rotation)?;
-        let stamp_ref = match resolve_placed_image_target(
-            &AppendedRevision::new(incremental),
-            page_id,
-            &probe,
-            expected_name,
-        )? {
-            Some(reference) => reference,
-            None => {
-                let source = update
-                    .source_image
-                    .as_ref()
-                    .ok_or("Placed image geometry target was not found")?;
-                let image_ref =
-                    validate_recovery_image(&AppendedRevision::new(incremental), source)?;
-                let mut annots = get_page_annots(&AppendedRevision::new(incremental), page_id)?;
-                let stamp_ref = recreate_placed_image(
-                    &mut incremental.new_document,
-                    update,
-                    &probe,
-                    &geometry,
-                    page_id,
-                    image_ref,
-                    modified_at,
-                    identity_bindings,
-                )?;
-                annots.push(Object::Reference(stamp_ref));
-                incremental.opt_clone_object_to_new_document(page_id)?;
-                incremental
-                    .new_document
-                    .get_dictionary_mut(page_id)?
-                    .set("Annots", Object::Array(annots));
-                continue;
-            }
-        };
-        let (appearance_ref, image_ref) =
-            placed_image_appearance_refs(&AppendedRevision::new(incremental), stamp_ref)
-                .ok_or("Placed image appearance resources are unavailable")?;
-        let appearance = build_placed_image_appearance_stream(
-            image_ref,
-            &geometry,
-            &format!("Im{}", image_ref.0),
-        );
-        let appearance_ref = if private_placed_image_refs(
-            &AppendedRevision::new(incremental),
-            stamp_ref,
-            appearance_ref,
-            image_ref,
-        )
-        .0
-        {
-            incremental
-                .new_document
-                .set_object(appearance_ref, Object::Stream(appearance));
-            appearance_ref
-        } else {
-            incremental.new_document.add_object(appearance)
-        };
-        incremental.opt_clone_object_to_new_document(stamp_ref)?;
-        let stamp = incremental.new_document.get_dictionary_mut(stamp_ref)?;
+        let stamp = document.dictionary_mut(stamp_ref)?;
         patch_placed_image_stamp_dict(
             stamp,
             &geometry,

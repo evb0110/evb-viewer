@@ -420,59 +420,109 @@ pub(crate) fn load_qpdf_page_local_incremental_pdf(
 
 /// What a fresh reader sees after an incremental append: the objects the
 /// appended revision rewrote, over the base revision that is still in memory.
+/// An `IncrementalDocument` is this view of itself; this form pairs two
+/// documents that are not held in one.
 pub(crate) struct AppendedRevision<'a> {
     base: &'a Document,
     appended: &'a Document,
-    located_pages: Option<&'a LocatedPages>,
 }
 
 impl<'a> AppendedRevision<'a> {
-    pub(crate) fn new(incremental: &'a IncrementalDocument) -> Self {
-        Self {
-            located_pages: incremental.located_pages.as_ref(),
-            ..Self::from_documents(incremental.get_prev_documents(), &incremental.new_document)
-        }
-    }
-
     pub(crate) fn from_documents(base: &'a Document, appended: &'a Document) -> Self {
-        Self {
-            base,
-            appended,
-            located_pages: None,
-        }
+        Self { base, appended }
+    }
+}
+
+fn overlay_object<'a>(
+    base: &'a Document,
+    appended: &'a Document,
+    object_id: ObjectId,
+) -> Option<&'a Object> {
+    appended
+        .objects
+        .get(&object_id)
+        .or_else(|| base.objects.get(&object_id))
+}
+
+/// Appends rewrite page dictionaries, the catalog and annotation objects but
+/// never restructure the page tree, so page identity comes from the base
+/// revision. A mutation that adds or removes pages would have to walk the
+/// appended tree instead. A page-local base holds only the pages it located,
+/// by number.
+fn overlay_page_ids(base: &Document, located: Option<&LocatedPages>) -> BTreeMap<u32, ObjectId> {
+    match located {
+        Some(located) => located
+            .ids
+            .iter()
+            .map(|(index, page_id)| (index + 1, *page_id))
+            .collect(),
+        None => base.get_pages(),
     }
 }
 
 impl PdfObjectSource for AppendedRevision<'_> {
-    fn located_pages(&self) -> Option<&LocatedPages> {
-        self.located_pages
-    }
-
     fn stored_object(&self, object_id: ObjectId) -> Option<&Object> {
-        self.appended
-            .objects
-            .get(&object_id)
-            .or_else(|| self.base.objects.get(&object_id))
+        overlay_object(self.base, self.appended, object_id)
     }
 
-    /// Appends rewrite page dictionaries, the catalog and annotation objects but
-    /// never restructure the page tree, so page identity comes from the base
-    /// revision. A mutation that adds or removes pages would have to walk the
-    /// appended tree instead. A page-local base holds only the pages it
-    /// located, by number.
     fn page_ids(&self) -> BTreeMap<u32, ObjectId> {
-        match self.located_pages {
-            Some(located) => located
-                .ids
-                .iter()
-                .map(|(index, page_id)| (index + 1, *page_id))
-                .collect(),
-            None => self.base.get_pages(),
-        }
+        overlay_page_ids(self.base, None)
     }
 
     fn root_id(&self) -> Result<ObjectId> {
         Ok(self.appended.trailer.get(b"Root")?.as_reference()?)
+    }
+}
+
+impl PdfObjectSource for IncrementalDocument {
+    fn located_pages(&self) -> Option<&LocatedPages> {
+        self.located_pages.as_ref()
+    }
+
+    fn stored_object(&self, object_id: ObjectId) -> Option<&Object> {
+        overlay_object(&self.previous_document, &self.new_document, object_id)
+    }
+
+    fn page_ids(&self) -> BTreeMap<u32, ObjectId> {
+        overlay_page_ids(&self.previous_document, self.located_pages.as_ref())
+    }
+
+    fn root_id(&self) -> Result<ObjectId> {
+        Ok(self.new_document.trailer.get(b"Root")?.as_reference()?)
+    }
+}
+
+impl PdfObjectStore for IncrementalDocument {
+    fn object_mut(&mut self, object_id: ObjectId) -> Result<&mut Object> {
+        self.opt_clone_object_to_new_document(object_id)?;
+        Ok(self.new_document.get_object_mut(object_id)?)
+    }
+
+    fn delete_object(&mut self, object_id: ObjectId) {
+        self.new_document.set_object(object_id, Object::Null);
+    }
+
+    fn stored_objects(&self) -> impl Iterator<Item = (ObjectId, &Object)> {
+        let appended = &self.new_document.objects;
+        appended.iter().map(|(id, object)| (*id, object)).chain(
+            self.previous_document
+                .objects
+                .iter()
+                .filter(|(id, _)| !appended.contains_key(id))
+                .map(|(id, object)| (*id, object)),
+        )
+    }
+
+    fn max_id(&self) -> u32 {
+        self.new_document.max_id
+    }
+
+    fn new_object_id(&mut self) -> ObjectId {
+        self.new_document.new_object_id()
+    }
+
+    fn put_object(&mut self, object_id: ObjectId, object: Object) {
+        self.new_document.put_object(object_id, object);
     }
 }
 
@@ -1650,7 +1700,7 @@ esac
             270
         );
 
-        rotate_pages_incremental(
+        rotate_pages(
             &mut incremental,
             &[PageRotationMutation {
                 page_index: 0,

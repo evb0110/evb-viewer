@@ -659,6 +659,68 @@ fn missing_object_message(object_id: ObjectId) -> String {
     format!("Object {}R{} was not found", object_id.0, object_id.1)
 }
 
+/// The read seam made writable for one output strategy. A mutation written
+/// against it serves both: a loaded document changes in place for a full
+/// rewrite, an incremental one copies each written object into the revision
+/// it appends. Reads see the writes already made.
+pub(crate) trait PdfObjectStore: PdfObjectSource {
+    fn object_mut(&mut self, object_id: ObjectId) -> Result<&mut Object>;
+
+    /// Drops an object: a loaded document forgets it, an appended revision
+    /// frees it as `null` over the base revision that still holds it.
+    fn delete_object(&mut self, object_id: ObjectId);
+
+    /// Every object a reader of this state finds, each once.
+    fn stored_objects(&self) -> impl Iterator<Item = (ObjectId, &Object)>;
+
+    /// The highest object number in use; new objects are numbered past it.
+    fn max_id(&self) -> u32;
+
+    /// Reserves the next object number past `max_id`.
+    fn new_object_id(&mut self) -> ObjectId;
+
+    /// Stores `object` as `object_id`: a new number from `new_object_id`, or
+    /// one whose whole object it replaces.
+    fn put_object(&mut self, object_id: ObjectId, object: Object);
+
+    fn add_object(&mut self, object: impl Into<Object>) -> ObjectId {
+        let object_id = self.new_object_id();
+        self.put_object(object_id, object.into());
+        object_id
+    }
+
+    fn dictionary_mut(&mut self, object_id: ObjectId) -> Result<&mut Dictionary> {
+        Ok(self.object_mut(object_id)?.as_dict_mut()?)
+    }
+}
+
+impl PdfObjectStore for Document {
+    fn object_mut(&mut self, object_id: ObjectId) -> Result<&mut Object> {
+        Ok(self.get_object_mut(object_id)?)
+    }
+
+    fn delete_object(&mut self, object_id: ObjectId) {
+        self.objects.remove(&object_id);
+    }
+
+    fn stored_objects(&self) -> impl Iterator<Item = (ObjectId, &Object)> {
+        self.objects.iter().map(|(id, object)| (*id, object))
+    }
+
+    fn max_id(&self) -> u32 {
+        self.max_id
+    }
+
+    fn new_object_id(&mut self) -> ObjectId {
+        Document::new_object_id(self)
+    }
+
+    fn put_object(&mut self, object_id: ObjectId, object: Object) {
+        self.max_id = self.max_id.max(object_id.0);
+        self.objects.insert(object_id, object);
+    }
+}
+
 impl PdfObjectSource for Document {
     fn stored_object(&self, object_id: ObjectId) -> Option<&Object> {
         self.objects.get(&object_id)

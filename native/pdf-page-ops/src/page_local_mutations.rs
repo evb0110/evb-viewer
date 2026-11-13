@@ -115,8 +115,8 @@ pub(crate) fn additive_targets_are_new(
     mutations: &NativeMutationsFile,
     scanned: bool,
 ) -> Result<bool> {
-    let source = AppendedRevision::new(incremental);
-    let pages = PageLookup::new(&source, source.located_pages())?;
+    let source = incremental;
+    let pages = PageLookup::new(source, source.located_pages())?;
     let mut targets = HashSet::<String>::new();
     let mut names_on =
         |page_index: u32, name: String, prefixes: &[&str], existing: bool| -> Result<bool> {
@@ -131,13 +131,13 @@ pub(crate) fn additive_targets_are_new(
                 return Ok(true);
             }
             let page_id = pages.page_id(
-                &source,
+                source,
                 page_index
                     .checked_add(1)
                     .ok_or("Invalid annotation page index")?,
             )?;
             // Like the writers, skip an entry that is not an annotation dictionary.
-            for object in get_page_annots(&source, page_id)? {
+            for object in get_page_annots(source, page_id)? {
                 let Some(dict) = source
                     .resolved(&object)
                     .ok()
@@ -198,10 +198,10 @@ pub(crate) fn additive_targets_are_new(
             if can_use_geometry_only_subtype_hint(hint)
                 && normalize_hint_annotation_ref(hint).is_none()
             {
-                let page = pages.page_id(&source, hint.page_index + 1)?;
-                let view = resolve_page_view(&source, page)?;
-                let rotation = resolve_page_rotation(&source, page)?;
-                for object in get_page_annots(&source, page)? {
+                let page = pages.page_id(source, hint.page_index + 1)?;
+                let view = resolve_page_view(source, page)?;
+                let rotation = resolve_page_rotation(source, page)?;
+                for object in get_page_annots(source, page)? {
                     if object
                         .as_reference()
                         .ok()

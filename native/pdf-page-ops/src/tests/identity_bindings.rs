@@ -85,7 +85,7 @@
         let (document, _) = create_test_document();
         let mut incremental = IncrementalDocument::from_document(document, 0, None);
         let mut bindings = Vec::new();
-        upsert_text_notes_incremental_with_counter(
+        upsert_text_notes_with_counter(
             &mut incremental,
             [binding_note()].iter(),
             "D:20260830130000Z",
@@ -93,7 +93,7 @@
             &mut Some(&mut bindings),
         )
         .unwrap();
-        upsert_text_boxes_incremental_with_counter(
+        upsert_text_boxes_with_counter(
             &mut incremental,
             &[binding_editor()],
             "D:20260830130000Z",

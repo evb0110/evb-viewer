@@ -1014,7 +1014,7 @@ fn deletes_a_note_popup_and_transitive_reply_chain() {
 
     let (document, (page_id, other_page, info), deleted_ids, unrelated_id) = fixture();
     let mut incremental = IncrementalDocument::from_document(document, 0, None);
-    delete_annotations_incremental(
+    delete_annotations(
         &mut incremental,
         &[AnnotationDelete {
             page_index: 0,
@@ -1025,15 +1025,15 @@ fn deletes_a_note_popup_and_transitive_reply_chain() {
         }],
     )
     .unwrap();
-    let revision = AppendedRevision::new(&incremental);
+    let revision = &incremental;
     assert_eq!(
-        get_page_annots(&revision, page_id).unwrap(),
+        get_page_annots(revision, page_id).unwrap(),
         vec![Object::Reference(unrelated_id)]
     );
     for object_id in deleted_ids {
         assert!(matches!(revision.object(object_id), Ok(Object::Null)));
     }
-    assert_eq!(get_page_annots(&revision, other_page).unwrap(), Vec::<Object>::new());
+    assert_eq!(get_page_annots(revision, other_page).unwrap(), Vec::<Object>::new());
     assert!(revision.dictionary(info).unwrap().has(b"Title"), "metadata is no annotation");
 }
 
@@ -1071,10 +1071,10 @@ fn deletes_explicit_annotation_ref_from_its_p_page_when_page_hint_is_stale() {
         [Object::Reference(target_id)]
     );
     reset_page_tree_node_read_count();
-    delete_annotations_incremental(&mut incremental, std::slice::from_ref(&delete)).unwrap();
+    delete_annotations(&mut incremental, std::slice::from_ref(&delete)).unwrap();
 
-    let revision = AppendedRevision::new(&incremental);
-    assert!(get_page_annots(&revision, last_page_id).unwrap().is_empty());
+    let revision = &incremental;
+    assert!(get_page_annots(revision, last_page_id).unwrap().is_empty());
     assert!(page_tree_node_read_count() < 100);
 }
 
@@ -1716,14 +1716,14 @@ fn text_edit_keeps_a_marker_when_the_note_icon_does_not_fit() {
 
     let (document, marker_id, popup_id) = build_document();
     let mut incremental = IncrementalDocument::from_document(document, 0, None);
-    assert!(update_annotation_text_incremental_by_ref(
+    assert!(update_annotation_text_by_ref(
         &mut incremental,
         marker_id,
         "edited",
         modified_at,
     )
     .unwrap());
-    let revision = AppendedRevision::new(&incremental);
+    let revision = &incremental;
     assert_eq!(annotation_subtype(revision.dictionary(marker_id).unwrap()), "freetext");
     assert_eq!(
         revision
@@ -2857,7 +2857,7 @@ fn incremental_same_batch_duplicate_note_reuses_the_indexed_annotation() {
         .collect();
     let mut annotation_visits = 0;
 
-    upsert_text_notes_incremental_with_counter(
+    upsert_text_notes_with_counter(
         &mut incremental,
         notes.iter(),
         "D:20260609123456Z",
@@ -2866,8 +2866,8 @@ fn incremental_same_batch_duplicate_note_reuses_the_indexed_annotation() {
     )
     .unwrap();
 
-    let revision = AppendedRevision::new(&incremental);
-    let annots = get_page_annots(&revision, page_id).unwrap();
+    let revision = &incremental;
+    let annots = get_page_annots(revision, page_id).unwrap();
     let text_refs: Vec<ObjectId> = annots
         .iter()
         .filter_map(|object| object.as_reference().ok())
@@ -2903,7 +2903,7 @@ fn appended_revision_reads_written_objects_over_the_untouched_base_revision() {
     write(&pdf_path, &original_bytes).unwrap();
 
     let mut incremental = IncrementalDocument::load(&pdf_path).unwrap();
-    update_note_text_incremental(
+    update_note_text(
         &mut incremental,
         &[NoteTextUpdate {
             object_number: target_id.0,
@@ -2914,7 +2914,7 @@ fn appended_revision_reads_written_objects_over_the_untouched_base_revision() {
     )
     .unwrap();
 
-    let revision = AppendedRevision::new(&incremental);
+    let revision = &incremental;
     let catalog_id = revision.root_id().unwrap();
     assert!(!incremental.new_document.objects.contains_key(&catalog_id));
     assert_eq!(
@@ -2951,7 +2951,7 @@ fn appended_revision_postconditions_reject_text_that_was_not_written() {
     write(&pdf_path, &original_bytes).unwrap();
 
     let mut incremental = IncrementalDocument::load(&pdf_path).unwrap();
-    update_note_text_incremental(
+    update_note_text(
         &mut incremental,
         &[NoteTextUpdate {
             object_number: target_id.0,
@@ -2963,7 +2963,7 @@ fn appended_revision_postconditions_reject_text_that_was_not_written() {
     .unwrap();
 
     let error = validate_appended_revision_postconditions(
-        &AppendedRevision::new(&incremental),
+        &incremental,
         &NativeMutationsFile {
             updates: vec![NoteTextUpdate {
                 object_number: target_id.0,

@@ -2,7 +2,11 @@
 
 use super::*;
 
-fn compressed_stream(document: &mut Document, dictionary: Dictionary, bytes: Vec<u8>) -> ObjectId {
+fn compressed_stream(
+    document: &mut impl PdfObjectStore,
+    dictionary: Dictionary,
+    bytes: Vec<u8>,
+) -> ObjectId {
     let mut stream = Stream::new(dictionary, bytes);
     // Compression failure does not affect semantics or permit font substitution.
     let _ = stream.compress();
@@ -10,7 +14,7 @@ fn compressed_stream(document: &mut Document, dictionary: Dictionary, bytes: Vec
 }
 
 pub(super) fn embed_font_program(
-    document: &mut Document,
+    document: &mut impl PdfObjectStore,
     program: &[u8],
     name: &str,
     glyphs: &std::collections::BTreeSet<u16>,

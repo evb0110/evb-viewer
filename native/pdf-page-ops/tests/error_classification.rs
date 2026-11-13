@@ -13,12 +13,16 @@ use std::{
 };
 
 fn path(label: &str, extension: &str) -> PathBuf {
+    // Tests run in parallel threads and the clock can repeat a value, so a
+    // per-process sequence keeps two paths with the same label apart.
+    static SEQUENCE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let sequence = SEQUENCE.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let nonce = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_nanos();
     env::temp_dir().join(format!(
-        "evb-pdf-page-ops-error-{label}-{nonce}.{extension}"
+        "evb-pdf-page-ops-error-{label}-{nonce}-{sequence}.{extension}"
     ))
 }
 

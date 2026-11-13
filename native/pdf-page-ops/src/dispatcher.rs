@@ -352,16 +352,16 @@ pub(crate) fn mutate_pdf(config: Config) -> Result<()> {
                 config.qpdf_path.as_deref(),
                 QpdfMetadataPurpose::Catalog,
             )?;
-            let source = AppendedRevision::new(&incremental);
+            let source = &incremental;
             let catalog = match &config.operation {
-                Operation::ReadCatalog => serde_json::to_value(read_pdf_combine_catalog(&source)?)?,
+                Operation::ReadCatalog => serde_json::to_value(read_pdf_combine_catalog(source)?)?,
                 Operation::ReadDocumentCatalog(Some(path)) => {
                     let mutations = read_native_mutations(path)?;
                     let mut bookmarks = mutations.bookmarks.ok_or("Missing bookmarks")?;
-                    outline::names::resolve_bookmark_source_targets(&source, &mut bookmarks.items)?;
+                    outline::names::resolve_bookmark_source_targets(source, &mut bookmarks.items)?;
                     serde_json::json!({"bookmarks": bookmarks.items})
                 }
-                _ => read_pdf_document_catalog(&source),
+                _ => read_pdf_document_catalog(source),
             };
             return serde_json::to_writer(std::io::stdout().lock(), &catalog).map_err(Into::into);
         }

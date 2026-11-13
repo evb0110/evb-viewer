@@ -85,7 +85,7 @@ pub(crate) fn write_page_geometry(
         "Encrypted PDFs are not supported by native page ops",
     )?;
 
-    let geometry = get_page_geometry(&AppendedRevision::new(&incremental), page_number)?;
+    let geometry = get_page_geometry(&incremental, page_number)?;
     serde_json::to_writer(output, &geometry)?;
     Ok(())
 }
@@ -170,18 +170,18 @@ fn validate_crop_revision_postconditions(
     pages: &[u32],
     expectation: CropRevisionExpectation,
 ) -> Result<()> {
-    let revision = AppendedRevision::new(incremental);
-    let page_resolver = PageTreeResolver::new(&revision)?;
+    let revision = incremental;
+    let page_resolver = PageTreeResolver::new(revision)?;
 
     for &page_number in pages {
-        let page_id = page_resolver.page_id(&revision, page_number)?;
+        let page_id = page_resolver.page_id(revision, page_number)?;
         let expected_crop_box = match expectation {
-            CropRevisionExpectation::Margins(margins) => margins.crop_box(&revision, page_id)?,
+            CropRevisionExpectation::Margins(margins) => margins.crop_box(revision, page_id)?,
             CropRevisionExpectation::RestoreMediaBox => {
-                resolve_inherited_box(&revision, page_id, b"MediaBox")?
+                resolve_inherited_box(revision, page_id, b"MediaBox")?
             }
         };
-        let actual_crop_box = resolve_inherited_box(&revision, page_id, b"CropBox")?;
+        let actual_crop_box = resolve_inherited_box(revision, page_id, b"CropBox")?;
         // Compare in the PDF number representation used by the writer. Real
         // coordinates are stored as f32, while the margin arithmetic uses f64.
         // Exact comparison against the unencoded result rejects ordinary crops.
@@ -273,12 +273,14 @@ impl<'a> PageLookup<'a> {
     }
 }
 
-fn resolve_page_rotation_targets(
-    document: &impl PdfObjectSource,
+/// Rotate pages by quarter turns. Only the selected leaf page dictionaries are
+/// rewritten; an inherited `/Pages` rotation is made explicit on the leaf so
+/// the resulting effective value is stable and normalized.
+pub(crate) fn rotate_pages(
+    document: &mut impl PdfObjectStore,
     rotations: &[PageRotationMutation],
-    located_pages: Option<&LocatedPages>,
-) -> Result<Vec<(ObjectId, i64)>> {
-    let pages = PageLookup::new(document, located_pages)?;
+) -> Result<()> {
+    let pages = PageLookup::new(document, document.located_pages())?;
     let mut targets = Vec::with_capacity(rotations.len());
     for rotation in rotations {
         let page_number = rotation
@@ -292,42 +294,9 @@ fn resolve_page_rotation_targets(
             normalize_page_rotation(current.saturating_add(rotation.angle)),
         ));
     }
-    Ok(targets)
-}
-
-/// Apply rotation mutations to a fully materialized document. Keeping this
-/// path alongside the incremental implementation preserves the native
-/// mutation contract for small/non-append callers as well.
-pub(crate) fn rotate_pages(
-    document: &mut Document,
-    rotations: &[PageRotationMutation],
-) -> Result<()> {
-    let targets = resolve_page_rotation_targets(document, rotations, None)?;
     for (page_id, rotation) in targets {
         document
-            .get_dictionary_mut(page_id)?
-            .set("Rotate", Object::Integer(rotation));
-    }
-    Ok(())
-}
-
-/// Rewrite only the selected leaf page dictionaries in a new incremental
-/// revision. Inherited `/Pages` rotations are made explicit on the leaf so
-/// the resulting effective value is stable and normalized.
-pub(crate) fn rotate_pages_incremental(
-    incremental: &mut IncrementalDocument,
-    rotations: &[PageRotationMutation],
-) -> Result<()> {
-    let targets = resolve_page_rotation_targets(
-        incremental.get_prev_documents(),
-        rotations,
-        incremental.located_pages.as_ref(),
-    )?;
-    for (page_id, rotation) in targets {
-        incremental.opt_clone_object_to_new_document(page_id)?;
-        incremental
-            .new_document
-            .get_dictionary_mut(page_id)?
+            .dictionary_mut(page_id)?
             .set("Rotate", Object::Integer(rotation));
     }
     Ok(())

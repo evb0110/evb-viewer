@@ -412,7 +412,7 @@ fn load_incremental_pdf_path_with_policy(
         if encoded_len > policy.max_encoded_bytes as u64
             || !(qpdf_warned
                 || (purpose == Some(QpdfMetadataPurpose::Annotations)
-                    && needs_eager_parse(&AppendedRevision::new(&incremental))))
+                    && needs_eager_parse(&incremental)))
         {
             validate_loaded_document(incremental.get_prev_documents(), policy)?;
             return Ok(incremental);
@@ -1914,7 +1914,7 @@ mod tests {
         let structural =
             load_dictionary_incremental_pdf_path(&input_path, Some(&qpdf_path)).unwrap();
         assert_eq!(stream_len(&structural), 0);
-        read_pdf_combine_catalog(&AppendedRevision::new(&structural)).unwrap();
+        read_pdf_combine_catalog(&structural).unwrap();
         let mut geometry = Vec::new();
         write_page_geometry(&input_path, 1, Some(&qpdf_path), &mut geometry).unwrap();
         assert!(String::from_utf8(geometry)

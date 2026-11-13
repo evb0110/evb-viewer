@@ -36,6 +36,7 @@
                     start_number: 1,
                 }],
             },
+            false,
         )
         .unwrap();
         set_bookmarks(
@@ -69,6 +70,7 @@
                     }],
                 }],
             },
+            None,
         )
         .unwrap();
         (document, page_id)

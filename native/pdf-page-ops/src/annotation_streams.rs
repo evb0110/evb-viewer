@@ -17,10 +17,10 @@ pub(crate) fn materialize_annotation_appearance_streams(
     };
 
     let (stamp_refs, streams) = {
-        let document = AppendedRevision::new(incremental);
+        let document = &*incremental;
         (
-            managed_stamp_stream_refs(&document)?,
-            note_appearance_streams(&document)?,
+            managed_stamp_stream_refs(document)?,
+            note_appearance_streams(document)?,
         )
     };
 

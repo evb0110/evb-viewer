@@ -304,7 +304,7 @@ pub(crate) fn rotate_browser_pdf_bytes(
             })
         })
         .collect::<Result<Vec<_>>>()?;
-    rotate_pages_incremental(&mut incremental, &rotations)?;
+    rotate_pages(&mut incremental, &rotations)?;
     browser_geometry_bytes(data, incremental)
 }
 

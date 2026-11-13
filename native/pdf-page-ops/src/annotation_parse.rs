@@ -418,7 +418,7 @@ pub(crate) fn write_annotation_parse_path(
         .set_permissions(std::os::unix::fs::PermissionsExt::from_mode(0o600))?;
     let mut total_bytes = 0_u64;
     write_annotation_parse_stream(
-        &AppendedRevision::new(&incremental),
+        &incremental,
         modified_at,
         incremental.located_pages.as_ref(),
         ANNOTATION_PARSE_CHUNK_BYTES,
@@ -463,10 +463,7 @@ fn load_annotation_parse_base(
     let mut incremental =
         load_readonly_metadata_pdf_path(input_path, qpdf_path, QpdfMetadataPurpose::Annotations)?;
     if let Some(indexes) = indexes {
-        incremental.located_pages = Some(LocatedPages::resolve(
-            &AppendedRevision::new(&incremental),
-            indexes,
-        )?);
+        incremental.located_pages = Some(LocatedPages::resolve(&incremental, indexes)?);
     }
     Ok(incremental)
 }
