@@ -29,16 +29,11 @@ import {
     QPDF_TIMEOUT_MS,
 } from '@electron/features/page-ops/main/qpdf';
 import {
-    formatPageDeleteRanges,
-    formatPageMoveRange,
     formatPageMoveRanges,
-    isPageMoveNoOp,
     isPageMoveRangesNoOp,
+    validatePageDeleteRanges,
 } from '@electron/features/page-ops/domain/pageNumbers';
-import {
-    createPageMoveRange,
-    createPageMoveRanges,
-} from '@pdf-core/pdfPageSelection';
+import { createPageMoveRanges } from '@pdf-core/pdfPageSelection';
 import type {
     IPageMoveRangeSegment,
     IPageMoveRanges,
@@ -142,27 +137,7 @@ async function materializeWithPageCount(
     };
 }
 
-export async function deletePages(
-    workingCopyPath: string,
-    pagesToDelete: number[],
-    expectedTotalPages?: number,
-    senderWebContentsId?: number,
-    options: IPageStructureOptions = {},
-) {
-    const {
-        materializedPath, totalPages,
-    } = await materializeWithPageCount(workingCopyPath, expectedTotalPages, senderWebContentsId, options);
-    const removed = [...new Set(pagesToDelete)]
-        .filter(page => Number.isSafeInteger(page) && page >= 1 && page <= totalPages)
-        .sort((left, right) => left - right);
-    if (removed.length >= totalPages) {
-        throw new Error('Cannot delete all pages from the document');
-    }
-    await runPageStructureCommand('delete-pages', materializedPath, materializedPath, {pages: pageRuns(removed)}, options);
-    return {pageCount: totalPages - removed.length};
-}
-
-/** Deletes sorted, disjoint page runs without expanding them into one entry per page. */
+/** Deletes sorted, disjoint page runs; a page array arrives here as its runs. */
 export async function deletePageRanges(
     workingCopyPath: string,
     ranges: readonly IPageMoveRangeSegment[],
@@ -173,7 +148,8 @@ export async function deletePageRanges(
     const {
         materializedPath, totalPages,
     } = await materializeWithPageCount(workingCopyPath, expectedTotalPages, senderWebContentsId, options);
-    const {keptCount} = formatPageDeleteRanges(ranges, totalPages);
+    validatePageDeleteRanges(ranges, totalPages);
+    const keptCount = ranges.reduce((count, range) => count - (range.endPage - range.startPage + 1), totalPages);
     if (keptCount === 0) {
         throw new Error('Cannot delete all pages from the document');
     }
@@ -192,29 +168,7 @@ export async function reorderPages(
     return {pageCount: newOrder.length};
 }
 
-/** Moves one contiguous page range; the new order is sent as a few runs. */
-export async function movePages(
-    workingCopyPath: string,
-    startPage: number,
-    endPage: number,
-    insertAt: number,
-    expectedTotalPages?: number,
-    senderWebContentsId?: number,
-    options: IPageStructureOptions = {},
-) {
-    const {
-        materializedPath, totalPages,
-    } = await materializeWithPageCount(workingCopyPath, expectedTotalPages, senderWebContentsId, options);
-    const move = createPageMoveRange(totalPages, startPage, endPage, insertAt);
-    if (!isPageMoveNoOp(move)) {
-        await runPageStructureCommand('reorder-pages', materializedPath, materializedPath, {pages: formatPageMoveRange(move).split(',')}, options);
-    }
-    return {pageCount: totalPages};
-}
-
-export const movePageRange = movePages;
-
-/** Moves sorted, non-contiguous page runs; the new order is sent as runs. */
+/** Moves sorted page runs, one or several; the new order is sent as runs. */
 export async function movePageRanges(
     workingCopyPath: string,
     requestedMove: IPageMoveRanges,

@@ -5,13 +5,7 @@ export {
     QPDF_TIMEOUT_MS,
     runQpdfCommand,
 } from '@electron/features/page-ops/main/qpdf';
-export {
-    deletePageRanges,
-    extractPages,
-    movePageRange,
-    movePageRanges,
-    movePages,
-} from '@electron/features/page-ops/main/pageStructure';
+export {extractPages} from '@electron/features/page-ops/main/pageStructure';
 export {resolveNativePageOpsPath} from '@electron/features/page-ops/main/resolveNativePageOpsPath';
 export {
     isPdfPageOpsCapabilityError,
