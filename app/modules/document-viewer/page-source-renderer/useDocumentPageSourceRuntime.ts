@@ -92,11 +92,6 @@ const DOCUMENT_SOURCE_LAYOUT_CHUNK_SIZE = 256;
 const DOCUMENT_SOURCE_LAYOUT_MAX_CACHED_CHUNKS = 32;
 export const DOCUMENT_SOURCE_INACTIVE_LEASE_GRACE_MS = 1_500;
 
-interface ISuspendedViewportRestore {
-    readonly anchor: IDocumentZoomAnchor;
-    readonly epoch: string;
-    readonly fence: IDocumentPageSourceTransition['fence'];
-}
 type TDocumentPageSourceCollection<T> = T[] | ILazyIndexedCollection<T>;
 
 interface IDocumentPageDisplayLayoutCollection extends ILazyIndexedCollection<IDocumentPageDisplayLayout> {readonly sumHeightRange?: (start: number, end: number) => number;}
@@ -351,7 +346,10 @@ export const useDocumentPageSourceRuntime = (options: {
     let loadController: AbortController | null = null;
     let releaseViewportFeature: (() => void) | null = null;
     let inactiveLeaseReleaseTimer: ReturnType<typeof setTimeout> | null = null;
-    let suspendedViewportRestore: ISuspendedViewportRestore | null = null;
+    // The reader's point when the view was last hidden: a page and the offset within it.
+    let readingPoint: IDocumentZoomAnchor | null = null;
+    // The outer box around the measured client box, scrollbars included.
+    let viewportOffsetBox = {offsetWidth: 0, offsetHeight: 0};
     let lastProjectedNavigationSignal: AbortSignal | null = null;
     function measureViewport() {
         const container = viewerContainer.value;
@@ -360,6 +358,7 @@ export const useDocumentPageSourceRuntime = (options: {
         // fit mode cannot collapse the document and clamp its scroll offset.
         containerWidth.value = container.clientWidth;
         containerHeight.value = container.clientHeight;
+        viewportOffsetBox = {offsetWidth: container.offsetWidth, offsetHeight: container.offsetHeight};
         viewportScrollLeft.value = container.scrollLeft;
         viewportScrollTop.value = physicalScroll.origin.value + container.scrollTop;
     }
@@ -727,7 +726,10 @@ export const useDocumentPageSourceRuntime = (options: {
         },
         isResizing: computed(() => props.value.isResizing),
         captureRestoreEpoch: captureLayoutRestoreEpoch,
+        // A tab being shown is active one flush before it has a box. That box
+        // reads offset 0, so it can neither tell nor take the reader's point.
         canRestore: epoch => epoch === captureLayoutRestoreEpoch()
+            && (viewerContainer.value?.clientHeight ?? 0) > 0
             && (!chassisAuthority || (
                 props.value.isActive
                 && shouldProjectDocumentViewportScroll(
@@ -750,15 +752,13 @@ export const useDocumentPageSourceRuntime = (options: {
         },
         onResizeSettled: () => scheduleRender.schedule(),
     });
-    function clearSuspendedViewportAnchor() {
-        suspendedViewportRestore = null;
-    }
-    function captureSuspendedViewportAnchor() {
+    function captureReadingPoint() {
         if (containerWidth.value <= 0 || containerHeight.value <= 0) {
             return null;
         }
         return captureDocumentZoomAnchor(
             {
+                ...viewportOffsetBox,
                 clientHeight: containerHeight.value,
                 clientWidth: containerWidth.value,
                 scrollLeft: viewportScrollLeft.value,
@@ -768,59 +768,6 @@ export const useDocumentPageSourceRuntime = (options: {
             undefined,
             props.value.continuousScroll ? null : Math.max(0, currentPage.value - 1),
         );
-    }
-    function restoreSuspendedViewport(
-        transition: IDocumentPageSourceTransition,
-        snapshot: ISuspendedViewportRestore | null,
-        intent: ReturnType<typeof viewportWritePort.beginIntent> | null,
-    ) {
-        const clearIfRetained = () => {
-            if (suspendedViewportRestore === snapshot) {
-                clearSuspendedViewportAnchor();
-            }
-        };
-        if (
-            !snapshot
-            || suspendedViewportRestore !== snapshot
-            || !intent
-            || !transitions.isCurrent(snapshot.fence)
-            || !transition.isCurrent()
-            || snapshot.epoch !== captureLayoutRestoreEpoch()
-        ) {
-            clearIfRetained();
-            return;
-        }
-        const container = viewerContainer.value;
-        if (!container || container.clientWidth <= 0 || container.clientHeight <= 0) {
-            clearIfRetained();
-            return;
-        }
-        const restored = resolveDocumentZoomAnchorScroll(
-            readLogicalViewport(container),
-            zoomAnchorPageLayouts.value,
-            snapshot.anchor,
-        );
-        if (
-            !restored
-        ) {
-            clearIfRetained();
-            return;
-        }
-        const applied = applyLogicalScroll(container, {
-            intent,
-            reason: 'page-source-activation-restore',
-            left: props.value.continuousScroll && props.value.zoomMode === 'fit-width'
-                ? container.scrollLeft
-                : restored.left,
-            top: restored.top,
-        });
-        if (applied) {
-            viewportScrollLeft.value = container.scrollLeft;
-            viewportScrollTop.value = physicalScroll.origin.value + container.scrollTop;
-            layoutLifecycle.cancelPendingRestore();
-            layoutLifecycle.refreshLayoutTransactionAnchor();
-        }
-        clearIfRetained();
     }
     function handleScroll(event?: Event) {
         if (!viewerContainer.value || viewerContainer.value.clientWidth <= 0
@@ -1178,7 +1125,7 @@ export const useDocumentPageSourceRuntime = (options: {
     }
     function applyOpenTransition(transition: IDocumentPageSourceTransition) {
         const documentRef = transition.fence.src;
-        clearSuspendedViewportAnchor();
+        readingPoint = null;
         pagedWheelNavigation.reset();
         loadController?.abort();
         const activeLoadController = new AbortController();
@@ -1259,15 +1206,8 @@ export const useDocumentPageSourceRuntime = (options: {
             return false;
         });
     }
-    function applySuspendTransition(transition: IDocumentPageSourceTransition) {
-        const anchor = captureSuspendedViewportAnchor();
-        suspendedViewportRestore = anchor
-            ? {
-                anchor,
-                epoch: captureLayoutRestoreEpoch(),
-                fence: transition.fence,
-            }
-            : null;
+    function applySuspendTransition() {
+        readingPoint = captureReadingPoint();
         scheduleRender.cancel();
         presentation.renderControllers.forEach(controller => controller.abort());
         presentation.renderControllers.clear();
@@ -1283,16 +1223,10 @@ export const useDocumentPageSourceRuntime = (options: {
         if (retainedState?.lease) {
             retainedState.priority = 'navigation';
         }
-        const restoreSnapshot = suspendedViewportRestore;
-        const restoreIntent = restoreSnapshot
-            ? viewportWritePort.beginIntent(
-                `page-source-activation-restore:${String(transitions.loadGeneration.value)}`,
-            )
-            : null;
         void presentation.restore(transition, {
             measureViewport,
             renderMountedPages,
-            restoreViewport: () => restoreSuspendedViewport(transition, restoreSnapshot, restoreIntent),
+            restoreViewport: () => layoutLifecycle.placeAnchor(readingPoint),
         });
     }
     watch(
@@ -1313,7 +1247,7 @@ export const useDocumentPageSourceRuntime = (options: {
                 applyOpenTransition(transition);
                 return;
             case 'invalidate':
-                applySuspendTransition(transition);
+                applySuspendTransition();
                 return;
             case 'restore':
                 applyRestoreTransition(transition);
@@ -1392,7 +1326,7 @@ export const useDocumentPageSourceRuntime = (options: {
             getCurrentPage: () => currentPage.value,
             scrollToPage,
             captureReadingAnchor: (): IPdfSemanticAnchor | null => {
-                const anchor = captureSuspendedViewportAnchor();
+                const anchor = captureReadingPoint();
                 return anchor ? {
                     page: anchor.pageIndex + 1,
                     pageXFraction: clamp(anchor.xRatio, 0, 1),
