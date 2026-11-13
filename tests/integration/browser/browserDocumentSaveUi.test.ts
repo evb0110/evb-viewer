@@ -8,6 +8,7 @@ import {resolve} from 'node:path';
 import {
     PDFDocument, PDFName,
 } from 'pdf-lib';
+import {chromium} from 'playwright';
 import {
     describe, expect, it,
 } from 'vitest';
@@ -105,11 +106,17 @@ describe('browser document lifecycle UI', () => {
     // T2, T3, C4: publication followed by a bookkeeping failure keeps the work
     // protected and reports what happened to the file, with a usable Save As.
     it('opens large PDFs through the chooser and Recent Files, keeps annotation editing available and explains invalid input', async () => {
-        const context = await lifecycle.browser.newContext({viewport: {
-            width: 1280,
-            height: 900,
-        }});
-        const page = await context.newPage();
+        // An empty profile on disk: the gibibyte document is stored, not refused by an in-memory context's storage.
+        const profile = resolve(process.cwd(), `.devkit/large-open-profile-${process.pid}`);
+        rmSync(profile, {recursive: true, force: true});
+        const context = await chromium.launchPersistentContext(profile, {
+            headless: true,
+            viewport: {
+                width: 1280,
+                height: 900,
+            },
+        });
+        const page = context.pages()[0] ?? await context.newPage();
         const problems = collectConsoleProblems(page);
         const dropPath = resolve(process.cwd(), `.devkit/large-drop-${process.pid}.pdf`);
         const largePath = resolve(process.cwd(), `.devkit/billion-byte-${process.pid}.pdf`);
@@ -284,6 +291,7 @@ describe('browser document lifecycle UI', () => {
             throw error;
         } finally {
             await context.close();
+            rmSync(profile, {recursive: true, force: true});
             rmSync(dropPath, {force: true});
             rmSync(largePath, {force: true});
         }
