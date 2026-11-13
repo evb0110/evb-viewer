@@ -95,8 +95,9 @@ export function downloadBlob(blob: Blob, fileName: string) {
 
 /**
  * Where browser documents are saved. With a handle: check the file's size and modification time against the
- * baseline, then `createWritable`, write, `close`. A file's witness is that metadata, so opening or checking it
- * never reads it; recovery asks for its content too. Without a handle: a download, whose dispatch is the
+ * baseline, then `createWritable`, write, `close`, and read the file back once: the witness of that one snapshot
+ * becomes the baseline when its content is what was written, and anything else is a conflict. A file's witness is
+ * its metadata, so opening or checking it never reads it; recovery asks for its content too. Without a handle: a download, whose dispatch is the
  * receipt, so the dispatched bytes become the baseline. The caller asked for write permission before taking the
  * document's lock; nothing here prompts.
  */
@@ -131,7 +132,10 @@ export const browserPublication: IPublicationPort = {
                 throw error;
             }
             await writable.close();
-            return {status: 'published', witness: `${fileFact(await handle.getFile())} ${witness}`} as const;
+            // One snapshot of the file names what it holds now: another program may have written it since the close.
+            const written = await handle.getFile();
+            const content = await blobWitness(written);
+            return content === witness ? {status: 'published', witness: `${fileFact(written)} ${content}`} as const : {status: 'conflict'} as const;
         });
     },
 };

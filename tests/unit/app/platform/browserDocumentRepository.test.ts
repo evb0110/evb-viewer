@@ -153,3 +153,20 @@ it('leaves an edit committed before a stale Save in place', async () => {
 
     expect(decode(await repo.read(ref))).toBe('other committed edit');
 });
+
+it('refuses to acknowledge a Save when another program wrote the file right after it, so the next Save keeps that write', async () => {
+    const {repo} = await repository();
+    const picked = pickedFile('picked.pdf', 'base');
+    const working = await repo.cloneAsWorkingCopy(await repo.registerFile(picked.file(), {saveHandle: picked.handle}));
+    const entry = await repo.requireEntry(working);
+    picked.disk.afterClose = () => {
+        picked.disk.afterClose = () => {};
+        picked.disk.bytes = encode('FOREIGN distinct length edit');
+        picked.disk.lastModified += 1;
+    };
+
+    expect(await repo.save(working, repo.tokenOf(entry), {commit: encode('EVB B')})).toEqual({status: 'conflict'});
+    expect(await repo.save(working, repo.tokenOf(entry), {commit: encode('EVB D next save')})).toEqual({status: 'conflict'});
+    expect(decode(picked.disk.bytes)).toBe('FOREIGN distinct length edit');
+    expect(decode(await repo.read(working))).toBe('EVB D next save');
+});

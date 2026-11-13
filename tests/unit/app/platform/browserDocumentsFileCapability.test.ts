@@ -1653,10 +1653,13 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
             grantedModes.add(descriptor?.mode ?? '');
             return 'granted' as const;
         });
-        const createWritable = vi.fn(async () => createFileSystemWritableFileStream({write: vi.fn(async (_chunk: FileSystemWriteChunkType) => {})}));
+        let physical = Uint8Array.of(1);
+        const createWritable = vi.fn(async () => createFileSystemWritableFileStream({write: vi.fn(async (chunk: FileSystemWriteChunkType) => {
+            physical = new Uint8Array(requireArrayBufferChunk(chunk));
+        })}));
         const handle = createFileSystemFileHandle({
             name: 'needs-permission.pdf',
-            getFile: vi.fn(async () => new File([Uint8Array.of(1)], 'needs-permission.pdf', {
+            getFile: vi.fn(async () => new File([physical], 'needs-permission.pdf', {
                 type: 'application/pdf',
                 lastModified: 1,
             })),
