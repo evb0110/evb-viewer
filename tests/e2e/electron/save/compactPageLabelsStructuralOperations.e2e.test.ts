@@ -61,6 +61,9 @@ interface IPageMutationFrame {
     elapsedMs: number;
     /** Top of the rotated page relative to the viewport; null when unmounted. */
     pageTopInViewport: number | null;
+    pageLeftInViewport: number | null;
+    viewportWidth: number | null;
+    viewportHeight: number | null;
     msSinceClick: number | null;
     toolbar: string | null;
     zoom: string | null;
@@ -1266,6 +1269,11 @@ describe('Electron E2E, compact page labels through structural operations', () =
                     pageTopInViewport: target && viewer
                         ? target.getBoundingClientRect().top - viewer.getBoundingClientRect().top
                         : null,
+                    pageLeftInViewport: target && viewer
+                        ? target.getBoundingClientRect().left - viewer.getBoundingClientRect().left
+                        : null,
+                    viewportWidth: viewer?.clientWidth ?? null,
+                    viewportHeight: viewer?.clientHeight ?? null,
                     operationBusy: operationState?.isPageOperationInProgress ?? null,
                 };
                 frameSamples.push(frame);
@@ -1412,15 +1420,18 @@ describe('Electron E2E, compact page labels through structural operations', () =
             pageTopInViewport: frame.pageTopInViewport,
             scrollTop: frame.scrollTop,
         })))).toEqual([]);
-        // The rotated page keeps its place: its top may settle to the page
-        // edge the swap restores, but never drifts by the size change of the
-        // pages above it.
+        // R3 keeps a document point, mapped through the counterclockwise turn.
+        // A page edge moves when the page becomes shorter, even with no anchor drift.
+        const before = preClickFrame!;
+        const oldX = (before.viewportWidth! / 2 - before.pageLeftInViewport!) / before.pageRect!.width;
+        const oldY = (before.viewportHeight! / 2 - before.pageTopInViewport!) / before.pageRect!.height;
         const pageDrift = postClickFrames.map(frame => ({
             msSinceClick: frame.msSinceClick,
             drift: Math.abs((frame.pageTopInViewport ?? Number.POSITIVE_INFINITY)
-                - (preClickFrame?.pageTopInViewport ?? Number.NaN)),
+                + (frame.pageRect!.width > frame.pageRect!.height ? 1 - oldX : oldY) * frame.pageRect!.height
+                - frame.viewportHeight! / 2),
         }));
-        const driftedFrames = pageDrift.filter(frame => !(frame.drift <= 64));
+        const driftedFrames = pageDrift.filter(frame => !(frame.drift <= 1));
         expect(driftedFrames, JSON.stringify({
             preClickTop: preClickFrame?.pageTopInViewport,
             drifted: driftedFrames.slice(0, 6),
