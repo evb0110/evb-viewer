@@ -519,6 +519,7 @@ pub(crate) fn append_native_mutations_in_place_with_qpdf(
         previous_xref_start,
     )?;
 
+    remember_annotation_ownership_input(input_path);
     write_native_mutations_revision(
         &mut incremental,
         input_path,

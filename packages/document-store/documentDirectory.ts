@@ -127,8 +127,11 @@ export type TRevisionWriter = (file: IStoreFile) => Promise<void>;
 type TRevisionSource = TExternalSource | TRevisionWriter | { move: string };
 /** The drafts a mutation leaves: the current ones, new ones (`undefined` clears), or none. */
 export type TDraftsAfter = 'keep' | 'clear' | { replace: unknown };
-/** New bytes for a document: written from `source`, or `move`: a file the caller wrote on the store's file system and gives up. */
-export type TReplacement = { kind: 'rewrite'; source: TExternalSource | TRevisionWriter } | { kind: 'move'; file: string };
+/**
+ * New bytes for a document: written from `source`; `move`: a file the caller wrote on the store's file system and
+ * gives up; `extend`: what the caller appended to the current file, up to its end, after `ownCurrentFile`.
+ */
+export type TReplacement = { kind: 'rewrite'; source: TExternalSource | TRevisionWriter } | { kind: 'move'; file: string } | { kind: 'extend' };
 export type TMutation = ({ kind: 'append'; bytes: Uint8Array } | TReplacement) & { drafts: TDraftsAfter };
 export type TStaleRevision = { status: 'stale-revision'; current: IRevision | null };
 export type TMutationResult = { status: 'committed'; revision: IRevision } | TStaleRevision | { status: 'conflict' };
@@ -260,9 +263,11 @@ export class DocumentDirectory {
             await port.writeAtomic(doc.path(drafts), bytes);
             value = decodeJson(bytes);
         }
-        // Bytes past `current.length` (a redo tail) are never read, and the next open cuts them.
         if (current) await port.copy(from(current.file), doc.path(current.file));
-        await doc.commit({ ...manifest, history: [] }, current ? await port.open(doc.path(current.file)) : null, value);
+        const file = current ? await port.open(doc.path(current.file)) : null;
+        // Native tools read the copy to its end: what lies past `current.length` (a redo, an uncommitted append) goes.
+        if (current && file && await file.size() > current.length) await file.truncate(current.length);
+        await doc.commit({ ...manifest, history: [] }, file, value);
         return doc;
     }
 
@@ -372,12 +377,14 @@ export class DocumentDirectory {
         });
     }
 
-    /** Stores unsaved state for revision `expected`; `undefined` deletes it. The first drafts copy the bytes in. */
+    /**
+     * Stores unsaved state for revision `expected`; `undefined` deletes it. Nothing is copied: without bytes of its own
+     * the drafts apply to the destination the baseline names, and a Save meets a destination changed since as a conflict.
+     */
     setDrafts(expected: number | null, drafts: unknown) {
         return this.run(async (): Promise<TDraftResult> => {
             const stale = this.staleRevision(expected);
             if (stale) return stale;
-            if (drafts !== undefined && !await this.ensureCurrent()) return { status: 'conflict' };
             const after = await this.writeDrafts({ replace: drafts });
             await this.commit({ ...this.manifest, drafts: after.name }, this.file, after.value);
             return { status: 'stored', revision: this.manifest.current ?? null };
@@ -390,6 +397,33 @@ export class DocumentDirectory {
      */
     materialize() {
         return this.run(() => this.ensureCurrent());
+    }
+
+    /**
+     * Makes the current revision's file hold exactly its bytes, for readers that read a file to its end and for a
+     * caller that appends to it in place and commits with `extend`. Revisions that name more of the file, such as a
+     * redo after an undo, move to a copy of it; bytes past the revision, which belong to nobody (what a failed append
+     * left, say), are cut. Returns the current revision; `null`, changing nothing, when the document has no bytes of
+     * its own.
+     */
+    ownCurrentFile() {
+        return this.run(async () => {
+            const { manifest } = this;
+            const { current } = manifest;
+            if (!current) return null;
+            const longer = this.longerThanCurrent();
+            if (longer.length > 0) {
+                const name = `r${manifest.next}.${manifest.ext}`;
+                await this.store.port.copy(this.path(current.file), this.path(name)).catch(async (error: unknown) => {
+                    await this.store.port.remove(this.path(name));
+                    throw error;
+                });
+                const history = manifest.history.map(other => (hasFile(other) && longer.includes(other) ? { ...other, file: name } : other));
+                await this.commit({ ...manifest, next: manifest.next + 1, history });
+            }
+            if (await this.currentFile().size() > current.length) await this.currentFile().truncate(current.length);
+            return current;
+        });
     }
 
     /**
@@ -442,35 +476,45 @@ export class DocumentDirectory {
     }
 
     /**
-     * A rewrite or move on a document without bytes of its own copies nothing in: its source is the new revision,
-     * and the destination's bytes stay revision 1 for undo. An append needs them in front, so it copies them in.
+     * A rewrite or move supplies all the new bytes: on a document without bytes of its own nothing is copied in, the
+     * destination's bytes stay revision 1 for undo, and the baseline still guards the publication. An append needs
+     * them in front, so it copies them in. An append or extend grows the current file in place unless another
+     * revision names more of it.
      */
     async applyMutation(expected: number | null, mutation: TMutation): Promise<TMutationResult> {
         const stale = this.staleRevision(expected);
         if (stale) return stale;
         const base = mutation.kind === 'append' ? await this.ensureCurrent() : this.manifest.current;
         if (base === null) return { status: 'conflict' };
-        const drafts = await this.writeDrafts(mutation.drafts);
         const manifest = this.manifest;
         const id = manifest.next;
         let revision: IRevision;
         let file = this.file;
-        const redoSharesFile = manifest.history.some(other => hasFile(other) && other.file === base?.file && other.length > base.length);
-        if (mutation.kind === 'append' && base && !redoSharesFile) {
-            await this.currentFile().writeAt(base.length, mutation.bytes);
+        const extended = base && this.longerThanCurrent().length === 0 ? base : null;
+        if ((mutation.kind === 'append' || mutation.kind === 'extend') && extended) {
+            if (mutation.kind === 'append') await this.currentFile().writeAt(extended.length, mutation.bytes);
             await this.currentFile().flush();
-            revision = { id, file: base.file, length: base.length + mutation.bytes.byteLength };
+            const length = mutation.kind === 'append' ? extended.length + mutation.bytes.byteLength : await this.currentFile().size();
+            revision = { id, file: extended.file, length };
+        } else if (mutation.kind === 'extend') {
+            throw new Error(`Document ${this.id} cannot extend a file another revision extends`);
         } else {
             const name = `r${id}.${manifest.ext}`;
             const source = mutation.kind === 'rewrite' ? mutation.source
                 : mutation.kind === 'move' ? { move: mutation.file } : this.copyThenAppend(base!, mutation.bytes);
-            const created = base ? await this.createRevisionFile(name, source) : await this.createFromDestination(name, source);
-            if (!created) return { status: 'conflict' };
+            const created = await this.createRevisionFile(name, source);
             file = created.file;
             revision = { id, file: name, length: created.length };
         }
+        const drafts = await this.writeDrafts(mutation.drafts);
         await this.commit({ ...manifest, next: id + 1, current: revision, history: this.historyAfter(manifest.history), drafts: drafts.name }, file, drafts.value);
         return { status: 'committed', revision };
+    }
+
+    /** The revisions that name more of the current file than the current revision: it may grow in place without them. */
+    private longerThanCurrent() {
+        const { current, history } = this.manifest;
+        return history.filter(hasFile).filter(other => current !== undefined && other.file === current.file && other.length > current.length);
     }
 
     /** The history a change leaves: what the caller retains, and the revision the change replaces. */

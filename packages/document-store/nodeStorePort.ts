@@ -1,3 +1,4 @@
+import { execFile } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import {
     constants,
@@ -12,6 +13,24 @@ import type {
 
 const hasCode = (error: unknown, code: string) => error instanceof Error && 'code' in error && error.code === code;
 const isMissing = (error: unknown) => hasCode(error, 'ENOENT');
+
+/**
+ * Copies the file `source` to `target`, which must not exist yet: a clone on APFS, Btrfs and XFS, which writes no
+ * bytes, and an ordinary copy elsewhere and across volumes. Libuv cannot clone on macOS, so there `/bin/cp -c` does.
+ */
+export async function copyNewFile(source: string, target: string) {
+    if (process.platform === 'darwin') {
+        // `cp` replaces an existing file, so its absence is checked first.
+        await fs.lstat(target).then(() => {
+            throw Object.assign(new Error(`File exists: ${target}`), { code: 'EEXIST' });
+        }, (error: unknown) => {
+            if (!isMissing(error)) throw error;
+        });
+        if (await new Promise<boolean>(resolve => execFile('/bin/cp', ['-c', '--', source, target], error => resolve(error === null)))) return;
+        await fs.rm(target, { force: true });
+    }
+    await fs.copyFile(source, target, constants.COPYFILE_EXCL | constants.COPYFILE_FICLONE);
+}
 
 /** Makes `dir`'s entries durable. Windows cannot open a directory for flushing; NTFS journals entries. */
 async function syncDirectory(dir: string) {
@@ -82,10 +101,7 @@ export function createNodeStorePort(root: string): IStorePort {
     async function copyIn(source: TExternalSource, relative: string) {
         const target = resolve(relative);
         await ensureDirectory(path.dirname(target));
-        if (typeof source === 'string') {
-            // A clone on APFS, Btrfs and XFS; Node falls back to an ordinary copy elsewhere.
-            await fs.copyFile(source, target, constants.COPYFILE_EXCL | constants.COPYFILE_FICLONE);
-        }
+        if (typeof source === 'string') await copyNewFile(source, target);
         const file = nodeStoreFile(await fs.open(target, typeof source === 'string' ? 'r+' : 'wx'));
         try {
             if (typeof source !== 'string') {
