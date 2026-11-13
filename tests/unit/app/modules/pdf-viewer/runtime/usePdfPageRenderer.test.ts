@@ -324,9 +324,12 @@ describe('usePdfPageRenderer layer hydration ownership', () => {
     });
 
     it.each([
-        false,
-        true,
-    ])('delays a buffered raster failure until it is visible and still current (superseded: %s)', async (superseded) => {
+        'kept',
+        'reprioritized',
+        'retried',
+        'released',
+    ] as const)('delays a buffered raster failure until it is visible and still current (job %s)', async (change) => {
+        const superseded = change === 'retried' || change === 'released';
         const harness = createHarness();
         const visible = ref(false);
         const retry = vi.fn(async () => undefined);
@@ -338,6 +341,14 @@ describe('usePdfPageRenderer layer hydration ownership', () => {
             harness.renderer.presentPageRenderFailure(pageNumber, new Error('buffer preparation failed'), retry, () => visible.value);
             expect(toastAdd).not.toHaveBeenCalled();
             if (superseded) harness.pageResources.release(pageNumber);
+            // Scrolling into view asks for the page at a higher priority; its failure stays.
+            if (change === 'reprioritized') harness.pageResources.want(pageNumber, {...createJob(), rasterState: 'failed'});
+            // A new attempt ends this failure; if it fails too, it tells its own.
+            if (change === 'retried') {
+                const attempt = createJob();
+                harness.pageResources.want(pageNumber, attempt);
+                harness.pageResources.setJobState(pageNumber, attempt, 'failed');
+            }
             visible.value = true;
             await nextTick();
             if (superseded) {

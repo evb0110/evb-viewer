@@ -1,4 +1,3 @@
-import {watchOnce} from '@vueuse/core';
 import {useFailureToast} from '@app/composables/useFailureToast';
 import {getErrorMessage} from '@app/utils/error';
 import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
@@ -558,10 +557,17 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
                 retry,
             });
             if (isVisible()) return present();
-            const failedJob = resources.get(pageNumber).job;
-            options.document.registerDisposable(watchOnce(isVisible, () => {
-                if (resources.get(pageNumber).job === failedJob) present();
-            }));
+            // Told once the page is seen, while its failure lasts: scrolling it into
+            // view keeps the failure; a new attempt or render version ends it.
+            const version = resources.get(pageNumber).job?.demand.consumerGeneration;
+            const stop = watch(() => {
+                const {job} = resources.get(pageNumber);
+                return job?.rasterState === 'failed' && job.demand.consumerGeneration === version ? isVisible() : null;
+            }, (visible) => {
+                if (visible !== false) stop();
+                if (visible) present();
+            }, {flush: 'sync'});
+            options.document.registerDisposable(stop);
         },
         resolveLayerPromotionDemand,
         promoteTextLayers,
