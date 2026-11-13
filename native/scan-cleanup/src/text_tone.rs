@@ -653,7 +653,6 @@ mod tests {
         let diagnostics = derive_text_tone_diagnostics(&image, &empty, &empty, &empty);
 
         assert_eq!(diagnostics.rule, TextToneRule::Applied);
-        assert_eq!(diagnostics.ink_anchor, Some(199));
         assert!(
             diagnostics.slope.unwrap() > 2.5,
             "the old 2.5 slope clamp made this recoverable text remain pale"

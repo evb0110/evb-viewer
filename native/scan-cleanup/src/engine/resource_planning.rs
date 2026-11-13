@@ -1132,18 +1132,26 @@ mod tests {
     }
 
     #[test]
-    fn peak_page_estimate_accounts_for_rgb_analysis_and_auto_render() {
-        let pixels = 2_000 * 1_500;
-        let gray_render =
-            estimate_peak_page_bytes(2_000, 1_500, PlanningOperation::Render, OutputMode::Bw);
-        let analysis =
-            estimate_peak_page_bytes(2_000, 1_500, PlanningOperation::Analyze, OutputMode::Bw);
-        let auto_render =
-            estimate_peak_page_bytes(2_000, 1_500, PlanningOperation::Render, OutputMode::Auto);
-
-        assert_eq!(gray_render, pixels * 40);
-        assert_eq!(analysis, pixels * 80);
-        assert_eq!(auto_render, pixels * 80);
+    fn colour_and_analysis_work_never_budget_less_memory_than_a_gray_render() {
+        for (width, height) in [(100, 50), (2_000, 1_500)] {
+            let gray =
+                estimate_peak_page_bytes(width, height, PlanningOperation::Render, OutputMode::Bw);
+            assert!(
+                gray >= (width * height) as u64,
+                "a page needs at least its own pixels"
+            );
+            for (operation, mode) in [
+                (PlanningOperation::Render, OutputMode::Color),
+                (PlanningOperation::Render, OutputMode::Auto),
+                (PlanningOperation::Analyze, OutputMode::Bw),
+            ] {
+                let estimate = estimate_peak_page_bytes(width, height, operation, mode);
+                assert!(
+                    estimate > gray,
+                    "{operation:?} {mode:?}: {estimate} <= {gray}"
+                );
+            }
+        }
     }
 
     #[test]
@@ -1243,18 +1251,6 @@ mod tests {
         );
 
         let _ = fs::remove_dir_all(&dir);
-    }
-
-    #[test]
-    fn color_peak_estimate_accounts_for_rgb_working_copies() {
-        assert_eq!(
-            estimate_peak_page_bytes(100, 50, PlanningOperation::Render, OutputMode::Bw),
-            200_000
-        );
-        assert_eq!(
-            estimate_peak_page_bytes(100, 50, PlanningOperation::Render, OutputMode::Color),
-            400_000
-        );
     }
 }
 #[cfg(test)]

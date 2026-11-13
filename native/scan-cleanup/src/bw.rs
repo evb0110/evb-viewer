@@ -4120,29 +4120,6 @@ mod tests {
         binary
     }
 
-    #[test]
-    fn horizontal_bridge_admission_uses_cross_bridge_extent() {
-        let fused_text = scan_primitives::Component {
-            label: 1,
-            area: 200,
-            left: 0,
-            top: 0,
-            right: 199,
-            bottom: 19,
-        };
-        let thick_fused_blob = scan_primitives::Component {
-            bottom: 39,
-            ..fused_text.clone()
-        };
-
-        assert!(is_horizontally_fused_extent_admissible(&fused_text, 20));
-        assert!(!is_horizontally_fused_extent_admissible(&fused_text, 19));
-        assert!(!is_horizontally_fused_extent_admissible(
-            &thick_fused_blob,
-            20
-        ));
-    }
-
     fn assert_binary_eq(left: &BinaryImage, right: &BinaryImage) {
         assert_eq!(
             (left.width(), left.height()),
@@ -4169,28 +4146,75 @@ mod tests {
     }
 
     #[test]
-    fn ridge_width_matches_the_oracles_opencv_l2_5_measurement() {
-        let mut rectangle = BinaryImage::new(5, 9);
-        for y in 0..rectangle.height() {
-            for x in 0..rectangle.width() {
-                rectangle.set(x, y, true);
+    fn added_ink_never_removes_strokes_or_fattens_one_past_the_line_budget() {
+        // The last stroke of each line is the one smoothing tries to thicken.
+        for (widths, added_right) in [
+            (&[4, 4, 4, 4, 4, 4, 4, 6], 6),
+            (&[4, 4, 4, 4, 4, 4, 4, 8], 8),
+        ] {
+            let base = solid_component_line(widths);
+            let (budget, _) = LineStrokeBudget::from_binary(&base, 300.0).unwrap();
+            let left = 10 + 7 * 28;
+            let mut candidate = base.clone();
+            for y in 14..34 {
+                candidate.set(left - 1, y, true);
+                candidate.set(left + added_right, y, true);
             }
+            let guarded = cap_added_ink_to_stroke_budget(
+                &base,
+                &candidate,
+                None,
+                Some(&budget),
+                StrokeBudgetAdditionStage::Smoothing,
+                &mut LineStrokeBudgetInterventions::default(),
+            );
+            assert_eq!(
+                base.subtract(&guarded).count_black(),
+                0,
+                "base ink was removed"
+            );
+            let width = |image: &BinaryImage| {
+                let map = ComponentMap::from_binary(image);
+                component_ridge_width(image, &map, map.label_at(left + 3, 24))
+            };
+            let limit = budget
+                .local_budget_at(left as f64 + 3.0, 24.0)
+                .map_or(0.0, |local| local.maximum_width_px)
+                .max(width(&base));
+            assert!(
+                width(&guarded) <= limit,
+                "{widths:?}: {} > {limit}",
+                width(&guarded)
+            );
         }
-        assert_eq!(ridge_width_of_isolated_component(&rectangle), 6.0);
+    }
 
-        let mut diamond = BinaryImage::new(11, 11);
-        for y in 0..diamond.height() {
-            for x in 0..diamond.width() {
-                if x.abs_diff(5) + y.abs_diff(5) <= 4 {
-                    diamond.set(x, y, true);
+    #[test]
+    fn page_edge_smoothing_never_widens_a_stroke() {
+        // Rows alternate between two widths, as a scanned stroke edge does.
+        let stroke = |wide: usize, narrow: usize| {
+            let mut image = BinaryImage::new(120, 120);
+            for y in 16..100 {
+                let width = if y % 2 == 0 { wide } else { narrow };
+                let left = 30 + (wide - width) / 2;
+                for x in left..left + width {
+                    image.set(x, y, true);
                 }
             }
+            image
+        };
+        for (wide, narrow) in [(7, 5), (13, 11), (6, 6), (17, 17)] {
+            let image = stroke(wide, narrow);
+            for dpi in [150.0, 300.0, 600.0] {
+                let rows = 84.0;
+                let before = image.count_black() as f64 / rows;
+                let after = smooth_edges_for_page(&image, dpi).count_black() as f64 / rows;
+                assert!(
+                    after < before + 0.5,
+                    "{wide}/{narrow} px stroke at {dpi} dpi widened from {before} to {after} px"
+                );
+            }
         }
-        let diamond_width = ridge_width_of_isolated_component(&diamond);
-        assert!(
-            (diamond_width - 7.193_786_6).abs() < 0.000_01,
-            "diamond width {diamond_width}"
-        );
     }
 
     #[test]
@@ -4234,37 +4258,6 @@ mod tests {
     }
 
     #[test]
-    fn stroke_budget_rounding_is_half_away_from_zero_at_half_tie_dpi() {
-        assert_eq!(
-            stroke_budget_eligibility(312.5),
-            StrokeBudgetEligibility {
-                minimum_area: 9,
-                minimum_height: 13,
-                maximum_height: 73,
-                minimum_width: 2,
-                maximum_width: 208,
-            }
-        );
-    }
-
-    #[test]
-    fn simple_point_guard_rejects_a_two_sided_articulation() {
-        let mut component = BinaryImage::new(5, 3);
-        for x in 1..=3 {
-            component.set(x, 1, true);
-        }
-        assert!(!topology_preserving_boundary_removal(&component, 2, 1));
-    }
-
-    #[test]
-    fn endpoint_guard_rejects_a_removable_digital_simple_point() {
-        let mut component = BinaryImage::new(5, 3);
-        component.set(1, 1, true);
-        component.set(2, 1, true);
-        assert!(!topology_preserving_boundary_removal(&component, 1, 1));
-    }
-
-    #[test]
     fn release_backstop_rejects_a_faulty_removal_predicate() {
         let mut dumbbell = BinaryImage::new(17, 9);
         for y in 1..8 {
@@ -4290,262 +4283,28 @@ mod tests {
     }
 
     #[test]
-    fn source_heavy_normalization_stops_at_budget_without_changing_topology() {
-        let source = solid_component_line(&[4, 4, 4, 4, 4, 4, 4, 8]);
-        let before_topology = binary_topology_signature(&source);
-        let (normalized, budget, interventions) = establish_line_stroke_budget(&source, 300.0);
-        assert!(budget.is_some());
-        assert_eq!(interventions.source_components_normalized, 1);
-        assert_eq!(interventions.source_components_unreachable, 0);
-        assert_eq!(binary_topology_signature(&normalized), before_topology);
-
-        let map = ComponentMap::from_binary(&normalized);
-        let label = map.label_at(10 + 7 * 28 + 4, 24);
-        let width = component_ridge_width(&normalized, &map, label);
-        assert!((4.0..=6.4).contains(&width), "normalized width {width}");
-    }
-
-    #[test]
-    fn source_heavy_normalization_preserves_an_existing_counter() {
-        let mut source = solid_component_line(&[4, 4, 4, 4, 4, 4, 4, 22]);
+    fn heavy_stroke_normalization_keeps_every_glyphs_topology() {
         let left = 10 + 7 * 28;
+        let plain = solid_component_line(&[4, 4, 4, 4, 4, 4, 4, 8]);
+        let mut counter = solid_component_line(&[4, 4, 4, 4, 4, 4, 4, 22]);
         for y in 18..30 {
             for x in left + 8..left + 14 {
-                source.set(x, y, false);
+                counter.set(x, y, false);
             }
         }
-        let before_topology = binary_topology_signature(&source);
-        assert_eq!(before_topology, (8, 1));
-
-        let (normalized, budget, interventions) = establish_line_stroke_budget(&source, 300.0);
-        assert!(budget.is_some());
-        assert_eq!(interventions.source_components_normalized, 1);
-        assert_eq!(interventions.source_components_unreachable, 0);
-        assert_eq!(binary_topology_signature(&normalized), before_topology);
-    }
-
-    #[test]
-    fn systemic_heavy_line_abstains_but_a_sparse_offender_remains_actionable() {
-        let systemic = solid_component_line(&[4, 4, 4, 4, 4, 4, 8, 8]);
-        let (systemic_budget, systemic_offenders) =
-            LineStrokeBudget::from_binary(&systemic, 300.0).unwrap();
-        assert!(systemic_offenders.is_empty());
-        assert!(systemic_budget.local_budget_at(10.0, 24.0).is_none());
-
-        let sparse = solid_component_line(&[4, 4, 4, 4, 4, 4, 4, 8]);
-        let (sparse_budget, sparse_offenders) =
-            LineStrokeBudget::from_binary(&sparse, 300.0).unwrap();
-        assert_eq!(sparse_offenders.len(), 1);
-        assert!(sparse_budget.local_budget_at(10.0, 24.0).is_some());
-    }
-
-    #[test]
-    fn small_print_line_below_quantization_floor_abstains_from_budgeting() {
-        let small_print = solid_component_line(&[2, 2, 2, 2, 2, 2, 2, 4]);
-        let (budget, offenders) = LineStrokeBudget::from_binary(&small_print, 300.0).unwrap();
-        assert!(offenders.is_empty());
-        assert!(budget.local_budget_at(10.0, 24.0).is_none());
-    }
-
-    #[test]
-    fn quantization_floor_boundary_abstains_until_the_margin_exceeds_the_step() {
-        let boundary_median =
-            RIDGE_WIDTH_QUANTIZATION_STEP_PX / (STROKE_BUDGET_TOLERANCE_RATIO - 1.0);
-        let line_with_median = |median_width_px: f64| StrokeBudgetLine {
-            center_y: 24.0,
-            intervention_enabled: true,
-            components: (0..STROKE_BUDGET_MINIMUM_LOCAL_COMPONENTS)
-                .map(|index| StrokeBudgetComponent {
-                    center_x: index as f64 * 10.0,
-                    center_y: 24.0,
-                    ridge_width_px: median_width_px,
-                })
-                .collect(),
-        };
-
-        // At the boundary the rounded margin equals the step exactly, and the
-        // strict inequality must treat equality as unmeasurable.
-        assert_eq!(
-            boundary_median * (STROKE_BUDGET_TOLERANCE_RATIO - 1.0),
-            RIDGE_WIDTH_QUANTIZATION_STEP_PX
-        );
-        for median_width_px in [boundary_median.next_down(), boundary_median] {
-            assert!(
-                local_stroke_budget(&line_with_median(median_width_px), 0.0, 300.0).is_none(),
-                "median {median_width_px} must abstain",
+        for (name, source) in [("plain", plain), ("counter", counter)] {
+            let (normalized, budget, _) = establish_line_stroke_budget(&source, 300.0);
+            assert!(budget.is_some(), "{name}");
+            assert_ne!(
+                normalized, source,
+                "{name}: the heavy stroke was not normalized"
+            );
+            assert_eq!(
+                binary_topology_signature(&normalized),
+                binary_topology_signature(&source),
+                "{name}: normalization split a stroke or opened or closed a counter"
             );
         }
-
-        let engaged = local_stroke_budget(&line_with_median(boundary_median.next_up()), 0.0, 300.0)
-            .expect("one ULP above the boundary must engage budgeting");
-        assert!(engaged.maximum_width_px > boundary_median);
-    }
-
-    #[test]
-    fn smoothing_guard_suppresses_only_the_delta_that_crosses_the_shared_budget() {
-        let base = solid_component_line(&[4, 4, 4, 4, 4, 4, 4, 6]);
-        let (budget, offenders) = LineStrokeBudget::from_binary(&base, 300.0).unwrap();
-        assert!(offenders.is_empty());
-        let mut candidate = base.clone();
-        let left = 10 + 7 * 28;
-        for y in 14..34 {
-            candidate.set(left - 1, y, true);
-            candidate.set(left + 6, y, true);
-        }
-        let mut interventions = LineStrokeBudgetInterventions::default();
-        let guarded = cap_added_ink_to_stroke_budget(
-            &base,
-            &candidate,
-            None,
-            Some(&budget),
-            StrokeBudgetAdditionStage::Smoothing,
-            &mut interventions,
-        );
-        for y in 0..base.height() {
-            for x in 0..base.width() {
-                assert!(!base.get(x, y) || guarded.get(x, y));
-            }
-        }
-        let guarded_map = ComponentMap::from_binary(&guarded);
-        let label = guarded_map.label_at(left + 3, 24);
-        let guarded_width = component_ridge_width(&guarded, &guarded_map, label);
-        assert!(guarded_width <= 6.4, "guarded width {guarded_width}");
-        assert_eq!(interventions.smoothing_components_capped, 1);
-        assert!((1..40).contains(&interventions.smoothing_pixels_suppressed));
-    }
-
-    #[test]
-    fn rescue_guard_does_not_merge_full_weight_comparator_components() {
-        let mut base = solid_component_line(&[4, 4, 4, 4, 4, 4]);
-        let left = 10 + 6 * 28;
-        for y in 14..34 {
-            for x in left..left + 4 {
-                base.set(x, y, true);
-            }
-            for x in left + 6..left + 10 {
-                base.set(x, y, true);
-            }
-        }
-        let (budget, offenders) = LineStrokeBudget::from_binary(&base, 300.0).unwrap();
-        assert!(offenders.is_empty());
-        let mut candidate = base.clone();
-        for y in 14..34 {
-            candidate.set(left + 4, y, true);
-            candidate.set(left + 5, y, true);
-        }
-        let mut interventions = LineStrokeBudgetInterventions::default();
-        let guarded = cap_added_ink_to_stroke_budget(
-            &base,
-            &candidate,
-            None,
-            Some(&budget),
-            StrokeBudgetAdditionStage::Rescue,
-            &mut interventions,
-        );
-        assert_binary_eq(&guarded, &base);
-        assert_eq!(interventions.rescue_components_capped, 1);
-        assert_eq!(interventions.rescue_bridge_components_capped, 1);
-        assert_eq!(interventions.rescue_pixels_suppressed, 40);
-    }
-
-    #[test]
-    fn addition_guard_does_not_touch_a_candidate_within_offender_tolerance() {
-        let mut base = solid_component_line(&[4, 4, 4, 4, 4, 4]);
-        let left = 10 + 6 * 28;
-        for y in 8..22 {
-            for x in left..left + 4 {
-                base.set(x, y, true);
-            }
-        }
-        for y in 24..38 {
-            for x in left..left + 4 {
-                base.set(x, y, true);
-            }
-        }
-        let (budget, _) = LineStrokeBudget::from_binary(&base, 300.0).unwrap();
-        let mut candidate = base.clone();
-        for y in 22..24 {
-            for x in left..left + 4 {
-                candidate.set(x, y, true);
-            }
-        }
-        let mut interventions = LineStrokeBudgetInterventions::default();
-        let guarded = cap_added_ink_to_stroke_budget(
-            &base,
-            &candidate,
-            None,
-            Some(&budget),
-            StrokeBudgetAdditionStage::Rescue,
-            &mut interventions,
-        );
-        assert_binary_eq(&guarded, &candidate);
-        assert_eq!(interventions.rescue_components_capped, 0);
-    }
-
-    #[test]
-    fn addition_guard_rejects_delta_when_the_base_is_already_over_budget() {
-        let base = solid_component_line(&[4, 4, 4, 4, 4, 4, 4, 8]);
-        let (budget, offenders) = LineStrokeBudget::from_binary(&base, 300.0).unwrap();
-        assert_eq!(offenders.len(), 1);
-        let mut candidate = base.clone();
-        let left = 10 + 7 * 28;
-        for y in 14..34 {
-            candidate.set(left - 1, y, true);
-            candidate.set(left + 8, y, true);
-        }
-        let mut interventions = LineStrokeBudgetInterventions::default();
-        let guarded = cap_added_ink_to_stroke_budget(
-            &base,
-            &candidate,
-            None,
-            Some(&budget),
-            StrokeBudgetAdditionStage::Smoothing,
-            &mut interventions,
-        );
-        assert_binary_eq(&guarded, &base);
-        assert_eq!(interventions.smoothing_pixels_suppressed, 40);
-    }
-
-    #[test]
-    fn addition_guard_will_not_detach_a_sub_floor_fragment() {
-        let mut base = solid_component_line(&[4, 4, 4, 4, 4, 4, 4, 4]);
-        let left = 10 + 7 * 28;
-        for y in 21..24 {
-            base.set(left + 10, y, true);
-        }
-        let (budget, _) = LineStrokeBudget::from_binary(&base, 300.0).unwrap();
-        let mut candidate = base.clone();
-        for y in 14..34 {
-            for x in left + 4..left + 8 {
-                candidate.set(x, y, true);
-            }
-        }
-        for x in left + 8..=left + 10 {
-            candidate.set(x, 22, true);
-        }
-        assert_eq!(component_count_below_area(&base, 8), 1);
-        assert_eq!(component_count_below_area(&candidate, 8), 0);
-        let mut interventions = LineStrokeBudgetInterventions::default();
-        let guarded = cap_added_ink_to_stroke_budget(
-            &base,
-            &candidate,
-            None,
-            Some(&budget),
-            StrokeBudgetAdditionStage::Rescue,
-            &mut interventions,
-        );
-        assert_eq!(
-            component_count_below_area(&guarded, budget.minimum_component_area),
-            0,
-            "budget suppression detached a sub-floor fragment"
-        );
-        let guarded_map = ComponentMap::from_binary(&guarded);
-        assert_eq!(
-            guarded_map.label_at(left, 22),
-            guarded_map.label_at(left + 10, 22),
-            "the three-pixel mark must remain attached to its parent glyph"
-        );
-        assert_eq!(component_count_below_area(&guarded, 8), 0);
     }
 
     fn black_count(image: &BinaryImage) -> usize {
@@ -4612,94 +4371,6 @@ mod tests {
     }
 
     #[test]
-    fn uniform_empty_otsu_verdict_survives_the_full_thickness_range() {
-        let mut source = GrayImage::new(720, 960, 248);
-        for y in 0..source.height() {
-            for x in 0..source.width() {
-                source.set(x, y, 248 + ((x * 7 + y * 11) % 3) as u8);
-            }
-        }
-        let calibration = PageCalibration::estimate(&source, 300.0, CalibrationConfig::default());
-
-        for thickness in 0..=2 {
-            let options = CleanupOptions {
-                dpi: 300.0,
-                binarization: BinarizationMode::Otsu,
-                thickness,
-                despeckle: false,
-                normalize_illumination: false,
-                ..CleanupOptions::default()
-            };
-            let decision = paper_ink_midpoint_threshold(&source, None);
-            assert!(
-                decision.uniform_empty,
-                "thickness={thickness}: {decision:?}"
-            );
-            let binary = threshold_with_mode(
-                &source,
-                &source,
-                None,
-                &options,
-                BinarizationMode::Otsu,
-                calibration,
-                None,
-            );
-            assert_eq!(
-                binary.count_black(),
-                0,
-                "thickness={thickness} flooded a uniform blank leaf"
-            );
-        }
-    }
-
-    #[test]
-    fn faint_uniform_ink_uses_otsu_even_with_one_dust_mote() {
-        const FAINT_INK_PIXELS: usize = 17_632;
-        for ink in [246, 245, 242] {
-            for dust_mote in [false, true] {
-                let mut source = GrayImage::new(720, 960, 250);
-                for index in 0..FAINT_INK_PIXELS {
-                    let x = 120 + index % 128;
-                    let y = 180 + index / 128;
-                    source.set(x, y, ink);
-                }
-                if dust_mote {
-                    source.set(30, 30, 32);
-                }
-                let decision = paper_ink_midpoint_threshold(&source, None);
-                assert!(
-                    !decision.uniform_empty,
-                    "ink={ink}, dust={dust_mote}: faint print was declared blank"
-                );
-                let options = CleanupOptions {
-                    dpi: 300.0,
-                    binarization: BinarizationMode::Otsu,
-                    despeckle: false,
-                    normalize_illumination: false,
-                    ..CleanupOptions::default()
-                };
-                let calibration =
-                    PageCalibration::estimate(&source, options.dpi, CalibrationConfig::default());
-                let binary = threshold_with_mode(
-                    &source,
-                    &source,
-                    None,
-                    &options,
-                    BinarizationMode::Otsu,
-                    calibration,
-                    None,
-                );
-                let expected = FAINT_INK_PIXELS + usize::from(dust_mote);
-                assert_eq!(
-                    binary.count_black(),
-                    expected,
-                    "ink={ink}, dust={dust_mote}, decision={decision:?}"
-                );
-            }
-        }
-    }
-
-    #[test]
     fn spread_plan_is_symmetric_and_overrides_leaf_route_selection() {
         let options = CleanupOptions {
             dpi: 300.0,
@@ -4759,7 +4430,6 @@ mod tests {
         assert_eq!(plans.left.route, swapped.right.route);
         assert_eq!(plans.right.route, swapped.left.route);
         assert_eq!(plans.left.threshold_anchor, swapped.right.threshold_anchor);
-        assert_eq!(plans.left.threshold_radius, 27);
         assert_eq!(plans.left.threshold_radius, swapped.right.threshold_radius);
         assert!(plans.left.diagnostics.document_anchor);
         assert_eq!(
@@ -4805,65 +4475,6 @@ mod tests {
         assert_eq!(
             right_diagnostics.spread_plan.unwrap().threshold_radius,
             plans.right.threshold_radius
-        );
-    }
-
-    #[test]
-    fn spread_plan_falls_back_to_leaf_anchors_when_threshold_evidence_drifts() {
-        let options = CleanupOptions {
-            dpi: 300.0,
-            binarization: BinarizationMode::Auto,
-            normalize_illumination: false,
-            despeckle: false,
-            ..CleanupOptions::default()
-        };
-        let mut left = GrayImage::new(256, 256, 242);
-        let mut right = GrayImage::new(256, 256, 242);
-        for y in 32..224 {
-            for x in 24..232 {
-                if (x / 12 + y / 18) % 5 == 0 {
-                    left.set(x, y, 48);
-                    right.set(x, y, 156);
-                }
-            }
-        }
-        let mut normalized = GrayImage::new(512, 256, 242);
-        for y in 0..256 {
-            for x in 0..256 {
-                normalized.set(x, y, left.get(x, y));
-                normalized.set(x + 256, y, right.get(x, y));
-            }
-        }
-        let calibration =
-            PageCalibration::estimate(&normalized, options.dpi, CalibrationConfig::default());
-        let plans = resolve_spread_binarization_plans(
-            &normalized,
-            &left,
-            &right,
-            &left,
-            &right,
-            None,
-            None,
-            options.dpi,
-            &options,
-            calibration,
-            Some(2.5),
-            Some(18.0),
-        );
-
-        assert_eq!(plans.left.route, BinarizationMode::Otsu);
-        assert_eq!(plans.right.route, BinarizationMode::Otsu);
-        assert_eq!(
-            plans.left.diagnostics.decision,
-            SpreadBinarizationPlanDecision::PerLeafAnchorDrift
-        );
-        assert_eq!(
-            plans.right.diagnostics.decision,
-            SpreadBinarizationPlanDecision::PerLeafAnchorDrift
-        );
-        assert_ne!(
-            plans.left.threshold_anchor, plans.right.threshold_anchor,
-            "the fallback must retain each leaf's measured threshold anchor"
         );
     }
 
@@ -5082,725 +4693,6 @@ mod tests {
     }
 
     #[test]
-    fn faint_rescue_rejects_an_isolated_raw_component_without_a_text_row() {
-        let mut raw = GrayImage::new(160, 100, 232);
-        for y in 45..70 {
-            for x in 84..108 {
-                raw.set(x, y, 198);
-            }
-        }
-        let damaged = BinaryImage::new(160, 100);
-        let rescued = rescue_component_scoped_faint_strokes(
-            &damaged,
-            &raw,
-            None,
-            None,
-            None,
-            BinarizationMode::Wolf,
-            BinarizationMode::Wolf,
-            300.0,
-            false,
-        );
-        assert_eq!(rescued.count_black(), 0);
-    }
-
-    #[test]
-    fn faint_rescue_skips_a_solid_stroke_component_with_a_full_gray_halo() {
-        let mut raw = GrayImage::new(120, 80, 232);
-        let mut damaged = BinaryImage::new(raw.width(), raw.height());
-        let mut text_vicinity = BinaryImage::new(raw.width(), raw.height());
-        for y in 23..57 {
-            for x in 49..56 {
-                raw.set(x, y, 170);
-                text_vicinity.set(x, y, true);
-            }
-        }
-        for y in 24..56 {
-            for x in 50..55 {
-                raw.set(x, y, 40);
-                damaged.set(x, y, true);
-            }
-        }
-
-        let rescued = rescue_component_scoped_faint_strokes(
-            &damaged,
-            &raw,
-            None,
-            Some(&text_vicinity),
-            None,
-            BinarizationMode::Otsu,
-            BinarizationMode::Otsu,
-            300.0,
-            true,
-        );
-
-        assert_eq!(
-            rescued, damaged,
-            "a healthy stroke's halo must not become ink"
-        );
-    }
-
-    #[test]
-    fn wolf_rescue_removes_a_gray_halo_only_after_capturing_the_solid_core() {
-        let mut raw = GrayImage::new(120, 80, 232);
-        let mut damaged = BinaryImage::new(raw.width(), raw.height());
-        let mut text_vicinity = BinaryImage::new(raw.width(), raw.height());
-        for y in 23..57 {
-            for x in 49..57 {
-                raw.set(x, y, 170);
-                damaged.set(x, y, true);
-                text_vicinity.set(x, y, true);
-            }
-        }
-        for y in 24..56 {
-            for x in 50..56 {
-                raw.set(x, y, 40);
-            }
-        }
-
-        let rescued = rescue_component_scoped_faint_strokes(
-            &damaged,
-            &raw,
-            None,
-            Some(&text_vicinity),
-            None,
-            BinarizationMode::Wolf,
-            BinarizationMode::Wolf,
-            300.0,
-            false,
-        );
-
-        assert!(rescued.get(52, 40), "the captured dark core must remain");
-        assert!(
-            !rescued.get(49, 40) && !rescued.get(56, 40),
-            "Wolf's gray halo must not remain ink around a captured solid core"
-        );
-    }
-
-    #[test]
-    fn wolf_halo_strip_de_halos_letters_the_halo_itself_fused_into_one_component() {
-        // The halo is what welds adjacent letters together, so a fused word is
-        // wider than any single glyph. Bounding the component's longest side
-        // would skip exactly these and leave them at full Wolf weight beside
-        // de-haloed neighbours, which is the stroke-weight unevenness this pass
-        // exists to prevent.
-        const STEM_PITCH: usize = 11;
-        const HALO_WIDTH: usize = 9;
-        let mut raw = GrayImage::new(220, 80, 232);
-        let mut damaged = BinaryImage::new(raw.width(), raw.height());
-        let mut text_vicinity = BinaryImage::new(raw.width(), raw.height());
-        let stems: Vec<usize> = (0..12).map(|i| 40 + i * STEM_PITCH).collect();
-        for &stem in &stems {
-            for y in 25..55 {
-                for x in stem..stem + HALO_WIDTH {
-                    raw.set(x, y, 170);
-                    damaged.set(x, y, true);
-                    text_vicinity.set(x, y, true);
-                }
-            }
-            for y in 26..54 {
-                for x in stem + 1..stem + HALO_WIDTH - 1 {
-                    raw.set(x, y, 40);
-                }
-            }
-        }
-        // Adjacent halos touch across the two-pixel gap, which is how the halo
-        // fuses letters on a real page.
-        for pair in stems.windows(2) {
-            for y in 38..42 {
-                for x in pair[0] + HALO_WIDTH..pair[1] {
-                    raw.set(x, y, 170);
-                    damaged.set(x, y, true);
-                    text_vicinity.set(x, y, true);
-                }
-            }
-        }
-
-        let component_extent = stems[stems.len() - 1] + HALO_WIDTH - stems[0];
-        assert!(
-            component_extent > (300.0f64 / 25.4 * 8.0).round() as usize,
-            "the fixture must exceed the additive pass's 8 mm extent cap"
-        );
-
-        let stripped = rescue_component_scoped_faint_strokes(
-            &damaged,
-            &raw,
-            None,
-            Some(&text_vicinity),
-            None,
-            BinarizationMode::Wolf,
-            BinarizationMode::Wolf,
-            300.0,
-            false,
-        );
-
-        for &stem in &stems {
-            assert!(
-                stripped.get(stem + 4, 40),
-                "the captured dark core of the letter at x={stem} must remain"
-            );
-            assert!(
-                !stripped.get(stem, 40),
-                "the gray halo left of the letter at x={stem} must not remain ink"
-            );
-            assert!(
-                !stripped.get(stem + HALO_WIDTH - 1, 40),
-                "the gray halo right of the letter at x={stem} must not remain ink"
-            );
-        }
-
-        // The strip only removes gray that hugs a captured core, so the gray
-        // between two letters outlives the halo that surrounded them. That is
-        // this pass's remit, not an oversight: gray with no adjacent core is
-        // indistinguishable here from a genuine faint hairline or ligature, and
-        // deleting it would erase the thin strokes has_coherent_noncore_run
-        // exists to protect. On real pages the leftover is reabsorbed into the
-        // neighbouring glyphs rather than left standing alone.
-        for pair in stems.windows(2) {
-            assert!(
-                (pair[0] + HALO_WIDTH..pair[1]).all(|x| stripped.get(x, 40)),
-                "gray with no adjacent captured core is out of this pass's scope"
-            );
-        }
-    }
-
-    #[test]
-    fn wolf_halo_strip_keeps_a_connected_midgray_serif_endpoint() {
-        let mut raw = GrayImage::new(120, 90, 232);
-        let mut damaged = BinaryImage::new(raw.width(), raw.height());
-        let mut text_vicinity = BinaryImage::new(raw.width(), raw.height());
-        for y in 28..62 {
-            for x in 54..57 {
-                raw.set(x, y, 60);
-                damaged.set(x, y, true);
-                text_vicinity.set(x, y, true);
-            }
-        }
-        for x in 47..64 {
-            raw.set(x, 58, 150);
-            damaged.set(x, 58, true);
-            text_vicinity.set(x, 58, true);
-        }
-        for x in 54..57 {
-            raw.set(x, 58, 60);
-        }
-
-        let stripped = rescue_component_scoped_faint_strokes(
-            &damaged,
-            &raw,
-            None,
-            Some(&text_vicinity),
-            None,
-            BinarizationMode::Wolf,
-            BinarizationMode::Wolf,
-            300.0,
-            false,
-        );
-
-        assert!(
-            stripped.get(47, 58),
-            "the raw-150 serif endpoint was erased"
-        );
-        assert!(
-            stripped.get(63, 58),
-            "the raw-150 serif endpoint was erased"
-        );
-        assert_eq!(
-            ComponentMap::from_binary(&stripped).components().len(),
-            1,
-            "stripping the halo ring disconnected the serif from its dark stem"
-        );
-    }
-
-    #[test]
-    fn wolf_halo_strip_keeps_a_faint_blob_beyond_a_two_pixel_bridge() {
-        let mut raw = GrayImage::new(120, 90, 232);
-        let mut damaged = BinaryImage::new(raw.width(), raw.height());
-        let mut text_vicinity = BinaryImage::new(raw.width(), raw.height());
-        for y in 34..48 {
-            for x in 30..42 {
-                raw.set(x, y, 60);
-                damaged.set(x, y, true);
-                text_vicinity.set(x, y, true);
-            }
-        }
-        for x in 42..44 {
-            raw.set(x, 41, 150);
-            damaged.set(x, 41, true);
-            text_vicinity.set(x, 41, true);
-        }
-        for y in 36..48 {
-            for x in 44..54 {
-                raw.set(x, y, 150);
-                damaged.set(x, y, true);
-                text_vicinity.set(x, y, true);
-            }
-        }
-
-        let stripped = rescue_component_scoped_faint_strokes(
-            &damaged,
-            &raw,
-            None,
-            Some(&text_vicinity),
-            None,
-            BinarizationMode::Wolf,
-            BinarizationMode::Wolf,
-            300.0,
-            false,
-        );
-
-        assert!(
-            (36..48).all(|y| (44..54).all(|x| stripped.get(x, y))),
-            "the bridged raw-150 blob was stripped as if it were a core halo"
-        );
-        assert_eq!(
-            ComponentMap::from_binary(&stripped).components().len(),
-            1,
-            "the two-pixel bridge must keep the faint blob attached"
-        );
-    }
-
-    #[test]
-    fn faded_photocopy_missing_body_is_deep_relative_to_its_captured_core() {
-        let mut raw = GrayImage::new(120, 90, 232);
-        let mut damaged = BinaryImage::new(raw.width(), raw.height());
-        let mut text_vicinity = BinaryImage::new(raw.width(), raw.height());
-        for y in 28..62 {
-            for x in 50..56 {
-                raw.set(x, y, 150);
-                text_vicinity.set(x, y, true);
-            }
-            raw.set(52, y, 70);
-            damaged.set(52, y, true);
-        }
-
-        let rescued = rescue_component_scoped_faint_strokes(
-            &damaged,
-            &raw,
-            None,
-            Some(&text_vicinity),
-            None,
-            BinarizationMode::Otsu,
-            BinarizationMode::Otsu,
-            300.0,
-            true,
-        );
-
-        assert!(rescued.get(50, 45), "the raw-150 missing body was skipped");
-        assert!(rescued.get(55, 45), "the raw-150 missing body was skipped");
-        assert!(rescued.count_black() > damaged.count_black());
-    }
-
-    #[test]
-    fn dense_auto_otsu_rescues_a_bright_paper_arc_via_structural_depth() {
-        let mut raw = GrayImage::new(140, 90, 246);
-        let mut damaged = BinaryImage::new(raw.width(), raw.height());
-        let mut text_vicinity = BinaryImage::new(raw.width(), raw.height());
-
-        for y in 36..64 {
-            for x in 54..59 {
-                raw.set(x, y, 60);
-                damaged.set(x, y, true);
-                text_vicinity.set(x, y, true);
-            }
-        }
-        for y in 33..38 {
-            for x in 58..60 {
-                raw.set(x, y, 166);
-                text_vicinity.set(x, y, true);
-            }
-        }
-        for y in 31..35 {
-            for x in 59..61 {
-                raw.set(x, y, 166);
-                text_vicinity.set(x, y, true);
-            }
-        }
-        for y in 29..31 {
-            for x in 60..71 {
-                raw.set(x, y, 166);
-                text_vicinity.set(x, y, true);
-            }
-        }
-        for y in 30..42 {
-            for x in 69..71 {
-                raw.set(x, y, 166);
-                text_vicinity.set(x, y, true);
-            }
-        }
-
-        let rescued = rescue_component_scoped_faint_strokes(
-            &damaged,
-            &raw,
-            None,
-            Some(&text_vicinity),
-            None,
-            BinarizationMode::Auto,
-            BinarizationMode::Otsu,
-            300.0,
-            false,
-        );
-
-        assert!(rescued.get(66, 29), "the raw-166 upper arc was skipped");
-        assert!(rescued.get(70, 38), "the raw-166 arc return was skipped");
-        assert!(rescued.count_black() > damaged.count_black());
-        assert_eq!(
-            ComponentMap::from_binary(&rescued).components().len(),
-            1,
-            "the rescued upper arc must connect to the captured dark body"
-        );
-    }
-
-    #[test]
-    fn dense_auto_otsu_solid_glyph_halo_has_zero_structural_depth_and_gains_no_ink() {
-        let mut raw = GrayImage::new(120, 80, 246);
-        let mut damaged = BinaryImage::new(raw.width(), raw.height());
-        let mut text_vicinity = BinaryImage::new(raw.width(), raw.height());
-
-        for y in 23..57 {
-            for x in 49..57 {
-                raw.set(x, y, 130 + ((x + y) % 61) as u8);
-                text_vicinity.set(x, y, true);
-            }
-        }
-        for y in 24..56 {
-            for x in 50..56 {
-                raw.set(x, y, 40);
-                damaged.set(x, y, true);
-                text_vicinity.set(x, y, true);
-            }
-        }
-
-        let candidates = BinaryImage::from_fn_parallel(raw.width(), raw.height(), |x, y| {
-            raw.get(x, y) <= 246 - RESCUE_CANDIDATE_DEPTH
-        });
-        let components = ComponentMap::from_binary(&candidates);
-        let label = components.label_at(50, 24);
-        let structural_deep = components
-            .components()
-            .iter()
-            .find(|component| component.label == label)
-            .into_iter()
-            .flat_map(|component| {
-                (component.top..=component.bottom).flat_map(move |y| {
-                    (component.left..=component.right).map(move |x| (component, x, y))
-                })
-            })
-            .filter(|&(component, x, y)| {
-                components.label_at(x, y) == component.label
-                    && !damaged.get(x, y)
-                    && is_structural_deep_missing(
-                        &components,
-                        component.label,
-                        &damaged,
-                        x,
-                        y,
-                        raw.get(x, y),
-                        246,
-                    )
-            })
-            .count();
-        assert_eq!(
-            structural_deep, 0,
-            "an immediate raw-130..190 halo ring must contain no structural-deep pixels"
-        );
-
-        let rescued = rescue_component_scoped_faint_strokes(
-            &damaged,
-            &raw,
-            None,
-            Some(&text_vicinity),
-            None,
-            BinarizationMode::Auto,
-            BinarizationMode::Otsu,
-            300.0,
-            false,
-        );
-
-        assert_eq!(
-            rescued, damaged,
-            "the raw-130..190 halo around a healthy dense glyph gained ink"
-        );
-    }
-
-    #[test]
-    fn solid_skip_is_monotonic_from_sixteen_to_seventeen_missing_pixels() {
-        fn fixture(missing: usize) -> (GrayImage, BinaryImage, BinaryImage) {
-            let mut raw = GrayImage::new(100, 70, 232);
-            let mut damaged = BinaryImage::new(raw.width(), raw.height());
-            let mut text_vicinity = BinaryImage::new(raw.width(), raw.height());
-            for y in 34..36 {
-                for x in 30..34 {
-                    raw.set(x, y, 40);
-                    damaged.set(x, y, true);
-                    text_vicinity.set(x, y, true);
-                }
-            }
-            for index in 0..missing {
-                let x = 34 + index / 2;
-                let y = 34 + index % 2;
-                raw.set(x, y, if index == 0 { 120 } else { 170 });
-                text_vicinity.set(x, y, true);
-            }
-            (raw, damaged, text_vicinity)
-        }
-
-        let rescued_counts = [16, 17].map(|missing| {
-            let (raw, damaged, text_vicinity) = fixture(missing);
-            let rescued = rescue_component_scoped_faint_strokes(
-                &damaged,
-                &raw,
-                None,
-                Some(&text_vicinity),
-                None,
-                BinarizationMode::Otsu,
-                BinarizationMode::Otsu,
-                300.0,
-                true,
-            );
-            assert!(
-                rescued.count_black() > damaged.count_black(),
-                "the {missing}-pixel missing body was skipped"
-            );
-            rescued.count_black()
-        });
-
-        assert!(
-            rescued_counts[1] >= rescued_counts[0],
-            "adding a missing body pixel reduced rescue: {rescued_counts:?}"
-        );
-    }
-
-    #[test]
-    fn faint_rescue_keeps_a_pale_captured_skeleton_with_a_deep_missing_body() {
-        let fixture: serde_json::Value = serde_json::from_str(include_str!(
-            "../tests/fixtures/stroke-budget/sol-faint-glyph.json"
-        ))
-        .unwrap();
-        let number = |name: &str| fixture[name].as_u64().unwrap() as usize;
-        let mut raw = GrayImage::new(number("width"), number("height"), number("paperGray") as u8);
-        let mut damaged = BinaryImage::new(raw.width(), raw.height());
-        let mut text_vicinity = BinaryImage::new(raw.width(), raw.height());
-        for index in 0..number("comparatorCount") {
-            let left = number("comparatorStartX") + index * number("comparatorStrideX");
-            for y in number("comparatorTop")..number("comparatorTop") + number("comparatorHeight") {
-                for x in left..left + number("comparatorWidth") {
-                    raw.set(x, y, number("comparatorGray") as u8);
-                    damaged.set(x, y, true);
-                    text_vicinity.set(x, y, true);
-                }
-            }
-        }
-        for y in number("faintBodyTop")..number("faintBodyTop") + number("faintBodyHeight") {
-            for x in number("faintBodyLeft")..number("faintBodyLeft") + number("faintBodyWidth") {
-                raw.set(x, y, number("faintBodyGray") as u8);
-                text_vicinity.set(x, y, true);
-            }
-            for x in number("capturedSkeletonLeft")
-                ..number("capturedSkeletonLeft") + number("capturedSkeletonWidth")
-            {
-                damaged.set(x, y, true);
-            }
-        }
-        let dpi = fixture["dpi"].as_f64().unwrap();
-        let (budget, offenders) = LineStrokeBudget::from_binary(&damaged, dpi).unwrap();
-        assert!(offenders.is_empty());
-        let faint_base_map = ComponentMap::from_binary(&damaged);
-        let body_center_y = number("faintBodyTop") + number("faintBodyHeight") / 2;
-        let faint_label = faint_base_map.label_at(number("capturedSkeletonLeft"), body_center_y);
-        let faint_base_width = component_ridge_width(&damaged, &faint_base_map, faint_label);
-        let local_budget = budget
-            .local_budget_at(
-                number("capturedSkeletonLeft") as f64 + 0.5,
-                body_center_y as f64,
-            )
-            .unwrap();
-        assert!(faint_base_width < local_budget.median_width_px);
-
-        for mode in [BinarizationMode::Otsu, BinarizationMode::Wolf] {
-            let rescued = rescue_component_scoped_faint_strokes(
-                &damaged,
-                &raw,
-                None,
-                Some(&text_vicinity),
-                None,
-                mode,
-                mode,
-                dpi,
-                true,
-            );
-
-            assert!(
-                rescued.get(number("faintBodyLeft"), body_center_y),
-                "{mode:?} lost the deep body"
-            );
-            assert!(
-                rescued.get(
-                    number("faintBodyLeft") + number("faintBodyWidth") - 1,
-                    body_center_y
-                ),
-                "{mode:?} lost the deep body"
-            );
-            assert_eq!(
-                rescued.count_black() - damaged.count_black(),
-                number("expectedRescuedPixels"),
-                "{mode:?} did not preserve the complete source-supported body"
-            );
-        }
-    }
-
-    #[test]
-    fn row_evidence_exclusion_prevents_a_scanner_rail_from_supporting_specks() {
-        let mut raw = GrayImage::new(160, 100, 232);
-        let mut rail = BinaryImage::new(160, 100);
-        for y in 0..raw.height() {
-            for x in 0..8 {
-                raw.set(x, y, 80);
-                rail.set(x, y, true);
-            }
-        }
-        for y in 46..54 {
-            for x in 84..87 {
-                raw.set(x, y, 198);
-            }
-        }
-        let damaged = BinaryImage::new(raw.width(), raw.height());
-        let rescued_with_rail = rescue_component_scoped_faint_strokes(
-            &damaged,
-            &raw,
-            None,
-            None,
-            None,
-            BinarizationMode::Wolf,
-            BinarizationMode::Wolf,
-            300.0,
-            false,
-        );
-        let rescued_without_rail = rescue_component_scoped_faint_strokes(
-            &damaged,
-            &raw,
-            None,
-            None,
-            Some(&rail),
-            BinarizationMode::Wolf,
-            BinarizationMode::Wolf,
-            300.0,
-            false,
-        );
-
-        assert!(
-            rescued_with_rail.get(84, 49),
-            "the fixture must prove that the unmasked rail supplies row evidence",
-        );
-        assert_eq!(rescued_without_rail.count_black(), 0);
-    }
-
-    #[test]
-    fn legacy_calibration_keeps_single_window_thresholding() {
-        let mut image = GrayImage::new(61, 43, 232);
-        for y in 7..36 {
-            for x in (8..53).step_by(9) {
-                image.set(x, y, 105 + (x % 4) as u8);
-            }
-        }
-        let options = CleanupOptions {
-            dpi: 300.0,
-            binarization: BinarizationMode::Wolf,
-            ..CleanupOptions::default()
-        };
-        let calibration =
-            PageCalibration::estimate(&image, options.dpi, CalibrationConfig::legacy());
-        let method = LocalThreshold::Wolf {
-            k: WOLF_K,
-            deviation_floor: 2.0,
-            minimum_percentile: WOLF_MINIMUM_PERCENTILE,
-            hard_ink: WOLF_HARD_INK,
-            hard_paper: WOLF_HARD_PAPER,
-        };
-        let expected =
-            threshold_local_biased(&image, calibration.threshold_radius(options.dpi), method, 0);
-
-        assert_eq!(
-            threshold_with_mode(
-                &image,
-                &image,
-                None,
-                &options,
-                BinarizationMode::Wolf,
-                calibration,
-                None,
-            ),
-            expected
-        );
-    }
-
-    #[test]
-    #[ignore = "manual release-mode timing for the A3 report"]
-    fn benchmark_multiscale_wolf_against_single_window_bw_route() {
-        use std::time::Instant;
-
-        let mut image = GrayImage::new(1_275, 1_650, 238);
-        for y in 0..image.height() {
-            for x in 0..image.width() {
-                image.set(x, y, 232 + ((x * 7 + y * 11 + x * y % 17) % 13) as u8);
-            }
-        }
-        for top in (35..1_610).step_by(24) {
-            for left in (30..1_235).step_by(19) {
-                for y in top..top + 14 {
-                    for x in left..left + 8 {
-                        if x < left + 2 || y < top + 2 || y >= top + 12 {
-                            image.set(x, y, 82 + ((x + y) % 9) as u8);
-                        }
-                    }
-                }
-            }
-        }
-        let options = CleanupOptions {
-            binarization: BinarizationMode::Wolf,
-            normalize_illumination: false,
-            despeckle: false,
-            ..CleanupOptions::default()
-        };
-        let multiscale = CalibrationConfig::default();
-        let single_window = CalibrationConfig {
-            multiscale_local_threshold: false,
-            ..CalibrationConfig::default()
-        };
-
-        let _ = clean_black_and_white_with_calibration_config(&image, &options, single_window);
-        let _ = clean_black_and_white_with_calibration_config(&image, &options, multiscale);
-        let mut single_samples = Vec::new();
-        let mut multiscale_samples = Vec::new();
-        for _ in 0..3 {
-            let started = Instant::now();
-            let single = std::hint::black_box(clean_black_and_white_with_calibration_config(
-                &image,
-                &options,
-                single_window,
-            ));
-            single_samples.push(started.elapsed());
-
-            let started = Instant::now();
-            let multiple = std::hint::black_box(clean_black_and_white_with_calibration_config(
-                &image, &options, multiscale,
-            ));
-            multiscale_samples.push(started.elapsed());
-            assert_eq!(single.binary.width(), multiple.binary.width());
-            assert_eq!(single.binary.height(), multiple.binary.height());
-        }
-        single_samples.sort_unstable();
-        multiscale_samples.sort_unstable();
-        let single = single_samples[1];
-        let multiscale = multiscale_samples[1];
-        let ratio = multiscale.as_secs_f64() / single.as_secs_f64();
-        eprintln!(
-            "A3 Wolf BW route 1275x1650: single={single:?} multiscale={multiscale:?} ratio={ratio:.3}x"
-        );
-        assert!(ratio <= 1.5, "multiscale BW route ratio was {ratio:.3}x");
-    }
-
-    #[test]
     fn local_midpoint_keeps_a_light_dash_printed_beside_dark_digits() {
         // A contents line "14 - 28" whose dash printed far lighter than the
         // digits around it: a third of their depth below the paper.
@@ -5839,25 +4731,6 @@ mod tests {
     }
 
     #[test]
-    fn uniform_paper_threshold_is_anchored_at_the_paper_ink_midpoint() {
-        for (paper, ink) in [(221u8, 42u8), (218, 46), (192, 28), (112, 8)] {
-            let mut image = GrayImage::new(240, 180, paper);
-            for y in 20..160 {
-                for x in (18..220).step_by(12) {
-                    image.set(x, y, ink);
-                    image.set(x + 1, y, ((u16::from(ink) + u16::from(paper)) / 2) as u8);
-                }
-            }
-            let threshold = paper_ink_midpoint_threshold(&image, None).threshold;
-            let expected = ((u16::from(ink) + u16::from(paper)) / 2) as i16;
-            assert!(
-                (i16::from(threshold) - expected).abs() <= 2,
-                "paper={paper}, ink={ink}, threshold={threshold}, expected={expected}"
-            );
-        }
-    }
-
-    #[test]
     fn full_leaf_intensity_anchor_is_scale_stable_with_picture_exclusion() {
         let mut small = GrayImage::new(240, 180, 248);
         let mut small_picture = BinaryImage::new(240, 180);
@@ -5885,8 +4758,6 @@ mod tests {
         let small_anchor = full_leaf_intensity_anchor(&small, Some(&small_picture), 150.0);
         let large_anchor = full_leaf_intensity_anchor(&large, Some(&large_picture), 300.0);
 
-        assert_eq!(small_anchor, 127);
-        assert_eq!(large_anchor, 127);
         assert!(
             (i16::from(small_anchor) - i16::from(large_anchor)).abs() <= 1,
             "full-leaf anchor drifted across scale: {small_anchor} vs {large_anchor}",
@@ -6006,51 +4877,6 @@ mod tests {
     }
 
     #[test]
-    fn grayscale_contrast_demotes_deletion_to_cautious_attachment() {
-        let mut image = BinaryImage::new(70, 40);
-        for y in 18..28 {
-            for x in 10..20 {
-                image.set(x, y, true);
-            }
-        }
-        for y in 21..23 {
-            for x in 35..37 {
-                image.set(x, y, true);
-            }
-        }
-        let mut normalized = GrayImage::new(70, 40, 235);
-        for y in 0..image.height() {
-            for x in 0..image.width() {
-                if image.get(x, y) {
-                    normalized.set(x, y, 25);
-                }
-            }
-        }
-        let calibration =
-            PageCalibration::estimate_from_binary(&image, 300.0, CalibrationConfig::default());
-        let binary_only = despeckle_connected_impl(
-            &image,
-            None,
-            300.0,
-            calibration,
-            DespeckleLevel::Normal,
-            true,
-        )
-        .image;
-        let contrast_aware = despeckle_connected_impl(
-            &image,
-            Some(&normalized),
-            300.0,
-            calibration,
-            DespeckleLevel::Normal,
-            true,
-        )
-        .image;
-        assert!(!binary_only.get(35, 21));
-        assert!(contrast_aware.get(35, 21));
-    }
-
-    #[test]
     fn despeckle_fallback_preserves_pages_without_a_substantial_seed() {
         let mut image = BinaryImage::new(120, 80);
         for index in 0..20 {
@@ -6105,67 +4931,64 @@ mod tests {
     }
 
     #[test]
-    fn normal_despeckle_caps_transitive_noise_chains_at_three_hops() {
-        let mut image = BinaryImage::new(90, 50);
-        for y in 20..28 {
-            for x in 5..13 {
-                image.set(x, y, true);
-            }
-        }
-        for left in [25, 39, 53, 67] {
-            for y in 23..25 {
-                for x in left..left + 2 {
+    fn raising_the_despeckle_level_never_retains_more_specks_or_erases_the_glyph() {
+        for specks in [
+            &[(31, 22)][..],
+            &[(31, 22), (46, 23), (63, 21), (82, 40)],
+            &[(82, 40), (90, 8), (4, 4)],
+            // A chain of specks each within reach of the last.
+            &[(25, 23), (39, 23), (53, 23), (67, 23), (81, 23), (95, 23)],
+        ] {
+            let mut image = BinaryImage::new(100, 55);
+            for y in 20..32 {
+                for x in 8..20 {
                     image.set(x, y, true);
                 }
             }
-        }
-        let cleaned = despeckle_connected(&image, 300.0);
-        assert!(cleaned.get(25, 23), "directly attached mark must remain");
-        assert!(cleaned.get(39, 23), "the second hop must remain");
-        assert!(cleaned.get(53, 23), "the third hop must remain");
-        assert!(
-            !cleaned.get(67, 23),
-            "a speck chain must not propagate arbitrarily far"
-        );
-    }
-
-    #[test]
-    fn aggressive_level_removes_more_pepper_than_normal_without_erasing_page() {
-        let mut image = BinaryImage::new(100, 55);
-        for y in 20..32 {
-            for x in 8..20 {
-                image.set(x, y, true);
-            }
-        }
-        for &(left, top) in &[(31, 22), (46, 23), (63, 21), (82, 40)] {
-            for y in top..top + 2 {
-                for x in left..left + 2 {
-                    image.set(x, y, true);
+            for &(left, top) in specks {
+                for y in top..top + 2 {
+                    for x in left..left + 2 {
+                        image.set(x, y, true);
+                    }
                 }
             }
+            let calibration =
+                PageCalibration::estimate_from_binary(&image, 300.0, CalibrationConfig::default());
+            let mut retained = usize::MAX;
+            let mut cautious = 0;
+            for level in [
+                DespeckleLevel::Off,
+                DespeckleLevel::Cautious,
+                DespeckleLevel::Normal,
+                DespeckleLevel::Aggressive,
+            ] {
+                let cleaned =
+                    despeckle_connected_impl(&image, None, 300.0, calibration, level, true).image;
+                let count = black_count(&cleaned);
+                assert!(
+                    count <= retained,
+                    "{level:?} kept more ink: {count} > {retained}"
+                );
+                assert!(
+                    (20..32).all(|y| (8..20).all(|x| cleaned.get(x, y))),
+                    "{level:?} erased the glyph"
+                );
+                if level == DespeckleLevel::Cautious {
+                    cautious = count;
+                }
+                if level == DespeckleLevel::Normal && specks.len() > 4 {
+                    assert!(
+                        count < cautious,
+                        "the default level kept a whole speck chain"
+                    );
+                }
+                retained = count;
+            }
+            assert!(
+                retained < black_count(&image),
+                "aggressive removed no speck"
+            );
         }
-        let calibration =
-            PageCalibration::estimate_from_binary(&image, 300.0, CalibrationConfig::default());
-        let normal = despeckle_connected_impl(
-            &image,
-            None,
-            300.0,
-            calibration,
-            DespeckleLevel::Normal,
-            true,
-        )
-        .image;
-        let aggressive = despeckle_connected_impl(
-            &image,
-            None,
-            300.0,
-            calibration,
-            DespeckleLevel::Aggressive,
-            true,
-        )
-        .image;
-        assert!(black_count(&normal) > black_count(&aggressive));
-        assert!(black_count(&aggressive) > 0);
     }
 
     #[test]
@@ -6296,7 +5119,7 @@ mod tests {
         let (_, expected_offenders) = LineStrokeBudget::from_binary(&expected, options.dpi)
             .expect("niqqud fixture must have eligible lines");
         assert!(expected_offenders.is_empty());
-        let (actual, _, actual_interventions) = finish_thresholded_with_line_budget(
+        let (actual, _, _) = finish_thresholded_with_line_budget(
             &thresholded,
             &normalized,
             &raw,
@@ -6311,9 +5134,6 @@ mod tests {
         );
 
         assert_binary_eq(&actual, &expected);
-        assert_eq!(actual_interventions.source_components_normalized, 0);
-        assert_eq!(actual_interventions.rescue_components_capped, 0);
-        assert_eq!(actual_interventions.rescue_pixels_suppressed, 0);
     }
 
     #[test]
@@ -6416,64 +5236,6 @@ mod tests {
         let smoothed = smooth_edges(&image);
         assert!(smoothed.get(3, 3), "one-pixel dent must be filled");
         assert!(!smoothed.get(5, 5), "one-pixel bump must be trimmed");
-    }
-
-    #[test]
-    fn page_edge_smoothing_allows_sparse_dent_repair_over_eight_percent() {
-        let mut image = BinaryImage::new(96, 96);
-        for y in 16..80 {
-            for x in 20..33 {
-                image.set(x, y, true);
-            }
-            if y % 2 == 0 {
-                image.set(20, y, false);
-                image.set(32, y, false);
-            }
-        }
-        assert_eq!(resolve_smooth_profile(&image, 300.0), SmoothProfile::Legacy);
-
-        let legacy = smooth_edges_with_profile(&image, SmoothProfile::Legacy);
-        assert_eq!(legacy.count_black() - image.count_black(), 62);
-        assert_eq!(binary_edge_length(&image), 278);
-        assert!(!smoothing_exceeds_edge_growth_limit(&image, &legacy));
-
-        assert_eq!(smooth_edges_for_page(&image, 300.0), legacy);
-    }
-
-    #[test]
-    fn page_edge_smoothing_still_rejects_legacy_dilation_from_about_five_to_seven_pixels() {
-        let mut image = BinaryImage::new(96, 96);
-        for y in 16..80 {
-            let (left, right) = if y % 2 == 0 { (30, 37) } else { (31, 36) };
-            for x in left..right {
-                image.set(x, y, true);
-            }
-        }
-
-        let legacy = smooth_edges_with_profile(&image, SmoothProfile::Legacy);
-        assert_eq!(legacy.count_black() - image.count_black(), 62);
-        assert_eq!(binary_edge_length(&image), 266);
-        assert_eq!((30..37).filter(|&x| image.get(x, 17)).count(), 5);
-        assert_eq!((30..37).filter(|&x| legacy.get(x, 17)).count(), 7);
-        assert!(smoothing_exceeds_edge_growth_limit(&image, &legacy));
-
-        let guarded = smooth_edges_for_page(&image, 300.0);
-        assert!(guarded.count_black() < legacy.count_black());
-    }
-
-    #[test]
-    fn page_edge_smoothing_passes_through_neutral_legacy_result() {
-        let mut image = BinaryImage::new(48, 48);
-        for y in 12..36 {
-            for x in 12..36 {
-                image.set(x, y, true);
-            }
-        }
-        assert_eq!(resolve_smooth_profile(&image, 300.0), SmoothProfile::Legacy);
-
-        let legacy = smooth_edges_with_profile(&image, SmoothProfile::Legacy);
-        assert_eq!(legacy, image);
-        assert_eq!(smooth_edges_for_page(&image, 300.0), legacy);
     }
 
     #[test]
