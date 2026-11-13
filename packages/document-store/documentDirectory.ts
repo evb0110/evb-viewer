@@ -39,9 +39,12 @@ export type THistoryRevision = IRevision | IDestinationRevision;
 
 const hasFile = (revision: THistoryRevision): revision is IRevision => 'file' in revision;
 
+/** A publish whose outcome is unknown: `witness` is what `destination` holds if it finished. */
 interface IPendingPublish {
     destination: string;
     witness: string;
+    /** What the destination held before, for an `unsettled` record; the latest publish's is the manifest's `baseline`. */
+    baseline?: string | undefined;
 }
 
 export interface IManifest {
@@ -55,7 +58,10 @@ export interface IManifest {
     destination?: string | undefined;
     /** The witness of the bytes last read from or published to `destination`. */
     baseline?: string | undefined;
+    /** The latest publish while its outcome is unknown; recovery adopts it when the destination holds what it published. */
     pendingPublish?: IPendingPublish | undefined;
+    /** Earlier publishes a later one followed before they could be settled, for example while their destination could not be read. */
+    unsettled?: IPendingPublish[] | undefined;
     /** The immutable file holding the drafts that apply to `current`; absent when there are none. */
     drafts?: string | undefined;
 }
@@ -94,6 +100,12 @@ export interface IPublicationPort {
      * file metadata alone unless `content` asks for the content witness too, which reads every byte.
      */
     witness(destination: string, content?: boolean): Promise<string | null>;
+    /**
+     * Ends what an interrupted publish of `published` left at `destination`, which held `baseline` before (on desktop,
+     * the file it moved aside), then answers as `witness` does. Throws while the destination cannot be read. Without
+     * it, recovery asks `witness`, for the content when `published` names it.
+     */
+    settle?(destination: string, published: string, baseline: string | null): Promise<string | null>;
     /** The destination's bytes, to copy in as the first revision. */
     source(destination: string): Promise<TExternalSource>;
     /**
@@ -157,6 +169,8 @@ function isRevision(value: unknown): value is IRevision {
 }
 
 const isDestinationRevision = (value: unknown) => isRecord(value) && value.id === 1 && typeof value.witness === 'string' && !('file' in value);
+const isPendingPublish = (value: unknown) => isRecord(value) && typeof value.destination === 'string' && typeof value.witness === 'string'
+    && isOptionalString(value.baseline);
 
 function isManifest(value: unknown): value is IManifest {
     return isRecord(value) && value.version === 1 && typeof value.ext === 'string' && EXT_PATTERN.test(value.ext)
@@ -165,8 +179,8 @@ function isManifest(value: unknown): value is IManifest {
         && (value.current === undefined || isRevision(value.current))
         && isOptionalString(value.destination) && isOptionalString(value.baseline)
         && (value.drafts === undefined || (typeof value.drafts === 'string' && DRAFTS_FILE_PATTERN.test(value.drafts)))
-        && (value.pendingPublish === undefined || (isRecord(value.pendingPublish)
-            && typeof value.pendingPublish.destination === 'string' && typeof value.pendingPublish.witness === 'string'));
+        && (value.pendingPublish === undefined || isPendingPublish(value.pendingPublish))
+        && (value.unsettled === undefined || (Array.isArray(value.unsettled) && value.unsettled.every(isPendingPublish)));
 }
 
 export function decodeManifest(bytes: Uint8Array): IManifest {
@@ -178,7 +192,7 @@ export function decodeManifest(bytes: Uint8Array): IManifest {
 /** Dirty: drafts exist, a publish is unresolved, or the current bytes are not known to equal the baseline. */
 export function isDirty(manifest: IManifest) {
     const { current } = manifest;
-    return manifest.drafts !== undefined || manifest.pendingPublish !== undefined
+    return manifest.drafts !== undefined || manifest.pendingPublish !== undefined || manifest.unsettled !== undefined
         || (current !== undefined && !sameWitness(current.witness, manifest.baseline));
 }
 
@@ -491,17 +505,28 @@ export class DocumentDirectory {
         return null;
     }
 
-    /** Recovery step 3, also run before every Save: adopt or drop a publish whose outcome is unknown. */
+    /**
+     * Recovery step 3, also run before every Save: settles each publish whose outcome is unknown and drops its record,
+     * adopting the latest when its destination holds what it published. A record whose destination cannot be read
+     * now, for example held by another program, stays for the next open or Save.
+     */
     async resolvePending() {
         const { manifest } = this;
-        const pending = manifest.pendingPublish;
-        if (!pending) return;
-        // A pending witness without content names the published file by its metadata, which is enough to compare.
-        const witness = await this.store.publication.witness(pending.destination, contentOf(pending.witness) !== undefined).catch(() => undefined);
-        // Unreadable now, for example held by another program: the next open or Save decides.
-        if (witness === undefined) return;
-        const adopted = witness && sameWitness(witness, pending.witness) ? { destination: pending.destination, baseline: witness } : {};
-        await this.commit({ ...manifest, ...adopted, pendingPublish: undefined });
+        const { pendingPublish: pending, unsettled = [] } = manifest;
+        if (!pending && unsettled.length === 0) return;
+        const { publication } = this.store;
+        // A witness without content names the published file by its metadata, which is enough to compare.
+        const settle = (record: IPendingPublish, baseline: string | undefined) => (publication.settle
+            ? publication.settle(record.destination, record.witness, baseline ?? null)
+            : publication.witness(record.destination, contentOf(record.witness) !== undefined)).catch(() => undefined);
+        const left: IPendingPublish[] = [];
+        for (const record of unsettled) {
+            if (await settle(record, record.baseline) === undefined) left.push(record);
+        }
+        const witness = pending && await settle(pending, manifest.baseline);
+        const adopted = pending && witness && sameWitness(witness, pending.witness) ? { destination: pending.destination, baseline: witness } : {};
+        const next = { ...manifest, ...adopted, pendingPublish: witness === undefined ? pending : undefined, unsettled: left.length > 0 ? left : undefined };
+        if (JSON.stringify(next) !== JSON.stringify(manifest)) await this.commit(next);
     }
 
     /**

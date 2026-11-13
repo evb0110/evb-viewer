@@ -55,10 +55,7 @@ import {
 import type {IPdfNativePageGeometry} from '@contracts/electronApiDocuments';
 import {DocumentOpenRefusalError} from '@contracts/documentOpenErrors';
 import {createEpochMs} from '@contracts/timestamps';
-import {
-    createDesktopPublication,
-    recoverInterruptedPublish,
-} from '@electron/file-access/documentPublication';
+import {createDesktopPublication} from '@electron/file-access/documentPublication';
 import {normalizePathForLookup} from '@electron/file-access/normalizePathForLookup';
 import type {TOpenPath} from '@electron/file-access/openPathCapabilities';
 import {WorkingCopyMissingError} from '@electron/file-access/workingCopyMissingError';
@@ -300,17 +297,13 @@ export async function forkOpenDocument(entry: IOpenDocument, ownerWebContentsId?
     ));
 }
 
-/**
- * Reopens a document directory a checkpoint names, after a crash or a restart: an interrupted publish is settled
- * first, then the store's recovery steps run.
- */
+/** Reopens a document directory a checkpoint names, after a crash or a restart, through the store's recovery steps. */
 export async function reopenStoredDocument(id: string, options: {ownerWebContentsId?: number; originalPath?: string}) {
     const existing = findByDirectory(id);
     if (existing) {
         if (options.ownerWebContentsId !== undefined) existing.ownerWebContentsId = options.ownerWebContentsId;
         return existing;
     }
-    await settleInterruptedPublish(id);
     const doc = await openDocument(getDocumentStore(), id);
     const {destination} = doc.state();
     const originalPath = destination ?? options.originalPath;
@@ -324,13 +317,6 @@ export async function reopenStoredDocument(id: string, options: {ownerWebContent
         ...(options.ownerWebContentsId === undefined ? {} : {ownerWebContentsId: options.ownerWebContentsId}),
         ...(admission === undefined ? {} : {admission}),
     });
-}
-
-async function settleInterruptedPublish(id: string) {
-    const manifest = decodeManifest(await getDocumentStore().port.read(`${DOCUMENTS_DIR}/${id}/${MANIFEST_NAME}`));
-    if (manifest.pendingPublish) {
-        await recoverInterruptedPublish(manifest.pendingPublish.destination, manifest.baseline ?? null, manifest.pendingPublish.witness);
-    }
 }
 
 // Revisions
@@ -723,9 +709,8 @@ export async function collectStaleDocuments() {
     for (const id of await docStore.port.list(DOCUMENTS_DIR)) {
         if (!STORE_ID_PATTERN.test(id) || await isHeld(id)) continue;
         try {
-            await settleInterruptedPublish(id);
             const manifest = decodeManifest(await docStore.port.read(`${DOCUMENTS_DIR}/${id}/${MANIFEST_NAME}`));
-            if (manifest.pendingPublish) await (await openDocument(docStore, id)).close();
+            if (manifest.pendingPublish || manifest.unsettled) await (await openDocument(docStore, id)).close();
         } catch (error) {
             log.debug(`Document ${id} kept an interrupted save for later: ${getErrorMessage(error)}`);
         }

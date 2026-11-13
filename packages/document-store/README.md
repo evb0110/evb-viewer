@@ -43,7 +43,11 @@ boundary:
 
 Save As supplies a destination and publishes without the baseline check.
 Failures retain the committed work. Recovery compares an interrupted
-publication's witness with the destination before acknowledging it.
+publication's witness with the destination before acknowledging it; the
+publication port's `settle` first ends what the publish left there (desktop
+puts back a PDF it moved aside). A publish whose destination cannot be read
+stays recorded, in `unsettled` once a later Save follows it, until an open
+or Save settles it.
 
 A saved file's metadata witness is its size and modification time; desktop
 adds the file's identity (device and inode, on Windows the volume serial and

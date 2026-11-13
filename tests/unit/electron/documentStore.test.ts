@@ -265,6 +265,34 @@ describe('desktop document store', () => {
         expect(await readAll(reopened)).toEqual(EDITED);
     });
 
+    it.each([true, false])('settles an interrupted Save before a Save As elsewhere, or keeps it to settle later (PDF readable: %s)', async (readable) => {
+        const {pdf, entry} = await openPdf();
+        await crashDuringPublish(entry, await writeTemp('edited.pdf', EDITED));
+        // The Save moved the PDF aside and stopped before installing its bytes.
+        await rename(pdf, displaced(pdf));
+        const {publication} = entry.doc.store;
+        const real = {...publication};
+        const unreadable = (destination: string) => !readable && destination === pdf;
+        publication.witness = (destination, content) => (unreadable(destination) ? Promise.reject(new Error('EACCES')) : real.witness(destination, content));
+        if (real.settle) publication.settle = (destination, ...rest) => (unreadable(destination) ? Promise.reject(new Error('EACCES')) : real.settle!(destination, ...rest));
+        const copy = join(tempRoot, 'copy.pdf');
+        try {
+            expect(await store.saveOpenDocument(entry, store.documentRevisionToken(entry), {saveAs: copy})).toMatchObject({status: 'saved'});
+        } finally {
+            Object.assign(publication, real);
+        }
+        expect(await readFile(copy)).toEqual(Buffer.from(EDITED));
+        expect(existsSync(pdf)).toBe(readable);
+        expect(entry.doc.snapshot().unsettled?.map(record => record.destination)).toEqual(readable ? undefined : [pdf]);
+        const id = entry.doc.id;
+        await restart();
+
+        expect((await store.reopenStoredDocument(id, {ownerWebContentsId: 8})).doc.snapshot().unsettled).toBeUndefined();
+        expect(await readFile(pdf)).toEqual(Buffer.from(ORIGINAL));
+        expect(existsSync(displaced(pdf))).toBe(false);
+        expect(await findKeptOriginal(pdf)).toBeUndefined();
+    });
+
     it('commits a native tool\'s output as the next revision without copying the document first, and drops it when the tool fails', async () => {
         const {pdf, entry} = await openPdf();
         const before = store.documentRevisionToken(entry);

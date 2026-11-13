@@ -103,14 +103,14 @@ async function settleDisplacedOriginal(destination: string, baseline: string | n
 }
 
 /**
- * Settles a save a crash interrupted, before the document that made it reopens: the save finished only if the PDF is
- * the file it was publishing, whose metadata it staged as `published`. A PDF that cannot be read now is left for the
- * next start.
+ * Settles a save a crash or a failure interrupted: the save finished only if the PDF is the file it was publishing,
+ * whose metadata it staged as `published`. Returns the PDF's witness afterwards; throws while the PDF cannot be read,
+ * so the document keeps the save to settle later.
  */
-export function recoverInterruptedPublish(destination: string, baseline: string | null, published: string) {
+function settleInterruptedPublish(destination: string, published: string, baseline: string | null) {
     return withOriginalPathMutationLock(destination, async () => {
-        const now = await fileWitness(destination).catch(() => undefined);
-        return now === undefined ? undefined : settleDisplacedOriginal(destination, baseline, sameWitness(now, published));
+        await settleDisplacedOriginal(destination, baseline, sameWitness(await fileWitness(destination), published));
+        return fileWitness(destination);
     });
 }
 
@@ -132,6 +132,7 @@ async function copyRevision(source: IPublishSource, absolutePath: string, target
 export function createDesktopPublication(absolute: (storePath: string) => string): IPublicationPort {
     return {
         witness: fileWitness,
+        settle: settleInterruptedPublish,
         source: async destination => destination,
         publish: (destination, source, expected, stage) => withOriginalPathMutationLock(destination, async () => {
             await settleDisplacedOriginal(destination, expected);

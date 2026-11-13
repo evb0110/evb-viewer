@@ -53,9 +53,17 @@ export function saveDocument(doc: DocumentDirectory, options: ISaveOptions) {
             destination,
             { path: doc.path(current.file), length: current.length, file: doc.currentFile(), witness: current.witness },
             saveAs === undefined ? baseline ?? null : null,
-            // The current bytes carry the witness too, so recovery that adopts it leaves the document clean.
+            // The current bytes carry the witness too, so recovery that adopts it leaves the document clean. An earlier
+            // publish still unresolved is kept to be settled, with the baseline its destination had.
             async (witness) => {
-                await doc.commit({ ...doc.snapshot(), current: { ...current, witness }, pendingPublish: { destination, witness } });
+                const manifest = doc.snapshot();
+                const earlier = manifest.pendingPublish;
+                await doc.commit({
+                    ...manifest,
+                    current: { ...current, witness },
+                    pendingPublish: { destination, witness },
+                    unsettled: earlier ? [...manifest.unsettled ?? [], { ...earlier, baseline: manifest.baseline }] : manifest.unsettled,
+                });
                 staged = true;
             },
         );

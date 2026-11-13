@@ -70,7 +70,7 @@ function collectOnce() {
         const named = new Set(recent);
         for (const id of await durable.port.list(DOCUMENTS_DIR)) {
             const manifest = await durable.port.read(`${DOCUMENTS_DIR}/${id}/${MANIFEST_NAME}`).then(decodeManifest).catch(() => null);
-            for (const destination of [manifest?.destination, manifest?.pendingPublish?.destination]) {
+            for (const destination of [manifest?.destination, manifest?.pendingPublish?.destination, ...manifest?.unsettled?.map(record => record.destination) ?? []]) {
                 const key = handleKeyOf(destination ?? null);
                 if (key !== null) named.add(key);
             }
