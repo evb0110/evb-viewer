@@ -45,10 +45,13 @@ Save As supplies a destination and publishes without the baseline check.
 Failures retain the committed work. Recovery compares an interrupted
 publication's witness with the destination before acknowledging it.
 
-A saved file's metadata witness is its size and modification time. Desktop
-records nanoseconds; browser file handles expose milliseconds. Checking that
-fact reads no file content. A touch or an identical rewrite that changes the
-metadata conflicts. Content witnesses identify revision bytes and downloaded
+A saved file's metadata witness is its size and modification time; desktop
+adds the file's identity (device and inode, on Windows the volume serial and
+file id), so a file another program put in its place differs even with the
+same size and time, while a rename keeps it. Desktop records nanoseconds;
+browser file handles expose milliseconds. Checking that fact reads no file
+content. A touch or an identical rewrite that changes the metadata conflicts;
+an edit in place that restores the modification time is not seen. Content witnesses identify revision bytes and downloaded
 output, and let recovery recognize a completed publication.
 
 ## Ports and ownership

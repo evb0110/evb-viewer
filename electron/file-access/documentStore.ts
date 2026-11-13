@@ -777,7 +777,7 @@ export function getWorkingCopyOwnerWebContentsId(ref: string) {
  * fact of its baseline witness: what a remembered reading view is bound to. `null` for a document without one.
  */
 export function getBaselineFileVersion(ref: string, senderId?: number) {
-    const fact = /(?:^| )file-v1:(\d+):(\d+)(?: |$)/u.exec(getWorkingCopyBackingEntry(ref, senderId)?.doc.state().baseline ?? '');
+    const fact = /(?:^| )file-v2:(\d+):(\d+):/u.exec(getWorkingCopyBackingEntry(ref, senderId)?.doc.state().baseline ?? '');
     return fact ? {size: BigInt(fact[1]!), mtimeNs: BigInt(fact[2]!)} : null;
 }
 

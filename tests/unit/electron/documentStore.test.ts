@@ -6,6 +6,8 @@ import {
     readdir,
     rename,
     rm,
+    stat,
+    utimes,
     writeFile,
 } from 'node:fs/promises';
 import {tmpdir} from 'node:os';
@@ -147,6 +149,24 @@ describe('desktop document store', () => {
         expect(await readFile(pdf)).toEqual(Buffer.from(outside));
         expect(await readAll(entry)).toEqual(EDITED);
         expect(existsSync(displaced(pdf))).toBe(false);
+    });
+
+    it('refuses a Save when another program put a file of the same size and modification time in place of the PDF', async () => {
+        const pdf = await writeTemp('report.pdf', ORIGINAL);
+        await utimes(pdf, 1_700_000_000, 1_700_000_000);
+        const entry = await store.openDocumentFromFile(pdf, {ownerWebContentsId: 7});
+        await store.commitDocumentMutation(entry, '1' as never, {kind: 'rewrite', source: await writeTemp('edited.pdf', EDITED)}, 'write');
+        const foreign = new TextEncoder().encode('%PDF-1.7\nforeign! bytes\n%%EOF\n');
+        const replacement = await writeTemp('replacement.pdf', foreign);
+        await utimes(replacement, 1_700_000_000, 1_700_000_000);
+        const before = await stat(pdf, {bigint: true});
+        await rename(replacement, pdf);
+        const after = await stat(pdf, {bigint: true});
+        expect([after.size, after.mtimeNs]).toEqual([before.size, before.mtimeNs]);
+
+        expect(await store.saveOpenDocument(entry, store.documentRevisionToken(entry))).toEqual({status: 'conflict'});
+        expect(await readFile(pdf)).toEqual(Buffer.from(foreign));
+        expect(await readAll(entry)).toEqual(EDITED);
     });
 
     it('commits the edits a refused Save carried and tells every window, so Save As publishes them elsewhere', async () => {
