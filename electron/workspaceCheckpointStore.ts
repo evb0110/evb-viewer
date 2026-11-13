@@ -2,13 +2,20 @@ import {randomUUID} from 'node:crypto';
 import {webContents} from 'electron';
 import type {WebContents} from 'electron';
 import {
+    decodeManifest,
+    DOCUMENTS_DIR,
+    isDirty,
+    MANIFEST_NAME,
+} from '@document-store/documentDirectory';
+import {
     readWorkspaceCheckpoints,
     removeWorkspaceCheckpoint,
     writeWorkspaceCheckpoint,
     type IWorkspaceCheckpoint as IStoredCheckpoint,
 } from '@document-store/workspaceCheckpoint';
 import {
-    decodeWorkspaceCheckpoint,
+    decodeStoredWorkspaceCheckpoint,
+    toStoredWorkspaceCheckpoint,
     type IWorkspaceCheckpoint,
     type IWorkspaceCheckpointAnnotationRecovery,
     type IWorkspaceCheckpointTab,
@@ -36,8 +43,9 @@ const log = createLogger('workspace-checkpoint-store');
 
 /**
  * Each window's workspace is one checkpoint in the document store: the renderer's tabs, panes and views, and for
- * each tab the document directory it shows. Unsaved annotations are not copied here; they are the drafts of their
- * document, committed with its manifest. Registrations, grants and dirty state come from the manifests.
+ * each tab the document directory it shows. It keeps references only: unsaved annotations are the drafts of their
+ * document, committed with its manifest, and whether a tab holds unsaved work, where it saves to and its drafts
+ * come from that manifest when the workspace is claimed.
  */
 interface IDrafts {annotationRecovery: IWorkspaceCheckpointAnnotationRecovery}
 
@@ -91,14 +99,31 @@ function isLiveOwner(ownerId: string) {
 }
 
 function decodeStored(stored: IStoredCheckpoint | null) {
-    return stored && isRecord(stored.layout) ? decodeWorkspaceCheckpoint(stored.layout.checkpoint) : null;
+    return stored && isRecord(stored.layout) ? decodeStoredWorkspaceCheckpoint(stored.layout.checkpoint) : null;
 }
 
 function encodeStored(checkpoint: IWorkspaceCheckpoint, directories: ReadonlyMap<string, string>): IStoredCheckpoint {
     return {
         tabs: Object.fromEntries([...directories].map(([tabId, directory]) => [tabId, {directory, view: null}])),
-        layout: {checkpoint},
+        layout: {checkpoint: toStoredWorkspaceCheckpoint(checkpoint)},
     };
+}
+
+/** Whether the document in `directory` holds unsaved work, by its manifest. One that cannot be read may. */
+async function holdsUnsavedWork(directory: string) {
+    try {
+        return isDirty(decodeManifest(await getDocumentStore().port.read(`${DOCUMENTS_DIR}/${directory}/${MANIFEST_NAME}`)));
+    } catch {
+        return true;
+    }
+}
+
+async function unsavedTabIds(stored: IStoredCheckpoint) {
+    const unsaved = new Set<string>();
+    for (const [tabId, {directory}] of Object.entries(stored.tabs)) {
+        if (await holdsUnsavedWork(directory)) unsaved.add(tabId);
+    }
+    return unsaved;
 }
 
 async function readCheckpoints() {
@@ -109,11 +134,6 @@ async function readCheckpoints() {
         if (stored && checkpoint) decoded.set(ownerId, {stored, checkpoint});
     }
     return decoded;
-}
-
-function stripPayload(recovery: IWorkspaceCheckpointAnnotationRecovery) {
-    const {payload: _payload, ...ref} = recovery;
-    return ref;
 }
 
 function isAdmittedSource(sourceRef: TDocumentRef, owner: number | WebContents, documentOriginal: string | undefined) {
@@ -158,11 +178,7 @@ export function saveWorkspaceCheckpoint(
                 }
             }
             const sourceRef = tab.sourceRef && isAdmittedSource(tab.sourceRef, owner, entry?.originalPath) ? tab.sourceRef : null;
-            tabs.push({
-                ...tab,
-                sourceRef,
-                ...(tab.annotationRecovery ? {annotationRecovery: stripPayload(tab.annotationRecovery)} : {}),
-            });
+            tabs.push({...tab, sourceRef});
             // A generated output a tab shows must outlive the scratch sweep until the tab is gone.
             if (sourceRef) void touchScanCleanupGeneratedOutput(sourceRef).catch(() => undefined);
         }
@@ -206,9 +222,10 @@ export function claimWorkspaceCheckpoint(ownerWebContentsId: number, owner?: num
             await writeWorkspaceCheckpoint(getDocumentStore().port, claimantId, newest.stored);
             await removeWorkspaceCheckpoint(getDocumentStore().port, newest.ownerId);
         }
+        const claimed = {...newest.checkpoint, tabs};
         claimedInCurrentLoad.add(claimantId);
-        restoresInFlight.set(claimantId, getRestoreOpenedDocuments(newest.checkpoint));
-        return {...newest.checkpoint, tabs};
+        restoresInFlight.set(claimantId, getRestoreOpenedDocuments(claimed));
+        return claimed;
     });
 }
 
@@ -216,7 +233,7 @@ async function claimTab(tab: IWorkspaceCheckpointTab, stored: IStoredCheckpoint,
     const keptOriginalPath = tab.sourceRef ? await findKeptOriginal(tab.sourceRef) : undefined;
     const claimed = keptOriginalPath ? {...tab, keptOriginalPath: requireDocumentRef(keptOriginalPath)} : tab;
     const directory = stored.tabs[tab.tabId]?.directory;
-    if (!tab.isDirty || !directory) return claimed;
+    if (!directory || !await holdsUnsavedWork(directory)) return claimed;
     try {
         const entry = await reopenStoredDocument(directory, {
             ownerWebContentsId,
@@ -227,14 +244,16 @@ async function claimTab(tab: IWorkspaceCheckpointTab, stored: IStoredCheckpoint,
             // The work was saved after this checkpoint: the tab reopens its file.
             openDocuments.delete(entry.ref);
             await entry.doc.close();
-            return {...claimed, isDirty: false};
+            return claimed;
         }
         const drafts = isRecord(state.drafts) ? (state.drafts as unknown as IDrafts).annotationRecovery : undefined;
         const {annotationRecovery: _stale, ...rest} = claimed;
         return {
             ...rest,
+            isDirty: true,
             workingCopyRef: requireDocumentRef(entry.ref),
             sourceRef: requireDocumentRef(state.destination ?? entry.originalPath ?? tab.sourceRef ?? entry.ref),
+            ...(state.destination === null ? {requiresSaveAsOnFirstSave: true} : {}),
             ...(drafts ? {annotationRecovery: {...drafts, workingCopyRef: requireDocumentRef(entry.ref)}} : {}),
         };
     } catch (error) {
@@ -261,10 +280,11 @@ function getRestoreOpenedDocuments(checkpoint: IWorkspaceCheckpoint) {
 async function closeRestoreDocuments(ownerId: string, documents: {tabIds: Set<string>; sourceRefs: Set<string>}) {
     const own = (await readCheckpoints()).get(ownerId);
     if (!own) return;
+    const unsaved = await unsavedTabIds(own.stored);
     const notReopened = [...own.checkpoint.notReopened ?? []];
     let closedTabCount = 0;
     const tabs = own.checkpoint.tabs.map((tab): IWorkspaceCheckpointTab => {
-        if (tab.isDirty || !(documents.tabIds.has(tab.tabId) || (tab.sourceRef !== null && documents.sourceRefs.has(tab.sourceRef)))) {
+        if (unsaved.has(tab.tabId) || !(documents.tabIds.has(tab.tabId) || (tab.sourceRef !== null && documents.sourceRefs.has(tab.sourceRef)))) {
             return tab;
         }
         closedTabCount += 1;
@@ -301,7 +321,7 @@ export function acknowledgeWorkspaceCheckpoint(ownerWebContentsId: number, owner
         }
         restoresInFlight.delete(ownerId);
         const own = (await readCheckpoints()).get(ownerId);
-        if (own && !own.checkpoint.tabs.some(tab => tab.isDirty)) {
+        if (own && (await unsavedTabIds(own.stored)).size === 0) {
             await removeWorkspaceCheckpoint(getDocumentStore().port, ownerId);
         }
         return own !== undefined;
