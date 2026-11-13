@@ -60,7 +60,7 @@ interface IUsePdfViewerSaveTransactionOptions {
         assertCurrent?(): Promise<void> | void;
         replaceFromDocument?(result: IPdfAnnotationParseResult, deletedReplyRefs?: readonly string[]): boolean;
         affectedPageIndices?: readonly number[] | null;
-        commit(identityBindings?: readonly IPdfNativeAnnotationIdentityBinding[]): void;
+        commit(identityBindings?: readonly IPdfNativeAnnotationIdentityBinding[], saved?: boolean): void;
     };
 }
 
@@ -149,8 +149,8 @@ export const usePdfViewerSaveTransaction = (
             verify: () => Promise.resolve(),
             verifyPath: () => Promise.resolve(),
             assertCurrent: () => application.assertSaveCurrent(session, input.documentRevisionToken),
-            commit: (identityBindings?: readonly IPdfNativeAnnotationIdentityBinding[]) => {
-                application.acknowledgeSave(session, input.documentRevisionToken, identityBindings, preserveSavedBaseline);
+            commit: (identityBindings?: readonly IPdfNativeAnnotationIdentityBinding[], saved = true) => {
+                application.acknowledgeSave(session, input.documentRevisionToken, identityBindings, preserveSavedBaseline || !saved);
                 expectedUpserts = expectedUpserts.map(entity => ({
                     ...entity,
                     identity: application.store.get(entity.identity.id)?.identity ?? entity.identity,
@@ -288,7 +288,7 @@ export const usePdfViewerSaveTransaction = (
                 await verifyPath(path, knownSize);
                 assertSaveTargetCurrent();
             },
-            commitAnnotationSave: (identityBindings?: readonly IPdfNativeAnnotationIdentityBinding[]) => {
+            commitAnnotationSave: (identityBindings?: readonly IPdfNativeAnnotationIdentityBinding[], saved?: boolean) => {
                 // Persistence may legitimately advance the document revision and
                 // open fence. The frozen store frontier still performs semantic
                 // CAS. If a successful Save As/reload retired this application,
@@ -299,7 +299,7 @@ export const usePdfViewerSaveTransaction = (
                 ) {
                     return;
                 }
-                canonicalSave?.commit(identityBindings);
+                canonicalSave?.commit(identityBindings, saved);
             },
             assertAnnotationSaveCurrent: async () => {
                 assertSaveTargetCurrent();

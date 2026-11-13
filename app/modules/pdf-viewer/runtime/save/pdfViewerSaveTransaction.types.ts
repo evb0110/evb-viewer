@@ -189,5 +189,6 @@ export interface IPdfViewerSaveTransactionResult {
     verifyAnnotationSave?(bytes: Uint8Array): Promise<void>;
     verifyAnnotationSavePath?(path: string, knownSize: number): Promise<void>;
     assertAnnotationSaveCurrent?(): Promise<void> | void;
-    commitAnnotationSave?(identityBindings?: readonly IPdfNativeAnnotationIdentityBinding[]): void;
+    /** `saved: false`: the edits reached the working copy but not the file, so they stay unsaved. */
+    commitAnnotationSave?(identityBindings?: readonly IPdfNativeAnnotationIdentityBinding[], saved?: boolean): void;
 }
