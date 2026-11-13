@@ -1497,7 +1497,7 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
         expect(getOptimizedPdfName('book.pdf')).toBe('book-optimized.pdf');
     });
 
-    it('remembers a DjVu source reading view only while its content witness matches', async () => {
+    it('remembers a DjVu source reading view only while its file is the version it was left on', async () => {
         const {
             capability, browserDocumentStore,
         } = await loadBrowserDocumentsFileCapability();
@@ -1525,8 +1525,8 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
         await capability.recentFiles.rememberReadingView(source, view);
         await expect(capability.recentFiles.readingView(source)).resolves.toEqual(view);
 
-        // The same size and time, other bytes: the view was left on bytes the file no longer has.
-        physical = new File([Uint8Array.of(65, 84, 38, 85)], 'book.djvu', {lastModified: 1_000});
+        // Another write gives the file a new modification time: the view was left on a version it no longer is.
+        physical = new File([Uint8Array.of(65, 84, 38, 85)], 'book.djvu', {lastModified: 2_000});
         await expect(capability.recentFiles.readingView(source)).resolves.toBeNull();
     });
 
@@ -2449,9 +2449,10 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
 
     it('preserves externally changed bytes when saving a byte-created snapshot', async () => {
         let physicalBytes = Uint8Array.of(37, 80, 68, 70);
+        let modifiedAt = 1_000;
         const handle = createFileSystemFileHandle({
             name: 'snapshot.pdf',
-            getFile: async () => new File([physicalBytes], 'snapshot.pdf'),
+            getFile: async () => new File([physicalBytes], 'snapshot.pdf', {lastModified: modifiedAt}),
             createWritable: async () => createFileSystemWritableFileStream({write: async chunk => {
                 physicalBytes = new Uint8Array(requireArrayBufferChunk(chunk));
             }}),
@@ -2465,6 +2466,7 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
         });
         const snapshot = await capability.createWorkingCopyFromData('snapshot.pdf', Uint8Array.of(37, 80, 68, 70, 9), sourceRef);
         physicalBytes = Uint8Array.of(37, 80, 68, 70, 8);
+        modifiedAt = 2_000;
         await expect(capability.saveFileStructured(snapshot, await getRevisionOptions(browserDocumentStore, snapshot)))
             .resolves.toMatchObject({
                 ok: false,

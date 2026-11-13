@@ -1,4 +1,5 @@
 import * as v from 'valibot';
+import { sameWitness } from '@document-store/contentWitness';
 import { getErrorMessage } from '@app/utils/error';
 import type {TDocumentRef} from '@contracts/documentRef';
 import {
@@ -34,8 +35,8 @@ export class BrowserRecentFilesStorageUnavailableError extends Error {
 
 export const BROWSER_RECENT_FILES_STORAGE_LOCK_KEY = '__evb_recent_files_storage_lock__';
 
-// Where a reader left a Recent document, with the content witness of the
-// source bytes it was left on. As on desktop it rides on its Recent entry, so
+// Where a reader left a Recent document, with the witness of the source file
+// it was left on. As on desktop it rides on its Recent entry, so
 // it goes when the entry goes; the list's parser drops it, so only this store
 // reads it.
 const STORED_READING_VIEW_SCHEMA = v.object({
@@ -201,10 +202,10 @@ export class BrowserRecentFilesStore {
         });
     }
 
-    /** The view a reader left `ref` at, if its source is still the bytes `sourceWitness` names. */
+    /** The view a reader left `ref` at, if its source is still the file `sourceWitness` names. */
     public readReadingView(ref: string, sourceWitness: string) {
         const stored = readStoredReadingViews().get(ref);
-        return stored?.sourceWitness === sourceWitness ? stored.view : null;
+        return stored && sameWitness(stored.sourceWitness, sourceWitness) ? stored.view : null;
     }
 
     public async clear() {

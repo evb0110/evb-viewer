@@ -1,4 +1,7 @@
-import { contentWitness } from '@document-store/contentWitness';
+import {
+    contentWitness,
+    sameWitness,
+} from '@document-store/contentWitness';
 import type {
     IPublicationPort,
     IPublishSource,
@@ -51,9 +54,12 @@ async function requireFileHandle(destination: string) {
     return handle;
 }
 
-export function blobWitness(blob: Blob) {
+function blobWitness(blob: Blob) {
     return contentWitness(blob.size, async (offset, length) => new Uint8Array(await blob.slice(offset, offset + length).arrayBuffer()));
 }
+
+/** A picked file's metadata fact, its size and modification time, in the form desktop files use. Reading it reads no bytes. */
+export const fileFact = (file: File) => `file-v1:${file.size}:${BigInt(file.lastModified) * 1_000_000n}`;
 
 /** The published bytes a chunk at a time, each an ArrayBuffer of its own, as file writers and Blobs take them. */
 async function* sourceChunks(source: IPublishSource) {
@@ -87,14 +93,17 @@ export function downloadBlob(blob: Blob, fileName: string) {
 }
 
 /**
- * Where browser documents are saved. With a handle: check the witness, then `createWritable`, write, `close`.
- * Without one: a download, whose dispatch is the receipt, so the dispatched bytes become the baseline. The
- * caller asked for write permission before taking the document's lock; nothing here prompts.
+ * Where browser documents are saved. With a handle: check the file's size and modification time against the
+ * baseline, then `createWritable`, write, `close`. A file's witness is that metadata, so opening or checking it
+ * never reads it; recovery asks for its content too. Without a handle: a download, whose dispatch is the
+ * receipt, so the dispatched bytes become the baseline. The caller asked for write permission before taking the
+ * document's lock; nothing here prompts.
  */
 export const browserPublication: IPublicationPort = {
-    async witness(destination) {
+    async witness(destination, content) {
         if (handleKeyOf(destination) === null) return null;
-        return blobWitness(await (await requireFileHandle(destination)).getFile());
+        const file = await (await requireFileHandle(destination)).getFile();
+        return content ? `${fileFact(file)} ${await blobWitness(file)}` : fileFact(file);
     },
     async source(destination) {
         return (await requireFileHandle(destination)).getFile();
@@ -109,7 +118,7 @@ export const browserPublication: IPublicationPort = {
         // Two documents can name one file (it was opened twice). Every publication to a file takes one lock, so
         // the check sees what another document's save wrote.
         return runBrowserLock(PUBLISH_LOCK, async () => {
-            if (expected !== null && await blobWitness(await handle.getFile()) !== expected) return {status: 'conflict'} as const;
+            if (expected !== null && !sameWitness(fileFact(await handle.getFile()), expected)) return {status: 'conflict'} as const;
             const writable = await handle.createWritable();
             try {
                 for await (const chunk of sourceChunks(source)) await writable.write(chunk);
@@ -118,7 +127,7 @@ export const browserPublication: IPublicationPort = {
                 throw error;
             }
             await writable.close();
-            return {status: 'published'} as const;
+            return {status: 'published', witness: fileFact(await handle.getFile())} as const;
         });
     },
 };

@@ -12,11 +12,12 @@ import {
 
 describe('browser document lifecycle UI', () => {
 
-    // T3: physical Save compares every opening byte and ignores an mtime-only touch.
+    // T3: Save compares the file's size and modification time with those it opened, so any write
+    // elsewhere, including a touch that keeps the bytes, is refused with Save As.
     it.each([
         'unsampled-edit',
         'mtime-only',
-    ] as const)('preserves physical-source Save authority after %s', async scenario => {
+    ] as const)('refuses Save to a file changed elsewhere by %s', async scenario => {
         const context = await lifecycle.browser.newContext({viewport: {
             width: 1280,
             height: 900,
@@ -25,7 +26,7 @@ describe('browser document lifecycle UI', () => {
         const name = 'physical-authority.pdf';
         const note = 'Independent working note';
         const book = await createReadingBook('Physical authority', name);
-        // A valid PDF with trailing comments; offset 1 MiB is outside any sampled witness.
+        // A valid PDF with trailing comments, so a byte at 1 MiB can change without changing its size.
         const changed = scenario === 'unsampled-edit';
         const bytes = changed
             ? Buffer.concat([
@@ -81,7 +82,7 @@ describe('browser document lifecycle UI', () => {
             await page.evaluate(async ({
                 fileName, changeBytes, position,
             }) => {
-                sessionStorage.setItem('physical-mtime', changeBytes ? '100' : '200');
+                sessionStorage.setItem('physical-mtime', '200');
                 if (!changeBytes) return;
                 const root = await navigator.storage.getDirectory();
                 const handle = await root.getFileHandle(fileName);
@@ -112,29 +113,18 @@ describe('browser document lifecycle UI', () => {
                 });
             }, name);
             const saved = Buffer.from(savedBase64, 'base64');
-            if (changed) {
-                expect(saved[1024 * 1024]).toBe(88);
-                expect(noteTexts(await PDFDocument.load(Uint8Array.from(saved)))).not.toContain(note);
-                expect(await save.isDisabled()).toBe(false);
-                // Save As still contains the reader's independent authored work.
-                await page.getByRole('button', {
-                    name: 'Save options',
-                    exact: true,
-                }).click();
-                const download = page.waitForEvent('download');
-                await page.evaluate(() => Reflect.set(window, 'showSaveFilePicker', undefined));
-                await page.getByRole('menuitem', {name: /^Save As/u}).click();
-                expect(noteTexts(await PDFDocument.load(readFileSync(await (await download).path())))).toContain(note);
-            } else {
-                expect(noteTexts(await PDFDocument.load(Uint8Array.from(saved)))).toContain(note);
-                expect(await save.isDisabled()).toBe(true);
-                await addNote(page, 'Second save advances the baseline', {
-                    x: 140,
-                    y: 140,
-                });
-                await save.click();
-                await expect.poll(() => save.isDisabled(), {timeout: 15_000}).toBe(true);
-            }
+            if (changed) expect(saved[1024 * 1024]).toBe(88);
+            expect(noteTexts(await PDFDocument.load(Uint8Array.from(saved)))).not.toContain(note);
+            expect(await save.isDisabled()).toBe(false);
+            // Save As still contains the reader's independent authored work.
+            await page.getByRole('button', {
+                name: 'Save options',
+                exact: true,
+            }).click();
+            const download = page.waitForEvent('download');
+            await page.evaluate(() => Reflect.set(window, 'showSaveFilePicker', undefined));
+            await page.getByRole('menuitem', {name: /^Save As/u}).click();
+            expect(noteTexts(await PDFDocument.load(readFileSync(await (await download).path())))).toContain(note);
         } finally {
             await context.close();
         }

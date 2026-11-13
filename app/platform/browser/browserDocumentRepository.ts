@@ -27,9 +27,10 @@ import {
 } from '@app/platform/browser/browserDocumentReadError';
 import { emitBrowserDocumentPersistenceWarning } from '@app/platform/browser/browserDocumentPersistenceWarnings';
 import { fileHandleStore } from '@app/platform/browser/browserFileHandleStore';
+import { sameWitness } from '@document-store/contentWitness';
 import {
-    blobWitness,
     browserPublication,
+    fileFact,
     handleDestination,
     handleKeyOf,
     rememberFileHandle,
@@ -514,7 +515,7 @@ export class BrowserDocumentStore {
         // file's change refuses must not commit them first. The core checks again under the write.
         const {destination, baseline} = doc.state();
         if (options.commit && !options.saveAs && baseline && handleKeyOf(destination) !== null
-            && await browserPublication.witness(destination!) !== baseline) {
+            && !sameWitness(await browserPublication.witness(destination!), baseline)) {
             return {status: 'conflict'};
         }
         // A save that commits the shell's edits and then fails puts the revision the shell knows back: its
@@ -657,7 +658,7 @@ export class BrowserDocumentStore {
 
     // Internals ----------------------------------------------------------------------------------------------
 
-    /** The source a reading view belongs to, with the content witness of the bytes it was opened on. */
+    /** The source a reading view belongs to, with the witness of the file it was opened on. */
     private async admittedSource(ref: string) {
         const entry = await this.ensureEntry(ref).catch(() => null);
         if (!entry) return null;
@@ -668,7 +669,7 @@ export class BrowserDocumentStore {
         }
         // A picked file read in place, as a DjVu is, is its own source: its present bytes decide.
         await this.refreshPickedFile(entry).catch(() => undefined);
-        return {sourceRef: entry.ref, witness: await blobWitness(await this.fileOf(entry))};
+        return {sourceRef: entry.ref, witness: fileFact(await this.fileOf(entry))};
     }
 
     private attach(entry: IBrowserDocumentEntry) {
