@@ -183,7 +183,7 @@ export class BrowserDocumentStore {
     /** The durable store (the origin private file system) when the browser offers one, and the memory store. */
     public stores() {
         this.storesPromise ??= (async () => {
-            const store = (port: IDocumentStore['port']): IDocumentStore => ({port, publication: browserPublication, historyBudget: 0});
+            const store = (port: IDocumentStore['port']): IDocumentStore => ({port, publication: browserPublication});
             const opened = await openBrowserStorePort();
             return {
                 durable: opened.durable ? store(opened.port) : null,
@@ -293,7 +293,7 @@ export class BrowserDocumentStore {
         } else if (source.doc && source.store) {
             const id = browserDocumentRefId(workingRef);
             const release = await this.lock(id, 0);
-            const store = {...source.store, historyBudget: 0};
+            const store = source.store;
             try {
                 const forked = this.docEntry(workingRef, await forkDocument(store, source.doc.id, id), store, release, meta);
                 forked.memoryOnly = source.memoryOnly;
@@ -582,14 +582,12 @@ export class BrowserDocumentStore {
         }
         // A save that commits the shell's edits and then fails puts the revision the shell knows back: its
         // edits stay pending there, and a retry must not apply them twice.
-        const base = doc.snapshot().current?.id ?? doc.snapshot().next;
+        const base = doc.state().current?.id ?? 1;
         const rollBack = async () => {
-            if (options.commit && doc.state().current?.id !== base && doc.state().history.some(revision => revision.id === base)) {
-                await doc.restore(base);
-            }
+            const current = doc.state().current?.id ?? null;
+            if (options.commit && current !== base) await doc.restore(current, base);
         };
         let result: TSaveResult;
-        entry.store!.historyBudget = options.commit ? Number.MAX_SAFE_INTEGER : 0;
         try {
             result = await saveDocument(doc, {
                 expected: this.expectedRevision(entry, token),
@@ -599,8 +597,6 @@ export class BrowserDocumentStore {
         } catch (error) {
             await rollBack();
             throw error;
-        } finally {
-            entry.store!.historyBudget = 0;
         }
         if (result.status !== 'saved') {
             await rollBack();
@@ -610,6 +606,32 @@ export class BrowserDocumentStore {
         entry.updatedAt = Date.now();
         if (this.tokenOf(entry) !== previous) this.emitRevision(entry, previous, 'save-sync');
         return result;
+    }
+
+    /** Undo or redo: makes `revision`, which the document keeps for its undo history, current again. Nothing is copied. */
+    public async restoreRevision(ref: string, revision: TDocumentRevisionToken, token: TDocumentRevisionToken | null | undefined) {
+        const entry = await this.requireEntry(ref);
+        const doc = this.requireDoc(entry);
+        const previous = this.tokenOf(entry);
+        const result = await doc.restore(this.expectedRevision(entry, token), this.revisionIdOf(doc, revision));
+        if (result.status === 'stale-revision') this.throwStale(entry, token);
+        if (result.status === 'conflict') throw new BrowserDocumentSourceChangedError(entry.ref);
+        entry.file = null;
+        entry.fileSize = await this.sizeOf(entry);
+        entry.updatedAt = Date.now();
+        this.emitRevision(entry, previous, 'write');
+        return this.revisionInfo(entry);
+    }
+
+    /** Keeps exactly the revisions `revisions` names for undo and redo; the files no revision names any more go. */
+    public async retainRevisions(ref: string, revisions: readonly TDocumentRevisionToken[]) {
+        const doc = this.requireDoc(await this.requireEntry(ref));
+        await doc.retain(revisions.map(revision => this.revisionIdOf(doc, revision)));
+    }
+
+    private revisionIdOf(doc: DocumentDirectory, revision: TDocumentRevisionToken) {
+        const id = Number(revision.slice(revision.lastIndexOf(':') + 1));
+        return Number.isSafeInteger(id) && this.revisionToken(doc, id) === revision ? id : -1;
     }
 
     // Lifecycle ----------------------------------------------------------------------------------------------
@@ -808,15 +830,14 @@ export class BrowserDocumentStore {
         const fileName = meta.fileName ?? getBrowserDocumentFileName(ref);
         const documentInit = {...init, id, ext: extensionOf(fileName)} as TDocumentInit;
         try {
-            // Each document has its own store record, so a Save can keep its base revision for a rollback.
-            let store = {...(durable ?? memory)};
+            let store = durable ?? memory;
             let doc: DocumentDirectory;
             try {
                 doc = await createDocument(store, documentInit);
             } catch (error) {
                 if (!durable || !isQuotaError(error)) throw error;
                 await store.port.remove(`documents/${id}`).catch(() => undefined);
-                store = {...memory};
+                store = memory;
                 doc = await createDocument(store, documentInit);
             }
             const entry = this.docEntry(ref, doc, store, release, {...meta, fileName});
@@ -850,7 +871,7 @@ export class BrowserDocumentStore {
         if (!durable || !(await durable.port.list('documents')).includes(id)) return null;
         const release = await this.lock(id, DOCUMENT_LOCK_WAIT_MS);
         try {
-            const store = {...durable};
+            const store = durable;
             const doc = await openDocument(store, id);
             const sourceRef = this.namedSources.get(parsed);
             // A named directory is a working copy; one opened from Recent Files is a stored source.
@@ -941,23 +962,23 @@ export class BrowserDocumentStore {
         return new Uint8Array(await file.slice(offset, offset + length).arrayBuffer());
     }
 
-    /** A store document's revision is its directory and the revision its manifest names. */
+    /** A store document's revision is its directory and the revision its manifest names; 1 is its destination's bytes. */
     public tokenOf(entry: IBrowserDocumentEntry) {
-        if (entry.doc) {
-            const manifest = entry.doc.snapshot();
-            return requireDocumentRevisionToken(`drt1:browser:${entry.doc.id}:${manifest.current?.id ?? manifest.next}`);
-        }
+        if (entry.doc) return this.revisionToken(entry.doc, entry.doc.state().current?.id ?? 1);
         return requireDocumentRevisionToken(`drt1:browser:${browserDocumentRefId(entry.ref)}:f${entry.file?.lastModified ?? 0}-${entry.file?.size ?? 0}`);
     }
 
+    private revisionToken(doc: DocumentDirectory, revisionId: number) {
+        return requireDocumentRevisionToken(`drt1:browser:${doc.id}:${revisionId}`);
+    }
+
     private revisionInfo(entry: IBrowserDocumentEntry, documentRef = entry.ref): IDocumentRevisionInfo {
-        const manifest = entry.doc?.snapshot();
         return {
             version: 1,
             documentRef,
             authority: 'browser-document-store',
             token: this.tokenOf(entry),
-            contentRevision: manifest ? manifest.current?.id ?? manifest.next : 1,
+            contentRevision: entry.doc?.state().current?.id ?? 1,
             mintedAt: createEpochMs(entry.updatedAt),
         };
     }

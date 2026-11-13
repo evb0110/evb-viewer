@@ -341,8 +341,8 @@ async function loadBrowserDocumentsFileCapability(
     const storeRoot = await mkdtemp(join(process.env.TMPDIR ?? tmpdir(), 'browser-document-store-'));
     storeRoots.push(storeRoot);
     vi.spyOn(browserDocumentStore, 'stores').mockResolvedValue({
-        durable: {port: createNodeStorePort(storeRoot), publication: browserPublication, historyBudget: 0},
-        memory: {port: createMemoryStorePort(), publication: browserPublication, historyBudget: 0},
+        durable: {port: createNodeStorePort(storeRoot), publication: browserPublication},
+        memory: {port: createMemoryStorePort(), publication: browserPublication},
     });
 
     return {

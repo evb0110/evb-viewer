@@ -106,6 +106,8 @@ import {
 import {
     handleCreateWorkingCopyFromData,
     handleCreateWorkingCopyFromPath,
+    handleRestoreDocumentRevision,
+    handleRetainDocumentRevisions,
 } from '@electron/features/documents/main/documentWorkingCopyHandlers';
 import {
     handleFileRead,
@@ -436,6 +438,10 @@ export const documentsMainBindings = {
     },
     parsePdfAnnotations: (context, filePath, options) =>
         parsePdfAnnotations(context, filePath, options),
+    restoreDocumentRevision: (context, workingPath, revision, revisionOptions) =>
+        handleRestoreDocumentRevision(context, workingPath, revision, revisionOptions),
+    retainDocumentRevisions: (context, workingPath, revisions) =>
+        handleRetainDocumentRevisions(context, workingPath, revisions),
     cleanupFile: async (context, workingPath) => {
         if (await cleanupWorkingCopy(workingPath, context.senderId)) {
             await discardOcrResultsForDocument(requireDocumentRef(workingPath));

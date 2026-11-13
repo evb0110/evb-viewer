@@ -10,10 +10,7 @@ import {
     type ExpectedOutcome,
 } from '@contracts/diagnostics/failureReceipt';
 import type {TDocumentRevisionToken} from '@contracts/documentRevision';
-import type {
-    IDocumentMutationRevisionOptions,
-    TOpenFileResult,
-} from '@contracts/electronApiDocuments';
+import type { TOpenFileResult } from '@contracts/electronApiDocuments';
 import type { TDocumentOpenOutcome } from '@app/types/documentOpenOutcome';
 import type { IPdfRasterDisplayProfileOpenOptions } from '@app/types/pdfRasterDisplayProfile';
 import {consumeRegisteredPdfRasterDisplayProfile} from '@app/types/pdfRasterDisplayProfile';
@@ -75,45 +72,20 @@ export interface ICreateDocumentOpenFlowDeps {
         options?: IPdfConformanceDeferralOptions,
     ) => void;
     incrementSessionVersion: () => void;
-    ensureHistoryBaselineForMutation: () => Promise<boolean>;
     loadEpoch: TEpochGuard;
     openEpoch: TEpochGuard;
-    pushHistorySnapshot: (
-        snapshot: Uint8Array,
-        options?: { reuseSnapshot?: boolean },
-    ) => Promise<boolean>;
-    resetHistory: (
-        snapshot: Uint8Array | null,
-        options?: {
-            reuseSnapshot?: boolean;
-            isCurrent?: (() => boolean) | undefined;
-        },
-    ) => Promise<boolean>;
+    resetHistory: (options?: {isCurrent?: (() => boolean) | undefined}) => Promise<boolean>;
     syncDirtyFromHistory: () => void;
     t: TTranslateFn;
 }
 
 const RECENT_OPEN_LOG_SECTION = 'recent-open';
-const MAX_EAGER_HISTORY_BASELINE_BYTES = 8 * 1024 * 1024;
-
-function createDocumentMutationRevisionOptions(
-    expectedDocumentRevisionToken: TDocumentRevisionToken | null | undefined,
-): IDocumentMutationRevisionOptions | undefined {
-    if (expectedDocumentRevisionToken === null || expectedDocumentRevisionToken === undefined) {
-        return undefined;
-    }
-    return { expectedDocumentRevisionToken };
-}
 
 export function createDocumentOpenFlow(
     state: IDocumentSessionState,
     deps: ICreateDocumentOpenFlowDeps,
 ) {
-    const performancePolicy = resolveOpenPathSecondaryPerformancePolicy(getPerformanceProfile());
-    const {
-        deferMediumHistoryBaseline,
-        maxInMemoryPdfBytes,
-    } = performancePolicy;
+    const {maxInMemoryPdfBytes} = resolveOpenPathSecondaryPerformancePolicy(getPerformanceProfile());
     const {
         requestPassword,
         cancelPasswordPrompt,
@@ -712,27 +684,10 @@ export function createDocumentOpenFlow(
         deps.clearPdfConformanceProfile();
 
         if (!options?.preserveHistory) {
-            if (
-                nextState.pdfData
-                && (
-                    !deferMediumHistoryBaseline
-                    || nextState.pdfData.byteLength <= MAX_EAGER_HISTORY_BASELINE_BYTES
-                )
-            ) {
-                const didResetHistory = await deps.resetHistory(nextState.pdfData, {
-                    reuseSnapshot: true,
-                    isCurrent: options?.isCurrent,
-                });
-                if (!didResetHistory || options?.isCurrent?.() === false) {
-                    return false;
-                }
-                deps.syncDirtyFromHistory();
-            } else {
-                const didResetHistory = await deps.resetHistory(null, { isCurrent: options?.isCurrent });
-                if (!didResetHistory || options?.isCurrent?.() === false) {
-                    return false;
-                }
+            if (!await deps.resetHistory({isCurrent: options?.isCurrent}) || options?.isCurrent?.() === false) {
+                return false;
             }
+            deps.syncDirtyFromHistory();
         }
 
         if (options?.isCurrent?.() === false) {
@@ -968,84 +923,8 @@ export function createDocumentOpenFlow(
         });
     }
 
-    async function applySnapshot(
-        snapshot: Uint8Array,
-        persist = false,
-        expectedWorkingPath: TDocumentRef | null = state.workingCopyPath.value,
-    ) {
-        if (expectedWorkingPath !== state.workingCopyPath.value) {
-            return false;
-        }
-        if (persist && expectedWorkingPath) {
-            await getDocumentFilesCapability().writeFile(
-                expectedWorkingPath,
-                snapshot,
-                createDocumentMutationRevisionOptions(state.documentRevisionToken.value),
-            );
-            if (!state.isActiveWorkingCopy(expectedWorkingPath)) {
-                return false;
-            }
-        }
-
-        state.pdfData.value = snapshot;
-        state.pdfSrc.value = toPdfBlob(snapshot);
-        state.pdfReloadSrc.value = state.pdfSrc.value;
-        return true;
-    }
-
-    async function loadPdfFromData(
-        data: Uint8Array,
-        opts?: {
-            pushHistory?: boolean;
-            persistWorkingCopy?: boolean;
-        },
-    ) {
-        const requestId = deps.loadEpoch.begin();
-        const expectedWorkingPath = state.workingCopyPath.value;
-        const snapshot = data.slice();
-        assertPdfHasBytes(snapshot.byteLength);
-        if (!deps.loadEpoch.isCurrent(requestId)) {
-            return;
-        }
-        if (!await deps.ensureHistoryBaselineForMutation()) {
-            return;
-        }
-        if (
-            !deps.loadEpoch.isCurrent(requestId)
-            || expectedWorkingPath !== state.workingCopyPath.value
-        ) {
-            return;
-        }
-        const didApplySnapshot = await applySnapshot(
-            snapshot,
-            opts?.persistWorkingCopy ?? false,
-            expectedWorkingPath,
-        );
-        if (!didApplySnapshot || !deps.loadEpoch.isCurrent(requestId)) {
-            BrowserLogger.debug('pdf-file', 'Skipped stale PDF data load result', {
-                requestId,
-                currentLoadRequestId: deps.loadEpoch.current(),
-                bytes: snapshot.byteLength,
-                expectedWorkingPath,
-                currentWorkingPath: state.workingCopyPath.value,
-            });
-            return;
-        }
-
-        if (opts?.pushHistory !== false) {
-            await deps.pushHistorySnapshot(snapshot, { reuseSnapshot: true });
-        } else {
-            state.isDirty.value = true;
-        }
-
-        if (opts?.persistWorkingCopy && expectedWorkingPath && state.isActiveWorkingCopy(expectedWorkingPath)) {
-            deps.deferPdfConformanceProfile(expectedWorkingPath);
-        }
-    }
-
     return {
         applyLoadedPdfState,
-        loadPdfFromData,
         loadPdfFromPath,
         openFile,
         openFileDirect,

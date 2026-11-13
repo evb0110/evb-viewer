@@ -160,6 +160,8 @@ export function createBrowserDocumentsCapability(
         createWorkingCopyFromData: fileCapability.createWorkingCopyFromData,
         createWorkingCopyFromPath: fileCapability.createWorkingCopyFromPath,
         parsePdfAnnotations: fileCapability.parsePdfAnnotations,
+        restoreDocumentRevision: fileCapability.restoreDocumentRevision,
+        retainDocumentRevisions: fileCapability.retainDocumentRevisions,
         cleanupFile: fileCapability.cleanupFile,
     } satisfies IDocumentsWorkingCopyCapability;
     const optionalDocumentFileMethods = {
