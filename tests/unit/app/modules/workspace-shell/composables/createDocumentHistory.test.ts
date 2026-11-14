@@ -922,6 +922,45 @@ describe.each([
         expect(h.store.list()).toEqual([]);
     });
 
+    it('restores the annotations of an Insert exactly as they were before it on Undo and after it on Redo', async () => {
+        const h = setup();
+        const inserted: INoteEntity = {
+            ...h.note,
+            identity: {
+                id: asAnnotationId('inserted-page-note'),
+                pdfRef: '20R',
+            },
+            pageIndex: requirePageIndex(1),
+            persistedRevision: 0,
+            contents: 'Inserted page note',
+        };
+        h.store.createNote(h.note);
+        await h.history.ensureHistoryBaselineForMutation();
+        const beforeInsert = h.store.list({includeDeleted: true});
+        await h.mutate('inserted', {
+            previousPageCount: 3,
+            pages: [
+                {fromPageNumber: 1},
+                {insertedId: 'inserted-page'},
+                {fromPageNumber: 2},
+                {fromPageNumber: 3},
+            ],
+        });
+        h.reconcile([inserted]);
+        const afterInsert = h.store.list({includeDeleted: true});
+        expect(afterInsert.filter(entity => entity.kind === 'note').map(entity => entity.contents)).toEqual([
+            'Accepted B01 note',
+            'Inserted page note',
+        ]);
+        await expect(h.ledger.undoTimeline()).resolves.toBe(true);
+        expect(h.store.list({includeDeleted: true})).toEqual(beforeInsert);
+        h.reconcile();
+        await expect(h.ledger.redoTimeline()).resolves.toBe(true);
+        expect(h.store.list({includeDeleted: true})).toEqual(afterInsert);
+        h.reconcile([inserted]);
+        expect(h.store.list({includeDeleted: true})).toEqual(afterInsert);
+    });
+
     it('A26-3 keeps a saved note undone until its own Redo and requires writer work after older bytes', async () => {
         const h = setup();
         await h.history.ensureHistoryBaselineForMutation();
