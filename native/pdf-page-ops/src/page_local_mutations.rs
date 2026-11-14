@@ -236,6 +236,9 @@ pub(crate) fn load_native_mutation_base(
     qpdf: Option<&Path>,
     mutations: &NativeMutationsFile,
 ) -> Result<IncrementalDocument> {
+    if !mutations.page_rotations.is_empty() {
+        validate_page_tree_path(path)?;
+    }
     if fs::metadata(path)?.len() > MAX_ENCODED_PDF_BYTES as u64 {
         if let (Some(qpdf), Some(mut edit)) = (qpdf, page_local_edit(mutations)) {
             let local = (|| {

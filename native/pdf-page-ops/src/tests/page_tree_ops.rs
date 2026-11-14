@@ -2025,7 +2025,7 @@ fn page_tree_pdf(count: usize, kids: &[&str], pages: &[(u32, &str)]) -> Vec<u8> 
 }
 
 #[test]
-fn page_structure_edits_refuse_a_damaged_page_tree() {
+fn page_edits_refuse_a_damaged_page_tree() {
     const PAGE: &str = "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 72 72] /Resources << >> >>";
     const NODE: &str = "<< /Type /Pages /Parent 2 0 R /Count 1 /Kids [5 0 R] >>";
     let cases = [
@@ -2051,14 +2051,25 @@ fn page_structure_edits_refuse_a_damaged_page_tree() {
             page_tree_pdf(2, &["3 0 R", "4 0 R"], &[(3, PAGE), (4, "<< /Parent 2 0 R >>")]),
         ),
     ];
+    // A structure edit and a geometry edit refuse alike, so the recovery,
+    // which repairs only `CorruptXref`, never edits around the damage.
     for (name, input) in cases {
-        let error = delete_browser_pdf_pages(&input, &[1]).err().unwrap_or_else(|| panic!("{name}"));
-        let error = error.downcast_ref::<NativeError>().unwrap();
-        assert_eq!(error.code, NativeErrorCode::InvalidRequest, "{name}");
-        assert!(error.message.starts_with("The page tree is damaged"), "{name}: {}", error.message);
+        for result in [
+            delete_browser_pdf_pages(&input, &[1]).map(drop),
+            rotate_browser_pdf_bytes(&input, &[1], 90).map(drop),
+            // What a desktop rotation reads of the file before its page-local load.
+            validate_page_tree_source(input.as_slice(), input.len() as u64),
+        ] {
+            let error = result.err().unwrap_or_else(|| panic!("{name}"));
+            let error = error.downcast_ref::<NativeError>().unwrap();
+            assert_eq!(error.code, NativeErrorCode::InvalidRequest, "{name}");
+            assert!(error.message.starts_with("The page tree is damaged"), "{name}: {}", error.message);
+        }
     }
     let sound = page_tree_pdf(2, &["4 0 R", "3 0 R"], &[(3, PAGE), (4, NODE), (5, PAGE)]);
     assert_eq!(delete_browser_pdf_pages(&sound, &[1]).unwrap().page_count, 1);
+    assert_eq!(rotate_browser_pdf_bytes(&sound, &[1], 90).unwrap().page_count, 2);
+    validate_page_tree_source(sound.as_slice(), sound.len() as u64).unwrap();
 }
 
 #[test]

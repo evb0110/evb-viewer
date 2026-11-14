@@ -5,7 +5,6 @@ import type {
 } from '@app/types/annotations';
 import type {TDocumentRevisionToken} from '@contracts/documentRevision';
 import type {IPdfNativeAnnotationIdentityBinding} from '@contracts/electronApiDocuments';
-import type {IPageIdentityDelta} from '@contracts/electronApiPageOps';
 import {requirePageIndex} from '@contracts/pageNumbers';
 import {createEpochMs} from '@contracts/timestamps';
 import type {
@@ -306,10 +305,6 @@ export class AnnotationApplication {
 
     toLegacyShape(entity: IShapeEntity): IShapeAnnotation {
         return toLegacyShapeAnnotation(entity);
-    }
-
-    remapPages(delta: IPageIdentityDelta) {
-        this.store.remapPages(delta);
     }
 
     beginSave(documentRevisionToken: TDocumentRevisionToken | null = null): IAnnotationSaveSession {

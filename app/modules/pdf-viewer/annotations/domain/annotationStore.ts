@@ -2,9 +2,7 @@ import {
     admitsAnnotationReadback, keepsReplies,
 } from './annotationReadbackGuards';
 import type {IPageIdentityDelta} from '@contracts/electronApiPageOps';
-import {
-    invertPageIdentityDelta, mapPageNumberThroughPageIdentityDelta,
-} from '@contracts/electronApiPageOps';
+import {mapPageNumberThroughPageIdentityDelta} from '@contracts/electronApiPageOps';
 import {
     requirePageIndex,
     requirePageNumber,
@@ -121,6 +119,12 @@ export interface IPdfForeignAnnotationRecord {
     readonly objectNumber: number;
     readonly generationNumber: number;
     readonly reason?: string;
+}
+
+export interface IAnnotationStoreState {
+    readonly entities: ReadonlyMap<AnnotationId, AnnotationEntity>;
+    readonly saved: ReadonlyMap<AnnotationId, ISavedSemanticEntry>;
+    readonly working: ReadonlyMap<AnnotationId, ISavedSemanticEntry>;
 }
 
 interface IHistoryEntry {
@@ -954,64 +958,52 @@ export class AnnotationStore {
         this.#emit();
     }
 
+    /** Moves each annotation to its page's new number; one on a removed page becomes a tombstone. */
     remapPages(delta: IPageIdentityDelta) {
-        const removed = Array.from(this.#entities).filter(([
-            , entity,
-        ]) =>
-            mapPageNumberThroughPageIdentityDelta(delta, requirePageNumber(entity.pageIndex + 1)) === null)
-            .map(([
-                id,
-                entity,
-            ]) => ({
-                id,
-                entity: cloneEntity(entity),
-                saved: this.#savedSemanticSnapshot.get(id),
-                working: this.#workingSemanticSnapshot.get(id),
-            }));
-        const apply = (mapping: IPageIdentityDelta) => {
-            this.#entities.forEach((entity, id) => {
-                const mappedPageNumber = mapPageNumberThroughPageIdentityDelta(mapping, requirePageNumber(entity.pageIndex + 1));
-                const nextPageIndex = mappedPageNumber === null ? undefined : requirePageIndex(mappedPageNumber - 1);
-                for (const baseline of [this.#savedSemanticSnapshot, this.#workingSemanticSnapshot]) {
-                    const saved = baseline.get(id);
-                    if (saved !== undefined) baseline.set(id, {
-                        kind: saved.kind,
-                        deleted: saved.deleted || nextPageIndex === undefined,
-                        fingerprint: remapSavedSemanticFingerprint(saved.fingerprint, nextPageIndex),
-                    });
-                }
-                this.#entities.set(id, nextPageIndex === undefined
-                    ? {
-                        ...entity,
-                        deleted: true,
-                    }
-                    : {
-                        ...entity,
-                        pageIndex: nextPageIndex,
-                    });
-            });
-            this.#rebindIdentities();
-            this.#mutationEpoch += 1;
-            this.#emit();
-        };
-        apply(delta);
-        return {
-            redo: () => apply(delta),
-            undo: () => {
-                apply(invertPageIdentityDelta(delta));
-                removed.forEach(({
-                    id, entity, saved, working,
-                }) => {
-                    this.#entities.set(id, cloneEntity(entity));
-                    if (saved) this.#savedSemanticSnapshot.set(id, saved);
-                    else this.#savedSemanticSnapshot.delete(id);
-                    if (working) this.#workingSemanticSnapshot.set(id, working);
-                    else this.#workingSemanticSnapshot.delete(id);
+        this.#entities.forEach((entity, id) => {
+            const mappedPageNumber = mapPageNumberThroughPageIdentityDelta(delta, requirePageNumber(entity.pageIndex + 1));
+            const nextPageIndex = mappedPageNumber === null ? undefined : requirePageIndex(mappedPageNumber - 1);
+            for (const baseline of [this.#savedSemanticSnapshot, this.#workingSemanticSnapshot]) {
+                const saved = baseline.get(id);
+                if (saved !== undefined) baseline.set(id, {
+                    kind: saved.kind,
+                    deleted: saved.deleted || nextPageIndex === undefined,
+                    fingerprint: remapSavedSemanticFingerprint(saved.fingerprint, nextPageIndex),
                 });
-                this.#rebindIdentities();
-                this.#emit();
-            },
+            }
+            this.#entities.set(id, nextPageIndex === undefined
+                ? {
+                    ...entity,
+                    deleted: true,
+                }
+                : {
+                    ...entity,
+                    pageIndex: nextPageIndex,
+                });
+        });
+        this.#rebindIdentities();
+        this.#mutationEpoch += 1;
+        this.#emit();
+    }
+
+    /** The annotations, tombstones included, and what the saved and working bytes hold of them. */
+    snapshotState(): IAnnotationStoreState {
+        return {
+            entities: new Map(this.#entities),
+            saved: new Map(this.#savedSemanticSnapshot),
+            working: new Map(this.#workingSemanticSnapshot),
         };
+    }
+
+    /** Makes `state` current and returns the state it replaces, so a page operation's Undo and Redo swap the two. */
+    exchangeState(state: IAnnotationStoreState): IAnnotationStoreState {
+        const replaced = this.snapshotState();
+        this.#replaceAllEntities(state.entities);
+        this.#savedSemanticSnapshot = new Map(state.saved);
+        this.#workingSemanticSnapshot = new Map(state.working);
+        this.#mutationEpoch += 1;
+        this.#emit();
+        return replaced;
     }
 
     beginSave(documentRevisionToken: TDocumentRevisionToken | null = null): IAnnotationSaveFrontier {

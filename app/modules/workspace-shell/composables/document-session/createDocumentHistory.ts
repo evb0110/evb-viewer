@@ -238,11 +238,18 @@ export function createDocumentHistory(
         ];
         const store = deps.documentAnnotations?.().application.value.store;
         const releaseAnnotations = store?.retainHistoryTargets();
-        const annotationChange = pageIdentityDelta ? store?.remapPages(pageIdentityDelta) : undefined;
+        // A page operation's Undo shows the annotations as they were right before it, its Redo as they were
+        // right after it: each swaps the current state with the one the other side left.
+        const pageStore = pageIdentityDelta ? store : undefined;
+        let otherAnnotations = pageStore?.snapshotState();
+        if (pageIdentityDelta) pageStore?.remapPages(pageIdentityDelta);
+        const swapAnnotations = () => {
+            if (pageStore && otherAnnotations) otherAnnotations = pageStore.exchangeState(otherAnnotations);
+        };
         const replay = async (direction: 'undo' | 'redo') => {
             const restored = await restoreRevision(direction === 'undo' ? before : after,
                 direction === 'undo' && pageIdentityDelta ? invertPageIdentityDelta(pageIdentityDelta) : pageIdentityDelta,
-                direction === 'undo' ? annotationChange?.undo : annotationChange?.redo);
+                swapAnnotations);
             if (restored) {
                 currentFileState.value = direction === 'undo' ? command.beforeState : command.afterState;
                 currentCheckpoint = direction === 'undo' ? before : after;

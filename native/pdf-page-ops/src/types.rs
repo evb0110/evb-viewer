@@ -347,6 +347,15 @@ pub(crate) fn page_tree_node_read_count() -> usize {
     PAGE_TREE_NODE_READ_COUNT.with(std::cell::Cell::get)
 }
 
+/// A page tree that does not resolve is refused, not repaired: a repair
+/// would pick one numbering, so the refusal is not `CorruptXref`.
+pub(crate) fn page_tree_damaged(error: Box<dyn Error>) -> Box<dyn Error> {
+    domain_error(
+        NativeErrorCode::InvalidRequest,
+        format!("The page tree is damaged: {error}"),
+    )
+}
+
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct PageTreeResolver {
     root_pages_id: ObjectId,
@@ -371,6 +380,38 @@ impl PageTreeResolver {
             root_pages_id,
             page_count,
         })
+    }
+
+    /// The resolver every page edit numbers pages through. It refuses a tree
+    /// whose pages a reader could number differently: every leaf is a page,
+    /// appears once, and sits where the declared counts place it.
+    pub(crate) fn validated(document: &impl PdfObjectSource) -> Result<Self> {
+        let tree = Self::new(document).map_err(page_tree_damaged)?;
+        let mut leaves = HashSet::new();
+        tree.for_each_page_id(document, |page| {
+            let number = leaves.len() as u32 + 1;
+            if !leaves.insert(page) {
+                return Err(format!("page {} {} R appears twice", page.0, page.1).into());
+            }
+            if tree.page_id(document, number)? != page {
+                return Err(format!("its counts place another page at {number}").into());
+            }
+            Ok(())
+        })
+        .map_err(page_tree_damaged)?;
+        Ok(tree)
+    }
+
+    /// The resolver once both ends of the declared tree resolve, checked
+    /// without iterating every leaf. This catches a stale /Count or an
+    /// unreachable branch while keeping path-backed admission independent of
+    /// document page count.
+    pub(crate) fn with_both_ends(document: &impl PdfObjectSource) -> Result<Self> {
+        let tree = Self::new(document)?;
+        for page_number in [1, tree.page_count].into_iter().filter(|page| *page > 0) {
+            tree.page_id(document, page_number)?;
+        }
+        Ok(tree)
     }
 
     pub(crate) fn page_count(&self) -> u32 {

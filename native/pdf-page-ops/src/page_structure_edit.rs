@@ -142,7 +142,7 @@ pub(crate) fn edit_page_structure<S>(
         .map(|source| &source.document)
         .collect::<Vec<_>>();
     for document in &documents {
-        validate_page_tree(document)?;
+        PageTreeResolver::validated(*document)?;
     }
     let (document, others) = documents
         .split_first()
@@ -245,32 +245,6 @@ pub(crate) fn open_page_structure_sources<S: ByteSource>(
             })
         })
         .collect()
-}
-
-/// Refuses a source whose pages a reader could number differently: every
-/// leaf of its page tree is a page, appears once, and sits where the declared
-/// counts place it, so the edit numbers pages as a viewer shows them. A
-/// repair would pick one numbering, so the refusal is not `CorruptXref`.
-fn validate_page_tree(document: &Document) -> Result<()> {
-    let damaged = |error: Box<dyn Error>| {
-        domain_error(
-            NativeErrorCode::InvalidRequest,
-            format!("The page tree is damaged: {error}"),
-        )
-    };
-    let tree = PageTreeResolver::new(document).map_err(damaged)?;
-    let mut leaves = HashSet::new();
-    tree.for_each_page_id(document, |page| {
-        let number = leaves.len() as u32 + 1;
-        if !leaves.insert(page) {
-            return Err(format!("page {} {} R appears twice", page.0, page.1).into());
-        }
-        if tree.page_id(document, number)? != page {
-            return Err(format!("its counts place another page at {number}").into());
-        }
-        Ok(())
-    })
-    .map_err(damaged)
 }
 
 /// Every page of every input in order, each input's outline offset to its
