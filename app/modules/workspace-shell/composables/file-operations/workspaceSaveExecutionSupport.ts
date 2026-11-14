@@ -495,15 +495,11 @@ export function getNativeSaveTransactionOptions(
         typeof documentFiles.releaseManagedTempFileHandle === 'function'
         && typeof documentFiles.applyPdfNativeMutationsToWorkingCopy === 'function'
     );
-    const canConsumeNativeMutation = (
-        typeof documentFiles.cloneStagedPdfNativeMutationToWorkingCopy === 'function'
-        && typeof documentFiles.replaceWorkingCopyFromStagedPdfNativeMutation === 'function'
-    );
     return {
         forceWriterSave: false,
         nativeCapabilities: {
             hasNativePdfMutationCapability: canStageNativeMutation,
-            canPersistNativeMetadataMutations: canStageNativeMutation && canConsumeNativeMutation,
+            canPersistNativeMetadataMutations: canStageNativeMutation,
         },
         dirtyState: {
             annotationDirty: collectDirtyState(deps).annotationDirty,
