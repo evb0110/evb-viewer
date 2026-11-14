@@ -39,10 +39,14 @@ export type THistoryRevision = IRevision | IDestinationRevision;
 
 const hasFile = (revision: THistoryRevision): revision is IRevision => 'file' in revision;
 
-/** A publish whose outcome is unknown: `witness` is what `destination` holds if it finished. */
-interface IPendingPublish {
+/**
+ * A publish whose outcome is unknown: `witness` is what `destination` holds if it finished (absent until the bytes are
+ * staged), and `temp` the file it stages beside the destination, named before that file exists.
+ */
+export interface IPendingPublish {
     destination: string;
-    witness: string;
+    witness?: string | undefined;
+    temp?: string | undefined;
     /** What the destination held before, for an `unsettled` record; the latest publish's is the manifest's `baseline`. */
     baseline?: string | undefined;
 }
@@ -101,20 +105,28 @@ export interface IPublicationPort {
      */
     witness(destination: string, content?: boolean): Promise<string | null>;
     /**
-     * Ends what an interrupted publish of `published` left at `destination`, which held `baseline` before (on desktop,
-     * the file it moved aside), then answers as `witness` does. Throws while the destination cannot be read. Without
-     * it, recovery asks `witness`, for the content when `published` names it.
+     * Ends what the interrupted publish `record` left at its destination, which held `baseline` before (on desktop, its
+     * staged copy and the file it moved aside), then answers as `witness` does. Throws while the destination cannot be
+     * read. Without it, recovery asks `witness`, for the content when the record's witness names it.
      */
-    settle?(destination: string, published: string, baseline: string | null): Promise<string | null>;
+    settle?(record: IPendingPublish, baseline: string | null): Promise<string | null>;
     /** The destination's bytes, to copy in as the first revision. */
     source(destination: string): Promise<TExternalSource>;
     /**
      * Writes `source` to `destination`. Before the destination changes, `stage` receives the witness the
-     * destination will have, and is awaited: the core records it as the pending publish. With `expected`, refuses
-     * with `conflict` unless the destination's witness still equals it, checked as close to the write as the
-     * platform allows. Refusals of another kind (locked, read-only, folder not writable) throw the adapter's own error.
+     * destination will have, and is awaited: the core records it as the pending publish. A platform that stages a
+     * file beside the destination passes its path to `reserve` before creating it, so recovery removes it. With
+     * `expected`, refuses with `conflict` unless the destination's witness still equals it, checked as close to the
+     * write as the platform allows. Refusals of another kind (locked, read-only, folder not writable) throw the
+     * adapter's own error.
      */
-    publish(destination: string, source: IPublishSource, expected: string | null, stage: (witness: string) => Promise<void>): Promise<TPublishResult>;
+    publish(
+        destination: string,
+        source: IPublishSource,
+        expected: string | null,
+        stage: (witness: string) => Promise<void>,
+        reserve?: (temp: string) => Promise<void>,
+    ): Promise<TPublishResult>;
 }
 
 export interface IDocumentStore {
@@ -172,8 +184,8 @@ function isRevision(value: unknown): value is IRevision {
 }
 
 const isDestinationRevision = (value: unknown) => isRecord(value) && value.id === 1 && typeof value.witness === 'string' && !('file' in value);
-const isPendingPublish = (value: unknown) => isRecord(value) && typeof value.destination === 'string' && typeof value.witness === 'string'
-    && isOptionalString(value.baseline);
+const isPendingPublish = (value: unknown) => isRecord(value) && typeof value.destination === 'string' && isOptionalString(value.witness)
+    && isOptionalString(value.temp) && isOptionalString(value.baseline);
 
 function isManifest(value: unknown): value is IManifest {
     return isRecord(value) && value.version === 1 && typeof value.ext === 'string' && EXT_PATTERN.test(value.ext)
@@ -610,7 +622,7 @@ export class DocumentDirectory {
         const { publication } = this.store;
         // A witness without content names the published file by its metadata, which is enough to compare.
         const settle = (record: IPendingPublish, baseline: string | undefined) => (publication.settle
-            ? publication.settle(record.destination, record.witness, baseline ?? null)
+            ? publication.settle(record, baseline ?? null)
             : publication.witness(record.destination, contentOf(record.witness) !== undefined)).catch(() => undefined);
         const left: IPendingPublish[] = [];
         for (const record of unsettled) {

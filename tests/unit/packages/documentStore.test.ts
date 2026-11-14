@@ -571,6 +571,26 @@ describe('save', () => {
         expect(await readFile(destination, 'utf8')).toBe('foreign v2');
     });
 
+    it('records the file a publish stages beside the destination before it exists, and drops the record when the publish fails first', async () => {
+        const destination = path.join(workDir, 'paper.pdf');
+        await writeFile(destination, 'v1');
+        const temp = path.join(workDir, '.0123456789abcdef.tmp');
+        const recorded: unknown[] = [];
+        const publication: IPublicationPort = {
+            ...filePublication(),
+            async publish(_destination, _source, _expected, _stage, reserve) {
+                await reserve?.(temp);
+                recorded.push(JSON.parse(await readFile(path.join(docDir(doc), 'manifest.json'), 'utf8')).pendingPublish);
+                throw new Error('copy failed');
+            },
+        };
+        const doc = await create(store(undefined, publication), { ext: 'pdf', destination });
+        await expect(saveDocument(doc, { expected: null, commit: rewrite('v2') })).rejects.toThrow('copy failed');
+        expect(recorded).toEqual([{ destination, temp }]);
+        expect(doc.state()).toMatchObject({ current: { id: 2 } });
+        expect(doc.snapshot().pendingPublish).toBeUndefined();
+    });
+
     it('refuses a destination changed elsewhere and keeps the committed work', async () => {
         const destination = path.join(workDir, 'paper.pdf');
         await writeFile(destination, 'v1');
