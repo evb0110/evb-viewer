@@ -7,7 +7,7 @@ import type {
     IPdfAppendFile,
     IPdfAppendRequest,
     IPdfAppendResult,
-} from '@app/platform/browser-api/tryRunBrowserPageOpsWithWasm';
+} from '@app/platform/browser/pdfPageEngine';
 
 type TPdfAppendRequest = IPdfAppendRequest | IOcrTextLayerAppendRequest;
 import type {IBrowserPageOpsWasmFailure} from '@contracts/browserPageOpsWorker';
@@ -40,7 +40,7 @@ export function appendPdfMutationsToStoreFile(file: IStoreFile, base: number, re
 
 /** The engine over a file this window reads and writes synchronously, a store file in memory. */
 async function appendPdfMutationsToSyncFile(file: IPdfAppendFile, base: number, request: TPdfAppendRequest) {
-    const {appendPdfMutations} = await import('@app/platform/browser-api/tryRunBrowserPageOpsWithWasm');
+    const {appendPdfMutations} = await import('@app/platform/browser/pdfPageEngine');
     return appendPdfMutations(file, base, request);
 }
 

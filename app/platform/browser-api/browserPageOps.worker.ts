@@ -20,11 +20,13 @@ import {
 import {
     tryRunBrowserPageOpsWithWasm,
     isBrowserPageOpsWasmFailure,
+} from '@app/platform/browser-api/tryRunBrowserPageOpsWithWasm';
+import {
     runPageStructureEdit,
     type IPageStructureFiles,
-} from '@app/platform/browser-api/tryRunBrowserPageOpsWithWasm';
+} from '@app/platform/browser/pdfPageEngine';
 import {opfsFileHandle} from '@app/platform/browser/opfsFileHandle';
-import {readLoadedWasmDigest} from '@app/platform/browser-api/loadWasmWithDeadline';
+import {readLoadedWasmDigest} from '@app/platform/browser/loadWasmWithDeadline';
 import { getErrorMessage } from '@app/utils/error';
 function toTransferableUint8Array(data: Uint8Array) {
     if (
