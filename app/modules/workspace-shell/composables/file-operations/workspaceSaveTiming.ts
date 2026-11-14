@@ -1,7 +1,5 @@
 import {BrowserLogger} from '@app/utils/browserLogger';
 
-const SLOW_SAVE_PHASE_WARN_MS = 5_000;
-
 export function nowMs() {
     return typeof performance !== 'undefined' ? performance.now() : Date.now();
 }
@@ -20,11 +18,7 @@ export async function timedSavePhase<T>(
             phase,
             durationMs,
         };
-        if (durationMs >= SLOW_SAVE_PHASE_WARN_MS) {
-            BrowserLogger.warn('workspace', 'Slow PDF save phase', data);
-        } else {
-            BrowserLogger.debug('workspace', 'Completed PDF save phase', data);
-        }
+        BrowserLogger.debug('workspace', 'Completed PDF save phase', data);
         return result;
     } catch (error) {
         BrowserLogger.warn('workspace', 'PDF save phase failed', {
