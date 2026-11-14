@@ -36,9 +36,9 @@ review instructions here.
   point. Contracts depend only on themselves and `@i18n-core`. Domain algorithms
   belong in their owning module. Scan-cleanup wire declarations are generated
   from the Rust protocol types into that contracts package.
-- Native tools write into managed scratch. Electron or Node validates the result
-  and publishes it atomically, so an interrupted tool never leaves a partial file
-  at a path the user chose.
+- Native tools write into managed revision files or scratch. The document store
+  commits verified bytes and owns publication, so an interrupted tool never
+  leaves a partial file at a path the user chose.
 
 ## OCR
 

@@ -18,13 +18,17 @@ A reference is not a physical file path.
 _Avoid_: temp file, scratch copy, materialized file
 
 **Revision**:
-A file and committed length named by the document manifest. Bytes within that
-length are immutable; an append can extend the same file.
+A committed document state named by the manifest: a file and length, or the
+unchanged destination until private bytes are needed. Bytes within a committed
+length are immutable; an append can extend the same file. Undo and redo restore
+retained revisions in the same document directory.
 _Avoid_: checkpoint copy, generation
 
 **Destination witness**:
-The saved file's size and modification time used to detect an external change.
-Content witnesses identify bytes for recovery and downloads.
+The saved file's metadata used to detect an external change: size, nanosecond
+modification time, device and inode on desktop; size and millisecond time for a
+browser file handle. Browser publication also records a content hash for
+acknowledgement and recovery; downloads use a content witness.
 _Avoid_: checksum (when file metadata is meant)
 
 **Renderer**:

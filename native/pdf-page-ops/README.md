@@ -8,54 +8,71 @@ defines.
 ## Page structure
 
 `pdf_source.rs` indexes cross-reference sections and reads reachable objects
-through a random-access source. `page_structure_edit.rs` selects and remaps the page
-and document graphs. `pdf_writer.rs` writes a fresh PDF, renumbering objects,
-copying stream data by byte range and writing each real number an edit kept
-as its source spelled it. Path operations stream from file to
-file; in the browser the host lends the engine its files, which it reads by
-range, and the output file it writes.
+through a file-backed random-access source on both platforms. Offsets and
+committed lengths stay `u64`, including an incremental update's `/Prev`.
+Unread streams are unavailable, never empty; a consumer must read their bytes
+by range before using them. The first occurrence of a duplicate dictionary
+key wins. Unchanged real numbers keep their source spelling, including in
+object streams and inherited page boxes.
 
-Delete, extract, reorder, insert and merge use this engine. They refuse a
-source whose page tree a viewer could number differently (a leaf that is not a
-page, appears twice or contradicts the declared counts), and an encrypted
-source with a stream whose own `/Crypt` filter is not Identity. A stream whose
-own crypt filter is Identity is written as it is, without that filter. Split uses the
-crate's separate split writer. Inserted pages retain their source labels. Widgets retain appearances; safe fields are
-carried into the destination, while source document attachments and JavaScript
-are not imported. Output verification reopens the result and compares its objects and stream
-boundaries with the planned output, checks reachable references and the page
-tree, and samples the ends of copied streams. It does not decode every image
-stream.
+`page_structure_edit.rs` selects and remaps the page and document graphs.
+`pdf_writer.rs` writes a fresh PDF, renumbering objects and copying stream data
+by byte range. Delete, extract, reorder, insert and merge use this engine.
+Browser structure edits run in the page-ops worker, which owns the new output
+file's sync access handle. The host copies stream ranges between the engine's
+write and verification requests. Whole PDFs do not cross into WASM memory for
+these edits. Split uses the crate's separate split writer.
 
-On desktop the engine writes directly to the next revision file in the
-[document store](../../packages/document-store/README.md); its manifest commits
-only after output verification and the host's page-count check.
+Every page edit, including rotation, crop and crop removal, uses
+`PageTreeResolver::validated` to number pages. A leaf that is not a page,
+appears twice or contradicts the declared counts refuses as `invalid-request`:
+a repair must not silently renumber a damaged tree. Rotation validates only
+the tree before its page-local append; it need not load every object.
+
+An encrypted source with a per-stream `/Crypt` filter other than Identity is
+refused. An Identity stream is retained without that filter only when the
+decrypting reader left its bytes unchanged. Inserted pages with readable source
+labels keep them; unlabelled pages join the destination range. Widgets retain
+appearances and shared widgets stay single field members. AcroForm `/Fields`
+entries that do not resolve to dictionaries are dropped. Source attachments and
+JavaScript are not imported; an unchanged main outline stays as written.
+
+Output verification reopens the result, compares objects and stream boundaries
+with the planned output, checks reachable references and the page tree, and
+samples copied stream ends. It does not decode every image stream. The
+[document store](../../packages/document-store/README.md) commits the revision
+only after verification and the host's page-count check.
 
 ## Incremental changes
 
 `incremental.rs` applies annotation, rotation, page-label and bookmark mutations
-through one implementation for every writer. OCR text layers and print layout
-also live in this crate. The desktop structural reader can use bundled libqpdf
-for object projections and qpdf JSON for its large-file fallback. Page-structure
-rewrites use their own reader and verifier.
+through the shared mutation implementation. OCR text layers and print layout
+also live in this crate. Desktop incremental loads use the eager reader or
+bundled libqpdf for structural and page-local reads, with qpdf JSON as fallback.
+The indexed reader supplies the separate page-tree validation before rotation.
 
-The browser appends through `pdf_source.rs`: its skeleton becomes the
-`IncrementalDocument` base, every stream it left in the file is unavailable
-until read, and the streams a change reuses (stamp images, original FreeText
-appearances, page contents the OCR layer rewrites, appearances the annotation
-parse snapshots) are read by range under their caps. The storage worker runs
-the engine on the document's own file: it appends past the committed bytes,
-reads the revision back to check it, and the store commits it with `extend`.
-Annotation parse, catalog and OCR visibility reads take the document by range
-the same way. An encrypted base is refused from its index before any object is
-read; the open unlocks such a file into a plaintext rewrite first.
+Browser incremental changes use the same indexed `pdf_source.rs` as page
+structure. Its skeleton becomes the `IncrementalDocument` base. Reused streams,
+such as stamp images, FreeText appearances and OCR page contents, are read by
+range under their caps. The storage worker appends to the document's own file,
+reads back the written revision to verify it, and returns a receipt. The store
+commits the appended length with `extend`; releasing an uncommitted receipt
+cuts its tail. Annotation parse, catalog, conformance and OCR visibility reads
+also read files by range. An encrypted append base is refused from its index;
+open unlocks it into a plaintext rewrite first.
 
-## Remaining qpdf uses
+## Repair and qpdf
+
+When a page edit refuses the edited revision as `corrupt-xref`, its host runs
+one qpdf rewrite, commits it as an internal revision and retries the edit once.
+A second failure restores the revision the edit began on and reports the
+failure. Damaged page trees and damage in inserted inputs are `invalid-request`
+and do not trigger repair. Browser repair stays within qpdf WASM's input limit.
 
 The application retains qpdf for whole-file optimization, repair and
-normalization; conformance checks and page counts; image-export subsets;
+normalization; desktop conformance checks and page counts; image-export subsets;
 DjVu conversion joins; and scan-cleanup joins, validation and MRC mask
-dictionaries. The desktop incremental reader also uses qpdf for structural
-objects and annotation streams. Crop and crop removal keep the host's strict qpdf
-structure gate; streaming page-structure outputs use their own verification.
-Browser qpdf WASM serves normalization, validation and conversion paths.
+dictionaries. Desktop incremental reads also use it for structural objects and
+annotation streams. Crop and crop removal keep the host's strict qpdf structure
+gate; page-structure outputs use the engine's verification. Browser qpdf WASM
+serves normalization, validation and conversion paths.
