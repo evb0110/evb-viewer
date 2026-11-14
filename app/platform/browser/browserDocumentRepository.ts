@@ -31,10 +31,7 @@ import {
 } from '@app/platform/browser/browserDocumentReadError';
 import { emitBrowserDocumentPersistenceWarning } from '@app/platform/browser/browserDocumentPersistenceWarnings';
 import { fileHandleStore } from '@app/platform/browser/browserFileHandleStore';
-import {
-    contentWitness,
-    sameWitness,
-} from '@document-store/contentWitness';
+import { sameWitness } from '@document-store/contentWitness';
 import {
     browserPublication,
     fileFact,
@@ -135,6 +132,8 @@ export interface ICreateStoredDocumentOptions {
 
 interface IWriteOptions {
     expectedDocumentRevisionToken?: TDocumentRevisionToken | null | undefined;
+    /** The bytes are the baseline in the same commit, as bytes the person supplied, unless a file's bytes are. */
+    imported?: boolean;
 }
 
 export class BrowserDocumentSourceChangedError extends Error {
@@ -411,7 +410,7 @@ export class BrowserDocumentStore {
 
     /** Replaces the bytes. Unsaved drafts described the old bytes, so they go with them. */
     public async write(ref: string, data: Uint8Array | ArrayBuffer, options: IWriteOptions = {}) {
-        await this.mutate(await this.requireEntry(ref), options.expectedDocumentRevisionToken, {kind: 'rewrite', source: bytesBlob(data), drafts: 'clear'}, 'write');
+        await this.mutate(await this.requireEntry(ref), options.expectedDocumentRevisionToken, {kind: 'rewrite', source: bytesBlob(data), drafts: 'clear', imported: options.imported === true}, 'write');
         return true;
     }
 
@@ -420,7 +419,8 @@ export class BrowserDocumentStore {
      * the new revision file at the store path `output`, or returns the bytes when the document's store is not
      * the origin private file system (`output` null), such as a window's memory store. As on desktop, a document without bytes of its own is read from its file, which must
      * still hold the bytes the person saw when the revision commits; no copy of it is made first. `imported`:
-     * the new bytes are the document's baseline, as for bytes the person supplied, so it stays clean.
+     * the new bytes are the document's baseline in the same commit, as for bytes the person supplied, so it stays
+     * clean; a document with a file keeps its file's.
      */
     public async rewrite(
         ref: string,
@@ -437,7 +437,7 @@ export class BrowserDocumentStore {
         if (!isOpfsStorePort(entry.store!.port)) {
             const bytes = await write(source, null);
             if (!bytes) throw new Error('The rewrite returned no bytes');
-            info = await this.mutate(entry, token, {kind: 'rewrite', source: bytesBlob(bytes), drafts: 'clear'}, 'write');
+            info = await this.mutate(entry, token, {kind: 'rewrite', source: bytesBlob(bytes), drafts: 'clear', imported}, 'write');
         } else {
             const {current, next, ext} = doc.snapshot();
             const name = `r${current ? next : next + 1}.${ext}`;
@@ -448,7 +448,7 @@ export class BrowserDocumentStore {
                     const manifest = doc.snapshot();
                     if (this.tokenOf(entry) !== previous) return {status: 'stale-revision', current: manifest.current ?? null};
                     // A first copy of the file made meanwhile is revision `next`, and `name` is its next revision.
-                    if (manifest.current) return doc.applyMutation(manifest.current.id, {kind: 'rewrite', source: () => Promise.resolve(), drafts: 'clear'});
+                    if (manifest.current) return doc.applyMutation(manifest.current.id, {kind: 'rewrite', source: () => Promise.resolve(), drafts: 'clear', imported});
                     if (!sameWitness(await browserPublication.witness(manifest.destination!), manifest.baseline)) return {status: 'conflict'};
                     const file = await entry.store!.port.open(output);
                     const revision = {id: next + 1, file: name, length: await file.size()};
@@ -460,11 +460,6 @@ export class BrowserDocumentStore {
                 await entry.store!.port.remove(output).catch(() => undefined);
                 throw error;
             }
-        }
-        if (imported) {
-            const current = doc.state().current!;
-            const witness = await contentWitness(current.length, (offset, length) => doc.read(offset, length));
-            await doc.run(() => doc.commit({...doc.snapshot(), current: {...current, witness}, baseline: witness}));
         }
         return info;
     }
@@ -523,25 +518,13 @@ export class BrowserDocumentStore {
     }
 
     /**
-     * Imports `fromRef`'s bytes anew as `ref`'s, which then start clean: the file as it was last saved, or the
-     * bytes an open made. They commit as a rewrite, then become the baseline with no history; the old bytes go
-     * only once a manifest no longer names them.
+     * Imports `fromRef`'s bytes anew as `ref`'s, the file as it was last saved: one commit makes them current and
+     * the baseline, with no history, so the document starts clean; the old bytes go once no manifest names them.
      */
     public async replaceContent(ref: string, fromRef: string) {
-        const entry = await this.requireEntry(ref);
-        const doc = this.requireDoc(entry);
         const source = await this.externalSource(fromRef);
-        const previous = this.tokenOf(entry);
-        await doc.run(async () => {
-            const result = await doc.applyMutation(doc.snapshot().current?.id ?? null, {kind: 'rewrite', source, drafts: 'clear'});
-            if (result.status !== 'committed') throw new BrowserDocumentSourceChangedError(entry.ref);
-            const witness = await contentWitness(result.revision.length, (offset, length) => doc.read(offset, length));
-            await doc.commit({...doc.snapshot(), current: {...result.revision, witness}, baseline: witness, history: []});
-        });
-        entry.file = null;
-        entry.fileSize = doc.state().current?.length ?? 0;
-        entry.updatedAt = Date.now();
-        this.emitRevision(entry, previous, 'write');
+        const entry = await this.requireEntry(ref);
+        await this.mutate(entry, this.tokenOf(entry), {kind: 'rewrite', source, drafts: 'clear', imported: true}, 'write');
     }
 
     public async setRetention(ref: string, retention: TRetention) {

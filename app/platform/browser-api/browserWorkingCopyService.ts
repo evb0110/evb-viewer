@@ -47,7 +47,12 @@ async function touchRecentFileForOpen(ref: TDocumentRef) {
     await browserDocumentStore.touchRecentFile(ref);
 }
 
-export async function decryptBrowserWorkingCopy(workingPath: string, password?: string, signal?: AbortSignal) {
+/**
+ * Unlocks the working copy with `password` when it is encrypted. `opened`: the bytes are what the person opened, so
+ * without a file to save to they start the document clean in the commit that writes them, and an open cut short
+ * leaves no unsaved work; a file's bytes stay the baseline, so Save still checks the file.
+ */
+export async function decryptBrowserWorkingCopy(workingPath: string, password?: string, {opened = false} = {}) {
     if (password !== undefined && !isPdfDecryptPassword(password)) {
         throw new Error(`PDF password exceeds the ${PDF_DECRYPT_PASSWORD_MAX_BYTES}-byte limit`);
     }
@@ -87,7 +92,7 @@ export async function decryptBrowserWorkingCopy(workingPath: string, password?: 
     const result = await runBrowserPageOpsWorkerRequest('decrypt', {
         data: bytes,
         password: password ?? '',
-    }, signal ? {signal} : {});
+    });
     if (isBrowserPageOpsWasmFailure(result)) {
         if (result.error.code === 'needs-password') {
             return {
@@ -103,8 +108,7 @@ export async function decryptBrowserWorkingCopy(workingPath: string, password?: 
         }
         throw new Error(result.error.message);
     }
-    signal?.throwIfAborted();
-    await browserDocumentStore.write(workingPath, new Uint8Array(result.data), {expectedDocumentRevisionToken: revision.token});
+    await browserDocumentStore.write(workingPath, new Uint8Array(result.data), {expectedDocumentRevisionToken: revision.token, imported: opened});
     return {
         outcome: 'decrypted',
         wasEncrypted: true,
@@ -137,7 +141,7 @@ async function normalizeBrowserWorkingCopyAppendBase(workingPath: TDocumentRef, 
             }
             throw error;
         }
-    });
+    }, true);
     if (rewritten) {
         BrowserLogger.warn('working-copy', 'Rewrote a PDF whose cross-reference chain cannot take an edit');
     }
@@ -157,7 +161,7 @@ export async function repairBrowserPdfBytes(bytes: Uint8Array, signal?: AbortSig
 }
 
 /** Commits what `rewrite` makes of the working copy's bytes, when it makes anything, as its next revision. */
-async function rewriteBrowserWorkingCopy(workingPath: string, rewrite: (bytes: Uint8Array) => Promise<Uint8Array | null>) {
+async function rewriteBrowserWorkingCopy(workingPath: string, rewrite: (bytes: Uint8Array) => Promise<Uint8Array | null>, opened = false) {
     // A larger base cannot reach the page tool, which writes every edit; an
     // empty file is refused later as an empty PDF.
     const {size} = await browserDocumentStore.stat(workingPath);
@@ -169,20 +173,8 @@ async function rewriteBrowserWorkingCopy(workingPath: string, rewrite: (bytes: U
     if (output === null) {
         return false;
     }
-    await browserDocumentStore.write(workingPath, output, {expectedDocumentRevisionToken: revision.token});
+    await browserDocumentStore.write(workingPath, output, {expectedDocumentRevisionToken: revision.token, imported: opened});
     return true;
-}
-
-/**
- * Without a file to save back to, the decrypted or rewritten bytes of an opened PDF are what the person
- * opened: they start the document clean, so no restart offers them as unsaved work. A document with a file
- * keeps that file's bytes as its baseline, so Save still checks the file.
- */
-export async function startOpenedWorkingCopyClean(workingPath: TDocumentRef) {
-    const working = await browserDocumentStore.requireEntry(workingPath);
-    if (working.doc && !working.doc.state().destination && working.doc.state().dirty) {
-        await browserDocumentStore.replaceContent(workingPath, workingPath);
-    }
 }
 
 type TBrowserWorkingCopyDecryptionResult = Awaited<ReturnType<typeof decryptBrowserWorkingCopy>>;
@@ -269,7 +261,7 @@ export async function openDocumentPaths(
         const workingPath = await browserDocumentStore.cloneAsWorkingCopy(sourcePath);
         let published = false;
         try {
-            const decryption = await decryptBrowserWorkingCopy(workingPath, password);
+            const decryption = await decryptBrowserWorkingCopy(workingPath, password, {opened: true});
             if (decryption.outcome === 'needs-password') {
                 await touchRecentFileForOpen(sourcePath);
                 return {
@@ -284,7 +276,6 @@ export async function openDocumentPaths(
                 } satisfies TOpenFileResult;
             }
             await normalizeBrowserWorkingCopyAppendBase(workingPath, firstFileName);
-            await startOpenedWorkingCopyClean(workingPath);
             await touchRecentFileForOpen(sourcePath);
             browserDocumentStore.unload(sourcePath);
             emitBatchOpenProgress(progressOptions, 1, 1, startedAt);

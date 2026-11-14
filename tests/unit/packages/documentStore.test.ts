@@ -264,11 +264,11 @@ describe('document directory', () => {
         expect((await readdir(docDir(doc))).sort()).toEqual(['manifest.json', 'r5.pdf']);
     });
 
-    it('rewrites a document without bytes of its own without copying it in, and undoes to its destination', async () => {
+    it('rewrites a document without bytes of its own without copying it in, keeps the destination as its baseline even for imported bytes, and undoes to it', async () => {
         const destination = path.join(workDir, 'paper.pdf');
         await writeFile(destination, 'v1');
         const doc = await create(store(), { ext: 'pdf', destination });
-        expect(await doc.mutate(null, rewrite('v2'))).toMatchObject({ status: 'committed', revision: { id: 2, file: 'r2.pdf' } });
+        expect(await doc.mutate(null, { ...rewrite('v2'), imported: true })).toMatchObject({ status: 'committed', revision: { id: 2, file: 'r2.pdf' } });
         expect((await readdir(docDir(doc))).sort()).toEqual(['manifest.json', 'r2.pdf']);
         expect(doc.state()).toMatchObject({ history: [{ id: 1 }], dirty: true });
 
@@ -675,12 +675,16 @@ describe('save', () => {
         expect(reopened.state().dirty).toBe(true);
     });
 
-    it('starts an imported document clean and sends it to Save As', async () => {
+    it('starts an imported document clean, keeps it clean through an imported rewrite, and sends it to Save As', async () => {
         const doc = await create(store(), { ext: 'pdf', source: new Blob(['dropped']), imported: true });
         expect(doc.state()).toMatchObject({ destination: null, baseline: await witnessOf(encode('dropped')), dirty: false });
-        expect(await saveDocument(doc, { expected: 1 })).toEqual({ status: 'needs-save-as' });
-        await doc.mutate(1, append('+edit'));
-        expect(doc.state().dirty).toBe(true);
+        await doc.mutate(1, { ...rewrite('decrypted'), imported: true });
+        await doc.close();
+        const reopened = await open(store(), doc.id);
+        expect(reopened.state()).toMatchObject({ baseline: await witnessOf(encode('decrypted')), history: [], dirty: false });
+        expect(await saveDocument(reopened, { expected: 2 })).toEqual({ status: 'needs-save-as' });
+        await reopened.mutate(2, append('+edit'));
+        expect(reopened.state().dirty).toBe(true);
     });
 
     it('sends a document without a destination to Save As', async () => {

@@ -20,7 +20,10 @@ destination until the first append needs private bytes; drafts never copy it,
 and a rewrite supplies all its bytes. Append mutations flush an extended
 revision (`extend` commits what a native tool appended to the current file
 itself); rewrites flush a new file. Replacing the manifest commits the revision
-and its kept, replaced or cleared drafts together. A drafts-only change also
+and its kept, replaced or cleared drafts together. An imported rewrite, such as
+the decrypted or repaired bytes a browser open makes of a document without a
+file, also makes them the baseline, with no history, in that commit: an open
+cut short leaves no unsaved work. A drafts-only change also
 commits by replacing the manifest. Desktop tools read a revision file to its
 end, so before such a tool runs and after an undo, `ownCurrentFile` moves redo
 revisions that extend the current file to a copy and cuts what no revision

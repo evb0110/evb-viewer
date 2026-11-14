@@ -58,7 +58,6 @@ import {
     createBrowserWorkingCopyFromBytes,
     decryptBrowserWorkingCopy,
     openDocumentPaths,
-    startOpenedWorkingCopyClean,
 } from '@app/platform/browser-api/browserWorkingCopyService';
 import {
     savePdfAsFromWorkingCopy,
@@ -604,11 +603,9 @@ export function createBrowserDocumentsFileCapability(
             const sourceRef = originalPath && isBrowserDocumentRef(originalPath) ? parseDocumentRef(originalPath) : null;
             if (sourceRef) workingEntry.sourceRef = sourceRef;
             try {
-                assertBrowserWorkingCopyDecrypted(await decryptBrowserWorkingCopy(workingPath, password));
-                if (sourceEntry.kind !== 'working') {
-                    await startOpenedWorkingCopyClean(workingPath);
-                    browserDocumentStore.unload(sourcePath);
-                }
+                const opened = sourceEntry.kind !== 'working';
+                assertBrowserWorkingCopyDecrypted(await decryptBrowserWorkingCopy(workingPath, password, {opened}));
+                if (opened) browserDocumentStore.unload(sourcePath);
                 return workingPath;
             } catch (error) {
                 await discardWorkingCopy(workingPath);

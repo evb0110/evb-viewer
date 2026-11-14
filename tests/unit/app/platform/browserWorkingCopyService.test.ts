@@ -1,5 +1,10 @@
 import type * as TBrowserWindowTabs from '@app/platform/browserWindowTabs';
 import {
+    decodeManifest,
+    type IManifest,
+    isDirty,
+} from '@document-store/documentDirectory';
+import {
     afterEach,
     beforeEach,
     describe,
@@ -133,6 +138,33 @@ describe('browser working-copy decryption', () => {
             password: 'correct-password',
         }, expect.any(Function));
         await expect(browserDocumentStore.read(workingPath)).resolves.toEqual(DECRYPTED_PDF);
+    });
+
+    it('opens an encrypted PDF without a file clean in every manifest it writes, so a reload mid-open recovers nothing', async () => {
+        const {
+            browserDocumentStore,
+            openDocumentPaths,
+        } = await loadService();
+        const sourcePath = await browserDocumentStore.createStoredDocument('protected.pdf', ENCRYPTED_PDF, PDF_SOURCE_OPTIONS);
+        const {store} = await browserDocumentStore.requireEntry(sourcePath);
+        const manifests: IManifest[] = [];
+        const writeAtomic = store!.port.writeAtomic.bind(store!.port);
+        vi.spyOn(store!.port, 'writeAtomic').mockImplementation(async (path, bytes) => {
+            if (path.endsWith('/manifest.json')) manifests.push(decodeManifest(bytes));
+            return writeAtomic(path, bytes);
+        });
+        wasmRun.mockResolvedValueOnce({
+            data: DECRYPTED_PDF,
+            pageCount: 1,
+        });
+
+        const result = await openDocumentPaths([sourcePath], undefined, 'correct-password');
+        if (result?.kind !== 'pdf') throw new Error('Expected an opened PDF');
+
+        expect(result).toMatchObject({wasEncrypted: true});
+        expect(manifests).not.toHaveLength(0);
+        expect(manifests.filter(isDirty)).toEqual([]);
+        await expect(browserDocumentStore.read(result.workingPath)).resolves.toEqual(DECRYPTED_PDF);
     });
 
     it('returns a typed wrong-password result without changing the encrypted working copy', async () => {
