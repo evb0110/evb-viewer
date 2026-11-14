@@ -112,7 +112,8 @@ async function enterQueuedNativeNoteCommand(
         phaseTimings,
         operationStart,
         entry,
-        targetPath: await prepareDocumentAppend(entry),
+        // Edits a Save carries build on the PDF as it is now: a changed one makes Save refuse and Save As rescue them.
+        targetPath: await prepareDocumentAppend(entry, true),
     };
 }
 

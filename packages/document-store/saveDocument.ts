@@ -1,7 +1,9 @@
 import { sameWitness } from './contentWitness';
 import type {
     DocumentDirectory,
+    IPendingPublish,
     IRevision,
+    TPublishResult,
     TMutation,
     TStaleRevision,
 } from './documentDirectory';
@@ -44,30 +46,42 @@ export function saveDocument(doc: DocumentDirectory, options: ISaveOptions) {
         if (destination === undefined || (saveAs === undefined && baseline === undefined)) return { status: 'needs-save-as' };
         // Without bytes of its own the document still is its destination: a plain Save has nothing to write.
         if (saveAs === undefined && !doc.snapshot().current) return { status: 'saved', revision: null };
-        const current = await doc.ensureCurrent();
+        // Save As publishes a destination another program changed as it is now; a plain Save refuses it below.
+        const current = await doc.ensureCurrent(saveAs !== undefined);
         if (!current) return { status: 'conflict' };
         if (saveAs === undefined && sameWitness(current.witness, baseline)) return { status: 'saved', revision: current };
         await doc.keepDestinationRevision();
 
-        let staged = false;
-        const published = await doc.store.publication.publish(
-            destination,
-            { path: doc.path(current.file), length: current.length, file: doc.currentFile(), witness: current.witness },
-            saveAs === undefined ? baseline ?? null : null,
-            // The current bytes carry the witness too, so recovery that adopts it leaves the document clean. An earlier
-            // publish still unresolved is kept to be settled, with the baseline its destination had.
-            async (witness) => {
-                const manifest = doc.snapshot();
-                const earlier = manifest.pendingPublish;
-                await doc.commit({
-                    ...manifest,
-                    current: { ...current, witness },
-                    pendingPublish: { destination, witness },
-                    unsettled: earlier ? [...manifest.unsettled ?? [], { ...earlier, baseline: manifest.baseline }] : manifest.unsettled,
-                });
-                staged = true;
-            },
-        );
+        // This publish's record: first the file it stages beside the destination, then the witness it stages. The
+        // current bytes carry the witness too, so recovery that adopts it leaves the document clean. An earlier publish
+        // still unresolved is kept to be settled, with the baseline its destination had.
+        let own = undefined as IPendingPublish | undefined;
+        const record = async (next: IPendingPublish, staged = current) => {
+            const manifest = doc.snapshot();
+            const earlier = manifest.pendingPublish === own ? undefined : manifest.pendingPublish;
+            own = next;
+            await doc.commit({
+                ...manifest,
+                current: staged,
+                pendingPublish: own,
+                unsettled: earlier ? [...manifest.unsettled ?? [], { ...earlier, baseline: manifest.baseline }] : manifest.unsettled,
+            });
+        };
+        let published: TPublishResult;
+        try {
+            published = await doc.store.publication.publish(
+                destination,
+                { path: doc.path(current.file), length: current.length, file: doc.currentFile(), witness: current.witness },
+                saveAs === undefined ? baseline ?? null : null,
+                witness => record({ ...own, destination, witness }, { ...current, witness }),
+                temp => record({ destination, temp }),
+            );
+        } catch (error) {
+            // A publish that failed before staging its bytes left the destination as it was.
+            if (own && own.witness === undefined) await doc.commit({ ...doc.snapshot(), pendingPublish: undefined });
+            throw error;
+        }
+        const staged = own?.witness !== undefined;
         const kept = published.keptOriginal === undefined ? {} : { keptOriginal: published.keptOriginal };
         if (published.status === 'conflict') {
             // The staged witness named a file the destination did not end up holding: `current` gets its own back.

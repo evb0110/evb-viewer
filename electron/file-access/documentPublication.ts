@@ -18,6 +18,7 @@ import {
     sameWitness,
 } from '@document-store/contentWitness';
 import type {
+    IPendingPublish,
     IPublicationPort,
     IPublishSource,
 } from '@document-store/documentDirectory';
@@ -101,13 +102,17 @@ async function settleDisplacedOriginal(destination: string, baseline: string | n
     return keepOriginalBeside(displaced, destination, keptPath => rememberKeptOriginal(destination, keptPath));
 }
 
+/** A file name `makeSiblingTempPath` gives: the only kind of file beside a PDF that settling a save removes. */
+const SIBLING_TEMP_NAME = /^\.[0-9a-f]{16}\.tmp$/u;
+
 /**
- * Settles a save a crash or a failure interrupted: the save finished only if the PDF is the file it was publishing,
- * whose metadata it staged as `published`. Returns the PDF's witness afterwards; throws while the PDF cannot be read,
- * so the document keeps the save to settle later.
+ * Settles a save a crash or a failure interrupted: removes the copy it staged beside the PDF, which its record names,
+ * and the save finished only if the PDF is the file it was publishing, whose metadata it staged. Returns the PDF's
+ * witness afterwards; throws while the PDF cannot be read, so the document keeps the save to settle later.
  */
-function settleInterruptedPublish(destination: string, published: string, baseline: string | null) {
+function settleInterruptedPublish({destination, witness: published, temp}: IPendingPublish, baseline: string | null) {
     return withOriginalPathMutationLock(destination, async () => {
+        if (temp !== undefined && dirname(temp) === dirname(destination) && SIBLING_TEMP_NAME.test(basename(temp))) await rm(temp, {force: true});
         await settleDisplacedOriginal(destination, baseline, sameWitness(await fileWitness(destination), published));
         return fileWitness(destination);
     });
@@ -133,9 +138,11 @@ export function createDesktopPublication(absolute: (storePath: string) => string
         witness: fileWitness,
         settle: settleInterruptedPublish,
         source: async destination => destination,
-        publish: (destination, source, expected, stage) => withOriginalPathMutationLock(destination, async () => {
+        publish: (destination, source, expected, stage, reserve) => withOriginalPathMutationLock(destination, async () => {
             await settleDisplacedOriginal(destination, expected);
             const temp = makeSiblingTempPath(destination);
+            // Named in the pending publish before it exists, so recovery after a crash removes it.
+            await reserve?.(temp);
             try {
                 await copyRevision(source, absolute(source.path), temp);
                 const staged = metadataFact(statSync(temp, {bigint: true}));

@@ -39,10 +39,14 @@ export type THistoryRevision = IRevision | IDestinationRevision;
 
 const hasFile = (revision: THistoryRevision): revision is IRevision => 'file' in revision;
 
-/** A publish whose outcome is unknown: `witness` is what `destination` holds if it finished. */
-interface IPendingPublish {
+/**
+ * A publish whose outcome is unknown: `witness` is what `destination` holds if it finished (absent until the bytes are
+ * staged), and `temp` the file it stages beside the destination, named before that file exists.
+ */
+export interface IPendingPublish {
     destination: string;
-    witness: string;
+    witness?: string | undefined;
+    temp?: string | undefined;
     /** What the destination held before, for an `unsettled` record; the latest publish's is the manifest's `baseline`. */
     baseline?: string | undefined;
 }
@@ -101,20 +105,28 @@ export interface IPublicationPort {
      */
     witness(destination: string, content?: boolean): Promise<string | null>;
     /**
-     * Ends what an interrupted publish of `published` left at `destination`, which held `baseline` before (on desktop,
-     * the file it moved aside), then answers as `witness` does. Throws while the destination cannot be read. Without
-     * it, recovery asks `witness`, for the content when `published` names it.
+     * Ends what the interrupted publish `record` left at its destination, which held `baseline` before (on desktop, its
+     * staged copy and the file it moved aside), then answers as `witness` does. Throws while the destination cannot be
+     * read. Without it, recovery asks `witness`, for the content when the record's witness names it.
      */
-    settle?(destination: string, published: string, baseline: string | null): Promise<string | null>;
+    settle?(record: IPendingPublish, baseline: string | null): Promise<string | null>;
     /** The destination's bytes, to copy in as the first revision. */
     source(destination: string): Promise<TExternalSource>;
     /**
      * Writes `source` to `destination`. Before the destination changes, `stage` receives the witness the
-     * destination will have, and is awaited: the core records it as the pending publish. With `expected`, refuses
-     * with `conflict` unless the destination's witness still equals it, checked as close to the write as the
-     * platform allows. Refusals of another kind (locked, read-only, folder not writable) throw the adapter's own error.
+     * destination will have, and is awaited: the core records it as the pending publish. A platform that stages a
+     * file beside the destination passes its path to `reserve` before creating it, so recovery removes it. With
+     * `expected`, refuses with `conflict` unless the destination's witness still equals it, checked as close to the
+     * write as the platform allows. Refusals of another kind (locked, read-only, folder not writable) throw the
+     * adapter's own error.
      */
-    publish(destination: string, source: IPublishSource, expected: string | null, stage: (witness: string) => Promise<void>): Promise<TPublishResult>;
+    publish(
+        destination: string,
+        source: IPublishSource,
+        expected: string | null,
+        stage: (witness: string) => Promise<void>,
+        reserve?: (temp: string) => Promise<void>,
+    ): Promise<TPublishResult>;
 }
 
 export interface IDocumentStore {
@@ -172,8 +184,8 @@ function isRevision(value: unknown): value is IRevision {
 }
 
 const isDestinationRevision = (value: unknown) => isRecord(value) && value.id === 1 && typeof value.witness === 'string' && !('file' in value);
-const isPendingPublish = (value: unknown) => isRecord(value) && typeof value.destination === 'string' && typeof value.witness === 'string'
-    && isOptionalString(value.baseline);
+const isPendingPublish = (value: unknown) => isRecord(value) && typeof value.destination === 'string' && isOptionalString(value.witness)
+    && isOptionalString(value.temp) && isOptionalString(value.baseline);
 
 function isManifest(value: unknown): value is IManifest {
     return isRecord(value) && value.version === 1 && typeof value.ext === 'string' && EXT_PATTERN.test(value.ext)
@@ -393,10 +405,11 @@ export class DocumentDirectory {
 
     /**
      * Gives the document bytes of its own, copying the destination in when it has none, for readers that need a
-     * file. The revision id stays what a caller expecting `null` meets as revision 1. `null` on a conflict.
+     * file. The revision id stays what a caller expecting `null` meets as revision 1. `null` on a conflict; `asItIs`
+     * as for `ensureCurrent`.
      */
-    materialize() {
-        return this.run(() => this.ensureCurrent());
+    materialize(asItIs = false) {
+        return this.run(() => this.ensureCurrent(asItIs));
     }
 
     /**
@@ -555,33 +568,43 @@ export class DocumentDirectory {
         const kept = manifest.history.find(revision => !hasFile(revision));
         if (!kept || destination === undefined || !sameWitness(kept.witness, manifest.baseline)) return;
         const name = `r1.${manifest.ext}`;
-        const created = await this.store.publication.source(destination).then(source => this.createFromDestination(name, source)).catch(() => null);
+        const created = await this.createFromDestination(name).catch(() => null);
         if (!created) return;
         await created.file.close();
         const revision: IRevision = { id: 1, file: name, length: created.length, witness: kept.witness };
         await this.commit({ ...manifest, history: manifest.history.map(other => (other === kept ? revision : other)) });
     }
 
-    /** The current revision, copying the destination in as revision 1 when there is none; `null` on a conflict. */
-    async ensureCurrent(): Promise<IRevision | null> {
+    /**
+     * The current revision, copying the destination in as revision 1 when there is none; `null` on a conflict (see
+     * `createFromDestination`). With `asItIs`, a destination another program changed is taken as it is now, for a
+     * Save that builds on it: those bytes are not the baseline, so Save refuses them and Save As publishes them.
+     */
+    async ensureCurrent(asItIs = false): Promise<IRevision | null> {
         const { manifest } = this;
         if (manifest.current) return manifest.current;
         if (manifest.destination === undefined) throw new Error(`Document ${this.id} has neither bytes nor a destination`);
         const name = `r1.${manifest.ext}`;
-        const created = await this.createFromDestination(name, await this.store.publication.source(manifest.destination));
+        const created = await this.createFromDestination(name, asItIs);
         if (!created) return null;
-        const current = { id: 1, file: name, length: created.length, witness: manifest.baseline };
+        const current = { id: 1, file: name, length: created.length, witness: created.witness };
         await this.commit({ ...manifest, current }, created.file);
         return current;
     }
 
     /**
-     * A revision file made from bytes read from the destination. `null`, and no file, when the destination no
-     * longer holds the baseline afterwards: edits must not land on bytes the person has not seen.
+     * A revision file copied from the destination, with the baseline as its witness while the destination holds it.
+     * `null`, and no file, when the destination changed during the copy, or no longer holds the baseline unless
+     * `asItIs`: edits land on bytes the person has not seen only when a Save asks for that.
      */
-    private async createFromDestination(name: string, source: TRevisionSource) {
-        const created = await this.createRevisionFile(name, source);
-        if (sameWitness(await this.store.publication.witness(this.manifest.destination!), this.manifest.baseline)) return created;
+    private async createFromDestination(name: string, asItIs = false) {
+        const { publication } = this.store;
+        const { destination, baseline } = this.manifest;
+        const before = await publication.witness(destination!);
+        const created = await this.createRevisionFile(name, await publication.source(destination!));
+        const after = await publication.witness(destination!);
+        const unchanged = sameWitness(after, baseline);
+        if (sameWitness(before, after) && (unchanged || asItIs)) return { ...created, witness: unchanged ? baseline : undefined };
         await created.file.close();
         await this.store.port.remove(this.path(name));
         return null;
@@ -599,7 +622,7 @@ export class DocumentDirectory {
         const { publication } = this.store;
         // A witness without content names the published file by its metadata, which is enough to compare.
         const settle = (record: IPendingPublish, baseline: string | undefined) => (publication.settle
-            ? publication.settle(record.destination, record.witness, baseline ?? null)
+            ? publication.settle(record, baseline ?? null)
             : publication.witness(record.destination, contentOf(record.witness) !== undefined)).catch(() => undefined);
         const left: IPendingPublish[] = [];
         for (const record of unsettled) {

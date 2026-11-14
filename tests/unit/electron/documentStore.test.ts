@@ -110,6 +110,25 @@ afterEach(async () => {
 });
 
 describe('desktop document store', () => {
+    it('removes the copy a crashed Save staged beside the PDF, which its record names, and nothing else there', async () => {
+        const {pdf, entry} = await openPdf();
+        await store.commitDocumentMutation(entry, '1' as never, {kind: 'rewrite', source: await writeTemp('edited.pdf', EDITED)}, 'write');
+        const staged = join(dirname(pdf), '.0123456789abcdef.tmp');
+        const unnamed = join(dirname(pdf), '.fedcba9876543210.tmp');
+        await writeFile(staged, EDITED);
+        await writeFile(unnamed, EDITED);
+        const {doc} = entry;
+        await doc.run(() => doc.commit({...doc.snapshot(), pendingPublish: {destination: pdf, temp: staged}}));
+        const id = doc.id;
+        await restart();
+
+        const reopened = await store.reopenStoredDocument(id, {ownerWebContentsId: 7});
+        expect(existsSync(staged)).toBe(false);
+        expect(existsSync(unnamed)).toBe(true);
+        expect(await readFile(pdf)).toEqual(Buffer.from(ORIGINAL));
+        expect(reopened.doc.snapshot().pendingPublish).toBeUndefined();
+    });
+
     it('opens a PDF without copying or reading it, and reads the PDF itself', async () => {
         const pdf = await writeTemp('report.pdf', ORIGINAL);
         // Opening reads the file's metadata only, so a PDF no one may read still opens.
@@ -299,7 +318,7 @@ describe('desktop document store', () => {
         const real = {...publication};
         const unreadable = (destination: string) => !readable && destination === pdf;
         publication.witness = (destination, content) => (unreadable(destination) ? Promise.reject(new Error('EACCES')) : real.witness(destination, content));
-        if (real.settle) publication.settle = (destination, ...rest) => (unreadable(destination) ? Promise.reject(new Error('EACCES')) : real.settle!(destination, ...rest));
+        if (real.settle) publication.settle = (record, baseline) => (unreadable(record.destination) ? Promise.reject(new Error('EACCES')) : real.settle!(record, baseline));
         const copy = join(tempRoot, 'copy.pdf');
         try {
             expect(await store.saveOpenDocument(entry, store.documentRevisionToken(entry), {saveAs: copy})).toMatchObject({status: 'saved'});
