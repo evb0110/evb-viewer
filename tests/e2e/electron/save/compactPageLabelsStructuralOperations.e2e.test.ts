@@ -861,8 +861,8 @@ describe('Electron E2E, compact page labels through structural operations', () =
         await runCommand(session, 'handlePageMove', [move]);
 
         const insertionAfterPage = await insertOnePageThroughWorkspace(session, insertionSourcePath);
-        // An inserted page keeps the label its source gives it: page 1 of an unlabelled PDF.
-        expected.splice(insertionAfterPage, 0, '1');
+        // An unlabelled source page continues the destination Appendix alphabetic range.
+        expected.splice(insertionAfterPage, 0, 'Appendix-zz');
         await waitForSemanticLabels(session, expected);
 
         await runCommand(session, 'handleSave', []);

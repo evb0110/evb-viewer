@@ -134,12 +134,13 @@ describe('browser page-ops capability acceptance in Chromium', () => {
                     outlineDestinationWasDeleted: false,
                 },
                 {
+                    // Unlabelled source pages join the destination numbering range.
                     operation: 'insert',
                     resurrectionRegression: false,
                     pageCount: 4,
                     labels: [
                         '1',
-                        '1',
+                        '2',
                         'I',
                         'II',
                     ],
@@ -257,7 +258,8 @@ describe('browser page-ops capability acceptance in Chromium', () => {
                 pageCount: pageCount + 1,
                 widths: [100, 999, ...widths.slice(1)],
                 outlinePage: 4,
-                labels: ['1', '1', '2', ...roman.slice(0, pageCount - 2)],
+                // Insertion continues the decimal range through the following base page.
+                labels: ['1', '2', '3', ...roman.slice(0, pageCount - 2)],
             });
             expect(await inspect('merge')).toMatchObject({
                 pageCount: pageCount + 1,
