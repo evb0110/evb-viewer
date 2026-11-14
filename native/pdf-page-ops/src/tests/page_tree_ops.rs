@@ -2054,7 +2054,7 @@ fn page_structure_edits_refuse_a_damaged_page_tree() {
     for (name, input) in cases {
         let error = delete_browser_pdf_pages(&input, &[1]).err().unwrap_or_else(|| panic!("{name}"));
         let error = error.downcast_ref::<NativeError>().unwrap();
-        assert_eq!(error.code, NativeErrorCode::CorruptXref, "{name}");
+        assert_eq!(error.code, NativeErrorCode::InvalidRequest, "{name}");
         assert!(error.message.starts_with("The page tree is damaged"), "{name}: {}", error.message);
     }
     let sound = page_tree_pdf(2, &["4 0 R", "3 0 R"], &[(3, PAGE), (4, NODE), (5, PAGE)]);

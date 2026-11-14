@@ -35,6 +35,8 @@ pub(crate) fn split_form_with_copy(
         .and_then(|fields| fields.as_array().ok())
         .map(Vec::as_slice)
         .unwrap_or_default()
+        .iter()
+        .filter(|field| is_form_field(source, field))
     {
         for field in split_form_field(
             source,
@@ -68,6 +70,14 @@ pub(crate) fn split_form_with_copy(
         form.set("CO", order);
     }
     Ok(Some(form))
+}
+
+/// Whether `field`, an entry of a form's /Fields, is a field. qpdf ignores an
+/// entry that does not resolve to a dictionary, and no output carries one.
+pub(crate) fn is_form_field(document: &Document, field: &Object) -> bool {
+    document
+        .resolved(field)
+        .is_ok_and(|field| field.as_dict().is_ok())
 }
 
 const FIELD_KEYS: &[&[u8]] = &[

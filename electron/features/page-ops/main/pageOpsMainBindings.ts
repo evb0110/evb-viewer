@@ -70,10 +70,19 @@ import {
     getWorkingCopyOriginalPath,
     requireManagedWorkingCopyPath,
     appendToDocument,
+    documentRevisionToken,
     requireOpenDocument,
+    restoreOpenDocumentRevision,
     rewriteDocument,
     runWithWorkingCopyReadBacking,
 } from '@electron/file-access/documentStore';
+import {
+    findSerializableErrorEnvelope,
+} from '@contracts/serializableError';
+import { NATIVE_ERROR_ENVELOPE_SCHEMA } from '@contracts/nativeErrors';
+import { rewritePdfWithQpdf } from '@electron/pdf/pdfAppendBase';
+import { createLogger } from '@electron/utils/createLogger';
+import { getErrorMessage } from '@electron/utils/error';
 import { readNativePdfCatalogPart } from '@electron/features/page-ops/main/readNativePdfCatalog';
 import { resolveNativePageOpsPath } from '@electron/features/page-ops/main/resolveNativePageOpsPath';
 import { PDF_BOOKMARK_RECOVERY_ENTRY_SCHEMA } from '@contracts/pdfBookmarkEntry';
@@ -130,6 +139,8 @@ import type { ICreatePdfFromInputPathsProgress } from '@electron/image/pdfConver
 import {
     applyPageMetadataRemap, resolvePageMetadataSourceTargets,
 } from '@electron/features/page-ops/main/pageMetadataRemap';
+
+const logger = createLogger('page-ops');
 
 interface IPageOpsOperationContext {
     sender: WebContents;
@@ -273,9 +284,10 @@ async function runPageMutation<T>(input: {
 }) {
     await assertQueuedWorkingCopyMutationPreconditions(input.ref, input.token);
     const nativeOptions = createNativeOperationOptions(input.operation);
+    const entry = requireOpenDocument(input.ref, input.senderId);
     let committed = null as {value: T; delta: IPageIdentityDelta} | null;
-    const documentRevision = await runWithWorkingCopyMutationCommitSignal(DEFERRED_COMMIT_SIGNAL, () => (input.write ?? rewriteDocument)(
-        requireOpenDocument(input.ref, input.senderId),
+    const write = () => (input.write ?? rewriteDocument)(
+        entry,
         async (source, target) => {
             const pageCount = await getPdfPageCount(source, nativeOptions);
             if (input.expectedTotalPages !== undefined && input.expectedTotalPages !== pageCount) {
@@ -306,7 +318,28 @@ async function runPageMutation<T>(input: {
             committed = mutation;
         },
         'page-ops',
-    ));
+    );
+    const documentRevision = await runWithWorkingCopyMutationCommitSignal(DEFERRED_COMMIT_SIGNAL, async () => {
+        try {
+            return await write();
+        } catch (error) {
+            // The page engine could not read the document: repair its revision as its open does, then edit once more.
+            if (findSerializableErrorEnvelope(error, NATIVE_ERROR_ENVELOPE_SCHEMA)?.code !== 'corrupt-xref') throw error;
+            const refused = documentRevisionToken(entry);
+            const repaired = await rewriteDocument(entry, (source, target) => rewritePdfWithQpdf(source, target, nativeOptions), 'open')
+                .catch(() => {
+                    throw error;
+                });
+            logger.debug('Repaired a revision the page engine could not read', {error: getErrorMessage(error)});
+            try {
+                return await write();
+            } catch (retryError) {
+                // The viewer holds the objects of the revision it edited, so that revision stays current.
+                await restoreOpenDocumentRevision(entry, refused, repaired.token);
+                throw retryError;
+            }
+        }
+    });
     if (!committed) throw new Error('Page operation did not publish a result');
     return {
         value: committed.value,

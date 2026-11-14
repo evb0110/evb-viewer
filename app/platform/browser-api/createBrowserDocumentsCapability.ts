@@ -42,6 +42,7 @@ import {
     onBrowserOpenDocumentDirectBatchProgress,
 } from '@app/platform/browser-api/documentsMenuCapability';
 import { createBrowserPageOpsCapability } from '@app/platform/browser-api/createBrowserPageOpsCapability';
+import { repairBrowserWorkingCopy } from '@app/platform/browser-api/browserWorkingCopyService';
 import type {
     TLocale,
     TTranslateFn,
@@ -139,6 +140,7 @@ export function createBrowserDocumentsCapability(
         pickSaveTarget,
         saveBytesToPickerOrDownload,
         writeBytesToHandle,
+        repairWorkingCopy: repairBrowserWorkingCopy,
     });
     const documentPicker = {
         openDocumentDialog: fileCapability.openDocumentDialog,
