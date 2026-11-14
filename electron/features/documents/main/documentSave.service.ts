@@ -33,6 +33,7 @@ import {
 import { allowOpenPath } from '@electron/file-access/openPathCapabilities';
 import { te } from '@electron/te';
 import { validatePdfFile } from '@electron/features/documents/main/pdfConformance';
+import { rewritePdfWithQpdf } from '@electron/pdf/pdfAppendBase';
 import { enqueueWorkingCopyMutation } from '@electron/file-access/workingCopyMutationQueue';
 import { optimizePdfForSaveAs } from '@electron/features/documents/public/pdfSaveAsOptimization';
 import type { IDocumentsDialogContext } from '@electron/features/documents/documentsContexts';
@@ -111,14 +112,16 @@ export async function savePdfAs(
                 ? await resolveTypedStagedArtifact(context, options.stagedOutput)
                 : undefined;
             const sourcePath = stagedOutput?.path ?? await requireDocumentFile(entry);
-            const validation = await validatePdfFile(sourcePath);
-            if (!validation.isValid) {
+            // Damage the file already had is repaired once, by the qpdf rewrite a page edit's recovery uses.
+            const damaged = !(await validatePdfFile(sourcePath)).isValid;
+            if (!damaged) {
+                await copyFile(sourcePath, tempPath, constants.COPYFILE_FICLONE);
+            } else if (!await rewritePdfWithQpdf(sourcePath, tempPath).then(async () => (await validatePdfFile(tempPath)).isValid, () => false)) {
                 throw new Error('Working copy is not a valid PDF');
             }
-            await copyFile(sourcePath, tempPath, constants.COPYFILE_FICLONE);
             const optimizedValidation = await optimizePdfForSaveAs(tempPath, options);
             const result = await saveOpenDocument(entry, expectedDocumentRevisionToken, {
-                ...(optimizedValidation || stagedOutput ? {commit: {kind: 'move' as const, file: tempPath}} : {}),
+                ...(optimizedValidation || stagedOutput || damaged ? {commit: {kind: 'move' as const, file: tempPath}} : {}),
                 saveAs: targetPath,
             });
             if (result.status === 'stale-revision') {

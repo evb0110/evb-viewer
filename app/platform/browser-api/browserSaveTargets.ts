@@ -34,6 +34,7 @@ import {
     isQpdfSuccessExitCode, QPDF_LOSSLESS_REWRITE_TIMEOUT_MS, shouldKeepPdfOptimizationCandidate,
 } from '@pdf-core/qpdfCommands';
 import {runBrowserQpdfCommand} from '@app/platform/browser-api/browserQpdfEngineClient';
+import {repairBrowserPdfBytes} from '@app/platform/browser-api/browserWorkingCopyService';
 import {
     analyzeBrowserPdfConformanceData, validateBrowserPdfData, validateBrowserPdfPath,
 } from '@app/platform/browser-api/browserPdfValidation';
@@ -224,13 +225,22 @@ export async function savePdfAsFromWorkingCopy(
     if (!publication) {
         const sourcePath = staged?.artifact.path ?? workingCopyPath;
         const size = appendedContent?.size ?? (await browserDocumentStore.stat(sourcePath)).size;
-        const source = staged?.bytes ?? (size > BROWSER_QPDF_MAX_INPUT_BYTES ? null
+        let source = staged?.bytes ?? (size > BROWSER_QPDF_MAX_INPUT_BYTES ? null
             : appendedContent ? new Uint8Array(await appendedContent.arrayBuffer())
                 : await browserDocumentStore.read(sourcePath, {maxBytes: BROWSER_QPDF_MAX_INPUT_BYTES}));
         // A larger native edit was checked by the engine that appended it.
-        const validation = source
+        let validation = source
             ? await validateBrowserPdfData(source, {fileName: saveTarget.saveName})
             : appendedContent ? null : await validateBrowserPdfPath(sourcePath);
+        // Damage the file already had is repaired once, by the qpdf rewrite a page edit's recovery uses.
+        const repaired = source && validation?.isValid === false
+            ? await repairBrowserPdfBytes(source).catch(() => null)
+            : null;
+        if (repaired) {
+            source = repaired;
+            published = repaired;
+            validation = await validateBrowserPdfData(repaired, {fileName: saveTarget.saveName});
+        }
         if (validation && !validation.isValid) throw new Error('Working copy is not a valid PDF');
         const candidate = source
             && (saveOptions?.optimizeLossless === true || size >= PDF_LOSSLESS_OPTIMIZE_MIN_BYTES)

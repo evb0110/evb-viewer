@@ -148,7 +148,12 @@ async function normalizeBrowserWorkingCopyAppendBase(workingPath: TDocumentRef, 
  * asking the append admission; its edit then runs once more. Whether a new revision holds the rewrite.
  */
 export function repairBrowserWorkingCopy(workingPath: string, signal?: AbortSignal) {
-    return rewriteBrowserWorkingCopy(workingPath, async bytes => (await runBrowserQpdfCommand('rewrite', bytes, signal ? {signal} : {})).output);
+    return rewriteBrowserWorkingCopy(workingPath, bytes => repairBrowserPdfBytes(bytes, signal));
+}
+
+/** The open's qpdf rewrite, which rebuilds damage a PDF already had. */
+export async function repairBrowserPdfBytes(bytes: Uint8Array, signal?: AbortSignal) {
+    return (await runBrowserQpdfCommand('rewrite', bytes, signal ? {signal} : {})).output;
 }
 
 /** Commits what `rewrite` makes of the working copy's bytes, when it makes anything, as its next revision. */

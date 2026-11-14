@@ -2609,6 +2609,40 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
         expect(await store.getSourceRef(working)).toBe(sourceBefore);
     });
 
+    it('saves the one-time qpdf repair of a working copy qpdf finds damaged, and nothing when the repair stays damaged', async () => {
+        const damaged = await createPdfBytes();
+        const repaired = await createPdfBytes([300, 300]);
+        for (const repairPasses of [true, false]) {
+            let physical = new Uint8Array();
+            const handle = createFileSystemFileHandle({
+                name: 'damaged.pdf',
+                getFile: async () => new File([physical], 'damaged.pdf', {type: 'application/pdf'}),
+                createWritable: async () => createFileSystemWritableFileStream({write: async chunk => {physical = new Uint8Array(requireArrayBufferChunk(chunk));}}),
+            });
+            const {
+                capability, browserDocumentStore: store,
+            } = await loadBrowserDocumentsFileCapability({windowOverrides: {showSaveFilePicker: async () => handle}});
+            const working = await store.cloneAsWorkingCopy(await store.createStoredDocument('damaged.pdf', damaged, PDF_SOURCE_OPTIONS));
+            qpdfRun.mockImplementation(async (command: string, input: Uint8Array) => ({
+                exitCode: command !== 'rewrite' && (!repairPasses || Buffer.from(input).equals(Buffer.from(damaged))) ? 2 : 0,
+                stdout: command === 'page-count' ? '1' : '',
+                stderr: '',
+                output: command === 'rewrite' ? repaired.slice() : null,
+            }));
+            const save = capability.savePdfAs(working, undefined, await getRevisionOptions(store, working));
+            if (repairPasses) {
+                await expect(store.read((await save)!)).resolves.toEqual(repaired);
+                expect(physical).toEqual(repaired);
+            } else {
+                await expect(save).rejects.toThrow('Working copy is not a valid PDF');
+                expect(physical).toEqual(new Uint8Array());
+            }
+            expect(qpdfRun.mock.calls.filter(([command]) => command === 'rewrite')).toHaveLength(1);
+            await expect(store.read(working)).resolves.toEqual(damaged);
+            qpdfRun.mockClear();
+        }
+    });
+
     it('keeps a physical PDF name across Save As and the next ordinary Save', async () => {
         let bytes = await createPdfBytes();
         const name = ' report.PDF';
