@@ -353,7 +353,6 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         getTextBoxDraftGeneration: annotationId => textBoxDraftGenerations.get(annotationId),
         beforeTextBoxEdit: annotationId => documentAnnotations.commitDraftIfOpen(annotationId, documentAnnotationsView),
         getPendingTextCompletion: documentAnnotations.getPendingTextCompletion,
-        protectTextBoxDraft: documentAnnotations.protectTextBoxDraft,
         onToolCancel: options.emitAnnotationToolCancel,
         settings: options.annotationSettings,
         resolveStampImage,

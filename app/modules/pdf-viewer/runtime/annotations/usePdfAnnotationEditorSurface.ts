@@ -132,7 +132,6 @@ export interface IAnnotationEditorSurface {
     commitPendingTextBoxDraftsForSave(): void | Promise<void>;
     getPendingTextCompletion(): undefined | Promise<unknown>;
     runAcceptedCommand<T>(command: Promise<T> | (() => T | Promise<T>)): T | Promise<T>;
-    protectTextBoxDraft(annotationId: AnnotationId): void | Promise<void>;
     setTextBoxDraftPending(annotationId: AnnotationId, text?: string): void;
     restoreTextBoxDraftPending(annotationId: AnnotationId, geometry?: IAnnotationMarkerRect): void;
     hasTextBoxDraftPending(annotationId: AnnotationId): boolean;
@@ -210,7 +209,6 @@ interface IUsePdfAnnotationEditorSurfaceOptions {
     getTextBoxDraftGeneration?: (annotationId: AnnotationId) => number | undefined;
     beforeTextBoxEdit?: (annotationId: AnnotationId) => void | Promise<void>;
     getPendingTextCompletion?: () => undefined | Promise<unknown>;
-    protectTextBoxDraft?: ((assertCurrent: () => void) => Promise<void>) | undefined;
     onToolCancel?: (() => void) | undefined;
     emitOpenNote?: (entity: AnnotationEntity) => void;
     resolveStampImage?: (entity: IPlacedImageEntity) => Promise<string | null>;
@@ -715,16 +713,6 @@ export const usePdfAnnotationEditorSurface = (
         };
     }
 
-    function protectTextBoxDraft(annotationId: AnnotationId) {
-        if (!options.protectTextBoxDraft) return;
-        const assertCurrent = captureTextBoxInput(annotationId);
-        const geometry = getTextBoxDraftRect(annotationId);
-        if (geometry) restoredTextBoxDraftRects.set(annotationId, geometry);
-        return options.protectTextBoxDraft(assertCurrent).then(() => {
-            assertCurrent();
-        });
-    }
-
     function fitTextBox(entity: ITextBoxEntity, proposal: ITextBoxEntity) {
         if (!options.fitTextBox) return {
             rect: proposal.rect,
@@ -1138,7 +1126,6 @@ export const usePdfAnnotationEditorSurface = (
         commitPendingTextBoxDraftsForSave: commitTextSession,
         getPendingTextCompletion,
         runAcceptedCommand,
-        protectTextBoxDraft,
         setTextBoxDraftPending,
         restoreTextBoxDraftPending,
         hasTextBoxDraftPending,

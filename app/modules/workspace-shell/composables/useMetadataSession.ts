@@ -24,8 +24,6 @@ interface IMetadataSessionOptions {
     documentRevisionToken?: Readonly<Ref<TDocumentRevisionToken | null>>;
     markDirty: () => void;
     setWorkspaceCommandSink?: ((sink: IWorkspaceCommandSink | null) => void) | undefined;
-    /** An edit, undo or redo took effect; resolves once the document's drafts hold it. */
-    commitAcceptedEdit?: (() => Promise<void>) | undefined;
 }
 
 export const useMetadataSession = (options: IMetadataSessionOptions) => {
@@ -36,26 +34,10 @@ export const useMetadataSession = (options: IMetadataSessionOptions) => {
         documentRevisionToken,
         markDirty,
         setWorkspaceCommandSink,
-        commitAcceptedEdit,
     } = options;
 
     let metadataHistory: ReturnType<typeof useWorkspaceMetadataHistory> | null = null;
-    // The document's one command ledger: every annotation, metadata and file edit, its undo and its redo pass here,
-    // and each one that takes effect starts the commit of the document's drafts.
-    const ledger = useWorkspaceCommandLedger();
-    const afterAccepted = async (done: boolean) => {
-        if (done) await commitAcceptedEdit?.();
-        return done;
-    };
-    const workspaceUndoTimeline = {
-        ...ledger,
-        registerCommand: (command: IWorkspaceCommandRegistration) => {
-            ledger.registerCommand(command);
-            void commitAcceptedEdit?.();
-        },
-        undoTimeline: async () => afterAccepted(await ledger.undoTimeline()),
-        redoTimeline: async () => afterAccepted(await ledger.redoTimeline()),
-    };
+    const workspaceUndoTimeline = useWorkspaceCommandLedger();
     // What the working bytes hold of each field, as last read from them or written to them.
     const workingMetadata: {bookmarkItems?: unknown; pageLabelRanges?: unknown} = {};
     // This reload scope holds the existing owner, never a second metadata copy.
@@ -125,9 +107,12 @@ export const useMetadataSession = (options: IMetadataSessionOptions) => {
     };
     setWorkspaceCommandSink?.(commandSink);
 
+    // The owners read their first state while they are being created, before these exist.
+    let currentMetadata: (field: 'bookmarkItems' | 'pageLabelRanges') => unknown = () => undefined;
     /** The field's value as written to the working bytes, or as read from them when `written` is absent. */
     function acknowledgeWorkingMetadata<T>(field: 'bookmarkItems' | 'pageLabelRanges', written?: T) {
-        workingMetadata[field] = structuredClone(toRaw(written ?? (field === 'bookmarkItems' ? bookmarkItems.value : pageLabelRanges.value)));
+        const value = written ?? currentMetadata(field);
+        if (value !== undefined) workingMetadata[field] = structuredClone(toRaw(value));
         return written;
     }
     const differsFromWorkingBytes = (field: 'bookmarkItems' | 'pageLabelRanges', value: unknown) => (
@@ -184,6 +169,7 @@ export const useMetadataSession = (options: IMetadataSessionOptions) => {
     } = pageLabelState;
 
 
+    currentMetadata = field => (field === 'bookmarkItems' ? bookmarkItems.value : pageLabelRanges.value);
     metadataHistory = useWorkspaceMetadataHistory({
         bookmarkItems,
         bookmarksDirty,

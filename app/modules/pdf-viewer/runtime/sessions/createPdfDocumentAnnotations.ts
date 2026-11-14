@@ -60,7 +60,6 @@ export interface ICreatePdfDocumentAnnotationsOptions {
     documentRevisionToken: Readonly<Ref<TDocumentRevisionToken | null>>;
     documentSession?: Readonly<Ref<number>>;
     isSaving?: Readonly<Ref<boolean>>;
-    protectTextBoxDraft?: ((assertCurrent: () => void) => Promise<void>) | undefined;
 }
 
 /**
@@ -308,7 +307,6 @@ export const createPdfDocumentAnnotations = (options: ICreatePdfDocumentAnnotati
         textBoxDrafts,
         textBoxDraftGenerations,
         textBoxDraftRects,
-        protectTextBoxDraft: options.protectTextBoxDraft,
         setTextBoxDraft,
         restoreTextBoxDrafts,
         replaceLoadedDocument,

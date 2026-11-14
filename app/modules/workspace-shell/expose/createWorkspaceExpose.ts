@@ -272,6 +272,7 @@ export function createWorkspaceExpose(
         getWorkspaceDocumentRefsSignature: () => [document.file.originalPath.value, document.file.workingCopyPath.value, document.file.requiresSaveAsOnFirstSave.value],
         captureCanonicalAnnotationRecovery: document.recovery.capture,
         commitDocumentDrafts: document.recovery.commitDrafts,
+        holdDocumentDrafts: document.recovery.holdDrafts,
         restoreCanonicalAnnotationRecovery: value => document.recovery.restoreCanonicalAnnotationRecovery(pdfViewer(), value),
         handlePageRotate: (pages, angle) => runPageOperation(() => pageOps.handlePageRotate(pages, angle)),
         handleCropPages: (pages, margins) => runPageOperation(() => pageOps.handleCropPages(pages, margins)),

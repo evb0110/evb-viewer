@@ -94,6 +94,11 @@ export const createDocumentContext = ({controller}: {controller: IWorkspaceDocum
     const isSaving = ref(false);
     const isSavingAs = ref(false);
     const runExclusive = controller.operationLease.runExclusive;
+    // A byte mutation clears the drafts, so it starts once they hold the unsaved state, recovered drafts included.
+    const runAfterDrafts: typeof runExclusive = (kind, operation) => runExclusive(kind, async (ownership) => {
+        await recovery.commitDrafts();
+        return operation(ownership);
+    });
     const pdfDocumentSessionSlot = createPdfDocumentSessionSlot({
         documentRevisionToken: file.documentRevisionToken,
         workingCopyPath: file.workingCopyPath,
@@ -103,7 +108,7 @@ export const createDocumentContext = ({controller}: {controller: IWorkspaceDocum
         documentLifecycleKey: computed(() => file.originalPath.value ?? pendingDocumentPath.value),
     });
 
-    // Work that could not be stored as drafts is told to the user; the error carries what was told.
+    // Work that could not be stored as drafts is told to the user.
     const reportRecoveryFailure = (cause: unknown) => {
         const message = getErrorMessage(cause);
         const presentation = {
@@ -116,7 +121,6 @@ export const createDocumentContext = ({controller}: {controller: IWorkspaceDocum
             technicalDetails: message,
         };
         failure.reportFailure(presentation);
-        return Object.assign(cause instanceof Error ? cause : new Error(message), presentation);
     };
     const metadata = useMetadataSession({
         pdfDocument,
@@ -125,21 +129,12 @@ export const createDocumentContext = ({controller}: {controller: IWorkspaceDocum
         documentRevisionToken: file.documentRevisionToken,
         markDirty: file.markDirty,
         setWorkspaceCommandSink: file.setWorkspaceCommandSink,
-        commitAcceptedEdit: () => recovery.commitAcceptedEdit(),
     });
     const pdfDocumentAnnotations = createPdfDocumentAnnotations({
         workingCopyPath: file.workingCopyPath,
         source: file.pdfSrc,
         documentRevisionToken: file.documentRevisionToken,
         documentSession: file.fileHistorySessionVersion,
-        // An accepted text is stored with the drafts before the box takes it.
-        protectTextBoxDraft: async () => {
-            const instance = controller.snapshot.value.identity.documentInstanceId;
-            await recovery.commitDrafts().catch((cause: unknown) => {
-                if (controller.snapshot.value.identity.documentInstanceId !== instance) throw new DOMException('The text transaction was cancelled', 'AbortError');
-                throw reportRecoveryFailure(cause);
-            });
-        },
     });
     const { clearCache: clearOcrCache } = useOcrTextContent();
 
@@ -184,6 +179,7 @@ export const createDocumentContext = ({controller}: {controller: IWorkspaceDocum
         isDirty: () => hasPendingUnsavedChanges.value,
         prepare: async (assertCurrent) => {
             await pdfDocumentAnnotations.commitPendingDraftsForSave().then(assertCurrent);
+            await recovery.commitDrafts().then(assertCurrent);
             if (!await annotations.persistAllAnnotationNotes()) throw new Error(t('tabs.transferErrors.restoreFailed'));
         },
         close: async (assertCurrent) => {
@@ -419,7 +415,7 @@ export const createDocumentContext = ({controller}: {controller: IWorkspaceDocum
         ensureWorkingCopyFreshForRead: preparePageOperationWorkingCopy,
         clearOcrCache,
         resetSearchCache: resetSearchCaches,
-        runWithDocumentOperationLease: (kind, operation) => runExclusive(kind, () => metadata.runWithPreservedMetadataReload(operation)),
+        runWithDocumentOperationLease: (kind, operation) => runAfterDrafts(kind, () => metadata.runWithPreservedMetadataReload(operation)),
     });
     const printableSource = createPrintableSourceDataResolver({
         hasPendingUnsavedChanges,
@@ -538,7 +534,7 @@ export const createDocumentContext = ({controller}: {controller: IWorkspaceDocum
         clearOcrCache,
         ensureHistoryBaselineForMutation: file.ensureHistoryBaselineForMutation,
         reloadWorkingCopyIntoHistory: file.reloadWorkingCopyIntoHistory,
-        runWithDocumentOperationLease: runExclusive,
+        runWithDocumentOperationLease: runAfterDrafts,
     });
 
     return {
