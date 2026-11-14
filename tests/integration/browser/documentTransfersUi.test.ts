@@ -653,7 +653,13 @@ describe('browser document lifecycle UI', () => {
             const download = second.waitForEvent('download');
             await second.evaluate(() => Reflect.set(window, 'showSaveFilePicker', undefined));
             await second.getByRole('menuitem', {name: /^Save As/u}).click();
-            expect(noteTexts(await PDFDocument.load(readFileSync(await (await download).path())))).toEqual(new Set(['Second window note']));
+            // Save As overlays this window's unsaved edits on the file as it is now.
+            const expectedNotes = new Set(['First window note', 'Second window note']);
+            expect(noteTexts(await PDFDocument.load(readFileSync(await (await download).path())))).toEqual(expectedNotes);
+            await second.getByRole('button', {name: 'Toggle Sidebar', exact: true}).click();
+            await second.getByRole('tab', {name: 'Annotations', exact: true}).click();
+            await expect.poll(async () => new Set(await second.locator('.notes-list .note-item-text').allTextContents()), {timeout: 15_000})
+                .toEqual(expectedNotes);
         } finally {
             await context.close();
         }
