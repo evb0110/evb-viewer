@@ -32,6 +32,7 @@ import {buildBrowserByteLimitError} from '@app/platform/browser-api/browserPlatf
 import {
     isBrowserQpdfEngineUnavailableError,
     normalizeBrowserPdfAppendBase,
+    runBrowserQpdfCommand,
 } from '@app/platform/browser-api/browserQpdfEngineClient';
 import {
     BROWSER_QPDF_ENGINE_ERROR_CODES,
@@ -120,35 +121,51 @@ export async function decryptBrowserWorkingCopy(workingPath: string, password?: 
  * refuses the open.
  */
 async function normalizeBrowserWorkingCopyAppendBase(workingPath: TDocumentRef, fileName: string) {
+    const rewritten = await rewriteBrowserWorkingCopy(workingPath, async (bytes) => {
+        try {
+            return (await normalizeBrowserPdfAppendBase(bytes)).output;
+        } catch (error) {
+            if (isBrowserQpdfEngineUnavailableError(error)) {
+                BrowserLogger.warn('working-copy', 'The qpdf engine is unavailable; the PDF opens without append admission', {error: getErrorMessage(error)});
+                return null;
+            }
+            if (error instanceof SerializableError && error.code === BROWSER_QPDF_ENGINE_ERROR_CODES.rewriteFailed) {
+                throw new DocumentOpenRefusalError('invalid-pdf', `PDF rewrite failed: ${getErrorMessage(error)}`, {
+                    cause: error,
+                    fileName,
+                });
+            }
+            throw error;
+        }
+    });
+    if (rewritten) {
+        BrowserLogger.warn('working-copy', 'Rewrote a PDF whose cross-reference chain cannot take an edit');
+    }
+}
+
+/**
+ * The open's qpdf rewrite for a revision of an open working copy the page engine could not read, made without
+ * asking the append admission; its edit then runs once more. Whether a new revision holds the rewrite.
+ */
+export function repairBrowserWorkingCopy(workingPath: string, signal?: AbortSignal) {
+    return rewriteBrowserWorkingCopy(workingPath, async bytes => (await runBrowserQpdfCommand('rewrite', bytes, signal ? {signal} : {})).output);
+}
+
+/** Commits what `rewrite` makes of the working copy's bytes, when it makes anything, as its next revision. */
+async function rewriteBrowserWorkingCopy(workingPath: string, rewrite: (bytes: Uint8Array) => Promise<Uint8Array | null>) {
     // A larger base cannot reach the page tool, which writes every edit; an
     // empty file is refused later as an empty PDF.
     const {size} = await browserDocumentStore.stat(workingPath);
     if (size === 0 || size > BROWSER_QPDF_MAX_INPUT_BYTES) {
-        return;
+        return false;
     }
     const revision = await browserDocumentStore.getDocumentRevision(workingPath);
-    const bytes = await browserDocumentStore.read(workingPath, {maxBytes: BROWSER_QPDF_MAX_INPUT_BYTES});
-    let output: Uint8Array | null;
-    try {
-        ({output} = await normalizeBrowserPdfAppendBase(bytes));
-    } catch (error) {
-        if (isBrowserQpdfEngineUnavailableError(error)) {
-            BrowserLogger.warn('working-copy', 'The qpdf engine is unavailable; the PDF opens without append admission', {error: getErrorMessage(error)});
-            return;
-        }
-        if (error instanceof SerializableError && error.code === BROWSER_QPDF_ENGINE_ERROR_CODES.rewriteFailed) {
-            throw new DocumentOpenRefusalError('invalid-pdf', `PDF rewrite failed: ${getErrorMessage(error)}`, {
-                cause: error,
-                fileName,
-            });
-        }
-        throw error;
-    }
+    const output = await rewrite(await browserDocumentStore.read(workingPath, {maxBytes: BROWSER_QPDF_MAX_INPUT_BYTES}));
     if (output === null) {
-        return;
+        return false;
     }
     await browserDocumentStore.write(workingPath, output, {expectedDocumentRevisionToken: revision.token});
-    BrowserLogger.warn('working-copy', 'Rewrote a PDF whose cross-reference chain cannot take an edit');
+    return true;
 }
 
 /**

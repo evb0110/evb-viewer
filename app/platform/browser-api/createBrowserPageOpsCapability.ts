@@ -62,6 +62,13 @@ import { yieldToBrowser } from '@app/platform/browser-api/browserYield';
 import {BROWSER_PAGE_OPS_MAX_REQUEST_BYTES} from '@contracts/browserPageOpsLimits';
 import {REQUEST_HEADER} from '@contracts/browserPageOpsWasm.generated';
 import { PdfPageOpsCapabilityError } from '@contracts/pageOpsErrors';
+import { NATIVE_ERROR_ENVELOPE_SCHEMA } from '@contracts/nativeErrors';
+import {
+    findSerializableErrorEnvelope,
+    SerializableError,
+} from '@contracts/serializableError';
+import { BrowserLogger } from '@app/utils/browserLogger';
+import { getErrorMessage } from '@app/utils/error';
 
 interface ISaveBytesResult {
     canceled: boolean;
@@ -108,6 +115,8 @@ interface ICreateBrowserPageOpsOptions {
         handle: FileSystemFileHandle,
         data: Uint8Array | Blob,
     ) => Promise<void>;
+    /** Commits the open's qpdf rewrite of a working copy's revision; whether it did. */
+    repairWorkingCopy: (workingCopyPath: string, signal: AbortSignal) => Promise<boolean>;
 }
 
 type TBrowserPageOpsCoreModule = typeof BrowserPageOpsCoreModule;
@@ -255,7 +264,7 @@ async function runPageStructure(edit: TPageStructureEdit, sources: Blob[], outpu
         throw new DOMException('The browser\'s storage is full. Free space for this site and try again.', 'QuotaExceededError');
     }
     if (result.status === 'failed') {
-        throw new PdfPageOpsCapabilityError(result.error.code === 'too-large' ? 'too-large' : 'native-failure', result.error.message, {operation: `page ${edit.kind}`});
+        throw new SerializableError(result.error);
     }
     return result;
 }
@@ -306,11 +315,15 @@ export function createBrowserPageOpsCapability(
         };
     }
 
-    /** Runs `run` after the working copy's earlier mutations; the result names the revision it committed. */
+    /**
+     * Runs `run` after the working copy's earlier mutations; the result names the revision it committed. When the
+     * page engine cannot read the working copy, its revision is repaired as its open repairs it and `run` runs once
+     * more, on the repaired revision.
+     */
     async function serializeWorkingCopyMutation(
         operation: IActivePageOperation,
         mutationOptions: IPageOpsMutationOptions | undefined,
-        run: () => Promise<IStoredPageMutationResult>,
+        run: (mutationOptions: IPageOpsMutationOptions | undefined) => Promise<IStoredPageMutationResult>,
     ) {
         const {workingCopyPath} = operation;
         const previous = workingCopyMutationQueues.get(workingCopyPath) ?? Promise.resolve();
@@ -324,7 +337,7 @@ export function createBrowserPageOpsCapability(
                     mutationOptions?.expectedDocumentRevisionToken,
                 );
                 return {
-                    ...await run(),
+                    ...await runOnReadableRevision(operation, mutationOptions, run),
                     documentRevision: await browserDocumentStore.getDocumentRevision(workingCopyPath),
                 };
             });
@@ -334,6 +347,30 @@ export function createBrowserPageOpsCapability(
         } finally {
             if (workingCopyMutationQueues.get(workingCopyPath) === next) {
                 workingCopyMutationQueues.delete(workingCopyPath);
+            }
+        }
+    }
+
+    async function runOnReadableRevision(
+        operation: IActivePageOperation,
+        mutationOptions: IPageOpsMutationOptions | undefined,
+        run: (mutationOptions: IPageOpsMutationOptions | undefined) => Promise<IStoredPageMutationResult>,
+    ) {
+        try {
+            return await run(mutationOptions);
+        } catch (error) {
+            const {workingCopyPath, controller: {signal}} = operation;
+            if (findSerializableErrorEnvelope(error, NATIVE_ERROR_ENVELOPE_SCHEMA)?.code !== 'corrupt-xref') throw error;
+            const refused = await browserDocumentStore.getDocumentRevision(workingCopyPath);
+            if (!await options.repairWorkingCopy(workingCopyPath, signal).catch(() => false)) throw error;
+            BrowserLogger.debug('page-ops', 'Repaired a revision the page engine could not read', {error: getErrorMessage(error)});
+            const repaired = await browserDocumentStore.getDocumentRevision(workingCopyPath);
+            try {
+                return await run({...mutationOptions, expectedDocumentRevisionToken: repaired.token});
+            } catch (retryError) {
+                // The viewer holds the objects of the revision it edited, so that revision stays current.
+                await browserDocumentStore.restoreRevision(workingCopyPath, refused.token, repaired.token);
+                throw retryError;
             }
         }
     }
@@ -470,9 +507,9 @@ export function createBrowserPageOpsCapability(
         mutationOptions: IPageOpsMutationOptions | undefined,
     ) {
         const selectedPages = materializePageSelection(pages, totalPages, 'Deleting pages');
-        return serializeWorkingCopyMutation(operation, mutationOptions, async () => ({
+        return serializeWorkingCopyMutation(operation, mutationOptions, async (revision) => ({
             success: true,
-            pageCount: await rewriteWorkingCopy(operation, mutationOptions, {kind: 'delete', pages: selectedPages}),
+            pageCount: await rewriteWorkingCopy(operation, revision, {kind: 'delete', pages: selectedPages}),
             pageIdentityDelta: createDeletePageIdentityDelta(totalPages, selectedPages),
         }));
     }
@@ -482,9 +519,9 @@ export function createBrowserPageOpsCapability(
         newOrder: number[],
         mutationOptions: IPageOpsMutationOptions | undefined,
     ) {
-        return serializeWorkingCopyMutation(operation, mutationOptions, async () => ({
+        return serializeWorkingCopyMutation(operation, mutationOptions, async (revision) => ({
             success: true,
-            pageCount: await rewriteWorkingCopy(operation, mutationOptions, {kind: 'reorder', pages: newOrder}),
+            pageCount: await rewriteWorkingCopy(operation, revision, {kind: 'reorder', pages: newOrder}),
             pageIdentityDelta: createReorderPageIdentityDelta(newOrder.length, newOrder),
         }));
     }
@@ -497,10 +534,10 @@ export function createBrowserPageOpsCapability(
         readPages: () => Promise<{blob: Blob; release: () => Promise<void>}>,
         mutationOptions: IPageOpsMutationOptions | undefined,
     ) {
-        return serializeWorkingCopyMutation(operation, mutationOptions, async () => {
+        return serializeWorkingCopyMutation(operation, mutationOptions, async (revision) => {
             const insertion = await readPages();
             try {
-                const pageCount = await rewriteWorkingCopy(operation, mutationOptions, {kind: 'insert', afterPage}, [insertion.blob]);
+                const pageCount = await rewriteWorkingCopy(operation, revision, {kind: 'insert', afterPage}, [insertion.blob]);
                 return {
                     success: true,
                     pageCount,
@@ -520,7 +557,7 @@ export function createBrowserPageOpsCapability(
         createPayload: (data: Uint8Array) => IBrowserPageOpsWorkerRequestMap[K],
         runDirect: (data: Uint8Array) => Promise<IBrowserPageOpsWorkerResultMap[K]>,
     ) {
-        return serializeWorkingCopyMutation(operation, mutationOptions, async () => {
+        return serializeWorkingCopyMutation(operation, mutationOptions, async (revision) => {
             const result = await runWorkerBackedPdfOperation({
                 path: operation.workingCopyPath,
                 signal: operation.controller.signal,
@@ -528,7 +565,7 @@ export function createBrowserPageOpsCapability(
                 createPayload,
                 runDirect,
             });
-            return writePageMutationResult(operation, result.data, result.pageCount, mutationOptions);
+            return writePageMutationResult(operation, result.data, result.pageCount, revision);
         });
     }
 

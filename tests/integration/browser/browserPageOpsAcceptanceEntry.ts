@@ -13,6 +13,7 @@ import type {
     PDFRef,
 } from 'pdf-lib';
 import {createBrowserPageOpsCapability} from '@app/platform/browser-api/createBrowserPageOpsCapability';
+import {repairBrowserWorkingCopy} from '@app/platform/browser-api/browserWorkingCopyService';
 import {createCombinedPdfFromPaths} from '@app/platform/browser-api/createCombinedPdfFromPaths';
 import {readPdfCatalog} from '@app/platform/browser-api/browserPageOpsCore';
 import {browserDocumentStore} from '@app/platform/browserDocumentStore';
@@ -181,6 +182,7 @@ async function runOperation(
                 fileName: '',
             }),
             writeBytesToHandle: async () => undefined,
+            repairWorkingCopy: repairBrowserWorkingCopy,
         });
         const mutationOptions = {expectedDocumentRevisionToken: (await browserDocumentStore.getDocumentRevision(workingPath)).token};
         await (operation === 'delete'
@@ -305,6 +307,7 @@ async function runBrowserCatalogPartsAcceptance() {
                     fileName: '',
                 }),
                 writeBytesToHandle: async () => undefined,
+                repairWorkingCopy: repairBrowserWorkingCopy,
             });
             return {
                 broken,
@@ -507,6 +510,7 @@ function createLargePageOps(extractHandle: () => Promise<FileSystemFileHandle>) 
             await writable.write(data as Blob);
             await writable.close();
         },
+        repairWorkingCopy: repairBrowserWorkingCopy,
     });
 }
 
