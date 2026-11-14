@@ -97,18 +97,25 @@ async function restoreTab(
     if (!workspace) {
         return false;
     }
-    if (recoveryTarget && !await workspace.handleOpenFileWithResult(recoveryTarget)) {
-        return false;
+    // Nothing replaces the stored drafts before they are applied; drafts that are not applied stay as stored.
+    const settleDrafts = checkpointTab.annotationRecovery?.payload === undefined ? undefined : workspace.holdDocumentDrafts?.();
+    let recoveryApplied = false;
+    try {
+        if (recoveryTarget && !await workspace.handleOpenFileWithResult(recoveryTarget)) {
+            return false;
+        }
+        await workspace.waitForDocumentOpenSettled();
+        if (session.snapshot.value.phase !== 'presented') {
+            return false;
+        }
+        recoveryApplied = applyAnnotationRecovery(checkpointTab, workspace, session);
+        workspace.restoreViewState(checkpointTab);
+        // The tab itself opened and keeps its view. Only an unattributable
+        // recovery is withheld; reporting it keeps the checkpoint as evidence.
+        return recoveryApplied;
+    } finally {
+        settleDrafts?.(recoveryApplied);
     }
-    await workspace.waitForDocumentOpenSettled();
-    if (session.snapshot.value.phase !== 'presented') {
-        return false;
-    }
-    const recoveryApplied = applyAnnotationRecovery(checkpointTab, workspace, session);
-    workspace.restoreViewState(checkpointTab);
-    // The tab itself opened and keeps its view. Only an unattributable
-    // recovery is withheld; reporting it keeps the checkpoint as evidence.
-    return recoveryApplied;
 }
 
 // A view of a restored document starts from its own checkpointed place, so a

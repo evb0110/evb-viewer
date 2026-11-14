@@ -4,26 +4,27 @@ import type {useWorkspaceAnnotationSession} from '@app/modules/workspace-shell/c
 import type {IWorkspaceDocumentController} from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 import {readWorkspaceRecoveryMetadata} from '@contracts/workspaceCheckpoint';
 import type {IWorkspaceDocumentRecovery} from '@app/types/workspaceDocumentRecovery';
+import {getErrorMessage} from '@app/utils/error';
 import {getWindowTabsCapability} from '@app/utils/platformWindowTabs';
 
 interface IWorkspaceDocumentRecoveryOptions {
     controller: Pick<IWorkspaceDocumentController, 'snapshot'>;
     pdfViewer: () => IPdfViewerExpose | null;
-    pdfDocumentAnnotations: Pick<TPdfDocumentAnnotations, 'application'>;
-    annotations: Pick<ReturnType<typeof useWorkspaceAnnotationSession>, 'captureAnnotationNoteDrafts' | 'restoreAnnotationNoteDraft'>;
-    metadata: Pick<ReturnType<typeof useMetadataSession>, 'captureRecovery' | 'restoreRecovery'>;
+    pdfDocumentAnnotations: Pick<TPdfDocumentAnnotations, 'application' | 'textBoxDrafts'>;
+    annotations: Pick<ReturnType<typeof useWorkspaceAnnotationSession>, 'captureAnnotationNoteDrafts' | 'getAnnotationNoteDraftsChangeSignature' | 'restoreAnnotationNoteDraft'>;
+    metadata: Pick<ReturnType<typeof useMetadataSession>, 'bookmarkState' | 'pageLabelState' | 'captureRecovery' | 'restoreRecovery'>;
     reportFailure: (cause: unknown) => void;
 }
 
 /**
- * A document's unsaved annotations and metadata, kept as the drafts of its store directory. An accepted edit commits
- * them, and so does every new revision of the bytes, since a byte mutation clears the drafts. A commit captures the
- * document as it is when the commit runs, after the commits before it, so an older capture never lands after a newer
- * one. It keeps the stored drafts while the edit state is unavailable, clears them when the working bytes hold
- * everything, and replaces them otherwise.
+ * A document's unsaved annotations, editor text and metadata, kept as the drafts of its store directory. Any change
+ * of that state, or a new revision of the bytes (which clears the drafts), makes the drafts stale. One writer brings
+ * them up to date: it starts at once and, when the state changed while it ran, runs once more with the state as it
+ * is then. A write keeps the stored drafts while the edit state is unavailable, clears them when the working bytes
+ * hold everything, and replaces them otherwise. Only actions that need the durable state wait for it.
  */
 export function createWorkspaceDocumentRecovery(options: IWorkspaceDocumentRecoveryOptions) {
-    const {controller, pdfViewer, annotations, metadata} = options;
+    const {controller, pdfViewer, pdfDocumentAnnotations, annotations, metadata} = options;
 
     /** `null`: the edit state is unavailable; `undefined`: the working bytes hold all of it. */
     function capture(): IWorkspaceDocumentRecovery | null | undefined {
@@ -47,7 +48,7 @@ export function createWorkspaceDocumentRecovery(options: IWorkspaceDocumentRecov
                 : {...entity, contents: draft.text};
         });
         const unwritten = drafts.size > 0 || recovery.metadata?.bookmarks !== undefined || recovery.metadata?.pageLabels !== undefined
-            || options.pdfDocumentAnnotations.application.value.store.hasChangesSinceWorkingBaseline(edited);
+            || pdfDocumentAnnotations.application.value.store.hasChangesSinceWorkingBaseline(edited);
         return unwritten ? recovery : undefined;
     }
 
@@ -55,6 +56,7 @@ export function createWorkspaceDocumentRecovery(options: IWorkspaceDocumentRecov
         const recovery = capture();
         const {documentInstanceId, workingCopyPath, revisionInfo} = controller.snapshot.value.identity;
         if (recovery === null || !documentInstanceId || !workingCopyPath || !revisionInfo) return;
+        // Refused for an outdated revision: the new revision marks the drafts stale again.
         await getWindowTabsCapability().setDocumentDrafts({
             artifactId: 'document-drafts',
             documentInstanceId,
@@ -65,29 +67,76 @@ export function createWorkspaceDocumentRecovery(options: IWorkspaceDocumentRecov
         });
     }
 
-    let tail: Promise<void> = Promise.resolve();
-    /** Resolves once the drafts hold the document as it is now, or a newer revision, whose commit follows, superseded it. */
-    function commitDrafts() {
-        const run = tail.then(write, write);
-        tail = run.catch(() => undefined);
-        return run;
+    let stale = false;
+    let running: Promise<void> | null = null;
+    let failure: unknown = null;
+    // From the claim of recovered drafts until they are applied the writer does not run. After a failed replay the
+    // stored drafts stay untouched while this document instance is open.
+    let hold: {released: PromiseWithResolvers<void>; failedInstance?: string | null} | null = null;
+    const held = () => hold !== null && (hold.failedInstance === undefined || hold.failedInstance === controller.snapshot.value.identity.documentInstanceId);
+
+    async function run() {
+        // Changes made in the same task share one write.
+        await Promise.resolve();
+        while (stale && !held()) {
+            stale = false;
+            try {
+                await write();
+                failure = null;
+            } catch (error) {
+                stale = true;
+                // A refusal is told once, not again for every burst that repeats it.
+                if (failure === null || getErrorMessage(error) !== getErrorMessage(failure)) options.reportFailure(error);
+                failure = error;
+                break;
+            }
+        }
+        running = null;
     }
 
-    /** The commit an accepted edit, or a new revision, starts: a failure is told to the user, never ignored. */
-    function commitAcceptedEdit() {
-        return commitDrafts().catch(options.reportFailure);
+    function markStale() {
+        stale = true;
+        running ??= run();
     }
 
-    watch(() => controller.snapshot.value.identity.revisionInfo?.token, (token, previous) => {
-        if (token && previous) void commitAcceptedEdit();
-    });
+    /** Resolves once the drafts hold the unsaved state as it is now; rejects when it could not be stored. */
+    async function commitDrafts() {
+        if (hold?.failedInstance === undefined) await hold?.released.promise;
+        if (stale) running ??= run();
+        while (running) await running;
+        if (stale && !held() && failure !== null) throw failure;
+    }
+
+    watch(() => pdfDocumentAnnotations.application.value.store, (store, _previous, onCleanup) => {
+        const unsubscribe = store.subscribe(markStale);
+        onCleanup(() => { unsubscribe(); });
+    }, {immediate: true});
+    watch(() => [
+        [...pdfDocumentAnnotations.textBoxDrafts],
+        annotations.getAnnotationNoteDraftsChangeSignature(),
+        metadata.bookmarkState.bookmarkItems.value,
+        metadata.pageLabelState.pageLabelRanges.value,
+        controller.snapshot.value.identity.revisionInfo?.token,
+    ], markStale, {flush: 'sync'});
 
     return {
         capture,
         commitDrafts,
-        commitAcceptedEdit,
-        /** Resolves once the commits started so far are done; their failures were told to the user. */
-        whenCommitted: () => tail,
+        /** Holds the writer while recovered drafts are replayed; the returned settle says whether they were applied. */
+        holdDrafts() {
+            const current: NonNullable<typeof hold> = {released: Promise.withResolvers<void>()};
+            hold = current;
+            return (applied: boolean) => {
+                if (hold !== current) return;
+                current.released.resolve();
+                if (!applied) {
+                    current.failedInstance = controller.snapshot.value.identity.documentInstanceId;
+                    return;
+                }
+                hold = null;
+                markStale();
+            };
+        },
         /** Puts recovered drafts back through `viewer`, the view the restored tab shows. */
         restoreCanonicalAnnotationRecovery: (viewer: IPdfViewerExpose | null, value: unknown) => {
             const recoveredMetadata = readWorkspaceRecoveryMetadata(value);

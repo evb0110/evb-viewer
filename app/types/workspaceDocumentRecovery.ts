@@ -9,5 +9,7 @@ export interface IWorkspaceDocumentRecoveryPort {
     captureCanonicalAnnotationRecovery?: () => IWorkspaceDocumentRecovery | null | undefined;
     /** Resolves once the document's drafts hold its unsaved work as it is now; rejects when it could not be stored. */
     commitDocumentDrafts?: () => Promise<void>;
+    /** Holds the document's drafts while recovered ones are replayed; the returned settle says whether they were applied. */
+    holdDocumentDrafts?: () => (applied: boolean) => void;
     restoreCanonicalAnnotationRecovery?: (value: unknown) => ICanonicalAnnotationRecovery;
 }

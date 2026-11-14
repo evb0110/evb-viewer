@@ -101,8 +101,6 @@ export interface IUseDocumentWorkspaceAgentOptions extends Record<
     viewMode: Ref<TPdfViewMode>;
     viewerCapabilities: Ref<IWorkspaceViewerCapabilities>;
     waitForDocumentOpenSettled: () => Promise<void>;
-    /** Resolves once the drafts commits that accepted edits started are done. */
-    whenDraftsCommitted: () => Promise<void>;
     workingCopyPath: Ref<TDocumentRef | null>;
     zoom: Ref<number>;
 }

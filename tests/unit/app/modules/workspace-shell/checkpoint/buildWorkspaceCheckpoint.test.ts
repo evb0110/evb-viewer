@@ -29,8 +29,10 @@ import {AnnotationStore} from '@app/modules/pdf-viewer/annotations/domain/annota
 import {captureCanonicalAnnotationRecovery} from '@app/modules/pdf-viewer/annotations/domain/annotationRecovery';
 import {
     asAnnotationId,
+    type INoteEntity,
     type ITextMarkupEntity,
 } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
+import {getWindowTabsCapability} from '@app/utils/platformWindowTabs';
 import { cast } from '@tests/helpers/cast';
 import {
     createWorkspaceExposeFixture,
@@ -329,7 +331,10 @@ function createRecovery(options: {phase?: string; noteText?: () => string | null
     const store = new AnnotationStore();
     store.replaceFromDocument([highlight], []);
     const recovery = createWorkspaceDocumentRecovery({
-        controller: cast({snapshot: ref({phase: options.phase ?? 'presented', identity: {}})}),
+        controller: cast({snapshot: ref({
+            phase: options.phase ?? 'presented',
+            identity: {documentInstanceId: 'instance-1', workingCopyPath: '/managed/drafts.pdf', revisionInfo: {token: '1'}},
+        })}),
         pdfViewer: () => cast({captureCanonicalAnnotationRecovery: () => {
             const text = options.noteText?.() ?? null;
             return captureCanonicalAnnotationRecovery(store, text === null ? [] : [{
@@ -340,9 +345,13 @@ function createRecovery(options: {phase?: string; noteText?: () => string | null
                 generation: 1,
             }]);
         }}),
-        pdfDocumentAnnotations: cast({application: shallowRef({store})}),
-        annotations: cast({captureAnnotationNoteDrafts: () => []}),
-        metadata: cast({captureRecovery: () => (options.bookmarks ? {bookmarks: {revision: 1, dirty: true, items: []}} : {})}),
+        pdfDocumentAnnotations: cast({application: shallowRef({store}), textBoxDrafts: new Map()}),
+        annotations: cast({captureAnnotationNoteDrafts: () => [], getAnnotationNoteDraftsChangeSignature: () => []}),
+        metadata: cast({
+            bookmarkState: {bookmarkItems: ref([])},
+            pageLabelState: {pageLabelRanges: ref([])},
+            captureRecovery: () => (options.bookmarks ? {bookmarks: {revision: 1, dirty: true, items: []}} : {}),
+        }),
         reportFailure: vi.fn(),
     });
     return {store, recovery};
@@ -367,5 +376,36 @@ describe('createWorkspaceDocumentRecovery', () => {
 
     it('keeps a bookmark edit, which an empty annotation store does not represent', () => {
         expect(createRecovery({bookmarks: true}).recovery.capture()?.metadata?.bookmarks).toMatchObject({dirty: true, items: []});
+    });
+
+    it('stores a burst of edits with one write, and holds stored drafts until recovered ones are applied', async () => {
+        const setDocumentDrafts = vi.spyOn(getWindowTabsCapability(), 'setDocumentDrafts').mockResolvedValue(true);
+        const {store, recovery} = createRecovery();
+        await recovery.commitDrafts();
+        setDocumentDrafts.mockClear();
+        const note = (id: string) => store.createNote({...cast<INoteEntity>({
+            kind: 'note', pageIndex: requirePageIndex(0), revision: 0, persistedRevision: -1, deleted: false,
+            createdAt: null, modifiedAt: null, author: null, contents: id, position: {left: 0.1, top: 0.1, width: 0.02, height: 0.02},
+            color: '#ffff00', open: false,
+        }), identity: {id: asAnnotationId(id)}});
+        for (let index = 0; index < 10; index += 1) note(`burst-${String(index)}`);
+        await recovery.commitDrafts();
+        expect(setDocumentDrafts).toHaveBeenCalledTimes(1);
+        expect(setDocumentDrafts.mock.calls[0]?.[0].payload).toBeDefined();
+
+        const settle = recovery.holdDrafts();
+        note('during-replay');
+        await Promise.resolve();
+        await Promise.resolve();
+        expect(setDocumentDrafts).toHaveBeenCalledTimes(1);
+        settle(true);
+        await recovery.commitDrafts();
+        expect(setDocumentDrafts).toHaveBeenCalledTimes(2);
+
+        recovery.holdDrafts()(false);
+        note('after-failed-replay');
+        await recovery.commitDrafts();
+        expect(setDocumentDrafts).toHaveBeenCalledTimes(2);
+        setDocumentDrafts.mockRestore();
     });
 });

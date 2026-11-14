@@ -24,8 +24,6 @@ interface IMetadataSessionOptions {
     documentRevisionToken?: Readonly<Ref<TDocumentRevisionToken | null>>;
     markDirty: () => void;
     setWorkspaceCommandSink?: ((sink: IWorkspaceCommandSink | null) => void) | undefined;
-    /** An edit, undo or redo took effect; resolves once the document's drafts hold it. */
-    commitAcceptedEdit?: (() => Promise<void>) | undefined;
 }
 
 export const useMetadataSession = (options: IMetadataSessionOptions) => {
@@ -36,26 +34,10 @@ export const useMetadataSession = (options: IMetadataSessionOptions) => {
         documentRevisionToken,
         markDirty,
         setWorkspaceCommandSink,
-        commitAcceptedEdit,
     } = options;
 
     let metadataHistory: ReturnType<typeof useWorkspaceMetadataHistory> | null = null;
-    // The document's one command ledger: every annotation, metadata and file edit, its undo and its redo pass here,
-    // and each one that takes effect starts the commit of the document's drafts.
-    const ledger = useWorkspaceCommandLedger();
-    const afterAccepted = async (done: boolean) => {
-        if (done) await commitAcceptedEdit?.();
-        return done;
-    };
-    const workspaceUndoTimeline = {
-        ...ledger,
-        registerCommand: (command: IWorkspaceCommandRegistration) => {
-            ledger.registerCommand(command);
-            void commitAcceptedEdit?.();
-        },
-        undoTimeline: async () => afterAccepted(await ledger.undoTimeline()),
-        redoTimeline: async () => afterAccepted(await ledger.redoTimeline()),
-    };
+    const workspaceUndoTimeline = useWorkspaceCommandLedger();
     // What the working bytes hold of each field, as last read from them or written to them.
     const workingMetadata: {bookmarkItems?: unknown; pageLabelRanges?: unknown} = {};
     // This reload scope holds the existing owner, never a second metadata copy.
