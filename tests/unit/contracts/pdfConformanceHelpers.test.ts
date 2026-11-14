@@ -14,7 +14,6 @@ import {
     createDefaultPdfConformanceProfile,
     detectPdfaLevelFromPdfText,
     hasPdfEncryptMarkersInPdfText,
-    hasPdfSignatureMarkersInPdfText,
 } from '@pdf-core';
 
 describe('PDF conformance contract helpers', () => {
@@ -87,8 +86,8 @@ describe('PDF conformance contract helpers', () => {
 
     it('finds markers across bounded scan windows', () => {
         const bytes = new Uint8Array(PDF_CONFORMANCE_MARKER_SCAN_CHUNK_BYTES + 100);
-        bytes.set(new TextEncoder().encode('/ByteRange [0 1]'), PDF_CONFORMANCE_MARKER_SCAN_CHUNK_BYTES - 4);
-        expect(scanPdfMarkerEvidence(bytes).isSigned).toBe(true);
+        bytes.set(new TextEncoder().encode('/Encrypt 4 0 R'), PDF_CONFORMANCE_MARKER_SCAN_CHUNK_BYTES - 4);
+        expect(scanPdfMarkerEvidence(bytes).isEncrypted).toBe(true);
     });
 
     it('creates the default conformance profile', () => {
@@ -125,7 +124,7 @@ describe('PDF conformance contract helpers', () => {
         ]);
     });
 
-    it('lets markers widen structural signature and encryption facts and carry PDF/A', () => {
+    it('lets markers widen structural encryption facts and carry PDF/A, never signing', () => {
         const structuralFacts = {
             isSigned: false,
             isEncrypted: false,
@@ -141,17 +140,14 @@ describe('PDF conformance contract helpers', () => {
             saveRestrictions: ['tagged_pdf_requires_structure_preservation'],
         });
         expect(createPdfConformanceProfile(structuralFacts, {
-            isSigned: true,
             isEncrypted: true,
             pdfaLevel: 'PDF/A-2B',
         })).toEqual({
             ...structuralFacts,
-            isSigned: true,
             isEncrypted: true,
             pdfaLevel: 'PDF/A-2B',
             canIncrementalSave: false,
             saveRestrictions: [
-                'signed_original_requires_save_as',
                 'encrypted_document_requires_preservation',
                 'tagged_pdf_requires_structure_preservation',
                 'pdfa_preservation_required:PDF/A-2B',
@@ -160,7 +156,22 @@ describe('PDF conformance contract helpers', () => {
         });
     });
 
-    it('detects PDF/A and signature markers', () => {
+    it('reads an empty signature field as unsigned for Save and Optimize alike', () => {
+        const emptySignatureField = new TextEncoder().encode('<< /FT /Sig /T (Signature1) >> << /Type /Sig >>');
+        const profile = createPdfConformanceProfile({
+            isSigned: false,
+            isEncrypted: false,
+            isTagged: false,
+            hasAcroForm: true,
+            hasXfa: false,
+        }, scanPdfMarkerEvidence(emptySignatureField));
+
+        expect(profile.isSigned).toBe(false);
+        expect(profile.saveRestrictions).toEqual([]);
+        expect(getPdfLosslessOptimizationSkipReason(profile)).toBeNull();
+    });
+
+    it('detects PDF/A and encryption markers', () => {
         const pdfaText = `
             <pdfaid:part>2</pdfaid:part>
             <pdfaid:conformance>b</pdfaid:conformance>
@@ -169,7 +180,6 @@ describe('PDF conformance contract helpers', () => {
         `;
 
         expect(detectPdfaLevelFromPdfText(pdfaText)).toBe('PDF/A-2B');
-        expect(hasPdfSignatureMarkersInPdfText(pdfaText)).toBe(true);
         expect(hasPdfEncryptMarkersInPdfText(pdfaText)).toBe(true);
     });
 });

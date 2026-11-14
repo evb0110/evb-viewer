@@ -33,7 +33,6 @@ const PDF_CONFORMANCE_NATIVE_COMMAND_LABEL = 'evb-pdf-page-ops(pdf-conformance)'
 const PDF_CONFORMANCE_FACTS_MAX_BYTES = 64 * 1024;
 
 interface IPdfMarkerEvidence {
-    isSigned: boolean;
     isEncrypted: boolean;
     pdfaLevel: ReturnType<typeof detectPdfaLevelFromPdfText>;
 }
@@ -128,7 +127,6 @@ async function readPdfMarkerEvidenceFromPath(
         let offset = 0n;
         let overlap = Buffer.alloc(0);
         const evidence: IPdfMarkerEvidence = {
-            isSigned: false,
             isEncrypted: false,
             pdfaLevel: null,
         };
@@ -169,7 +167,6 @@ async function readPdfMarkerEvidenceFromPath(
                     bytes,
                 ]);
             const windowEvidence = scanPdfMarkerEvidence(window);
-            evidence.isSigned ||= windowEvidence.isSigned;
             evidence.isEncrypted ||= windowEvidence.isEncrypted;
             evidence.pdfaLevel ??= windowEvidence.pdfaLevel;
             overlap = bytes.subarray(

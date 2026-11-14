@@ -6,7 +6,6 @@ import type {
 
 const PDFA_PART_PATTERN = /<pdfaid:part>\s*([^<\s]+)\s*<\/pdfaid:part>/iu;
 const PDFA_CONFORMANCE_PATTERN = /<pdfaid:conformance>\s*([^<\s]+)\s*<\/pdfaid:conformance>/iu;
-const PDF_SIGNATURE_PATTERN = /\/(?:ByteRange|FT\s*\/Sig|Type\s*\/Sig)\b/u;
 const PDF_ENCRYPT_PATTERN = /\/Encrypt\b/u;
 export const PDF_ENCRYPT_SCAN_REGION_BYTES = 32 * 1024;
 const pdfBinaryDecoder = new TextDecoder('latin1');
@@ -15,10 +14,9 @@ type TPdfStructuralConformanceFacts = Pick<
     TPdfConformanceProfileBase,
     'isSigned' | 'isEncrypted' | 'isTagged' | 'hasAcroForm' | 'hasXfa'
 >;
-type TPdfConformanceMarkerEvidence = Pick<TPdfConformanceProfileBase, 'isSigned' | 'isEncrypted' | 'pdfaLevel'>;
+type TPdfConformanceMarkerEvidence = Pick<TPdfConformanceProfileBase, 'isEncrypted' | 'pdfaLevel'>;
 
 const NO_PDF_CONFORMANCE_MARKER_EVIDENCE: TPdfConformanceMarkerEvidence = {
-    isSigned: false,
     isEncrypted: false,
     pdfaLevel: null,
 };
@@ -32,10 +30,6 @@ export function detectPdfaLevelFromPdfText(text: string): TPdfaLevel | null {
     const conformanceMatch = text.match(PDFA_CONFORMANCE_PATTERN);
     const conformance = conformanceMatch?.[1]?.trim().toUpperCase() ?? '';
     return `PDF/A-${partMatch[1].trim()}${conformance}`;
-}
-
-export function hasPdfSignatureMarkersInPdfText(text: string) {
-    return PDF_SIGNATURE_PATTERN.test(text);
 }
 
 export function hasPdfEncryptMarkersInPdfText(text: string) {
@@ -61,9 +55,11 @@ export function createDefaultPdfConformanceProfile(): IPdfConformanceProfile {
 
 /**
  * The conformance policy for a document whose structure pdf-page-ops read.
- * The structure decides tagging, forms and XFA. Byte markers can only add a
- * signature or encryption the structure did not show, and only they carry the
- * PDF/A claim; a caller that wants the structural answer alone omits them.
+ * The structure decides signing, tagging, forms and XFA: a document is signed
+ * when a signature field holds a signature value, never for an empty field.
+ * Byte markers can only add encryption the structure did not show, and only
+ * they carry the PDF/A claim; a caller that wants the structural answer alone
+ * omits them.
  */
 export function createPdfConformanceProfile(
     structuralFacts: TPdfStructuralConformanceFacts,
@@ -71,7 +67,7 @@ export function createPdfConformanceProfile(
 ): IPdfConformanceProfile {
     const isEncrypted = structuralFacts.isEncrypted || markerEvidence.isEncrypted;
     const profileBase = {
-        isSigned: structuralFacts.isSigned || markerEvidence.isSigned,
+        isSigned: structuralFacts.isSigned,
         isEncrypted,
         isTagged: structuralFacts.isTagged,
         pdfaLevel: markerEvidence.pdfaLevel,
@@ -125,20 +121,17 @@ export function getPdfLosslessOptimizationSkipReason(profile: IPdfConformancePro
 
 /** Bounded text windows, including markers crossing a window boundary. */
 export function scanPdfMarkerEvidence(data: Uint8Array): TPdfConformanceMarkerEvidence {
-    let isSigned = false;
     let isEncrypted = false;
     let pdfaLevel: TPdfaLevel | null = null;
     for (let offset = 0; offset < data.byteLength;) {
         const end = Math.min(data.byteLength, offset + PDF_CONFORMANCE_MARKER_SCAN_CHUNK_BYTES);
         const text = pdfBinaryDecoder.decode(data.subarray(offset, end));
-        isSigned ||= hasPdfSignatureMarkersInPdfText(text);
         isEncrypted ||= hasPdfEncryptMarkersInPdfText(text);
         pdfaLevel ??= detectPdfaLevelFromPdfText(text);
         if (end === data.byteLength) break;
         offset = Math.max(offset + 1, end - PDF_CONFORMANCE_MARKER_SCAN_OVERLAP_BYTES);
     }
     return {
-        isSigned,
         isEncrypted,
         pdfaLevel,
     };
