@@ -14,7 +14,7 @@ import {
 } from 'vitest';
 import type {IBrowserLifecycleTestApi} from './documentLifecycleTestHelpers';
 import {
-    openPdfFromChooser, lifecycle, waitForOpenFileReady, collectConsoleProblems, keepFileChooserInterceptionEnabled, addNote, noteTexts, clickCenter, paneSelector, zoomActivePane, settleActiveOpen,
+    openPdfFromChooser, lifecycle, waitForOpenFileReady, collectConsoleProblems, keepFileChooserInterceptionEnabled, addNote, noteTexts, clickCenter, paneSelector, zoomActivePane, settleActiveOpen, installPickerHandleFixture,
 } from './documentLifecycleTestHelpers';
 
 describe('browser document lifecycle UI', () => {
@@ -181,6 +181,10 @@ describe('browser document lifecycle UI', () => {
             }).click();
             await page.locator('.workspace-host[data-workspace-active="true"] .page_container--rendered canvas').first().waitFor({timeout: 30000});
             await expect.poll(() => page.locator('[data-tab-list] [role="tab"][aria-selected="true"]').textContent()).toContain('protected-open.pdf');
+            // The opening title can sit over the previous PDF's canvas. Verify
+            // this document finished opening before testing its Recent entry.
+            await settleActiveOpen(page);
+            await expect.poll(async () => (await page.locator('.workspace-host[data-workspace-active="true"] .textLayer').allTextContents()).join(' ')).toContain('FreeText Lifecycle Test');
             expect(problems).toEqual([]);
             phase = 'recent';
             await page.reload({waitUntil: 'domcontentloaded'});
@@ -296,6 +300,62 @@ describe('browser document lifecycle UI', () => {
             rmSync(largePath, {force: true});
         }
     }, 120000);
+
+    // T2: opening bytes are not the person's unsaved work. Exercise both an
+    // interrupted chooser open and a decrypted picked file that keeps its handle.
+    it('returns to Start after reloading a protected open without recovering unedited bytes', async () => {
+        const name = 'protected-open.pdf';
+        const encrypted = Buffer.from(readFileSync(resolve('tests/fixtures/electron/password-protected.pdf.b64'), 'utf8').trim(), 'base64');
+        for (const mode of ['input', 'picked'] as const) {
+            const context = await lifecycle.browser.newContext({viewport: {width: 1280, height: 900}});
+            try {
+                await context.addInitScript(installPickerHandleFixture);
+                const page = await context.newPage();
+                const previous = await PDFDocument.create();
+                previous.addPage([612, 792]).drawText('Previous document', {x: 40, y: 740});
+                await openPdfFromChooser(page, {
+                    name: 'previous.pdf',
+                    mimeType: 'application/pdf',
+                    buffer: Buffer.from(await previous.save()),
+                });
+                await settleActiveOpen(page);
+                if (mode === 'picked') {
+                    // Reuse the suite's structured-cloneable handle fixture. Only
+                    // the native picker is substituted; open and reload are page actions.
+                    await page.evaluate(async ({fileName, bytes}) => {
+                        const handle = await (await navigator.storage.getDirectory()).getFileHandle(fileName, {create: true});
+                        const output = await handle.createWritable();
+                        await output.write(Uint8Array.from(bytes));
+                        await output.close();
+                        sessionStorage.removeItem('evb-viewer:browser:open-picker-mode');
+                        Reflect.set(window, 'showOpenFilePicker', async () => [new File([], fileName)]);
+                    }, {fileName: name, bytes: Array.from(encrypted)});
+                }
+                const chooser = mode === 'input' ? page.waitForEvent('filechooser') : null;
+                await page.getByRole('button', {name: 'Menu', exact: true}).click();
+                await page.getByRole('menuitem', {name: /^Open File/u}).click();
+                if (chooser) await (await chooser).setFiles({name, mimeType: 'application/pdf', buffer: encrypted});
+                await page.getByRole('textbox', {name: 'Password', exact: true}).fill('frame-secret');
+                await page.getByRole('button', {name: 'Open', exact: true}).click();
+                await expect.poll(() => page.locator('[data-tab-list] [role="tab"][aria-selected="true"]').textContent()).toContain(name);
+                if (mode === 'picked') {
+                    // Also cover a completed decrypt: differing from the encrypted
+                    // file on disk must not by itself make this recoverable work.
+                    await expect.poll(async () => (await page.locator('.workspace-host[data-workspace-active="true"] .textLayer').allTextContents()).join(' ')).toContain('FreeText Lifecycle Test');
+                }
+                // Deliberately do not settle the input open. A reload is allowed
+                // as soon as the password has been submitted, even over old pixels.
+                await page.reload({waitUntil: 'domcontentloaded'});
+                await waitForOpenFileReady(page);
+                await page.locator('.workspace-host[data-workspace-active="true"] .workspace-host__start').waitFor({state: 'visible'});
+                await page.getByRole('button', {name: /protected-open\.pdf/u}).first().waitFor({state: 'visible'});
+                expect(await page.locator('[data-tab-list] [role="tab"]').allTextContents(), mode).toEqual(['New Tab']);
+                expect(await page.getByRole('tab', {name: /Recovered document/u}).count(), mode).toBe(0);
+            } finally {
+                await context.close();
+            }
+        }
+    }, 120_000);
 
     // T4: every accepted note belongs to the document's Save As frontier.
     it.each([
