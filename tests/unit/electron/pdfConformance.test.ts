@@ -130,9 +130,6 @@ vi.mock('@pdf-core', async importOriginal => {
     const actual = await importOriginal<typeof TPdfCore>();
     return {
         ...actual,
-        hasPdfSignatureMarkersInPdfText: (text: string) => (
-            mocks.sparseMarkerResults ? false : actual.hasPdfSignatureMarkersInPdfText(text)
-        ),
         hasPdfEncryptMarkersInPdfText: (text: string) => (
             mocks.sparseMarkerResults ? false : actual.hasPdfEncryptMarkersInPdfText(text)
         ),
@@ -432,7 +429,7 @@ describe('analyzePdfConformanceFileDirect', () => {
         const result = await analyzePdfConformanceFileDirect('/tmp/partial.pdf');
 
         expect(result).toMatchObject({
-            isSigned: true,
+            isSigned: false,
             isEncrypted: true,
             pdfaLevel: 'PDF/A-2B',
             canIncrementalSave: false,
@@ -468,7 +465,7 @@ describe('analyzePdfConformanceFileDirect', () => {
         const result = await analyzePdfConformanceFileDirect('/tmp/large-partial.pdf');
 
         expect(result).toMatchObject({
-            isSigned: true,
+            isSigned: false,
             isEncrypted: true,
             pdfaLevel: 'PDF/A-3U',
             canIncrementalSave: false,

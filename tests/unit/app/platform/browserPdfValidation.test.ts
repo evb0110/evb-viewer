@@ -13,6 +13,7 @@ import {
 } from 'vitest';
 import { BROWSER_MAX_FULL_READ_BYTES } from '@app/platform/browser/browserDocumentConstants';
 import {
+    getPdfLosslessOptimizationSkipReason,
     PDF_CONFORMANCE_MARKER_SCAN_CHUNK_BYTES,
     PDF_CONFORMANCE_MARKER_SCAN_OVERLAP_BYTES,
     scanPdfMarkerEvidence,
@@ -186,21 +187,23 @@ describe('browserPdfValidation', () => {
         await expect(analyzeBrowserPdfConformance('/tmp/browser.pdf')).resolves.toMatchObject(expected);
     });
 
-    it('lets an unsigned signature field force Save As only through the full profile', async () => {
+    it('reads an unsigned signature field as unsigned for Save and Optimize alike', async () => {
         await stubPageOpsWasmFetch();
-        storeDocument(await createPdfConformanceFixture('unsigned-signature-field'));
+        const bytes = await createPdfConformanceFixture('unsigned-signature-field');
+        storeDocument(bytes);
 
-        const { analyzeBrowserPdfConformance } = await import('@app/platform/browser-api/browserPdfValidation');
-        await expect(analyzeBrowserPdfConformance('/tmp/browser.pdf')).resolves.toMatchObject({
-            isSigned: true,
-            hasAcroForm: true,
-        });
-        await expect(analyzeBrowserPdfConformance('/tmp/browser.pdf', {purpose: 'save-restrictions'})).resolves.toMatchObject({
+        const {
+            analyzeBrowserPdfConformance, analyzeBrowserPdfConformanceData,
+        } = await import('@app/platform/browser-api/browserPdfValidation');
+        const unsigned = {
             isSigned: false,
             hasAcroForm: true,
             canIncrementalSave: true,
             saveRestrictions: [],
-        });
+        };
+        await expect(analyzeBrowserPdfConformance('/tmp/browser.pdf')).resolves.toMatchObject(unsigned);
+        await expect(analyzeBrowserPdfConformance('/tmp/browser.pdf', {purpose: 'save-restrictions'})).resolves.toMatchObject(unsigned);
+        expect(getPdfLosslessOptimizationSkipReason(await analyzeBrowserPdfConformanceData(bytes))).toBeNull();
     });
 
     it('rejects a document whose structure cannot be read instead of guessing its facts', async () => {

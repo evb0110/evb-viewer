@@ -46,7 +46,6 @@ async function scanPdfMarkerEvidenceInSlices(source: Blob) {
         const slice = source.slice(offset, offset + MARKER_SCAN_SLICE_STRIDE + PDF_CONFORMANCE_MARKER_SCAN_OVERLAP_BYTES);
         const found = scanPdfMarkerEvidence(new Uint8Array(await slice.arrayBuffer()));
         evidence = {
-            isSigned: evidence.isSigned || found.isSigned,
             isEncrypted: evidence.isEncrypted || found.isEncrypted,
             pdfaLevel: evidence.pdfaLevel ?? found.pdfaLevel,
         };
@@ -89,8 +88,6 @@ export async function analyzeBrowserPdfConformance(
 ): Promise<IPdfConformanceProfile> {
     const {token} = await browserDocumentStore.getDocumentRevision(path);
     const source = await browserDocumentStore.readableBlob(path);
-    // Save restrictions are structural alone, as on desktop: an empty
-    // signature field's marker is not a signature.
     const markerEvidence = options.purpose === 'save-restrictions' ? undefined : await scanPdfMarkerEvidenceInSlices(source);
     const facts = await readPdfStructuralFacts(source);
     await browserDocumentStore.assertDocumentRevisionCurrent(path, token);
