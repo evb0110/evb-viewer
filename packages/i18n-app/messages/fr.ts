@@ -1809,6 +1809,7 @@ export default {
             'openNotes': 'Les notes ouvertes n’ont pas pu être enregistrées, le document n’a pas été écrit.',
             'documentChanged': 'Le document a changé avant la fin de l’enregistrement, rien n’a été écrit.',
             'originalChanged': 'Le fichier sur le disque a changé depuis son ouverture. Vos modifications sont conservées. Utilisez « Enregistrer sous » pour conserver les deux versions.',
+            'originalUnreadable': 'Le fichier original ne peut plus être lu ni recevoir les modifications. S’il a été déplacé ou supprimé, restaurez-le et réessayez.',
             'workingCopyMissing': 'La copie temporaire du document a été supprimée, donc ces modifications ne peuvent pas être enregistrées. Rouvrez le fichier.',
             'notCompleted': 'Le document n’a pas pu être écrit.',
             'permissionDenied': 'EVB Viewer ne peut pas écrire dans le dossier de ce PDF, qui n’a donc pas été enregistré. Choisissez « Enregistrer sous » pour enregistrer vos modifications dans un autre dossier.',

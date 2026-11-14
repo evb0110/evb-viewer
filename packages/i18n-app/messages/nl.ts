@@ -1799,6 +1799,7 @@ export default {
             'openNotes': 'Open notities konden niet worden opgeslagen, dus het document is niet weggeschreven.',
             'documentChanged': 'Het document veranderde voordat het opslaan klaar was, dus er is niets weggeschreven.',
             'originalChanged': 'Het bestand op schijf is gewijzigd sinds u het opende. Uw wijzigingen blijven behouden. Gebruik ‘Opslaan als’ om beide versies te bewaren.',
+            'originalUnreadable': 'Het oorspronkelijke bestand kan niet meer worden gelezen, dus wijzigingen kunnen niet worden opgeslagen. Herstel het bestand als het is verplaatst of verwijderd en probeer het opnieuw.',
             'workingCopyMissing': 'De tijdelijke kopie van het document is verwijderd, dus deze wijzigingen kunnen niet worden opgeslagen. Open het bestand opnieuw.',
             'notCompleted': 'Het document kon niet worden weggeschreven.',
             'permissionDenied': 'EVB Viewer kan niet schrijven in de map van deze pdf, dus die is niet opgeslagen. Kies «Opslaan als» om uw wijzigingen in een andere map op te slaan.',

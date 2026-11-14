@@ -198,6 +198,18 @@ describe('useWorkspaceFailureSurface', () => {
             'EBUSY: resource busy or locked, rename source.pdf -> source.pdf.bak',
             'errors.save.fileBusy',
         ],
+        [
+            'The original file cannot be read: ENOENT: no such file or directory',
+            'errors.save.originalUnreadable',
+        ],
+        [
+            'The original file cannot be read: EBUSY: resource busy or locked',
+            'errors.save.fileBusy',
+        ],
+        [
+            'The original file cannot be read: EACCES: permission denied',
+            'errors.save.permissionDenied',
+        ],
     ])('keeps the native bridge receipt and cause for %s in the save presentation', (message, description) => {
         const receipt = {
             code: 'UNCLASSIFIED_RENDERER_ERROR',

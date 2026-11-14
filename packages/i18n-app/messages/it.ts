@@ -1799,6 +1799,7 @@ export default {
             'openNotes': 'Non è stato possibile salvare le note aperte, quindi il documento non è stato scritto.',
             'documentChanged': 'Il documento è cambiato prima della fine del salvataggio, quindi non è stato scritto nulla.',
             'originalChanged': 'Il file sul disco è cambiato da quando lo hai aperto. Le tue modifiche sono conservate. Usa «Salva con nome» per mantenere entrambe le versioni.',
+            'originalUnreadable': 'Il file originale non è più leggibile e le modifiche non possono essere salvate. Se è stato spostato o eliminato, ripristinalo e riprova.',
             'workingCopyMissing': 'La copia temporanea del documento è stata rimossa, quindi queste modifiche non possono essere salvate. Riapri il file.',
             'notCompleted': 'Non è stato possibile scrivere il documento.',
             'permissionDenied': 'EVB Viewer non può scrivere nella cartella di questo PDF, quindi non è stato salvato. Scegli «Salva con nome» per salvare le modifiche in un’altra cartella.',

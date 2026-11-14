@@ -1799,6 +1799,7 @@ export default {
             'openNotes': 'No se pudieron guardar las notas abiertas, así que el documento no se escribió.',
             'documentChanged': 'El documento cambió antes de terminar de guardar, así que no se escribió nada.',
             'originalChanged': 'El archivo en el disco ha cambiado desde que lo abrió. Sus cambios se conservan. Use «Guardar como» para conservar ambas versiones.',
+            'originalUnreadable': 'Ya no se puede leer el archivo original ni guardar los cambios. Si se movió o eliminó, restáurelo e inténtelo de nuevo.',
             'workingCopyMissing': 'La copia temporal del documento se eliminó, por lo que estos cambios no se pueden guardar. Vuelva a abrir el archivo.',
             'notCompleted': 'No se pudo escribir el documento.',
             'permissionDenied': 'EVB Viewer no puede escribir en la carpeta de este PDF, así que no se guardó. Elige «Guardar como» para guardar los cambios en otra carpeta.',
