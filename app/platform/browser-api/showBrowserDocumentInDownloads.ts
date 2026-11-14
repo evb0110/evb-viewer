@@ -46,12 +46,12 @@ const downloadsByDocument = new Map<TDocumentRef, IDocumentDownload>();
 // clicks never leave a second copy in Downloads.
 const savesInProgress = new Map<TDocumentRef, Promise<boolean>>();
 
-// Extension pages see the downloads API that the manifest's permission grants.
+declare const chrome: {downloads?: IChromeDownloadsApi} | undefined;
+
+// Extension pages have chrome.downloads; the website does not.
 function getChromeDownloads(): IChromeDownloadsApi | null {
-    const chromeApi: unknown = Reflect.get(globalThis, 'chrome');
-    const downloads: unknown = typeof chromeApi === 'object' && chromeApi !== null ? Reflect.get(chromeApi, 'downloads') : null;
-    return typeof downloads === 'object' && downloads !== null && typeof Reflect.get(downloads, 'download') === 'function'
-        ? downloads as IChromeDownloadsApi
+    return typeof chrome === 'object' && chrome !== null && typeof chrome.downloads?.download === 'function'
+        ? chrome.downloads
         : null;
 }
 
