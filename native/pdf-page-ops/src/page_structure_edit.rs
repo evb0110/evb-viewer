@@ -226,13 +226,35 @@ pub(crate) fn edit_page_structure<S>(
     }
 }
 
+/// Opens the inputs of a page-structure edit, the edited document first.
+/// Damage stays `CorruptXref` only in that document, which the app repairs
+/// with qpdf and edits again; another input's damage refuses the request.
+pub(crate) fn open_page_structure_sources<S: ByteSource>(
+    inputs: impl IntoIterator<Item = Result<(S, u64)>>,
+) -> Result<Vec<SourcePdf<S>>> {
+    inputs
+        .into_iter()
+        .enumerate()
+        .map(|(index, input)| {
+            let (bytes, len) = input?;
+            SourcePdf::open(bytes, len).map_err(|error| match error.downcast_ref::<NativeError>() {
+                Some(native) if index > 0 && native.code == NativeErrorCode::CorruptXref => {
+                    domain_error(NativeErrorCode::InvalidRequest, native.message.clone())
+                }
+                _ => error,
+            })
+        })
+        .collect()
+}
+
 /// Refuses a source whose pages a reader could number differently: every
 /// leaf of its page tree is a page, appears once, and sits where the declared
-/// counts place it, so the edit numbers pages as a viewer shows them.
+/// counts place it, so the edit numbers pages as a viewer shows them. A
+/// repair would pick one numbering, so the refusal is not `CorruptXref`.
 fn validate_page_tree(document: &Document) -> Result<()> {
     let damaged = |error: Box<dyn Error>| {
         domain_error(
-            NativeErrorCode::CorruptXref,
+            NativeErrorCode::InvalidRequest,
             format!("The page tree is damaged: {error}"),
         )
     };
@@ -325,14 +347,11 @@ pub(crate) fn write_page_structure_path(
     output: &Path,
 ) -> Result<()> {
     use evb_native_support::output::AtomicOutput;
-    let sources = inputs
-        .iter()
-        .map(|path| {
-            let file = File::open(path).map_err(io_domain_error)?;
-            let len = file.metadata().map_err(io_domain_error)?.len();
-            SourcePdf::open(file, len)
-        })
-        .collect::<Result<Vec<_>>>()?;
+    let sources = open_page_structure_sources(inputs.iter().map(|path| {
+        let file = File::open(path).map_err(io_domain_error)?;
+        let len = file.metadata().map_err(io_domain_error)?.len();
+        Ok((file, len))
+    }))?;
     let subset = edit_page_structure(edit, &sources)?;
     let staged = AtomicOutput::create(output).map_err(io_domain_error)?;
     let file = staged.file().map_err(io_domain_error)?;

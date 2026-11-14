@@ -150,9 +150,10 @@ pub(crate) fn run_file_request(request: &[u8]) -> Result<Vec<u8>> {
             return Err(format!("Page-op WASM operation {operation} takes no file framing").into())
         }
     };
-    let sources = (0..read_u32_at(request, FILE_REQUEST_HEADER.source_count)?)
-        .map(|index| SourcePdf::open(HostSource(index), host_source_len(index)?))
-        .collect::<Result<Vec<_>>>()?;
+    let sources = open_page_structure_sources(
+        (0..read_u32_at(request, FILE_REQUEST_HEADER.source_count)?)
+            .map(|index| Ok((HostSource(index), host_source_len(index)?))),
+    )?;
     let subset = edit_page_structure(edit, &sources)?;
     SINK_LEN.set(0);
     subset
