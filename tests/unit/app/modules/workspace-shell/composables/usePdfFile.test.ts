@@ -230,8 +230,8 @@ describe('usePdfFile façade', () => {
             expect(file.workingCopyPath.value).toBe('/tmp/saved-working.pdf');
             expect(file.documentRevisionInfo.value?.documentRef).toBe('/tmp/saved-working.pdf');
             expect(file.documentRevisionToken.value).toBe('saved-revision');
-            expect(file.pdfSrc.value === loadedSource).toBe(sourceKind === 'blob');
-            expect(file.pdfReloadSrc.value).not.toBe(loadedSource);
+            expect(file.pdfSrc.value).not.toBe(loadedSource);
+            expect(file.pdfReloadSrc.value).toBe(file.pdfSrc.value);
             expect(file.pdfData.value).toEqual(PDF_BYTES);
         } finally {
             dependencyPublication.resolve({size: PDF_BYTES.byteLength});
