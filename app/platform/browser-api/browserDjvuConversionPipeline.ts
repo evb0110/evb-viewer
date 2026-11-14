@@ -549,7 +549,7 @@ async function embedBrowserPdfBookmarks(
         return data;
     }
     signal?.throwIfAborted();
-    const {appendPdfMutationsToBytes} = await import('@app/platform/browser-api/tryRunBrowserPageOpsWithWasm');
+    const {appendPdfMutationsToBytes} = await import('@app/platform/browser/pdfPageEngine');
     const result = await appendPdfMutationsToBytes(data, {
         mutations: {bookmarks: {
             totalPages: pageCount,

@@ -16,9 +16,8 @@ import {createBrowserPageOpsCapability} from '@app/platform/browser-api/createBr
 import {createCombinedPdfFromPaths} from '@app/platform/browser-api/createCombinedPdfFromPaths';
 import {readPdfCatalog} from '@app/platform/browser-api/browserPageOpsCore';
 import {browserDocumentStore} from '@app/platform/browserDocumentStore';
-import {
-    isBrowserPageOpsWasmFailure, appendPdfMutationsToBytes,
-} from '@app/platform/browser-api/tryRunBrowserPageOpsWithWasm';
+import {isBrowserPageOpsWasmFailure} from '@app/platform/browser-api/tryRunBrowserPageOpsWithWasm';
+import {appendPdfMutationsToBytes} from '@app/platform/browser/pdfPageEngine';
 import {PDF_BOOKMARK_RECOVERY_ENTRY_SCHEMA} from '@contracts/pdfBookmarkEntry';
 import * as v from 'valibot';
 

@@ -19,7 +19,7 @@ import {runBrowserPageOpsWorkerRequest} from '@app/platform/browser-api/browserP
 import {loadBrowserPdfjsDocument} from '@app/platform/browser-api/loadBrowserPdfjsDocument';
 import {browserDocumentStore} from '@app/platform/browserDocumentStore';
 import {appendPdfMutationsToStoreFile} from '@app/platform/browser/browserStorePort';
-import type {IPdfAppendResult} from '@app/platform/browser-api/tryRunBrowserPageOpsWithWasm';
+import type {IPdfAppendResult} from '@app/platform/browser/pdfPageEngine';
 import {getErrorMessage} from '@app/utils/error';
 import {
     isBrowserPageOpsWasmFailure,

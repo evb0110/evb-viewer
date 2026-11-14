@@ -31,10 +31,8 @@ import {
     isBrowserPageOpsWasmFailure,
     type IPageMutationWorkerResult,
 } from '@contracts/browserPageOpsWorker';
-import type {
-    IBrowserPageOpsWasmFailure,
-    TPageStructureEdit,
-} from '@app/platform/browser-api/tryRunBrowserPageOpsWithWasm';
+import type {IBrowserPageOpsWasmFailure} from '@app/platform/browser-api/tryRunBrowserPageOpsWithWasm';
+import type {TPageStructureEdit} from '@app/platform/browser/pdfPageEngine';
 import {
     SPLIT_PAGES_INSTRUCTIONS_SCHEMA,
     OVERLAY_TEXT_INSTRUCTIONS_SCHEMA,
@@ -327,7 +325,7 @@ function createFailingPageOpsWasmExports(errorText: string) {
 
 /** The engine's file imports over PDFs held in memory: each document is a source, the output a growing buffer. */
 async function runPageStructureInMemory(
-    module: typeof import('@app/platform/browser-api/tryRunBrowserPageOpsWithWasm'),
+    module: typeof import('@app/platform/browser/pdfPageEngine'),
     edit: TPageStructureEdit,
     documents: Uint8Array[],
 ) {
@@ -368,11 +366,12 @@ async function loadWasmRunner() {
     vi.unstubAllGlobals();
     const fetchMock = await stubSuccessfulWasmFetch();
     const module = await import('@app/platform/browser-api/tryRunBrowserPageOpsWithWasm');
+    const engine = await import('@app/platform/browser/pdfPageEngine');
     return {
         fetchMock,
         run: module.tryRunBrowserPageOpsWithWasm,
-        append: module.appendPdfMutationsToBytes,
-        structure: (edit: TPageStructureEdit, documents: Uint8Array[]) => runPageStructureInMemory(module, edit, documents),
+        append: engine.appendPdfMutationsToBytes,
+        structure: (edit: TPageStructureEdit, documents: Uint8Array[]) => runPageStructureInMemory(engine, edit, documents),
     };
 }
 

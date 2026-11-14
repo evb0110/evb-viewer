@@ -51,7 +51,7 @@ import type {
     IBrowserBatchOpenProgressOptions,
     ICombinedPdfDocument,
 } from '@app/platform/browser-api/createCombinedPdfFromPaths';
-import type { TPageStructureEdit } from '@app/platform/browser-api/tryRunBrowserPageOpsWithWasm';
+import type { TPageStructureEdit } from '@app/platform/browser/pdfPageEngine';
 import type {
     IBrowserPageOpsWorkerRequestMap,
     IBrowserPageOpsWorkerResultMap,

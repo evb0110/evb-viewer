@@ -1,7 +1,7 @@
 /// <reference lib="webworker" />
 
 import {encode as encodePng} from 'fast-png';
-import {readLoadedWasmDigest} from '@app/platform/browser-api/loadWasmWithDeadline';
+import {readLoadedWasmDigest} from '@app/platform/browser/loadWasmWithDeadline';
 import {BROWSER_SCAN_CLEANUP_WASM_PATH} from '@contracts/scan-cleanup/browserScanCleanupWasm';
 import {
     getBrowserScanCleanupWorkerRequestId,

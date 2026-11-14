@@ -6,7 +6,7 @@
 import type {
     IOcrTextLayerAppendRequest,
     IPdfAppendRequest,
-} from '@app/platform/browser-api/tryRunBrowserPageOpsWithWasm';
+} from '@app/platform/browser/pdfPageEngine';
 
 interface IRequest {
     id: number;
@@ -162,7 +162,7 @@ const operations: Record<string, (...args: never[]) => unknown> = {
     /** Appends the revisions `request` makes past the first `base` bytes, the PDF they edit. */
     async appendPdfMutations(id: number, base: number, request: IPdfAppendRequest | IOcrTextLayerAppendRequest) {
         const handle = file(id);
-        const {appendPdfMutations} = await import('@app/platform/browser-api/tryRunBrowserPageOpsWithWasm');
+        const {appendPdfMutations} = await import('@app/platform/browser/pdfPageEngine');
         return appendPdfMutations({
             read(into, at) {
                 if (handle.read(into, {at}) !== into.byteLength) throw new Error('The document ended before its cross-reference said');

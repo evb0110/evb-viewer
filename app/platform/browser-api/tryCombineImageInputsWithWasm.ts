@@ -12,7 +12,7 @@ import { BrowserLogger } from '@app/utils/browserLogger';
 import {
     loadWasmWithDeadline,
     readLoadedWasmDigest,
-} from '@app/platform/browser-api/loadWasmWithDeadline';
+} from '@app/platform/browser/loadWasmWithDeadline';
 import {
     NATIVE_ERROR_ENVELOPE_SCHEMA,
     type INativeErrorEnvelope,
