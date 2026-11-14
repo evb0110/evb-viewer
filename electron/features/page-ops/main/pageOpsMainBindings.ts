@@ -9,6 +9,7 @@ import {
 } from 'fs/promises';
 import {copyNewFile} from '@document-store/nodeStorePort';
 import {usingManagedScratchScope} from '@electron/utils/managedScratchTemp';
+import {showOpenDocumentDialogForContext} from '@electron/features/documents/main/documentDialogCommon';
 import {
     basename,
     extname,
@@ -132,7 +133,6 @@ import {
 import { normalizeOptionalIpcRequestId } from '@electron/utils/ipcLimits';
 import {
     getAutomationSaveDialogPath,
-    getWorkingCopyDialogDefaultPath,
 } from '@electron/utils/dialogDefaultPaths';
 import { createIpcProgressPump } from '@electron/utils/createIpcProgressPump';
 import type { ICreatePdfFromInputPathsProgress } from '@electron/image/pdfConversion';
@@ -673,24 +673,13 @@ async function handlePageOpsInsert(
     const normalizedWorkingCopyPath = await resolveWorkingCopyPath(insertArgs.normalizedWorkingCopyPath, context.senderId);
     const expectedDocumentRevisionToken = normalizeExpectedDocumentRevisionToken(options);
 
-    const dialogOptions = {
+    const result = await showOpenDocumentDialogForContext(context, {
         title: te('dialogs.insertPagesFromPdf'),
-        defaultPath: getWorkingCopyDialogDefaultPath(normalizedWorkingCopyPath),
-        filters: [{
-            name: te('dialogs.documentsFilter'),
-            extensions: [
-                'pdf',
-                ...PDF_COMBINE_SUPPORTED_IMAGE_EXTENSIONS.map(ext => ext.slice(1)),
-            ],
-        }],
-        properties: [
-            'openFile',
-            'multiSelections',
-        ] as Array<'openFile' | 'multiSelections'>,
-    };
-    const result = context.parentWindow
-        ? await dialog.showOpenDialog(context.parentWindow, dialogOptions)
-        : await dialog.showOpenDialog(dialogOptions);
+        extensions: [
+            'pdf',
+            ...PDF_COMBINE_SUPPORTED_IMAGE_EXTENSIONS.map(ext => ext.slice(1)),
+        ],
+    });
 
     if (result.canceled || result.filePaths.length === 0) {
         return {
