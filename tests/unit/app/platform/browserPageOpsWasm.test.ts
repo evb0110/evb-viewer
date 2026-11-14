@@ -1448,10 +1448,10 @@ describe('browser page-ops WASM fast path', () => {
             },
             {
                 result: await wasm.structure({kind: 'insert', afterPage: 1}, [basePdf, insertionPdf]),
-                // The inserted page keeps its own source's number.
+                // The unlabelled inserted page continues the range it lands in.
                 labels: [
                     '1',
-                    '1',
+                    '2',
                     'I',
                     'II',
                 ],

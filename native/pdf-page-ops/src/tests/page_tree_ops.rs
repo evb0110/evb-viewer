@@ -180,7 +180,7 @@ fn page_subset_operations_preserve_and_remap_outlines_and_page_labels() {
             insert_browser_pdf_pages(&source_bytes, &insertion_bytes, 1).unwrap(),
             4,
             400.0,
-            vec!["1", "1", "I", "II"],
+            vec!["1", "2", "I", "II"],
         ),
     ];
     let _ = insertion_pages;
@@ -1608,8 +1608,8 @@ fn insertion_brings_pages_with_their_fields_and_leaves_document_features_behind(
     assert_eq!(form_fields(&output), [field("Answer", "source")]);
     assert!(catalog_names(&output, b"JavaScript").is_empty());
 
-    // An inserted source whose label tree cannot be read numbers its pages
-    // in decimal instead of refusing the insert.
+    // An inserted source whose label tree cannot be read continues the range
+    // its pages land in instead of refusing the insert.
     let mut broken = Document::load_mem(&source).unwrap();
     broken.catalog_mut().unwrap().set(
         "PageLabels",
@@ -1619,7 +1619,7 @@ fn insertion_brings_pages_with_their_fields_and_leaves_document_features_behind(
     broken.save_to(&mut broken_bytes).unwrap();
     let output = insert_browser_pdf_pages(&labelled_book_bytes(1, 1, 1), &broken_bytes, 1).unwrap();
     let output = Document::load_mem(&output.data).unwrap();
-    assert_eq!(page_label_texts(&output), ["i", "1", "1", "A-1"]);
+    assert_eq!(page_label_texts(&output), ["i", "ii", "1", "A-1"]);
 
     // Delete, extract and reorder keep a document's own form, scripts and
     // attachments.
@@ -1758,6 +1758,8 @@ fn labelled_book_bytes(front: u32, body: u32, appendix: u32) -> Vec<u8> {
 fn page_structure_edits_keep_each_page_label_in_the_fewest_ranges() {
     let book = labelled_book_bytes(2, 3, 2);
     let side = labelled_book_bytes(1, 1, 1);
+    let mut unlabelled = Vec::new();
+    create_test_document().0.save_to(&mut unlabelled).unwrap();
     let merged = page_structure_bytes(PageStructureEdit::Merge, &[&book, &side])
         .unwrap()
         .data;
@@ -1791,6 +1793,12 @@ fn page_structure_edits_keep_each_page_label_in_the_fewest_ranges() {
             insert_browser_pdf_pages(&book, &side, 3).unwrap().data,
             vec!["i", "ii", "1", "i", "1", "A-1", "2", "3", "A-1", "A-2"],
             vec![0, 2, 3, 4, 5, 6, 8],
+        ),
+        (
+            "insert an unlabelled page into the body",
+            insert_browser_pdf_pages(&book, &unlabelled, 3).unwrap().data,
+            vec!["i", "ii", "1", "2", "3", "4", "A-1", "A-2"],
+            vec![0, 2, 6],
         ),
         (
             "merge",
