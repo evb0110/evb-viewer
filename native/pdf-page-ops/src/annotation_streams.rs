@@ -33,7 +33,14 @@ pub(crate) fn materialize_annotation_appearance_streams(
         // otherwise readable annotations from the same document.
         let limit = remaining.min(stream_limit);
         if incremental
-            .materialize_base_stream(input_path, qpdf_path, object_id, limit)
+            .materialize_base_stream(
+                StructuralSource::Qpdf {
+                    input_path,
+                    qpdf_path,
+                },
+                object_id,
+                limit,
+            )
             .is_ok()
         {
             let document = incremental.get_prev_documents();

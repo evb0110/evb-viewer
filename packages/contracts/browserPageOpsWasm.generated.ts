@@ -5,7 +5,6 @@
 export const REQUEST_MAGIC = 'EPPO';
 export const REQUEST_VERSION = 2;
 export const REQUEST_VERSION_DOCUMENT_LIST = 3;
-export const REQUEST_VERSION_ORIGINAL_APPEARANCE_SOURCE = 4;
 export const REQUEST_VERSION_INSTRUCTED = 5;
 export const REQUEST_VERSION_FILES = 6;
 export const U32_BYTES = 4;
@@ -13,7 +12,6 @@ export const F64_BYTES = 8;
 export const MAX_BUFFER_BYTES = 2147483647;
 export const RESPONSE_MUTATION = 1;
 export const RESPONSE_ANNOTATION_PARSE = 3;
-export const RESPONSE_NATIVE_MUTATIONS = 4;
 export const RESPONSE_JSON = 5;
 export const RESPONSE_TEXT_BOX_APPEARANCE = 6;
 export const RESPONSE_INCREMENT = 7;
@@ -21,7 +19,6 @@ export const RESPONSE_REPORTED_PDF = 8;
 export const RESPONSE_REPORTED_INCREMENT = 9;
 export const RESPONSE_REPORTED_RASTER = 10;
 export const RESPONSE_WRITTEN = 11;
-export const NATIVE_MUTATION_POSTCONDITIONS_VERIFIED = 1;
 export const MAX_U32 = 4294967295;
 export const MAX_CATALOG_ENTRIES = 100000;
 
@@ -131,18 +128,4 @@ export const TEXT_BOX_APPEARANCE_HEADER = {
     dataLength: 4,
     metadataLength: 8,
     bytes: 12,
-} as const;
-
-export const NATIVE_MUTATION_HEADER = {
-    kind: 0,
-    pageCount: 4,
-    dataLength: 8,
-    identityBindingsLength: 12,
-    postconditionsVerified: 16,
-    bytes: 20,
-} as const;
-
-export const REQUEST_ORIGINAL_APPEARANCE_SOURCE_HEADER = {
-    sourceDataLength: 68,
-    bytes: 72,
 } as const;

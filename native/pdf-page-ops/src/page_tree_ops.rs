@@ -81,7 +81,7 @@ pub(crate) fn appended_revision_bytes(incremental: &mut IncrementalDocument) -> 
     validate_incremental_append_bytes(
         &revision,
         incremental.previous_len(),
-        incremental.get_prev_documents().xref_start,
+        incremental.previous_xref_start(),
         &collect_incremental_append_object_ids(incremental),
     )?;
     Ok(revision)

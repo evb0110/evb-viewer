@@ -101,9 +101,16 @@ pub(crate) fn is_file_request(request: &[u8]) -> bool {
 
 /// Runs a FILE_REQUEST_HEADER request and answers WRITTEN_HEADER: an edit,
 /// whose output the host completes with the copies it was asked for, then
-/// OP_VERIFY_WRITTEN, which checks that output as desktop checks its file.
+/// OP_VERIFY_WRITTEN, which checks that output as desktop checks its file;
+/// or OP_SAVE_MUTATIONS, which appends its revision in one request.
 pub(crate) fn run_file_request(request: &[u8]) -> Result<Vec<u8>> {
     let written = WRITTEN.take();
+    if read_u32_at(request, FILE_REQUEST_HEADER.operation)? == OP_SAVE_MUTATIONS {
+        return save_mutations(
+            &request[FILE_REQUEST_HEADER.bytes..],
+            read_u32_at(request, FILE_REQUEST_HEADER.source_count)?,
+        );
+    }
     let page_list_len = read_usize_at(request, FILE_REQUEST_HEADER.page_count, "page_count")?
         .checked_mul(U32_BYTES)
         .ok_or("Invalid page-op WASM page count")?;
@@ -133,16 +140,7 @@ pub(crate) fn run_file_request(request: &[u8]) -> Result<Vec<u8>> {
         }
     };
     let sources = (0..read_u32_at(request, FILE_REQUEST_HEADER.source_count)?)
-        .map(|index| {
-            // SAFETY: a plain call; the host answers with the source's length.
-            let len = unsafe { evb_host_source_len(index) };
-            if !(len.is_finite() && len >= 0.0) {
-                return Err(io_domain_error(io::Error::other(
-                    "The browser host has no such source",
-                )));
-            }
-            SourcePdf::open(HostSource(index), len as u64)
-        })
+        .map(|index| SourcePdf::open(HostSource(index), host_source_len(index)?))
         .collect::<Result<Vec<_>>>()?;
     let subset = edit_page_structure(edit, &sources)?;
     SINK_LEN.set(0);
@@ -152,6 +150,53 @@ pub(crate) fn run_file_request(request: &[u8]) -> Result<Vec<u8>> {
         .map_err(|error| io_domain_error(error.into_error()))?;
     let response = written_response(subset.page_count, SINK_LEN.get());
     WRITTEN.set(Some((sources, subset)));
+    Ok(response)
+}
+
+fn host_source_len(index: u32) -> Result<u64> {
+    // SAFETY: a plain call; the host answers with the source's length.
+    let len = unsafe { evb_host_source_len(index) };
+    if !(len.is_finite() && len >= 0.0) {
+        return Err(io_domain_error(io::Error::other(
+            "The browser host has no such source",
+        )));
+    }
+    Ok(len as u64)
+}
+
+/// Appends the revision a mutation payload makes to source 0, whose file is
+/// also the sink: the bytes it writes past the source's length are the host's
+/// to commit or cut. Source 1, when given, holds the original appearances its
+/// text boxes restore. Answers WRITTEN_HEADER, then the identity bindings as
+/// JSON.
+fn save_mutations(payload: &[u8], source_count: u32) -> Result<Vec<u8>> {
+    let (mut mutations, modified_at) = crate::wasm::parse_wasm_mutation_payload(payload)?;
+    match source_count {
+        1 => {}
+        2 => hydrate_text_box_original_appearances_from_source(
+            &mut mutations,
+            SourcePdf::open(HostSource(1), host_source_len(1)?)?,
+        )?,
+        _ => return Err("A save reads its document and at most one appearance source".into()),
+    }
+    let len = host_source_len(0)?;
+    let append = append_native_mutations_to_source(
+        HostSource(0),
+        len,
+        &mutations,
+        &modified_at,
+        |revision| {
+            SINK_LEN.set(len);
+            HostSink.write_all(revision).map_err(io_domain_error)?;
+            let mut written = vec![0; revision.len()];
+            HostSink
+                .read_at(len, &mut written)
+                .map_err(io_domain_error)?;
+            Ok(written)
+        },
+    )?;
+    let mut response = written_response(append.page_count, SINK_LEN.get());
+    response.extend(serde_json::to_vec(&append.identity_bindings)?);
     Ok(response)
 }
 

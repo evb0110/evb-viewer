@@ -811,11 +811,10 @@ pub(crate) fn placed_image_geometry_probe(update: &PlacedImageGeometryUpdate) ->
 
 pub(crate) fn materialize_stamp_recovery_sources(
     incremental: &mut IncrementalDocument,
-    path: &Path,
-    qpdf_path: Option<&Path>,
+    streams: Option<StructuralSource<'_>>,
     updates: &[PlacedImageGeometryUpdate],
 ) -> Result<()> {
-    let Some(qpdf_path) = qpdf_path else {
+    let Some(streams) = streams else {
         return Ok(());
     };
     let mut seen = HashSet::new();
@@ -844,8 +843,7 @@ pub(crate) fn materialize_stamp_recovery_sources(
                 return Err("Stamp recovery sources exceed the aggregate byte ceiling".into());
             }
             incremental.materialize_base_stream(
-                path,
-                qpdf_path,
+                streams,
                 reference,
                 remaining.min(MAX_PLACED_IMAGE_BYTES as usize),
             )?;

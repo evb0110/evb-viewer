@@ -6,21 +6,20 @@ use std::{cell::RefCell, slice};
 
 use crate::pdf_conformance_facts;
 use crate::{
-    append_native_mutations_to_bytes, crop_browser_pdf_bytes, decrypt_browser_pdf_bytes,
-    get_browser_page_geometry_from_bytes, load_browser_pdf, ocr_text_layer_increment_bytes,
-    ocr_text_visibility_bytes, remove_crop_browser_pdf_bytes, rotate_browser_pdf_bytes,
-    serialize_annotation_parse, validate_native_mutations, NativeMutationBytesResult,
-    PageMutationBytes, Result, PAGE_OP_WASM_MAX_BUFFER_BYTES, PAGE_OP_WASM_MUTATION_HEADER_BYTES,
-};
-use crate::{
     build_print_layout, read_pdf_document_catalog, save_document_to_bytes, PrintOrientation,
     PrintViewMode,
+};
+use crate::{
+    crop_browser_pdf_bytes, decrypt_browser_pdf_bytes, get_browser_page_geometry_from_bytes,
+    load_browser_pdf, ocr_text_layer_increment_bytes, ocr_text_visibility_bytes,
+    remove_crop_browser_pdf_bytes, rotate_browser_pdf_bytes, serialize_annotation_parse,
+    validate_native_mutations, PageMutationBytes, Result, PAGE_OP_WASM_MAX_BUFFER_BYTES,
+    PAGE_OP_WASM_MUTATION_HEADER_BYTES,
 };
 
 use crate::wasm_abi::*;
 
 const ANNOTATION_PARSE_RESPONSE_HEADER_BYTES: usize = BYTES_HEADER.bytes;
-const NATIVE_MUTATION_RESPONSE_HEADER_BYTES: usize = NATIVE_MUTATION_HEADER.bytes;
 const MAX_REQUEST_BYTES: usize = PAGE_OP_WASM_MAX_BUFFER_BYTES;
 const DEFAULT_WASM_MUTATION_MODIFIED_AT: &str = "D:19700101000000Z";
 
@@ -239,15 +238,6 @@ fn run_request(request: &[u8]) -> Result<Vec<u8>> {
             RESPONSE_JSON,
             crate::inspect_scan_cleanup_pdf_bytes(parsed.data, &parsed.pages)?,
         ),
-        OP_SAVE_MUTATIONS => {
-            let (mut mutations, modified_at) = parse_wasm_mutation_payload(parsed.insertion_data)?;
-            if !parsed.original_appearance_source.is_empty() {
-                let source = load_browser_pdf(parsed.original_appearance_source)?;
-                crate::hydrate_text_box_original_appearances(&mut mutations, &source)?;
-            }
-            let result = append_native_mutations_to_bytes(parsed.data, &mutations, &modified_at)?;
-            encode_native_mutation_save(result)
-        }
         _ => Err(format!(
             "Unsupported browser page-op WASM operation {}",
             parsed.operation
@@ -452,7 +442,9 @@ impl<'de, A: serde::de::MapAccess<'de>> serde::de::MapAccess<'de> for &mut Mutat
     }
 }
 
-fn parse_wasm_mutation_payload(payload: &[u8]) -> Result<(crate::NativeMutationsFile, String)> {
+pub(crate) fn parse_wasm_mutation_payload(
+    payload: &[u8],
+) -> Result<(crate::NativeMutationsFile, String)> {
     if payload.len() > crate::MAX_SIDECAR_BYTES {
         return Err(crate::domain_error(
             NativeErrorCode::TooLarge,
@@ -527,47 +519,6 @@ fn parse_wasm_pdf_date_digits(bytes: &[u8]) -> Option<u32> {
         byte.is_ascii_digit()
             .then_some(value * 10 + u32::from(*byte - b'0'))
     })
-}
-
-fn encode_native_mutation_save(result: NativeMutationBytesResult) -> Result<Vec<u8>> {
-    let data_len = u32::try_from(result.data.len()).map_err(|_| page_op_output_limit())?;
-    let identity_bindings = serde_json::to_vec(&result.identity_bindings)?;
-    let identity_bindings_len =
-        u32::try_from(identity_bindings.len()).map_err(|_| page_op_output_limit())?;
-    let payload_len = result
-        .data
-        .len()
-        .checked_add(identity_bindings.len())
-        .ok_or_else(page_op_output_limit)?;
-    let framed_len = NATIVE_MUTATION_RESPONSE_HEADER_BYTES
-        .checked_add(payload_len)
-        .ok_or_else(page_op_output_limit)?;
-    if framed_len > PAGE_OP_WASM_MAX_BUFFER_BYTES {
-        return Err(page_op_output_limit());
-    }
-    let mut output = result.data;
-    output
-        .try_reserve_exact(framed_len.saturating_sub(output.len()))
-        .map_err(|_| page_op_output_limit())?;
-    output.resize(data_len as usize + NATIVE_MUTATION_RESPONSE_HEADER_BYTES, 0);
-    output.copy_within(0..data_len as usize, NATIVE_MUTATION_RESPONSE_HEADER_BYTES);
-    output[NATIVE_MUTATION_HEADER.kind..NATIVE_MUTATION_HEADER.kind + U32_BYTES]
-        .copy_from_slice(&RESPONSE_NATIVE_MUTATIONS.to_le_bytes());
-    output[NATIVE_MUTATION_HEADER.page_count..NATIVE_MUTATION_HEADER.page_count + U32_BYTES]
-        .copy_from_slice(&result.page_count.to_le_bytes());
-    output[NATIVE_MUTATION_HEADER.data_length..NATIVE_MUTATION_HEADER.data_length + U32_BYTES]
-        .copy_from_slice(&data_len.to_le_bytes());
-    output[NATIVE_MUTATION_HEADER.identity_bindings_length
-        ..NATIVE_MUTATION_HEADER.identity_bindings_length + U32_BYTES]
-        .copy_from_slice(&identity_bindings_len.to_le_bytes());
-    // The append path performs semantic postcondition validation before this
-    // response is returned. Keep the proof explicit in the wire frame so the
-    // browser consumer can fail closed if a future writer changes that rule.
-    output[NATIVE_MUTATION_HEADER.postconditions_verified
-        ..NATIVE_MUTATION_HEADER.postconditions_verified + U32_BYTES]
-        .copy_from_slice(&NATIVE_MUTATION_POSTCONDITIONS_VERIFIED.to_le_bytes());
-    output.extend_from_slice(&identity_bindings);
-    Ok(output)
 }
 
 fn encode_mutation(result: PageMutationBytes) -> Result<Vec<u8>> {
@@ -1018,17 +969,20 @@ mod tests {
         request
     }
 
-    fn mutation_save_request(data: &[u8], payload: &[u8]) -> Vec<u8> {
-        let mut request = request_header_with_password(
-            OP_SAVE_MUTATIONS,
-            0,
-            data.len() as u32,
-            payload.len() as u32,
-            0,
-        );
-        request.extend_from_slice(data);
-        request.extend_from_slice(payload);
-        request
+    /// What the file route appends for `payload`, as one PDF.
+    pub(super) fn save(
+        input: &[u8],
+        payload: &[u8],
+        original: Option<&[u8]>,
+    ) -> crate::Result<crate::NativeMutationBytesResult> {
+        let (mut mutations, modified_at) = parse_wasm_mutation_payload(payload)?;
+        if let Some(original) = original {
+            crate::hydrate_text_box_original_appearances_from_source(
+                &mut mutations,
+                crate::SourcePdf::open(original, original.len() as u64)?,
+            )?;
+        }
+        crate::append_native_mutations_to_bytes(input, &mutations, &modified_at)
     }
 
     fn assert_too_large(error: Box<dyn std::error::Error>) {
@@ -1175,19 +1129,10 @@ mod tests {
     fn wasm_native_mutation_save_appends_text_box_and_returns_identity_proof() {
         let input = test_pdf_bytes();
         let payload = br#"{"modifiedAt":"D:20260831150000Z","mutations":{"textBoxes":[{"pageIndex":0,"stableKey":"wasm-text-box","text":"WASM text box","rect":[10,20,100,60],"rotation":0,"fontSize":16,"color":[17,24,39],"author":"Ada Lovelace","createdAt":1780000000000,"modifiedAt":1780000060000}]}}"#;
-        let output = run_request(&mutation_save_request(&input, payload)).unwrap();
-        assert_eq!(&output[..4], &RESPONSE_NATIVE_MUTATIONS.to_le_bytes());
-        assert_eq!(u32::from_le_bytes(output[4..8].try_into().unwrap()), 1);
-        let data_len = u32::from_le_bytes(output[8..12].try_into().unwrap()) as usize;
-        let bindings_len = u32::from_le_bytes(output[12..16].try_into().unwrap()) as usize;
-        assert_eq!(u32::from_le_bytes(output[16..20].try_into().unwrap()), 1);
-        assert_eq!(
-            output.len(),
-            NATIVE_MUTATION_RESPONSE_HEADER_BYTES + data_len + bindings_len
-        );
-        assert!(data_len > input.len());
-        let saved = &output[NATIVE_MUTATION_RESPONSE_HEADER_BYTES
-            ..NATIVE_MUTATION_RESPONSE_HEADER_BYTES + data_len];
+        let output = save(&input, payload, None).unwrap();
+        assert_eq!(output.page_count, 1);
+        let saved = output.data.as_slice();
+        assert!(saved.len() > input.len());
         assert!(saved.starts_with(&input));
         let loaded = Document::load_mem(saved).expect("reload appended WASM mutation output");
         let page_id = loaded.get_pages().values().next().copied().unwrap();
@@ -1215,10 +1160,8 @@ mod tests {
             .as_deref(),
             Some("WASM text box")
         );
-        let bindings = serde_json::from_slice::<Vec<serde_json::Value>>(
-            &output[NATIVE_MUTATION_RESPONSE_HEADER_BYTES + data_len..],
-        )
-        .unwrap();
+        let bindings = serde_json::to_value(&output.identity_bindings).unwrap();
+        let bindings = bindings.as_array().unwrap();
         assert_eq!(bindings.len(), 1);
         assert_eq!(bindings[0]["annotationId"], "wasm-text-box");
     }
@@ -1242,12 +1185,8 @@ mod tests {
             }] }
         }))
         .unwrap();
-        let output = run_request(&mutation_save_request(&input, &payload)).unwrap();
-        assert_eq!(&output[..4], &RESPONSE_NATIVE_MUTATIONS.to_le_bytes());
-        let data_len = u32::from_le_bytes(output[8..12].try_into().unwrap()) as usize;
-        let saved = &output[NATIVE_MUTATION_RESPONSE_HEADER_BYTES
-            ..NATIVE_MUTATION_RESPONSE_HEADER_BYTES + data_len];
-        let document = Document::load_mem(saved).unwrap();
+        let output = save(&input, &payload, None).unwrap();
+        let document = Document::load_mem(&output.data).unwrap();
         let entries = collect_parsed_annotations(&document, "D:20260908120000Z").unwrap();
         let stamp = entries
             .iter()
@@ -1532,44 +1471,24 @@ mod text_box_appearance_tests {
     use crate::PdfObjectSource;
     use lopdf::{dictionary, Document, Object, Stream};
 
-    fn request(operation: u32, data: &[u8], payload: &[u8], source: Option<&[u8]>) -> Vec<u8> {
-        let mut request = vec![
-            0;
-            source.map_or(REQUEST_HEADER.bytes, |_| {
-                REQUEST_ORIGINAL_APPEARANCE_SOURCE_HEADER.bytes
-            })
-        ];
+    fn request(operation: u32, payload: &[u8]) -> Vec<u8> {
+        let mut request = vec![0; REQUEST_HEADER.bytes];
         request[..4].copy_from_slice(REQUEST_MAGIC);
-        let version = if source.is_some() {
-            REQUEST_VERSION_ORIGINAL_APPEARANCE_SOURCE
-        } else {
-            REQUEST_VERSION
-        };
         for (offset, value) in [
-            (REQUEST_HEADER.version, version),
+            (REQUEST_HEADER.version, REQUEST_VERSION),
             (REQUEST_HEADER.operation, operation),
-            (REQUEST_HEADER.data_length, data.len() as u32),
             (REQUEST_HEADER.insertion_data_length, payload.len() as u32),
         ] {
             request[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
         }
-        if let Some(source) = source {
-            request[REQUEST_ORIGINAL_APPEARANCE_SOURCE_HEADER.source_data_length
-                ..REQUEST_ORIGINAL_APPEARANCE_SOURCE_HEADER.bytes]
-                .copy_from_slice(&(source.len() as u32).to_le_bytes());
-        }
-        request.extend_from_slice(data);
         request.extend_from_slice(payload);
-        if let Some(source) = source {
-            request.extend_from_slice(source);
-        }
         request
     }
 
     #[test]
     fn wasm_appearance_has_no_source_pdf_and_returns_a_reopenable_pdf_and_fit() {
         let payload = br#"{"page":{"view":[0,0,200,100],"rotation":0,"userUnit":1},"textBoxes":[{"textBox":{"pageIndex":0,"stableKey":"wasm-appearance","text":"Small office","rect":[10,10,35,30],"rotation":0,"fontSize":18,"color":[17,24,39]},"source":{"version":1,"rawRD":[1,2,7,12],"borderWidth":0,"staleFill":false}}]}"#;
-        let output = run_request(&request(OP_TEXT_BOX_APPEARANCE, &[], payload, None)).unwrap();
+        let output = run_request(&request(OP_TEXT_BOX_APPEARANCE, payload)).unwrap();
         assert_eq!(
             read_u32_at(&output, TEXT_BOX_APPEARANCE_HEADER.kind).unwrap(),
             RESPONSE_TEXT_BOX_APPEARANCE
@@ -1600,7 +1519,7 @@ mod text_box_appearance_tests {
     }
 
     #[test]
-    fn wasm_save_restores_original_resources_from_its_v4_source_segment() {
+    fn save_restores_original_resources_read_by_range_from_its_source() {
         let mut source = Document::with_version("1.7");
         let pages = source.new_object_id();
         let page = source.new_object_id();
@@ -1623,18 +1542,8 @@ mod text_box_appearance_tests {
         let mut current_bytes = Vec::new();
         current.save_to(&mut current_bytes).unwrap();
         let payload = serde_json::to_vec(&serde_json::json!({"modifiedAt":"D:20261016000000Z","mutations":{"textBoxes":[{"pageIndex":0,"stableKey":"source","annotationId":format!("{}R",root.0),"text":"Original","rect":[10,20,150,70],"rotation":0,"fontSize":18,"color":[0,0,0],"originalAppearance":{"sourceAnnotationId":format!("{}R",root.0)}}]}})).unwrap();
-        let output = run_request(&request(
-            OP_SAVE_MUTATIONS,
-            &current_bytes,
-            &payload,
-            Some(&original),
-        ))
-        .unwrap();
-        let data_len = read_u32_at(&output, NATIVE_MUTATION_HEADER.data_length).unwrap() as usize;
-        let saved = Document::load_mem(
-            &output[NATIVE_MUTATION_HEADER.bytes..NATIVE_MUTATION_HEADER.bytes + data_len],
-        )
-        .unwrap();
+        let output = super::tests::save(&current_bytes, &payload, Some(&original)).unwrap();
+        let saved = Document::load_mem(&output.data).unwrap();
         let dict = saved.get_dictionary(root).unwrap();
         assert_eq!(
             crate::pdf_string_to_text(dict.get(b"Contents").unwrap()).unwrap(),
@@ -1662,6 +1571,6 @@ mod text_box_appearance_tests {
                 .unwrap()
                 .content
         );
-        assert!(run_request(&request(OP_SAVE_MUTATIONS, &current_bytes, &payload, None)).is_err());
+        assert!(super::tests::save(&current_bytes, &payload, None).is_err());
     }
 }
