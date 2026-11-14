@@ -387,6 +387,33 @@ describe('usePdfFile façade', () => {
         }
     });
 
+    it('refuses to save over an original another program changed instead of saving a copy', async () => {
+        const file = createFacade();
+        await file.openFile(pdfResult('changed-on-disk'));
+        file.isDirty.value = true;
+        mocks.analyzeConformance.mockRejectedValue(new Error(
+            "Error invoking remote method 'pdf:analyzeConformance': WorkingCopyMaterializationError: The original document changed after it was opened",
+        ));
+
+        await expect(file.trySavePdfNativeMutations({bookmarks: {
+            totalPages: 1,
+            untitledLabel: 'Untitled',
+            items: [],
+        }}, {
+            saveMode: 'rewrite',
+            modifiedAt: requirePdfDateString('D:20261008000000Z'),
+            expectedWorkingPath: file.workingCopyPath.value,
+        })).resolves.toMatchObject({
+            success: false,
+            didSaveAs: false,
+            failure: {reason: 'original-changed'},
+        });
+        expect(mocks.nativeApply).not.toHaveBeenCalled();
+        expect(mocks.nativeCommit).not.toHaveBeenCalled();
+        expect(mocks.saveAs).not.toHaveBeenCalled();
+        expect(file.isDirty.value).toBe(true);
+    });
+
     it('exposes optional file operations from the split file capability', () => {
         const file = createFacade();
 

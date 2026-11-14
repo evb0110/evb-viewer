@@ -26,6 +26,7 @@ import { isStaleRevisionError } from '@contracts/documentMutationErrors';
 import type { IDocumentSessionState } from '@app/modules/workspace-shell/composables/document-session/documentSessionState';
 import type {IPdfLoadedState} from '@app/modules/workspace-shell/composables/document-session/createDocumentHistory';
 import { createDocumentPersistResults } from '@app/modules/workspace-shell/composables/document-session/createDocumentPersistResults';
+import { readOriginalFailureReason } from '@app/modules/workspace-shell/composables/document-session/createDocumentConformance';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { getErrorMessage } from '@app/utils/error';
 import { runDetached } from '@app/utils/asyncGuard';
@@ -294,7 +295,8 @@ export function createDocumentPersistence(
      * there runs `publish` through here, after the awaited "must be saved as
      * a copy" decision for the revision being saved. A signed PDF, a document
      * that must be saved as a copy first, or one whose structure could not be
-     * read goes to Save As (`saveCopy`) instead.
+     * read goes to Save As (`saveCopy`) instead. An original that cannot be
+     * read as it was opened refuses the save, as its publication would.
      */
     async function saveToOriginalFile(
         saveMode: TPdfSaveMode,
@@ -302,7 +304,17 @@ export function createDocumentPersistence(
         publish: () => Promise<IPdfPersistResult>,
         saveCopy: () => Promise<IPdfPersistResult>,
     ): Promise<IPdfPersistResult> {
-        const mustSaveCopy = await deps.shouldForceSaveAsForWorkingCopy(saveMode, workingPath);
+        let mustSaveCopy: boolean;
+        try {
+            mustSaveCopy = await deps.shouldForceSaveAsForWorkingCopy(saveMode, workingPath);
+        } catch (error) {
+            const reason = readOriginalFailureReason(error);
+            if (!reason) throw error;
+            return createFailedPersistResult(saveMode, false, refusedPersistFailure('persist', 'save-restrictions', reason, {
+                message: getErrorMessage(error),
+                cause: error,
+            }));
+        }
         if (!state.isActiveWorkingCopy(workingPath)) {
             return skipStale('save before write', workingPath, saveMode);
         }
