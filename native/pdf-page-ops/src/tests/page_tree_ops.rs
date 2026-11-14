@@ -1990,3 +1990,14 @@ fn page_structure_edits_keep_compressed_and_inherited_reals_as_spelled() {
         ["10.123456789", "40.987654321", "660.0762001524", "792.123456789", "860.09906019812"]
     );
 }
+
+#[test]
+fn page_structure_edits_read_the_first_of_duplicate_keys() {
+    let input = include_bytes!("../../tests/fixtures/page-engine/duplicate-info-dates.pdf");
+    let output = Document::load_mem(&extract_browser_pdf_pages(input, &[1]).unwrap().data).unwrap();
+    let info = output.trailer.get(b"Info").unwrap().as_reference().unwrap();
+    assert_eq!(
+        output.get_dictionary(info).unwrap().get(b"CreationDate").unwrap().as_str().unwrap(),
+        b"D:20000101"
+    );
+}

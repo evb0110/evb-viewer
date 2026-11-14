@@ -1153,7 +1153,11 @@ impl<'a> Cursor<'a> {
                             path_key(&mut self.path, &key);
                             let value = self.object(depth + 1)?;
                             self.path.truncate(mark);
-                            dictionary.set(key, value);
+                            // The first of duplicate keys counts, as qpdf
+                            // and pypdf read it.
+                            if !dictionary.has(&key) {
+                                dictionary.set(key, value);
+                            }
                         }
                         _ => return Err(Invalid),
                     }
