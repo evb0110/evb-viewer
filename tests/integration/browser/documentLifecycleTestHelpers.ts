@@ -207,7 +207,8 @@ export async function addNote(page: Page, text: string, position: {
         name: 'Place a sticky note on the page.',
         exact: true,
     }).click();
-    await page.locator('.page_container[data-page="1"]').first().click({position});
+    await page.locator('.page_container--rendered[data-page="1"]:not([aria-busy="true"])')
+        .first().click({position});
     await page.getByRole('textbox', {
         name: 'Write annotation note',
         exact: true,
