@@ -124,13 +124,19 @@ export const PAGE_IDENTITY_DELTA_SCHEMA = v.pipe(
     )), 'pageIdentityDelta.ranges insertedIds must match the range count'),
 );
 
-export const PAGE_OPS_RESULT_SCHEMA = v.object({
-    success: v.boolean('page operation result must include success'),
-    canceled: v.optional(v.boolean()),
-    pageCount: v.optional(safeInteger(0, 'pageCount must be a safe integer >= 0')),
-    documentRevision: v.optional(revisionInfoSchema),
-    pageIdentityDelta: v.optional(PAGE_IDENTITY_DELTA_SCHEMA),
-});
+/** A page operation either commits a revision of the working copy or is canceled. */
+export const PAGE_OPS_RESULT_SCHEMA = v.variant('success', [
+    v.object({
+        success: v.literal(true),
+        pageCount: v.optional(safeInteger(0, 'pageCount must be a safe integer >= 0')),
+        documentRevision: revisionInfoSchema,
+        pageIdentityDelta: v.optional(PAGE_IDENTITY_DELTA_SCHEMA),
+    }),
+    v.object({
+        success: v.literal(false),
+        canceled: v.literal(true),
+    }),
+], 'page operation result must include success');
 export const PAGE_OPS_CANCEL_ACTIVE_RESULT_SCHEMA = v.object({
     canceled: safeInteger(0, 'canceled must be a safe integer >= 0'),
     committing: safeInteger(0, 'committing must be a safe integer >= 0'),
@@ -139,12 +145,6 @@ export const PAGE_OPS_EXTRACT_RESULT_SCHEMA = v.object({
     success: v.boolean('page extraction result must include success'),
     canceled: v.optional(v.boolean()),
     destPath: v.optional(documentRefSchema),
-});
-export const PAGE_OPS_INSERT_RESULT_SCHEMA = v.object({
-    success: v.boolean('page insertion result must include success'),
-    canceled: v.optional(v.boolean()),
-    documentRevision: v.optional(revisionInfoSchema),
-    pageIdentityDelta: v.optional(PAGE_IDENTITY_DELTA_SCHEMA),
 });
 
 const PAGE_OPS_ROTATION_ANGLES = [
@@ -185,9 +185,9 @@ export type IPageIdentityRangeDelete = Extract<TPageIdentityRangeOperation, {kin
 export type IPageIdentityRangeTouch = Extract<TPageIdentityRangeOperation, {kind: 'touch'}>;
 export type IPageIdentityDelta = v.InferOutput<typeof PAGE_IDENTITY_DELTA_SCHEMA>;
 export type IPageOpsResult = v.InferOutput<typeof PAGE_OPS_RESULT_SCHEMA>;
+export type IPageOpsCommittedResult = Extract<IPageOpsResult, {success: true}>;
 export type IPageOpsCancelActiveResult = v.InferOutput<typeof PAGE_OPS_CANCEL_ACTIVE_RESULT_SCHEMA>;
 export type IPageOpsExtractResult = v.InferOutput<typeof PAGE_OPS_EXTRACT_RESULT_SCHEMA>;
-export type IPageOpsInsertResult = v.InferOutput<typeof PAGE_OPS_INSERT_RESULT_SCHEMA>;
 
 export function getPageIdentityDeltaNextPageCount(delta: IPageIdentityDelta) {
     return delta.nextPageCount ?? delta.pages?.length;

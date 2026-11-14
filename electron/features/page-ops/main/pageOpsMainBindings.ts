@@ -31,7 +31,9 @@ import type {
 } from '@contracts/electronApiDocuments';
 import { DOCUMENT_OPEN_PLATFORM_FEATURE } from '@contracts/documentsPlatformFeature';
 import type {
+    IPageOpsCommittedResult,
     IPageOpsMutationOptions,
+    IPageOpsResult,
     IPageIdentityDelta,
     TPageOpsPageSelection,
 } from '@contracts/electronApiPageOps';
@@ -388,7 +390,7 @@ async function handlePageOpsDelete(
     pages: TPageOpsPageSelection,
     totalPages: number,
     options?: IPageOpsMutationOptions,
-) {
+): Promise<IPageOpsCommittedResult> {
     const normalizedWorkingCopyPath = await resolveWorkingCopyPath(workingCopyPath, context.senderId);
     const expectedTotalPages = validateExpectedTotalPages(totalPages);
     const expectedDocumentRevisionToken = normalizeExpectedDocumentRevisionToken(options);
@@ -424,7 +426,7 @@ async function handlePageOpsDeleteRanges(
     ranges: IPageMoveRangeSegment[],
     totalPages: number,
     options?: IPageOpsMutationOptions,
-) {
+): Promise<IPageOpsCommittedResult> {
     const normalizedWorkingCopyPath = await resolveWorkingCopyPath(workingCopyPath, context.senderId);
     const expectedTotalPages = validateExpectedTotalPages(totalPages);
     validatePageDeleteRanges(ranges, expectedTotalPages);
@@ -519,7 +521,7 @@ async function handlePageOpsReorder(
     workingCopyPath: string,
     newOrder: number[],
     options?: IPageOpsMutationOptions,
-) {
+): Promise<IPageOpsCommittedResult> {
     const normalizedWorkingCopyPath = await resolveWorkingCopyPath(workingCopyPath, context.senderId);
     validatePageNumbers(newOrder, 'reorderPages', {requireUnique: true});
     validateReorderPermutation(newOrder);
@@ -559,7 +561,7 @@ async function handlePageOpsMove(
     insertAt: number,
     totalPages: number,
     options?: IPageOpsMutationOptions,
-) {
+): Promise<IPageOpsCommittedResult> {
     const normalizedWorkingCopyPath = await resolveWorkingCopyPath(workingCopyPath, context.senderId);
     validatePageMoveRange(startPage, endPage, insertAt, totalPages);
     const expectedDocumentRevisionToken = normalizeExpectedDocumentRevisionToken(options);
@@ -601,7 +603,7 @@ async function handlePageOpsMoveRanges(
     insertAt: number,
     totalPages: number,
     options?: IPageOpsMutationOptions,
-) {
+): Promise<IPageOpsCommittedResult> {
     const normalizedWorkingCopyPath = await resolveWorkingCopyPath(workingCopyPath, context.senderId);
     validatePageMoveRanges(ranges, insertAt, totalPages);
     const expectedDocumentRevisionToken = normalizeExpectedDocumentRevisionToken(options);
@@ -633,7 +635,7 @@ async function handlePageOpsInsert(
     totalPages: number,
     afterPage: number,
     options?: IPageOpsMutationOptions,
-) {
+): Promise<IPageOpsResult> {
     const insertArgs = validateInsertPageArgs(workingCopyPath, totalPages, afterPage);
     const normalizedWorkingCopyPath = await resolveWorkingCopyPath(insertArgs.normalizedWorkingCopyPath, context.senderId);
     const expectedDocumentRevisionToken = normalizeExpectedDocumentRevisionToken(options);
@@ -699,7 +701,7 @@ async function handlePageOpsRotate(
     totalPages: number,
     angle: TRotationAngle,
     options?: IPageOpsMutationOptions,
-) {
+): Promise<IPageOpsCommittedResult> {
     const normalizedWorkingCopyPath = await resolveWorkingCopyPath(workingCopyPath, context.senderId);
     const expectedTotalPages = validateExpectedTotalPages(totalPages);
     const expectedDocumentRevisionToken = normalizeExpectedDocumentRevisionToken(options);
@@ -748,7 +750,7 @@ async function handlePageOpsInsertFile(
     sourcePaths: string[],
     requestId?: string,
     options?: IPageOpsMutationOptions,
-) {
+): Promise<IPageOpsCommittedResult> {
     const insertArgs = validateInsertPageArgs(workingCopyPath, totalPages, afterPage);
     const normalizedWorkingCopyPath = await resolveWorkingCopyPath(insertArgs.normalizedWorkingCopyPath, context.senderId);
     if (!Array.isArray(sourcePaths) || sourcePaths.length === 0) {
@@ -793,7 +795,7 @@ async function handlePageOpsCrop(
     totalPages: number,
     margins: ICropMargins,
     options?: IPageOpsMutationOptions,
-) {
+): Promise<IPageOpsCommittedResult> {
     const normalizedWorkingCopyPath = await resolveWorkingCopyPath(workingCopyPath, context.senderId);
     const expectedTotalPages = validateExpectedTotalPages(totalPages);
     const expectedDocumentRevisionToken = normalizeExpectedDocumentRevisionToken(options);
@@ -834,7 +836,7 @@ async function handlePageOpsRemoveCrop(
     pages: TPageOpsPageSelection,
     totalPages: number,
     options?: IPageOpsMutationOptions,
-) {
+): Promise<IPageOpsCommittedResult> {
     const normalizedWorkingCopyPath = await resolveWorkingCopyPath(workingCopyPath, context.senderId);
     const expectedTotalPages = validateExpectedTotalPages(totalPages);
     const expectedDocumentRevisionToken = normalizeExpectedDocumentRevisionToken(options);
