@@ -197,7 +197,7 @@ async function executeNativeWorkingCopySave(
 }
 
 async function persistNativeMutationProjection(
-    plan: Extract<TWorkspaceSavePlan, {kind: 'native-mutation' | 'native-repair'}>,
+    plan: Extract<TWorkspaceSavePlan, {kind: 'native-mutation' | 'staged-repair'}>,
     projection: INativePdfMutationProjection,
     deps: IWorkspaceSaveDependencies,
     verifyPathBeforeExpose?: (path: TDocumentRef, knownSize: number) => Promise<void>,
@@ -368,8 +368,9 @@ async function executeNativeMutationSave(
     };
 }
 
-async function executeNativeRepairSave(
-    plan: Extract<TWorkspaceSavePlan, {kind: 'native-repair'}>,
+/** Repair stages the pending edits into the working copy, then rewrites or publishes those bytes. */
+async function executeStagedRepairSave(
+    plan: Extract<TWorkspaceSavePlan, {kind: 'staged-repair'}>,
     deps: IWorkspaceSaveDependencies,
 ): Promise<TWorkspaceSaveExecutionResult> {
     const saveTransaction = await deps.pdf.runSaveTransaction(
@@ -401,13 +402,11 @@ async function executeNativeRepairSave(
         return notSavedAfterWrite(abortReasonForPersistResult(staged), null, staged.failure);
     }
 
-    const repaired = deps.persistence.repairWorkingCopy;
-    if (!repaired) {
-        return notSavedAfterWrite('capability-unavailable', null);
-    }
+    // A platform without a repair writer publishes the staged working copy.
+    const publish = deps.persistence.repairWorkingCopy ?? deps.persistence.saveWorkingCopy;
     const repairedResult = await timedSavePhase(
-        'persist-repair-native-staged-working-copy',
-        () => repaired({
+        'persist-repair-staged-working-copy',
+        () => publish({
             saveMode: 'rewrite',
             expectedWorkingPath: plan.target.expectedWorkingPath,
             expectedDocumentRevisionToken: deps.document.revisionToken.value,
@@ -477,8 +476,8 @@ function executeSavePlan(
     if (plan.kind === 'native-mutation') {
         return executeNativeMutationSave(plan, deps);
     }
-    if (plan.kind === 'native-repair') {
-        return executeNativeRepairSave(plan, deps);
+    if (plan.kind === 'staged-repair') {
+        return executeStagedRepairSave(plan, deps);
     }
     return executeWorkingCopySave(plan, deps);
 }
@@ -677,7 +676,6 @@ export const useWorkspaceSaveService = (deps: IWorkspaceSaveDependencies) => {
                             : request.kind === 'optimize'
                                 ? Boolean(deps.persistence.optimizeWorkingCopy)
                                 : false,
-                        canPersistNativeRepair: request.kind === 'repair' && Boolean(deps.persistence.repairWorkingCopy),
                     });
 
                     result = await unencryptedSaveNoticeGate(

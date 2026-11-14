@@ -120,7 +120,7 @@ export type TWorkspaceSavePlan =
         serializedFallback: IWorkspaceSerializedSaveBody
     })
     | (IWorkspaceSavePlanCommon & {
-        kind: 'native-repair';
+        kind: 'staged-repair';
         request: Extract<TWorkspaceSaveRequest, {kind: 'repair'}>;
         serializedFallback: IWorkspaceSerializedSaveBody
     })
@@ -136,7 +136,6 @@ export function createWorkspaceSavePlan(input: {
     dirtyState: IWorkspaceSaveDirtyState;
     hasManagedShapes: boolean;
     canPersistNativeWorkingCopy: boolean;
-    canPersistNativeRepair?: boolean;
 }): TWorkspaceSavePlan {
     const {
         request, target, baseline, dirtyState,
@@ -185,10 +184,10 @@ export function createWorkspaceSavePlan(input: {
             serializedFallback: body,
         };
     }
-    if (request.kind === 'repair' && forcedByDirtyState && input.canPersistNativeRepair) {
+    if (request.kind === 'repair' && forcedByDirtyState) {
         return {
             ...common,
-            kind: 'native-repair',
+            kind: 'staged-repair',
             request,
             serializedFallback: body,
         };

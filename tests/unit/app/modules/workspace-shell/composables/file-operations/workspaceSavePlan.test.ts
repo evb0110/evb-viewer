@@ -35,7 +35,6 @@ function buildPlan(options: {
     dirtyState?: IWorkspaceSaveDirtyState;
     hasManagedShapes?: boolean;
     canPersistNativeWorkingCopy?: boolean;
-    canPersistNativeRepair?: boolean;
 } = {}) {
     return createWorkspaceSavePlan({
         request: options.request ?? {kind: 'save'},
@@ -53,7 +52,6 @@ function buildPlan(options: {
         dirtyState: options.dirtyState ?? CLEAN_DIRTY_STATE,
         hasManagedShapes: options.hasManagedShapes ?? false,
         canPersistNativeWorkingCopy: options.canPersistNativeWorkingCopy ?? false,
-        canPersistNativeRepair: options.canPersistNativeRepair ?? false,
     });
 }
 
@@ -109,9 +107,9 @@ describe('workspaceSavePlan', () => {
         });
     });
 
-    it('plans dirty repair and optimize requests as serialized rewrites', () => {
+    it('plans a dirty Optimize as a serialized rewrite', () => {
         const plan = buildPlan({
-            request: {kind: 'repair'},
+            request: {kind: 'optimize'},
             dirtyState: dirtyState({annotationDirty: true}),
             canPersistNativeWorkingCopy: true,
         });
@@ -128,14 +126,16 @@ describe('workspaceSavePlan', () => {
         });
     });
 
-    it('plans dirty Repair through the staged native repair route when available', () => {
+    it.each([
+        true,
+        false,
+    ])('plans dirty Repair through the staged repair route (native repair writer: %s)', canPersistNativeWorkingCopy => {
         expect(buildPlan({
             request: {kind: 'repair'},
             dirtyState: dirtyState({bookmarks: true}),
-            canPersistNativeWorkingCopy: true,
-            canPersistNativeRepair: true,
+            canPersistNativeWorkingCopy,
         })).toMatchObject({
-            kind: 'native-repair',
+            kind: 'staged-repair',
             request: {kind: 'repair'},
             serializedFallback: {
                 source: 'working-copy',

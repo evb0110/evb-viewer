@@ -556,6 +556,33 @@ describe('workspace save failure surfacing', () => {
         expect(deps.saveWorkingCopyAs).not.toHaveBeenCalled();
     });
 
+    it('publishes dirty Repair edits staged into the working copy where the platform has no repair writer', async () => {
+        const trySavePdfNativeMutations = vi.fn(async (
+            _mutations: unknown,
+            options: Parameters<TPdfNativeMutationSave>[1],
+        ) => {
+            expect(options.workingCopyOnly).toBe(true);
+            return {
+                success: true,
+                outPath: requireDocumentRef('/tmp/work.pdf'),
+                saveMode: 'rewrite' as const,
+                didSaveAs: false,
+            };
+        });
+        const {deps} = createDeps({
+            ...unsavedShapeEdit(),
+            trySavePdfNativeMutations,
+        });
+        const service = useWorkspaceSaveServiceForTest(deps);
+
+        await expect(service.handleRepairSave()).resolves.toBe(true);
+
+        expect(trySavePdfNativeMutations).toHaveBeenCalledOnce();
+        expect(deps.saveWorkingCopy).toHaveBeenCalledOnce();
+        expect(trySavePdfNativeMutations.mock.invocationCallOrder[0])
+            .toBeLessThan(vi.mocked(deps.saveWorkingCopy).mock.invocationCallOrder[0]!);
+    });
+
     it('keeps dirty Repair edits after the repair writer refuses the staged working copy', async () => {
         const trySavePdfNativeMutations = vi.fn(async () => ({
             success: true,
