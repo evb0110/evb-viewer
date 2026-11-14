@@ -3,7 +3,10 @@
 // dedicated workers, so this worker owns every handle of its window: one writer per file, which every engine
 // enforces across windows too. Handle modes are not used; Firefox and WebKit ignore them. A PDF edit that
 // appends a revision runs here too, on the handle the document already holds.
-import type {IPdfAppendRequest} from '@app/platform/browser-api/tryRunBrowserPageOpsWithWasm';
+import type {
+    IOcrTextLayerAppendRequest,
+    IPdfAppendRequest,
+} from '@app/platform/browser-api/tryRunBrowserPageOpsWithWasm';
 
 interface IRequest {
     id: number;
@@ -157,7 +160,7 @@ const operations: Record<string, (...args: never[]) => unknown> = {
     writeAt: (id: number, offset: number, bytes: Uint8Array) => writeAll(file(id), bytes, offset),
     truncate: (id: number, length: number) => file(id).truncate(length),
     /** Appends the revisions `request` makes past the first `base` bytes, the PDF they edit. */
-    async appendPdfMutations(id: number, base: number, request: IPdfAppendRequest) {
+    async appendPdfMutations(id: number, base: number, request: IPdfAppendRequest | IOcrTextLayerAppendRequest) {
         const handle = file(id);
         const {appendPdfMutations} = await import('@app/platform/browser-api/tryRunBrowserPageOpsWithWasm');
         return appendPdfMutations({

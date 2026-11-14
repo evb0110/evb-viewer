@@ -311,7 +311,7 @@ async function runBrowserCatalogPartsAcceptance() {
                 broken,
                 bookmarks: await settleCatalogPart(async () => (await pageOps.readOutline(workingPath)).map(entry => entry.title)),
                 pageLabels: await settleCatalogPart(async () => {
-                    const catalog = await readPdfCatalog(bytes);
+                    const catalog = await readPdfCatalog(new Blob([bytes]));
                     if (!catalog.pageLabels) throw new Error(catalog.pageLabelsError);
                     return catalog.pageLabels.map(range => range.style ?? null);
                 }),
@@ -359,7 +359,7 @@ async function runBrowserBookmarkSaveAcceptance() {
         }));
         source.catalog.set(PDFName.of('Outlines'), outline);
         const input = new Uint8Array(await source.save());
-        const catalog = await readPdfCatalog(input);
+        const catalog = await readPdfCatalog(new Blob([input]));
         const items = v.parse(v.array(PDF_BOOKMARK_RECOVERY_ENTRY_SCHEMA), catalog.bookmarks);
         items[items.length - 1] = {
             ...items.at(-1)!,

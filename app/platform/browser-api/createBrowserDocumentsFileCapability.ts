@@ -74,8 +74,8 @@ import {
     isBrowserPageOpsWasmFailure,
     type IBrowserPageOpsWasmFailure,
 } from '@contracts/browserPageOpsWorker';
-import {appendPdfMutationsToStoreFile} from '@app/platform/browser/browserStorePort';
 import {BROWSER_PAGE_OPS_MAX_REQUEST_BYTES} from '@contracts/browserPageOpsLimits';
+import {appendPdfMutationsToStoreFile} from '@app/platform/browser/browserStorePort';
 import { decodeBrowserPdfAnnotationsOutput } from '@app/platform/browser-api/decodeBrowserPdfAnnotationsOutput';
 import {browserSettingsCapability} from '@app/platform/browser-api/browserSettingsCapability';
 import {createBrowserStoreStagedArtifact} from '@app/platform/browser/browserStagedArtifact';
@@ -84,11 +84,6 @@ import {
     parseDocumentRef,
     type TDocumentRef,
 } from '@contracts/documentRef';
-import {
-    DOCUMENT_LIST_HEADER,
-    REQUEST_HEADER,
-    U32_BYTES,
-} from '@contracts/browserPageOpsWasm.generated';
 import { createEpochMs } from '@contracts/timestamps';
 import { isOneOf } from '@contracts/runtimeGuards';
 
@@ -314,8 +309,8 @@ export function createBrowserDocumentsFileCapability(
         ),
         readFile: path => browserDocumentStore.read(path),
         async readPdfPageLabelRanges(path) {
-            const data = await browserDocumentStore.read(path, {maxBytes: BROWSER_PAGE_OPS_MAX_REQUEST_BYTES - DOCUMENT_LIST_HEADER.bytes - U32_BYTES});
-            const catalog = await runBrowserPageOpsWorkerRequest('readCatalog', {data}, {dedicated: true});
+            const source = await browserDocumentStore.readableBlob(path);
+            const catalog = await runBrowserPageOpsWorkerRequest('readCatalog', {source}, {dedicated: true});
             return readBrowserPdfCatalogPart(catalog, 'pageLabels').map((range): IPdfPageLabelRange => ({
                 startPage: range.pageIndex + 1,
                 style: range.style !== undefined && isOneOf(PDF_PAGE_LABEL_STYLE_VALUES, range.style)
@@ -464,14 +459,11 @@ export function createBrowserDocumentsFileCapability(
                 path,
                 options.expectedDocumentRevisionToken,
             );
-            const data = await browserDocumentStore.read(path, {maxBytes: BROWSER_PAGE_OPS_MAX_REQUEST_BYTES - REQUEST_HEADER.bytes});
-            await browserDocumentStore.assertDocumentRevisionCurrent(
-                path,
-                options.expectedDocumentRevisionToken,
-            );
+            // The engine reads the revision's objects and the streams it parses by range.
+            const source = await browserDocumentStore.readableBlob(path);
             const wasmResult = await runBrowserPageOpsWorkerRequest(
                 'parseAnnotations',
-                {data},
+                {source},
                 {
                     dedicated: true,
                     ...(options.signal ? {signal: options.signal} : {}),

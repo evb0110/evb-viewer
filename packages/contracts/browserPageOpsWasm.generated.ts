@@ -14,7 +14,6 @@ export const RESPONSE_MUTATION = 1;
 export const RESPONSE_ANNOTATION_PARSE = 3;
 export const RESPONSE_JSON = 5;
 export const RESPONSE_TEXT_BOX_APPEARANCE = 6;
-export const RESPONSE_INCREMENT = 7;
 export const RESPONSE_REPORTED_PDF = 8;
 export const RESPONSE_REPORTED_INCREMENT = 9;
 export const RESPONSE_REPORTED_RASTER = 10;

@@ -457,13 +457,16 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
         if (outcome === 'denied') await expect(commit).rejects.toThrow('Write denied');
         else expect((await commit).applied).toBe(outcome === 'commit' || outcome === 'large-download');
         const expected = outcome === 'commit' || outcome === 'large-download' ? edited : original;
+        // Digests compare the 64 MiB case without rendering a diff of it.
+        const digest = (bytes: Uint8Array) => createHash('sha256').update(bytes).digest('hex');
+        const readAll = async (ref: string) => digest(await store.read(ref, {maxBytes: Number.MAX_SAFE_INTEGER}));
         if (outcome === 'large-download') {
             expect(downloads).toHaveLength(1);
-            expect(new Uint8Array(await downloads[0]!.arrayBuffer())).toEqual(edited);
+            expect(digest(new Uint8Array(await downloads[0]!.arrayBuffer()))).toBe(digest(edited));
         } else expect(physical).toEqual(expected);
         // A Save the file refused keeps the edits it committed in the working copy, unsaved; a cancelled pick commits nothing.
-        await expect(store.read(working)).resolves.toEqual(outcome === 'cancel' ? original : edited);
-        await expect(store.read(source)).resolves.toEqual(expected);
+        await expect(readAll(working)).resolves.toBe(digest(outcome === 'cancel' ? original : edited));
+        await expect(readAll(source)).resolves.toBe(digest(expected));
         const token = (await store.getDocumentRevision(working)).token;
         if (outcome === 'cancel') expect(token).toBe(revision.token);
         if (outcome === 'denied') expect(token).not.toBe(revision.token);
@@ -553,7 +556,7 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
         await expect(capability.showItemInFolder(requireDocumentRef('browser://documents/source.pdf'))).resolves.toBe(false);
     });
 
-    it('parses a working copy through WASM after checking the browser full-read budget', async () => {
+    it('parses a working copy through WASM, which reads it by range', async () => {
         const {
             capability,
             browserDocumentStore,
@@ -604,7 +607,7 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
         });
         expect(browserAnnotationParseMock.run).toHaveBeenCalledWith(
             'parseAnnotations',
-            {data: expect.any(Uint8Array)},
+            {source: expect.any(Blob)},
             {
                 dedicated: true,
                 signal: undefined,
@@ -689,7 +692,7 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
         ]);
         expect(browserAnnotationParseMock.run).toHaveBeenCalledWith(
             'readCatalog',
-            {data: expect.any(Uint8Array)},
+            {source: expect.any(Blob)},
             {dedicated: true},
         );
     });

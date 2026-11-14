@@ -25,7 +25,6 @@ import {
     type TDocumentRef,
 } from '@contracts/documentRef';
 import type {TDocumentRevisionToken} from '@contracts/documentRevision';
-import type {TBrowserStoreStagedArtifact} from '@contracts/stagedArtifacts';
 import {createEpochMs} from '@contracts/timestamps';
 import {
     getOcrPageSelectionCount,
@@ -35,15 +34,7 @@ import {
     canStoreBrowserOcrModels,
     hasCachedOcrModel,
 } from '@app/platform/browser-api/browserOcrModels';
-import {
-    commitBrowserStoreStagedArtifact,
-    createBrowserStoreStagedArtifact,
-    sha256Hex,
-} from '@app/platform/browser/browserStagedArtifact';
-import {
-    browserDocumentStore,
-    getBrowserDocumentFileName,
-} from '@app/platform/browserDocumentStore';
+import {browserDocumentStore} from '@app/platform/browserDocumentStore';
 import {getErrorMessage} from '@app/utils/error';
 
 // The smallest module that uses a SIMD128 instruction; the engine needs SIMD.
@@ -86,21 +77,20 @@ type TCompleteListener = (result: IOcrCompleteResult) => void;
 
 interface IBrowserOcrStagedResult {
     requestId: TRequestId;
-    artifact: TBrowserStoreStagedArtifact;
-    sourceRef: TDocumentRef;
+    /** The lease of the text layer appended to the document's file, uncommitted. */
+    lease: string;
     sourceRevisionToken: TDocumentRevisionToken;
 }
 
 const progressListeners = new Set<TProgressListener>();
 const completeListeners = new Set<TCompleteListener>();
 const activeJobs = new Map<TRequestId, AbortController>();
-// Results waiting to be applied, by the staged document ref the completion names.
+// Results waiting to be applied, by the document each was appended to, which the completion names.
 const stagedResults = new Map<TDocumentRef, IBrowserOcrStagedResult>();
 
 /** The workspace localizes these codes; the message stays the code so the user sees only that text. */
 const LOCALIZED_BROWSER_ERROR_CODES = new Set<TOcrErrorCode>([
     'OCR_BROWSER_UNSUPPORTED',
-    'OCR_DOCUMENT_TOO_LARGE',
     'OCR_MODEL_DOWNLOAD_FAILED',
 ]);
 
@@ -160,41 +150,12 @@ function findLanguageProblem(pages: readonly IOcrSearchablePdfPage[]) {
     return unsupported === undefined ? null : `Unsupported OCR language: ${unsupported}`;
 }
 
-async function stageResult(requestId: TRequestId, sourceRef: TDocumentRef, sourceRevisionToken: TDocumentRevisionToken, data: Uint8Array) {
-    const stagedName = `${getBrowserDocumentFileName(sourceRef)}.ocr.pdf`;
-    const stagedRef = await browserDocumentStore.createStoredDocument(stagedName, data, {
-        mimeType: 'application/pdf',
-        saveKind: 'pdf',
-        kind: 'output',
-        retention: 'transient',
-    });
-    try {
-        const artifact = await createBrowserStoreStagedArtifact(browserDocumentStore, stagedRef, {
-            leaseId: crypto.randomUUID(),
-            sha256: await sha256Hex(data),
-            validations: {
-                qpdfCheck: false,
-                tailCheck: true,
-                semanticCheck: false,
-                fsynced: false,
-            },
-        });
-        stagedResults.set(stagedRef, {
-            requestId,
-            artifact,
-            sourceRef,
-            sourceRevisionToken,
-        });
-        return artifact;
-    } catch (error) {
-        await discardStagedDocument(stagedRef);
-        throw error;
-    }
-}
-
-async function discardStagedDocument(ref: TDocumentRef) {
+/** Ends a result that will not be applied: its layer is cut unless a commit took it. */
+async function discardStagedResult(ref: TDocumentRef) {
+    const staged = stagedResults.get(ref);
+    if (!staged) return;
     stagedResults.delete(ref);
-    await browserDocumentStore.remove(ref).catch(() => undefined);
+    await browserDocumentStore.discardAppend(ref, staged.lease);
 }
 
 function nothingWrittenResult(
@@ -254,13 +215,15 @@ async function runJob(
             terminal = nothingWrittenResult(requestId, outcome);
         } else {
             controller.signal.throwIfAborted();
-            const artifact = await stageResult(requestId, sourceRef, outcome.sourceRevisionToken, outcome.data);
+            // A document has one pending append: a result it replaces goes.
+            await discardStagedResult(sourceRef);
+            stagedResults.set(sourceRef, {requestId, lease: outcome.lease, sourceRevisionToken: outcome.sourceRevisionToken});
             terminal = {
                 requestId,
                 success: true,
-                pdfPath: artifact.path,
+                pdfPath: sourceRef,
                 sourceDocumentRevisionToken: outcome.sourceRevisionToken,
-                resultSha256: artifact.sha256,
+                resultSha256: outcome.sha256,
                 requiresCleanupAck: true,
                 errors: outcome.errors,
                 ...(outcome.diagnostics.length > 0 ? {diagnostics: outcome.diagnostics} : {}),
@@ -292,10 +255,9 @@ async function runJob(
 }
 
 /**
- * Applies a completed OCR result to the document it was recognized from. The
- * result must belong to that document and revision, and its bytes must still
- * match the digest taken when it was staged; the commit then checks both
- * revisions atomically.
+ * Applies a completed OCR result to the document it was recognized from: the
+ * layer appended to that document's revision becomes its next revision, when
+ * the document is still at that revision and nothing else was appended since.
  */
 export async function commitBrowserOcrResult(
     workingCopyPath: TDocumentRef,
@@ -303,21 +265,14 @@ export async function commitBrowserOcrResult(
     expectedDocumentRevisionToken: TDocumentRevisionToken | undefined,
 ) {
     const staged = stagedResults.get(resultPath);
-    if (!staged || staged.sourceRef !== workingCopyPath) {
+    if (!staged || resultPath !== workingCopyPath) {
         throw new Error('The OCR result does not belong to this document');
     }
     if (expectedDocumentRevisionToken === undefined || expectedDocumentRevisionToken !== staged.sourceRevisionToken) {
         throw new Error('The document changed after OCR read it');
     }
-    return commitBrowserStoreStagedArtifact(
-        browserDocumentStore,
-        staged.artifact,
-        workingCopyPath,
-        expectedDocumentRevisionToken,
-        // The writer admitted this result already. Keep that exact byte budget
-        // through receipt verification instead of imposing the combine default.
-        {maxBytes: staged.artifact.size},
-    );
+    await browserDocumentStore.commitAppend(workingCopyPath, expectedDocumentRevisionToken, staged.lease);
+    return true;
 }
 
 export function canUseBrowserOcr() {
@@ -376,11 +331,11 @@ export const browserOcrCapability: IOcrCapability = {
             pdfPath === undefined
             || staged === undefined
             || staged.requestId !== requestId
-            || (documentRef !== undefined && staged.sourceRef !== documentRef)
+            || (documentRef !== undefined && pdfPath !== documentRef)
         ) {
             return {cleaned: false};
         }
-        await discardStagedDocument(pdfPath);
+        await discardStagedResult(pdfPath);
         return {cleaned: true};
     },
     createSearchablePdf(sourcePdfPath, selection, requestId, renderDpiOrOptions?: number | IOcrSearchablePdfOptions) {

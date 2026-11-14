@@ -184,8 +184,9 @@ const workerRequestPayloadSchemas = {
         data: pdfBytesSchema,
         pageNumber: positiveIntegerSchema,
     }),
-    parseAnnotations: v.object({data: pdfBytesSchema}),
-    readCatalog: v.object({data: pdfBytesSchema}),
+    /** Reads take their document as a Blob the engine reads by range. */
+    parseAnnotations: v.object({source: v.instance(Blob)}),
+    readCatalog: v.object({source: v.instance(Blob)}),
     conformance: v.object({data: pdfBytesSchema}),
     decrypt: v.object({
         data: pdfBytesSchema,
@@ -206,7 +207,7 @@ const workerRequestPayloadSchemas = {
         ]),
     }),
     ocrTextVisibility: v.object({
-        data: pdfBytesSchema,
+        source: v.instance(Blob),
         pages: v.pipe(v.array(positiveIntegerSchema), v.minLength(1)),
         withEvbOcrText: v.boolean(),
     }),
@@ -218,11 +219,6 @@ const workerRequestPayloadSchemas = {
     renderScanCleanupRaster: v.object({
         data: pdfBytesSchema,
         request: SCAN_CLEANUP_RASTER_REQUEST_SCHEMA,
-    }),
-    ocrTextLayer: v.object({
-        data: pdfBytesSchema,
-        instructions: OCR_TEXT_LAYER_INSTRUCTIONS_SCHEMA,
-        pagePdfs: v.pipe(v.array(pdfBytesSchema), v.minLength(1)),
     }),
     splitPages: v.object({
         data: pdfBytesSchema,
@@ -315,11 +311,6 @@ const workerRequestSchema = v.union([
         id: workerRequestIdSchema,
         type: v.literal('renderScanCleanupRaster'),
         payload: workerRequestPayloadSchemas.renderScanCleanupRaster,
-    }),
-    v.object({
-        id: workerRequestIdSchema,
-        type: v.literal('ocrTextLayer'),
-        payload: workerRequestPayloadSchemas.ocrTextLayer,
     }),
     v.object({
         id: workerRequestIdSchema,
@@ -445,11 +436,6 @@ const workerResultSchemas = {
         }),
         BROWSER_PAGE_OPS_WASM_FAILURE_SCHEMA,
     ]),
-    // `data` is the revision the writer appends to the request's document.
-    ocrTextLayer: v.union([
-        pageMutationResultSchema,
-        BROWSER_PAGE_OPS_WASM_FAILURE_SCHEMA,
-    ]),
     splitPages: v.union([
         reportedPdfResultSchema,
         BROWSER_PAGE_OPS_WASM_FAILURE_SCHEMA,
@@ -552,12 +538,6 @@ const workerSuccessResponseSchema = v.union([
         type: v.literal('renderScanCleanupRaster'),
         ok: v.literal(true),
         data: workerResultSchemas.renderScanCleanupRaster,
-    }),
-    v.object({
-        id: workerRequestIdSchema,
-        type: v.literal('ocrTextLayer'),
-        ok: v.literal(true),
-        data: workerResultSchemas.ocrTextLayer,
     }),
     v.object({
         id: workerRequestIdSchema,

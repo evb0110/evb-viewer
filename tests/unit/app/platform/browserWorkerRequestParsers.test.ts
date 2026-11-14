@@ -307,14 +307,15 @@ describe('browser worker request parsers', () => {
             payload: {wasmImagePreprocessing: {pageSpecs: [{kind: 'image'}]}},
         });
 
+        const catalogSource = new Blob([data]);
         expect(parseBrowserPageOpsWorkerRequest({
             id: 9,
             type: 'readCatalog',
-            payload: {data},
+            payload: {source: catalogSource},
         })).toEqual({
             id: 9,
             type: 'readCatalog',
-            payload: {data},
+            payload: {source: catalogSource},
         });
         expect(parseBrowserPageOpsWorkerRequest({
             id: 10,

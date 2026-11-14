@@ -75,7 +75,7 @@ async function buildWorkerRequestWithTransfers(
     };
     const transfer: Transferable[] = [];
     // Blobs are posted by reference; the engine reads them by range.
-    if (request.type === 'textBoxAppearance' || request.type === 'pageStructure') return {
+    if (request.type === 'textBoxAppearance' || request.type === 'pageStructure' || 'source' in request.payload) return {
         request,
         transfer,
     };
@@ -103,28 +103,6 @@ async function buildWorkerRequestWithTransfers(
                     ...request.payload,
                     data,
                     replacementPdfs,
-                },
-            },
-            transfer,
-        };
-    }
-
-    if (request.type === 'ocrTextLayer') {
-        const data = await toTransferableRequestData(request.payload.data);
-        const pagePdfs: Uint8Array[] = [];
-        for (const page of request.payload.pagePdfs) {
-            const transferablePage = await toTransferableRequestData(page);
-            transfer.push(transferablePage.buffer);
-            pagePdfs.push(transferablePage);
-        }
-        transfer.push(data.buffer);
-        return {
-            request: {
-                ...request,
-                payload: {
-                    ...request.payload,
-                    data,
-                    pagePdfs,
                 },
             },
             transfer,
@@ -321,7 +299,7 @@ async function runBrowserPageOpsWorkerRequestWithClient<K extends TBrowserPageOp
 
 function isCpuPageOperation(type: TBrowserPageOpsWorkerRequestType) {
     return type === 'textBoxAppearance' || type === 'decrypt' || type === 'printLayout'
-        || type === 'ocrTextLayer' || type === 'ocrTextVisibility' || type === 'inspectScanCleanupPdf' || type === 'splitPages' || type === 'renderScanCleanupRaster'
+        || type === 'ocrTextVisibility' || type === 'inspectScanCleanupPdf' || type === 'splitPages' || type === 'renderScanCleanupRaster'
         || type === 'overlayText' || type === 'recompressImages' || type === 'replacePageImages';
 }
 

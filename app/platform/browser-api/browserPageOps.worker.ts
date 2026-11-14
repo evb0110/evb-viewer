@@ -184,13 +184,13 @@ async function handleGetPageGeometryRequest(
 async function handleParseAnnotationsRequest(
     request: IBrowserPageOpsWorkerRequest<'parseAnnotations'>,
 ) {
-    return parsePdfAnnotations(request.payload.data);
+    return parsePdfAnnotations(request.payload.source);
 }
 
 async function handleReadCatalogRequest(
     request: IBrowserPageOpsWorkerRequest<'readCatalog'>,
 ) {
-    return readPdfCatalog(request.payload.data);
+    return readPdfCatalog(request.payload.source);
 }
 
 async function handleConformanceRequest(
@@ -203,7 +203,6 @@ const WASM_WRITER_REQUEST_TYPES = [
     'textBoxAppearance',
     'decrypt',
     'printLayout',
-    'ocrTextLayer',
     'splitPages',
     'renderScanCleanupRaster',
     'overlayText',
@@ -224,7 +223,6 @@ async function handleRequest(
         case 'textBoxAppearance':
         case 'decrypt':
         case 'printLayout':
-        case 'ocrTextLayer':
         case 'ocrTextVisibility':
         case 'inspectScanCleanupPdf':
         case 'splitPages':

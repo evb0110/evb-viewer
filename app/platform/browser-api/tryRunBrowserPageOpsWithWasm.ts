@@ -20,7 +20,6 @@ import {
     REQUEST_VERSION_FILES,
     REQUEST_VERSION_INSTRUCTED,
     RESPONSE_ANNOTATION_PARSE,
-    RESPONSE_INCREMENT,
     RESPONSE_JSON,
     RESPONSE_MUTATION,
     RESPONSE_REPORTED_INCREMENT,
@@ -50,6 +49,7 @@ import {
 import {decodeSerializableErrorEnvelope} from '@contracts/serializableError';
 import {splitPdfNativeMutationSetIntoBoundedChunks} from '@pdf-core/nativePdfMutationPolicy';
 import type {IPdfNativeMutationSet} from '@contracts/electronApiDocuments';
+import type {IOcrTextLayerInstructions} from '@contracts/browserPageOpsWorker';
 import {
     getCheckedWasmMemoryView,
     WASM_REQUEST_ALLOCATION_ABI_VERSION,
@@ -99,12 +99,17 @@ type IBrowserPageOpsWasmResultMap = {
 
 type TBrowserPageOpsWasmRequestType = keyof IBrowserPageOpsWasmRequestMap;
 
+/** Reads that take their document as a Blob, through file framing. */
+type TFileReadType = 'parseAnnotations' | 'readCatalog' | 'ocrTextVisibility';
+/** Requests that carry their document in the request buffer. */
+type TByteRequestType = Exclude<TBrowserPageOpsWasmRequestType, TFileReadType>;
+
 type TBrowserPageOpsWasmRequest = {
-    [K in TBrowserPageOpsWasmRequestType]: {
+    [K in TByteRequestType]: {
         type: K;
         payload: IBrowserPageOpsWasmRequestMap[K];
     };
-}[TBrowserPageOpsWasmRequestType];
+}[TByteRequestType];
 
 const WASM_PATH = '/wasm/evb-pdf-page-ops.wasm';
 
@@ -277,10 +282,8 @@ function getRequestPages(request: TBrowserPageOpsWasmRequest): number[] {
             return request.payload.pages;
         case 'printLayout':
             return request.payload.pageNumbers;
-        case 'ocrTextVisibility':
         case 'inspectScanCleanupPdf':
             return request.payload.pages;
-        case 'ocrTextLayer':
         case 'splitPages':
         case 'renderScanCleanupRaster':
         case 'overlayText':
@@ -288,8 +291,6 @@ function getRequestPages(request: TBrowserPageOpsWasmRequest): number[] {
         case 'replacePageImages':
         case 'getPageGeometry':
         case 'decrypt':
-        case 'parseAnnotations':
-        case 'readCatalog':
         case 'conformance':
         case 'textBoxAppearance':
             return [];
@@ -303,13 +304,9 @@ function getRequestData(request: TBrowserPageOpsWasmRequest): Uint8Array {
         case 'removeCrop':
         case 'getPageGeometry':
         case 'decrypt':
-        case 'parseAnnotations':
-        case 'readCatalog':
         case 'conformance':
         case 'printLayout':
-        case 'ocrTextVisibility':
         case 'inspectScanCleanupPdf':
-        case 'ocrTextLayer':
         case 'splitPages':
         case 'renderScanCleanupRaster':
         case 'overlayText':
@@ -327,9 +324,6 @@ function getInsertionData(request: TBrowserPageOpsWasmRequest): Uint8Array {
     }
     if (request.type === 'printLayout') {
         return new TextEncoder().encode(`${request.payload.viewMode} ${request.payload.orientation}`);
-    }
-    if (request.type === 'ocrTextVisibility' && request.payload.withEvbOcrText) {
-        return new TextEncoder().encode('with-evb-ocr-text');
     }
     return new Uint8Array();
 }
@@ -367,7 +361,6 @@ function getMargins(request: TBrowserPageOpsWasmRequest): ICropMargins {
 
 function getDocumentList(request: TBrowserPageOpsWasmRequest): Uint8Array[] | null {
     switch (request.type) {
-        case 'readCatalog':
         case 'conformance':
             return [request.payload.data];
         case 'rotate':
@@ -375,12 +368,9 @@ function getDocumentList(request: TBrowserPageOpsWasmRequest): Uint8Array[] | nu
         case 'removeCrop':
         case 'getPageGeometry':
         case 'decrypt':
-        case 'parseAnnotations':
         case 'printLayout':
         case 'textBoxAppearance':
-        case 'ocrTextVisibility':
         case 'inspectScanCleanupPdf':
-        case 'ocrTextLayer':
         case 'splitPages':
         case 'renderScanCleanupRaster':
         case 'overlayText':
@@ -399,12 +389,6 @@ interface IInstructedWasmRequest {
 /** The writers whose desktop commands read a JSON instructions file. */
 function getInstructedRequest(request: TBrowserPageOpsWasmRequest): IInstructedWasmRequest | null {
     switch (request.type) {
-        case 'ocrTextLayer':
-            return {
-                data: request.payload.data,
-                instructions: request.payload.instructions,
-                attachments: request.payload.pagePdfs,
-            };
         case 'splitPages':
         case 'recompressImages':
             return {
@@ -435,12 +419,9 @@ function getInstructedRequest(request: TBrowserPageOpsWasmRequest): IInstructedW
         case 'crop':
         case 'removeCrop':
         case 'getPageGeometry':
-        case 'parseAnnotations':
-        case 'readCatalog':
         case 'conformance':
         case 'decrypt':
         case 'printLayout':
-        case 'ocrTextVisibility':
         case 'inspectScanCleanupPdf':
             return null;
     }
@@ -519,7 +500,7 @@ function buildWasmRequest(request: TBrowserPageOpsWasmRequest) {
     if (instructed !== null) {
         return buildInstructedWasmRequest(OPERATION_CODES[request.type], instructed);
     }
-    if (request.type === 'readCatalog' || request.type === 'conformance') {
+    if (request.type === 'conformance') {
         return buildDocumentListWasmRequest(request);
     }
     const data = getRequestData(request);
@@ -735,13 +716,6 @@ function parseWasmOutput<K extends TBrowserPageOpsWasmRequestType>(
         return parsed?.success ? parsed.output as IBrowserPageOpsWasmResultMap[K] : null;
     }
 
-    if (type === 'ocrTextLayer') {
-        const parsed = kind === RESPONSE_INCREMENT
-            ? v.safeParse(wasmMutationResultSchema, readMutationResult(output), {abortEarly: true})
-            : null;
-        return parsed?.success ? parsed.output as IBrowserPageOpsWasmResultMap[K] : null;
-    }
-
     if (isReportedWriterType(type)) {
         return parseReportedOutput(type, output) as IBrowserPageOpsWasmResultMap[K] | null;
     }
@@ -765,7 +739,7 @@ function parseWasmOutput<K extends TBrowserPageOpsWasmRequestType>(
     return parsed?.success ? parsed.output as IBrowserPageOpsWasmResultMap[K] : null;
 }
 
-function runWasmRequest<K extends TBrowserPageOpsWasmRequestType>(
+function runWasmRequest<K extends TByteRequestType>(
     exports: IPdfPageOpsWasmExports,
     type: K,
     payload: IBrowserPageOpsWasmRequestMap[K],
@@ -889,7 +863,7 @@ interface IFileRequest {
     sourceCount: number;
     afterPage?: number;
     pages?: readonly number[];
-    /** What follows the page list: a save's JSON mutation payload. */
+    /** What follows the page list: a save's JSON mutations, OCR instructions or a visibility flag. */
     payload?: Uint8Array;
 }
 
@@ -914,17 +888,7 @@ function runFileRequest(exports: IPdfPageOpsWasmExports, file: IFileRequest) {
         const resultCode = exports.evb_pdf_page_ops_run(pointer, request.byteLength);
         if (openFiles?.error !== undefined) throw openFiles.error;
         if (resultCode !== 0) return readWasmFailure(resultCode, exports);
-        const output = copyWasmBytes(exports, exports.evb_pdf_page_ops_output_ptr(), exports.evb_pdf_page_ops_output_len());
-        const written = new DataView(output.buffer);
-        if (output.byteLength < WRITTEN_HEADER.bytes || written.getUint32(WRITTEN_HEADER.kind, true) !== RESPONSE_WRITTEN) {
-            return createWasmFailure('invalid-request', 'Page operation WASM returned malformed output');
-        }
-        return {
-            pageCount: written.getUint32(WRITTEN_HEADER.pageCount, true),
-            length: written.getFloat64(WRITTEN_HEADER.length, true),
-            /** A save's identity bindings, as JSON. */
-            tail: output.subarray(WRITTEN_HEADER.bytes),
-        };
+        return copyWasmBytes(exports, exports.evb_pdf_page_ops_output_ptr(), exports.evb_pdf_page_ops_output_len());
     } catch (error) {
         if (!(error instanceof Error && error.name === 'RuntimeError')) throw error;
         // As in `runWasmRequest`: a trap leaves the engine unusable, so the next request loads a fresh one.
@@ -934,6 +898,50 @@ function runFileRequest(exports: IPdfPageOpsWasmExports, file: IFileRequest) {
     } finally {
         if (!trapped) exports.evb_pdf_page_ops_free(pointer, request.byteLength);
     }
+}
+
+/** A WRITTEN_HEADER answer: what the engine wrote, and a save's identity bindings as JSON after it. */
+function readWritten(output: Uint8Array | IBrowserPageOpsWasmFailure) {
+    if (isBrowserPageOpsWasmFailure(output)) return output;
+    const written = new DataView(output.buffer, output.byteOffset, output.byteLength);
+    if (output.byteLength < WRITTEN_HEADER.bytes || written.getUint32(WRITTEN_HEADER.kind, true) !== RESPONSE_WRITTEN) {
+        return createWasmFailure('invalid-request', 'Page operation WASM returned malformed output');
+    }
+    return {
+        pageCount: written.getUint32(WRITTEN_HEADER.pageCount, true),
+        length: written.getFloat64(WRITTEN_HEADER.length, true),
+        tail: output.subarray(WRITTEN_HEADER.bytes),
+    };
+}
+
+const NO_SINK = {
+    write: () => {
+        throw new Error('A read writes nothing');
+    },
+    read: () => {
+        throw new Error('A read writes nothing');
+    },
+};
+
+/** A read of one document the engine takes by range from `payload.source`, answered as the byte request was. */
+async function runFileRead<K extends TFileReadType>(
+    exports: IPdfPageOpsWasmExports,
+    type: K,
+    payload: IBrowserPageOpsWasmRequestMap[K],
+) {
+    const files: IPageStructureFiles = {
+        sources: [await blobSource(payload.source)],
+        sink: NO_SINK,
+        copy: () => Promise.reject(new Error('A read copies nothing')),
+    };
+    const output = await withOpenFiles(files, async () => runFileRequest(exports, {
+        operation: OPERATION_CODES[type],
+        sourceCount: 1,
+        ...('pages' in payload ? {pages: payload.pages} : {}),
+        ...('withEvbOcrText' in payload && payload.withEvbOcrText ? {payload: new TextEncoder().encode('with-evb-ocr-text')} : {}),
+    }));
+    if (isBrowserPageOpsWasmFailure(output)) return output;
+    return parseWasmOutput(type, output) ?? createWasmFailure('invalid-request', 'Page operation WASM returned malformed output');
 }
 
 /**
@@ -953,15 +961,15 @@ export async function runPageStructureEdit(
         return createWasmLoadFailure(error);
     }
     return withOpenFiles(files, async open => {
-        const written = runFileRequest(exports, {
+        const written = readWritten(runFileRequest(exports, {
             operation: PAGE_STRUCTURE_OPERATIONS[edit.kind],
             sourceCount: files.sources.length,
             ...(edit.kind === 'insert' ? {afterPage: edit.afterPage} : {}),
             ...('pages' in edit ? {pages: edit.pages} : {}),
-        });
+        }));
         if (isBrowserPageOpsWasmFailure(written)) return written;
         await files.copy(open.copies);
-        const verified = runFileRequest(exports, {operation: PAGE_STRUCTURE_OPERATIONS.verify, sourceCount: 0});
+        const verified = readWritten(runFileRequest(exports, {operation: PAGE_STRUCTURE_OPERATIONS.verify, sourceCount: 0}));
         return isBrowserPageOpsWasmFailure(verified) ? verified : {pageCount: verified.pageCount, length: verified.length};
     });
 }
@@ -974,11 +982,18 @@ export interface IPdfAppendFile {
     write(bytes: Uint8Array, at: number): void;
 }
 
+/** Native edits to append as revisions. */
 export interface IPdfAppendRequest {
     mutations: IPdfNativeMutationSet;
     modifiedAt: string;
     /** The bytes of `mutations.originalAppearanceSource`, whose original appearances its text boxes restore. */
     appearanceSource?: Blob;
+}
+
+/** A searchable text layer to append, from the Tesseract page PDFs its instructions name by index. */
+export interface IOcrTextLayerAppendRequest {
+    instructions: IOcrTextLayerInstructions;
+    pagePdfs: Uint8Array[];
 }
 
 export interface IPdfAppendResult {
@@ -1008,16 +1023,21 @@ async function blobSource(blob: Blob) {
     };
 }
 
+/** Bytes in hand read as a source. */
+function bytesSource(bytes: Uint8Array) {
+    return {size: bytes.byteLength, read: (into: Uint8Array, at: number) => into.set(bytes.subarray(at, at + into.byteLength))};
+}
+
 /**
  * Appends the revisions `request` makes to the PDF of `base` bytes at the start of `file`, writing only past
- * them: one revision per bounded chunk of the mutation set, each read over the one before. The engine reads
- * the document's objects by range and holds no copy of it. The caller owns what lies past `base` afterwards,
- * on success and failure alike.
+ * them: one revision per bounded chunk of a mutation set, each read over the one before, or one searchable
+ * text layer. The engine reads the document's objects by range and holds no copy of it. The caller owns what
+ * lies past `base` afterwards, on success and failure alike.
  */
 export async function appendPdfMutations(
     file: IPdfAppendFile,
     base: number,
-    request: IPdfAppendRequest,
+    request: IPdfAppendRequest | IOcrTextLayerAppendRequest,
 ): Promise<IPdfAppendResult | IBrowserPageOpsWasmFailure> {
     let exports: IPdfPageOpsWasmExports;
     try {
@@ -1025,39 +1045,51 @@ export async function appendPdfMutations(
     } catch (error) {
         return createWasmLoadFailure(error);
     }
-    const appearanceSource = request.appearanceSource ? await blobSource(request.appearanceSource) : null;
     const document = {size: base, read: (into: Uint8Array, at: number) => file.read(into, at)};
     const identityBindings: IPdfAppendResult['identityBindings'] = [];
     let pageCount = 0;
-    for (const {originalAppearanceSource, ...mutations} of splitPdfNativeMutationSetIntoBoundedChunks(request.mutations)) {
-        // Only a chunk that restores original appearances reads their document.
-        if (originalAppearanceSource !== undefined && !appearanceSource) {
-            return createWasmFailure('invalid-request', 'Original appearance restore requires its document');
-        }
-        const files: IPageStructureFiles = {
-            sources: originalAppearanceSource !== undefined && appearanceSource ? [document, appearanceSource] : [document],
-            sink: file,
-            copy: () => Promise.reject(new Error('An appended revision copies no stream')),
-        };
-        const written = await withOpenFiles(files, async () => runFileRequest(exports, {
-            operation: OPERATION_CODES.saveMutations,
-            sourceCount: files.sources.length,
-            payload: new TextEncoder().encode(JSON.stringify({mutations, modifiedAt: request.modifiedAt})),
-        }));
+    const append = (sources: IPageStructureFiles['sources'], operation: number, payload: unknown) => withOpenFiles({
+        sources: [document, ...sources],
+        sink: file,
+        copy: () => Promise.reject(new Error('An appended revision copies no stream')),
+    }, async () => readWritten(runFileRequest(exports, {
+        operation,
+        sourceCount: sources.length + 1,
+        payload: new TextEncoder().encode(JSON.stringify(payload)),
+    })));
+    if ('instructions' in request) {
+        const written = await append(request.pagePdfs.map(bytesSource), OPERATION_CODES.ocrTextLayer, request.instructions);
         if (isBrowserPageOpsWasmFailure(written)) return written;
-        let bindings: unknown;
-        try {
-            bindings = JSON.parse(new TextDecoder().decode(written.tail));
-        } catch {
-            bindings = null;
-        }
-        const parsed = v.safeParse(wasmIdentityBindingsSchema, bindings, {abortEarly: true});
-        if (!parsed.success || written.length <= document.size) {
-            return createWasmFailure('invalid-request', 'Page operation WASM returned malformed output');
-        }
-        identityBindings.push(...parsed.output);
+        if (written.length <= base) return createWasmFailure('invalid-request', 'Page operation WASM returned malformed output');
         pageCount = written.pageCount;
         document.size = written.length;
+    } else {
+        const appearanceSource = request.appearanceSource ? await blobSource(request.appearanceSource) : null;
+        for (const {originalAppearanceSource, ...mutations} of splitPdfNativeMutationSetIntoBoundedChunks(request.mutations)) {
+            // Only a chunk that restores original appearances reads their document.
+            if (originalAppearanceSource !== undefined && !appearanceSource) {
+                return createWasmFailure('invalid-request', 'Original appearance restore requires its document');
+            }
+            const written = await append(
+                originalAppearanceSource !== undefined && appearanceSource ? [appearanceSource] : [],
+                OPERATION_CODES.saveMutations,
+                {mutations, modifiedAt: request.modifiedAt},
+            );
+            if (isBrowserPageOpsWasmFailure(written)) return written;
+            let bindings: unknown;
+            try {
+                bindings = JSON.parse(new TextDecoder().decode(written.tail));
+            } catch {
+                bindings = null;
+            }
+            const parsed = v.safeParse(wasmIdentityBindingsSchema, bindings, {abortEarly: true});
+            if (!parsed.success || written.length <= document.size) {
+                return createWasmFailure('invalid-request', 'Page operation WASM returned malformed output');
+            }
+            identityBindings.push(...parsed.output);
+            pageCount = written.pageCount;
+            document.size = written.length;
+        }
     }
     const appended = new Uint8Array(document.size - base);
     file.read(appended, base);
@@ -1111,5 +1143,8 @@ export async function tryRunBrowserPageOpsWithWasm<K extends TBrowserPageOpsWasm
     }
     await beforeRun?.();
 
-    return runWasmRequest(exports, type, payload);
+    if (type === 'parseAnnotations' || type === 'readCatalog' || type === 'ocrTextVisibility') {
+        return runFileRead(exports, type as TFileReadType, payload as IBrowserPageOpsWasmRequestMap[TFileReadType]) as Promise<IBrowserPageOpsWasmResultMap[K] | IBrowserPageOpsWasmFailure>;
+    }
+    return runWasmRequest(exports, type as TByteRequestType, payload as IBrowserPageOpsWasmRequestMap[TByteRequestType]) as IBrowserPageOpsWasmResultMap[K] | IBrowserPageOpsWasmFailure;
 }

@@ -11,8 +11,8 @@ defines.
 through a random-access source. `page_structure_edit.rs` selects and remaps the page
 and document graphs. `pdf_writer.rs` writes a fresh PDF, renumbering objects
 and copying stream data by byte range. Path operations stream from file to
-file; browser byte operations use the same writer with in-memory sources and
-an output buffer bounded by the wasm32 transport.
+file; in the browser the host lends the engine its files, which it reads by
+range, and the output file it writes.
 
 Delete, extract, reorder, insert and merge use this engine. Split uses the
 crate's separate split writer. Inserted pages retain their source labels. Widgets retain appearances; safe fields are
@@ -29,10 +29,21 @@ only after output verification and the host's page-count check.
 ## Incremental changes
 
 `incremental.rs` applies annotation, rotation, page-label and bookmark mutations
-through one implementation for file and byte writers. OCR text layers and print layout
+through one implementation for every writer. OCR text layers and print layout
 also live in this crate. The desktop structural reader can use bundled libqpdf
 for object projections and qpdf JSON for its large-file fallback. Page-structure
 rewrites use their own reader and verifier.
+
+The browser appends through `pdf_source.rs`: its skeleton becomes the
+`IncrementalDocument` base, every stream it left in the file is unavailable
+until read, and the streams a change reuses (stamp images, original FreeText
+appearances, page contents the OCR layer rewrites, appearances the annotation
+parse snapshots) are read by range under their caps. The storage worker runs
+the engine on the document's own file: it appends past the committed bytes,
+reads the revision back to check it, and the store commits it with `extend`.
+Annotation parse, catalog and OCR visibility reads take the document by range
+the same way. An encrypted base is refused from its index before any object is
+read; the open unlocks such a file into a plaintext rewrite first.
 
 ## Remaining qpdf uses
 

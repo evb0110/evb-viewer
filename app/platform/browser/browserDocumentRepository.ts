@@ -481,23 +481,6 @@ export class BrowserDocumentStore {
         return (await (await opfsFileHandle(entry.doc.path(current.file))).getFile()).slice(0, current.length);
     }
 
-    /** Commits a staged output into `targetRef` when both are still the revisions it was staged against. */
-    public async commitStagedDocument(
-        stagedRef: string,
-        targetRef: string,
-        data: Uint8Array,
-        expectedStagedRevisionToken: TDocumentRevisionToken,
-        expectedTargetRevisionToken: TDocumentRevisionToken,
-    ) {
-        const staged = await this.requireEntry(stagedRef);
-        if (stagedRef === targetRef || this.tokenOf(staged) !== expectedStagedRevisionToken || await this.sizeOf(staged) !== data.byteLength) {
-            throw new Error('Browser staged artifact content or revision changed during commit');
-        }
-        await this.mutate(await this.requireEntry(targetRef), expectedTargetRevisionToken, {kind: 'rewrite', source: bytesBlob(data), drafts: 'clear'}, 'write');
-        await this.remove(stagedRef);
-        return true;
-    }
-
     /** Streamed output: chunks are appended in order, and `finalizeChunkedDocument` checks the result. */
     public async prepareChunkedDocument(ref: string, options?: {chunkSize?: number}) {
         const entry = await this.requireEntry(ref);

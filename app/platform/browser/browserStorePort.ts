@@ -3,10 +3,13 @@ import type {
     IStorePort,
 } from '@document-store/storePort';
 import type {
+    IOcrTextLayerAppendRequest,
     IPdfAppendFile,
     IPdfAppendRequest,
     IPdfAppendResult,
 } from '@app/platform/browser-api/tryRunBrowserPageOpsWithWasm';
+
+type TPdfAppendRequest = IPdfAppendRequest | IOcrTextLayerAppendRequest;
 import type {IBrowserPageOpsWasmFailure} from '@contracts/browserPageOpsWorker';
 
 interface IResponse {
@@ -21,7 +24,7 @@ function storeError(error: {name: string; message: string}) {
 
 const opfsPorts = new WeakSet<IStorePort>();
 
-type TPdfAppender = (base: number, request: IPdfAppendRequest) => Promise<IPdfAppendResult | IBrowserPageOpsWasmFailure>;
+type TPdfAppender = (base: number, request: TPdfAppendRequest) => Promise<IPdfAppendResult | IBrowserPageOpsWasmFailure>;
 const pdfAppenders = new WeakMap<IStoreFile, TPdfAppender>();
 
 /**
@@ -29,14 +32,14 @@ const pdfAppenders = new WeakMap<IStoreFile, TPdfAppender>();
  * holds the file's synchronous access: the store worker, or this window for a store in memory. The engine
  * reads the document by range there and writes past `base`; what it writes stays the caller's to commit or cut.
  */
-export function appendPdfMutationsToStoreFile(file: IStoreFile, base: number, request: IPdfAppendRequest) {
+export function appendPdfMutationsToStoreFile(file: IStoreFile, base: number, request: TPdfAppendRequest) {
     const append = pdfAppenders.get(file);
     if (!append) throw new Error('This store file cannot take a PDF edit');
     return append(base, request);
 }
 
 /** The engine over a file this window reads and writes synchronously, a store file in memory. */
-async function appendPdfMutationsToSyncFile(file: IPdfAppendFile, base: number, request: IPdfAppendRequest) {
+async function appendPdfMutationsToSyncFile(file: IPdfAppendFile, base: number, request: TPdfAppendRequest) {
     const {appendPdfMutations} = await import('@app/platform/browser-api/tryRunBrowserPageOpsWithWasm');
     return appendPdfMutations(file, base, request);
 }

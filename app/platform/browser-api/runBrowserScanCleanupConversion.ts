@@ -830,7 +830,7 @@ function collectRenderedPage(context: IConversionContext, input: ICollectRendere
 async function inspectOmittedSourceText(context: IConversionContext, pages: readonly number[]) {
     if (pages.length === 0) return undefined;
     const report = await runBrowserPageOpsWorkerRequest('ocrTextVisibility', {
-        data: new Uint8Array(context.sourceBytes),
+        source: new Blob([new Uint8Array(context.sourceBytes)]),
         pages: [...new Set(pages)],
         withEvbOcrText: true,
     }, {

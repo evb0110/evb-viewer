@@ -218,7 +218,7 @@ async function readOutlineTargets(data: Uint8Array) {
 /** Reads the outline as the browser does, renames its first item and saves it. */
 async function renameFirstBookmarkAndSave(data: Uint8Array) {
     const wasm = await loadWasmRunner();
-    const catalog = await wasm.run('readCatalog', {data});
+    const catalog = await wasm.run('readCatalog', {source: new Blob([data.slice()])});
     if (catalog === null || 'status' in catalog || !catalog.bookmarks) {
         throw new Error('Expected the browser page-ops catalog to read the outline');
     }
@@ -1127,7 +1127,7 @@ describe('browser page-ops WASM fast path', () => {
             'tests/fixtures/electron/freetext-lifecycle-test.pdf',
         )));
         const wasm = await loadWasmRunner();
-        const result = await wasm.run('parseAnnotations', {data});
+        const result = await wasm.run('parseAnnotations', {source: new Blob([data])});
         expect(result).not.toBeNull();
         if (result === null || 'status' in result) {
             throw new Error('Expected annotation parse WASM output');
@@ -1154,7 +1154,7 @@ describe('browser page-ops WASM fast path', () => {
             'tests/fixtures/electron/freetext-lifecycle-test.pdf',
         )));
         const wasm = await loadWasmRunner();
-        const result = await wasm.run('parseAnnotations', {data});
+        const result = await wasm.run('parseAnnotations', {source: new Blob([data])});
         if (result === null || 'status' in result) {
             throw new Error('Expected annotation parse WASM output');
         }
@@ -1439,7 +1439,7 @@ describe('browser page-ops WASM fast path', () => {
         const secondPdf = await createPdf({pageWidths: [500]});
         const wasm = await loadWasmRunner();
 
-        const catalogResult = await wasm.run('readCatalog', {data: sourcePdf});
+        const catalogResult = await wasm.run('readCatalog', {source: new Blob([sourcePdf])});
         expect(catalogResult).toEqual({
             bookmarks: [{
                 title: 'Page three',
@@ -1486,7 +1486,7 @@ describe('browser page-ops WASM fast path', () => {
         assertSuccessfulWasmMutation(mergedResult);
         expect(mergedResult.pageCount).toBe(4);
         const merged = await PDFDocument.load(mergedResult.data);
-        const mergedCatalog = await wasm.run('readCatalog', {data: mergedResult.data});
+        const mergedCatalog = await wasm.run('readCatalog', {source: new Blob([mergedResult.data])});
         expect(mergedCatalog).toMatchObject({
             bookmarks: [{
                 title: 'Page three',
@@ -1521,7 +1521,7 @@ describe('browser page-ops WASM fast path', () => {
         assertSuccessfulWasmMutation(mergedResult);
         expect(mergedResult.pageCount).toBe(600);
         expect((await PDFDocument.load(mergedResult.data)).getPageCount()).toBe(600);
-        await expect(wasm.run('readCatalog', {data: mergedResult.data})).resolves.toMatchObject({bookmarks: []});
+        await expect(wasm.run('readCatalog', {source: new Blob([mergedResult.data])})).resolves.toMatchObject({bookmarks: []});
         await expect(wasm.run('conformance', {data: mergedResult.data})).resolves.toMatchObject({isEncrypted: false});
     });
 
@@ -1540,7 +1540,7 @@ describe('browser page-ops WASM fast path', () => {
             }));
         }
         pdfDocument.catalog.set(PDFName.of('PageLabels'), pdfDocument.context.obj({Nums: pdfDocument.context.obj(nums)}));
-        const catalog = await wasm.run('readCatalog', {data: await pdfDocument.save()});
+        const catalog = await wasm.run('readCatalog', {source: new Blob([(await pdfDocument.save()).slice()])});
         if (catalog === null || 'status' in catalog || !catalog.pageLabels) {
             throw new Error('Expected the browser page-ops catalog to read the page labels');
         }
@@ -1562,7 +1562,7 @@ describe('browser page-ops WASM fast path', () => {
         ]);
         assertSuccessfulWasmMutation(mergedResult);
 
-        const mergedCatalog = await wasm.run('readCatalog', {data: mergedResult.data});
+        const mergedCatalog = await wasm.run('readCatalog', {source: new Blob([mergedResult.data])});
         if (mergedCatalog === null || 'status' in mergedCatalog) {
             throw new Error('Expected a successful browser page-ops catalog read');
         }
@@ -1602,7 +1602,7 @@ describe('browser page-ops WASM fast path', () => {
             },
         ]);
         const wasm = await loadWasmRunner();
-        const catalog = await wasm.run('readCatalog', {data});
+        const catalog = await wasm.run('readCatalog', {source: new Blob([data.slice()])});
         if (catalog === null || 'status' in catalog) {
             throw new Error('Expected a successful browser page-ops catalog read');
         }
@@ -1710,7 +1710,7 @@ describe('browser page-ops WASM fast path', () => {
             .lookup(PDFName.of('Names'), PDFArray).get(0).toString();
         expect(treeKey).toBe(key.toString());
         expect((await readOutlineTargets(saved))[1]!.dest).toBe(treeKey);
-        const reread = await (await loadWasmRunner()).run('readCatalog', {data: saved});
+        const reread = await (await loadWasmRunner()).run('readCatalog', {source: new Blob([saved])});
         if (reread === null || 'status' in reread) {
             throw new Error('Expected a successful browser page-ops catalog read');
         }

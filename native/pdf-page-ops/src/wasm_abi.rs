@@ -76,8 +76,6 @@ abi! {
         RESPONSE_ANNOTATION_PARSE: u32 = 3;
         RESPONSE_JSON: u32 = 5;
         RESPONSE_TEXT_BOX_APPEARANCE: u32 = 6;
-        // MUTATION_HEADER layout; the data is only the appended revision.
-        RESPONSE_INCREMENT: u32 = 7;
         // REPORTED_HEADER layout: a whole PDF and its CLI command's JSON report.
         RESPONSE_REPORTED_PDF: u32 = 8;
         // REPORTED_HEADER layout: the appended revision, empty when the pass
@@ -103,11 +101,14 @@ abi! {
         OP_REMOVE_CROP = 7 => "removeCrop";
         OP_GET_PAGE_GEOMETRY = 8 => "getPageGeometry";
         OP_DECRYPT = 9 => "decrypt";
+        // FILE_REQUEST_HEADER framing over source 0. Answers
+        // RESPONSE_ANNOTATION_PARSE.
         OP_PARSE_ANNOTATIONS = 10 => "parseAnnotations";
         // FILE_REQUEST_HEADER framing followed by the UTF-8 JSON mutation
         // payload: appends a revision to source 0, whose file is the sink.
         // Source 1, when given, holds the original appearances to restore.
         OP_SAVE_MUTATIONS = 11 => "saveMutations";
+        // FILE_REQUEST_HEADER framing over source 0. Answers RESPONSE_JSON.
         OP_READ_CATALOG = 12 => "readCatalog";
         OP_CONFORMANCE = 13 => "conformance";
         OP_MERGE_PAGES = 14 => "mergePages";
@@ -115,12 +116,15 @@ abi! {
         // "<view mode> <orientation>".
         OP_PRINT_LAYOUT = 15 => "printLayout";
         OP_TEXT_BOX_APPEARANCE = 16 => "textBoxAppearance";
-        // Selected pages use the page list; insertion data is empty or the
-        // UTF-8 flag "with-evb-ocr-text". Answers RESPONSE_JSON.
+        // FILE_REQUEST_HEADER framing over source 0; the page list selects
+        // pages, then an empty tail or the UTF-8 flag "with-evb-ocr-text".
+        // Answers RESPONSE_JSON.
         OP_OCR_TEXT_VISIBILITY = 17 => "ocrTextVisibility";
-        // The operations below use INSTRUCTED_REQUEST_HEADER framing.
-        // Attaches one Tesseract page PDF per source. Answers RESPONSE_INCREMENT.
+        // FILE_REQUEST_HEADER framing followed by the JSON instructions:
+        // appends to source 0, whose file is the sink, from one Tesseract page
+        // PDF per source after it. Answers WRITTEN_HEADER.
         OP_OCR_TEXT_LAYER = 18 => "ocrTextLayer";
+        // The operations below use INSTRUCTED_REQUEST_HEADER framing.
         // No attachments. Answers RESPONSE_REPORTED_PDF.
         OP_SPLIT_PAGES = 19 => "splitPages";
         // Attaches the source PDF. Answers RESPONSE_REPORTED_PDF.
@@ -341,10 +345,8 @@ pub(crate) fn parse_instructed_request(request: &[u8]) -> Result<ParsedInstructe
     }
     let operation = read_u32_at(request, INSTRUCTED_REQUEST_HEADER.operation)?;
     let attachments = match operation {
-        OP_OCR_TEXT_LAYER | OP_REPLACE_PAGE_IMAGES => {
-            // One per page; the request's own bytes bound the count below.
-            usize::from(operation == OP_OCR_TEXT_LAYER)..=usize::MAX
-        }
+        // One per page; the request's own bytes bound the count below.
+        OP_REPLACE_PAGE_IMAGES => 0..=usize::MAX,
         OP_OVERLAY_TEXT => 1..=1,
         OP_SPLIT_PAGES | OP_RECOMPRESS_IMAGES | OP_RENDER_SCAN_CLEANUP_RASTER => 0..=0,
         _ => {
