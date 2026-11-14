@@ -543,7 +543,8 @@ pub(crate) fn preserve_single_source_document_metadata(
 /// form; an input's own form, attachments and scripts stay behind. A field
 /// whose top-level name the form already holds is renamed `name+N`, as qpdf
 /// renames it. A widget without a field type, or with a /Parent loop, keeps
-/// its appearance but joins no field.
+/// its appearance but joins no field. A field the main input's form names
+/// that is not a dictionary is dropped, as qpdf ignores it.
 fn add_imported_fields(
     clone_context: &mut PageCloneContext,
     catalog: &mut Dictionary,
@@ -566,9 +567,6 @@ fn add_imported_fields(
             }
         }
     }
-    if roots.is_empty() {
-        return Ok(());
-    }
     let target = &clone_context.target;
     let resolved = |document: &Document, object: Option<&Object>| {
         object
@@ -581,6 +579,11 @@ fn add_imported_fields(
     let mut fields = resolved(target, form.get(b"Fields").ok())
         .and_then(|fields| fields.as_array().ok().cloned())
         .unwrap_or_default();
+    let carried = fields.len();
+    fields.retain(|field| crate::split_catalog::split_forms::is_form_field(target, field));
+    if roots.is_empty() && fields.len() == carried {
+        return Ok(());
+    }
     let field_name = |document: &Document, id: ObjectId| {
         let field = document.get_dictionary(id).ok()?;
         lopdf::decode_text_string(field.get(b"T").ok()?).ok()
