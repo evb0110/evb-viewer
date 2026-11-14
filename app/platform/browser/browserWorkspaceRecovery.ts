@@ -233,8 +233,8 @@ export async function hasBrowserWorkspaceCheckpoint(windowId: string) {
     return durable !== null && namesOf((await readWorkspaceCheckpoints(durable.port)).get(windowId)).some(id => unsaved.has(id));
 }
 
-/** Every store directory this page has held. Its window's checkpoint names them all, so a crash cannot leave unsaved work unnamed. */
-const heldDirectories = new Set<string>();
+/** Every store directory this page edited or took with unsaved work. Its window's checkpoint names them all, so a crash cannot leave that work unnamed. */
+const namedDirectories = new Set<string>();
 /** This window's checkpoint as the page found it, named on until the page has claimed what it restores. */
 let startCheckpoint: Promise<ICoreWorkspaceCheckpoint | null | undefined> | null = null;
 /** The layout this page recorded last. */
@@ -248,7 +248,7 @@ function writeWindowCheckpoint(windowId: string) {
         if (!durable) return;
         startCheckpoint ??= readWorkspaceCheckpoints(durable.port).then(checkpoints => checkpoints.get(windowId));
         const start = await startCheckpoint;
-        const directories = new Set([...namesOf(start), ...heldDirectories]);
+        const directories = new Set([...namesOf(start), ...namedDirectories]);
         if (directories.size === 0) {
             await removeWorkspaceCheckpoint(durable.port, windowId);
             return;
@@ -262,9 +262,10 @@ function writeWindowCheckpoint(windowId: string) {
     return write;
 }
 
-/** Names a directory this window has started to hold in its checkpoint, before it is used. */
+/** Names a directory in this window's checkpoint before its first edit; a named one waits for the write that names it. */
 export function nameBrowserWorkspaceDirectory(windowId: string, directory: string) {
-    heldDirectories.add(directory);
+    if (namedDirectories.has(directory)) return writing;
+    namedDirectories.add(directory);
     return writeWindowCheckpoint(windowId);
 }
 
@@ -283,6 +284,7 @@ export async function setBrowserDocumentDrafts(drafts: IWorkspaceCheckpointAnnot
     const entry = drafts.workingCopyRef ? await browserDocumentStore.ensureEntry(drafts.workingCopyRef).catch(() => null) : null;
     if (!entry?.doc || entry.memoryOnly || (drafts.payload === undefined && entry.doc.state().drafts === undefined)) return true;
     if (browserDocumentStore.tokenOf(entry) !== drafts.workingByteRevision) return false;
+    if (drafts.payload !== undefined) await browserDocumentStore.nameEdited(entry);
     const stored = await entry.doc.setDrafts(entry.doc.state().current?.id ?? null, drafts.payload === undefined ? undefined : drafts);
     if (stored.status === 'conflict') throw new Error('Drafts were not stored');
     return stored.status === 'stored';
