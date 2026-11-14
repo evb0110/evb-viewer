@@ -2130,8 +2130,65 @@ fn merging_inputs_without_bookmarks_keeps_the_main_outline_as_written() {
     }
 }
 
+/// An AESV2 document that leaves metadata unencrypted, whose catalog holds
+/// `metadata` and `extra`: streams with their own Identity crypt filter.
+fn identity_crypt_fixture(metadata: Dictionary, extra: Dictionary) -> Vec<u8> {
+    use lopdf::encryption::crypt_filters::{Aes128CryptFilter, CryptFilter};
+    let mut document = decryption_fixture_document();
+    let metadata = document.add_object(Stream::new(metadata, b"<x:xmpmeta/>".to_vec()));
+    let extra = document.add_object(Stream::new(extra, b"plain".to_vec()));
+    let catalog = document.trailer.get(b"Root").unwrap().as_reference().unwrap();
+    let catalog = document.get_dictionary_mut(catalog).unwrap();
+    catalog.set("Metadata", metadata);
+    catalog.set("Extra", extra);
+    let crypt_filters = BTreeMap::from([(
+        b"StdCF".to_vec(),
+        std::sync::Arc::new(Aes128CryptFilter) as std::sync::Arc<dyn CryptFilter>,
+    )]);
+    let state = lopdf::EncryptionState::try_from(lopdf::EncryptionVersion::V4 {
+        document: &document,
+        encrypt_metadata: false,
+        crypt_filters,
+        stream_filter: b"StdCF".to_vec(),
+        string_filter: b"StdCF".to_vec(),
+        owner_password: "owner-secret",
+        user_password: "",
+        permissions: lopdf::Permissions::all(),
+    })
+    .unwrap();
+    document.encrypt(&state).unwrap();
+    let mut bytes = Vec::new();
+    document.save_to(&mut bytes).unwrap();
+    bytes
+}
+
 #[test]
-fn encrypted_streams_with_their_own_crypt_filter_are_refused() {
+fn streams_with_their_own_identity_crypt_filter_are_kept_as_written() {
+    let input = identity_crypt_fixture(
+        dictionary! { "Type" => "Metadata", "Subtype" => "XML", "Filter" => vec!["Crypt".into()] },
+        dictionary! {
+            "Filter" => "Crypt",
+            "DecodeParms" => dictionary! { "Type" => "CryptFilterDecodeParms", "Name" => "Identity" },
+        },
+    );
+    for (route, output) in [
+        ("page edit", extract_browser_pdf_pages(&input, &[1]).unwrap().data),
+        ("unlock", decrypt_browser_pdf_bytes(&input, b"").unwrap().data),
+    ] {
+        let output = Document::load_mem(&output).unwrap();
+        assert!(!output.trailer.has(b"Encrypt"), "{route}");
+        let catalog = output.catalog().unwrap();
+        for (key, content) in [(b"Metadata".as_slice(), b"<x:xmpmeta/>".as_slice()), (b"Extra", b"plain")] {
+            let id = catalog.get(key).unwrap().as_reference().unwrap();
+            let stream = output.get_object(id).unwrap().as_stream().unwrap();
+            assert!(!stream.dict.has(b"Filter") && !stream.dict.has(b"DecodeParms"), "{route}");
+            assert_eq!(stream.content, content, "{route}");
+        }
+    }
+}
+
+#[test]
+fn encrypted_streams_with_a_named_crypt_filter_are_refused() {
     let input = include_bytes!("../../tests/fixtures/page-engine/crypt_filters.pdf");
     for (route, result) in [
         ("page edit", extract_browser_pdf_pages(input, &[1]).map(|_| ())),
