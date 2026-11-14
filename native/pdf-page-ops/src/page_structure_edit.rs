@@ -152,17 +152,17 @@ pub(crate) fn edit_page_structure<S>(
                 .filter(|(page_number, _)| !removed.contains(page_number))
                 .map(|(_, page_id)| primary(page_id))
                 .collect::<Vec<_>>();
-            page_subset(sources, &kept)
+            page_subset(sources, &kept, false)
         }
         PageStructureEdit::Extract(pages) => {
             let sources = single("extractPages")?;
             validate_browser_page_numbers(pages, "extractPages", page_count, true, false)?;
-            page_subset(sources, &selected(pages)?)
+            page_subset(sources, &selected(pages)?, false)
         }
         PageStructureEdit::Reorder(pages) => {
             let sources = single("reorderPages")?;
             validate_browser_page_numbers(pages, "reorderPages", page_count, true, true)?;
-            page_subset(sources, &selected(pages)?)
+            page_subset(sources, &selected(pages)?, false)
         }
         PageStructureEdit::Insert { after_page } => {
             let [insertion] = others else {
@@ -188,7 +188,7 @@ pub(crate) fn edit_page_structure<S>(
                 )
                 .chain(after.into_iter().map(|(_, page_id)| primary(page_id)))
                 .collect::<Vec<_>>();
-            page_subset(&documents, &sequence)
+            page_subset(&documents, &sequence, true)
         }
         PageStructureEdit::Merge => merge_pages(&documents),
     }
@@ -209,7 +209,7 @@ fn merge_pages(documents: &[&Document]) -> Result<PageSubset> {
                 }),
         );
     }
-    let mut merged = page_subset(documents, &sequence)?;
+    let mut merged = page_subset(documents, &sequence, false)?;
     let mut page_offset = 0u32;
     let mut bookmarks = Vec::new();
     for document in documents {
@@ -282,7 +282,13 @@ pub(crate) fn write_page_structure_path(
     staged.publish().map_err(io_domain_error)
 }
 
-fn page_subset(sources: &[&Document], page_sequence: &[PageCloneSource]) -> Result<PageSubset> {
+/// With `insertion`, a source after the first that defines no page labels
+/// joins the label range its pages land in.
+fn page_subset(
+    sources: &[&Document],
+    page_sequence: &[PageCloneSource],
+    insertion: bool,
+) -> Result<PageSubset> {
     if page_sequence.is_empty() {
         return Err("A page subset must contain at least one page".into());
     }
@@ -383,7 +389,7 @@ fn page_subset(sources: &[&Document], page_sequence: &[PageCloneSource]) -> Resu
     }
     let catalog_id = clone_context.target.add_object(catalog);
     clone_context.target.trailer.set("Root", catalog_id);
-    set_subset_page_labels(&mut clone_context.target, sources, page_sequence)?;
+    set_subset_page_labels(&mut clone_context.target, sources, page_sequence, insertion)?;
     for (id, object) in crate::split_catalog::page_structure_updates(&clone_context.target)? {
         clone_context.target.set_object(id, object);
     }
@@ -538,12 +544,14 @@ fn field_root(source: &Document, widget: ObjectId) -> Option<ObjectId> {
 /// Labels each output page as its source labels it, in the fewest ranges: a
 /// page continues the range before it when it shows that range's style and
 /// prefix and, with a style, the next number. Pages of a source without a
-/// label tree, or an inserted source whose tree cannot be read, keep their
-/// numbers there; with no tree in any source the output has none.
+/// label tree, or a later source whose tree cannot be read, keep their numbers
+/// there, except that inserted pages join the range they land in, which keeps
+/// counting past them. With no tree in any source the output has none.
 fn set_subset_page_labels(
     target: &mut Document,
     sources: &[&Document],
     page_sequence: &[PageCloneSource],
+    insertion: bool,
 ) -> Result<()> {
     let mut labelled = false;
     let mut labels = Vec::with_capacity(sources.len());
@@ -559,29 +567,44 @@ fn set_subset_page_labels(
             }
             Err(_) => Vec::new(),
         };
+        let continues_previous = insertion && index > 0 && ranges.is_empty();
         add_implicit_default_page_label_range(&mut ranges, pages.len() as u32);
         let indices = pages
             .into_iter()
             .map(|(number, id)| (id, number - 1))
             .collect::<HashMap<_, _>>();
-        labels.push((ranges, indices));
+        labels.push((ranges, indices, continues_previous));
     }
     if !labelled {
         return Ok(());
     }
     let mut ranges: Vec<PageLabelRange> = Vec::new();
     let mut previous_number = 0u32;
+    let mut previous_source = None;
     for (output_index, page) in page_sequence.iter().enumerate() {
-        let (source_ranges, indices) = &labels[page.document_index];
+        let (source_ranges, indices, continues_previous) = &labels[page.document_index];
+        if *continues_previous && !ranges.is_empty() {
+            previous_number = previous_number.saturating_add(1);
+            continue;
+        }
         let index = *indices
             .get(&page.page_id)
             .ok_or("Page-label source page was not found")?;
         let range =
             &source_ranges[source_ranges.partition_point(|range| range.page_index <= index) - 1];
-        let number = range
-            .start
-            .unwrap_or(1)
-            .saturating_add(index - range.page_index);
+        // The page after the previous one of its source range keeps counting
+        // past the pages that joined that range between them.
+        let number = if previous_source
+            == Some((page.document_index, range.page_index, index.wrapping_sub(1)))
+        {
+            previous_number.saturating_add(1)
+        } else {
+            range
+                .start
+                .unwrap_or(1)
+                .saturating_add(index - range.page_index)
+        };
+        previous_source = Some((page.document_index, range.page_index, index));
         let prefix = range.prefix.clone().unwrap_or_default();
         let continues = ranges.last().is_some_and(|last| {
             last.style == range.style

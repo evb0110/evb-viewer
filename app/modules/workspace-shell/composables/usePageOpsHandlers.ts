@@ -182,29 +182,20 @@ export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
         ...(ensureWorkingCopyFreshForRead !== undefined ? { ensureWorkingCopyFreshForRead } : {}),
         ...(runWithDocumentOperationLease !== undefined ? { runWithDocumentOperationLease } : {}),
         preparePageMutationRevisionSwap: async ({
-            path, result, invalidatedPages,
+            result, invalidatedPages,
         }) => {
-            const expectedDocumentRevision = result.documentRevision?.documentRef === path
-                ? result.documentRevision.token
-                : undefined;
             const rotationDelta = pageOperationPresentation.value?.kind === 'rotate'
                 ? pageOperationPresentation.value.rotationDelta
                 : undefined;
             deps.invalidateThumbnailPages(
                 invalidatedPages,
-                expectedDocumentRevision,
+                result.documentRevision.token,
                 {rotationOnly: rotationDelta !== undefined},
             );
             const delta = result.pageIdentityDelta;
             if (delta) {
                 views.mapPageIdentity(delta);
                 stagedPageIdentityDelta = delta;
-            }
-            if (result.documentRevision?.documentRef !== path) {
-                if (rotationDelta !== undefined) {
-                    await cancelPageRotationPreview(invalidatedPages);
-                }
-                return;
             }
             try {
                 const didPrepare = await prepareDocumentViewsForRevisionSwap(views, {

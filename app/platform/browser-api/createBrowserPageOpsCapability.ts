@@ -306,10 +306,11 @@ export function createBrowserPageOpsCapability(
         };
     }
 
-    async function serializeWorkingCopyMutation<T>(
+    /** Runs `run` after the working copy's earlier mutations; the result names the revision it committed. */
+    async function serializeWorkingCopyMutation(
         operation: IActivePageOperation,
         mutationOptions: IPageOpsMutationOptions | undefined,
-        run: () => Promise<T>,
+        run: () => Promise<IStoredPageMutationResult>,
     ) {
         const {workingCopyPath} = operation;
         const previous = workingCopyMutationQueues.get(workingCopyPath) ?? Promise.resolve();
@@ -322,7 +323,10 @@ export function createBrowserPageOpsCapability(
                     workingCopyPath,
                     mutationOptions?.expectedDocumentRevisionToken,
                 );
-                return run();
+                return {
+                    ...await run(),
+                    documentRevision: await browserDocumentStore.getDocumentRevision(workingCopyPath),
+                };
             });
         workingCopyMutationQueues.set(workingCopyPath, next);
         try {
@@ -464,7 +468,7 @@ export function createBrowserPageOpsCapability(
         pages: TPageOpsPageSelection,
         totalPages: number,
         mutationOptions: IPageOpsMutationOptions | undefined,
-    ): Promise<IStoredPageMutationResult> {
+    ) {
         const selectedPages = materializePageSelection(pages, totalPages, 'Deleting pages');
         return serializeWorkingCopyMutation(operation, mutationOptions, async () => ({
             success: true,
@@ -477,7 +481,7 @@ export function createBrowserPageOpsCapability(
         operation: IActivePageOperation,
         newOrder: number[],
         mutationOptions: IPageOpsMutationOptions | undefined,
-    ): Promise<IStoredPageMutationResult> {
+    ) {
         return serializeWorkingCopyMutation(operation, mutationOptions, async () => ({
             success: true,
             pageCount: await rewriteWorkingCopy(operation, mutationOptions, {kind: 'reorder', pages: newOrder}),
@@ -492,7 +496,7 @@ export function createBrowserPageOpsCapability(
         afterPage: number,
         readPages: () => Promise<{blob: Blob; release: () => Promise<void>}>,
         mutationOptions: IPageOpsMutationOptions | undefined,
-    ): Promise<IStoredPageMutationResult> {
+    ) {
         return serializeWorkingCopyMutation(operation, mutationOptions, async () => {
             const insertion = await readPages();
             try {
@@ -637,7 +641,7 @@ export function createBrowserPageOpsCapability(
                 return {
                     success: false,
                     canceled: true,
-                };
+                } as const;
             }
 
             return insertPages(
