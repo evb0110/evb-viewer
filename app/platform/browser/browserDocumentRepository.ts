@@ -626,8 +626,7 @@ export class BrowserDocumentStore {
      * what it writes: readers keep reading that revision. `append` returns the file's new length, or null when
      * it appended nothing. The returned lease names the appended bytes until `save` or `commitAppend` commits
      * them or `discardAppend` cuts them; one append is pending per document, and a new one cuts the one before.
-     * A document without bytes of its own copies its file in first, and one whose file no longer holds what it
-     * opened is refused.
+     * A document without own bytes copies its file in first as it is now: Save refuses a changed one, Save As rescues it.
      */
     public async stageAppend(
         ref: string,
@@ -637,7 +636,7 @@ export class BrowserDocumentStore {
         const entry = await this.requireEntry(ref);
         const doc = this.requireDoc(entry);
         this.expectedRevision(entry, token);
-        if (await doc.materialize() === null) throw new BrowserDocumentSourceChangedError(entry.ref);
+        if (await doc.materialize(true) === null) throw new BrowserDocumentSourceChangedError(entry.ref);
         await doc.ownCurrentFile();
         return doc.run(async () => {
             this.expectedRevision(entry, token);
