@@ -23,7 +23,8 @@ impl PageLocalEdit {
 
 /// Mutations whose writers can use selected pages and dependency closures.
 /// Annotation upserts and deletes discover ownership through the page-tree scan;
-/// page labels and bookmarks rewrite the catalog.
+/// page labels and bookmarks rewrite the catalog. A rotation is a page edit,
+/// which validates the whole page tree, so it loads every page.
 pub(crate) fn page_local_edit(mutations: &NativeMutationsFile) -> Option<PageLocalEdit> {
     let NativeMutationsFile {
         updates,
@@ -42,9 +43,10 @@ pub(crate) fn page_local_edit(mutations: &NativeMutationsFile) -> Option<PageLoc
         continuation,
     } = mutations;
     let notes = notes.iter().chain(free_text_notes);
-    let page_local = text_boxes
-        .iter()
-        .all(|editor| editor.original_appearance.is_none())
+    let page_local = page_rotations.is_empty()
+        && text_boxes
+            .iter()
+            .all(|editor| editor.original_appearance.is_none())
         && shapes.as_ref().is_none_or(|shapes| {
             shapes.shapes.iter().all(|shape| {
                 shape_annotation_subtype_for_create(shape).is_some()
@@ -96,8 +98,6 @@ pub(crate) fn page_local_edit(mutations: &NativeMutationsFile) -> Option<PageLoc
             ),
     );
     edit.pages.clone_from(&edit.annotation_pages);
-    edit.pages
-        .extend(page_rotations.iter().map(|rotation| rotation.page_index));
     edit.pages.extend(bookmark_pages(bookmarks.as_ref())?);
     edit.outline = continuation
         .as_ref()

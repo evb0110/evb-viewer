@@ -352,32 +352,6 @@ fn resolves_high_index_geometry_without_a_dense_page_map() {
 }
 
 #[test]
-fn crops_high_index_page_without_walking_the_page_tree() {
-    let (document, _first_page_id, last_page_id) = create_sparse_million_page_document();
-    let mut incremental = IncrementalDocument::from_document(document, 0, None);
-
-    reset_page_tree_node_read_count();
-    crop_pages_incremental(
-        &mut incremental,
-        &[1_000_000],
-        CropMargins {
-            physical: false,
-            top: 4.0,
-            bottom: 3.0,
-            left: 2.0,
-            right: 1.0,
-        },
-    )
-    .unwrap();
-
-    assert!(page_tree_node_read_count() < 100);
-    assert_eq!(
-        crop_box(&incremental.new_document, last_page_id),
-        vec![2.0, 3.0, 199.0, 96.0]
-    );
-}
-
-#[test]
 fn remove_crop_preflights_every_selected_page_before_mutating_any_page() {
     let mut document = Document::with_version("1.4");
     let pages_id = document.new_object_id();

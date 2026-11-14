@@ -1244,17 +1244,13 @@ fn validate_loaded_document(document: &Document, policy: PdfLoadPolicy) -> Resul
         )));
     }
 
-    let page_resolver = PageTreeResolver::new(document)?;
-    let page_count = page_resolver.page_count();
-    if page_count > 0 {
-        // Check both ends of the declared tree without iterating every leaf.
-        // This catches a stale /Count or an unreachable branch while keeping
-        // path-backed admission independent of document page count.
-        page_resolver.page_id(document, 1)?;
-        if page_count > 1 {
-            page_resolver.page_id(document, page_count)?;
-        }
-    }
+    // A tree an encrypted file hides is unread, not damaged.
+    let page_count = PageTreeResolver::with_both_ends(document)
+        .map_err(|error| match document.is_encrypted() {
+            true => error,
+            false => page_tree_damaged(error),
+        })?
+        .page_count();
     validate_page_count(u64::from(page_count), policy)
 }
 

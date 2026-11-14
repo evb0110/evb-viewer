@@ -280,7 +280,7 @@ pub(crate) fn rotate_pages(
     document: &mut impl PdfObjectStore,
     rotations: &[PageRotationMutation],
 ) -> Result<()> {
-    let pages = PageLookup::new(document, document.located_pages())?;
+    let pages = PageTreeResolver::validated(document)?;
     let mut targets = Vec::with_capacity(rotations.len());
     for rotation in rotations {
         let page_number = rotation
@@ -618,7 +618,7 @@ fn resolve_selected_page_ids(
         return Ok(selected);
     }
 
-    let page_resolver = PageTreeResolver::new(document)?;
+    let page_resolver = PageTreeResolver::validated(document)?;
     for &page_number in pages {
         let page_id = page_resolver.page_id(document, page_number)?;
         selected.push((page_number, page_id));
