@@ -9,8 +9,6 @@ import {
 } from '@pdf-core/pdfSearchCore';
 export type {
     IDocumentSearchMatch,
-    IDocumentSearchProgress,
-    IDocumentSearchResponse,
 } from '@app/modules/document-viewer/search/documentSearch';
 
 export const DEFAULT_DOCUMENT_SEARCH_OPTIONS: IResolvedSearchMatchOptions = Object.freeze({

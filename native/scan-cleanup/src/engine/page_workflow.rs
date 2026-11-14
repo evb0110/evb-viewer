@@ -34,10 +34,11 @@ use std::{
 };
 
 /// One page's result metadata, as a manifest writes it to the page's metadata
-/// file. Reading it back is how the browser engine revises an analysis it
-/// returned earlier, so every field the file carries round-trips exactly; the
-/// skipped fields are reconciliation inputs the file never carries.
-#[derive(Serialize, Deserialize)]
+/// file. The browser engine hands an analysis back to plan the next step, so
+/// every field the file carries round-trips exactly; the skipped fields are
+/// reconciliation inputs the file never carries, which travel beside it as a
+/// [`ReconciliationCandidate`](crate::engine::batch_reconciliation::ReconciliationCandidate).
+#[derive(Clone, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct PageResultMetadata {
@@ -74,6 +75,11 @@ pub(crate) struct PageResultMetadata {
     pub(crate) soft_alpha_foreground_recommendation: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) output_mode_diagnostics: Option<crate::mode_select::OutputModeDiagnostics>,
+    /// The analysis is of the page's alternate view, which proved a spread
+    /// its primary view hid.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[cfg_attr(test, ts(optional, as = "Option<bool>"))]
+    pub(crate) alternate_view: bool,
     #[serde(skip)]
     pub(crate) rotated_width: usize,
     #[serde(skip)]
@@ -713,6 +719,7 @@ pub(crate) fn render_page(
         output_mode_diagnostics: result
             .output_mode_recommendation
             .map(|recommendation| recommendation.diagnostics),
+        alternate_view: false,
         rotated_width: if matches!(
             options.rotation,
             OrthogonalRotation::Clockwise90 | OrthogonalRotation::Clockwise270
@@ -1659,6 +1666,7 @@ pub(crate) fn classify_page(
         output_mode_diagnostics: result
             .output_mode_recommendation
             .map(|recommendation| recommendation.diagnostics),
+        alternate_view: false,
         rotated_width: result.rotated_width,
         rotated_height: result.rotated_height,
         candidate_cutter_ratio: result.candidate_cutter_ratio,
@@ -1813,6 +1821,8 @@ mod moved_tests {
             document_prior: None,
             detail_render_plan: None,
             pdf_page: None,
+            alternate_input_path: None,
+            alternate_view: None,
             outputs: Vec::new(),
         };
         let render_cache = manifest_cache(PlanningOperation::Render, None);

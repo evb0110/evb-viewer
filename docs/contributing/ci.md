@@ -21,21 +21,21 @@ parallel and the verdict lands in about fifteen minutes; see
 | --- | --- | --- |
 | `publication_policy`, Publication Policy | Local-only artifacts and unexplained checks in the pushed range | Every PR and push |
 | `changed_areas`, Changed Area Detection | Selects the area-scoped jobs from `scripts/release/policy.mjs` | Always |
-| `lint`, Lint | Generated-artifact drift, whole-tree lint, Drizzle schema, ASAR unpack list, web deploy sources | Always |
-| `unit`, Typecheck And Unit Tests | `pnpm run typecheck`, `pnpm run test:unit` | Always |
+| `lint`, Lint | Generated-artifact drift, whole-tree lint, Drizzle schema, ASAR unpack list, web deploy sources | Unless the merged tree is already proven |
+| `unit`, Typecheck And Unit Tests | `pnpm run typecheck`, `pnpm run test:unit` | Unless the merged tree is already proven |
 | `rust`, Rust | `rustfmt`, clippy, `cargo-deny`, Rust tests, scan-cleanup catastrophe baseline | `rust` |
-| `strict_build`, Strict Build | Source-verified WASM, `build:strict`, Electron bundle static integrity | `desktop_build` |
+| `strict_build`, Strict Build | Source-verified WASM, `build:strict`, Electron bundle static integrity; one renderer, Electron and native-tool build shared with the lanes | `desktop_build`, `electron_smoke`, or an already proven tree |
 | `native_pdf_integration`, Native PDF Save Integration | `native-integration` Vitest project against the built page-ops tool | `desktop_build` |
 | `windows_atomic_pdf_replacement`, Windows Atomic PDF Replacement | Real Windows filesystem replacement | `electron_save_reopen` |
 | `browser_integration`, Browser Integration | Browser integration suite in Chromium | `browser_integration` |
 | `scan_cleanup_oracles`, Scan Cleanup Export Oracles | Preview, export and word-loss oracles | `scan_cleanup_export` |
 | `landing`, Landing | Landing typecheck and build (root lint already lints it) | `landing` |
-| `electron_e2e_build`, Electron E2E Build | Production renderer, Electron bundle and native tools, shared with every lane | `electron_smoke` |
-| `electron_e2e`, Electron E2E (lane) | One Electron E2E lane per matrix job on Linux | `electron_smoke` |
-| `gates_ok` | Every job succeeded, or was skipped because its area did not change | Always |
+| `electron_e2e`, Electron E2E (lane) | One Electron E2E lane per matrix job on Linux; only smoke for an already proven tree | `electron_smoke` or an already proven tree |
+| `gates_ok` | Every job succeeded, or was skipped because its area did not change or its tree was already proven | Always |
 
 A dispatched run has no pushed range, so it skips the publication policy and
-the classifier selects every job.
+the classifier selects every job. Strict Build, native PDF integration and the
+scan-cleanup oracles share one staged native-tool cache.
 
 Browser integration uses eight shards with one worker each. Vitest 5.0.5 assigns
 equal file counts after sorting the SHA-1 hashes of root-relative file paths;
@@ -49,13 +49,13 @@ sequencer's `shard()` result to see the actual assignment.
 ### Electron E2E lanes
 
 A lane is a directory of `tests/e2e/electron`: `smoke/` is the project
-`e2e-smoke`, and so on. Every directory except `helpers/` and `nightly/` is one
-matrix job of the required verdict (`scripts/electron-e2e-lanes.mjs` lists
+`e2e-smoke`, and so on. When all lanes are selected, every directory except
+`helpers/` and `nightly/` is one matrix job (`scripts/electron-e2e-lanes.mjs` lists
 them), so a new test runs in CI by being saved in a lane directory, and a test
 file outside one fails the run. Lanes are sized to finish in about ten minutes
 on a hosted Linux runner; balance them by moving files. The tests run against
 the production renderer in `nuxt-output/public`, the one the packaged app
-loads, which the Electron E2E Build job builds once per run. Run a lane locally
+loads, which Strict Build builds once per run. Run a lane locally
 with `pnpm run test:e2e <lane>`, which builds first.
 
 | Lane | Files |
@@ -124,6 +124,17 @@ The classifier's path policy lives in
 from the last push whose `ci.yml` run succeeded, so a lane that an unfinished
 or failed run did not prove is selected again.
 
+A merge to `main` runs only the Electron smoke lane, with Strict Build and the
+policy and classification jobs, when four conditions hold:
+
+- Its first parent is the pre-push commit, whose CI push run succeeded.
+- The pull request head contains that pre-push commit.
+- The merge tree equals the pull request head's tree.
+- CI succeeded on that pull request head.
+
+`scripts/ci/push-diff-base.sh` then uses the merged head as the diff base,
+skipping lint, unit tests and the area-scoped jobs already proven.
+
 | Output | Path groups that select it |
 | --- | --- |
 | `browser_integration` | App, packages, public, vendor, server, browser tests, shared test and config files, CI setup/workflow, package metadata |
@@ -147,12 +158,14 @@ fully green run; dispatched runs do not touch the issue.
 | Rust Tests (Linux arm64) | The Rust workspace on the second architecture |
 | Native Parser Fuzz Canaries | Image, xref and JBIG2 fuzz targets, with cached cargo-fuzz and target builds |
 | Public release mirror health | Current GitHub latest release, updater channel, mirror manifest and served asset |
-| Electron E2E macOS Build and lanes | One macOS production build shared across the eight ordinary lanes, large-PDF and visible-window tests; ordinary lane timing budgets are enforced |
+| Electron E2E macOS Build and lanes | One macOS production build shared with the selected lanes, large-PDF and visible-window tests; ordinary lane timing budgets are enforced |
 | Electron E2E Search Match Scroll | High-zoom native search over a generated large document |
 | Electron E2E Large PDF | Large-PDF lane against generated fixtures |
 | Electron E2E Visible Window | Visible-window lifecycle |
 
-The macOS producer shares its build artifact with all ten macOS consumers.
+The ordinary macOS lanes run smoke Monday to Saturday and all eight lanes on
+Sunday and manual dispatch. The producer shares its build with that run's
+macOS consumers; large-PDF and visible-window tests still run nightly.
 These also run hosted lanes under `tests/e2e/electron/nightly/`:
 `e2e-search`, `e2e-large-pdf` and `e2e-visible-window`. The `e2e-exact-pdf` lane requires
 the private fixture and runs only on a machine where that fixture is staged.

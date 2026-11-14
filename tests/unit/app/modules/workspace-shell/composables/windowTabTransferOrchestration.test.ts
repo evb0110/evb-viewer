@@ -46,7 +46,11 @@ import { createDocumentContext } from '@app/modules/workspace-shell/documentCont
 import type { IDocumentViewPort } from '@app/modules/workspace-shell/document-sessions/createDocumentViews';
 import { createDocumentOpenSurfaceSession } from '@app/modules/document-viewer/public';
 import type * as PlatformDocuments from '@app/utils/platformDocuments';
-import { createWorkspaceExposeFixture } from '@tests/unit/app/modules/workspace-shell/workspaceTestFixtures';
+import {
+    createWorkspaceExposeFixture,
+    bindTestDocumentFrontier,
+    setTestDocumentDirty,
+} from '@tests/unit/app/modules/workspace-shell/workspaceTestFixtures';
 import { cast } from '@tests/helpers/cast';
 import {createPdfReloadWaiter} from '@app/modules/pdf-viewer/engine/pdf-reload-waiter/createPdfReloadWaiter';
 import * as pageOpsHandlers from '@app/modules/workspace-shell/composables/usePageOpsHandlers';
@@ -138,7 +142,7 @@ describe('window tab transfer orchestration helpers', () => {
                 'left',
                 'right',
             ]) {
-                const view = useWorkspaceViewerShellState();
+                const view = useWorkspaceViewerShellState(null, createDocumentOpenSurfaceSession());
                 view.totalPages.value = 5;
                 view.setSelectedThumbnailPages([tabId === 'left' ? 1 : 5]);
                 states.push(view);
@@ -307,8 +311,7 @@ describe('window tab transfer orchestration helpers', () => {
         const source = createWorkspaceDocumentController({tabId: 'source'});
         const survivor = createWorkspaceDocumentController({tabId: 'survivor'});
         const path = requireDocumentRef('/docs/source.djvu');
-        source.commitDocument({
-            fileName: 'source.djvu',
+        source.commitFile({
             originalPath: path,
             isDjvu: true,
             revisionInfo: null,
@@ -436,8 +439,7 @@ describe('window tab transfer orchestration helpers', () => {
             reportFailure: failure => failures.push(failure.message),
         });
         const path = requireDocumentRef('/docs/source.pdf');
-        source.commitDocument({
-            fileName: 'source.pdf',
+        source.commitFile({
             originalPath: path,
             isDjvu: false,
             revisionInfo: null,
@@ -455,12 +457,15 @@ describe('window tab transfer orchestration helpers', () => {
         const held = Promise.withResolvers<undefined>();
         // Preparing a move completes accepted text, then writes the document's
         // notes, which makes it dirty.
-        source.bindMutationFrontier(() => 'frontier', async (assertCurrent) => {
-            if (stage === 'completes its accepted text') {
-                await held.promise.then(assertCurrent);
-            }
-            source.setDirty(true);
-        }, async () => {});
+        bindTestDocumentFrontier(source, {
+            read: () => 'frontier',
+            prepare: async (assertCurrent) => {
+                if (stage === 'completes its accepted text') {
+                    await held.promise.then(assertCurrent);
+                }
+                setTestDocumentDirty(source, true);
+            },
+        });
         source.attachWorkspace('source', createWorkspaceExposeFixture({waitForDocumentOpenSettled: () => held.promise}));
         const pane = {
             paneId: 'pane-1',
@@ -661,9 +666,8 @@ describe('window tab transfer orchestration helpers', () => {
             }));
             const viewport = shallowRef(cast({lifecycle: 'empty'}));
             let reload: Promise<void> | null = null;
-            const preparePdfReloadWaiter = (pageToRestore: number) => {
+            const prepareViewReload = (_view: IDocumentViewPort, pageToRestore: number) => {
                 const waiter = createPdfReloadWaiter({
-                    pdfDocument: shallowRef(null),
                     pdfViewerRef: viewer,
                     openSurface: cast({
                         snapshot: surface,
@@ -691,8 +695,7 @@ describe('window tab transfer orchestration helpers', () => {
             const split = useWorkspaceSplitPayload(cast({
                 originalPath,
                 totalPages: ref(12),
-                currentPage: page,
-                preparePdfReloadWaiter,
+                prepareViewReload,
                 openFileWithViewerLifecycle: async (_result: TOpenFileResult, transactionId?: string) => {
                     const opened = await controller.runOpen({
                         kind: 'open',
@@ -711,7 +714,7 @@ describe('window tab transfer orchestration helpers', () => {
                                 phase: 'canvas-committed',
                                 presentation: 'committed',
                             });
-                            controller.commitDocument(document);
+                            controller.commitFile(document);
                             controller.markPresented();
                         }
                         return true;
@@ -724,7 +727,12 @@ describe('window tab transfer orchestration helpers', () => {
             controller.attachWorkspace('tab-1', createWorkspaceExposeFixture({
                 restoreViewState: state => {zoom.value = state.zoom ?? zoom.value;},
                 restoreSplitPayload: async (...args) => {
-                    outcome = await split.restoreSplitPayload(...args);
+                    outcome = await split.restoreSplitPayload(cast<IDocumentViewPort>({
+                        view: {
+                            totalPages: ref(12),
+                            documentViewerRef: ref(null),
+                        },
+                    }), ...args);
                     return outcome;
                 },
             }));
@@ -780,7 +788,7 @@ describe('window tab transfer orchestration helpers', () => {
             // or replace its revision while A is waiting for page placement.
             await aPresented.promise;
             if (replacement === 'a new revision') {
-                controller.commitDocument({
+                controller.commitFile({
                     ...document,
                     revisionInfo: {
                         ...document.revisionInfo,
@@ -794,7 +802,7 @@ describe('window tab transfer orchestration helpers', () => {
                     target: {originalPath: b},
                 }, async () => {
                     originalPath.value = b;
-                    controller.commitDocument({
+                    controller.commitFile({
                         ...document,
                         originalPath: b,
                         revisionInfo: null,
@@ -874,11 +882,9 @@ describe('window tab transfer orchestration helpers', () => {
             requiresSaveAsOnFirstSave: ref(false),
             isDjvuMode: ref(false),
             djvuSourcePath: ref(null),
-            currentPage: ref(1),
             totalPages: ref(1),
             fileName: ref('source.pdf'),
             pdfViewerRef: shallowRef({runSaveTransaction: transaction.runSaveTransaction}),
-            documentViewerRef: ref(null),
             // No native writer: the transaction refuses to materialize the note.
             getNativeSaveTransactionOptions: () => ({
                 nativeCapabilities: {
@@ -901,7 +907,7 @@ describe('window tab transfer orchestration helpers', () => {
             }),
         }));
 
-        await expect(split.captureSplitPayload()).rejects.toMatchObject({name: 'NativePdfSaveRequiredError'});
+        await expect(split.captureSplitPayload(1)).rejects.toMatchObject({name: 'NativePdfSaveRequiredError'});
         expect(application.store.hasChangesSinceSavedBaseline()).toBe(true);
     });
 
@@ -927,11 +933,9 @@ describe('window tab transfer orchestration helpers', () => {
             requiresSaveAsOnFirstSave: ref(false),
             isDjvuMode: ref(false),
             djvuSourcePath: ref(null),
-            currentPage: ref(1),
             totalPages: ref(1),
             fileName: ref('source.pdf'),
             pdfViewerRef: shallowRef(dirty ? null : {runSaveTransaction: transaction.runSaveTransaction}),
-            documentViewerRef: ref(null),
             getNativeSaveTransactionOptions: () => ({
                 nativeCapabilities: {
                     hasNativePdfMutationCapability: false,
@@ -955,11 +959,11 @@ describe('window tab transfer orchestration helpers', () => {
 
         if (dirty) {
             // Nothing can stand for its edits: the old bytes do not move.
-            await expect(split.captureSplitPayload()).rejects.toMatchObject({name: 'NativePdfSaveRequiredError'});
+            await expect(split.captureSplitPayload(1)).rejects.toMatchObject({name: 'NativePdfSaveRequiredError'});
             expect(createWorkingCopyFromDataMock).not.toHaveBeenCalled();
             return;
         }
-        await expect(split.captureSplitPayload()).resolves.toMatchObject({
+        await expect(split.captureSplitPayload(1)).resolves.toMatchObject({
             kind: 'pdfSnapshot',
             isDirty: false,
         });
@@ -1073,7 +1077,7 @@ describe('window tab transfer orchestration helpers', () => {
                 // These loaded views need no open, even if their pixels have
                 // been evicted. An inactive view cannot repaint for a merge.
                 waitForDocumentOpenSettled: () => Promise.withResolvers<undefined>().promise,
-                captureSplitPayload: (_page, ownership) => document.splitPayload.captureSplitPayload(pages.get(tabId)!.value, ownership),
+                captureSplitPayload: (_page, ownership) => document.splitPayload.captureSplitPayload(pages.get(tabId)!.value!, ownership),
             }));
         }
 
@@ -1163,8 +1167,7 @@ describe('window tab transfer orchestration helpers', () => {
             'survivor',
         ]) {
             const controller = createWorkspaceDocumentController({tabId: id});
-            controller.commitDocument({
-                fileName: `${id}.pdf`,
+            controller.commitFile({
                 originalPath: requireDocumentRef(`/docs/${id}.pdf`),
                 isDjvu: false,
                 revisionInfo: null,

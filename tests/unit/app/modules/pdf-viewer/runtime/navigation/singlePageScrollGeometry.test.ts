@@ -7,9 +7,6 @@ import {
 import {
     getPageRowGeometry,
     getPageScrollBounds,
-    resolveContinuousNavigationTargetLeft,
-    resolveContinuousNavigationTargetTop,
-    resolveMountedPageSnapTarget,
 } from '@app/modules/pdf-viewer/runtime/navigation/singlePageScrollGeometry';
 
 function createElementShim(shape: Record<string, unknown>): HTMLElement {
@@ -103,117 +100,5 @@ describe('singlePageScrollGeometry', () => {
             min: 0,
             max: 190,
         });
-    });
-
-    it('resolves mounted pageYRatio snaps from the page box inside a spread row', () => {
-        const {
-            container,
-            pageElements,
-        } = createGeometryContainer({
-            clientHeight: 100,
-            pages: [
-                {
-                    offsetTop: 10,
-                    offsetHeight: 70,
-                },
-                {
-                    offsetTop: 120,
-                    offsetHeight: 180,
-                },
-                {
-                    offsetTop: 115,
-                    offsetHeight: 130,
-                },
-            ],
-            scrollHeight: 500,
-        });
-
-        expect(resolveMountedPageSnapTarget({
-            anchor: 'center',
-            container,
-            scaledMargin: 20,
-            scrollOptions: { pageYRatio: 0.5 },
-            targetPage: 2,
-            targetPageElement: pageElements[1]!,
-            totalPages: 3,
-            viewMode: 'facing',
-        })).toEqual({
-            left: null,
-            top: 190,
-        });
-    });
-
-    it('clamps marker horizontal snap targets to page and container bounds', () => {
-        const {
-            container,
-            pageElements,
-        } = createGeometryContainer({
-            clientHeight: 100,
-            clientWidth: 100,
-            pages: [{
-                offsetLeft: 40,
-                offsetTop: 20,
-                offsetWidth: 220,
-                offsetHeight: 120,
-            }],
-            scrollHeight: 300,
-            scrollWidth: 260,
-        });
-
-        expect(resolveMountedPageSnapTarget({
-            anchor: 'top',
-            container,
-            scaledMargin: 20,
-            scrollOptions: {markerRect: {
-                left: 0.98,
-                top: 0.2,
-                width: 0.1,
-                height: 0.1,
-            }},
-            targetPage: 1,
-            targetPageElement: pageElements[0]!,
-            totalPages: 1,
-            viewMode: 'single',
-        })).toEqual({
-            left: 160,
-            top: 0,
-        });
-    });
-
-    it('resolves continuous marker targets from the mounted page geometry', () => {
-        const {
-            container,
-            pageElements,
-        } = createGeometryContainer({
-            clientHeight: 100,
-            clientWidth: 100,
-            pages: [{
-                offsetLeft: 30,
-                offsetTop: 140,
-                offsetWidth: 220,
-                offsetHeight: 180,
-            }],
-            scrollHeight: 400,
-            scrollWidth: 260,
-        });
-        const markerRect = {
-            left: 0.5,
-            top: 0.25,
-            width: 0.2,
-            height: 0.5,
-        };
-
-        expect(resolveContinuousNavigationTargetTop({
-            container,
-            scaledMargin: 20,
-            scrollOptions: { markerRect },
-            targetPageElement: pageElements[0]!,
-        })).toBe(180);
-        expect(resolveContinuousNavigationTargetLeft({
-            container,
-            scaledMargin: 20,
-            scrollOptions: { markerRect },
-            targetPageElement: pageElements[0]!,
-        })).toBe(112);
     });
 });

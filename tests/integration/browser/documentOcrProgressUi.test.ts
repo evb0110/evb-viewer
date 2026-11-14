@@ -68,47 +68,8 @@ describe('browser OCR progress', () => {
             }).click();
             const dialog = page.getByRole('dialog');
             await dialog.getByText('Hebrew', {exact: true}).click({timeout: 15_000});
-            // A background checkpoint may claim the document lease between
-            // pointer-down and pointer-up. Keep its real snapshot copy pending
-            // until the click has been delivered, so recovery cannot swallow it.
-            await page.evaluate(`(async () => {
-                const {getDocumentWorkingCopyCapability} = await import('/_nuxt/utils/platformDocuments.ts');
-                const recovery = getDocumentWorkingCopyCapability().recovery;
-                const original = recovery.createSnapshot;
-                const gate = Promise.withResolvers();
-                window.__ocrReleaseRecovery = () => {
-                    recovery.createSnapshot = original;
-                    gate.resolve();
-                };
-                document.addEventListener('pointerdown', () => {
-                    recovery.createSnapshot = async (...args) => {
-                        window.__ocrRecoveryGated = true;
-                        await gate.promise;
-                        return original(...args);
-                    };
-                    window.__ocrConcurrentRecovery = window.__evbTestApi.getActiveWorkspaceHandle()
-                        .createRecoverySnapshot({fileName: 'hebrew-recovery.pdf'});
-                }, {once: true, capture: true});
-            })()`);
             const ocrStartedAt = Date.now();
-            try {
-                await dialog.getByRole('button', {name: /^(Download and start OCR|Start OCR)$/u}).click();
-            } finally {
-                await page.evaluate(`(() => {
-                    window.__ocrReleaseRecovery?.();
-                    delete window.__ocrReleaseRecovery;
-                })()`);
-            }
-            // The snapshot reached the gated copy before release, so its lease
-            // spanned the click rather than finishing beside it.
-            expect(await page.evaluate('window.__ocrRecoveryGated === true')).toBe(true);
-            await page.evaluate(`(async () => {
-                const snapshot = await window.__ocrConcurrentRecovery;
-                delete window.__ocrConcurrentRecovery;
-                if (!snapshot) throw new Error('The overlapping recovery snapshot did not capture the image PDF');
-                const {getDocumentWorkingCopyCapability} = await import('/_nuxt/utils/platformDocuments.ts');
-                await getDocumentWorkingCopyCapability().recovery.cleanupSnapshot(snapshot.ref);
-            })()`);
+            await dialog.getByRole('button', {name: /^(Download and start OCR|Start OCR)$/u}).click();
             const completionText = 'OCR complete - PDF is now searchable';
             let terminalText: string;
             try {

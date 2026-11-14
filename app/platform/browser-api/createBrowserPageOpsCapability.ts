@@ -38,10 +38,7 @@ import {
     browserDocumentStore,
     getBrowserDocumentFileName,
 } from '@app/platform/browserDocumentStore';
-import {BROWSER_PAGE_OPS_MAX_REQUEST_BYTES} from '@contracts/browserPageOpsLimits';
-import {REQUEST_HEADER} from '@contracts/browserPageOpsWasm.generated';
 import type { IPickedBrowserFile } from '@app/platform/browser-api/browserFilePickerAdapter';
-import { toBrowserOwnedArrayBuffer } from '@app/platform/browser-api/browserPlatformHelpers';
 import { buildPdfSaveTypes } from '@app/platform/browser-api/browserFileAccepts';
 import type { IFilePickerAcceptType } from '@app/platform/browser-api/browserFileAccepts';
 import { ensurePdfExtension } from '@app/platform/browser-api/browserFileName';
@@ -50,7 +47,11 @@ import {
     canUseBrowserPageOpsWorker,
     runBrowserPageOpsWorkerRequest,
 } from '@app/platform/browser-api/browserPageOpsWorkerClient';
-import type { IBrowserBatchOpenProgressOptions } from '@app/platform/browser-api/createCombinedPdfFromPaths';
+import type {
+    IBrowserBatchOpenProgressOptions,
+    ICombinedPdfDocument,
+} from '@app/platform/browser-api/createCombinedPdfFromPaths';
+import type { TPageStructureEdit } from '@app/platform/browser/pdfPageEngine';
 import type {
     IBrowserPageOpsWorkerRequestMap,
     IBrowserPageOpsWorkerResultMap,
@@ -58,13 +59,25 @@ import type {
 } from '@contracts/browserPageOpsWorker';
 import {isBrowserPageOpsWasmFailure} from '@contracts/browserPageOpsWorker';
 import { yieldToBrowser } from '@app/platform/browser-api/browserYield';
+import {BROWSER_PAGE_OPS_MAX_REQUEST_BYTES} from '@contracts/browserPageOpsLimits';
+import {REQUEST_HEADER} from '@contracts/browserPageOpsWasm.generated';
 import { PdfPageOpsCapabilityError } from '@contracts/pageOpsErrors';
+import { NATIVE_ERROR_ENVELOPE_SCHEMA } from '@contracts/nativeErrors';
+import {
+    findSerializableErrorEnvelope,
+    SerializableError,
+} from '@contracts/serializableError';
+import { BrowserLogger } from '@app/utils/browserLogger';
+import { getErrorMessage } from '@app/utils/error';
 
 interface ISaveBytesResult {
     canceled: boolean;
     fileName: string;
     handle?: FileSystemFileHandle | null;
 }
+
+// Rotate, crop and the readers still send the whole document in one engine request.
+const BROWSER_PAGE_OP_INPUT_MAX_BYTES = BROWSER_PAGE_OPS_MAX_REQUEST_BYTES - REQUEST_HEADER.bytes;
 
 interface IStoredPageMutationResult {
     success: true;
@@ -84,13 +97,14 @@ interface ICreateBrowserPageOpsOptions {
     createCombinedPdfFromPaths: (
         paths: string[],
         progressOptions?: IBrowserBatchOpenProgressOptions,
-    ) => Promise<Uint8Array>;
+        output?: ICombinedPdfDocument,
+    ) => Promise<string>;
     pickSaveTarget: (options: {
         suggestedName: string;
         pickerTypes: IFilePickerAcceptType[];
     }) => Promise<ISaveBytesResult>;
     saveBytesToPickerOrDownload: (
-        bytes: Uint8Array,
+        bytes: Uint8Array | Blob,
         options: {
             suggestedName: string;
             mimeType: string;
@@ -99,13 +113,11 @@ interface ICreateBrowserPageOpsOptions {
     ) => Promise<ISaveBytesResult>;
     writeBytesToHandle: (
         handle: FileSystemFileHandle,
-        data: Uint8Array,
+        data: Uint8Array | Blob,
     ) => Promise<void>;
+    /** Commits the open's qpdf rewrite of a working copy's revision; whether it did. */
+    repairWorkingCopy: (workingCopyPath: string, signal: AbortSignal) => Promise<boolean>;
 }
-
-// A page operation's input and any insertion source travel in one engine
-// request; the engine refuses the framed remainder exactly.
-const BROWSER_PAGE_OP_INPUT_MAX_BYTES = BROWSER_PAGE_OPS_MAX_REQUEST_BYTES - REQUEST_HEADER.bytes;
 
 type TBrowserPageOpsCoreModule = typeof BrowserPageOpsCoreModule;
 
@@ -239,6 +251,35 @@ function beginPageOperationCommit(operation: IActivePageOperation) {
     operation.committing = true;
 }
 
+/**
+ * Runs a page-structure edit in its own worker, which reads `sources` by range and writes the new file at the
+ * store path `output`, or returns the bytes when `output` is null. A full store is the storage-full result.
+ */
+async function runPageStructure(edit: TPageStructureEdit, sources: Blob[], output: string | null, signal?: AbortSignal) {
+    const result = await runBrowserPageOpsWorkerRequest('pageStructure', {edit, sources, output}, {
+        dedicated: true,
+        ...(signal ? {signal} : {}),
+    });
+    if (result.status === 'storage-full') {
+        throw new DOMException('The browser\'s storage is full. Free space for this site and try again.', 'QuotaExceededError');
+    }
+    if (result.status === 'failed') {
+        throw new SerializableError(result.error);
+    }
+    return result;
+}
+
+/** Writes `edit` over `sources` into the new document `ref` holds, which starts clean. */
+export async function writePageStructureDocument(ref: string, edit: TPageStructureEdit, sources: Blob[], signal?: AbortSignal) {
+    let pageCount = 0;
+    await browserDocumentStore.rewrite(ref, null, async (_empty, output) => {
+        const result = await runPageStructure(edit, sources, output, signal);
+        pageCount = result.pageCount;
+        return result.data;
+    }, {imported: true});
+    return pageCount;
+}
+
 export function createBrowserPageOpsCapability(
     options: ICreateBrowserPageOpsOptions,
 ): IPageOpsCapability {
@@ -274,10 +315,15 @@ export function createBrowserPageOpsCapability(
         };
     }
 
-    async function serializeWorkingCopyMutation<T>(
+    /**
+     * Runs `run` after the working copy's earlier mutations; the result names the revision it committed. When the
+     * page engine cannot read the working copy, its revision is repaired as its open repairs it and `run` runs once
+     * more, on the repaired revision.
+     */
+    async function serializeWorkingCopyMutation(
         operation: IActivePageOperation,
         mutationOptions: IPageOpsMutationOptions | undefined,
-        run: () => Promise<T>,
+        run: (mutationOptions: IPageOpsMutationOptions | undefined) => Promise<IStoredPageMutationResult>,
     ) {
         const {workingCopyPath} = operation;
         const previous = workingCopyMutationQueues.get(workingCopyPath) ?? Promise.resolve();
@@ -290,7 +336,10 @@ export function createBrowserPageOpsCapability(
                     workingCopyPath,
                     mutationOptions?.expectedDocumentRevisionToken,
                 );
-                return run();
+                return {
+                    ...await runOnReadableRevision(operation, mutationOptions, run),
+                    documentRevision: await browserDocumentStore.getDocumentRevision(workingCopyPath),
+                };
             });
         workingCopyMutationQueues.set(workingCopyPath, next);
         try {
@@ -302,49 +351,62 @@ export function createBrowserPageOpsCapability(
         }
     }
 
+    async function runOnReadableRevision(
+        operation: IActivePageOperation,
+        mutationOptions: IPageOpsMutationOptions | undefined,
+        run: (mutationOptions: IPageOpsMutationOptions | undefined) => Promise<IStoredPageMutationResult>,
+    ) {
+        try {
+            return await run(mutationOptions);
+        } catch (error) {
+            const {workingCopyPath, controller: {signal}} = operation;
+            if (findSerializableErrorEnvelope(error, NATIVE_ERROR_ENVELOPE_SCHEMA)?.code !== 'corrupt-xref') throw error;
+            const refused = await browserDocumentStore.getDocumentRevision(workingCopyPath);
+            if (!await options.repairWorkingCopy(workingCopyPath, signal).catch(() => false)) throw error;
+            BrowserLogger.debug('page-ops', 'Repaired a revision the page engine could not read', {error: getErrorMessage(error)});
+            const repaired = await browserDocumentStore.getDocumentRevision(workingCopyPath);
+            try {
+                return await run({...mutationOptions, expectedDocumentRevisionToken: repaired.token});
+            } catch (retryError) {
+                // The viewer holds the objects of the revision it edited, so that revision stays current.
+                await browserDocumentStore.restoreRevision(workingCopyPath, refused.token, repaired.token);
+                throw retryError;
+            }
+        }
+    }
+
     async function readWorkingCopyBytes(path: string) {
         assertBrowserPageOpsSource(path, 'Reading page-operation input');
         await yieldToBrowser();
         return browserDocumentStore.read(path, {maxBytes: BROWSER_PAGE_OP_INPUT_MAX_BYTES});
     }
 
-    function shouldReadSinglePdfInsertionSource(sourcePaths: string[]) {
-        if (sourcePaths.length !== 1) {
-            return false;
-        }
-
-        const [sourcePath] = sourcePaths;
-        return !!sourcePath && /\.pdf$/iu.test(getBrowserDocumentFileName(sourcePath));
-    }
-
-    async function readInsertionBytes(
-        sourcePaths: string[],
-        requestId: TRequestId | undefined,
-        destinationBytes: number,
-        signal: AbortSignal,
-    ) {
+    /** The pages to insert as one PDF, and what to remove once they are inserted. */
+    async function readInsertion(sourcePaths: string[], requestId: TRequestId | undefined, signal: AbortSignal) {
         for (const sourcePath of sourcePaths) {
             assertBrowserPageOpsSource(sourcePath, 'Inserting pages');
         }
-        if (shouldReadSinglePdfInsertionSource(sourcePaths)) {
-            const sourcePath = sourcePaths[0];
-            if (sourcePath === undefined) {
-                throw new Error('A single PDF insertion source is required');
-            }
-            return browserDocumentStore.read(sourcePath, {maxBytes: BROWSER_PAGE_OP_INPUT_MAX_BYTES - destinationBytes});
+        const [sourcePath] = sourcePaths;
+        if (sourcePaths.length === 1 && sourcePath && /\.pdf$/iu.test(getBrowserDocumentFileName(sourcePath))) {
+            return {blob: await browserDocumentStore.readableBlob(sourcePath), release: async () => {}};
         }
-
-        return options.createCombinedPdfFromPaths(
-            sourcePaths,
-            {
-                operation: 'page-insert',
-                requestId: requestId ?? createRequestId('browser-page-op-insert'),
-                signal,
-            },
-        );
+        const combined = await options.createCombinedPdfFromPaths(sourcePaths, {
+            operation: 'page-insert',
+            requestId: requestId ?? createRequestId('browser-page-op-insert'),
+            signal,
+        });
+        return {
+            blob: await browserDocumentStore.readableBlob(combined),
+            release: () => browserDocumentStore.remove(combined),
+        };
     }
 
-    async function combinePickedFiles(pickedFiles: IPickedBrowserFile[], signal: AbortSignal) {
+    async function readPickedInsertion(pickedFiles: IPickedBrowserFile[], signal: AbortSignal) {
+        const [single] = pickedFiles;
+        // One picked PDF is read where it is, as desktop reads its path.
+        if (pickedFiles.length === 1 && single && /\.pdf$/iu.test(single.file.name)) {
+            return {blob: single.file as Blob, release: async () => {}};
+        }
         const sourcePaths = await Promise.all(pickedFiles.map(picked => browserDocumentStore.registerFile(picked.file, {
             kind: 'source',
             retention: 'transient',
@@ -352,7 +414,7 @@ export function createBrowserPageOpsCapability(
             saveHandle: picked.handle ?? null,
         })));
         try {
-            return await readInsertionBytes(sourcePaths, undefined, 0, signal);
+            return await readInsertion(sourcePaths, undefined, signal);
         } finally {
             await Promise.allSettled(sourcePaths.map(sourcePath => browserDocumentStore.cleanupDetachedDocument(sourcePath)));
         }
@@ -401,25 +463,40 @@ export function createBrowserPageOpsCapability(
         return runDirectPdfOperation(() => options.runDirect(directData));
     }
 
+    /** Rewrites the working copy with `edit` over its bytes and `extraSources`; returns the new page count. */
+    async function rewriteWorkingCopy(
+        operation: IActivePageOperation,
+        mutationOptions: IPageOpsMutationOptions | undefined,
+        edit: TPageStructureEdit,
+        extraSources: Blob[] = [],
+    ) {
+        assertBrowserPageOpsSource(operation.workingCopyPath, 'Rewriting pages');
+        let pageCount = 0;
+        await browserDocumentStore.rewrite(operation.workingCopyPath, mutationOptions?.expectedDocumentRevisionToken, async (source, output) => {
+            const result = await runPageStructure(edit, [
+                source,
+                ...extraSources,
+            ], output, operation.controller.signal);
+            beginPageOperationCommit(operation);
+            pageCount = result.pageCount;
+            return result.data;
+        });
+        await options.clearSearchCaches();
+        return pageCount;
+    }
+
     async function writePageMutationResult(
         operation: IActivePageOperation,
         data: Uint8Array,
         pageCount: number,
         mutationOptions: IPageOpsMutationOptions | undefined,
-        pageIdentityDelta?: IPageIdentityDelta,
     ): Promise<IStoredPageMutationResult> {
         beginPageOperationCommit(operation);
-        const {workingCopyPath} = operation;
-        if (mutationOptions === undefined) {
-            await browserDocumentStore.write(workingCopyPath, data);
-        } else {
-            await browserDocumentStore.write(workingCopyPath, data, mutationOptions);
-        }
+        await browserDocumentStore.write(operation.workingCopyPath, data, mutationOptions ?? {});
         await options.clearSearchCaches();
         return {
             success: true,
             pageCount,
-            ...(pageIdentityDelta === undefined ? {} : {pageIdentityDelta}),
         };
     }
 
@@ -430,28 +507,11 @@ export function createBrowserPageOpsCapability(
         mutationOptions: IPageOpsMutationOptions | undefined,
     ) {
         const selectedPages = materializePageSelection(pages, totalPages, 'Deleting pages');
-        return serializeWorkingCopyMutation(operation, mutationOptions, async () => {
-            const result = await runWorkerBackedPdfOperation({
-                path: operation.workingCopyPath,
-                signal: operation.controller.signal,
-                type: 'deletePages',
-                createPayload: (data) => ({
-                    data,
-                    pages: selectedPages,
-                }),
-                runDirect: async (data) => {
-                    const { deletePdfPages } = await loadBrowserPageOpsCore();
-                    return deletePdfPages(data, selectedPages);
-                },
-            });
-            return writePageMutationResult(
-                operation,
-                result.data,
-                result.pageCount,
-                mutationOptions,
-                createDeletePageIdentityDelta(totalPages, selectedPages),
-            );
-        });
+        return serializeWorkingCopyMutation(operation, mutationOptions, async (revision) => ({
+            success: true,
+            pageCount: await rewriteWorkingCopy(operation, revision, {kind: 'delete', pages: selectedPages}),
+            pageIdentityDelta: createDeletePageIdentityDelta(totalPages, selectedPages),
+        }));
     }
 
     async function reorderPages(
@@ -459,100 +519,33 @@ export function createBrowserPageOpsCapability(
         newOrder: number[],
         mutationOptions: IPageOpsMutationOptions | undefined,
     ) {
-        return serializeWorkingCopyMutation(operation, mutationOptions, async () => {
-            const result = await runWorkerBackedPdfOperation({
-                path: operation.workingCopyPath,
-                signal: operation.controller.signal,
-                type: 'reorderPages',
-                createPayload: (data) => ({
-                    data,
-                    newOrder,
-                }),
-                runDirect: async (data) => {
-                    const { reorderPdfPages } = await loadBrowserPageOpsCore();
-                    return reorderPdfPages(data, newOrder);
-                },
-            });
-            return writePageMutationResult(
-                operation,
-                result.data,
-                result.pageCount,
-                mutationOptions,
-                createReorderPageIdentityDelta(newOrder.length, newOrder),
-            );
-        });
+        return serializeWorkingCopyMutation(operation, mutationOptions, async (revision) => ({
+            success: true,
+            pageCount: await rewriteWorkingCopy(operation, revision, {kind: 'reorder', pages: newOrder}),
+            pageIdentityDelta: createReorderPageIdentityDelta(newOrder.length, newOrder),
+        }));
     }
 
-    /** `readInsertion` reads the pages to insert each time it is called, given the destination's size. */
+    /** `readPages` gives the pages to insert as one PDF, read when the call's turn comes. */
     async function insertPages(
         operation: IActivePageOperation,
         totalPages: number,
         afterPage: number,
-        readInsertion: (destinationBytes: number) => Promise<Uint8Array>,
+        readPages: () => Promise<{blob: Blob; release: () => Promise<void>}>,
         mutationOptions: IPageOpsMutationOptions | undefined,
     ) {
-        const {
-            workingCopyPath,
-            controller: {signal},
-        } = operation;
-        return serializeWorkingCopyMutation(operation, mutationOptions, async () => {
-            assertBrowserPageOpsSource(workingCopyPath, 'Inserting pages');
-            const destinationData = await readWorkingCopyBytes(workingCopyPath);
-            const insertionData = await readInsertion(destinationData.byteLength);
-
-            let directInputs: [Uint8Array, Uint8Array] = [
-                destinationData,
-                insertionData,
-            ];
-            let result: IBrowserPageOpsWorkerResultMap['insertPages'] | null = null;
-            if (canUseBrowserPageOpsWorker()) {
-                try {
-                    result = await runBrowserPageOpsWorkerRequest('insertPages', {
-                        data: destinationData,
-                        insertionData,
-                        afterPage,
-                    }, {
-                        dedicated: true,
-                        signal,
-                        transferInput: true,
-                    });
-                } catch (error) {
-                    if (!(error instanceof BrowserPageOpsWorkerUnavailableError)) {
-                        throw error;
-                    }
-                    // The worker took the transferred inputs; read them again.
-                    const directDestinationData = await readWorkingCopyBytes(workingCopyPath);
-                    directInputs = [
-                        directDestinationData,
-                        await readInsertion(directDestinationData.byteLength),
-                    ];
-                }
+        return serializeWorkingCopyMutation(operation, mutationOptions, async (revision) => {
+            const insertion = await readPages();
+            try {
+                const pageCount = await rewriteWorkingCopy(operation, revision, {kind: 'insert', afterPage}, [insertion.blob]);
+                return {
+                    success: true,
+                    pageCount,
+                    pageIdentityDelta: createInsertPageIdentityDelta(totalPages, afterPage, pageCount - totalPages),
+                };
+            } finally {
+                await insertion.release();
             }
-            if (result === null) {
-                const [
-                    directDestinationData,
-                    directInsertionData,
-                ] = directInputs;
-                result = await runDirectPdfOperation(async () => {
-                    const { insertPdfPages } = await loadBrowserPageOpsCore();
-                    return insertPdfPages(
-                        directDestinationData,
-                        directInsertionData,
-                        afterPage,
-                    );
-                });
-            }
-            return writePageMutationResult(
-                operation,
-                result.data,
-                result.pageCount,
-                mutationOptions,
-                createInsertPageIdentityDelta(
-                    totalPages,
-                    afterPage,
-                    result.pageCount - totalPages,
-                ),
-            );
         });
     }
 
@@ -564,7 +557,7 @@ export function createBrowserPageOpsCapability(
         createPayload: (data: Uint8Array) => IBrowserPageOpsWorkerRequestMap[K],
         runDirect: (data: Uint8Array) => Promise<IBrowserPageOpsWorkerResultMap[K]>,
     ) {
-        return serializeWorkingCopyMutation(operation, mutationOptions, async () => {
+        return serializeWorkingCopyMutation(operation, mutationOptions, async (revision) => {
             const result = await runWorkerBackedPdfOperation({
                 path: operation.workingCopyPath,
                 signal: operation.controller.signal,
@@ -572,12 +565,7 @@ export function createBrowserPageOpsCapability(
                 createPayload,
                 runDirect,
             });
-            return writePageMutationResult(
-                operation,
-                result.data,
-                result.pageCount,
-                mutationOptions,
-            );
+            return writePageMutationResult(operation, result.data, result.pageCount, revision);
         });
     }
 
@@ -609,56 +597,45 @@ export function createBrowserPageOpsCapability(
                 };
             }
 
-            const result = await runWorkerBackedPdfOperation({
-                path: workingCopyPath,
-                signal: operation.controller.signal,
-                type: 'extractPages',
-                createPayload: (data) => ({
-                    data,
-                    pages: selectedPages,
-                }),
-                runDirect: async (data) => {
-                    const { extractPdfPages } = await loadBrowserPageOpsCore();
-                    return extractPdfPages(data, selectedPages);
-                },
-            });
-            const outputBytes = result.data;
-            beginPageOperationCommit(operation);
-
-            if (saveTarget.handle) {
-                await options.writeBytesToHandle(saveTarget.handle, outputBytes);
-            } else {
-                const saveResult = await options.saveBytesToPickerOrDownload(outputBytes, {
-                    suggestedName: ensurePdfExtension(saveTarget.fileName),
-                    mimeType: 'application/pdf',
-                    pickerTypes: buildPdfSaveTypes(),
-                });
-                if (saveResult.canceled) {
-                    return {
-                        success: false,
-                        canceled: true,
-                    };
-                }
-            }
-
+            assertBrowserPageOpsSource(workingCopyPath, 'Extracting pages');
+            // The extracted PDF is written into its own stored document, then published from there.
             const normalizedFileName = ensurePdfExtension(saveTarget.fileName);
-            const destPath = await browserDocumentStore.createStoredDocument(
-                normalizedFileName,
-                saveTarget.handle ? new Uint8Array() : outputBytes,
-                {
-                    mimeType: 'application/pdf',
-                    saveKind: 'pdf',
-                    kind: 'source',
-                    saveHandle: saveTarget.handle ?? null,
-                    ...(saveTarget.handle ? { storageMode: 'handle' as const } : {}),
-                },
-            );
-            if (saveTarget.handle) {
-                await browserDocumentStore.replaceWithHandleBackedDocument(destPath, {
-                    fileSize: outputBytes.byteLength,
-                    saveHandle: saveTarget.handle,
-                    saveName: normalizedFileName,
-                });
+            const destPath = await browserDocumentStore.createStoredDocument(normalizedFileName, new Uint8Array(), {
+                mimeType: 'application/pdf',
+                saveKind: 'pdf',
+                kind: 'source',
+                saveHandle: saveTarget.handle ?? null,
+            });
+            let published = false;
+            try {
+                await writePageStructureDocument(destPath, {kind: 'extract', pages: selectedPages}, [
+                    await browserDocumentStore.readableBlob(workingCopyPath),
+                ], operation.controller.signal);
+                beginPageOperationCommit(operation);
+                const output = await browserDocumentStore.readableBlob(destPath);
+                if (saveTarget.handle) {
+                    await options.writeBytesToHandle(saveTarget.handle, output);
+                    await browserDocumentStore.replaceWithHandleBackedDocument(destPath, {
+                        fileSize: output.size,
+                        saveHandle: saveTarget.handle,
+                        saveName: normalizedFileName,
+                    });
+                } else {
+                    const saveResult = await options.saveBytesToPickerOrDownload(output, {
+                        suggestedName: normalizedFileName,
+                        mimeType: 'application/pdf',
+                        pickerTypes: buildPdfSaveTypes(),
+                    });
+                    if (saveResult.canceled) {
+                        return {
+                            success: false,
+                            canceled: true,
+                        };
+                    }
+                }
+                published = true;
+            } finally {
+                if (!published) await browserDocumentStore.remove(destPath).catch(() => undefined);
             }
             await browserDocumentStore.touchRecentFile(destPath);
             return {
@@ -701,21 +678,14 @@ export function createBrowserPageOpsCapability(
                 return {
                     success: false,
                     canceled: true,
-                };
+                } as const;
             }
 
-            // The insertion reads from the picked files, as desktop reads their
-            // paths: no stored document waits in the edit queue, where storage
-            // maintenance could collect it. Several files are combined first.
-            const [single] = pickedFiles;
-            const insertion = pickedFiles.length === 1 && single && /\.pdf$/iu.test(single.file.name)
-                ? single.file
-                : new Blob([toBrowserOwnedArrayBuffer(await combinePickedFiles(pickedFiles, operation.controller.signal))]);
             return insertPages(
                 operation,
                 totalPages,
                 afterPage,
-                async () => new Uint8Array(await insertion.arrayBuffer()),
+                () => readPickedInsertion(pickedFiles, operation.controller.signal),
                 mutationOptions,
             );
         }),
@@ -724,7 +694,7 @@ export function createBrowserPageOpsCapability(
                 operation,
                 totalPages,
                 afterPage,
-                destinationBytes => readInsertionBytes(sourcePaths, requestId, destinationBytes, operation.controller.signal),
+                () => readInsertion(sourcePaths, requestId, operation.controller.signal),
                 mutationOptions,
             )
         )),
@@ -804,15 +774,8 @@ export function createBrowserPageOpsCapability(
             });
         },
         async readOutline(workingCopyPath): Promise<IPdfBookmarkEntry[]> {
-            const catalog = await runWorkerBackedPdfOperation({
-                path: workingCopyPath,
-                type: 'readCatalog',
-                createPayload: (data) => ({data}),
-                runDirect: async (data) => {
-                    const { readPdfCatalog } = await loadBrowserPageOpsCore();
-                    return readPdfCatalog(data);
-                },
-            });
+            assertBrowserPageOpsSource(workingCopyPath, 'Reading the outline');
+            const catalog = await runBrowserPageOpsWorkerRequest('readCatalog', {source: await browserDocumentStore.readableBlob(workingCopyPath)});
             return v.parse(v.array(PDF_BOOKMARK_RECOVERY_ENTRY_SCHEMA), readBrowserPdfCatalogPart(catalog, 'bookmarks'));
         },
     } satisfies TFeatureBrowserBindings<typeof PAGE_OPS_PLATFORM_FEATURE>;

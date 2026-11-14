@@ -254,14 +254,8 @@ const eventSchema = v.variant('type', [
         progress: v.nullable(v.string()),
     }),
 ]);
-
-export const ASSISTANT_INSTANCE_CONFIG_SCHEMA = instanceConfigSchema;
 export const ASSISTANT_INSTANCES_SCHEMA = v.message(instancesSchema, 'invalid assistant provider instances');
-export const ASSISTANT_INSTANCE_STATUS_SCHEMA = instanceStatusSchema;
 export const ASSISTANT_SELECTION_SCHEMA = selectionSchema;
-export const ASSISTANT_ITEM_SCHEMA = itemSchema;
-export const ASSISTANT_TURN_SCHEMA = turnSchema;
-export const ASSISTANT_CHAT_SCHEMA = chatSchema;
 export const ASSISTANT_STATE_SCHEMA = v.message(stateSchema, 'invalid assistant state');
 export const ASSISTANT_STATE_REQUEST_SCHEMA = stateRequestSchema;
 export const ASSISTANT_SEND_REQUEST_SCHEMA = sendRequestSchema;
@@ -274,10 +268,6 @@ export const ASSISTANT_INSTANCES_RESULT_SCHEMA = v.message(instancesResultSchema
 export const ASSISTANT_EVENT_SCHEMA = v.message(eventSchema, 'invalid assistant event');
 
 export type TAssistantDriver = typeof ASSISTANT_DRIVERS[number];
-export type TAssistantInstanceState = typeof ASSISTANT_INSTANCE_STATES[number];
-export type TAssistantAuthState = typeof ASSISTANT_AUTH_STATES[number];
-export type TAssistantSpeedMode = typeof ASSISTANT_SPEED_MODES[number];
-export type TAssistantItemKind = typeof ASSISTANT_ITEM_KINDS[number];
 export type TAssistantItemStatus = typeof ASSISTANT_ITEM_STATUSES[number];
 export type IAssistantEnvironmentEntry = v.InferOutput<typeof environmentEntrySchema>;
 export type IAssistantInstanceConfig = v.InferOutput<typeof instanceConfigSchema>;

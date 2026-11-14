@@ -54,7 +54,6 @@ import { injectDocumentViewerRuntime } from '@app/modules/document-viewer/runtim
 defineOptions({inheritAttrs: false});
 const {
     continuousScroll = true,
-    currentPage = 1,
     currentSearchResultIndex = -1,
     documentRevisionToken = null,
     isActive = true,
@@ -70,7 +69,6 @@ const runtime = reactive(useDocumentPageSourceRuntime({
     emit,
     readProps: () => ({
         continuousScroll,
-        currentPage,
         documentRevisionToken,
         isActive,
         isInteractionActive: isInteractionActive ?? isActive,

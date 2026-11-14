@@ -45,8 +45,7 @@ import {
     parseBrowserSettingsStoragePayload,
 } from '@app/utils/browserSettingsPersistence';
 import { SETTINGS_STORAGE_KEY } from '@app/platform/browser-api/browserApiStorageKeys';
-import { DOCUMENTS_STORE } from '@app/platform/browser/browserDocumentConstants';
-import { runObjectStoreTransaction } from '@app/platform/browser/browserDocumentIdb';
+import { runBrowserLock } from '@app/platform/browser/runBrowserLock';
 import { setRendererDiagnosticsPreference } from '@app/utils/failureReporter';
 import {
     BrowserLogger,
@@ -180,54 +179,19 @@ function writeBrowserSettingsBootstrapCookies(
     document.cookie = `${BROWSER_THEME_COOKIE_KEY}=${encodeURIComponent(nextSettings.theme)}; Path=/; Max-Age=${BROWSER_SETTINGS_COOKIE_MAX_AGE_SECONDS}; SameSite=Lax${secureAttribute}`;
 }
 
+// Every page's settings write takes one lock, so no page overwrites another's change.
 async function runSerializedBrowserSettingsSave(settings: Partial<ISettingsData>) {
-    const transactionResult = await runObjectStoreTransaction<
-        {saved: true} | {error: unknown}
-    >(
-        DOCUMENTS_STORE,
-        'readwrite',
-        (store, setResult) => {
-            const lockRead = store.get(BROWSER_SETTINGS_STORAGE_LOCK_KEY);
-            lockRead.onsuccess = () => {
-                try {
-                    const currentSettings = readLatestBrowserSettingsForSave();
-                    const nextSettings = migrateSettings({
-                        ...currentSettings,
-                        ...settings,
-                    });
-                    writeBrowserSettingsToStorage(nextSettings);
-                    writeBrowserSettingsBootstrapCookies(nextSettings);
-                    settingsState = nextSettings;
-                    browserSettingsLoaded = true;
-                    setResult({saved: true});
-                } catch (error) {
-                    setResult({error});
-                }
-            };
-        },
-    );
-    if (transactionResult) {
-        if ('error' in transactionResult) {
-            throw transactionResult.error;
-        }
-        return;
-    }
-
-    // IndexedDB is the cross-page serialization boundary. Do not report a
-    // successful localStorage mutation when that boundary cannot be acquired.
-    if (typeof indexedDB !== 'undefined') {
-        throw new Error('Failed to serialize browser settings persistence');
-    }
-
-    const currentSettings = readLatestBrowserSettingsForSave();
-    const nextSettings = migrateSettings({
-        ...currentSettings,
-        ...settings,
+    await runBrowserLock(BROWSER_SETTINGS_STORAGE_LOCK_KEY, async () => {
+        const currentSettings = readLatestBrowserSettingsForSave();
+        const nextSettings = migrateSettings({
+            ...currentSettings,
+            ...settings,
+        });
+        writeBrowserSettingsToStorage(nextSettings);
+        writeBrowserSettingsBootstrapCookies(nextSettings);
+        settingsState = nextSettings;
+        browserSettingsLoaded = true;
     });
-    writeBrowserSettingsToStorage(nextSettings);
-    writeBrowserSettingsBootstrapCookies(nextSettings);
-    settingsState = nextSettings;
-    browserSettingsLoaded = true;
 }
 
 function readAndMigrateBrowserSettings(options: IBrowserSettingsReadOptions = {}): IBrowserSettingsReadResult | null {

@@ -1,10 +1,5 @@
-import {
-    DB_NAME, DOCUMENTS_STORE,
-} from '@app/platform/browser/browserDocumentConstants';
 import {browserDocumentStore} from '@app/platform/browserDocumentStore';
-import {
-    FakeIndexedDbFactory, MemoryStorage,
-} from '@tests/unit/app/platform/browserPlatformTestDoubles';
+import {MemoryStorage} from '@tests/unit/app/platform/browserPlatformTestDoubles';
 import {requireJobId} from '@contracts/shared';
 import type * as TViMockOriginalModule from '@app/modules/document-viewer/public';
 import type * as TDjvuConversionPipelineModule from '@app/platform/browser-api/browserDjvuConversionPipeline';
@@ -38,13 +33,12 @@ import {
 } from '@contracts/documentRevision';
 import type {TDocumentCommitReceipt} from '@app/types/workspaceExpose';
 import type { TPdfSource } from '@app/types/pdfUi';
+import { createDocumentSessionState } from '@app/modules/workspace-shell/composables/document-session/documentSessionState';
 import {
-    createDocumentSessionState,
     createWorkspaceDocumentDriverForAdapter,
     useWorkspaceDocumentDriver,
     useWorkspaceDocumentDriverBinding,
     type IWorkspaceDocumentDriverBindingOptions,
-    type TAnnotationEnrichmentStateListener,
     type TAnnotationInventoryListener,
 } from '@app/modules/workspace-shell/viewers/workspaceDocumentDriver';
 import {
@@ -52,6 +46,7 @@ import {
     getWorkspaceViewerAdapter,
 } from '@app/modules/workspace-shell/viewers/workspaceViewerAdapters';
 import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
+import { createWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 
 const driverMocks = vi.hoisted(() => ({
     runBrowserDjvuConversion: vi.fn(async (_source: TDocumentRef, _output: TDocumentRef) => ({success: true})),
@@ -96,14 +91,13 @@ vi.mock('@app/modules/document-viewer/public', async (importOriginal) => ({
     ensurePdfProjection: driverMocks.ensurePdfProjection,
 }));
 
-function selectPendingDocument(path: string, size: number | null) {
+function selectPendingDocument(path: string) {
     return useWorkspaceDocumentDriver({
         djvuSourcePath: ref<TDocumentRef | null>(null),
         isDjvuMode: ref(false),
         pdfSrc: ref<TPdfSource | null>(null),
         workingCopyPath: ref<TDocumentRef | null>(null),
         pendingDocumentPath: ref<TDocumentRef | null>(requireDocumentRef(path)),
-        pendingDocumentSize: ref<number | null>(size),
     });
 }
 
@@ -122,7 +116,6 @@ function createBindingHarness() {
     const isRenderActive = ref(false);
     const isWorkspaceLayoutResizing = ref(false);
     const onAnnotationInventory = vi.fn<TAnnotationInventoryListener>();
-    const onAnnotationEnrichmentState = vi.fn<TAnnotationEnrichmentStateListener>();
     const onAnnotationFailure = vi.fn();
     const onPageSourceUpdate = vi.fn();
     const onSourceCapabilitiesUpdate = vi.fn();
@@ -140,7 +133,6 @@ function createBindingHarness() {
         isInteractionActive,
         isRenderActive,
         isWorkspaceLayoutResizing,
-        onAnnotationEnrichmentState,
         onAnnotationInventory,
         onPageSourceUpdate,
         onSourceCapabilitiesUpdate,
@@ -174,7 +166,6 @@ function createBindingHarness() {
         isInteractionActive,
         isRenderActive,
         isWorkspaceLayoutResizing,
-        onAnnotationEnrichmentState,
         onAnnotationInventory,
         onPageSourceUpdate,
         onSourceCapabilitiesUpdate,
@@ -188,7 +179,10 @@ describe('WorkspaceDocumentDriver', () => {
     });
 
     it('uses the source filename when a PDF has a generic managed working copy', () => {
-        const state = createDocumentSessionState({isDesktopRuntime: ref(true)});
+        const state = createDocumentSessionState({
+            isDesktopRuntime: ref(true),
+            document: createWorkspaceDocumentController({tabId: 'tab-1'}),
+        });
         state.workingCopyPath.value = requireDocumentRef('/tmp/pdf-work-123/document.pdf');
         state.originalPath.value = requireDocumentRef(
             '/Users/evb/Desktop/pdf/Haspelmath_Sims (2010) - Understanding Morphology.pdf',
@@ -278,7 +272,7 @@ describe('WorkspaceDocumentDriver', () => {
         expect(saveAs).not.toHaveBeenCalled();
         expect(saveAsDjvuProjection).toHaveBeenCalledOnce();
 
-        await expect(selectPendingDocument('/managed/document.pdf', 1).activeDocumentDriver.value?.run({
+        await expect(selectPendingDocument('/managed/document.pdf').activeDocumentDriver.value?.run({
             kind: 'prepare-print',
             request: {
                 orientation: 'portrait',
@@ -624,29 +618,14 @@ describe('WorkspaceDocumentDriver', () => {
         // hop; collapsing it into a complete record would hide the notice.
         expect(harness.onAnnotationInventory).toHaveBeenNthCalledWith(2, null);
     });
-
-    it('routes the annotation enrichment verdict to the workspace only for the PDF.js viewer', () => {
-        const harness = createBindingHarness();
-
-        // Without this listener the annotations panel never learns that a
-        // document's annotation read was skipped, and silently shows unknown
-        // authors instead.
-        expect(harness.binding.activeViewerListeners.value.annotationEnrichmentState)
-            .toBe(harness.onAnnotationEnrichmentState);
-
-        harness.activeDocumentDriver.value = harness.createDriver('djvu');
-
-        expect(harness.binding.activeViewerListeners.value.annotationEnrichmentState).toBeUndefined();
-    });
 });
 
 
 describe('DjVu print layout cancellation storage', () => {
     afterEach(() => vi.unstubAllGlobals());
     it('starts no conversion when canceled while its output is being created', async () => {
-        const indexedDb = new FakeIndexedDbFactory();
-        vi.stubGlobal('indexedDB', indexedDb);
         vi.stubGlobal('localStorage', new MemoryStorage());
+        const storedBefore = browserDocumentStore.openEntries().length;
         const {prepareBrowserDjvuPrint} = await import('@app/platform/browser-api/prepareBrowserDjvuPrint');
         const {browserDjvuCapability} = await import('@app/platform/browser-api/browserDjvuCapability');
         const createStarted = Promise.withResolvers<undefined>();
@@ -689,16 +668,15 @@ describe('DjVu print layout cancellation storage', () => {
             expect(await outcome).toMatchObject({name: 'AbortError'});
             await vi.waitFor(() => expect(printResult).toMatchObject({canceled: true}));
             expect(driverMocks.runBrowserDjvuConversion).not.toHaveBeenCalled();
-            expect(indexedDb.getDatabase(DB_NAME)?.getStoreRecords(DOCUMENTS_STORE).size ?? 0).toBe(0);
+            expect(browserDocumentStore.openEntries()).toHaveLength(storedBefore);
         } finally {
             create.mockRestore();
         }
     });
 
     it('leaves no stored PDF when canceled during layout', async () => {
-        const indexedDb = new FakeIndexedDbFactory();
-        vi.stubGlobal('indexedDB', indexedDb);
         vi.stubGlobal('localStorage', new MemoryStorage());
+        const storedBefore = browserDocumentStore.openEntries().length;
         const {prepareBrowserDjvuPrint} = await import('@app/platform/browser-api/prepareBrowserDjvuPrint');
         const {browserDjvuCapability} = await import('@app/platform/browser-api/browserDjvuCapability');
         const layoutStarted = Promise.withResolvers<undefined>();
@@ -753,7 +731,7 @@ describe('DjVu print layout cancellation storage', () => {
         });
         expect(printResult).not.toHaveProperty('printablePdfPath');
         expect(await browserDocumentStore.exists(convertedPath!)).toBe(false);
-        expect(indexedDb.getDatabase(DB_NAME)?.getStoreRecords(DOCUMENTS_STORE).size).toBe(0);
+        expect(browserDocumentStore.openEntries()).toHaveLength(storedBefore);
         expect(onNativePrintHandoffStart).not.toHaveBeenCalled();
     });
 });

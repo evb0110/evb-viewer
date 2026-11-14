@@ -47,13 +47,7 @@ vi.mock('@electron/utils/pathValidator', () => ({
     resolveAllowedReadPath: mocks.resolveAllowedReadPath,
     resolveAllowedWritePath: mocks.resolveAllowedWritePath,
 }));
-vi.mock('@electron/file-access/workingCopyCreation', () => ({requireManagedWorkingCopyPath: (path: string) => mocks.requireManagedWorkingCopyPath(path)}));
-vi.mock('@electron/file-access/workingCopyStore', async () => ({
-    ...await vi.importActual<Record<string, unknown>>('@electron/file-access/workingCopyStore'),
-    getWorkingCopyBackingEntry: mocks.getWorkingCopyBackingEntry,
-}));
-vi.mock('@electron/file-access/runWithWorkingCopyReadBacking', () => ({runWithWorkingCopyReadBacking: (...args: unknown[]) => mocks.runWithWorkingCopyReadBacking(...args)}));
-vi.mock('@electron/file-access/workingCopyMaterialization', () => {
+vi.mock('@electron/file-access/documentStore', async () => {
     class WorkingCopyMaterializationError extends Error {
         readonly code: string;
         readonly retryable: boolean;
@@ -66,6 +60,10 @@ vi.mock('@electron/file-access/workingCopyMaterialization', () => {
         }
     }
     return {
+        ...await vi.importActual<Record<string, unknown>>('@electron/file-access/documentStore'),
+        requireManagedWorkingCopyPath: (path: string) => mocks.requireManagedWorkingCopyPath(path),
+        getWorkingCopyBackingEntry: mocks.getWorkingCopyBackingEntry,
+        runWithWorkingCopyReadBacking: (...args: unknown[]) => mocks.runWithWorkingCopyReadBacking(...args),
         ensureWorkingCopyMaterialized: (...args: unknown[]) => mocks.ensureWorkingCopyMaterialized(...args),
         WorkingCopyMaterializationError,
     };

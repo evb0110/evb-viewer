@@ -5,18 +5,17 @@ import {
 } from 'vitest';
 import {
     assertDocumentViewportSessionInvariants,
-    canOpenRecentDocument,
     collectDocumentViewportSessionInvariantViolations,
     createEmptyDocumentViewportSession,
     reduceDocumentViewportSession,
     resolveDocumentViewportCurrentPage,
-} from '@app/modules/document-viewer/runtime/documentOpenSurfaceSession';
+} from '@app/modules/document-viewer/runtime/documentOpenSurfaceReducer';
 import type {
     IDocumentViewportCommitFence,
     IDocumentViewportRenderFence,
     IDocumentViewportSessionState,
     TDocumentViewportSessionEvent,
-} from '@app/modules/document-viewer/runtime/documentOpenSurfaceSession';
+} from '@app/modules/document-viewer/runtime/documentOpenSurfaceReducer';
 
 const identity = {
     documentId: 'document-a',
@@ -528,35 +527,5 @@ describe('DocumentViewportSession', () => {
             fence: staleRender,
         }).accepted).toBe(false);
         expect(harness.state.identity?.documentId).toBe('document-b');
-    });
-
-    it('closes to an atomically empty, recent-open-ready session and fences late work', () => {
-        const harness = new SessionHarness();
-        harness.openWithMetadata();
-        harness.settleCurrentPage();
-        expect(harness.dispatch({
-            type: 'page-observed',
-            generation: harness.state.generation,
-            pageNumber: 6,
-        }).accepted).toBe(true);
-        const closingGeneration = harness.state.generation;
-        expect(canOpenRecentDocument(harness.state)).toBe(false);
-
-        harness.dispatch({type: 'close-requested'});
-        expect(harness.state.observedPage).toBeNull();
-        expect(canOpenRecentDocument(harness.state)).toBe(false);
-        const closed = harness.dispatch({
-            type: 'close-committed',
-            generation: closingGeneration,
-        });
-
-        expect(closed.accepted).toBe(true);
-        expect(harness.state).toEqual(createEmptyDocumentViewportSession(closingGeneration));
-        expect(canOpenRecentDocument(harness.state)).toBe(true);
-        expect(harness.dispatch({
-            type: 'metadata-ready',
-            generation: closingGeneration,
-            pageCount: 10,
-        }).accepted).toBe(false);
     });
 });

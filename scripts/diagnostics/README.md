@@ -52,47 +52,6 @@ profile effective for that hidden session and the source/working-output paths.
 
 ## Scan-cleanup release corpus
 
-### Fold adjudication surfaces
-
-The S4(d) fold comparison intentionally keeps two measurements separate. The
-150-DPI, content-cropped ten-spread surface is an OCR/content-box residue-review
-classifier; it is not the production-PDF metric from the historical untracked
-VPS runner. The 300-DPI, intrinsic-canvas exemplars directly measure how much
-fold-side source canvas remains on the right leaf. Exact source hashes, DPI,
-render options, and OCR thresholds live in
-`fold-adjudication-recipe.json`. The residue classifier also pins the canonical
-`eng` model from `packages/contracts/ocrLanguages.ts`, verifies the tracked
-`tessdata-best` file under `resources/tesseract/tessdata`, and passes that model
-directory to Tesseract explicitly.
-
-Render the pinned sources from both refs with the recorded protocol-v3 options,
-then measure the four manifest trees:
-
-```bash
-python3 scripts/diagnostics/fold-adjudication.py \
-  --main-fold-manifest .devkit/analysis/s4d-rescue/fold-corpus/main/manifest.json \
-  --branch-fold-manifest .devkit/analysis/s4d-rescue/fold-corpus/branch/manifest.json \
-  --main-exemplar-manifest .devkit/analysis/s4d-rescue/fold300/main/manifest.json \
-  --branch-exemplar-manifest .devkit/analysis/s4d-rescue/fold300/branch/manifest.json \
-  --out .devkit/analysis/s4d-rescue/fold-adjudication.json
-```
-
-On Windows PowerShell, run the same measurement with the Python launcher:
-
-```powershell
-py -3 scripts/diagnostics/fold-adjudication.py `
-  --main-fold-manifest .devkit/analysis/s4d-rescue/fold-corpus/main/manifest.json `
-  --branch-fold-manifest .devkit/analysis/s4d-rescue/fold-corpus/branch/manifest.json `
-  --main-exemplar-manifest .devkit/analysis/s4d-rescue/fold300/main/manifest.json `
-  --branch-exemplar-manifest .devkit/analysis/s4d-rescue/fold300/branch/manifest.json `
-  --out .devkit/analysis/s4d-rescue/fold-adjudication.json
-```
-
-The runner rejects a mismatched source hash or render recipe, records the local
-Tesseract version, reports every right-leaf signed OCR gap, and converts the
-300-DPI main-to-branch canvas-width change to millimetres. A negative
-`branchMinusMainMm` means that the branch removed fold-side canvas.
-
 Copy `scan-cleanup-corpus-config.example.json` to the ignored
 `.devkit/scan-cleanup-corpus.json` and replace each `pdfPath` with an absolute local
 path. Build the staged release tools, then run:
@@ -247,6 +206,11 @@ remains because the packaged release verifier references it. No other
 scan-cleanup diagnostic under this directory was clearly superseded, so no
 other deletion was made.
 
+The finished stroke-weight closure study (`analyze-word-weight.mjs`,
+`measure_components.py`, `make_crops.py`) and the S4(d) fold adjudication
+(`fold-adjudication.py` with its recipe) were deleted once their campaigns
+closed; recover them with `git show d54aee872:scripts/diagnostics/<file>`.
+
 Grayscale and color scan-cleanup outputs use plain `image-jpeg` records because
 their raster is already at final DPI; unlike `photo-jpeg`, this does not apply
 another PPI cap. Mixed pages use `layered-jpeg`: a quality-85 tonal background
@@ -340,50 +304,6 @@ the retained PBM. Exact equality is stricter than the encoder's component-level
 substitution policy. The conversion summary also retains every page's final and
 tier-1 layout verdict so a page-limited conversion can audit the full detection
 pass without keeping its raster workspace.
-
-## Scan-cleanup stroke-weight studies
-
-Two one-off measurement scripts back the scan-cleanup stroke-weight numbers. They were
-written inside untracked `.devkit` analysis directories, which made those numbers
-impossible to recompute from a clone; they are tracked here so the numbers can be
-reproduced. Their corpora, renders, OCR caches, and image outputs stay untracked —
-every script takes the artifact root as its first argument, and that root is the only
-place any of them writes. The sole read outside it is `make_crops.py` looking up a bold
-system font for its panel labels (override with `DIAG_CROP_FONT`).
-
-`analyze-word-weight.mjs` is the word-granularity study (the "1,691 matched words"
-figure). It expects `renders/output`, `renders/source`, and
-`conversion-evidence/native` under the artifact root, shells out to
-`tesseract <page>.png stdout -l eng --psm 3 tsv` for per-word boxes (cached under
-`ocr/`), and writes `word-weight-results.json` plus comparison crops:
-
-```bash
-node scripts/diagnostics/analyze-word-weight.mjs /absolute/path/to/artifact-root
-```
-
-`measure_components.py` is its component-granularity replacement — the one that can
-see a single bold letter inside a word, which the word-mean statistic averages away.
-The fixture shape is hard-coded to the study's corpus: 10 scanned source pages at
-`source/source299-01.png` … `source299-10.png`, and one directory per variant
-(`current`, `rescue-off`, `wolf`, `smoothing-off`) holding `<variant>.pdf.summary.json`
-plus 20 rendered leaves `leaf-01.png` … `leaf-20.png` — two leaves per source page,
-left then right. OCR comes from pre-generated TSVs at `ocr/current-leaf-NN.tsv`, one per
-leaf, read but never produced by the script. The original study's `tesseract` flags for
-those TSVs are not recorded in its logs; use the word-study invocation above
-(`-l eng --psm 3 tsv`) as the reference recipe. Output is line, component, and per-leaf
-metrics under `metrics/`. `make_crops.py` is the companion crop renderer and imports the
-alignment helpers, so both must stay in the same directory:
-
-```bash
-python3 scripts/diagnostics/measure_components.py /absolute/path/to/artifact-root
-python3 scripts/diagnostics/make_crops.py /absolute/path/to/artifact-root
-```
-
-Both Python scripts require Pillow. Tracking them changed only their portability, not
-their measurements: the artifact root became an argument instead of the script's own
-directory, `metrics/` and `crops/` are created on demand, the label font is looked up
-across platforms instead of assuming a macOS path, and non-finite metrics serialize as
-`null` instead of the bare `NaN` token that strict JSON readers reject.
 
 ## Navigation blink trace
 

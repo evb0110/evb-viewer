@@ -7,7 +7,6 @@ import {
     it,
     vi,
 } from 'vitest';
-import {FakeIndexedDbFactory} from '@tests/unit/app/platform/browserPlatformTestDoubles';
 import {requireJobId} from '@contracts/shared';
 import {requireEpochMs} from '@contracts/timestamps';
 import {discardScanCleanupDocumentState} from '@app/modules/scan-cleanup/runtime/discardScanCleanupDocumentState';
@@ -31,7 +30,6 @@ const AUTHORITATIVE_LIFECYCLE_KEY = `${SOURCE_SHA256}\u0000revision-1`;
 function cacheEntry() {
     return {
         ownerId: 'owner-1',
-        signatures: new Map<number, string>(),
         state: {
             jobId: requireJobId('detect-1'),
             status: 'completed' as const,
@@ -51,7 +49,6 @@ function cacheEntry() {
 
 describe('discardScanCleanupDocumentState', () => {
     beforeEach(() => {
-        vi.stubGlobal('indexedDB', new FakeIndexedDbFactory());
         localStorage.clear();
         scanCleanupDetectionSessionCache.clear();
         scanCleanupAutoDetectionCanceledDocuments.clear();

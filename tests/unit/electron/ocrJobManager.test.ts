@@ -36,15 +36,16 @@ vi.mock('electron', () => ({BrowserWindow: {getAllWindows: () => [{webContents: 
 vi.mock('@electron/utils/sendPlatformEvent', () => ({sendPlatformEvent: mocks.sendPlatformEvent}));
 vi.mock('@electron/features/ocr/pipeline/runOcrJob', () => ({runOcrJob: mocks.runOcrJob}));
 vi.mock('@electron/features/ocr/main/prepareLanguageModelsForJob.modelPrep', () => ({prepareLanguageModelsForJob: mocks.prepareLanguageModelsForJob}));
-vi.mock('@electron/features/ocr/main/paths', () => ({
-    resolveOcrPipelinePaths: async () => ({}),
-    getOcrToolPaths: () => ({tessdata: root}),
-}));
+vi.mock('@electron/features/ocr/main/paths', () => ({resolveOcrPipelinePaths: () => ({})}));
 vi.mock('@electron/features/ocr/languageModels', () => ({
     ensureRuntimeTessdataSeeded: mocks.ensureRuntimeTessdataSeeded,
     ensureTessdataLanguages: mocks.ensureTessdataLanguages,
+    getRuntimeTessdataDir: () => root,
 }));
-vi.mock('@electron/file-access/documentRevisionStore', () => ({getWorkingCopyRevision: mocks.getWorkingCopyRevision}));
+vi.mock('@electron/file-access/documentStore', async importOriginal => ({
+    ...await importOriginal<Record<string, unknown>>(),
+    getWorkingCopyRevision: mocks.getWorkingCopyRevision,
+}));
 
 const jobManager = await import('@electron/features/ocr/main/jobManager');
 

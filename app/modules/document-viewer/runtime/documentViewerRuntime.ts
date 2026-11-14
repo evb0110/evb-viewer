@@ -25,7 +25,6 @@ import { createDocumentViewerRenderCoordinator } from '@app/modules/document-vie
 import {
     createDocumentOpenSurfaceSession,
     type IDocumentOpenSurfaceSession,
-    type IDocumentViewportSessionState,
     resolveDocumentViewportCurrentPage,
 } from '@app/modules/document-viewer/runtime/documentOpenSurfaceSession';
 import type { IDocumentWheelInteraction } from '@app/modules/document-viewer/input/documentWheelInteraction';
@@ -84,31 +83,8 @@ export const documentViewerRuntimeKey = Symbol('document-viewer-runtime') as Inj
 
 let nextDocumentViewerChassisInstanceId = 0;
 
-export function shouldAcceptFeaturePackRuntimePage(
-    session: IDocumentViewportSessionState,
-    pageNumber: number,
-) {
-    const normalizedPage = Math.max(1, Math.trunc(pageNumber));
-    // A retained feature pack can finish projecting its previous page after
-    // the document session has already closed.  An empty session has no
-    // document whose scroll state is authoritative, so accepting that late
-    // projection would queue it as pre-open navigation for the next file and
-    // make the opening shell jump from page 1 to the stale page.
-    if (session.identity === null) {
-        return false;
-    }
-    // A claimed viewport session is the navigation authority. Feature packs
-    // project the result of an already-requested viewport commit; they must
-    // not turn a late projection from an older render into a new command.
-    // Viewport commit boundaries request their page before emitting this
-    // compatibility projection, so legitimate scroll/navigation updates still
-    // match requestedPage while stale updates are rejected.
-    return resolveDocumentViewportCurrentPage(session) === normalizedPage;
-}
-
 export function createDocumentViewerRuntime(
     sourceKind: Ref<TDocumentPageSourceKind>,
-    _initialPage = 1,
     sharedOpenSurface?: IDocumentOpenSurfaceSession | undefined,
 ): IDocumentViewerRuntime {
     const instanceId = `document-viewer-runtime-${String(++nextDocumentViewerChassisInstanceId)}`;

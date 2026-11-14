@@ -26,10 +26,12 @@ const resources = vi.hoisted(() => ({
     }),
 }));
 vi.mock('@electron/workspaceCheckpointStore', () => ({discardWorkspaceCheckpoint: resources.discard}));
-vi.mock('@electron/file-access/workingCopyStore', () => ({workingCopyMap: resources.copies}));
-vi.mock('@electron/file-access/workingCopyCleanup', () => ({cleanupWorkingCopy: async (path: string, owner: number) => {
-    if (resources.copies.get(path)?.ownerWebContentsId === owner) resources.copies.delete(path);
-}}));
+vi.mock('@electron/file-access/documentStore', () => ({
+    openDocuments: resources.copies,
+    cleanupWorkingCopy: async (path: string, owner: number) => {
+        if (resources.copies.get(path)?.ownerWebContentsId === owner) resources.copies.delete(path);
+    },
+}));
 
 type TResponseHandler = (event: IpcMainEvent, payload: unknown) => void;
 interface ITestIpcMain {

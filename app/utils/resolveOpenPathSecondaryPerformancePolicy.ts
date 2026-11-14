@@ -7,7 +7,6 @@ export interface IOpenPathSecondaryPerformancePolicy {
     interactiveAnnotationNameReadMaxBytes: number;
     maxInMemoryPdfBytes: number;
     maxDjvuJsDesktopSourceBytes: number;
-    deferMediumHistoryBaseline: boolean;
     inactiveDjvuLeasePolicy: TInactiveDjvuLeasePolicy;
 }
 
@@ -18,7 +17,6 @@ const NORMAL_OPEN_PATH_SECONDARY_PERFORMANCE_POLICY = {
     interactiveAnnotationNameReadMaxBytes: 64 * MEBIBYTE,
     maxInMemoryPdfBytes: 16 * MEBIBYTE,
     maxDjvuJsDesktopSourceBytes: 96 * MEBIBYTE,
-    deferMediumHistoryBaseline: false,
     inactiveDjvuLeasePolicy: 'warm-grace',
 } as const satisfies IOpenPathSecondaryPerformancePolicy;
 
@@ -38,7 +36,6 @@ export function resolveOpenPathSecondaryPerformancePolicy(
         maxDjvuJsDesktopSourceBytes: profile.lowMemory
             ? 24 * MEBIBYTE
             : NORMAL_OPEN_PATH_SECONDARY_PERFORMANCE_POLICY.maxDjvuJsDesktopSourceBytes,
-        deferMediumHistoryBaseline: profile.lowMemory,
         inactiveDjvuLeasePolicy: profile.lowMemory
             ? 'release-immediately'
             : NORMAL_OPEN_PATH_SECONDARY_PERFORMANCE_POLICY.inactiveDjvuLeasePolicy,

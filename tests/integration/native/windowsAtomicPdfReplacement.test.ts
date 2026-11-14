@@ -1,10 +1,10 @@
 import {execFile} from 'node:child_process';
 import {
     access,
-    chmod,
     mkdir,
     mkdtemp,
     readFile,
+    readdir,
     rm,
     symlink,
     writeFile,
@@ -25,7 +25,6 @@ import {
     it,
 } from 'vitest';
 import {atomicReplace} from '@electron/utils/atomicReplace';
-import {createOcrJobManifestController} from '@electron/features/ocr/pipeline/ocrJobManifest';
 
 const holdFileHandleScript = resolve('tests/integration/native/hold-file-handle.ps1');
 const publicationHarness = resolve('tests/integration/native/windowsAtomicPdfPublicationHarness.cjs');
@@ -69,6 +68,7 @@ async function waitForHarnessMarker(markerPath: string, resultPath: string) {
         await waitForFile(markerPath, 30_000);
     } catch (error) {
         const diagnostics = await Promise.all([
+            resultPath,
             `${resultPath}.launch`,
             `${resultPath}.ready`,
             `${resultPath}.imported`,
@@ -91,7 +91,6 @@ async function runPublicationHarness(
     controlPath: string,
     options: {
         barrier?: boolean;
-        utility?: boolean;
     } = {},
 ) {
     const electronPath = resolve('node_modules/electron/dist/electron.exe');
@@ -106,12 +105,11 @@ async function runPublicationHarness(
         controlPath,
     ], {
         cwd: resolve('.'),
+        windowsHide: true,
         env: {
             ...childEnv,
             EVB_AUTOMATION_HIDE_WINDOW: '1',
-            EVB_ATOMIC_REPLACE_TEST_BARRIER: options.barrier === true ? 'before-publish' : '',
-            EVB_ATOMIC_REPLACE_TEST_BARRIER_FILE: controlPath,
-            EVB_DOCUMENT_SAVE_UTILITY_THRESHOLD_BYTES: options.utility === true ? '1' : '999999999',
+            EVB_PUBLICATION_TEST_BARRIER: options.barrier === true ? '1' : '',
         },
     });
     return child;
@@ -127,39 +125,6 @@ describe.skipIf(process.platform !== 'win32')('Windows atomic PDF replacement', 
             force: true,
             recursive: true,
         })));
-    });
-
-    it('publishes and resumes OCR checkpoints when Windows refuses replacement of a read-only manifest', async () => {
-        const root = await mkdtemp(join(runtimeRoot, 'evb-ocr-manifest-'));
-        rootPaths.push(root);
-        const manifestPath = join(root, 'manifest.json');
-        const first = await createOcrJobManifestController(root, 'fingerprint');
-        await first.markPageVerified(1);
-        // Windows allows moving this file aside but rejects rename-overwrite
-        // with EPERM. Exercise that OS behavior without mocking the writer.
-        await chmod(manifestPath, 0o444);
-        try {
-            await first.markPageVerified(2);
-            await first.setTerminal('cancelled');
-            await chmod(manifestPath, 0o444);
-            const resumed = await createOcrJobManifestController(root, 'fingerprint');
-            expect([...resumed.verifiedPages]).toEqual([
-                1,
-                2,
-            ]);
-            await resumed.markPageVerified(3);
-            await resumed.setTerminal('completed');
-            expect(JSON.parse(await readFile(manifestPath, 'utf8'))).toMatchObject({
-                state: 'completed',
-                verifiedPages: [
-                    1,
-                    2,
-                    3,
-                ],
-            });
-        } finally {
-            await chmod(manifestPath, 0o666);
-        }
     });
 
     it('keeps the original pathname on complete old or new PDF bytes', async () => {
@@ -243,11 +208,18 @@ describe.skipIf(process.platform !== 'win32')('Windows atomic PDF replacement', 
         const first = await runPublicationHarness('commit', sourcePath, destinationPath, resultPath, controlPath, {barrier: true});
         try {
             await waitForHarnessMarker(`${controlPath}.before-publish`, resultPath);
+            const temporary = (await readdir(root)).filter(name => /^\.[a-f0-9]+\.tmp$/u.test(name));
+            expect(temporary).toHaveLength(1);
+            await expect(readFile(join(root, temporary[0]!))).resolves.toEqual(Buffer.from(newBytes));
             first.kill();
             await new Promise<void>(resolvePromise => first.once('close', () => resolvePromise()));
         } finally {
             first.kill();
         }
+
+        const interruptedBytes = await readFile(destinationPath);
+        expect([Buffer.from(oldBytes), Buffer.from(newBytes)]).toContainEqual(interruptedBytes);
+        await expect(readPdfText(destinationPath)).resolves.toBe(1);
 
         const restart = await runPublicationHarness('commit', sourcePath, destinationPath, restartResultPath, controlPath);
         await new Promise<void>((resolvePromise, reject) => {
@@ -263,7 +235,7 @@ describe.skipIf(process.platform !== 'win32')('Windows atomic PDF replacement', 
         await expect(readPdfText(destinationPath)).resolves.toBe(1);
     }, 90_000);
 
-    it('cancels the real utility publisher through its parent terminator before publication', async () => {
+    it('keeps the destination complete when a validation utility is cancelled at the publication barrier', async () => {
         const root = await mkdtemp(join(runtimeRoot, 'evb-windows-atomic-utility-cancel-'));
         rootPaths.push(root);
         const sourcePath = join(root, 'staged.pdf');
@@ -272,14 +244,17 @@ describe.skipIf(process.platform !== 'win32')('Windows atomic PDF replacement', 
         const controlPath = join(root, 'utility.control');
         const oldBytes = await makePdf('old Windows utility cancellation');
         await writeFile(destinationPath, oldBytes);
-        await writeFile(sourcePath, await makePdf('new Windows utility cancellation'));
+        const newBytes = await makePdf('new Windows utility cancellation');
+        await writeFile(sourcePath, newBytes);
 
         const utility = await runPublicationHarness('cancel-utility', sourcePath, destinationPath, resultPath, controlPath, {
             barrier: true,
-            utility: true,
         });
         try {
-            await waitForHarnessMarker(`${controlPath}.before-publish`, resultPath);
+            await waitForHarnessMarker(`${controlPath}.utility-ready`, resultPath);
+            const temporary = (await readdir(root)).filter(name => /^\.[a-f0-9]+\.tmp$/u.test(name));
+            expect(temporary).toHaveLength(1);
+            await expect(readFile(join(root, temporary[0]!))).resolves.toEqual(Buffer.from(newBytes));
             await writeFile(`${controlPath}.cancel`, 'cancel');
             await new Promise<void>((resolvePromise, reject) => {
                 utility.once('error', reject);
@@ -288,8 +263,9 @@ describe.skipIf(process.platform !== 'win32')('Windows atomic PDF replacement', 
         } finally {
             utility.kill();
         }
-        await expect(readFile(resultPath).then(bytes => JSON.parse(bytes.toString()))).resolves.toMatchObject({ok: false});
+        await expect(readFile(resultPath).then(bytes => JSON.parse(bytes.toString()))).resolves.toMatchObject({ok: false, utilityExited: true, error: expect.stringContaining('Windows integration utility cancellation')});
         await expect(readFile(destinationPath)).resolves.toEqual(Buffer.from(oldBytes));
         await expect(readPdfText(destinationPath)).resolves.toBe(1);
+        expect((await readdir(root)).filter(name => name.includes('.tmp'))).toEqual([]);
     }, 90_000);
 });

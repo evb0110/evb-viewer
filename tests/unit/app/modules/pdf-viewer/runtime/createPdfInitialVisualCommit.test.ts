@@ -9,6 +9,7 @@ import {
 } from 'vitest';
 import {
     ref,
+    watch,
     type Ref,
 } from 'vue';
 import { createPdfInitialVisualCommit } from '@app/modules/pdf-viewer/runtime/lifecycle/createPdfInitialVisualCommit';
@@ -22,16 +23,12 @@ function createDomRect(shape: object): DOMRect {
     return shape as DOMRect;
 }
 
-function createViewportFixture(
-    currentPage: Ref<number>,
-    commitCurrentViewportIfSettled: (pageNumber: number) => boolean,
-): TPdfViewportSession {
-    // The handshake uses only the scale, opening extent, and page commit slice.
+function createViewportFixture(currentPage: Ref<number>): TPdfViewportSession {
+    // The handshake uses only the page, scale and opening extent.
     return Object.assign(Object.create(null), {
         currentPage,
         scale: {scaledMargin: ref(20)},
         openVirtualSurfaceGeometry: {openingVirtualExtentMinimumScrollHeight: ref<number | null>(null)},
-        singlePageScroll: {commitCurrentViewportIfSettled},
     });
 }
 
@@ -91,7 +88,7 @@ function createResidentCanvasFixture(
     document.body.append(viewerContainer);
 
     const currentPage = ref(2);
-    const commitCurrentViewportIfSettled = (pageNumber: number) => {
+    const commitOpeningViewport = (pageNumber: number) => {
         const snapshot = surface.snapshot.value;
         const viewportIntentId = surface.viewportSession.value.viewportIntent!.id;
         return surface.commitViewport({
@@ -105,7 +102,7 @@ function createResidentCanvasFixture(
             top: 0,
         });
     };
-    const viewport = createViewportFixture(currentPage, commitCurrentViewportIfSettled);
+    const viewport = createViewportFixture(currentPage);
     const chassisAuthority = createChassisAuthority(surface);
     const renderOwner = surface.claimRenderOwner();
     const emitInitialVisualReady = vi.fn();
@@ -119,6 +116,13 @@ function createResidentCanvasFixture(
         queueFrame: vi.fn(),
         emitInitialVisualReady,
     });
+    // The viewport session places the page whose canvas committed and
+    // reports it; the rendering session then reconciles the first visual.
+    watch(() => surface.snapshot.value.committedRender, (render) => {
+        if (render && !surface.snapshot.value.committedViewport && commitOpeningViewport(render.pageNumber)) {
+            initialVisual.reconcileInitialVisual();
+        }
+    }, {flush: 'sync'});
 
     function mountPageCanvas(pageNumber: number) {
         const nextPageContainer = document.createElement('div');
@@ -227,6 +231,15 @@ describe('createPdfInitialVisualCommit', () => {
         expect(fixture.surface.viewportSession.value).toMatchObject({
             lifecycle: 'transitioning',
             requestedPage: 3,
+        });
+        // The viewport authority places a ticket's page before its raster.
+        fixture.surface.reportNavigation(fixture.surface.navigationTicket.value!, {
+            kind: 'placed',
+            page: 3,
+            left: 0,
+            top: 775,
+            geometryRevision: 8,
+            interactionEpoch: 98,
         });
 
         fixture.mountPageCanvas(3);

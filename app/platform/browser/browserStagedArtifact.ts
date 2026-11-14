@@ -11,9 +11,7 @@ import {
     type TBrowserStoreStagedArtifact,
 } from '@contracts/stagedArtifacts';
 import {
-    parseDocumentRevisionToken,
     type IDocumentRevisionInfo,
-    type TDocumentRevisionToken,
 } from '@contracts/documentRevision';
 import * as v from 'valibot';
 import {SerializableError} from '@contracts/serializableError';
@@ -25,19 +23,14 @@ export interface IBrowserStagedArtifactStore {
         modifiedAt: number;
     }>;
     read(ref: TDocumentRef, options?: {maxBytes?: number}): Promise<Uint8Array>;
-    commitStagedDocument(
-        stagedRef: TDocumentRef,
-        targetRef: TDocumentRef,
-        data: Uint8Array,
-        expectedStagedRevisionToken: TDocumentRevisionToken,
-        expectedTargetRevisionToken: TDocumentRevisionToken,
-    ): Promise<boolean>;
 }
 
 export interface ICreateBrowserStoreStagedArtifactOptions {
     leaseId: string;
     sha256: string;
     validations: IStagedArtifactValidations;
+    /** An edit appended to the record in place: its staged length, past the revision the record names. */
+    size?: number;
 }
 
 function toArrayBuffer(bytes: Uint8Array) {
@@ -57,7 +50,9 @@ export async function sha256Hex(bytes: Uint8Array) {
 /**
  * Mints the browser form of a staged receipt from a store record. The store
  * revision is copied into both identity fields so a receipt cannot refer to a
- * different record or to bytes from an earlier revision.
+ * different record or to bytes from an earlier revision. A native edit
+ * appended in place names its own record, its staged size and the SHA-256 of
+ * the appended bytes; its lease, not a reread, admits its commit.
  */
 export async function createBrowserStoreStagedArtifact(
     store: IBrowserStagedArtifactStore,
@@ -82,7 +77,7 @@ export async function createBrowserStoreStagedArtifact(
         receiptVersion: 1 as const,
         artifactKind: 'pdf' as const,
         path: stagedRef,
-        size: metadata.size,
+        size: options.size ?? metadata.size,
         sha256: options.sha256,
         fileIdentity: createBrowserStoreFileIdentity(stagedRef, revision.token),
         validations: options.validations,
@@ -144,31 +139,4 @@ export async function readBrowserStoreStagedArtifact(
         artifact: decoded,
         bytes,
     };
-}
-
-/** Commits the admitted receipt; only the successful target write consumes staging. */
-export async function commitBrowserStoreStagedArtifact(
-    store: IBrowserStagedArtifactStore,
-    stagedArtifact: unknown,
-    targetRef: TDocumentRef,
-    expectedTargetRevisionToken: TDocumentRevisionToken,
-    options: {maxBytes?: number} = {},
-): Promise<boolean> {
-    const expectedRevision = parseDocumentRevisionToken(expectedTargetRevisionToken);
-    if (expectedRevision === null) {
-        throw new Error('Browser staged commit requires a document revision token');
-    }
-    const {
-        artifact, bytes,
-    } = await readBrowserStoreStagedArtifact(store, stagedArtifact, options);
-    if (!isBrowserLegacyDocumentRef(targetRef) || targetRef === artifact.path) {
-        throw new Error('Browser staged commit requires a different browser target ref');
-    }
-    return store.commitStagedDocument(
-        artifact.path,
-        targetRef,
-        bytes,
-        artifact.revision,
-        expectedRevision,
-    );
 }

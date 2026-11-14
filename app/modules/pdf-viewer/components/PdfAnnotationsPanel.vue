@@ -20,14 +20,12 @@
             :comments="comments"
             :status="commentsStatus"
             :inventory="inventory"
-            :enrichment-state="enrichmentState"
             :active-comment-stable-key="activeCommentStableKey"
             :author-name="appSettings.authorName"
             @focus-comment="focusComment"
             @edit-text-box="emit('edit-text-box', $event)"
             @open-note="openNote"
             @delete-comment="deleteComment"
-            @retry-enrichment="retryEnrichment"
         />
 
         <section
@@ -63,9 +61,7 @@ import type {
     TAnnotationCommentsStatus,
     TAnnotationTool,
 } from '@app/types/annotations';
-import type { IAnnotationEnrichmentState } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/annotationEnrichmentPolicy';
 import type { AnnotationEntity } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
-import { PENDING_ANNOTATION_ENRICHMENT_STATE } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/annotationEnrichmentPolicy';
 import PdfAnnotationCommentsList from '@app/modules/pdf-viewer/components/PdfAnnotationCommentsList.vue';
 import PdfAnnotationStyleEditor from '@app/modules/pdf-viewer/components/PdfAnnotationStyleEditor.vue';
 import PdfAnnotationToolbar from '@app/modules/pdf-viewer/components/PdfAnnotationToolbar.vue';
@@ -79,7 +75,6 @@ interface IProps {
     comments: IAnnotationCommentSummary[];
     commentsStatus: TAnnotationCommentsStatus;
     inventory?: IAnnotationInventoryCompleteness | null | undefined;
-    enrichmentState?: IAnnotationEnrichmentState | undefined;
     selectedAnnotations?: readonly AnnotationEntity[];
     canRotateAnnotations?: ((delta: -90 | 90) => boolean) | undefined;
 }
@@ -95,7 +90,6 @@ const {
     comments,
     commentsStatus,
     inventory = null,
-    enrichmentState = PENDING_ANNOTATION_ENRICHMENT_STATE,
     selectedAnnotations = [],
     canRotateAnnotations = undefined,
 } = defineProps<IProps>();
@@ -121,7 +115,6 @@ const emit = defineEmits<{
     'edit-text-box': [comment: IAnnotationCommentSummary];
     'open-note': [comment: IAnnotationCommentSummary];
     'delete-comment': [comment: IAnnotationCommentSummary];
-    'retry-enrichment': [];
 }>();
 
 const keepActiveModel = computed({
@@ -150,10 +143,6 @@ function openNote(comment: IAnnotationCommentSummary) {
 
 function deleteComment(comment: IAnnotationCommentSummary) {
     emit('delete-comment', comment);
-}
-
-function retryEnrichment() {
-    emit('retry-enrichment');
 }
 </script>
 

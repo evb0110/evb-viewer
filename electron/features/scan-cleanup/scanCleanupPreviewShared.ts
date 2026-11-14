@@ -4,6 +4,7 @@ import type {
     mkdir,
     mkdtemp,
     open,
+    rename,
     rm,
     stat,
     writeFile,
@@ -70,11 +71,9 @@ import type {
     IMainJobSender,
     TMainJobSnapshot,
 } from '@electron/operation-lifecycle/createMainJobRegistry';
-import type { ensureWorkingCopyMaterialized } from '@electron/file-access/workingCopyMaterialization';
-
-
-
-export const PAGE_SIZE_COMPATIBILITY_CHUNK_PAGES = 1_024;
+import {
+    type ensureWorkingCopyMaterialized,
+} from '@electron/file-access/documentStore';
 export const PREVIEW_MAX_IMAGE_BYTES = 32 * 1024 * 1024;
 export const BASE_ANALYSIS_CACHE_PAGE_LIMIT = 32;
 // Canonical cleaned previews are retained only so detail tiles can replay the
@@ -399,6 +398,7 @@ export interface IScanCleanupFileSystem {
         isFile: () => boolean;
         name: string;
     }>>;
+    rename: typeof rename;
     rm: typeof rm;
     stat: typeof stat;
     writeFile: typeof writeFile;

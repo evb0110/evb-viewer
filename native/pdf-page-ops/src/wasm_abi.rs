@@ -52,7 +52,6 @@ macro_rules! abi {
                 $(writeln!(output, "    {}: {},", camel_case(stringify!($field)), $layout.$field).unwrap();)+
                 writeln!(output, "    bytes: {},\n}} as const;", $layout.bytes).unwrap();
             )*
-            writeln!(output, "\nexport const REQUEST_ORIGINAL_APPEARANCE_SOURCE_HEADER = {{\n    sourceDataLength: {},\n    bytes: {},\n}} as const;", REQUEST_ORIGINAL_APPEARANCE_SOURCE_HEADER.source_data_length, REQUEST_ORIGINAL_APPEARANCE_SOURCE_HEADER.bytes).unwrap();
             output
         }
     };
@@ -62,10 +61,11 @@ abi! {
     constants {
         // Version 2 includes the trailing password length for decrypt.
         REQUEST_VERSION: u32 = 2;
-        REQUEST_VERSION_DOCUMENT_LIST: u32 = 3;
-        REQUEST_VERSION_ORIGINAL_APPEARANCE_SOURCE: u32 = 4;
         // INSTRUCTED_REQUEST_HEADER framing.
         REQUEST_VERSION_INSTRUCTED: u32 = 5;
+        // FILE_REQUEST_HEADER framing: an edit whose inputs are the host's
+        // source files and whose output is its sink file.
+        REQUEST_VERSION_FILES: u32 = 6;
         U32_BYTES: usize = std::mem::size_of::<u32>();
         F64_BYTES: usize = std::mem::size_of::<f64>();
         // One request or one framed response, up to the largest single
@@ -73,11 +73,8 @@ abi! {
         MAX_BUFFER_BYTES: usize = evb_native_support::wasm_request_allocation::WASM_MAX_BUFFER_BYTES;
         RESPONSE_MUTATION: u32 = 1;
         RESPONSE_ANNOTATION_PARSE: u32 = 3;
-        RESPONSE_NATIVE_MUTATIONS: u32 = 4;
         RESPONSE_JSON: u32 = 5;
         RESPONSE_TEXT_BOX_APPEARANCE: u32 = 6;
-        // MUTATION_HEADER layout; the data is only the appended revision.
-        RESPONSE_INCREMENT: u32 = 7;
         // REPORTED_HEADER layout: a whole PDF and its CLI command's JSON report.
         RESPONSE_REPORTED_PDF: u32 = 8;
         // REPORTED_HEADER layout: the appended revision, empty when the pass
@@ -87,9 +84,13 @@ abi! {
         // of their width, height and sample compatibility, or no rows and the
         // reason the page has no scan raster.
         RESPONSE_REPORTED_RASTER: u32 = 10;
-        NATIVE_MUTATION_POSTCONDITIONS_VERIFIED: u32 = 1;
+        // WRITTEN_HEADER layout: the page count and byte length of what the
+        // engine wrote to the host's sink and verified there; for a save,
+        // followed by its identity bindings as JSON.
+        RESPONSE_WRITTEN: u32 = 11;
     }
     operations {
+        // The five page-structure edits use FILE_REQUEST_HEADER framing.
         OP_DELETE_PAGES = 1 => "deletePages";
         OP_EXTRACT_PAGES = 2 => "extractPages";
         OP_REORDER_PAGES = 3 => "reorderPages";
@@ -99,21 +100,31 @@ abi! {
         OP_REMOVE_CROP = 7 => "removeCrop";
         OP_GET_PAGE_GEOMETRY = 8 => "getPageGeometry";
         OP_DECRYPT = 9 => "decrypt";
+        // FILE_REQUEST_HEADER framing over source 0. Answers
+        // RESPONSE_ANNOTATION_PARSE.
         OP_PARSE_ANNOTATIONS = 10 => "parseAnnotations";
+        // FILE_REQUEST_HEADER framing followed by the UTF-8 JSON mutation
+        // payload: appends a revision to source 0, whose file is the sink.
+        // Source 1, when given, holds the original appearances to restore.
         OP_SAVE_MUTATIONS = 11 => "saveMutations";
+        // FILE_REQUEST_HEADER framing over source 0. Answers RESPONSE_JSON.
         OP_READ_CATALOG = 12 => "readCatalog";
+        // FILE_REQUEST_HEADER framing over source 0. Answers RESPONSE_JSON.
         OP_CONFORMANCE = 13 => "conformance";
         OP_MERGE_PAGES = 14 => "mergePages";
         // Selected pages use the page list; insertion data is UTF-8
         // "<view mode> <orientation>".
         OP_PRINT_LAYOUT = 15 => "printLayout";
         OP_TEXT_BOX_APPEARANCE = 16 => "textBoxAppearance";
-        // Selected pages use the page list; insertion data is empty or the
-        // UTF-8 flag "with-evb-ocr-text". Answers RESPONSE_JSON.
+        // FILE_REQUEST_HEADER framing over source 0; the page list selects
+        // pages, then an empty tail or the UTF-8 flag "with-evb-ocr-text".
+        // Answers RESPONSE_JSON.
         OP_OCR_TEXT_VISIBILITY = 17 => "ocrTextVisibility";
-        // The operations below use INSTRUCTED_REQUEST_HEADER framing.
-        // Attaches one Tesseract page PDF per source. Answers RESPONSE_INCREMENT.
+        // FILE_REQUEST_HEADER framing followed by the JSON instructions:
+        // appends to source 0, whose file is the sink, from one Tesseract page
+        // PDF per source after it. Answers WRITTEN_HEADER.
         OP_OCR_TEXT_LAYER = 18 => "ocrTextLayer";
+        // The operations below use INSTRUCTED_REQUEST_HEADER framing.
         // No attachments. Answers RESPONSE_REPORTED_PDF.
         OP_SPLIT_PAGES = 19 => "splitPages";
         // Attaches the source PDF. Answers RESPONSE_REPORTED_PDF.
@@ -128,19 +139,18 @@ abi! {
         // No attachments; the instructions are the raster request. Answers
         // RESPONSE_REPORTED_RASTER.
         OP_RENDER_SCAN_CLEANUP_RASTER = 24 => "renderScanCleanupRaster";
+        // FILE_REQUEST_HEADER framing with no sources or pages: verifies the
+        // output of the edit before it, once the host has copied its streams.
+        OP_VERIFY_WRITTEN = 25 => "verifyWritten";
     }
     layouts {
         REQUEST_HEADER: RequestHeader {
             magic: REQUEST_MAGIC.len(), version: U32_BYTES, operation: U32_BYTES,
-            page_count: U32_BYTES, page_number: U32_BYTES, after_page: U32_BYTES,
+            page_count: U32_BYTES, page_number: U32_BYTES,
             // For crop, angle is 0 for raw units or 1 for physical points.
             angle: U32_BYTES, top: F64_BYTES, bottom: F64_BYTES,
             left: F64_BYTES, right: F64_BYTES, data_length: U32_BYTES,
             insertion_data_length: U32_BYTES, password_length: U32_BYTES,
-        }
-        DOCUMENT_LIST_HEADER: DocumentListHeader {
-            magic: REQUEST_MAGIC.len(), version: U32_BYTES,
-            operation: U32_BYTES, document_count: U32_BYTES,
         }
         // Followed by the document, the UTF-8 JSON instructions, then each
         // attached PDF as a little-endian u32 length and its bytes.
@@ -148,6 +158,16 @@ abi! {
             magic: REQUEST_MAGIC.len(), version: U32_BYTES, operation: U32_BYTES,
             data_length: U32_BYTES, instructions_length: U32_BYTES,
             attachment_count: U32_BYTES,
+        }
+        // Followed by the page list. Delete, extract and reorder edit source 0
+        // with the listed pages; insert puts source 1 after `after_page` of
+        // source 0; merge joins every source in order.
+        FILE_REQUEST_HEADER: FileRequestHeader {
+            magic: REQUEST_MAGIC.len(), version: U32_BYTES, operation: U32_BYTES,
+            source_count: U32_BYTES, after_page: U32_BYTES, page_count: U32_BYTES,
+        }
+        WRITTEN_HEADER: WrittenHeader {
+            kind: U32_BYTES, page_count: U32_BYTES, length: F64_BYTES,
         }
         MUTATION_HEADER: MutationHeader {
             kind: U32_BYTES, page_count: U32_BYTES, data_length: U32_BYTES,
@@ -163,22 +183,8 @@ abi! {
         TEXT_BOX_APPEARANCE_HEADER: TextBoxAppearanceHeader {
             kind: U32_BYTES, data_length: U32_BYTES, metadata_length: U32_BYTES,
         }
-        NATIVE_MUTATION_HEADER: NativeMutationHeader {
-            kind: U32_BYTES, page_count: U32_BYTES, data_length: U32_BYTES,
-            identity_bindings_length: U32_BYTES, postconditions_verified: U32_BYTES,
-        }
     }
 }
-
-pub(crate) struct OriginalAppearanceSourceHeader {
-    pub(crate) source_data_length: usize,
-    pub(crate) bytes: usize,
-}
-pub(crate) const REQUEST_ORIGINAL_APPEARANCE_SOURCE_HEADER: OriginalAppearanceSourceHeader =
-    OriginalAppearanceSourceHeader {
-        source_data_length: REQUEST_HEADER.bytes,
-        bytes: REQUEST_HEADER.bytes + U32_BYTES,
-    };
 
 #[cfg(test)]
 fn camel_case(name: &str) -> String {
@@ -219,13 +225,11 @@ pub(crate) struct ParsedRequest<'a> {
     pub(crate) operation: u32,
     pub(crate) pages: Vec<u32>,
     pub(crate) page_number: u32,
-    pub(crate) after_page: u32,
     pub(crate) angle: i64,
     pub(crate) margins: CropMargins,
     pub(crate) data: &'a [u8],
     pub(crate) insertion_data: &'a [u8],
     pub(crate) password: &'a [u8],
-    pub(crate) original_appearance_source: &'a [u8],
 }
 
 pub(crate) fn parse_request(request: &[u8]) -> Result<ParsedRequest<'_>> {
@@ -235,17 +239,13 @@ pub(crate) fn parse_request(request: &[u8]) -> Result<ParsedRequest<'_>> {
         return Err("Invalid page-op WASM request magic".into());
     }
     let version = read_u32_at(request, REQUEST_HEADER.version)?;
-    if version != REQUEST_VERSION && version != REQUEST_VERSION_ORIGINAL_APPEARANCE_SOURCE {
+    if version != REQUEST_VERSION {
         return Err(format!("Unsupported page-op WASM request version: {version}").into());
     }
 
     let operation = read_u32_at(request, REQUEST_HEADER.operation)?;
-    if version == REQUEST_VERSION_ORIGINAL_APPEARANCE_SOURCE && operation != OP_SAVE_MUTATIONS {
-        return Err("Original appearance source framing is reserved for Save".into());
-    }
     let page_count = read_usize_at(request, REQUEST_HEADER.page_count, "page_count")?;
     let page_number = read_u32_at(request, REQUEST_HEADER.page_number)?;
-    let after_page = read_u32_at(request, REQUEST_HEADER.after_page)?;
     let angle = i64::from(read_u32_at(request, REQUEST_HEADER.angle)?);
     let margins = CropMargins {
         physical: operation == OP_CROP && angle == 1,
@@ -261,18 +261,7 @@ pub(crate) fn parse_request(request: &[u8]) -> Result<ParsedRequest<'_>> {
         "insertion_data_len",
     )?;
     let password_len = read_usize_at(request, REQUEST_HEADER.password_length, "password_len")?;
-    let (mut offset, source_len) = if version == REQUEST_VERSION_ORIGINAL_APPEARANCE_SOURCE {
-        (
-            REQUEST_ORIGINAL_APPEARANCE_SOURCE_HEADER.bytes,
-            read_usize_at(
-                request,
-                REQUEST_ORIGINAL_APPEARANCE_SOURCE_HEADER.source_data_length,
-                "original appearance source length",
-            )?,
-        )
-    } else {
-        (REQUEST_HEADER.bytes, 0)
-    };
+    let mut offset = REQUEST_HEADER.bytes;
     if password_len > MAX_WASM_PASSWORD_BYTES {
         return Err(format!(
             "Page-op WASM password exceeds the {MAX_WASM_PASSWORD_BYTES}-byte ceiling"
@@ -287,7 +276,6 @@ pub(crate) fn parse_request(request: &[u8]) -> Result<ParsedRequest<'_>> {
         .checked_add(data_len)
         .and_then(|length| length.checked_add(insertion_data_len))
         .and_then(|length| length.checked_add(password_len))
-        .and_then(|length| length.checked_add(source_len))
         .ok_or("Invalid page-op WASM request length")?;
     let actual_remaining = request
         .len()
@@ -313,7 +301,6 @@ pub(crate) fn parse_request(request: &[u8]) -> Result<ParsedRequest<'_>> {
     let data = take_bytes(request, &mut offset, data_len)?;
     let insertion_data = take_bytes(request, &mut offset, insertion_data_len)?;
     let password = take_bytes(request, &mut offset, password_len)?;
-    let original_appearance_source = take_bytes(request, &mut offset, source_len)?;
     if offset != request.len() {
         return Err("Trailing bytes in page-op WASM request".into());
     }
@@ -322,13 +309,11 @@ pub(crate) fn parse_request(request: &[u8]) -> Result<ParsedRequest<'_>> {
         operation,
         pages,
         page_number,
-        after_page,
         angle,
         margins,
         data,
         insertion_data,
         password,
-        original_appearance_source,
     })
 }
 
@@ -356,10 +341,8 @@ pub(crate) fn parse_instructed_request(request: &[u8]) -> Result<ParsedInstructe
     }
     let operation = read_u32_at(request, INSTRUCTED_REQUEST_HEADER.operation)?;
     let attachments = match operation {
-        OP_OCR_TEXT_LAYER | OP_REPLACE_PAGE_IMAGES => {
-            // One per page; the request's own bytes bound the count below.
-            usize::from(operation == OP_OCR_TEXT_LAYER)..=usize::MAX
-        }
+        // One per page; the request's own bytes bound the count below.
+        OP_REPLACE_PAGE_IMAGES => 0..=usize::MAX,
         OP_OVERLAY_TEXT => 1..=1,
         OP_SPLIT_PAGES | OP_RECOMPRESS_IMAGES | OP_RENDER_SCAN_CLEANUP_RASTER => 0..=0,
         _ => {

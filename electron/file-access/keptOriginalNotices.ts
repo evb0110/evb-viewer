@@ -7,7 +7,7 @@ import {
     isRecord,
 } from '@contracts/runtimeGuards';
 import {safeJsonParse} from '@contracts/safeJsonParse';
-import {normalizePathForLookup} from '@electron/file-access/workingCopyStore';
+import {normalizePathForLookup} from '@electron/file-access/normalizePathForLookup';
 import {writeJsonAtomic} from '@electron/utils/atomicReplace';
 import {createLogger} from '@electron/utils/createLogger';
 import {getErrorMessage} from '@electron/utils/error';

@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 
+import type {Affine} from '@contracts/scan-cleanup/nativeWire.generated';
 import type {IScanCleanupZoneSelection} from '@app/modules/scan-cleanup/geometry/zoneGeometry';
 import type {TScanCleanupPageOverrides} from '@contracts/scan-cleanup/domain';
 import {FULL_SCAN_CLEANUP_SUPPORT} from '@contracts/scan-cleanup/scanCleanupPlatformFeature';
@@ -77,7 +78,6 @@ import {
 } from '@contracts/scan-cleanup/toolbarSelectors';
 import {useScanCleanupDocumentSettings} from '@app/modules/scan-cleanup/composables/useScanCleanupDocumentSettings';
 import {resetScanCleanupPreferencesStore} from '@app/modules/scan-cleanup/runtime/scanCleanupPreferencesStore';
-import {FakeIndexedDbFactory} from '@tests/unit/app/platform/browserPlatformTestDoubles';
 import type {IScanCleanupTabSessionState} from '@app/modules/workspace-shell/tabs/tabSessionStoreTypes';
 import type {IDocumentPageSource} from '@app/modules/document-viewer/source/documentPageSource';
 
@@ -179,17 +179,19 @@ vi.mock('@app/modules/scan-cleanup/composables/useScanCleanupWorkspaceSession', 
             canDetectAll: session.canDetectAll,
             cancel: session.cancelDetection,
             cancelRequested: session.detectionCancelRequested,
-            confidenceByPage: session.detectedLayoutConfidenceByPage,
+            confidenceByPage: computed(() => unref(session.detectedLayoutConfidenceByPage) ?? new Map()),
             detectAllPages: session.detectAllPages,
             error: session.detectionError,
             outputEstimate: session.outputEstimate,
             pending: session.detectionPending,
             progress: session.detectionProgress,
-            settledPages: session.detectionSettledPages ?? reactive(new Set()),
-            recommendedOutputModeByPage: session.recommendedOutputModeByPage ?? reactive(new Map()),
-            recommendedOutputModeConfidenceByPage: session.recommendedOutputModeConfidenceByPage ?? reactive(new Map()),
-            recommendedOutputModeReasonByPage: session.recommendedOutputModeReasonByPage ?? reactive(new Map()),
-            textAxisByPage: session.detectedTextAxisByPage ?? reactive(new Map()),
+            settledPages: computed(() => unref(session.detectionSettledPages) ?? new Set()),
+            recommendedOutputModeByPage: computed(() => unref(session.recommendedOutputModeByPage) ?? new Map()),
+            recommendedOutputModeConfidenceByPage: computed(
+                () => unref(session.recommendedOutputModeConfidenceByPage) ?? new Map(),
+            ),
+            recommendedOutputModeReasonByPage: computed(() => unref(session.recommendedOutputModeReasonByPage) ?? new Map()),
+            textAxisByPage: computed(() => unref(session.detectedTextAxisByPage) ?? new Map()),
         },
         preview: {
             error: session.previewError,
@@ -706,7 +708,7 @@ function spreadPreviewResult(pageNumber = 1): IScanCleanupPreviewResult {
                     0,
                     1,
                 ],
-            ]},
+            ] as Affine['matrix']},
             cutterXPx: 500,
             inputWidthPx: 1000,
             inputHeightPx: 800,
@@ -1565,6 +1567,7 @@ describe('Scan cleanup components', () => {
                             pictureMaskOverlapPixels: 240,
                             headingEvidence: false,
                             grayscaleEvidence: true,
+                            textEvidence: false,
                         }],
                     }],
                     protectedBlocks: [{
@@ -1577,6 +1580,7 @@ describe('Scan cleanup components', () => {
                         pictureMaskOverlapPixels: 1_300,
                         headingEvidence: true,
                         grayscaleEvidence: false,
+                        textEvidence: false,
                     }],
                 },
             }],
@@ -2015,7 +2019,6 @@ describe('Scan cleanup components', () => {
 
     it('normalizes persisted document mixed output to Auto and exposes Auto/B&W/Gray/Color labels', async () => {
         const previousIndexedDb = globalThis.indexedDB;
-        vi.stubGlobal('indexedDB', new FakeIndexedDbFactory());
         onTestFinished(() => {
             vi.stubGlobal('indexedDB', previousIndexedDb);
         });
@@ -3271,7 +3274,6 @@ describe('Scan cleanup components', () => {
             alignment: 'top-center',
             pageNumber: 2,
             totalPages: 3,
-            stalePage: true,
             manualSplit: null,
             readingOrder: 'ltr',
         })}));
@@ -3936,7 +3938,6 @@ describe('Scan cleanup components', () => {
             alignment: 'top-center',
             pageNumber: 2,
             totalPages: 3,
-            stalePage: true,
             layoutClassification: 'two-page-spread',
             manualSplit: null,
             readingOrder: 'ltr',
@@ -3965,7 +3966,6 @@ describe('Scan cleanup components', () => {
             alignment: 'top-center',
             pageNumber: 2,
             totalPages: 3,
-            stalePage: true,
             manualSplit: null,
             readingOrder: 'ltr',
         })}));
@@ -3988,7 +3988,6 @@ describe('Scan cleanup components', () => {
             alignment: 'top-center',
             pageNumber: 2,
             totalPages: 3,
-            stalePage: true,
             manualSplit: null,
             readingOrder: 'ltr',
         })}));
@@ -4011,7 +4010,6 @@ describe('Scan cleanup components', () => {
             alignment: 'top-center',
             pageNumber: 2,
             totalPages: 3,
-            stalePage: result.value?.pageNumber !== 2,
             manualSplit: null,
             readingOrder: 'ltr',
         })}));
@@ -4047,7 +4045,6 @@ describe('Scan cleanup components', () => {
             alignment: 'top-center',
             pageNumber: 2,
             totalPages: 3,
-            stalePage: true,
             manualSplit: null,
             readingOrder: 'ltr',
         })}));
@@ -5550,7 +5547,6 @@ describe('Scan cleanup components', () => {
             alignment: 'top-center',
             pageNumber: 1,
             totalPages: 3,
-            stalePage: false,
             manualSplit: manualSplit.value,
             readingOrder: 'ltr',
             'onUpdate:manualSplit': (value: IScanCleanupNormalizedSplit | null) => {

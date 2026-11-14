@@ -73,6 +73,42 @@ function visible(entities: readonly AnnotationEntity[]): IExpectedEntity[] {
 }
 
 describe('AnnotationStore interleaved sequence invariants', () => {
+    it('distinguishes current working bytes from the last published Save through undo and recovery', () => {
+        const store = new AnnotationStore();
+        store.replaceFromDocument([], []);
+        expect(store.hasChangesSinceWorkingBaseline()).toBe(false);
+        const created = store.createNote(note('working-note'));
+        expect(store.hasChangesSinceWorkingBaseline()).toBe(true);
+        store.markPersisted(store.beginSave(), [], null, true);
+        expect(store.hasChangesSinceSavedBaseline()).toBe(true);
+        expect(store.hasChangesSinceWorkingBaseline()).toBe(false);
+        store.undo();
+        expect(store.hasChangesSinceSavedBaseline()).toBe(false);
+        expect(store.hasChangesSinceWorkingBaseline()).toBe(true);
+        store.redo();
+        expect(store.hasChangesSinceWorkingBaseline()).toBe(false);
+        const recovered = new AnnotationStore();
+        const persisted = store.get(created.identity.id)!;
+        if (persisted.kind !== 'note') throw new Error('Expected the saved note');
+        recovered.replaceFromDocument([persisted], []);
+        recovered.import({...persisted, contents: 'recovered edit', revision: persisted.revision + 1}, {preserveSavedBaseline: true});
+        expect(recovered.hasChangesSinceWorkingBaseline()).toBe(true);
+        recovered.markPersisted(recovered.beginSave());
+        expect(recovered.hasChangesSinceWorkingBaseline()).toBe(false);
+        expect(recovered.hasChangesSinceSavedBaseline()).toBe(false);
+    });
+
+    it('ignores a never-written create-delete pair and load epochs for working-byte drafts', () => {
+        const store = new AnnotationStore();
+        const parsed = {...note('loaded'), persistedRevision: 0};
+        store.import(parsed);
+        expect(store.mutationEpoch).toBeGreaterThan(0);
+        expect(store.hasChangesSinceWorkingBaseline()).toBe(false);
+        const created = store.createNote(note('transient'));
+        store.delete(created.identity.id);
+        expect(store.hasChangesSinceWorkingBaseline()).toBe(false);
+    });
+
     it('keeps create-delete history without marking an unchanged document dirty', () => {
         const store = new AnnotationStore();
         const entity = store.createNote(note('draft'));

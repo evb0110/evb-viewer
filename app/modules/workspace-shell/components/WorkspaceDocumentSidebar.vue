@@ -31,8 +31,7 @@
         :annotation-comments="annotations.annotationComments.value"
         :annotation-comments-status="annotations.annotationCommentsStatus.value"
         :annotation-inventory="annotations.annotationInventory.value"
-        :annotation-enrichment-state="annotations.annotationEnrichmentState.value"
-        :selected-annotations="annotations.selectedAnnotations.value"
+        :selected-annotations="context.selectedAnnotations.value"
         :can-rotate-annotations="pdfViewer?.canRotateSelectedAnnotations"
         :bookmark-edit-mode="bookmarkState.bookmarkEditMode.value"
         :bookmark-items="bookmarkState.bookmarksResolved.value ? bookmarkState.bookmarkItems.value : undefined"
@@ -63,7 +62,6 @@
         @annotation-focus-comment="annotationActions.handleAnnotationFocusComment"
         @annotation-open-note="annotationActions.handleOpenAnnotationNote"
         @annotation-delete-comment="annotationActions.handleDeleteAnnotationComment"
-        @annotation-retry-enrichment="requestAnnotationEnrichment"
         @bookmarks-change="bookmarkState.handleBookmarksChange"
         @update:bookmark-edit-mode="bookmarkState.bookmarkEditMode.value = $event"
         @page-context-menu="context.pageContextMenu.showPageContextMenu"
@@ -123,7 +121,6 @@ const context = useDocumentViewContext();
 const {
     file,
     annotations,
-    pageOps,
     metadata: {
         pageLabelState,
         bookmarkState,
@@ -133,6 +130,7 @@ const {
     view,
     search,
     navigation,
+    pageOps,
     annotationActions,
     annotationTool,
     annotationToolState,
@@ -165,19 +163,6 @@ async function editTextBox(comment: IAnnotationCommentSummary) {
         throw error;
     }
 }
-
-function requestAnnotationEnrichment() {
-    void pdfViewer.value?.ensurePdfAnnotationNameReconciliation?.('annotations-ui-open');
-}
-watch(
-    () => view.showSidebar.value && view.sidebarTab.value === 'annotations',
-    (annotationsVisible) => {
-        if (annotationsVisible) {
-            requestAnnotationEnrichment();
-        }
-    },
-    {flush: 'post'},
-);
 
 function goToResult(index: number) {
     if (search.results.value[index]) {

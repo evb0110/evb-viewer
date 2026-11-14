@@ -16,7 +16,7 @@ pub(crate) fn annotation_delete_effects(
     let Some(located) = base.located_pages.as_ref() else {
         return Ok(None);
     };
-    let source = AppendedRevision::new(base);
+    let source = base;
     let mut remaining = HashSet::new();
     for page in located.ids.values() {
         // A page read only for its place in the tree, as a bookmark or rotation
@@ -27,7 +27,7 @@ pub(crate) fn annotation_delete_effects(
             }
         }
         remaining.extend(
-            get_page_annots(&source, *page)?
+            get_page_annots(source, *page)?
                 .iter()
                 .filter_map(|object| object.as_reference().ok()),
         );

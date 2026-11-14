@@ -3,7 +3,7 @@ import { sep } from 'path';
 import { createLogger } from '@electron/utils/createLogger';
 import { onSenderLifetimeEnd } from '@electron/utils/onSenderLifetimeEnd';
 import { normalizeExistingPath } from '@electron/utils/normalizeExistingPath';
-import { normalizePathForLookup } from '@electron/file-access/workingCopyStore';
+import {normalizePathForLookup} from '@electron/file-access/normalizePathForLookup';
 import type { Tagged } from 'type-fest';
 
 export type TOpenPath = Tagged<string, 'OpenPath'>;

@@ -11,7 +11,6 @@ import {once} from 'node:events';
 import {join} from 'node:path';
 import {tmpdir} from 'node:os';
 import type {IRunNativeToolCommandOptions} from '@electron/native-tools/runNativeToolCommand';
-import {createOcrJobStorageBudget} from '@electron/features/ocr/pipeline/ocrJobStorageBudget';
 import {markUnprovenNativeTermination} from '@electron/utils/nativeTerminationProof';
 import type * as FsPromises from 'node:fs/promises';
 import {decode} from 'fast-png';
@@ -24,16 +23,10 @@ const mocks = vi.hoisted(() => ({
     rm: vi.fn(),
     stat: vi.fn(),
     runCommand: vi.fn(),
-    acquire: vi.fn(),
     writePngFromPpm: vi.fn(),
 }));
 
 vi.mock('@electron/native-tools/runNativeToolCommand', () => ({runNativeToolCommand: mocks.runCommand}));
-vi.mock('@electron/features/ocr/main/ocrRuntimePolicy', () => ({getOcrRuntimePolicy: () => ({globalPageSlots: 2})}));
-vi.mock('@electron/resources/jobBroker', () => ({mainJobBroker: {
-    acquire: mocks.acquire,
-    getSnapshot: () => ({capacity: {cpuTokens: 2}}),
-}}));
 
 vi.mock('@evb/scan-cleanup/core/rasterLayerDimensions', () => ({
     readPngDimensions: mocks.readPngDimensions,
@@ -291,7 +284,6 @@ describe('Poppler output ownership at the native proof boundary', () => {
         vi.clearAllMocks();
         mocks.rm.mockImplementation((await fs).rm);
         mocks.stat.mockImplementation((await fs).stat);
-        mocks.acquire.mockResolvedValue({release: () => true});
     });
 
     it.each([
@@ -367,91 +359,17 @@ describe('Poppler output ownership at the native proof boundary', () => {
         const dir = await actual.mkdtemp(join(tmpdir(), 'poppler-empty-marker-'));
         const failure = markUnprovenNativeTermination(new Error('render timeout'), '');
         mocks.runCommand.mockRejectedValue(failure);
-        const {renderOcrPageToPng} = await import('@electron/features/ocr/pipeline/popplerStage');
+        const {renderOcrPageToPpm} = await import('@electron/features/ocr/pipeline/popplerStage');
         try {
-            await expect(renderOcrPageToPng([
+            await expect(renderOcrPageToPpm([
                 paths,
                 vi.fn(),
                 1,
                 join(dir, 'source.pdf'),
-                join(dir, 'page.png'),
+                join(dir, 'page.ppm'),
                 300,
             ], async () => {throw new Error('must not reach fallback');})).rejects.toBe(failure);
         } finally {
-            await actual.rm(dir, {
-                recursive: true,
-                force: true,
-            });
-        }
-    });
-
-    it.each([
-        false,
-        true,
-    ])('retains OCR page inputs and outputs on a marked failure (size probe=%s)', async (probe) => {
-        const actual = await fs;
-        const dir = await actual.mkdtemp(join(tmpdir(), 'poppler-page-owner-'));
-        const source = join(dir, 'source.pdf');
-        const sourceBytes = await actual.readFile(join(process.cwd(), 'tests/fixtures/release/packaged-core-ocr-smoke.pdf'));
-        const output = join(dir, probe ? 'session-page-1-size-probe.png' : 'session-page-1.png');
-        const clean = join(dir, 'session-page-1-clean.png');
-        const metadata = join(dir, 'session-page-1-clean.json');
-        const failure = markUnprovenNativeTermination(new Error('Poppler timeout'), 'tree unproven');
-        const {processOcrPages} = await import('@electron/features/ocr/pipeline/runOcrJob');
-        const controller = new AbortController();
-        const storageBudget = createOcrJobStorageBudget({
-            abortController: controller,
-            checkpointDir: dir,
-            tempDir: dir,
-            sessionId: 'session',
-        });
-        try {
-            await Promise.all([
-                actual.writeFile(source, sourceBytes),
-                actual.writeFile(output, 'owned Poppler raster bytes'),
-                actual.writeFile(clean, 'owned clean raster bytes'),
-                actual.writeFile(metadata, 'owned metadata bytes'),
-                actual.writeFile(join(dir, 'eng.traineddata'), Buffer.alloc(1024)),
-            ]);
-            mocks.runCommand.mockRejectedValue(failure);
-            await expect(processOcrPages([{
-                pageNumber: 1,
-                languages: ['eng'],
-            }], 1, {
-                jobId: 'ownership-boundary',
-                sessionId: 'session',
-                paths: {
-                    ...paths,
-                    tempDir: dir,
-                    tesseractBinary: '/bin/tesseract',
-                    tessdataPath: dir,
-                    qpdfBinary: '/bin/qpdf',
-                },
-                log: () => undefined,
-                getPopplerSourcePdfPath: () => source,
-                preparePopplerFallback: async () => {throw new Error('must not reach fallback');},
-                extractionDpi: 300,
-                pageSizeByNumber: probe ? new Map() : new Map([[
-                    1,
-                    {
-                        width: 8.5,
-                        height: 11,
-                    },
-                ]]),
-                pageSourceDpiByNumber: new Map(),
-                options: {},
-                checkpointDir: dir,
-                checkpointPage: async () => undefined,
-                signal: controller.signal,
-                storageBudget,
-                trackTempFile: path => path,
-            })).rejects.toBe(failure);
-            expect(await actual.readFile(source)).toEqual(sourceBytes);
-            expect(await actual.readFile(output, 'utf8')).toBe('owned Poppler raster bytes');
-            expect(await actual.readFile(clean, 'utf8')).toBe('owned clean raster bytes');
-            expect(await actual.readFile(metadata, 'utf8')).toBe('owned metadata bytes');
-        } finally {
-            await storageBudget.stop();
             await actual.rm(dir, {
                 recursive: true,
                 force: true,
@@ -510,7 +428,7 @@ describe('Poppler output ownership at the native proof boundary', () => {
             if (path === ppm) ppmRemoved.resolve(undefined);
         });
         const failure = markUnprovenNativeTermination(new Error('bounded proof wait ended'), 'child exit not yet proved');
-        const {renderOcrPageToPng} = await import('@electron/features/ocr/pipeline/popplerStage');
+        const {renderPdfPageToPng} = await import('@electron/features/ocr/pipeline/popplerStage');
         try {
             await Promise.race([
                 ready,
@@ -520,14 +438,7 @@ describe('Poppler output ownership at the native proof boundary', () => {
                 options.onTerminationProof?.(proof.promise);
                 throw failure;
             });
-            await expect(renderOcrPageToPng([
-                paths,
-                vi.fn(),
-                1,
-                source,
-                output,
-                300,
-            ], async () => {throw new Error('must not reach fallback');})).rejects.toBe(failure);
+            await expect(renderPdfPageToPng(paths, vi.fn(), 1, source, output, 300)).rejects.toBe(failure);
             expect(await actual.readFile(output, 'utf8')).toBe('owned PNG bytes');
             expect(await actual.readFile(ppm, 'utf8')).toBe('first');
             const written = once(child, 'message');

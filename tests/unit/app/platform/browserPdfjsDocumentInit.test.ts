@@ -9,7 +9,6 @@ import {BROWSER_MAX_FULL_READ_BYTES} from '@app/platform/browser/browserDocument
 import {BrowserDocumentStore} from '@app/platform/browser/browserDocumentRepository';
 import {
     createFileSystemFileHandle,
-    FakeIndexedDbFactory,
     MemoryStorage,
 } from '@tests/unit/app/platform/browserPlatformTestDoubles';
 
@@ -222,12 +221,9 @@ describe('browserPdfjsDocumentInit', () => {
         expect(offset).toBe(end);
     });
 
-    it.each([
-        'initial-after',
-        'range-before',
-        'range-after',
-    ] as const)('rejects a same-size, same-time physical replacement at %s', async boundary => {
-        vi.stubGlobal('indexedDB', new FakeIndexedDbFactory());
+    // A working copy reads the file it opened as one snapshot, so a same-size, same-time replacement of the
+    // file never mixes into the bytes the viewer reads; Save finds the change.
+    it('keeps reading the bytes it opened after a same-size, same-time replacement of the file', async () => {
         vi.stubGlobal('window', {localStorage: new MemoryStorage()});
         vi.stubGlobal('document', {cookie: ''});
         try {
@@ -238,40 +234,22 @@ describe('browserPdfjsDocumentInit', () => {
                 getFile: async () => currentFile,
             });
             const store = new BrowserDocumentStore();
-            const ref = await store.registerFile(currentFile, {saveHandle: handle});
-            const replace = () => {
-                bytes[bytes.length - 1] = 9;
-                currentFile = new File([bytes], currentFile.name, {lastModified: 11});
-            };
+            const source = await store.registerFile(currentFile, {saveHandle: handle});
+            const ref = await store.cloneAsWorkingCopy(source);
             browserDocumentStoreMock.getContentSnapshot.mockImplementation((path: string) => store.getContentSnapshot(path));
-            let replaceAfterRead = boundary === 'initial-after';
-            browserDocumentStoreMock.readRange.mockImplementation(async (path: string, offset: number, length: number) => {
-                const result = await store.readRange(path, offset, length);
-                if (replaceAfterRead) {
-                    replaceAfterRead = false;
-                    replace();
-                }
-                return result;
-            });
+            browserDocumentStoreMock.readRange.mockImplementation((path: string, offset: number, length: number) => store.readRange(path, offset, length));
             const {
                 createPdfjsDocumentInitFromBrowserDocument, getPdfjsLib,
             } = await import('@app/platform/browser-api/browserPdfjsDocumentInit');
-            const lib = await getPdfjsLib();
-            if (boundary === 'initial-after') {
-                await expect(createPdfjsDocumentInitFromBrowserDocument(lib, ref)).rejects.toThrow('Browser PDF source changed');
-                return;
-            }
-            const onRangeReadFailure = vi.fn();
-            const init = await createPdfjsDocumentInitFromBrowserDocument(lib, ref, {onRangeReadFailure});
+            const init = await createPdfjsDocumentInitFromBrowserDocument(await getPdfjsLib(), ref, {onRangeReadFailure: vi.fn()});
             const range = 'range' in init ? init.range : undefined;
             if (!range) throw new Error('Expected a PDF.js range transport');
-            if (boundary === 'range-before') replace();
-            else replaceAfterRead = true;
-            range.requestDataRange?.(1024 * 1024, 2 * 1024 * 1024);
-            await vi.waitFor(() => {
-                expect(onRangeReadFailure).toHaveBeenCalledWith(expect.objectContaining({message: expect.stringContaining('Browser PDF source changed')}));
-            });
-            expect(range.onDataRange).not.toHaveBeenCalled();
+            bytes[bytes.length - 1] = 9;
+            currentFile = new File([bytes], currentFile.name, {lastModified: 11});
+            range.requestDataRange?.(2 * 1024 * 1024, 3 * 1024 * 1024);
+            await vi.waitFor(() => expect(range.onDataRange).toHaveBeenCalled());
+            const delivered = vi.mocked(range.onDataRange).mock.calls.map(([, chunk]) => chunk as Uint8Array);
+            expect(delivered.at(-1)?.at(-1)).toBe(0);
         } finally {
             vi.unstubAllGlobals();
         }

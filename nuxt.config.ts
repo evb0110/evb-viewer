@@ -311,6 +311,7 @@ export default defineNuxtConfig({
     alias: {
         '@app': appDir,
         '@contracts': fileURLToPath(new URL('./packages/contracts', import.meta.url)),
+        '@document-store': fileURLToPath(new URL('./packages/document-store', import.meta.url)),
         '@pdf-core': fileURLToPath(new URL('./packages/pdf-core', import.meta.url)),
         '@ocr-core': fileURLToPath(new URL('./packages/ocr-core', import.meta.url)),
         '@agent-core': fileURLToPath(new URL('./packages/agent-core', import.meta.url)),
@@ -436,7 +437,6 @@ export default defineNuxtConfig({
         'ph:caret-left',
         'ph:caret-right',
         'ph:caret-up',
-        'ph:caret-up-down',
         'ph:caret-double-left',
         'ph:caret-double-right',
         'ph:warning-circle',
@@ -472,7 +472,6 @@ export default defineNuxtConfig({
         'ph:info',
         'ph:text-italic',
         'ph:lightbulb',
-        'ph:lightning',
         'ph:link-simple',
         'ph:link-simple-break',
         'ph:list',

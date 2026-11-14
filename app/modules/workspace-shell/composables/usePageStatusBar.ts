@@ -5,7 +5,6 @@ import type {
 import type { TPdfSource } from '@app/types/pdfUi';
 import type { TDocumentRef } from '@contracts/documentRef';
 import { parseDocumentRef } from '@contracts/documentRef';
-import type { IWorkingCopyBackingStatus } from '@contracts/electronApiDocuments';
 import {
     getDocumentRefBaseName,
     getDocumentRefDisplayLabel,
@@ -21,7 +20,6 @@ import { isPathPdfSource as isNativePathPdfSource } from '@app/modules/pdf-viewe
 
 type TSaveDotState = 'idle' | 'saving' | 'failed' | 'dirty' | 'clean';
 type TReadableRef<T> = ComputedRef<T> | Ref<T>;
-const WORKING_COPY_BACKING_STATUS_REFRESH_INTERVAL_MS = 1_000;
 
 interface IPageStatusBarDeps {
     hasDocument: Ref<boolean>;
@@ -61,98 +59,6 @@ export const usePageStatusBar = (deps: IPageStatusBarDeps) => {
         locale,
     } = useTypedI18n();
     const documentFiles = getDocumentFilesCapability();
-    const workingCopyBackingStatus = shallowRef<IWorkingCopyBackingStatus | null>(null);
-    let backingStatusRefreshTimer: ReturnType<typeof setTimeout> | null = null;
-
-    function clearBackingStatusRefresh() {
-        if (backingStatusRefreshTimer) {
-            clearTimeout(backingStatusRefreshTimer);
-            backingStatusRefreshTimer = null;
-        }
-    }
-
-    function scheduleBackingStatusRefresh() {
-        clearBackingStatusRefresh();
-        const documentRef = workingCopyPath.value;
-        const getBackingStatus = documentFiles.getWorkingCopyBackingStatus;
-        if (
-            !documentRef
-            || workingCopyBackingStatus.value?.state !== 'materializing'
-            || !getBackingStatus
-        ) {
-            return;
-        }
-        // IPC progress is intentionally coalesced and a working copy can finish
-        // between renderer subscription and the first snapshot. Reconcile while
-        // materialization is active so a missed terminal edge cannot leave the
-        // status bar spinning forever.
-        backingStatusRefreshTimer = setTimeout(async () => {
-            backingStatusRefreshTimer = null;
-            try {
-                const status = await getBackingStatus(documentRef);
-                if (workingCopyPath.value === documentRef) {
-                    applyWorkingCopyBackingStatus(status);
-                }
-            } catch {
-                // The event stream remains authoritative if a quiet refresh fails.
-            }
-        }, WORKING_COPY_BACKING_STATUS_REFRESH_INTERVAL_MS);
-    }
-
-    function applyWorkingCopyBackingStatus(status: IWorkingCopyBackingStatus | null) {
-        const documentRef = workingCopyPath.value;
-        if (!status || status.documentRef !== documentRef) {
-            return;
-        }
-        const current = workingCopyBackingStatus.value;
-        if (current?.documentRef !== status.documentRef) {
-            workingCopyBackingStatus.value = status;
-            scheduleBackingStatusRefresh();
-            return;
-        }
-        // The initial snapshot and the progress stream race legitimately. Merge
-        // both as equal observations: materialized is terminal for this adopted
-        // working copy, while non-terminal updates retain monotonic progress.
-        // This covers both possible orderings without assuming that whichever
-        // transport happened to answer first is authoritative.
-        if (current.state === 'materialized') {
-            scheduleBackingStatusRefresh();
-            return;
-        }
-        workingCopyBackingStatus.value = status.state === 'materialized'
-            ? status
-            : {
-                ...status,
-                progress: Math.max(current.progress, status.progress),
-            };
-        scheduleBackingStatusRefresh();
-    }
-
-    const unsubscribeBackingStatus = documentFiles.onWorkingCopyBackingStatusChanged?.(
-        applyWorkingCopyBackingStatus,
-    );
-    if (getCurrentScope()) {
-        onScopeDispose(() => {
-            unsubscribeBackingStatus?.();
-            clearBackingStatusRefresh();
-        });
-    }
-    watch(workingCopyPath, async (documentRef) => {
-        clearBackingStatusRefresh();
-        workingCopyBackingStatus.value = null;
-        if (!documentRef || !documentFiles.getWorkingCopyBackingStatus) {
-            return;
-        }
-        try {
-            const status = await documentFiles.getWorkingCopyBackingStatus(documentRef);
-            if (workingCopyPath.value === documentRef) {
-                applyWorkingCopyBackingStatus(status);
-            }
-        } catch {
-            // Backing status is a quiet enhancement; persistence reports actionable failures.
-        }
-    }, {immediate: true});
-
     const statusFileName = computed(() => {
         const path = originalPath.value ?? workingCopyPath.value;
         return getDocumentRefBaseName(path) ?? t('status.noFileOpen');
@@ -232,16 +138,6 @@ export const usePageStatusBar = (deps: IPageStatusBarDeps) => {
             return t('status.zoomUnknown');
         }
         return t('status.zoomValue', { zoom: Math.round(effectiveZoom.value * 100) });
-    });
-    const statusMaterializationLabel = computed(() => {
-        const status = workingCopyBackingStatus.value;
-        if (status?.state !== 'materializing') {
-            return null;
-        }
-        const progress = Math.round(status.progress * 100);
-        return progress > 0
-            ? t('status.preparingDocumentProgress', {progress})
-            : t('status.preparingDocument');
     });
     const statusSaveDotState = computed<TSaveDotState>(() => {
         if (!pdfSrc.value) {
@@ -342,7 +238,6 @@ export const usePageStatusBar = (deps: IPageStatusBarDeps) => {
         statusFilePath,
         statusFileSizeLabel,
         statusZoomLabel,
-        statusMaterializationLabel,
         statusCanShowInFolder,
         statusShowInFolderTooltip: statusShowInFolderLabel,
         statusShowInFolderAriaLabel: statusShowInFolderLabel,

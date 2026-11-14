@@ -19,8 +19,8 @@ import {
 import {
     decodeWorkspaceCheckpoint,
     type IWorkspaceCheckpoint,
+    workspaceAnnotationRecoverySchema,
 } from '@contracts/workspaceCheckpoint';
-import type { TDocumentRef } from '@contracts/documentRef';
 import * as v from 'valibot';
 
 const noArgs = v.strictTuple([]);
@@ -115,6 +115,14 @@ export const WINDOW_TABS_PLATFORM_FEATURE = definePlatformFeature({
                 reason: 'requires-native-backend',
             },
         },
+        // False: the drafts were captured on a revision that is no longer current, and are sent again for the new one.
+        setDocumentDrafts: defineForwardedPlatformMethod({
+            name: 'setDocumentDrafts',
+            channel: 'workspace:setDocumentDrafts',
+            args: v.strictTuple([workspaceAnnotationRecoverySchema]),
+            result: v.boolean(),
+            main: 'setWorkspaceDocumentDrafts',
+        }),
         discardWorkspaceCheckpoint: defineForwardedPlatformMethod({
             name: 'discardWorkspaceCheckpoint',
             channel: 'workspace:checkpointDiscard',
@@ -173,32 +181,10 @@ export const WINDOW_TABS_PLATFORM_FEATURE = definePlatformFeature({
     },
 });
 
-/** Browser snapshot CAS stays separate from main-owned desktop checkpoints. */
+/** The browser window records its layout itself; desktop checkpoints are main-owned. */
 export interface IBrowserWorkspaceRecoveryCapability {
-    getOwnerId(): string | null;
-    load(ownerId: string): Promise<{
-        generation: number;
-        checkpoint: IWorkspaceCheckpoint;
-        snapshotRefs: TDocumentRef[];
-    } | null>;
-    save(
-        ownerId: string,
-        expectedGeneration: number,
-        checkpoint: IWorkspaceCheckpoint,
-        snapshotRefs: TDocumentRef[],
-        liveDocumentRefs: TDocumentRef[],
-    ): Promise<{
-        saved: boolean;
-        generation: number
-    }>;
-    touch(ownerId: string, expectedGeneration: number, liveDocumentRefs: TDocumentRef[]): Promise<{
-        saved: boolean;
-        generation: number
-    }>;
-    clear(ownerId: string, expectedGeneration: number): Promise<{
-        saved: boolean;
-        generation: number
-    }>;
+    /** Stores this window's tabs, panes and views; a workspace naming no document keeps none. */
+    save(checkpoint: IWorkspaceCheckpoint): Promise<void>;
 }
 
 interface IWindowTabsLifecycleCapability {

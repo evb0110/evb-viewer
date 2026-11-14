@@ -17,7 +17,7 @@ use std::path::{Path, PathBuf};
 
 /// Tesseract writes one small page per raster. The bound keeps a damaged or
 /// unexpected sidecar from being loaded eagerly.
-const MAX_OCR_SOURCE_PDF_BYTES: u64 = 16 * 1024 * 1024;
+pub(crate) const MAX_OCR_SOURCE_PDF_BYTES: u64 = 16 * 1024 * 1024;
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -713,17 +713,23 @@ pub(crate) fn write_ocr_text_visibility(
     Ok(())
 }
 
-/// The visibility report for a document held in memory: the browser's
-/// `ocrTextVisibility` operation, serialized as `ocr-text-visibility` prints it.
+/// The browser's `ocrTextVisibility` operation over a document read by range,
+/// serialized as `ocr-text-visibility` prints it.
 #[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
-pub(crate) fn ocr_text_visibility_bytes(
-    data: &[u8],
+pub(crate) fn ocr_text_visibility_from_source<S: ByteSource>(
+    source: S,
+    len: u64,
     page_numbers: &[u32],
     with_evb_ocr_text: bool,
 ) -> Result<Vec<u8>> {
-    let mut incremental = incremental_from_bytes(data)?;
-    let report =
-        inspect_ocr_text_visibility(&mut incremental, None, page_numbers, with_evb_ocr_text)?;
+    let mut source = SourcePdf::open(source, len)?;
+    let mut incremental = source.take_append_base()?;
+    let report = inspect_ocr_text_visibility(
+        &mut incremental,
+        Some(StructuralSource::Ranges(&source)),
+        page_numbers,
+        with_evb_ocr_text,
+    )?;
     Ok(serde_json::to_vec(&report)?)
 }
 
@@ -774,7 +780,10 @@ fn inspect_ocr_text_visibility(
     })
 }
 
-fn ocr_source_length_error(length: u64, source: impl std::fmt::Display) -> Box<dyn Error> {
+pub(crate) fn ocr_source_length_error(
+    length: u64,
+    source: impl std::fmt::Display,
+) -> Box<dyn Error> {
     domain_error(
         NativeErrorCode::TooLarge,
         format!(
@@ -876,43 +885,48 @@ pub(crate) fn write_ocr_text_layer_path(
     })
 }
 
-/// The browser's `ocrTextLayer` operation: instructions name Tesseract page
-/// PDFs by their index in `page_pdfs`. Returns only the appended revision; the
-/// caller publishes the original bytes followed by it.
+/// The browser's `ocrTextLayer` operation: appends the text layer to the
+/// document `source` holds, through `write` as a save appends its revision.
+/// Instructions name Tesseract page PDFs by the index `page_pdf` reads them
+/// at. Returns the document's page count.
 #[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
-pub(crate) fn ocr_text_layer_increment_bytes(
-    data: &[u8],
+pub(crate) fn ocr_text_layer_to_source<S: ByteSource>(
+    source: S,
+    len: u64,
     instructions: &[u8],
-    page_pdfs: &[&[u8]],
-) -> Result<OcrTextLayerIncrement> {
+    page_pdf: impl Fn(usize) -> Result<Vec<u8>>,
+    write: impl FnOnce(&[u8]) -> Result<Vec<u8>>,
+) -> Result<u32> {
     let instructions: OcrTextLayerFile<usize> =
         parse_json_sidecar_bytes(instructions, "OCR text-layer instructions")?;
     validate_ocr_text_layer(&instructions)?;
-    let mut incremental = incremental_from_bytes(data)?;
+    let mut source = SourcePdf::open_append_base(source, len)?;
+    let mut incremental = source.take_append_base()?;
     let page_count = u32::try_from(incremental.previous_document.get_pages().len())
         .map_err(|_| "PDF page count exceeds the WASM response range")?;
-    apply_ocr_text_layer(&mut incremental, None, &instructions, |&index| {
-        let bytes = page_pdfs
-            .get(index)
-            .ok_or("ocr-text-layer names an OCR page PDF the request does not carry")?;
-        if bytes.is_empty() || bytes.len() as u64 > MAX_OCR_SOURCE_PDF_BYTES {
-            return Err(ocr_source_length_error(
-                bytes.len() as u64,
-                format!("page PDF {index}"),
-            ));
-        }
-        checked_ocr_source(load_pdf_bytes(bytes))
-    })?;
-    Ok(OcrTextLayerIncrement {
-        data: appended_revision_bytes(&mut incremental)?,
-        page_count,
-    })
-}
-
-#[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
-pub(crate) struct OcrTextLayerIncrement {
-    pub(crate) data: Vec<u8>,
-    pub(crate) page_count: u32,
+    apply_ocr_text_layer(
+        &mut incremental,
+        Some(StructuralSource::Ranges(&source)),
+        &instructions,
+        |&index| {
+            let bytes = page_pdf(index)?;
+            if bytes.is_empty() || bytes.len() as u64 > MAX_OCR_SOURCE_PDF_BYTES {
+                return Err(ocr_source_length_error(
+                    bytes.len() as u64,
+                    format!("page PDF {index}"),
+                ));
+            }
+            checked_ocr_source(load_pdf_bytes(&bytes))
+        },
+    )?;
+    let revision = appended_revision_bytes(&mut incremental)?;
+    validate_incremental_append_bytes(
+        &write(&revision)?,
+        len,
+        incremental.previous_xref_start(),
+        &collect_incremental_append_object_ids(&incremental),
+    )?;
+    Ok(page_count)
 }
 
 #[cfg(test)]
@@ -1293,8 +1307,10 @@ BT\n/F 34 Tf\n1 0 0 1 1000 2863 Tm\n<017F0069> Tj\nET\nQ\n% EVB_VIEWER_OCR_LAYER
 
     /// What the visibility report says of the page: (painted text, hidden text).
     fn painted_and_hidden(pdf: &[u8]) -> (bool, bool) {
-        let report: serde_json::Value =
-            serde_json::from_slice(&ocr_text_visibility_bytes(pdf, &[1], false).unwrap()).unwrap();
+        let report: serde_json::Value = serde_json::from_slice(
+            &ocr_text_visibility_from_source(pdf, pdf.len() as u64, &[1], false).unwrap(),
+        )
+        .unwrap();
         let page = &report["pages"][0];
         (
             page["paintedText"].as_bool().unwrap(),

@@ -234,6 +234,31 @@ describe('page metadata remap', () => {
         });
     });
 
+    it('leaves the document\'s own page labels to the page engine and remaps unsaved ones as ranges', async () => {
+        mocks.runNativeToolCommand.mockResolvedValue({
+            stdout: JSON.stringify({bookmarks: [], pageLabels: [
+                {pageIndex: 0, style: 'r', prefix: 'front-'},
+                {pageIndex: 2, style: 'D', prefix: 'chapter-'},
+            ]}),
+            stderr: '',
+            exitCode: 0,
+        });
+        const front = {startPage: 1, style: 'r' as const, prefix: 'front-', startNumber: 1};
+        const read = (prefix: string) => resolvePageMetadataSourceTargets({
+            pageLabels: ['front-i', 'front-ii', `${prefix}1`, `${prefix}2`],
+            pageLabelRanges: [front, {startPage: 3, style: 'D', prefix, startNumber: 1}],
+            bookmarks: [],
+            untitledBookmarkLabel: 'Untitled',
+        }, '/source.pdf', {signal: new AbortController().signal, cancelGroup: 'test'});
+        const deleteThird = {previousPageCount: 4, pages: [{fromPageNumber: 1}, {fromPageNumber: 2}, {fromPageNumber: 4}]};
+
+        expect(remapPageMetadata((await read('chapter-'))!, deleteThird).pageLabels).toBeUndefined();
+        expect(remapPageMetadata((await read('part-'))!, deleteThird).pageLabels?.ranges).toEqual([
+            front,
+            {startPage: 3, style: 'D', prefix: 'part-', startNumber: 2},
+        ]);
+    });
+
     it('remaps exact labels and bookmark destinations through reorder/delete/insert', () => {
         const result = remapPageMetadata({
             pageLabels: [

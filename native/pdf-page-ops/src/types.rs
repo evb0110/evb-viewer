@@ -347,6 +347,15 @@ pub(crate) fn page_tree_node_read_count() -> usize {
     PAGE_TREE_NODE_READ_COUNT.with(std::cell::Cell::get)
 }
 
+/// A page tree that does not resolve is refused, not repaired: a repair
+/// would pick one numbering, so the refusal is not `CorruptXref`.
+pub(crate) fn page_tree_damaged(error: Box<dyn Error>) -> Box<dyn Error> {
+    domain_error(
+        NativeErrorCode::InvalidRequest,
+        format!("The page tree is damaged: {error}"),
+    )
+}
+
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct PageTreeResolver {
     root_pages_id: ObjectId,
@@ -371,6 +380,38 @@ impl PageTreeResolver {
             root_pages_id,
             page_count,
         })
+    }
+
+    /// The resolver every page edit numbers pages through. It refuses a tree
+    /// whose pages a reader could number differently: every leaf is a page,
+    /// appears once, and sits where the declared counts place it.
+    pub(crate) fn validated(document: &impl PdfObjectSource) -> Result<Self> {
+        let tree = Self::new(document).map_err(page_tree_damaged)?;
+        let mut leaves = HashSet::new();
+        tree.for_each_page_id(document, |page| {
+            let number = leaves.len() as u32 + 1;
+            if !leaves.insert(page) {
+                return Err(format!("page {} {} R appears twice", page.0, page.1).into());
+            }
+            if tree.page_id(document, number)? != page {
+                return Err(format!("its counts place another page at {number}").into());
+            }
+            Ok(())
+        })
+        .map_err(page_tree_damaged)?;
+        Ok(tree)
+    }
+
+    /// The resolver once both ends of the declared tree resolve, checked
+    /// without iterating every leaf. This catches a stale /Count or an
+    /// unreachable branch while keeping path-backed admission independent of
+    /// document page count.
+    pub(crate) fn with_both_ends(document: &impl PdfObjectSource) -> Result<Self> {
+        let tree = Self::new(document)?;
+        for page_number in [1, tree.page_count].into_iter().filter(|page| *page > 0) {
+            tree.page_id(document, page_number)?;
+        }
+        Ok(tree)
     }
 
     pub(crate) fn page_count(&self) -> u32 {
@@ -657,6 +698,68 @@ pub(crate) trait PdfObjectSource {
 
 fn missing_object_message(object_id: ObjectId) -> String {
     format!("Object {}R{} was not found", object_id.0, object_id.1)
+}
+
+/// The read seam made writable for one output strategy. A mutation written
+/// against it serves both: a loaded document changes in place for a full
+/// rewrite, an incremental one copies each written object into the revision
+/// it appends. Reads see the writes already made.
+pub(crate) trait PdfObjectStore: PdfObjectSource {
+    fn object_mut(&mut self, object_id: ObjectId) -> Result<&mut Object>;
+
+    /// Drops an object: a loaded document forgets it, an appended revision
+    /// frees it as `null` over the base revision that still holds it.
+    fn delete_object(&mut self, object_id: ObjectId);
+
+    /// Every object a reader of this state finds, each once.
+    fn stored_objects(&self) -> impl Iterator<Item = (ObjectId, &Object)>;
+
+    /// The highest object number in use; new objects are numbered past it.
+    fn max_id(&self) -> u32;
+
+    /// Reserves the next object number past `max_id`.
+    fn new_object_id(&mut self) -> ObjectId;
+
+    /// Stores `object` as `object_id`: a new number from `new_object_id`, or
+    /// one whose whole object it replaces.
+    fn put_object(&mut self, object_id: ObjectId, object: Object);
+
+    fn add_object(&mut self, object: impl Into<Object>) -> ObjectId {
+        let object_id = self.new_object_id();
+        self.put_object(object_id, object.into());
+        object_id
+    }
+
+    fn dictionary_mut(&mut self, object_id: ObjectId) -> Result<&mut Dictionary> {
+        Ok(self.object_mut(object_id)?.as_dict_mut()?)
+    }
+}
+
+impl PdfObjectStore for Document {
+    fn object_mut(&mut self, object_id: ObjectId) -> Result<&mut Object> {
+        Ok(self.get_object_mut(object_id)?)
+    }
+
+    fn delete_object(&mut self, object_id: ObjectId) {
+        self.objects.remove(&object_id);
+    }
+
+    fn stored_objects(&self) -> impl Iterator<Item = (ObjectId, &Object)> {
+        self.objects.iter().map(|(id, object)| (*id, object))
+    }
+
+    fn max_id(&self) -> u32 {
+        self.max_id
+    }
+
+    fn new_object_id(&mut self) -> ObjectId {
+        Document::new_object_id(self)
+    }
+
+    fn put_object(&mut self, object_id: ObjectId, object: Object) {
+        self.max_id = self.max_id.max(object_id.0);
+        self.objects.insert(object_id, object);
+    }
 }
 
 impl PdfObjectSource for Document {

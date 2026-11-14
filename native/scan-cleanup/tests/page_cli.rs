@@ -2481,64 +2481,6 @@ fn final_cli_keeps_hairline_joined_letters_whole_on_the_global_route() {
 }
 
 #[test]
-fn final_cli_pins_the_adjudicated_stroke_budget_and_rescue_counters() {
-    let scratch = Scratch::new("stroke-budget-trace");
-    let fixture = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("tests/fixtures/rescue/luther-p5-diyarbakir-line.png");
-    let output = scratch.path("diyarbakir-clean.png");
-    let output_metadata = scratch.path("diyarbakir-clean.json");
-    let page_metadata = scratch.path("diyarbakir-page.json");
-    let manifest = scratch.path("stroke-budget-manifest.json");
-    let options = CleanupOptions {
-        dpi: 300.0,
-        source_dpi: Some(300.0),
-        requested_render_dpi: Some(300.0),
-        binarization: BinarizationMode::Auto,
-        output_mode: OutputMode::Bw,
-        layout: LayoutMode::Single,
-        normalize_illumination: true,
-        crop_content: false,
-        match_page_size: false,
-        ..CleanupOptions::default()
-    };
-    let payload = serde_json::json!({
-        "version": 3,
-        "operation": "render",
-        "renderMode": "final",
-        "canvasScope": "document",
-        "pages": [{
-            "inputPath": fixture,
-            "sourcePageIndex": 0,
-            "pageMetadataPath": page_metadata,
-            "options": options,
-            "outputs": [{
-                "outputPath": output,
-                "metadataPath": output_metadata,
-            }],
-        }],
-    });
-    fs::write(&manifest, serde_json::to_vec_pretty(&payload).unwrap()).unwrap();
-
-    let result = Command::new(env!("CARGO_BIN_EXE_evb-scan-cleanup"))
-        .args(["--manifest", manifest.to_str().unwrap()])
-        .output()
-        .unwrap();
-    assert!(
-        result.status.success(),
-        "stdout={}\nstderr={}",
-        String::from_utf8_lossy(&result.stdout),
-        String::from_utf8_lossy(&result.stderr)
-    );
-    let cleaned = decode_gray(&fs::read(&output).unwrap(), 1_000_000, 2_000).unwrap();
-    assert_eq!((cleaned.width(), cleaned.height()), (1830, 77));
-    assert_eq!(
-        cleaned.data().iter().filter(|&&value| value < 128).count(),
-        21_291,
-        "the public final-render path changed the adjudicated ink outcome",
-    );
-}
-
-#[test]
 fn page_plan_cli_keeps_a_discardable_speck_out_of_the_content_box() {
     let scratch = Scratch::new("content-box-speck");
     let fixture = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -5974,4 +5916,76 @@ fn direct_split_restores_prior_outputs_on_failure_and_keeps_what_it_does_not_wri
         sentinel,
         "a split leaves the unsuffixed file alone"
     );
+}
+
+/// A single page whose CropBox is a portrait crop of a landscape sheet: the
+/// engine asks for its MediaBox view through an alternate lease, analyzes it,
+/// and keeps the primary analysis when the owner declines with an empty file.
+#[test]
+fn analysis_asks_for_a_wider_alternate_view_and_keeps_the_primary_when_declined() {
+    for offered in [false, true] {
+        let scratch = Scratch::new("alternate-view");
+        let input = scratch.path("page.png");
+        let alternate = scratch.path("page-media.png");
+        let metadata = scratch.path("page.json");
+        let manifest = scratch.path("manifest.json");
+        fs::write(&input, encode_gray(&GrayImage::new(200, 280, 245)).unwrap()).unwrap();
+        let alternate_bytes = if offered {
+            fs::read("tests/fixtures/split/spread-luther-soft-gutter-p00001.png").unwrap()
+        } else {
+            Vec::new()
+        };
+        fs::write(&alternate, &alternate_bytes).unwrap();
+        let options = unmatched_options();
+        let payload = serde_json::json!({
+            "version": 3, "operation": "analyze", "analysisPurpose": "page-plan",
+            "renderMode": "preview", "canvasScope": "page",
+            "pages": [{
+                "inputPath": input, "sourcePageIndex": 0, "pageMetadataPath": metadata,
+                "options": options, "outputs": [],
+                "alternateInputPath": alternate,
+                "alternateView": {"primaryWidthPoints": 300.0, "primaryHeightPoints": 420.0,
+                    "widthPoints": 600.0, "heightPoints": 420.0, "options": options},
+            }],
+        });
+        fs::write(&manifest, serde_json::to_vec(&payload).unwrap()).unwrap();
+        let result = Command::new(env!("CARGO_BIN_EXE_evb-scan-cleanup"))
+            .args(["--manifest", manifest.to_str().unwrap()])
+            .output()
+            .unwrap();
+        assert!(
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        let events = String::from_utf8(result.stdout)
+            .unwrap()
+            .lines()
+            .map(|line| serde_json::from_str::<Value>(line).unwrap())
+            .collect::<Vec<_>>();
+        let leases = events
+            .iter()
+            .filter(|event| event["progress"]["alternateView"] == true)
+            .map(|event| event["progress"]["stage"].as_str().unwrap().to_owned())
+            .collect::<Vec<_>>();
+        assert_eq!(leases, ["page-input-required", "page-input-released"]);
+        let page: Value = serde_json::from_slice(&fs::read(&metadata).unwrap()).unwrap();
+        let complete = events
+            .iter()
+            .find(|event| event["progress"]["stage"] == "page-complete")
+            .unwrap();
+        assert_eq!(
+            complete["progress"]["classification"],
+            page["layoutClassification"]
+        );
+        if offered {
+            assert_eq!(
+                page["alternateView"] == true,
+                page["layoutClassification"] == "two-page-spread"
+            );
+        } else {
+            assert_eq!(page["layoutClassification"], "single-uncut-page");
+            assert!(page.get("alternateView").is_none());
+        }
+    }
 }

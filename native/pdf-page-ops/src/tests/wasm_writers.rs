@@ -658,12 +658,17 @@ fn with_media_box(bytes: &[u8], media_box: [f64; 4]) -> Vec<u8> {
 
 /// The error a writer request ends with, which it must end with.
 fn refused(operation: u32, data: &[u8], instructions: &str, attachments: &[&[u8]]) -> String {
-    match run_request(&instructed_request(
-        operation,
-        data,
-        instructions,
-        attachments,
-    )) {
+    let result = if operation == OP_OCR_TEXT_LAYER {
+        ocr_text_layer_bytes(data, instructions, attachments)
+    } else {
+        run_request(&instructed_request(
+            operation,
+            data,
+            instructions,
+            attachments,
+        ))
+    };
+    match result {
         Ok(_) => panic!("operation {operation} succeeded: {instructions}"),
         Err(error) => error.to_string(),
     }
@@ -691,14 +696,7 @@ fn ocr_text_layer_without_recognized_text_leaves_the_page_painting_as_it_did() {
         .set("Contents", streams.to_vec());
     // A page without contents, and one whose two streams paint in order.
     for target in [save(&mut bare), save(&mut layered)] {
-        let output = run_request(&instructed_request(
-            OP_OCR_TEXT_LAYER,
-            &target,
-            OCR_PAGE_ONE,
-            &[&blank],
-        ))
-        .unwrap();
-        let saved = [target.as_slice(), &output[MUTATION_HEADER.bytes..]].concat();
+        let saved = ocr_text_layer_bytes(&target, OCR_PAGE_ONE, &[&blank]).unwrap();
         assert_eq!(first_page_content(&saved), first_page_content(&target));
     }
 }

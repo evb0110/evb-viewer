@@ -1,15 +1,11 @@
 export {
     assertNonEmptyPdfOutput,
-    deletePageRanges,
-    extractPages,
     getPdfPageCount,
-    movePageRange,
-    movePageRanges,
-    movePages,
     QPDF_OUTPUT_SUCCESS_EXIT_CODES,
     QPDF_TIMEOUT_MS,
     runQpdfCommand,
 } from '@electron/features/page-ops/main/qpdf';
+export {extractPages} from '@electron/features/page-ops/main/pageStructure';
 export {resolveNativePageOpsPath} from '@electron/features/page-ops/main/resolveNativePageOpsPath';
 export {
     isPdfPageOpsCapabilityError,

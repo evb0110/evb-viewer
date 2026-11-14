@@ -23,8 +23,6 @@ import {
 export {createArrayBackedPdfPageSizeStore} from '@evb/scan-cleanup/core/createArrayBackedPdfPageSizeStore';
 export {
     PDF_PAGE_SIZE_STORE_MAX_READ_PAGES,
-    isCropBoxOrientationMismatch,
-    isMateriallySmallerCropBox,
     toCropBoxPageSize,
     toMediaBoxPageSize,
 } from '@evb/scan-cleanup/core/policy/scanCleanupRasterPolicy';

@@ -98,7 +98,3 @@ pub(crate) fn prepare(input: Input<'_>) -> Output {
         text_tone_diagnostics,
     }
 }
-
-#[cfg(test)]
-#[path = "region_preparation_tests.rs"]
-mod tests;

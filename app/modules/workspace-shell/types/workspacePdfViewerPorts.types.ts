@@ -4,7 +4,6 @@ import type {
     IPdfViewerAnnotationCommentExpose,
     IPdfViewerCropExpose,
     IPdfViewerExpose,
-    IPdfViewerRegionCaptureExpose,
     IPdfViewerSaveExpose,
     IPdfViewerShapeExpose,
 } from '@app/modules/pdf-viewer/public';
@@ -13,38 +12,12 @@ export type IWorkspacePdfViewerCropPort = IPdfViewerCropExpose;
 
 export type IWorkspacePdfViewerSplitPort = IPdfViewerSaveExpose;
 
-export interface IWorkspaceDocumentViewerNavigationPort extends Pick<IDocumentViewerExpose,
-    'getCurrentPage'
-    | 'scrollToPage'
-> {}
-
-export type IWorkspaceDocumentViewerSplitPort = IWorkspaceDocumentViewerNavigationPort;
-
-export type IWorkspacePdfViewerRegionCapturePort = IPdfViewerRegionCaptureExpose;
-
-export interface IWorkspacePdfViewerShortcutsPort extends Pick<IPdfViewerShapeExpose,
-    'deleteSelectedShape'
->, Pick<IPdfViewerAnnotationCommandExpose, 'handleAnnotationEscape'> {}
-
-export interface IWorkspacePdfViewerPageOpsPort extends
-    Pick<IPdfViewerExpose, 'invalidatePages'>,
-    Pick<IPdfViewerSaveExpose, 'runSaveTransaction'> {}
-
 export interface IWorkspacePdfViewerAnnotationToolsPort extends
-    Pick<IPdfViewerShapeExpose,
-        'clearSelectedShape'
-        | 'getSelectedShape'
-        | 'selectedShapeId'
-        | 'updateShape'
-    >,
     Pick<IPdfViewerAnnotationCommandExpose,
         'selectedAnnotations'
         | 'updateSelectedAnnotationProperties'
         | 'canRotateSelectedAnnotations'
         | 'prepareAnnotationToolChange'
-        | 'selectedTextBox'
-        | 'getSelectedTextBox'
-        | 'updateSelectedTextBoxProperties'
     > {}
 
 export interface IWorkspacePdfViewerAnnotationChangesPort extends
@@ -59,14 +32,6 @@ export interface IWorkspacePdfViewerAnnotationChangesPort extends
         'hasCanonicalShapeChanges'
         | 'captureCanonicalAnnotationRecovery'
         | 'restoreCanonicalAnnotationRecovery'
-    > {}
-
-export interface IWorkspacePdfViewerAnnotationNotesPort extends Pick<IPdfViewerAnnotationCommentExpose,
-    'updateAnnotationComment'
->, Pick<IPdfViewerAnnotationCommandExpose,
-    'getDeletedCanonicalAnnotationIds'
-    | 'getDeletedPersistedCanonicalAnnotationCount'
-    | 'focusSelectedAnnotation'
     > {}
 
 export interface IWorkspacePdfViewerAgentAnnotationNotePort extends
@@ -99,29 +64,11 @@ export interface IWorkspacePdfViewerAgentPort extends
     IWorkspacePdfViewerAgentAnnotationNotePort,
     IWorkspacePdfViewerAgentPageImageCapturePort {}
 
-export interface IWorkspacePdfViewerExposeAutomationPort extends
-    Partial<Pick<IPdfViewerAnnotationCommandExpose,
-        'commentAtPoint'
-        | 'highlightSelection'
-        | 'selectAllAnnotations'
-        | 'captureCanonicalAnnotationRecovery'
-        | 'restoreCanonicalAnnotationRecovery'
-    >>,
-    Partial<Pick<IPdfViewerShapeExpose,
-        'getAllShapes'
-        | 'getDeletedEmbeddedShapeAnnotationIds'
-        | 'getDeletedEmbeddedShapeStableKeys'
-    >> {}
-
+/** What the document asks any viewer of it about its shared annotation store. */
 export interface IWorkspacePdfViewerAnnotationSessionPort extends
-    IWorkspacePdfViewerAnnotationToolsPort,
     IWorkspacePdfViewerAnnotationChangesPort,
-    IWorkspacePdfViewerAnnotationNotesPort {}
-
-export interface IWorkspacePdfViewerInteractionPort extends
-    IWorkspacePdfViewerShortcutsPort,
-    IWorkspacePdfViewerCropPort,
-    IWorkspacePdfViewerSplitPort,
-    IWorkspacePdfViewerRegionCapturePort {}
-
-export type IWorkspacePdfViewerDocumentControlsPort = IWorkspacePdfViewerPageOpsPort;
+    Pick<IPdfViewerAnnotationCommentExpose, 'updateAnnotationComment'>,
+    Pick<IPdfViewerAnnotationCommandExpose,
+        'getDeletedCanonicalAnnotationIds'
+        | 'getDeletedPersistedCanonicalAnnotationCount'
+    > {}

@@ -3,7 +3,6 @@ import type { TOpenFileResult } from '@contracts/electronApiDocuments';
 import type { IRecentFile } from '@contracts/shared';
 import type { IWorkspaceDocumentTarget } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentSnapshot';
 import type { IWorkspaceOpenRequest } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
-import { acceptsDocumentWithoutVisual } from '@app/modules/workspace-shell/document-sessions/acceptsDocumentWithoutVisual';
 import { getDocumentRefBaseName } from '@app/utils/documentRef';
 
 type TDocumentTargetSource = TDocumentRef | TOpenFileResult | IRecentFile;
@@ -57,6 +56,9 @@ export function describeDocumentTarget(target: TDocumentTargetSource): IWorkspac
  * the tab owned. Its page shape is the source's, unless the working copy's
  * pages need not match the source's: a recovered, decrypted or generated copy
  * is read itself, and a file still waiting for its password has none yet.
+ * A generated or recovered PDF is open once its pages load: a generated one
+ * may open behind a full-page tool, and a restored tab that is not shown
+ * paints when it is; restoring waits for the shown tab's pixels itself.
  */
 export function describeOpenResult(result: TOpenFileResult): IWorkspaceOpenRequest {
     const pageShapeSource = result.kind !== 'pdf'
@@ -67,7 +69,7 @@ export function describeOpenResult(result: TOpenFileResult): IWorkspaceOpenReque
     return {
         kind: result.kind === 'pdf' && result.recoveryDirtyBaseline === true ? 'restore' : 'open',
         target: describeDocumentTarget(result),
-        acceptDocumentWithoutVisual: acceptsDocumentWithoutVisual(result),
+        acceptDocumentWithoutVisual: result.kind === 'pdf' && (result.isGenerated === true || result.recoveryDirtyBaseline === true),
         ...(pageShapeSource === undefined ? {} : {pageShapeSource}),
     };
 }

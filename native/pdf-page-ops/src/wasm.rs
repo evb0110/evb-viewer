@@ -4,27 +4,16 @@ use evb_native_support::{
 };
 use std::{cell::RefCell, slice};
 
-use crate::pdf_conformance_facts;
+use crate::{build_print_layout, save_document_to_bytes, PrintOrientation, PrintViewMode};
 use crate::{
-    add_implicit_default_page_label_range, build_browser_page_subset_pdf, build_print_layout,
-    read_pdf_combine_catalog, read_pdf_document_catalog, save_document_to_bytes, set_bookmarks,
-    set_page_labels, BookmarkEntry, BookmarksMutation, PageCloneSource, PageLabelRange,
-    PageLabelsMutation, PrintOrientation, PrintViewMode,
-};
-use crate::{
-    append_native_mutations_to_bytes, crop_browser_pdf_bytes, decrypt_browser_pdf_bytes,
-    delete_browser_pdf_pages, extract_browser_pdf_pages, get_browser_page_geometry_from_bytes,
-    insert_browser_pdf_pages, load_browser_pdf, ocr_text_layer_increment_bytes,
-    ocr_text_visibility_bytes, remove_crop_browser_pdf_bytes, reorder_browser_pdf_pages,
-    rotate_browser_pdf_bytes, serialize_annotation_parse, validate_native_mutations,
-    NativeMutationBytesResult, PageMutationBytes, Result, PAGE_OP_WASM_MAX_BUFFER_BYTES,
+    crop_browser_pdf_bytes, decrypt_browser_pdf_bytes, get_browser_page_geometry_from_bytes,
+    load_browser_pdf, remove_crop_browser_pdf_bytes, rotate_browser_pdf_bytes,
+    validate_native_mutations, PageMutationBytes, Result, PAGE_OP_WASM_MAX_BUFFER_BYTES,
     PAGE_OP_WASM_MUTATION_HEADER_BYTES,
 };
 
 use crate::wasm_abi::*;
 
-const ANNOTATION_PARSE_RESPONSE_HEADER_BYTES: usize = BYTES_HEADER.bytes;
-const NATIVE_MUTATION_RESPONSE_HEADER_BYTES: usize = NATIVE_MUTATION_HEADER.bytes;
 const MAX_REQUEST_BYTES: usize = PAGE_OP_WASM_MAX_BUFFER_BYTES;
 const DEFAULT_WASM_MUTATION_MODIFIED_AT: &str = "D:19700101000000Z";
 
@@ -134,14 +123,12 @@ fn clear_last_result() {
 }
 
 fn run_request(request: &[u8]) -> Result<Vec<u8>> {
+    #[cfg(all(target_family = "wasm", target_os = "unknown"))]
+    if crate::wasm_host_files::is_file_request(request) {
+        return crate::wasm_host_files::run_file_request(request);
+    }
     if is_instructed_request(request) {
         return run_instructed_request(parse_instructed_request(request)?);
-    }
-    if request.len() >= DOCUMENT_LIST_HEADER.version + U32_BYTES
-        && &request[DOCUMENT_LIST_HEADER.magic..DOCUMENT_LIST_HEADER.version] == REQUEST_MAGIC
-        && read_u32_at(request, DOCUMENT_LIST_HEADER.version)? == REQUEST_VERSION_DOCUMENT_LIST
-    {
-        return run_document_list_request(request);
     }
     let parsed = parse_request(request)?;
     match parsed.operation {
@@ -176,14 +163,6 @@ fn run_request(request: &[u8]) -> Result<Vec<u8>> {
             output.extend_from_slice(&metadata);
             Ok(output)
         }
-        OP_DELETE_PAGES => encode_mutation(delete_browser_pdf_pages(parsed.data, &parsed.pages)?),
-        OP_EXTRACT_PAGES => encode_mutation(extract_browser_pdf_pages(parsed.data, &parsed.pages)?),
-        OP_REORDER_PAGES => encode_mutation(reorder_browser_pdf_pages(parsed.data, &parsed.pages)?),
-        OP_INSERT_PAGES => encode_mutation(insert_browser_pdf_pages(
-            parsed.data,
-            parsed.insertion_data,
-            parsed.after_page,
-        )?),
         OP_ROTATE => encode_mutation(rotate_browser_pdf_bytes(
             parsed.data,
             &parsed.pages,
@@ -205,15 +184,6 @@ fn run_request(request: &[u8]) -> Result<Vec<u8>> {
             )?)?,
         ),
         OP_DECRYPT => encode_mutation(decrypt_browser_pdf_bytes(parsed.data, parsed.password)?),
-        OP_PARSE_ANNOTATIONS => {
-            let document = load_browser_pdf(parsed.data)?;
-            let bytes = serialize_annotation_parse(
-                &document,
-                "D:19700101000000Z",
-                PAGE_OP_WASM_MAX_BUFFER_BYTES - ANNOTATION_PARSE_RESPONSE_HEADER_BYTES,
-            )?;
-            encode_bytes(RESPONSE_ANNOTATION_PARSE, bytes)
-        }
         OP_PRINT_LAYOUT => {
             let options = std::str::from_utf8(parsed.insertion_data)
                 .map_err(|_| "Print layout options must be UTF-8 text")?;
@@ -232,30 +202,10 @@ fn run_request(request: &[u8]) -> Result<Vec<u8>> {
                 data: save_document_to_bytes(&mut document)?,
             })
         }
-        OP_OCR_TEXT_VISIBILITY => {
-            let with_evb_ocr_text = match parsed.insertion_data {
-                b"" => false,
-                b"with-evb-ocr-text" => true,
-                _ => return Err("OCR text visibility takes no option but with-evb-ocr-text".into()),
-            };
-            encode_bytes(
-                RESPONSE_JSON,
-                ocr_text_visibility_bytes(parsed.data, &parsed.pages, with_evb_ocr_text)?,
-            )
-        }
         OP_INSPECT_SCAN_CLEANUP_PDF => encode_bytes(
             RESPONSE_JSON,
             crate::inspect_scan_cleanup_pdf_bytes(parsed.data, &parsed.pages)?,
         ),
-        OP_SAVE_MUTATIONS => {
-            let (mut mutations, modified_at) = parse_wasm_mutation_payload(parsed.insertion_data)?;
-            if !parsed.original_appearance_source.is_empty() {
-                let source = load_browser_pdf(parsed.original_appearance_source)?;
-                crate::hydrate_text_box_original_appearances(&mut mutations, &source)?;
-            }
-            let result = append_native_mutations_to_bytes(parsed.data, &mutations, &modified_at)?;
-            encode_native_mutation_save(result)
-        }
         _ => Err(format!(
             "Unsupported browser page-op WASM operation {}",
             parsed.operation
@@ -278,17 +228,6 @@ fn run_instructed_request(parsed: ParsedInstructedRequest<'_>) -> Result<Vec<u8>
         attachments,
     } = parsed;
     match operation {
-        OP_OCR_TEXT_LAYER => {
-            let increment = ocr_text_layer_increment_bytes(data, instructions, &attachments)?;
-            encode_mutation_kind(
-                RESPONSE_INCREMENT,
-                PageMutationBytes {
-                    data: increment.data,
-                    page_count: increment.page_count,
-                },
-                PAGE_OP_WASM_MAX_BUFFER_BYTES,
-            )
-        }
         OP_SPLIT_PAGES => encode_reported(
             RESPONSE_REPORTED_PDF,
             crate::split_pages_bytes(data, instructions)?,
@@ -311,133 +250,6 @@ fn run_instructed_request(parsed: ParsedInstructedRequest<'_>) -> Result<Vec<u8>
         ),
         _ => Err(format!("Unsupported page-op WASM instructed operation {operation}").into()),
     }
-}
-
-fn run_document_list_request(request: &[u8]) -> Result<Vec<u8>> {
-    let mut offset = DOCUMENT_LIST_HEADER.magic;
-    if take_bytes(request, &mut offset, REQUEST_MAGIC.len())? != REQUEST_MAGIC {
-        return Err("Invalid page-op WASM document-list magic".into());
-    }
-    let version = read_u32_at(request, DOCUMENT_LIST_HEADER.version)?;
-    if version != REQUEST_VERSION_DOCUMENT_LIST {
-        return Err("Unsupported page-op WASM document-list version".into());
-    }
-    let operation = read_u32_at(request, DOCUMENT_LIST_HEADER.operation)?;
-    let count = read_usize_at(
-        request,
-        DOCUMENT_LIST_HEADER.document_count,
-        "document count",
-    )?;
-    // Each document carries at least its length word, so the frame bounds the
-    // count before anything is reserved for it.
-    if count == 0 || count > request.len().saturating_sub(DOCUMENT_LIST_HEADER.bytes) / U32_BYTES {
-        return Err("Invalid page-op WASM document count".into());
-    }
-    let mut offset = DOCUMENT_LIST_HEADER.bytes;
-    let mut documents = Vec::with_capacity(count);
-    for _ in 0..count {
-        let len = read_usize_le(request, &mut offset, "document length")?;
-        documents.push(load_browser_pdf(take_bytes(request, &mut offset, len)?)?);
-    }
-    if offset != request.len() {
-        return Err("Trailing bytes in page-op WASM document-list request".into());
-    }
-    match operation {
-        OP_READ_CATALOG => encode_bytes(
-            RESPONSE_JSON,
-            serde_json::to_vec(&read_pdf_document_catalog(&documents[0]))?,
-        ),
-        OP_CONFORMANCE => encode_bytes(
-            RESPONSE_JSON,
-            serde_json::to_vec(&pdf_conformance_facts(&documents[0])?)?,
-        ),
-        OP_MERGE_PAGES => {
-            let catalogs = documents
-                .iter()
-                .map(read_pdf_combine_catalog)
-                .collect::<Result<Vec<_>>>()?;
-            let sources = documents.iter().collect::<Vec<_>>();
-            let mut sequence = Vec::new();
-            for (document_index, document) in documents.iter().enumerate() {
-                sequence.extend(document.get_pages().values().copied().map(|page_id| {
-                    PageCloneSource {
-                        document_index,
-                        page_id,
-                    }
-                }));
-            }
-            let merged = build_browser_page_subset_pdf(&sources, &sequence)?;
-            let mut output = load_browser_pdf(&merged.data)?;
-            let mut page_offset = 0u32;
-            let mut bookmarks = Vec::new();
-            let mut page_labels = Vec::new();
-            for (source_index, mut source_catalog) in catalogs.into_iter().enumerate() {
-                add_implicit_default_page_label_range(
-                    &mut source_catalog.page_labels,
-                    documents[source_index].get_pages().len() as u32,
-                );
-                bookmarks.extend(
-                    source_catalog
-                        .bookmarks
-                        .into_iter()
-                        .map(|bookmark| offset_wasm_bookmark(bookmark, page_offset)),
-                );
-                page_labels.extend(source_catalog.page_labels.into_iter().map(|range| {
-                    PageLabelRange {
-                        start_page: range
-                            .page_index
-                            .saturating_add(page_offset)
-                            .saturating_add(1),
-                        style: range.style,
-                        prefix: range.prefix.unwrap_or_default(),
-                        start_number: range.start.unwrap_or(1),
-                    }
-                }));
-                page_offset =
-                    page_offset.saturating_add(documents[source_index].get_pages().len() as u32);
-            }
-            set_page_labels(
-                &mut output,
-                &PageLabelsMutation {
-                    total_pages: merged.page_count,
-                    ranges: page_labels,
-                },
-            )?;
-            set_bookmarks(
-                &mut output,
-                &BookmarksMutation {
-                    total_pages: merged.page_count,
-                    untitled_label: "Untitled".to_string(),
-                    items: bookmarks,
-                },
-            )?;
-            encode_mutation(PageMutationBytes {
-                page_count: merged.page_count,
-                data: save_document_to_bytes(&mut output)?,
-            })
-        }
-        _ => Err(format!("Unsupported page-op WASM document-list operation {operation}").into()),
-    }
-}
-
-fn offset_wasm_bookmark(mut bookmark: BookmarkEntry, page_offset: u32) -> BookmarkEntry {
-    use evb_native_support::pdf_catalog::BookmarkSourceTarget::PageIndex;
-    if let Some(index) = &mut bookmark.page_index {
-        *index = index.saturating_add(page_offset);
-    }
-    if let Some(PageIndex(index)) = bookmark
-        .original_destination
-        .as_mut()
-        .map(|destination| &mut destination.source_target)
-    {
-        *index = index.saturating_add(page_offset);
-    }
-    bookmark.items = bookmark
-        .items
-        .into_iter()
-        .map(|item| offset_wasm_bookmark(item, page_offset))
-        .collect();
-    bookmark
 }
 
 // Stream flat and enveloped requests into the same typed mutation decoder.
@@ -541,7 +353,9 @@ impl<'de, A: serde::de::MapAccess<'de>> serde::de::MapAccess<'de> for &mut Mutat
     }
 }
 
-fn parse_wasm_mutation_payload(payload: &[u8]) -> Result<(crate::NativeMutationsFile, String)> {
+pub(crate) fn parse_wasm_mutation_payload(
+    payload: &[u8],
+) -> Result<(crate::NativeMutationsFile, String)> {
     if payload.len() > crate::MAX_SIDECAR_BYTES {
         return Err(crate::domain_error(
             NativeErrorCode::TooLarge,
@@ -616,47 +430,6 @@ fn parse_wasm_pdf_date_digits(bytes: &[u8]) -> Option<u32> {
         byte.is_ascii_digit()
             .then_some(value * 10 + u32::from(*byte - b'0'))
     })
-}
-
-fn encode_native_mutation_save(result: NativeMutationBytesResult) -> Result<Vec<u8>> {
-    let data_len = u32::try_from(result.data.len()).map_err(|_| page_op_output_limit())?;
-    let identity_bindings = serde_json::to_vec(&result.identity_bindings)?;
-    let identity_bindings_len =
-        u32::try_from(identity_bindings.len()).map_err(|_| page_op_output_limit())?;
-    let payload_len = result
-        .data
-        .len()
-        .checked_add(identity_bindings.len())
-        .ok_or_else(page_op_output_limit)?;
-    let framed_len = NATIVE_MUTATION_RESPONSE_HEADER_BYTES
-        .checked_add(payload_len)
-        .ok_or_else(page_op_output_limit)?;
-    if framed_len > PAGE_OP_WASM_MAX_BUFFER_BYTES {
-        return Err(page_op_output_limit());
-    }
-    let mut output = result.data;
-    output
-        .try_reserve_exact(framed_len.saturating_sub(output.len()))
-        .map_err(|_| page_op_output_limit())?;
-    output.resize(data_len as usize + NATIVE_MUTATION_RESPONSE_HEADER_BYTES, 0);
-    output.copy_within(0..data_len as usize, NATIVE_MUTATION_RESPONSE_HEADER_BYTES);
-    output[NATIVE_MUTATION_HEADER.kind..NATIVE_MUTATION_HEADER.kind + U32_BYTES]
-        .copy_from_slice(&RESPONSE_NATIVE_MUTATIONS.to_le_bytes());
-    output[NATIVE_MUTATION_HEADER.page_count..NATIVE_MUTATION_HEADER.page_count + U32_BYTES]
-        .copy_from_slice(&result.page_count.to_le_bytes());
-    output[NATIVE_MUTATION_HEADER.data_length..NATIVE_MUTATION_HEADER.data_length + U32_BYTES]
-        .copy_from_slice(&data_len.to_le_bytes());
-    output[NATIVE_MUTATION_HEADER.identity_bindings_length
-        ..NATIVE_MUTATION_HEADER.identity_bindings_length + U32_BYTES]
-        .copy_from_slice(&identity_bindings_len.to_le_bytes());
-    // The append path performs semantic postcondition validation before this
-    // response is returned. Keep the proof explicit in the wire frame so the
-    // browser consumer can fail closed if a future writer changes that rule.
-    output[NATIVE_MUTATION_HEADER.postconditions_verified
-        ..NATIVE_MUTATION_HEADER.postconditions_verified + U32_BYTES]
-        .copy_from_slice(&NATIVE_MUTATION_POSTCONDITIONS_VERIFIED.to_le_bytes());
-    output.extend_from_slice(&identity_bindings);
-    Ok(output)
 }
 
 fn encode_mutation(result: PageMutationBytes) -> Result<Vec<u8>> {
@@ -763,6 +536,30 @@ fn instructed_request(
     request
 }
 
+/// `base` with the text layer the file route appends from `page_pdfs`.
+#[cfg(test)]
+fn ocr_text_layer_bytes(base: &[u8], instructions: &str, page_pdfs: &[&[u8]]) -> Result<Vec<u8>> {
+    let mut saved = base.to_vec();
+    crate::ocr_text_layer_to_source(
+        base,
+        base.len() as u64,
+        instructions.as_bytes(),
+        |index| {
+            page_pdfs
+                .get(index)
+                .map(|page| page.to_vec())
+                .ok_or_else(|| {
+                    "ocr-text-layer names an OCR page PDF the request does not carry".into()
+                })
+        },
+        |revision| {
+            saved.extend_from_slice(revision);
+            Ok(revision.to_vec())
+        },
+    )?;
+    Ok(saved)
+}
+
 #[cfg(test)]
 #[path = "tests/wasm_writers.rs"]
 mod writer_parity;
@@ -784,7 +581,7 @@ mod tests {
     };
 
     fn request_header(page_count: u32, data_len: u32, insertion_data_len: u32) -> Vec<u8> {
-        request_header_with_password(OP_DELETE_PAGES, page_count, data_len, insertion_data_len, 0)
+        request_header_with_password(OP_ROTATE, page_count, data_len, insertion_data_len, 0)
     }
 
     fn request_header_with_password(
@@ -796,7 +593,7 @@ mod tests {
     ) -> Vec<u8> {
         let mut request = Vec::new();
         request.extend_from_slice(REQUEST_MAGIC);
-        for value in [REQUEST_VERSION, operation, page_count, 0, 0, 0] {
+        for value in [REQUEST_VERSION, operation, page_count, 0, 0] {
             write_u32_le(&mut request, value);
         }
         for _ in 0..4 {
@@ -853,16 +650,13 @@ mod tests {
         document.catalog_mut().unwrap().set("Outlines", outlines_id);
         let mut source = Vec::new();
         document.save_to(&mut source).unwrap();
-        let mut request = REQUEST_MAGIC.to_vec();
-        for value in [REQUEST_VERSION_DOCUMENT_LIST, OP_MERGE_PAGES, 2] {
-            write_u32_le(&mut request, value);
-        }
-        for _ in 0..2 {
-            write_u32_le(&mut request, source.len() as u32);
-            request.extend_from_slice(&source);
-        }
-        let output = run_request(&request).unwrap();
-        let saved = Document::load_mem(&output[MUTATION_HEADER.bytes..]).unwrap();
+        let sources = [
+            crate::SourcePdf::open(source.as_slice(), source.len() as u64).unwrap(),
+            crate::SourcePdf::open(source.as_slice(), source.len() as u64).unwrap(),
+        ];
+        let merged = crate::edit_page_structure(crate::PageStructureEdit::Merge, &sources).unwrap();
+        let output = merged.write(&sources, Vec::new()).unwrap();
+        let saved = Document::load_mem(&output).unwrap();
         let outlines = saved
             .get_dictionary(
                 saved
@@ -938,14 +732,22 @@ mod tests {
         bytes
     }
 
-    fn ocr_text_layer_request(data: &[u8], instructions: &str, page_pdfs: &[&[u8]]) -> Vec<u8> {
-        instructed_request(OP_OCR_TEXT_LAYER, data, instructions, page_pdfs)
+    fn ocr_text_visibility(saved: &[u8], with_evb_ocr_text: bool) -> serde_json::Value {
+        serde_json::from_slice(
+            &crate::ocr_text_visibility_from_source(
+                saved,
+                saved.len() as u64,
+                &[1],
+                with_evb_ocr_text,
+            )
+            .unwrap(),
+        )
+        .unwrap()
     }
 
     /// Page 1's EVB OCR text, as the visibility report reads it back.
     fn evb_layer_text(saved: &[u8]) -> String {
-        let report: serde_json::Value =
-            serde_json::from_slice(&ocr_text_visibility_bytes(saved, &[1], true).unwrap()).unwrap();
+        let report = ocr_text_visibility(saved, true);
         report["pages"][0]["evbOcrLines"]
             .as_array()
             .map(|lines| {
@@ -959,25 +761,17 @@ mod tests {
     }
 
     #[test]
-    fn ocr_text_layer_returns_only_the_appended_revision() {
+    fn ocr_text_layer_appends_only_its_revision() {
         let base = ocr_base_pdf();
         let page = tesseract_page_pdf("Recognized");
-        let output = run_request(&ocr_text_layer_request(
+        let saved = ocr_text_layer_bytes(
             &base,
             r#"{"pages":[{"pageNumber":1,"source":0}]}"#,
             &[&page],
-        ))
+        )
         .unwrap();
-        assert_eq!(&output[0..4], &RESPONSE_INCREMENT.to_le_bytes());
-        assert_eq!(read_u32_at(&output, MUTATION_HEADER.page_count).unwrap(), 1);
-        let increment = &output[MUTATION_HEADER.bytes..];
-        assert_eq!(
-            read_u32_at(&output, MUTATION_HEADER.data_length).unwrap() as usize,
-            increment.len()
-        );
-        assert!(!increment.starts_with(b"%PDF"));
-        let mut saved = base.clone();
-        saved.extend_from_slice(increment);
+        assert!(saved.starts_with(&base));
+        assert!(!saved[base.len()..].starts_with(b"%PDF"));
         Document::load_mem(&saved).unwrap();
         assert_eq!(evb_layer_text(&saved), "Recognized");
     }
@@ -985,101 +779,53 @@ mod tests {
     #[test]
     fn ocr_text_layer_replaces_the_previous_evb_layer() {
         let first = ocr_base_pdf();
-        let request = |base: &[u8], words: &str| {
+        let layer = |base: &[u8], words: &str| {
             let page = tesseract_page_pdf(words);
-            let output = run_request(&ocr_text_layer_request(
-                base,
-                r#"{"pages":[{"pageNumber":1,"source":0}]}"#,
-                &[&page],
-            ))
-            .unwrap();
-            let mut saved = base.to_vec();
-            saved.extend_from_slice(&output[MUTATION_HEADER.bytes..]);
-            saved
+            ocr_text_layer_bytes(base, r#"{"pages":[{"pageNumber":1,"source":0}]}"#, &[&page])
+                .unwrap()
         };
-        let second = request(&request(&first, "Earlier"), "Later");
+        let second = layer(&layer(&first, "Earlier"), "Later");
         assert_eq!(evb_layer_text(&second), "Later");
     }
 
     #[test]
-    fn ocr_text_layer_framing_rejects_bad_sources_and_trailing_bytes() {
+    fn ocr_text_layer_rejects_bad_sources() {
         let base = ocr_base_pdf();
         let page = tesseract_page_pdf("Word");
-        let missing = run_request(&ocr_text_layer_request(
+        let missing = ocr_text_layer_bytes(
             &base,
             r#"{"pages":[{"pageNumber":1,"source":1}]}"#,
             &[&page],
-        ))
+        )
         .unwrap_err();
         assert!(missing.to_string().contains("does not carry"), "{missing}");
-        let duplicate = run_request(&ocr_text_layer_request(
+        let duplicate = ocr_text_layer_bytes(
             &base,
             r#"{"pages":[{"pageNumber":1,"source":0},{"pageNumber":1,"source":0}]}"#,
             &[&page],
-        ))
+        )
         .unwrap_err();
         assert!(duplicate.to_string().contains("unique"), "{duplicate}");
-        let empty_page = run_request(&ocr_text_layer_request(
-            &base,
-            r#"{"pages":[{"pageNumber":1,"source":0}]}"#,
-            &[b""],
-        ))
-        .unwrap_err();
+        let empty_page =
+            ocr_text_layer_bytes(&base, r#"{"pages":[{"pageNumber":1,"source":0}]}"#, &[b""])
+                .unwrap_err();
         assert!(
             empty_page.to_string().contains("between 1 and"),
             "{empty_page}"
         );
-        let mut trailing = ocr_text_layer_request(
-            &base,
-            r#"{"pages":[{"pageNumber":1,"source":0}]}"#,
-            &[&page],
-        );
-        trailing.push(0);
-        assert!(run_request(&trailing)
-            .unwrap_err()
-            .to_string()
-            .contains("Trailing bytes"));
-        let instructions = r#"{"pages":[{"pageNumber":1,"source":0}]}"#;
-        let mut truncated = ocr_text_layer_request(&base, instructions, &[&page]);
-        truncated.truncate(INSTRUCTED_REQUEST_HEADER.bytes + base.len() + instructions.len() + 2);
-        assert!(run_request(&truncated)
-            .unwrap_err()
-            .to_string()
-            .contains("Truncated page-op WASM request"));
-        let no_pages = ocr_text_layer_request(&base, r#"{"pages":[]}"#, &[]);
-        assert!(run_request(&no_pages)
-            .unwrap_err()
-            .to_string()
-            .contains("attachment count"));
     }
 
     #[test]
     fn ocr_text_visibility_reports_the_layer_the_writer_added() {
         let base = ocr_base_pdf();
         let page = tesseract_page_pdf("Visible");
-        let output = run_request(&ocr_text_layer_request(
+        let saved = ocr_text_layer_bytes(
             &base,
             r#"{"pages":[{"pageNumber":1,"source":0}]}"#,
             &[&page],
-        ))
+        )
         .unwrap();
-        let mut saved = base.clone();
-        saved.extend_from_slice(&output[MUTATION_HEADER.bytes..]);
-        let flag = b"with-evb-ocr-text";
-        let mut request = request_header_with_password(
-            OP_OCR_TEXT_VISIBILITY,
-            1,
-            saved.len() as u32,
-            flag.len() as u32,
-            0,
-        );
-        write_u32_le(&mut request, 1);
-        request.extend_from_slice(&saved);
-        request.extend_from_slice(flag);
-        let output = run_request(&request).unwrap();
-        assert_eq!(&output[0..4], &RESPONSE_JSON.to_le_bytes());
-        let report: serde_json::Value =
-            serde_json::from_slice(&output[BYTES_HEADER.bytes..]).unwrap();
+        let report = ocr_text_visibility(&saved, true);
         let page = &report["pages"][0];
         assert_eq!(page["pageNumber"], 1);
         assert_eq!(page["evbOcrLayer"], true);
@@ -1089,7 +835,7 @@ mod tests {
     fn crop_request(data: &[u8], top: f64) -> Vec<u8> {
         let mut request = Vec::new();
         request.extend_from_slice(REQUEST_MAGIC);
-        for value in [REQUEST_VERSION, OP_CROP, 1, 0, 0, 0] {
+        for value in [REQUEST_VERSION, OP_CROP, 1, 0, 0] {
             write_u32_le(&mut request, value);
         }
         for value in [top, 0.0, 0.0, 0.0] {
@@ -1103,24 +849,20 @@ mod tests {
         request
     }
 
-    fn annotation_parse_request(data: &[u8]) -> Vec<u8> {
-        let mut request = request_header(0, data.len() as u32, 0);
-        request[8..12].copy_from_slice(&OP_PARSE_ANNOTATIONS.to_le_bytes());
-        request.extend_from_slice(data);
-        request
-    }
-
-    fn mutation_save_request(data: &[u8], payload: &[u8]) -> Vec<u8> {
-        let mut request = request_header_with_password(
-            OP_SAVE_MUTATIONS,
-            0,
-            data.len() as u32,
-            payload.len() as u32,
-            0,
-        );
-        request.extend_from_slice(data);
-        request.extend_from_slice(payload);
-        request
+    /// What the file route appends for `payload`, as one PDF.
+    pub(super) fn save(
+        input: &[u8],
+        payload: &[u8],
+        original: Option<&[u8]>,
+    ) -> crate::Result<crate::NativeMutationBytesResult> {
+        let (mut mutations, modified_at) = parse_wasm_mutation_payload(payload)?;
+        if let Some(original) = original {
+            crate::hydrate_text_box_original_appearances_from_source(
+                &mut mutations,
+                crate::SourcePdf::open(original, original.len() as u64)?,
+            )?;
+        }
+        crate::append_native_mutations_to_bytes(input, &mutations, &modified_at)
     }
 
     fn assert_too_large(error: Box<dyn std::error::Error>) {
@@ -1251,12 +993,11 @@ mod tests {
     }
 
     #[test]
-    fn wasm_annotation_parse_dispatch_returns_the_jsonl_envelope() {
-        let output = run_request(&annotation_parse_request(&test_pdf_bytes())).unwrap();
-        assert_eq!(&output[..4], &RESPONSE_ANNOTATION_PARSE.to_le_bytes());
-        let data_len = u32::from_le_bytes(output[4..8].try_into().unwrap()) as usize;
-        assert_eq!(data_len, output.len() - 8);
-        let payload = String::from_utf8(output[8..].to_vec()).unwrap();
+    fn annotation_parse_read_by_range_returns_the_jsonl_stream() {
+        let input = test_pdf_bytes();
+        let output =
+            crate::annotation_parse_from_source(&input[..], input.len() as u64, 1 << 20).unwrap();
+        let payload = String::from_utf8(output).unwrap();
         let header = payload.lines().next().unwrap();
         let header = serde_json::from_str::<serde_json::Value>(header).unwrap();
         assert_eq!(header["format"], ANNOTATION_PARSE_FORMAT);
@@ -1267,19 +1008,10 @@ mod tests {
     fn wasm_native_mutation_save_appends_text_box_and_returns_identity_proof() {
         let input = test_pdf_bytes();
         let payload = br#"{"modifiedAt":"D:20260831150000Z","mutations":{"textBoxes":[{"pageIndex":0,"stableKey":"wasm-text-box","text":"WASM text box","rect":[10,20,100,60],"rotation":0,"fontSize":16,"color":[17,24,39],"author":"Ada Lovelace","createdAt":1780000000000,"modifiedAt":1780000060000}]}}"#;
-        let output = run_request(&mutation_save_request(&input, payload)).unwrap();
-        assert_eq!(&output[..4], &RESPONSE_NATIVE_MUTATIONS.to_le_bytes());
-        assert_eq!(u32::from_le_bytes(output[4..8].try_into().unwrap()), 1);
-        let data_len = u32::from_le_bytes(output[8..12].try_into().unwrap()) as usize;
-        let bindings_len = u32::from_le_bytes(output[12..16].try_into().unwrap()) as usize;
-        assert_eq!(u32::from_le_bytes(output[16..20].try_into().unwrap()), 1);
-        assert_eq!(
-            output.len(),
-            NATIVE_MUTATION_RESPONSE_HEADER_BYTES + data_len + bindings_len
-        );
-        assert!(data_len > input.len());
-        let saved = &output[NATIVE_MUTATION_RESPONSE_HEADER_BYTES
-            ..NATIVE_MUTATION_RESPONSE_HEADER_BYTES + data_len];
+        let output = save(&input, payload, None).unwrap();
+        assert_eq!(output.page_count, 1);
+        let saved = output.data.as_slice();
+        assert!(saved.len() > input.len());
         assert!(saved.starts_with(&input));
         let loaded = Document::load_mem(saved).expect("reload appended WASM mutation output");
         let page_id = loaded.get_pages().values().next().copied().unwrap();
@@ -1307,10 +1039,8 @@ mod tests {
             .as_deref(),
             Some("WASM text box")
         );
-        let bindings = serde_json::from_slice::<Vec<serde_json::Value>>(
-            &output[NATIVE_MUTATION_RESPONSE_HEADER_BYTES + data_len..],
-        )
-        .unwrap();
+        let bindings = serde_json::to_value(&output.identity_bindings).unwrap();
+        let bindings = bindings.as_array().unwrap();
         assert_eq!(bindings.len(), 1);
         assert_eq!(bindings[0]["annotationId"], "wasm-text-box");
     }
@@ -1334,12 +1064,8 @@ mod tests {
             }] }
         }))
         .unwrap();
-        let output = run_request(&mutation_save_request(&input, &payload)).unwrap();
-        assert_eq!(&output[..4], &RESPONSE_NATIVE_MUTATIONS.to_le_bytes());
-        let data_len = u32::from_le_bytes(output[8..12].try_into().unwrap()) as usize;
-        let saved = &output[NATIVE_MUTATION_RESPONSE_HEADER_BYTES
-            ..NATIVE_MUTATION_RESPONSE_HEADER_BYTES + data_len];
-        let document = Document::load_mem(saved).unwrap();
+        let output = save(&input, &payload, None).unwrap();
+        let document = Document::load_mem(&output.data).unwrap();
         let entries = collect_parsed_annotations(&document, "D:20260908120000Z").unwrap();
         let stamp = entries
             .iter()
@@ -1624,44 +1350,24 @@ mod text_box_appearance_tests {
     use crate::PdfObjectSource;
     use lopdf::{dictionary, Document, Object, Stream};
 
-    fn request(operation: u32, data: &[u8], payload: &[u8], source: Option<&[u8]>) -> Vec<u8> {
-        let mut request = vec![
-            0;
-            source.map_or(REQUEST_HEADER.bytes, |_| {
-                REQUEST_ORIGINAL_APPEARANCE_SOURCE_HEADER.bytes
-            })
-        ];
+    fn request(operation: u32, payload: &[u8]) -> Vec<u8> {
+        let mut request = vec![0; REQUEST_HEADER.bytes];
         request[..4].copy_from_slice(REQUEST_MAGIC);
-        let version = if source.is_some() {
-            REQUEST_VERSION_ORIGINAL_APPEARANCE_SOURCE
-        } else {
-            REQUEST_VERSION
-        };
         for (offset, value) in [
-            (REQUEST_HEADER.version, version),
+            (REQUEST_HEADER.version, REQUEST_VERSION),
             (REQUEST_HEADER.operation, operation),
-            (REQUEST_HEADER.data_length, data.len() as u32),
             (REQUEST_HEADER.insertion_data_length, payload.len() as u32),
         ] {
             request[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
         }
-        if let Some(source) = source {
-            request[REQUEST_ORIGINAL_APPEARANCE_SOURCE_HEADER.source_data_length
-                ..REQUEST_ORIGINAL_APPEARANCE_SOURCE_HEADER.bytes]
-                .copy_from_slice(&(source.len() as u32).to_le_bytes());
-        }
-        request.extend_from_slice(data);
         request.extend_from_slice(payload);
-        if let Some(source) = source {
-            request.extend_from_slice(source);
-        }
         request
     }
 
     #[test]
     fn wasm_appearance_has_no_source_pdf_and_returns_a_reopenable_pdf_and_fit() {
         let payload = br#"{"page":{"view":[0,0,200,100],"rotation":0,"userUnit":1},"textBoxes":[{"textBox":{"pageIndex":0,"stableKey":"wasm-appearance","text":"Small office","rect":[10,10,35,30],"rotation":0,"fontSize":18,"color":[17,24,39]},"source":{"version":1,"rawRD":[1,2,7,12],"borderWidth":0,"staleFill":false}}]}"#;
-        let output = run_request(&request(OP_TEXT_BOX_APPEARANCE, &[], payload, None)).unwrap();
+        let output = run_request(&request(OP_TEXT_BOX_APPEARANCE, payload)).unwrap();
         assert_eq!(
             read_u32_at(&output, TEXT_BOX_APPEARANCE_HEADER.kind).unwrap(),
             RESPONSE_TEXT_BOX_APPEARANCE
@@ -1692,7 +1398,7 @@ mod text_box_appearance_tests {
     }
 
     #[test]
-    fn wasm_save_restores_original_resources_from_its_v4_source_segment() {
+    fn save_restores_original_resources_read_by_range_from_its_source() {
         let mut source = Document::with_version("1.7");
         let pages = source.new_object_id();
         let page = source.new_object_id();
@@ -1715,18 +1421,8 @@ mod text_box_appearance_tests {
         let mut current_bytes = Vec::new();
         current.save_to(&mut current_bytes).unwrap();
         let payload = serde_json::to_vec(&serde_json::json!({"modifiedAt":"D:20261016000000Z","mutations":{"textBoxes":[{"pageIndex":0,"stableKey":"source","annotationId":format!("{}R",root.0),"text":"Original","rect":[10,20,150,70],"rotation":0,"fontSize":18,"color":[0,0,0],"originalAppearance":{"sourceAnnotationId":format!("{}R",root.0)}}]}})).unwrap();
-        let output = run_request(&request(
-            OP_SAVE_MUTATIONS,
-            &current_bytes,
-            &payload,
-            Some(&original),
-        ))
-        .unwrap();
-        let data_len = read_u32_at(&output, NATIVE_MUTATION_HEADER.data_length).unwrap() as usize;
-        let saved = Document::load_mem(
-            &output[NATIVE_MUTATION_HEADER.bytes..NATIVE_MUTATION_HEADER.bytes + data_len],
-        )
-        .unwrap();
+        let output = super::tests::save(&current_bytes, &payload, Some(&original)).unwrap();
+        let saved = Document::load_mem(&output.data).unwrap();
         let dict = saved.get_dictionary(root).unwrap();
         assert_eq!(
             crate::pdf_string_to_text(dict.get(b"Contents").unwrap()).unwrap(),
@@ -1754,6 +1450,6 @@ mod text_box_appearance_tests {
                 .unwrap()
                 .content
         );
-        assert!(run_request(&request(OP_SAVE_MUTATIONS, &current_bytes, &payload, None)).is_err());
+        assert!(super::tests::save(&current_bytes, &payload, None).is_err());
     }
 }

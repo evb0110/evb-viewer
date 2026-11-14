@@ -21,12 +21,6 @@ import type {
     IPoint2D,
 } from '@contracts/geometry';
 import type { IPdfAnnotationStampImageReference } from '@contracts/pdfAnnotationParseTypes';
-import type {
-    IPdfEmbeddedShapeIndexChunk,
-    IPdfEmbeddedShapeIndexChunkOptions,
-    IPdfEmbeddedShapeIndexOptions,
-    IPdfEmbeddedShapeIndexSession,
-} from '@contracts/pdfEmbeddedShapeIndexSchemas';
 import type { IPdfBookmarkEntry } from '@contracts/pdfBookmarkEntry';
 import type {
     IPdfPageLabelsMutation,
@@ -44,7 +38,6 @@ import type {
     IRecentFile,
     TLeaseId,
     TRequestId,
-    TSessionId,
 } from '@contracts/shared';
 import {
     parseLeaseId,
@@ -65,10 +58,6 @@ import type {
 } from '@contracts/electronApiCommon';
 import type { ITypedStagedArtifact } from '@contracts/stagedArtifacts';
 import type * as PdfAnnotationParse from '@contracts/pdfAnnotationParseTypes';
-import type {
-    IPdfDecryptRequest,
-    IPdfDecryptResult,
-} from '@contracts/pdfDecryptSchemas';
 import type {TOpenFileResult} from '@contracts/pdfOpenFileSchemas';
 import * as v from 'valibot';
 import type {
@@ -92,7 +81,6 @@ import type {IPdfPathValidationOptions as TPlatformPdfPathValidationOptions} fro
 import type {
     IPdfNativeStagedCommitOptions,
     IPdfSaveAsOptions,
-    IPdfSaveAsWarning,
     IPdfSerializedSaveOptions,
 } from '@contracts/documentsPersistenceSchemas';
 export type {IPdfNativeTextBoxSourceDescriptor};
@@ -128,29 +116,12 @@ export type {IPdfPathValidationOptions} from '@contracts/pdfValidationPathArgs';
 export type {
     IPdfNativeStagedCommitOptions,
     IPdfSaveAsOptions,
-    IPdfSaveAsWarning,
     IPdfSerializedSaveOptions,
 } from '@contracts/documentsPersistenceSchemas';
 
 export type TOpenBatchProgressOperation = 'document-open' | 'page-insert';
 export {PDF_ANNOTATION_PARSE_MAX_LINE_BYTES} from '@contracts/pdfAnnotationParseTypes';
 export type * from '@contracts/pdfAnnotationParseTypes';
-export type {
-    IPdfDecryptRequest, IPdfDecryptResult, TPdfDecryptOutcome,
-} from '@contracts/pdfDecryptSchemas';
-export type {
-    IPdfEmbeddedShapeIndexChunk,
-    IPdfEmbeddedShapeIndexChunkOptions,
-    IPdfEmbeddedShapeIndexEntry,
-    IPdfEmbeddedShapeIndexOptions,
-    IPdfEmbeddedShapeIndexPoint,
-    IPdfEmbeddedShapeIndexSession,
-} from '@contracts/pdfEmbeddedShapeIndexSchemas';
-
-/** The renderer requests at most 512 KiB of decoded shape-index data. */
-export const PDF_EMBEDDED_SHAPE_INDEX_MAX_CHUNK_BYTES = 512 * 1024;
-/** Native JSONL lines may be larger than one renderer pull, but never exceed 4 MiB. */
-export const PDF_EMBEDDED_SHAPE_INDEX_MAX_LINE_BYTES = 4 * 1024 * 1024;
 
 export const IPC_DIRECT_BINARY_PAYLOAD_MAX_BYTES = 16 * 1024 * 1024;
 
@@ -190,41 +161,6 @@ export const MANAGED_TEMP_FILE_HANDLE_SCHEMA = v.pipe(v.object({
     revision: v.nullable(documentRevisionTokenSchema),
 }), v.readonly());
 export type IManagedTempFileHandle = v.InferOutput<typeof MANAGED_TEMP_FILE_HANDLE_SCHEMA>;
-
-const workingCopyBackingStatusStates = [
-    'lazy-original',
-    'materializing',
-    'materialized',
-] as const;
-
-const workingCopyBackingFailureCodes = [
-    'SOURCE_BACKING_CHANGED',
-    'SOURCE_BACKING_UNAVAILABLE',
-    'WORKING_COPY_MATERIALIZATION_CANCELLED',
-    'WORKING_COPY_MATERIALIZATION_FAILED',
-    'WORKING_COPY_MATERIALIZATION_NO_SPACE',
-    'WORKING_COPY_MATERIALIZATION_VERIFICATION_FAILED',
-    'WORKING_COPY_REGISTRATION_CHANGED',
-] as const;
-
-export const WORKING_COPY_BACKING_STATUS_SCHEMA = v.pipe(v.object({
-    documentRef: documentRefSchema,
-    failure: v.nullable(v.pipe(v.object({
-        code: v.picklist(workingCopyBackingFailureCodes),
-        retryable: v.boolean(),
-    }), v.readonly())),
-    progress: v.pipe(v.number(), v.finite(), v.minValue(0), v.maxValue(1)),
-    state: v.picklist(workingCopyBackingStatusStates),
-}), v.readonly());
-export type TWorkingCopyBackingStatusState = v.InferOutput<typeof WORKING_COPY_BACKING_STATUS_SCHEMA>['state'];
-export type TWorkingCopyBackingFailureCode = Exclude<
-    v.InferOutput<typeof WORKING_COPY_BACKING_STATUS_SCHEMA>['failure'],
-    null
->['code'];
-export type IWorkingCopyBackingFailure = v.InferOutput<typeof WORKING_COPY_BACKING_STATUS_SCHEMA>['failure'] extends infer TFailure
-    ? Exclude<TFailure, null>
-    : never;
-export type IWorkingCopyBackingStatus = v.InferOutput<typeof WORKING_COPY_BACKING_STATUS_SCHEMA>;
 
 export const MAX_DOCUMENT_ALLOCATION_BYTES = 512 * 1024 * 1024;
 
@@ -302,12 +238,6 @@ export interface ICreateCombinedPdfFromFilesOptions {
     signal?: AbortSignal;
 }
 
-export type TOpenFolderDialogResult =
-    | {
-        readonly ok: true;
-        readonly value: TOpenFileResult | null
-    }
-    | IPlatformUnsupportedResult;
 export type TShowItemInFolderResult =
     | {readonly ok: true}
     | IPlatformUnsupportedResult;
@@ -564,20 +494,6 @@ export type IPdfNativeSaveResult = IPdfNativeNoteTextSaveResult;
 export interface IPdfSaveAsResult {
     readonly path: TDocumentRef | null;
     readonly validation: IPdfValidationResult | null;
-    /**
-     * The target file was written but the working copy could not be rebound to
-     * it, so the open document no longer corresponds to the file the user just
-     * saved. Reported as its own member rather than a validation warning: the
-     * save did not fully succeed, and the caller has to keep the dirty state.
-     */
-    readonly warning?: IPdfSaveAsWarning;
-}
-
-export function createWorkingCopySyncWarning(detail: string): IPdfSaveAsWarning {
-    return {
-        reason: 'working-copy-sync-required',
-        message: `The file was written, but this document is no longer connected to it: ${detail}`,
-    };
 }
 
 export interface IPdfCommittedSaveAsResult extends IPdfSaveAsResult {readonly validation: IPdfValidationResult;}
@@ -625,7 +541,6 @@ export interface IDocumentsMenuCapability {
 export interface IDocumentsFileCapability {
     openDocumentDialog: () => Promise<TOpenFileResult | null>;
     openCombineDialog: () => Promise<TOpenFileResult | null>;
-    openFolderDialog: () => Promise<TOpenFileResult | null>;
     openImageDialog: () => Promise<string | null>;
     openDocumentDirect: (path: TDocumentRef, password?: string) => Promise<TOpenFileResult | null>;
     openDocumentDirectBatch: (
@@ -655,20 +570,7 @@ export interface IDocumentsFileCapability {
     parsePdfAnnotations: PdfAnnotationParse.TPdfAnnotationParse;
     getPdfOpeningGeometry?: (path: TDocumentRef) => Promise<TPlatformPdfOpeningGeometry | null>;
     getPdfNativePageSizes?: IPdfNativePageSizesCapability;
-    beginPdfEmbeddedShapeIndex?: (
-        path: TDocumentRef,
-        options: IPdfEmbeddedShapeIndexOptions,
-    ) => Promise<IPdfEmbeddedShapeIndexSession>;
-    readPdfEmbeddedShapeIndexChunk?: (
-        sessionId: TSessionId,
-        offset: number,
-        options?: IPdfEmbeddedShapeIndexChunkOptions,
-    ) => Promise<IPdfEmbeddedShapeIndexChunk>;
-    releasePdfEmbeddedShapeIndex?: (sessionId: TSessionId) => Promise<boolean>;
-    decryptPdfWorkingCopy?: (path: TDocumentRef, request?: IPdfDecryptRequest) => Promise<IPdfDecryptResult>;
-    fileExists: (path: TDocumentRef) => Promise<boolean>;
     getDocumentRevision: (path: TDocumentRef) => Promise<IDocumentRevisionInfo>;
-    getWorkingCopyBackingStatus?: (path: TDocumentRef) => Promise<IWorkingCopyBackingStatus | null>;
     analyzePdfConformance: (
         path: TDocumentRef,
         options?: IPdfConformanceAnalysisOptions,
@@ -745,14 +647,18 @@ export interface IDocumentsFileCapability {
         path: TDocumentRef,
         options?: TPlatformPdfPathValidationOptions,
     ) => Promise<IPdfValidationResult>;
+    /**
+     * Undo or redo: makes `revision`, one the document keeps for its undo history, current again. Nothing is
+     * copied; the document stays the same document.
+     */
+    restoreDocumentRevision: (path: TDocumentRef, revision: TDocumentRevisionToken, options?: IDocumentMutationRevisionOptions) => Promise<IDocumentRevisionInfo>;
+    /** The revisions the undo history names; the document keeps those and lets the others go. */
+    retainDocumentRevisions: (path: TDocumentRef, revisions: TDocumentRevisionToken[]) => Promise<void>;
     cleanupFile: (path: TDocumentRef) => Promise<void>;
     setWindowTitle: (title: string) => Promise<void>;
     showItemInFolder: (path: TDocumentRef) => Promise<boolean>;
     onDocumentRevisionChanged: (
         callback: (event: IDocumentRevisionChangedEvent) => void,
-    ) => TMenuEventUnsubscribe;
-    onWorkingCopyBackingStatusChanged?: (
-        callback: (event: IWorkingCopyBackingStatus) => void,
     ) => TMenuEventUnsubscribe;
 
     recentFiles: {
@@ -790,7 +696,6 @@ export interface IDocumentsPickerCapability extends Pick<
     IDocumentsFileCapability,
     | 'openDocumentDialog'
     | 'openCombineDialog'
-    | 'openFolderDialog'
     | 'openImageDialog'
     | 'getPathForFile'
     | 'getPathsForFiles'
@@ -813,15 +718,10 @@ export interface IDocumentsWorkingCopyCapability extends Pick<
     | 'createWorkingCopyFromData'
     | 'createWorkingCopyFromPath'
     | 'parsePdfAnnotations'
+    | 'restoreDocumentRevision'
+    | 'retainDocumentRevisions'
     | 'cleanupFile'
-> {recovery?: {
-    /** Copies `from` into a durable recovery document, chunk by chunk. */
-    createSnapshot(fileName: string, from: TDocumentRef, sourceRef?: TDocumentRef): Promise<{
-        ref: TDocumentRef;
-        revisionToken: TDocumentRevisionToken;
-    }>;
-    cleanupSnapshot(ref: TDocumentRef): Promise<void>;
-};}
+> {}
 
 export interface IDocumentsReadCapability extends Pick<
     IDocumentsFileCapability,
@@ -833,15 +733,8 @@ export interface IDocumentsReadCapability extends Pick<
     | 'releaseManagedTempFileHandle'
     | 'getPdfOpeningGeometry'
     | 'getPdfNativePageSizes'
-    | 'beginPdfEmbeddedShapeIndex'
-    | 'readPdfEmbeddedShapeIndexChunk'
-    | 'releasePdfEmbeddedShapeIndex'
-    | 'decryptPdfWorkingCopy'
-    | 'fileExists'
     | 'getDocumentRevision'
-    | 'getWorkingCopyBackingStatus'
     | 'onDocumentRevisionChanged'
-    | 'onWorkingCopyBackingStatusChanged'
 > {}
 
 export interface IDocumentsPdfValidationCapability extends Pick<

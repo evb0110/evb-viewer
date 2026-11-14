@@ -5,7 +5,7 @@ import {existsSync} from 'node:fs';
 import {delay} from 'es-toolkit/promise';
 import {tmpdir} from 'node:os';
 import {
-    dirname, join,
+    join,
 } from 'node:path';
 import {
     copyFile, mkdir, mkdtemp, readFile, readdir, rename, rm, stat, writeFile,
@@ -36,8 +36,10 @@ import {buildPopplerEnv} from '@electron/native-tools/buildPopplerEnv';
 import type {IOcrCompleteResult} from '@contracts/electronApiOcr';
 import {OCR_LANGUAGE_MODEL_SHA256} from '@contracts/ocrLanguages';
 import {decodeWorkspaceCheckpoint} from '@contracts/workspaceCheckpoint';
-import {readWorkspaceRecoveryRecords} from '@scripts/electron-run/electronRunWorkspaceCheckpoint';
-import {electronUserDataPath} from '@scripts/electron-run/electronRunSessionPaths';
+import {
+    readAnnotationRecoveryDraft,
+    readWorkspaceRecoveryRecords,
+} from '@scripts/electron-run/electronRunWorkspaceCheckpoint';
 import {createElectronE2ESessionFixture} from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
 import {
     activateMenuItemAsUser,
@@ -51,7 +53,7 @@ import {
     readPdfTextAnnotationRecords,
 } from '@tests/e2e/electron/helpers/fixtures';
 import {
-    assertOcrPdfSemanticOutput, getActiveWorkspaceWorkingCopyPath,
+    assertOcrPdfSemanticOutput, getActiveWorkspaceWorkingCopyPath, readDocumentBytes,
 } from '@tests/e2e/electron/helpers/electronApiHelpers';
 import {createStickyNoteWithPointer} from '@tests/e2e/electron/helpers/viewerAnnotations';
 import {extractTextWithPdfjs} from '@electron/features/search/pdfjsPageTexts';
@@ -90,6 +92,16 @@ const LATE_RESULT_TEXT = 'Copper weather beacon';
 const LATE_RESULT_WORD = 'beacon';
 const ACCEPTED_BOOKMARK = 'Accepted OCR bookmark';
 const ACCEPTED_LABEL_PREFIX = 'Accepted-';
+async function readCurrentDocumentText(page: Page) {
+    const path = createFixturePath(`ocr-current-${Date.now()}.pdf`);
+    await writeFile(path, await readDocumentBytes(page));
+    try {
+        return await extractTextWithPdfjs(path);
+    } finally {
+        await rm(path, {force: true});
+    }
+}
+
 const OCR_TIMEOUT_MS = 180_000;
 const ACTIVE_HOST = '.workspace-host[data-workspace-active="true"]';
 
@@ -509,8 +521,7 @@ if (process.versions.electron && process.type === 'browser') {
             y: 0.1,
         }, 1, {allowClearPointSearch: true});
         const workingPath = await getActiveWorkspaceWorkingCopyPath(session.page);
-        const checkpointDirectory = join(dirname(dirname(workingPath)), 'ocr-checkpoints');
-        await copyFile(workingPath, join(evidence, 'before-ocr.pdf'));
+        await writeFile(join(evidence, 'before-ocr.pdf'), await readDocumentBytes(session.page, workingPath));
 
         async function startAllPagesOcr(page: Page) {
             await clickVisibleButton(page, '#editor-global-toolbar-host', 'OCR');
@@ -523,9 +534,6 @@ if (process.versions.electron && process.type === 'browser') {
         }
 
         await startAllPagesOcr(session.page);
-        await expect.poll(async () => (
-            await readdir(checkpointDirectory, {recursive: true}).catch(() => [])
-        ).some(file => file.endsWith('page-1.json')), {timeout: OCR_TIMEOUT_MS}).toBe(true);
         await clickVisibleButton(session.page, '[role="dialog"]', 'Cancel OCR');
         await session.page.waitForFunction(() => (
             Array.from(document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button'))
@@ -539,14 +547,11 @@ if (process.versions.electron && process.type === 'browser') {
                 .map(record => decodeWorkspaceCheckpoint(record.checkpoint)).find(Boolean);
             const recovery = checkpoint?.tabs.find(tab => tab.workingCopyRef === workingPath)?.annotationRecovery;
             if (!recovery) return false;
-            const payloadBytes = await readFile(join(
-                electronUserDataPath(session.name), 'workspace-annotation-recovery', `${recovery.artifactId}.json`,
-            ));
-            const payload = JSON.parse(payloadBytes.toString()) as {payload?: {entities?: Array<{contents?: string}>}};
+            const payload = JSON.parse(readAnnotationRecoveryDraft(session.name, recovery.artifactId) ?? '{}') as {payload?: {entities?: Array<{contents?: string}>}};
             const notePresent = payload.payload?.entities?.some(entity => entity.contents === marker) ?? false;
             if (notePresent) {
                 await writeFile(join(evidence, 'workspace-before-crash.json'), JSON.stringify(checkpoint, null, 2));
-                await writeFile(join(evidence, 'annotation-recovery.json'), payloadBytes);
+                await writeFile(join(evidence, 'annotation-recovery.json'), JSON.stringify(payload));
             }
             return notePresent;
         }, {timeout: 30_000}).toBe(true);
@@ -566,7 +571,7 @@ if (process.versions.electron && process.type === 'browser') {
             Array.from(document.querySelectorAll('.notes-panel .note-item'))
                 .some(item => item.textContent?.includes(text))
         ), {timeout: 30_000}, marker);
-        await copyFile(workingPath, join(evidence, 'after-recovery.pdf'));
+        await writeFile(join(evidence, 'after-recovery.pdf'), await readDocumentBytes(session.page, workingPath));
         await session.page.screenshot({path: join(evidence, 'recovered-note.png')});
 
         await startAllPagesOcr(session.page);
@@ -575,7 +580,7 @@ if (process.versions.electron && process.type === 'browser') {
         ), {timeout: OCR_TIMEOUT_MS});
         await clickVisibleButton(session.page, '[role="dialog"]', 'Close');
         await waitForViewerInteractive(session.page, 90_000);
-        await copyFile(workingPath, join(evidence, 'after-resumed-ocr.pdf'));
+        await writeFile(join(evidence, 'after-resumed-ocr.pdf'), await readDocumentBytes(session.page, workingPath));
         await session.page.screenshot({path: join(evidence, 'after-resumed-ocr.png')});
         await saveViaVisibleToolbar(session.page, 90_000);
         await copyFile(sourcePath, join(evidence, 'saved.pdf'));
@@ -1033,8 +1038,7 @@ if (process.versions.electron && process.type === 'browser') {
 
         await activateMenuItemAsUser(page, {accelerator: 'CmdOrCtrl+Z'});
         await expect.poll(async () => {
-            const working = await getActiveWorkspaceWorkingCopyPath(page);
-            return (await extractTextWithPdfjs(working))[0]?.text?.includes(SEARCHED_WORD) ?? false;
+            return (await readCurrentDocumentText(page))[0]?.text.includes(SEARCHED_WORD) ?? false;
         }, {timeout: 60_000}).toBe(false);
         await waitForWorkspaceHistorySettled(page);
         await waitForViewerInteractive(page, 90_000);
@@ -1049,14 +1053,14 @@ if (process.versions.electron && process.type === 'browser') {
         expect(afterUndo, 'Undo OCR must preserve metadata accepted before OCR').toBe(`${ACCEPTED_LABEL_PREFIX}1`);
         expect(rows).toContain(ACCEPTED_BOOKMARK);
         await activateMenuItemAsUser(page, {accelerator: process.platform === 'darwin' ? 'CmdOrCtrl+Shift+Z' : 'Ctrl+Y'});
-        await expect.poll(async () => (await extractTextWithPdfjs(await getActiveWorkspaceWorkingCopyPath(page)))[0]?.text?.includes(SEARCHED_WORD) ?? false, {timeout: 60_000}).toBe(true);
+        await expect.poll(async () => (await readCurrentDocumentText(page))[0]?.text.includes(SEARCHED_WORD) ?? false, {timeout: 60_000}).toBe(true);
         await waitForWorkspaceHistorySettled(page);
         await waitForViewerInteractive(page, 90_000);
         await waitForTextLayerWord(page);
         expect((await readToolbarPageIndicator(page)).primaryText).toBe(`${ACCEPTED_LABEL_PREFIX}1`);
         await waitForBookmarkRow(page, ACCEPTED_BOOKMARK);
         await activateMenuItemAsUser(page, {accelerator: 'CmdOrCtrl+Z'});
-        await expect.poll(async () => (await extractTextWithPdfjs(await getActiveWorkspaceWorkingCopyPath(page)))[0]?.text?.includes(SEARCHED_WORD) ?? false, {timeout: 60_000}).toBe(false);
+        await expect.poll(async () => (await readCurrentDocumentText(page))[0]?.text.includes(SEARCHED_WORD) ?? false, {timeout: 60_000}).toBe(false);
         await waitForWorkspaceHistorySettled(page);
         await waitForViewerInteractive(page, 90_000);
         expect((await readToolbarPageIndicator(page)).primaryText).toBe(`${ACCEPTED_LABEL_PREFIX}1`);
@@ -1093,8 +1097,7 @@ if (process.versions.electron && process.type === 'browser') {
         await saveViaVisibleToolbar(page, 90_000, sourcePath);
         await activateMenuItemAsUser(page, {accelerator: 'CmdOrCtrl+Z'});
         await expect.poll(async () => {
-            const working = await getActiveWorkspaceWorkingCopyPath(page);
-            return (await extractTextWithPdfjs(working))[0]?.text?.includes(SEARCHED_WORD) ?? false;
+            return (await readCurrentDocumentText(page))[0]?.text.includes(SEARCHED_WORD) ?? false;
         }, {timeout: 60_000}).toBe(false);
         await waitForWorkspaceHistorySettled(page);
         await waitForViewerInteractive(page, 90_000);

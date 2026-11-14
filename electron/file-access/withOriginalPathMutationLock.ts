@@ -1,4 +1,4 @@
-import {normalizePathForLookup} from '@electron/file-access/workingCopyStore';
+import {normalizePathForLookup} from '@electron/file-access/normalizePathForLookup';
 
 const originalPathQueues = new Map<string, Promise<void>>();
 

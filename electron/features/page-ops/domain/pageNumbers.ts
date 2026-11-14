@@ -1,6 +1,5 @@
 import { range } from 'es-toolkit/math';
 import type {
-    IPageMoveRange,
     IPageMoveRangeSegment,
     IPageMoveRanges,
 } from '@pdf-core/pdfPageSelection';
@@ -9,22 +8,12 @@ import {
     createPageMoveRanges,
     pageMoveRangesRestInsertIndex,
     pageMoveRangesSelectedPageCount,
-    isPageMoveNoOp,
-    isPageMoveRangesNoOp,
-    pageMoveRangeLength,
-    pageMoveRestInsertIndex,
 } from '@pdf-core/pdfPageSelection';
 import {stringifyJson} from '@contracts/stringifyJson';
 
-export type { IPageMoveRange } from '@pdf-core/pdfPageSelection';
 export type {
     IPageMoveRangeSegment, IPageMoveRanges,
 } from '@pdf-core/pdfPageSelection';
-
-export {
-    isPageMoveNoOp,
-    isPageMoveRangesNoOp,
-};
 
 export function validatePageDeleteRanges(
     ranges: unknown,
@@ -190,43 +179,9 @@ function appendPageRange(parts: string[], startPage: number, endPage: number) {
 }
 
 /**
- * Encodes a contiguous move as qpdf's compact page-list expression.  The
- * moved range and the two remaining ranges are emitted directly, so the
- * million-page case never builds a permutation in JavaScript.
- */
-export function formatPageMoveRange(move: IPageMoveRange) {
-    const parts: string[] = [];
-    const restInsertIndex = pageMoveRestInsertIndex(move);
-    const prefixCount = move.startPage - 1;
-    const movedLength = pageMoveRangeLength(move);
-
-    if (restInsertIndex <= prefixCount) {
-        appendPageRange(parts, 1, restInsertIndex);
-        appendPageRange(parts, move.startPage, move.endPage);
-        appendPageRange(parts, restInsertIndex + 1, prefixCount);
-        appendPageRange(parts, move.endPage + 1, move.pageCount);
-    } else {
-        const suffixPrefixCount = restInsertIndex - prefixCount;
-        appendPageRange(parts, 1, prefixCount);
-        appendPageRange(parts, move.endPage + 1, move.endPage + suffixPrefixCount);
-        appendPageRange(parts, move.startPage, move.endPage);
-        appendPageRange(parts, move.endPage + suffixPrefixCount + 1, move.pageCount);
-    }
-
-    // `movedLength` is read here to make the relationship between the
-    // insertion slot and the source range explicit to callers reviewing this
-    // formatter.  The value also guards against accidental empty output if a
-    // future range representation changes.
-    if (movedLength <= 0) {
-        return '';
-    }
-    return parts.join(',');
-}
-
-/**
- * Encodes sorted, non-contiguous moved runs as a compact qpdf page list.
+ * Encodes the order after a move of sorted runs as comma-separated page runs.
  * Only the selected runs and the unselected gaps are represented, so the
- * expression stays proportional to the number of source runs.
+ * list stays proportional to the number of source runs.
  */
 export function formatPageMoveRanges(move: IPageMoveRanges) {
     const parts: string[] = [];
@@ -269,31 +224,6 @@ export function formatPageMoveRanges(move: IPageMoveRanges) {
 
     // A valid move always has at least one selected page. Keep the check
     // explicit so a malformed future representation cannot emit an empty
-    // qpdf page list.
+    // page list.
     return selectedCount > 0 ? parts.join(',') : '';
-}
-
-/**
- * Encodes selected delete runs as the qpdf page list of surviving pages.
- * Gaps are emitted arithmetically, so a large delete never visits every
- * page in the document.
- */
-export function formatPageDeleteRanges(
-    ranges: readonly IPageMoveRangeSegment[],
-    totalPages: number,
-) {
-    validatePageDeleteRanges(ranges, totalPages);
-    const parts: string[] = [];
-    let nextKeptPage = 1;
-    let deletedCount = 0;
-    for (const deletedRange of ranges) {
-        appendPageRange(parts, nextKeptPage, deletedRange.startPage - 1);
-        deletedCount += deletedRange.endPage - deletedRange.startPage + 1;
-        nextKeptPage = deletedRange.endPage + 1;
-    }
-    appendPageRange(parts, nextKeptPage, totalPages);
-    return {
-        pageList: parts.join(','),
-        keptCount: totalPages - deletedCount,
-    };
 }

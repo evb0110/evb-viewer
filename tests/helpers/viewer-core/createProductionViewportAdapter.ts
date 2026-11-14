@@ -1,5 +1,4 @@
 import { createPdfPageSlotRegistry } from '@app/modules/pdf-viewer/runtime/page-slots/pdfPageSlotRegistry';
-import { createPdfPageRenderState } from '@app/modules/pdf-viewer/runtime/rendering/pdfPageRenderState';
 import {
     resolveDocumentContinuousScrollGeometry,
     resolveDocumentContinuousScrollWindow,
@@ -7,11 +6,9 @@ import {
 
 export function createProductionViewportAdapter() {
     const pageSlots = createPdfPageSlotRegistry();
-    const renderState = createPdfPageRenderState();
 
     return {
         pageSlots,
-        renderState,
         resolveWindow(options: {
             currentPage: number;
             scrollTop: number;

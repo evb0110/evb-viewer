@@ -7,7 +7,7 @@ import {readFileSync} from 'node:fs';
 import {requireDocumentRef} from '@contracts/documentRef';
 import {requirePageNumber} from '@contracts/pageNumbers';
 import {
-    FakeIndexedDbFactory, MemoryStorage,
+    MemoryStorage,
 } from '@tests/unit/app/platform/browserPlatformTestDoubles';
 import {browserDocumentStore} from '@app/platform/browserDocumentStore';
 import {createElectronPlatformApiFixture} from '@tests/helpers/createElectronPlatformApiFixture';
@@ -418,7 +418,6 @@ describe('DjVu document components', () => {
     });
 
     it('releases selected component files when their index record is removed', async () => {
-        vi.stubGlobal('indexedDB', new FakeIndexedDbFactory());
         const storage = new MemoryStorage();
         vi.stubGlobal('localStorage', storage);
         vi.stubGlobal('window', {localStorage: storage});

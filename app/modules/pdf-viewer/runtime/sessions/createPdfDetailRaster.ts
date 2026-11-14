@@ -10,7 +10,7 @@ import type {
     IPdfPageRegion,
     usePdfCanvasRenderer,
 } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfCanvasRenderer';
-import type { TPdfPageRenderState } from '@app/modules/pdf-viewer/runtime/rendering/pdfPageRenderState';
+import type { TPdfPageResources } from '@app/modules/pdf-viewer/runtime/rendering/pdfPageResources';
 import type { IPdfLayerRenderResult } from '@app/modules/pdf-viewer/runtime/rendering/pdfRendererTypes';
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 
@@ -113,7 +113,7 @@ export function createPdfDetailRaster(options: {
     budgetPixels: number;
     settledMaxCanvasPixels: number;
     canvasRenderer: TCanvasRenderer;
-    pageRenderState: TPdfPageRenderState;
+    pageResources: TPdfPageResources;
     viewerContainer: Readonly<Ref<HTMLElement | null>>;
     getScheduler: () => IPdfPageRasterScheduler | null;
     getDocument: () => unknown;
@@ -150,7 +150,7 @@ export function createPdfDetailRaster(options: {
     }
 
     function isContentCurrent(pageNumber: TPageNumber, content: IDetailContent) {
-        const base = options.pageRenderState.getSlot(pageNumber).committedRender;
+        const base = options.pageResources.get(pageNumber).shown?.render ?? null;
         return base !== null && isSameContent(readBaseContent(base), content);
     }
 
@@ -236,7 +236,7 @@ export function createPdfDetailRaster(options: {
             if (reason === 'surface-budget-eviction' && evicted) refuse(pageNumber, evicted.demand.renderKey);
             removeShown(pageNumber);
         },
-        onRenderExhausted(outcome) {
+        onRenderUncommitted(outcome) {
             refuse(outcome.demand.pageNumber, outcome.demand.renderKey);
             jobs.delete(outcome.demand.renderKey);
             logPdfRenderTrace('renderer-detail-raster-exhausted', {
@@ -275,9 +275,9 @@ export function createPdfDetailRaster(options: {
         // While its whole-page raster is replaced, a shown detail stretches
         // with it like any committed raster.
         if (!options.isCommittedVisual(pageNumber)) return 'keep';
-        const slot = options.pageRenderState.getSlot(pageNumber);
-        const base = slot.committedRender;
-        const quality = slot.committedRasterQuality;
+        const committed = options.pageResources.get(pageNumber).shown;
+        const base = committed?.render;
+        const quality = committed?.quality;
         const sourceMaxPixels = options.getSourceMaxPixels(pageNumber);
         if (
             !base || !quality || quality.intent !== 'settled' || !quality.wasClamped

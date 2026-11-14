@@ -34,12 +34,7 @@ import {
     sha256Hex,
 } from '@app/platform/browser/browserStagedArtifact';
 import {
-    reserveBrowserDocumentWorkingCopy,
-    retireBrowserDocumentWorkingCopy,
-} from '@app/platform/browserWindowTabs';
-import {
     analyzeBrowserPdfConformanceData,
-    BROWSER_PDF_CONFORMANCE_MAX_INPUT_BYTES,
     validateBrowserPdfData,
 } from '@app/platform/browser-api/browserPdfValidation';
 import {
@@ -303,15 +298,13 @@ async function publishCandidate(
     publication: IBrowserFinalizedPublication,
 ) {
     const stagedName = `${publication.target.fileName}.staged-optimize.pdf`;
-    const stagedPath = await reserveBrowserDocumentWorkingCopy(stagedName);
+    const stagedPath = await browserDocumentStore.createStoredDocument(stagedName, bytes, {
+        mimeType: 'application/pdf',
+        saveKind: 'pdf',
+        kind: 'output',
+        retention: 'transient',
+    });
     try {
-        await browserDocumentStore.createStoredDocument(stagedName, bytes, {
-            ref: stagedPath,
-            mimeType: 'application/pdf',
-            saveKind: 'pdf',
-            kind: 'output',
-            retention: 'transient',
-        });
         const stagedOutput = await createBrowserStoreStagedArtifact(browserDocumentStore, stagedPath, {
             leaseId: crypto.randomUUID(),
             sha256: await sha256Hex(bytes),
@@ -325,7 +318,7 @@ async function publishCandidate(
         });
         return await savePdfAsFromWorkingCopy(path, {stagedOutput}, {expectedDocumentRevisionToken: revision}, publication);
     } finally {
-        await retireBrowserDocumentWorkingCopy(stagedPath);
+        await browserDocumentStore.remove(stagedPath).catch(() => undefined);
     }
 }
 
@@ -374,7 +367,7 @@ export async function optimizeBrowserPdfAsCopy(
         ?? (await browserDocumentStore.getDocumentRevision(path)).token;
     await browserDocumentStore.assertDocumentRevisionCurrent(path, revision);
     const sourceRef = await browserDocumentStore.getSourceRef(path);
-    const source = await browserDocumentStore.read(path, {maxBytes: BROWSER_PDF_CONFORMANCE_MAX_INPUT_BYTES});
+    const source = await browserDocumentStore.read(path, {maxBytes: BROWSER_QPDF_MAX_INPUT_BYTES});
     await browserDocumentStore.assertDocumentRevisionCurrent(path, revision);
     signal.throwIfAborted();
 

@@ -24,12 +24,8 @@ import {
     getBrowserDocumentFileName,
     isBrowserDocumentRef,
 } from '@app/platform/browserDocumentStore';
-import {
-    syncBrowserWindowTitle,
-    retireBrowserDocumentWorkingCopy,
-    reserveBrowserDocumentWorkingCopy,
-    handoffBrowserDocumentWorkingCopy,
-} from '@app/platform/browserWindowTabs';
+import {syncBrowserWindowTitle} from '@app/platform/browserWindowTabs';
+import {BrowserDocumentSourceChangedError} from '@app/platform/browser/browserDocumentRepository';
 import {
     OPEN_IMAGE_ACCEPT,
     OPEN_INPUT_ACCEPT,
@@ -41,10 +37,8 @@ import {
 import {
     ensureDocxExtension,
     ensurePdfExtension,
-    getExtension,
     getOptimizedPdfName,
 } from '@app/platform/browser-api/browserFileName';
-import type { IBrowserBatchOpenProgressOptions } from '@app/platform/browser-api/createCombinedPdfFromPaths';
 import {
     analyzeBrowserPdfConformance,
     validateBrowserPdfData,
@@ -54,7 +48,6 @@ import {
     openBrowserOutputSink,
     type IPickedBrowserFile,
     pickFiles,
-    pickFolderFiles,
     pickSaveTarget,
     pickSingleFile,
     type IBrowserOutputSink,
@@ -67,7 +60,6 @@ import {
     openDocumentPaths,
 } from '@app/platform/browser-api/browserWorkingCopyService';
 import {
-    BrowserExternalSaveSyncRequiredError,
     savePdfAsFromWorkingCopy,
     saveWorkingBytesToSource,
     saveWorkingBytesToSourceStructured,
@@ -77,43 +69,30 @@ import {
     findIndirectDjvuSelection,
     setBrowserDjvuComponentFiles,
 } from '@app/platform/browser-api/browserDjvuComponents';
-import {isBrowserPageOpsWasmFailure} from '@contracts/browserPageOpsWorker';
-import {BROWSER_PAGE_OPS_MAX_REQUEST_BYTES} from '@contracts/browserPageOpsLimits';
-import { decodeBrowserPdfAnnotationsOutput } from '@app/platform/browser-api/decodeBrowserPdfAnnotationsOutput';
-import {runSerializedRecentFilesStorageMutation} from '@app/platform/browser/browserRecentFilesStore';
-import {browserSettingsCapability} from '@app/platform/browser-api/browserSettingsCapability';
 import {
-    createBrowserStoreStagedArtifact,
-    readBrowserStoreStagedArtifact,
-    sha256Hex,
-} from '@app/platform/browser/browserStagedArtifact';
+    isBrowserPageOpsWasmFailure,
+    type IBrowserPageOpsWasmFailure,
+} from '@contracts/browserPageOpsWorker';
+import {BROWSER_PAGE_OPS_MAX_REQUEST_BYTES} from '@contracts/browserPageOpsLimits';
+import {appendPdfMutationsToStoreFile} from '@app/platform/browser/browserStorePort';
+import { decodeBrowserPdfAnnotationsOutput } from '@app/platform/browser-api/decodeBrowserPdfAnnotationsOutput';
+import {browserSettingsCapability} from '@app/platform/browser-api/browserSettingsCapability';
+import {createBrowserStoreStagedArtifact} from '@app/platform/browser/browserStagedArtifact';
 import {nativePdfSemanticScope} from '@contracts/nativePdfSemanticScope';
 import {
     parseDocumentRef,
     type TDocumentRef,
 } from '@contracts/documentRef';
-import {
-    DOCUMENT_LIST_HEADER,
-    REQUEST_HEADER,
-    REQUEST_ORIGINAL_APPEARANCE_SOURCE_HEADER,
-    U32_BYTES,
-} from '@contracts/browserPageOpsWasm.generated';
 import { createEpochMs } from '@contracts/timestamps';
 import { isOneOf } from '@contracts/runtimeGuards';
-import {
-    compareFolderEntryNames,
-    isSupportedOpenExtension,
-    MAX_OPEN_INPUT_PATHS,
-} from '@pdf-core/documentOpenFileTypes';
 
 const BROWSER_NATIVE_PRINT_UNSUPPORTED = 'Printing via the native desktop dialog is unavailable in the browser capability';
 
 export async function createBrowserCombinedPdfFromPaths(
-    paths: string[],
-    progressOptions?: IBrowserBatchOpenProgressOptions,
+    ...args: Parameters<typeof import('@app/platform/browser-api/createCombinedPdfFromPaths').createCombinedPdfFromPaths>
 ) {
     const module = await import('@app/platform/browser-api/createCombinedPdfFromPaths');
-    return module.createCombinedPdfFromPaths(paths, progressOptions);
+    return module.createCombinedPdfFromPaths(...args);
 }
 
 interface IBrowserNativeMutationLease {
@@ -123,7 +102,6 @@ interface IBrowserNativeMutationLease {
 
 interface ICreateBrowserDocumentsFileCapabilityOptions {
     clearSearchCaches: (pdfPath?: string) => void | Promise<void>;
-    errorMessageProvider?: {folderEmpty?: () => string;};
 }
 type TCanonicalDocumentsFileCapability = IDocumentsFileCapability & IDocxExportFileCapability;
 const DOCX_MIME_TYPE = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
@@ -176,13 +154,26 @@ export function createBrowserDocumentsFileCapability(
         if (!sink) throw new Error('Unknown DOCX stream session');
         return sink;
     }
-    const folderEmptyMessageProvider = options.errorMessageProvider?.folderEmpty
-        ?? (() => 'No supported documents were found in the selected folder');
 
-    async function discardWorkingCopy(path: TDocumentRef, leaseId?: string) {
-        if (leaseId !== undefined) browserNativeMutationLeases.delete(leaseId);
-        await retireBrowserDocumentWorkingCopy(path);
+    async function discardWorkingCopy(path: TDocumentRef) {
         await browserDocumentStore.remove(path).catch(() => undefined);
+    }
+
+    /** Ends a native edit's receipt: its append is cut unless a commit took it. */
+    async function releaseNativeMutationLease(leaseId: string) {
+        const lease = browserNativeMutationLeases.get(leaseId);
+        if (!lease) return false;
+        browserNativeMutationLeases.delete(leaseId);
+        await browserDocumentStore.discardAppend(lease.path, leaseId);
+        return true;
+    }
+
+    /** The lease of a receipt this capability staged for `path`. */
+    function requireNativeMutationLease(path: TDocumentRef, stagedOutput: {path: string; leaseId: string}) {
+        if (stagedOutput.path !== path || !browserNativeMutationLeases.has(stagedOutput.leaseId)) {
+            throw new Error('The staged edit does not belong to this document');
+        }
+        return stagedOutput.leaseId;
     }
 
     // Cleanup is best effort for failed transient opens.
@@ -199,20 +190,13 @@ export function createBrowserDocumentsFileCapability(
         });
         if (saveResult.canceled) return null;
         const name = saveResult.handle?.name ?? normalizeName(saveResult.fileName);
-        const ref = await reserveBrowserDocumentWorkingCopy(name);
-        try {
-            return await browserDocumentStore.createStoredDocument(name, new Uint8Array(), {
-                ref,
-                mimeType: saveKind === 'pdf' ? 'application/pdf' : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-                saveKind,
-                kind: 'output',
-                retention: 'transient',
-                saveHandle: saveResult.handle,
-            });
-        } catch (error) {
-            await retireBrowserDocumentWorkingCopy(ref);
-            throw error;
-        }
+        return browserDocumentStore.createStoredDocument(name, new Uint8Array(), {
+            mimeType: saveKind === 'pdf' ? 'application/pdf' : DOCX_MIME_TYPE,
+            saveKind,
+            kind: 'output',
+            retention: 'transient',
+            saveHandle: saveResult.handle,
+        });
     }
 
     // One picked file opens as itself, saved back to its handle and kept in Recent.
@@ -275,25 +259,6 @@ export function createBrowserDocumentsFileCapability(
             const picked = indirectDjvu?.index ?? pickedFiles[0];
             return picked ? openPickedDocument(picked, indirectDjvu?.components) : null;
         },
-        // As on desktop: the folder's own supported files, in natural name
-        // order, open as the Open dialog would open them.
-        async openFolderDialog() {
-            const pickedFiles = await pickFolderFiles();
-            if (!pickedFiles) {
-                return null;
-            }
-            const supported = pickedFiles
-                .filter(({file}) => isSupportedOpenExtension(getExtension(file.name)))
-                .sort((left, right) => compareFolderEntryNames(left.file.name, right.file.name));
-            const [first] = supported;
-            if (!first) {
-                throw new Error(folderEmptyMessageProvider());
-            }
-            if (supported.length > MAX_OPEN_INPUT_PATHS) {
-                throw new Error(`Open batch exceeds maximum size (${MAX_OPEN_INPUT_PATHS})`);
-            }
-            return supported.length === 1 ? openPickedDocument(first) : openPickedBatch(supported);
-        },
         async openCombineDialog() {
             const pickedFiles = await pickFiles({
                 accept: OPEN_INPUT_ACCEPT,
@@ -319,29 +284,12 @@ export function createBrowserDocumentsFileCapability(
             });
         },
         async openDocumentDirect(path, password) {
-            if (!isBrowserDocumentRef(path)) {
-                return null;
-            }
-
-            try {
-                return await openDocumentPaths([path], undefined, password);
-            } finally {
-                await retireBrowserDocumentWorkingCopy(path);
-            }
+            return isBrowserDocumentRef(path) ? openDocumentPaths([path], undefined, password) : null;
         },
         async openDocumentDirectBatch(paths, requestId) {
-            if (paths.some((path) => !isBrowserDocumentRef(path))) {
-                return null;
-            }
-
-            try {
-                return await openDocumentPaths(
-                    paths,
-                    requestId ? { requestId } : undefined,
-                );
-            } finally {
-                await Promise.all(paths.map(retireBrowserDocumentWorkingCopy));
-            }
+            return paths.every(path => isBrowserDocumentRef(path))
+                ? openDocumentPaths(paths, requestId ? { requestId } : undefined)
+                : null;
         },
         async savePdfAs(workingCopyPath, saveOptions, revisionOptions?) {
             return savePdfAsFromWorkingCopy(workingCopyPath, saveOptions, revisionOptions);
@@ -360,8 +308,8 @@ export function createBrowserDocumentsFileCapability(
         ),
         readFile: path => browserDocumentStore.read(path),
         async readPdfPageLabelRanges(path) {
-            const data = await browserDocumentStore.read(path, {maxBytes: BROWSER_PAGE_OPS_MAX_REQUEST_BYTES - DOCUMENT_LIST_HEADER.bytes - U32_BYTES});
-            const catalog = await runBrowserPageOpsWorkerRequest('readCatalog', {data}, {dedicated: true});
+            const source = await browserDocumentStore.readableBlob(path);
+            const catalog = await runBrowserPageOpsWorkerRequest('readCatalog', {source}, {dedicated: true});
             return readBrowserPdfCatalogPart(catalog, 'pageLabels').map((range): IPdfPageLabelRange => ({
                 startPage: range.pageIndex + 1,
                 style: range.style !== undefined && isOneOf(PDF_PAGE_LABEL_STYLE_VALUES, range.style)
@@ -377,54 +325,45 @@ export function createBrowserDocumentsFileCapability(
             modifiedAt,
             options: IDocumentMutationRevisionOptions,
         ) {
-            await browserDocumentStore.assertDocumentRevisionCurrent(
-                path,
-                options.expectedDocumentRevisionToken,
-            );
-            // The document and its original appearance source share one
-            // engine request; the engine refuses the framed remainder exactly.
-            const requestBudget = BROWSER_PAGE_OPS_MAX_REQUEST_BYTES - REQUEST_ORIGINAL_APPEARANCE_SOURCE_HEADER.bytes;
-            const input = await browserDocumentStore.read(path, {maxBytes: requestBudget});
-            const originalAppearanceSource = mutations.originalAppearanceSource;
-            const originalAppearanceSourceData = originalAppearanceSource
-                ? await browserDocumentStore.read(originalAppearanceSource, {maxBytes: requestBudget - input.byteLength})
+            // The engine appends to the working copy's own file in the store worker, reading the document by range;
+            // the receipt names that uncommitted append until a commit, replace, clone or release ends it.
+            const appearanceSource = mutations.originalAppearanceSource
+                ? await browserDocumentStore.readableBlob(mutations.originalAppearanceSource)
                 : undefined;
-            const wasmResult = await runBrowserPageOpsWorkerRequest('saveMutations', {
-                data: input,
-                ...(originalAppearanceSourceData ? {originalAppearanceSourceData} : {}),
-                mutations,
-                modifiedAt,
+            let appended: Exclude<Awaited<ReturnType<typeof appendPdfMutationsToStoreFile>>, IBrowserPageOpsWasmFailure> | undefined;
+            let failure: IBrowserPageOpsWasmFailure | undefined;
+            const lease = await browserDocumentStore.stageAppend(path, options.expectedDocumentRevisionToken, async (file, base) => {
+                const result = await appendPdfMutationsToStoreFile(file, base, {
+                    mutations,
+                    modifiedAt,
+                    ...(appearanceSource ? {appearanceSource} : {}),
+                });
+                if (isBrowserPageOpsWasmFailure(result)) {
+                    failure = result;
+                    return null;
+                }
+                appended = result;
+                return result.length;
             });
-            if (isBrowserPageOpsWasmFailure(wasmResult)) {
+            if (lease === null || !appended) {
                 return {
                     applied: false,
                     validation: null,
                     error: {
                         code: 'native-failure',
-                        message: wasmResult.error.message,
+                        message: failure?.error.message ?? 'Native PDF mutation was not applied',
                     },
                 } satisfies IPdfNativeSaveResult;
             }
-            await browserDocumentStore.assertDocumentRevisionCurrent(
-                path,
-                options.expectedDocumentRevisionToken,
-            );
-            const stagedName = `${getBrowserDocumentFileName(path)}.staged-native-save.pdf`;
-            const stagedPath = await reserveBrowserDocumentWorkingCopy(stagedName);
+            const staged = {...appended, lease};
             try {
-                await browserDocumentStore.createStoredDocument(stagedName, wasmResult.data, {
-                    ref: stagedPath,
-                    mimeType: 'application/pdf',
-                    saveKind: 'pdf',
-                    kind: 'output',
-                    retention: 'transient',
-                });
                 const stagedOutput = await createBrowserStoreStagedArtifact(
                     browserDocumentStore,
-                    stagedPath,
+                    path,
                     {
-                        leaseId: crypto.randomUUID(),
-                        sha256: await sha256Hex(wasmResult.data),
+                        leaseId: staged.lease,
+                        size: staged.length,
+                        sha256: staged.sha256,
                         validations: {
                             qpdfCheck: false,
                             tailCheck: true,
@@ -435,38 +374,41 @@ export function createBrowserDocumentsFileCapability(
                     },
                 );
                 browserNativeMutationLeases.set(stagedOutput.leaseId, {
-                    path: stagedOutput.path,
-                    identityBindings: wasmResult.identityBindings,
+                    path,
+                    identityBindings: staged.identityBindings,
                 });
                 return {
                     applied: true,
                     validation: createValidBrowserOutputResult(),
                     nativeMutationPostconditionsVerified: true,
-                    identityBindings: wasmResult.identityBindings,
+                    identityBindings: staged.identityBindings,
                     stagedOutput,
                 } satisfies IPdfNativeSaveResult;
             } catch (error) {
-                await discardWorkingCopy(stagedPath);
+                await browserDocumentStore.discardAppend(path, staged.lease);
                 throw error;
             }
         },
-        async releaseManagedTempFileHandle(leaseId) {
-            const stagedPath = browserNativeMutationLeases.get(leaseId)?.path;
-            if (!stagedPath) {
-                return false;
-            }
-            await discardWorkingCopy(stagedPath, leaseId);
-            return true;
-        },
+        releaseManagedTempFileHandle: releaseNativeMutationLease,
         async cloneStagedPdfNativeMutationToWorkingCopy(stagedOutput, originalPath) {
-            const {bytes} = await readBrowserStoreStagedArtifact(browserDocumentStore, stagedOutput);
-            const clonePath = await createBrowserWorkingCopyFromBytes({
-                fileName: getBrowserDocumentFileName(stagedOutput.path),
-                data: bytes,
-                ...(originalPath ? {sourceRef: originalPath} : {}),
-            });
-            await discardWorkingCopy(stagedOutput.path, stagedOutput.leaseId);
-            return clonePath;
+            try {
+                return await createBrowserWorkingCopyFromBytes({
+                    fileName: getBrowserDocumentFileName(stagedOutput.path),
+                    data: await browserDocumentStore.appendedContent(stagedOutput.path, stagedOutput.leaseId),
+                    ...(originalPath ? {sourceRef: originalPath} : {}),
+                });
+            } finally {
+                await releaseNativeMutationLease(stagedOutput.leaseId);
+            }
+        },
+        async replaceWorkingCopyFromStagedPdfNativeMutation(path, stagedOutput, options) {
+            try {
+                await browserDocumentStore.commitAppend(path, options.expectedDocumentRevisionToken, requireNativeMutationLease(path, stagedOutput));
+            } finally {
+                await releaseNativeMutationLease(stagedOutput.leaseId);
+            }
+            await clearSearchCaches(path);
+            return true;
         },
         async commitStagedPdfNativeMutations(
             path,
@@ -479,23 +421,22 @@ export function createBrowserDocumentsFileCapability(
             const identityBindings = browserNativeMutationLeases.get(stagedOutput.leaseId)?.identityBindings;
             let committed: Awaited<ReturnType<typeof saveWorkingBytesToSource>>;
             try {
-                committed = await saveWorkingBytesToSource(path, options, stagedOutput);
+                committed = await saveWorkingBytesToSource(path, options, requireNativeMutationLease(path, stagedOutput));
             } catch (error) {
-                // Written, but local bookkeeping failed: a save result, not a writer failure.
-                if (!(error instanceof BrowserExternalSaveSyncRequiredError)) throw error;
+                // The file changed since it was opened: a save result that offers Save As.
+                if (!(error instanceof BrowserDocumentSourceChangedError)) throw error;
                 return {
                     applied: false,
                     validation: null,
-                    reason: 'working-copy-sync-required',
-                    externalWriteCommitted: error.externalWriteCommitted,
-                    workingCopySyncRequired: true,
+                    reason: 'original-changed',
+                    externalWriteCommitted: false,
                     error: {
                         code: 'io',
                         message: error.message,
                     },
                 } satisfies IPdfNativeSaveResult;
             } finally {
-                await discardWorkingCopy(stagedOutput.path, stagedOutput.leaseId);
+                await releaseNativeMutationLease(stagedOutput.leaseId);
             }
             if (!committed) {
                 return {
@@ -517,14 +458,11 @@ export function createBrowserDocumentsFileCapability(
                 path,
                 options.expectedDocumentRevisionToken,
             );
-            const data = await browserDocumentStore.read(path, {maxBytes: BROWSER_PAGE_OPS_MAX_REQUEST_BYTES - REQUEST_HEADER.bytes});
-            await browserDocumentStore.assertDocumentRevisionCurrent(
-                path,
-                options.expectedDocumentRevisionToken,
-            );
+            // The engine reads the revision's objects and the streams it parses by range.
+            const source = await browserDocumentStore.readableBlob(path);
             const wasmResult = await runBrowserPageOpsWorkerRequest(
                 'parseAnnotations',
-                {data},
+                {source},
                 {
                     dedicated: true,
                     ...(options.signal ? {signal: options.signal} : {}),
@@ -554,18 +492,13 @@ export function createBrowserDocumentsFileCapability(
         readFileRange(path, offset, length) {
             return browserDocumentStore.readRange(path, offset, length);
         },
-        fileExists: path => browserDocumentStore.exists(path),
         getDocumentRevision(path) {
             return browserDocumentStore.getDocumentRevision(path);
         },
         onDocumentRevisionChanged(callback) {
             return browserDocumentStore.onDocumentRevisionChanged(callback);
         },
-        analyzePdfConformance(path, options) {
-            const analysis = analyzeBrowserPdfConformance(path, options);
-            handoffBrowserDocumentWorkingCopy(path, path, () => analysis.then(() => undefined, () => undefined));
-            return analysis;
-        },
+        analyzePdfConformance: (path, options) => analyzeBrowserPdfConformance(path, options),
         validatePdfPath: (path, options) => validateBrowserPdfPath(path, options),
         printPdfData() {
             return Promise.resolve({
@@ -663,32 +596,16 @@ export function createBrowserDocumentsFileCapability(
             });
         },
         async createWorkingCopyFromPath(sourcePath, originalPath, password) {
+            // A working copy's copy is a fork: an independent document with its bytes, baseline and drafts.
             const sourceEntry = await browserDocumentStore.requireEntry(sourcePath);
-            const sourceRef =
-                originalPath && isBrowserDocumentRef(originalPath)
-                    ? originalPath
-                    : (
-                        sourceEntry.kind === 'working'
-                            ? sourceEntry.sourceRef
-                            : sourceEntry.ref
-                    );
-            const workingPath = await reserveBrowserDocumentWorkingCopy(sourceEntry.fileName, sourceRef ? parseDocumentRef(sourceRef) ?? undefined : undefined);
+            const workingPath = await browserDocumentStore.cloneAsWorkingCopy(sourcePath);
+            const workingEntry = await browserDocumentStore.requireEntry(workingPath);
+            const sourceRef = originalPath && isBrowserDocumentRef(originalPath) ? parseDocumentRef(originalPath) : null;
+            if (sourceRef) workingEntry.sourceRef = sourceRef;
             try {
-                if (sourceEntry.kind !== 'working') {
-                    await browserDocumentStore.cloneAsWorkingCopy(sourceEntry.ref, sourceEntry.fileName, workingPath);
-                } else {
-                    await browserDocumentStore.cloneStoredDocument(sourceEntry.ref, {
-                        ref: workingPath,
-                        fileName: sourceEntry.fileName,
-                        kind: 'working',
-                        retention: 'transient',
-                        ...(sourceRef ? {sourceRef} : {}),
-                        saveKind: 'pdf',
-                        saveHandle: null,
-                    });
-                }
-                assertBrowserWorkingCopyDecrypted(await decryptBrowserWorkingCopy(workingPath, password));
-                browserDocumentStore.unload(sourcePath);
+                const opened = sourceEntry.kind !== 'working';
+                assertBrowserWorkingCopyDecrypted(await decryptBrowserWorkingCopy(workingPath, password, opened ? {} : undefined));
+                if (opened) browserDocumentStore.unload(sourcePath);
                 return workingPath;
             } catch (error) {
                 await discardWorkingCopy(workingPath);
@@ -705,17 +622,18 @@ export function createBrowserDocumentsFileCapability(
             }
             return result;
         },
+        restoreDocumentRevision(path, revision, options) {
+            return browserDocumentStore.restoreRevision(path, revision, options?.expectedDocumentRevisionToken);
+        },
+        retainDocumentRevisions(path, revisions) {
+            return browserDocumentStore.retainRevisions(path, revisions);
+        },
         async cleanupFile(path) {
             await closeBrowserWorkingCopyWork(path);
-            await retireBrowserDocumentWorkingCopy(path);
-            const entry = await browserDocumentStore.ensureEntry(path);
-            if (!entry) {
-                return;
-            }
-
+            const sourceRef = await browserDocumentStore.getSourceRef(path).catch(() => path);
             for (const ref of new Set([
                 path,
-                entry.sourceRef ?? path,
+                sourceRef,
             ])) {
                 await browserDocumentStore.cleanupDetachedDocument(ref);
                 await clearSearchCaches(ref);
@@ -730,45 +648,24 @@ export function createBrowserDocumentsFileCapability(
         },
         showItemInFolder: showBrowserDocumentInDownloads,
         recentFiles: {
+            // An entry whose file or stored copy is gone leaves the list; storage that cannot answer keeps it.
             async get() {
-                const recentFiles = await browserDocumentStore.recoverRecentFilesIfStorageMissing();
-                const sized = new Map<string, number>();
+                const recentFiles = browserDocumentStore.getRecentFiles();
+                const kept: IRecentFile[] = [];
                 for (const file of recentFiles) {
-                    const {
-                        available,
-                        entry,
-                    } = await browserDocumentStore.ensureEntryAvailability(file.originalPath);
-                    if (!available) return recentFiles;
-                    if (entry?.retention === 'transient' || !entry) {
-                        await browserDocumentStore.removeRecentFile(file.originalPath);
-                        continue;
-                    }
-                    sized.set(file.originalPath, entry.fileSize);
+                    const stored = await browserDocumentStore.isStored(file.originalPath).catch(() => true);
+                    if (stored) kept.push(file);
+                    else await browserDocumentStore.removeRecentFile(file.originalPath);
                 }
-                const withSize = (file: IRecentFile) => (file.fileSize ? file : {
-                    ...file,
-                    fileSize: sized.get(file.originalPath) ?? 0,
-                });
-                if (recentFiles.some(file => !file.fileSize && sized.get(file.originalPath))) {
-                    await runSerializedRecentFilesStorageMutation(currentFiles => ({
-                        files: currentFiles.map(withSize),
-                        value: undefined,
-                    }));
-                }
-                return recentFiles.filter(file => sized.has(file.originalPath)).map(withSize);
+                return kept;
             },
             async remove(path) {
                 await browserDocumentStore.removeRecentFile(path);
                 await clearSearchCaches(path);
             },
-            // Gone means its stored bytes are gone, or were kept only for the
-            // session; storage that cannot answer keeps the entry.
+            // Gone means its file or stored copy is gone; storage that cannot answer keeps the entry.
             async removeIfMissing(path) {
-                const {
-                    available,
-                    entry,
-                } = await browserDocumentStore.ensureEntryAvailability(path);
-                if (!available || (entry && entry.retention !== 'transient')) {
+                if (await browserDocumentStore.isStored(path).catch(() => true)) {
                     return false;
                 }
                 const removed = await browserDocumentStore.removeRecentFile(path);
@@ -819,7 +716,13 @@ export function createBrowserDocumentsFileCapability(
             }
 
             try {
-                return await createBrowserCombinedPdfFromPaths(refs, options);
+                // The capability answers bytes, so the combined document is read back whole, as the engine returned it.
+                const combined = await createBrowserCombinedPdfFromPaths(refs, options);
+                try {
+                    return await browserDocumentStore.read(combined, {maxBytes: BROWSER_PAGE_OPS_MAX_REQUEST_BYTES});
+                } finally {
+                    await browserDocumentStore.remove(combined);
+                }
             } finally {
                 await cleanupTransientOpenRefs(refs);
             }

@@ -114,44 +114,26 @@ describe('browser document lifecycle UI', () => {
         }
     }, 60_000);
 
-    it.each([
-        'discovery',
-        'lock',
-    ])('opens and saves a PDF after one initial recovery lease %s refusal', async (fault) => {
+    it('opens and saves a PDF after one initial window lock refusal', async () => {
         const context = await lifecycle.browser.newContext();
         const page = await context.newPage();
         const problems = collectConsoleProblems(page);
         try {
-            await page.addInitScript((fault) => {
+            await page.addInitScript(() => {
                 Reflect.set(window, '__allowRendererFileOpenForAutomation', () => true);
                 Reflect.set(window, 'showSaveFilePicker', undefined);
                 sessionStorage.setItem('evb-viewer:browser:open-picker-mode', 'input');
-                if (fault === 'lock') {
-                    const locks = navigator.locks;
-                    const request = locks.request;
-                    locks.request = function (...args: [string, LockOptions | LockGrantedCallback<unknown>, LockGrantedCallback<unknown>?]) {
-                        if (args[0].startsWith('evb-viewer:browser-lease-owner:')
-                            && typeof args[1] === 'object' && args[1].mode === 'exclusive') {
-                            locks.request = request;
-                            Reflect.set(window, '__initialClaimRefused', true);
-                            return Promise.reject(new Error('Injected initial lease claim refusal'));
-                        }
-                        return Reflect.apply(request, locks, args);
-                    };
-                    return;
-                }
-                const post = BroadcastChannel.prototype.postMessage;
-                BroadcastChannel.prototype.postMessage = function (this: BroadcastChannel, message: unknown) {
-                    if (this.name === 'evb-viewer:browserWindowTabs'
-                        && Reflect.get(Object(message), 'type') === 'discover'
-                        && new Error().stack?.includes('listTargetWindows')) {
-                        BroadcastChannel.prototype.postMessage = post;
+                const locks = navigator.locks;
+                const request = locks.request;
+                locks.request = function (...args: [string, LockOptions | LockGrantedCallback<unknown>, LockGrantedCallback<unknown>?]) {
+                    if (args[0].startsWith('evb-window:')) {
+                        locks.request = request;
                         Reflect.set(window, '__initialClaimRefused', true);
-                        throw new Error('Injected initial lease claim refusal');
+                        return Promise.reject(new Error('Injected initial window lock refusal'));
                     }
-                    return post.call(this, message);
+                    return Reflect.apply(request, locks, args);
                 };
-            }, fault);
+            });
             await page.goto(lifecycle.origin, {waitUntil: 'domcontentloaded'});
             await waitForOpenFileReady(page);
             expect(await page.evaluate(() => Reflect.get(window, '__initialClaimRefused'))).toBe(true);
@@ -169,7 +151,7 @@ describe('browser document lifecycle UI', () => {
             });
             await textBox.dblclick();
             const editor = page.locator('.pdf-annotation-editor-text-box__editor').last();
-            await editor.fill('Edit after lease claim refusal');
+            await editor.fill('Edit after window lock refusal');
             const download = page.waitForEvent('download');
             await page.getByRole('button', {
                 name: 'Save options',
@@ -180,8 +162,8 @@ describe('browser document lifecycle UI', () => {
             const annots = saved.getPage(0).node.lookup(PDFName.of('Annots'), PDFArray);
             expect(Array.from({length: annots.size()}, (_, index) => annots.lookup(index, PDFDict)
                 .lookupMaybe(PDFName.of('Contents'), PDFString, PDFHexString)?.decodeText()))
-                .toContain('Edit after lease claim refusal');
-            expect(problems.filter(problem => !problem.includes('Injected initial lease claim refusal'))).toEqual([]);
+                .toContain('Edit after window lock refusal');
+            expect(problems.filter(problem => !problem.includes('Injected initial window lock refusal'))).toEqual([]);
         } finally {
             await context.close();
         }
@@ -197,20 +179,20 @@ describe('browser document lifecycle UI', () => {
                     Reflect.set(window, '__releaseTextLayerPublication', resolvePublication);
                 }));
             });
-            await page.route('**/*usePdfRendererTextLayerController.ts*', async route => {
+            await page.route('**/*usePdfTextLayerRenderer.ts*', async route => {
                 const response = await route.fetch();
                 const source = await response.text();
-                const publication = 'if (!publish()) {';
-                const completed = 'if (!isTextLayerRendered) return failure ?? false;';
-                if (!source.includes(publication) || !source.includes(completed)) {
+                const publication = 'setupTextLayer(textLayerDiv);';
+                if (!source.includes(publication)) {
                     throw new Error('Initial text-layer publication seam was not found');
                 }
                 await route.fulfill({
                     response,
                     body: source.replace(publication,
                         `document.body.dataset.textLayerPublication = 'held';
-                        await Reflect.get(window, '__heldTextLayerPublication'); ${publication}`)
-                        .replace(completed, `${completed} document.body.dataset.textLayerPublication = 'published';`),
+                        await Reflect.get(window, '__heldTextLayerPublication');
+                        ${publication}
+                        document.body.dataset.textLayerPublication = 'published';`),
                 });
             });
             await openPdfFromChooser(page, resolve(process.cwd(), 'tests/fixtures/electron/interop/synthetic-annotation-interoperability.pdf'));
@@ -275,10 +257,10 @@ describe('browser document lifecycle UI', () => {
             await page.route('**/*usePdfAnnotationLayerRenderer.ts*', async (route) => {
                 const response = await route.fetch();
                 const body = await response.text();
-                const marker = 'const renderToken = ++annotationLayerRenderToken;';
+                const marker = 'const annotations = await getParsedPageAnnotations(pdfPage);';
                 if (!body.includes(marker)) throw new Error('PDF.js layer hydration fault seam was not found');
                 const hold = readiness === 'hydrating'
-                    ? 'document.body.dataset.optionalHydrationFault = "held"; annotationLayerDiv.dataset.hydrationFault = "held"; try { await raceWithAnnotationAbort(new Promise(() => {}), pageNumber, options); } finally { annotationLayerDiv.dataset.hydrationFault = "settled"; }'
+                    ? 'document.body.dataset.optionalHydrationFault = "held"; annotationLayerDiv.dataset.hydrationFault = "held"; try { await new Promise((_, reject) => options.signal.addEventListener("abort", () => reject(options.signal.reason), {once: true})); } finally { annotationLayerDiv.dataset.hydrationFault = "settled"; }'
                     : 'document.body.dataset.optionalHydrationFault = "refused"; const refusal = new Error("Injected optional annotation hydration refusal"); refusal.name = "AbortError"; throw refusal;';
                 await route.fulfill({
                     response,
@@ -387,20 +369,36 @@ describe('browser document lifecycle UI', () => {
         try {
             const page = await context.newPage();
             // Hold the actual producer only after an original picture exists.
+            // Persist-only Saves keep PDF.js's document but reauthorize the page resource.
+            // Read its version at the caller so only the superseded producer is held.
+            await page.route('**/*usePdfPageRenderer.ts*', async (route) => {
+                const response = await route.fetch();
+                const body = await response.text();
+                const marker = 'usePdfAnnotationLayerRenderer({';
+                if (!body.includes(marker)) throw new Error('Required page-resource version seam was not found');
+                await route.fulfill({
+                    response,
+                    body: body.replace(marker, `${marker}
+                        getTestPageVersion: (pageNumber) => {
+                            const resource = options.pageResources.get(pageNumber);
+                            return resource.job?.demand.consumerGeneration ?? resource.shown?.version;
+                        },`),
+                });
+            });
             await page.route('**/*usePdfAnnotationLayerRenderer.ts*', async (route) => {
                 const response = await route.fetch();
                 const body = await response.text();
-                const marker = 'const renderToken = ++annotationLayerRenderToken;';
+                const marker = 'const annotations = await getParsedPageAnnotations(pdfPage);';
                 if (!body.includes(marker)) throw new Error('Required annotation producer seam was not found');
                 const hold = `const faultRoot = document.querySelector('.page_container[data-page="' + pageNumber + '"]');
-                    const target = JSON.stringify([options?.documentVersion, viewport.width, viewport.height]);
+                    const target = JSON.stringify([deps.getTestPageVersion(pageNumber), viewport.width, viewport.height]);
                     if (faultRoot?.getAttribute('data-required-hydration-fault') === 'armed'
                         && viewport.width > Number(faultRoot.getAttribute('data-required-hydration-baseline-width'))) {
                         faultRoot.setAttribute('data-required-hydration-target', target);
                     }
                     if (faultRoot?.getAttribute('data-required-hydration-target') === target) {
                         faultRoot.setAttribute('data-required-hydration-fault', 'held');
-                        try { await raceWithAnnotationAbort(new Promise(() => {}), pageNumber, options); }
+                        try { await new Promise((_, reject) => options.signal.addEventListener("abort", () => reject(options.signal.reason), {once: true})); }
                         finally { faultRoot.setAttribute('data-required-hydration-fault', 'settled'); }
                     }`;
                 await route.fulfill({
@@ -647,8 +645,9 @@ describe('browser document lifecycle UI', () => {
             const draft = 'Protected newer draft after reading';
             await input.fill(draft);
             await expect.poll(async () => Array.from((await readRecovery()).notes), {timeout: 15_000}).toContain(draft);
+            // The draft joins the same document's recovery: no new copy of its bytes.
             const edited = await readRecovery();
-            expect(edited.tab?.workingCopyRef).not.toBe(initial!.tab?.workingCopyRef);
+            expect(edited.tab?.workingCopyRef).toBe(initial!.tab?.workingCopyRef);
             observations.push({
                 event: 'new draft',
                 ref: edited.tab?.workingCopyRef,

@@ -471,6 +471,8 @@ export function createViewportAuthority(deps: IViewportAuthorityDependencies) {
         submit,
         commitSettledPosition,
         observeUserScroll,
+        // The point a settled position shows; it moves nothing and keeps the page.
+        observeSettledAnchor: (anchor: IPdfSemanticAnchor) => commitAnchor(anchor, currentPage.value),
         suspend: cancelActive,
         dispose,
         activeWorkKind,
@@ -479,12 +481,6 @@ export function createViewportAuthority(deps: IViewportAuthorityDependencies) {
         isWorkCurrent,
         settleWork,
         cancelWork,
-        getActiveNavigationRequest: () => activeIntent.value?.navigation,
         getTerminalOutcome: (intentId: string) => terminal.get(intentId) ?? null,
     };
 }
-
-export type TPdfViewportWorkPort = Pick<
-    ReturnType<typeof createViewportAuthority>,
-    'activeWorkKind' | 'beginWork' | 'isWorkCurrent' | 'settleWork' | 'cancelWork'
->;

@@ -105,8 +105,7 @@ function createDocumentSession(tabId: string, options: {
     workspace?: IWorkspaceExpose | null;
 }) {
     const session = createWorkspaceDocumentController({tabId});
-    session.commitDocument({
-        fileName: options.path.split('/').pop() ?? null,
+    session.commitFile({
         originalPath: requireDocumentRef(options.path),
         isDjvu: options.isDjvu ?? false,
         revisionInfo: options.identity === undefined
@@ -127,8 +126,7 @@ function createDocumentSession(tabId: string, options: {
 }
 
 function recommitIdentity(session: IWorkspaceDocumentController, path: string, identity: IDocumentRevisionInfo) {
-    session.commitDocument({
-        fileName: path.split('/').pop() ?? null,
+    session.commitFile({
         originalPath: requireDocumentRef(path),
         isDjvu: false,
         revisionInfo: identity,

@@ -9,7 +9,7 @@ import {createHash} from 'node:crypto';
 import {
     loadWasmWithDeadline,
     readLoadedWasmDigest,
-} from '@app/platform/browser-api/loadWasmWithDeadline';
+} from '@app/platform/browser/loadWasmWithDeadline';
 
 const WASM_HEADER = Uint8Array.of(0, 97, 115, 109);
 

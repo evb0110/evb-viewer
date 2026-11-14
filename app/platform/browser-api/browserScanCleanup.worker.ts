@@ -1,7 +1,7 @@
 /// <reference lib="webworker" />
 
 import {encode as encodePng} from 'fast-png';
-import {readLoadedWasmDigest} from '@app/platform/browser-api/loadWasmWithDeadline';
+import {readLoadedWasmDigest} from '@app/platform/browser/loadWasmWithDeadline';
 import {BROWSER_SCAN_CLEANUP_WASM_PATH} from '@contracts/scan-cleanup/browserScanCleanupWasm';
 import {
     getBrowserScanCleanupWorkerRequestId,
@@ -12,12 +12,9 @@ import {
 import {assembleBrowserPdfRasterPpm} from '@app/platform/browser-api/assembleBrowserPdfRasterPpm';
 import {
     analyzeBrowserScanCleanupPage,
-    deriveBrowserScanCleanupInkContexts,
-    finishBrowserScanCleanupPageAnalysis,
-    reconcileBrowserScanCleanupDocument,
+    planBrowserScanCleanupAnalysis,
     renderBrowserScanCleanupPage,
     renderBrowserScanCleanupPreview,
-    sampleBrowserScanCleanupPageInk,
 } from '@app/platform/browser-api/browserScanCleanupWasm';
 import {toTransferableUint8Array} from '@app/platform/browser-api/toTransferableUint8Array';
 import {getErrorMessage} from '@app/utils/error';
@@ -65,14 +62,8 @@ async function handle(request: TBrowserScanCleanupWorkerRequest): Promise<IBrows
             return renderBrowserScanCleanupPage(request.payload);
         case 'analyze-page':
             return analyzeBrowserScanCleanupPage(request.payload);
-        case 'reconcile-document':
-            return reconcileBrowserScanCleanupDocument(request.payload);
-        case 'finish-page-analysis':
-            return finishBrowserScanCleanupPageAnalysis(request.payload);
-        case 'sample-page-ink':
-            return sampleBrowserScanCleanupPageInk(request.payload);
-        case 'derive-ink-contexts':
-            return deriveBrowserScanCleanupInkContexts(request.payload);
+        case 'plan-analysis':
+            return planBrowserScanCleanupAnalysis(request.payload);
     }
 }
 

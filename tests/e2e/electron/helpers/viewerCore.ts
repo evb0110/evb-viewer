@@ -3,7 +3,7 @@ import type {
     Page,
 } from 'puppeteer-core';
 import {resolve} from 'node:path';
-import {normalizePathForLookup} from '@electron/file-access/workingCopyStore';
+import {normalizePathForLookup} from '@electron/file-access/normalizePathForLookup';
 import type { IE2EWindow } from '@tests/e2e/electron/helpers/e2EWindow';
 import type { IElectronE2ESession } from '@tests/e2e/electron/helpers/startElectronE2ESession';
 import { delay } from 'es-toolkit/promise';

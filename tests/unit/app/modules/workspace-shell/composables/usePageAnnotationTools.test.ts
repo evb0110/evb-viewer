@@ -4,13 +4,8 @@ import {
     it,
     vi,
 } from 'vitest';
-import type {
-    IAnnotationEditorState,
-    IShapeAnnotation,
-} from '@app/types/annotations';
-import type { ITextBoxEntity } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
+import type { IAnnotationEditorState } from '@app/types/annotations';
 import { usePageAnnotationTools } from '@app/modules/workspace-shell/composables/usePageAnnotationTools';
-import {requirePageIndex} from '@contracts/pageNumbers';
 
 function createEditorState(overrides: Partial<IAnnotationEditorState> = {}): IAnnotationEditorState {
     return {
@@ -23,55 +18,9 @@ function createEditorState(overrides: Partial<IAnnotationEditorState> = {}): IAn
     };
 }
 
-function createShapeAnnotation(overrides: Partial<IShapeAnnotation> = {}): IShapeAnnotation {
-    return {
-        id: 'shape-1',
-        type: 'rectangle',
-        pageIndex: requirePageIndex(0),
-        x: 0,
-        y: 0,
-        width: 10,
-        height: 10,
-        color: '#000000',
-        opacity: 1,
-        strokeWidth: 1,
-        ...overrides,
-    };
-}
-
-function createTextBoxEntity(): ITextBoxEntity {
-    return {
-        kind: 'text-box',
-        identity: {id: 'text-box' as ITextBoxEntity['identity']['id']},
-        pageIndex: requirePageIndex(0),
-        revision: 0,
-        persistedRevision: 0,
-        deleted: false,
-        createdAt: null,
-        modifiedAt: null,
-        author: null,
-        text: 'text box',
-        rect: {
-            left: 0.1,
-            top: 0.1,
-            width: 0.3,
-            height: 0.1,
-        },
-        rotation: 0,
-        fontSize: 14,
-        color: '#000000',
-    };
-}
-
 function createHarness() {
     const viewer = {
-        clearSelectedShape: vi.fn(),
         prepareAnnotationToolChange: vi.fn(),
-        selectedShapeId: null as string | null,
-        getSelectedShape: vi.fn<() => IShapeAnnotation | null>(() => null),
-        updateShape: vi.fn(),
-        getSelectedTextBox: vi.fn<() => ITextBoxEntity | null>(() => null),
-        updateSelectedTextBoxProperties: vi.fn(),
     };
 
     const deps = {
@@ -88,12 +37,7 @@ function createHarness() {
 
 describe('usePageAnnotationTools', () => {
     it('keeps shape defaults separate from the current selection', () => {
-        const {
-            viewer,
-            tools,
-        } = createHarness();
-
-        viewer.selectedShapeId = 'shape-1';
+        const {tools} = createHarness();
 
         tools.handleAnnotationSettingChange({
             key: 'shapeStrokeWidth',
@@ -106,63 +50,6 @@ describe('usePageAnnotationTools', () => {
 
         expect(tools.annotationSettings.value.shapeStrokeWidth).toBe(5);
         expect(tools.annotationSettings.value.shapeFillColor).toBe('transparent');
-        expect(viewer.updateShape).not.toHaveBeenCalled();
-    });
-
-    it('does not mutate an unwrapped shape selection when changing defaults', () => {
-        const {
-            viewer,
-            tools,
-        } = createHarness();
-
-        viewer.selectedShapeId = 'shape-public-instance';
-
-        tools.handleAnnotationSettingChange({
-            key: 'shapeColor',
-            value: '#10b981',
-        });
-
-    });
-
-    it('keeps draw defaults separate from selected ink shapes', () => {
-        const {
-            viewer,
-            tools,
-        } = createHarness();
-
-        viewer.selectedShapeId = 'ink-shape-1';
-        viewer.getSelectedShape.mockReturnValue(createShapeAnnotation({ pdfSubtype: 'Ink' }));
-
-        tools.handleAnnotationSettingChange({
-            key: 'inkThickness',
-            value: 6,
-        });
-        tools.handleAnnotationSettingChange({
-            key: 'inkOpacity',
-            value: 0.4,
-        });
-
-    });
-
-    it('keeps text defaults separate from selected canonical text boxes', () => {
-        const {
-            viewer,
-            tools,
-        } = createHarness();
-
-        viewer.getSelectedTextBox.mockReturnValue(createTextBoxEntity());
-
-        tools.handleAnnotationSettingChange({
-            key: 'textSize',
-            value: 22,
-        });
-        tools.handleAnnotationSettingChange({
-            key: 'textColor',
-            value: '#ef4444',
-        });
-
-        expect(viewer.updateShape).not.toHaveBeenCalled();
-        expect(viewer.updateSelectedTextBoxProperties).not.toHaveBeenCalled();
     });
 
     it('tracks dirty state across editor undo transitions and save/reset', () => {
@@ -275,34 +162,6 @@ describe('usePageAnnotationTools', () => {
         tools.clearAnnotationComments();
 
         expect(tools.annotationInventory.value).toBeNull();
-    });
-
-    it('holds the viewer enrichment verdict and forgets it when the document is swapped', () => {
-        const { tools } = createHarness();
-
-        expect(tools.annotationEnrichmentState.value.status).toBe('pending');
-
-        tools.applyAnnotationEnrichmentState({
-            status: 'skipped',
-            reason: 'over-byte-limit',
-            canRetry: false,
-        });
-
-        expect(tools.annotationEnrichmentState.value).toEqual({
-            status: 'skipped',
-            reason: 'over-byte-limit',
-            canRetry: false,
-        });
-
-        // The next document has not been read yet. Carrying the previous
-        // verdict over would tell the user a fresh file was skipped.
-        tools.clearAnnotationComments();
-
-        expect(tools.annotationEnrichmentState.value).toEqual({
-            status: 'pending',
-            reason: null,
-            canRetry: false,
-        });
     });
 
     it('marks dirty from a modified signal when the editor stack is empty but live annotation changes remain', () => {

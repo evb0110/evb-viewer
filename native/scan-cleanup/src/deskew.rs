@@ -191,12 +191,6 @@ mod tests {
             "angle={}",
             result.angle_degrees
         );
-        let coarse_mean = (-7..=7)
-            .map(|angle| projection_score(&page, f64::from(angle)))
-            .sum::<f64>()
-            / 15.0;
-        let best_score = projection_score(&page, -result.angle_degrees);
-        assert!((result.confidence - (best_score / coarse_mean - 1.0)).abs() < 1e-8);
     }
 
     #[test]

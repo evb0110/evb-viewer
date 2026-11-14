@@ -436,24 +436,6 @@ describe('B01 file command annotation isolation', () => {
             await openPdfFromChooser(page, await createReadingBook('B01', 'b01.pdf'));
             await settleActiveOpen(page);
             if (item === 'A26-1') {
-                // The browser fallback lacks the desktop receipt consumer. Supply
-                // only that setup boundary, using the real WASM output, receipt
-                // validation, revision-checked storage commit and lease release.
-                await page.evaluate(`(async () => {
-                    const {getDocumentFilesCapability} = await import('/_nuxt/utils/platformDocuments.ts');
-                    const {browserDocumentStore} = await import('/_nuxt/platform/browserDocumentStore.ts');
-                    const {commitBrowserStoreStagedArtifact} = await import('/_nuxt/platform/browser/browserStagedArtifact.ts');
-                    const files = getDocumentFilesCapability();
-                    files.replaceWorkingCopyFromStagedPdfNativeMutation = async (path, receipt, options) => {
-                        try {
-                            return await commitBrowserStoreStagedArtifact(browserDocumentStore, receipt, path, options.expectedDocumentRevisionToken);
-                        } finally {
-                            await files.releaseManagedTempFileHandle(receipt.leaseId);
-                        }
-                    };
-                })()`);
-            }
-            if (item === 'A26-1') {
                 if (await page.locator('.browser-install-dismiss').isVisible()) await page.locator('.browser-install-dismiss').click();
                 await page.getByRole('button', {
                     name: 'Toggle Sidebar',

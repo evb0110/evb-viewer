@@ -55,7 +55,7 @@ run_stroke_weight_oracle() {
   '
   "$scan_cleanup_tool" \
     --manifest "$PWD/.devkit/tmp/stroke-weight-oracle/render-manifest.json"
-  node scripts/diagnostics/stroke-weight-oracle/stroke-weight-oracle.mjs \
+  "${EVB_PYTHON:-python3}" scripts/diagnostics/stroke-weight-oracle/stroke_weight_oracle.py \
     --image .devkit/tmp/stroke-weight-oracle/diyarbakir-clean.png \
     --image .devkit/tmp/stroke-weight-oracle/wahrscheinlich-clean.png \
     --image .devkit/tmp/stroke-weight-oracle/handschrift-clean.png \

@@ -16,7 +16,6 @@ import {
     decodeMetadataSnapshot,
     PAGE_OPS_CANCEL_ACTIVE_RESULT_SCHEMA,
     PAGE_OPS_EXTRACT_RESULT_SCHEMA,
-    PAGE_OPS_INSERT_RESULT_SCHEMA,
     PAGE_OPS_RESULT_SCHEMA,
 } from '@contracts/electronApiPageOps';
 import {PAGE_GEOMETRY_SCHEMA} from '@contracts/decodePageGeometry';
@@ -271,7 +270,6 @@ function decodeRotationAngle(args: unknown[], index: number): TPageOpsRotationAn
 
 const pageOpsResult = PAGE_OPS_RESULT_SCHEMA;
 const extractResult = PAGE_OPS_EXTRACT_RESULT_SCHEMA;
-const insertResult = PAGE_OPS_INSERT_RESULT_SCHEMA;
 const cancelActiveResult = PAGE_OPS_CANCEL_ACTIVE_RESULT_SCHEMA;
 const pageGeometry = PAGE_GEOMETRY_SCHEMA;
 
@@ -501,7 +499,7 @@ export const PAGE_OPS_PLATFORM_FEATURE = definePlatformFeature({
                 decodeSafeInteger(value, 2, 'afterPage'),
                 decodeMutationOptions(value[3]),
             ]),
-            insertResult,
+            pageOpsResult,
             (
                 workingCopyPath: string,
                 totalPages: number,

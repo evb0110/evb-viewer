@@ -8,7 +8,12 @@ EVB Viewer exposes a local, desktop-only MCP server from the Electron main proce
 
 There are two agent-facing entry points:
 
-- **Embedded EVB Assistant**: When the user enables the assistant setting and opens the assistant panel, EVB Viewer runs the chat provider the user selects: a sandboxed `codex app-server` child process with an isolated `CODEX_HOME`, or a Claude Agent SDK session. Both connect to one private random-port MCP server protected by a bearer token. This powers the in-app assistant panel, works with empty workspaces as well as open documents, uses the system browser for ChatGPT sign-in, and does not mutate global Codex configuration.
+- **Embedded EVB Assistant**: When enabled, the assistant runs the configured
+  provider instance: a sandboxed `codex app-server` process or a Claude Agent
+  SDK session, using that instance's executable, home, arguments and environment.
+  Both connect to the private random-port MCP server protected by a bearer
+  token. Credentials stay in the provider's home. [ADR 0008](adr/0008-assistant-runs-provider-instances.md)
+  owns provider configuration and status.
 - **External MCP Server**: the advanced Settings switch starts the fixed-port MCP server and registers it in global Codex settings using the Codex CLI. The same HTTP server URL can be configured manually in other MCP clients such as Claude Code or Cursor.
 
 The embedded assistant panel has its own normal app preference, separate from the external MCP switch. The assistant preference defaults off; enabling it makes the sidebar and launcher available, and disabling it hides the UI and shuts down the embedded Codex and Claude runtimes and the private MCP server. It does not start, stop, or register the external MCP server.
@@ -54,16 +59,19 @@ flowchart LR
   End-user Codex integration: Codex CLI discovery, native permission dialogs, global Codex config mutation, status reporting, and startup sync with app settings.
 
 - `electron/features/agent/assistantService.ts`
-  Shared embedded assistant coordinator. It owns chat sessions for both providers, provider selection, turn sending and interruption, reset, and renderer-safe event streaming. It branches to the Codex or Claude path per provider.
+  Shared embedded assistant coordinator. It owns per-instance chat sessions, ordered timelines, turn sending and interruption, reset and renderer-safe event streaming.
 
 - `electron/features/agent/lazyAgentAssistant.ts`
   Loads `assistantService.ts` on first use and forwards the assistant IPC calls to it, so the runtime is not imported at startup.
 
-- `electron/features/agent/createCodexAssistantAdapter.ts`
-  Codex-specific install, ChatGPT login and cancel flow for the embedded assistant, using the managed Codex install.
+- `electron/features/agent/assistantInstances.ts`
+  Instance configuration, encrypted environment values, discovery and launch context.
 
-- `electron/features/agent/assistantRuntimeLifecycle.ts`
-  Codex runtime lifecycle: the isolated `codex app-server` process, the feature enable/disable gate, the working directory, MCP tool counting and shutdown.
+- `electron/features/agent/codexInstanceRuntime.ts`
+  One Codex app-server per instance, account and model probes, login and tool isolation.
+
+- `electron/features/agent/codexProcessLaunch.ts`
+  Codex process creation and shutdown with the instance's environment and home.
 
 - `electron/features/agent/claudeAgentSdkAssistant.ts`
   `ClaudeAgentAssistantSession`, the Claude Agent SDK session wrapper. It connects to the private MCP server, allows only that server's tools, and resumes a session by id when one is given.
@@ -96,7 +104,7 @@ flowchart LR
   Desktop settings panel with separate in-app assistant visibility and external MCP status/setup controls.
 
 - `app/modules/agent-panel/components/AgentAssistantPanel.vue`
-  Desktop assistant panel with Codex install/update, ChatGPT sign-in, workspace/document empty states, and chat composer.
+  Desktop assistant panel with provider-instance status, conversation timeline and composer.
 
 - `scripts/evb-mcp-proxy.mjs`
   Compatibility stdio proxy for MCP clients that connect over stdio. It relays JSON-RPC to the local HTTP endpoint.
@@ -160,7 +168,8 @@ After `runInitSequence()` completes, `electron/main.ts` calls `syncAgentMcpServe
 - If `agentMcpEnabled` is `true`, `startLocalMcpServer()` runs.
 - If `false`, `shutdownLocalMcpServer()` is called.
 
-Shutdown cleanup always includes `shutdownLocalMcpServer()` before updates, DjVu, OCR, and working-copy cleanup.
+Shutdown stops the local MCP server and assistant services before settling open
+documents and cleaning up native resources.
 
 The old environment toggle `EVB_MCP_SERVER=1` is no longer used. `pnpm dev` starts the app normally; the Settings toggle controls whether MCP runs.
 
@@ -256,7 +265,7 @@ Bookmark tools work with a recursive tree and a flat agent-friendly view. Read `
 - `bookmarks.delete_batch` deletes multiple bookmark subtrees in one undoable metadata edit, accepting `paths` such as `[[0], [2, 1]]` or `items`/`bookmarks` objects with `path` fields. Parent/child overlaps are collapsed so descendants are removed only once.
 - `bookmarks.set_style` applies `bold`, `italic`, and/or `color` to many existing bookmarks in one undoable metadata edit. Targets come from explicit selectors (`paths`, `path`, or `items`/`bookmarks` objects with `path` fields), an inclusive sibling `range` whose endpoints share a parent, or `depth`/`level` (optionally scoped under `parentPath`, where depth stays absolute); `includeDescendants: true` also styles each target's whole subtree. Omitted style fields are left unchanged, a string color must be hex (`#336699`) or `null` to reset, and a no-op run reports counts without creating a history entry.
 
-Bookmark entries accept `title`, `page`/`pageNumber`, `pageIndex`, `namedDest`, `bold`, `italic`, `color`, and nested `items`. Flat rebuild plans may use `entries`, `flat`, or `outline` arrays with `level` (1-based) or `depth` (0-based), so an extracted table of contents can be passed without hand-nesting. Use the style fields to distinguish semantic parts of an outline — for example bold parts/chapters, italic front and back matter, or one color for appendices — and restyle existing entries in bulk with `bookmarks.set_style` instead of rewriting the tree.
+Bookmark entries accept `title`, `page`/`pageNumber`, `pageIndex`, `namedDest`, `bold`, `italic`, `color`, and nested `items`. Flat rebuild plans may use `entries`, `flat`, or `outline` arrays with `level` (1-based) or `depth` (0-based), so an extracted table of contents can be passed without hand-nesting. Use the style fields to distinguish semantic parts of an outline, for example bold parts/chapters, italic front and back matter, or one color for appendices, and restyle existing entries in bulk with `bookmarks.set_style` instead of rewriting the tree.
 
 When agents rebuild bookmarks, the existing PDF TOC/bookmarks are hints rather than proof. Agents should verify each target with `document.search`, `document.read_pages`, and `document.capture_page_image` for doubtful matches, run `bookmarks.preview_tree`, then inspect the diff/issues/flat paths. Stop at the preview and present the verified plan to the user, who must apply the replacement through the app. The current MCP transport cannot grant the confirmation needed by `bookmarks.apply_plan`. Internal scalar bookmark updates and incremental additions go through the metadata undo stack; after final verification the internal agent should save with `file.save`. External MCP callers retain the write restrictions described above.
 
@@ -418,7 +427,7 @@ Important limits:
 - Page text defaults to 6000 characters per page and caps at 30000.
 - Missing text page samples cap at 80 pages.
 
-Only PDF tabs with readable paths can use search/page text tools. DjVu and image documents should be converted to PDF first.
+Only PDF tabs with readable document bytes can use search/page text tools. DjVu and image documents should be converted to PDF first.
 
 ## UI And Platform API
 
@@ -433,8 +442,10 @@ Platform API:
 
 - Desktop preload implements the agent capability through IPC.
 - Browser runtime provides no-op agent methods and an unavailable MCP status so web builds remain type-compatible.
-- Embedded assistant status includes a `turn` object with `phase` values (`idle`, `starting`, `running`, `interrupting`, `error`) so the UI can distinguish ready, still-working, and stopping states.
-- `resetAssistantChat()` in `assistantService.ts` resets the selected provider's chat. For either provider it attempts to interrupt the active turn if needed, clears local messages and the transcript, and drops the provider thread id. Codex then archives the previous thread best-effort, and the next message starts a new thread. Claude attempts to close its SDK session (a failed interrupt or close is logged, not raised) and drops the resume id, so the next message starts a new session without resuming the old one.
+- Embedded assistant state carries per-instance status and the selected chat's turn, so one provider check cannot hold the conversation or composer.
+- `resetAssistantChat()` calls `resetAgentAssistantChat()` in `assistantService.ts`
+  for the requested instance and scope. It interrupts an active turn, archives
+  the transcript and removes that session, so the next send starts a new chat.
 
 ## Security And Safety Boundaries
 
@@ -449,7 +460,7 @@ Platform API:
 
 ## Stdio Proxy
 
-`scripts/evb-mcp-proxy.mjs` exists for development and MCP clients that need stdio. It is not the default end-user registration path.
+`scripts/evb-mcp-proxy.mjs` exists for development and MCP clients that need stdio. The external MCP registration uses it for the Codex CLI.
 
 Behavior:
 

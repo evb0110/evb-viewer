@@ -638,18 +638,6 @@ mod tests {
     }
 
     #[test]
-    fn prior_uses_dense_text_pages_and_robust_quantiles() {
-        let metrics = (0..20).map(|index| StrokeMassMetrics {
-            ink_fraction: 0.16,
-            erosion_survival: 0.48 + index as f64 * 0.002,
-        });
-        let prior = DocumentInkPrior::from_page_metrics(metrics).unwrap();
-        assert_eq!(prior.sample_count, 20);
-        assert!((prior.survival_median - 0.499).abs() < 1e-12);
-        assert!((prior.survival_p90 - prior.survival_p10) < 0.032);
-    }
-
-    #[test]
     fn document_prior_normalizes_both_source_mask_polarities() {
         let mut selection = GrayImage::new(30, 20, 0);
         for y in 5..15 {

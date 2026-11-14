@@ -20,7 +20,9 @@ import {
     expect,
     it,
 } from 'vitest';
-import { createMultiPageTextFixturePdf } from '@tests/e2e/electron/helpers/fixtures';
+import {
+    createMultiPageTextFixturePdf, readPdfMetadataWithQpdf,
+} from '@tests/e2e/electron/helpers/fixtures';
 import { startElectronE2ESession } from '@tests/e2e/electron/helpers/startElectronE2ESession';
 import {
     clickAnnotationTool,
@@ -44,7 +46,7 @@ import {
     revealForPointer,
 } from '@tests/e2e/electron/helpers/userInput';
 import type { IE2EWindow } from '@tests/e2e/electron/helpers/e2EWindow';
-import {getActiveWorkspaceWorkingCopyPath} from '@tests/e2e/electron/helpers/electronApiHelpers';
+import {getActiveWorkspaceWorkingCopyPath, readDocumentBytes} from '@tests/e2e/electron/helpers/electronApiHelpers';
 
 // Tagged books remain editable; saved subsets retain only the selected pages and their tags.
 it.each([
@@ -93,7 +95,7 @@ it.each([
         const {page} = session;
         await waitForViewerInteractive(page);
         const workingPath = await getActiveWorkspaceWorkingCopyPath(page);
-        const baseline = await readFile(workingPath);
+        const baseline = await readDocumentBytes(page, workingPath);
         const baselinePdf = await PDFDocument.load(baseline);
         await openDocumentSidebarTab(page, 'Pages');
         if (operation.startsWith('insert-')) {
@@ -131,12 +133,12 @@ it.each([
         await waitForViewerInteractive(page);
         await page.waitForSelector('.editor-pane.is-active .page_container--rendered canvas', {visible: true});
         await page.screenshot({path: join(evidence, 'result.png')});
-        const saved = await PDFDocument.load(await readFile(operation === 'extract' ? extractedPath : workingPath));
+        const saved = await PDFDocument.load(operation === 'extract' ? await readFile(extractedPath) : await readDocumentBytes(page));
         expect(saved.getPageCount()).toBe(operation.startsWith('insert-')
             ? baselinePdf.getPageCount() + (await PDFDocument.load(await readFile(insertPath))).getPageCount()
             : 1);
         expect(await readFile(inputPath)).toEqual(original);
-        if (operation === 'extract') expect(await readFile(workingPath)).toEqual(baseline);
+        if (operation === 'extract') expect(await readDocumentBytes(page, workingPath)).toEqual(baseline);
         const imageBytes = (pdf: PDFDocument) => pdf.context.enumerateIndirectObjects()
             .map(([
                 , object,
@@ -418,3 +420,64 @@ it('materializes edits, deletion and a moved saved note before deleting an earli
         });
     }
 }, 120_000);
+
+it('recovers object damage for Delete with one Undo, Redo and a saved surviving page', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'damaged-delete-'));
+    const input = join(directory, 'damaged.pdf');
+    const original = await readFile(resolve('native/pdf-page-ops/tests/fixtures/damaged-recovery/object-identity.pdf'));
+    await writeFile(input, original);
+    let session: IElectronE2ESession | undefined;
+    try {
+        session = await startElectronE2ESession('e2e-damaged-delete', {clean: true, initialOpenPaths: [input]});
+        const {page} = session;
+        await waitForViewerInteractive(page);
+        const workingPath = await getActiveWorkspaceWorkingCopyPath(page);
+        expect((await PDFDocument.load(await readDocumentBytes(page, workingPath))).getPageCount()).toBe(2);
+        await openDocumentSidebarTab(page, 'Pages');
+        await clickAsUser(page, '.editor-pane.is-active [data-thumbnail-page="1"]', {button: 'right'});
+        await clickFoundAsUser(page, () => Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]'))
+            .find(element => element.textContent?.trim() === 'Delete Pages'), undefined, {description: 'Delete Pages'});
+        const waitPages = async (count: number) => {
+            await page.waitForFunction(expected => {
+                const state = (window as IE2EWindow).__evbTestApi?.getActiveToolbarSnapshot();
+                return (state?.totalPages === expected && !state.isPageOperationInProgress && !state.documentBusy && !state.isHistoryBusy)
+                    || document.querySelector('.app-toast-failure') !== null;
+            }, {}, count);
+            expect(await page.evaluate(() => (window as IE2EWindow).__evbTestApi?.getActiveToolbarSnapshot()?.totalPages)).toBe(count);
+        };
+        await waitPages(1);
+        expect(await readFile(input)).toEqual(original);
+        const action = async (name: string) => clickFoundAsUser(page, label => Array.from(document.querySelectorAll<HTMLButtonElement>('button'))
+            .find(button => button.getAttribute('aria-label') === label && !button.disabled), name, {description: name});
+        await action('Undo');
+        await waitPages(2);
+        await page.waitForFunction(() => Array.from(document.querySelectorAll('.editor-pane.is-active .text-layer span'))
+            .some(span => span.textContent?.includes('First page')));
+        expect(await page.evaluate(() => (window as IE2EWindow).__evbTestApi?.getActiveToolbarSnapshot()?.canUndo)).toBe(false);
+        // The repair is internal: one Undo returns directly to both original pages.
+        expect((await PDFDocument.load(await readDocumentBytes(page, workingPath))).getPageCount()).toBe(2);
+        await action('Redo');
+        await waitPages(1);
+        await waitForViewerInteractive(page);
+        await page.waitForFunction(() => Array.from(document.querySelectorAll('.editor-pane.is-active .text-layer span'))
+            .some(span => span.textContent?.includes('Second page')));
+        expect(await readFile(input)).toEqual(original);
+        await saveViaVisibleToolbar(page);
+        const saved = await readFile(input);
+        expect(saved).not.toEqual(original);
+        expect((await PDFDocument.load(saved)).getPageCount()).toBe(1);
+        await readPdfMetadataWithQpdf(input);
+        await session.resetForE2E();
+        await session.command('openPdf', [input]);
+        await waitForViewerInteractive(page);
+        await waitPages(1);
+        await page.waitForFunction(() => Array.from(document.querySelectorAll('.editor-pane.is-active .text-layer span'))
+            .some(span => span.textContent?.includes('Second page')));
+    } catch (error) {
+        await session?.captureFailureArtifacts('damaged-delete');
+        throw error;
+    } finally {
+        await session?.stop();
+        await rm(directory, {recursive: true, force: true});
+    }
+});

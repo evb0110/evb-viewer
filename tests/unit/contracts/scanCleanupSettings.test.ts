@@ -9,7 +9,6 @@ import {
     decodeScanCleanupGlobalPreferences,
     decodeScanCleanupSettingsFile,
     decodeScanCleanupSettingsFileWithDiagnostics,
-    decodeScanCleanupSettingsResult,
     SCAN_CLEANUP_DOCUMENT_OVERRIDE_MAX_ENTRIES,
     SCAN_CLEANUP_SETTINGS_SCHEMA_VERSION,
 } from '@contracts/scan-cleanup/scanCleanupSettings';
@@ -142,29 +141,6 @@ describe('scan-cleanup settings file decoder', () => {
 
         expect(decoded.repaired).toBe(true);
         expect(decoded.settingsFile.settings.marginsMm).toEqual(base.settings.marginsMm);
-    });
-
-    it('strictly validates platform results while allowing an explicit repair marker', () => {
-        const base = createDefaultScanCleanupSettingsFile();
-
-        expect(decodeScanCleanupSettingsResult({
-            ...base,
-            repaired: true,
-        })).toMatchObject({
-            ...base,
-            repaired: true,
-        });
-        expect(() => decodeScanCleanupSettingsResult({
-            ...base,
-            settings: {
-                ...base.settings,
-                pageAlignment: 'invalid',
-            },
-        })).toThrow('settings result preferences');
-        expect(() => decodeScanCleanupSettingsResult({
-            ...base,
-            repaired: false,
-        })).toThrow('repair marker');
     });
 
     it('gives every legal document entry its own page budget', () => {

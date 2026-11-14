@@ -1,19 +1,12 @@
 import type {
-    IOcrPageWithWords,
-    IOcrWordEdit,
-} from '@ocr-core/types';
-import type {
     IOcrErrorEnvelope,
     IOcrDiagnostic,
     TOcrSearchablePdfPages,
     TOcrCompletionOutcome,
 } from '@contracts/electronApiOcr';
-import type {TOcrWordGeometry} from '@contracts/browserPageOpsWorker';
 import type {TDocumentRevisionToken} from '@contracts/documentRevision';
-export type { IRunCommandResult } from '@electron/utils/runElectronCommand';
 
 export interface IOcrPipelinePaths {
-    tesseractBinary: string;
     tessdataPath: string;
     pdftoppmBinary: string;
     pdftotextBinary?: string;
@@ -40,28 +33,6 @@ export interface IOcrPdfPageRequest {
 }
 
 export type TOcrPdfPageSelection = TOcrSearchablePdfPages;
-
-export interface IOcrPageProcessingResult {
-    pageData?: IOcrPageWithWords;
-    pdfPath?: string;
-    effectiveDpi?: number;
-    diagnostics?: IOcrDiagnostic[];
-    error?: string;
-}
-
-export interface IOcrFileResult {
-    success: boolean;
-    pageData: IOcrPageWithWords | null;
-    pdfPath: string | null;
-    error?: string;
-    /** Tesseract parameters the engine rejected; the run continued without them. */
-    unsupportedOptions?: string[];
-    /** Edits that pageData already carries and Tesseract's PDF does not. */
-    wordEdits?: IOcrWordEdit[];
-    wordGeometry?: TOcrWordGeometry;
-    /** Why a page that looks like early print was read without the early-print models. */
-    earlyPrintUnavailable?: string;
-}
 
 export type TOcrJobResult =
     | {

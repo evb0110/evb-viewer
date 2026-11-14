@@ -6,9 +6,7 @@ import {
 import type { THostResourceTier } from '@contracts/hostResourceProfile';
 import {
     normalizeMemoryPressureLevel,
-    selectViewerReclaimCandidates,
     type IRuntimeMemoryPressureSignal,
-    type IViewerReclaimCandidate,
     type TMemoryPressureLevel,
 } from '@app/utils/viewerResidencyPolicy';
 
@@ -43,20 +41,6 @@ export interface IWorkspaceMemoryBudget {
     reclaimTargetBytes: number;
 }
 
-export interface IResolveWorkspaceMemoryReclaimPlanOptions {
-    budget: IWorkspaceMemoryBudget;
-    viewers: readonly IViewerReclaimCandidate[];
-    protectedViewerIds?: readonly string[] | undefined;
-}
-
-export interface IWorkspaceMemoryReclaimPlan {
-    totalEstimatedBytes: number;
-    warmViewerCount: number;
-    overBudgetBytes: number;
-    overWarmViewerCount: number;
-    candidates: IViewerReclaimCandidate[];
-}
-
 const BASE_BUDGETS: Record<THostResourceTier, IWorkspaceMemoryBudgetBase> = {
     low: {
         maxWarmViewers: 2,
@@ -74,15 +58,6 @@ const BASE_BUDGETS: Record<THostResourceTier, IWorkspaceMemoryBudgetBase> = {
         reclaimTargetBytes: 512 * MIB,
     },
 };
-
-function sumEstimatedBytes(viewers: readonly IViewerReclaimCandidate[]) {
-    return viewers.reduce((total, viewer) => {
-        const estimatedBytes = typeof viewer.estimatedBytes === 'number' && Number.isFinite(viewer.estimatedBytes)
-            ? Math.max(0, viewer.estimatedBytes)
-            : 0;
-        return total + estimatedBytes;
-    }, 0);
-}
 
 function resolvePressureAdjustedWarmViewers(baseWarmViewers: number, pressureLevel: TMemoryPressureLevel) {
     if (pressureLevel === 'critical') {
@@ -139,34 +114,5 @@ export function resolveWorkspaceMemoryBudget(
         reclaimTargetBytes: pressureLevel === 'critical'
             ? base.reclaimTargetBytes * 2
             : base.reclaimTargetBytes,
-    };
-}
-
-export function resolveWorkspaceMemoryReclaimPlan(
-    options: IResolveWorkspaceMemoryReclaimPlanOptions,
-): IWorkspaceMemoryReclaimPlan {
-    const totalEstimatedBytes = sumEstimatedBytes(options.viewers);
-    const warmViewerCount = options.viewers.filter(viewer => viewer.residencyState === 'warm' && !viewer.isActive).length;
-    const overBudgetBytes = Math.max(0, totalEstimatedBytes - options.budget.maxEstimatedWorkspaceBytes);
-    const overWarmViewerCount = Math.max(0, warmViewerCount - options.budget.targetWarmViewers);
-    const pressureMinimum = options.budget.pressureLevel === 'none' ? 0 : 1;
-    const minimumCandidates = Math.max(overWarmViewerCount, pressureMinimum);
-    const budgetOverflowBytes = overBudgetBytes > 0
-        ? overBudgetBytes + options.budget.reclaimTargetBytes
-        : options.budget.pressureLevel === 'critical'
-            ? options.budget.reclaimTargetBytes
-            : 0;
-
-    return {
-        totalEstimatedBytes,
-        warmViewerCount,
-        overBudgetBytes,
-        overWarmViewerCount,
-        candidates: selectViewerReclaimCandidates(options.viewers, {
-            pressure: { level: options.budget.pressureLevel },
-            minimumCandidates,
-            budgetOverflowBytes,
-            protectedViewerIds: options.protectedViewerIds,
-        }),
     };
 }

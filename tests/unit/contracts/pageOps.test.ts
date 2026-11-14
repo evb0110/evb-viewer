@@ -389,8 +389,17 @@ describe('page ops platform feature schemas', () => {
     });
 
     it('preserves pageIdentityDelta through mutation and insert result decoders', () => {
+        const documentRevision = {
+            version: 1,
+            token: 'revision-token',
+            documentRef: '/tmp/work.pdf',
+            authority: 'electron-working-copy',
+            contentRevision: 1,
+            mintedAt: 1,
+        };
         const reorderResult = codecs[channels.reorder]!.decodeResult({
             success: true,
+            documentRevision,
             pageCount: 2,
             pageIdentityDelta: {
                 previousPageCount: 2,
@@ -402,6 +411,7 @@ describe('page ops platform feature schemas', () => {
         });
         expect(reorderResult).toEqual({
             success: true,
+            documentRevision,
             pageCount: 2,
             pageIdentityDelta: {
                 previousPageCount: 2,
@@ -414,6 +424,7 @@ describe('page ops platform feature schemas', () => {
 
         const insertResult = codecs[channels.insert]!.decodeResult({
             success: true,
+            documentRevision,
             pageIdentityDelta: {
                 previousPageCount: 1,
                 pages: [
@@ -424,6 +435,7 @@ describe('page ops platform feature schemas', () => {
         });
         expect(insertResult).toEqual({
             success: true,
+            documentRevision,
             pageIdentityDelta: {
                 previousPageCount: 1,
                 pages: [
@@ -435,6 +447,7 @@ describe('page ops platform feature schemas', () => {
 
         expect(() => codecs[channels.delete]!.decodeResult({
             success: true,
+            documentRevision,
             pageIdentityDelta: {
                 previousPageCount: 1,
                 pages: [{}],
@@ -443,6 +456,7 @@ describe('page ops platform feature schemas', () => {
 
         const moveResult = codecs[channels.move]!.decodeResult({
             success: true,
+            documentRevision,
             pageCount: 1_000_000,
             pageIdentityDelta: {
                 previousPageCount: 1_000_000,
@@ -463,8 +477,8 @@ describe('page ops platform feature schemas', () => {
                 ],
             },
         });
-        expect(moveResult.pageIdentityDelta?.pages).toBeUndefined();
-        expect(moveResult.pageIdentityDelta?.nextPageCount).toBe(1_000_000);
+        expect(moveResult).toMatchObject({pageIdentityDelta: {nextPageCount: 1_000_000}});
+        expect(moveResult).not.toHaveProperty('pageIdentityDelta.pages');
     });
 
     it('carries a user cancel through page operation and cancel results', () => {
@@ -501,6 +515,9 @@ describe('page ops platform feature schemas', () => {
         ])).toThrow('expected 4 arguments, received 3');
         expect(() => codecs[channels.rotate]!.decodeResult({success: 'yes'}))
             .toThrow('page operation result must include success');
+        // A committed page operation names the revision it committed.
+        expect(() => codecs[channels.insert]!.decodeResult({success: true}))
+            .toThrow();
         expect(() => codecs[channels.getPageGeometry]!.decodeResult({
             mediaBox: {
                 x: 0,

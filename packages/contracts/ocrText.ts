@@ -1,8 +1,5 @@
 import type { IOcrWord } from '@contracts/shared';
 
-export const OCR_TEXT_LAYER_INDEX_SOURCE = 'ocr-v2-text-layer';
-export const OCR_TEXT_LAYER_INDEX_VERSION = 1;
-
 export function buildOcrTextLayerItemText(word: Pick<IOcrWord, 'text'>) {
     return `${word.text} `;
 }

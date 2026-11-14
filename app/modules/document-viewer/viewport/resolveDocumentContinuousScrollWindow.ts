@@ -37,15 +37,6 @@ interface IResolveDocumentContinuousScrollWindowOptions {
     overscanViewports: number;
 }
 
-interface IResolveDocumentViewportPageNumbersOptions {
-    geometry: IDocumentContinuousScrollGeometry;
-    pageGapPx: number;
-    scrollTop: number;
-    totalPages: number;
-    viewportHeight: number;
-    overscanViewports: number;
-}
-
 interface IResolveVisibleIndicatorPageOptions {
     currentPage: number;
     pageLayouts: readonly IDocumentZoomPageLayout[];
@@ -358,75 +349,6 @@ function findLastPageWithTopBefore(
     }
 
     return low - 1;
-}
-
-function findFirstPageWithBottomAtOrAfter(
-    geometry: IDocumentContinuousScrollGeometry,
-    pageGapPx: number,
-    boundary: number,
-    totalPages: number,
-) {
-    let low = 1;
-    let high = totalPages + 1;
-
-    while (low < high) {
-        const middle = Math.floor((low + high) / 2);
-        const pageTop = getGeometryPageTop(geometry, pageGapPx, middle);
-        const pageBottom = pageTop + (geometry.pageHeights[middle - 1] ?? 0);
-
-        if (pageBottom >= boundary) {
-            high = middle;
-        } else {
-            low = middle + 1;
-        }
-    }
-
-    return low;
-}
-
-function findLastPageWithTopAtOrBefore(
-    geometry: IDocumentContinuousScrollGeometry,
-    boundary: number,
-    totalPages: number,
-) {
-    let low = 1;
-    let high = totalPages + 1;
-
-    while (low < high) {
-        const middle = Math.floor((low + high) / 2);
-        const pageTop = geometry.pageTops[middle - 1] ?? 0;
-
-        if (pageTop <= boundary) {
-            low = middle + 1;
-        } else {
-            high = middle;
-        }
-    }
-
-    return low - 1;
-}
-
-export function resolveDocumentViewportPageNumbers(
-    options: IResolveDocumentViewportPageNumbersOptions,
-) {
-    if (options.totalPages <= 0 || options.viewportHeight <= 0) {
-        return [] as number[];
-    }
-    const viewportTop = Math.max(0, options.scrollTop);
-    const viewportBottom = viewportTop + options.viewportHeight;
-    const overscanTop = Math.max(0, viewportTop - options.viewportHeight * options.overscanViewports);
-    const overscanBottom = viewportBottom + options.viewportHeight * options.overscanViewports;
-    const start = findFirstPageWithBottomAtOrAfter(
-        options.geometry,
-        normalizeGapPx(options.pageGapPx),
-        overscanTop,
-        options.totalPages,
-    );
-    const end = findLastPageWithTopAtOrBefore(options.geometry, overscanBottom, options.totalPages);
-    return start <= end ? createPageNumbersForWindow({
-        start,
-        end,
-    }) : [];
 }
 
 export function resolveDocumentContinuousScrollWindow(

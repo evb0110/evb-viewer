@@ -105,8 +105,7 @@ export type TPdfDocumentPhase =
     | 'loading'
     | 'ready'
     | 'settled'
-    | 'invalidated'
-    | 'restore';
+    | 'invalidated';
 
 export interface IPdfDocumentTransition extends IDocumentTransition<IPdfDocumentFence> {
     readonly phase: TPdfDocumentPhase;
@@ -187,7 +186,6 @@ interface IPdfDocumentViewPresenter {
     abortLoad(token: number | null, error: unknown): Promise<void>;
     completeLoad(token: number | null): Promise<void>;
     invalidate(reason: string, isSameDocumentRewrite?: boolean): Promise<void>;
-    restore(): Promise<void>;
     cancelStagedRevisionSwap(revision: string): void;
     clearPresentedDocument(): void;
     presentPageRotationGeometry(pages: readonly number[], rotationDelta: 90 | 180 | 270 | null): void;
@@ -289,7 +287,6 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
     let activePlan: IPdfDocumentLoadPlan = IDLE_PLAN;
     let presentingLoad: IPdfDocumentPresentingLoad | null = null;
     let pendingPreserveVisibleContent = false;
-    let pendingPagesToInvalidate: number[] | null = null;
     let pendingPageMutationRevisionSwap: IPdfStagedRevisionSwap | null = null;
     let pendingPageMutationGeometryPreview: {
         pages: readonly number[];
@@ -999,13 +996,11 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
     }
 
     function computeLoadPlan(isReload: boolean): IPdfDocumentLoadPlan {
-        const pagesToInvalidate = pendingPagesToInvalidate;
-        pendingPagesToInvalidate = null;
+        const stagedMutation = pendingPageMutationRevisionSwap;
+        const pagesToInvalidate = stagedMutation?.invalidatedPages ?? null;
         const isSelectiveReload = isReload && pagesToInvalidate !== null;
         const preserveVisibleContent = isReload && pendingPreserveVisibleContent;
-        const stagedMutation = pendingPageMutationRevisionSwap;
-        const stagedMutationMatchesRevision = stagedMutation !== null
-            && stagedMutation.revision === String(options.documentRevisionToken?.value ?? '');
+        const stagedMutationMatchesRevision = stagedMutation?.revision === String(options.documentRevisionToken?.value ?? '');
         pendingPreserveVisibleContent = false;
         return {
             isReload,
@@ -1123,7 +1118,6 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
         restorePageMutationGeometryPreview();
         sourceLoader.cancelPendingOpen();
         cancelStagedRevisionSwap();
-        pendingPagesToInvalidate = null;
         pendingPreserveVisibleContent = false;
         const invalidation = invalidate(reason);
         runGuardedTask(async () => {
@@ -1158,7 +1152,6 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
         documentLoadToken += 1;
         presentingLoad = null;
         pendingPageMutationRevisionSwap = null;
-        pendingPagesToInvalidate = null;
         pendingPreserveVisibleContent = false;
         cleanup();
     }
@@ -1206,7 +1199,7 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
 
     // Residency follows the views: a view that stops being active cancels its
     // own work, and the document reclaims its caches once none is active. A
-    // view that becomes active again restores, or loads a document it lost.
+    // view that becomes active again loads a document it lost.
     watch(() => [...views.value].map(view => [
         view,
         view.isActive(),
@@ -1236,21 +1229,8 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
                 message: 'Failed to deactivate PDF document session',
             });
         }
-        if (activated.length === 0) {
-            return;
-        }
-        if (options.src?.value && !pdfDocument.value && !isLoading.value) {
+        if (activated.length > 0 && options.src?.value && !pdfDocument.value && !isLoading.value) {
             scheduleLoad();
-            return;
-        }
-        if (pdfDocument.value && !isLoading.value) {
-            runGuardedTask(() => enqueueLifecycleOperation(
-                () => Promise.all(activated.map(view => view.restore())).then(() => undefined),
-            ), {
-                category: 'user-visible-operation',
-                scope: 'pdf-viewer',
-                message: 'Failed to restore PDF document session',
-            });
         }
     });
 
@@ -1271,7 +1251,6 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
         }
         if (!newSrc) {
             cancelStagedRevisionSwap();
-            pendingPagesToInvalidate = null;
             pendingPreserveVisibleContent = false;
             invalidateAndCleanup('source-cleared');
             return;
@@ -1472,7 +1451,6 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
             }
         }
         pendingPreserveVisibleContent = true;
-        pendingPagesToInvalidate = [...pages];
         pendingPageMutationRevisionSwap = {
             revision,
             invalidatedPages: [...pages],
@@ -1824,7 +1802,6 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
             abortLoad,
             completeLoad,
             invalidate: invalidateView,
-            restore: () => publish('restore', 'activation').then(() => undefined),
             cancelStagedRevisionSwap(revision) {
                 surface?.cancelRevisionSwap(activeOpenSurfaceGeneration, revision);
                 stagedRevisionSwapPage = null;
@@ -1888,9 +1865,6 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
                 if (!shownElsewhere) {
                     pageCache.evictPage(pageNumber);
                 }
-            },
-            invalidatePagesOnNextReload(pages: readonly number[]) {
-                pendingPagesToInvalidate = [...pages];
             },
             waitForLoadSettled: async () => {
                 // Flush source changes before awaiting their complete presentation.

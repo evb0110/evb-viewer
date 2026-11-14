@@ -133,7 +133,6 @@
                     :alignment="settings.pageAlignment"
                     :page-number="previewPage"
                     :total-pages="previewTotalPages"
-                    :stale-page="previewResult !== null && previewResult.pageNumber !== previewPage"
                     :show-margin-boundary="marginBoundaryVisible"
                     :manual-split="currentPageOverride.manualSplit"
                     :reading-order="settings.readingOrder"
@@ -150,8 +149,8 @@
                     @retry="retryPreview"
                     @invalidate-detail="clearPreviewDetail"
                     @request-detail="requestPreviewDetail"
-                    @update:view-mode="previewViewMode = $event"
-                @update:zone-editing="zoneEditing = $event"
+                        @update:view-mode="previewViewMode = $event"
+                    @update:zone-editing="zoneEditing = $event"
                     @update:manual-split="updateCurrentManualSplit"
                     @update:manual-content-box="updateCurrentManualContentBox"
                     @update:manual-zones="updateCurrentManualZones"
@@ -360,8 +359,8 @@ const {
     navigate: navigatePreview,
     result: previewResult,
     rawResult: previewRawResult,
-    resultCurrent: previewResultCurrent = computed(() => true),
-    resultPresentationKey: previewResultPresentationKey = computed(() => ''),
+    resultCurrent: previewResultCurrent,
+    resultPresentationKey: previewResultPresentationKey,
     retry: retryPreview,
     requestDetail: requestPreviewDetail,
     totalPages: previewTotalPages,
@@ -699,7 +698,7 @@ const previewOutputMode = computed<TScanCleanupOutputMode | undefined>(() =>
     resolveScanCleanupEffectiveOutputMode({
         options: settings,
         pageOverride: currentPageOverride.value,
-        detectedOutputMode: recommendedOutputModeByPage.get(previewPage.value),
+        detectedOutputMode: recommendedOutputModeByPage.value.get(previewPage.value),
         renderedOutputMode: previewResultCurrent.value && previewResult.value?.pageNumber === previewPage.value
             ? previewResult.value.outputs[0]?.metadata.outputMode
                 ?? previewResult.value.pageMetadata.recommendedOutputMode
@@ -757,12 +756,12 @@ const pageFacts = computed<IScanCleanupPageFacts | null>(() => {
     return {
         classification: authoritativeLayoutByPage.value.get(page),
         diagnostics: previewMetadataByPage.get(page),
-        layoutConfidence: detectedLayoutConfidenceByPage.get(page),
+        layoutConfidence: detectedLayoutConfidenceByPage.value.get(page),
         override: currentPageOverride.value,
-        recommendedOutputMode: recommendedOutputModeByPage.get(page),
-        recommendedOutputModeConfidence: recommendedOutputModeConfidenceByPage.get(page),
-        recommendedOutputModeReason: recommendedOutputModeReasonByPage.get(page),
-        textAxis: detectedTextAxisByPage.get(page),
+        recommendedOutputMode: recommendedOutputModeByPage.value.get(page),
+        recommendedOutputModeConfidence: recommendedOutputModeConfidenceByPage.value.get(page),
+        recommendedOutputModeReason: recommendedOutputModeReasonByPage.value.get(page),
+        textAxis: detectedTextAxisByPage.value.get(page),
     };
 });
 

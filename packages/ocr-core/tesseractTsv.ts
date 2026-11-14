@@ -156,10 +156,6 @@ export function parseTsvOcrData(tsvContent: string, limits: {
     };
 }
 
-export function parseTsvOutput(tsvContent: string): IOcrWord[] {
-    return parseTsvOcrData(tsvContent).words;
-}
-
 function getTsvLineKey(parts: string[]) {
     const blockNum = parts[2]?.length ? parts[2] : '0';
     const parNum = parts[3]?.length ? parts[3] : '0';

@@ -33,9 +33,9 @@ function buildTabSignature(
     const workspace = view?.mountedWorkspace.value ?? null;
     const toolbar = view?.toolbarSnapshot.value ?? null;
     const identity = session?.snapshot.value.identity ?? null;
-    let recoverySignature: readonly unknown[] = [];
+    let refsSignature: readonly unknown[] = [];
     try {
-        recoverySignature = workspace?.getWorkspaceDocumentRecoveryChangeSignature?.() ?? [];
+        refsSignature = workspace?.getWorkspaceDocumentRefsSignature?.() ?? [];
     } catch {
         // A capture failure is reported by the checkpoint builder.
     }
@@ -44,10 +44,7 @@ function buildTabSignature(
         paneId,
         session ? describeTabDocument(session.snapshot.value) : null,
         workspace !== null,
-        identity?.revisionInfo?.token ?? null,
         identity?.revisionInfo?.documentRef ?? null,
-        identity?.revisionInfo?.contentRevision ?? null,
-        identity?.revisionInfo?.authority ?? null,
         toolbar?.hasPdf ?? null,
         toolbar?.currentPage ?? null,
         toolbar?.zoom ?? null,
@@ -55,7 +52,7 @@ function buildTabSignature(
         toolbar?.continuousScroll ?? null,
         toolbar?.viewMode ?? null,
         toolbar?.viewRotation ?? null,
-        recoverySignature,
+        refsSignature,
     ]);
 }
 

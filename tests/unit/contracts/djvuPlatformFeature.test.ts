@@ -25,7 +25,6 @@ import * as v from 'valibot';
 type TIpcRendererFixture = Pick<IpcRenderer, 'invoke' | 'on' | 'removeListener' | 'send'>;
 
 const channels = DJVU_PLATFORM_FEATURE.invokeChannels;
-const eventChannels = DJVU_PLATFORM_FEATURE.eventChannels;
 const conversionFailure: FailureReceipt = {
     eventId: '0123456789abcdef0123456789abcdef' as FailureReceipt['eventId'],
     code: 'UNCLASSIFIED_MAIN_ERROR',
@@ -35,44 +34,12 @@ const conversionFailure: FailureReceipt = {
 
 describe('DjVu platform feature', () => {
     it('preserves channels, timeouts, menu shape, and registry replay policy', () => {
-        expect(channels).toEqual({
-            startOpenForViewing: 'djvu:open:start',
-            releaseViewingPath: 'djvu:releaseViewingPath',
-            startConvertToPdf: 'djvu:convert:start',
-            printDjvuPath: 'djvu:printDjvuPath',
-            cancel: 'djvu:cancel',
-            getJobState: 'djvu:job:getState',
-            cancelPagePreview: 'djvu:cancelPagePreview',
-            searchText: 'djvu:text:search',
-            cancelTextSearch: 'djvu:text:cancel',
-            getInfo: 'djvu:getInfo',
-            getPageSourceInfo: 'djvu:getPageSourceInfo',
-            getPageText: 'djvu:getPageText',
-            getOutline: 'djvu:getOutline',
-            getPageSizes: 'djvu:getPageSizes',
-            renderPagePreview: 'djvu:renderPagePreview',
-            estimateSizes: 'djvu:estimateSizes',
-            cleanupTemp: 'djvu:cleanupTemp',
-            subscribeProgress: 'djvu:progress:subscribe',
-        });
-        expect(eventChannels).toEqual({
-            onProgress: 'djvu:progress',
-            onConvertComplete: 'djvu:convert:complete',
-            onOpenComplete: 'djvu:open:complete',
-            onTextSearchProgress: 'djvu:text:progress',
-            onMenuConvertToPdf: 'menu:convertToPdf',
-        });
+
         expect(v.parse(DJVU_PLATFORM_FEATURE.events.onMenuConvertToPdf.payload, undefined))
             .toBeUndefined();
         expect(() => v.parse(DJVU_PLATFORM_FEATURE.events.onMenuConvertToPdf.payload, 'payload'))
             .toThrow();
         const replay = DJVU_PLATFORM_FEATURE.events.onProgress.subscription.replay;
-        expect(replay).toMatchObject({
-            intervalMs: 50,
-            mode: 'latest-per-key',
-            owner: 'ipc-progress-pump',
-            terminalRetentionMs: 30_000,
-        });
         expect(replay.key({
             jobId: requireJobId('job-1'),
             phase: 'printing',

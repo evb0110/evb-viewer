@@ -6,6 +6,7 @@ import {
     onTestFinished,
 } from 'vitest';
 import { createHash } from 'node:crypto';
+import {decodeManifest} from '@document-store/documentDirectory';
 import {
     existsSync,
     mkdirSync,
@@ -15,6 +16,7 @@ import {
 } from 'node:fs';
 import {
     basename,
+    dirname,
     join,
 } from 'node:path';
 import { delay } from 'es-toolkit/promise';
@@ -188,6 +190,7 @@ async function holdViewerLayoutOff(page: Page, holdMs: number) {
 
 interface ICombinedOpenHandoff {
     workingPath: string;
+    revisionPath: string;
     bytes: Buffer;
 }
 
@@ -257,14 +260,21 @@ async function interceptCombinedOpenHandoffs(page: Page) {
                 returnByValue: true,
             });
             const workingPath = String(evaluated.result.value);
+            // Fault setup targets the generated revision while the renderer is
+            // paused. The reference itself has no bytes to corrupt.
+            const directory = dirname(workingPath);
+            const revision = decodeManifest(readFileSync(join(directory, 'manifest.json'))).current;
+            if (!revision) throw new Error('Combined document has no generated revision');
+            const revisionPath = join(directory, revision.file);
             const handoff = {
                 workingPath,
-                bytes: readFileSync(workingPath),
+                revisionPath,
+                bytes: readFileSync(revisionPath),
             };
             handoffs.push(handoff);
             if (failuresRequested > 0) {
                 failuresRequested -= 1;
-                writeFileSync(workingPath, 'not a PDF, so this open fails');
+                writeFileSync(revisionPath, 'not a PDF, so this open fails');
                 corrupted = handoff;
             }
         } catch (error) {
@@ -289,8 +299,8 @@ async function interceptCombinedOpenHandoffs(page: Page) {
             if (!failed) {
                 throw new Error('No combined open was made to fail');
             }
-            expect(existsSync(failed.workingPath), 'the failed open keeps the combined file').toBe(true);
-            writeFileSync(failed.workingPath, failed.bytes);
+            expect(existsSync(failed.revisionPath), 'the failed open keeps the combined file').toBe(true);
+            writeFileSync(failed.revisionPath, failed.bytes);
             corrupted = null;
             return failed;
         },

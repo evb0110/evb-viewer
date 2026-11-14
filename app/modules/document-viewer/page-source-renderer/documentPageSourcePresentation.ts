@@ -22,10 +22,7 @@ import { DOCUMENT_OPEN_ERROR_ENVELOPE_SCHEMA } from '@contracts/documentOpenErro
 import { findSerializableErrorEnvelope } from '@contracts/serializableError';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { DOCUMENT_PAGE_GUTTER_PX } from '@app/modules/document-viewer/layout/documentPageGutterPx';
-import {
-    runDocumentViewerActivationPresentation,
-    waitForDocumentViewerVisibleLayout,
-} from '@app/modules/document-viewer/lifecycle/documentViewerActivationPresentation';
+import { reportDocumentViewportPlacement } from '@app/modules/document-viewer/runtime/reportDocumentViewportPlacement';
 const DOCUMENT_RENDER_PRIORITY_RANK: Record<TDocumentRenderPriority, number> = {
     navigation: 5,
     visible: 4,
@@ -354,25 +351,14 @@ export function createDocumentPageSourcePresentation(options: {
         if (!fence || !openSurface.commitCanvas(fence) || !viewport) {
             return false;
         }
-        const placed = navigationTicket
-            ? openSurface.reportNavigation(navigationTicket, {
-                kind: 'placed',
-                page: pageNumber,
-                left: viewport.scrollLeft,
-                top: viewport.scrollTop,
-                geometryRevision: lifecycleFence.loadGeneration,
-                interactionEpoch: options.chassisAuthority?.viewportWritePort.getInteractionEpoch() ?? 0,
-            })
-            : openSurface.commitViewport({
-                generation: lifecycleFence.openSurfaceGeneration,
-                documentRevision: fence.documentRevision,
-                viewportIntentId: viewportState.viewportIntent.id,
-                documentGeometryRevision: lifecycleFence.loadGeneration,
-                interactionEpoch: options.chassisAuthority?.viewportWritePort.getInteractionEpoch() ?? 0,
-                pageNumber,
-                left: viewport.scrollLeft,
-                top: viewport.scrollTop,
-            });
+        const placed = reportDocumentViewportPlacement(openSurface, {
+            page: pageNumber,
+            left: viewport.scrollLeft,
+            top: viewport.scrollTop,
+            geometryRevision: lifecycleFence.loadGeneration,
+            interactionEpoch: options.chassisAuthority?.viewportWritePort.getInteractionEpoch() ?? 0,
+            navigationTicket,
+        });
         if (!placed || !openSurface.markReady(fence)) {
             return false;
         }
@@ -720,61 +706,52 @@ export function createDocumentPageSourcePresentation(options: {
             restoreViewport?: () => void;
         },
     ) {
+        // The view is shown again: measure it, let the layout patch, then
+        // place the reader's point and bring its pages back.
         const isCurrent = transition.isCurrent;
-        await runDocumentViewerActivationPresentation({
-            isCurrent,
-            waitForVisibleLayout: () => waitForDocumentViewerVisibleLayout(
-                options.readViewport,
-                {isCurrent},
-            ),
-            measure: restoreOptions.measureViewport,
-            reconcile: async () => {
-                if (!isCurrent()) {
-                    return;
+        restoreOptions.measureViewport();
+        await nextTick();
+        if (!isCurrent()) {
+            return;
+        }
+        restoreOptions.restoreViewport?.();
+        const currentPage = options.readCurrentPage();
+        for (const pageNumber of new Set([
+            currentPage,
+            ...options.readRenderDemand().residentPages,
+        ])) {
+            if (!isCurrent()) {
+                return;
+            }
+            const state = pageStates.get(pageNumber);
+            if (!state?.lease) {
+                continue;
+            }
+            const image = getConnectedImage(pageNumber, state);
+            const metric = options.readMetric(pageNumber);
+            if (image?.complete && image.naturalWidth > 0) {
+                if (metric && state.widthPx === resolveDocumentPageSourceRenderWidthPx(
+                    metric,
+                    options.readPageScale(pageNumber),
+                    options.readPixelRatio(),
+                )) {
+                    markReady(pageNumber, state);
                 }
-                restoreOptions.restoreViewport?.();
-                const currentPage = options.readCurrentPage();
-                for (const pageNumber of new Set([
-                    currentPage,
-                    ...options.readRenderDemand().residentPages,
-                ])) {
-                    if (!isCurrent()) {
-                        return;
-                    }
-                    const state = pageStates.get(pageNumber);
-                    if (!state?.lease) {
-                        continue;
-                    }
-                    const image = getConnectedImage(pageNumber, state);
-                    const metric = options.readMetric(pageNumber);
-                    if (image?.complete && image.naturalWidth > 0) {
-                        if (metric && state.widthPx === resolveDocumentPageSourceRenderWidthPx(
-                            metric,
-                            options.readPageScale(pageNumber),
-                            options.readPixelRatio(),
-                        )) {
-                            markReady(pageNumber, state);
-                        }
-                        continue;
-                    }
-                    if (!isCurrent()) {
-                        return;
-                    }
-                    state.unsubscribeInvalidation?.();
-                    state.lease.release();
-                    state.unsubscribeInvalidation = null;
-                    state.lease = null;
-                    beginPending(pageNumber, state);
-                }
-                if (!isCurrent()) {
-                    return;
-                }
-                await renderPage(currentPage);
-                if (isCurrent()) {
-                    await restoreOptions.renderMountedPages();
-                }
-            },
-        });
+                continue;
+            }
+            state.unsubscribeInvalidation?.();
+            state.lease.release();
+            state.unsubscribeInvalidation = null;
+            state.lease = null;
+            beginPending(pageNumber, state);
+        }
+        if (!isCurrent()) {
+            return;
+        }
+        await renderPage(currentPage);
+        if (isCurrent()) {
+            await restoreOptions.renderMountedPages();
+        }
     }
     return {
         beginSourceGeneration() {

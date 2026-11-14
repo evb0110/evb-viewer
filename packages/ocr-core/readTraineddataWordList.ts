@@ -1,4 +1,5 @@
 // TessdataManager component numbers (tessdatamanager.h).
+export const TRAINEDDATA_CONFIG = 0;
 const LSTM_SYSTEM_DAWG = 19;
 const LSTM_UNICHARSET = 21;
 const DAWG_MAGIC = 42;
@@ -12,7 +13,8 @@ const MAX_WORDS = 2_000_000;
 const MAX_WORD_LENGTH = 256;
 const MAX_EDGE_VISITS = 64_000_000;
 
-function component(data: Uint8Array, index: number) {
+/** One component of a `.traineddata` file, or null when the model has none. */
+export function readTraineddataComponent(data: Uint8Array, index: number) {
     const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
     const entries = view.getInt32(0, true);
     if (entries <= index || 4 + 8 * entries > data.byteLength) return null;
@@ -31,8 +33,8 @@ function component(data: Uint8Array, index: number) {
  */
 export function readTraineddataWordList(data: Uint8Array): string[] | null {
     if (data.byteLength > MAX_TRAINEDDATA_BYTES) throw new Error('traineddata file exceeds the size limit');
-    const unicharsetBytes = component(data, LSTM_UNICHARSET);
-    const dawgBytes = component(data, LSTM_SYSTEM_DAWG);
+    const unicharsetBytes = readTraineddataComponent(data, LSTM_UNICHARSET);
+    const dawgBytes = readTraineddataComponent(data, LSTM_SYSTEM_DAWG);
     if (!unicharsetBytes || !dawgBytes || dawgBytes.byteLength < 10) return null;
 
     const unicharsetLines = new TextDecoder().decode(unicharsetBytes).split('\n');

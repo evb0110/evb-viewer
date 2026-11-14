@@ -1,5 +1,5 @@
 import * as v from 'valibot';
-import {requireRequestId} from '@contracts/shared';
+import type {TRequestId} from '@contracts/shared';
 import {parseDocumentRef} from '@contracts/documentRef';
 import {
     SCAN_CLEANUP_DETECTION_ARGS_SCHEMA,
@@ -9,15 +9,15 @@ import {
     SCAN_CLEANUP_PREVIEW_CANCEL_ARGS_SCHEMA,
     SCAN_CLEANUP_START_ARGS_SCHEMA,
 } from '@contracts/scan-cleanup/ipcRequestCodecs';
-import {
-    SCAN_CLEANUP_DETECTION_JOB_STATE_SCHEMA,
-    SCAN_CLEANUP_DETECTION_START_RESULT_SCHEMA,
-    SCAN_CLEANUP_JOB_STATE_SCHEMA,
-    SCAN_CLEANUP_PLACEMENT_ANCHOR_CALIBRATION_SCHEMA,
-    SCAN_CLEANUP_PREVIEW_RESULT_SCHEMA,
-    SCAN_CLEANUP_RAW_PREVIEW_EVENT_SCHEMA,
-    SCAN_CLEANUP_START_RESULT_SCHEMA,
-} from '@contracts/scan-cleanup/ipcResultCodecs';
+import type {
+    IScanCleanupPlacementAnchorCalibration,
+    IScanCleanupRawPreviewEvent,
+    TScanCleanupDetectionJobState,
+    TScanCleanupDetectionStartResult,
+    TScanCleanupJobState,
+    TScanCleanupPreviewWireResult,
+    TScanCleanupStartResult,
+} from '@contracts/scan-cleanup/ipc';
 import {
     defineForwardedPlatformMethod,
     definePlatformFeature,
@@ -26,10 +26,10 @@ import {
     type TFeatureInvokeMap,
 } from '@contracts/platformFeature';
 import {
-    decodeScanCleanupGlobalPreferences,
-    decodeScanCleanupSettingsResult,
     decodeScanCleanupSettingsReadRequest,
     decodeScanCleanupSettingsUpdateRequest,
+    type IScanCleanupGlobalPreferences,
+    type IScanCleanupSettingsResult,
 } from '@contracts/scan-cleanup/scanCleanupSettings';
 
 const booleanResult = v.boolean();
@@ -39,33 +39,31 @@ const documentRef = v.pipe(v.string(),
 const voidResult = v.pipe(v.undefined(), v.transform(() => {}));
 const nonNegativeInteger = v.message(v.pipe(v.number(), v.safeInteger(), v.minValue(0)),
     'invalid scan-cleanup non-negative integer result');
-// Settings decoders retain legacy key normalization and file repair semantics.
+// Settings request decoders retain legacy key normalization and file repair semantics.
 const settingsReadArgs = v.strictTuple([v.pipe(v.unknown(), v.transform(decodeScanCleanupSettingsReadRequest))]);
 const settingsUpdateArgs = v.strictTuple([v.pipe(v.unknown(), v.transform(decodeScanCleanupSettingsUpdateRequest))]);
-const settingsFile = v.pipe(v.unknown(), v.transform(decodeScanCleanupSettingsResult));
-const settingsChange = v.strictObject({
-    settings: v.pipe(v.unknown(), v.transform(decodeScanCleanupGlobalPreferences)),
-    requestId: v.optional(v.pipe(v.unknown(), v.transform(requireRequestId))),
-});
 const previewArgs = SCAN_CLEANUP_PREVIEW_ARGS_SCHEMA;
 const cancelPreviewArgs = SCAN_CLEANUP_PREVIEW_CANCEL_ARGS_SCHEMA;
 const detectionArgs = SCAN_CLEANUP_DETECTION_ARGS_SCHEMA;
 const startArgs = SCAN_CLEANUP_START_ARGS_SCHEMA;
 const placementAnchorCalibrationArgs = SCAN_CLEANUP_PLACEMENT_ANCHOR_CALIBRATION_ARGS_SCHEMA;
 const ownedJobArgs = SCAN_CLEANUP_OWNED_JOB_ARGS_SCHEMA;
-const rawPreviewEvent = SCAN_CLEANUP_RAW_PREVIEW_EVENT_SCHEMA;
-const previewResult = SCAN_CLEANUP_PREVIEW_RESULT_SCHEMA;
-const detectionStartResult = SCAN_CLEANUP_DETECTION_START_RESULT_SCHEMA;
-const startResult = SCAN_CLEANUP_START_RESULT_SCHEMA;
-const placementAnchorCalibrationResult = SCAN_CLEANUP_PLACEMENT_ANCHOR_CALIBRATION_SCHEMA;
-const jobState = SCAN_CLEANUP_JOB_STATE_SCHEMA;
-const detectionJobState = SCAN_CLEANUP_DETECTION_JOB_STATE_SCHEMA;
-const jobEvent = v.pipe(SCAN_CLEANUP_JOB_STATE_SCHEMA,
-    v.check(state => state !== null, 'invalid scan-cleanup job state'),
-    v.transform(state => state!));
-const detectionEvent = v.pipe(SCAN_CLEANUP_DETECTION_JOB_STATE_SCHEMA,
-    v.check(state => state !== null, 'invalid scan-cleanup detection job state'),
-    v.transform(state => state!));
+// Main is the trusted side of the bridge: what it returns or emits is typed, not decoded again.
+const trusted = <T>() => v.custom<T>(() => true);
+const rawPreviewEvent = trusted<IScanCleanupRawPreviewEvent>();
+const previewResult = trusted<TScanCleanupPreviewWireResult>();
+const detectionStartResult = trusted<TScanCleanupDetectionStartResult>();
+const startResult = trusted<TScanCleanupStartResult>();
+const placementAnchorCalibrationResult = trusted<IScanCleanupPlacementAnchorCalibration>();
+const jobState = trusted<TScanCleanupJobState | null>();
+const detectionJobState = trusted<TScanCleanupDetectionJobState | null>();
+const jobEvent = trusted<TScanCleanupJobState>();
+const detectionEvent = trusted<TScanCleanupDetectionJobState>();
+const settingsFile = trusted<IScanCleanupSettingsResult>();
+const settingsChange = trusted<{
+    settings: IScanCleanupGlobalPreferences;
+    requestId?: TRequestId;
+}>();
 const method = defineForwardedPlatformMethod;
 const supportResult = v.strictObject({
     preview: v.boolean(),

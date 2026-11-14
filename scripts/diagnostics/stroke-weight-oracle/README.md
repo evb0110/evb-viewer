@@ -64,8 +64,7 @@ with the recorded baseline and with the FAIL verdict already on record.
 | minimum local components | 7 |
 | offender ratio | > 1.6 × local median |
 
-`calibration.json` owns these values for the Node entry point and Python pixel
-helper. A CI conformance test compares every corresponding Rust constant. DPI
+`calibration.json` owns these values for the Python oracle. A CI conformance test compares every corresponding Rust constant. DPI
 scaled integer bounds use **round half away from zero** in both Rust and Python;
 the 312.5 DPI half-tie (`12 × 312.5 / 300 = 12.5`) is pinned to 13.
 
@@ -77,10 +76,10 @@ inspected clean control (source 126R) green — 16/24 mm also redden the control
 ## Running it
 
 ```sh
-node scripts/diagnostics/stroke-weight-oracle/stroke-weight-oracle.mjs \
+python3 scripts/diagnostics/stroke-weight-oracle/stroke_weight_oracle.py \
   --image <cleaned-page.png> --dpi 300 --out <report.json>
 
-node scripts/diagnostics/stroke-weight-oracle/stroke-weight-oracle.mjs \
+python3 scripts/diagnostics/stroke-weight-oracle/stroke_weight_oracle.py \
   --pdf <cleaned.pdf> --summary <conversion-summary.json> --pages 9-16 \
   --out <report.json>
 ```
@@ -89,10 +88,11 @@ Exit status is 0 for a green gate, 1 for a red gate, 2 for invalid input or a
 measurement failure. `--pdf` additionally needs `pdfimages`/`jbig2dec` on PATH,
 because it reuses `scan-cleanup-rendered-metrics.py` for mask extraction.
 
-The measurement helper needs OpenCV, NumPy and Pillow. CI installs the matching
-Ubuntu Python packages in the scan-cleanup oracle job. Locally, the interpreter
-is selectable with `--python` or `$EVB_PYTHON`; a virtualenv with
-`opencv-python-headless numpy Pillow` is enough.
+The oracle needs OpenCV, NumPy and Pillow. CI installs the matching Ubuntu
+Python packages in the scan-cleanup oracle job. Locally, run it with any
+interpreter that has them (`scripts/ci/scan-cleanup-oracles.sh` honors
+`$EVB_PYTHON`); a virtualenv with `opencv-python-headless numpy Pillow` is
+enough.
 
 ## Specimen provenance
 
@@ -135,7 +135,7 @@ cargo build --release -p evb-scan-cleanup --manifest-path native/Cargo.toml
 mkdir -p .devkit/tmp/stroke-weight-oracle
 ./native/target/release/evb-scan-cleanup \
   --manifest scripts/diagnostics/stroke-weight-oracle/calibration/render-manifest.json
-node scripts/diagnostics/stroke-weight-oracle/stroke-weight-oracle.mjs \
+python3 scripts/diagnostics/stroke-weight-oracle/stroke_weight_oracle.py \
   --image .devkit/tmp/stroke-weight-oracle/diyarbakir-clean.png \
   --image .devkit/tmp/stroke-weight-oracle/wahrscheinlich-clean.png \
   --image .devkit/tmp/stroke-weight-oracle/handschrift-clean.png \

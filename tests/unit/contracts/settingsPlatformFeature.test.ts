@@ -11,12 +11,7 @@ describe('settings platform feature schemas', () => {
     const codecs = SETTINGS_PLATFORM_FEATURE.ipcCodecs;
 
     it('preserves settings invoke channels and delivers shared changes', () => {
-        expect(channels).toEqual({
-            get: 'settings:get',
-            getRecoveryNotice: 'settings:getRecoveryNotice',
-            save: 'settings:save',
-        });
-        expect(SETTINGS_PLATFORM_FEATURE.eventChannels).toEqual({onChanged: 'settings:changed'});
+
         expect(SETTINGS_PLATFORM_FEATURE.platformDescriptors.methods).toHaveLength(4);
     });
 

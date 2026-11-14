@@ -10,7 +10,6 @@ import {
     rm,
     stat,
     statfs,
-    writeFile,
 } from 'fs/promises';
 import { randomUUID } from 'crypto';
 import {
@@ -26,16 +25,8 @@ import {
 import {
     assertNonEmptyPdfOutput,
     getPdfPageCount,
-    QPDF_OUTPUT_SUCCESS_EXIT_CODES,
-    QPDF_TIMEOUT_MS,
-    runQpdfCommand,
+    runPageStructureCommand,
 } from '@electron/features/page-ops/publicNative';
-import {
-    readNativePdfCatalog,
-    resolveNativePageOpsPath,
-} from '@electron/features/page-ops/public/nativePageOpsPath';
-import {runNativeToolCommand} from '@electron/native-tools/runNativeToolCommand';
-import {getPdfNativeToolPaths} from '@electron/pdf/nativeToolPaths';
 import { createLogger } from '@electron/utils/createLogger';
 import {runtimeConfig} from '@electron/runtimeConfig';
 import { getErrorMessage } from '@electron/utils/error';
@@ -61,14 +52,6 @@ import {
     isPdfCombineOutputTooLargeError,
     PDF_COMBINE_MAX_OUTPUT_BYTES,
 } from '@contracts/pdfCombineOutputPolicy';
-import {requirePageIndex} from '@contracts/pageNumbers';
-import {
-    PDF_PAGE_LABEL_STYLE_VALUES,
-    type TPdfPageLabelStyle,
-} from '@contracts/pdfPageLabels';
-import {isOneOf} from '@contracts/runtimeGuards';
-import type {IPdfNativeMutationSet} from '@contracts/electronApiDocuments';
-import {splitPdfNativeMutationSetIntoBoundedChunks} from '@pdf-core/nativePdfMutationPolicy';
 
 interface INativePdfAssemblerProgress {
     processed: number;
@@ -399,197 +382,10 @@ async function getOptionalDjvuPageCount(inputPath: string, signal?: AbortSignal)
     }
 }
 
+/** Every chunk's pages in order, with each chunk's outline and page labels. */
 async function mergePdfChunks(chunkPaths: string[], outputPath: string, signal?: AbortSignal) {
-    const catalog = await readAndOffsetPdfCatalogs(chunkPaths, signal);
-    await runQpdfCommand([
-        '--empty',
-        '--pages',
-        ...chunkPaths,
-        '--',
-        outputPath,
-    ], {
-        timeoutMs: QPDF_TIMEOUT_MS,
-        allowedExitCodes: QPDF_OUTPUT_SUCCESS_EXIT_CODES,
-        commandLabel: 'qpdf(native-pdf-assembler)',
-        ...(signal ? { signal } : {}),
-    });
-    if (catalog !== null) {
-        const pageOpsPath = resolveNativePageOpsPath();
-        if (!pageOpsPath) {
-            throw new Error('Native page operations are required to preserve PDF catalog metadata');
-        }
-        await usingManagedScratchScope('pdf-page-ops-', getAppTempDir(), async mutationsDir => {
-            const mutationsPath = join(mutationsDir, 'mutations.json');
-            const nativeCatalog: IPdfNativeMutationSet = {
-                pageLabels: {
-                    totalPages: catalog.pageLabels.totalPages,
-                    ranges: catalog.pageLabels.ranges.map(range => ({
-                        startPage: range.startPage,
-                        style: range.style,
-                        prefix: range.prefix,
-                        startNumber: range.startNumber,
-                    })),
-                },
-                bookmarks: {
-                    totalPages: catalog.bookmarks.totalPages,
-                    untitledLabel: catalog.bookmarks.untitledLabel,
-                    items: catalog.bookmarks.items.map(toNativeCatalogBookmark),
-                },
-            };
-            const mutationChunks = splitPdfNativeMutationSetIntoBoundedChunks(nativeCatalog);
-            for (const [
-                chunkIndex,
-                mutationChunk,
-            ] of mutationChunks.entries()) {
-                const chunkMutationsPath = chunkIndex === 0
-                    ? mutationsPath
-                    : join(mutationsDir, `mutations-${chunkIndex}.json`);
-                await writeFile(chunkMutationsPath, JSON.stringify(mutationChunk), 'utf8');
-                await runNativeToolCommand(pageOpsPath, [
-                    'save-mutations',
-                    '--input',
-                    outputPath,
-                    '--output',
-                    outputPath,
-                    '--mutations-file',
-                    chunkMutationsPath,
-                    '--qpdf',
-                    getPdfNativeToolPaths().qpdf,
-                    '--modified-at',
-                    'D:19700101000000Z',
-                    '--append',
-                ], {
-                    commandLabel: 'pdf-page-ops(save-mutations-catalog)',
-                    timeoutMs: QPDF_TIMEOUT_MS,
-                    ...(signal ? {signal} : {}),
-                });
-            }
-        });
-    }
-    await assertNonEmptyPdfOutput(outputPath, 'Assembling PDF inputs');
-}
-
-interface IPdfCatalogBookmark {
-    title: string;
-    pageIndex: number | null;
-    namedDest: string | null;
-    bold: boolean;
-    italic: boolean;
-    color: string | null;
-    items: IPdfCatalogBookmark[];
-}
-
-interface IPdfCatalogLabel {
-    pageIndex: number;
-    style?: string;
-    prefix?: string;
-    start?: number;
-}
-
-interface IPdfCombineCatalogMutations {
-    pageLabels: {
-        totalPages: number;
-        ranges: Array<{
-            startPage: number;
-            style: TPdfPageLabelStyle;
-            prefix: string;
-            startNumber: number
-        }>
-    };
-    bookmarks: {
-        totalPages: number;
-        untitledLabel: string;
-        items: IPdfCatalogBookmark[]
-    };
-}
-
-function toNativeCatalogBookmark(
-    bookmark: IPdfCatalogBookmark,
-): NonNullable<IPdfNativeMutationSet['bookmarks']>['items'][number] {
-    return {
-        ...bookmark,
-        pageIndex: bookmark.pageIndex === null ? null : requirePageIndex(bookmark.pageIndex),
-        items: bookmark.items.map(toNativeCatalogBookmark),
-    };
-}
-
-async function readAndOffsetPdfCatalogs(chunkPaths: string[], signal?: AbortSignal) {
-    const pageOpsPath = resolveNativePageOpsPath();
-    const hasPdfInput = chunkPaths.some(path => extname(path).toLowerCase() === '.pdf');
-    if (!pageOpsPath) {
-        if (hasPdfInput) {
-            throw new Error('Native page operations are required to preserve PDF catalog metadata');
-        }
-        return null;
-    }
-    if (!hasPdfInput) {
-        return null;
-    }
-    const bookmarks: IPdfCatalogBookmark[] = [];
-    const labels: IPdfCatalogLabel[] = [];
-    let pageOffset = 0;
-    for (const inputPath of chunkPaths) {
-        const pageCount = await getPdfPageCount(inputPath, signal ? {signal} : {});
-        if (extname(inputPath).toLowerCase() !== '.pdf') {
-            pageOffset = addPageCounts(pageOffset, pageCount);
-            continue;
-        }
-        const catalog = await readNativePdfCatalog(pageOpsPath, inputPath, {
-            commandLabel: 'pdf-page-ops(read-catalog)',
-            ...(signal ? {signal} : {}),
-        }) as {
-            bookmarks?: IPdfCatalogBookmark[];
-            pageLabels?: IPdfCatalogLabel[]
-        };
-        if (!Array.isArray(catalog.bookmarks) || !Array.isArray(catalog.pageLabels)) {
-            throw new Error(`Native PDF catalog read returned an invalid result for ${inputPath}`);
-        }
-        if (pageCount > 0 && (catalog.pageLabels[0]?.pageIndex ?? 1) > 0) {
-            labels.push({
-                pageIndex: pageOffset,
-                style: 'D',
-                prefix: '',
-                start: 1,
-            });
-        }
-        const offsetBookmark = (item: IPdfCatalogBookmark): IPdfCatalogBookmark => ({
-            ...item,
-            pageIndex: item.pageIndex === null ? null : item.pageIndex + pageOffset,
-            items: item.items.map(offsetBookmark),
-        });
-        bookmarks.push(...catalog.bookmarks.map(offsetBookmark));
-        labels.push(...catalog.pageLabels.map(label => ({
-            ...label,
-            pageIndex: label.pageIndex + pageOffset,
-        })));
-        pageOffset = addPageCounts(pageOffset, pageCount);
-    }
-    if (bookmarks.length === 0 && labels.length === 0) {
-        return null;
-    }
-    const mutations: IPdfCombineCatalogMutations = {
-        pageLabels: {
-            totalPages: pageOffset,
-            ranges: labels.map(label => ({
-                startPage: label.pageIndex + 1,
-                style: normalizeNativePageLabelStyle(label.style),
-                prefix: label.prefix ?? '',
-                startNumber: label.start ?? 1,
-            })),
-        },
-        bookmarks: {
-            totalPages: pageOffset,
-            untitledLabel: 'Untitled',
-            items: bookmarks,
-        },
-    };
-    return mutations;
-}
-
-function normalizeNativePageLabelStyle(style: string | undefined): TPdfPageLabelStyle {
-    return style === undefined || !isOneOf(PDF_PAGE_LABEL_STYLE_VALUES, style)
-        ? null
-        : style;
+    const [first, ...rest] = chunkPaths;
+    await runPageStructureCommand('merge-pages', first!, outputPath, {sources: rest}, signal ? {signal} : {});
 }
 
 async function writePdfFromInputPathsNativeWithTempDir(

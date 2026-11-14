@@ -1,5 +1,14 @@
 import { vi } from 'vitest';
+import {
+    ref,
+    type Ref,
+} from 'vue';
+import type {
+    IDocumentMutationFrontier,
+    IWorkspaceDocumentController,
+} from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 import { cast } from '@tests/helpers/cast';
+import { requireDocumentRef } from '@contracts/documentRef';
 import {
     createDefaultWorkspaceToolbarSnapshot,
     type IWorkspaceAutomationStateSnapshot,
@@ -83,4 +92,39 @@ export function createKeyboardEventFixture(options: IKeyboardEventFixtureOptions
     } as KeyboardEvent;
 
     return event;
+}
+
+const testDirtyFlags = new WeakMap<IWorkspaceDocumentController, Ref<boolean>>();
+
+/** Stands in for a document host's mutation frontier, whose dirty state the test sets. */
+export function bindTestDocumentFrontier(
+    controller: IWorkspaceDocumentController,
+    frontier: Partial<Omit<IDocumentMutationFrontier, 'isDirty'>> = {},
+) {
+    const flag = testDirtyFlags.get(controller) ?? ref(false);
+    testDirtyFlags.set(controller, flag);
+    controller.bindMutationFrontier({
+        read: () => String(flag.value),
+        prepare: async () => {},
+        close: async () => {},
+        ...frontier,
+        isDirty: () => flag.value,
+    });
+}
+
+/** Loads the controller's document, if it is only assigned, and sets how dirty its host reports it. */
+export function setTestDocumentDirty(controller: IWorkspaceDocumentController, dirty: boolean) {
+    if (!testDirtyFlags.has(controller)) {
+        bindTestDocumentFrontier(controller);
+    }
+    const {identity} = controller.snapshot.value;
+    if (controller.file.value.workingCopyPath === null && !identity.isDjvu) {
+        controller.commitFile({
+            originalPath: identity.originalPath,
+            revisionInfo: identity.revisionInfo,
+            revisionToken: identity.revisionInfo?.token ?? null,
+            workingCopyPath: identity.workingCopyPath ?? identity.documentRef ?? requireDocumentRef('/test/working.pdf'),
+        });
+    }
+    testDirtyFlags.get(controller)!.value = dirty;
 }

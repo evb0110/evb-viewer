@@ -34,14 +34,14 @@ import {
     resolveAllowedReadPath,
     resolveAllowedWritePath,
 } from '@electron/utils/pathValidator';
-import {requireManagedWorkingCopyPath} from '@electron/file-access/workingCopyCreation';
-import {getWorkingCopyBackingEntry} from '@electron/file-access/workingCopyStore';
-import {registerMainOperation} from '@electron/operation-lifecycle/mainOperationLifecycle';
-import {runWithWorkingCopyReadBacking} from '@electron/file-access/runWithWorkingCopyReadBacking';
 import {
     ensureWorkingCopyMaterialized,
+    getWorkingCopyBackingEntry,
+    requireManagedWorkingCopyPath,
+    runWithWorkingCopyReadBacking,
     WorkingCopyMaterializationError,
-} from '@electron/file-access/workingCopyMaterialization';
+} from '@electron/file-access/documentStore';
+import {registerMainOperation} from '@electron/operation-lifecycle/mainOperationLifecycle';
 import { getErrorMessage } from '@electron/utils/error';
 
 const log = createLogger('ocr-ipc');
@@ -267,9 +267,7 @@ async function validateOcrSourcePdfPath(sourcePdfPath: string, senderWebContents
     } catch (error) {
         throw new OcrPayloadValidationError(`sourcePdfPath is not a managed working copy: ${getErrorMessage(error)}`);
     }
-    const backingEntry = getWorkingCopyBackingEntry(managedSourcePdfPath, senderWebContentsId);
-    const isLazyBacking = backingEntry?.backingState === 'lazy-original'
-        || backingEntry?.backingState === 'materializing';
+    const isLazyBacking = getWorkingCopyBackingEntry(managedSourcePdfPath, senderWebContentsId) !== null;
     const allowedLogicalPath = isLazyBacking
         ? await resolveAllowedWritePath(managedSourcePdfPath)
         : await resolveAllowedReadPath(managedSourcePdfPath);
@@ -284,27 +282,25 @@ async function validateOcrSourcePdfPath(sourcePdfPath: string, senderWebContents
     return managedSourcePdfPath;
 }
 
+/** The file holding the document's bytes, which the OCR job reads; the document is validated by its ref. */
 async function validateOcrPersistenceSourcePdfPath(
     sourcePdfPath: string,
     senderWebContentsId: number,
     signal: AbortSignal,
 ) {
-    let materializedSourcePdfPath: string;
+    const documentRef = await validateOcrSourcePdfPath(sourcePdfPath, senderWebContentsId);
     try {
-        materializedSourcePdfPath = (
-            await ensureWorkingCopyMaterialized(sourcePdfPath, {
-                ownerWebContentsId: senderWebContentsId,
-                reason: 'ocr-persist',
-                signal,
-            })
-        ).physicalWorkingCopyPath;
+        return (await ensureWorkingCopyMaterialized(documentRef, {
+            ownerWebContentsId: senderWebContentsId,
+            reason: 'ocr-persist',
+            signal,
+        })).physicalWorkingCopyPath;
     } catch (error) {
         if (error instanceof WorkingCopyMaterializationError) {
             throw error;
         }
         throw new OcrPayloadValidationError(`sourcePdfPath is not a managed working copy: ${getErrorMessage(error)}`);
     }
-    return validateOcrSourcePdfPath(materializedSourcePdfPath, senderWebContentsId);
 }
 
 export async function handleOcrCreateSearchablePdf(

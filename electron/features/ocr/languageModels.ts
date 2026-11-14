@@ -56,6 +56,7 @@ import {
     TESSDATA_BEST_REF,
     type TOcrLanguageCode,
     type TOcrModelCode,
+    withOcrModelSublanguages,
 } from '@contracts/ocrLanguages';
 
 const log = createLogger('ocr-languageModels');
@@ -68,7 +69,6 @@ const RETRY_DELAY_MS = 1_500;
 const PRECHECK_TIMEOUT_MS = 4_000;
 const MIN_TRAINEDDATA_BYTES = 1024;
 const TESSDATA_SEED_MARKER_PREFIX = '.evb-seeded-';
-const TESSERACT_PDF_FONT_FILE_NAME = 'pdf.ttf';
 const NON_RETRYABLE_HTTP_STATUSES = new Set([
     400,
     401,
@@ -649,17 +649,6 @@ async function seedBundledModels(
             await rm(stagingPath, { force: true }).catch(() => {});
         }
     }
-    const bundledPdfFontPath = join(bundledDir, TESSERACT_PDF_FONT_FILE_NAME);
-    const runtimePdfFontPath = join(runtimeDir, TESSERACT_PDF_FONT_FILE_NAME);
-    if (existsSync(bundledPdfFontPath)) {
-        const stagingPath = `${runtimePdfFontPath}.seed-${randomUUID()}`;
-        try {
-            await copyFile(bundledPdfFontPath, stagingPath);
-            await rename(stagingPath, runtimePdfFontPath);
-        } finally {
-            await rm(stagingPath, { force: true }).catch(() => {});
-        }
-    }
     if (existsSync(seedMarkerPath)) {
         return;
     }
@@ -1140,7 +1129,7 @@ export async function ensureTessdataModels(
     const runtimeDir = getRuntimeTessdataDir();
     await ensureRuntimeTessdataSeeded(options);
     // Bound parallel model downloads so OCR requests cannot flood network/disk resources.
-    await forEachConcurrent(uniq(modelCodes), getModelDownloadConcurrency(), async (modelCode) => {
+    await forEachConcurrent(withOcrModelSublanguages(modelCodes), getModelDownloadConcurrency(), async (modelCode) => {
         await ensureLanguageModel(modelCode, runtimeDir, options);
     });
 }
@@ -1157,8 +1146,12 @@ export async function getOcrLanguageModelStates() {
                 ? 'installed' as const
                 : 'missing' as const,
     ] as const)));
-    return AVAILABLE_OCR_LANGUAGES.map(({code}) => ({
-        code,
-        state: modelStates.get(code) ?? 'missing' as const,
-    }));
+    // A language is installed once every model file its run reads is.
+    return AVAILABLE_OCR_LANGUAGES.map(({code}) => {
+        const states = withOcrModelSublanguages([code]).map(model => modelStates.get(model) ?? 'missing' as const);
+        return {
+            code,
+            state: states.find(state => state !== 'installed') ?? 'installed' as const,
+        };
+    });
 }

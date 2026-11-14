@@ -8,9 +8,6 @@ export type TPageAnnotationActionsPdfViewer = Pick<WorkspaceOrchestration.IPdfVi
     | 'getCurrentPage'
     | 'getViewerContainer'
     | 'highlightSelection'
-    | 'invalidatePages'
-    | 'removeAnnotationFromDom'
-    | 'removeAnnotationFromInternalCache'
     | 'runSaveTransaction'
     | 'selectAnnotationById'
     | 'startImagePlacement'
@@ -18,6 +15,5 @@ export type TPageAnnotationActionsPdfViewer = Pick<WorkspaceOrchestration.IPdfVi
     | 'updateTextMarkupAnnotationColor'
 > & Partial<Pick<WorkspaceOrchestration.IPdfViewerExpose,
     'registerAnnotationHistoryCommand'
-    | 'clearPendingImagePlacement'
     | 'updateSelectedAnnotationProperties'
 >>;

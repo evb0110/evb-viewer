@@ -643,10 +643,6 @@ export function abortAssistantToolRequestsForBinding(
     return aborted;
 }
 
-export function getEmbeddedMcpServerDescriptor() {
-    return embeddedMcpServerDescriptor;
-}
-
 export interface IEmbeddedMcpServerHandle {
     descriptor: ILocalMcpServerDescriptor;
     token: string;

@@ -8,13 +8,15 @@ import type {
     IDocumentMutationRevisionOptions,
 } from '@contracts/electronApiDocuments';
 import { DOCUMENT_MENU_PLATFORM_FEATURE } from '@contracts/documentsPlatformFeature';
-import { ensureWorkingCopyDirectory } from '@electron/file-access/workingCopyCreation';
-import { getWorkingCopyOriginalPath } from '@electron/file-access/workingCopyStore';
-import { enqueueWorkingCopyMutation } from '@electron/file-access/workingCopyMutationQueue';
 import {
     assertQueuedWorkingCopyMutationPreconditions,
+    ensureWorkingCopyDirectory,
+    getWorkingCopyOriginalPath,
     normalizeExpectedDocumentRevisionToken,
-} from '@electron/file-access/documentMutationGuards';
+    requireDocumentFile,
+    requireOpenDocument,
+} from '@electron/file-access/documentStore';
+import { enqueueWorkingCopyMutation } from '@electron/file-access/workingCopyMutationQueue';
 import { allowOpenPath } from '@electron/file-access/openPathCapabilities';
 import { addRecentFile } from '@electron/recentFiles';
 import { updateRecentFilesMenu } from '@electron/menu';
@@ -115,7 +117,7 @@ export async function handleOptimizePdfAsCopy(
         }
 
         return optimizePdfToFile(
-            normalizedWorkingPath,
+            await requireDocumentFile(requireOpenDocument(normalizedWorkingPath, context.senderId)),
             targetPath,
             options,
             {

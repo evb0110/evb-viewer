@@ -615,8 +615,8 @@ describe('Electron E2E - text interaction contract', () => {
             page, path,
         } = await openFixture(false, zoom, process.env.EVB_TEXT_INTERACTION_FIXTURE ?? textFixture);
         const initialAnnotations = await readPdfAnnotationSummary(path);
-        const points = await markupSelectionPoints(page);
         await clickAnnotationTool(page, 'Highlight');
+        const points = await markupSelectionPoints(page);
         const initialSelection = await dragMarkupSelection(page, points, true);
         await page.waitForSelector(MARKUP);
         await expectMarkupGeometry(page, initialSelection.rects, true);
@@ -627,9 +627,10 @@ describe('Electron E2E - text interaction contract', () => {
         if (process.env.EVB_MARKUP_EVIDENCE_DIR) copyFileSync(path, join(process.env.EVB_MARKUP_EVIDENCE_DIR, 'first-saved.pdf'));
 
         await clickAnnotationTool(page, 'Highlight');
+        const expandedPoints = await markupSelectionPoints(page);
         const expandedSelection = await dragMarkupSelection(page, {
-            ...points,
-            start: points.expandedStart,
+            ...expandedPoints,
+            start: expandedPoints.expandedStart,
         }, true);
         await page.waitForFunction(selector => document.querySelectorAll(selector).length === 1 && getSelection()?.rangeCount === 0, {}, MARKUP);
         await expectMarkupGeometry(page, expandedSelection.rects, true);

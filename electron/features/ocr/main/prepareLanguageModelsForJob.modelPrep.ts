@@ -4,8 +4,8 @@ import { uniq } from 'es-toolkit/array';
 import {
     ensureRuntimeTessdataSeeded,
     ensureTessdataLanguages,
+    getRuntimeTessdataDir,
 } from '@electron/features/ocr/languageModels';
-import { getOcrToolPaths } from '@electron/features/ocr/main/paths';
 import type { TOcrPdfPageSelection } from '@electron/features/ocr/pipeline/types';
 import { createLogger } from '@electron/utils/createLogger';
 import type {IOcrModelDownloadProgress} from '@contracts/electronApiOcr';
@@ -21,7 +21,7 @@ function getOcrJobLanguages(pages: TOcrPdfPageSelection) {
 }
 
 function logMissingLanguageModels(languages: string[]) {
-    const tessdataDir = getOcrToolPaths().tessdata;
+    const tessdataDir = getRuntimeTessdataDir();
     const missingLanguages = languages.filter(languageCode =>
         !existsSync(join(tessdataDir, `${languageCode}.traineddata`)),
     );

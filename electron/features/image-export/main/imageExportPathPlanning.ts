@@ -3,7 +3,7 @@ import {
     dirname,
     resolve,
 } from 'path';
-import { normalizePathForLookup } from '@electron/file-access/workingCopyStore';
+import {normalizePathForLookup} from '@electron/file-access/normalizePathForLookup';
 import { buildOutputPathWithSuffix } from '@electron/utils/boundedPathComponent';
 
 interface IImageExportTarget {
@@ -61,11 +61,4 @@ export function resolveSuffixedOutputPathConflicts(
         suffix,
         allowOverwrite: targets.length === 1 && allowSingleOverwrite,
     }, reservedPaths));
-}
-
-export function resolveOutputPathConflicts(targetPaths: string[], allowSingleOverwrite = true) {
-    return resolveSuffixedOutputPathConflicts(targetPaths.map(path => ({
-        path,
-        suffix: '',
-    })), allowSingleOverwrite);
 }

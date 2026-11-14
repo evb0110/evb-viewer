@@ -34,8 +34,7 @@ function createSession(
     revisionInfo: IDocumentRevisionInfo | null = null,
 ) {
     const session = createWorkspaceDocumentController({tabId: 'tab-1'});
-    session.commitDocument({
-        fileName: 'paper.pdf',
+    session.commitFile({
         originalPath: requireDocumentRef('/docs/paper.pdf'),
         isDjvu: false,
         revisionInfo,

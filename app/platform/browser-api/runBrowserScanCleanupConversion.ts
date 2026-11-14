@@ -5,10 +5,6 @@ import type {
     TScanCleanupWarningEvent,
 } from '@contracts/scan-cleanup/electronApiScanCleanup';
 import {requirePageNumber} from '@contracts/pageNumbers';
-import {
-    decodeNativeScanCleanupOutputMetadataJson,
-    decodeNativeScanCleanupPageMetadataJson,
-} from '@contracts/scan-cleanup/nativeArtifactCodecs';
 import type {
     IScanCleanupWasmPlane,
     IScanCleanupWasmRenderPageRequest,
@@ -115,9 +111,9 @@ import {
 import {runBrowserQpdfCommand} from '@app/platform/browser-api/browserQpdfEngineClient';
 import {
     renderPageRaster,
+    runBrowserScanCleanupAnalysis,
     unwrapBrowserScanCleanupOutcome,
     type IBrowserScanCleanupSource,
-    type IPageRaster,
 } from '@app/platform/browser-api/browserScanCleanupJob';
 
 
@@ -400,15 +396,19 @@ function createOutputPages(signal: AbortSignal, onEngineIdentity: (sha256: strin
         append: (pagePdf: Uint8Array) => pages.push(pagePdf),
         async merge() {
             if (pages.length < 2) return pages[0] ?? null;
-            const result = await runBrowserPageOpsWorkerRequest('mergePages', {documents: pages}, {
+            const result = await runBrowserPageOpsWorkerRequest('pageStructure', {
+                edit: {kind: 'merge'},
+                sources: pages.map(page => new Blob([page as Uint8Array<ArrayBuffer>])),
+                output: null,
+            }, {
                 signal,
                 dedicated: true,
                 requireWorker: true,
-                transferInput: true,
                 onEngineIdentity,
             });
-            if (isBrowserPageOpsWasmFailure(result)) {
-                throw new ScanCleanupContractError(`Scan cleanup could not merge its output pages: ${result.error.message}`);
+            if (result.status !== 'written' || !result.data) {
+                const reason = result.status === 'failed' ? result.error.message : 'the browser\'s storage is full';
+                throw new ScanCleanupContractError(`Scan cleanup could not merge its output pages: ${reason}`);
             }
             return result.data;
         },
@@ -546,7 +546,7 @@ async function runRasterConversion(
                 analysisPlane,
                 planes: 'encoded',
             }, signal, context.engines.observe('scanCleanup')));
-            const pageMetadata = decodeNativeScanCleanupPageMetadataJson(rendered.pageMetadataJson);
+            const pageMetadata = rendered.pageMetadata;
             pageMetadataBySource.set(pageNumber, pageMetadata);
             const collected = collectRenderedPage(context, {
                 pageNumber,
@@ -733,7 +733,7 @@ function collectRenderedPage(context: IConversionContext, input: ICollectRendere
         outputIndex,
         output,
     ] of rendered.outputs.entries()) {
-        const metadata = decodeNativeScanCleanupOutputMetadataJson(output.metadataJson);
+        const {metadata} = output;
         const name = (plane: IScanCleanupWasmPlane) => `p${String(pageNumber)}-${String(outputIndex)}-${plane.role}.${planeExtension(plane)}`;
         const plane = (role: TScanCleanupWasmPlaneRole, description: string) => {
             const found = output.planes.find(candidate => candidate.role === role);
@@ -830,7 +830,7 @@ function collectRenderedPage(context: IConversionContext, input: ICollectRendere
 async function inspectOmittedSourceText(context: IConversionContext, pages: readonly number[]) {
     if (pages.length === 0) return undefined;
     const report = await runBrowserPageOpsWorkerRequest('ocrTextVisibility', {
-        data: new Uint8Array(context.sourceBytes),
+        source: new Blob([new Uint8Array(context.sourceBytes)]),
         pages: [...new Set(pages)],
         withEvbOcrText: true,
     }, {
@@ -922,61 +922,33 @@ async function runLosslessConversion(
             })),
         });
         pagePlanResolver.report();
-        const pages = facts.map((page, index) => {
-            const options = manifest.pages[index]!.options;
-            nativeOptionsBySource.set(page.pageNumber, options);
-            return {
-                ...page,
-                options,
-            };
-        });
-        const analyze = async (page: typeof pages[number], documentPrior?: unknown) => {
-            const raster: IPageRaster = await rasterizePage(context, page.view, page.analysisDpi, SCAN_CLEANUP_RASTER_MAX_PIXELS);
-            return unwrapBrowserScanCleanupOutcome(await runBrowserScanCleanupWorkerRequest('analyze-page', {
-                input: raster.ppm,
-                page: {
-                    options: page.options,
-                    sourcePageIndex: page.pageNumber - 1,
-                    canvasScope: 'document',
-                    ...(documentPrior === undefined ? {} : {documentPrior: documentPrior as never}),
-                },
-            }, signal, context.engines.observe('scanCleanup')));
-        };
-        const firstPass = [];
-        for (const page of pages) {
-            emitProgress('classifying', completed.size, pageCount, completed);
-            firstPass.push(await analyze(page));
-        }
-        const {pages: decisions} = unwrapBrowserScanCleanupOutcome(await runBrowserScanCleanupWorkerRequest(
-            'reconcile-document',
-            {candidates: firstPass.map(entry => entry.reconciliation)},
-            signal, context.engines.observe('scanCleanup')));
         for (const [
             index,
             page,
-        ] of pages.entries()) {
+        ] of facts.entries()) nativeOptionsBySource.set(page.pageNumber, manifest.pages[index]!.options);
+        const finishedPages = await runBrowserScanCleanupAnalysis({
+            pages: facts.map((page, index) => ({
+                options: manifest.pages[index]!.options,
+                sourcePageIndex: page.pageNumber - 1,
+                pdfPage: manifest.pages[index]!.pdfPage!,
+            })),
+            canvasScope: 'document',
+            renderMode: 'final',
+            ...(documentCanvas === null ? {} : {documentCanvas}),
+            signal,
+            onEngineIdentity: context.engines.observe('scanCleanup'),
+            rasterize: async job => {
+                const page = facts[job.index]!;
+                return (await rasterizePage(context, page.view, page.analysisDpi, SCAN_CLEANUP_RASTER_MAX_PIXELS)).ppm;
+            },
+            onAnalyzed: () => emitProgress('classifying', completed.size, pageCount, completed),
+        });
+        for (const [
+            index,
+            finished,
+        ] of finishedPages.entries()) {
             signal.throwIfAborted();
-            const decision = decisions[index] ?? null;
-            const analysisJson = decision?.kind === 'rerun'
-                ? (await analyze(page, decision.prior)).pageMetadataJson
-                : firstPass[index]!.pageMetadataJson;
-            const finished = unwrapBrowserScanCleanupOutcome(await runBrowserScanCleanupWorkerRequest('finish-page-analysis', {
-                pageMetadataJson: analysisJson,
-                ...(decision === null ? {} : {reconciliation: decision}),
-                pdfPlacement: {
-                    pdfPage: {
-                        xPoints: page.view.xPoints,
-                        yPoints: page.view.yPoints,
-                        widthPoints: page.view.widthPoints,
-                        heightPoints: page.view.heightPoints,
-                        rotation: page.view.rotation,
-                        sourceDpi: page.sourceDpi,
-                    },
-                    options: page.options,
-                    renderMode: 'final',
-                    ...(documentCanvas === null ? {} : {documentCanvas}),
-                },
-            }, signal, context.engines.observe('scanCleanup')));
+            const page = facts[index]!;
             const metadata = finished.pageMetadata;
             // Placement is planned from the canvas, not observed on the page,
             // so the provenance evidence stays the analysis alone.

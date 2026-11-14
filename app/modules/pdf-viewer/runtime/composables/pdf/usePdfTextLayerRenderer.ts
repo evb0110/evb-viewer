@@ -25,9 +25,6 @@ import { useTextLayerSelection } from '@app/modules/pdf-viewer/runtime/composabl
 import { usePdfWordBoxes } from '@app/modules/pdf-viewer/runtime/composables/usePdfWordBoxes';
 import { useOcrTextContent } from '@app/modules/pdf-viewer/runtime/composables/pdf/useOcrTextContent';
 import type {
-    IHighlightDebugGuard,
-    IHighlightDebugInfo,
-    IHighlightDebugRects,
     IPageHighlightSignatureState,
     TPageMatchEntry,
     TTextLayerTextContentSource,
@@ -35,11 +32,7 @@ import type {
 import { getPageContainer } from '@app/modules/pdf-viewer/engine/pdf-page-buffer-manager/getPageContainer';
 import { transformWordBox } from '@app/modules/pdf-viewer/engine/ocr/pdf-word-box-geometry/transformWordBox';
 import { transformOcrWordToViewport } from '@app/modules/pdf-viewer/engine/ocr/pdf-word-box-geometry/transformOcrWordToViewport';
-import {
-    getHighlightMode,
-    isHighlightDebugEnabled as isHighlightDebugEnabledFromStorage,
-    isHighlightDebugVerboseEnabled as isHighlightDebugVerboseEnabledFromStorage,
-} from '@app/modules/pdf-viewer/engine/search/pdfSearchHighlightCss';
+import { getHighlightMode } from '@app/modules/pdf-viewer/engine/search/pdfSearchHighlightCss';
 import {
     clearTextLayerIndexCache,
     clearTextLayerTextMapping,
@@ -62,18 +55,19 @@ import {
 import { PDF_PAGE_SCALE_CSS_VARS } from '@app/modules/pdf-viewer/engine/pdf-page-scale/pdfPageScale';
 const HIGHLIGHT_REFRESH_BUDGET_MS = 8;
 const HIGHLIGHT_REFRESH_MAX_PAGES_PER_SLICE = 4;
+/** What a text-layer element holds; `textLayer` is set once its spans are complete. */
 interface IRenderedTextLayer {
-    textLayer: IPdfTextLayer;
-    structTreeLayer?: IPdfStructTreeLayer;
-    structTreeDom?: HTMLElement | null;
+    textLayer: IPdfTextLayer | null;
+    structTreeDom: HTMLElement | null;
     pdfPage: IPdfPage;
     viewport: IPdfViewport;
     workingCopyPath: TDocumentRef | null;
     documentRevisionToken: TDocumentRevisionToken | null;
 }
 
+// One record per text-layer element. A rebuild replaces the record, so an
+// older render of the same element knows it no longer owns it.
 const renderedTextLayers = new WeakMap<HTMLElement, IRenderedTextLayer>();
-const textLayerRenderGenerations = new WeakMap<HTMLElement, number>();
 
 const createAbortError = () => new DOMException('Text layer rendering was cancelled', 'AbortError');
 
@@ -88,10 +82,9 @@ export const usePdfTextLayerRenderer = (deps: {
     currentSearchMatch: MaybeRefOrGetter<IPdfSearchMatch | null>;
     workingCopyPath: MaybeRefOrGetter<TDocumentRef | null>;
     documentRevisionToken: MaybeRefOrGetter<TDocumentRevisionToken | null>;
-    effectiveScale: MaybeRefOrGetter<number>;
     viewportWritePort: IPdfViewportWritePort;
 }) => {
-    const { setupTextLayer } = useTextLayerSelection();
+    const { setupTextLayer, teardownTextLayer } = useTextLayerSelection();
     const {
         clearHighlights,
         highlightPage,
@@ -109,7 +102,6 @@ export const usePdfTextLayerRenderer = (deps: {
         hasPageOcrData,
     } = useOcrTextContent();
 
-    let lastHighlightDebugKey: string | null = null;
     const pageHighlightState: IPageHighlightSignatureState = {
         signatureByPage: new Map<number, string>(),
         pendingRoot: null,
@@ -417,36 +409,9 @@ export const usePdfTextLayerRenderer = (deps: {
         return Boolean(pageMatchData && pageMatchData.matches.length > 0);
     }
 
-    function isTextLayerRendering(textLayerDiv: HTMLElement) {
-        return textLayerDiv.dataset?.pdfTextLayerRendering === 'true';
-    }
-
-    function isTextLayerMarkedReady(textLayerDiv: HTMLElement) {
+    // The page resource marks a text layer ready once its page accepted it.
+    function isTextLayerReady(textLayerDiv: HTMLElement) {
         return textLayerDiv.dataset?.pdfTextLayerReady === 'true';
-    }
-
-    function hasSearchableTextLayerContent(textLayerDiv: HTMLElement) {
-        const textLength = (textLayerDiv.textContent ?? '').trim().length;
-        return textLength > 0 && Boolean(textLayerDiv.querySelector?.('span'));
-    }
-
-    function shouldWaitForSearchTextLayer(
-        textLayerDiv: HTMLElement,
-        pageMatchData: IPdfPageMatches | null,
-    ) {
-        if (!pageHasSearchMatches(pageMatchData)) {
-            return false;
-        }
-
-        if (isTextLayerRendering(textLayerDiv)) {
-            return true;
-        }
-
-        if (isTextLayerMarkedReady(textLayerDiv)) {
-            return false;
-        }
-
-        return !hasSearchableTextLayerContent(textLayerDiv);
     }
 
     function deferSearchHighlightsUntilTextLayerReady(
@@ -454,7 +419,7 @@ export const usePdfTextLayerRenderer = (deps: {
         textLayerDiv: HTMLElement,
         pageMatchData: IPdfPageMatches | null,
     ) {
-        if (!shouldWaitForSearchTextLayer(textLayerDiv, pageMatchData)) {
+        if (!pageHasSearchMatches(pageMatchData) || isTextLayerReady(textLayerDiv)) {
             return false;
         }
 
@@ -516,7 +481,6 @@ export const usePdfTextLayerRenderer = (deps: {
             return;
         }
 
-        const canvas = container.querySelector<HTMLCanvasElement>('canvas') ?? null;
         try {
             if (hasGeometryHighlights) {
                 clearHighlights(textLayerDiv);
@@ -537,10 +501,6 @@ export const usePdfTextLayerRenderer = (deps: {
             } else {
                 clearHighlights(textLayerDiv);
                 clearWordBoxes(container);
-            }
-
-            if (canvas) {
-                maybeLogHighlightDebug(pageIndex + 1, pageMatchData, canvas, textLayerDiv);
             }
         } catch (error) {
             BrowserLogger.warn('pdf-text-layer', 'Failed to refresh search highlights', {
@@ -581,7 +541,8 @@ export const usePdfTextLayerRenderer = (deps: {
                     if (pageContainer.dataset.page !== String(currentMatchValue.pageIndex + 1)) {
                         return false;
                     }
-                    return pageContainer.querySelector<HTMLElement>('.text-layer')?.dataset.pdfTextLayerReady === 'true';
+                    const textLayerDiv = pageContainer.querySelector<HTMLElement>('.text-layer');
+                    return textLayerDiv !== null && isTextLayerReady(textLayerDiv);
                 });
             let nextIndex = 0;
 
@@ -668,277 +629,96 @@ export const usePdfTextLayerRenderer = (deps: {
         });
     }
 
-    function isHighlightDebugEnabled() {
-        return isHighlightDebugEnabledFromStorage();
-    }
-
-    function isHighlightDebugVerboseEnabled() {
-        return isHighlightDebugVerboseEnabledFromStorage();
-    }
-
-    function getHighlightDebugGuard(
-        pageNumber: number,
-        pageMatchData: IPdfPageMatches | null,
-    ): IHighlightDebugGuard | null {
-        if (!isHighlightDebugEnabled()) {
-            return null;
-        }
-
-        const current = toValue(deps.currentSearchMatch);
-        if (!current || current.pageIndex !== pageNumber - 1) {
-            return null;
-        }
-
-        const query = pageMatchData?.searchQuery ?? '';
-        const scale = toValue(deps.effectiveScale);
-        const key = `${current.pageIndex}:${current.matchIndex}:${query}:${scale}`;
-        if (key === lastHighlightDebugKey) {
-            return null;
-        }
-        lastHighlightDebugKey = key;
-
-        return {
-            current,
-            query,
-            scale,
-        };
-    }
-
-    function formatHighlightDebugRect(rect: DOMRect) {
-        return `${rect.left.toFixed(2)},${rect.top.toFixed(2)} ${rect.width.toFixed(2)}x${rect.height.toFixed(2)}`;
-    }
-
-    function getCurrentSpanDebugInfo(currentMark: HTMLElement | null) {
-        if (!isHighlightDebugVerboseEnabled() || typeof window === 'undefined') {
-            return '';
-        }
-
-        const span = currentMark?.closest('span');
-        if (!span) {
-            return '';
-        }
-
-        const spanStyle = window.getComputedStyle(span);
-        const scaleX = spanStyle.getPropertyValue('--scale-x').trim();
-        const fontHeight = spanStyle.getPropertyValue('--font-height').trim();
-        return [
-            `spanFont=${JSON.stringify(spanStyle.font)}`,
-            `spanFamily=${JSON.stringify(spanStyle.fontFamily)}`,
-            `spanWeight=${spanStyle.fontWeight}`,
-            `spanSize=${spanStyle.fontSize}`,
-            `spanTransform=${JSON.stringify(spanStyle.transform)}`,
-            `spanScaleX=${JSON.stringify(scaleX)}`,
-            `spanFontHeightVar=${JSON.stringify(fontHeight)}`,
-            `spanText=${JSON.stringify(span.textContent?.slice(0, 60) ?? '')}`,
-        ].join(' ');
-    }
-
-    function collectHighlightDebugRects(
-        canvas: HTMLCanvasElement,
-        textLayerDiv: HTMLElement,
-    ): IHighlightDebugRects {
-        const canvasRect = canvas.getBoundingClientRect();
-        const textRect = textLayerDiv.getBoundingClientRect();
-        const pageContainer = textLayerDiv.closest<HTMLElement>('.page_container');
-        const containerRect = pageContainer?.getBoundingClientRect() ?? null;
-        const canvasHostRect = pageContainer?.querySelector<HTMLElement>('.page_canvas')?.getBoundingClientRect() ?? null;
-        const computedTotalScaleFactor = typeof window !== 'undefined'
-            ? window.getComputedStyle(textLayerDiv).getPropertyValue(PDF_PAGE_SCALE_CSS_VARS.totalScaleFactor).trim()
-            : '';
-
-        const currentRange = getCurrentMatchRanges(textLayerDiv).at(0) ?? null;
-        const currentRangeRect = currentRange?.getBoundingClientRect() ?? null;
-        const currentMark = textLayerDiv.querySelector<HTMLElement>('.pdf-search-highlight--current');
-        const currentMarkRect = currentMark?.getBoundingClientRect() ?? null;
-        const highlightRect = currentRangeRect ?? currentMarkRect;
-        const currentSpanInfo = getCurrentSpanDebugInfo(currentMark);
-
-        return {
-            canvasRect,
-            textRect,
-            containerRect,
-            canvasHostRect,
-            highlightRect,
-            computedTotalScaleFactor,
-            currentSpanInfo,
-        };
-    }
-
-    function formatHighlightDebugInfo(
-        debugInfo: IHighlightDebugInfo | undefined,
-        computedTotalScaleFactor: string,
-    ) {
-        if (!debugInfo) {
-            return [
-                '',
-                '',
-                '',
-                '',
-            ];
-        }
-
-        return [
-            `viewport=${debugInfo.viewportWidth.toFixed(2)}x${debugInfo.viewportHeight.toFixed(2)}`,
-            `raw=${debugInfo.rawPageWidth.toFixed(2)}x${debugInfo.rawPageHeight.toFixed(2)} userUnit=${debugInfo.userUnit}`,
-            `totalScale=${debugInfo.totalScaleFactor.toFixed(10)} cssVarTotal=${JSON.stringify(computedTotalScaleFactor)}`,
-            `canvasPx=${debugInfo.canvasPixelWidth}x${debugInfo.canvasPixelHeight} renderScale=${debugInfo.renderScaleX.toFixed(6)}x${debugInfo.renderScaleY.toFixed(6)}`,
-        ];
-    }
-
-    function buildHighlightDebugMessage(
-        pageNumber: number,
-        guard: IHighlightDebugGuard,
-        rects: IHighlightDebugRects,
-        debugInfo?: IHighlightDebugInfo,
-    ) {
-        const dx = rects.textRect.left - rects.canvasRect.left;
-        const dy = rects.textRect.top - rects.canvasRect.top;
-        const dw = rects.textRect.width - rects.canvasRect.width;
-        const dh = rects.textRect.height - rects.canvasRect.height;
-        const [
-            viewportInfo,
-            rawInfo,
-            totalScaleInfo,
-            canvasPixelInfo,
-        ] = formatHighlightDebugInfo(debugInfo, rects.computedTotalScaleFactor);
-
-        return [
-            `page=${pageNumber}`,
-            `matchIndex=${guard.current.matchIndex}`,
-            `scale=${guard.scale}`,
-            `query=${JSON.stringify(guard.query)}`,
-            viewportInfo,
-            rawInfo,
-            totalScaleInfo,
-            canvasPixelInfo,
-            rects.containerRect ? `container=${formatHighlightDebugRect(rects.containerRect)}` : '',
-            rects.canvasHostRect ? `canvasHost=${formatHighlightDebugRect(rects.canvasHostRect)}` : '',
-            `canvas=${formatHighlightDebugRect(rects.canvasRect)}`,
-            `textLayer=${formatHighlightDebugRect(rects.textRect)}`,
-            `delta=${dx.toFixed(2)},${dy.toFixed(2)} ${dw.toFixed(2)}x${dh.toFixed(2)}`,
-            rects.highlightRect ? `currentHighlight=${formatHighlightDebugRect(rects.highlightRect)}` : 'currentHighlight=null',
-            rects.currentSpanInfo,
-        ].join(' ');
-    }
-
-    function maybeLogHighlightDebug(
-        pageNumber: number,
-        pageMatchData: IPdfPageMatches | null,
-        canvas: HTMLCanvasElement,
-        textLayerDiv: HTMLElement,
-        debugInfo?: IHighlightDebugInfo,
-    ) {
-        const guard = getHighlightDebugGuard(pageNumber, pageMatchData);
-        if (!guard) {
-            return;
-        }
-
-        BrowserLogger.debug(
-            'PDF-HIGHLIGHT',
-            buildHighlightDebugMessage(
-                pageNumber,
-                guard,
-                collectHighlightDebugRects(canvas, textLayerDiv),
-                debugInfo,
-            ),
-        );
-    }
-
     function canReuseTextLayer(pdfPage: IPdfPage, textLayerDiv: HTMLElement) {
         const rendered = renderedTextLayers.get(textLayerDiv);
-        return Boolean(rendered
+        return Boolean(rendered?.textLayer
             && rendered.pdfPage === pdfPage
             && rendered.workingCopyPath === toValue(deps.workingCopyPath)
             && rendered.documentRevisionToken === toValue(deps.documentRevisionToken));
     }
 
+    /**
+     * Renders the page's text into `textLayerDiv`. A scale or rotation step
+     * updates the mounted spans in place, so selections survive it; a content
+     * change rebuilds them. A rebuild that fails or is cancelled clears what it
+     * started, unless a newer render took the element over.
+     */
     async function renderTextLayer(
         pdfPage: IPdfPage,
         textLayerDiv: HTMLElement,
         viewport: ReturnType<IPdfPage['getViewport']>,
-        _scale: number,
-        _userUnit: number,
-        _totalScaleFactor: number,
         signal?: AbortSignal,
-        onBeforeRebuild?: () => void,
     ) {
         throwIfAborted(signal);
 
-        const currentWorkingCopyPath = toValue(deps.workingCopyPath);
-        const currentDocumentRevisionToken = toValue(deps.documentRevisionToken);
-
         const rendered = renderedTextLayers.get(textLayerDiv);
-        if (rendered && canReuseTextLayer(pdfPage, textLayerDiv)) {
+        if (rendered?.textLayer && canReuseTextLayer(pdfPage, textLayerDiv)) {
             rendered.textLayer.update({ viewport });
             rendered.viewport = viewport;
             return;
         }
 
-        onBeforeRebuild?.();
-        renderedTextLayers.delete(textLayerDiv);
-        const renderGeneration = (textLayerRenderGenerations.get(textLayerDiv) ?? 0) + 1;
-        textLayerRenderGenerations.set(textLayerDiv, renderGeneration);
+        cleanupTextLayerDom(textLayerDiv);
+        const record: IRenderedTextLayer = {
+            textLayer: null,
+            structTreeDom: null,
+            pdfPage,
+            viewport,
+            workingCopyPath: toValue(deps.workingCopyPath),
+            documentRevisionToken: toValue(deps.documentRevisionToken),
+        };
+        renderedTextLayers.set(textLayerDiv, record);
         textLayerDiv.closest<HTMLElement>('.page_container')
             ?.querySelector<HTMLElement>('.structTree')
             ?.remove();
-        textLayerDiv.dataset.pdfTextLayerRendering = 'true';
-        textLayerDiv.dataset.pdfTextLayerReady = 'false';
-        clearHighlights(textLayerDiv);
-        clearTextLayerTextMapping(textLayerDiv);
-        textLayerDiv.innerHTML = '';
         // Mutable page scale belongs to the page shell. Layer-local copies can
         // outlive their render request and corrupt geometry after a fit change.
         textLayerDiv.style.removeProperty(PDF_PAGE_SCALE_CSS_VARS.scaleFactor);
         textLayerDiv.style.removeProperty(PDF_PAGE_SCALE_CSS_VARS.userUnit);
         textLayerDiv.style.removeProperty(PDF_PAGE_SCALE_CSS_VARS.totalScaleFactor);
+        try {
+            await buildTextLayer(record, textLayerDiv, signal);
+        } catch (error) {
+            if (renderedTextLayers.get(textLayerDiv) === record) cleanupTextLayerDom(textLayerDiv);
+            throw error;
+        }
+    }
 
-        let textContentSource: TTextLayerTextContentSource | null = null;
+    async function resolveTextContentSource(record: IRenderedTextLayer, signal?: AbortSignal): Promise<TTextLayerTextContentSource> {
+        const {pdfPage, viewport, workingCopyPath, documentRevisionToken} = record;
+        const pageNumber = requirePageNumber(pdfPage.pageNumber);
+        if (!workingCopyPath || !documentRevisionToken) return getPdfjsTextContentSource(pdfPage);
         let hasOcrFallbackForPage = false;
-
-        if (currentWorkingCopyPath && currentDocumentRevisionToken) {
-            try {
-                hasOcrFallbackForPage = await hasPageOcrData(
-                    currentWorkingCopyPath,
-                    currentDocumentRevisionToken,
-                    requirePageNumber(pdfPage.pageNumber),
-                );
-                throwIfAborted(signal);
-            } catch (ocrAvailabilityError) {
-                if (signal?.aborted) {
-                    throw ocrAvailabilityError;
-                }
-                BrowserLogger.warn('pdf-text-layer', 'OCR availability check failed', ocrAvailabilityError);
-            }
-        }
-
-        if (hasOcrFallbackForPage) {
-            const pdfjsTextContent = await getPdfjsTextContent(pdfPage);
+        try {
+            hasOcrFallbackForPage = await hasPageOcrData(workingCopyPath, documentRevisionToken, pageNumber);
             throwIfAborted(signal);
-
-            if (hasUsablePdfTextContent(pdfjsTextContent)) {
-                textContentSource = pdfjsTextContent;
-            } else if (currentWorkingCopyPath && currentDocumentRevisionToken) {
-                try {
-                    const ocrTextContent = await getOcrTextContent(
-                        currentWorkingCopyPath,
-                        currentDocumentRevisionToken,
-                        requirePageNumber(pdfPage.pageNumber),
-                        viewport,
-                    );
-                    throwIfAborted(signal);
-                    if (ocrTextContent) {
-                        textContentSource = ocrTextContent;
-                    }
-                } catch (ocrError) {
-                    if (signal?.aborted) {
-                        throw ocrError;
-                    }
-                    BrowserLogger.warn('pdf-text-layer', 'OCR text content failed', ocrError);
-                }
+        } catch (ocrAvailabilityError) {
+            if (signal?.aborted) {
+                throw ocrAvailabilityError;
             }
+            BrowserLogger.warn('pdf-text-layer', 'OCR availability check failed', ocrAvailabilityError);
         }
+        if (!hasOcrFallbackForPage) return getPdfjsTextContentSource(pdfPage);
+        // Native PDF text wins; OCR text stands in only for a page without any.
+        const pdfjsTextContent = await getPdfjsTextContent(pdfPage);
+        throwIfAborted(signal);
+        if (hasUsablePdfTextContent(pdfjsTextContent)) return pdfjsTextContent;
+        try {
+            const ocrTextContent = await getOcrTextContent(workingCopyPath, documentRevisionToken, pageNumber, viewport);
+            throwIfAborted(signal);
+            if (ocrTextContent) return ocrTextContent;
+        } catch (ocrError) {
+            if (signal?.aborted) {
+                throw ocrError;
+            }
+            BrowserLogger.warn('pdf-text-layer', 'OCR text content failed', ocrError);
+        }
+        return getPdfjsTextContentSource(pdfPage);
+    }
 
-        textContentSource ??= await getPdfjsTextContentSource(pdfPage);
+    async function buildTextLayer(record: IRenderedTextLayer, textLayerDiv: HTMLElement, signal?: AbortSignal) {
+        const {pdfPage, viewport} = record;
+        const textContentSource = await resolveTextContentSource(record, signal);
         throwIfAborted(signal);
 
         const textLayer = createPdfjsTextLayer({
@@ -973,16 +753,13 @@ export const usePdfTextLayerRenderer = (deps: {
                 if (!signal?.aborted) {
                     BrowserLogger.warn('pdf-text-layer', 'PDF structure tree unavailable', structureError);
                 }
-                structTreeLayer = undefined;
                 structTreeDom = null;
             }
         }
 
-        // Cleanup and every newer render move the generation, and cancellation
-        // aborts the signal. A render that waited on optional structure past
-        // either publishes nothing: no structure, mapping, cache entry or
-        // readiness, so it cannot restore a cleaned layer or overwrite a newer one.
-        if (textLayerRenderGenerations.get(textLayerDiv) !== renderGeneration) {
+        // A render that waited on optional structure past a cleanup or a newer
+        // render of this element publishes nothing.
+        if (renderedTextLayers.get(textLayerDiv) !== record) {
             throw createAbortError();
         }
         throwIfAborted(signal);
@@ -998,29 +775,15 @@ export const usePdfTextLayerRenderer = (deps: {
             textDivs: textLayer.textDivs,
             textContentItemsStr: textLayer.textContentItemsStr,
         });
-        renderedTextLayers.set(textLayerDiv, {
-            textLayer,
-            ...(structTreeLayer ? {structTreeLayer} : {}),
-            structTreeDom,
-            pdfPage,
-            viewport,
-            workingCopyPath: currentWorkingCopyPath,
-            documentRevisionToken: currentDocumentRevisionToken,
-        });
-        textLayerDiv.dataset.pdfTextLayerReady = 'true';
-        delete textLayerDiv.dataset.pdfTextLayerRendering;
-    }
-
-    function setupTextLayerInteraction(textLayerDiv: HTMLElement) {
-        return setupTextLayer(textLayerDiv);
+        record.structTreeDom = structTreeDom;
+        record.textLayer = textLayer;
+        setupTextLayer(textLayerDiv);
     }
 
     function applyPageSearchHighlights(
         container: HTMLElement,
         textLayerDiv: HTMLElement,
         pageNumber: number,
-        canvas: HTMLCanvasElement | null,
-        debugInfo?: IHighlightDebugInfo,
         viewport?: IPdfViewport,
     ) {
         const pageIndex = pageNumberToPageIndex(requirePageNumber(pageNumber));
@@ -1058,9 +821,6 @@ export const usePdfTextLayerRenderer = (deps: {
         if (hasGeometryHighlights) {
             clearHighlights(textLayerDiv);
             renderWordBoxesForPageMatch(container, pageMatchData, currentMatch, pageIndex, viewport);
-            if (canvas) {
-                maybeLogHighlightDebug(pageNumber, pageMatchData, canvas, textLayerDiv, debugInfo);
-            }
             pageHighlightState.signatureByPage.set(pageNumber, signature);
             return;
         }
@@ -1070,9 +830,6 @@ export const usePdfTextLayerRenderer = (deps: {
             pageMatchData,
             currentMatch,
         );
-        if (canvas) {
-            maybeLogHighlightDebug(pageNumber, pageMatchData, canvas, textLayerDiv, debugInfo);
-        }
 
         const isCssHighlightMode = getHighlightMode() === 'css';
         const hasInTextHighlights = isCssHighlightMode
@@ -1278,7 +1035,7 @@ export const usePdfTextLayerRenderer = (deps: {
             return false;
         }
         const pageMatchData = toValue(deps.searchPageMatches)?.get(pageIndex) ?? null;
-        const currentMatchPresentationReady = textLayerDiv.dataset.pdfTextLayerReady === 'true';
+        const currentMatchPresentationReady = isTextLayerReady(textLayerDiv);
         refreshSearchHighlightsForPage(
             targetContainer,
             pageIndex + 1,
@@ -1342,16 +1099,15 @@ export const usePdfTextLayerRenderer = (deps: {
         return true;
     }
 
+    /** The one teardown of a text-layer element: selection, spans, structure and mapping. */
     function cleanupTextLayerDom(textLayerDiv: HTMLElement) {
+        teardownTextLayer(textLayerDiv);
         const rendered = renderedTextLayers.get(textLayerDiv);
         rendered?.structTreeDom?.remove();
         renderedTextLayers.delete(textLayerDiv);
-        textLayerRenderGenerations.set(textLayerDiv, (textLayerRenderGenerations.get(textLayerDiv) ?? 0) + 1);
         clearHighlights(textLayerDiv);
         textLayerDiv.innerHTML = '';
         clearTextLayerTextMapping(textLayerDiv);
-        delete textLayerDiv.dataset.pdfTextLayerRendering;
-        delete textLayerDiv.dataset.pdfTextLayerReady;
 
         const pageContainer = textLayerDiv.closest<HTMLElement>('.page_container');
         const pageNumber = Number.parseInt(pageContainer?.dataset.page ?? '', 10);
@@ -1432,7 +1188,6 @@ export const usePdfTextLayerRenderer = (deps: {
     return {
         canReuseTextLayer,
         renderTextLayer,
-        setupTextLayerInteraction,
         applyPageSearchHighlights,
         applyAllSearchHighlights,
         scrollToCurrentMatch,

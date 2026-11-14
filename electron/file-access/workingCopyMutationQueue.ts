@@ -1,7 +1,5 @@
 import { createLogger } from '@electron/utils/createLogger';
-import { getErrorMessage } from '@electron/utils/error';
-import {abortErrorFromSignal} from '@electron/utils/abort';
-import { normalizePathForLookup } from '@electron/file-access/workingCopyStore';
+import {normalizePathForLookup} from '@electron/file-access/normalizePathForLookup';
 import { cancelNativeCommandGroup } from '@electron/native-tools/runNativeCommand';
 import {
     registerMainOperation,
@@ -10,7 +8,6 @@ import {
 import { runWithWorkingCopyMutationCommitSignal } from '@electron/file-access/workingCopyMutationCommitSignal';
 
 const log = createLogger('workingCopyMutationQueue');
-const WORKING_COPY_MUTATION_START_TIMEOUT_MS = 30_000;
 interface IWorkingCopyMutationQueueEntry {
     tail: Promise<void>;
     operationId: string;
@@ -30,10 +27,6 @@ export interface IWorkingCopyMutationQueueOptions {
 
 const workingCopyMutationQueue = new Map<string, IWorkingCopyMutationQueueEntry>();
 const activeWorkingCopyMutations = new Map<string, IWorkingCopyMutationQueueEntry>();
-const workingCopyMutationStartingListeners = new Set<
-    (workingCopyPath: string, signal: AbortSignal) => void | Promise<void>
->();
-const workingCopyMutationListeners = new Set<(workingCopyPath: string) => void>();
 
 export interface IWorkingCopyMutationOperation {
     workingCopyPath: string;
@@ -42,82 +35,8 @@ export interface IWorkingCopyMutationOperation {
     markCommitStarted: () => void;
 }
 
-export function onWorkingCopyMutationSettled(listener: (workingCopyPath: string) => void) {
-    workingCopyMutationListeners.add(listener);
-    return () => {
-        workingCopyMutationListeners.delete(listener);
-    };
-}
-
-export function onWorkingCopyMutationStarting(
-    listener: (workingCopyPath: string, signal: AbortSignal) => void | Promise<void>,
-) {
-    workingCopyMutationStartingListeners.add(listener);
-    return () => {
-        workingCopyMutationStartingListeners.delete(listener);
-    };
-}
-
-// A starting listener may hold a mutation until resources that would block its
-// replacement have been released. Settled listeners run after the operation,
-// so they cannot provide this ordering guarantee.
-function notifyWorkingCopyMutationStarting(workingCopyPath: string, signal: AbortSignal) {
-    const preparations: Array<Promise<void>> = [];
-    for (const listener of workingCopyMutationStartingListeners) {
-        try {
-            const result = listener(workingCopyPath, signal);
-            if (result) preparations.push(result);
-        } catch (error) {
-            preparations.push(Promise.reject(error));
-        }
-    }
-    return preparations.length ? Promise.all(preparations).then(() => undefined) : undefined;
-}
-
-async function awaitMutationStartPreparation(
-    workingCopyPath: string,
-    preparation: Promise<void>,
-    signal: AbortSignal,
-) {
-    let timeout: NodeJS.Timeout | undefined;
-    let rejectWait!: (error: unknown) => void;
-    const handleAbort = () => rejectWait(abortErrorFromSignal(signal));
-    const expiry = new Promise<never>((_, reject) => {
-        rejectWait = reject;
-        timeout = setTimeout(() => reject(new Error(
-            `Mutation-start preparation timed out after ${WORKING_COPY_MUTATION_START_TIMEOUT_MS}ms for "${workingCopyPath}"`,
-        )), WORKING_COPY_MUTATION_START_TIMEOUT_MS);
-        timeout.unref();
-    });
-    signal.addEventListener('abort', handleAbort, {once: true});
-    if (signal.aborted) handleAbort();
-    try {
-        await Promise.race([
-            preparation,
-            expiry,
-        ]);
-    } finally {
-        clearTimeout(timeout);
-        signal.removeEventListener('abort', handleAbort);
-    }
-}
-
-function notifyWorkingCopyMutationSettled(workingCopyPath: string) {
-    for (const listener of workingCopyMutationListeners) {
-        try {
-            listener(workingCopyPath);
-        } catch (error) {
-            log.debug('Failed to notify working copy mutation listener', {error: getErrorMessage(error)});
-        }
-    }
-}
-
 function getWorkingCopyQueueKey(workingCopyPath: string) {
     return normalizePathForLookup(workingCopyPath) || workingCopyPath;
-}
-
-export function isWorkingCopyMutationActive(workingCopyPath: string) {
-    return activeWorkingCopyMutations.has(getWorkingCopyQueueKey(workingCopyPath));
 }
 
 const MUTATION_ORIGIN_STACK_TRACE_LIMIT = 8;
@@ -252,18 +171,6 @@ export function enqueueWorkingCopyMutation<T>(
                 } : null,
             });
             try {
-                const preparation = notifyWorkingCopyMutationStarting(workingCopyPath, mutationOperation.signal);
-                // Only yield when a listener actually asked to prepare: an
-                // unconditional await here would let a cancellation land between
-                // the queue admitting this mutation and the mutation starting.
-                if (preparation) {
-                    await awaitMutationStartPreparation(workingCopyPath, preparation, mutationOperation.signal);
-                }
-                if (isMutationAborted()) {
-                    throw mutationOperation.signal.reason instanceof Error
-                        ? mutationOperation.signal.reason
-                        : new Error('Working-copy mutation canceled');
-                }
                 return await runWithWorkingCopyMutationCommitSignal(mutationOperation, () => operation(mutationOperation));
             } finally {
                 const durationMs = Math.round((performance.now() - grantedAt) * 10) / 10;
@@ -281,7 +188,6 @@ export function enqueueWorkingCopyMutation<T>(
             }
         })
         .finally(() => {
-            notifyWorkingCopyMutationSettled(workingCopyPath);
             lifecycleOperation.complete();
         });
 

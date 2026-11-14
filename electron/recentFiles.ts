@@ -44,16 +44,10 @@ import {
 } from '@electron/utils/atomicReplace';
 import {runtimeConfig} from '@electron/runtimeConfig';
 import { quarantineCorruptFile } from '@electron/utils/quarantineCorruptFile';
-import { isWorkingCopyDirectoryName } from '@electron/file-access/workingCopyDirectory';
 import {
     getWorkingCopyOriginalPath,
-    getWorkingCopyOriginalPathForPersistence,
-    normalizePathForLookup,
-} from '@electron/file-access/workingCopyStore';
-import {
-    getAppTempDirPath,
-    getLegacyAppTempDirPath,
-} from '@electron/utils/appTempDir';
+    isWorkingCopyDocumentPath,
+} from '@electron/file-access/documentStore';
 import * as v from 'valibot';
 
 const logger = createLogger('recentFiles');
@@ -480,34 +474,15 @@ function refreshRecentFilesCache(): Promise<IRecentFile[]> {
 }
 
 function resolveRecentOriginalPath(filePath: string, senderWebContentsId?: number): TDocumentRef | null {
-    const mappedOriginalPath = (
-        typeof senderWebContentsId === 'number'
-            ? getWorkingCopyOriginalPath(filePath, senderWebContentsId)
-            : getWorkingCopyOriginalPathForPersistence(filePath)
-    )?.originalPath;
+    const mappedOriginalPath = getWorkingCopyOriginalPath(filePath, senderWebContentsId)?.originalPath;
     if (mappedOriginalPath) {
         return parseDocumentRef(mappedOriginalPath);
     }
 
-    // Internal working copies are implementation details, not user documents. If
-    // their ownership mapping has already expired, dropping the entry is safer
-    // than leaking a volatile temp path into persistent Recent Files state.
-    const parentPath = normalizePathForLookup(dirname(filePath));
-    const windowsPath = /^[a-zA-Z]:[\\/]/.test(parentPath) || parentPath.startsWith('\\\\');
-    const pathDirname = windowsPath ? win32.dirname : dirname;
-    const pathBasename = windowsPath ? win32.basename : basename;
-    const appTempParent = pathDirname(parentPath);
-    const normalizedLegacyTemp = normalizePathForLookup(getLegacyAppTempDirPath());
-    // Any profile's namespace: in the per-user state folder, or in temp where earlier releases kept it.
-    const isProfileAppTemp = [
-        getAppTempDirPath(),
-        normalizedLegacyTemp,
-    ].some(path => pathDirname(normalizePathForLookup(path)) === pathDirname(appTempParent))
-        && pathBasename(appTempParent).startsWith(`${pathBasename(normalizedLegacyTemp)}-`);
-    if (
-        (appTempParent === normalizedLegacyTemp || isProfileAppTemp)
-        && isWorkingCopyDirectoryName(pathBasename(parentPath))
-    ) {
+    // A document's ref is an implementation detail, not a user document. If it
+    // no longer maps to a file, dropping the entry is safer than leaking a
+    // volatile store path into persistent Recent Files state.
+    if (isWorkingCopyDocumentPath(filePath)) {
         logger.warn(`Refusing to persist unmapped managed working-copy path as recent: ${filePath}`);
         return null;
     }

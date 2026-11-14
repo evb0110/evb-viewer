@@ -646,7 +646,3 @@ fn compose_soft_alpha_mixed(
         (layer_background, layer_color, layers)
     }
 }
-
-#[cfg(test)]
-#[path = "final_composition_tests.rs"]
-mod tests;

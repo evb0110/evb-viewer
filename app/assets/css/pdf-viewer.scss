@@ -177,10 +177,6 @@
         display: contents;
     }
 
-    br {
-        user-select: none;
-    }
-
     ::selection {
         background: var(--app-pdf-text-selection-bg);
     }

@@ -1,11 +1,9 @@
 import {
-    normalizePdfNativeMutationSet,
     normalizePdfNativeTextBoxAppearanceRequest,
     normalizePdfNativeTextBoxAppearanceMetadata,
     PDF_NATIVE_TEXT_BOX_APPEARANCE_LIMITS,
 } from '@contracts/nativePdfMutations';
 import {PDF_DECRYPT_PASSWORD_SCHEMA} from '@contracts/pdfDecryptSchemas';
-import {isPdfDateString} from '@contracts/pdfDateString';
 import {NATIVE_ERROR_ENVELOPE_SCHEMA} from '@contracts/nativeErrors';
 import type {ICropMargins} from '@contracts/shared';
 import {PAGE_GEOMETRY_SCHEMA} from '@contracts/decodePageGeometry';
@@ -123,7 +121,6 @@ export const SCAN_CLEANUP_RASTER_REQUEST_SCHEMA = v.strictObject({
     })),
     maxPixels: positiveIntegerSchema,
 });
-export type TScanCleanupRasterRequest = v.InferOutput<typeof SCAN_CLEANUP_RASTER_REQUEST_SCHEMA>;
 
 /** A page's raster size and how closely its samples match desktop's, or why it has no scan raster. */
 const SCAN_CLEANUP_RASTER_REPORT_SCHEMA = v.union([
@@ -140,22 +137,30 @@ const SCAN_CLEANUP_RASTER_REPORT_SCHEMA = v.union([
 
 const workerRequestPayloadSchemas = {
     textBoxAppearance: v.pipe(v.unknown(), v.transform(value => normalizePdfNativeTextBoxAppearanceRequest(value))),
-    deletePages: v.object({
-        data: pdfBytesSchema,
-        pages: v.array(positiveIntegerSchema),
-    }),
-    extractPages: v.object({
-        data: pdfBytesSchema,
-        pages: v.array(positiveIntegerSchema),
-    }),
-    reorderPages: v.object({
-        data: pdfBytesSchema,
-        newOrder: v.array(positiveIntegerSchema),
-    }),
-    insertPages: v.object({
-        data: pdfBytesSchema,
-        insertionData: pdfBytesSchema,
-        afterPage: nonNegativeIntegerSchema,
+    /**
+     * A page-structure edit the engine reads from `sources` by range and writes to the new file at the store
+     * path `output`, or returns as bytes when `output` is null (a document the browser keeps in memory).
+     * Delete, extract and reorder edit the first source; insert puts the second after `afterPage` of the
+     * first; merge joins every source.
+     */
+    pageStructure: v.object({
+        edit: v.variant('kind', [
+            v.object({
+                kind: v.picklist([
+                    'delete',
+                    'extract',
+                    'reorder',
+                ]),
+                pages: v.pipe(v.array(positiveIntegerSchema), v.minLength(1)),
+            }),
+            v.object({
+                kind: v.literal('insert'),
+                afterPage: nonNegativeIntegerSchema,
+            }),
+            v.object({kind: v.literal('merge')}),
+        ]),
+        sources: v.pipe(v.array(v.instance(Blob)), v.minLength(1)),
+        output: v.nullable(v.string()),
     }),
     rotate: v.object({
         data: pdfBytesSchema,
@@ -179,15 +184,10 @@ const workerRequestPayloadSchemas = {
         data: pdfBytesSchema,
         pageNumber: positiveIntegerSchema,
     }),
-    parseAnnotations: v.object({data: pdfBytesSchema}),
-    readCatalog: v.object({data: pdfBytesSchema}),
-    conformance: v.object({data: pdfBytesSchema}),
-    saveMutations: v.object({
-        data: pdfBytesSchema,
-        originalAppearanceSourceData: v.optional(pdfBytesSchema),
-        mutations: v.pipe(v.unknown(), v.transform(value => normalizePdfNativeMutationSet(value, 'Browser PDF save mutations'))),
-        modifiedAt: v.custom<string>(isPdfDateString),
-    }),
+    /** Reads take their document as a Blob the engine reads by range. */
+    parseAnnotations: v.object({source: v.instance(Blob)}),
+    readCatalog: v.object({source: v.instance(Blob)}),
+    conformance: v.object({source: v.instance(Blob)}),
     decrypt: v.object({
         data: pdfBytesSchema,
         password: PDF_DECRYPT_PASSWORD_SCHEMA,
@@ -206,9 +206,8 @@ const workerRequestPayloadSchemas = {
             'landscape',
         ]),
     }),
-    mergePages: v.object({documents: v.pipe(v.array(pdfBytesSchema), v.minLength(1))}),
     ocrTextVisibility: v.object({
-        data: pdfBytesSchema,
+        source: v.instance(Blob),
         pages: v.pipe(v.array(positiveIntegerSchema), v.minLength(1)),
         withEvbOcrText: v.boolean(),
     }),
@@ -220,11 +219,6 @@ const workerRequestPayloadSchemas = {
     renderScanCleanupRaster: v.object({
         data: pdfBytesSchema,
         request: SCAN_CLEANUP_RASTER_REQUEST_SCHEMA,
-    }),
-    ocrTextLayer: v.object({
-        data: pdfBytesSchema,
-        instructions: OCR_TEXT_LAYER_INSTRUCTIONS_SCHEMA,
-        pagePdfs: v.pipe(v.array(pdfBytesSchema), v.minLength(1)),
     }),
     splitPages: v.object({
         data: pdfBytesSchema,
@@ -265,28 +259,8 @@ const workerRequestSchema = v.union([
     }),
     v.object({
         id: workerRequestIdSchema,
-        type: v.literal('saveMutations'),
-        payload: workerRequestPayloadSchemas.saveMutations,
-    }),
-    v.object({
-        id: workerRequestIdSchema,
-        type: v.literal('deletePages'),
-        payload: workerRequestPayloadSchemas.deletePages,
-    }),
-    v.object({
-        id: workerRequestIdSchema,
-        type: v.literal('extractPages'),
-        payload: workerRequestPayloadSchemas.extractPages,
-    }),
-    v.object({
-        id: workerRequestIdSchema,
-        type: v.literal('reorderPages'),
-        payload: workerRequestPayloadSchemas.reorderPages,
-    }),
-    v.object({
-        id: workerRequestIdSchema,
-        type: v.literal('insertPages'),
-        payload: workerRequestPayloadSchemas.insertPages,
+        type: v.literal('pageStructure'),
+        payload: workerRequestPayloadSchemas.pageStructure,
     }),
     v.object({
         id: workerRequestIdSchema,
@@ -325,11 +299,6 @@ const workerRequestSchema = v.union([
     }),
     v.object({
         id: workerRequestIdSchema,
-        type: v.literal('mergePages'),
-        payload: workerRequestPayloadSchemas.mergePages,
-    }),
-    v.object({
-        id: workerRequestIdSchema,
         type: v.literal('ocrTextVisibility'),
         payload: workerRequestPayloadSchemas.ocrTextVisibility,
     }),
@@ -342,11 +311,6 @@ const workerRequestSchema = v.union([
         id: workerRequestIdSchema,
         type: v.literal('renderScanCleanupRaster'),
         payload: workerRequestPayloadSchemas.renderScanCleanupRaster,
-    }),
-    v.object({
-        id: workerRequestIdSchema,
-        type: v.literal('ocrTextLayer'),
-        payload: workerRequestPayloadSchemas.ocrTextLayer,
     }),
     v.object({
         id: workerRequestIdSchema,
@@ -410,14 +374,6 @@ export function isBrowserPageOpsWasmFailure(value: unknown): value is IBrowserPa
     return isRecord(value) && value.status === 'failed'
         && v.safeParse(BROWSER_PAGE_OPS_WASM_FAILURE_SCHEMA, value, {abortEarly: true}).success;
 }
-export const BROWSER_PAGE_OPS_SAVE_MUTATIONS_RESULT_SCHEMA = v.object({
-    ...pageMutationResultSchema.entries,
-    identityBindings: v.array(v.object({
-        annotationId: v.string(),
-        pdfRef: v.string(),
-    })),
-    nativeMutationPostconditionsVerified: v.literal(true),
-});
 
 const workerResultSchemas = {
     textBoxAppearance: v.union([
@@ -434,10 +390,6 @@ const workerResultSchemas = {
         ),
         BROWSER_PAGE_OPS_WASM_FAILURE_SCHEMA,
     ]),
-    saveMutations: v.union([
-        BROWSER_PAGE_OPS_SAVE_MUTATIONS_RESULT_SCHEMA,
-        BROWSER_PAGE_OPS_WASM_FAILURE_SCHEMA,
-    ]),
     decrypt: v.union([
         pageMutationResultSchema,
         BROWSER_PAGE_OPS_WASM_FAILURE_SCHEMA,
@@ -446,10 +398,17 @@ const workerResultSchemas = {
         pageMutationResultSchema,
         BROWSER_PAGE_OPS_WASM_FAILURE_SCHEMA,
     ]),
-    deletePages: pageMutationResultSchema,
-    extractPages: pageMutationResultSchema,
-    reorderPages: pageMutationResultSchema,
-    insertPages: pageMutationResultSchema,
+    // `written`: the output's page count and length, and its bytes when the request named no file.
+    pageStructure: v.union([
+        v.object({
+            status: v.literal('written'),
+            pageCount: v.pipe(v.number(), v.integer(), v.minValue(1)),
+            length: nonNegativeIntegerSchema,
+            data: v.optional(pdfBytesSchema),
+        }),
+        v.object({status: v.literal('storage-full')}),
+        BROWSER_PAGE_OPS_WASM_FAILURE_SCHEMA,
+    ]),
     rotate: pageMutationResultSchema,
     crop: pageMutationResultSchema,
     removeCrop: pageMutationResultSchema,
@@ -457,7 +416,6 @@ const workerResultSchemas = {
     parseAnnotations: annotationParseResultSchema,
     readCatalog: catalogResultSchema,
     conformance: conformanceFactsSchema,
-    mergePages: pageMutationResultSchema,
     ocrTextVisibility: v.union([
         PDF_OCR_TEXT_VISIBILITY_REPORT_SCHEMA,
         BROWSER_PAGE_OPS_WASM_FAILURE_SCHEMA,
@@ -476,11 +434,6 @@ const workerResultSchemas = {
             data: pdfBytesSchema,
             report: SCAN_CLEANUP_RASTER_REPORT_SCHEMA,
         }),
-        BROWSER_PAGE_OPS_WASM_FAILURE_SCHEMA,
-    ]),
-    // `data` is the revision the writer appends to the request's document.
-    ocrTextLayer: v.union([
-        pageMutationResultSchema,
         BROWSER_PAGE_OPS_WASM_FAILURE_SCHEMA,
     ]),
     splitPages: v.union([
@@ -522,33 +475,9 @@ const workerSuccessResponseSchema = v.union([
     }),
     v.object({
         id: workerRequestIdSchema,
-        type: v.literal('saveMutations'),
+        type: v.literal('pageStructure'),
         ok: v.literal(true),
-        data: workerResultSchemas.saveMutations,
-    }),
-    v.object({
-        id: workerRequestIdSchema,
-        type: v.literal('deletePages'),
-        ok: v.literal(true),
-        data: workerResultSchemas.deletePages,
-    }),
-    v.object({
-        id: workerRequestIdSchema,
-        type: v.literal('extractPages'),
-        ok: v.literal(true),
-        data: workerResultSchemas.extractPages,
-    }),
-    v.object({
-        id: workerRequestIdSchema,
-        type: v.literal('reorderPages'),
-        ok: v.literal(true),
-        data: workerResultSchemas.reorderPages,
-    }),
-    v.object({
-        id: workerRequestIdSchema,
-        type: v.literal('insertPages'),
-        ok: v.literal(true),
-        data: workerResultSchemas.insertPages,
+        data: workerResultSchemas.pageStructure,
     }),
     v.object({
         id: workerRequestIdSchema,
@@ -594,12 +523,6 @@ const workerSuccessResponseSchema = v.union([
     }),
     v.object({
         id: workerRequestIdSchema,
-        type: v.literal('mergePages'),
-        ok: v.literal(true),
-        data: workerResultSchemas.mergePages,
-    }),
-    v.object({
-        id: workerRequestIdSchema,
         type: v.literal('ocrTextVisibility'),
         ok: v.literal(true),
         data: workerResultSchemas.ocrTextVisibility,
@@ -615,12 +538,6 @@ const workerSuccessResponseSchema = v.union([
         type: v.literal('renderScanCleanupRaster'),
         ok: v.literal(true),
         data: workerResultSchemas.renderScanCleanupRaster,
-    }),
-    v.object({
-        id: workerRequestIdSchema,
-        type: v.literal('ocrTextLayer'),
-        ok: v.literal(true),
-        data: workerResultSchemas.ocrTextLayer,
     }),
     v.object({
         id: workerRequestIdSchema,
@@ -692,7 +609,6 @@ export function parseBrowserPageOpsWorkerRequest(value: unknown): TBrowserPageOp
 }
 
 export {
-    workerResponseSchema as BROWSER_PAGE_OPS_WORKER_RESPONSE_SCHEMA,
     workerResultSchemas as BROWSER_PAGE_OPS_WORKER_RESULT_SCHEMAS,
 };
 

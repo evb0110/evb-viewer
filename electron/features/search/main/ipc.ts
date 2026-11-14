@@ -7,15 +7,15 @@ import type {
     INormalizedPdfSearchWarmIndexRequest,
 } from '@contracts/search';
 import { validateSearchQuery } from '@pdf-core';
-import { getWorkingCopyRevision } from '@electron/file-access/documentRevisionStore';
 import {
+    ensureWorkingCopyMaterialized,
     findWorkingCopyPathByOriginalPath,
     getWorkingCopyBackingEntry,
     getWorkingCopyOwnerWebContentsId,
-} from '@electron/file-access/workingCopyStore';
-import { isWorkingCopyDocumentPath } from '@electron/file-access/workingCopyDirectory';
+    getWorkingCopyRevision,
+    isWorkingCopyDocumentPath,
+} from '@electron/file-access/documentStore';
 import { isWorkingCopyQuarantined } from '@electron/file-access/workingCopyQuarantine';
-import { ensureWorkingCopyMaterialized } from '@electron/file-access/workingCopyMaterialization';
 import { resolveAllowedReadPath } from '@electron/utils/pathValidator';
 import {
     createSearchService,
@@ -38,8 +38,7 @@ function lazyBackedWorkingCopyPath(pdfPath: string, senderWebContentsId?: number
     if (!candidate) {
         return null;
     }
-    const backingState = getWorkingCopyBackingEntry(candidate, senderWebContentsId)?.backingState;
-    return backingState === 'lazy-original' || backingState === 'materializing' ? candidate : null;
+    return getWorkingCopyBackingEntry(candidate, senderWebContentsId) ? candidate : null;
 }
 
 export async function resolveSearchablePdfPath(

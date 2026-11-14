@@ -9,6 +9,8 @@ const builderConfigPath = path.join(projectRoot, 'electron-builder.yml');
 const requiredNonWorkerUnpackEntries = [
     'dist-electron/package.json',
     'dist-electron/runtime/@napi-rs/canvas/*.node',
+    // The OCR engine worker threads import and compile by path.
+    'nuxt-output/public/wasm/evb-tesseract.*',
 ];
 
 export function parseAsarUnpackEntries(source) {

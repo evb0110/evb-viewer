@@ -44,8 +44,6 @@ export function isSupportedPageSegmentationMode(value: unknown): value is TOcrPa
         && AGENT_OCR_PAGE_SEGMENTATION_MODES.some(mode => mode === value);
 }
 
-export type TAgentOcrPageRange = typeof AGENT_OCR_PAGE_RANGES[number];
-
 const agentOcrRunInputProperties = {
     pageRange: v.optional(v.pipe(v.picklist(AGENT_OCR_PAGE_RANGES), v.description('Pages to OCR. Defaults to the OCR popup current setting.'))),
     customRange: v.optional(v.pipe(v.string(), v.description('Custom page range such as 1-3,7. Used when pageRange is custom.'))),

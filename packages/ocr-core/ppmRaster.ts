@@ -42,3 +42,23 @@ export function writePpmTile(
         }
     }
 }
+
+/** A Netpbm page from its pixels: PGM for one channel, PPM for three. */
+export function encodePnm(width: number, height: number, channels: 1 | 3, pixels: Uint8Array) {
+    const raster = createPpmRaster(width, height, channels);
+    if (pixels.byteLength !== raster.image.byteLength - raster.offset) {
+        throw new Error('OCR page pixels do not match the page size');
+    }
+    raster.image.set(pixels, raster.offset);
+    return raster.image;
+}
+
+/** The size in the header `createPpmRaster` and Poppler write. */
+export function readPnmSize(image: Uint8Array) {
+    const match = /^P[56]\n(\d+) (\d+)\n255\n/u.exec(new TextDecoder().decode(image.subarray(0, 32)));
+    if (!match) throw new Error('OCR page raster is not a binary PGM or PPM');
+    return {
+        width: Number(match[1]),
+        height: Number(match[2]),
+    };
+}

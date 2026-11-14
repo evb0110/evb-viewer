@@ -304,7 +304,7 @@ describe('changed-area classifier', () => {
             'public/fonts/annotation/NotoSansSyriac-Regular.ttf',
             'scripts/lib/cli-error.mjs',
             'scripts/diagnostics/scan-cleanup-preview-harness.mjs',
-            'scripts/diagnostics/stroke-weight-oracle/stroke-weight-oracle.mjs',
+            'scripts/diagnostics/stroke-weight-oracle/stroke_weight_oracle.py',
             'scripts/flattenLayeredManifestPage.ts',
             'scripts/scan-cleanup-convert.ts',
             'scripts/scanCleanupCliAdapters.ts',

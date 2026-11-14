@@ -300,6 +300,16 @@ pub struct Page {
     #[serde(default)]
     #[cfg_attr(test, ts(optional = nullable))]
     pub pdf_page: Option<crate::engine::lossless_placement::PdfPageGeometry>,
+    /// Where the owning process publishes the page's alternate view raster
+    /// once the engine announces that lease; an empty file declines it.
+    #[serde(default)]
+    #[cfg_attr(test, ts(optional = nullable))]
+    pub alternate_input_path: Option<PathBuf>,
+    /// A wider view an analysis may read when the primary one seems to hide
+    /// a spread.
+    #[serde(default)]
+    #[cfg_attr(test, ts(optional = nullable))]
+    pub alternate_view: Option<crate::engine::document_analysis::AlternateView>,
     pub outputs: Vec<PageOutput>,
 }
 
@@ -402,6 +412,8 @@ fn allowed_manifest_fields(kind: &str) -> &'static [&'static str] {
             "documentPrior",
             "detailRenderPlan",
             "pdfPage",
+            "alternateInputPath",
+            "alternateView",
             "outputs",
         ],
         "output" => &[
@@ -744,6 +756,21 @@ impl ManifestV3 {
                 output_destinations: page.outputs.len(),
             }
             .validate()?;
+            match (&page.alternate_view, &page.alternate_input_path) {
+                (None, None) => {}
+                (Some(view), Some(_)) if self.operation == Operation::Analyze => {
+                    view.validate().map_err(invalid)?;
+                    validate_page_options(&view.options, page.source_page_index, false)?;
+                }
+                (Some(_), Some(_)) => {
+                    return Err(invalid("alternateView is only valid for analyze manifests"))
+                }
+                _ => {
+                    return Err(invalid(
+                        "alternateView and alternateInputPath must be given together",
+                    ))
+                }
+            }
         }
         // This projection is intentionally separate from the lexical alias
         // pass below: the admission ceiling applies to every declared path,
@@ -824,6 +851,7 @@ impl ManifestV3 {
                 paths.extend(page.analysis_input_path.as_deref());
                 paths.extend(page.trusted_foreground_mask_path.as_deref());
                 paths.extend(page.trusted_mrc_background_path.as_deref());
+                paths.extend(page.alternate_input_path.as_deref());
                 if let Some(detail) = &page.detail_render_plan {
                     paths.push(detail.base_metadata_path.as_path());
                     paths.push(detail.base_raster_path.as_path());

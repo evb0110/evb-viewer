@@ -2,12 +2,12 @@ import { shell } from 'electron';
 import { existsSync } from 'fs';
 import { resolve } from 'path';
 import { refreshMenu } from '@electron/menu';
+import { findWorkingCopyPathByOriginalPath } from '@electron/file-access/documentStore';
 import {
     requireRevealPath,
     type TOpenPath,
 } from '@electron/file-access/openPathCapabilities';
 import { resolveAllowedReadPath } from '@electron/utils/pathValidator';
-import { isKnownWorkingCopyOriginalPath } from '@electron/file-access/workingCopyStore';
 import { te } from '@electron/te';
 import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
@@ -55,7 +55,7 @@ async function resolveRevealablePath(filePath: string, owner?: TOpenPathOwner) {
 
     const normalizedPath = resolve(filePath);
     const ownerId = typeof owner === 'number' ? owner : owner?.id;
-    if (!isKnownWorkingCopyOriginalPath(normalizedPath, ownerId) || !existsSync(normalizedPath)) {
+    if (findWorkingCopyPathByOriginalPath(normalizedPath, ownerId) === null || !existsSync(normalizedPath)) {
         return null;
     }
     return normalizedPath as TOpenPath;

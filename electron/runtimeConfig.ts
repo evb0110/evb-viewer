@@ -100,24 +100,6 @@ export const runtimeConfig = {
     },
     get test() {
         return {
-            get atomicReplaceBarrier() { // unset; stop Windows atomic replacement at one test stage
-                return process.env.EVB_ATOMIC_REPLACE_TEST_BARRIER;
-            },
-            get atomicReplaceBarrierFile() { // unset; coordinate the Windows atomic replacement test
-                return process.env.EVB_ATOMIC_REPLACE_TEST_BARRIER_FILE;
-            },
-            get documentSaveUtilityThresholdBytes() { // 64 MiB; let the Windows publication test enter the utility path with a small fixture
-                return integer(
-                    process.env.EVB_DOCUMENT_SAVE_UTILITY_THRESHOLD_BYTES,
-                    64 * 1024 * 1024,
-                    1,
-                    Number.MAX_SAFE_INTEGER,
-                    false,
-                );
-            },
-            get disableMacCloneHelper() { // false; exercise the portable clone fallback on macOS test hosts
-                return boolean(process.env.EVB_TEST_DISABLE_MAC_CLONE_HELPER);
-            },
             get e2eOpenDialogPath() { // unset; answer the native open dialog in automation
                 return process.env.EVB_E2E_OPEN_DIALOG_PATH?.trim();
             },
@@ -126,15 +108,6 @@ export const runtimeConfig = {
             },
             get e2eSaveDialogPath() { // unset; answer the native save dialog in automation
                 return process.env.EVB_E2E_SAVE_DIALOG_PATH?.trim();
-            },
-            get forceImmutableLinkResult() { // unset; simulate a cross-device hard-link result
-                return process.env.EVB_TEST_FORCE_IMMUTABLE_LINK_RESULT;
-            },
-            get forceMacCloneHelper() { // false; exercise the macOS clone helper on other test hosts
-                return boolean(process.env.EVB_TEST_FORCE_MAC_CLONE_HELPER);
-            },
-            get forceWorkingCopyCloneResult() { // unset; exercise clone success and fallback paths
-                return process.env.EVB_TEST_FORCE_WORKING_COPY_CLONE_RESULT;
             },
             get holdSelectedPageQpdfMarker() { // unset; pause the selected-page print child for cancellation tests
                 return process.env.EVB_E2E_HOLD_SELECTED_PAGE_QPDF_MARKER?.trim();
@@ -162,9 +135,6 @@ export const runtimeConfig = {
             },
             get nativeToolAllowPackagedDiagnosticPaths() { // false; allow release verification to use a diagnostic native tool
                 return boolean(process.env.EVB_NATIVE_TOOL_ALLOW_PACKAGED_DIAGNOSTIC_PATHS);
-            },
-            get ocrJobMaxTempMb() { // 4096 MiB; let the storage test lower the aggregate OCR limit
-                return integer(process.env.EVB_OCR_JOB_MAX_TEMP_MB, 4_096, 1, 65_536);
             },
             get performanceMode() { // unset; override the performance mode in isolated E2E sessions
                 return process.env.EVB_TEST_PERFORMANCE_MODE;

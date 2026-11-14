@@ -49,13 +49,12 @@ describe('useAnnotationNoteWindows', () => {
     });
 
     it('moves an open note to the view that opens it again, committing its draft first', async () => {
-        let viewInUse = 'tab-left';
         const {
             deps,
             windows,
-        } = createHarness(createComment(), {getViewInUse: () => viewInUse});
+        } = createHarness();
         const noteId = 'ann:0:note-1:0';
-        windows.handleOpenAnnotationNote(createComment());
+        windows.handleOpenAnnotationNote(createComment(), 'tab-left');
         windows.updateAnnotationNotePosition(noteId, {
             x: 320,
             y: 240,
@@ -63,8 +62,7 @@ describe('useAnnotationNoteWindows', () => {
         windows.updateAnnotationNoteText(noteId, 'Draft typed in the left view');
         expect(windows.findAnnotationNoteWindow(noteId)).toMatchObject({ownerViewId: 'tab-left'});
 
-        viewInUse = 'tab-right';
-        windows.handleOpenAnnotationNote(createComment());
+        windows.handleOpenAnnotationNote(createComment(), 'tab-right');
 
         await vi.waitFor(() => expect(deps.updateAnnotationCommentInViewer).toHaveBeenCalledWith(
             expect.anything(),
@@ -1730,10 +1728,7 @@ describe('document unsaved annotation state', () => {
     it('derives draft dirtiness without retaining reverted keystrokes or clearing accepted edits', async () => {
         const scope = effectScope();
         const session = scope.run(() => useWorkspaceAnnotationSession({
-            views: {
-                commandView: computed(() => null),
-                commandTabId: computed(() => null),
-            },
+            views: {pdfViewer: computed(() => null)},
             pdfDocument: ref(null),
             reportNoteFailure: vi.fn(),
         }))!;

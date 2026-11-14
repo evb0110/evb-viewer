@@ -109,12 +109,9 @@ describe('browser document lifecycle UI', () => {
             await page.evaluate(`(async () => {
                 const {browserDocumentStore: store} = await import('/_nuxt/platform/browserDocumentStore.ts');
                 const register = store.registerFileWithOwnership.bind(store);
-                store.registerFileWithOwnership = async (...args) => {
-                    const result = await register(...args);
-                    await store.assignSaveTarget(result.ref, 'original-scan.pdf', 'pdf', Reflect.get(window, '__optimizeOriginalHandle'));
-                    await store.getDocumentRevision(result.ref);
+                store.registerFileWithOwnership = async (file, options = {}) => {
                     store.registerFileWithOwnership = register;
-                    return result;
+                    return register(file, {...options, saveHandle: Reflect.get(window, '__optimizeOriginalHandle')});
                 };
             })()`);
             keepFileChooserInterceptionEnabled(page);

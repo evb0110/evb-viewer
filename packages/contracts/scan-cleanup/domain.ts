@@ -1,5 +1,12 @@
 import * as v from 'valibot';
 import type {
+    ManualZones,
+    NormalizedZonePoint,
+    NormalizedZonePolygon,
+    PictureZone,
+    TextAxisHint,
+} from '@contracts/scan-cleanup/nativeWire.generated';
+import type {
     SCAN_CLEANUP_LAYOUT_BY_PAGE_SCHEMA,
     SCAN_CLEANUP_OPTIONS_SCHEMA,
     SCAN_CLEANUP_PAGE_OVERRIDE_SCHEMA,
@@ -190,46 +197,16 @@ export const SCAN_CLEANUP_MANUAL_SKEW_MAX_DEGREES = 15;
 export const SCAN_CLEANUP_AUTO_DEWARP_DEPTH_MIN = 0.5;
 export const SCAN_CLEANUP_AUTO_DEWARP_DEPTH_MAX = 4;
 
-export interface IScanCleanupClusterDimensions {
-    widthPx: number;
-    heightPx: number;
-}
-
-export interface IScanCleanupReconciliationMetadata {
-    tier1Verdict: TScanCleanupLayoutClassification;
-    reconciled: boolean;
-    /** Positive when the page agrees with its cluster, negative when it remains in disagreement. */
-    clusterAgreement: number;
-}
-
-export interface IScanCleanupTextAxis {
-    sideways: boolean;
-    confidence: number;
-}
+export type IScanCleanupTextAxis = TextAxisHint;
 
 export type IScanCleanupPageOverride = v.InferOutput<typeof SCAN_CLEANUP_PAGE_OVERRIDE_SCHEMA>;
 
-export interface IScanCleanupNormalizedZonePoint {
-    xNormalized: number;
-    yNormalized: number;
-}
-
+export type IScanCleanupNormalizedZonePoint = NormalizedZonePoint;
 /** A polygon authored in normalized rotated-page coordinates. */
-export interface IScanCleanupNormalizedZonePolygon {
-    points: IScanCleanupNormalizedZonePoint[];
-    rotationDegrees: TScanCleanupPageRotation;
-}
-
-export interface IScanCleanupPictureZone {
-    polygon: IScanCleanupNormalizedZonePolygon;
-    layer: TScanCleanupPictureZoneLayer;
-}
-
+export type IScanCleanupNormalizedZonePolygon = NormalizedZonePolygon;
+export type IScanCleanupPictureZone = PictureZone;
 /** Picture layers apply in eraser1 → painter2 → eraser3 order; fill is binary. */
-export interface IScanCleanupManualZones {
-    picture: IScanCleanupPictureZone[];
-    fill: IScanCleanupNormalizedZonePolygon[];
-}
+export type IScanCleanupManualZones = ManualZones;
 
 export type TScanCleanupPageOverrides = Record<string, IScanCleanupPageOverride>;
 

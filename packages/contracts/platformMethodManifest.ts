@@ -4,8 +4,3 @@ import { PLATFORM_API_DESCRIPTOR } from '@contracts/platformApiDescriptor';
 // inventory lives in PLATFORM_API_DESCRIPTOR and is also the source for generated
 // browser forwarding artifacts, so a second hand-maintained list cannot drift.
 export const platformMethodDescriptorList = PLATFORM_API_DESCRIPTOR.methods;
-export const platformMethodManifest = platformMethodDescriptorList;
-
-export const directPlatformMemberPaths = platformMethodDescriptorList
-    .filter(descriptor => descriptor.browserLazy === 'direct')
-    .map(descriptor => descriptor.path);

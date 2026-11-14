@@ -92,8 +92,7 @@ describe('document workspace failure presentation (C4)', () => {
                 tabs: ref([{id: 'tab-a'}]),
             });
             const session = sessions.getSession('tab-a')!;
-            session.commitDocument({
-                fileName: 'a.pdf',
+            session.commitFile({
                 originalPath: requireDocumentRef('/docs/a.pdf'),
                 isDjvu: false,
                 revisionInfo: null,

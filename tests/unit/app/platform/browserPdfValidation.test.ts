@@ -13,6 +13,7 @@ import {
 } from 'vitest';
 import { BROWSER_MAX_FULL_READ_BYTES } from '@app/platform/browser/browserDocumentConstants';
 import {
+    getPdfLosslessOptimizationSkipReason,
     PDF_CONFORMANCE_MARKER_SCAN_CHUNK_BYTES,
     PDF_CONFORMANCE_MARKER_SCAN_OVERLAP_BYTES,
     scanPdfMarkerEvidence,
@@ -27,6 +28,7 @@ const browserDocumentStoreMock = vi.hoisted(() => ({
     requireEntry: vi.fn(async () => ({fileName: 'User $& file.pdf'})),
     read: vi.fn(),
     readRange: vi.fn(),
+    readableBlob: vi.fn(),
     getDocumentRevision: vi.fn(async () => ({token: 'revision-1'})),
     assertDocumentRevisionCurrent: vi.fn(async () => undefined),
 }));
@@ -47,7 +49,7 @@ vi.mock('@app/platform/browser-api/browserYield', async (importOriginal) => ({
     yieldToBrowser: vi.fn(async () => {}),
 }));
 // The worker runs the same page-ops WASM; this runs it in the test process.
-const runPageOpsInProcess = vi.hoisted(() => vi.fn(async (type: 'conformance', payload: {data: Uint8Array}) => {
+const runPageOpsInProcess = vi.hoisted(() => vi.fn(async (type: 'conformance', payload: {source: Blob}) => {
     const {
         isBrowserPageOpsWasmFailure,
         tryRunBrowserPageOpsWithWasm,
@@ -78,6 +80,7 @@ async function stubPageOpsWasmFetch() {
 function storeDocument(bytes: Uint8Array) {
     browserDocumentStoreMock.stat.mockResolvedValue({size: bytes.byteLength});
     browserDocumentStoreMock.read.mockResolvedValue(bytes);
+    browserDocumentStoreMock.readableBlob.mockResolvedValue(new Blob([bytes as BlobPart]));
     browserDocumentStoreMock.readRange.mockImplementation(
         async (_path: string, offset: number, length: number) => bytes.slice(offset, offset + length),
     );
@@ -184,21 +187,23 @@ describe('browserPdfValidation', () => {
         await expect(analyzeBrowserPdfConformance('/tmp/browser.pdf')).resolves.toMatchObject(expected);
     });
 
-    it('lets an unsigned signature field force Save As only through the full profile', async () => {
+    it('reads an unsigned signature field as unsigned for Save and Optimize alike', async () => {
         await stubPageOpsWasmFetch();
-        storeDocument(await createPdfConformanceFixture('unsigned-signature-field'));
+        const bytes = await createPdfConformanceFixture('unsigned-signature-field');
+        storeDocument(bytes);
 
-        const { analyzeBrowserPdfConformance } = await import('@app/platform/browser-api/browserPdfValidation');
-        await expect(analyzeBrowserPdfConformance('/tmp/browser.pdf')).resolves.toMatchObject({
-            isSigned: true,
-            hasAcroForm: true,
-        });
-        await expect(analyzeBrowserPdfConformance('/tmp/browser.pdf', {purpose: 'save-restrictions'})).resolves.toMatchObject({
+        const {
+            analyzeBrowserPdfConformance, analyzeBrowserPdfConformanceData,
+        } = await import('@app/platform/browser-api/browserPdfValidation');
+        const unsigned = {
             isSigned: false,
             hasAcroForm: true,
             canIncrementalSave: true,
             saveRestrictions: [],
-        });
+        };
+        await expect(analyzeBrowserPdfConformance('/tmp/browser.pdf')).resolves.toMatchObject(unsigned);
+        await expect(analyzeBrowserPdfConformance('/tmp/browser.pdf', {purpose: 'save-restrictions'})).resolves.toMatchObject(unsigned);
+        expect(getPdfLosslessOptimizationSkipReason(await analyzeBrowserPdfConformanceData(bytes))).toBeNull();
     });
 
     it('rejects a document whose structure cannot be read instead of guessing its facts', async () => {
@@ -262,15 +267,6 @@ describe('browserPdfValidation', () => {
         const { analyzeBrowserPdfConformance } = await import('@app/platform/browser-api/browserPdfValidation');
         expect(scanPdfMarkerEvidence(bytes).pdfaLevel).toBe('PDF/A-2B');
         await expect(analyzeBrowserPdfConformance('/tmp/browser.pdf')).resolves.toMatchObject({pdfaLevel: 'PDF/A-2B'});
-    });
-
-    it('refuses a document past the structural worker ceiling before reading it', async () => {
-        const {
-            analyzeBrowserPdfConformance, BROWSER_PDF_CONFORMANCE_MAX_INPUT_BYTES,
-        } = await import('@app/platform/browser-api/browserPdfValidation');
-        browserDocumentStoreMock.stat.mockResolvedValue({size: BROWSER_PDF_CONFORMANCE_MAX_INPUT_BYTES + 1});
-
-        await expect(analyzeBrowserPdfConformance('/tmp/browser.pdf')).rejects.toMatchObject({code: 'browser-byte-limit'});
     });
 
     it('refuses a profile for a document that changed while it was read', async () => {
@@ -395,17 +391,6 @@ describe('browserPdfValidation', () => {
         await expect(validateBrowserPdfPath('browser://documents/input', {purpose: 'save'})).resolves.toMatchObject({isValid: false});
         qpdfRun.mockRejectedValueOnce(new DOMException('reset', 'AbortError'));
         await expect(validateBrowserPdfData(Uint8Array.of(1))).rejects.toMatchObject({name: 'AbortError'});
-        expect(runPageOpsInProcess).not.toHaveBeenCalled();
-    });
-
-    it('admits the conformance payload only after accounting for its generated framing', async () => {
-        const {
-            analyzeBrowserPdfConformanceData, BROWSER_PDF_CONFORMANCE_MAX_INPUT_BYTES,
-        } = await import('@app/platform/browser-api/browserPdfValidation');
-        expect(BROWSER_PDF_CONFORMANCE_MAX_INPUT_BYTES).toBe(2147483627);
-        const data = Uint8Array.of(1);
-        Object.defineProperty(data, 'byteLength', {value: BROWSER_PDF_CONFORMANCE_MAX_INPUT_BYTES + 1});
-        await expect(analyzeBrowserPdfConformanceData(data)).rejects.toMatchObject({code: 'browser-byte-limit'});
         expect(runPageOpsInProcess).not.toHaveBeenCalled();
     });
 

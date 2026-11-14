@@ -1,17 +1,36 @@
 import type * as TBrowserWindowTabs from '@app/platform/browserWindowTabs';
 import {
+    mkdtemp,
+    rm,
+} from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { collectDocuments } from '@document-store/collectDocuments';
+import {
+    decodeManifest,
+    type IManifest,
+    isDirty,
+} from '@document-store/documentDirectory';
+import { createNodeStorePort } from '@document-store/nodeStorePort';
+import { readWorkspaceCheckpoints } from '@document-store/workspaceCheckpoint';
+import { browserDocumentStore as windowDocumentStore } from '@app/platform/browser/browserDocumentRepository';
+import { browserPublication } from '@app/platform/browser/browserPublication';
+import { createMemoryStorePort } from '@app/platform/browser/browserStorePort';
+import { nameBrowserWorkspaceDirectory } from '@app/platform/browser/browserWorkspaceRecovery';
+import {
     afterEach,
     beforeEach,
     describe,
     expect,
     it,
+    onTestFinished,
     vi,
 } from 'vitest';
 import {
-    FakeIndexedDbFactory,
+    createFileSystemFileHandle,
     MemoryStorage,
 } from '@tests/unit/app/platform/browserPlatformTestDoubles';
-import {BROWSER_PAGE_OPS_MAX_REQUEST_BYTES} from '@contracts/browserPageOpsLimits';
+import {MAX_DOCUMENT_ALLOCATION_BYTES} from '@contracts/electronApiDocuments';
 import {PDF_DECRYPT_PASSWORD_MAX_BYTES} from '@contracts/pdfDecryptSchemas';
 import type {IBrowserBatchOpenProgress} from '@app/platform/browser-api/createCombinedPdfFromPaths';
 import type * as TBrowserDocumentStore from '@app/platform/browserDocumentStore';
@@ -19,13 +38,6 @@ import {BrowserDocumentStore} from '@app/platform/browserDocumentStore';
 import * as workingCopyService from '@app/platform/browser-api/browserWorkingCopyService';
 
 const serviceState = vi.hoisted(() => ({store: null as BrowserDocumentStore | null}));
-
-// The real ceiling is a 2 GiB wasm32 allocation; the decrypt read budget is
-// derived from whatever it is, so a small one exercises the same refusal.
-vi.mock('@contracts/browserPageOpsLimits', () => ({
-    BROWSER_PAGE_OPS_MAX_REQUEST_BYTES: 4 * 1024 * 1024,
-    BROWSER_PAGE_OPS_MAX_OUTPUT_BYTES: 4 * 1024 * 1024,
-}));
 
 vi.mock('@app/platform/browserWindowTabs', async importOriginal => ({
     ...await importOriginal<typeof TBrowserWindowTabs>(),
@@ -68,8 +80,13 @@ vi.mock('@app/platform/browser-api/tryRunBrowserPageOpsWithWasm', () => ({
     ),
     tryRunBrowserPageOpsWithWasm: wasmRun,
 }));
+// The combine stores its output as the document the caller names; here its bytes come from `combinedPdfRun`.
 vi.mock('@app/platform/browser-api/createCombinedPdfFromPaths', () => ({
-    createCombinedPdfFromPaths: combinedPdfRun,
+    createCombinedPdfFromPaths: async (paths: string[], progress: unknown, output: {fileName: string}) => serviceState.store!.createStoredDocument(
+        output.fileName,
+        await combinedPdfRun(paths, progress),
+        {...output, mimeType: 'application/pdf', saveKind: 'pdf'},
+    ),
     emitBatchOpenProgress: emitBatchOpenProgressMock,
 }));
 const PDF_SOURCE_OPTIONS = {
@@ -97,7 +114,6 @@ describe('browser working-copy decryption', () => {
         vi.unstubAllGlobals();
         vi.restoreAllMocks();
         vi.clearAllMocks();
-        vi.stubGlobal('indexedDB', new FakeIndexedDbFactory());
         vi.stubGlobal('window', {localStorage: new MemoryStorage()});
         vi.stubGlobal('document', {cookie: ''});
         serviceState.store = new BrowserDocumentStore();
@@ -137,6 +153,69 @@ describe('browser working-copy decryption', () => {
             password: 'correct-password',
         }, expect.any(Function));
         await expect(browserDocumentStore.read(workingPath)).resolves.toEqual(DECRYPTED_PDF);
+    });
+
+    it('opens encrypted PDFs without making them recoverable: no file starts clean, a picked file stays unnamed until its first edit', async () => {
+        const {
+            browserDocumentStore,
+            openDocumentPaths,
+        } = await loadService();
+        // A durable store on disk, shared with the window checkpoint writer, so its persisted checkpoint can be read.
+        const root = await mkdtemp(join(process.env.TMPDIR ?? tmpdir(), 'working-copy-open-'));
+        onTestFinished(() => rm(root, {recursive: true, force: true}));
+        const durable = {port: createNodeStorePort(root), publication: browserPublication};
+        const stores = {durable, memory: {port: createMemoryStorePort(), publication: browserPublication}};
+        vi.spyOn(browserDocumentStore, 'stores').mockResolvedValue(stores);
+        vi.spyOn(windowDocumentStore, 'stores').mockResolvedValue(stores);
+        const windowId = 'opened-documents-window';
+        browserDocumentStore.onDirectoryEdited = id => nameBrowserWorkspaceDirectory(windowId, id);
+        const named = async () => Object.values((await readWorkspaceCheckpoints(durable.port)).get(windowId)?.tabs ?? {}).map(tab => tab.directory);
+        // What a reload's collection does with `id` alone: removed, kept as unsaved work for recovery, or neither.
+        const collect = (id: string) => collectDocuments(durable, async other => (other === id ? () => {} : null));
+        const sourcePath = await browserDocumentStore.createStoredDocument('protected.pdf', ENCRYPTED_PDF, PDF_SOURCE_OPTIONS);
+        const manifests: IManifest[] = [];
+        const writeAtomic = durable.port.writeAtomic.bind(durable.port);
+        vi.spyOn(durable.port, 'writeAtomic').mockImplementation(async (path, bytes) => {
+            if (path.endsWith('/manifest.json')) manifests.push(decodeManifest(bytes));
+            return writeAtomic(path, bytes);
+        });
+        const openPicked = async () => {
+            const handle = createFileSystemFileHandle({
+                name: 'picked.pdf',
+                getFile: async () => new File([ENCRYPTED_PDF], 'picked.pdf', {lastModified: 1}),
+            });
+            const pickedPath = await browserDocumentStore.registerFile(await handle.getFile(), {...PDF_SOURCE_OPTIONS, saveHandle: handle});
+            wasmRun.mockResolvedValueOnce({data: DECRYPTED_PDF, pageCount: 1});
+            const opened = await openDocumentPaths([pickedPath], undefined, 'correct-password');
+            if (opened?.kind !== 'pdf') throw new Error('Expected an opened PDF');
+            return {workingPath: opened.workingPath, doc: (await browserDocumentStore.requireEntry(opened.workingPath)).doc!};
+        };
+        wasmRun.mockResolvedValueOnce({
+            data: DECRYPTED_PDF,
+            pageCount: 1,
+        });
+
+        const result = await openDocumentPaths([sourcePath], undefined, 'correct-password');
+        if (result?.kind !== 'pdf') throw new Error('Expected an opened PDF');
+
+        expect(result).toMatchObject({wasEncrypted: true});
+        expect(manifests).not.toHaveLength(0);
+        expect(manifests.filter(isDirty)).toEqual([]);
+        await expect(browserDocumentStore.read(result.workingPath)).resolves.toEqual(DECRYPTED_PDF);
+        const unedited = await openPicked();
+        // The picked file stays the baseline Save checks, so the decrypted copy differs from it, yet no edit named it.
+        expect(unedited.doc.state()).toMatchObject({dirty: true, destination: expect.stringMatching(/^handle:/u)});
+        expect((await browserDocumentStore.requireEntry(unedited.workingPath)).memoryOnly).toBe(false);
+        expect(await named()).toEqual([]);
+        expect((await collect(unedited.doc.id)).removed).toEqual([unedited.doc.id]);
+        const noFile = (await browserDocumentStore.requireEntry(result.workingPath)).doc!;
+        expect((await collect(noFile.id)).removed).toEqual([noFile.id]);
+
+        const edited = await openPicked();
+        const {token} = await browserDocumentStore.getDocumentRevision(edited.workingPath);
+        await browserDocumentStore.write(edited.workingPath, new TextEncoder().encode('%PDF-1.7\nedited\n'), {expectedDocumentRevisionToken: token});
+        expect(await named()).toEqual([edited.doc.id]);
+        expect(await collect(edited.doc.id)).toEqual({removed: [], unsaved: [edited.doc.id]});
     });
 
     it('returns a typed wrong-password result without changing the encrypted working copy', async () => {
@@ -241,26 +320,24 @@ describe('browser working-copy decryption', () => {
         await expect(browserDocumentStore.requireEntry(remove.mock.calls[0]![0])).rejects.toThrow();
     });
 
-    it('rejects encrypted inputs whose framed request exceeds the WASM budget', async () => {
+    it('refuses an encrypted input above the unlock budget before reading it, naming the desktop app', async () => {
         const {
             browserDocumentStore,
             decryptBrowserWorkingCopy,
         } = await loadService();
-        const oversizedPdf = new Uint8Array(BROWSER_PAGE_OPS_MAX_REQUEST_BYTES);
-        oversizedPdf.set(
-            Uint8Array.from(new TextEncoder().encode('%PDF-1.7\n/Encrypt')),
-        );
         const workingPath = await browserDocumentStore.createStoredDocument(
             'large.pdf',
-            oversizedPdf,
+            new TextEncoder().encode('%PDF-1.7\n/Encrypt'),
             {
                 ...PDF_SOURCE_OPTIONS,
                 kind: 'working',
             },
         );
+        vi.spyOn(browserDocumentStore, 'stat').mockResolvedValue({size: MAX_DOCUMENT_ALLOCATION_BYTES + 1, modifiedAt: 0});
+        const read = vi.spyOn(browserDocumentStore, 'read');
 
-        await expect(decryptBrowserWorkingCopy(workingPath))
-            .rejects.toThrow('Browser document is too large to load fully into memory');
+        await expect(decryptBrowserWorkingCopy(workingPath)).rejects.toThrow('Open it in the desktop app');
+        expect(read).not.toHaveBeenCalled();
         expect(wasmRun).not.toHaveBeenCalled();
     });
 

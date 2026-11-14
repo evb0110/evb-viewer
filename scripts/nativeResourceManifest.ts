@@ -1,5 +1,4 @@
 import { BUNDLED_OCR_LANGUAGE_CODES } from '@contracts/ocrLanguages';
-import {TESSERACT_PDF_FONT_FILE_NAME} from '@scripts/tesseractPdfFont';
 
 const NATIVE_RESOURCE_PLATFORMS = [
     'darwin',
@@ -24,7 +23,6 @@ export type TNativeResourcePlatformArch = `${TNativeResourcePlatform}-${TNativeR
 type TNativeResourcePathType = 'directory' | 'file';
 
 export const NATIVE_TOOL_RESOURCE_FAMILY_IDS = [
-    'tesseract',
     'poppler',
     'qpdf',
     'djvulibre',
@@ -152,16 +150,6 @@ function packagedPath(
 
 export const NATIVE_TOOL_RESOURCE_FAMILIES: readonly INativeToolResourceFamily[] = [
     {
-        id: 'tesseract',
-        label: 'Tesseract native tools',
-        packagedEntries: [packagedBinary('tesseract')],
-        sourceRootSegments: [
-            'resources',
-            'tesseract',
-        ],
-        stagedRootSegments: ['tesseract'],
-    },
-    {
         id: 'poppler',
         label: 'Poppler native tools',
         packagedEntries: [
@@ -265,7 +253,6 @@ export const GLOBAL_PACKAGED_RESOURCES: readonly IGlobalPackagedResource[] = [
         filters: BUNDLED_OCR_LANGUAGE_CODES.map(code => `${code}.traineddata`),
         id: 'tessdata',
         label: 'tessdata directory',
-        requiredFiles: [TESSERACT_PDF_FONT_FILE_NAME],
         sourceSegments: [
             'resources',
             'tesseract',

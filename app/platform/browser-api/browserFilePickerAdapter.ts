@@ -7,6 +7,7 @@ import type { IFilePickerAcceptType } from '@app/platform/browser-api/browserFil
 import { toBrowserOwnedArrayBuffer } from '@app/platform/browser-api/browserPlatformHelpers';
 import { yieldToBrowser } from '@app/platform/browser-api/browserYield';
 import { resolveBrowserCapabilityTier } from '@app/platform/browser/browserCapabilityTier';
+import { downloadBlob as downloadPublishedBlob } from '@app/platform/browser/browserPublication';
 import {
     safeGetSessionStorageItem,
     safeSetSessionStorageItem,
@@ -74,13 +75,6 @@ function createBrowserFileWritePermissionError() {
     return new Error(
         'Browser write permission was not granted for this file. '
         + 'Choose Save changes in the browser prompt, or use Save As to pick a new output file.',
-    );
-}
-
-function createBrowserFileWritePermissionChangedError() {
-    return new Error(
-        'Browser write permission for this file changed while the save waited for other saves. '
-        + 'Save again to be asked for write permission.',
     );
 }
 
@@ -183,14 +177,6 @@ export async function ensureFileHandleWritePermission(handle: FileSystemFileHand
     }
 }
 
-// For the physical-save lock: a grant lost while the save waited is a retryable
-// failure here. A prompt inside the lock would block every other window's save.
-async function assertFileHandleWriteGranted(handle: FileSystemFileHandle) {
-    if (await queryFileHandleWritePermission(handle) !== 'granted') {
-        throw createBrowserFileWritePermissionChangedError();
-    }
-}
-
 function shouldUseFileSystemAccessOpenPicker(preferFileSystemAccess: boolean) {
     if (!preferFileSystemAccess) {
         return false;
@@ -273,7 +259,6 @@ export async function pickFiles(options: {
 function pickInputFiles(options: {
     accept: string;
     multiple?: boolean;
-    directory?: boolean;
 }) {
     if (typeof document === 'undefined' || typeof window === 'undefined') {
         return Promise.resolve(null);
@@ -350,7 +335,6 @@ function pickInputFiles(options: {
         input.type = 'file';
         input.accept = options.accept;
         input.multiple = options.multiple ?? false;
-        input.webkitdirectory = options.directory ?? false;
         input.style.display = 'none';
         const supportsCancelEvent = 'oncancel' in input;
         if (supportsCancelEvent) {
@@ -378,57 +362,6 @@ function pickInputFiles(options: {
     });
 }
 
-type TBrowserDirectoryPicker = (options?: {mode?: 'read'}) => Promise<FileSystemDirectoryHandle>;
-
-function isFileHandle(handle: FileSystemHandle): handle is FileSystemFileHandle {
-    return handle.kind === 'file';
-}
-
-/**
- * The files directly inside a folder the reader chooses, unsorted, or null
- * when the choice was cancelled. A directory input stands in where the browser
- * has no directory picker; it lists subfolders' files too, which are dropped.
- */
-export async function pickFolderFiles(): Promise<IPickedBrowserFile[] | null> {
-    const showDirectoryPicker = typeof window === 'undefined'
-        ? undefined
-        : (window as Window & {showDirectoryPicker?: TBrowserDirectoryPicker}).showDirectoryPicker;
-    if (typeof showDirectoryPicker === 'function' && shouldUseFileSystemAccessOpenPicker(true)) {
-        try {
-            const directory = await showDirectoryPicker.call(window, {mode: 'read'});
-            const picked: IPickedBrowserFile[] = [];
-            for await (const handle of directory.values()) {
-                if (isFileHandle(handle)) {
-                    picked.push({
-                        file: await handle.getFile(),
-                        handle,
-                    });
-                }
-            }
-            return picked;
-        } catch (error) {
-            if (error instanceof DOMException && error.name === 'AbortError') {
-                return null;
-            }
-            if (isFileSystemAccessDeniedError(error)) {
-                rememberInputOpenPickerMode();
-                throw createBrowserFilePickerSetupDeniedError();
-            }
-            throw error;
-        }
-    }
-    const files = await pickInputFiles({
-        accept: '',
-        multiple: true,
-        directory: true,
-    });
-    return files?.filter(file => !file.webkitRelativePath || file.webkitRelativePath.split('/').length === 2)
-        .map(file => ({
-            file,
-            handle: null,
-        })) ?? null;
-}
-
 export async function pickSingleFile(options: {
     accept: string;
     pickerTypes?: IFilePickerAcceptType[];
@@ -441,16 +374,7 @@ export async function pickSingleFile(options: {
 // immediately before it; nothing can take a dispatched download back.
 function downloadBlob(blob: Blob, fileName: string, signal?: AbortSignal) {
     throwIfAborted(signal);
-    const href = URL.createObjectURL(blob);
-    const anchor = document.createElement('a');
-    anchor.href = href;
-    anchor.download = fileName;
-    anchor.rel = 'noopener';
-    anchor.style.display = 'none';
-    document.body.append(anchor);
-    anchor.click();
-    anchor.remove();
-    window.setTimeout(() => URL.revokeObjectURL(href), 1_000);
+    downloadPublishedBlob(blob, fileName);
 }
 
 /**
@@ -490,9 +414,10 @@ export async function downloadBrowserDocument(
     downloadBlob(await readBrowserDocumentBlob(ref, mimeType, signal), fileName, signal);
 }
 
-/** Downloads bytes already in hand. It never opens a picker. */
-export function downloadBrowserBytes(bytes: Uint8Array, fileName: string, mimeType: string, signal?: AbortSignal) {
-    downloadBlob(new Blob([toBrowserOwnedArrayBuffer(bytes)], { type: mimeType }), fileName, signal);
+/** Downloads bytes already in hand, or a Blob read in place. It never opens a picker. */
+export function downloadBrowserBytes(bytes: Uint8Array | Blob, fileName: string, mimeType: string, signal?: AbortSignal) {
+    const blob = bytes instanceof Blob ? bytes.slice(0, bytes.size, mimeType) : new Blob([toBrowserOwnedArrayBuffer(bytes)], { type: mimeType });
+    downloadBlob(blob, fileName, signal);
 }
 
 export type TBrowserOutputTarget =
@@ -729,7 +654,7 @@ export async function pickSaveTarget(options: {
 }
 
 export async function saveBytesToPickerOrDownload(
-    bytes: Uint8Array,
+    bytes: Uint8Array | Blob,
     options: {
         suggestedName: string;
         mimeType: string;
@@ -738,7 +663,7 @@ export async function saveBytesToPickerOrDownload(
     },
 ) {
     return saveBlobToPickerOrDownload(
-        new Blob([toBrowserOwnedArrayBuffer(bytes)], { type: options.mimeType }),
+        bytes instanceof Blob ? bytes : new Blob([toBrowserOwnedArrayBuffer(bytes)], { type: options.mimeType }),
         options.suggestedName,
         options.pickerTypes,
         options.signal === undefined ? {} : {signal: options.signal},
@@ -747,7 +672,7 @@ export async function saveBytesToPickerOrDownload(
 
 export async function writeBytesToHandle(
     handle: FileSystemFileHandle,
-    data: Uint8Array,
+    data: Uint8Array | Blob,
     signal?: AbortSignal,
 ) {
     throwIfAborted(signal);
@@ -755,28 +680,17 @@ export async function writeBytesToHandle(
     await writeBytesAfterPermission(handle, data, signal);
 }
 
-// Inside the physical-save lock, after the caller's preflight. It never prompts.
-// The grant is checked before a writer exists, so a conflict or cancellation has no
-// writer to abort.
-export async function writeBytesToHandleInSaveLock(
-    handle: FileSystemFileHandle,
-    data: Uint8Array,
-    signal?: AbortSignal,
-) {
-    throwIfAborted(signal);
-    await assertFileHandleWriteGranted(handle);
-    await writeBytesAfterPermission(handle, data, signal);
-}
-
 async function writeBytesAfterPermission(
     handle: FileSystemFileHandle,
-    data: Uint8Array,
+    data: Uint8Array | Blob,
     signal?: AbortSignal,
 ) {
     throwIfAborted(signal);
     const writable = await handle.createWritable();
     try {
-        await writeBrowserFileChunks(writable, data, signal);
+        // A Blob, such as a stored file, streams from where it is.
+        if (data instanceof Blob) await writable.write(data);
+        else await writeBrowserFileChunks(writable, data, signal);
     } catch (error) {
         await abortAfterBrowserFileWriteError(writable, error);
     }
@@ -784,12 +698,11 @@ async function writeBytesAfterPermission(
     await closeBrowserFileWritable(writable);
 }
 
-// Inside the physical-save lock, after the caller's preflight. It never prompts.
+/** Streams a stored document into `handle`; the caller asked for write permission first. */
 export async function writeDocumentRefToHandle(
     handle: FileSystemFileHandle,
     ref: TDocumentRef,
 ) {
-    await assertFileHandleWriteGranted(handle);
     const writable = await handle.createWritable();
     let size = 0;
     try {

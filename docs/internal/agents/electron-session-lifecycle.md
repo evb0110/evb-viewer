@@ -28,13 +28,12 @@ folder: a session or E2E run uses `.devkit/sessions/<name>/app-state/`, a
 packaged run `<work-directory>/app-state/`, and unit tests the OS temp folder.
 A launch that sets only `EVB_AUTOMATION_USER_DATA_DIR` keeps the folder inside
 that profile (`<profile>/evb-viewer-state`). No automation run reads, writes or
-sweeps the person's folder. Releases before
-2026-10 kept the namespace in the OS temp folder, which startup still reads
-and then sweeps. The namespace has mode 0700 and an
+sweeps the person's folder. The namespace has mode 0700 and an
 `.evb-app-temp-owner.json` marker containing the namespace, profile path,
-process id, and start time. Working copies with their save journals, export
-recovery records, OCR scratch directories, and other managed data live below
-that namespace.
+process id and start time. The [document store](../../../packages/document-store/README.md),
+export recovery records, OCR scratch directories and other managed data live
+below that namespace. Document revisions and drafts commit through their
+manifest, and workspace checkpoints name their directories.
 
 ## Exit
 

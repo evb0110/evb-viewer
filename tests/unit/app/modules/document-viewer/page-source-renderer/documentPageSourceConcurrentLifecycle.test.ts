@@ -98,7 +98,7 @@ function createFeaturePackHost(
     return defineComponent({
         name: 'DocumentPageSourceFeaturePackHost',
         setup() {
-            const authority = createDocumentViewerRuntime(ref('djvu'), 1, surface);
+            const authority = createDocumentViewerRuntime(ref('djvu'), surface);
             const totalPages = ref(0);
             const isLoading = ref(false);
             const settle = useDocumentOpenVisualSettle({
@@ -135,7 +135,6 @@ function createFeaturePackHost(
                         'data-page-number': String(surface.viewportSession.value.requestedPage),
                     }),
                     h(DocumentPageSourceFeaturePack, {
-                        currentPage: 1,
                         documentRevisionToken: requireDocumentRevisionToken(`revision:${documentRef}`),
                         isActive: isActive.value,
                         isResizing: isResizing.value,

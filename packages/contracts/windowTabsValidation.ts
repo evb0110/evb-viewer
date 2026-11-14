@@ -343,11 +343,6 @@ export function decodeWindowTabPaneDirection(value: unknown): v.InferOutput<type
     return result.success ? result.output : null;
 }
 
-export function decodeWindowTabTransferRequest(value: unknown): IWindowTabTransferRequest | null {
-    const result = v.safeParse(windowTabTransferRequestSchema, value, {abortEarly: true});
-    return result.success ? result.output : null;
-}
-
 export function decodeWindowTabIncomingTransfer(value: unknown): IWindowTabIncomingTransfer | null {
     const result = v.safeParse(windowTabIncomingTransferSchema, value, {abortEarly: true});
     return result.success ? result.output : null;
@@ -355,20 +350,5 @@ export function decodeWindowTabIncomingTransfer(value: unknown): IWindowTabIncom
 
 export function decodeWindowTabsAction(value: unknown): TWindowTabsAction | null {
     const result = v.safeParse(windowTabsActionSchema, value, {abortEarly: true});
-    return result.success ? result.output : null;
-}
-
-export function decodeWindowTabTransferAck(value: unknown): IWindowTabTransferAck | null {
-    const result = v.safeParse(windowTabTransferAckSchema, value, {abortEarly: true});
-    return result.success ? result.output : null;
-}
-
-export function decodeWindowTabTransferResult(value: unknown): IWindowTabTransferResult | null {
-    const result = v.safeParse(windowTabTransferResultSchema, value, {abortEarly: true});
-    return result.success ? result.output : null;
-}
-
-export function decodeWindowTabTargetWindows(value: unknown): IWindowTabTargetWindow[] | null {
-    const result = v.safeParse(windowTabTargetWindowsSchema, value, {abortEarly: true});
     return result.success ? result.output : null;
 }

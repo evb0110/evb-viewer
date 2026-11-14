@@ -288,27 +288,6 @@ impl<'a> Decoder<'a> {
         self.stuffed
     }
 
-    /// Bits this decode has shifted out of the C register past the last bit its
-    /// payload really supplied.
-    ///
-    /// [`Self::stuffed`] counts the same overrun in whole synthesized bytes,
-    /// which overstates it: the register runs up to two bytes ahead of the bits
-    /// any decision has consumed, so a stream can load a synthesized byte and
-    /// terminate without ever shifting it back out. This is that quantity at
-    /// bit resolution, and zero means the decode is still running entirely on
-    /// payload bits.
-    ///
-    /// `byte_in` raises `ct` by the number of bits its load contributed and
-    /// every renormalization shift lowers `ct` by one, so `real bits loaded -
-    /// shifts` holds at `ct + 8`, the 8 being the first byte, which
-    /// [`Self::new`] loads outside `byte_in`. The one exception is that a
-    /// synthesized load raises `ct` by 8 bits it never supplied. Inverting
-    /// that identity gives the overrun.
-    pub(crate) fn synthesized_bits(&self) -> u32 {
-        let consumed_past_payload = 8 * i64::from(self.stuffed) - i64::from(self.ct) - 8;
-        u32::try_from(consumed_past_payload).unwrap_or(0)
-    }
-
     fn byte_in(&mut self) {
         let current = self.data[self.byte_position];
         if current == 0xff {
