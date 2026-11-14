@@ -1,6 +1,7 @@
 //! Writes a document as one fresh revision. Dictionaries are serialized with
-//! lopdf's syntax; a stream held without its data is copied from its source
-//! byte range.
+//! lopdf's syntax, each real as its source spelled it while it holds the number
+//! read there; a stream held without its data is copied from its source byte
+//! range.
 use super::*;
 
 /// The largest offset a classic cross-reference entry's ten digits hold.
@@ -26,10 +27,12 @@ impl<W: Write> Write for Counting<W> {
 }
 
 /// Writes `document`; `raw(id)` names the source range of a stream that the
-/// document holds as a dictionary with an empty body.
-pub(crate) fn write_document<'a, S: ByteSource + 'a, W: Write>(
+/// document holds as a dictionary with an empty body, and `spelling(id, path,
+/// value)` the source token of the real at `path` in object `id`.
+pub(crate) fn write_document<'a, 's, S: ByteSource + 'a, W: Write>(
     document: &Document,
     raw: impl Fn(ObjectId) -> Option<(&'a S, u64, u64)>,
+    spelling: impl Fn(ObjectId, &[u8], f32) -> Option<&'s str>,
     output: W,
 ) -> Result<W> {
     let stream_len = |id: &ObjectId, stream: &Stream| match raw(*id) {
@@ -54,13 +57,15 @@ pub(crate) fn write_document<'a, S: ByteSource + 'a, W: Write>(
     writeln!(out, "%PDF-{version}")?;
     out.write_all(b"%\xE2\xE3\xCF\xD3\n")?;
     let mut offsets = Vec::with_capacity(document.objects.len() + 1);
+    let mut path = Vec::new();
     for (id, object) in &document.objects {
+        let real = |path: &[u8], value| spelling(*id, path, value);
         offsets.push((*id, out.written));
         writeln!(out, "{} {} obj", id.0, id.1)?;
         if let Object::Stream(stream) = object {
             let mut dictionary = stream.dict.clone();
             dictionary.set("Length", i64::try_from(stream_len(id, stream))?);
-            write_dictionary(&mut out, &dictionary)?;
+            write_dictionary(&mut out, &dictionary, &mut path, &real)?;
             out.write_all(b"stream\n")?;
             match raw(*id).filter(|_| stream.content.is_empty()) {
                 Some((source, offset, len)) => {
@@ -71,7 +76,7 @@ pub(crate) fn write_document<'a, S: ByteSource + 'a, W: Write>(
             }
             out.write_all(b"\nendstream")?;
         } else {
-            write_object(&mut out, object)?;
+            write_object(&mut out, object, &mut path, &real)?;
         }
         out.write_all(b"\nendobj\n")?;
     }
@@ -109,7 +114,7 @@ pub(crate) fn write_document<'a, S: ByteSource + 'a, W: Write>(
         trailer.set("Index", index);
         trailer.set("Length", content.len() as i64);
         writeln!(out, "{size} 0 obj")?;
-        write_dictionary(&mut out, &trailer)?;
+        write_dictionary(&mut out, &trailer, &mut path, &|_, _| None)?;
         out.write_all(b"stream\n")?;
         out.write_all(&content)?;
         out.write_all(b"\nendstream\nendobj\n")?;
@@ -129,7 +134,7 @@ pub(crate) fn write_document<'a, S: ByteSource + 'a, W: Write>(
         }
         trailer.set("Size", i64::from(size));
         out.write_all(b"trailer\n")?;
-        write_dictionary(&mut out, &trailer)?;
+        write_dictionary(&mut out, &trailer, &mut path, &|_, _| None)?;
         out.write_all(b"\n")?;
     }
     write!(out, "startxref\n{xref_offset}\n%%EOF\n")?;
@@ -148,12 +153,23 @@ fn need_separator(object: &Object) -> bool {
     )
 }
 
-fn write_object(out: &mut impl Write, object: &Object) -> Result<()> {
+/// How the source spelled the real at a path of the object being written.
+type Spelling<'r, 's> = &'r dyn Fn(&[u8], f32) -> Option<&'s str>;
+
+fn write_object(
+    out: &mut impl Write,
+    object: &Object,
+    path: &mut Vec<u8>,
+    real: Spelling,
+) -> Result<()> {
     match object {
         Object::Null => out.write_all(b"null")?,
         Object::Boolean(value) => out.write_all(if *value { b"true" } else { b"false" })?,
         Object::Integer(value) => write!(out, "{value}")?,
-        Object::Real(value) => write!(out, "{value}")?,
+        Object::Real(value) => match real(path, *value) {
+            Some(text) => out.write_all(text.as_bytes())?,
+            None => write!(out, "{value}")?,
+        },
         Object::Name(name) => write_name(out, name)?,
         Object::String(text, StringFormat::Literal) => write_literal_string(out, text)?,
         Object::String(text, StringFormat::Hexadecimal) => {
@@ -169,25 +185,36 @@ fn write_object(out: &mut impl Write, object: &Object) -> Result<()> {
                 if index > 0 && need_separator(item) {
                     out.write_all(b" ")?;
                 }
-                write_object(out, item)?;
+                let mark = path.len();
+                path_index(path, index);
+                write_object(out, item, path, real)?;
+                path.truncate(mark);
             }
             out.write_all(b"]")?;
         }
-        Object::Dictionary(dictionary) => write_dictionary(out, dictionary)?,
+        Object::Dictionary(dictionary) => write_dictionary(out, dictionary, path, real)?,
         Object::Stream(_) => return Err("A stream cannot be written as a direct object".into()),
         Object::Reference(id) => write!(out, "{} {} R", id.0, id.1)?,
     }
     Ok(())
 }
 
-fn write_dictionary(out: &mut impl Write, dictionary: &Dictionary) -> Result<()> {
+fn write_dictionary(
+    out: &mut impl Write,
+    dictionary: &Dictionary,
+    path: &mut Vec<u8>,
+    real: Spelling,
+) -> Result<()> {
     out.write_all(b"<<")?;
     for (key, value) in dictionary.iter() {
         write_name(out, key)?;
         if need_separator(value) {
             out.write_all(b" ")?;
         }
-        write_object(out, value)?;
+        let mark = path.len();
+        path_key(path, key);
+        write_object(out, value, path, real)?;
+        path.truncate(mark);
     }
     out.write_all(b">>")?;
     Ok(())

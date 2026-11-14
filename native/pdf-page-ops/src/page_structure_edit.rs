@@ -67,7 +67,7 @@ pub(crate) enum PageStructureEdit<'a> {
 
 /// A page-structure output before it is written: its objects, and for each
 /// copied object the source object it copies, whose stream data the writer
-/// takes from the source by byte range.
+/// takes from the source by byte range and whose reals it spells as there.
 pub(crate) struct PageSubset {
     pub(crate) document: Document,
     origins: HashMap<ObjectId, (usize, ObjectId)>,
@@ -80,7 +80,12 @@ impl PageSubset {
         sources: &[SourcePdf<S>],
         output: W,
     ) -> Result<W> {
-        write_document(&self.document, |id| self.raw(sources, id), output)
+        write_document(
+            &self.document,
+            |id| self.raw(sources, id),
+            |id, path, value| self.spelling(sources, id, path, value),
+            output,
+        )
     }
 
     /// Checks the `len` bytes `write` wrote to `output`; see `verify_written`.
@@ -102,7 +107,31 @@ impl PageSubset {
         let (index, source_id) = self.origins.get(&id)?;
         sources.get(*index)?.stream_range(*source_id)
     }
+
+    /// How the source spelled the real at `path` of output object `id`. A
+    /// page's inherited property is spelled where the page inherits it from.
+    fn spelling<'a, S: ByteSource>(
+        &self,
+        sources: &'a [SourcePdf<S>],
+        id: ObjectId,
+        path: &[u8],
+        value: f32,
+    ) -> Option<&'a str> {
+        let (index, id) = *self.origins.get(&id)?;
+        let source = sources.get(index)?;
+        source.spelling(id, path, value).or_else(|| {
+            let key = path_first_key(path).filter(|key| INHERITABLE_PAGE_KEYS.contains(key))?;
+            source.spelling(
+                inherited_owner(&source.document, id, key).ok()??,
+                path,
+                value,
+            )
+        })
+    }
 }
+
+/// The page properties a page takes from its ancestors when it lacks them.
+const INHERITABLE_PAGE_KEYS: [&[u8]; 4] = [b"MediaBox", b"CropBox", b"Resources", b"Rotate"];
 
 pub(crate) fn edit_page_structure<S>(
     edit: PageStructureEdit,
@@ -112,6 +141,9 @@ pub(crate) fn edit_page_structure<S>(
         .iter()
         .map(|source| &source.document)
         .collect::<Vec<_>>();
+    for document in &documents {
+        validate_page_tree(document)?;
+    }
     let (document, others) = documents
         .split_first()
         .ok_or("A page-structure edit needs an input PDF")?;
@@ -194,8 +226,33 @@ pub(crate) fn edit_page_structure<S>(
     }
 }
 
+/// Refuses a source whose pages a reader could number differently: every
+/// leaf of its page tree is a page, appears once, and sits where the declared
+/// counts place it, so the edit numbers pages as a viewer shows them.
+fn validate_page_tree(document: &Document) -> Result<()> {
+    let damaged = |error: Box<dyn Error>| {
+        domain_error(
+            NativeErrorCode::CorruptXref,
+            format!("The page tree is damaged: {error}"),
+        )
+    };
+    let tree = PageTreeResolver::new(document).map_err(damaged)?;
+    let mut leaves = HashSet::new();
+    tree.for_each_page_id(document, |page| {
+        let number = leaves.len() as u32 + 1;
+        if !leaves.insert(page) {
+            return Err(format!("page {} {} R appears twice", page.0, page.1).into());
+        }
+        if tree.page_id(document, number)? != page {
+            return Err(format!("its counts place another page at {number}").into());
+        }
+        Ok(())
+    })
+    .map_err(damaged)
+}
+
 /// Every page of every input in order, each input's outline offset to its
-/// pages.
+/// pages. The main outline is rebuilt only when another input adds to it.
 fn merge_pages(documents: &[&Document]) -> Result<PageSubset> {
     let mut sequence = Vec::new();
     for (document_index, document) in documents.iter().enumerate() {
@@ -210,11 +267,19 @@ fn merge_pages(documents: &[&Document]) -> Result<PageSubset> {
         );
     }
     let mut merged = page_subset(documents, &sequence, false)?;
-    let mut page_offset = 0u32;
-    let mut bookmarks = Vec::new();
-    for document in documents {
+    let appended = documents[1..]
+        .iter()
+        .map(|document| read_pdf_outline(*document, false))
+        .collect::<Result<Vec<_>>>()?;
+    // Without bookmarks to append, the main outline stays as it was copied.
+    if appended.iter().all(Vec::is_empty) {
+        return Ok(merged);
+    }
+    let mut page_offset = documents[0].get_pages().len() as u32;
+    let mut bookmarks = read_pdf_outline(documents[0], false)?;
+    for (document, outline) in documents[1..].iter().zip(appended) {
         bookmarks.extend(
-            read_pdf_outline(*document, false)?
+            outline
                 .into_iter()
                 .map(|bookmark| offset_bookmark(bookmark, page_offset)),
         );
@@ -350,7 +415,10 @@ fn page_subset(
                         .object_map
                         .get(&(0, id))
                         .ok_or("Retained annotation was not cloned")?;
-                    annotations.entry(id).or_default().push((output_page, copy));
+                    // A widget pages share is one copy, so one membership.
+                    annotations
+                        .entry(id)
+                        .or_insert_with(|| vec![(output_page, copy)]);
                 }
             }
         }
@@ -394,14 +462,22 @@ fn page_subset(
         clone_context.target.set_object(id, object);
     }
     clone_context.target.prune_objects();
-
+    let mut origins = clone_context
+        .object_map
+        .into_iter()
+        .map(|(source, target)| (target, source))
+        .collect::<HashMap<_, _>>();
+    // The catalog keeps the main source's entries, and their spellings.
+    if let Ok(root) = sources[0]
+        .trailer
+        .get(b"Root")
+        .and_then(Object::as_reference)
+    {
+        origins.insert(catalog_id, (0, root));
+    }
     Ok(PageSubset {
         page_count: page_ids.len() as u32,
-        origins: clone_context
-            .object_map
-            .into_iter()
-            .map(|(source, target)| (target, source))
-            .collect(),
+        origins,
         document: clone_context.target,
     })
 }
@@ -651,34 +727,15 @@ impl PageCloneContext<'_> {
 
         let source_document = self.source(source.document_index)?;
         let mut page = source_document.get_dictionary(source.page_id)?.clone();
-        materialize_page_inherited_object(
-            source_document,
-            source.page_id,
-            &mut page,
-            b"MediaBox",
-            true,
-        )?;
-        materialize_page_inherited_object(
-            source_document,
-            source.page_id,
-            &mut page,
-            b"CropBox",
-            false,
-        )?;
-        materialize_page_inherited_object(
-            source_document,
-            source.page_id,
-            &mut page,
-            b"Resources",
-            false,
-        )?;
-        materialize_page_inherited_object(
-            source_document,
-            source.page_id,
-            &mut page,
-            b"Rotate",
-            false,
-        )?;
+        for key in INHERITABLE_PAGE_KEYS {
+            materialize_page_inherited_object(
+                source_document,
+                source.page_id,
+                &mut page,
+                key,
+                key == b"MediaBox",
+            )?;
+        }
         // Resources are required; readers treat a page without any as empty.
         if !page.has(b"Resources") {
             page.set("Resources", Dictionary::new());

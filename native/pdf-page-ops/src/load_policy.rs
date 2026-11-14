@@ -293,6 +293,22 @@ pub(crate) fn load_pdf_bytes_with_policy_and_password(
     }
     let document = loaded.map_err(|error| classify_lopdf_load_error(error, policy, bytes))?;
     validate_loaded_document(&document, policy)?;
+    // lopdf decrypts a stream's own /Crypt filter only in part and leaves it
+    // named, so its plaintext would be written as if still encrypted.
+    if document.was_encrypted()
+        && document.objects.values().any(|object| {
+            object.as_stream().is_ok_and(|stream| {
+                stream
+                    .filters()
+                    .is_ok_and(|filters| filters.contains(&b"Crypt".as_slice()))
+            })
+        })
+    {
+        return Err(domain_error(
+            NativeErrorCode::UnsupportedFilter,
+            "The encrypted PDF has streams with their own /Crypt filter, which cannot be decrypted yet",
+        ));
+    }
     Ok(document)
 }
 
