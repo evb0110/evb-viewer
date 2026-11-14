@@ -58,10 +58,23 @@ Desktop uses the Node adapter; the browser uses OPFS through a dedicated storage
 worker, with a Web Lock per document directory. IndexedDB retains browser file
 handles and Recent Files metadata, not document bytes.
 
-Save commits edits, checks the destination's size and modification time,
-publishes the committed bytes and acknowledges that revision. Save As chooses
-a destination without the external-change check. `pendingPublish` lets recovery
-settle an interrupted publication. [ADR 0010](docs/architecture/adr/0010-document-store-manifest-is-the-commit-point.md)
+Undo and redo restore retained store revisions in the same directory. One draft
+writer per document persists unsaved annotation, editor and metadata state as
+it changes, without copying the user's file. Workspace checkpoints hold layout
+and document references.
+
+Save commits a snapshot, checks the destination, publishes it and acknowledges
+that revision. An annotation edit during Save stays unsaved. Desktop checks
+`file-v2:<size>:<mtimeNs>:<dev>:<ino>` without hashing the file; browser
+publication records metadata and a content hash from one written snapshot.
+Every renderer write to the original passes through `saveToOriginalFile`,
+which awaits the copy decision. Signed or inconclusively analysed documents
+go to Save As; changed, unreadable or locked originals keep their own refusal.
+Save As publishes to its chosen destination, then the window adopts the saved
+revision. A draft-only document whose original changed builds its Save As on
+the file as it is now. `pendingPublish` records interrupted publication,
+including the exact desktop temporary file to remove.
+[ADR 0010](docs/architecture/adr/0010-document-store-manifest-is-the-commit-point.md)
 records the durability decision.
 
 `app/modules/workspace-shell/documentContext.ts` owns annotations, metadata,
@@ -85,7 +98,13 @@ The PDF viewer has three owners:
 
 The raster scheduler admits and cancels demands under the shared surface budget.
 A failed demand stays failed until the user requests Retry; it has no automatic
-retry loop.
+retry loop. Fit follows the viewport client size; a scrollbar-only resize
+recomputes fit without placing the zoom anchor again. Workspace restore waits
+for pixels only in shown tabs; hidden recovered tabs open when their pages load
+and paint when selected.
+
+The pinned [PDF.js artifact](vendor/pdfjs-dist/README.md) includes the upstream
+range-load abort fix, so document replacement can await teardown.
 
 ## Native crates
 

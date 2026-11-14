@@ -34,8 +34,8 @@ Three roles, one owner each (terms in `docs/architecture/glossary.md`):
   annotations into the store on open; pdf.js `getAnnotations()` feeds the
   renderer's static display only. `pdfjs-save-document`, `pdfjs-materialize`, and
   pdf-lib as a writer are retired. Decryption of the working copy moves into
-  the writer so encrypted input is no longer refused. Browser saves above the
-  wasm request cap tell the user to use the native app.
+  the writer so encrypted input is no longer refused. Browser saves append
+  through file-backed host imports in the storage worker.
 - The **annotation editor layer** is EVB-owned Vue over the canonical
   annotation store. pdf.js `AnnotationEditorUIManager`, `AnnotationStorage`
   as a state owner, and the bridge under
@@ -52,7 +52,8 @@ Three roles, one owner each (terms in `docs/architecture/glossary.md`):
 Product scope fixed with the decision: prompt for a user password on open;
 save unencrypted with a one-time notice; images from file picker and
 clipboard are the only stamps; replies on foreign notes are shown and
-preserved, not authored; undo covers annotations only; forms stay
+preserved, not authored; annotation and metadata undo is owned by the document,
+and page-operation undo restores retained store revisions; forms stay
 display-only. Cutover is a single
 replacement on `main` without a feature flag; the app is in alpha and
 breakage during the effort is accepted.
@@ -122,8 +123,10 @@ The browser build runs the same two crates as WASM, including their page
 operations and print layout; its streaming DjVu export
 (`app/platform/browser-api/streamingImagePdfWriter.ts`) is the one browser-only
 writer. The desktop incremental reader uses bundled libqpdf for object
-projections, with a `qpdf --json` structural fallback for large files. The
-[page engine README](../../../native/pdf-page-ops/README.md) describes current
+projections, with a `qpdf --json` structural fallback for large files. Browser
+incremental edits share the page-structure indexed reader, with unread streams
+unavailable until fetched by range. Every page edit uses the same page-tree
+validation; damaged trees are refused. The [page engine README](../../../native/pdf-page-ops/README.md) describes current
 verification and qpdf uses.
 
 ## Revisit when

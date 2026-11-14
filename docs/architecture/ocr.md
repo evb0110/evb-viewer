@@ -18,7 +18,7 @@ reading and the dictionary decoder. A host supplies the ports:
 |---|---|---|
 | Page raster | Poppler `pdftoppm` PPM, cleaned by native `evb-scan-cleanup` | PDF.js tiles, cleaned by the scan-cleanup WASM |
 | Engine pool | Node worker threads (`ocrEnginePool.ts`) | Web Workers (`browserOcrEngineClient.ts`) |
-| Text-layer writer | page checkpoints, then native `pdf-page-ops ocr-text-layer` | in memory, then page-ops WASM `ocrTextLayer` |
+| Text-layer writer | page checkpoints, then native `pdf-page-ops ocr-text-layer` | page layers in memory, then a page-ops append in the storage worker |
 
 A desktop job runs in the main process on the shared job registry; the
 engine never runs on the main thread. Its pool has desktop's OCR page slots;
@@ -59,17 +59,18 @@ serves every caller in the tab and across tabs (`browserOcrModels.ts`). The
 browser offers every language in the registry, as desktop does.
 
 Page selection uses the shared `selectOcrPagesByExistingText` with the page-ops
-WASM visibility report and PDF.js text. The page-ops WASM `ocrTextLayer`
-operation appends the searchable layer with the desktop writer and returns only
-the appended revision. The result is staged as a receipt bound to its job,
-document and revision; applying it (`replaceWorkingCopyFromPath`) verifies the
-digest and commits only while both revisions still match. Early print reads
-as on desktop: a page with the long-s signature runs the selected models,
-`ita_old` and `fra` in one engine request on a fresh raster, with the same
-dictionary (`readEarlyPrintDictionary`), and the planned word edits travel with
-the page to the writer. OCR admission uses the PDF writer's request budget,
-including the recognized page layers; it does not reuse the generic editing
-byte limit.
+WASM visibility report and PDF.js text. Visibility and layer catalog reads use
+the stored PDF by range. The job holds a Blob for raster ranges and a source
+revision token, rather than a whole-PDF buffer. Its recognized page layers are
+appended to the document's own file by page-ops in the storage worker. Applying
+the result commits the receipt with `extend` only while its source revision
+still matches; releasing an uncommitted receipt cuts the tail. No whole-PDF
+request budget limits recognition or this append.
+
+Early print reads as on desktop: a page with the long-s signature runs the
+selected models, `ita_old` and `fra` in one engine request on a fresh raster,
+with the same dictionary (`readEarlyPrintDictionary`), and the planned word
+edits travel with the page to the writer.
 
 Preprocessing runs as on desktop, with the scan-cleanup WASM engine in the
 same engine worker before Tesseract: a `preprocess` request cleans the
