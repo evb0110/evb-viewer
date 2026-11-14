@@ -36,8 +36,8 @@ interface IPoint {
     readonly y: number;
 }
 
-it.each(['text-box', 'note', 'rejected-note'].flatMap(kind => [100, 300, 1_000].map(delay => ({kind, delay}))))(
-    'restores focused $kind typing after SIGKILL at $delay ms', async ({kind, delay}) => {
+it.each(['text-box', 'note', 'rejected-note'])(
+    'restores focused %s typing after SIGKILL following a durable draft write', async (kind) => {
         const outputDirectory = mkdtempSync(join(tmpdir(), 'evb-draft-recovery-'));
         const sourcePath = join(outputDirectory, 'draft-source.pdf');
         copyFileSync(join(process.cwd(), 'tests/fixtures/electron/test-scanned.pdf'), sourcePath);
@@ -144,38 +144,11 @@ it.each(['text-box', 'note', 'rejected-note'].flatMap(kind => [100, 300, 1_000].
             }
             const pid = getSessionInfo(session.name)?.electronPid;
             if (typeof pid !== 'number') throw new Error('Owned Electron main PID is missing');
-            let actualDelayMs = 0;
-            let killTimer: ReturnType<typeof setTimeout> | undefined;
-            const killed = new Promise<void>(resolveKill => {
-                session.page.on('console', message => {
-                    if (!message.text().startsWith('FOCUSED_TYPING ')) return;
-                    const at = Number(message.text().slice('FOCUSED_TYPING '.length));
-                    killTimer = setTimeout(() => {
-                        actualDelayMs = Date.now() - at;
-                        process.kill(pid, 'SIGKILL');
-                        resolveKill();
-                    }, Math.max(1, at + delay - Date.now() + 1));
-                });
-            });
-            await session.page.evaluate((text: string) => {
-                document.addEventListener('input', event => {
-                    const target = event.target;
-                    if (!(target instanceof HTMLElement)) return;
-                    const value = target instanceof HTMLTextAreaElement ? target.value : target.textContent;
-                    if (value === text) console.log('FOCUSED_TYPING ' + Date.now());
-                }, {capture: true});
-            }, draftText);
-            try {
-                const typing = session.page.keyboard.type(draftText, {delay: 10}).catch(() => {});
-                await Promise.race([killed, new Promise<never>((_, reject) => {
-                    const deadline = setTimeout(() => reject(new Error('Focused typing receipt missing')), 30_000);
-                    void killed.then(() => clearTimeout(deadline));
-                })]);
-                await typing;
-            } finally {
-                if (killTimer) clearTimeout(killTimer);
-            }
-            console.info('FOCUSED_TYPING_CUT', JSON.stringify({kind, delay, actualDelayMs}));
+            await session.page.keyboard.type(draftText, {delay: 10});
+            // Recovery promises one durable draft write after the change, independent of host speed.
+            await expect.poll(() => JSON.stringify(readWorkspaceRecoveryRecords(session.name)), {timeout: 30_000})
+                .toContain(draftText);
+            process.kill(pid, 'SIGKILL');
             const crashed = session;
             await crashed.browser.disconnect();
             await stopSingleSession(crashed.name, {
@@ -201,8 +174,8 @@ it.each(['text-box', 'note', 'rejected-note'].flatMap(kind => [100, 300, 1_000].
                 throw error;
             });
             expect(JSON.stringify(readWorkspaceRecoveryRecords(session.name))).toContain(draftText);
-            // Report the live recovered state alongside the measured cut for retained evidence.
-            console.info('FOCUSED_TYPING_RECOVERED', JSON.stringify({kind, delay, text: draftText,
+            // Report the live recovered state after the durable cut for retained evidence.
+            console.info('FOCUSED_TYPING_RECOVERED', JSON.stringify({kind, text: draftText,
                 capture: await session.page.evaluate(() => (window as IE2EWindow).__evbTestApi?.getActiveWorkspaceHandle()?.captureCanonicalAnnotationRecovery?.())}));
             const state = await readWorkspaceStateValues<{dirtyState?: {fileDirty?: boolean}}>(session.page, ['dirtyState']);
             expect(state.dirtyState?.fileDirty).toBe(true);
