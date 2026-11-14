@@ -12,10 +12,7 @@ import { BrowserLogger } from '@app/utils/browserLogger';
 import { collectMergeTabOrder } from '@app/modules/workspace-shell/window-tabs/collectMergeTabOrder';
 import { shouldCloseSourceWindowAfterTransfer } from '@app/modules/workspace-shell/window-tabs/shouldCloseSourceWindowAfterTransfer';
 import { cleanupSplitPayloadSnapshot } from '@app/modules/workspace-shell/splits/cleanupSplitPayloadSnapshot';
-import {
-    canUseNativeWindowTabTransfers,
-    getWindowTabsCapability,
-} from '@app/utils/platformWindowTabs';
+import { getWindowTabsCapability } from '@app/utils/platformWindowTabs';
 import { getErrorMessage } from '@app/utils/error';
 import { withTimeout } from 'es-toolkit/promise';
 import { createDocumentSessionTransferState } from '@app/modules/workspace-shell/document-sessions/createDocumentSessionTransferState';
@@ -531,7 +528,7 @@ export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) =>
                 isCommandTargetCurrent(session, commandTarget) && session.readMutationFrontier() === mutationFrontier
             ), onSelectionHandoff);
             if (result !== 'success') throw new Error(t('tabs.transferErrors.sourceChanged'));
-            if (canUseNativeWindowTabTransfers() && !await acknowledgeTransfer(transferId, true)) {
+            if (!await acknowledgeTransfer(transferId, true)) {
                 throw new Error(t('tabs.transferErrors.restoreFailed'));
             }
             const closesWindow = shouldCloseSourceWindowAfterTransfer(options.tabs.value.length, true);
@@ -545,7 +542,7 @@ export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) =>
                 target,
                 error,
             });
-            if (transferId && canUseNativeWindowTabTransfers()) await acknowledgeTransfer(transferId, false, getErrorMessage(error));
+            if (transferId) await acknowledgeTransfer(transferId, false, getErrorMessage(error));
             // A rejected decision can arrive after the owned close. The source
             // tab still exists, and the broker gives its snapshot back to it.
             if (session && getDocumentSession(tabId) === session && sourcePane && !tabHoldsDocument(tabId) && payload.kind !== 'empty') {
@@ -666,53 +663,26 @@ export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) =>
                 await acknowledgeTransfer(transfer.transferId, false, t('tabs.transferErrors.restoreFailed'));
                 return;
             }
-            if (canUseNativeWindowTabTransfers()) {
-                const restored = await restoreWorkspacePayload(target.tab.tabId, transfer.payload, {
-                    retainPayloadOnFailure: true,
-                    target,
-                });
-                if (!restored || !isCommandTargetCurrent(getDocumentSession(target.tab.tabId), restored)) {
-                    await rollbackIncomingTransferTarget(target, transfer.payload, false);
-                    await acknowledgeTransfer(transfer.transferId, false, t('tabs.transferErrors.restoreFailed'));
-                    return;
-                }
-                const session = getDocumentSession(target.tab.tabId);
-                const commandTarget = restored;
-                const committed = await session!.operationLease.runExclusive('tab-transfer', async (ownership) => {
-                    const accepted = await acknowledgeTransfer(transfer.transferId, true);
-                    if (!accepted && isCommandTargetCurrent(session, commandTarget)) {
-                        await rollbackIncomingTransferTarget(target, transfer.payload, false, true, ownership);
-                    }
-                    return accepted;
-                });
-                if (!committed) return;
-                transferCommitted = true;
-            } else {
-                const committed = await acknowledgeTransfer(transfer.transferId, true);
-                if (committed === null) {
-                    return;
-                }
-                if (!committed) {
-                    await cleanupSplitPayloadSnapshot(transfer.payload, {
-                        logSection: 'tabs',
-                        context: 'incoming-transfer-aborted-before-restore',
-                        metadata: {tabId: target.tab.tabId},
-                    });
-                    if (target.tab.created) removeCreatedTransferTab(target.tab);
-                    return;
-                }
-                transferCommitted = true;
-                const restored = await restoreWorkspacePayload(target.tab.tabId, transfer.payload, {
-                    retainPayloadOnFailure: true,
-                    target,
-                });
-                if (!restored) {
-                    return;
-                }
+            const restored = await restoreWorkspacePayload(target.tab.tabId, transfer.payload, {
+                retainPayloadOnFailure: true,
+                target,
+            });
+            if (!restored || !isCommandTargetCurrent(getDocumentSession(target.tab.tabId), restored)) {
+                await rollbackIncomingTransferTarget(target, transfer.payload, false);
+                await acknowledgeTransfer(transfer.transferId, false, t('tabs.transferErrors.restoreFailed'));
+                return;
             }
-            // The browser capability ACK is source-authorized only after its
-            // shared transfer decision commits. Apply the tab state only
-            // after the committed payload becomes the editable workspace.
+            const session = getDocumentSession(target.tab.tabId);
+            const commandTarget = restored;
+            const committed = await session!.operationLease.runExclusive('tab-transfer', async (ownership) => {
+                const accepted = await acknowledgeTransfer(transfer.transferId, true);
+                if (!accepted && isCommandTargetCurrent(session, commandTarget)) {
+                    await rollbackIncomingTransferTarget(target, transfer.payload, false, true, ownership);
+                }
+                return accepted;
+            });
+            if (!committed) return;
+            transferCommitted = true;
             activateIncomingTransferTab(target.pane.paneId, target.tab.tabId);
         } catch (error) {
             BrowserLogger.error('tabs', 'Unhandled incoming tab transfer failure', {
