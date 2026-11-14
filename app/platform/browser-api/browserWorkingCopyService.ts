@@ -48,14 +48,14 @@ async function touchRecentFileForOpen(ref: TDocumentRef) {
 }
 
 /**
- * Unlocks the working copy with `password` when it is encrypted. `opened`: the bytes are what the person opened, so
- * without a file to save to they start the document clean in the commit that writes them, and an open cut short
- * leaves no unsaved work; a file's bytes stay the baseline, so Save still checks the file.
+ * Unlocks the working copy with `password` when it is encrypted and commits the result. `open`: an open's bytes, not
+ * an edit (see the store's `write`); its `fileName` also gives the PDF its append base in that revision, as on desktop.
  */
-export async function decryptBrowserWorkingCopy(workingPath: string, password?: string, {opened = false} = {}) {
+export async function decryptBrowserWorkingCopy(workingPath: string, password?: string, open?: {fileName?: string}) {
     if (password !== undefined && !isPdfDecryptPassword(password)) {
         throw new Error(`PDF password exceeds the ${PDF_DECRYPT_PASSWORD_MAX_BYTES}-byte limit`);
     }
+    const revision = await browserDocumentStore.getDocumentRevision(workingPath);
     const { size } = await browserDocumentStore.stat(workingPath);
     const head = await browserDocumentStore.readRange(
         workingPath,
@@ -75,75 +75,59 @@ export async function decryptBrowserWorkingCopy(workingPath: string, password?: 
         );
         encrypted = containsPdfEncryptMarker(tail);
     }
-    if (!encrypted) {
-        return {
-            outcome: 'plain',
-            wasEncrypted: false,
-        } as const;
-    }
-
-    // Unlocking rewrites the whole file in memory, within the decrypting reader's budget; edits then append to
-    // the plaintext. A larger encrypted file is refused before it is read, with the desktop app as the way to it.
-    if (size > MAX_DOCUMENT_ALLOCATION_BYTES) {
-        throw buildBrowserByteLimitError('Unlocking an encrypted PDF', MAX_DOCUMENT_ALLOCATION_BYTES, 'files', '. Open it in the desktop app.');
-    }
-    const revision = await browserDocumentStore.getDocumentRevision(workingPath);
-    const bytes = await browserDocumentStore.read(workingPath, {maxBytes: MAX_DOCUMENT_ALLOCATION_BYTES});
-    const result = await runBrowserPageOpsWorkerRequest('decrypt', {
-        data: bytes,
-        password: password ?? '',
-    });
-    if (isBrowserPageOpsWasmFailure(result)) {
-        if (result.error.code === 'needs-password') {
-            return {
-                outcome: 'needs-password',
-                wasEncrypted: true,
-            } as const;
+    let unlocked: Uint8Array | null = null;
+    if (encrypted) {
+        // Unlocking rewrites the whole file in memory, within the decrypting reader's budget; edits then append to
+        // the plaintext. A larger encrypted file is refused before it is read, with the desktop app as the way to it.
+        if (size > MAX_DOCUMENT_ALLOCATION_BYTES) {
+            throw buildBrowserByteLimitError('Unlocking an encrypted PDF', MAX_DOCUMENT_ALLOCATION_BYTES, 'files', '. Open it in the desktop app.');
         }
-        if (result.error.code === 'unsupported-filter' || result.error.code === 'encrypted') {
-            return {
-                outcome: 'unsupported',
-                wasEncrypted: true,
-            } as const;
+        const result = await runBrowserPageOpsWorkerRequest('decrypt', {
+            data: await browserDocumentStore.read(workingPath, {maxBytes: MAX_DOCUMENT_ALLOCATION_BYTES}),
+            password: password ?? '',
+        });
+        if (isBrowserPageOpsWasmFailure(result)) {
+            if (result.error.code === 'needs-password') {
+                return {outcome: 'needs-password', wasEncrypted: true} as const;
+            }
+            if (result.error.code === 'unsupported-filter' || result.error.code === 'encrypted') {
+                return {outcome: 'unsupported', wasEncrypted: true} as const;
+            }
+            throw new Error(result.error.message);
         }
-        throw new Error(result.error.message);
+        unlocked = new Uint8Array(result.data);
     }
-    await browserDocumentStore.write(workingPath, new Uint8Array(result.data), {expectedDocumentRevisionToken: revision.token, imported: opened});
-    return {
-        outcome: 'decrypted',
-        wasEncrypted: true,
-    } as const;
+    const bytes = open?.fileName === undefined ? unlocked : await normalizeAppendBase(workingPath, unlocked, open.fileName) ?? unlocked;
+    if (bytes) await browserDocumentStore.write(workingPath, bytes, {expectedDocumentRevisionToken: revision.token, opened: open !== undefined});
+    return {outcome: encrypted ? 'decrypted' : 'plain', wasEncrypted: encrypted} as const;
 }
 
 /**
- * Desktop's `normalizePdfAppendBase` for the working copy of a PDF being
- * opened; snapshots of an open document keep its bytes, as on desktop. A PDF
- * whose cross-reference chain an edit cannot extend is rewritten through qpdf
- * before anything reads it, so every object number the viewer later captures
- * belongs to the file its edits are saved into. Without the engine the copy
- * stands, as on a desktop without its page tool; a rewrite qpdf refuses
- * refuses the open.
+ * Desktop's `normalizePdfAppendBase` for a PDF being opened (`unlocked`, or the working copy's bytes): the qpdf rewrite
+ * of one whose cross-reference chain an edit cannot extend, so the object numbers the viewer captures belong to the
+ * file its edits are saved into; `null` when it stands, as without the engine. A rewrite qpdf refuses refuses the open.
  */
-async function normalizeBrowserWorkingCopyAppendBase(workingPath: TDocumentRef, fileName: string) {
-    const rewritten = await rewriteBrowserWorkingCopy(workingPath, async (bytes) => {
-        try {
-            return (await normalizeBrowserPdfAppendBase(bytes)).output;
-        } catch (error) {
-            if (isBrowserQpdfEngineUnavailableError(error)) {
-                BrowserLogger.warn('working-copy', 'The qpdf engine is unavailable; the PDF opens without append admission', {error: getErrorMessage(error)});
-                return null;
-            }
-            if (error instanceof SerializableError && error.code === BROWSER_QPDF_ENGINE_ERROR_CODES.rewriteFailed) {
-                throw new DocumentOpenRefusalError('invalid-pdf', `PDF rewrite failed: ${getErrorMessage(error)}`, {
-                    cause: error,
-                    fileName,
-                });
-            }
-            throw error;
+async function normalizeAppendBase(workingPath: string, unlocked: Uint8Array | null, fileName: string) {
+    // The page tool, which writes every edit, takes no larger base; an empty PDF is refused later.
+    const size = unlocked?.byteLength ?? (await browserDocumentStore.stat(workingPath)).size;
+    if (size === 0 || size > BROWSER_QPDF_MAX_INPUT_BYTES) return null;
+    try {
+        // The engine takes its input over: a copy keeps the unlocked bytes.
+        const {output} = await normalizeBrowserPdfAppendBase(unlocked?.slice() ?? await browserDocumentStore.read(workingPath, {maxBytes: BROWSER_QPDF_MAX_INPUT_BYTES}));
+        if (output) BrowserLogger.warn('working-copy', 'Rewrote a PDF whose cross-reference chain cannot take an edit');
+        return output;
+    } catch (error) {
+        if (isBrowserQpdfEngineUnavailableError(error)) {
+            BrowserLogger.warn('working-copy', 'The qpdf engine is unavailable; the PDF opens without append admission', {error: getErrorMessage(error)});
+            return null;
         }
-    }, true);
-    if (rewritten) {
-        BrowserLogger.warn('working-copy', 'Rewrote a PDF whose cross-reference chain cannot take an edit');
+        if (error instanceof SerializableError && error.code === BROWSER_QPDF_ENGINE_ERROR_CODES.rewriteFailed) {
+            throw new DocumentOpenRefusalError('invalid-pdf', `PDF rewrite failed: ${getErrorMessage(error)}`, {
+                cause: error,
+                fileName,
+            });
+        }
+        throw error;
     }
 }
 
@@ -151,30 +135,19 @@ async function normalizeBrowserWorkingCopyAppendBase(workingPath: TDocumentRef, 
  * The open's qpdf rewrite for a revision of an open working copy the page engine could not read, made without
  * asking the append admission; its edit then runs once more. Whether a new revision holds the rewrite.
  */
-export function repairBrowserWorkingCopy(workingPath: string, signal?: AbortSignal) {
-    return rewriteBrowserWorkingCopy(workingPath, bytes => repairBrowserPdfBytes(bytes, signal));
+export async function repairBrowserWorkingCopy(workingPath: string, signal?: AbortSignal) {
+    const {size} = await browserDocumentStore.stat(workingPath);
+    if (size === 0 || size > BROWSER_QPDF_MAX_INPUT_BYTES) return false;
+    const revision = await browserDocumentStore.getDocumentRevision(workingPath);
+    const output = await repairBrowserPdfBytes(await browserDocumentStore.read(workingPath, {maxBytes: BROWSER_QPDF_MAX_INPUT_BYTES}), signal);
+    if (output === null) return false;
+    await browserDocumentStore.write(workingPath, output, {expectedDocumentRevisionToken: revision.token});
+    return true;
 }
 
 /** The open's qpdf rewrite, which rebuilds damage a PDF already had. */
 export async function repairBrowserPdfBytes(bytes: Uint8Array, signal?: AbortSignal) {
     return (await runBrowserQpdfCommand('rewrite', bytes, signal ? {signal} : {})).output;
-}
-
-/** Commits what `rewrite` makes of the working copy's bytes, when it makes anything, as its next revision. */
-async function rewriteBrowserWorkingCopy(workingPath: string, rewrite: (bytes: Uint8Array) => Promise<Uint8Array | null>, opened = false) {
-    // A larger base cannot reach the page tool, which writes every edit; an
-    // empty file is refused later as an empty PDF.
-    const {size} = await browserDocumentStore.stat(workingPath);
-    if (size === 0 || size > BROWSER_QPDF_MAX_INPUT_BYTES) {
-        return false;
-    }
-    const revision = await browserDocumentStore.getDocumentRevision(workingPath);
-    const output = await rewrite(await browserDocumentStore.read(workingPath, {maxBytes: BROWSER_QPDF_MAX_INPUT_BYTES}));
-    if (output === null) {
-        return false;
-    }
-    await browserDocumentStore.write(workingPath, output, {expectedDocumentRevisionToken: revision.token, imported: opened});
-    return true;
 }
 
 type TBrowserWorkingCopyDecryptionResult = Awaited<ReturnType<typeof decryptBrowserWorkingCopy>>;
@@ -261,7 +234,7 @@ export async function openDocumentPaths(
         const workingPath = await browserDocumentStore.cloneAsWorkingCopy(sourcePath);
         let published = false;
         try {
-            const decryption = await decryptBrowserWorkingCopy(workingPath, password, {opened: true});
+            const decryption = await decryptBrowserWorkingCopy(workingPath, password, {fileName: firstFileName});
             if (decryption.outcome === 'needs-password') {
                 await touchRecentFileForOpen(sourcePath);
                 return {
@@ -275,7 +248,6 @@ export async function openDocumentPaths(
                     originalPath: sourcePath,
                 } satisfies TOpenFileResult;
             }
-            await normalizeBrowserWorkingCopyAppendBase(workingPath, firstFileName);
             await touchRecentFileForOpen(sourcePath);
             browserDocumentStore.unload(sourcePath);
             emitBatchOpenProgress(progressOptions, 1, 1, startedAt);

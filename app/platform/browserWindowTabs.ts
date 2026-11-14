@@ -850,8 +850,8 @@ async function releaseTransferredDocuments(payload: IWindowTabTransferRequest['p
     if (payload.kind === 'pdfSnapshot' && payload.snapshotPath) await browserDocumentStore.release(payload.snapshotPath);
 }
 
-// The window's checkpoint names each document directory as soon as the window holds it.
-browserDocumentStore.onDirectoryHeld = async (directory) => {
+// The window's checkpoint names a document directory before its first edit, as desktop's does.
+browserDocumentStore.onDirectoryEdited = async (directory) => {
     try {
         const windowId = await holdCurrentWindowLock();
         if (windowId) await nameBrowserWorkspaceDirectory(windowId, directory);

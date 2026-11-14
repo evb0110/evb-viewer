@@ -140,9 +140,9 @@ type TRevisionSource = TExternalSource | TRevisionWriter | { move: string };
 /** The drafts a mutation leaves: the current ones, new ones (`undefined` clears), or none. */
 export type TDraftsAfter = 'keep' | 'clear' | { replace: unknown };
 /**
- * New bytes for a document: written from `source`, with `imported` the baseline and no history unless a destination's
- * bytes are; `move`: a file the caller wrote on the store's file system and gives up; `extend`: what the caller
- * appended to the current file, up to its end, after `ownCurrentFile`.
+ * New bytes for a document: written from `source`, with `imported` its baseline and no history, as `TDocumentInit`'s;
+ * `move`: a file the caller wrote on the store's file system and gives up; `extend`: what the caller appended to the
+ * current file, up to its end, after `ownCurrentFile`.
  */
 export type TReplacement = { kind: 'rewrite'; source: TExternalSource | TRevisionWriter; imported?: boolean } | { kind: 'move'; file: string } | { kind: 'extend' };
 export type TMutation = ({ kind: 'append'; bytes: Uint8Array } | TReplacement) & { drafts: TDraftsAfter };
@@ -518,7 +518,7 @@ export class DocumentDirectory {
             const name = `r${id}.${manifest.ext}`;
             const source = mutation.kind === 'rewrite' ? mutation.source
                 : mutation.kind === 'move' ? { move: mutation.file } : this.copyThenAppend(base!, mutation.bytes);
-            const created = await this.createRevisionFile(name, source, mutation.kind === 'rewrite' && mutation.imported === true && !manifest.destination);
+            const created = await this.createRevisionFile(name, source, mutation.kind === 'rewrite' && mutation.imported === true);
             file = created.file;
             revision = { id, file: name, length: created.length, witness: created.witness };
         }

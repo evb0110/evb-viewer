@@ -264,11 +264,11 @@ describe('document directory', () => {
         expect((await readdir(docDir(doc))).sort()).toEqual(['manifest.json', 'r5.pdf']);
     });
 
-    it('rewrites a document without bytes of its own without copying it in, keeps the destination as its baseline even for imported bytes, and undoes to it', async () => {
+    it('rewrites a document without bytes of its own without copying it in, and undoes to its destination', async () => {
         const destination = path.join(workDir, 'paper.pdf');
         await writeFile(destination, 'v1');
         const doc = await create(store(), { ext: 'pdf', destination });
-        expect(await doc.mutate(null, { ...rewrite('v2'), imported: true })).toMatchObject({ status: 'committed', revision: { id: 2, file: 'r2.pdf' } });
+        expect(await doc.mutate(null, rewrite('v2'))).toMatchObject({ status: 'committed', revision: { id: 2, file: 'r2.pdf' } });
         expect((await readdir(docDir(doc))).sort()).toEqual(['manifest.json', 'r2.pdf']);
         expect(doc.state()).toMatchObject({ history: [{ id: 1 }], dirty: true });
 

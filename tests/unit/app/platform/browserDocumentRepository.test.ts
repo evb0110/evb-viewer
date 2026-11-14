@@ -189,7 +189,7 @@ it('refuses to acknowledge a Save when another program wrote the file right afte
     expect(decode(await repo.read(working))).toBe('base EVB B EVB D next save');
 });
 
-it('leaves the document openable with its old bytes when replacing its content fails, and replaces it cleanly otherwise', async () => {
+it('leaves the document openable with its old bytes when replacing its content fails, and replaces it cleanly otherwise, a file or not', async () => {
     const {repo, store} = await repository();
     const {ref, doc} = await workingDocument(repo, 'old bytes');
     const source = await repo.createStoredDocument('source.pdf', encode('replacement'), {mimeType: 'application/pdf'});
@@ -210,4 +210,11 @@ it('leaves the document openable with its old bytes when replacing its content f
     await repo.replaceContent(other, source);
     expect(decode(await repo.read(other))).toBe('replacement');
     expect(otherDoc.state()).toMatchObject({dirty: false, history: []});
+
+    // A stored copy can have a destination, such as a working copy a tab names as its source after a download.
+    const picked = pickedFile('picked.pdf', 'picked bytes');
+    const withFile = await repo.cloneAsWorkingCopy(await repo.registerFile(picked.file(), {saveHandle: picked.handle}));
+    await repo.replaceContent(withFile, source);
+    expect(decode(await repo.read(withFile))).toBe('replacement');
+    expect((await repo.requireEntry(withFile)).doc!.state()).toMatchObject({destination: expect.any(String), dirty: false, history: []});
 });

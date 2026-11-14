@@ -604,7 +604,7 @@ export function createBrowserDocumentsFileCapability(
             if (sourceRef) workingEntry.sourceRef = sourceRef;
             try {
                 const opened = sourceEntry.kind !== 'working';
-                assertBrowserWorkingCopyDecrypted(await decryptBrowserWorkingCopy(workingPath, password, {opened}));
+                assertBrowserWorkingCopyDecrypted(await decryptBrowserWorkingCopy(workingPath, password, opened ? {} : undefined));
                 if (opened) browserDocumentStore.unload(sourcePath);
                 return workingPath;
             } catch (error) {

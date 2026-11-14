@@ -117,9 +117,12 @@ is its receipt.
 
 `workspaces/<window>.json` stores directory references and per-view state in
 its tabs, plus the window layout. Linked views name the same directory. A
-window names a directory in its checkpoint before the directory's first edit:
-the browser as soon as it holds it, desktop before the first change that is
-not part of opening it (a decrypt or normalize at open is not an edit).
+window names a directory in its checkpoint before the first change that is
+not part of opening it, on both platforms: an edit revision or the first
+drafts. A decrypt or repair at open is not an edit, and it commits as one
+revision, so an opened document no one edited is never offered for recovery.
+A directory a window takes that already holds unsaved work (recovered, moved
+in from another window) is named when the window takes it.
 
 Collection decides each directory while holding it: desktop collects once at
 startup before the store opens anything, the browser takes the directory's
