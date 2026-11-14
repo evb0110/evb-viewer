@@ -1,5 +1,4 @@
 import type { Ref } from 'vue';
-import { BrowserLogger } from '@app/utils/browserLogger';
 import type {
     TFitMode,
     TZoomMode,
@@ -39,7 +38,7 @@ interface IWorkspaceViewStateDeps {
     currentPage: Ref<number>;
     totalPages: Ref<number>;
     invalidateBookmarkNavigationRequests?: (() => void) | undefined;
-    requestPageNavigation?: ((request: IDocumentNavigationRequest) => IDocumentNavigationTicket | null) | undefined;
+    requestPageNavigation: (request: IDocumentNavigationRequest) => IDocumentNavigationTicket | null;
     documentViewerRef: Ref<IDocumentViewerExpose | null>;
 }
 
@@ -118,52 +117,23 @@ export const useWorkspaceViewState = (deps: IWorkspaceViewStateDeps) => {
         return Math.min(positivePage, Math.max(1, Math.trunc(deps.totalPages.value)));
     }
 
+    /**
+     * A page command goes to the view's open surface, the one route for
+     * navigation and restores. Same-page commands are forwarded too: the page
+     * can stay current while its slot or canvas was evicted, and a thumbnail
+     * or First Page replay heals that.
+     */
     function handleGoToPage(page: number, options?: IScrollToPageOptions) {
         const targetPage = normalizeNavigationPage(page);
-        const wasAlreadyCurrentPage = deps.currentPage.value === targetPage;
-        const hasExplicitScrollTarget = options !== undefined;
-        const pendingNavigationTargetPage = deps.documentViewerRef.value?.getPendingNavigationTargetPage?.() ?? null;
-        const hasConflictingPendingNavigation = pendingNavigationTargetPage !== null
-            && pendingNavigationTargetPage !== targetPage;
-        BrowserLogger.diagnostic('pdf-nav', `[workspace-go-to-page] requested=${page}`, {
-            requestedPage: page,
-            targetPage,
-            wasAlreadyCurrentPage,
-            hasExplicitScrollTarget,
-            pendingNavigationTargetPage,
-            hasConflictingPendingNavigation,
-            hasViewer: Boolean(deps.documentViewerRef.value),
-            sidebarOpen: deps.showSidebar.value,
-            sidebarTab: deps.sidebarTab.value,
-            dragMode: deps.dragMode.value,
-            annotationTool: deps.annotationTool.value,
-        });
         logPdfRenderTrace('workspace-go-to-page', {
             requestedPage: page,
             targetPage,
             currentPageBefore: deps.currentPage.value,
-            wasAlreadyCurrentPage,
-            hasExplicitScrollTarget,
-            pendingNavigationTargetPage,
-            hasConflictingPendingNavigation,
-            hasViewer: Boolean(deps.documentViewerRef.value),
         });
-        // Workspace commands are user intent, not a current-page projection.
-        // Forward same-page commands as well: the semantic page can remain
-        // current while its virtual slot or canvas has been evicted, and an
-        // active thumbnail / First Page replay must be able to heal that state.
         if (options?.navigationSource !== 'bookmark') {
             deps.invalidateBookmarkNavigationRequests?.();
         }
-        // The host-owned viewport session exists before the async viewer ref.
-        // Persist intent there so chassis mounting cannot replace it with a
-        // stale page prop while the document is still opening.
-        const request = createPdfPageNavigationRequest(targetPage, options);
-        if (deps.requestPageNavigation) {
-            deps.requestPageNavigation(request);
-        } else {
-            deps.documentViewerRef.value?.scrollToPage(targetPage, options);
-        }
+        deps.requestPageNavigation(createPdfPageNavigationRequest(targetPage, options));
     }
 
     return {

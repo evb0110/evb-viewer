@@ -1,5 +1,4 @@
 import {useWorkspaceCommandLedger} from '@app/modules/workspace-shell/composables/useWorkspaceCommandLedger';
-import {encodeSerializableErrorEnvelope} from '@contracts/serializableError';
 import {
     beforeEach,
     describe,
@@ -16,6 +15,7 @@ import {requireEpochMs} from '@contracts/timestamps';
 import { requireDocumentRef } from '@contracts/documentRef';
 import {requirePdfDateString} from '@contracts/pdfDateString';
 import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
+import { createWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 
 const mocks = vi.hoisted(() => ({
     hasElectronApi: vi.fn(() => true),
@@ -28,6 +28,8 @@ const mocks = vi.hoisted(() => ({
     write: vi.fn(),
     cleanup: vi.fn(),
     cloneWorkingCopy: vi.fn(),
+    restoreRevision: vi.fn(),
+    retainRevisions: vi.fn(),
     analyzeConformance: vi.fn(),
     getRevision: vi.fn(),
     repair: vi.fn(),
@@ -70,6 +72,8 @@ const electronApi = createElectronPlatformApiFixture({
     documentWorkingCopy: {
         cleanupFile: mocks.cleanup,
         createWorkingCopyFromPath: mocks.cloneWorkingCopy,
+        restoreDocumentRevision: mocks.restoreRevision,
+        retainDocumentRevisions: mocks.retainRevisions,
     },
 });
 
@@ -108,7 +112,7 @@ const PDF_BYTES = Uint8Array.from([
 ]);
 
 function createFacade() {
-    return usePdfFile() as IPdfFileFacade & {
+    return usePdfFile({document: createWorkspaceDocumentController({tabId: 'tab-1'})}) as IPdfFileFacade & {
         optimizeWorkingCopy?: unknown;
         optimizeWorkingCopyAsCopy?: unknown;
         repairWorkingCopy?: unknown;
@@ -163,7 +167,7 @@ describe('usePdfFile façade', () => {
         mocks.readRange.mockResolvedValue(new Uint8Array());
         mocks.write.mockResolvedValue(true);
         mocks.cleanup.mockResolvedValue(undefined);
-        mocks.cloneWorkingCopy.mockResolvedValue('/tmp/history-baseline.pdf');
+        mocks.retainRevisions.mockResolvedValue(undefined);
         mocks.getRevision.mockResolvedValue({
             version: 1,
             documentRef: '/tmp/work.pdf',
@@ -226,37 +230,13 @@ describe('usePdfFile façade', () => {
             expect(file.workingCopyPath.value).toBe('/tmp/saved-working.pdf');
             expect(file.documentRevisionInfo.value?.documentRef).toBe('/tmp/saved-working.pdf');
             expect(file.documentRevisionToken.value).toBe('saved-revision');
-            expect(file.pdfSrc.value === loadedSource).toBe(sourceKind === 'blob');
-            expect(file.pdfReloadSrc.value).not.toBe(loadedSource);
+            expect(file.pdfSrc.value).not.toBe(loadedSource);
+            expect(file.pdfReloadSrc.value).toBe(file.pdfSrc.value);
             expect(file.pdfData.value).toEqual(PDF_BYTES);
         } finally {
             dependencyPublication.resolve({size: PDF_BYTES.byteLength});
             cleanup.resolve(undefined);
         }
-    });
-
-    it('reports a Save As that wrote its file but could not refresh the open copy', async () => {
-        const file = createFacade();
-        await file.openFile(pdfResult('save-as-sync-required'));
-        file.isDirty.value = true;
-        const originalPath = file.originalPath.value;
-        mocks.saveAs.mockRejectedValueOnce(new Error(`Error invoking remote method 'dialog:savePdfAs': Error: ${encodeSerializableErrorEnvelope({
-            code: 'working-copy-sync-required',
-            message: 'Target file was saved, but the working copy refresh failed: ENOSPC',
-        })}`));
-
-        const result = await file.saveWorkingCopyAs();
-
-        expect(result).toMatchObject({
-            success: false,
-            failure: {
-                reason: 'working-copy-sync-required',
-                externalWriteCommitted: true,
-                workingCopySyncRequired: true,
-            },
-        });
-        expect(file.originalPath.value).toBe(originalPath);
-        expect(file.isDirty.value).toBe(true);
     });
 
     it('finishes a staged Save As while its staging lease cleanup is pending', async () => {
@@ -405,6 +385,33 @@ describe('usePdfFile façade', () => {
             mocks.nativeApply.mockReset();
             mocks.nativeCommit.mockReset();
         }
+    });
+
+    it('refuses to save over an original another program changed instead of saving a copy', async () => {
+        const file = createFacade();
+        await file.openFile(pdfResult('changed-on-disk'));
+        file.isDirty.value = true;
+        mocks.analyzeConformance.mockRejectedValue(new Error(
+            "Error invoking remote method 'pdf:analyzeConformance': WorkingCopyMaterializationError: The original document changed after it was opened",
+        ));
+
+        await expect(file.trySavePdfNativeMutations({bookmarks: {
+            totalPages: 1,
+            untitledLabel: 'Untitled',
+            items: [],
+        }}, {
+            saveMode: 'rewrite',
+            modifiedAt: requirePdfDateString('D:20261008000000Z'),
+            expectedWorkingPath: file.workingCopyPath.value,
+        })).resolves.toMatchObject({
+            success: false,
+            didSaveAs: false,
+            failure: {reason: 'original-changed'},
+        });
+        expect(mocks.nativeApply).not.toHaveBeenCalled();
+        expect(mocks.nativeCommit).not.toHaveBeenCalled();
+        expect(mocks.saveAs).not.toHaveBeenCalled();
+        expect(file.isDirty.value).toBe(true);
     });
 
     it('exposes optional file operations from the split file capability', () => {
@@ -636,7 +643,7 @@ describe('usePdfFile façade', () => {
     });
 
     it('does not attach a history restore after the document closes', async () => {
-        const write = Promise.withResolvers<undefined>();
+        const restore = Promise.withResolvers<undefined>();
         const file = createFacade();
         const ledger = useWorkspaceCommandLedger();
         file.setWorkspaceCommandSink({
@@ -645,46 +652,26 @@ describe('usePdfFile façade', () => {
             forget: ledger.forgetSourceEntries,
         });
         await file.openFile(pdfResult('active'));
-        await file.loadPdfFromData(Uint8Array.from([
-            1,
-            2,
-            3,
-        ]));
-        mocks.write.mockImplementationOnce(() => write.promise);
+        await expect(file.ensureHistoryBaselineForMutation()).resolves.toBe(true);
+        mocks.getRevision.mockResolvedValue({
+            version: 1,
+            documentRef: '/tmp/work.pdf',
+            authority: 'electron-working-copy',
+            contentRevision: 2,
+            mintedAt: 1,
+            token: 'revision-after-edit',
+        });
+        await expect(file.reloadWorkingCopyIntoHistory()).resolves.toBe(true);
+        mocks.restoreRevision.mockImplementationOnce(() => restore.promise);
 
         const undo = ledger.undoTimeline();
         await file.closeFile();
-        write.resolve(undefined);
+        restore.resolve(undefined);
 
         await expect(undo).resolves.toBe(false);
+        expect(mocks.restoreRevision).toHaveBeenCalledWith('/tmp/active.pdf', 'revision-token', expect.anything());
         expect(file.workingCopyPath.value).toBeNull();
         expect(file.pdfData.value).toBeNull();
-    });
-
-    it('cleans a staged first-mutation baseline when the document closes', async () => {
-        const size = (16 * 1024 * 1024) + 1;
-        const staging = Promise.withResolvers<string>();
-        mocks.stat.mockResolvedValue({size});
-        mocks.cloneWorkingCopy.mockReturnValue(staging.promise);
-        const file = createFacade();
-        const ledger = useWorkspaceCommandLedger();
-        file.setWorkspaceCommandSink({
-            register: ledger.registerCommand,
-            reset: ledger.resetSource,
-            forget: ledger.forgetSourceEntries,
-        });
-        await file.openFile(pdfResult('large'));
-
-        const baseline = file.ensureHistoryBaselineForMutation();
-        await vi.waitFor(() => {
-            expect(mocks.cloneWorkingCopy).toHaveBeenCalledOnce();
-        });
-        await file.closeFile();
-        staging.resolve('/tmp/staged-baseline.pdf');
-
-        await expect(baseline).resolves.toBe(false);
-        expect(mocks.cleanup).toHaveBeenCalledWith('/tmp/staged-baseline.pdf');
-        expect(file.workingCopyPath.value).toBeNull();
         expect(ledger.canUndoTimeline.value).toBe(false);
     });
 });

@@ -4,7 +4,7 @@ import {
 } from 'node:fs';
 import {resolve} from 'node:path';
 import {
-    PDFDocument, PDFDict, PDFHexString, PDFName,
+    PDFDocument, PDFDict, PDFHexString, PDFName, PDFArray, PDFString,
 } from 'pdf-lib';
 import {spawnSync} from 'node:child_process';
 import type {Page} from 'playwright';
@@ -247,23 +247,32 @@ describe('browser document lifecycle UI', () => {
     // above 16 MiB when the signature is compressed. An empty field saves in place.
     describe.each([
         {
+            pendingPageLabels: false,
             kind: 'signed',
             paddingBytes: 0,
         },
         {
+            pendingPageLabels: false,
             kind: 'unsigned-signature-field',
             paddingBytes: 0,
         },
         {
+            pendingPageLabels: false,
             kind: 'signed-object-stream',
             paddingBytes: 24 * 1024 * 1024,
         },
         {
+            pendingPageLabels: false,
             kind: 'unsigned-signature-field',
             paddingBytes: 24 * 1024 * 1024,
         },
-    ] as const)('signature-field Save after a page edit ($kind, $paddingBytes bytes padding)', ({
-        kind, paddingBytes,
+        {
+            pendingPageLabels: true,
+            kind: 'signed-object-stream',
+            paddingBytes: 24 * 1024 * 1024,
+        },
+    ] as const)('signature-field Save after a page edit ($kind, $paddingBytes bytes padding, pending labels $pendingPageLabels)', ({
+        kind, paddingBytes, pendingPageLabels,
     }) => {
         let fixture: {
             page: Page;
@@ -357,7 +366,9 @@ describe('browser document lifecycle UI', () => {
             await fixture?.page.context().close();
         });
 
-        it('saves rotated unsigned signature fields in place and requires Save As for signed PDFs', async () => {
+        it(pendingPageLabels
+            ? 'requires Save As for a signed PDF with unsaved page labels'
+            : 'saves rotated unsigned signature fields in place and requires Save As for signed PDFs', async () => {
             if (!fixture) throw new Error(`Missing signature fixture: ${kind}`);
             const {
                 page, bytes,
@@ -383,15 +394,26 @@ describe('browser document lifecycle UI', () => {
                     exact: true,
                 }).click();
             }
-            await clickCenter(page, '[data-thumbnail-page="1"]', 'right');
-            await page.getByRole('menuitem', {
-                name: 'Rotate Clockwise',
-                exact: true,
-            }).click();
-            await expect.poll(() => page.locator('.page_container--rendered[data-page="1"]').first().evaluate(element => {
-                const rect = element.getBoundingClientRect();
-                return rect.width > rect.height;
-            })).toBe(true);
+            if (pendingPageLabels) {
+                const installHint = page.locator('.browser-install-dismiss');
+                if (await installHint.isVisible()) await installHint.click();
+                const disclosure = page.locator('.pdf-sidebar-pages-disclosure');
+                if (await disclosure.getAttribute('aria-expanded') !== 'true') await disclosure.click();
+                await page.locator('#page-label-prefix-input').fill('Signed-');
+                await page.getByRole('button', {name: 'Apply numbering', exact: true}).click();
+                await expect.poll(() => page.locator('[data-thumbnail-page="1"] [data-document-thumbnail-label]').innerText()).toContain('Signed-1');
+                await disclosure.click();
+            } else {
+                await clickCenter(page, '[data-thumbnail-page="1"]', 'right');
+                await page.getByRole('menuitem', {
+                    name: 'Rotate Clockwise',
+                    exact: true,
+                }).click();
+                await expect.poll(() => page.locator('.page_container--rendered[data-page="1"]').first().evaluate(element => {
+                    const rect = element.getBoundingClientRect();
+                    return rect.width > rect.height;
+                })).toBe(true);
+            }
             await page.waitForFunction(() => {
                 const api = Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi;
                 return api.readActiveWorkspaceStateValues?.<{isPageOperationInProgress: boolean}>(['isPageOperationInProgress']).isPageOperationInProgress === false;
@@ -442,7 +464,13 @@ describe('browser document lifecycle UI', () => {
             expect(pickerRequests, `${kind}: Save As picker requests`).toBe(signed ? 1 : 0);
             expect(rewritten, `${kind}: original file rewritten`).toBe(!signed);
             expect(rotation, `${kind}: saved page 1 rotation`).toBe(signed ? 0 : 90);
-            expect(destinationRotation, `${kind}: destination page 1 rotation`).toBe(signed ? 90 : null);
+            expect(destinationRotation, `${kind}: destination page 1 rotation`).toBe(signed ? pendingPageLabels ? 0 : 90 : null);
+            if (pendingPageLabels) {
+                const saved = await PDFDocument.load(destination);
+                const labels = saved.catalog.lookup(PDFName.of('PageLabels'), PDFDict);
+                const range = labels.lookup(PDFName.of('Nums'), PDFArray).lookup(1, PDFDict);
+                expect(range.lookup(PDFName.of('P'), PDFString, PDFHexString).decodeText()).toBe('Signed-');
+            }
             const reopened = await page.context().newPage();
             await openPdfFromChooser(reopened, {
                 name: signed ? 'signed-copy.pdf' : 'original.pdf',
@@ -453,7 +481,7 @@ describe('browser document lifecycle UI', () => {
             await expect.poll(() => reopened.locator('.page_container--rendered[data-page="1"]').first().evaluate(element => {
                 const rect = element.getBoundingClientRect();
                 return rect.width > rect.height;
-            })).toBe(true);
+            })).toBe(!pendingPageLabels);
             if (evidence) await reopened.screenshot({path: resolve(evidence, 'reopened.png')});
             await reopened.close();
         }, 90_000);

@@ -10,20 +10,9 @@ import {
     resolveScanCleanupAnalysisDpi,
 } from '@evb/scan-cleanup/core/detection';
 import {
-    isStrongMediaBoxSpread,
-    shouldRetryMediaBoxPage,
-} from '@evb/scan-cleanup/core/policy/scanCleanupDetectionResultPolicy';
-import {
     resolveScanCleanupRasterRenderLimits,
     SCAN_CLEANUP_RASTER_MAX_PIXELS,
 } from '@evb/scan-cleanup/core/rasterValidation';
-import type {IScanCleanupDetectionResult} from '@contracts/scan-cleanup/electronApiScanCleanup';
-import {requirePageNumber} from '@contracts/pageNumbers';
-import type {
-    INativeScanCleanupPageMetadataV3,
-    INativeScanCleanupSplitDiagnosticsV3,
-    TNativeScanCleanupProgressV3,
-} from '@contracts/scan-cleanup/nativeProtocolV3';
 import type {IPdfPageSize} from '@evb/scan-cleanup/core/types';
 
 function cropPage(
@@ -43,35 +32,6 @@ function cropPage(
         mediaWidthPoints: 841.89,
         mediaHeightPoints: 633.89,
     };
-}
-
-function retryResult(overrides: Partial<IScanCleanupDetectionResult> = {}): IScanCleanupDetectionResult {
-    return {
-        pageNumber: requirePageNumber(1),
-        classification: 'single-uncut-page',
-        confidence: 0.1,
-        cutterXPx: null,
-        documentPrior: null,
-        tier1Verdict: 'single-uncut-page',
-        reconciled: false,
-        clusterAgreement: 0,
-        ...overrides,
-    };
-}
-
-function strongDiagnostics(overrides: Partial<INativeScanCleanupSplitDiagnosticsV3> = {}) {
-    return {
-        independentSpreadCues: 4,
-        aspectSpreadScore: 0.845,
-        centralPositionGatePassed: true,
-        bilateralGatePassed: true,
-        aspectSupportGatePassed: true,
-        outerMarginGatePassed: true,
-        evidenceAgreementGatePassed: true,
-        abstained: false,
-        decisionX: 175,
-        ...overrides,
-    } as INativeScanCleanupSplitDiagnosticsV3;
 }
 
 /** A page that is one full-page scanned image at `ppi`. */
@@ -129,65 +89,6 @@ describe('scan cleanup canonical analysis plane', () => {
 });
 
 describe('scan cleanup detection raster plan', () => {
-    it('gates the MediaBox retry to the Nabuco-style spread signals', () => {
-        const page31 = cropPage(31, 358.8, 425.6);
-        const page32 = cropPage(32, 616.7, 452.8);
-        const page33 = cropPage(33, 702.1, 493.2);
-        const page32Result = retryResult({splitDiagnostics: strongDiagnostics()});
-        expect(shouldRetryMediaBoxPage(page31, retryResult())).toBe(true);
-        expect(shouldRetryMediaBoxPage(page32, page32Result)).toBe(true);
-        expect(shouldRetryMediaBoxPage(page33, retryResult({
-            tier1Verdict: 'two-page-spread',
-            reconciled: true,
-        }))).toBe(true);
-        expect(shouldRetryMediaBoxPage(cropPage(34, 600, 400), retryResult())).toBe(false);
-        const trueSingle = cropPage(35, 300, 400);
-        delete trueSingle.mediaWidthPoints;
-        expect(shouldRetryMediaBoxPage(trueSingle, retryResult())).toBe(false);
-    });
-
-    it('accepts only a strong second-pass spread with local cutter evidence', () => {
-        const metadata = {
-            layoutClassification: 'two-page-spread',
-            cutterXPx: 175,
-            rotationDegrees: 0,
-            canvasScope: 'page',
-            excluded: false,
-            blankOutputsSkipped: 0,
-            outputCount: 0,
-            splitDiagnostics: strongDiagnostics({aspectSpreadScore: 0.711}),
-        } as INativeScanCleanupPageMetadataV3;
-        const progress = {
-            stage: 'page-complete',
-            completedPages: 1,
-            totalPages: 1,
-            pageNumber: 1,
-            classification: 'two-page-spread',
-            tier1Verdict: 'two-page-spread',
-            confidence: 0.91,
-            cutterXPx: 175,
-        } as TNativeScanCleanupProgressV3;
-        expect(isStrongMediaBoxSpread(progress, metadata, 351, 265)).toBe(true);
-        expect(isStrongMediaBoxSpread(
-            progress,
-            {
-                ...metadata,
-                splitDiagnostics: strongDiagnostics({outerMarginGatePassed: false}),
-            },
-            351,
-            265,
-        )).toBe(true);
-        expect(isStrongMediaBoxSpread(
-            {
-                ...progress,
-                cutterXPx: 20,
-            },
-            metadata,
-            351,
-            265,
-        )).toBe(false);
-    });
-
     it('keeps source stroke samples for binary preview cleanup', () => {
         expect(resolvePreviewProcessingDpi({
             displayDpi: 150,

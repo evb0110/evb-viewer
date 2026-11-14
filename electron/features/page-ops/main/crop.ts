@@ -25,7 +25,6 @@ import {
 } from '@electron/utils/workerTask';
 import { WORKER_BUNDLES_BY_ID } from '@electron-worker-bundles/electronWorkerBundles.js';
 import type { TCropWorkerInput } from '@electron/features/page-ops/main/cropWorkerProtocol';
-import { materializePageOperationWorkingCopy } from '@electron/features/page-ops/main/qpdf';
 import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
 import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
 import {resolveNativePageOpsPath} from '@electron/features/page-ops/main/resolveNativePageOpsPath';
@@ -186,15 +185,10 @@ export async function cropPages(
     senderWebContentsId?: number,
     signal?: AbortSignal,
 ) {
-    const materializedPath = await materializePageOperationWorkingCopy(
-        workingCopyPath,
-        senderWebContentsId,
-        signal,
-    );
     try {
         await runCropWorkerTask<undefined>({
             type: 'crop',
-            workingCopyPath: materializedPath,
+            workingCopyPath,
             pages,
             margins,
             ...(senderWebContentsId !== undefined ? { senderWebContentsId } : {}),
@@ -203,9 +197,9 @@ export async function cropPages(
         if (!shouldFallbackToLocalCrop(error)) {
             throw error;
         }
-        await assertPageOpsLocalFallbackAllowed(materializedPath, 'crop', signal);
+        await assertPageOpsLocalFallbackAllowed(workingCopyPath, 'crop', signal);
         log.warn(`Crop worker unavailable, falling back to in-process crop: ${getErrorMessage(error)}`);
-        await cropPagesLocal(materializedPath, pages, margins, signal);
+        await cropPagesLocal(workingCopyPath, pages, margins, signal);
     }
 }
 
@@ -215,15 +209,10 @@ export async function removeCropFromPages(
     senderWebContentsId?: number,
     signal?: AbortSignal,
 ) {
-    const materializedPath = await materializePageOperationWorkingCopy(
-        workingCopyPath,
-        senderWebContentsId,
-        signal,
-    );
     try {
         await runCropWorkerTask<undefined>({
             type: 'removeCrop',
-            workingCopyPath: materializedPath,
+            workingCopyPath,
             pages,
             ...(senderWebContentsId !== undefined ? { senderWebContentsId } : {}),
         }, decodeUndefinedResult, signal);
@@ -231,9 +220,9 @@ export async function removeCropFromPages(
         if (!shouldFallbackToLocalCrop(error)) {
             throw error;
         }
-        await assertPageOpsLocalFallbackAllowed(materializedPath, 'remove-crop', signal);
+        await assertPageOpsLocalFallbackAllowed(workingCopyPath, 'remove-crop', signal);
         log.warn(`Crop worker unavailable, falling back to in-process crop reset: ${getErrorMessage(error)}`);
-        await removeCropFromPagesLocal(materializedPath, pages, signal);
+        await removeCropFromPagesLocal(workingCopyPath, pages, signal);
     }
 }
 
@@ -243,20 +232,15 @@ export async function getPageGeometry(
     senderWebContentsId?: number,
     signal?: AbortSignal,
 ): Promise<IPageGeometry> {
-    const materializedPath = await materializePageOperationWorkingCopy(
-        workingCopyPath,
-        senderWebContentsId,
-        signal,
-    );
     const nativeGeometry = await tryGetPageGeometryWithNativePageOps(
-        materializedPath,
+        workingCopyPath,
         pageNumber,
         signal,
     );
     if (nativeGeometry) {
         return nativeGeometry;
     }
-    await assertPageOpsLocalFallbackAllowed(materializedPath, 'get-page-geometry', signal);
+    await assertPageOpsLocalFallbackAllowed(workingCopyPath, 'get-page-geometry', signal);
     throw new PdfPageOpsCapabilityError(
         'native-failure',
         'Native page geometry was unavailable and no JavaScript fallback is permitted',

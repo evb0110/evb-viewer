@@ -1,20 +1,10 @@
 import { dialog } from 'electron';
-import {
-    opendir,
-    realpath,
-    stat,
-} from 'fs/promises';
+import { stat } from 'fs/promises';
 import {
     basename,
     isAbsolute,
-    join,
-    relative,
-    sep,
 } from 'path';
-import {
-    type ICreatePdfFromInputPathsProgress,
-    isSupportedOpenPath,
-} from '@electron/image/pdfConversion';
+import type { ICreatePdfFromInputPathsProgress } from '@electron/image/pdfConversion';
 import { PDF_COMBINE_SUPPORTED_IMAGE_EXTENSIONS } from '@electron/image/pdfCombineShared';
 import {
     allowOpenPath,
@@ -54,7 +44,6 @@ import {
     MAX_OPEN_INPUT_PATHS,
 } from '@electron/features/documents/public/assertOpenInputPathCount';
 import {runtimeConfig} from '@electron/runtimeConfig';
-import {compareFolderEntryNames} from '@pdf-core/documentOpenFileTypes';
 import {findPdfStructurePreservationRefusal} from '@contracts/nativeErrors';
 
 const logger = createLogger('documents-dialogs');
@@ -103,49 +92,6 @@ function createDocumentOpenError(error: unknown, failureMessage: string) {
         return new Error(encodeSerializableErrorEnvelope(structureRefusal));
     }
     return errorWithDetails(te('errors.file.open'), error);
-}
-
-function isPathInsideDirectory(directoryPath: string, candidatePath: string) {
-    const relativePath = relative(directoryPath, candidatePath);
-    return relativePath !== ''
-        && relativePath !== '..'
-        && !relativePath.startsWith(`..${sep}`)
-        && !isAbsolute(relativePath);
-}
-
-export async function collectSupportedFolderPaths(folderPath: string) {
-    const supportedPaths: string[] = [];
-    const realFolderPath = await realpath(folderPath);
-    const directory = await opendir(folderPath);
-    for await (const entry of directory) {
-        const path = join(folderPath, entry.name);
-        if (!isSupportedOpenPath(path)) {
-            continue;
-        }
-        const realPath = await realpath(path).catch(() => null);
-        if (
-            !realPath
-            || !isSupportedOpenPath(realPath)
-            || !isPathInsideDirectory(realFolderPath, realPath)
-        ) {
-            continue;
-        }
-        const targetStat = await stat(realPath).catch(() => null);
-        if (!targetStat?.isFile()) {
-            continue;
-        }
-        supportedPaths.push(path);
-        if (supportedPaths.length > MAX_OPEN_INPUT_PATHS) {
-            throw new Error(`Open batch exceeds maximum size (${MAX_OPEN_INPUT_PATHS})`);
-        }
-    }
-    return supportedPaths
-        .map(path => ({
-            path,
-            name: basename(path),
-        }))
-        .sort((left, right) => compareFolderEntryNames(left.name, right.name))
-        .map(entry => entry.path);
 }
 
 function getDirectBatchRequestKey(senderId: number, requestId: string) {
@@ -323,41 +269,6 @@ export async function handleOpenPdfDialog(context: IDocumentsDialogContext): Pro
         ],
         failureMessage: 'Failed to create working copy',
     });
-}
-
-export async function handleOpenFolderDialog(context: IDocumentsDialogContext): Promise<TOpenFileResult | null> {
-    const dialogOptions = {
-        title: te('dialogs.openFolder'),
-        defaultPath: getDocumentsDialogDefaultPath(),
-        properties: ['openDirectory'],
-    } satisfies Electron.OpenDialogOptions;
-
-    const result = context.parentWindow
-        ? await dialog.showOpenDialog(context.parentWindow, dialogOptions)
-        : await dialog.showOpenDialog(dialogOptions);
-
-    if (result.canceled || result.filePaths.length === 0) {
-        return null;
-    }
-
-    const folderPath = result.filePaths[0]!;
-
-    let sortedSupportedPaths: string[];
-    try {
-        sortedSupportedPaths = await collectSupportedFolderPaths(folderPath);
-    } catch (err) {
-        throw createDocumentOpenError(err, 'Failed to read folder contents');
-    }
-
-    if (sortedSupportedPaths.length === 0) {
-        throw new Error(te('errors.file.folderEmpty'));
-    }
-
-    try {
-        return await openInputPaths(sortedSupportedPaths, {}, context.sender);
-    } catch (err) {
-        throw createDocumentOpenError(err, 'Failed to open folder contents');
-    }
 }
 
 export async function handleOpenCombineDialog(context: IDocumentsDialogContext): Promise<TOpenFileResult | null> {

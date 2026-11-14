@@ -202,7 +202,35 @@ pub(crate) fn hydrate_text_box_original_appearances_path(
     path: &Path,
     qpdf_path: Option<&Path>,
 ) -> Result<()> {
-    let mut source = load_dictionary_incremental_pdf_path(path, qpdf_path)?;
+    let source = load_dictionary_incremental_pdf_path(path, qpdf_path)?;
+    hydrate_text_box_original_appearances_from(
+        mutations,
+        source,
+        StructuralSource::for_path(path, qpdf_path),
+    )
+}
+
+/// Hydrates from an indexed source, reading each graph's streams by range.
+#[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
+pub(crate) fn hydrate_text_box_original_appearances_from_source<S: ByteSource>(
+    mutations: &mut NativeMutationsFile,
+    mut source: SourcePdf<S>,
+) -> Result<()> {
+    let base = source.take_append_base()?;
+    hydrate_text_box_original_appearances_from(
+        mutations,
+        base,
+        Some(StructuralSource::Ranges(&source)),
+    )
+}
+
+/// Hydrates from a structural load of the source, first reading the streams
+/// of each captured graph that the load left in the file, under one budget.
+pub(crate) fn hydrate_text_box_original_appearances_from(
+    mutations: &mut NativeMutationsFile,
+    mut source: IncrementalDocument,
+    streams: Option<StructuralSource<'_>>,
+) -> Result<()> {
     let mut pending = HashSet::new();
     for editor in &mutations.text_boxes {
         let Some(id) = editor
@@ -215,7 +243,7 @@ pub(crate) fn hydrate_text_box_original_appearances_path(
         let root = parse_pdfjs_annotation_object_id(id)
             .ok_or("Invalid original appearance source annotation id")?;
         let graph = capture_annotation_graph(
-            &AppendedRevision::new(&source),
+            &source,
             root,
             &[],
             true,
@@ -234,8 +262,7 @@ pub(crate) fn hydrate_text_box_original_appearances_path(
     let mut remaining = MAX_SIDECAR_BYTES;
     for id in pending {
         source.materialize_base_stream(
-            path,
-            qpdf_path.ok_or("Original appearance source requires qpdf stream access")?,
+            streams.ok_or("Original appearance source requires stream access")?,
             id,
             remaining.min(MAX_DECOMPRESSED_PDF_STREAM_BYTES),
         )?;
@@ -244,7 +271,7 @@ pub(crate) fn hydrate_text_box_original_appearances_path(
             .checked_sub(stream.content.len())
             .ok_or("Original appearance source streams exceed their byte ceiling")?;
     }
-    hydrate_text_box_original_appearances(mutations, &AppendedRevision::new(&source))
+    hydrate_text_box_original_appearances(mutations, &source)
 }
 
 pub(crate) fn original_text_box_graph(
@@ -276,7 +303,7 @@ pub(crate) const TEXT_BOX_METADATA_FIELDS: &[&[u8]] = &[
 ];
 
 pub(crate) fn restore_text_box_recovery(
-    document: &mut Document,
+    document: &mut impl PdfObjectStore,
     original: &TextBoxOriginalAppearance,
     root: ObjectId,
     page: ObjectId,
@@ -288,14 +315,14 @@ pub(crate) fn restore_text_box_recovery(
     let graph = original_text_box_graph(original)?;
     restore_recovery_graph(document, &graph, root, popup, |_, _| Ok(page))?;
     let contents = document
-        .get_dictionary(root)?
+        .dictionary(root)?
         .get(b"Contents")
         .ok()
         .and_then(|value| document.resolved(value).ok())
         .filter(|value| pdf_string_to_text(value).as_deref() == Some(editor.text.as_str()))
         .cloned()
         .unwrap_or_else(|| text_object(&editor.text));
-    let dict = document.get_dictionary_mut(root)?;
+    let dict = document.dictionary_mut(root)?;
     if annotation_subtype(dict) != "freetext" {
         return Err("Original appearance root is not FreeText".into());
     }
@@ -458,27 +485,27 @@ fn remap_recovery_object(object: &mut Object, refs: &HashMap<ObjectId, ObjectId>
 /// Clone every object to fresh references, including reply /IRT and popup
 /// /Parent links. Retired PDF references are never resurrected as identities.
 /// Each annotation returns to its own page, as far from the note's page as it
-/// was; `page_id` resolves a page number in the document being written.
-pub(crate) fn restore_note_recovery(
-    document: &mut Document,
+/// was, found through `pages` in the document being written.
+pub(crate) fn restore_note_recovery<S: PdfObjectStore>(
+    document: &mut S,
     data: &str,
     (root, popup): (ObjectId, ObjectId),
     page_number: u32,
-    mut page_id: impl FnMut(&Document, u32) -> Result<ObjectId>,
+    pages: &PageLookup<'_>,
 ) -> Result<Vec<(ObjectId, ObjectId)>> {
     let graph = decode_note_recovery(data)?;
-    restore_recovery_graph(document, &graph, root, popup, |document, offset| {
+    restore_recovery_graph(document, &graph, root, popup, |document: &S, offset| {
         let number = u32::try_from(i64::from(page_number) + offset).unwrap_or(0);
-        page_id(document, number)
+        pages.page_id(document, number)
     })
 }
 
-fn restore_recovery_graph(
-    document: &mut Document,
+fn restore_recovery_graph<S: PdfObjectStore>(
+    document: &mut S,
     graph: &Document,
     root: ObjectId,
     popup: ObjectId,
-    mut page_of: impl FnMut(&Document, i64) -> Result<ObjectId>,
+    mut page_of: impl FnMut(&S, i64) -> Result<ObjectId>,
 ) -> Result<Vec<(ObjectId, ObjectId)>> {
     let old_root = graph.trailer.get(b"Root")?.as_reference()?;
     let old_popup = annotation_related_ref(graph.get_dictionary(old_root)?, b"Popup");
@@ -497,7 +524,7 @@ fn restore_recovery_graph(
         if let Some((_, page)) = members.iter().find(|(member, _)| *member == refs[id]) {
             object.as_dict_mut()?.set("P", Object::Reference(*page));
         }
-        document.set_object(refs[id], object);
+        document.put_object(refs[id], object);
     }
     Ok(members)
 }

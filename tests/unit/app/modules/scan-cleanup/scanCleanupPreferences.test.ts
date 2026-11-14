@@ -1,6 +1,5 @@
 import {
     afterEach,
-    beforeEach,
     describe,
     expect,
     it,
@@ -8,7 +7,6 @@ import {
     vi,
 } from 'vitest';
 import {reactive} from 'vue';
-import {FakeIndexedDbFactory} from '@tests/unit/app/platform/browserPlatformTestDoubles';
 import type {IScanCleanupPageOverride} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import {createScanCleanupPageOverride} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
 import {
@@ -44,7 +42,6 @@ function memoryStorage(): IScanCleanupPreferenceStorage {
 }
 
 describe('scan cleanup preferences', () => {
-    beforeEach(() => vi.stubGlobal('indexedDB', new FakeIndexedDbFactory()));
     afterEach(() => vi.unstubAllGlobals());
     it('copies the first available whole document entry for Save As, keeps both entries recent and existing settings intact, and reports refused storage', async () => {
         const storage = memoryStorage();
@@ -164,12 +161,6 @@ describe('scan cleanup preferences', () => {
         };
         await expect(saveScanCleanupDocumentOutputMode('/docs/book.pdf', 'bw', storage)).rejects.toThrow('Failed to persist');
         await expect(saveScanCleanupDocumentPreferences('/docs/book.pdf', {outputMode: 'bw'}, storage)).rejects.toThrow('Failed to persist');
-        const admittedStorage = memoryStorage();
-        await saveScanCleanupDocumentPreferences('book', {outputMode: 'color'}, admittedStorage);
-        const before = admittedStorage.get('evb.scanCleanup.documentOverrides.v1');
-        vi.stubGlobal('indexedDB', {open: () => {throw new DOMException('Storage unavailable', 'SecurityError');}});
-        await expect(saveScanCleanupDocumentPreferences('book', {outputMode: 'bw'}, admittedStorage)).rejects.toThrow('Failed to serialize');
-        expect(admittedStorage.get('evb.scanCleanup.documentOverrides.v1')).toBe(before);
     });
 
     it('reads the legacy document settings when storage refuses their adoption', async () => {

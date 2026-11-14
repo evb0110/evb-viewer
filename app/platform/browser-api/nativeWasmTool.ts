@@ -1,5 +1,5 @@
 import { getErrorMessage } from '@app/utils/error';
-import { loadWasmWithDeadline } from '@app/platform/browser-api/loadWasmWithDeadline';
+import { loadWasmWithDeadline } from '@app/platform/browser/loadWasmWithDeadline';
 import { toTransferableUint8Array } from '@app/platform/browser-api/toTransferableUint8Array';
 import {
     getCheckedWasmMemoryView,

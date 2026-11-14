@@ -15,13 +15,12 @@ import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/public';
 import type { TDocumentContext } from '@app/modules/workspace-shell/documentContext';
 import type { TDocumentViewContext } from '@app/modules/workspace-shell/documentViewContext';
 import { stepPdfViewRotation } from '@app/utils/pdfViewRotation';
-import {createWorkspaceDocumentRecovery} from '@app/modules/workspace-shell/checkpoint/createWorkspaceDocumentRecovery';
 
 /** Commands and display state the workspace owns beyond the document context. */
 export interface IWorkspaceExposeOwners extends Pick<IWorkspaceExpose,
     | 'handleSave' | 'handleOptimizePdfForInteraction' | 'handleSaveAs' | 'handleExportDocx'
     | 'handleInsertImageFromFile' | 'handlePasteImageFromClipboard' | 'handleCrop'
-    | 'captureSplitPayload' | 'restoreSplitPayload' | 'waitForDocumentOpenSettled'
+    | 'waitForDocumentOpenSettled'
     | 'runAgentAction' | 'readAgentResource'> {
     handleGoToPage: (page: number, options?: IScrollToPageOptions) => void;
     ensurePdfProjectionForEdit: () => Promise<boolean>;
@@ -65,17 +64,18 @@ export function createWorkspaceExpose(
         metadata: {
             pageLabelState, bookmarkState,
         },
-        pageOps,
-        fileOps,
-        print,
         exportWorkflow,
     } = document;
+    // The document's commands as this view starts them, with its page and selection.
     const {
         view,
         search,
         navigation,
         openSurface,
         viewerDefaults,
+        pageOps,
+        fileOps,
+        print,
     } = viewContext;
     const viewerCapabilities = () => owners.viewerCapabilities.value;
     const hasOpenError = () => Boolean(file.pdfError.value) || Boolean(file.djvuError.value);
@@ -257,8 +257,8 @@ export function createWorkspaceExpose(
         handlePageMove: (move) => {
             void runPageOperation(() => pageOps.pageOpsMove(move));
         },
-        captureSplitPayload: (page, ownership) => owners.captureSplitPayload(page ?? view.currentPage.value, ownership),
-        restoreSplitPayload: owners.restoreSplitPayload,
+        captureSplitPayload: (page, ownership) => document.splitPayload.captureSplitPayload(page ?? view.currentPage.value, ownership),
+        restoreSplitPayload: (...args) => document.splitPayload.restoreSplitPayload(viewContext, ...args),
         closeAllDropdowns: view.closeAllDropdowns,
         waitForDocumentOpenSettled: owners.waitForDocumentOpenSettled,
         runAgentAction: async (...args) => {
@@ -269,12 +269,12 @@ export function createWorkspaceExpose(
         handleOcrComplete: async (payload) => {
             await document.ocr.applyResult(payload as Parameters<typeof document.ocr.applyResult>[0]);
         },
-        ...createWorkspaceDocumentRecovery(document, pdfViewer),
-        pageOpsDelete: (pages, totalPages) => runPageOperation(() => pageOps.pageOpsDelete(pages, totalPages)),
+        getWorkspaceDocumentRefsSignature: () => [document.file.originalPath.value, document.file.workingCopyPath.value, document.file.requiresSaveAsOnFirstSave.value],
+        captureCanonicalAnnotationRecovery: document.recovery.capture,
+        commitDocumentDrafts: document.recovery.commitDrafts,
+        holdDocumentDrafts: document.recovery.holdDrafts,
+        restoreCanonicalAnnotationRecovery: value => document.recovery.restoreCanonicalAnnotationRecovery(pdfViewer(), value),
         handlePageRotate: (pages, angle) => runPageOperation(() => pageOps.handlePageRotate(pages, angle)),
-        pageOpsInsert: (totalPages, afterPage) => runPageOperation(() => pageOps.pageOpsInsert(totalPages, afterPage)),
-        pageOpsReorder: order => runPageOperation(() => pageOps.pageOpsReorder(order)),
-        pageOpsMove: move => runPageOperation(() => pageOps.pageOpsMove(move)),
         handleCropPages: (pages, margins) => runPageOperation(() => pageOps.handleCropPages(pages, margins)),
         handleSave: handleSaveFromCommandSurface,
         handleSelectAll: () => { pdfViewer()?.selectAllAnnotations?.(); },
@@ -362,7 +362,6 @@ export function createWorkspaceExpose(
                 : null;
         },
         getAutomationStateSnapshot,
-        createRecoverySnapshot: save.createRecoverySnapshot,
         scrollToPage: (page: number) => {
             view.documentViewerRef.value?.scrollToPage(page);
         },

@@ -175,24 +175,6 @@ describe('browser file picker adapter', () => {
         await expect(cancelled).resolves.toMatchObject({name: 'AbortError'});
     });
 
-    it('checks a revoked write grant inside the save lock without prompting or opening a writer', async () => {
-        const requestPermission = vi.fn(async () => 'granted' as const);
-        const createWritable = vi.fn(async () => {
-            throw new Error('A writer must not open before the grant is checked');
-        });
-        const handle = Object.assign(createFileSystemFileHandle({name: 'staged-save.pdf'}), {
-            queryPermission: async () => 'prompt' as const,
-            requestPermission,
-            createWritable,
-        });
-        const {writeBytesToHandleInSaveLock} = await import('@app/platform/browser-api/browserFilePickerAdapter');
-
-        await expect(writeBytesToHandleInSaveLock(handle, Uint8Array.of(37, 80, 68, 70)))
-            .rejects.toThrow('Browser write permission for this file changed while the save waited for other saves.');
-        expect(requestPermission).not.toHaveBeenCalled();
-        expect(createWritable).not.toHaveBeenCalled();
-    });
-
     it.each([
         'pick',
         'bytes',

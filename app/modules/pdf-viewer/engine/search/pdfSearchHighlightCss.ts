@@ -37,14 +37,6 @@ export function getHighlightMode(): TPdfHighlightMode {
     return stored === 'css' ? 'css' : 'dom';
 }
 
-export function isHighlightDebugEnabled() {
-    return readHighlightStorageValue(STORAGE_KEYS.HIGHLIGHT_DEBUG) === '1';
-}
-
-export function isHighlightDebugVerboseEnabled() {
-    return readHighlightStorageValue(STORAGE_KEYS.HIGHLIGHT_DEBUG_VERBOSE) === '1';
-}
-
 export function createHighlightRangesInSpan(
     textNode: Text,
     spanStartOffset: number,

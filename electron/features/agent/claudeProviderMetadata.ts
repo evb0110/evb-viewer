@@ -22,8 +22,6 @@ const logger = createLogger('agent-claude-assistant');
 const execFileAsync = promisify(execFile);
 const requireFromHere = createRequire(import.meta.url);
 const CLAUDE_CLI_DISCOVERY_TIMEOUT_MS = 5_000;
-
-export const CLAUDE_AGENT_INSTALL_URL = 'https://code.claude.com/docs/en/agent-sdk/overview';
 export interface IClaudeAgentSdkInfoOptions {
     env?: NodeJS.ProcessEnv;
     resolveSdkPackageDir?: () => string | null;
@@ -318,54 +316,6 @@ export interface IClaudeAssistantProviderInfo {
     version: string | null;
     executablePath: string | null;
     error?: string;
-}
-
-const CLAUDE_AUTH_ENV_VARS = [
-    'ANTHROPIC_API_KEY',
-    'CLAUDE_CODE_OAUTH_TOKEN',
-    'ANTHROPIC_AUTH_TOKEN',
-] as const;
-
-function trimmedEnv(name: string) {
-    const value = process.env[name]?.trim();
-    if (value) {
-        return value;
-    }
-    return undefined;
-}
-
-function resolveClaudeConfigDir() {
-    const override = trimmedEnv('CLAUDE_CONFIG_DIR');
-    if (override) {
-        return override;
-    }
-
-    const home = trimmedEnv('HOME')
-        ?? (process.platform === 'win32' ? trimmedEnv('USERPROFILE') : undefined)
-        ?? homedir();
-    return join(home, '.claude');
-}
-
-function hasClaudeAuthEnv() {
-    return CLAUDE_AUTH_ENV_VARS.some(name => trimmedEnv(name) !== undefined);
-}
-
-// Cheap env + credentials-file check used on the poll path. No subprocess, no keychain probe.
-export async function detectClaudeAuthState(): Promise<TClaudeAuthState> {
-    if (hasClaudeAuthEnv()) {
-        return 'signed-in';
-    }
-
-    try {
-        await access(join(resolveClaudeConfigDir(), '.credentials.json'), constants.R_OK);
-        return 'signed-in';
-    } catch {
-        // Credentials file absent; fall through to platform-specific handling.
-    }
-
-    // On macOS the OAuth credentials usually live in the login keychain, which is too
-    // expensive to probe per poll; treat as inconclusive so a live session can confirm.
-    return process.platform === 'darwin' ? 'unknown' : 'signed-out';
 }
 
 // Only true authentication failures demote auth state. Billing/rate-limit (quota,

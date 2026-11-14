@@ -55,6 +55,7 @@ const fileSystem: NonNullable<IScanCleanupDetectionDependencies['fileSystem']> =
     open: (path, flags) => open(path, flags),
     readFile: async path => readFile(path, 'utf8'),
     readdir: (path, options) => readdir(path, options),
+    rename: (source, destination) => rename(source, destination),
     rm: (path, options) => rm(path, options),
     stat: (path) => stat(path),
     writeFile: (path, data) => writeFile(path, data),

@@ -28,7 +28,7 @@ import { writeSearchIndexInput } from '@electron/features/search/writeSearchInde
 import {
     getWorkingCopyDerivedPath,
     isWorkingCopyDocumentPath,
-} from '@electron/file-access/workingCopyDirectory';
+} from '@electron/file-access/documentStore';
 import * as v from 'valibot';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));

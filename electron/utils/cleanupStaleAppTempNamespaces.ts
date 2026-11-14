@@ -12,6 +12,7 @@ import {
     getAppTempNamespaceDirectoryName,
     getAppTempUserId,
 } from '@node-runtime/appTempNamespace';
+import {DOCUMENTS_DIR} from '@document-store/documentDirectory';
 import {isErrnoException} from '@contracts/runtimeGuards';
 import {
     APP_TEMP_NAMESPACE_OWNER_FILE,
@@ -20,8 +21,6 @@ import {
     getAppTempDirPath,
     getRetiredAppTempDirPath,
 } from '@electron/utils/appTempDir';
-import {getWorkingCopyJournalPath} from '@electron/file-access/workingCopyDirectory';
-import {isRegisteredWorkingCopyDirectory} from '@electron/file-access/workingCopyCleanup';
 import {
     getManagedProcessRegistryDirectory,
     reapOrphanedManagedProcesses,
@@ -135,13 +134,13 @@ export async function cleanupStaleAppTempNamespaces(
             }
             // Its export records go back first, whatever its age: one that
             // cannot be settled yet keeps the namespace, and the original it
-            // names, for a later start. So does a save journal not yet finished:
-            // the working-copy sweep finishes it, as for its own folders.
+            // names, for a later start. So does a document store, which can
+            // hold unsaved work that only its own profile collects.
             await sweepStaleManagedScratchTempDirs(namespacePath, undefined, undefined, profile);
             const scopes = await readdir(namespacePath);
             if ((await readdir(getManagedProcessRegistryDirectory(namespacePath)).catch(() => [])).length > 0 || (await Promise.all(scopes.flatMap(scope => [
                 join(namespacePath, scope, MANAGED_SCRATCH_RECORD_FILE),
-                getWorkingCopyJournalPath(join(namespacePath, scope, 'document.pdf')),
+                join(namespacePath, scope, DOCUMENTS_DIR),
             ]).map(path => lstat(path).then(() => true, () => false)))).includes(true)) {
                 continue;
             }
@@ -152,8 +151,7 @@ export async function cleanupStaleAppTempNamespaces(
                 namespaceStat.mtimeMs,
                 owner.startedAt,
             ));
-            if (!Number.isFinite(lastTouchedAt) || now - lastTouchedAt < maxAgeMs
-                || scopes.some(scope => isRegisteredWorkingCopyDirectory(join(namespacePath, scope)))) {
+            if (!Number.isFinite(lastTouchedAt) || now - lastTouchedAt < maxAgeMs) {
                 continue;
             }
             await rm(namespacePath, {

@@ -235,8 +235,9 @@ export const usePageLabelState = (deps: {
         return pageLabelRevision;
     }
 
-    function captureRecovery(): IWorkspaceMetadataRecovery['pageLabels'] {
-        return pageLabelsDirty.value ? {
+    /** `differsFromBytes`: the ranges differ from the working bytes even where they match the saved file. */
+    function captureRecovery(differsFromBytes = false): IWorkspaceMetadataRecovery['pageLabels'] {
+        return pageLabelsDirty.value || differsFromBytes ? {
             revision: pageLabelRevision,
             dirty: true,
             ranges: pageLabelRanges.value,

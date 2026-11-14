@@ -23,17 +23,17 @@ import {
 import { minifyPdfjsWorker } from './copy-pdfjs-assets.mjs';
 
 const projectRoot = fileURLToPath(new URL('..', import.meta.url));
-const archiveName = 'pdfjs-dist-6.3.315-dd722a66.tgz';
+const archiveName = 'pdfjs-dist-6.3.316-c6bd7213.tgz';
 const dependencyKey = `file:vendor/pdfjs-dist/${archiveName}`;
 const expectedPackage = {
     name: 'pdfjs-dist',
-    version: '6.3.315',
+    version: '6.3.316',
 };
 const expectedFork = {
     repository: 'https://github.com/evb0110/pdf.js.git',
     branch: 'evb-1442-background-rendering',
-    commit: 'dd722a6628764218a99e3d8ac6e9c2b70141f993',
-    tree: '845071699cbf0e9a0fa353e2a769f9d64aafd97e',
+    commit: 'c6bd72136cf5f51423071ee298e99e251a7cef74',
+    tree: 'f7a8f4f759078918288f5993a5a93404e7dd48b8',
     sourceBaseCommit: '5e0ac85d697d41a2232045033962b3437b7e2ad1',
     sourceBaseTree: '9dbb438c9a4bce5a958ca8b37d305b79b5b74c6a',
     upstreamTag: 'v6.3.289',
@@ -200,7 +200,7 @@ function validateReceipt(receipt) {
         value,
     ] of Object.entries(expectedFork)) assert(receipt.source?.[key] === value, `receipt source.${key} mismatch`);
     assert(receipt.source.cleanCheckout === true && receipt.source.fullHistory === true, 'source checkout is not clean and complete');
-    assert(receipt.source.versionCalculationBase === 'sourceBaseCommit', 'version calculation base mismatch');
+    assert(receipt.source.versionCalculationBase === 'pdfjs.config.baseVersion' && receipt.source.versionCalculationBaseCommit === 'ce4ff55faaa83b39b0137dc458af6eea6f96235f', 'version calculation base mismatch');
     assert(receipt.build.packageLockSha256 === 'cd9b0ce997a442b17335976706b2fa64707bfb6b8b7d83cfe332acdc5498b6a2', 'fork package-lock hash mismatch');
     assert(JSON.stringify(receipt.build.commands) === JSON.stringify(expectedBuildCommands)
         && receipt.build.environment === 'PUPPETEER_SKIP_DOWNLOAD=1', 'build receipt is incomplete');

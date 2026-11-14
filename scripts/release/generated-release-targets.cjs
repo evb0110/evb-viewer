@@ -9,29 +9,6 @@ const manifest = JSON.parse(String.raw`{
     "families": [
         {
             "binaryName": null,
-            "id": "tesseract",
-            "label": "Tesseract native tools",
-            "packagedEntries": [
-                {
-                    "id": "tesseract",
-                    "label": "tesseract binary",
-                    "pathSegments": [
-                        "bin",
-                        "tesseract{exeSuffix}"
-                    ],
-                    "type": "file"
-                }
-            ],
-            "sourceRootSegments": [
-                "resources",
-                "tesseract"
-            ],
-            "stagedRootSegments": [
-                "tesseract"
-            ]
-        },
-        {
-            "binaryName": null,
             "id": "poppler",
             "label": "Poppler native tools",
             "packagedEntries": [
@@ -348,9 +325,6 @@ const manifest = JSON.parse(String.raw`{
             ],
             "id": "tessdata",
             "label": "tessdata directory",
-            "requiredFiles": [
-                "pdf.ttf"
-            ],
             "sourceSegments": [
                 "resources",
                 "tesseract",
@@ -402,9 +376,6 @@ const manifest = JSON.parse(String.raw`{
             "entitlements.mac.plist"
         ],
         "executableRoots": [
-            [
-                "tesseract"
-            ],
             [
                 "poppler"
             ],

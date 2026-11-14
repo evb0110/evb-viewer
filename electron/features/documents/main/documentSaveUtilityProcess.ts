@@ -11,7 +11,6 @@ import {
 } from '@electron/features/documents/main/documentSaveUtilityProtocol';
 import {fingerprintFileBounded} from '@electron/features/documents/main/fingerprintFileBounded';
 import {validateTargetedPdfObjects} from '@electron/features/documents/main/validateTargetedPdfObjects';
-import {atomicReplace} from '@electron/utils/atomicReplace';
 import {getOwnStartTime} from '@electron/utils/processIdentity';
 import {
     runNativeToolCommand, type IRunNativeToolCommandOptions,
@@ -202,9 +201,6 @@ utilityParentPort.on('message', (event) => {
             );
         }
         shutdownController.signal.throwIfAborted();
-        if (request.validateOnly !== true) {
-            await atomicReplace(request.sourcePath, request.targetPath, {durable: reuse.fileSync !== true});
-        }
         const result: TDocumentSaveUtilityResult = {
             type: 'result',
             ok: true,

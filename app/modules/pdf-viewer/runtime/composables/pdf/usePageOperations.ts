@@ -17,6 +17,8 @@ import type {IPdfPageLabelRange} from '@contracts/pdfPageLabels';
 import type {
     IPageIdentityDelta,
     IPageOpsMetadataSnapshot,
+    IPageOpsCommittedResult,
+    IPageOpsExtractResult,
     IPageOpsMutationOptions,
     IPageOpsResult,
     TPageOpsPageSelection,
@@ -43,8 +45,9 @@ import { runWithoutDocumentOperationLease } from '@app/utils/runWithoutDocumentO
 
 type TPageOpsRotation = 90 | 180 | 270;
 const MAX_PAGE_OP_SELECTION_RANGES = 100_000;
-type TPageOperationRunner<TResult extends IPageOpsResult> = (path: TDocumentRef) => Promise<TResult>;
-type TPageOperationSuccess<TResult extends IPageOpsResult> = (result: TResult) => boolean;
+type TPageOpsAnyResult = IPageOpsResult | IPageOpsExtractResult;
+type TPageOperationRunner<TResult extends TPageOpsAnyResult> = (path: TDocumentRef) => Promise<TResult>;
+type TPageOperationSuccess<TResult extends TPageOpsAnyResult> = (result: TResult) => boolean;
 
 interface IPageOperationBatchProgress {
     processed: number;
@@ -80,7 +83,7 @@ type TPageOperationBlockedReason =
     | 'delete-all'
     | 'preflight';
 
-type TPageOperationOutcome<TResult extends IPageOpsResult = IPageOpsResult> =
+type TPageOperationOutcome<TResult extends TPageOpsAnyResult = TPageOpsAnyResult> =
     | {
         status: 'succeeded';
         result: TResult;
@@ -111,7 +114,7 @@ export type TPageOperationCancelState = 'idle' | 'canceling' | 'finishing';
 
 function didPageOperationSucceed(outcome: TPageOperationOutcome, onCommitted?: TDocumentCommitReceipt) {
     if (outcome.status !== 'succeeded') return false;
-    if (outcome.result.documentRevision) onCommitted?.(outcome.result.documentRevision.token);
+    if ('documentRevision' in outcome.result) onCommitted?.(outcome.result.documentRevision.token);
     return true;
 }
 
@@ -148,15 +151,13 @@ export const usePageOperations = (deps: {
     reloadWorkingCopyIntoHistory: (opts?: {pageIdentityDelta?: IPageIdentityDelta}) => Promise<boolean>;
     clearOcrCache: (path: TDocumentRef) => void;
     resetSearchCache: () => void;
-    onExtractedDocument?: (path: TDocumentRef) => Promise<void> | void;
     ensureWorkingCopyFreshForRead?: () => Promise<boolean>;
     runWithDocumentOperationLease?: <T>(
         kind: TDocumentOperationKind,
         operation: () => Promise<T>,
     ) => Promise<T>;
     preparePageMutationRevisionSwap?: (input: {
-        path: TDocumentRef;
-        result: IPageOpsResult;
+        result: IPageOpsCommittedResult;
         invalidatedPages: number[];
     }) => void | Promise<void>;
 }) => {
@@ -176,7 +177,6 @@ export const usePageOperations = (deps: {
         reloadWorkingCopyIntoHistory,
         clearOcrCache,
         resetSearchCache,
-        onExtractedDocument,
         ensureWorkingCopyFreshForRead,
         runWithDocumentOperationLease = runWithoutDocumentOperationLease,
         preparePageMutationRevisionSwap,
@@ -221,14 +221,14 @@ export const usePageOperations = (deps: {
         }
     }
 
-    function recordOutcome<TResult extends IPageOpsResult>(
+    function recordOutcome<TResult extends TPageOpsAnyResult>(
         outcome: TPageOperationOutcome<TResult>,
     ) {
         lastOutcome.value = outcome;
         return outcome;
     }
 
-    function isCanceledResult(result: IPageOpsResult) {
+    function isCanceledResult(result: TPageOpsAnyResult) {
         return 'canceled' in result
             && result.canceled === true;
     }
@@ -459,7 +459,7 @@ export const usePageOperations = (deps: {
         );
     }
 
-    async function runOperationDetailed<TResult extends IPageOpsResult>(options: {
+    async function runOperationDetailed<TResult extends TPageOpsAnyResult>(options: {
         operationName: string;
         errorKey: TPageOperationErrorKey;
         run: TPageOperationRunner<TResult>;
@@ -566,18 +566,19 @@ export const usePageOperations = (deps: {
                     });
                 }
 
-                if (options.shouldReload) {
+                // A successful mutation names the revision it committed.
+                const committed: TPageOpsAnyResult = result;
+                if (options.shouldReload && 'documentRevision' in committed) {
                     const fallbackAffectedPages = typeof options.fallbackAffectedPages === 'function'
                         ? options.fallbackAffectedPages(result)
                         : options.fallbackAffectedPages;
                     const invalidatedPages = collectPageIdentityDeltaInvalidatedPages(
-                        result.pageIdentityDelta,
+                        committed.pageIdentityDelta,
                         fallbackAffectedPages,
                     );
                     try {
                         await preparePageMutationRevisionSwap?.({
-                            path,
-                            result,
+                            result: committed,
                             invalidatedPages,
                         });
                     } catch (prepareError) {
@@ -586,11 +587,11 @@ export const usePageOperations = (deps: {
                             operationName: options.operationName,
                         });
                     }
-                    if (result.documentRevision?.documentRef === path && documentRevisionToken) {
-                        documentRevisionToken.value = result.documentRevision.token;
+                    if (documentRevisionToken) {
+                        documentRevisionToken.value = committed.documentRevision.token;
                     }
                     invalidateCaches(path);
-                    const didReload = await reloadWorkingCopyIntoHistory({...(result.pageIdentityDelta ? {pageIdentityDelta: result.pageIdentityDelta} : {})});
+                    const didReload = await reloadWorkingCopyIntoHistory({...(committed.pageIdentityDelta ? {pageIdentityDelta: committed.pageIdentityDelta} : {})});
                     if (!didReload || workingCopyPath.value !== path) {
                         return recordOutcome<TResult>({
                             status: 'stale',
@@ -713,7 +714,11 @@ export const usePageOperations = (deps: {
         return didPageOperationSucceed(await deletePageRangesDetailed(ranges, totalPages), onCommitted);
     }
 
-    async function extractPagesDetailed(pages: number[] | TPageSelection) {
+    /** `onExtracted` receives the new document, for the view that asked to open it. */
+    async function extractPagesDetailed(
+        pages: number[] | TPageSelection,
+        onExtracted?: (path: TDocumentRef) => Promise<void> | void,
+    ) {
         const selectedPageCount = Array.isArray(pages)
             ? pages.length
             : pageSelectionCount(pages);
@@ -732,14 +737,17 @@ export const usePageOperations = (deps: {
             isSuccessful: result => result.success && !result.canceled,
             onSuccess: async (result) => {
                 if (result.destPath) {
-                    await onExtractedDocument?.(result.destPath);
+                    await onExtracted?.(result.destPath);
                 }
             },
         });
     }
 
-    async function extractPages(pages: number[] | TPageSelection) {
-        return didPageOperationSucceed(await extractPagesDetailed(pages));
+    async function extractPages(
+        pages: number[] | TPageSelection,
+        onExtracted?: (path: TDocumentRef) => Promise<void> | void,
+    ) {
+        return didPageOperationSucceed(await extractPagesDetailed(pages, onExtracted));
     }
 
     async function rotatePagesDetailed(pages: number[] | TPageSelection, totalPages: number, angle: TPageOpsRotation) {

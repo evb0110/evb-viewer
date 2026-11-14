@@ -140,7 +140,6 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
 
     function invalidateAnnotationPage(comment: IAnnotationCommentSummary) {
         const page = getAnnotationPageNumber(comment);
-        pdfViewerRef.value?.invalidatePages([page]);
         invalidateThumbnailPages?.([page]);
     }
 

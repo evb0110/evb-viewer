@@ -207,18 +207,20 @@ pub struct Progress {
     pub soft_alpha_foreground_recommendation: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub output_mode_diagnostics: Option<OutputModeDiagnostics>,
+    /// A lease of the page's alternate view raster rather than its input.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    #[cfg_attr(test, ts(optional, as = "Option<bool>"))]
+    pub alternate_view: bool,
 }
 
 impl Progress {
-    /// A staged-input lease frame. It carries page identity only: leases are a
-    /// transport concern and must never restate a classification a later
-    /// page-analyzed or page-complete frame owns.
-    pub fn page_input(stage: ProgressStage, page_number: usize, total_pages: usize) -> Self {
+    /// A frame that reports only its stage and counts.
+    pub fn new(stage: ProgressStage, completed_pages: usize, total_pages: usize) -> Self {
         Self {
             stage,
-            completed_pages: 0,
+            completed_pages,
             total_pages,
-            page_number: Some(page_number),
+            page_number: None,
             output_paths: None,
             classification: None,
             confidence: None,
@@ -234,6 +236,23 @@ impl Progress {
             recommended_output_mode_reason: None,
             soft_alpha_foreground_recommendation: None,
             output_mode_diagnostics: None,
+            alternate_view: false,
+        }
+    }
+
+    /// A staged-input lease frame. It carries page identity only: leases are a
+    /// transport concern and must never restate a classification a later
+    /// page-analyzed or page-complete frame owns.
+    pub fn page_input(
+        stage: ProgressStage,
+        page_number: usize,
+        total_pages: usize,
+        alternate_view: bool,
+    ) -> Self {
+        Self {
+            page_number: Some(page_number),
+            alternate_view,
+            ..Self::new(stage, 0, total_pages)
         }
     }
 }
@@ -392,6 +411,7 @@ mod tests {
             recommended_output_mode_reason: Some(OutputModeRecommendationReason::TextWithPictures),
             soft_alpha_foreground_recommendation: None,
             output_mode_diagnostics: None,
+            alternate_view: false,
         }))
         .unwrap();
 
@@ -411,6 +431,7 @@ mod tests {
             ProgressStage::PageInputRequired,
             147,
             148,
+            false,
         )))
         .unwrap();
 
@@ -419,6 +440,7 @@ mod tests {
             ProgressStage::PageInputReleased,
             147,
             148,
+            false,
         )))
         .unwrap();
         assert_eq!(released["progress"]["stage"], "page-input-released");
@@ -475,6 +497,7 @@ mod tests {
             recommended_output_mode_reason: Some(OutputModeRecommendationReason::TextWithPictures),
             soft_alpha_foreground_recommendation: None,
             output_mode_diagnostics: None,
+            alternate_view: false,
         }))
         .unwrap();
 
@@ -488,25 +511,9 @@ mod tests {
 
         let path = PathBuf::from(std::ffi::OsString::from_vec(b"page-\xff.png".to_vec()));
         let progress = Progress {
-            stage: ProgressStage::PageComplete,
-            completed_pages: 1,
-            total_pages: 1,
             page_number: Some(1),
             output_paths: Some(vec![path]),
-            classification: None,
-            confidence: None,
-            cutter_x_px: None,
-            tier1_verdict: None,
-            reconciled: None,
-            cluster_agreement: None,
-            document_prior: None,
-            text_axis: None,
-            stage_timings: None,
-            recommended_output_mode: None,
-            recommended_output_mode_confidence: None,
-            recommended_output_mode_reason: None,
-            soft_alpha_foreground_recommendation: None,
-            output_mode_diagnostics: None,
+            ..Progress::new(ProgressStage::PageComplete, 1, 1)
         };
 
         let actual = serde_json::to_value(ProgressEnvelope::new(progress)).unwrap();

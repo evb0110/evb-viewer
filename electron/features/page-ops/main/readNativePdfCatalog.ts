@@ -18,7 +18,6 @@ interface INativePdfCatalogReadOptions {
 }
 
 async function readCatalogJson(
-    operation: 'read-catalog' | 'read-document-catalog',
     binaryPath: string,
     inputPath: string,
     options: INativePdfCatalogReadOptions,
@@ -26,7 +25,7 @@ async function readCatalogJson(
     const {
         stdout, stderr,
     } = await runNativeToolCommand(binaryPath, [
-        operation,
+        'read-document-catalog',
         '--input',
         inputPath,
         '--qpdf',
@@ -51,14 +50,6 @@ async function readCatalogJson(
 }
 
 /**
- * Reads a PDF's outline and page labels as a PDF combine carries them, and
- * refuses a source it cannot carry.
- */
-export function readNativePdfCatalog(binaryPath: string, inputPath: string, options: INativePdfCatalogReadOptions) {
-    return readCatalogJson('read-catalog', binaryPath, inputPath, options);
-}
-
-/**
  * Reads one part of the catalog a document shows. The outline and the page
  * labels are read on their own, so only this part's own failure fails the read.
  */
@@ -68,7 +59,7 @@ export async function readNativePdfCatalogPart(
     part: 'bookmarks' | 'pageLabels',
     options: INativePdfCatalogReadOptions,
 ): Promise<unknown[]> {
-    const catalog = await readCatalogJson('read-document-catalog', binaryPath, inputPath, options);
+    const catalog = await readCatalogJson(binaryPath, inputPath, options);
     const value = isRecord(catalog) ? catalog[part] : undefined;
     if (!Array.isArray(value)) {
         const error = isRecord(catalog) ? catalog[`${part}Error`] : undefined;

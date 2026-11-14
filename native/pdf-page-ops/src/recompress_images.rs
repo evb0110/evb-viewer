@@ -406,12 +406,7 @@ fn jpeg_candidate(
         stream.content.clone()
     } else if let Some(source) = structural {
         // An image the source cannot give back keeps its bytes.
-        let Ok(bytes) = read_qpdf_stream_bounded(
-            source.input_path,
-            source.qpdf_path,
-            id,
-            MAX_IMAGE_STREAM_BYTES,
-        ) else {
+        let Ok(bytes) = source.read_raw(id, MAX_IMAGE_STREAM_BYTES) else {
             return Ok(None);
         };
         bytes

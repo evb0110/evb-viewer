@@ -18,13 +18,6 @@ function sendAgentRendererEvent<TChannel extends TAgentRendererEventChannel>(
     webContents.send(channel, payload);
 }
 
-export function sendAgentAssistantEvent(
-    targetWindow: BrowserWindow,
-    payload: IAgentEventMap[typeof eventChannels.onAssistantEvent],
-) {
-    sendAgentRendererEvent(targetWindow.webContents, eventChannels.onAssistantEvent, payload);
-}
-
 export function sendAgentWorkspaceSnapshotRequest(
     targetWindow: BrowserWindow,
     request: IAgentEventMap[typeof eventChannels.onWorkspaceSnapshotRequest],

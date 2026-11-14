@@ -364,5 +364,3 @@ export function createStagedRasterWindow(dependencies: IStagedRasterWindowDepend
         },
     };
 }
-
-export type TStagedRasterWindow = ReturnType<typeof createStagedRasterWindow>;

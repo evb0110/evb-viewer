@@ -17,6 +17,7 @@ const mocks = vi.hoisted(() => ({
     getDocument: vi.fn(),
     getPage: vi.fn(),
     pageOps: vi.fn(),
+    readableBlob: vi.fn(),
     yieldToBrowser: vi.fn(),
 }));
 
@@ -24,6 +25,7 @@ vi.mock('@app/platform/browser-api/browserPageOpsWorkerClient', () => ({runBrows
 vi.mock('@app/platform/browserDocumentStore', () => ({browserDocumentStore: {
     stat: async () => ({size: 1}),
     read: async () => Uint8Array.of(1),
+    readableBlob: mocks.readableBlob,
 }}));
 
 vi.mock('@app/platform/browser-api/browserPdfjsDocumentInit', () => ({
@@ -47,6 +49,7 @@ vi.mock('@app/platform/browser-api/extractBrowserSearchPageText', async importOr
 describe('browserSearchCore', () => {
     beforeEach(() => {
         vi.clearAllMocks();
+        mocks.readableBlob.mockResolvedValue(new Blob([Uint8Array.of(1)]));
         mocks.createPdfjsDocumentInitFromBrowserDocument.mockResolvedValue({url: '/tmp/search.pdf'});
         mocks.destroyDocument.mockResolvedValue(undefined);
         mocks.destroyLoadingTask.mockResolvedValue(undefined);
@@ -81,10 +84,12 @@ describe('browserSearchCore', () => {
 
         await expect(document.extractPage(1, {signal})).resolves.toMatchObject({text: 'שלום'});
         expect(mocks.pageOps).toHaveBeenCalledWith('ocrTextVisibility', {
-            data: Uint8Array.of(1),
+            source: expect.any(Blob),
             pages: [1],
             withEvbOcrText: true,
         }, {signal});
+        const source: Blob = mocks.pageOps.mock.calls[0]![1].source;
+        expect(new Uint8Array(await source.arrayBuffer())).toEqual(Uint8Array.of(1));
     });
 
     it.each([

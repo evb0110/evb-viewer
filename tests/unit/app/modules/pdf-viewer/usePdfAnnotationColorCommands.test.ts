@@ -4,14 +4,10 @@ import {
     it,
     vi,
 } from 'vitest';
-import {shallowRef} from 'vue';
 import type {IAnnotationCommentSummary} from '@app/types/annotations';
 import {AnnotationApplication} from '@app/modules/pdf-viewer/annotations/annotationApplication';
-import {
-    asAnnotationId,
-    type AnnotationId,
-} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
-import {usePdfAnnotationColorCommands} from '@app/modules/pdf-viewer/annotations/usePdfAnnotationColorCommands';
+import {asAnnotationId} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
+import {updateAnnotationColor} from '@app/modules/pdf-viewer/annotations/updateAnnotationColor';
 import {requirePageIndex} from '@contracts/pageNumbers';
 import {requireEpochMs} from '@contracts/timestamps';
 
@@ -91,30 +87,13 @@ function createHarness() {
         color: '#ef4444',
         opacity: 0.8,
     });
-    const annotationCommentModel = {
-        toTextMarkupSubtype: vi.fn(() => 'Underline' as const),
-        updateCachedColor: vi.fn(),
-    };
-    const emitForcedAnnotationMutation = vi.fn();
-    // The invoking view's selection.
-    const selectedIds = new Set<AnnotationId>();
-    const commands = usePdfAnnotationColorCommands({
-        annotationApplication: shallowRef(application),
-        annotationCommentModel: annotationCommentModel as never,
-        emitForcedAnnotationMutation,
-        getSelectedIds: () => selectedIds,
-    });
     return {
         application,
-        selectedIds,
-        commands,
-        annotationCommentModel,
-        emitForcedAnnotationMutation,
         comment: createComment(id),
     };
 }
 
-describe('usePdfAnnotationColorCommands', () => {
+describe('updateAnnotationColor', () => {
     it('updates a canonical sticky note without routing through PDF.js', () => {
         const application = new AnnotationApplication('test');
         const id = asAnnotationId('anno-note');
@@ -141,121 +120,35 @@ describe('usePdfAnnotationColorCommands', () => {
             color: '#f59e0b',
             open: false,
         });
-        const annotationCommentModel = {
-            toTextMarkupSubtype: vi.fn(),
-            updateCachedColor: vi.fn(),
-        };
-        const emitForcedAnnotationMutation = vi.fn();
-        const commands = usePdfAnnotationColorCommands({
-            annotationApplication: shallowRef(application),
-            annotationCommentModel: annotationCommentModel as never,
-            emitForcedAnnotationMutation,
-            getSelectedIds: () => new Set(),
-        });
 
-        const result = commands.updateTextMarkupAnnotationColor(createNoteComment(), '#22c55e');
-
-        expect(result).toMatchObject({
-            updated: true,
-            sourceColor: '#f59e0b',
-            shouldScheduleCommentSync: true,
-            shouldRefreshPage: false,
-            comment: expect.objectContaining({
-                color: '#22c55e',
-                colorEdited: true,
-            }),
-        });
+        expect(updateAnnotationColor(application, createNoteComment(), '#22c55e')).toBe(true);
         expect(application.store.get(id)).toMatchObject({
             kind: 'note',
             color: '#22c55e',
         });
-        expect(annotationCommentModel.toTextMarkupSubtype).not.toHaveBeenCalled();
-        expect(annotationCommentModel.updateCachedColor).not.toHaveBeenCalled();
-        expect(emitForcedAnnotationMutation).toHaveBeenCalledWith({scheduleCommentSync: true});
     });
 
     it('updates the canonical text-markup entity for a context-menu colour change', () => {
         const harness = createHarness();
 
-        const result = harness.commands.updateTextMarkupAnnotationColor(harness.comment, '#22c55e');
-
-        expect(result).toMatchObject({
-            updated: true,
-            shouldApplyTextMarkupColor: false,
-            shouldRefreshPage: false,
-            shouldScheduleCommentSync: true,
-            sourceColor: '#ef4444',
-            comment: expect.objectContaining({
-                color: '#22c55e',
-                colorEdited: true,
-            }),
-        });
+        expect(updateAnnotationColor(harness.application, harness.comment, '#22c55e')).toBe(true);
         expect(harness.application.store.get(asAnnotationId('anno-markup'))).toMatchObject({
             kind: 'text-markup',
             color: '#22c55e',
         });
-        expect(harness.annotationCommentModel.updateCachedColor).toHaveBeenCalledWith(
-            harness.comment,
-            '#22c55e',
-            {colorEdited: true},
-        );
-        expect(harness.emitForcedAnnotationMutation).toHaveBeenCalledWith({scheduleCommentSync: true});
     });
 
-    it('updates the selected canonical text markup without a PDF.js editor', () => {
-        const harness = createHarness();
-        harness.selectedIds.add(asAnnotationId('anno-markup'));
-
-        const result = harness.commands.updateSelectedTextMarkupAnnotationColor('#22c55e');
-
-        expect(result).toMatchObject({
-            updated: true,
-            shouldScheduleCommentSync: true,
-            sourceColor: '#ef4444',
-            comment: expect.objectContaining({
-                appAnnotationId: 'anno-markup',
-                annotationId: 'anno-markup',
-                color: '#22c55e',
-                subtype: 'Underline',
-            }),
-        });
-        expect(harness.application.store.get(asAnnotationId('anno-markup'))).toMatchObject({color: '#22c55e'});
-    });
-
-    it('does not report a mutation when the selected entity is not text markup', () => {
-        const application = new AnnotationApplication('test');
-        const commands = usePdfAnnotationColorCommands({
-            annotationApplication: shallowRef(application),
-            annotationCommentModel: {
-                toTextMarkupSubtype: vi.fn(() => null),
-                updateCachedColor: vi.fn(),
-            } as never,
-            emitForcedAnnotationMutation: vi.fn(),
-            getSelectedIds: () => new Set([asAnnotationId('missing')]),
-        });
-
-        expect(commands.updateSelectedTextMarkupAnnotationColor('#22c55e')).toMatchObject({updated: false});
-    });
-
-    it('does not mutate the comment cache for a deleted canonical markup', () => {
+    it('does not report a change for a deleted canonical markup', () => {
         const harness = createHarness();
         harness.application.store.delete(asAnnotationId('anno-markup'));
 
-        const result = harness.commands.updateTextMarkupAnnotationColor(harness.comment, '#22c55e');
-
-        expect(result).toMatchObject({updated: false});
-        expect(harness.annotationCommentModel.updateCachedColor).not.toHaveBeenCalled();
-        expect(harness.emitForcedAnnotationMutation).not.toHaveBeenCalled();
+        expect(updateAnnotationColor(harness.application, harness.comment, '#22c55e')).toBe(false);
     });
 
-    it('does not publish a color change when the store rejects the update', () => {
+    it('does not report a change when the store rejects the update', () => {
         const harness = createHarness();
         vi.spyOn(harness.application.store, 'updateTextMarkup').mockImplementation(() => undefined as never);
 
-        const result = harness.commands.updateTextMarkupAnnotationColor(harness.comment, '#22c55e');
-
-        expect(result).toMatchObject({updated: false});
-        expect(harness.annotationCommentModel.updateCachedColor).not.toHaveBeenCalled();
-        expect(harness.emitForcedAnnotationMutation).not.toHaveBeenCalled();
+        expect(updateAnnotationColor(harness.application, harness.comment, '#22c55e')).toBe(false);
     });
 });

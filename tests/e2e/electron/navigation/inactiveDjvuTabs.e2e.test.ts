@@ -365,7 +365,7 @@ async function stopInactiveDjvuRenderCancellationProbe(session: IElectronE2ESess
 
 async function waitForActiveDjvuCommittedPage(session: IElectronE2ESession, pageNumber: number) {
     await session.page.waitForFunction((expectedPage: number) => {
-        const host = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
+        const host = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host[data-workspace-active="true"]');
         const viewport = host?.querySelector<HTMLElement>('[data-document-viewer-chassis-viewport]');
         const page = viewport?.querySelector<HTMLElement>(
             `[data-testid="document-page-source-page"][data-page-number="${String(expectedPage)}"]`,
@@ -392,7 +392,7 @@ async function waitForActiveDjvuAuthorityConvergence(
     pageNumber: number,
 ) {
     await session.page.waitForFunction((expectedPage: number) => {
-        const host = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
+        const host = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host[data-workspace-active="true"]');
         const chassis = host?.querySelector<HTMLElement>('.document-viewer-chassis');
         const viewport = host?.querySelector<HTMLElement>('[data-document-viewer-chassis-viewport]');
         const viewportRect = viewport?.getBoundingClientRect();
@@ -482,6 +482,51 @@ async function chooseDjvuFitMode(
         {zoomMode: mode},
         {timeoutMs: DJVU_E2E_TIMEOUT_MS},
     );
+}
+
+interface IDjvuReadingPoint {
+    page: number;
+    x: number;
+    y: number;
+}
+
+/**
+ * Without a point: the page point drawn at the unobscured viewport centre, as
+ * page fractions. With one: where that point is drawn relative to the centre.
+ */
+function readActiveDjvuCentre(session: IElectronE2ESession, point: IDjvuReadingPoint | null) {
+    return session.page.evaluate((anchor) => {
+        const viewport = Array.from(document.querySelectorAll<HTMLElement>('.editor-pane.is-active [data-document-viewer-chassis-viewport]'))
+            .find(candidate => candidate.checkVisibility());
+        const box = viewport?.getBoundingClientRect();
+        if (!viewport || !box) {
+            return null;
+        }
+        const centreX = box.left + viewport.clientLeft + viewport.clientWidth / 2;
+        const centreY = box.top + viewport.clientTop + viewport.clientHeight / 2;
+        const pages = Array.from(viewport.querySelectorAll<HTMLElement>('.document-source-viewer__page[data-page-number]'));
+        const page = anchor
+            ? pages.find(candidate => candidate.dataset.pageNumber === String(anchor.page))
+            : pages.find((candidate) => {
+                const rect = candidate.getBoundingClientRect();
+                return rect.left <= centreX && centreX <= rect.right && rect.top <= centreY && centreY <= rect.bottom;
+            });
+        const rect = page?.getBoundingClientRect();
+        if (!page || !rect) {
+            return null;
+        }
+        return anchor
+            ? {
+                page: anchor.page,
+                x: rect.left + anchor.x * rect.width - centreX,
+                y: rect.top + anchor.y * rect.height - centreY,
+            }
+            : {
+                page: Number(page.dataset.pageNumber),
+                x: (centreX - rect.left) / rect.width,
+                y: (centreY - rect.top) / rect.height,
+            };
+    }, point);
 }
 
 const djvuFixture = resolveDjvuFixturePath();
@@ -985,44 +1030,7 @@ runOrSkip('Electron E2E - Inactive DjVu Tabs', () => {
             const afterWheel = await readActiveDjvuPagePresentationGeometry(session, 7);
             expect(afterWheel?.width).toBeGreaterThan(beforeWheel?.width ?? Number.POSITIVE_INFINITY);
         }
-        // The page point at the unobscured viewport centre, then where that
-        // point is drawn relative to the centre.
-        const readCentre = (anchor: {
-            page: number;
-            x: number;
-            y: number
-        } | null) => session.page.evaluate((point) => {
-            const viewport = document.querySelector<HTMLElement>('.editor-pane.is-active [data-document-viewer-chassis-viewport]');
-            const box = viewport?.getBoundingClientRect();
-            if (!viewport || !box) {
-                return null;
-            }
-            const centreX = box.left + viewport.clientLeft + viewport.clientWidth / 2;
-            const centreY = box.top + viewport.clientTop + viewport.clientHeight / 2;
-            const pages = Array.from(viewport.querySelectorAll<HTMLElement>('.document-source-viewer__page[data-page-number]'));
-            const page = point
-                ? pages.find(candidate => candidate.dataset.pageNumber === String(point.page))
-                : pages.find((candidate) => {
-                    const rect = candidate.getBoundingClientRect();
-                    return rect.left <= centreX && centreX <= rect.right && rect.top <= centreY && centreY <= rect.bottom;
-                });
-            const rect = page?.getBoundingClientRect();
-            if (!page || !rect) {
-                return null;
-            }
-            return point
-                ? {
-                    page: point.page,
-                    x: rect.left + point.x * rect.width - centreX,
-                    y: rect.top + point.y * rect.height - centreY,
-                }
-                : {
-                    page: Number(page.dataset.pageNumber),
-                    x: (centreX - rect.left) / rect.width,
-                    y: (centreY - rect.top) / rect.height,
-                };
-        }, anchor);
-        const anchor = await readCentre(null);
+        const anchor = await readActiveDjvuCentre(session, null);
         expect(anchor).not.toBeNull();
         for (const [
             width,
@@ -1046,7 +1054,7 @@ runOrSkip('Electron E2E - Inactive DjVu Tabs', () => {
                 height,
             ]);
             await waitForViewportQuiet(session.page);
-            const drift = await readCentre(anchor);
+            const drift = await readActiveDjvuCentre(session, anchor);
             const detail = JSON.stringify({
                 anchor,
                 drift,
@@ -1055,6 +1063,66 @@ runOrSkip('Electron E2E - Inactive DjVu Tabs', () => {
             });
             expect(Math.abs(drift?.x ?? Number.NaN), detail).toBeLessThanOrEqual(1);
             expect(Math.abs(drift?.y ?? Number.NaN), detail).toBeLessThanOrEqual(1);
+        }
+    });
+
+    it('keeps the DjVu reading point on every return to its tab, the first included', async () => {
+        if (!djvuFixture.path) {
+            throw new Error(djvuFixture.reason);
+        }
+        const session = await sessionFixture.restart({
+            clean: true,
+            sessionName: () => `e2e-djvu-tab-return-${Date.now()}`,
+        });
+        await openPdfInApp(session.page, await createMultiPageTextFixturePdf(`djvu-tab-return-${Date.now()}.pdf`, 3));
+        await waitForPdfLoaded(session.page);
+        await createNewTab(session);
+        await openDjvuInApp(session.page, djvuFixture.path, DJVU_E2E_TIMEOUT_MS);
+        await waitForDjvuLoaded(session.page, DJVU_E2E_TIMEOUT_MS);
+        await goToPageViaToolbar(session.page, 7);
+        await waitForActiveDjvuCommittedPage(session, 7);
+        const point = await session.page.evaluate(() => {
+            const box = Array.from(document.querySelectorAll<HTMLElement>('.editor-pane.is-active [data-document-viewer-chassis-viewport]'))
+                .find(candidate => candidate.checkVisibility())?.getBoundingClientRect();
+            return box ? {x: box.left + box.width * 0.6, y: box.top + box.height * 0.6} : null;
+        });
+        if (!point) throw new Error('DjVu viewport was not found');
+        await session.page.mouse.move(point.x, point.y);
+        await session.page.mouse.wheel({deltaY: 240});
+        await waitForViewportQuiet(session.page);
+        for (const change of [
+            'zoom',
+            'zoom',
+            'another document',
+        ] as const) {
+            if (change === 'zoom') {
+                await clickVisibleToolbarButton(session.page, 'Zoom In');
+                await waitForViewportQuiet(session.page);
+            }
+            const {currentPage} = await waitForWorkspaceToolbarSnapshot(session.page);
+            const anchor = await readActiveDjvuCentre(session, null);
+            expect(anchor, change).not.toBeNull();
+            if (change === 'zoom') {
+                await activateTab(session, 0);
+            } else {
+                await createNewTab(session);
+                await openPdfInApp(session.page, await createMultiPageTextFixturePdf(`djvu-tab-return-other-${Date.now()}.pdf`, 2));
+            }
+            await waitForPdfLoaded(session.page);
+            await activateTab(session, 1);
+            await waitForViewportQuiet(session.page);
+            // The drawn reading point and the toolbar's page are the ones left behind.
+            const drift = await readActiveDjvuCentre(session, anchor);
+            const detail = JSON.stringify({
+                anchor,
+                change,
+                currentPage,
+                drift,
+            });
+            expect(Math.abs(drift?.x ?? Number.NaN), detail).toBeLessThanOrEqual(1);
+            expect(Math.abs(drift?.y ?? Number.NaN), detail).toBeLessThanOrEqual(1);
+            expect((await waitForWorkspaceToolbarSnapshot(session.page)).currentPage, detail).toBe(currentPage);
+            await waitForDjvuLoaded(session.page);
         }
     });
 

@@ -20,7 +20,7 @@ import {
     createPageLabelRangesFixturePdf,
     readPdfCatalogWithPdfjs,
 } from '@tests/e2e/electron/helpers/fixtures';
-import {getActiveWorkspaceWorkingCopyPath} from '@tests/e2e/electron/helpers/electronApiHelpers';
+import {readDocumentBytes} from '@tests/e2e/electron/helpers/electronApiHelpers';
 import {createElectronE2ESessionFixture} from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
 import {
     clickAsUser, clickFoundAsUser,
@@ -30,7 +30,7 @@ import {
     waitForToolbarCurrentPage,
 } from '@tests/e2e/electron/helpers/viewerCore';
 import {readToolbarPageIndicator} from '@tests/e2e/electron/helpers/toolbarPageIndicator';
-import {getPageLabelStartNumberMax} from '@app/modules/document-viewer/pageLabels';
+import {getPageLabelStartNumberMax} from '@pdf-core/pdfPageLabels';
 import type {Page} from 'puppeteer-core';
 
 const PAGES_PANEL = '.workspace-host[data-workspace-active="true"]';
@@ -111,8 +111,7 @@ describe('Electron E2E - page numbering start limit', () => {
             await expect.poll(() => page.$eval('.page-controls-total', node => node.textContent?.trim()),
                 {timeout: 15_000}).toBe('2');
             expect(labelsBefore).toEqual(before?.map((label, index) => label ? `${label} (${index + 1})` : String(index + 1)));
-            const workingCopy = await getActiveWorkspaceWorkingCopyPath(page);
-            const after = (await readPdfCatalogWithPdfjs(workingCopy)).pageLabels;
+            const after = (await readPdfCatalogWithPdfjs(await readDocumentBytes(page))).pageLabels;
             const retainedLabels = variant === 'empty' ? [
                 '1',
                 '3',

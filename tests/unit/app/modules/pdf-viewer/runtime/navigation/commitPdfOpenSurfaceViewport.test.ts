@@ -117,11 +117,11 @@ function createCallbacks(
         openSurface: surface,
         observePage: (page: number) => surface.observeViewportPage(page),
     };
-    return createPdfOpenSurfaceViewportCallbacks(
-        authority,
-        page => emittedPages.push(page),
-        page => completedPages.push(page),
-    );
+    // The surface report is the only page publication.
+    return createPdfOpenSurfaceViewportCallbacks(authority, (page) => {
+        emittedPages.push(page);
+        completedPages.push(page);
+    });
 }
 
 function createReadySurface(observedPage: number) {

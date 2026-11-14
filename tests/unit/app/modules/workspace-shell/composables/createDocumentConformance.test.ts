@@ -10,9 +10,10 @@ import {
     createDocumentConformance,
     type IPdfConformanceIdleScheduler,
 } from '@app/modules/workspace-shell/composables/document-session/createDocumentConformance';
-import { createDocumentSessionState } from '@app/modules/workspace-shell/viewers/workspaceDocumentDriver';
+import { createDocumentSessionState } from '@app/modules/workspace-shell/composables/document-session/documentSessionState';
 import { requireDocumentRef } from '@contracts/documentRef';
 import {requireDocumentRevisionToken} from '@contracts/documentRevision';
+import { createWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 
 const { mockReadPdfConformanceProfile } = vi.hoisted(() => (
     {mockReadPdfConformanceProfile: vi.fn()}
@@ -74,7 +75,10 @@ function createIdleScheduler() {
 
 function createHarness(path = '/tmp/book.pdf') {
     const documentRef = requireDocumentRef(path);
-    const state = createDocumentSessionState({isDesktopRuntime: ref(true)});
+    const state = createDocumentSessionState({
+            isDesktopRuntime: ref(true),
+            document: createWorkspaceDocumentController({tabId: 'tab-1'}),
+        });
     state.workingCopyPath.value = documentRef;
     const idle = createIdleScheduler();
     const conformance = createDocumentConformance(state, idle.scheduler);
@@ -264,13 +268,13 @@ describe('createDocumentConformance', () => {
         await expect(currentSave).resolves.toBe(true);
     });
 
-    it('keeps current save-restriction failure as a refusal even with an older full profile', async () => {
+    it('saves a copy when the current save restrictions cannot be read, even with an older unsigned profile', async () => {
         const {
             conformance, path, state,
         } = createHarness();
         state.pdfConformanceProfile.value = unsignedProfile;
         mockReadPdfConformanceProfile.mockRejectedValue(new Error('current bytes could not be read'));
-        await expect(conformance.shouldForceSaveAsForWorkingCopy('rewrite', path)).rejects.toThrow('current bytes could not be read');
+        await expect(conformance.shouldForceSaveAsForWorkingCopy('rewrite', path)).resolves.toBe(true);
     });
 
     it('cancels idle work when cleared', () => {

@@ -16,12 +16,17 @@ import {
     isSupportedOpenPath,
 } from '@electron/image/pdfConversion';
 import {
-    createWorkingCopyFromPath,
-    createWorkingCopyWithOutcome,
-} from '@electron/file-access/workingCopyCreation';
+    createDocumentFromFile,
+    openFileAsDocument,
+} from '@electron/features/documents/main/documentWorkingCopyHandlers';
 import {PdfDecryptAttemptError} from '@electron/file-access/workingCopyDecryption';
 import {DocumentOpenRefusalError} from '@contracts/documentOpenErrors';
-import { cleanupWorkingCopy } from '@electron/file-access/workingCopyCleanup';
+import {
+    cleanupWorkingCopy,
+    documentRevisionToken,
+    getWorkingCopyBackingEntry,
+    runWithWorkingCopyReadBacking,
+} from '@electron/file-access/documentStore';
 import {
     allowOpenPaths,
     requireOpenPath,
@@ -53,8 +58,6 @@ import {findKeptOriginal} from '@electron/file-access/keptOriginalNotices';
 import {
     readExactPageGeometry, registerNativePdfSenderCleanup,
 } from '@electron/features/documents/main/nativePdfMetadata';
-import {getWorkingCopyBackingEntry} from '@electron/file-access/workingCopyStore';
-import {isWorkingCopyRevisionCurrent} from '@electron/file-access/documentRevisionStore';
 import {cancelNativeCommandGroup} from '@electron/native-tools/runNativeCommand';
 import {NativeToolBuildMismatchError} from '@electron/native-tools/runNativeToolCommand';
 import {getUnprovenNativeTerminationDetail} from '@electron/utils/nativeTerminationProof';
@@ -201,12 +204,10 @@ export async function openInputPaths(
             throwIfAborted(signal);
             try {
                 const trustedOriginalPath = requireOpenPath(originalPath, owner);
-                const workingCopy = await createWorkingCopyWithOutcome(
-                    trustedOriginalPath,
-                    ownerWebContentsId,
-                    options.password,
+                const opened = await openFileAsDocument(trustedOriginalPath, ownerWebContentsId, {
+                    password: options.password,
                     signal,
-                    () => admitNative('pdf-open-rewrite', {
+                    admitRewrite: () => admitNative('pdf-open-rewrite', {
                         cpuTokens: 1,
                         estimatedResidentBytes: Math.min(
                             256 * 1024 * 1024,
@@ -215,33 +216,32 @@ export async function openInputPaths(
                         nativeProcesses: 1,
                         ioWeight: 4,
                     }),
-                    inputBytes > MAX_DOCUMENT_ALLOCATION_BYTES ? async workingPath => {
-                        await admitNative('pdf-opening-geometry', {
-                            cpuTokens: 2,
-                            estimatedResidentBytes: 256 * 1024 * 1024,
-                            nativeProcesses: 1,
-                            ioWeight: 2,
-                        });
-                        geometry.read = readExactPageGeometry(workingPath, signal, geometryGroup).catch(error => {
+                });
+                const {entry} = opened;
+                unclaimedPath = entry.ref;
+                throwIfAborted(signal);
+                if (inputBytes > MAX_DOCUMENT_ALLOCATION_BYTES) {
+                    await admitNative('pdf-opening-geometry', {
+                        cpuTokens: 2,
+                        estimatedResidentBytes: 256 * 1024 * 1024,
+                        nativeProcesses: 1,
+                        ioWeight: 2,
+                    });
+                    geometry.read = runWithWorkingCopyReadBacking(entry.ref, path => readExactPageGeometry(path, signal, geometryGroup))
+                        .catch(error => {
                             if (signal.aborted || error instanceof NativeToolBuildMismatchError || getUnprovenNativeTerminationDetail(error) !== undefined) throw error;
                             logger.warn('Opening geometry unavailable', {error: getErrorMessage(error)});
                             return null;
                         });
-                        void geometry.read.catch(() => undefined);
-                        return settleOpeningGeometry;
-                    } : undefined,
-                );
-                unclaimedPath = workingCopy.workingPath;
-                throwIfAborted(signal);
-                const entry = getWorkingCopyBackingEntry(unclaimedPath, ownerWebContentsId);
+                }
+                const revisionToken = documentRevisionToken(entry);
                 const pages = await geometry.read;
                 throwIfAborted(signal);
-                if (pages && entry && await isWorkingCopyRevisionCurrent(unclaimedPath, workingCopy.revision.token)
-                    && getWorkingCopyBackingEntry(unclaimedPath, ownerWebContentsId) === entry) {
+                if (pages && getWorkingCopyBackingEntry(entry.ref, ownerWebContentsId) === entry && documentRevisionToken(entry) === revisionToken) {
                     entry.openingPageGeometry = {
                         kind: 'exact',
-                        documentRef: requireDocumentRef(unclaimedPath),
-                        documentRevisionToken: workingCopy.revision.token,
+                        documentRef: requireDocumentRef(entry.ref),
+                        documentRevisionToken: revisionToken,
                         pageCount: pages.length,
                         pages,
                     };
@@ -260,10 +260,10 @@ export async function openInputPaths(
                 const keptOriginalPath = isGenerated ? undefined : await findKeptOriginal(originalPath);
                 const result: TOpenFileResult = {
                     kind: 'pdf',
-                    workingPath: requireDocumentRef(unclaimedPath),
+                    workingPath: requireDocumentRef(entry.ref),
                     originalPath: requireDocumentRef(originalPath),
                     ...(isGenerated ? {isGenerated: true} : {}),
-                    ...(workingCopy.wasEncrypted ? {wasEncrypted: true as const} : {}),
+                    ...(opened.wasEncrypted ? {wasEncrypted: true as const} : {}),
                     ...(keptOriginalPath ? {keptOriginalPath: requireDocumentRef(keptOriginalPath)} : {}),
                 };
                 unclaimedPath = null;
@@ -346,11 +346,11 @@ export async function openInputPaths(
             logger.info('Created combined PDF for input batch', {outputPath});
             allowOpenPaths([tempOutputPath], owner);
             const trustedTempOutputPath = requireOpenPath(tempOutputPath, owner);
-            workingPath = await createWorkingCopyFromPath(
+            workingPath = (await createDocumentFromFile(
                 trustedTempOutputPath,
                 outputPath,
                 getOwnerWebContentsId(owner),
-            );
+            )).ref;
         } finally {
             brokerLease?.release();
             lifecycle?.cleanup();

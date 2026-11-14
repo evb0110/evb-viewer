@@ -37,7 +37,7 @@ import {
     type TOpenPath,
 } from '@electron/file-access/openPathCapabilities';
 import { normalizeExistingPath } from '@electron/utils/normalizeExistingPath';
-import { normalizePathForLookup } from '@electron/file-access/workingCopyStore';
+import {normalizePathForLookup} from '@electron/file-access/normalizePathForLookup';
 import { getRecentFiles } from '@electron/recentFiles';
 import type {IPlatformMainSenderContext} from '@contracts/platformFeature';
 import { cancelConversion } from '@electron/features/djvu/main/ddjvuConversion';

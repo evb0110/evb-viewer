@@ -16,22 +16,6 @@ export function getOptionalString(
         : null;
 }
 
-
-
-export function getOptionalArray(
-    value: unknown,
-    key: PropertyKey,
-): unknown[] | null {
-    if (!isRecord(value)) {
-        return null;
-    }
-
-    const candidate = (value as Record<PropertyKey, unknown>)[key];
-    return Array.isArray(candidate)
-        ? candidate
-        : null;
-}
-
 export function getOptionalObject(
     value: unknown,
     key: PropertyKey,

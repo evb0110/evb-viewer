@@ -110,7 +110,7 @@ import '@app/assets/css/vendor/pdfjs-viewer-sanitized.css';
 const props = defineProps<IPdfViewerProps>();
 const injectedChassisAuthority = injectDocumentViewerRuntime();
 const chassisAuthority = injectedChassisAuthority
-    ?? createDocumentViewerRuntime(ref('pdf'), props.currentPage);
+    ?? createDocumentViewerRuntime(ref('pdf'));
 const emitBase = defineEmits<IPdfViewerEmit>();
 const openErrorLatch = createDocumentOpenGenerationErrorLatch();
 const isCommittedInitialPageTransition = computed(() => {
@@ -190,8 +190,9 @@ const initialSurfacePlaceholderPageStyle = computed(() => buildPdfInitialSurface
     scaledMargin: scaledMargin.value,
     viewportOwnsPadding: injectedChassisAuthority !== null,
 }));
+// The page the open surface is opening at; the viewport authority places it.
 const committedInitialPageNumber = computed<TPageNumber>(() => requirePageNumber(
-    Math.max(1, Math.trunc(props.currentPage ?? 1)),
+    chassisAuthority.openSurface.viewportSession.value.requestedPage,
 ));
 // The chassis runtime sizes the opening frame from the page geometry and its
 // viewport; this renderer only projects it.
@@ -282,7 +283,6 @@ function commitOpeningPageGeometryAfterDomUpdate(
 }
 
 async function handleOpeningPageContainerMounted(pageNumber: TPageNumber) {
-    alignProvisionalOpeningPageShell(pageNumber);
     handlePageContainerMounted(pageNumber);
     if (pageNumber !== committedInitialPageNumber.value) {
         return;
@@ -307,85 +307,6 @@ async function handleOpeningPageContainerMounted(pageNumber: TPageNumber) {
         commitOpeningPageGeometryAfterDomUpdate(expectedGeneration, pageNumber);
     });
 }
-
-function alignProvisionalOpeningPageShell(pageNumber: TPageNumber) {
-    if (pageNumber !== committedInitialPageNumber.value) {
-        return false;
-    }
-    const snapshot = chassisAuthority.openSurface.snapshot.value;
-    const visual = chassisAuthority.openSurface.viewportSession.value.visual;
-    const container = viewerContainer.value;
-    const pageContainer = container?.querySelector<HTMLElement>(
-        `.page_container[data-page="${String(pageNumber)}"]`,
-    );
-    if (
-        !container
-        || !pageContainer
-        || snapshot.phase === 'ready'
-        || snapshot.phase === 'failed'
-        || snapshot.committedViewport !== null
-        || visual.kind !== 'page'
-        || visual.pageNumber !== pageNumber
-        || visual.presentation === 'canvas'
-        || chassisAuthority.openSurface.viewportSession.value.requestedPage !== pageNumber
-    ) {
-        return false;
-    }
-    if (pageNumber === 1) {
-        // The chassis resets every new document generation to the canonical
-        // origin synchronously. Re-measuring the transient page-1 track here
-        // used to write a 4 px scroll offset while its layout was still
-        // settling; the opening shell then appeared 4 px above the final page.
-        // Page 1 requires no virtual-spacer alignment.
-        if (container.scrollTop === 0 && container.scrollLeft === 0) {
-            return false;
-        }
-        const intent = chassisAuthority.viewportWritePort.beginIntent(
-            `opening-page-origin:${String(snapshot.generation)}`,
-        );
-        return chassisAuthority.viewportWritePort.apply(container, {
-            intent,
-            reason: 'opening-page-origin',
-            left: 0,
-            top: 0,
-        });
-    }
-    const containerRect = container.getBoundingClientRect();
-    const pageRect = pageContainer.getBoundingClientRect();
-    const viewportCenterY = Math.max(containerRect.top, 0)
-        + Math.min(containerRect.height, window.innerHeight - Math.max(containerRect.top, 0)) / 2;
-    if (
-        pageRect.width <= 0
-        || pageRect.height <= 0
-        || pageRect.top <= viewportCenterY && pageRect.bottom >= viewportCenterY
-    ) {
-        return false;
-    }
-    const paddingTop = Number.parseFloat(window.getComputedStyle(container).paddingTop) || 0;
-    const top = Math.max(
-        0,
-        container.scrollTop + pageRect.top - containerRect.top - paddingTop,
-    );
-    const intent = chassisAuthority.viewportWritePort.beginIntent(
-        `opening-page-shell:${String(snapshot.generation)}:${String(pageNumber)}`,
-    );
-    return chassisAuthority.viewportWritePort.apply(container, {
-        intent,
-        reason: 'opening-page-shell-alignment',
-        top,
-    });
-}
-
-// Exact PDF metrics can replace the provisional virtual extent without
-// remounting the target page. Reassert physical ownership after each Vue DOM
-// flush until the canonical viewport transaction commits, otherwise the
-// changed offsets can put the old row back under the viewport for one RAF.
-watchPostEffect(() => {
-    void virtualPageSegments.value;
-    void projectedOpeningPageStyle.value;
-    void chassisAuthority?.openSurface.snapshot.value.geometry;
-    alignProvisionalOpeningPageShell(committedInitialPageNumber.value);
-});
 
 function handleOpeningPageContainerUnmounted(pageNumber: TPageNumber) {
     handlePageContainerUnmounted(pageNumber);

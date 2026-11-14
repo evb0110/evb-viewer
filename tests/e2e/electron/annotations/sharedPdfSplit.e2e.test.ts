@@ -15,6 +15,7 @@ import {
     createOutlinePageLabelFixturePdf,
     fixtureBookmark,
     readPdfMetadataWithQpdf,
+    readPdfPageSnapshots,
     readPdfTextAnnotationRecords,
 } from '@tests/e2e/electron/helpers/fixtures';
 import {
@@ -32,6 +33,7 @@ import {
 } from '@tests/e2e/electron/helpers/userInput';
 import {
     goToPageViaToolbar,
+    getToolbarCurrentPage,
     clickVisibleToolbarButton,
     openAnnotationsTab,
     openDocumentSidebarTab,
@@ -1518,6 +1520,63 @@ describe('shared PDF split', () => {
             && sameWidth(view.pageWidthPx, leftAfterDelete.pageWidthPx)
         ));
         await page.screenshot({path: join(sessionDir(session.name), 'history-after-redo.png')});
+    }, TIMEOUT_MS);
+
+    // T4 and R3: rotating the page a view reads keeps that view on it, through
+    // undo, redo and save, and the other view on its own page.
+    it('keeps each view on its page when one view rotates the page it reads', async () => {
+        const stamp = Date.now();
+        const pdfPath = await createMultiPageTextFixturePdf(`shared-pdf-split-rotate-${stamp}.pdf`, 40);
+        session = await startElectronE2ESession(`e2e-shared-pdf-split-rotate-${stamp}`, {
+            clean: true,
+            initialOpenPaths: [pdfPath],
+        });
+        const {page} = session;
+        await waitForPdfLoaded(page);
+        await waitForViewerInteractive(page);
+        await session.command('windowResize', [
+            1440,
+            900,
+        ]);
+        await goToPageViaToolbar(page, 3);
+        await splitActiveTabFromTabMenu(page, 'right');
+        const [
+            leftPane,
+            rightPane,
+        ] = await paneIds(page);
+        await waitForPaneView(page, rightPane!, 'Split Right shows the document', view => !view.showsStart && view.centerPage !== null);
+        await goToPageViaToolbar(page, 15);
+        await activatePaneByTab(page, leftPane!);
+        await openDocumentSidebarTab(page, 'Pages');
+        await waitForSteadyPaneView(page, leftPane!, 'the left view reads page 3', view => view.centerPage === 3);
+        await waitForSteadyPaneView(page, rightPane!, 'the right view reads page 15', view => view.centerPage === 15);
+
+        await clickAsUser(page, thumbnailSelector(leftPane!, 3), {button: 'right'});
+        await clickFoundAsUser(page, () => Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]'))
+            .find(item => item.textContent?.trim() === 'Rotate Clockwise' && item.getBoundingClientRect().width > 0), null, {description: 'Rotate Clockwise'});
+        // Each step settles once page 3 shows the shape it gives that page in both views.
+        const expectPages = async (step: string, landscape: boolean) => {
+            await page.waitForFunction((wide: boolean) => {
+                const pages = Array.from(document.querySelectorAll<HTMLElement>('.editor-pane #pdf-viewer .page_container[data-page="3"]'));
+                return pages.length > 0 && pages.every((container) => {
+                    const rect = container.getBoundingClientRect();
+                    return rect.height > 0 && (rect.width > rect.height) === wide;
+                });
+            }, {timeout: SETTLE_TIMEOUT_MS}, landscape);
+            await waitForViewportQuiet(page);
+            await waitForSteadyPaneView(page, leftPane!, `${step}: the left view must stay on page 3`, view => view.centerPage === 3);
+            await waitForSteadyPaneView(page, rightPane!, `${step}: the right view must stay on page 15`, view => view.centerPage === 15);
+            expect(await getToolbarCurrentPage(page), `${step}: the left view's toolbar`).toBe(3);
+            await page.screenshot({path: join(sessionDir(session!.name), `rotate-${step}.png`)});
+        };
+        await expectPages('rotate', true);
+        await clickToolbarButton(page, 'Undo');
+        await expectPages('undo', false);
+        await clickToolbarButton(page, 'Redo');
+        await expectPages('redo', true);
+        await saveFromToolbar(page, pdfPath);
+        await expectPages('save', true);
+        expect((await readPdfPageSnapshots(pdfPath))[2]?.rotation).toBe(90);
     }, TIMEOUT_MS);
 
     // Sweep #845: opening the same file again from a view (Recent Files, a drop)

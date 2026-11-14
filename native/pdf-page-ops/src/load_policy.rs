@@ -291,9 +291,78 @@ pub(crate) fn load_pdf_bytes_with_policy_and_password(
             policy.max_decompressed_stream_bytes
         )));
     }
-    let document = loaded.map_err(|error| classify_lopdf_load_error(error, policy, bytes))?;
+    let mut document = loaded.map_err(|error| classify_lopdf_load_error(error, policy, bytes))?;
     validate_loaded_document(&document, policy)?;
+    if document.was_encrypted() {
+        take_identity_crypt_streams(&mut document)?;
+    }
     Ok(document)
+}
+
+/// Takes each stream of a decrypted document whose own crypt filter is
+/// Identity as it is written, without that filter. lopdf leaves such data
+/// untouched only under a crypt-filter parameter dictionary, or as metadata
+/// the document does not encrypt; any other stream naming /Crypt is refused
+/// until per-stream crypt filters are decrypted.
+fn take_identity_crypt_streams(document: &mut Document) -> Result<()> {
+    let encrypt_metadata = document
+        .encryption_state
+        .as_ref()
+        .is_none_or(|state| state.encrypt_metadata());
+    for object in document.objects.values_mut() {
+        let Ok(stream) = object.as_stream_mut() else {
+            continue;
+        };
+        let Some(index) = stream
+            .filters()
+            .ok()
+            .and_then(|filters| filters.iter().position(|filter| *filter == b"Crypt"))
+        else {
+            continue;
+        };
+        // Parameters without a /Name select the Identity filter.
+        let names_identity = |parameters: Option<&Object>| {
+            parameters
+                .and_then(|parameters| parameters.as_dict().ok())
+                .and_then(|parameters| parameters.get(b"Name").ok())
+                .is_none_or(|name| name.as_name().ok() == Some(b"Identity"))
+        };
+        let identity = match stream.dict.get(b"DecodeParms") {
+            Ok(parameters @ Object::Dictionary(_)) => names_identity(Some(parameters)),
+            parameters => {
+                let parameters = match parameters {
+                    Ok(Object::Array(parameters)) => parameters.get(index),
+                    _ => None,
+                };
+                names_identity(parameters)
+                    && !encrypt_metadata
+                    && stream.dict.get(b"Type").and_then(Object::as_name).ok() == Some(b"Metadata")
+            }
+        };
+        if !identity {
+            return Err(domain_error(
+                NativeErrorCode::UnsupportedFilter,
+                "The encrypted PDF has streams with their own /Crypt filter, which cannot be decrypted yet",
+            ));
+        }
+        match stream.dict.get_mut(b"Filter") {
+            Ok(Object::Array(filters)) if filters.len() > 1 => {
+                filters.remove(index);
+                if let Ok(Object::Array(parameters)) = stream.dict.get_mut(b"DecodeParms") {
+                    if index < parameters.len() {
+                        parameters.remove(index);
+                    }
+                } else {
+                    stream.dict.remove(b"DecodeParms");
+                }
+            }
+            _ => {
+                stream.dict.remove(b"Filter");
+                stream.dict.remove(b"DecodeParms");
+            }
+        }
+    }
+    Ok(())
 }
 
 /// The one owner of the plaintext-base rule: a document whose base revision
@@ -412,7 +481,7 @@ fn load_incremental_pdf_path_with_policy(
         if encoded_len > policy.max_encoded_bytes as u64
             || !(qpdf_warned
                 || (purpose == Some(QpdfMetadataPurpose::Annotations)
-                    && needs_eager_parse(&AppendedRevision::new(&incremental))))
+                    && needs_eager_parse(&incremental)))
         {
             validate_loaded_document(incremental.get_prev_documents(), policy)?;
             return Ok(incremental);
@@ -715,11 +784,11 @@ impl<'a> AdmissionLexer<'a> {
     }
 }
 
-fn is_pdf_whitespace(byte: u8) -> bool {
+pub(crate) fn is_pdf_whitespace(byte: u8) -> bool {
     matches!(byte, 0 | b'\t' | b'\n' | 12 | b'\r' | b' ')
 }
 
-fn is_pdf_delimiter(byte: u8) -> bool {
+pub(crate) fn is_pdf_delimiter(byte: u8) -> bool {
     matches!(
         byte,
         b'(' | b')' | b'<' | b'>' | b'[' | b']' | b'{' | b'}' | b'/' | b'%'
@@ -1175,17 +1244,13 @@ fn validate_loaded_document(document: &Document, policy: PdfLoadPolicy) -> Resul
         )));
     }
 
-    let page_resolver = PageTreeResolver::new(document)?;
-    let page_count = page_resolver.page_count();
-    if page_count > 0 {
-        // Check both ends of the declared tree without iterating every leaf.
-        // This catches a stale /Count or an unreachable branch while keeping
-        // path-backed admission independent of document page count.
-        page_resolver.page_id(document, 1)?;
-        if page_count > 1 {
-            page_resolver.page_id(document, page_count)?;
-        }
-    }
+    // A tree an encrypted file hides is unread, not damaged.
+    let page_count = PageTreeResolver::with_both_ends(document)
+        .map_err(|error| match document.is_encrypted() {
+            true => error,
+            false => page_tree_damaged(error),
+        })?
+        .page_count();
     validate_page_count(u64::from(page_count), policy)
 }
 
@@ -1914,7 +1979,7 @@ mod tests {
         let structural =
             load_dictionary_incremental_pdf_path(&input_path, Some(&qpdf_path)).unwrap();
         assert_eq!(stream_len(&structural), 0);
-        read_pdf_combine_catalog(&AppendedRevision::new(&structural)).unwrap();
+        read_pdf_outline(&structural, false).unwrap();
         let mut geometry = Vec::new();
         write_page_geometry(&input_path, 1, Some(&qpdf_path), &mut geometry).unwrap();
         assert!(String::from_utf8(geometry)

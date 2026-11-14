@@ -41,7 +41,6 @@ struct Config {
     dpi: Option<u32>,
     output_format: OutputFormat,
     compact_manifest_path: Option<PathBuf>,
-    shared_jbig2_symbols: bool,
     rotations_file: Option<PathBuf>,
 }
 
@@ -171,7 +170,6 @@ fn run(raw_args: Vec<String>) -> Result<()> {
                         1,
                         MAX_WORKER_THREADS as u64,
                     ) as usize,
-                    enable_shared_symbol_encoding: config.shared_jbig2_symbols,
                 },
                 total,
                 |processed| {
@@ -244,7 +242,6 @@ fn run(raw_args: Vec<String>) -> Result<()> {
                 1,
                 MAX_WORKER_THREADS as u64,
             ) as usize,
-            enable_shared_symbol_encoding: config.shared_jbig2_symbols,
         },
         |processed| {
             if config.json_progress {
@@ -564,7 +561,6 @@ fn parse_args(mut args: impl Iterator<Item = String>, max_pages: usize) -> Resul
     let mut dpi = None;
     let mut output_format = OutputFormat::Pdf;
     let mut compact_manifest_path = None;
-    let mut shared_jbig2_symbols = false;
     let mut reading_inputs = false;
     let mut rotations_file = None;
 
@@ -603,7 +599,6 @@ fn parse_args(mut args: impl Iterator<Item = String>, max_pages: usize) -> Resul
                     args.next().ok_or("Missing --compact-manifest value")?,
                 ));
             }
-            "--shared-jbig2-symbols" => shared_jbig2_symbols = true,
             "--" => reading_inputs = true,
             _ if arg.starts_with('-') => return Err(format!("Unknown argument: {arg}").into()),
             _ => input_paths.push(PathBuf::from(arg)),
@@ -641,7 +636,6 @@ fn parse_args(mut args: impl Iterator<Item = String>, max_pages: usize) -> Resul
         dpi,
         output_format,
         compact_manifest_path,
-        shared_jbig2_symbols,
         rotations_file,
     })
 }
@@ -1058,32 +1052,6 @@ mod tests {
         {
             assert!(parse_compact_manifest_line(line, index + 1, index + 1).is_err());
         }
-    }
-
-    #[test]
-    fn shared_jbig2_symbols_is_developer_opt_in() {
-        let default = parse_args(
-            ["--output", "/tmp/output.pdf", "/tmp/input.pbm"]
-                .into_iter()
-                .map(str::to_owned),
-            500,
-        )
-        .unwrap();
-        assert!(!default.shared_jbig2_symbols);
-
-        let enabled = parse_args(
-            [
-                "--output",
-                "/tmp/output.pdf",
-                "--shared-jbig2-symbols",
-                "/tmp/input.pbm",
-            ]
-            .into_iter()
-            .map(str::to_owned),
-            500,
-        )
-        .unwrap();
-        assert!(enabled.shared_jbig2_symbols);
     }
 
     #[test]

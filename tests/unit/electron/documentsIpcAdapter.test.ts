@@ -79,7 +79,10 @@ vi.mock('@electron/file-access/openPathCapabilities', () => ({
     requireOpenPath: (...args: unknown[]) => mocks.requireOpenPath(...args),
 }));
 vi.mock('@electron/image/pdfConversion', () => ({isSupportedOpenPath: (path: unknown) => mocks.isSupportedOpenPath(path)}));
-vi.mock('@electron/file-access/workingCopyCreation', () => ({requireManagedWorkingCopyPath: (path: unknown, owner: unknown) => mocks.requireManagedWorkingCopyPath(path, owner)}));
+vi.mock('@electron/file-access/documentStore', async importOriginal => ({
+    ...await importOriginal<Record<string, unknown>>(),
+    requireManagedWorkingCopyPath: (path: unknown, owner: unknown) => mocks.requireManagedWorkingCopyPath(path, owner),
+}));
 
 describe('documents direct ipc', () => {
     beforeEach(() => {

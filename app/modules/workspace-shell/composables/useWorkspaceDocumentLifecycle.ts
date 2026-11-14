@@ -131,7 +131,7 @@ export const useWorkspaceDocumentLifecycle = (options: IUseWorkspaceDocumentLife
         const sourcePath = opensNew ? request.target?.originalPath : null;
         if (opensNew) {
             checkingOpenSource = true;
-            const gone = await rememberReadingView(session).then(async () => Boolean(
+            const gone = await rememberReadingView(session, view.tabId).then(async () => Boolean(
                 sourcePath && recent.recentFiles.value.some(file => file.originalPath === sourcePath)
                 && await recent.forgetRecentFileIfMissing(sourcePath),
             )).finally(() => {

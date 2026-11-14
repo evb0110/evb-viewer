@@ -30,6 +30,8 @@ import {cast} from '@tests/helpers/cast';
 import {
     createDeferred,
     createDeps,
+    createShapeAnnotation,
+    type TPdfNativeMutationSave,
     useWorkspaceSaveServiceForTest,
 } from '@tests/unit/app/modules/workspace-shell/composables/file-operations/workspaceSaveServiceFixture';
 
@@ -81,9 +83,7 @@ describe('concurrent canonical edits during workspace save', () => {
         ], []);
         application.store.updateNote(edited.identity.id, {contents: 'accepted unsaved text'});
         application.store.delete(deleted.identity.id);
-        const {
-            deps, saveFile,
-        } = createDeps({
+        const {deps} = createDeps({
             originalPath: ref(requireDocumentRef('/tmp/source.pdf')),
             workingCopyPath: ref(requireDocumentRef('/tmp/work.pdf')),
             annotationDirty: ref(true),
@@ -107,7 +107,6 @@ describe('concurrent canonical edits during workspace save', () => {
             updates: [expect.objectContaining({text: 'accepted unsaved text'})],
             deletes: [expect.objectContaining({objectNumber: 13})],
         }), expect.anything());
-        expect(saveFile).not.toHaveBeenCalled();
         expect(deps.saveWorkingCopy).not.toHaveBeenCalled();
         expect(deps.saveWorkingCopyAs).not.toHaveBeenCalled();
         expect(deps.markAnnotationSaved).not.toHaveBeenCalled();
@@ -168,9 +167,11 @@ describe('concurrent canonical edits during workspace save', () => {
             documentRevisionToken: computed(() => revision.value),
         });
         deps.runSaveTransaction = request => transaction.runSaveTransaction(request);
-        async function publishCapturedBytes() {
+        async function publishCapturedBytes(assertBeforeExpose?: () => Promise<void> | void) {
             enteredPersistence.resolve(undefined);
             await finishPersistence.promise;
+            // As the native writer does, check the save is still current before exposing its bytes, after the edit.
+            await assertBeforeExpose?.();
             if (mode === 'save-as') originalPath.value = requireDocumentRef('/tmp/new.pdf');
             revision.value = requireDocumentRevisionToken('rev-2');
             return {
@@ -186,9 +187,9 @@ describe('concurrent canonical edits during workspace save', () => {
             entities: [],
             foreign: [],
         }));
-        deps.trySavePdfNativeMutations = vi.fn(publishCapturedBytes);
-        deps.saveWorkingCopy = vi.fn(publishCapturedBytes);
-        deps.saveWorkingCopyAs = vi.fn(publishCapturedBytes);
+        deps.trySavePdfNativeMutations = vi.fn<TPdfNativeMutationSave>((_mutations, opts) => publishCapturedBytes(opts.assertBeforeExpose));
+        deps.saveWorkingCopy = vi.fn(() => publishCapturedBytes());
+        deps.saveWorkingCopyAs = vi.fn(() => publishCapturedBytes());
         const service = useWorkspaceSaveServiceForTest(deps);
         const saving = mode === 'save-as' ? service.handleSaveAs() : service.handleSave();
         await enteredPersistence.promise;
@@ -231,9 +232,11 @@ describe('save requests while the document lease is held', () => {
     }) => {
         const gate = createDeferred<undefined>();
         const {
-            deps, saveFile,
+            deps, trySavePdfNativeMutations,
         } = createDeps({
-            annotationDirty: ref(true),
+            totalPages: ref(2),
+            hasShapeChanges: vi.fn(() => true),
+            getAllShapes: vi.fn(() => [createShapeAnnotation()]),
             runWithDocumentOperationLease: cast<NonNullable<IWorkspaceSaveDependencies['runWithDocumentOperationLease']>>(
                 async (_kind: unknown, operation: () => Promise<unknown>) => {
                     await gate.promise;
@@ -243,9 +246,7 @@ describe('save requests while the document lease is held', () => {
         });
         const service = useWorkspaceSaveServiceForTest(deps);
         const startSave = () => mode === 'save-as' ? service.handleSaveAs() : service.handleSave();
-        const writes = () => saveFile.mock.calls.length
-            + vi.mocked(deps.saveWorkingCopy).mock.calls.length
-            + vi.mocked(deps.saveWorkingCopyAs).mock.calls.length;
+        const writes = () => trySavePdfNativeMutations.mock.calls.length;
 
         const first = startSave();
         await vi.waitFor(() => expect(deps[indicator].value).toBe(true));

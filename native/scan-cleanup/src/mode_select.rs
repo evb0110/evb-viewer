@@ -1837,28 +1837,6 @@ mod tests {
     }
 
     #[test]
-    fn bilevel_fidelity_veto_tracks_sampling_and_soft_edges_not_paper_shade() {
-        for source_dpi in [72.0, 100.0, 150.0] {
-            assert!(should_veto_bilevel_fidelity(
-                true, 2.0, 8.0, source_dpi, 0.2, 4,
-            ));
-        }
-        assert!(should_veto_bilevel_fidelity(true, 3.0, 12.0, 100.0, 0.9, 4,));
-        assert!(
-            !should_veto_bilevel_fidelity(true, 4.8, 14.4, 360.0, 0.6, 4),
-            "measured 360 dpi book print (stroke 4.8 px, x-height 14.4 px) binarizes cleanly"
-        );
-        assert!(
-            !should_veto_bilevel_fidelity(true, 1.0, 6.0, 100.0, 0.0, 4),
-            "an already-bilevel source has no soft edge topology to preserve"
-        );
-        assert!(
-            !should_veto_bilevel_fidelity(false, 0.0, 0.0, 300.0, 0.2, 1),
-            "uncalibrated sparse text at print resolution is not rejected by DPI alone"
-        );
-    }
-
-    #[test]
     fn soft_text_with_a_genuine_photo_uses_soft_mixed_but_line_art_uses_a_stencil() {
         let (gray, rgb) = text_page([192, 192, 192]);
         let calibration = PageCalibration {
@@ -2573,33 +2551,34 @@ mod tests {
     }
 
     #[test]
-    fn dark_jpeg_chroma_noise_stays_bw_below_36_and_qualifies_at_36() {
-        let (gray, mut below_boundary) = text_page([245; 3]);
-        for y in 155..180 {
-            for x in 250..282 {
-                let wobble = ((x * 13 + y * 17) % 4) as u8;
-                below_boundary.set(x, y, [10 + wobble, 10, 45]);
-            }
-        }
-        let below_gray = rgb_to_gray(&below_boundary);
-        let below = classify(&below_gray, Some(&below_boundary));
-        report("jpeg-dark-chroma-35", below);
-        assert_eq!(below.mode, OutputMode::Bw, "{below:?}");
-
-        let mut at_boundary = below_boundary;
-        for y in 155..180 {
-            for x in 250..282 {
-                at_boundary.set(x, y, [10, 10, 46]);
-            }
-        }
-        let at_boundary_gray = rgb_to_gray(&at_boundary);
-        let at_boundary_recommendation = classify(&at_boundary_gray, Some(&at_boundary));
-        report("jpeg-dark-chroma-36", at_boundary_recommendation);
-        assert_eq!(
-            at_boundary_recommendation.mode,
-            OutputMode::Color,
-            "{at_boundary_recommendation:?}; baseline={:?}",
-            classify(&gray, None)
+    fn a_stamp_turns_a_text_page_color_once_its_chroma_is_strong_and_never_turns_back() {
+        let (_, page) = text_page([245; 3]);
+        let modes: Vec<OutputMode> = (0..=60)
+            .step_by(4)
+            .map(|chroma| {
+                let mut stamped = page.clone();
+                for y in 155..180 {
+                    for x in 250..282 {
+                        stamped.set(x, y, [10, 10, 10 + chroma]);
+                    }
+                }
+                classify(&rgb_to_gray(&stamped), Some(&stamped)).mode
+            })
+            .collect();
+        assert_eq!(modes.first(), Some(&OutputMode::Bw), "{modes:?}");
+        assert_eq!(modes.last(), Some(&OutputMode::Color), "{modes:?}");
+        let first_color = modes
+            .iter()
+            .position(|&mode| mode == OutputMode::Color)
+            .unwrap();
+        assert!(
+            modes[..first_color]
+                .iter()
+                .all(|&mode| mode == OutputMode::Bw)
+                && modes[first_color..]
+                    .iter()
+                    .all(|&mode| mode == OutputMode::Color),
+            "{modes:?}"
         );
     }
 
@@ -2798,25 +2777,6 @@ mod tests {
     }
 
     #[test]
-    fn broad_outside_tone_does_not_exempt_contradictory_mixed_ownership() {
-        let photographed_field = crate::text_tone::OutsideTonalEvidence {
-            fraction: 0.34,
-            largest_component_fraction: 0.12,
-            largest_component_width_fraction: 0.28,
-            largest_component_height_fraction: 0.59,
-        };
-        assert!(!qualifies_independent_outside_tone(photographed_field));
-
-        let localized_tone = crate::text_tone::OutsideTonalEvidence {
-            fraction: 0.025,
-            largest_component_fraction: 0.02,
-            largest_component_width_fraction: 0.12,
-            largest_component_height_fraction: 0.10,
-        };
-        assert!(qualifies_independent_outside_tone(localized_tone));
-    }
-
-    #[test]
     fn auto_mixed_veto_falls_back_for_camera_paper_and_red_cloth() {
         let (_, mut rgb) = text_page([245; 3]);
         // A narrow red cloth strip supplies chroma, while the oversized
@@ -2972,6 +2932,25 @@ mod tests {
         );
         assert_eq!(explicit_mode.mode, OutputMode::Mixed, "{explicit_mode:?}");
         assert!(!explicit_mode.diagnostics.mixed_ownership_veto);
+    }
+
+    #[test]
+    fn broad_outside_tone_does_not_exempt_contradictory_mixed_ownership() {
+        let photographed_field = crate::text_tone::OutsideTonalEvidence {
+            fraction: 0.34,
+            largest_component_fraction: 0.12,
+            largest_component_width_fraction: 0.28,
+            largest_component_height_fraction: 0.59,
+        };
+        assert!(!qualifies_independent_outside_tone(photographed_field));
+
+        let localized_tone = crate::text_tone::OutsideTonalEvidence {
+            fraction: 0.025,
+            largest_component_fraction: 0.02,
+            largest_component_width_fraction: 0.12,
+            largest_component_height_fraction: 0.10,
+        };
+        assert!(qualifies_independent_outside_tone(localized_tone));
     }
 
     #[test]

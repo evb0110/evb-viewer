@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { getCliErrorMessage } from '../lib/cli-error.mjs';
-import {inflateSync} from 'node:zlib';
+import {decode as decodePngImage} from 'fast-png';
 import {
     mkdtemp,
     mkdir,
@@ -389,83 +389,30 @@ async function extractPngMask({
 }
 
 function decodePng(buffer, includeGray = false) {
-    const signature = Buffer.from([
-        0x89,
-        0x50,
-        0x4e,
-        0x47,
-        0x0d,
-        0x0a,
-        0x1a,
-        0x0a,
-    ]);
-    if (buffer.subarray(0, signature.length).compare(signature) !== 0) {
-        throw new Error('Invalid PNG signature');
-    }
-    let offset = signature.length;
-    let width = 0;
-    let height = 0;
-    let bitDepth = 0;
-    let colorType = 0;
-    let interlaceMethod = 0;
-    const imageData = [];
-    while (offset + 12 <= buffer.length) {
-        const length = buffer.readUInt32BE(offset);
-        const type = buffer.toString('ascii', offset + 4, offset + 8);
-        const dataStart = offset + 8;
-        const dataEnd = dataStart + length;
-        if (dataEnd + 4 > buffer.length) {
-            throw new Error('Truncated PNG chunk');
-        }
-        if (type === 'IHDR') {
-            width = buffer.readUInt32BE(dataStart);
-            height = buffer.readUInt32BE(dataStart + 4);
-            bitDepth = buffer[dataStart + 8];
-            colorType = buffer[dataStart + 9];
-            interlaceMethod = buffer[dataStart + 12];
-        } else if (type === 'IDAT') {
-            imageData.push(buffer.subarray(dataStart, dataEnd));
-        } else if (type === 'IEND') {
-            break;
-        }
-        offset = dataEnd + 4;
-    }
-    if (
-        width <= 0
-        || height <= 0
-        || (colorType !== 0 && colorType !== 2)
-        || (colorType === 2 && bitDepth !== 8)
-        || (colorType === 0 && bitDepth !== 1 && bitDepth !== 8)
-        || interlaceMethod !== 0
-    ) {
+    const {
+        channels,
+        data,
+        depth: bitDepth,
+        height,
+        palette,
+        width,
+    } = decodePngImage(buffer);
+    const rgb = channels === 3 && bitDepth === 8;
+    if (palette || (!rgb && (channels !== 1 || (bitDepth !== 1 && bitDepth !== 8)))) {
         throw new Error(
-            `Unsupported grayscale PNG: ${String(width)}x${String(height)}, bit depth ${String(bitDepth)}, color type ${String(colorType)}, interlace ${String(interlaceMethod)}`,
+            `Unsupported grayscale PNG: ${String(width)}x${String(height)}, bit depth ${String(bitDepth)}, channels ${String(channels)}`,
         );
     }
-    const rowBytes = colorType === 2
-        ? width * 3
-        : Math.ceil(width * bitDepth / 8);
-    const bytesPerPixel = colorType === 2 ? 3 : 1;
-    const inflated = inflateSync(Buffer.concat(imageData));
+    const rowBytes = rgb ? width * 3 : Math.ceil(width * bitDepth / 8);
     const pixels = new Uint8Array(width * height);
     const gray = includeGray ? new Uint8Array(width * height) : null;
-    const previous = Buffer.alloc(rowBytes);
-    const current = Buffer.alloc(rowBytes);
-    let inputOffset = 0;
     let darkPixelCount = 0;
     for (let y = 0; y < height; y += 1) {
-        if (inputOffset + rowBytes + 1 > inflated.length) {
-            throw new Error('Truncated PNG image data');
-        }
-        const filter = inflated[inputOffset];
-        inputOffset += 1;
-        inflated.copy(current, 0, inputOffset, inputOffset + rowBytes);
-        inputOffset += rowBytes;
-        unfilterPngRow(current, previous, filter, bytesPerPixel);
+        const current = data.subarray(y * rowBytes, (y + 1) * rowBytes);
         const outputOffset = y * width;
         if (bitDepth === 8) {
             for (let x = 0; x < width; x += 1) {
-                const grayValue = colorType === 2
+                const grayValue = rgb
                     ? Math.round(
                         current[x * 3] * 0.299
                         + current[x * 3 + 1] * 0.587
@@ -492,14 +439,13 @@ function decodePng(buffer, includeGray = false) {
                 }
             }
         }
-        current.copy(previous);
     }
     const totalPixels = width * height;
     // RGB camera pages are not masks. A dark photographed page must not be
     // inverted into an all-white support mask merely because its paper or
     // exposure is unusual. Bilevel and grayscale mask behavior stays as it
     // was before RGB sources were admitted.
-    const invertForeground = colorType !== 2 && darkPixelCount > totalPixels / 2;
+    const invertForeground = !rgb && darkPixelCount > totalPixels / 2;
     if (invertForeground) {
         for (let index = 0; index < pixels.length; index += 1) {
             pixels[index] = pixels[index] ? 0 : 1;
@@ -584,57 +530,6 @@ async function renderPdfPageGray({
     } finally {
         await rm(outputPath, {force: true});
     }
-}
-
-function unfilterPngRow(current, previous, filter, bytesPerPixel) {
-    if (filter === 0) {
-        return;
-    }
-    if (filter === 1) {
-        for (let index = 0; index < current.length; index += 1) {
-            const left = index >= bytesPerPixel ? current[index - bytesPerPixel] : 0;
-            current[index] = (current[index] + left) & 0xff;
-        }
-        return;
-    }
-    if (filter === 2) {
-        for (let index = 0; index < current.length; index += 1) {
-            current[index] = (current[index] + previous[index]) & 0xff;
-        }
-        return;
-    }
-    if (filter === 3) {
-        for (let index = 0; index < current.length; index += 1) {
-            const left = index >= bytesPerPixel ? current[index - bytesPerPixel] : 0;
-            const up = previous[index];
-            current[index] = (current[index] + Math.floor((left + up) / 2)) & 0xff;
-        }
-        return;
-    }
-    if (filter === 4) {
-        for (let index = 0; index < current.length; index += 1) {
-            const left = index >= bytesPerPixel ? current[index - bytesPerPixel] : 0;
-            const up = previous[index];
-            const upLeft = index >= bytesPerPixel ? previous[index - bytesPerPixel] : 0;
-            current[index] = (current[index] + paethPredictor(left, up, upLeft)) & 0xff;
-        }
-        return;
-    }
-    throw new Error(`Unsupported PNG filter ${String(filter)}`);
-}
-
-function paethPredictor(left, up, upLeft) {
-    const estimate = left + up - upLeft;
-    const leftDistance = Math.abs(estimate - left);
-    const upDistance = Math.abs(estimate - up);
-    const upLeftDistance = Math.abs(estimate - upLeft);
-    if (leftDistance <= upDistance && leftDistance <= upLeftDistance) {
-        return left;
-    }
-    if (upDistance <= upLeftDistance) {
-        return up;
-    }
-    return upLeft;
 }
 
 function makeBitmap(width, height, pixels) {

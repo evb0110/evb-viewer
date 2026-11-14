@@ -16,13 +16,3 @@ export interface IPageScrollBounds {
     min: number;
     max: number;
 }
-
-export interface IVisiblePageDebugEntry {
-    pageNumber: TPageNumber;
-    pageTop: number;
-    pageBottom: number;
-    pageHeight: number;
-    visibleTop: number;
-    visibleBottom: number;
-    visibleHeight: number;
-}

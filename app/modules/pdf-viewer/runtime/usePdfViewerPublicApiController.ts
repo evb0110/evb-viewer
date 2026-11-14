@@ -16,21 +16,17 @@ import { asAnnotationId } from '@app/modules/pdf-viewer/engine/annotations/domai
 import { DEFAULT_ANNOTATION_SETTINGS } from '@app/constants/annotationDefaults';
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
 import { getPageContainerByNumber } from '@app/modules/pdf-viewer/engine/pdf-scroll-visibility/getPageContainerByNumber';
-import { toSelectedTextMarkupComment } from '@app/modules/pdf-viewer/annotations/usePdfAnnotationColorCommands';
-import { cloneSparsePageMetrics } from '@app/modules/document-viewer/public';
+import { buildShapeAnnotation } from '@app/modules/pdf-viewer/tools/annotationShapeDrawing';
 
 const POINT_NOTE_CANCELLED_REASON = 'The document changed before the point note was created.';
 const DOCUMENT_CHANGED_REASON = 'The document changed before the annotation was created.';
 
 type TPdfViewerPublicApiRefBackedKeys =
-    | 'annotationHistoryResetVersion'
     | 'hasShapes'
     | 'isCropSelecting'
     | 'pageMetrics'
     | 'pageMetricsVersion'
-    | 'selectedAnnotations'
-    | 'selectedTextBox'
-    | 'selectedShapeId';
+    | 'selectedAnnotations';
 
 type TPdfViewerRefBackedSource = {
     [TKey in TPdfViewerPublicApiRefBackedKeys]-?: Readonly<Ref<Exclude<IPdfViewerExpose[TKey], undefined>>>;
@@ -62,15 +58,12 @@ interface IUsePdfViewerPublicApiControllerOptions {
     ) => Promise<void>;
     renderLoadedPdfPagesForBrowserPrint: NonNullable<IPdfViewerExpose['renderLoadedPdfPagesForBrowserPrint']>;
     startImagePlacement: IPdfViewerExpose['startImagePlacement'];
-    clearPendingImagePlacement: IPdfViewerExpose['clearPendingImagePlacement'];
-    invalidatePages: IPdfViewerExpose['invalidatePages'];
     preparePageMutationRevisionSwap?: IPdfViewerExpose['preparePageMutationRevisionSwap'];
     beginPageRotationPreview?: IPdfViewerExpose['beginPageRotationPreview'];
     cancelPageRotationPreview?: IPdfViewerExpose['cancelPageRotationPreview'];
     startCropSelection: IPdfViewerExpose['startCropSelection'];
     cancelCropSelection: IPdfViewerExpose['cancelCropSelection'];
     isCropSelecting: TPdfViewerPublicApiSource['isCropSelecting'];
-    requestScrollToCurrentResult: IPdfViewerExpose['requestScrollToCurrentResult'];
 }
 
 export const usePdfViewerPublicApiController = (
@@ -83,15 +76,11 @@ export const usePdfViewerPublicApiController = (
     const annotationRuntime = annotationSession;
     const viewportSession = options.viewportSession;
     const {
-        annotations,
-        annotationMutationService,
-        annotationCommentModel,
         annotationSettings,
-        focusAnnotationComment,
+        commentCrud,
         shapeTool,
-        shapeComposable,
-        selectedShapeCommands,
     } = annotationRuntime;
+    const {focusAnnotationComment} = commentCrud;
     const currentPage = viewportSession.currentPage;
 
     // No page-count bound here. The annotation flows check the page against the
@@ -165,7 +154,6 @@ export const usePdfViewerPublicApiController = (
         getViewerContainer: () => options.viewerContainer.value,
         getEffectiveZoom: () => viewportSession.scale.effectiveScale.value,
         getCurrentPage: () => currentPage.value,
-        getPendingNavigationTargetPage: () => viewportSession.singlePageScroll.navigationAnchorPage.value,
         getUserViewportInteractionEpoch: options.getUserViewportInteractionEpoch,
         scrollToPage: (pageNumber, scrollOptions) => {
             options.cancelPendingSearchScroll();
@@ -175,12 +163,7 @@ export const usePdfViewerPublicApiController = (
             );
         },
         captureReadingAnchor: () => viewportSession.singlePageScroll.captureRelayoutAnchor(),
-        cancelProgrammaticNavigation: () => {
-            options.cancelPendingSearchScroll();
-            viewportSession.singlePageScroll.cancelProgrammaticNavigation('public-api');
-        },
         ensurePageMetricsInRange: documentSession.ensurePageMetricsInRange,
-        getPageMetricsSnapshot: () => cloneSparsePageMetrics(documentSession.pageMetrics.value),
         pageMetrics: documentSession.pageMetrics,
         pageMetricsVersion: documentSession.pageMetricsVersion,
         waitForViewerLoadSettled: options.waitForViewerLoadSettled,
@@ -282,7 +265,7 @@ export const usePdfViewerPublicApiController = (
                 return result(false, null, `Page ${pageNumber} is not rendered.`);
             }
 
-            const shape = shapeComposable.buildShapeAnnotation(
+            const shape = buildShapeAnnotation(
                 {
                     ...target,
                     pageIndex: pageNumberToPageIndex(pageNumber),
@@ -293,11 +276,10 @@ export const usePdfViewerPublicApiController = (
                 return result(false, null, 'Shape geometry is too small or invalid.');
             }
 
-            shapeTool.handleShapeCreated(shape);
+            shapeTool.createShape(shape);
             return result(true, annotationSession.annotationApplication.value.listCommentSummaries()
                 .find(comment => comment.appAnnotationId === shape.id) ?? null);
         },
-        annotationHistoryResetVersion: annotationSession.appAnnotationHistory.annotationHistoryResetVersion,
         hasCanonicalAnnotationChanges: annotationRuntime.hasCanonicalAnnotationChanges,
         getAnnotationDirtyEntityCount: () => annotationSession.annotationApplication.value.store.dirtyEntities().length,
         hasCanonicalShapeChanges: annotationRuntime.hasCanonicalShapeChanges,
@@ -335,73 +317,21 @@ export const usePdfViewerPublicApiController = (
         canRotateSelectedAnnotations: annotationRuntime.annotationEditorSurface.canRotateSelectedAnnotations,
         prepareAnnotationToolChange: annotationRuntime.annotationEditorSurface.prepareToolChange,
         handleAnnotationEscape: annotationRuntime.annotationEditorSurface.handleEscape,
-        selectedTextBox: annotationRuntime.annotationEditorSurface.selectedTextBox,
-        getSelectedTextBox: annotationRuntime.annotationEditorSurface.getSelectedTextBox,
-        updateSelectedTextBoxProperties: annotationRuntime.annotationEditorSurface.updateSelectedTextBoxProperties,
         captureCanonicalAnnotationRecovery: annotationRuntime.captureCanonicalAnnotationRecovery,
-        getCanonicalAnnotationRecoveryChangeSignature: annotationRuntime.getCanonicalAnnotationRecoveryChangeSignature,
         restoreCanonicalAnnotationRecovery: annotationRuntime.restoreCanonicalAnnotationRecovery,
-        ensurePdfAnnotationNameReconciliation: annotations.commentSync.ensurePdfAnnotationNameReconciliation,
         focusAnnotationComment,
-        updateAnnotationComment: (comment, text) => {
-            const updated = annotationMutationService.updateComment(
-                {
-                    comment,
-                    text,
-                },
-                { source: 'user' },
-            );
-            if (comment.source === 'pdf' && !comment.annotationName) {
-                void annotations.commentSync
-                    .ensurePdfAnnotationNameReconciliation('existing-annotation-mutation');
-            }
-            return updated;
-        },
-        moveAnnotationMarker: (comment, rect) => annotationMutationService.moveMarker(
-            {
-                comment,
-                rect,
-            },
-            {source: 'agent'},
-        ),
-        deleteAnnotationComment: comment => annotationMutationService.deleteAnnotation(
-            { comment },
-            { source: 'user' },
-        ),
-        deleteReopenedEditorAnnotation: comment => annotationMutationService.deleteReopenedEditorAnnotation(
-            {comment},
-            {source: 'user'},
-        ),
-        getAnnotationCommentsSnapshot: annotationCommentModel.getSnapshot,
-        updateSelectedTextMarkupAnnotationColor: (color, selected) => annotationMutationService.updateColor(
-            {
-                color,
-                comment: toSelectedTextMarkupComment(selected),
-                selected: true,
-            },
-            { source: 'user' },
-        ),
-        updateTextMarkupAnnotationColor: (comment, color) => annotationMutationService.updateColor(
-            {
-                comment,
-                color,
-            },
-            { source: 'user' },
-        ),
-        deleteEmbeddedAnnotationDeferred: annotationMutationService.deleteEmbeddedAnnotationDeferred,
-        getAllShapes: shapeComposable.getAllShapes,
-        getDeletedEmbeddedShapeAnnotationIds: shapeComposable.getDeletedEmbeddedAnnotationIds,
-        getDeletedEmbeddedShapeStableKeys: shapeComposable.getDeletedEmbeddedShapeStableKeys,
-        clearShapes: shapeComposable.clearShapes,
-        clearSelectedShape: selectedShapeCommands.clearSelectedShape,
-        deleteSelectedShape: selectedShapeCommands.deleteSelectedShape,
-        hasShapes: shapeComposable.hasShapes,
-        selectedShapeId: shapeComposable.selectedShapeId,
-        updateShape: selectedShapeCommands.updateShape,
-        getSelectedShape: selectedShapeCommands.getSelectedShape,
+        updateAnnotationComment: commentCrud.updateAnnotationComment,
+        moveAnnotationMarker: commentCrud.moveAnnotationMarker,
+        deleteAnnotationComment: commentCrud.deleteAnnotationComment,
+        deleteReopenedEditorAnnotation: commentCrud.deleteReopenedEditorAnnotation,
+        updateTextMarkupAnnotationColor: commentCrud.updateTextMarkupAnnotationColor,
+        deleteEmbeddedAnnotationDeferred: commentCrud.deleteEmbeddedAnnotationDeferred,
+        getAllShapes: shapeTool.getAllShapes,
+        getDeletedEmbeddedShapeAnnotationIds: shapeTool.getDeletedEmbeddedAnnotationIds,
+        getDeletedEmbeddedShapeStableKeys: shapeTool.getDeletedEmbeddedShapeStableKeys,
+        deleteSelectedShape: annotationRuntime.annotationEditorSurface.deleteSelection,
+        hasShapes: shapeTool.hasShapes,
         startImagePlacement: options.startImagePlacement,
-        clearPendingImagePlacement: options.clearPendingImagePlacement,
-        invalidatePages: options.invalidatePages,
         ...(options.preparePageMutationRevisionSwap
             ? {preparePageMutationRevisionSwap: options.preparePageMutationRevisionSwap}
             : {}),
@@ -411,15 +341,8 @@ export const usePdfViewerPublicApiController = (
         ...(options.cancelPageRotationPreview
             ? {cancelPageRotationPreview: options.cancelPageRotationPreview}
             : {}),
-        remapPageIdentityDelta: delta => annotationRuntime.annotationApplication.value.remapPages(delta),
-        removeAnnotationFromDom: annotationRuntime.removeAnnotationFromDom,
-        removeAnnotationFromInternalCache: stableKey => annotationMutationService.removeAnnotationFromInternalCache(
-            stableKey,
-            { source: 'user' },
-        ),
         startCropSelection: options.startCropSelection,
         cancelCropSelection: options.cancelCropSelection,
         isCropSelecting: options.isCropSelecting,
-        requestScrollToCurrentResult: options.requestScrollToCurrentResult,
     };
 };

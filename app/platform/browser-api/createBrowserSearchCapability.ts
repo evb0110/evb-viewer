@@ -916,8 +916,7 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
             const resultOffset = options.resultOffset ?? 0;
             const requestGeneration = startSearchRequest(requestId);
             try {
-                const { size } = await browserDocumentStore.stat(pdfPath);
-                const contentSignature = await browserDocumentStore.getContentSignature(pdfPath);
+                const {size, contentSignature} = await browserDocumentStore.getContentSnapshot(pdfPath);
                 const documentRevision = await resolveSearchDocumentRevision(pdfPath, options.documentRevision);
                 await iterateSearchPages(pdfPath, size, contentSignature, documentRevision, {
                     requestId,
@@ -1026,8 +1025,7 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
             const requestId = options.requestId;
             const requestGeneration = startSearchRequest(requestId);
             try {
-                const { size } = await browserDocumentStore.stat(pdfPath);
-                const contentSignature = await browserDocumentStore.getContentSignature(pdfPath);
+                const {size, contentSignature} = await browserDocumentStore.getContentSnapshot(pdfPath);
                 const documentRevision = await resolveSearchDocumentRevision(pdfPath, options.documentRevision);
                 const completed = await iterateSearchPages(pdfPath, size, contentSignature, documentRevision, {
                     ...(requestId !== undefined ? {requestId} : {}),

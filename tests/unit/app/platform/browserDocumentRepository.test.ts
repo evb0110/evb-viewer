@@ -1,872 +1,220 @@
 import {
-    beforeEach,
-    describe,
+    mkdtemp,
+    rm,
+} from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import {
+    afterEach,
     expect,
     it,
     vi,
 } from 'vitest';
-import {BrowserDocumentStore} from '@app/platform/browser/browserDocumentRepository';
-import {sweepBrowserDocumentMaintenance} from '@app/platform/browser/browserDocumentMaintenance';
+import { BrowserDocumentStore } from '@app/platform/browser/browserDocumentRepository';
 import {
-    loadBrowserTransferAuthority, mutateBrowserTransferAuthority, loadRecord,
-} from '@app/platform/browser/browserDocumentIdb';
-import {
-    createBrowserFileContentWitness, createBrowserStoredBytesWitness,
-} from '@app/platform/browser/createBrowserFileContentWitness';
-import {
-    BROWSER_LIVE_LEASES_STORE,
-    BROWSER_DOCUMENT_CHUNK_SIZE,
-    BROWSER_MAX_FULL_READ_BYTES,
-    DB_NAME,
-    DOCUMENTS_STORE,
-} from '@app/platform/browser/browserDocumentConstants';
-import {
-    createFileSystemFileHandle,
-    FakeIndexedDbFactory,
-    FakeLockManager,
-    MemoryStorage,
-} from '@tests/unit/app/platform/browserPlatformTestDoubles';
+    browserPublication,
+    rememberFileHandle,
+} from '@app/platform/browser/browserPublication';
+import { openDocument } from '@document-store/documentDirectory';
+import { createNodeStorePort } from '@document-store/nodeStorePort';
+import { createFileSystemFileHandle } from '@tests/unit/app/platform/browserPlatformTestDoubles';
 
-describe('BrowserDocumentStore source registration', () => {
-    let indexedDbFactory: FakeIndexedDbFactory;
+const encode = (text: string) => new TextEncoder().encode(text);
+const decode = (bytes: Uint8Array) => new TextDecoder().decode(bytes);
+const roots: string[] = [];
+const repositories: BrowserDocumentStore[] = [];
 
-    beforeEach(() => {
-        vi.unstubAllGlobals();
-        indexedDbFactory = new FakeIndexedDbFactory();
-        vi.stubGlobal('indexedDB', indexedDbFactory);
-        vi.stubGlobal('window', {localStorage: new MemoryStorage()});
-        vi.stubGlobal('document', {cookie: ''});
-    });
-
-    it.each([
-        {
-            name: 'same-size replacement',
-            previousBytes: Uint8Array.of(37, 80, 68, 70),
-            replacementBytes: Uint8Array.of(37, 80, 68, 71),
-        },
-        {
-            name: 'changed-size replacement',
-            previousBytes: Uint8Array.of(37, 80, 68, 70),
-            replacementBytes: Uint8Array.of(37, 80, 68, 70, 9, 8, 7),
-        },
-    ])('binds a fresh source version to the selected $name', async ({
-        previousBytes,
-        replacementBytes,
-    }) => {
-        let currentFile = new File(
-            [previousBytes],
-            'reopen.pdf',
-            {
-                type: 'application/pdf',
-                lastModified: 100,
-            },
-        );
-        const handle = createFileSystemFileHandle({
-            name: 'reopen.pdf',
-            getFile: vi.fn(async () => currentFile),
-        });
-        const store = new BrowserDocumentStore();
-        const previousRef = await store.registerFile(currentFile, {
-            kind: 'source',
-            saveKind: 'pdf',
-            saveHandle: handle,
-        });
-        const dirtyWorkingRef = await store.cloneAsWorkingCopy(previousRef);
-        const dirtyBytes = Uint8Array.of(37, 80, 68, 70, 1);
-        await store.writeForBootstrap(dirtyWorkingRef, dirtyBytes, 'source-registration-test');
-
-        currentFile = new File(
-            [replacementBytes],
-            'reopen.pdf',
-            {
-                type: 'application/pdf',
-                lastModified: 200,
-            },
-        );
-        const reopenedRef = await store.registerFile(currentFile, {
-            kind: 'source',
-            saveKind: 'pdf',
-            saveHandle: handle,
-        });
-
-        expect(reopenedRef).not.toBe(previousRef);
-        await expect(store.read(reopenedRef)).resolves.toEqual(replacementBytes);
-        await expect(store.read(previousRef)).resolves.toEqual(previousBytes);
-        await expect(store.read(dirtyWorkingRef)).resolves.toEqual(dirtyBytes);
-        expect((await store.requireEntry(dirtyWorkingRef)).sourceRef).toBe(previousRef);
-        expect((await store.requireEntry(reopenedRef)).saveHandle).toBe(handle);
-    });
-
-    it('keeps bytes, snapshot, witness, and opening revision coherent for a fresh source', async () => {
-        const bytes = Uint8Array.from({length: 32}, (_value, index) => index + 1);
-        const file = new File([bytes], 'coherent-source.pdf', {
-            type: 'application/pdf',
-            lastModified: 321,
-        });
-        const handle = createFileSystemFileHandle({
-            name: file.name,
-            getFile: vi.fn(async () => file),
-        });
-        const store = new BrowserDocumentStore();
-        const ref = await store.registerFile(file, {
-            kind: 'source',
-            saveKind: 'pdf',
-            saveHandle: handle,
-        });
-
-        const entry = await store.requireEntry(ref);
-        const revision = await store.getDocumentRevision(ref);
-        const contentSignature = await store.getContentSignature(ref);
-
-        expect(entry.fileSnapshot).toBe(file);
-        expect(entry.fileSize).toBe(bytes.byteLength);
-        expect(entry.fileLastModified).toBe(file.lastModified);
-        expect(entry.contentToken).toBe(await createBrowserFileContentWitness(file));
-        expect(contentSignature).toContain(`:${entry.contentToken}:`);
-        expect(revision.token).toBe(`drt1:browser:${entry.contentToken}`);
-        await expect(store.readRange(ref, 7, 9)).resolves.toEqual(bytes.slice(7, 16));
-        await expect(store.read(ref)).resolves.toEqual(bytes);
-        const boundaryBytes = Uint8Array.from({length: BROWSER_DOCUMENT_CHUNK_SIZE + 17}, (_value, index) => index ^ (index >>> 8) ^ (index >>> 16));
-        await expect(createBrowserFileContentWitness(new File([boundaryBytes], 'boundary.pdf'))).resolves.toBe(await createBrowserStoredBytesWitness(boundaryBytes));
-    });
-
-    it.each([
-        'managed',
-        'handle',
-    ] as const)('keeps %s bytes and size coherent through a stable physical witness', async mode => {
-        const openingBytes = Uint8Array.of(37, 80, 68, 70);
-        let currentFile = new File([openingBytes], 'physical-size.pdf', {lastModified: 100});
-        const handle = createFileSystemFileHandle({
-            name: currentFile.name,
-            getFile: vi.fn(async () => currentFile),
-        });
-        const store = new BrowserDocumentStore();
-        const ref = await store.registerFile(currentFile, {
-            saveHandle: handle,
-            saveKind: 'pdf',
-        });
-        if (mode === 'handle') {
-            await store.replaceWithHandleBackedDocument(ref, {
-                fileSize: openingBytes.length,
-                saveHandle: handle,
-                saveName: currentFile.name,
-            });
-        }
-        const openingRevision = await store.getDocumentRevision(ref);
-        const physicalBytes = Uint8Array.of(9, 8, 7);
-        currentFile = new File([physicalBytes], currentFile.name, {lastModified: 200});
-        const changedRevision = await store.getDocumentRevision(ref);
-        const stableRevision = await store.getDocumentRevision(ref);
-        const expectedBytes = mode === 'managed' ? openingBytes : physicalBytes;
-
-        expect(changedRevision.token).not.toBe(openingRevision.token);
-        expect(stableRevision).toEqual(changedRevision);
-        expect((await store.stat(ref)).size).toBe(expectedBytes.length);
-        await expect(store.read(ref)).resolves.toEqual(expectedBytes);
-        await expect(store.readRange(ref, 1, 2)).resolves.toEqual(expectedBytes.slice(1, 3));
-        expect((await store.requireEntry(ref)).contentToken).toBe(await createBrowserFileContentWitness(currentFile));
-    });
-
-    it('reopens fresh bytes after a prior physical witness refresh', async () => {
-        let currentFile = new File([Uint8Array.of(37, 80, 68, 70)], 'witness-reopen.pdf', {
-            type: 'application/pdf',
-            lastModified: 100,
-        });
-        const handle = createFileSystemFileHandle({
-            name: 'witness-reopen.pdf',
-            getFile: vi.fn(async () => currentFile),
-        });
-        const store = new BrowserDocumentStore();
-        const originalRef = await store.registerFile(currentFile, {
-            kind: 'source',
-            saveKind: 'pdf',
-            saveHandle: handle,
-        });
-        const dirtyRef = await store.cloneAsWorkingCopy(originalRef);
-        await store.writeForBootstrap(
-            dirtyRef,
-            Uint8Array.of(37, 80, 68, 70, 1),
-            'witness-reopen-test',
-        );
-
-        currentFile = new File([Uint8Array.of(37, 80, 68, 71)], 'witness-reopen.pdf', {
-            type: 'application/pdf',
-            lastModified: 200,
-        });
-        await store.getDocumentRevision(originalRef);
-
-        const reopenedRef = await store.refreshSourceVersionIfChanged(originalRef);
-
-        expect(reopenedRef).not.toBe(originalRef);
-        const reopenedEntry = await store.requireEntry(reopenedRef);
-        expect(reopenedEntry.fileSnapshot).toBe(currentFile);
-        expect(reopenedEntry.sourceBaseWitness).toBe(reopenedEntry.contentToken);
-        expect(await store.getContentSignature(reopenedRef)).toContain(`:${reopenedEntry.contentToken}:`);
-        await expect(store.read(reopenedRef)).resolves.toEqual(Uint8Array.of(37, 80, 68, 71));
-        await expect(store.readRange(reopenedRef, 2, 2)).resolves.toEqual(Uint8Array.of(68, 71));
-        await expect(store.read(originalRef)).resolves.toEqual(Uint8Array.of(37, 80, 68, 70));
-        await expect(store.read(dirtyRef)).resolves.toEqual(Uint8Array.of(37, 80, 68, 70, 1));
-    });
-
-    it.each([
-        'file',
-        'bytes',
-    ] as const)('refuses an unsampled external edit before legacy %s migration', async kind => {
-        const openingBytes = new Uint8Array(17 * 1024 * 1024).fill(32);
-        const changedBytes = openingBytes.slice();
-        changedBytes[1024 * 1024] = 88;
-        const file = new File([changedBytes], 'legacy.pdf', {lastModified: 200});
-        const store = new BrowserDocumentStore();
-        const sourceRef = await store.registerFile(file, {saveHandle: createFileSystemFileHandle({
-            name: file.name,
-            getFile: async () => file,
-        })});
-        const legacy = `${kind}:${openingBytes.length}:${kind === 'file' ? '100:' : ''}1bb89dc5-211a6485`;
-        const dirtyBytes = Uint8Array.of(37, 80, 68, 70, 9);
-        const workingRef = await store.createStoredDocument(file.name, dirtyBytes, {
-            mimeType: 'application/pdf',
-            kind: 'working',
-            sourceRef,
-            sourceBaseWitness: legacy,
-        });
-        await expect(store.runDocumentMutationWithSource(workingRef, sourceRef,
-            (await store.getDocumentRevision(workingRef)).token, mutation => mutation.assertPhysicalSourceBaseCurrent(),
-        )).rejects.toThrow('physical source changed');
-        await expect(store.read(workingRef)).resolves.toEqual(dirtyBytes);
-        expect(new Uint8Array(await file.arrayBuffer())[1024 * 1024]).toBe(88);
-    });
-
-    it('refuses a byte-created working copy with no physical baseline', async () => {
-        const file = new File([Uint8Array.of(1, 2, 3)], 'source.pdf');
-        const store = new BrowserDocumentStore();
-        const sourceRef = await store.registerFile(file, {saveHandle: createFileSystemFileHandle({
-            name: file.name,
-            getFile: async () => file,
-        })});
-        const workingRef = await store.createStoredDocument(file.name, Uint8Array.of(9), {
-            mimeType: 'application/pdf',
-            kind: 'working',
-            sourceRef,
-        });
-        await expect(store.runDocumentMutationWithSource(workingRef, sourceRef,
-            (await store.getDocumentRevision(workingRef)).token, mutation => mutation.assertPhysicalSourceBaseCurrent(),
-        )).rejects.toThrow('physical source changed');
-        await expect(store.read(workingRef)).resolves.toEqual(Uint8Array.of(9));
-    });
-
-    it.each([
-        'file',
-        'bytes',
-    ] as const)('refuses a changed file with a persisted legacy %s baseline', async kind => {
-        const bytes = new Uint8Array(17 * 1024 * 1024).fill(32);
-        bytes[0] = 88;
-        const file = new File([bytes], 'changed-legacy.pdf', {lastModified: 100});
-        const store = new BrowserDocumentStore();
-        const sourceRef = await store.registerFile(file, {saveHandle: createFileSystemFileHandle({
-            name: file.name,
-            getFile: async () => file,
-        })});
-        const legacy = `${kind}:${bytes.length}:${kind === 'file' ? '100:' : ''}1bb89dc5-211a6485`;
-        const workingRef = await store.createStoredDocument(file.name, Uint8Array.of(9), {
-            mimeType: 'application/pdf',
-            retention: 'durable',
-            kind: 'working',
-            sourceRef,
-            sourceBaseWitness: legacy,
-        });
-        await expect(store.runDocumentMutationWithSource(workingRef, sourceRef,
-            (await store.getDocumentRevision(workingRef)).token, async mutation => {
-                await mutation.assertPhysicalSourceBaseCurrent();
-            })).rejects.toThrow('physical source changed');
-        expect(await loadRecord(workingRef)).toMatchObject({sourceBaseWitness: legacy});
-        await expect(store.readRange(sourceRef, 0, 64 * 1024)).resolves.toEqual(bytes.slice(0, 64 * 1024));
-    });
-
-    it('rejects a materialized save when the physical source changed at equal size and mtime', async () => {
-        const openingBytes = Uint8Array.of(37, 80, 68, 70, 1, 2);
-        let currentFile = new File([openingBytes], 'materialized-source.pdf', {
-            type: 'application/pdf',
-            lastModified: 777,
-        });
-        const handle = createFileSystemFileHandle({
-            name: 'materialized-source.pdf',
-            getFile: vi.fn(async () => currentFile),
-        });
-        const store = new BrowserDocumentStore();
-        const sourceRef = await store.registerFile(currentFile, {
-            kind: 'source',
-            saveKind: 'pdf',
-            saveHandle: handle,
-        });
-        const workingRef = await store.cloneAsWorkingCopy(sourceRef);
-        await store.writeForBootstrap(workingRef, Uint8Array.of(9, 8, 7), 'materialize-working-copy');
-
-        // Older persisted source records may have the handle and content
-        // witness without the redundant sourceWitness marker.
-        delete (await store.requireEntry(sourceRef)).sourceWitness;
-
-        const openingWitness = (await store.requireEntry(workingRef)).sourceBaseWitness;
-        currentFile = new File([Uint8Array.of(
-            37,
-            80,
-            68,
-            71,
-            1,
-            2,
-        )], 'materialized-source.pdf', {
-            type: 'application/pdf',
-            lastModified: 777,
-        });
-        const writer = vi.fn(async () => undefined);
-
-        await expect(store.runDocumentMutationWithSource(
-            workingRef,
-            sourceRef,
-            (await store.getDocumentRevision(workingRef)).token,
-            async mutation => {
-                await mutation.assertPhysicalSourceBaseCurrent();
-                await writer();
-                await mutation.writeSource(Uint8Array.of(9, 8, 7));
-                return true;
-            },
-        )).rejects.toThrow('physical source changed');
-
-        expect(openingWitness).toBeTruthy();
-        expect(writer).not.toHaveBeenCalled();
-        await expect(store.read(sourceRef)).resolves.toEqual(openingBytes);
-        expect((await store.requireEntry(workingRef)).sourceBaseWitness).toBe(openingWitness);
-    });
-
-    it.each([
-        'base validation',
-        'post-commit witness',
-    ])(
-        'refuses revoked read permission without prompting under the save lock: %s', async phase => {
-            const locks = new FakeLockManager();
-            vi.stubGlobal('navigator', {locks});
-            const bytes = Uint8Array.of(1, 2, 3);
-            const file = new File([bytes], 'permission.pdf');
-            let granted = true;
-            const promptLocks: string[] = [];
-            const handle = Object.assign(createFileSystemFileHandle({
-                name: file.name,
-                getFile: async () => file,
-            }), {
-                queryPermission: async () => granted ? 'granted' : 'prompt',
-                requestPermission: async () => {
-                    promptLocks.push(...(await locks.query()).held.map(lock => lock.name));
-                    return 'granted';
-                },
-            });
-            const store = new BrowserDocumentStore();
-            const source = await store.registerFile(file, {
-                saveHandle: handle,
-                saveKind: 'pdf',
-            });
-            const working = await store.cloneAsWorkingCopy(source);
-            await store.writeForBootstrap(working, Uint8Array.of(4, 5, 6), 'permission-test');
-            const revision = await store.getDocumentRevision(working);
-            const saving = store.runDocumentMutationWithSource(working, source, revision.token, async mutation => {
-                granted = false;
-                if (phase === 'base validation') await mutation.assertPhysicalSourceBaseCurrent();
-                else await mutation.acknowledgePhysicalSourceCommit();
-            });
-            await expect(saving).rejects.toThrow(/permission/iu);
-            expect(promptLocks).toEqual([]);
-            expect((await locks.query()).held).toEqual([]);
-            await expect(store.read(working)).resolves.toEqual(Uint8Array.of(4, 5, 6));
-        },
-    );
-
-    it('serializes two saves of one physical file so the second cannot overwrite the first', async () => {
-        vi.stubGlobal('navigator', {locks: new FakeLockManager()});
-        const openingBytes = Uint8Array.of(37, 80, 68, 70, 1);
-        const openFile = () => new File([openingBytes], 'shared.pdf', {
-            type: 'application/pdf',
-            lastModified: 100,
-        });
-        let physicalFile = openFile();
-        const handle = createFileSystemFileHandle({
-            name: 'shared.pdf',
-            getFile: vi.fn(async () => physicalFile),
-        });
-        const store = new BrowserDocumentStore();
-        // Two windows select the same physical file: two File objects, two source versions.
-        const sourceA = await store.registerFile(openFile(), {
-            kind: 'source',
-            saveKind: 'pdf',
-            saveHandle: handle,
-        });
-        const sourceB = await store.registerFile(openFile(), {
-            kind: 'source',
-            saveKind: 'pdf',
-            saveHandle: handle,
-        });
-        const workingA = await store.cloneAsWorkingCopy(sourceA);
-        const workingB = await store.cloneAsWorkingCopy(sourceB);
-        const save = async (workingRef: string, sourceRef: string, edit: number) => {
-            const expectedRevision = (await store.getDocumentRevision(workingRef)).token;
-            return store.runDocumentMutationWithSource(
-                workingRef,
-                sourceRef,
-                expectedRevision,
-                async (mutation) => {
-                    await mutation.assertPhysicalSourceBaseCurrent();
-                    physicalFile = new File([Uint8Array.of(37, 80, 68, 70, edit)], 'shared.pdf', {
-                        type: 'application/pdf',
-                        lastModified: 200 + edit,
-                    });
-                    await mutation.acknowledgePhysicalSourceCommit();
-                    return true;
-                },
-            );
-        };
-
-        const results = await Promise.allSettled([
-            save(workingA, sourceA, 2),
-            save(workingB, sourceB, 3),
-        ]);
-
-        const accepted = results.filter(result => result.status === 'fulfilled');
-        expect(accepted).toHaveLength(1);
-        expect(results.filter(result => result.status === 'rejected')).toHaveLength(1);
-        const acceptedEdit = results[0].status === 'fulfilled' ? 2 : 3;
-        await expect(physicalFile.arrayBuffer().then(bytes => new Uint8Array(bytes))).resolves.toEqual(
-            Uint8Array.of(37, 80, 68, 70, acceptedEdit),
-        );
-    });
-
-    it('refreshes a handle-backed source without inventing a new source version after save', async () => {
-        const bytes = Uint8Array.of(37, 80, 68, 70, 1, 2);
-        const file = new File([bytes], 'saved-source.pdf', {
-            type: 'application/pdf',
-            lastModified: 777,
-        });
-        const handle = createFileSystemFileHandle({
-            name: file.name,
-            getFile: vi.fn(async () => file),
-        });
-        const store = new BrowserDocumentStore();
-        const sourceRef = await store.registerFile(file, {
-            kind: 'source',
-            saveKind: 'pdf',
-            saveHandle: handle,
-        });
-
-        await store.replaceWithHandleBackedDocument(sourceRef, {
-            fileSize: bytes.byteLength,
-            saveHandle: handle,
-            saveName: file.name,
-        });
-
-        await expect(store.refreshSourceVersionIfChanged(sourceRef)).resolves.toBe(sourceRef);
-    });
-
-    it('rolls back interrupted chunk ingestion before a complete retry', async () => {
-        const bytes = new Uint8Array(BROWSER_MAX_FULL_READ_BYTES + 1);
-        bytes.fill(0x5a);
-        bytes[0] = 0x31;
-        bytes[bytes.byteLength - 1] = 0x39;
-        const interruptedFile = new File([bytes], 'interrupted-source.pdf', {
-            type: 'application/pdf',
-            lastModified: 400,
-        });
-        const originalSlice = interruptedFile.slice.bind(interruptedFile);
-        vi.spyOn(interruptedFile, 'slice').mockImplementation((start, end, contentType) => {
-            if (start === BROWSER_DOCUMENT_CHUNK_SIZE) {
-                const failingChunk = new Blob([], {type: contentType ?? ''});
-                vi.spyOn(failingChunk, 'arrayBuffer').mockRejectedValue(new Error('ingestion interrupted'));
-                return failingChunk;
-            }
-            return originalSlice(start, end, contentType);
-        });
-        const store = new BrowserDocumentStore();
-
-        const interruptedRef = await store.registerFile(interruptedFile, {
-            kind: 'source',
-            saveKind: 'pdf',
-        });
-        const interruptedEntry = await store.requireEntry(interruptedRef);
-        expect(interruptedEntry.memoryOnly).toBe(true);
-        expect(interruptedEntry.storageMode).toBe('handle');
-
-        const database = indexedDbFactory.getDatabase(DB_NAME);
-        expect(database).toBeDefined();
-        const documents = Array.from(database!.getStoreRecords('documents').values());
-        const chunks = Array.from(database!.getStoreRecords('document-chunks').values());
-        expect(documents).not.toEqual(expect.arrayContaining([expect.objectContaining({fileName: 'interrupted-source.pdf'})]));
-        expect(chunks).not.toEqual(expect.arrayContaining([expect.objectContaining({ref: interruptedRef})]));
-
-        const retryFile = new File([bytes], 'interrupted-source.pdf', {
-            type: 'application/pdf',
-            lastModified: 401,
-        });
-        const retryRef = await store.registerFile(retryFile, {
-            kind: 'source',
-            saveKind: 'pdf',
-        });
-        const retryEntry = await store.requireEntry(retryRef);
-        expect(retryEntry.storageMode).toBe('chunked');
-        expect(retryEntry.memoryOnly).toBe(false);
-        await expect(store.readRange(retryRef, 0, 1)).resolves.toEqual(Uint8Array.of(0x31));
-        await expect(store.readRange(retryRef, bytes.byteLength - 1, 1)).resolves.toEqual(Uint8Array.of(0x39));
-    });
-
-    it('does not publish a denied source read and accepts the next complete retry', async () => {
-        const bytes = Uint8Array.of(37, 80, 68, 70, 49);
-        const deniedFile = new File([bytes], 'denied-source.pdf', {
-            type: 'application/pdf',
-            lastModified: 500,
-        });
-        vi.spyOn(deniedFile, 'arrayBuffer').mockRejectedValue(
-            new DOMException('Read permission denied', 'NotAllowedError'),
-        );
-        const store = new BrowserDocumentStore();
-
-        await expect(store.registerFile(deniedFile, {
-            kind: 'source',
-            saveKind: 'pdf',
-        })).rejects.toMatchObject({name: 'NotAllowedError'});
-
-        const database = indexedDbFactory.getDatabase(DB_NAME);
-        expect(database).toBeDefined();
-        const documents = Array.from(database!.getStoreRecords('documents').values());
-        expect(documents).not.toEqual(expect.arrayContaining([expect.objectContaining({fileName: 'denied-source.pdf'})]));
-
-        const retryRef = await store.registerFile(new File([bytes], 'denied-source.pdf', {
-            type: 'application/pdf',
-            lastModified: 501,
-        }), {
-            kind: 'source',
-            saveKind: 'pdf',
-        });
-        await expect(store.read(retryRef)).resolves.toEqual(bytes);
-        expect((await store.requireEntry(retryRef)).memoryOnly).toBe(false);
-    });
-
-    it('reopens a retained source after acquiring read permission outside the save lock', async () => {
-        const locks = new FakeLockManager();
-        vi.stubGlobal('navigator', {locks});
-        const bytes = Uint8Array.of(37, 80, 68, 70);
-        const file = new File([bytes], 'recent.pdf', {lastModified: 100});
-        let permission: PermissionState = 'granted';
-        const handle = Object.assign(createFileSystemFileHandle({
-            name: file.name,
-            getFile: vi.fn(async () => file),
-        }), {
-            queryPermission: vi.fn(async () => permission),
-            requestPermission: vi.fn(async () => {
-                expect((await locks.query()).held).not.toEqual(expect.arrayContaining([expect.objectContaining({name: 'evb-viewer:browser-physical-save'})]));
-                permission = 'granted';
-                return permission;
-            }),
-        });
-        const store = new BrowserDocumentStore();
-        const ref = await store.registerFile(file, {
-            saveHandle: handle,
-            saveKind: 'pdf',
-        });
-        await store.touchRecentFile(ref);
-        permission = 'prompt';
-
-        const reopened = await store.refreshSourceVersionIfChanged(ref);
-        const working = await store.cloneAsWorkingCopy(reopened);
-
-        await expect(store.read(working)).resolves.toEqual(bytes);
-        expect(handle.requestPermission).toHaveBeenCalledExactlyOnceWith({mode: 'read'});
-    });
-
-    it('keeps unpublished conversion bytes while leases add or retain readers', async () => {
-        vi.stubGlobal('navigator', {});
-        const store = new BrowserDocumentStore();
-        const source = await store.createStoredDocument('input.djvu', Uint8Array.of(1, 2), {
-            mimeType: 'image/vnd.djvu',
-            kind: 'source',
-        });
-        let lease = await store.createLiveLease('window:conversion', [{ref: source}]);
-        const output = await store.createStoredDocument('converted.pdf', Uint8Array.of(3, 4), {
-            mimeType: 'application/pdf',
-            kind: 'output',
-            retention: 'transient',
-        });
-        lease = await store.heartbeatLiveLease(lease.ownerId, lease.generation, [{ref: source}]);
-        store.unload(output);
-        await expect(store.read(output)).resolves.toEqual(Uint8Array.of(3, 4));
-        lease = await store.heartbeatLiveLease(lease.ownerId, lease.generation, [
-            {ref: source},
-            {ref: output},
-        ]);
-        const reopened = await store.cloneAsWorkingCopy(output);
-        await expect(store.read(reopened)).resolves.toEqual(Uint8Array.of(3, 4));
-        await store.releaseLiveLease(lease.ownerId, lease.generation);
-        await expect(store.exists(output)).resolves.toBe(false);
-    });
-
-    it('collects the retired working source after Clear Recent and keeps successor bytes', async () => {
-        vi.stubGlobal('navigator', {});
-        const store = new BrowserDocumentStore();
-        const source = await store.createStoredDocument('old-source.pdf', Uint8Array.of(1, 2, 3), {
-            kind: 'source',
-            mimeType: 'application/pdf',
-            saveKind: 'pdf',
-        });
-        const working = await store.cloneAsWorkingCopy(source);
-        const lease = await store.createLiveLease('window:source-retirement', [{ref: working}]);
-        await store.clearRecentFiles();
-        const nextSource = await store.createStoredDocument('new-source.pdf', Uint8Array.of(4, 5, 6), {
-            kind: 'source',
-            mimeType: 'application/pdf',
-            saveKind: 'pdf',
-        });
-        const next = await store.cloneAsWorkingCopy(nextSource);
-        const successor = await store.heartbeatLiveLease(lease.ownerId, lease.generation, [{ref: next}]);
-        try {
-            await expect(store.read(next)).resolves.toEqual(Uint8Array.of(4, 5, 6));
-            await expect(store.read(nextSource)).resolves.toEqual(Uint8Array.of(4, 5, 6));
-            const records = indexedDbFactory.getDatabase(DB_NAME)!.getStoreRecords('documents');
-            expect(records.has(working)).toBe(false);
-            expect(records.has(source)).toBe(false);
-        } finally {
-            await store.releaseLiveLease(successor.ownerId, successor.generation);
-        }
-    });
-
-    it('collects retired working bytes after 30 lease replacements in one session', async () => {
-        vi.stubGlobal('navigator', {});
-        const store = new BrowserDocumentStore();
-        const makeWorking = () => store.createStoredDocument('retired.pdf', Uint8Array.of(1, 2, 3), {
-            mimeType: 'application/pdf',
-            kind: 'working',
-            saveKind: 'pdf',
-            storageMode: 'chunked',
-        });
-        let current = await makeWorking();
-        let lease = await store.createLiveLease('window:bounded', [{ref: current}]);
-        const retired: string[] = [];
-        for (let index = 0; index < 30; index += 1) {
-            const next = await makeWorking();
-            await expect(store.cleanupDetachedDocument(current)).resolves.toBe(false);
-            retired.push(current);
-            lease = await store.heartbeatLiveLease(lease.ownerId, lease.generation, [{ref: next}]);
-            current = next;
-        }
-        const database = indexedDbFactory.getDatabase(DB_NAME)!;
-        for (const ref of retired) {
-            expect(database.getStoreRecords('documents').has(ref)).toBe(false);
-            expect(Array.from(database.getStoreRecords('document-chunks').keys()).some(key => String(key).startsWith(ref))).toBe(false);
-        }
-        await expect(store.read(current)).resolves.toEqual(Uint8Array.of(1, 2, 3));
-        await store.releaseLiveLease(lease.ownerId, lease.generation);
-        await expect(store.exists(current)).resolves.toBe(false);
-    });
-
-    it('keeps a retired working source while the successor lease protects its proxy', async () => {
-        vi.stubGlobal('navigator', {});
-        const store = new BrowserDocumentStore();
-        const working = await store.createStoredDocument('proxy-base.pdf', Uint8Array.of(1, 2, 3), {
-            mimeType: 'application/pdf',
-            kind: 'working',
-            saveKind: 'pdf',
-        });
-        const proxy = await store.cloneAsWorkingCopy(working);
-        const lease = await store.createLiveLease('window:proxy', [
-            {ref: working},
-            {ref: proxy},
-        ]);
-        const successor = await store.heartbeatLiveLease(lease.ownerId, lease.generation, [{ref: proxy}]);
-        store.unload(working);
-        await expect(store.read(proxy)).resolves.toEqual(Uint8Array.of(1, 2, 3));
-        await store.releaseLiveLease(successor.ownerId, successor.generation);
-        await expect(store.exists(working)).resolves.toBe(false);
-        await expect(store.exists(proxy)).resolves.toBe(false);
-    });
-
-    it('refuses an unclaimed active owner and leaves its bytes protected without Web Locks', async () => {
-        vi.stubGlobal('navigator', {});
-        const store = new BrowserDocumentStore();
-        const source = await store.createStoredDocument('owned.pdf', Uint8Array.of(7, 8), {
-            mimeType: 'application/pdf',
-            kind: 'working',
-        });
-        const lease = await store.createLiveLease('window:owned', [{ref: source}]);
-        await expect(store.createLiveLease(lease.ownerId, [])).rejects.toThrow('live lease mutation');
-        store.unload(source);
-        await expect(store.read(source)).resolves.toEqual(Uint8Array.of(7, 8));
-        await store.releaseLiveLease(lease.ownerId, lease.generation);
-        await expect(store.exists(source)).resolves.toBe(false);
-    });
-
-    it('fences live lease lifecycle transitions through the repository owner', async () => {
-        const store = new BrowserDocumentStore();
-        const ref = await store.createStoredDocument(
-            'leased.pdf',
-            Uint8Array.of(1, 2, 3),
-            {
-                mimeType: 'application/pdf',
-                kind: 'working',
-                saveKind: 'pdf',
-            },
-        );
-        const dependencies = [{ref}];
-
-        const created = await store.createLiveLease('window:482', dependencies);
-        const heartbeat = await store.heartbeatLiveLease(
-            created.ownerId,
-            created.generation,
-            dependencies,
-        );
-        const suspended = await store.suspendLiveLease(
-            heartbeat.ownerId,
-            heartbeat.generation,
-            dependencies,
-        );
-        const resumed = await store.resumeLiveLease(
-            suspended.ownerId,
-            suspended.generation,
-            dependencies,
-        );
-        const released = await store.releaseLiveLease(
-            resumed.ownerId,
-            resumed.generation,
-        );
-
-        expect(created).toEqual(expect.objectContaining({
-            ownerId: 'window:482',
-            generation: 1,
-            leaseRevision: 1,
-            status: 'active',
-            protectedDependencies: dependencies,
-        }));
-        expect(heartbeat.generation).toBe(created.generation + 1);
-        expect(suspended.status).toBe('suspended');
-        expect(resumed.status).toBe('active');
-        expect(released).toEqual(expect.objectContaining({
-            status: 'dead',
-            protectedDependencies: [],
-        }));
-        expect(released.leaseRevision).toBe(resumed.leaseRevision + 1);
-
-        await expect(store.heartbeatLiveLease(
-            created.ownerId,
-            created.generation,
-            dependencies,
-        )).rejects.toThrow('live lease mutation');
-
-        const database = indexedDbFactory.getDatabase(DB_NAME);
-        expect(database?.getStoreRecords(BROWSER_LIVE_LEASES_STORE).get('owner:window:482')).toEqual(
-            expect.objectContaining({
-                status: 'dead',
-                generation: released.generation,
-            }),
-        );
-    });
-
+afterEach(async () => {
+    vi.restoreAllMocks();
+    await Promise.all(repositories.splice(0).flatMap(repo => repo.openEntries().map(entry => entry.doc?.close())));
+    await Promise.all(roots.splice(0).map(root => rm(root, {recursive: true, force: true})));
 });
 
-// T2/C1: a crashed transfer eventually releases only its own authority.
-describe('expired transfer admission', () => {
-    it('aborts expired pending authority, retains the poll window, and preserves independent readers', async () => {
-        const idb = new FakeIndexedDbFactory();
-        vi.stubGlobal('indexedDB', idb);
-        vi.stubGlobal('window', {localStorage: new MemoryStorage()});
-        vi.stubGlobal('document', {cookie: ''});
-        vi.stubGlobal('navigator', {});
-        const now = Date.now();
-        const clock = vi.spyOn(Date, 'now').mockReturnValue(now);
-        try {
-            const store = new BrowserDocumentStore();
-            const ref = await store.createStoredDocument('expired-transfer.pdf', Uint8Array.of(1, 2, 3), {
-                mimeType: 'application/pdf',
-                kind: 'output',
-                retention: 'transient',
-            });
-            await mutateBrowserTransferAuthority('expired', () => ({
-                id: 'transfer:expired',
-                transferId: 'expired',
-                nonce: 'nonce',
-                sourceWindowId: 1,
-                sourceInstanceNonce: 'gone',
-                targetWindowId: 2,
-                targetInstanceNonce: 'gone-too',
-                generation: 1,
-                state: 'pending',
-                targetReady: false,
-                deadlineAt: now - 1,
-                createdAt: now - 12000,
-                backingRefs: [{ref}],
-                payload: {
-                    transferId: 'expired',
-                    sourceWindowId: 1,
-                    targetWindowId: 2,
-                    tab: {
-                        fileName: 'expired-transfer.pdf',
-                        originalPath: ref,
-                        originalBackend: 'browser',
-                        isDirty: true,
-                        isDjvu: false,
-                    },
-                    payload: {kind: 'empty'},
+/** The repository over a store in a temporary directory, through the core's Node port: Node has no origin private file system. */
+async function repository() {
+    const repo = new BrowserDocumentStore();
+    repositories.push(repo);
+    const root = await mkdtemp(join(process.env.TMPDIR ?? tmpdir(), 'browser-repository-'));
+    roots.push(root);
+    const store = {port: createNodeStorePort(root), publication: browserPublication};
+    vi.spyOn(repo, 'stores').mockResolvedValue({durable: store, memory: store});
+    return {repo, store};
+}
+
+/** A file the person picked, which another program may write too: `disk` holds its bytes and modification time. */
+function pickedFile(name: string, text: string) {
+    const disk = {bytes: encode(text), lastModified: 100, afterClose: () => {}};
+    const file = () => new File([disk.bytes], name, {lastModified: disk.lastModified});
+    const handle: FileSystemFileHandle = {
+        ...createFileSystemFileHandle({name, getFile: async () => file()}),
+        createWritable: async () => {
+            const chunks: Uint8Array<ArrayBuffer>[] = [];
+            return Object.assign(new WritableStream(), {
+                write: async (chunk: FileSystemWriteChunkType) => {
+                    if (!(chunk instanceof ArrayBuffer)) throw new TypeError('The fixture takes ArrayBuffer chunks');
+                    chunks.push(new Uint8Array(chunk));
                 },
-            }));
-            const pending = (await loadBrowserTransferAuthority('expired'))!;
-            const futureRef = await store.createStoredDocument('future-transfer.pdf', Uint8Array.of(4, 5, 6), {
-                mimeType: 'application/pdf',
-                kind: 'output',
-                retention: 'transient',
-            });
-            await mutateBrowserTransferAuthority('future', () => ({
-                ...pending,
-                id: 'transfer:future',
-                transferId: 'future',
-                deadlineAt: now + 120000,
-                backingRefs: [{ref: futureRef}],
-                payload: {
-                    ...pending.payload,
-                    transferId: 'future',
-                    tab: {
-                        ...pending.payload.tab,
-                        originalPath: futureRef,
-                    },
+                close: async () => {
+                    disk.bytes = new Uint8Array(await new Blob(chunks).arrayBuffer());
+                    disk.lastModified += 1;
+                    disk.afterClose();
                 },
-            }));
-            const records = idb.getDatabase(DB_NAME)!.getStoreRecords(DOCUMENTS_STORE);
-            await sweepBrowserDocumentMaintenance(new Map());
-            expect(await loadBrowserTransferAuthority('future')).toMatchObject({
-                state: 'pending',
-                generation: 1,
-            });
-            expect(records.has(futureRef)).toBe(true);
-            expect(await loadBrowserTransferAuthority('expired')).toMatchObject({
-                state: 'aborted',
-                generation: 2,
-                decidedAt: now,
-            });
-            expect(records.has(ref)).toBe(true);
-            clock.mockReturnValue(now + 60000);
-            const leases = idb.getDatabase(DB_NAME)!.getStoreRecords(BROWSER_LIVE_LEASES_STORE);
-            leases.set('owner:reader', {
-                id: 'owner:reader',
-                ownerId: 'reader',
-                generation: 1,
-                leaseRevision: 1,
-                status: 'suspended',
-                heartbeatAt: 1,
-                protectedDependencies: [{ref}],
-            });
-            await sweepBrowserDocumentMaintenance(new Map());
-            expect(await loadBrowserTransferAuthority('expired')).toBeNull();
-            expect(records.has(ref)).toBe(true);
-            leases.clear();
-            await sweepBrowserDocumentMaintenance(new Map());
-            expect(records.has(ref)).toBe(false);
-            expect(records.has(futureRef)).toBe(true);
-            expect(await loadBrowserTransferAuthority('future')).toMatchObject({
-                state: 'pending',
-                generation: 1,
-            });
-        } finally {
-            clock.mockRestore();
-            vi.unstubAllGlobals();
-        }
+                abort: async () => {},
+                seek: async () => {},
+                truncate: async () => {},
+            }) satisfies FileSystemWritableFileStream;
+        },
+    };
+    return {disk, handle, file};
+}
+
+function gate() {
+    let resolve!: () => void;
+    const promise = new Promise<void>(done => {
+        resolve = done;
     });
+    return {promise, resolve};
+}
+
+/** Appends `text` past the revision `token` names, uncommitted, as a native edit does. */
+async function stageText(repo: BrowserDocumentStore, ref: string, token: Parameters<BrowserDocumentStore['stageAppend']>[1], text: string) {
+    const lease = await repo.stageAppend(ref, token, async (file, base) => {
+        await file.writeAt(base, encode(text));
+        return base + encode(text).byteLength;
+    });
+    if (lease === null) throw new Error('Nothing was staged');
+    return lease;
+}
+
+async function workingDocument(repo: BrowserDocumentStore, text: string) {
+    const ref = await repo.createStoredDocument('test.pdf', encode(text), {mimeType: 'application/pdf', kind: 'working'});
+    const entry = await repo.requireEntry(ref);
+    return {ref, entry, doc: entry.doc!};
+}
+
+it('keeps the edits a failed Save committed as the current work and tells every window, through pruning and reopening', async () => {
+    const {repo, store} = await repository();
+    const {ref, entry, doc} = await workingDocument(repo, 'old bytes');
+    await doc.setDrafts(1, {note: 'unsaved note'});
+    const events: string[] = [];
+    repo.onDocumentRevisionChanged(event => events.push(`${event.reason} ${event.token}`));
+    vi.spyOn(browserPublication, 'publish').mockRejectedValue(new Error('publication failed'));
+
+    const lease = await stageText(repo, ref, repo.tokenOf(entry), ' committed save edits');
+    await expect(repo.save(ref, repo.tokenOf(entry), {commit: lease, saveAs: 'download:test.pdf'})).rejects.toThrow('publication failed');
+    expect(events).toEqual([`save-sync ${repo.tokenOf(entry)}`]);
+    await repo.retainRevisions(ref, []);
+    await doc.close();
+
+    const reopened = await openDocument(store, doc.id);
+    expect(decode(await reopened.read(0, 100))).toBe('old bytes committed save edits');
+    expect(reopened.state().dirty).toBe(true);
+    await reopened.close();
+});
+
+it('leaves a Save its file\'s change refused on the revision it committed, so Save As writes the edits once', async () => {
+    const {repo} = await repository();
+    const picked = pickedFile('picked.pdf', 'base');
+    const working = await repo.cloneAsWorkingCopy(await repo.registerFile(picked.file(), {saveHandle: picked.handle}));
+    const entry = await repo.requireEntry(working);
+    const token = repo.tokenOf(entry);
+    const events: string[] = [];
+    repo.onDocumentRevisionChanged(event => events.push(event.token));
+    const publish = browserPublication.publish.bind(browserPublication);
+    vi.spyOn(browserPublication, 'publish').mockImplementationOnce(async (...args) => {
+        picked.disk.bytes = encode('changed elsewhere');
+        picked.disk.lastModified = 200;
+        return publish(...args);
+    });
+
+    const lease = await stageText(repo, working, token, ' new save bytes');
+    expect(await repo.save(working, token, {commit: lease})).toEqual({status: 'conflict'});
+    const committed = repo.tokenOf(entry);
+    expect(committed).not.toBe(token);
+    expect(events).toEqual([committed]);
+    expect(decode(picked.disk.bytes)).toBe('changed elsewhere');
+
+    const copy = pickedFile('copy.pdf', '');
+    rememberFileHandle('copy', copy.handle);
+    expect(await repo.save(working, committed, {saveAs: 'handle:copy'})).toMatchObject({status: 'saved'});
+    expect(decode(copy.disk.bytes)).toBe('base new save bytes');
+});
+
+it('leaves an edit committed before a stale Save in place', async () => {
+    const {repo} = await repository();
+    const {ref, entry, doc} = await workingDocument(repo, 'old bytes');
+    const token = repo.tokenOf(entry);
+    const lease = await stageText(repo, ref, token, ' stale save');
+    const entered = gate();
+    const resume = gate();
+    const edit = doc.run(async () => {
+        entered.resolve();
+        await resume.promise;
+        return doc.applyMutation(1, {kind: 'rewrite', source: new Blob(['other committed edit']), drafts: 'keep'});
+    });
+    await entered.promise;
+    const queued = gate();
+    const run = doc.run.bind(doc);
+    vi.spyOn(doc, 'run').mockImplementation(task => {
+        queued.resolve();
+        return run(task);
+    });
+
+    const save = repo.save(ref, token, {commit: lease, saveAs: 'download:test.pdf'}).catch(() => undefined);
+    await queued.promise;
+    resume.resolve();
+    await edit;
+    await save;
+    await repo.retainRevisions(ref, []);
+
+    expect(decode(await repo.read(ref))).toBe('other committed edit');
+});
+
+it('refuses to acknowledge a Save when another program wrote the file right after it, so the next Save keeps that write', async () => {
+    const {repo} = await repository();
+    const picked = pickedFile('picked.pdf', 'base');
+    const working = await repo.cloneAsWorkingCopy(await repo.registerFile(picked.file(), {saveHandle: picked.handle}));
+    const entry = await repo.requireEntry(working);
+    picked.disk.afterClose = () => {
+        picked.disk.afterClose = () => {};
+        picked.disk.bytes = encode('FOREIGN distinct length edit');
+        picked.disk.lastModified += 1;
+    };
+
+    const first = await stageText(repo, working, repo.tokenOf(entry), ' EVB B');
+    expect(await repo.save(working, repo.tokenOf(entry), {commit: first})).toEqual({status: 'conflict'});
+    const next = await stageText(repo, working, repo.tokenOf(entry), ' EVB D next save');
+    expect(await repo.save(working, repo.tokenOf(entry), {commit: next})).toEqual({status: 'conflict'});
+    expect(decode(picked.disk.bytes)).toBe('FOREIGN distinct length edit');
+    expect(decode(await repo.read(working))).toBe('base EVB B EVB D next save');
+});
+
+it('leaves the document openable with its old bytes when replacing its content fails, and replaces it cleanly otherwise, a file or not', async () => {
+    const {repo, store} = await repository();
+    const {ref, doc} = await workingDocument(repo, 'old bytes');
+    const source = await repo.createStoredDocument('source.pdf', encode('replacement'), {mimeType: 'application/pdf'});
+    const writeAtomic = store.port.writeAtomic.bind(store.port);
+    const full = vi.spyOn(store.port, 'writeAtomic').mockImplementation(async (path, bytes) => {
+        if (path === doc.path('manifest.json')) throw new DOMException('The store is full', 'QuotaExceededError');
+        return writeAtomic(path, bytes);
+    });
+
+    await expect(repo.replaceContent(ref, source)).rejects.toThrow('full');
+    full.mockRestore();
+    await doc.close();
+    const reopened = await openDocument(store, doc.id);
+    expect(decode(await reopened.read(0, 100))).toBe('old bytes');
+    await reopened.close();
+
+    const {ref: other, doc: otherDoc} = await workingDocument(repo, 'other old bytes');
+    await repo.replaceContent(other, source);
+    expect(decode(await repo.read(other))).toBe('replacement');
+    expect(otherDoc.state()).toMatchObject({dirty: false, history: []});
+
+    // A stored copy can have a destination, such as a working copy a tab names as its source after a download.
+    const picked = pickedFile('picked.pdf', 'picked bytes');
+    const withFile = await repo.cloneAsWorkingCopy(await repo.registerFile(picked.file(), {saveHandle: picked.handle}));
+    await repo.replaceContent(withFile, source);
+    expect(decode(await repo.read(withFile))).toBe('replacement');
+    expect((await repo.requireEntry(withFile)).doc!.state()).toMatchObject({destination: expect.any(String), dirty: false, history: []});
 });

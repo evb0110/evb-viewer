@@ -1,23 +1,17 @@
 import type {
-    ComputedRef, Ref, ShallowRef,
+    ComputedRef, Ref,
 } from 'vue';
 import type {TDocumentRef} from '@contracts/documentRef';
 import type {TDocumentRevisionToken} from '@contracts/documentRevision';
 import type {TRequestId} from '@contracts/shared';
-import type {IWorkspaceCheckpointAnnotationRecovery} from '@contracts/workspaceCheckpoint';
 import type {
     IPdfBookmarkEntry,
     IPdfPageLabelRange,
     TPdfSaveMode,
 } from '@app/types/pdfContracts';
 import type {
-    IPdfNativeAnnotationDelete,
     IPdfNativeAnnotationIdentityBinding,
-    IPdfNativeFreeTextNote,
     IPdfNativeMutationSet,
-    IPdfNativePlacedImageGeometryUpdate,
-    IPdfNoteGeometryUpdate,
-    IPdfNoteTextUpdate,
     IPdfOptimizeOptions,
     IPdfOptimizeResult,
     TPreparedPdfOptimizeCopy,
@@ -39,9 +33,7 @@ import type {TDocumentOperationKind} from '@app/types/documentOperationKind';
 import type {TWorkspaceFailureSurface} from '@app/modules/workspace-shell/composables/useWorkspaceFailureSurface';
 import {collectDirtyState} from '@app/modules/workspace-shell/composables/file-operations/workspaceSaveState';
 import {isNativeDocumentRef} from '@app/utils/documentRef';
-import {
-    getDocumentFilesCapability, getDocumentWorkingCopyCapability,
-} from '@app/utils/platformDocuments';
+import {getDocumentFilesCapability} from '@app/utils/platformDocuments';
 import {
     consumeNativePdfMutationProjection,
     type INativePdfSaveTransactionOptions,
@@ -128,7 +120,7 @@ export type TWorkspaceSavePlan =
         serializedFallback: IWorkspaceSerializedSaveBody
     })
     | (IWorkspaceSavePlanCommon & {
-        kind: 'native-repair';
+        kind: 'staged-repair';
         request: Extract<TWorkspaceSaveRequest, {kind: 'repair'}>;
         serializedFallback: IWorkspaceSerializedSaveBody
     })
@@ -144,8 +136,6 @@ export function createWorkspaceSavePlan(input: {
     dirtyState: IWorkspaceSaveDirtyState;
     hasManagedShapes: boolean;
     canPersistNativeWorkingCopy: boolean;
-    canPersistNativeMutations: boolean;
-    canPersistNativeRepair?: boolean;
 }): TWorkspaceSavePlan {
     const {
         request, target, baseline, dirtyState,
@@ -186,8 +176,7 @@ export function createWorkspaceSavePlan(input: {
             operation: request.kind,
         };
     }
-    if ((request.kind === 'save' || request.kind === 'save-as') && forcedByDirtyState
-        && input.canPersistNativeMutations) {
+    if ((request.kind === 'save' || request.kind === 'save-as') && forcedByDirtyState) {
         return {
             ...common,
             kind: 'native-mutation',
@@ -195,10 +184,10 @@ export function createWorkspaceSavePlan(input: {
             serializedFallback: body,
         };
     }
-    if (request.kind === 'repair' && forcedByDirtyState && input.canPersistNativeRepair) {
+    if (request.kind === 'repair' && forcedByDirtyState) {
         return {
             ...common,
-            kind: 'native-repair',
+            kind: 'staged-repair',
             request,
             serializedFallback: body,
         };
@@ -246,7 +235,6 @@ export interface IWorkspaceSaveDependencies {
         flushSettings: () => Promise<boolean>;
     };
     hasPendingUnsavedChanges?: ComputedRef<boolean>;
-    hasUnsavedChanges?: () => boolean;
     optimizePdfOnSaveAs?: Ref<boolean>;
     annotations: {
         dirty: Ref<boolean>;
@@ -259,7 +247,7 @@ export interface IWorkspaceSaveDependencies {
         getNoteFailurePresentation?: () => Parameters<TWorkspaceFailureSurface['reportSaveFailure']>[3];
     };
     metadata: {
-        totalPages: Ref<number>;
+        totalPages: Readonly<Ref<number>>;
         pageLabelsDirty: Ref<boolean>;
         pageLabelRanges: Ref<IPdfPageLabelRange[]>;
         bookmarksDirty: Ref<boolean>;
@@ -271,11 +259,11 @@ export interface IWorkspaceSaveDependencies {
         getBookmarksSaveStateToken?: () => unknown;
     };
     pdf: {
-        document: ShallowRef<IPdfDocument | null>;
-        viewer: Ref<{
+        document: Readonly<Ref<IPdfDocument | null>>;
+        viewer: Readonly<Ref<{
             runSaveTransaction: IPdfViewerSaveExpose['runSaveTransaction'];
             getAnnotationDirtyEntityCount?: (() => number) | undefined
-        } | null>;
+        } | null>>;
         commitEditorsForSave?: () => Promise<void>;
         runSaveTransaction: IPdfViewerSaveExpose['runSaveTransaction'];
         getSourceData: () => Promise<Uint8Array | null>;
@@ -286,17 +274,6 @@ export interface IWorkspaceSaveDependencies {
     };
     persistence: {
         validatePdfPath: (path: TDocumentRef) => Promise<IPdfSaveResult['validation']>;
-        saveSerialized: (
-            data: Uint8Array,
-            opts: {
-                saveMode: TPdfSaveMode;
-                preserveLoadedSource?: boolean;
-                expectedWorkingPath?: TDocumentRef | null;
-                expectedDocumentRevisionToken?: TDocumentRevisionToken | null;
-                changedObjectRefs?: string[];
-                commitCallbacks?: IPdfSerializedCommitCallbacks;
-            },
-        ) => Promise<IPdfPersistResult>;
         saveWorkingCopy: (opts: {
             saveMode: TPdfSaveMode;
             preserveLoadedSource?: boolean;
@@ -336,7 +313,7 @@ export interface IWorkspaceSaveDependencies {
                 signal?: AbortSignal;
             },
         ) => Promise<IPdfPersistResult>;
-        trySavePdfNativeMutations?: (
+        trySavePdfNativeMutations: (
             mutations: IPdfNativeMutationSet,
             opts: {
                 saveMode: TPdfSaveMode;
@@ -350,28 +327,14 @@ export interface IWorkspaceSaveDependencies {
                 assertBeforeExpose?: () => Promise<void> | void;
             },
         ) => Promise<IPdfPersistResult | null>;
-        trySaveEmbeddedNoteTextUpdates?: (
-            updates: IPdfNoteTextUpdate[],
-            opts: {
-                saveMode: TPdfSaveMode;
-                preserveLoadedSource?: boolean;
-                expectedWorkingPath?: TDocumentRef | null;
-                expectedDocumentRevisionToken?: TDocumentRevisionToken | null;
-                modifiedAt: TPdfDateString;
-                workingCopyOnly?: true;
-                geometryUpdates?: IPdfNoteGeometryUpdate[];
-                freeTextNotes?: IPdfNativeFreeTextNote[];
-                deletes?: IPdfNativeAnnotationDelete[];
-                placedImageGeometryUpdates?: IPdfNativePlacedImageGeometryUpdate[];
-            },
-        ) => Promise<IPdfPersistResult | null>;
         getWorkingCopySize?: (path: TDocumentRef) => Promise<number | null>;
     };
     lifecycle: {
         loadRecentFiles: () => void;
         preparePostSaveReload?: () => IPostSaveReloadWaiter;
     };
-    runWithDocumentOperationLease?: <T>(
+    /** The document lease: the one queue every Save and recovery copy waits in. */
+    runWithDocumentOperationLease: <T>(
         kind: TDocumentOperationKind,
         operation: () => Promise<T>,
     ) => Promise<T>;
@@ -395,10 +358,8 @@ export function buildSaveTransactionRequest(
             : deps.pdf.document.value?.numPages ?? 0,
     };
     const nativeCapabilities: IPdfViewerSaveTransactionNativeCapabilities = {
-        hasNativePdfMutationCapability: options.allowNativeMutationPlan
-            && Boolean(deps.persistence.trySavePdfNativeMutations ?? deps.persistence.trySaveEmbeddedNoteTextUpdates),
-        canPersistNativeMetadataMutations: options.allowNativeMutationPlan
-            && Boolean(deps.persistence.trySavePdfNativeMutations),
+        hasNativePdfMutationCapability: options.allowNativeMutationPlan,
+        canPersistNativeMetadataMutations: options.allowNativeMutationPlan,
     };
     return {
         mode: 'persist',
@@ -533,15 +494,11 @@ export function getNativeSaveTransactionOptions(
         typeof documentFiles.releaseManagedTempFileHandle === 'function'
         && typeof documentFiles.applyPdfNativeMutationsToWorkingCopy === 'function'
     );
-    const canConsumeNativeMutation = (
-        typeof documentFiles.cloneStagedPdfNativeMutationToWorkingCopy === 'function'
-        && typeof documentFiles.replaceWorkingCopyFromStagedPdfNativeMutation === 'function'
-    );
     return {
         forceWriterSave: false,
         nativeCapabilities: {
             hasNativePdfMutationCapability: canStageNativeMutation,
-            canPersistNativeMetadataMutations: canStageNativeMutation && canConsumeNativeMutation,
+            canPersistNativeMetadataMutations: canStageNativeMutation,
         },
         dirtyState: {
             annotationDirty: collectDirtyState(deps).annotationDirty,
@@ -563,8 +520,8 @@ export function getNativeSaveTransactionOptions(
 
 export function createPageMutationWriterSave(deps: {
     save: IWorkspaceSaveDependencies;
-    currentPage: Readonly<Ref<number>>;
-    waitForPdfReload: (page: number) => Promise<unknown>;
+    /** Waits for the reload in every view, each kept on its own page. */
+    waitForPdfReload: () => Promise<unknown>;
     reloadWorkingCopyRevision?: () => Promise<unknown>;
 }) {
     return async function saveAnnotationsForPageMutation() {
@@ -579,7 +536,6 @@ export function createPageMutationWriterSave(deps: {
         const capturedWorkingCopyPath = saveDeps.document.workingCopyPath.value;
         const viewer = saveDeps.pdf.viewer.value;
         const capturedDocumentRevisionToken = saveDeps.document.revisionToken.value;
-        const capturedPage = deps.currentPage.value;
         if (!capturedWorkingCopyPath || !viewer) {
             return false;
         }
@@ -618,99 +574,9 @@ export function createPageMutationWriterSave(deps: {
             return false;
         }
         transaction.commitAnnotationSave?.(materializedIdentityBindings);
-        const reloadPromise = deps.waitForPdfReload(capturedPage);
+        const reloadPromise = deps.waitForPdfReload();
         await deps.reloadWorkingCopyRevision?.();
         await reloadPromise;
         return isCapturedTargetCurrent(false);
     };
-}
-
-export interface IRecoverySnapshotTarget {
-    fileName: string;
-    sourceRef?: TDocumentRef | null;
-}
-
-/**
- * A durable recovery copy of the document's current state, made under the
- * document lease. It is copied in storage, chunk by chunk, so a document of
- * any size the browser can open gets one.
- */
-export function createRecoverySnapshot(
-    deps: IWorkspaceSaveDependencies,
-    runWithDocumentOperationLease: NonNullable<IWorkspaceSaveDependencies['runWithDocumentOperationLease']>,
-) {
-    async function createRecoverySnapshotUnlocked(target: IRecoverySnapshotTarget, recovery?: IWorkspaceCheckpointAnnotationRecovery) {
-        const capturedWorkingCopyPath = deps.document.workingCopyPath.value;
-        const capturedDocumentRevisionToken = deps.document.revisionToken.value;
-        const ownsCapturedDocument = () => (
-            deps.document.workingCopyPath.value === capturedWorkingCopyPath
-            && deps.document.revisionToken.value === capturedDocumentRevisionToken
-        );
-        if (!capturedWorkingCopyPath || capturedDocumentRevisionToken === null
-            || isNativeDocumentRef(capturedWorkingCopyPath)
-            || deps.hasPendingUnsavedChanges?.value !== true) return null;
-        const recoverySnapshots = getDocumentWorkingCopyCapability().recovery;
-        if (!recoverySnapshots) return null;
-        // The copy belongs to the captured state only if nothing replaced it meanwhile.
-        const copyIfStillOwned = async (from: TDocumentRef, assertCurrent?: () => Promise<void> | void) => {
-            const snapshot = await recoverySnapshots.createSnapshot(target.fileName, from, target.sourceRef ?? undefined);
-            try {
-                await assertCurrent?.();
-            } catch (error) {
-                await recoverySnapshots.cleanupSnapshot(snapshot.ref);
-                throw error;
-            }
-            if (ownsCapturedDocument()) return snapshot;
-            await recoverySnapshots.cleanupSnapshot(snapshot.ref);
-            return null;
-        };
-        const dirtyState = collectDirtyState(deps);
-        // Drafts replay against the unchanged byte base they were captured from.
-        // Materializing that base would mint identities the draft does not own.
-        // Already committed edits belong to the working copy, not the renderer
-        // being replaced by their reload. Only unapplied edits need a writer.
-        if (recovery || !Object.values(dirtyState).some(Boolean)) {
-            if (recovery && (recovery.workingCopyRef !== capturedWorkingCopyPath
-                || recovery.workingByteRevision !== capturedDocumentRevisionToken)) return null;
-            return copyIfStillOwned(capturedWorkingCopyPath);
-        }
-        const shapeStateDirty = dirtyState.shapes;
-        const result = await deps.pdf.runSaveTransaction({
-            mode: 'snapshot',
-            saveMode: 'rewrite',
-            saveFlowMode: 'save',
-            includeManagedShapes: shapeStateDirty,
-            rewriteShapeState: shapeStateDirty,
-            forceRewrite: deps.metadata.pageLabelsDirty.value
-                || deps.metadata.bookmarksDirty.value
-                || shapeStateDirty,
-            ...getNativeSaveTransactionOptions(deps),
-            source: {getSourcePdfData: deps.pdf.getSourceData},
-        });
-        if (!ownsCapturedDocument()) return null;
-        if (result.verifiedUnchangedWorkingCopy) {
-            await result.assertAnnotationSaveCurrent?.();
-            return copyIfStillOwned(capturedWorkingCopyPath, result.assertAnnotationSaveCurrent);
-        }
-        if (result.nativeRequiredFailure) throw new NativePdfSaveRequiredError(result.nativeRequiredFailure);
-        if (!result.nativeMutationProjection) return null;
-        const snapshotRef = await consumeNativePdfMutationProjection({
-            workingPath: capturedWorkingCopyPath,
-            expectedDocumentRevisionToken: capturedDocumentRevisionToken,
-            projection: result.nativeMutationProjection,
-            operation: 'clone',
-            originalPath: deps.document.originalPath.value,
-            ...(result.verifyAnnotationSavePath ? {verifyPathBeforeExpose: result.verifyAnnotationSavePath} : {}),
-            ...(result.assertAnnotationSaveCurrent ? {assertBeforeExpose: result.assertAnnotationSaveCurrent} : {}),
-        });
-        if (!snapshotRef) return null;
-        try {
-            return await copyIfStillOwned(snapshotRef, result.assertAnnotationSaveCurrent);
-        } finally {
-            await getDocumentWorkingCopyCapability().cleanupFile(snapshotRef);
-        }
-    }
-    return (target: IRecoverySnapshotTarget, recovery?: IWorkspaceCheckpointAnnotationRecovery) => runWithDocumentOperationLease(
-        'recovery-snapshot', () => createRecoverySnapshotUnlocked(target, recovery),
-    );
 }

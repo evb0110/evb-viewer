@@ -12,7 +12,9 @@ import {
     searchIndexedDocument,
     type IPageText,
 } from '@electron/features/search/public';
-import { getWorkingCopyRevision } from '@electron/file-access/documentRevisionStore';
+import {
+    getWorkingCopyRevision,
+} from '@electron/file-access/documentStore';
 
 export interface IAgentDocumentSearchOptions extends ISearchMatchOptions {
     query: string;

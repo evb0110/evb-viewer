@@ -67,10 +67,6 @@ function normalizeSurfaceBytes(bytes: number) {
     return Number.isFinite(bytes) && bytes > 0 ? Math.ceil(bytes) : 0;
 }
 
-export function estimateCanvasSurfaceBytes(canvas: Pick<HTMLCanvasElement, 'width' | 'height'>) {
-    return normalizeSurfaceBytes(canvas.width * canvas.height * 4);
-}
-
 export function createWorkspaceSurfaceBudgetController(
     configuredMaxBytes?: number,
 ): IWorkspaceSurfaceBudgetController {

@@ -26,7 +26,9 @@ import type {
     IDocumentsWindowContext,
 } from '@electron/features/documents/documentsContexts';
 import { resolveExistingReadablePdfPath } from '@electron/features/documents/main/documentFilePathResolution';
-import { ensureWorkingCopyMaterialized } from '@electron/file-access/workingCopyMaterialization';
+import {
+    ensureWorkingCopyMaterialized,
+} from '@electron/file-access/documentStore';
 import {
     assertPdfPathWithinSizeLimit,
     cleanupPrintTempPath,

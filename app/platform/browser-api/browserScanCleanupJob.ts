@@ -27,7 +27,21 @@ import {
     decodeNativeScanCleanupPreviewPageMetadataJson,
     type TNativeScanCleanupPreviewOutputArtifactMetadataV3,
 } from '@contracts/scan-cleanup/nativeArtifactCodecs';
-import type {IScanCleanupWasmRenderPreviewRequest} from '@contracts/scan-cleanup/browserScanCleanupWasm';
+import type {
+    IScanCleanupWasmAnalyzeResult,
+    IScanCleanupWasmPageResult,
+    IScanCleanupWasmRenderPreviewRequest,
+    TScanCleanupEncodedRaster,
+} from '@contracts/scan-cleanup/browserScanCleanupWasm';
+import type {
+    AnalysisJob,
+    CanvasScope,
+    DocumentCanvas,
+    RenderMode,
+    WasmAnalysisPageV3,
+    WasmAnalyzePageRequestV2,
+    WasmPageAnalysisV3,
+} from '@contracts/scan-cleanup/nativeWire.generated';
 import type {TScanCleanupWasmOutcome} from '@contracts/scan-cleanup/browserScanCleanupWorker';
 import {SCAN_CLEANUP_MAX_DIMENSION_PX} from '@contracts/scan-cleanup/inputLimits';
 import {
@@ -484,18 +498,11 @@ async function renderBase(
         ? {}
         : {documentPrior: serializeScanCleanupManifestDocumentPrior(request.documentPrior)};
     if (plan.lossless) {
-        const analysis = unwrapBrowserScanCleanupOutcome(await runBrowserScanCleanupWorkerRequest('analyze-page', {
-            input: copy(canonical.ppm),
-            page: {
+        const [finished] = await runBrowserScanCleanupAnalysis({
+            pages: [{
                 options,
                 sourcePageIndex: request.pageNumber - 1,
-                canvasScope: 'page',
                 ...documentPrior,
-            },
-        }, signal));
-        const finished = unwrapBrowserScanCleanupOutcome(await runBrowserScanCleanupWorkerRequest('finish-page-analysis', {
-            pageMetadataJson: analysis.pageMetadataJson,
-            pdfPlacement: {
                 pdfPage: {
                     xPoints: pageSize.xPoints,
                     yPoints: pageSize.yPoints,
@@ -504,11 +511,13 @@ async function renderBase(
                     rotation: pageSize.rotation,
                     sourceDpi: plan.sourceDpi,
                 },
-                options,
-                renderMode: 'preview',
-                ...(matchedCanvas === undefined ? {} : {documentCanvas: matchedCanvas}),
-            },
-        }, signal));
+            }],
+            canvasScope: 'page',
+            renderMode: 'preview',
+            ...(matchedCanvas === undefined ? {} : {documentCanvas: matchedCanvas}),
+            signal,
+            rasterize: () => Promise.resolve(copy(canonical.ppm)),
+        });
         if (plan.rawPng === undefined) throw new Error('Scan cleanup preserve-quality preview has no original');
         return {
             result: projectScanCleanupLosslessPreview({
@@ -519,7 +528,7 @@ async function renderBase(
                     height: plan.raw.height,
                     bytes: plan.rawPng,
                 },
-                pageMetadata: decodeNativeScanCleanupPreviewPageMetadataJson(finished.pageMetadataJson),
+                pageMetadata: decodeNativeScanCleanupPreviewPageMetadataJson(finished!.pageMetadataJson),
                 previewWarningEvents: [],
                 matchedCanvas,
                 sourceDpi: plan.sourceDpi,
@@ -724,4 +733,71 @@ async function renderDetail(
         },
         base: null,
     };
+}
+
+export interface IRunBrowserScanCleanupAnalysisInput {
+    pages: readonly WasmAnalysisPageV3[];
+    canvasScope: CanvasScope;
+    analysisPurpose?: WasmAnalyzePageRequestV2['analysisPurpose'];
+    renderMode: RenderMode;
+    documentCanvas?: DocumentCanvas;
+    /** The raster of the view a job names; null declines an alternate view. */
+    rasterize: (job: AnalysisJob) => Promise<TScanCleanupEncodedRaster | null>;
+    onAnalyzed?: (job: AnalysisJob, result: IScanCleanupWasmAnalyzeResult) => Promise<void> | void;
+    signal: AbortSignal;
+    onEngineIdentity?: (sha256: string) => void;
+}
+
+/**
+ * Runs one analyze manifest's document sequence as the engine plans it, as
+ * the desktop CLI does between its pages: the engine names each page analysis
+ * it needs, this host renders that view and hands the result back, until the
+ * engine returns every page finished. One raster is held at a time.
+ */
+export async function runBrowserScanCleanupAnalysis({
+    pages,
+    canvasScope,
+    analysisPurpose,
+    renderMode,
+    documentCanvas,
+    rasterize,
+    onAnalyzed,
+    signal,
+    onEngineIdentity,
+}: IRunBrowserScanCleanupAnalysisInput): Promise<IScanCleanupWasmPageResult[]> {
+    const analyses: WasmPageAnalysisV3[] = [];
+    for (;;) {
+        const plan = unwrapBrowserScanCleanupOutcome(await runBrowserScanCleanupWorkerRequest('plan-analysis', {
+            renderMode,
+            ...(documentCanvas === undefined ? {} : {documentCanvas}),
+            pages: [...pages],
+            analyses,
+        }, signal, onEngineIdentity));
+        if (plan.kind === 'finished') return plan.pages;
+        for (const job of plan.jobs) {
+            signal.throwIfAborted();
+            const input = await rasterize(job);
+            if (input === null) {
+                analyses.push({job});
+                continue;
+            }
+            const page = pages[job.index]!;
+            const result = unwrapBrowserScanCleanupOutcome(await runBrowserScanCleanupWorkerRequest('analyze-page', {
+                input,
+                page: {
+                    options: job.view === 'alternate' ? page.alternateView!.options : page.options,
+                    sourcePageIndex: page.sourcePageIndex,
+                    canvasScope,
+                    ...(analysisPurpose === undefined ? {} : {analysisPurpose}),
+                    ...(job.documentPrior == null ? {} : {documentPrior: job.documentPrior}),
+                },
+            }, signal, onEngineIdentity));
+            await onAnalyzed?.(job, result);
+            analyses.push({
+                job,
+                pageMetadataJson: result.pageMetadataJson,
+                reconciliation: result.reconciliation,
+            });
+        }
+    }
 }

@@ -50,21 +50,44 @@ const QPDF_STRUCTURE_ARGS: &[&str] = &["--suppress-recovery", "--json"];
 // reconstructs for a damaged file, which is the view the opening check accepts.
 const QPDF_RECOVERED_STRUCTURE_ARGS: &[&str] = &["--json"];
 
-/// Where a structural path load reads the base streams it left unloaded:
-/// the source file, through qpdf. A document loaded from bytes holds every
-/// base stream and has none.
+/// Where a structural load reads the base streams it left unloaded: the
+/// source file through qpdf for a path load, or the indexed reader's byte
+/// ranges. A document loaded from bytes holds every base stream and has none.
 #[derive(Clone, Copy)]
-pub(crate) struct StructuralSource<'a> {
-    pub(crate) input_path: &'a Path,
-    pub(crate) qpdf_path: &'a Path,
+pub(crate) enum StructuralSource<'a> {
+    Qpdf {
+        input_path: &'a Path,
+        qpdf_path: &'a Path,
+    },
+    #[cfg_attr(
+        not(any(test, all(target_family = "wasm", target_os = "unknown"))),
+        allow(dead_code)
+    )]
+    Ranges(&'a dyn RawStreamSource),
+}
+
+/// A source that reads a stream's encoded bytes, as the file holds them.
+pub(crate) trait RawStreamSource {
+    fn raw_stream(&self, object_id: ObjectId, max_bytes: usize) -> Result<Vec<u8>>;
 }
 
 impl<'a> StructuralSource<'a> {
     pub(crate) fn for_path(input_path: &'a Path, qpdf_path: Option<&'a Path>) -> Option<Self> {
-        qpdf_path.map(|qpdf_path| Self {
+        qpdf_path.map(|qpdf_path| Self::Qpdf {
             input_path,
             qpdf_path,
         })
+    }
+
+    /// The encoded bytes of base stream `object_id`, or an error above `max_bytes`.
+    pub(crate) fn read_raw(self, object_id: ObjectId, max_bytes: usize) -> Result<Vec<u8>> {
+        match self {
+            Self::Qpdf {
+                input_path,
+                qpdf_path,
+            } => read_qpdf_stream_bounded(input_path, qpdf_path, object_id, max_bytes),
+            Self::Ranges(source) => source.raw_stream(object_id, max_bytes),
+        }
     }
 }
 
@@ -72,6 +95,8 @@ impl<'a> StructuralSource<'a> {
 pub(crate) struct IncrementalDocument {
     previous_len: u64,
     previous_last_byte: Option<u8>,
+    /// The terminal cross-reference offset the appended revision names as `/Prev`.
+    previous_xref_start: u64,
     pub(crate) previous_document: Document,
     pub(crate) unavailable_base_streams: HashSet<ObjectId>,
     /// Present only for a page-local load, which retains just the touched
@@ -91,6 +116,7 @@ impl IncrementalDocument {
         Self {
             previous_len,
             previous_last_byte,
+            previous_xref_start: document.xref_start as u64,
             previous_document: document,
             unavailable_base_streams: HashSet::new(),
             located_pages: None,
@@ -110,8 +136,43 @@ impl IncrementalDocument {
         ))
     }
 
+    /// The base of an append read through the indexed reader, whose streams
+    /// `unread` stay in the file. Each stands in as its dictionary with no bytes
+    /// at position 0, as a qpdf structural load leaves it, and is unavailable
+    /// until read: never mistaken for an empty stream. Offsets stay `u64`, so a
+    /// base past 4 GiB keeps its `/Prev` on wasm32 too.
+    #[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
+    pub(crate) fn from_indexed_document(
+        mut document: Document,
+        previous_len: u64,
+        previous_last_byte: Option<u8>,
+        previous_xref_start: u64,
+        unread: impl IntoIterator<Item = ObjectId>,
+    ) -> Result<Self> {
+        let mut unavailable_base_streams = HashSet::new();
+        for id in unread {
+            if let Ok(Object::Stream(stream)) = document.get_object_mut(id) {
+                stream.start_position = Some(0);
+                unavailable_base_streams.insert(id);
+            }
+        }
+        document.xref_start = 0;
+        let mut incremental = Self::from_document(document, previous_len, previous_last_byte);
+        incremental.previous_xref_start = previous_xref_start;
+        incremental
+            .new_document
+            .trailer
+            .set("Prev", i64::try_from(previous_xref_start)?);
+        incremental.unavailable_base_streams = unavailable_base_streams;
+        Ok(incremental)
+    }
+
     pub(crate) fn get_prev_documents(&self) -> &Document {
         &self.previous_document
+    }
+
+    pub(crate) fn previous_xref_start(&self) -> u64 {
+        self.previous_xref_start
     }
 
     pub(crate) fn previous_len(&self) -> u64 {
@@ -135,12 +196,7 @@ impl IncrementalDocument {
         if self.unavailable_base_streams.contains(&object_id) {
             if let Some(source) = structural {
                 let mut transient = stream.clone();
-                transient.set_content(read_qpdf_stream_bounded(
-                    source.input_path,
-                    source.qpdf_path,
-                    object_id,
-                    max_bytes,
-                )?);
+                transient.set_content(source.read_raw(object_id, max_bytes)?);
                 return Ok(
                     if transient.filters().is_ok_and(|filters| !filters.is_empty()) {
                         decompressed_stream_with_limit(&transient, max_bytes).ok()
@@ -155,15 +211,14 @@ impl IncrementalDocument {
 
     pub(crate) fn materialize_base_stream(
         &mut self,
-        path: &Path,
-        qpdf_path: &Path,
+        source: StructuralSource<'_>,
         object_id: ObjectId,
         max_bytes: usize,
     ) -> Result<()> {
         if !self.unavailable_base_streams.contains(&object_id) {
             return Ok(());
         }
-        let bytes = read_qpdf_stream_bounded(path, qpdf_path, object_id, max_bytes)?;
+        let bytes = source.read_raw(object_id, max_bytes)?;
         self.set_base_stream_bytes(object_id, bytes)
     }
 
@@ -420,59 +475,109 @@ pub(crate) fn load_qpdf_page_local_incremental_pdf(
 
 /// What a fresh reader sees after an incremental append: the objects the
 /// appended revision rewrote, over the base revision that is still in memory.
+/// An `IncrementalDocument` is this view of itself; this form pairs two
+/// documents that are not held in one.
 pub(crate) struct AppendedRevision<'a> {
     base: &'a Document,
     appended: &'a Document,
-    located_pages: Option<&'a LocatedPages>,
 }
 
 impl<'a> AppendedRevision<'a> {
-    pub(crate) fn new(incremental: &'a IncrementalDocument) -> Self {
-        Self {
-            located_pages: incremental.located_pages.as_ref(),
-            ..Self::from_documents(incremental.get_prev_documents(), &incremental.new_document)
-        }
-    }
-
     pub(crate) fn from_documents(base: &'a Document, appended: &'a Document) -> Self {
-        Self {
-            base,
-            appended,
-            located_pages: None,
-        }
+        Self { base, appended }
+    }
+}
+
+fn overlay_object<'a>(
+    base: &'a Document,
+    appended: &'a Document,
+    object_id: ObjectId,
+) -> Option<&'a Object> {
+    appended
+        .objects
+        .get(&object_id)
+        .or_else(|| base.objects.get(&object_id))
+}
+
+/// Appends rewrite page dictionaries, the catalog and annotation objects but
+/// never restructure the page tree, so page identity comes from the base
+/// revision. A mutation that adds or removes pages would have to walk the
+/// appended tree instead. A page-local base holds only the pages it located,
+/// by number.
+fn overlay_page_ids(base: &Document, located: Option<&LocatedPages>) -> BTreeMap<u32, ObjectId> {
+    match located {
+        Some(located) => located
+            .ids
+            .iter()
+            .map(|(index, page_id)| (index + 1, *page_id))
+            .collect(),
+        None => base.get_pages(),
     }
 }
 
 impl PdfObjectSource for AppendedRevision<'_> {
-    fn located_pages(&self) -> Option<&LocatedPages> {
-        self.located_pages
-    }
-
     fn stored_object(&self, object_id: ObjectId) -> Option<&Object> {
-        self.appended
-            .objects
-            .get(&object_id)
-            .or_else(|| self.base.objects.get(&object_id))
+        overlay_object(self.base, self.appended, object_id)
     }
 
-    /// Appends rewrite page dictionaries, the catalog and annotation objects but
-    /// never restructure the page tree, so page identity comes from the base
-    /// revision. A mutation that adds or removes pages would have to walk the
-    /// appended tree instead. A page-local base holds only the pages it
-    /// located, by number.
     fn page_ids(&self) -> BTreeMap<u32, ObjectId> {
-        match self.located_pages {
-            Some(located) => located
-                .ids
-                .iter()
-                .map(|(index, page_id)| (index + 1, *page_id))
-                .collect(),
-            None => self.base.get_pages(),
-        }
+        overlay_page_ids(self.base, None)
     }
 
     fn root_id(&self) -> Result<ObjectId> {
         Ok(self.appended.trailer.get(b"Root")?.as_reference()?)
+    }
+}
+
+impl PdfObjectSource for IncrementalDocument {
+    fn located_pages(&self) -> Option<&LocatedPages> {
+        self.located_pages.as_ref()
+    }
+
+    fn stored_object(&self, object_id: ObjectId) -> Option<&Object> {
+        overlay_object(&self.previous_document, &self.new_document, object_id)
+    }
+
+    fn page_ids(&self) -> BTreeMap<u32, ObjectId> {
+        overlay_page_ids(&self.previous_document, self.located_pages.as_ref())
+    }
+
+    fn root_id(&self) -> Result<ObjectId> {
+        Ok(self.new_document.trailer.get(b"Root")?.as_reference()?)
+    }
+}
+
+impl PdfObjectStore for IncrementalDocument {
+    fn object_mut(&mut self, object_id: ObjectId) -> Result<&mut Object> {
+        self.opt_clone_object_to_new_document(object_id)?;
+        Ok(self.new_document.get_object_mut(object_id)?)
+    }
+
+    fn delete_object(&mut self, object_id: ObjectId) {
+        self.new_document.set_object(object_id, Object::Null);
+    }
+
+    fn stored_objects(&self) -> impl Iterator<Item = (ObjectId, &Object)> {
+        let appended = &self.new_document.objects;
+        appended.iter().map(|(id, object)| (*id, object)).chain(
+            self.previous_document
+                .objects
+                .iter()
+                .filter(|(id, _)| !appended.contains_key(id))
+                .map(|(id, object)| (*id, object)),
+        )
+    }
+
+    fn max_id(&self) -> u32 {
+        self.new_document.max_id
+    }
+
+    fn new_object_id(&mut self) -> ObjectId {
+        self.new_document.new_object_id()
+    }
+
+    fn put_object(&mut self, object_id: ObjectId, object: Object) {
+        self.new_document.put_object(object_id, object);
     }
 }
 
@@ -1650,7 +1755,7 @@ esac
             270
         );
 
-        rotate_pages_incremental(
+        rotate_pages(
             &mut incremental,
             &[PageRotationMutation {
                 page_index: 0,
@@ -1688,7 +1793,14 @@ esac
         let mut incremental = IncrementalDocument::from_document(document, 0, None);
         incremental.unavailable_base_streams.insert(stream_id);
         incremental
-            .materialize_base_stream(Path::new("unused.pdf"), &qpdf_path, stream_id, 1024)
+            .materialize_base_stream(
+                StructuralSource::Qpdf {
+                    input_path: Path::new("unused.pdf"),
+                    qpdf_path: &qpdf_path,
+                },
+                stream_id,
+                1024,
+            )
             .unwrap();
         fs::remove_file(qpdf_path).unwrap();
         incremental

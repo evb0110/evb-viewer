@@ -1,4 +1,3 @@
-import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import type { IDocumentOpenSurfaceSnapshot } from '@app/modules/document-viewer/public';
 import {
     afterEach,
@@ -25,70 +24,69 @@ describe('resolvePdfReloadPage', () => {
 });
 
 describe('createPdfReloadWaiter', () => {
+    function createReloadingSurface() {
+        const snapshot = shallowRef(cast<IDocumentOpenSurfaceSnapshot>({
+            generation: 1,
+            identity: {
+                documentId: 'document',
+                documentRevision: 'revision-a',
+            },
+            phase: 'ready',
+            presentation: 'committed',
+        }));
+        return {
+            openSurface: cast<Parameters<typeof createPdfReloadWaiter>[0]['openSurface']>({
+                snapshot,
+                viewportSession: shallowRef({lifecycle: 'ready'}),
+            }),
+            reload: () => {
+                snapshot.value = cast({
+                    ...snapshot.value,
+                    generation: 2,
+                    identity: {
+                        documentId: 'document',
+                        documentRevision: 'revision-b',
+                    },
+                });
+            },
+        };
+    }
+
     it('restores the semantic page after the document reloads', async () => {
-        const pdfDocument = shallowRef<IPdfDocument | null>(cast({ id: 'before' }));
+        const surface = createReloadingSurface();
         const scrollToPage = vi.fn();
         const waiter = createPdfReloadWaiter({
-            pdfDocument,
             pdfViewerRef: ref({scrollToPage}),
+            openSurface: surface.openSurface,
             resetSearchCache: vi.fn(),
             pageToRestore: 5,
         });
 
-        pdfDocument.value = cast({ id: 'after' });
+        surface.reload();
         await waiter.promise;
         expect(scrollToPage).toHaveBeenCalledWith(5);
     });
 
     it('can wait for reload completion without restoring the viewport', async () => {
-        const pdfDocument = shallowRef<IPdfDocument | null>(cast({ id: 'before' }));
+        const surface = createReloadingSurface();
         const scrollToPage = vi.fn();
         const resetSearchCache = vi.fn();
         const waiter = createPdfReloadWaiter({
-            pdfDocument,
             pdfViewerRef: ref({scrollToPage}),
+            openSurface: surface.openSurface,
             resetSearchCache,
             pageToRestore: 8,
             restoreScroll: false,
         });
 
-        pdfDocument.value = cast({ id: 'after' });
+        surface.reload();
         await waiter.promise;
         expect(resetSearchCache).toHaveBeenCalledOnce();
         expect(scrollToPage).not.toHaveBeenCalled();
     });
 
-    it('waits for viewer settle before restoring the page', async () => {
-        const pdfDocument = shallowRef<IPdfDocument | null>(cast({ id: 'before' }));
-        const scrollToPage = vi.fn();
-        let settle = () => {};
-        const settled = new Promise<void>((resolve) => {
-            settle = resolve;
-        });
-        const waiter = createPdfReloadWaiter({
-            pdfDocument,
-            pdfViewerRef: ref({
-                scrollToPage,
-                waitForViewerLoadSettled: () => settled,
-            }),
-            resetSearchCache: vi.fn(),
-            pageToRestore: 4,
-        });
-
-        pdfDocument.value = cast({ id: 'after' });
-        await Promise.resolve();
-        expect(scrollToPage).not.toHaveBeenCalled();
-        settle();
-        await waiter.promise;
-        expect(scrollToPage).toHaveBeenCalledWith(4);
-    });
-
-    it.each([
-        null,
-        cast<IPdfDocument>({id: 'before'}),
-    ])('restores the page from the ready open surface while the workspace projection lags (%s)', async (projection) => {
+    it('restores the page once the reloaded open surface is ready', async () => {
         vi.useFakeTimers();
-        const pdfDocument = shallowRef<IPdfDocument | null>(projection);
         const visiblePage = ref(1);
         const surfaceSnapshot = shallowRef(cast<IDocumentOpenSurfaceSnapshot>({
             generation: 1,
@@ -101,7 +99,6 @@ describe('createPdfReloadWaiter', () => {
         }));
         const viewportSession = shallowRef(cast({lifecycle: 'ready'}));
         const waiter = createPdfReloadWaiter({
-            pdfDocument,
             pdfViewerRef: ref({scrollToPage: page => { visiblePage.value = page; }}),
             openSurface: cast({
                 snapshot: surfaceSnapshot,
@@ -182,7 +179,6 @@ describe('createPdfReloadWaiter', () => {
         }));
         const viewportSession = shallowRef(cast({lifecycle: 'ready'}));
         const waiter = createPdfReloadWaiter({
-            pdfDocument: shallowRef(null),
             pdfViewerRef: ref({scrollToPage: page => { visiblePage.value = page; }}),
             openSurface: cast({
                 snapshot: surfaceSnapshot,
@@ -227,7 +223,6 @@ describe('createPdfReloadWaiter', () => {
             presentation: 'committed',
         }));
         const waiter = createPdfReloadWaiter({
-            pdfDocument: shallowRef(null),
             pdfViewerRef: ref({scrollToPage: page => { visiblePage.value = page; }}),
             openSurface: cast({
                 snapshot: surfaceSnapshot,
@@ -271,7 +266,6 @@ describe('createPdfReloadWaiter', () => {
         }));
         const viewportSession = shallowRef(cast({lifecycle: 'ready'}));
         const waiter = createPdfReloadWaiter({
-            pdfDocument: shallowRef(null),
             pdfViewerRef: ref({
                 scrollToPage: page => { visiblePage.value = page; },
                 getUserViewportInteractionEpoch: () => interactionEpoch,
@@ -308,7 +302,6 @@ describe('createPdfReloadWaiter', () => {
     });
 
     it('does not start a redundant navigation when the open surface already committed the target page', async () => {
-        const pdfDocument = shallowRef<IPdfDocument | null>(cast({id: 'before'}));
         const scrollToPage = vi.fn();
         const surfaceSnapshot = shallowRef(cast<IDocumentOpenSurfaceSnapshot>({
             generation: 1,
@@ -322,7 +315,6 @@ describe('createPdfReloadWaiter', () => {
         }));
         const viewportSession = shallowRef(cast({lifecycle: 'ready'}));
         const waiter = createPdfReloadWaiter({
-            pdfDocument,
             pdfViewerRef: ref({scrollToPage}),
             openSurface: cast({
                 snapshot: surfaceSnapshot,
@@ -332,9 +324,6 @@ describe('createPdfReloadWaiter', () => {
             pageToRestore: 6,
         });
 
-        pdfDocument.value = cast({id: 'after'});
-        await Promise.resolve();
-        await Promise.resolve();
         surfaceSnapshot.value = cast({
             generation: 2,
             identity: {
@@ -351,42 +340,15 @@ describe('createPdfReloadWaiter', () => {
         expect(scrollToPage).not.toHaveBeenCalled();
     });
 
-    it('skips stale restoration after user viewport interaction', async () => {
-        const pdfDocument = shallowRef<IPdfDocument | null>(cast({ id: 'before' }));
-        const scrollToPage = vi.fn();
-        let epoch = 1;
-        let settle = () => {};
-        const settled = new Promise<void>((resolve) => {
-            settle = resolve;
-        });
-        const waiter = createPdfReloadWaiter({
-            pdfDocument,
-            pdfViewerRef: ref({
-                scrollToPage,
-                waitForViewerLoadSettled: () => settled,
-                getUserViewportInteractionEpoch: () => epoch,
-            }),
-            resetSearchCache: vi.fn(),
-            pageToRestore: 4,
-        });
-
-        pdfDocument.value = cast({ id: 'after' });
-        await Promise.resolve();
-        epoch = 2;
-        settle();
-        await waiter.promise;
-        expect(scrollToPage).not.toHaveBeenCalled();
-    });
-
     it('contains page restoration failures', async () => {
-        const pdfDocument = shallowRef<IPdfDocument | null>(cast({ id: 'before' }));
+        const surface = createReloadingSurface();
         const waiter = createPdfReloadWaiter({
-            pdfDocument,
             pdfViewerRef: ref({scrollToPage: vi.fn(() => { throw new Error('restore failed'); })}),
+            openSurface: surface.openSurface,
             resetSearchCache: vi.fn(),
             pageToRestore: 9,
         });
-        pdfDocument.value = cast({ id: 'after' });
+        surface.reload();
         await expect(waiter.promise).resolves.toBeUndefined();
     });
 });

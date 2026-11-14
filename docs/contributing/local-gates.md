@@ -73,7 +73,12 @@ optional diagnostic without percentage thresholds.
 Every push to main runs `ci.yml` to completion; a newer push does not cancel
 it. The changed-area classifier diffs from the last push whose run succeeded,
 so lanes that an unfinished or failed run has not verified are selected again
-by the next run.
+by the next run. A merge whose tree is already proven runs only Electron smoke
+with Strict Build, policy and classification; the four conditions are in
+[the CI guide](./ci.md#changed-areas). Strict Build produces the one Electron
+build used by the Linux lanes. The native integration and oracle jobs share
+its staged native-tool cache. Nightly macOS runs smoke Monday to Saturday and
+all eight ordinary lanes on Sunday and manual dispatch.
 
 ### A red verdict
 

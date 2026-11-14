@@ -37,9 +37,9 @@ import { CORE_IPC_SEND_CHANNELS } from '@electron/platform-ipc/coreContract';
 import { createRawIpcRegistrationAudit } from '@electron/platform-ipc/rawIpcRegistration';
 import {
     clearAllWorkingCopies,
-    cleanupStaleWorkingCopyDirectories,
-    settleAllWorkingCopyMaterializations,
-} from '@electron/file-access/workingCopyCleanup';
+    collectStaleDocuments,
+    settleOpenDocuments,
+} from '@electron/file-access/documentStore';
 import { allowOpenPaths } from '@electron/file-access/openPathCapabilities';
 import {
     attachHostEnvironmentToWindow,
@@ -101,10 +101,8 @@ import {
     type ILogger,
 } from '@electron/utils/createLogger';
 import {
-    closeCachedRangeReadHandles,
     shutdownRetainedDocumentSaveUtilityProcesses,
     sweepStalePdfAnnotationParseArtifacts,
-    sweepStalePdfEmbeddedShapeIndexArtifacts,
     sweepStaleDefaultAppTempPdfs,
     sweepStaleOcrTempArtifacts,
     shutdownSerializedPdfPersistence,
@@ -152,7 +150,6 @@ import {
 import {
     clearWorkspaceCheckpoint,
     flushPendingWorkspaceCheckpointSave,
-    reserveWorkspaceCheckpointWorkingCopies,
 } from '@electron/workspaceCheckpointStore';
 import { initializeHostResourceProfile } from '@electron/resources/hostResourceProfile';
 import { configureMainJobBroker } from '@electron/resources/jobBroker';
@@ -305,8 +302,6 @@ const recoverUnhandledRejectionSubsystem = createUnhandledRejectionRecovery({asy
     } else if (subsystem === 'djvu') {
         await shutdownDjvuConversions();
         performDjvuViewingShutdownCleanup();
-    } else {
-        await closeCachedRangeReadHandles();
     }
 }});
 
@@ -571,8 +566,8 @@ const shutdownPhaseRunners = createShutdownPhaseRunners(logger, {
             run: () => shutdownUpdates(),
         },
         {
-            label: 'working-copy-materializations',
-            run: () => settleAllWorkingCopyMaterializations(),
+            label: 'document-store-operations',
+            run: () => settleOpenDocuments(),
         },
         {
             label: 'document-save-utilities',
@@ -589,10 +584,6 @@ const shutdownPhaseRunners = createShutdownPhaseRunners(logger, {
         {
             label: 'ocr-job-manager',
             run: () => shutdownOcrJobManager(),
-        },
-        {
-            label: 'range-read-handles',
-            run: () => closeCachedRangeReadHandles(),
         },
         {
             label: 'workspace-checkpoint',
@@ -775,8 +766,8 @@ void runInitSequence({
     },
     cleanupStaleAppTempNamespaces,
     cleanupStaleWorkingCopyDirectories: async () => {
-        await reserveWorkspaceCheckpointWorkingCopies();
-        return cleanupStaleWorkingCopyDirectories();
+        await flushPendingWorkspaceCheckpointSave();
+        return {removedDirectories: await collectStaleDocuments()};
     },
     createAdditionalWindow: () => createAppWindow(),
     createWindow,
@@ -842,7 +833,6 @@ void runInitSequence({
     reapOrphanedManagedNativeProcesses: () => reapOrphanedManagedProcesses(getAppTempDir(), {log: (level, message) => logger[level](message)}),
     sweepStaleDefaultAppTempPdfs,
     sweepStalePdfAnnotationParseArtifacts,
-    sweepStalePdfEmbeddedShapeIndexArtifacts,
     sweepStaleScanCleanupScratchDirs: () => sweepStaleScanCleanupScratchDirs(getAppTempDir(), {log: (level, message) => logger[level](message)}),
     sweepStaleOcrTempArtifacts,
     pruneStaleDjvuArtifactJobs,

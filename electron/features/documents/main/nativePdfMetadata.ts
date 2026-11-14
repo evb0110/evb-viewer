@@ -13,11 +13,14 @@ import {
 } from '@contracts/pdfPageLabels';
 import { requirePageNumber } from '@contracts/pageNumbers';
 import type { IDocumentsSenderIdContext } from '@electron/features/documents/documentsContexts';
-import { resolveOriginalBackedReadTransport } from '@electron/features/documents/main/documentFileReadHandlers';
+import { resolveDocumentReadTransport } from '@electron/features/documents/main/documentFileReadHandlers';
 import { resolveExistingReadablePdfPath } from '@electron/features/documents/main/documentFilePathResolution';
 import { allowOpenPath } from '@electron/file-access/openPathCapabilities';
 import { getRecentFiles } from '@electron/recentFiles';
-import { readRecentReadingViewOf } from '@electron/recentReadingViews';
+import {
+    readingViewSourceOf,
+    readRecentReadingViewOf,
+} from '@electron/recentReadingViews';
 import { buildPopplerEnv } from '@electron/native-tools/buildPopplerEnv';
 import {
     runNativeToolCommand,
@@ -32,19 +35,18 @@ import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@contracts/getErrorMessage';
 import { onSenderLifetimeEnd } from '@electron/utils/onSenderLifetimeEnd';
 import { isErrnoException } from '@contracts/runtimeGuards';
-import { isWorkingCopyDocumentPath } from '@electron/file-access/workingCopyDirectory';
 import {
-    getWorkingCopyBackingEntry, normalizePathForLookup,
-} from '@electron/file-access/workingCopyStore';
+    assertWorkingCopyRevisionCurrent,
+    getWorkingCopyBackingEntry,
+    getWorkingCopyRevision,
+    isWorkingCopyDocumentPath,
+} from '@electron/file-access/documentStore';
+import {normalizePathForLookup} from '@electron/file-access/normalizePathForLookup';
 import { requireEpochMs } from '@contracts/timestamps';
 import {
     readNativePdfCatalogPart,
     resolveNativePageOpsPath,
 } from '@electron/features/page-ops/public/nativePageOpsPath';
-import {
-    assertWorkingCopyRevisionCurrent,
-    getWorkingCopyRevision,
-} from '@electron/file-access/documentRevisionStore';
 import { getAppTempDir } from '@electron/utils/appTempDir';
 import { readPdfNativePageGeometry } from '@electron/pdf/pdfPageSizes';
 import * as v from 'valibot';
@@ -185,7 +187,7 @@ export async function handlePdfNativePageSizes(
         throw new Error('Document revision token is required for exact PDF geometry');
     }
     const resolvedPath = await resolvePdfPath(context, filePath);
-    const originalBackedRead = resolveOriginalBackedReadTransport(resolvedPath, context.senderId);
+    const originalBackedRead = resolveDocumentReadTransport(resolvedPath, context.senderId);
     const revision = await getWorkingCopyRevision(resolvedPath, context.senderId);
     if (revision.token !== expectedRevisionToken) {
         throw createStaleRevisionError({
@@ -319,7 +321,7 @@ export async function handlePdfPageLabelRanges(
     filePath: unknown,
 ): Promise<IPdfPageLabelRange[]> {
     const resolvedPath = await resolvePdfPath(context, filePath);
-    const originalBackedRead = resolveOriginalBackedReadTransport(resolvedPath, context.senderId);
+    const originalBackedRead = resolveDocumentReadTransport(resolvedPath, context.senderId);
     const binaryPath = resolveNativePageOpsPath();
     if (!binaryPath) {
         throw new Error('Native page operations are required to read PDF page labels');
@@ -344,15 +346,9 @@ export async function handlePdfPageLabelRanges(
 
 async function readPdfOpeningGeometryIdentity(resolvedPath: string) {
     try {
-        // The modification time as the working-copy registry reads it, so a
-        // Recent reading view's witness compares exactly.
-        const fileStat = await stat(resolvedPath, {bigint: true});
-        const mtimeMs = Number(fileStat.mtimeNs) / 1_000_000;
-        return {
-            size: Number(fileStat.size),
-            modifiedAt: requireEpochMs(Math.trunc(mtimeMs)),
-            mtimeMs,
-        };
+        // The file version as a Recent reading view names it, so a remembered view compares exactly.
+        const source = readingViewSourceOf(await stat(resolvedPath, {bigint: true}));
+        return {...source, size: source.sourceSize, modifiedAt: requireEpochMs(Math.trunc(source.sourceModifiedAtMs))};
     } catch (error) {
         if (isMissingPdfOpeningGeometrySource(error)) {
             return null;
@@ -391,7 +387,7 @@ export async function handlePdfOpeningGeometry(
         }
         throw error;
     }
-    const originalBackedRead = resolveOriginalBackedReadTransport(resolvedPath, context.senderId);
+    const originalBackedRead = resolveDocumentReadTransport(resolvedPath, context.senderId);
     // A working copy that still reads its original keeps its admission
     // identity when the original changes, so only the checked read can tell.
     if (originalBackedRead) {
@@ -409,11 +405,7 @@ export async function handlePdfOpeningGeometry(
     // Where the reader left these bytes, matched against main's own stat of
     // them, names the page the open shows first; a changed file has none.
     const readingView = typeof filePath === 'string'
-        ? await readRecentReadingViewOf({
-            originalPath: filePath,
-            sourceSize: identityBefore.size,
-            sourceModifiedAtMs: identityBefore.mtimeMs,
-        })
+        ? await readRecentReadingViewOf({...identityBefore, originalPath: filePath})
         : null;
     // With no reading view, the admitted copy's exact table owns the first
     // layout. Managed-copy callers still need its count to admit a restore.
@@ -422,7 +414,7 @@ export async function handlePdfOpeningGeometry(
     const shape = await readPdfOpeningGeometry(context, resolvedPath, null, identityBefore, readingPage);
     const matched = readingView !== null && shape?.pageNumber === readingPage && shape.pageCount === readingView.pageCount;
     const identityAfter = await readPdfOpeningGeometryIdentity(resolvedPath);
-    if (identityAfter?.size !== identityBefore.size || identityAfter.mtimeMs !== identityBefore.mtimeMs) {
+    if (identityAfter?.size !== identityBefore.size || identityAfter.sourceModifiedAtMs !== identityBefore.sourceModifiedAtMs) {
         return null;
     }
     return shape && (matched || shape.pageNumber === 1) ? {
@@ -434,7 +426,7 @@ export async function handlePdfOpeningGeometry(
 async function readPdfOpeningGeometry(
     context: IDocumentsSenderIdContext,
     resolvedPath: string,
-    originalBackedRead: ReturnType<typeof resolveOriginalBackedReadTransport>,
+    originalBackedRead: ReturnType<typeof resolveDocumentReadTransport>,
     identityBefore: Pick<IPdfOpeningGeometry, 'size' | 'modifiedAt'>,
     openingPage = 1,
 ): Promise<IPdfOpeningGeometry | null> {

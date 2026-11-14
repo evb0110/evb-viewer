@@ -4,10 +4,10 @@ import {
     type IpcMainInvokeEvent,
     type WebContents,
 } from 'electron';
-import { existsSync } from 'fs';
 import {
-    stat, readFile, writeFile,
+    readFile, stat, writeFile,
 } from 'fs/promises';
+import {copyNewFile} from '@document-store/nodeStorePort';
 import {usingManagedScratchScope} from '@electron/utils/managedScratchTemp';
 import {
     basename,
@@ -19,6 +19,7 @@ import type {
     TRequestId,
 } from '@contracts/shared';
 import { parseDocumentRef } from '@contracts/documentRef';
+import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import {
     normalizeCropMargins,
     normalizeNonEmptyStringPaths,
@@ -30,7 +31,9 @@ import type {
 } from '@contracts/electronApiDocuments';
 import { DOCUMENT_OPEN_PLATFORM_FEATURE } from '@contracts/documentsPlatformFeature';
 import type {
+    IPageOpsCommittedResult,
     IPageOpsMutationOptions,
+    IPageOpsResult,
     IPageIdentityDelta,
     TPageOpsPageSelection,
 } from '@contracts/electronApiPageOps';
@@ -46,25 +49,40 @@ import {
     removeCropFromPages,
 } from '@electron/features/page-ops/main/crop';
 import {
-    deletePageRanges,
-    deletePages,
-    extractPageRanges,
-    extractPages,
     getPdfPageCount,
-    movePageRanges,
-    movePages,
-    reorderPages,
-    rotatePages,
-    materializePageOperationWorkingCopy,
     verifyPdfStructureStrict,
 } from '@electron/features/page-ops/main/qpdf';
-import type { TRotationAngle } from '@electron/features/page-ops/main/qpdf';
+import {
+    deletePageRanges,
+    extractPageRanges,
+    extractPages,
+    movePageRanges,
+    reorderPages,
+    rotatePages,
+} from '@electron/features/page-ops/main/pageStructure';
+import type { TRotationAngle } from '@electron/features/page-ops/main/pageStructure';
 import { resolveAllowedWritePath } from '@electron/utils/pathValidator';
 import {
-    ensureWorkingCopyDirectory, requireManagedWorkingCopyPath,
-} from '@electron/file-access/workingCopyCreation';
-import { findWorkingCopyPathByOriginalPath } from '@electron/file-access/workingCopyStore';
-import { runWithWorkingCopyReadBacking } from '@electron/file-access/runWithWorkingCopyReadBacking';
+    assertQueuedWorkingCopyMutationPreconditions,
+    ensureWorkingCopyDirectory,
+    findWorkingCopyPathByOriginalPath,
+    normalizeExpectedDocumentRevisionToken,
+    getWorkingCopyOriginalPath,
+    requireManagedWorkingCopyPath,
+    appendToDocument,
+    documentRevisionToken,
+    requireOpenDocument,
+    restoreOpenDocumentRevision,
+    rewriteDocument,
+    runWithWorkingCopyReadBacking,
+} from '@electron/file-access/documentStore';
+import {
+    findSerializableErrorEnvelope,
+} from '@contracts/serializableError';
+import { NATIVE_ERROR_ENVELOPE_SCHEMA } from '@contracts/nativeErrors';
+import { rewritePdfWithQpdf } from '@electron/pdf/pdfAppendBase';
+import { createLogger } from '@electron/utils/createLogger';
+import { getErrorMessage } from '@electron/utils/error';
 import { readNativePdfCatalogPart } from '@electron/features/page-ops/main/readNativePdfCatalog';
 import { resolveNativePageOpsPath } from '@electron/features/page-ops/main/resolveNativePageOpsPath';
 import { PDF_BOOKMARK_RECOVERY_ENTRY_SCHEMA } from '@contracts/pdfBookmarkEntry';
@@ -97,7 +115,6 @@ import {
 } from '@contracts/nativePdfMutations';
 import type { IWorkingCopyMutationOperation } from '@electron/file-access/workingCopyMutationQueue';
 import { runWithWorkingCopyMutationCommitSignal } from '@electron/file-access/workingCopyMutationCommitSignal';
-import { transitionWorkingCopyContentRevision } from '@electron/file-access/documentRevisionStore';
 import {
     createCropIdentityDelta,
     createCropRangesIdentityDelta,
@@ -112,10 +129,6 @@ import {
     createRotateIdentityDelta,
     createRotateRangesIdentityDelta,
 } from '@electron/file-access/pageIdentityDelta';
-import {
-    assertQueuedWorkingCopyMutationPreconditions,
-    normalizeExpectedDocumentRevisionToken,
-} from '@electron/file-access/documentMutationGuards';
 import { normalizeOptionalIpcRequestId } from '@electron/utils/ipcLimits';
 import {
     getAutomationSaveDialogPath,
@@ -126,6 +139,8 @@ import type { ICreatePdfFromInputPathsProgress } from '@electron/image/pdfConver
 import {
     applyPageMetadataRemap, resolvePageMetadataSourceTargets,
 } from '@electron/features/page-ops/main/pageMetadataRemap';
+
+const logger = createLogger('page-ops');
 
 interface IPageOpsOperationContext {
     sender: WebContents;
@@ -237,95 +252,99 @@ function createNativeOperationOptions(operation: IWorkingCopyMutationOperation) 
     };
 }
 
-async function beginQueuedPageMutation(
-    operation: IWorkingCopyMutationOperation,
-    normalizedWorkingCopyPath: string,
-    senderId: number,
-    expectedDocumentRevisionToken: Parameters<typeof assertQueuedWorkingCopyMutationPreconditions>[1],
-) {
-    const nativeOptions = createNativeOperationOptions(operation);
-    const queuedWorkingCopyPath = await validateWorkingCopyPath(normalizedWorkingCopyPath, senderId);
-    await assertQueuedWorkingCopyMutationPreconditions(queuedWorkingCopyPath, expectedDocumentRevisionToken);
-    const pageCount = await getPdfPageCount(queuedWorkingCopyPath, nativeOptions);
-    return {
-        nativeOptions,
-        pageCount,
-        queuedWorkingCopyPath,
-    };
-}
-
 // Atomic file replaces normally mark a working-copy mutation as committing.
-// Inside a page operation they are either bookkeeping for the current revision
-// or writes the content journal rolls back, so the operation marks its real
-// commit point itself and stays cancellable until then.
+// Inside a page operation they write the next revision, which nothing names
+// until the store commits it, so the operation marks its real commit point
+// itself and stays cancellable until then.
 const DEFERRED_COMMIT_SIGNAL = {markCommitStarted: () => undefined};
 
-async function transitionPageMutation<T>(input: {
-    workingCopyPath: string;
-    senderId?: number;
+/**
+ * Runs one page operation as a rewrite of the document: `mutate` reads its
+ * current bytes at `source` and writes the next revision at `target`, which
+ * the store commits once the page count and structure checks pass. With
+ * `write: appendToDocument` the edit appends to the document's own file:
+ * `source` and `target` are that file. The page-structure engine and the
+ * incremental writer verify what they write; a tool that does not asks for
+ * `strictStructureCheck`.
+ */
+async function runPageMutation<T>(input: {
+    ref: string;
+    senderId: number;
+    token: TDocumentRevisionToken | null;
+    expectedTotalPages?: number;
     options?: IPageOpsMutationOptions | undefined;
     operation: IWorkingCopyMutationOperation;
-    contentBackupMode?: 'copy-on-write' | 'hard-link' | 'append';
     skipPageMetadataRemap?: boolean;
-    nativeAppendStructureVerified?: boolean;
-    mutate: () => Promise<{
+    strictStructureCheck?: boolean;
+    write?: typeof rewriteDocument;
+    mutate: (source: string, target: string, pageCount: number) => Promise<{
         value: T;
         delta: IPageIdentityDelta
     }>;
 }) {
-    const values: T[] = [];
-    let committedDelta = null as IPageIdentityDelta | null;
-    const documentRevision = await runWithWorkingCopyMutationCommitSignal(DEFERRED_COMMIT_SIGNAL, () => transitionWorkingCopyContentRevision(
-        input.workingCopyPath,
-        'page-ops',
-        async () => {
-            const nativeOptions = createNativeOperationOptions(input.operation);
-            const metadataSnapshot = input.skipPageMetadataRemap ? undefined : await resolvePageMetadataSourceTargets(input.options?.metadataSnapshot, input.workingCopyPath, nativeOptions);
-            const mutation = await input.mutate();
+    await assertQueuedWorkingCopyMutationPreconditions(input.ref, input.token);
+    const nativeOptions = createNativeOperationOptions(input.operation);
+    const entry = requireOpenDocument(input.ref, input.senderId);
+    let committed = null as {value: T; delta: IPageIdentityDelta} | null;
+    const write = () => (input.write ?? rewriteDocument)(
+        entry,
+        async (source, target) => {
+            const pageCount = await getPdfPageCount(source, nativeOptions);
+            if (input.expectedTotalPages !== undefined && input.expectedTotalPages !== pageCount) {
+                throw new Error('Renderer page count is stale');
+            }
+            const metadataSnapshot = input.skipPageMetadataRemap ? undefined : await resolvePageMetadataSourceTargets(input.options?.metadataSnapshot, source, nativeOptions);
+            const mutation = await input.mutate(source, target, pageCount);
             if (!input.skipPageMetadataRemap) {
                 await applyPageMetadataRemap({
-                    workingCopyPath: input.workingCopyPath,
+                    workingCopyPath: target,
                     delta: mutation.delta,
                     ...(metadataSnapshot ? {metadataSnapshot} : {}),
                     ...nativeOptions,
                 });
             }
-            const actualPageCount = await getPdfPageCount(
-                input.workingCopyPath,
-                nativeOptions,
-            );
+            const actualPageCount = await getPdfPageCount(target, nativeOptions);
             const predictedPageCount = mutation.delta.nextPageCount ?? mutation.delta.pages?.length;
             if (predictedPageCount === undefined || predictedPageCount !== actualPageCount) {
                 throw new Error(`Page operation reopen verification failed: predicted ${predictedPageCount ?? 'unknown'}, received ${actualPageCount}`);
             }
-            // The incremental writer validates the appended xref/object set
-            // and the selected page dictionaries before returning. Reopening
-            // for page count below verifies the complete page tree without
-            // asking qpdf to rewrite the 722 MB base streams a second time.
-            if (!input.nativeAppendStructureVerified) {
-                await verifyPdfStructureStrict(
-                    input.workingCopyPath,
-                    nativeOptions,
-                );
+            if (input.strictStructureCheck) {
+                await verifyPdfStructureStrict(target, nativeOptions);
             }
-            // Publishing the revision is the commit point. A cancel accepted
-            // before it rolls the working copy back.
+            // The store's commit is the commit point. A cancel accepted before
+            // it leaves the document as it was.
             input.operation.signal.throwIfAborted();
             input.operation.markCommitStarted();
-            committedDelta = mutation.delta;
-            values.push(mutation.value);
+            committed = mutation;
         },
-        input.senderId,
-        undefined,
-        input.contentBackupMode,
-    ));
-    if (values.length !== 1) throw new Error('Page operation did not publish a result');
-    if (!committedDelta) throw new Error('Page operation did not publish an identity delta');
-    const value = values[0]!;
+        'page-ops',
+    );
+    const documentRevision = await runWithWorkingCopyMutationCommitSignal(DEFERRED_COMMIT_SIGNAL, async () => {
+        try {
+            return await write();
+        } catch (error) {
+            // The page engine could not read the document: repair its revision as its open does, then edit once more.
+            if (findSerializableErrorEnvelope(error, NATIVE_ERROR_ENVELOPE_SCHEMA)?.code !== 'corrupt-xref') throw error;
+            const refused = documentRevisionToken(entry);
+            const repaired = await rewriteDocument(entry, (source, target) => rewritePdfWithQpdf(source, target, nativeOptions), 'open')
+                .catch(() => {
+                    throw error;
+                });
+            logger.debug('Repaired a revision the page engine could not read', {error: getErrorMessage(error)});
+            try {
+                return await write();
+            } catch (retryError) {
+                // The viewer holds the objects of the revision it edited, so that revision stays current.
+                await restoreOpenDocumentRevision(entry, refused, repaired.token);
+                throw retryError;
+            }
+        }
+    });
+    if (!committed) throw new Error('Page operation did not publish a result');
     return {
-        value,
+        value: committed.value,
         documentRevision,
-        pageIdentityDelta: committedDelta,
+        pageIdentityDelta: committed.delta,
     };
 }
 
@@ -343,9 +362,6 @@ async function validateWorkingCopyPath(path: unknown, senderWebContentsId?: numb
     const resolvedPath = await resolveAllowedWritePath(normalizedPath);
     if (!resolvedPath) {
         throw new Error('Path is outside the allowed working directory');
-    }
-    if (!existsSync(resolvedPath)) {
-        throw new Error(`Working copy not found: ${resolvedPath}`);
     }
 
     return resolvedPath;
@@ -407,37 +423,28 @@ async function handlePageOpsDelete(
     pages: TPageOpsPageSelection,
     totalPages: number,
     options?: IPageOpsMutationOptions,
-) {
+): Promise<IPageOpsCommittedResult> {
     const normalizedWorkingCopyPath = await resolveWorkingCopyPath(workingCopyPath, context.senderId);
     const expectedTotalPages = validateExpectedTotalPages(totalPages);
     const expectedDocumentRevisionToken = normalizeExpectedDocumentRevisionToken(options);
 
-    const result = await enqueuePageMutation(context, normalizedWorkingCopyPath, async (operation) => {
-        const {
-            nativeOptions,
-            pageCount: mainTotalPages,
-            queuedWorkingCopyPath,
-        } = await beginQueuedPageMutation(operation, normalizedWorkingCopyPath, context.senderId, expectedDocumentRevisionToken);
-        if (mainTotalPages !== expectedTotalPages) {
-            throw new Error('Renderer page count is stale');
-        }
-        const ranges = validatePageOpsSelection(pages, mainTotalPages, 'deletePages');
-        return transitionPageMutation({
-            workingCopyPath: queuedWorkingCopyPath,
-            senderId: context.senderId,
-            operation,
-            options,
-            mutate: async () => isCompactPageSelection(pages)
-                ? {
-                    value: await deletePageRanges(queuedWorkingCopyPath, ranges, expectedTotalPages, context.senderId, nativeOptions),
-                    delta: createDeleteRangesIdentityDelta(expectedTotalPages, ranges),
-                }
-                : {
-                    value: await deletePages(queuedWorkingCopyPath, pages, expectedTotalPages, context.senderId, nativeOptions),
-                    delta: createDeleteIdentityDelta(expectedTotalPages, pages),
-                },
-        });
-    });
+    const result = await enqueuePageMutation(context, normalizedWorkingCopyPath, operation => runPageMutation({
+        ref: normalizedWorkingCopyPath,
+        senderId: context.senderId,
+        token: expectedDocumentRevisionToken,
+        expectedTotalPages,
+        operation,
+        options,
+        mutate: async (source, target, pageCount) => {
+            const ranges = validatePageOpsSelection(pages, pageCount, 'deletePages');
+            return {
+                value: await deletePageRanges(source, target, ranges, pageCount, createNativeOperationOptions(operation)),
+                delta: isCompactPageSelection(pages)
+                    ? createDeleteRangesIdentityDelta(pageCount, ranges)
+                    : createDeleteIdentityDelta(pageCount, pages),
+            };
+        },
+    }));
     return {
         success: true,
         pageCount: result.value.pageCount,
@@ -452,39 +459,24 @@ async function handlePageOpsDeleteRanges(
     ranges: IPageMoveRangeSegment[],
     totalPages: number,
     options?: IPageOpsMutationOptions,
-) {
+): Promise<IPageOpsCommittedResult> {
     const normalizedWorkingCopyPath = await resolveWorkingCopyPath(workingCopyPath, context.senderId);
     const expectedTotalPages = validateExpectedTotalPages(totalPages);
     validatePageDeleteRanges(ranges, expectedTotalPages);
     const expectedDocumentRevisionToken = normalizeExpectedDocumentRevisionToken(options);
 
-    const result = await enqueuePageMutation(context, normalizedWorkingCopyPath, async (operation) => {
-        const {
-            nativeOptions,
-            pageCount: mainTotalPages,
-            queuedWorkingCopyPath,
-        } = await beginQueuedPageMutation(operation, normalizedWorkingCopyPath, context.senderId, expectedDocumentRevisionToken);
-        if (mainTotalPages !== expectedTotalPages) {
-            throw new Error('Renderer page count is stale');
-        }
-        validatePageDeleteRanges(ranges, mainTotalPages);
-        return transitionPageMutation({
-            workingCopyPath: queuedWorkingCopyPath,
-            senderId: context.senderId,
-            operation,
-            options,
-            mutate: async () => ({
-                value: await deletePageRanges(
-                    queuedWorkingCopyPath,
-                    ranges,
-                    expectedTotalPages,
-                    context.senderId,
-                    nativeOptions,
-                ),
-                delta: createDeleteRangesIdentityDelta(expectedTotalPages, ranges),
-            }),
-        });
-    });
+    const result = await enqueuePageMutation(context, normalizedWorkingCopyPath, operation => runPageMutation({
+        ref: normalizedWorkingCopyPath,
+        senderId: context.senderId,
+        token: expectedDocumentRevisionToken,
+        expectedTotalPages,
+        operation,
+        options,
+        mutate: async (source, target, pageCount) => ({
+            value: await deletePageRanges(source, target, ranges, pageCount, createNativeOperationOptions(operation)),
+            delta: createDeleteRangesIdentityDelta(pageCount, ranges),
+        }),
+    }));
     return {
         success: true,
         pageCount: result.value.pageCount,
@@ -499,10 +491,16 @@ async function handlePageOpsExtract(
     pages: TPageOpsPageSelection,
 ) {
     const normalizedWorkingCopyPath = await resolveWorkingCopyPath(workingCopyPath, context.senderId);
-    const actualPageCount = await getPdfPageCount(normalizedWorkingCopyPath);
+    const readDocument = <T>(read: (path: string) => Promise<T>) => runWithWorkingCopyReadBacking(
+        normalizedWorkingCopyPath,
+        read,
+        {ownerWebContentsId: context.senderId},
+    );
+    const actualPageCount = await readDocument(path => getPdfPageCount(path));
     const ranges = validatePageOpsSelection(pages, actualPageCount, 'extractPages');
 
-    const baseName = basename(normalizedWorkingCopyPath, extname(normalizedWorkingCopyPath));
+    const namePath = getWorkingCopyOriginalPath(normalizedWorkingCopyPath, context.senderId)?.originalPath ?? normalizedWorkingCopyPath;
+    const baseName = basename(namePath, extname(namePath));
     const rangeLabel = Array.isArray(pages)
         ? formatPageRange(pages)
         : formatSelectionLabel(ranges);
@@ -537,18 +535,9 @@ async function handlePageOpsExtract(
         destPath += '.pdf';
     }
 
-    await enqueuePageMutation(context, normalizedWorkingCopyPath, async (operation) => {
-        const queuedWorkingCopyPath = await validateWorkingCopyPath(normalizedWorkingCopyPath, context.senderId);
-        const nativeOptions = {
-            ...createNativeOperationOptions(operation),
-            senderWebContentsId: context.senderId,
-        };
-        if (Array.isArray(pages)) {
-            await extractPages(queuedWorkingCopyPath, destPath, pages, nativeOptions);
-        } else {
-            await extractPageRanges(queuedWorkingCopyPath, destPath, ranges, nativeOptions);
-        }
-    });
+    await enqueuePageMutation(context, normalizedWorkingCopyPath, operation => readDocument(source => Array.isArray(pages)
+        ? extractPages(source, destPath, pages, createNativeOperationOptions(operation))
+        : extractPageRanges(source, destPath, ranges, createNativeOperationOptions(operation))));
     allowOpenPath(destPath, context.sender);
     const documentRef = parseDocumentRef(destPath);
     if (documentRef === null) {
@@ -565,33 +554,30 @@ async function handlePageOpsReorder(
     workingCopyPath: string,
     newOrder: number[],
     options?: IPageOpsMutationOptions,
-) {
+): Promise<IPageOpsCommittedResult> {
     const normalizedWorkingCopyPath = await resolveWorkingCopyPath(workingCopyPath, context.senderId);
     validatePageNumbers(newOrder, 'reorderPages', {requireUnique: true});
     validateReorderPermutation(newOrder);
     const expectedDocumentRevisionToken = normalizeExpectedDocumentRevisionToken(options);
 
-    const result = await enqueuePageMutation(context, normalizedWorkingCopyPath, async (operation) => {
-        const nativeOptions = createNativeOperationOptions(operation);
-        const queuedWorkingCopyPath = await validateWorkingCopyPath(normalizedWorkingCopyPath, context.senderId);
-        await assertQueuedWorkingCopyMutationPreconditions(queuedWorkingCopyPath, expectedDocumentRevisionToken);
-        const actualPageCount = await getPdfPageCount(queuedWorkingCopyPath, nativeOptions);
-        validatePageNumbers(newOrder, 'reorderPages', {
-            requireUnique: true,
-            totalPages: actualPageCount,
-        });
-        validateReorderPermutation(newOrder, actualPageCount);
-        return transitionPageMutation({
-            workingCopyPath: queuedWorkingCopyPath,
-            senderId: context.senderId,
-            operation,
-            options,
-            mutate: async () => ({
-                value: await reorderPages(queuedWorkingCopyPath, newOrder, context.senderId, nativeOptions),
-                delta: createReorderIdentityDelta(actualPageCount, newOrder),
-            }),
-        });
-    });
+    const result = await enqueuePageMutation(context, normalizedWorkingCopyPath, operation => runPageMutation({
+        ref: normalizedWorkingCopyPath,
+        senderId: context.senderId,
+        token: expectedDocumentRevisionToken,
+        operation,
+        options,
+        mutate: async (source, target, pageCount) => {
+            validatePageNumbers(newOrder, 'reorderPages', {
+                requireUnique: true,
+                totalPages: pageCount,
+            });
+            validateReorderPermutation(newOrder, pageCount);
+            return {
+                value: await reorderPages(source, target, newOrder, createNativeOperationOptions(operation)),
+                delta: createReorderIdentityDelta(pageCount, newOrder),
+            };
+        },
+    }));
     return {
         success: true,
         pageCount: result.value.pageCount,
@@ -608,57 +594,33 @@ async function handlePageOpsMove(
     insertAt: number,
     totalPages: number,
     options?: IPageOpsMutationOptions,
-) {
+): Promise<IPageOpsCommittedResult> {
     const normalizedWorkingCopyPath = await resolveWorkingCopyPath(workingCopyPath, context.senderId);
     validatePageMoveRange(startPage, endPage, insertAt, totalPages);
     const expectedDocumentRevisionToken = normalizeExpectedDocumentRevisionToken(options);
 
-    const result = await enqueuePageMutation(context, normalizedWorkingCopyPath, async (operation) => {
-        const {
-            nativeOptions,
-            pageCount: actualPageCount,
-            queuedWorkingCopyPath,
-        } = await beginQueuedPageMutation(
-            operation,
-            normalizedWorkingCopyPath,
-            context.senderId,
-            expectedDocumentRevisionToken,
-        );
-        if (actualPageCount !== totalPages) {
-            throw new Error('Renderer page count is stale');
-        }
-        validatePageMoveRange(startPage, endPage, insertAt, actualPageCount);
-
-        const movedCount = endPage - startPage + 1;
-        const destinationStart = insertAt < startPage - 1
-            ? insertAt + 1
-            : insertAt > endPage
-                ? insertAt - movedCount + 1
-                : startPage;
-        return transitionPageMutation({
-            workingCopyPath: queuedWorkingCopyPath,
-            senderId: context.senderId,
-            operation,
-            options,
-            mutate: async () => ({
-                value: await movePages(
-                    queuedWorkingCopyPath,
-                    startPage,
-                    endPage,
-                    insertAt,
-                    actualPageCount,
-                    context.senderId,
-                    nativeOptions,
-                ),
-                delta: createMoveIdentityDelta(
-                    actualPageCount,
-                    startPage,
-                    destinationStart,
-                    movedCount,
-                ),
-            }),
-        });
-    });
+    const movedCount = endPage - startPage + 1;
+    const destinationStart = insertAt < startPage - 1
+        ? insertAt + 1
+        : insertAt > endPage
+            ? insertAt - movedCount + 1
+            : startPage;
+    const move = createPageMoveRanges(totalPages, [{
+        startPage,
+        endPage,
+    }], insertAt);
+    const result = await enqueuePageMutation(context, normalizedWorkingCopyPath, operation => runPageMutation({
+        ref: normalizedWorkingCopyPath,
+        senderId: context.senderId,
+        token: expectedDocumentRevisionToken,
+        expectedTotalPages: totalPages,
+        operation,
+        options,
+        mutate: async (source, target) => ({
+            value: await movePageRanges(source, target, move, createNativeOperationOptions(operation)),
+            delta: createMoveIdentityDelta(totalPages, startPage, destinationStart, movedCount),
+        }),
+    }));
     return {
         success: true,
         pageCount: result.value.pageCount,
@@ -674,43 +636,24 @@ async function handlePageOpsMoveRanges(
     insertAt: number,
     totalPages: number,
     options?: IPageOpsMutationOptions,
-) {
+): Promise<IPageOpsCommittedResult> {
     const normalizedWorkingCopyPath = await resolveWorkingCopyPath(workingCopyPath, context.senderId);
     validatePageMoveRanges(ranges, insertAt, totalPages);
     const expectedDocumentRevisionToken = normalizeExpectedDocumentRevisionToken(options);
 
-    const result = await enqueuePageMutation(context, normalizedWorkingCopyPath, async (operation) => {
-        const {
-            nativeOptions,
-            pageCount: actualPageCount,
-            queuedWorkingCopyPath,
-        } = await beginQueuedPageMutation(
-            operation,
-            normalizedWorkingCopyPath,
-            context.senderId,
-            expectedDocumentRevisionToken,
-        );
-        if (actualPageCount !== totalPages) {
-            throw new Error('Renderer page count is stale');
-        }
-        const move = createPageMoveRanges(actualPageCount, ranges, insertAt);
-        return transitionPageMutation({
-            workingCopyPath: queuedWorkingCopyPath,
-            senderId: context.senderId,
-            operation,
-            options,
-            mutate: async () => ({
-                value: await movePageRanges(
-                    queuedWorkingCopyPath,
-                    move,
-                    actualPageCount,
-                    context.senderId,
-                    nativeOptions,
-                ),
-                delta: createPageMoveRangesIdentityDelta(move),
-            }),
-        });
-    });
+    const move = createPageMoveRanges(totalPages, ranges, insertAt);
+    const result = await enqueuePageMutation(context, normalizedWorkingCopyPath, operation => runPageMutation({
+        ref: normalizedWorkingCopyPath,
+        senderId: context.senderId,
+        token: expectedDocumentRevisionToken,
+        expectedTotalPages: totalPages,
+        operation,
+        options,
+        mutate: async (source, target) => ({
+            value: await movePageRanges(source, target, move, createNativeOperationOptions(operation)),
+            delta: createPageMoveRangesIdentityDelta(move),
+        }),
+    }));
     return {
         success: true,
         pageCount: result.value.pageCount,
@@ -725,7 +668,7 @@ async function handlePageOpsInsert(
     totalPages: number,
     afterPage: number,
     options?: IPageOpsMutationOptions,
-) {
+): Promise<IPageOpsResult> {
     const insertArgs = validateInsertPageArgs(workingCopyPath, totalPages, afterPage);
     const normalizedWorkingCopyPath = await resolveWorkingCopyPath(insertArgs.normalizedWorkingCopyPath, context.senderId);
     const expectedDocumentRevisionToken = normalizeExpectedDocumentRevisionToken(options);
@@ -760,40 +703,28 @@ async function handlePageOpsInsert(
     const trustedSourcePaths = normalizeNonEmptyStringPaths(result.filePaths)
         .map(path => requireOpenPath(path, context.sender));
 
-    const mutation = await enqueuePageMutation(context, normalizedWorkingCopyPath, async (operation) => {
-        const {
-            nativeOptions,
-            pageCount: beforeCount,
-            queuedWorkingCopyPath,
-        } = await beginQueuedPageMutation(operation, normalizedWorkingCopyPath, context.senderId, expectedDocumentRevisionToken);
-        return transitionPageMutation({
-            workingCopyPath: queuedWorkingCopyPath,
-            senderId: context.senderId,
-            operation,
-            options,
-            mutate: async () => {
-                await insertPagesFromSourcePaths(queuedWorkingCopyPath, insertArgs.totalPages, trustedSourcePaths, insertArgs.afterPage, context.senderId, undefined, nativeOptions);
-                const afterCount = await getPdfPageCount(queuedWorkingCopyPath, nativeOptions);
-                return {
-                    value: undefined,
-                    delta: createInsertIdentityDelta(beforeCount, insertArgs.afterPage, afterCount - beforeCount),
-                };
-            },
-        });
-    });
+    const mutation = await enqueuePageMutation(context, normalizedWorkingCopyPath, operation => runPageMutation({
+        ref: normalizedWorkingCopyPath,
+        senderId: context.senderId,
+        token: expectedDocumentRevisionToken,
+        expectedTotalPages: insertArgs.totalPages,
+        operation,
+        options,
+        mutate: async (source, target, pageCount) => {
+            const nativeOptions = createNativeOperationOptions(operation);
+            await insertPagesFromSourcePaths(source, target, pageCount, trustedSourcePaths, insertArgs.afterPage, undefined, nativeOptions);
+            const afterCount = await getPdfPageCount(target, nativeOptions);
+            return {
+                value: undefined,
+                delta: createInsertIdentityDelta(pageCount, insertArgs.afterPage, afterCount - pageCount),
+            };
+        },
+    }));
     return {
         success: true,
         documentRevision: mutation.documentRevision,
         pageIdentityDelta: mutation.pageIdentityDelta,
     };
-}
-
-// An in-place append writes through every hard link to the file. A save can
-// leave the working copy sharing its inode with the original, so only an
-// unshared working copy is appended in place.
-async function isWorkingCopyInodeExclusive(workingCopyPath: string) {
-    const workingCopyStat = await stat(workingCopyPath);
-    return workingCopyStat.isFile() && workingCopyStat.nlink === 1;
 }
 
 async function handlePageOpsRotate(
@@ -803,7 +734,7 @@ async function handlePageOpsRotate(
     totalPages: number,
     angle: TRotationAngle,
     options?: IPageOpsMutationOptions,
-) {
+): Promise<IPageOpsCommittedResult> {
     const normalizedWorkingCopyPath = await resolveWorkingCopyPath(workingCopyPath, context.senderId);
     const expectedTotalPages = validateExpectedTotalPages(totalPages);
     const expectedDocumentRevisionToken = normalizeExpectedDocumentRevisionToken(options);
@@ -815,49 +746,28 @@ async function handlePageOpsRotate(
         throw new Error(`Invalid rotation angle: ${angle}`);
     }
 
-    const mutation = await enqueuePageMutation(context, normalizedWorkingCopyPath, async (operation) => {
-        const {
-            nativeOptions,
-            pageCount: mainTotalPages,
-            queuedWorkingCopyPath,
-        } = await beginQueuedPageMutation(operation, normalizedWorkingCopyPath, context.senderId, expectedDocumentRevisionToken);
-        if (mainTotalPages !== expectedTotalPages) {
-            throw new Error('Renderer page count is stale');
-        }
-        const ranges = validatePageOpsSelection(pages, mainTotalPages, 'rotatePages');
-        const appendInPlace = await isWorkingCopyInodeExclusive(await materializePageOperationWorkingCopy(
-            queuedWorkingCopyPath,
-            context.senderId,
-            operation.signal,
-        ));
-        return transitionPageMutation({
-            workingCopyPath: queuedWorkingCopyPath,
-            senderId: context.senderId,
-            operation,
-            options,
-            ...(appendInPlace ? {contentBackupMode: 'append' as const} : {}),
-            skipPageMetadataRemap: true,
-            nativeAppendStructureVerified: true,
-            mutate: async () => {
-                for (const batch of iteratePageRangeBatches(ranges, PAGE_MUTATION_BATCH_SIZE)) {
-                    await rotatePages(
-                        queuedWorkingCopyPath,
-                        batch,
-                        angle,
-                        appendInPlace,
-                        context.senderId,
-                        nativeOptions,
-                    );
-                }
-                return {
-                    value: undefined,
-                    delta: isCompactPageSelection(pages)
-                        ? createRotateRangesIdentityDelta(mainTotalPages, ranges)
-                        : createRotateIdentityDelta(mainTotalPages, pages),
-                };
-            },
-        });
-    });
+    const mutation = await enqueuePageMutation(context, normalizedWorkingCopyPath, operation => runPageMutation({
+        ref: normalizedWorkingCopyPath,
+        senderId: context.senderId,
+        token: expectedDocumentRevisionToken,
+        expectedTotalPages,
+        operation,
+        options,
+        skipPageMetadataRemap: true,
+        write: appendToDocument,
+        mutate: async (_source, target, pageCount) => {
+            const ranges = validatePageOpsSelection(pages, pageCount, 'rotatePages');
+            for (const batch of iteratePageRangeBatches(ranges, PAGE_MUTATION_BATCH_SIZE)) {
+                await rotatePages(target, batch, angle, createNativeOperationOptions(operation));
+            }
+            return {
+                value: undefined,
+                delta: isCompactPageSelection(pages)
+                    ? createRotateRangesIdentityDelta(pageCount, ranges)
+                    : createRotateIdentityDelta(pageCount, pages),
+            };
+        },
+    }));
     return {
         success: true,
         documentRevision: mutation.documentRevision,
@@ -873,7 +783,7 @@ async function handlePageOpsInsertFile(
     sourcePaths: string[],
     requestId?: string,
     options?: IPageOpsMutationOptions,
-) {
+): Promise<IPageOpsCommittedResult> {
     const insertArgs = validateInsertPageArgs(workingCopyPath, totalPages, afterPage);
     const normalizedWorkingCopyPath = await resolveWorkingCopyPath(insertArgs.normalizedWorkingCopyPath, context.senderId);
     if (!Array.isArray(sourcePaths) || sourcePaths.length === 0) {
@@ -885,29 +795,25 @@ async function handlePageOpsInsertFile(
     const normalizedRequestId = parseRequestId(normalizeOptionalIpcRequestId(requestId));
     const expectedDocumentRevisionToken = normalizeExpectedDocumentRevisionToken(options);
 
-    const mutation = await enqueuePageMutation(context, normalizedWorkingCopyPath, async (operation) => {
-        const {
-            nativeOptions,
-            pageCount: beforeCount,
-            queuedWorkingCopyPath,
-        } = await beginQueuedPageMutation(operation, normalizedWorkingCopyPath, context.senderId, expectedDocumentRevisionToken);
-        return transitionPageMutation({
-            workingCopyPath: queuedWorkingCopyPath,
-            senderId: context.senderId,
-            operation,
-            options,
-            mutate: async () => {
-                await insertPagesFromSourcePaths(queuedWorkingCopyPath, insertArgs.totalPages, trustedSourcePaths, insertArgs.afterPage, context.senderId, normalizedRequestId
-                    ? createOpenBatchProgressReporter(context, normalizedRequestId, 'page-insert')
-                    : undefined, nativeOptions);
-                const afterCount = await getPdfPageCount(queuedWorkingCopyPath, nativeOptions);
-                return {
-                    value: undefined,
-                    delta: createInsertIdentityDelta(beforeCount, insertArgs.afterPage, afterCount - beforeCount),
-                };
-            },
-        });
-    });
+    const mutation = await enqueuePageMutation(context, normalizedWorkingCopyPath, operation => runPageMutation({
+        ref: normalizedWorkingCopyPath,
+        senderId: context.senderId,
+        token: expectedDocumentRevisionToken,
+        expectedTotalPages: insertArgs.totalPages,
+        operation,
+        options,
+        mutate: async (source, target, pageCount) => {
+            const nativeOptions = createNativeOperationOptions(operation);
+            await insertPagesFromSourcePaths(source, target, pageCount, trustedSourcePaths, insertArgs.afterPage, normalizedRequestId
+                ? createOpenBatchProgressReporter(context, normalizedRequestId, 'page-insert')
+                : undefined, nativeOptions);
+            const afterCount = await getPdfPageCount(target, nativeOptions);
+            return {
+                value: undefined,
+                delta: createInsertIdentityDelta(pageCount, insertArgs.afterPage, afterCount - pageCount),
+            };
+        },
+    }));
     return {
         success: true,
         documentRevision: mutation.documentRevision,
@@ -922,39 +828,34 @@ async function handlePageOpsCrop(
     totalPages: number,
     margins: ICropMargins,
     options?: IPageOpsMutationOptions,
-) {
+): Promise<IPageOpsCommittedResult> {
     const normalizedWorkingCopyPath = await resolveWorkingCopyPath(workingCopyPath, context.senderId);
     const expectedTotalPages = validateExpectedTotalPages(totalPages);
     const expectedDocumentRevisionToken = normalizeExpectedDocumentRevisionToken(options);
     const normalizedMargins = normalizeCropMargins(margins);
 
-    const mutation = await enqueuePageMutation(context, normalizedWorkingCopyPath, async (operation) => {
-        const {
-            pageCount: mainTotalPages,
-            queuedWorkingCopyPath,
-        } = await beginQueuedPageMutation(operation, normalizedWorkingCopyPath, context.senderId, expectedDocumentRevisionToken);
-        if (mainTotalPages !== expectedTotalPages) {
-            throw new Error('Renderer page count is stale');
-        }
-        const ranges = validatePageOpsSelection(pages, mainTotalPages, 'cropPages');
-        return transitionPageMutation({
-            workingCopyPath: queuedWorkingCopyPath,
-            senderId: context.senderId,
-            operation,
-            options,
-            mutate: async () => {
-                for (const batch of iteratePageRangeBatches(ranges, PAGE_MUTATION_BATCH_SIZE)) {
-                    await cropPages(queuedWorkingCopyPath, batch, normalizedMargins, context.senderId, operation.signal);
-                }
-                return {
-                    value: undefined,
-                    delta: isCompactPageSelection(pages)
-                        ? createCropRangesIdentityDelta(mainTotalPages, ranges)
-                        : createCropIdentityDelta(mainTotalPages, pages),
-                };
-            },
-        });
-    });
+    const mutation = await enqueuePageMutation(context, normalizedWorkingCopyPath, operation => runPageMutation({
+        ref: normalizedWorkingCopyPath,
+        senderId: context.senderId,
+        token: expectedDocumentRevisionToken,
+        expectedTotalPages,
+        operation,
+        options,
+        strictStructureCheck: true,
+        mutate: async (source, target, pageCount) => {
+            const ranges = validatePageOpsSelection(pages, pageCount, 'cropPages');
+            await copyNewFile(source, target);
+            for (const batch of iteratePageRangeBatches(ranges, PAGE_MUTATION_BATCH_SIZE)) {
+                await cropPages(target, batch, normalizedMargins, context.senderId, operation.signal);
+            }
+            return {
+                value: undefined,
+                delta: isCompactPageSelection(pages)
+                    ? createCropRangesIdentityDelta(pageCount, ranges)
+                    : createCropIdentityDelta(pageCount, pages),
+            };
+        },
+    }));
     return {
         success: true,
         documentRevision: mutation.documentRevision,
@@ -968,38 +869,33 @@ async function handlePageOpsRemoveCrop(
     pages: TPageOpsPageSelection,
     totalPages: number,
     options?: IPageOpsMutationOptions,
-) {
+): Promise<IPageOpsCommittedResult> {
     const normalizedWorkingCopyPath = await resolveWorkingCopyPath(workingCopyPath, context.senderId);
     const expectedTotalPages = validateExpectedTotalPages(totalPages);
     const expectedDocumentRevisionToken = normalizeExpectedDocumentRevisionToken(options);
 
-    const mutation = await enqueuePageMutation(context, normalizedWorkingCopyPath, async (operation) => {
-        const {
-            pageCount: mainTotalPages,
-            queuedWorkingCopyPath,
-        } = await beginQueuedPageMutation(operation, normalizedWorkingCopyPath, context.senderId, expectedDocumentRevisionToken);
-        if (mainTotalPages !== expectedTotalPages) {
-            throw new Error('Renderer page count is stale');
-        }
-        const ranges = validatePageOpsSelection(pages, mainTotalPages, 'removeCrop');
-        return transitionPageMutation({
-            workingCopyPath: queuedWorkingCopyPath,
-            senderId: context.senderId,
-            operation,
-            options,
-            mutate: async () => {
-                for (const batch of iteratePageRangeBatches(ranges, PAGE_MUTATION_BATCH_SIZE)) {
-                    await removeCropFromPages(queuedWorkingCopyPath, batch, context.senderId, operation.signal);
-                }
-                return {
-                    value: undefined,
-                    delta: isCompactPageSelection(pages)
-                        ? createRemoveCropRangesIdentityDelta(mainTotalPages, ranges)
-                        : createRemoveCropIdentityDelta(mainTotalPages, pages),
-                };
-            },
-        });
-    });
+    const mutation = await enqueuePageMutation(context, normalizedWorkingCopyPath, operation => runPageMutation({
+        ref: normalizedWorkingCopyPath,
+        senderId: context.senderId,
+        token: expectedDocumentRevisionToken,
+        expectedTotalPages,
+        operation,
+        options,
+        strictStructureCheck: true,
+        mutate: async (source, target, pageCount) => {
+            const ranges = validatePageOpsSelection(pages, pageCount, 'removeCrop');
+            await copyNewFile(source, target);
+            for (const batch of iteratePageRangeBatches(ranges, PAGE_MUTATION_BATCH_SIZE)) {
+                await removeCropFromPages(target, batch, context.senderId, operation.signal);
+            }
+            return {
+                value: undefined,
+                delta: isCompactPageSelection(pages)
+                    ? createRemoveCropRangesIdentityDelta(pageCount, ranges)
+                    : createRemoveCropIdentityDelta(pageCount, pages),
+            };
+        },
+    }));
     return {
         success: true,
         documentRevision: mutation.documentRevision,
@@ -1017,7 +913,11 @@ async function handlePageOpsGetPageGeometry(
         throw new Error('Invalid page number');
     }
 
-    return getPageGeometry(normalizedWorkingCopyPath, pageNumber, context.senderId);
+    return runWithWorkingCopyReadBacking(
+        normalizedWorkingCopyPath,
+        path => getPageGeometry(path, pageNumber, context.senderId),
+        {ownerWebContentsId: context.senderId},
+    );
 }
 
 // Reads the bytes the document has now, from its original until the working

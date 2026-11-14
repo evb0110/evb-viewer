@@ -22,7 +22,7 @@ import {
 import {
     createDocumentSessionState,
     createEpochGuard,
-} from '@app/modules/workspace-shell/viewers/workspaceDocumentDriver';
+} from '@app/modules/workspace-shell/composables/document-session/documentSessionState';
 import { createDocumentOpenFlow } from '@app/modules/workspace-shell/composables/document-session/createDocumentOpenFlow';
 import { createDocumentOpenSurfaceSession } from '@app/modules/document-viewer/runtime/documentOpenSurfaceSession';
 import {
@@ -37,6 +37,7 @@ import type * as FailureToastModule from '@app/composables/useFailureToast';
 import {formatTranslationLeaf} from '@i18n-core';
 import {LOCALE_MESSAGES} from '@i18n-app';
 import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
+import { createWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 
 const mocks = vi.hoisted(() => ({
     toasts: [] as Array<Record<string, unknown>>,
@@ -102,18 +103,19 @@ interface IResetHistoryTestOptions {
 }
 
 function createOpenFlowHarness() {
-    const state = createDocumentSessionState({ isDesktopRuntime: ref(true) });
+    const state = createDocumentSessionState({
+            isDesktopRuntime: ref(true),
+            document: createWorkspaceDocumentController({tabId: 'tab-1'}),
+        });
     const deps = {
         cleanupAbandonedWorkingCopy: vi.fn(async () => undefined),
         clearPdfConformanceProfile: vi.fn(),
         cleanupPreviousWorkingCopy: vi.fn(async () => undefined),
         deferPdfConformanceProfile: vi.fn(),
-        ensureHistoryBaselineForMutation: vi.fn(async () => true),
         incrementSessionVersion: vi.fn(),
         loadEpoch: createEpochGuard(),
         openEpoch: createEpochGuard(),
-        pushHistorySnapshot: vi.fn(async () => true),
-        resetHistory: vi.fn(async (_snapshot, options?: IResetHistoryTestOptions) => options?.isCurrent?.() !== false),
+        resetHistory: vi.fn(async (options?: IResetHistoryTestOptions) => options?.isCurrent?.() !== false),
         syncDirtyFromHistory: vi.fn(),
         t: ((key: string) => key) as TTranslateFn,
     };
@@ -127,7 +129,10 @@ function createOpenFlowHarness() {
 
 describe('createDocumentOpenFlow', () => {
     it('clears the encryption witness when a document session closes', () => {
-        const state = createDocumentSessionState({ isDesktopRuntime: ref(true) });
+        const state = createDocumentSessionState({
+            isDesktopRuntime: ref(true),
+            document: createWorkspaceDocumentController({tabId: 'tab-1'}),
+        });
         state.wasEncrypted.value = true;
 
         state.resetForClose();
@@ -435,7 +440,7 @@ describe('createDocumentOpenFlow', () => {
             state,
         } = createOpenFlowHarness();
         const recoveryBaselineDuringHistoryReset: boolean[] = [];
-        deps.resetHistory.mockImplementation(async (_snapshot, options?: IResetHistoryTestOptions) => {
+        deps.resetHistory.mockImplementation(async (options?: IResetHistoryTestOptions) => {
             recoveryBaselineDuringHistoryReset.push(state.recoveryDirtyBaseline.value);
             return options?.isCurrent?.() !== false;
         });
@@ -599,7 +604,7 @@ describe('createDocumentOpenFlow', () => {
         expect(mocks.documentFiles.readFileRange).not.toHaveBeenCalled();
     });
 
-    it('opens an 8 MiB plus one low-memory PDF with empty clean file history', async () => {
+    it('opens an 8 MiB plus one low-memory PDF without reading it, with clean file history', async () => {
         mocks.performanceProfile.lowMemory = true;
         const size = (8 * 1024 * 1024) + 1;
         mocks.documentFiles.statFile.mockResolvedValue({size});
@@ -614,78 +619,9 @@ describe('createDocumentOpenFlow', () => {
             workingPath: requireDocumentRef('/tmp/medium-working.pdf'),
         })).resolves.toMatchObject({status: 'opened'});
 
-        expect(deps.resetHistory).toHaveBeenCalledWith(null, {isCurrent: expect.any(Function)});
-        expect(deps.pushHistorySnapshot).not.toHaveBeenCalled();
+        expect(deps.resetHistory).toHaveBeenCalledWith({isCurrent: expect.any(Function)});
         expect(mocks.documentFiles.readFile).not.toHaveBeenCalled();
         expect(mocks.documentFiles.readFileRange).not.toHaveBeenCalled();
-    });
-
-    it('preserves the eager normal-profile baseline above 8 MiB', async () => {
-        const size = (8 * 1024 * 1024) + 1;
-        mocks.documentFiles.statFile.mockResolvedValue({size});
-        mocks.documentFiles.readFileRange.mockImplementation(async (
-            _path: string,
-            _offset: number,
-            length: number,
-        ) => new Uint8Array(length));
-        const {
-            deps,
-            openFlow,
-        } = createOpenFlowHarness();
-
-        await expect(openFlow.openFile({
-            kind: 'pdf',
-            originalPath: requireDocumentRef('/tmp/normal-medium.pdf'),
-            workingPath: requireDocumentRef('/tmp/normal-medium-working.pdf'),
-        })).resolves.toMatchObject({status: 'opened'});
-
-        expect(deps.resetHistory).toHaveBeenCalledWith(
-            expect.objectContaining({byteLength: size}),
-            {
-                reuseSnapshot: true,
-                isCurrent: expect.any(Function),
-            },
-        );
-    });
-
-    it('persists in-memory PDF snapshots with the split document files write capability', async () => {
-        const {
-            openFlow,
-            state,
-        } = createOpenFlowHarness();
-        state.workingCopyPath.value = requireDocumentRef('/tmp/work.pdf');
-        const snapshot = Uint8Array.from([
-            37,
-            80,
-            68,
-            70,
-            45,
-        ]);
-
-        await openFlow.loadPdfFromData(snapshot, { persistWorkingCopy: true });
-
-        expect(mocks.documentFiles.writeFile).toHaveBeenCalledWith('/tmp/work.pdf', snapshot, undefined);
-    });
-
-    it('does not apply or persist PDF data when mutation baseline staging fails', async () => {
-        const {
-            deps,
-            openFlow,
-            state,
-        } = createOpenFlowHarness();
-        const before = new Uint8Array([1]);
-        state.workingCopyPath.value = requireDocumentRef('/tmp/work.pdf');
-        state.pdfData.value = before;
-        deps.ensureHistoryBaselineForMutation.mockResolvedValue(false);
-
-        await expect(openFlow.loadPdfFromData(
-            new Uint8Array([2]),
-            {persistWorkingCopy: true},
-        )).resolves.toBeUndefined();
-
-        expect(mocks.documentFiles.writeFile).not.toHaveBeenCalled();
-        expect(deps.pushHistorySnapshot).not.toHaveBeenCalled();
-        expect(state.pdfData.value).toBe(before);
     });
 
     it('cleans up a stale direct PDF working copy that was superseded before adoption', async () => {
@@ -859,7 +795,7 @@ describe('createDocumentOpenFlow', () => {
         };
         const firstHistoryResetGate = Promise.withResolvers<undefined>();
         let resetHistoryCalls = 0;
-        deps.resetHistory.mockImplementation(async (_snapshot, options?: IResetHistoryTestOptions) => {
+        deps.resetHistory.mockImplementation(async (options?: IResetHistoryTestOptions) => {
             resetHistoryCalls += 1;
             if (resetHistoryCalls === 1) {
                 await firstHistoryResetGate.promise;

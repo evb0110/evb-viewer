@@ -4,9 +4,7 @@ import { useDocumentTransitions } from '@app/modules/workspace-shell/composables
 import type { IDocumentTransitionDeps } from '@app/modules/workspace-shell/composables/useDocumentTransitions';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type {useMetadataSession} from '@app/modules/workspace-shell/composables/useMetadataSession';
-import type {
-    createPdfReloadWaiter,TPdfDocumentAnnotations,
-} from '@app/modules/pdf-viewer/public';
+import type { TPdfDocumentAnnotations } from '@app/modules/pdf-viewer/public';
 import type {
     IDocumentRevisionInfo,
     TDocumentRevisionToken,
@@ -26,7 +24,6 @@ import { prepareDocumentViewsForRevisionSwap } from '@app/modules/workspace-shel
 
 interface IOcrCompletePayload extends IOcrSearchablePdfResult {
     sourceWorkingCopyPath: TDocumentRef;
-    sourcePageToRestore?: number;
 }
 
 interface IOcrApplyReloadResult {
@@ -35,19 +32,21 @@ interface IOcrApplyReloadResult {
 }
 
 interface IWorkspaceDocumentLifecycleEffectsOptions extends Omit<IDocumentTransitionDeps,
-    'pdfViewerRef' | 'bookmarkItems' | 'bookmarksDirty' | 'bookmarkEditMode' | 'pageLabels' | 'pageLabelRanges' | 'pageLabelsDirty' | 'consumePreservedSourceReloadMetadata'> {
+    'bookmarkItems' | 'bookmarksDirty' | 'bookmarkEditMode' | 'pageLabels' | 'pageLabelRanges' | 'pageLabelsDirty' | 'consumePreservedSourceReloadMetadata'> {
     documentAnnotations: TPdfDocumentAnnotations;
     metadata: ReturnType<typeof useMetadataSession>;
     documentRevisionInfo: Ref<IDocumentRevisionInfo | null>;
     documentRevisionToken: Ref<TDocumentRevisionToken | null>;
-    /** OCR rewrites the document under every view of it. */
-    views: Pick<TDocumentViews, 'viewPorts' | 'commandViewRef'>;
+    /** OCR rewrites the document under every view of it; each keeps its page. */
+    views: Pick<TDocumentViews, 'viewPorts' | 'prepareReload'>;
+    totalPages: Readonly<Ref<number>>;
+    /** The page OCR's current-page range means: the page of the view whose toolbar shows the run. */
+    ocrCurrentPage: () => number;
     /** A save, history step, export or page operation holds the document. */
     isBusy: Ref<boolean>;
     clearOcrCache: (path: TDocumentRef) => void;
     ensureHistoryBaselineForMutation: () => Promise<boolean>;
     reloadWorkingCopyIntoHistory: () => Promise<boolean>;
-    preparePdfReloadWaiter: (page: number) => ReturnType<typeof createPdfReloadWaiter>;
     runWithDocumentOperationLease?: <T>(
         kind: TDocumentOperationKind,
         operation: () => Promise<T>,
@@ -58,19 +57,14 @@ export const useWorkspaceDocumentLifecycleEffects = (options: IWorkspaceDocument
     const {
         documentRevisionInfo,
         documentRevisionToken,
-        currentPage,
         views,
         pdfSrc,
         totalPages,
-        pdfDocument,
         workingCopyPath,
         isDjvuMode,
         djvuSourcePath,
         pdfError,
-        dragMode,
-        showSidebar,
-        sidebarTab,
-        annotationTool,
+        clearViews,
         annotationComments,
         markAnnotationCommentsLoading,
         clearAnnotationComments,
@@ -80,15 +74,12 @@ export const useWorkspaceDocumentLifecycleEffects = (options: IWorkspaceDocument
         resetAnnotationTracking,
         resetSearchCache,
         closeSearch,
-        closeAnnotationContextMenu,
-        closePageContextMenu,
+        closeContextMenus,
         closeAllAnnotationNotes,
         loadRecentFiles,
-        navigationTicket,
         clearOcrCache,
         ensureHistoryBaselineForMutation,
         reloadWorkingCopyIntoHistory,
-        preparePdfReloadWaiter,
         runWithDocumentOperationLease,
     } = options;
 
@@ -102,7 +93,6 @@ export const useWorkspaceDocumentLifecycleEffects = (options: IWorkspaceDocument
         consumePreservedSourceReloadMetadata,
     } = metadata;
 
-    const pdfViewerRef = views.commandViewRef(port => port.view.pdfViewerRef, null);
     const documentFiles = getDocumentFilesCapability();
     const {t} = useTypedI18n();
     const toast = useToast();
@@ -121,7 +111,6 @@ export const useWorkspaceDocumentLifecycleEffects = (options: IWorkspaceDocument
             const revision = await documentFiles.getDocumentRevision(path);
             if (requestId === revisionRefreshRequestId && workingCopyPath.value === path) {
                 documentRevisionInfo.value = revision;
-                documentRevisionToken.value = revision.token;
                 return true;
             }
             // A replace can publish the new revision through the event channel
@@ -135,7 +124,6 @@ export const useWorkspaceDocumentLifecycleEffects = (options: IWorkspaceDocument
                 && workingCopyPath.value === path
             ) {
                 documentRevisionInfo.value = null;
-                documentRevisionToken.value = null;
             }
             return hasCurrentRevisionForPath(path);
         }
@@ -151,7 +139,6 @@ export const useWorkspaceDocumentLifecycleEffects = (options: IWorkspaceDocument
             return;
         }
         documentRevisionInfo.value = null;
-        documentRevisionToken.value = null;
         if (path) {
             void refreshDocumentRevision(path);
         }
@@ -163,7 +150,6 @@ export const useWorkspaceDocumentLifecycleEffects = (options: IWorkspaceDocument
         }
         revisionRefreshRequestId += 1;
         documentRevisionInfo.value = event;
-        documentRevisionToken.value = event.token;
     });
 
     tryOnScopeDispose(() => {
@@ -172,17 +158,11 @@ export const useWorkspaceDocumentLifecycleEffects = (options: IWorkspaceDocument
 
     useDocumentTransitions({
         pdfSrc,
-        currentPage,
-        totalPages,
-        pdfDocument,
         workingCopyPath,
         isDjvuMode,
         djvuSourcePath,
         pdfError,
-        dragMode,
-        showSidebar,
-        sidebarTab,
-        annotationTool,
+        clearViews,
         annotationComments,
         markAnnotationCommentsLoading,
         clearAnnotationComments,
@@ -194,16 +174,13 @@ export const useWorkspaceDocumentLifecycleEffects = (options: IWorkspaceDocument
         pageLabels,
         pageLabelRanges,
         pageLabelsDirty,
-        pdfViewerRef,
         resetAnnotationTracking,
         resetSearchCache,
         closeSearch,
-        closeAnnotationContextMenu,
-        closePageContextMenu,
+        closeContextMenus,
         closeAllAnnotationNotes,
         loadRecentFiles,
         consumePreservedSourceReloadMetadata,
-        navigationTicket,
     });
 
     async function acknowledgeOcrResultFile(payload: IOcrCompletePayload) {
@@ -233,10 +210,7 @@ export const useWorkspaceDocumentLifecycleEffects = (options: IWorkspaceDocument
         }
     }
 
-    async function replaceOcrWorkingCopy(
-        payload: IOcrCompletePayload,
-        pageToRestore: number,
-    ): Promise<IOcrApplyReloadResult | null> {
+    async function replaceOcrWorkingCopy(payload: IOcrCompletePayload): Promise<IOcrApplyReloadResult | null> {
         let restoreError: unknown = null;
         let restorePromise: Promise<void> | null = null;
         try {
@@ -263,7 +237,7 @@ export const useWorkspaceDocumentLifecycleEffects = (options: IWorkspaceDocument
             // The searchable PDF keeps every page's geometry: each view keeps
             // its picture and reading point while the text layers are rebuilt.
             if (documentRevisionToken.value !== null) {
-                await prepareDocumentViewsForRevisionSwap(views, pdfViewerRef.value, {
+                await prepareDocumentViewsForRevisionSwap(views, {
                     documentRevision: documentRevisionToken.value,
                     invalidatedPages: Array.from({length: totalPages.value}, (_, index) => index + 1),
                 }).catch((error: unknown) => {
@@ -272,7 +246,7 @@ export const useWorkspaceDocumentLifecycleEffects = (options: IWorkspaceDocument
                 });
             }
 
-            restorePromise = preparePdfReloadWaiter(pageToRestore).promise.catch((error: unknown) => {
+            restorePromise = views.prepareReload().promise.catch((error: unknown) => {
                 restoreError = error;
             });
             if (!await reloadWorkingCopyIntoHistory()) {
@@ -292,15 +266,14 @@ export const useWorkspaceDocumentLifecycleEffects = (options: IWorkspaceDocument
     }
 
     async function applyOcrCompleteResult(payload: IOcrCompletePayload): Promise<boolean> {
-        const pageToRestore = payload.sourcePageToRestore ?? currentPage.value;
         const warmupPageCountHint = totalPages.value > 0
             ? totalPages.value
             : undefined;
         const applyReload = () => metadata.runWithPreservedMetadataReload(async () => {
-            const applied = await replaceOcrWorkingCopy(payload, pageToRestore);
+            const applied = await replaceOcrWorkingCopy(payload);
             if (applied) await applied.restorePromise;
             return applied;
-        }, () => preparePdfReloadWaiter(currentPage.value));
+        }, () => views.prepareReload());
         const result = runWithDocumentOperationLease
             ? await runWithDocumentOperationLease('ocr-apply', applyReload)
             : await applyReload();
@@ -315,7 +288,6 @@ export const useWorkspaceDocumentLifecycleEffects = (options: IWorkspaceDocument
         if (restoreError) {
             BrowserLogger.warn('ocr', 'OCR result was applied but page restore failed', {
                 sourceWorkingCopyPath: payload.sourceWorkingCopyPath,
-                pageToRestore,
                 error: restoreError,
             });
         }
@@ -370,7 +342,7 @@ export const useWorkspaceDocumentLifecycleEffects = (options: IWorkspaceDocument
     // The document's OCR run: views show it, none of them owns it.
     const ocr = useOcrPopupPresenter({
         context: {
-            currentPage,
+            currentPage: options.ocrCurrentPage,
             totalPages,
             workingCopyPath,
             busy: options.isBusy,

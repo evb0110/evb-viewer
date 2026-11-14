@@ -91,52 +91,6 @@ function readPng(data: Uint8Array): IBrowserRasterImageMetadata | null {
     };
 }
 
-export async function resolveBrowserRasterIccProfile(metadata: IBrowserRasterImageMetadata) {
-    if (metadata.iccProfile) {
-        if (metadata.iccProfile.byteLength === 0 || metadata.iccProfile.byteLength > BROWSER_RASTER_MAX_ICC_PROFILE_BYTES) {
-            throw new Error('ERR_BROWSER_PDF_COMBINE_ICC_PROFILE_TOO_LARGE');
-        }
-        return metadata.iccProfile;
-    }
-    if (!metadata.compressedIccProfile) {
-        return undefined;
-    }
-    if (typeof DecompressionStream === 'undefined') {
-        throw new Error('ERR_BROWSER_PDF_COMBINE_ICC_BACKEND_UNAVAILABLE');
-    }
-    const stream = new Blob([metadata.compressedIccProfile as BlobPart])
-        .stream()
-        .pipeThrough(new DecompressionStream('deflate'));
-    const reader = stream.getReader();
-    const chunks: Uint8Array[] = [];
-    let profileBytes = 0;
-    for (;;) {
-        const {
-            done,
-            value,
-        } = await reader.read();
-        if (done) {
-            break;
-        }
-        profileBytes += value.byteLength;
-        if (profileBytes > BROWSER_RASTER_MAX_ICC_PROFILE_BYTES) {
-            await reader.cancel('ICC profile exceeds browser combine resource limit');
-            throw new Error('ERR_BROWSER_PDF_COMBINE_ICC_PROFILE_TOO_LARGE');
-        }
-        chunks.push(value);
-    }
-    if (profileBytes === 0) {
-        throw new Error('ERR_BROWSER_PDF_COMBINE_ICC_PROFILE_TOO_LARGE');
-    }
-    const profile = new Uint8Array(profileBytes);
-    let profileOffset = 0;
-    for (const chunk of chunks) {
-        profile.set(chunk, profileOffset);
-        profileOffset += chunk.byteLength;
-    }
-    return profile;
-}
-
 function readExifOrientation(data: Uint8Array, start: number, length: number): 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 {
     if (length < 14 || String.fromCharCode(...data.subarray(start, start + 6)) !== 'Exif\0\0') {
         return 1;

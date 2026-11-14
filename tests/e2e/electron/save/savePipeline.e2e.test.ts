@@ -82,6 +82,7 @@ import {
     assertOcrPdfSemanticOutput,
     consumeOcrResultIntoActiveWorkspace,
     getActiveWorkspaceWorkingCopyPath,
+    readDocumentBytes,
     runOcrSearchablePdf,
 } from '@tests/e2e/electron/helpers/electronApiHelpers';
 import {
@@ -1293,15 +1294,15 @@ syncBuiltinESMExports();
         const beforeSave = Buffer.from(await pdf.save({useObjectStreams: false}));
         await writeFile(pdfPath, beforeSave);
         const seamPath = createFixturePath(`save-refresh-seam-${Date.now()}.mjs`);
-        const workingPathFile = `${seamPath}.working`;
         const externalProof = `${seamPath}.external`;
         await writeFile(seamPath, `
 import fs from 'node:fs/promises';
+import fsSync from 'node:fs';
 import {spawnSync} from 'node:child_process';
 import {syncBuiltinESMExports} from 'node:module';
-const target = ${JSON.stringify(pdfPath)}, workingPathFile = ${JSON.stringify(workingPathFile)}, proof = ${JSON.stringify(externalProof)};
-const rename = fs.rename, link = fs.link, stat = fs.stat;
-let published = false, synced = false;
+const target = ${JSON.stringify(pdfPath)}, proof = ${JSON.stringify(externalProof)};
+const rename = fs.rename, link = fs.link, stat = fsSync.statSync;
+let published = false;
 fs.link = async (source, destination) => {
     const result = await link(source, destination);
     if (destination === target) published = true;
@@ -1310,12 +1311,11 @@ fs.link = async (source, destination) => {
 fs.rename = async (source, destination) => {
     const result = await rename(source, destination);
     if (destination === target) published = true;
-    if (published && destination === await fs.readFile(workingPathFile, 'utf8').catch(() => '')) synced = true;
     return result;
 };
-fs.stat = async (path, ...args) => {
-    if (synced && path === target) {
-        synced = false;
+fsSync.statSync = (path, ...args) => {
+    if (published && path === target) {
+        published = false;
         const writer = spawnSync(process.execPath, ['--input-type=module', '-e',
             "import fs from 'node:fs/promises';const h=await fs.open(process.argv[1],'r+');await h.write('EXTERNAL',262144);await h.close();await fs.copyFile(process.argv[1],process.argv[2]);", target, proof],
             {env: {...process.env, ELECTRON_RUN_AS_NODE: '1'}, encoding: 'utf8', windowsHide: true});
@@ -1333,9 +1333,6 @@ syncBuiltinESMExports();
             });
             const {page} = session;
             await waitForOpenedPdf(page, pdfPath);
-            const workingPath = await getActiveWorkspaceWorkingCopyPath(page);
-            expect(workingPath).toBeTruthy();
-            await writeFile(workingPathFile, workingPath!);
             await createFreeTextAnnotationWithPointer(page, 'Refresh race accepted work', {
                 x: 0.4,
                 y: 0.3,
@@ -1363,7 +1360,6 @@ syncBuiltinESMExports();
             session = null;
             await Promise.all([
                 seamPath,
-                workingPathFile,
                 externalProof,
             ].map(path => rm(path, {force: true})));
         }
@@ -1377,8 +1373,8 @@ syncBuiltinESMExports();
         const seamPath = createFixturePath(`save-after-commit-seam-${Date.now()}.mjs`);
         const workingPathFile = `${seamPath}.working`;
         const externalProof = `${seamPath}.external`;
-        // Another program saves the PDF once EVB has synced the working copy and
-        // written its manifest, after the save transaction has checked the original.
+        // Another program saves the PDF after publication is acknowledged in
+        // the document manifest. A later Save must detect that new version.
         await writeFile(seamPath, `
 import fs from 'node:fs/promises';
 import {dirname, join} from 'node:path';
@@ -1386,7 +1382,7 @@ import {spawnSync} from 'node:child_process';
 import {syncBuiltinESMExports} from 'node:module';
 const target = ${JSON.stringify(pdfPath)}, workingPathFile = ${JSON.stringify(workingPathFile)}, proof = ${JSON.stringify(externalProof)};
 const rename = fs.rename, link = fs.link;
-let published = false, synced = false, fired = false;
+let published = false, fired = false;
 fs.link = async (source, destination) => {
     const result = await link(source, destination);
     if (destination === target) published = true;
@@ -1396,8 +1392,7 @@ fs.rename = async (source, destination) => {
     const result = await rename(source, destination);
     const workingPath = await fs.readFile(workingPathFile, 'utf8').catch(() => '');
     if (destination === target) published = true;
-    if (published && destination === workingPath) synced = true;
-    if (synced && !fired && workingPath && destination === join(dirname(workingPath), 'manifest.json')) {
+    if (published && !fired && workingPath && destination === join(dirname(workingPath), 'manifest.json')) {
         fired = true;
         const writer = spawnSync(process.execPath, ['--input-type=module', '-e',
             "import fs from 'node:fs/promises';const h=await fs.open(process.argv[1],'r+');await h.write('EXTERNAL',262144);await h.close();await fs.copyFile(process.argv[1],process.argv[2]);", target, proof],
@@ -1524,52 +1519,6 @@ syncBuiltinESMExports();
         await expect(readFile(pdfPath)).resolves.toEqual(externalBytes);
         await expect.poll(() => isSaveButtonEnabled(page), {timeout: SAVE_TIMEOUT_MS}).toBe(false);
     }, E2E_TIMEOUT_MS);
-
-    it('saves after another program atomically replaces the original with identical bytes', async () => {
-        const pdfPath = await createMultiPageTextFixturePdf(`save-identical-replace-${Date.now()}.pdf`, 2);
-        const originalBytes = await readFile(pdfPath);
-        session = await startElectronE2ESession(`e2e-save-identical-replace-${Date.now()}`, {
-            clean: true,
-            initialOpenPaths: [pdfPath],
-        });
-        await waitForOpenedPdf(session.page, pdfPath);
-        await openAnnotationsTab(session.page, 30_000);
-        await createFreeTextAnnotationWithPointer(session.page, `Preserved edit ${Date.now()}`, {
-            x: 0.4,
-            y: 0.3,
-        });
-        await waitForSaveFrontierReady(session.page);
-
-        const stagedExternalPath = `${pdfPath}.external`;
-        await writeFile(stagedExternalPath, originalBytes);
-        await rename(stagedExternalPath, pdfPath);
-
-        expect(await clickSaveAndAwaitOutcome(session.page, pdfPath)).toBe('saved');
-        expect((await readPdfTextAnnotationRecords(pdfPath)).some(annotation => (
-            annotation.contents.startsWith('Preserved edit ')
-        ))).toBe(true);
-
-        await session.stop();
-        session = await startElectronE2ESession(`e2e-save-identical-replace-reopen-${Date.now()}`, {
-            clean: true,
-            initialOpenPaths: [pdfPath],
-        });
-        await waitForOpenedPdf(session.page, pdfPath);
-        await session.page.waitForFunction(() => {
-            const expose = (window as Window & {__evbFindWorkspaceExpose?: (options: {requiredProperties: string[]}) => {annotationComments?: unknown[] | {value?: unknown[]};} | null;}).__evbFindWorkspaceExpose?.({requiredProperties: ['annotationComments']});
-            const comments = Array.isArray(expose?.annotationComments)
-                ? expose.annotationComments
-                : expose?.annotationComments?.value;
-            return comments?.some(comment => (
-                typeof comment === 'object'
-                && comment !== null
-                && 'text' in comment
-                && typeof comment.text === 'string'
-                && comment.text.startsWith('Preserved edit ')
-            )) ?? false;
-        }, {timeout: SAVE_TIMEOUT_MS});
-    }, E2E_TIMEOUT_MS);
-
 
     it.each(DAMAGED_XREF_CASES)(
         'damaged xref admission: saves a typed sticky note into a PDF with %s',
@@ -2123,7 +2072,7 @@ describe('[crpart3core] replacement lifecycle', () => {
             await clickAsUser(page, '.editor-pane.is-active [data-thumbnail-page="1"]', {button: 'right'});
             await clickFoundAsUser(page, () => Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]'))
                 .find(item => item.textContent?.toLowerCase().includes('rotate counterclockwise')), null, {description: 'Rotate counterclockwise'});
-            await expect.poll(async () => (await readPdfPageSnapshots(workingPath))[0]?.rotation, {timeout: 60_000}).toBe(270);
+            await expect.poll(async () => (await readPdfPageSnapshots(await readDocumentBytes(page, workingPath)))[0]?.rotation, {timeout: 60_000}).toBe(270);
             await waitForAnimationFrames(page, 12);
             expect(await page.evaluate(() => (window as IReplacementProbeWindow).__crpart3core?.destroys)).toBe(0);
         } finally {
@@ -2295,14 +2244,14 @@ describe('[crpart3core] submitted open', () => {
 if (process.type === 'browser') {
     const fs = require('node:fs/promises');
     const {watch, existsSync, writeFileSync} = require('node:fs');
-    const {basename, join} = require('node:path');
+    const {basename, dirname, join} = require('node:path');
     const {syncBuiltinESMExports} = require('node:module');
     const root = ${JSON.stringify(cleanupGate)};
     const remove = fs.rm;
     let held = false;
     fs.rm = async (path, ...args) => {
         const result = await remove(path, ...args);
-        if (!held && basename(String(path)).startsWith('pdf-work-')) {
+        if (!held && basename(dirname(String(path))) === 'documents') {
             held = true;
             writeFileSync(join(root, 'held'), 'held');
             await new Promise(resolve => {

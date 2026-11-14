@@ -310,11 +310,32 @@ export const OCR_LANGUAGE_MODEL_BYTES = {
 
 export const OCR_MODEL_CODES = Object.keys(OCR_LANGUAGE_MODEL_SHA256) as TOcrModelCode[];
 
+/**
+ * The sub-languages each pinned model's own config names in
+ * `tessedit_load_sublangs`, in Tesseract's `-l` syntax. Tesseract loads a
+ * sub-language from the model's directory and silently reads without it when
+ * the file is absent, so a plain code is fetched, verified and mounted with
+ * the model. `~code` keeps that recognizer out of the run instead: Serbian is
+ * offered as Cyrillic. The resource generator checks this against the models.
+ */
+export const OCR_MODEL_SUBLANGUAGES: Partial<Record<TOcrModelCode, ReadonlyArray<TOcrModelCode | `~${string}`>>> = {
+    ell: ['grc'],
+    srp: ['~srp_latn'],
+};
+
+/** The model files a run of these models reads: each model and the sub-languages its config loads. */
+export function withOcrModelSublanguages(codes: readonly TOcrModelCode[]): TOcrModelCode[] {
+    return [...new Set(codes.flatMap(code => [
+        code,
+        ...(OCR_MODEL_SUBLANGUAGES[code] ?? []).filter((entry): entry is TOcrModelCode => !entry.startsWith('~')),
+    ]))];
+}
+
 /** Models seeded into an offline installation; every other supported model is downloaded on demand. */
-export const BUNDLED_OCR_LANGUAGE_CODES = [
+export const BUNDLED_OCR_LANGUAGE_CODES = withOcrModelSublanguages([
     'eng',
     'rus',
-] as const satisfies readonly TOcrModelCode[];
+]);
 
 export const BUNDLED_OCR_LANGUAGE_CODE_SET = new Set<string>(BUNDLED_OCR_LANGUAGE_CODES);
 

@@ -12,8 +12,6 @@ vi.mock('@app/constants/storageKeys', async (importOriginal) => ({
     ...(await importOriginal<typeof TViMockOriginalModule>()),
     STORAGE_KEYS: {
         HIGHLIGHT_MODE: 'pdfHighlightMode',
-        HIGHLIGHT_DEBUG: 'pdfHighlightDebug',
-        HIGHLIGHT_DEBUG_VERBOSE: 'pdfHighlightDebugVerbose',
     },
 }));
 
@@ -23,8 +21,6 @@ const {
     updateHighlightAPI,
     registerHighlightRange,
     getHighlightMode,
-    isHighlightDebugEnabled,
-    isHighlightDebugVerboseEnabled,
 } = await import('@app/modules/pdf-viewer/engine/search/pdfSearchHighlightCss');
 
 beforeEach(() => {
@@ -156,45 +152,5 @@ describe('getHighlightMode', () => {
         })} });
 
         expect(getHighlightMode()).toBe('dom');
-    });
-});
-
-describe('isHighlightDebugEnabled', () => {
-    it('returns false when window is undefined', () => {
-        expect(isHighlightDebugEnabled()).toBe(false);
-    });
-
-    it('returns true when debug flag is enabled in storage', () => {
-        vi.stubGlobal('window', { localStorage: {getItem: vi.fn((key: string) => key === 'pdfHighlightDebug' ? '1' : null)} });
-
-        expect(isHighlightDebugEnabled()).toBe(true);
-    });
-
-    it('returns false when debug storage read throws', () => {
-        vi.stubGlobal('window', { localStorage: {getItem: vi.fn(() => {
-            throw new Error('storage blocked');
-        })} });
-
-        expect(isHighlightDebugEnabled()).toBe(false);
-    });
-});
-
-describe('isHighlightDebugVerboseEnabled', () => {
-    it('returns false when window is undefined', () => {
-        expect(isHighlightDebugVerboseEnabled()).toBe(false);
-    });
-
-    it('returns true when verbose debug flag is enabled in storage', () => {
-        vi.stubGlobal('window', { localStorage: {getItem: vi.fn((key: string) => key === 'pdfHighlightDebugVerbose' ? '1' : null)} });
-
-        expect(isHighlightDebugVerboseEnabled()).toBe(true);
-    });
-
-    it('returns false when verbose debug storage read throws', () => {
-        vi.stubGlobal('window', { localStorage: {getItem: vi.fn(() => {
-            throw new Error('storage blocked');
-        })} });
-
-        expect(isHighlightDebugVerboseEnabled()).toBe(false);
     });
 });

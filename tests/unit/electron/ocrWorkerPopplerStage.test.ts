@@ -11,10 +11,9 @@ import {
     buildPopplerEnv,
     createOcrRasterRenderLimits,
     preparePdfForPoppler,
-    probeOcrPageSizeInches,
     renderPdfPageToPng,
     renderPdfPageToPpm,
-    renderOcrPageToPng,
+    renderOcrPageToPpm,
 } from '@electron/features/ocr/pipeline/popplerStage';
 import type { IOcrPipelinePaths } from '@electron/features/ocr/pipeline/types';
 import {markUnprovenNativeTermination} from '@electron/utils/nativeTerminationProof';
@@ -44,7 +43,6 @@ vi.mock('node:fs/promises', () => ({
 }));
 
 const workerPaths: IOcrPipelinePaths = {
-    tesseractBinary: '/bin/tesseract',
     tessdataPath: '/share/tessdata',
     pdftoppmBinary: '/bin/pdftoppm',
     pdftotextBinary: '/bin/pdftotext',
@@ -139,7 +137,7 @@ describe('preparePdfForPoppler', () => {
 
 });
 
-describe('renderPdfPageToPng', () => {
+describe('OCR page rendering', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         mocks.readPngDimensions.mockResolvedValue({
@@ -148,17 +146,19 @@ describe('renderPdfPageToPng', () => {
             isColor: true,
         });
         mocks.rm.mockResolvedValue(undefined);
+        // A mocked render writes no file, so there is no PPM header to check.
+        mocks.stat.mockResolvedValue({isFile: () => false});
         mocks.runOcrCommand.mockReset();
     });
 
     it('renders readable OCR input directly without preparing a full PDF copy', async () => {
         const fallback = vi.fn();
-        await renderOcrPageToPng([
+        await renderOcrPageToPpm([
             workerPaths,
             vi.fn(),
             17,
             '/source.pdf',
-            '/page.png',
+            '/page.ppm',
             300,
         ], fallback);
         expect(fallback).not.toHaveBeenCalled();
@@ -171,12 +171,12 @@ describe('renderPdfPageToPng', () => {
             pdfPath: '/normalized.pdf',
             warnings: [],
         });
-        await renderOcrPageToPng([
+        await renderOcrPageToPpm([
             workerPaths,
             vi.fn(),
             17,
             '/source.pdf',
-            '/page.png',
+            '/page.ppm',
             300,
         ], fallback);
         expect(fallback).toHaveBeenCalledOnce();
@@ -196,19 +196,16 @@ describe('renderPdfPageToPng', () => {
 
     it.each([
         new RangeError('raster exceeds limits'),
-        Object.assign(new Error('device full'), {code: 'ENOSPC'}),
-        new Error('pdftoppm failed: No space left on device'),
-        new Error('pdftoppm failed: Disk quota exceeded'),
         markUnprovenNativeTermination(new Error('termination failed'), 'process still running'),
     ])('does not normalize after a safety failure: %s', async error => {
         mocks.runOcrCommand.mockRejectedValueOnce(error);
         const fallback = vi.fn();
-        await expect(renderOcrPageToPng([
+        await expect(renderOcrPageToPpm([
             workerPaths,
             vi.fn(),
             1,
             '/source.pdf',
-            '/page.png',
+            '/page.ppm',
             300,
         ], fallback)).rejects.toBe(error);
         expect(fallback).not.toHaveBeenCalled();
@@ -221,12 +218,12 @@ describe('renderPdfPageToPng', () => {
             pdfPath: '/source.pdf',
             warnings: ['repair failed'],
         });
-        await expect(renderOcrPageToPng([
+        await expect(renderOcrPageToPpm([
             workerPaths,
             vi.fn(),
             1,
             '/source.pdf',
-            '/page.png',
+            '/page.ppm',
             300,
         ], fallback)).rejects.toBe(error);
         expect(mocks.runOcrCommand).toHaveBeenCalledOnce();
@@ -470,35 +467,5 @@ describe('OCR raster admission before rendering (SRCH-006)', () => {
             }, 300),
         )).rejects.toThrow('Poppler raster 60000x60000 exceeds limits');
         expect(mocks.runOcrCommand).not.toHaveBeenCalled();
-    });
-
-    it('recovers the page size from a low-resolution render when the native probe is degraded', async () => {
-        const log = vi.fn();
-        mocks.runOcrCommand.mockResolvedValue({
-            stdout: '',
-            stderr: '',
-            exitCode: 0,
-        });
-        mocks.readPngDimensions.mockResolvedValue({
-            width: 68,
-            height: 88,
-        });
-
-        await expect(probeOcrPageSizeInches(
-            workerPaths,
-            log,
-            1,
-            {popplerSourcePdfPath: '/tmp/ocr/source.pdf'},
-            '/tmp/ocr/page-1-size-probe.png',
-        )).resolves.toEqual({
-            width: 8.5,
-            height: 11,
-        });
-        expect(mocks.runOcrCommand).toHaveBeenCalledTimes(1);
-        expect(mocks.runOcrCommand.mock.calls[0]?.[1]).toEqual(expect.arrayContaining([
-            '-r',
-            '8',
-        ]));
-        expect(mocks.rm).toHaveBeenCalledWith('/tmp/ocr/page-1-size-probe.png', {force: true});
     });
 });

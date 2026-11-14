@@ -178,59 +178,11 @@ bundle_lib_deps() {
 }
 
 # ==========================================
-# 1. Tesseract
+# 1. Poppler (pdfinfo, pdftoppm, pdftotext, pdfimages)
 # ==========================================
 echo ""
 echo "=========================================="
-echo "1. Bundling Tesseract..."
-echo "=========================================="
-
-# shellcheck source=scripts/tesseract-source-pins.sh
-. "$SCRIPT_DIR/tesseract-source-pins.sh"
-TESSERACT_BUILD_DIR="$(mktemp -d "${TMPDIR:-/tmp}/tesseract-linux-XXXXXX")"
-trap 'rm -rf -- "$TESSERACT_BUILD_DIR"' EXIT
-curl -fsSL -o "$TESSERACT_BUILD_DIR/tesseract.tar.gz" \
-  "https://github.com/tesseract-ocr/tesseract/archive/refs/tags/$TESSERACT_VERSION.tar.gz"
-echo "$TESSERACT_SHA256  $TESSERACT_BUILD_DIR/tesseract.tar.gz" | sha256sum -c -
-curl -fsSL -o "$TESSERACT_BUILD_DIR/leptonica.tar.gz" \
-  "https://github.com/DanBloomberg/leptonica/archive/refs/tags/$LEPTONICA_VERSION.tar.gz"
-echo "$LEPTONICA_SHA256  $TESSERACT_BUILD_DIR/leptonica.tar.gz" | sha256sum -c -
-tar -xzf "$TESSERACT_BUILD_DIR/tesseract.tar.gz" -C "$TESSERACT_BUILD_DIR"
-tar -xzf "$TESSERACT_BUILD_DIR/leptonica.tar.gz" -C "$TESSERACT_BUILD_DIR"
-cmake -S "$TESSERACT_BUILD_DIR/leptonica-$LEPTONICA_VERSION" -B "$TESSERACT_BUILD_DIR/leptonica-build" \
-  -DCMAKE_BUILD_TYPE=Release \
-  -DCMAKE_INSTALL_PREFIX="$TESSERACT_BUILD_DIR/leptonica-install" \
-  -DBUILD_SHARED_LIBS=OFF \
-  -DBUILD_PROG=OFF
-cmake --build "$TESSERACT_BUILD_DIR/leptonica-build" --parallel "$(nproc)"
-cmake --install "$TESSERACT_BUILD_DIR/leptonica-build"
-cmake -S "$TESSERACT_BUILD_DIR/tesseract-$TESSERACT_VERSION" -B "$TESSERACT_BUILD_DIR/build" \
-  -DCMAKE_BUILD_TYPE=Release \
-  -DCMAKE_PREFIX_PATH="$TESSERACT_BUILD_DIR/leptonica-install" \
-  -DBUILD_TRAINING_TOOLS=OFF \
-  -DBUILD_TESTS=OFF \
-  -DDISABLE_ARCHIVE=ON \
-  -DDISABLE_CURL=ON \
-  -DOPENMP_BUILD=OFF \
-  -DBUILD_SHARED_LIBS=OFF
-cmake --build "$TESSERACT_BUILD_DIR/build" --parallel "$(nproc)" --target tesseract
-
-TESSERACT_DIR="$RESOURCES_DIR/tesseract/$PLATFORM_ARCH"
-reset_bundle_dir "$TESSERACT_DIR"
-PATH="$TESSERACT_BUILD_DIR/build/bin:$PATH" \
-bundle_tool "tesseract" "$TESSERACT_DIR"
-bundle_lib_deps "$TESSERACT_DIR/lib"
-fix_lib_rpaths "$TESSERACT_DIR/lib"
-"$TESSERACT_DIR/bin/tesseract" --version
-rm -rf -- "$TESSERACT_BUILD_DIR"
-trap - EXIT
-
-# ==========================================
-# 2. Poppler (pdfinfo, pdftoppm, pdftotext, pdfimages)
-# ==========================================
-echo ""
-echo "=========================================="
-echo "2. Bundling Poppler tools..."
+echo "1. Bundling Poppler tools..."
 echo "=========================================="
 
 POPPLER_DIR="$RESOURCES_DIR/poppler/$PLATFORM_ARCH"
@@ -254,11 +206,11 @@ bundle_lib_deps "$POPPLER_DIR/lib"
 fix_lib_rpaths "$POPPLER_DIR/lib"
 
 # ==========================================
-# 3. qpdf
+# 2. qpdf
 # ==========================================
 echo ""
 echo "=========================================="
-echo "3. Bundling qpdf..."
+echo "2. Bundling qpdf..."
 echo "=========================================="
 
 # Ubuntu 22.04 ships qpdf 10.6, but the MRC extractor and the word-loss audit
@@ -288,11 +240,11 @@ bundle_lib_deps "$QPDF_DIR/lib"
 fix_lib_rpaths "$QPDF_DIR/lib"
 
 # ==========================================
-# 4. DjVuLibre (ddjvu, djvused, djvudump)
+# 3. DjVuLibre (ddjvu, djvused, djvudump)
 # ==========================================
 echo ""
 echo "=========================================="
-echo "4. Bundling DjVuLibre..."
+echo "3. Bundling DjVuLibre..."
 echo "=========================================="
 
 DJVU_DIR="$RESOURCES_DIR/djvulibre/$PLATFORM_ARCH"
@@ -337,7 +289,6 @@ verify_dir() {
 
 missing_count=0
 
-verify_tool "$TESSERACT_DIR/bin/tesseract" "tesseract"
 verify_tool "$POPPLER_DIR/bin/pdfinfo" "pdfinfo"
 verify_tool "$POPPLER_DIR/bin/pdftoppm" "pdftoppm"
 verify_tool "$POPPLER_DIR/bin/pdftotext" "pdftotext"
@@ -357,7 +308,7 @@ fi
 
 echo ""
 echo "Library counts:"
-for dir in "$TESSERACT_DIR" "$POPPLER_DIR" "$QPDF_DIR" "$DJVU_DIR"; do
+for dir in "$POPPLER_DIR" "$QPDF_DIR" "$DJVU_DIR"; do
   if [ -d "$dir/lib" ]; then
     count="$(find "$dir/lib" -name '*.so*' | wc -l)"
     echo "  $(basename "$(dirname "$dir")"): $count .so files"
@@ -366,7 +317,7 @@ done
 
 echo ""
 echo "Total bundle size:"
-du -sh "$TESSERACT_DIR" "$POPPLER_DIR" "$QPDF_DIR" "$DJVU_DIR" 2>/dev/null || true
+du -sh "$POPPLER_DIR" "$QPDF_DIR" "$DJVU_DIR" 2>/dev/null || true
 
 echo ""
 echo "Done!"

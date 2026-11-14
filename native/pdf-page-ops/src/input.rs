@@ -18,6 +18,11 @@ pub(crate) fn read_pages_file(path: &Path) -> Result<Vec<u32>> {
     read_pages_file_with_limits(path, MAX_SIDECAR_BYTES, MAX_COLLECTION_ITEMS)
 }
 
+/// A page sequence for a page-structure edit, which may name every page.
+pub(crate) fn read_page_sequence_file(path: &Path) -> Result<Vec<u32>> {
+    read_pages_file_with_limits(path, MAX_SIDECAR_BYTES, MAX_PATH_INPUT_PDF_PAGES)
+}
+
 fn read_pages_file_with_limits(
     path: &Path,
     max_bytes: usize,
@@ -42,19 +47,23 @@ fn read_pages_file_with_limits(
         if trimmed.is_empty() {
             continue;
         }
-        let page = trimmed
-            .parse::<u32>()
-            .map_err(|_| format!("Invalid page number on line {}", index + 1))?;
-        if page == 0 {
-            return Err(format!("Invalid page number on line {}", index + 1).into());
+        // A line holds one page number or an inclusive range `first-last`.
+        let invalid = || format!("Invalid page number on line {}", index + 1);
+        let (first, last) = trimmed.split_once('-').unwrap_or((trimmed, trimmed));
+        let first = first.trim().parse::<u32>().map_err(|_| invalid())?;
+        let last = last.trim().parse::<u32>().map_err(|_| invalid())?;
+        if first == 0 || last < first {
+            return Err(invalid().into());
         }
-        if pages.len() == max_items {
-            return Err(domain_error(
-                NativeErrorCode::TooLarge,
-                format!("Page selection exceeds the {max_items}-item admission ceiling"),
-            ));
+        for page in first..=last {
+            if pages.len() == max_items {
+                return Err(domain_error(
+                    NativeErrorCode::TooLarge,
+                    format!("Page selection exceeds the {max_items}-item admission ceiling"),
+                ));
+            }
+            pages.push(page);
         }
-        pages.push(page);
     }
     if pages.is_empty() {
         return Err("At least one page must be selected".into());

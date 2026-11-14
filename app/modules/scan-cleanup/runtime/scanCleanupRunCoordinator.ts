@@ -115,19 +115,10 @@ export const scanCleanupRun = reactive({
     ownerId: null as string | null,
 });
 
-export const isScanCleanupRunning = computed(() => Boolean(
-    scanCleanupRun.inFlight
-    || (
-        scanCleanupRun.activeJobId
-        && scanCleanupRun.jobState
-        && [
-            'queued',
-            'running',
-            'canceling',
-            'handoff',
-            'committing',
-        ].includes(scanCleanupRun.jobState.status)
-    ),
+export const isScanCleanupRunning = computed(() => scanCleanupRun.inFlight || Boolean(
+    scanCleanupRun.activeJobId
+    && scanCleanupRun.jobState
+    && isLiveScanCleanupJobState(scanCleanupRun.jobState),
 ));
 
 /**
@@ -272,13 +263,7 @@ export function resolveScanCleanupProcessedPages(
         !state
         || !sourceDocumentRef
         || ownerDocumentRef !== sourceDocumentRef
-        || ![
-            'queued',
-            'running',
-            'canceling',
-            'handoff',
-            'committing',
-        ].includes(state.status)
+        || !isLiveScanCleanupJobState(state)
     ) {
         return new Set();
     }

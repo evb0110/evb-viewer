@@ -207,6 +207,14 @@ export const useDocumentViewportLayoutLifecycle = (
         scheduleAnchorRestore(anchor, epoch);
     };
 
+    /** Place a recorded reading point now and after paint, in place of any queued one. */
+    const placeAnchor = (anchor: IDocumentZoomAnchor | null) => {
+        const epoch = options.captureRestoreEpoch();
+        pendingRestore = null;
+        applyAnchor(anchor, epoch);
+        scheduleAnchorRestore(anchor, epoch);
+    };
+
     const beginLayoutTransaction = () => {
         activeLayoutTransaction = ++nextLayoutTransaction;
         layoutTransactionAnchor = captureCurrentAnchor();
@@ -325,6 +333,7 @@ export const useDocumentViewportLayoutLifecycle = (
         endLayoutTransaction,
         hasPendingPointerRestore: () => pendingRestore?.pointerAuthored === true,
         isResizeTransitionActive,
+        placeAnchor,
         preserveLayoutMutation,
         refreshLayoutTransactionAnchor,
     };

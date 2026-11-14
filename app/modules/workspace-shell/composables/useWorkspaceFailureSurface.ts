@@ -92,12 +92,6 @@ export const useWorkspaceFailureSurface = () => {
         if (engineLimit) {
             return engineLimit;
         }
-        // The file was, or may have been, written; only the open copy fell behind.
-        if (persistence?.reason === 'working-copy-sync-required') {
-            return t(persistence.externalWriteCommitted === true
-                ? 'errors.save.recoverySettlementDescription'
-                : 'errors.save.workingCopySyncRequiredUnknown');
-        }
         if (persistence?.reason === 'original-changed') {
             return persistence.keptFilePath
                 ? t('errors.file.originalSavedOtherKept', {path: persistence.keptFilePath})
@@ -107,6 +101,7 @@ export const useWorkspaceFailureSurface = () => {
         if (HELD_OR_DENIED_MESSAGE.test(message)) {
             return t(/EBUSY/iu.test(message) ? 'errors.save.fileBusy' : /The PDF is read-only or locked/u.test(message) ? 'errors.save.fileReadOnly' : 'errors.save.permissionDenied');
         }
+        if (/The original file cannot be read:/u.test(message)) return t('errors.save.originalUnreadable');
         if (/ENOSPC|EDQUOT|no space left|not enough space|disk (?:is )?full|os error (?:28|112)/iu.test(message)) {
             return t('errors.save.diskFull');
         }
@@ -143,9 +138,8 @@ export const useWorkspaceFailureSurface = () => {
             return false;
         }
         const priorPresentation = isFailurePresentation(existingReceipt) ? existingReceipt : undefined;
-        const syncRequired = diagnostics?.reason === 'working-copy-sync-required';
         // These say what happened better than any raw detail.
-        const toldByReason = syncRequired || (diagnostics?.cause !== undefined && describeBrowserEngineLimit(diagnostics.cause, t) !== null);
+        const toldByReason = diagnostics?.cause !== undefined && describeBrowserEngineLimit(diagnostics.cause, t) !== null;
         const description = reason === 'recovery-settlement-failed' || toldByReason
             ? describeSaveFailure(reason, diagnostics)
             : detail ?? priorPresentation?.description ?? describeSaveFailure(reason, diagnostics);
@@ -165,9 +159,9 @@ export const useWorkspaceFailureSurface = () => {
             failure: receipt,
             title: t(reason === 'recovery-settlement-failed'
                 ? 'errors.save.recoverySettlementTitle'
-                : syncRequired ? 'errors.save.workingCopySyncRequiredTitle' : 'errors.file.save'),
+                : 'errors.file.save'),
             description,
-            ...(saveAs && (syncRequired || diagnostics?.reason === 'original-changed' || HELD_OR_DENIED_MESSAGE.test(diagnostics?.message ?? '')) ? {actions: [{
+            ...(saveAs && (diagnostics?.reason === 'original-changed' || HELD_OR_DENIED_MESSAGE.test(diagnostics?.message ?? '')) ? {actions: [{
                 label: t('toolbar.saveAs'),
                 onClick: saveAs,
             }]} : {}),

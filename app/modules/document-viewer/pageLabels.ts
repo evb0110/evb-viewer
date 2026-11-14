@@ -23,15 +23,10 @@ export const PAGE_LABEL_DENSE_READ_MAX_PAGES = 100_000;
 export type {
     IDocumentPageLabelModel,
     IDocumentPageLabelRange,
-    IDocumentPageLabelSegment,
-    IDocumentPageLabelUpdate,
-    IDocumentPageLabelWindow,
     IDocumentPageRange,
     TDocumentPageLabelLookup,
-    TDocumentPageLabelStyle,
 } from '@pdf-core/pdfPageLabels';
 export {
-    PAGE_LABEL_MAX_WINDOW_PAGES,
     applyPageLabelRange,
     applySparsePageLabelUpdates,
     buildPageLabelSegments,
@@ -41,14 +36,9 @@ export {
     createPageLabelModel,
     derivePageLabelRangesFromLabels,
     findPageByPageLabelInput,
-    getPageLabelAt,
-    getPageLabelStartNumberMax,
     getPageLabelWindow,
     isImplicitDefaultPageLabels,
     normalizePageLabelRanges,
-    readPageLabelWindow,
-    replacePageLabelRange,
-    setPageLabelAt,
 } from '@pdf-core/pdfPageLabels';
 
 function isPageLabelArray(

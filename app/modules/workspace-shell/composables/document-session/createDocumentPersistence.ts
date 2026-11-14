@@ -1,5 +1,8 @@
 import type {ITypedStagedArtifact} from '@contracts/stagedArtifacts';
-import type { TPdfSaveMode } from '@app/types/pdfContracts';
+import type {
+    IPdfValidationResult,
+    TPdfSaveMode,
+} from '@app/types/pdfContracts';
 import type {
     IPdfPersistFailure,
     IPdfPersistResult,
@@ -10,26 +13,20 @@ import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import type { TPdfDateString } from '@contracts/pdfDateString';
 import type { TRequestId } from '@contracts/shared';
 import type {
+    IDocumentMutationRevisionOptions,
     IPdfNativeAnnotationIdentityBinding,
-    IPdfNativeAnnotationDelete,
-    IPdfNativeFreeTextNote,
-    IPdfNativePlacedImageGeometryUpdate,
     IPdfNativeMutationSet,
     IPdfNativeSaveResult,
-    IPdfNoteGeometryUpdate,
-    IPdfNoteTextUpdate,
     IPdfOptimizeOptions,
     IPdfOptimizeResult,
-    IPdfSerializedCommitCallbacks,
     IPdfSerializedSaveOptions,
     TPreparedPdfOptimizeCopy,
 } from '@contracts/electronApiDocuments';
 import { isStaleRevisionError } from '@contracts/documentMutationErrors';
-import { findSerializableErrorEnvelope } from '@contracts/serializableError';
-import { SAVE_AS_SYNC_REQUIRED_ERROR_ENVELOPE_SCHEMA } from '@contracts/documentsPersistenceSchemas';
-import type { IDocumentSessionState } from '@app/modules/workspace-shell/viewers/workspaceDocumentDriver';
+import type { IDocumentSessionState } from '@app/modules/workspace-shell/composables/document-session/documentSessionState';
 import type {IPdfLoadedState} from '@app/modules/workspace-shell/composables/document-session/createDocumentHistory';
 import { createDocumentPersistResults } from '@app/modules/workspace-shell/composables/document-session/createDocumentPersistResults';
+import { readOriginalFailureReason } from '@app/modules/workspace-shell/composables/document-session/createDocumentConformance';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { getErrorMessage } from '@app/utils/error';
 import { runDetached } from '@app/utils/asyncGuard';
@@ -62,12 +59,7 @@ interface IPdfPersistPhaseTiming {
 interface ICreateDocumentPersistenceDeps {
     refreshDocumentRevisionToken: (path: TDocumentRef, isCurrent: () => boolean) => Promise<boolean>;
     deferPdfConformanceProfile: (path: TDocumentRef) => void;
-    ensureHistoryBaselineForMutation: () => Promise<boolean>;
     captureHistoryCleanState: () => () => Promise<void>;
-    pushHistorySnapshot: (
-        snapshot: Uint8Array,
-        options?: { reuseSnapshot?: boolean },
-    ) => Promise<boolean>;
     readPdfStateFromPath: (path: TDocumentRef) => Promise<IPdfLoadedState>;
     shouldForceSaveAsForWorkingCopy: (
         saveMode: TPdfSaveMode,
@@ -167,7 +159,6 @@ export function createDocumentPersistence(
                     return false;
                 }
                 state.documentRevisionInfo.value = revisionInfo;
-                state.documentRevisionToken.value = revisionInfo.token;
                 state.pdfData.value = null;
                 state.pdfReloadSrc.value = {
                     kind: 'path',
@@ -217,7 +208,7 @@ export function createDocumentPersistence(
         channel: string,
         phase: string,
         reason: IPdfPersistFailure['reason'],
-        detail: Pick<IPdfPersistFailure, 'message' | 'validation' | 'cause' | 'keptFilePath' | 'externalWriteCommitted' | 'workingCopySyncRequired'>,
+        detail: Pick<IPdfPersistFailure, 'message' | 'validation' | 'cause' | 'keptFilePath' | 'externalWriteCommitted'>,
     ): IPdfPersistFailure {
         return {
             channel,
@@ -238,12 +229,9 @@ export function createDocumentPersistence(
         return createStalePersistResult(saveMode, didSaveAs);
     }
 
-    /** Whether a refused save still wrote the file, and that the open copy needs syncing. */
-    function saveOutcomeFields(result: Pick<IPdfPersistFailure, 'externalWriteCommitted' | 'workingCopySyncRequired'>) {
-        return {
-            ...(result.externalWriteCommitted === undefined ? {} : {externalWriteCommitted: result.externalWriteCommitted}),
-            ...(result.workingCopySyncRequired ? {workingCopySyncRequired: true} : {}),
-        };
+    /** Whether a refused save still wrote the file. */
+    function saveOutcomeFields(result: Pick<IPdfPersistFailure, 'externalWriteCommitted'>) {
+        return result.externalWriteCommitted === undefined ? {} : {externalWriteCommitted: result.externalWriteCommitted};
     }
 
     function roundDurationMs(durationMs: number) {
@@ -295,145 +283,66 @@ export function createDocumentPersistence(
             if (isStaleRevisionError(e) || (e instanceof DOMException && e.name === 'AbortError')) {
                 throw e;
             }
-            // Save As that wrote its file but could not refresh this copy from it.
-            const syncRequired = findSerializableErrorEnvelope(e, SAVE_AS_SYNC_REQUIRED_ERROR_ENVELOPE_SCHEMA) !== null;
-            return createFailedPersistResult(saveMode, didSaveAs, refusedPersistFailure(
-                'persist',
-                'write',
-                syncRequired ? 'working-copy-sync-required' : 'write-failed',
-                {
-                    message: getErrorMessage(e),
-                    cause: e,
-                    ...(syncRequired ? saveOutcomeFields({
-                        externalWriteCommitted: true,
-                        workingCopySyncRequired: true,
-                    }) : {}),
-                },
-            ));
+            return createFailedPersistResult(saveMode, didSaveAs, refusedPersistFailure('persist', 'write', 'write-failed', {
+                message: getErrorMessage(e),
+                cause: e,
+            }));
         }
     }
 
-    async function stageWorkingCopyPersistenceRequest(
-        opts: IWorkingCopyPersistOptions | undefined,
-        requestedSaveMode: TPdfSaveMode,
+    /**
+     * The one way to the document's original file: every save that writes
+     * there runs `publish` through here, after the awaited "must be saved as
+     * a copy" decision for the revision being saved. A signed PDF, a document
+     * that must be saved as a copy first, or one whose structure could not be
+     * read goes to Save As (`saveCopy`) instead. An original that cannot be
+     * read as it was opened refuses the save, as its publication would.
+     */
+    async function saveToOriginalFile(
+        saveMode: TPdfSaveMode,
         workingPath: TDocumentRef,
-        operation: 'save' | 'repair' | 'optimize',
-    ) {
-        const expectedDocumentRevisionToken = resolveDocumentMutationRevisionToken(opts);
-        const forceSaveAs = await deps.shouldForceSaveAsForWorkingCopy(requestedSaveMode, workingPath);
-        if (!state.isActiveWorkingCopy(workingPath)) {
-            BrowserLogger.debug('workspace', `Skipped stale working-copy ${operation} before write`, {
-                workingPath,
-                currentWorkingPath: state.workingCopyPath.value,
-                saveMode: requestedSaveMode,
-            });
-            return null;
-        }
-        return {
-            expectedDocumentRevisionToken,
-            forceSaveAs,
-        };
-    }
-
-    async function persistPdfDataSilently(data: Uint8Array) {
-        const expectedWorkingPath = state.workingCopyPath.value;
-        const snapshot = data.slice();
-        if (!await deps.ensureHistoryBaselineForMutation()) {
-            return false;
-        }
-        if (expectedWorkingPath !== state.workingCopyPath.value) {
-            return false;
-        }
-        if (expectedWorkingPath) {
-            await getDocumentFilesCapability().writeFile(
-                expectedWorkingPath,
-                snapshot,
-                createDocumentMutationRevisionOptions(state.documentRevisionToken.value),
-            );
-            if (!state.isActiveWorkingCopy(expectedWorkingPath)) {
-                BrowserLogger.debug('pdf-file', 'Skipped stale silent PDF data persistence', {
-                    expectedWorkingPath,
-                    currentWorkingPath: state.workingCopyPath.value,
-                });
-                return false;
-            }
-        } else if (state.workingCopyPath.value !== null) {
-            return false;
-        }
-
-        state.pdfData.value = snapshot;
-        state.pdfSrc.value = deps.toPdfBlob(snapshot);
-        state.pdfReloadSrc.value = state.pdfSrc.value;
-        await deps.pushHistorySnapshot(snapshot, { reuseSnapshot: true });
-
-        if (expectedWorkingPath) {
-            deps.deferPdfConformanceProfile(expectedWorkingPath);
-        }
-        return true;
-    }
-
-    async function saveFile(
-        data: Uint8Array,
-        opts?: {
-            saveMode?: TPdfSaveMode;
-            preserveLoadedSource?: boolean;
-            expectedWorkingPath?: TDocumentRef | null;
-            expectedDocumentRevisionToken?: TDocumentRevisionToken | null | undefined;
-            changedObjectRefs?: string[];
-            commitCallbacks?: IPdfSerializedCommitCallbacks;
-        },
+        publish: () => Promise<IPdfPersistResult>,
+        saveCopy: () => Promise<IPdfPersistResult>,
     ): Promise<IPdfPersistResult> {
-        const requestedSaveMode = opts?.saveMode ?? 'rewrite';
-        return runPersistOperation(requestedSaveMode, false, async (workingPath, markClean) => {
+        let mustSaveCopy: boolean;
+        try {
+            mustSaveCopy = await deps.shouldForceSaveAsForWorkingCopy(saveMode, workingPath);
+        } catch (error) {
+            const reason = readOriginalFailureReason(error);
+            if (!reason) throw error;
+            return createFailedPersistResult(saveMode, false, refusedPersistFailure('persist', 'save-restrictions', reason, {
+                message: getErrorMessage(error),
+                cause: error,
+            }));
+        }
+        if (!state.isActiveWorkingCopy(workingPath)) {
+            return skipStale('save before write', workingPath, saveMode);
+        }
+        return mustSaveCopy ? saveCopy() : publish();
+    }
+
+    /** A working-copy save to the original file, or Save As of the working copy when it must be a copy. */
+    function persistWorkingCopyToOriginal(
+        opts: IWorkingCopyPersistOptions | undefined,
+        publish: (
+            workingPath: TDocumentRef,
+            markClean: () => Promise<void>,
+            revisionOptions: IDocumentMutationRevisionOptions | undefined,
+        ) => Promise<IPdfPersistResult>,
+    ) {
+        const saveMode = opts?.saveMode ?? 'rewrite';
+        return runPersistOperation(saveMode, false, (workingPath, markClean) => {
             const expectedDocumentRevisionToken = resolveDocumentMutationRevisionToken(opts);
-            const forceSaveAs = await deps.shouldForceSaveAsForWorkingCopy(requestedSaveMode, workingPath);
-            if (!state.isActiveWorkingCopy(workingPath)) {
-                return skipStale('PDF save before write', workingPath, requestedSaveMode);
-            }
-            if (forceSaveAs) {
-                return saveWorkingCopyAs(data, {
+            return saveToOriginalFile(
+                saveMode,
+                workingPath,
+                () => publish(workingPath, markClean, createDocumentMutationRevisionOptions(expectedDocumentRevisionToken)),
+                () => saveWorkingCopyAs(undefined, {
                     saveMode: 'save_as_rewrite',
                     expectedWorkingPath: workingPath,
                     expectedDocumentRevisionToken,
-                    ...(opts?.changedObjectRefs?.length ? {changedObjectRefs: opts.changedObjectRefs} : {}),
-                    ...(opts?.commitCallbacks ? {commitCallbacks: opts.commitCallbacks} : {}),
-                });
-            }
-
-            const wrote = await getDocumentFilesCapability().writeFile(
-                workingPath,
-                data,
-                resolveDocumentMutationRevisionOptions({
-                    expectedDocumentRevisionToken,
-                    ...(opts?.changedObjectRefs?.length ? {changedObjectRefs: opts.changedObjectRefs} : {}),
-                    ...(opts?.commitCallbacks ? {commitCallbacks: opts.commitCallbacks} : {}),
                 }),
             );
-            const validation = {
-                isValid: wrote,
-                tool: 'native' as const,
-                errors: wrote ? [] : [deps.t('errors.file.save')],
-                warnings: [],
-            };
-            if (!state.isActiveWorkingCopy(workingPath)) {
-                return skipStale('PDF save completion', workingPath, requestedSaveMode);
-            }
-            if (!validation.isValid) {
-                return createFailedPersistResult(requestedSaveMode, false, refusedPersistFailure(
-                    'file:write',
-                    'validate-output',
-                    'validation-failed',
-                    {validation},
-                ));
-            }
-            const commitOptions = opts?.preserveLoadedSource
-                ? { preserveLoadedSource: true }
-                : undefined;
-            if (!await commitPersistedPdfState(data, workingPath, markClean, commitOptions)) {
-                return createStalePersistResult(requestedSaveMode, false);
-            }
-            state.lastSaveMode.value = requestedSaveMode;
-            return createPersistResult(true, requestedSaveMode, false);
         }, opts?.expectedWorkingPath);
     }
 
@@ -441,28 +350,8 @@ export function createDocumentPersistence(
         opts?: IWorkingCopyPersistOptions,
     ): Promise<IPdfPersistResult> {
         const requestedSaveMode = opts?.saveMode ?? 'rewrite';
-        return runPersistOperation(requestedSaveMode, false, async (workingPath, markClean) => {
-            const stagedRequest = await stageWorkingCopyPersistenceRequest(
-                opts,
-                requestedSaveMode,
-                workingPath,
-                'save',
-            );
-            if (!stagedRequest) {
-                return createStalePersistResult(requestedSaveMode, false);
-            }
-            if (stagedRequest.forceSaveAs) {
-                return saveWorkingCopyAs(undefined, {
-                    saveMode: 'save_as_rewrite',
-                    expectedWorkingPath: workingPath,
-                    expectedDocumentRevisionToken: stagedRequest.expectedDocumentRevisionToken,
-                });
-            }
-
-            const result = await getDocumentFilesCapability().saveFileStructured(
-                workingPath,
-                createDocumentMutationRevisionOptions(stagedRequest.expectedDocumentRevisionToken),
-            );
+        return persistWorkingCopyToOriginal(opts, async (workingPath, markClean, revisionOptions) => {
+            const result = await getDocumentFilesCapability().saveFileStructured(workingPath, revisionOptions);
             if (!result.ok) {
                 return createFailedPersistResult(requestedSaveMode, false, {
                     channel: 'file:saveStructured',
@@ -489,45 +378,27 @@ export function createDocumentPersistence(
                 ...createPersistResult(true, requestedSaveMode, false),
                 ...(result.documentRevision ? {documentRevision: result.documentRevision} : {}),
             };
-        }, opts?.expectedWorkingPath);
+        });
     }
 
-    async function repairWorkingCopy(
-        opts?: IWorkingCopyPersistOptions,
+    /** Repair or Optimize: the platform rewrites the working copy into the original file and validates it. */
+    function rewriteWorkingCopyToOriginal(
+        opts: IWorkingCopyPersistOptions | undefined,
+        channel: 'file:repairPdf' | 'file:optimizePdfForInteraction',
+        rewrite: ((path: TDocumentRef, options?: IDocumentMutationRevisionOptions) => Promise<IPdfValidationResult>) | undefined,
     ): Promise<IPdfPersistResult> {
         const requestedSaveMode = opts?.saveMode ?? 'rewrite';
-        return runPersistOperation(requestedSaveMode, false, async (workingPath, markClean) => {
-            const stagedRequest = await stageWorkingCopyPersistenceRequest(
-                opts,
-                requestedSaveMode,
-                workingPath,
-                'repair',
-            );
-            if (!stagedRequest) {
-                return createStalePersistResult(requestedSaveMode, false);
-            }
-            if (stagedRequest.forceSaveAs) {
-                return saveWorkingCopyAs(undefined, {
-                    saveMode: 'save_as_rewrite',
-                    expectedWorkingPath: workingPath,
-                    expectedDocumentRevisionToken: stagedRequest.expectedDocumentRevisionToken,
-                });
-            }
-
-            const repairPdf = getDocumentFilesCapability().repairPdf;
-            if (!repairPdf) {
-                return createFailedPersistResult(requestedSaveMode, false);
-            }
-            const validation = await repairPdf(
-                workingPath,
-                createDocumentMutationRevisionOptions(stagedRequest.expectedDocumentRevisionToken),
-            );
+        if (!rewrite) {
+            return Promise.resolve(createFailedPersistResult(requestedSaveMode, false));
+        }
+        return persistWorkingCopyToOriginal(opts, async (workingPath, markClean, revisionOptions) => {
+            const validation = await rewrite(workingPath, revisionOptions);
             if (!state.isActiveWorkingCopy(workingPath)) {
-                return skipStale('working-copy repair completion', workingPath, requestedSaveMode);
+                return skipStale(`${channel} completion`, workingPath, requestedSaveMode);
             }
             if (!validation.isValid) {
                 return createFailedPersistResult(requestedSaveMode, false, refusedPersistFailure(
-                    'file:repairPdf',
+                    channel,
                     'validate-output',
                     'validation-failed',
                     {validation},
@@ -538,56 +409,19 @@ export function createDocumentPersistence(
             }
             state.lastSaveMode.value = requestedSaveMode;
             return createPersistResult(true, requestedSaveMode, false);
-        }, opts?.expectedWorkingPath);
+        });
     }
 
-    async function optimizeWorkingCopy(
-        opts?: IWorkingCopyPersistOptions,
-    ): Promise<IPdfPersistResult> {
-        const requestedSaveMode = opts?.saveMode ?? 'rewrite';
-        return runPersistOperation(requestedSaveMode, false, async (workingPath, markClean) => {
-            const stagedRequest = await stageWorkingCopyPersistenceRequest(
-                opts,
-                requestedSaveMode,
-                workingPath,
-                'optimize',
-            );
-            if (!stagedRequest) {
-                return createStalePersistResult(requestedSaveMode, false);
-            }
-            if (stagedRequest.forceSaveAs) {
-                return saveWorkingCopyAs(undefined, {
-                    saveMode: 'save_as_rewrite',
-                    expectedWorkingPath: workingPath,
-                    expectedDocumentRevisionToken: stagedRequest.expectedDocumentRevisionToken,
-                });
-            }
+    function repairWorkingCopy(opts?: IWorkingCopyPersistOptions) {
+        return rewriteWorkingCopyToOriginal(opts, 'file:repairPdf', getDocumentFilesCapability().repairPdf);
+    }
 
-            const optimizePdfForInteraction = getDocumentFilesCapability().optimizePdfForInteraction;
-            if (!optimizePdfForInteraction) {
-                return createFailedPersistResult(requestedSaveMode, false);
-            }
-            const validation = await optimizePdfForInteraction(
-                workingPath,
-                createDocumentMutationRevisionOptions(stagedRequest.expectedDocumentRevisionToken),
-            );
-            if (!state.isActiveWorkingCopy(workingPath)) {
-                return skipStale('working-copy optimize completion', workingPath, requestedSaveMode);
-            }
-            if (!validation.isValid) {
-                return createFailedPersistResult(requestedSaveMode, false, refusedPersistFailure(
-                    'file:optimizePdfForInteraction',
-                    'validate-output',
-                    'validation-failed',
-                    {validation},
-                ));
-            }
-            if (!await commitPersistedPdfState(undefined, workingPath, markClean)) {
-                return createStalePersistResult(requestedSaveMode, false);
-            }
-            state.lastSaveMode.value = requestedSaveMode;
-            return createPersistResult(true, requestedSaveMode, false);
-        }, opts?.expectedWorkingPath);
+    function optimizeWorkingCopy(opts?: IWorkingCopyPersistOptions) {
+        return rewriteWorkingCopyToOriginal(
+            opts,
+            'file:optimizePdfForInteraction',
+            getDocumentFilesCapability().optimizePdfForInteraction,
+        );
     }
 
     async function optimizeWorkingCopyAsCopy(
@@ -688,34 +522,6 @@ export function createDocumentPersistence(
         }, opts?.expectedWorkingPath);
     }
 
-    async function trySaveEmbeddedNoteTextUpdates(
-        updates: IPdfNoteTextUpdate[],
-        opts: {
-            saveMode: TPdfSaveMode;
-            preserveLoadedSource?: boolean;
-            expectedWorkingPath?: TDocumentRef | null;
-            expectedDocumentRevisionToken?: TDocumentRevisionToken | null | undefined;
-            modifiedAt: TPdfDateString;
-            workingCopyOnly?: true;
-            verifyPathBeforeExpose?: (path: TDocumentRef, knownSize: number) => Promise<void>;
-            assertBeforeExpose?: () => Promise<void> | void;
-            geometryUpdates?: IPdfNoteGeometryUpdate[];
-            placedImageGeometryUpdates?: IPdfNativePlacedImageGeometryUpdate[];
-            freeTextNotes?: IPdfNativeFreeTextNote[];
-            deletes?: IPdfNativeAnnotationDelete[];
-        },
-    ): Promise<IPdfPersistResult | null> {
-        return trySavePdfNativeMutations({
-            ...(updates.length > 0 ? {updates} : {}),
-            ...((opts.geometryUpdates?.length ?? 0) > 0 ? {geometryUpdates: opts.geometryUpdates} : {}),
-            ...((opts.placedImageGeometryUpdates?.length ?? 0) > 0
-                ? {placedImageGeometryUpdates: opts.placedImageGeometryUpdates}
-                : {}),
-            ...((opts.freeTextNotes?.length ?? 0) > 0 ? {freeTextNotes: opts.freeTextNotes} : {}),
-            ...((opts.deletes?.length ?? 0) > 0 ? {deletes: opts.deletes} : {}),
-        }, opts);
-    }
-
     async function trySavePdfNativeMutations(
         mutations: IPdfNativeMutationSet,
         opts: {
@@ -792,6 +598,8 @@ export function createDocumentPersistence(
         let stagedSaveAsResult: IPdfPersistResult | null = null;
         let materializedIdentityBindings: IPdfNativeAnnotationIdentityBinding[] = [];
         let annotationDeleteEffects: IPdfNativeSaveResult['annotationDeleteEffects'];
+        // A failed save may have committed the staged bytes before it stopped; the shell acknowledges their identities then.
+        const stagedIdentities = () => (materializedIdentityBindings.length > 0 ? {materializedIdentityBindings} : {});
         const workingPath = state.workingCopyPath.value;
         const expectedOriginalPath = state.originalPath.value;
         if (!workingPath) {
@@ -806,290 +614,300 @@ export function createDocumentPersistence(
             return createStalePersistResult(opts.saveMode, false);
         }
 
-        const markClean = deps.captureHistoryCleanState();
-        const phaseTimings: IPdfPersistPhaseTiming[] = [];
-        const operationStart = performance.now();
-        const logRendererTimings = (status: string, extra?: Record<string, unknown>) => {
-            const totalMs = roundDurationMs(performance.now() - operationStart);
-            const log = totalMs >= 1_000 ? BrowserLogger.info : BrowserLogger.debug;
-            log('workspace', 'Native PDF mutation save renderer timings', {
-                status,
-                saveMode: opts.saveMode,
-                updateCount: updates.length,
-                freeTextNoteCount: freeTextNotes.length,
-                freeTextEditorCount: freeTextEditors.length,
-                deleteCount: deletes.length,
-                pageLabels: hasPageLabels,
-                bookmarks: hasBookmarks,
-                shapes: hasShapes,
-                markup: hasMarkup,
-                placedImageCount: placedImages.length,
-                totalMs,
-                phases: phaseTimings,
-                ...extra,
-            });
-        };
+        const save = async (saveAsCopy: boolean): Promise<IPdfPersistResult> => {
+            const markClean = deps.captureHistoryCleanState();
+            const phaseTimings: IPdfPersistPhaseTiming[] = [];
+            const operationStart = performance.now();
+            const logRendererTimings = (status: string, extra?: Record<string, unknown>) => {
+                const totalMs = roundDurationMs(performance.now() - operationStart);
+                const log = totalMs >= 1_000 ? BrowserLogger.info : BrowserLogger.debug;
+                log('workspace', 'Native PDF mutation save renderer timings', {
+                    status,
+                    saveMode: opts.saveMode,
+                    updateCount: updates.length,
+                    freeTextNoteCount: freeTextNotes.length,
+                    freeTextEditorCount: freeTextEditors.length,
+                    deleteCount: deletes.length,
+                    pageLabels: hasPageLabels,
+                    bookmarks: hasBookmarks,
+                    shapes: hasShapes,
+                    markup: hasMarkup,
+                    placedImageCount: placedImages.length,
+                    totalMs,
+                    phases: phaseTimings,
+                    ...extra,
+                });
+            };
 
-        try {
-            if (!state.isActiveWorkingCopy(workingPath)) {
-                logRendererTimings('stale-before-write');
-                return skipStale('native PDF mutation save before write', workingPath, opts.saveMode);
-            }
-            const result = await measurePdfPersistPhase(
-                phaseTimings,
-                'native-ipc',
-                async (): Promise<IPdfNativeSaveResult> => {
-                    const revisionOptions = createDocumentMutationRevisionOptions(expectedDocumentRevisionToken);
-                    if (!revisionOptions) {
-                        throw new Error(
-                            'Native staged PDF mutation requires the document revision',
-                        );
-                    }
-                    const applied = await measurePdfPersistPhase(
-                        phaseTimings,
-                        'native-apply',
-                        () => applyPdfNativeMutationsToWorkingCopy(
-                            workingPath,
-                            mutations,
-                            opts.modifiedAt,
-                            revisionOptions,
-                        ),
-                    );
-                    if (!applied.applied || !applied.validation?.isValid) {
-                        return applied;
-                    }
-                    const stagedOutput = applied.stagedOutput;
-                    if (!stagedOutput) {
-                        throw new Error('Native mutation did not return an immutable staged output');
-                    }
-                    const verifyPathBeforeExpose = opts.verifyPathBeforeExpose;
-                    const assertBeforeExpose = opts.assertBeforeExpose;
-                    try {
-                        materializedIdentityBindings = validateNativeIdentityBindings(
-                            applied.identityBindings,
-                            expectedNativeIdentityIds,
-                            'Native staged identity bindings',
-                        );
-                        annotationDeleteEffects = applied.annotationDeleteEffects;
-                        // Verified native postconditions replace the renderer reopen.
-                        // Callers without that proof still verify the staged bytes.
-                        if (
-                            verifyPathBeforeExpose
-                            && applied.nativeMutationPostconditionsVerified !== true
-                        ) {
-                            await measurePdfPersistPhase(
-                                phaseTimings,
-                                'native-verify-staged-path',
-                                () => verifyPathBeforeExpose(
-                                    stagedOutput.path,
-                                    stagedOutput.size,
-                                ),
+            try {
+                if (!state.isActiveWorkingCopy(workingPath)) {
+                    logRendererTimings('stale-before-write');
+                    return skipStale('native PDF mutation save before write', workingPath, opts.saveMode);
+                }
+                const result = await measurePdfPersistPhase(
+                    phaseTimings,
+                    'native-ipc',
+                    async (): Promise<IPdfNativeSaveResult> => {
+                        const revisionOptions = createDocumentMutationRevisionOptions(expectedDocumentRevisionToken);
+                        if (!revisionOptions) {
+                            throw new Error(
+                                'Native staged PDF mutation requires the document revision',
                             );
                         }
-                        if (assertBeforeExpose) {
-                            await measurePdfPersistPhase(
-                                phaseTimings,
-                                'native-assert-current',
-                                async () => assertBeforeExpose(),
-                            );
-                        }
-                        await measurePdfPersistPhase(
+                        const applied = await measurePdfPersistPhase(
                             phaseTimings,
-                            'native-publish-automation',
-                            () => publishStagedPdfNativeMutationForAutomation(stagedOutput),
-                        );
-                        await assertBeforeExpose?.();
-                    } catch (error) {
-                        await documentFiles.releaseManagedTempFileHandle?.(stagedOutput.leaseId);
-                        throw error;
-                    }
-                    if (opts.saveMode === 'save_as_rewrite') {
-                        try {
-                            stagedSaveAsResult = await saveWorkingCopyAs(undefined, {
-                                saveMode: opts.saveMode,
-                                expectedWorkingPath: workingPath,
-                                expectedDocumentRevisionToken,
-                                stagedOutput,
-                                preserveLoadedSource: opts.preserveLoadedSource === true,
-                                ...(opts.optimizeLossless ? {optimizeLossless: true} : {}),
-                            });
-                            if (stagedSaveAsResult.success) {
-                                stagedSaveAsResult = {
-                                    ...stagedSaveAsResult,
-                                    materializedIdentityBindings,
-                                    ...(annotationDeleteEffects ? {annotationDeleteEffects} : {}),
-                                };
-                            }
-                            return applied;
-                        } finally {
-                            void runDetached(
-                                () => documentFiles.releaseManagedTempFileHandle?.(stagedOutput.leaseId) ?? Promise.resolve(),
-                                {
-                                    category: 'background-diagnostic',
-                                    scope: 'workspace',
-                                    message: 'Failed to release saved PDF staging lease',
-                                },
-                            );
-                        }
-                    }
-                    if (opts.workingCopyOnly) {
-                        const replaced = await measurePdfPersistPhase(
-                            phaseTimings,
-                            'native-replace-working-copy',
-                            () => replaceWorkingCopyFromStagedPdfNativeMutation!(
+                            'native-apply',
+                            () => applyPdfNativeMutationsToWorkingCopy(
                                 workingPath,
-                                stagedOutput,
+                                mutations,
+                                opts.modifiedAt,
                                 revisionOptions,
                             ),
                         );
-                        return replaced
-                            ? {
-                                applied: true,
-                                validation: {
-                                    isValid: true,
-                                    tool: 'native' as const,
-                                    errors: [],
-                                    warnings: [],
-                                },
-                                nativeMutationPostconditionsVerified: true,
-                                ...(materializedIdentityBindings.length > 0
-                                    ? {identityBindings: materializedIdentityBindings}
-                                    : {}),
+                        if (!applied.applied || !applied.validation?.isValid) {
+                            return applied;
+                        }
+                        const stagedOutput = applied.stagedOutput;
+                        if (!stagedOutput) {
+                            throw new Error('Native mutation did not return an immutable staged output');
+                        }
+                        const verifyPathBeforeExpose = opts.verifyPathBeforeExpose;
+                        const assertBeforeExpose = opts.assertBeforeExpose;
+                        try {
+                            materializedIdentityBindings = validateNativeIdentityBindings(
+                                applied.identityBindings,
+                                expectedNativeIdentityIds,
+                                'Native staged identity bindings',
+                            );
+                            annotationDeleteEffects = applied.annotationDeleteEffects;
+                            // Verified native postconditions replace the renderer reopen.
+                            // Callers without that proof still verify the staged bytes.
+                            if (
+                                verifyPathBeforeExpose
+                                && applied.nativeMutationPostconditionsVerified !== true
+                            ) {
+                                await measurePdfPersistPhase(
+                                    phaseTimings,
+                                    'native-verify-staged-path',
+                                    () => verifyPathBeforeExpose(
+                                        stagedOutput.path,
+                                        stagedOutput.size,
+                                    ),
+                                );
                             }
-                            : {
-                                applied: false,
-                                validation: null,
-                            };
-                    }
-                    const committed = await measurePdfPersistPhase(
-                        phaseTimings,
-                        'native-commit',
-                        () => commitStagedPdfNativeMutations(
-                            workingPath,
-                            stagedOutput,
-                            createNativeStagedCommitOptions(
-                                expectedDocumentRevisionToken,
-                                mutations,
-                                materializedIdentityBindings,
+                            if (assertBeforeExpose) {
+                                await measurePdfPersistPhase(
+                                    phaseTimings,
+                                    'native-assert-current',
+                                    async () => assertBeforeExpose(),
+                                );
+                            }
+                            await measurePdfPersistPhase(
+                                phaseTimings,
+                                'native-publish-automation',
+                                () => publishStagedPdfNativeMutationForAutomation(stagedOutput),
+                            );
+                            await assertBeforeExpose?.();
+                        } catch (error) {
+                            await documentFiles.releaseManagedTempFileHandle?.(stagedOutput.leaseId);
+                            throw error;
+                        }
+                        if (saveAsCopy) {
+                            try {
+                                stagedSaveAsResult = await saveWorkingCopyAs(undefined, {
+                                    saveMode: 'save_as_rewrite',
+                                    expectedWorkingPath: workingPath,
+                                    expectedDocumentRevisionToken,
+                                    stagedOutput,
+                                    ...(opts.optimizeLossless ? {optimizeLossless: true} : {}),
+                                });
+                                if (stagedSaveAsResult.success) {
+                                    stagedSaveAsResult = {
+                                        ...stagedSaveAsResult,
+                                        materializedIdentityBindings,
+                                        ...(annotationDeleteEffects ? {annotationDeleteEffects} : {}),
+                                    };
+                                }
+                                return applied;
+                            } finally {
+                                void runDetached(
+                                    () => documentFiles.releaseManagedTempFileHandle?.(stagedOutput.leaseId) ?? Promise.resolve(),
+                                    {
+                                        category: 'background-diagnostic',
+                                        scope: 'workspace',
+                                        message: 'Failed to release saved PDF staging lease',
+                                    },
+                                );
+                            }
+                        }
+                        if (opts.workingCopyOnly) {
+                            const replaced = await measurePdfPersistPhase(
+                                phaseTimings,
+                                'native-replace-working-copy',
+                                () => replaceWorkingCopyFromStagedPdfNativeMutation!(
+                                    workingPath,
+                                    stagedOutput,
+                                    revisionOptions,
+                                ),
+                            );
+                            return replaced
+                                ? {
+                                    applied: true,
+                                    validation: {
+                                        isValid: true,
+                                        tool: 'native' as const,
+                                        errors: [],
+                                        warnings: [],
+                                    },
+                                    nativeMutationPostconditionsVerified: true,
+                                    ...(materializedIdentityBindings.length > 0
+                                        ? {identityBindings: materializedIdentityBindings}
+                                        : {}),
+                                }
+                                : {
+                                    applied: false,
+                                    validation: null,
+                                };
+                        }
+                        const committed = await measurePdfPersistPhase(
+                            phaseTimings,
+                            'native-commit',
+                            () => commitStagedPdfNativeMutations(
+                                workingPath,
+                                stagedOutput,
+                                createNativeStagedCommitOptions(
+                                    expectedDocumentRevisionToken,
+                                    mutations,
+                                    materializedIdentityBindings,
+                                ),
                             ),
-                        ),
-                    );
-                    if (!committed.applied || !committed.validation?.isValid) {
+                        );
+                        if (!committed.applied || !committed.validation?.isValid) {
+                            return committed;
+                        }
+                        const committedIdentityBindings = validateNativeIdentityBindings(
+                            committed.identityBindings,
+                            expectedNativeIdentityIds,
+                            'Native committed identity bindings',
+                        );
+                        if (!haveSameNativeIdentityBindings(materializedIdentityBindings, committedIdentityBindings)) {
+                            throw new Error('Native identity bindings changed between staging and commit');
+                        }
                         return committed;
+                    },
+                );
+                if (stagedSaveAsResult) {
+                    return stagedSaveAsResult;
+                }
+                if (!result.applied || !result.validation?.isValid) {
+                    BrowserLogger.warn('workspace', 'Native PDF mutation was not applied', {
+                        reason: 'native-mutation-not-applied',
+                        applied: result.applied,
+                        error: result.error,
+                        validation: result.validation,
+                    });
+                    logRendererTimings('not-applied', {validation: result.validation});
+                    return {
+                        ...createFailedPersistResult(opts.saveMode, false, refusedPersistFailure(
+                            'native',
+                            'mutation',
+                            result.reason ?? (result.validation?.isValid === false ? 'validation-failed' : 'write-failed'),
+                            {
+                                ...(result.error ? {
+                                    message: result.error.message,
+                                    cause: result.error,
+                                } : {}),
+                                validation: result.validation,
+                                ...(result.keptFilePath === undefined ? {} : {keptFilePath: result.keptFilePath}),
+                                ...saveOutcomeFields(result),
+                            },
+                        )),
+                        ...(result.error?.code === 'too-large' ? {nativeRefusalCode: 'too-large' as const} : {}),
+                        ...stagedIdentities(),
+                    };
+                }
+                const commitWorkingPath = state.workingCopyPath.value;
+                if (!commitWorkingPath || state.originalPath.value !== expectedOriginalPath) {
+                    BrowserLogger.debug('workspace', 'Skipped stale native PDF mutation save completion', {
+                        workingPath,
+                        expectedOriginalPath,
+                        currentOriginalPath: state.originalPath.value,
+                        currentWorkingPath: state.workingCopyPath.value,
+                        saveMode: opts.saveMode,
+                    });
+                    logRendererTimings('stale-after-write');
+                    return createStalePersistResult(opts.saveMode, false);
+                }
+                if (commitWorkingPath !== workingPath) {
+                    BrowserLogger.debug('workspace', 'Using refreshed working copy after native PDF mutation save', {
+                        workingPath,
+                        refreshedWorkingPath: commitWorkingPath,
+                        currentWorkingPath: state.workingCopyPath.value,
+                        saveMode: opts.saveMode,
+                    });
+                }
+
+                const commitOptions = opts.preserveLoadedSource
+                    ? {
+                        preserveLoadedSource: true,
+                        preserveConformanceProfile: true,
                     }
-                    const committedIdentityBindings = validateNativeIdentityBindings(
-                        committed.identityBindings,
-                        expectedNativeIdentityIds,
-                        'Native committed identity bindings',
-                    );
-                    if (!haveSameNativeIdentityBindings(materializedIdentityBindings, committedIdentityBindings)) {
-                        throw new Error('Native identity bindings changed between staging and commit');
-                    }
-                    return committed;
-                },
-            );
-            if (stagedSaveAsResult) {
-                return stagedSaveAsResult;
-            }
-            if (!result.applied || !result.validation?.isValid) {
-                BrowserLogger.warn('workspace', 'Native PDF mutation was not applied', {
-                    reason: 'native-mutation-not-applied',
-                    applied: result.applied,
-                    error: result.error,
-                    validation: result.validation,
+                    : undefined;
+                const committed = await measurePdfPersistPhase(
+                    phaseTimings,
+                    'commit-persisted-state',
+                    () => commitPersistedPdfState(undefined, commitWorkingPath, markClean, commitOptions),
+                );
+                if (!committed) {
+                    logRendererTimings('stale-commit');
+                    return createStalePersistResult(opts.saveMode, false);
+                }
+                state.lastSaveMode.value = opts.saveMode;
+                logRendererTimings('applied');
+                return {
+                    ...createPersistResult(true, opts.saveMode, false),
+                    ...(result.documentRevision ? {documentRevision: result.documentRevision} : {}),
+                    ...(materializedIdentityBindings.length > 0 ? {materializedIdentityBindings} : {}),
+                    ...(annotationDeleteEffects ? {annotationDeleteEffects} : {}),
+                };
+            } catch (saveError) {
+                if (isStaleRevisionError(saveError)) {
+                    throw saveError;
+                }
+                BrowserLogger.warn('workspace', 'Native PDF mutation save failed', {
+                    error: getErrorMessage(saveError),
+                    updateCount: updates.length,
+                    freeTextNoteCount: freeTextNotes.length,
+                    freeTextEditorCount: freeTextEditors.length,
+                    deleteCount: deletes.length,
+                    pageLabels: hasPageLabels,
+                    bookmarks: hasBookmarks,
+                    shapes: hasShapes,
+                    markup: hasMarkup,
+                    placedImageCount: placedImages.length,
+                    saveMode: opts.saveMode,
+                    totalMs: roundDurationMs(performance.now() - operationStart),
+                    phases: phaseTimings,
                 });
-                logRendererTimings('not-applied', {validation: result.validation});
                 return {
                     ...createFailedPersistResult(opts.saveMode, false, refusedPersistFailure(
                         'native',
                         'mutation',
-                        result.reason ?? (result.validation?.isValid === false ? 'validation-failed' : 'write-failed'),
+                        'write-failed',
                         {
-                            ...(result.error ? {
-                                message: result.error.message,
-                                cause: result.error,
-                            } : {}),
-                            validation: result.validation,
-                            ...(result.keptFilePath === undefined ? {} : {keptFilePath: result.keptFilePath}),
-                            ...saveOutcomeFields(result),
+                            message: getErrorMessage(saveError),
+                            cause: saveError,
                         },
                     )),
-                    ...(result.error?.code === 'too-large' ? {nativeRefusalCode: 'too-large' as const} : {}),
+                    ...stagedIdentities(),
                 };
             }
-            const commitWorkingPath = state.workingCopyPath.value;
-            if (!commitWorkingPath || state.originalPath.value !== expectedOriginalPath) {
-                BrowserLogger.debug('workspace', 'Skipped stale native PDF mutation save completion', {
-                    workingPath,
-                    expectedOriginalPath,
-                    currentOriginalPath: state.originalPath.value,
-                    currentWorkingPath: state.workingCopyPath.value,
-                    saveMode: opts.saveMode,
-                });
-                logRendererTimings('stale-after-write');
-                return createStalePersistResult(opts.saveMode, false);
-            }
-            if (commitWorkingPath !== workingPath) {
-                BrowserLogger.debug('workspace', 'Using refreshed working copy after native PDF mutation save', {
-                    workingPath,
-                    refreshedWorkingPath: commitWorkingPath,
-                    currentWorkingPath: state.workingCopyPath.value,
-                    saveMode: opts.saveMode,
-                });
-            }
-
-            const commitOptions = opts.preserveLoadedSource
-                ? {
-                    preserveLoadedSource: true,
-                    preserveConformanceProfile: true,
-                }
-                : undefined;
-            const committed = await measurePdfPersistPhase(
-                phaseTimings,
-                'commit-persisted-state',
-                () => commitPersistedPdfState(undefined, commitWorkingPath, markClean, commitOptions),
-            );
-            if (!committed) {
-                logRendererTimings('stale-commit');
-                return createStalePersistResult(opts.saveMode, false);
-            }
-            state.lastSaveMode.value = opts.saveMode;
-            logRendererTimings('applied');
-            return {
-                ...createPersistResult(true, opts.saveMode, false),
-                ...(result.documentRevision ? {documentRevision: result.documentRevision} : {}),
-                ...(materializedIdentityBindings.length > 0 ? {materializedIdentityBindings} : {}),
-                ...(annotationDeleteEffects ? {annotationDeleteEffects} : {}),
-            };
-        } catch (saveError) {
-            if (isStaleRevisionError(saveError)) {
-                throw saveError;
-            }
-            BrowserLogger.warn('workspace', 'Native PDF mutation save failed', {
-                error: getErrorMessage(saveError),
-                updateCount: updates.length,
-                freeTextNoteCount: freeTextNotes.length,
-                freeTextEditorCount: freeTextEditors.length,
-                deleteCount: deletes.length,
-                pageLabels: hasPageLabels,
-                bookmarks: hasBookmarks,
-                shapes: hasShapes,
-                markup: hasMarkup,
-                placedImageCount: placedImages.length,
-                saveMode: opts.saveMode,
-                totalMs: roundDurationMs(performance.now() - operationStart),
-                phases: phaseTimings,
-            });
-            return createFailedPersistResult(opts.saveMode, false, refusedPersistFailure(
-                'native',
-                'mutation',
-                'write-failed',
-                {
-                    message: getErrorMessage(saveError),
-                    cause: saveError,
-                },
-            ));
+        };
+        // Staging into the working copy alone publishes nothing, and Save As writes a copy.
+        if (opts.workingCopyOnly || opts.saveMode === 'save_as_rewrite') {
+            return save(opts.saveMode === 'save_as_rewrite');
         }
+        return saveToOriginalFile(opts.saveMode, workingPath, () => save(false), () => save(true));
     }
 
     async function saveWorkingCopyAs(
@@ -1138,10 +956,9 @@ export function createDocumentPersistence(
                     }
                     state.originalPath.value = savedPath;
                     state.requiresSaveAsOnFirstSave.value = false;
-                    if (!await commitPersistedPdfState(data, savedWorkingPath, markClean, shouldRefreshWorkingCopyAfterSaveAs(savedPath, previousWorkingPath) ? {
-                        preserveLoadedSource: opts?.preserveLoadedSource === true && state.pdfSrc.value instanceof Blob,
-                        preserveConformanceProfile: opts?.preserveLoadedSource === true && state.pdfSrc.value instanceof Blob,
-                    } : undefined)) {
+                    // The window now shows the file it wrote, which may hold more than it showed (a
+                    // changed original under its edits), as a page operation's result does.
+                    if (!await commitPersistedPdfState(data, savedWorkingPath, markClean)) {
                         return createStalePersistResult(requestedSaveMode, true);
                     }
                     state.lastSaveMode.value = requestedSaveMode;
@@ -1165,14 +982,11 @@ export function createDocumentPersistence(
     }
 
     return {
-        persistPdfDataSilently,
-        saveFile,
         repairWorkingCopy,
         optimizeWorkingCopy,
         optimizeWorkingCopyAsCopy,
         saveWorkingCopy,
         saveWorkingCopyAs,
-        trySaveEmbeddedNoteTextUpdates,
         trySavePdfNativeMutations,
     };
 }

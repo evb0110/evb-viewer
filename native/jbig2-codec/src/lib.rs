@@ -11,12 +11,6 @@
 mod arith;
 mod generic;
 mod segments;
-mod symbol;
-
-pub use symbol::{
-    decode_pdf_symbol_page, encode_pdf_symbol_pages_verified, verify_strict_bitmap,
-    StrictBitmapPolicy, SymbolDocument, SymbolEncodeLimits, SymbolPage, SymbolPageFallback,
-};
 
 use std::{error::Error, fmt};
 
@@ -113,7 +107,6 @@ pub enum Jbig2Error {
     EncodedDataTooLarge,
     AllocationFailed,
     VerificationFailed,
-    VerificationFailedReason(&'static str),
 }
 
 impl fmt::Display for Jbig2Error {
@@ -153,9 +146,6 @@ impl fmt::Display for Jbig2Error {
             Self::AllocationFailed => formatter.write_str("failed to allocate JBIG2 bitmap"),
             Self::VerificationFailed => {
                 formatter.write_str("JBIG2 encoder verification did not reproduce the input")
-            }
-            Self::VerificationFailedReason(reason) => {
-                write!(formatter, "JBIG2 encoder verification failed: {reason}")
             }
         }
     }

@@ -23,16 +23,6 @@ export interface IWorkspaceReaderFollow {
     finish(): void;
 }
 
-// The tab of the view in use is the document context's knowledge
-// (createDocumentViews keeps it after that view unmounts). The window's close
-// handshake runs outside the editor panes that host those contexts, so each
-// context lends its lookup here.
-const viewInUseTabIds = new WeakMap<IWorkspaceDocumentController, () => string | null>();
-
-export function registerViewInUse(controller: IWorkspaceDocumentController, readTabId: () => string | null) {
-    viewInUseTabIds.set(controller, readTabId);
-}
-
 // Main proves which bytes a view belongs to from what the renderer holds: a
 // PDF's working copy, or the DjVu source its open was granted.
 function readSourceRef(identity: IWorkspaceDocumentIdentity) {
@@ -67,14 +57,12 @@ function captureReadingView(view: IWorkspaceDocumentView): IRecentReadingView | 
 
 /**
  * Remembers where the reader left the document with its Recent entry, from
- * the view `tabId` names or else the view last in use, mounted or not. Callers
- * await it before the source it proves is released. A failed write is
- * reported, never taken as remembered.
+ * the view `tabId` names, mounted or not. Callers await it before the source
+ * it proves is released. A failed write is reported, never taken as remembered.
  */
-export async function rememberReadingView(controller: IWorkspaceDocumentController | null, tabId?: string) {
+export async function rememberReadingView(controller: IWorkspaceDocumentController | null, tabId: string) {
     const identity = controller?.snapshot.value.identity;
-    const viewTabId = tabId ?? (controller && viewInUseTabIds.get(controller)?.());
-    const view = viewTabId ? controller?.views.value.get(viewTabId) : undefined;
+    const view = controller?.views.value.get(tabId);
     const sourceRef = identity ? readSourceRef(identity) : null;
     const reading = view && sourceRef ? captureReadingView(view) : null;
     if (!reading || !sourceRef) {

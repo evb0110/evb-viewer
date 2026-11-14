@@ -4,6 +4,3 @@
 - `vendor/**/*.css` is generated or third-party CSS.
 - App-owned asset styles use `.scss`.
 - Shared Sass modules use lower kebab-case partial names, for example `_toolbar-menu-shared.scss`, and are imported without the leading underscore.
-
-`pnpm lint` enforces the naming and extension rules through
-`scripts/checkStyleAssetConventions.ts`.

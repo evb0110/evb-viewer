@@ -77,17 +77,16 @@ function mountNotes() {
             const note = notes.find(item => item.annotationId === id);
             if (note) note.isMinimized = true;
         },
-        focusAnnotationNote: focusReturned,
         updateAnnotationNoteText: vi.fn(),
         updateAnnotationNotePosition: vi.fn(),
         bringAnnotationNoteToFront: vi.fn(),
     };
     const context = {
         annotations,
-        pageOps: {isPageOperationInProgress: ref(false)},
         file: {isDjvuMode: ref(false)},
     };
     const viewContext = {
+        pageOps: {isPageOperationInProgress: ref(false)},
         annotationActions: {},
         // Each view has its own annotation context menu.
         annotationContextMenu: {
@@ -123,7 +122,8 @@ function mountNotes() {
             pageContextMenuStyle: ref({}),
         },
         view: {
-            pdfViewerRef: ref(null),
+            // The view's viewer focuses the note's annotation.
+            pdfViewerRef: ref({focusSelectedAnnotation: focusReturned}),
             effectiveZoom: ref(1),
         },
     };

@@ -1,6 +1,8 @@
 import type * as TFsPromisesOriginalModule from 'fs/promises';
 
+import {constants} from 'node:fs';
 import {
+    copyFile,
     link,
     mkdtemp,
     chmod,
@@ -104,21 +106,10 @@ describe('atomicReplace real filesystem policy', () => {
         const destinationPath = join(root, 'saved.pdf');
         await writeFile(sourcePath, '%PDF-1.7\nsource bytes\n%%EOF');
         await chmod(sourcePath, 0o444);
-        const previousCloneResult = process.env.EVB_TEST_FORCE_WORKING_COPY_CLONE_RESULT;
-        process.env.EVB_TEST_FORCE_WORKING_COPY_CLONE_RESULT = 'success';
-        try {
-            const {copyFileCopyOnWrite} = await import('@electron/file-access/workingCopyDirectory');
-            await copyFileCopyOnWrite(sourcePath, stagingPath);
-            await atomicReplace(stagingPath, destinationPath);
-            await expect(readFile(destinationPath, 'utf8')).resolves.toBe('%PDF-1.7\nsource bytes\n%%EOF');
-            expect((await stat(sourcePath)).mode & 0o777).toBe(0o444);
-        } finally {
-            if (previousCloneResult === undefined) {
-                delete process.env.EVB_TEST_FORCE_WORKING_COPY_CLONE_RESULT;
-            } else {
-                process.env.EVB_TEST_FORCE_WORKING_COPY_CLONE_RESULT = previousCloneResult;
-            }
-        }
+        await copyFile(sourcePath, stagingPath, constants.COPYFILE_FICLONE);
+        await atomicReplace(stagingPath, destinationPath);
+        await expect(readFile(destinationPath, 'utf8')).resolves.toBe('%PDF-1.7\nsource bytes\n%%EOF');
+        expect((await stat(sourcePath)).mode & 0o777).toBe(0o444);
     });
 
     it.skipIf(process.platform === 'win32')('keeps a private destination private and leaves a linked source alone', async () => {

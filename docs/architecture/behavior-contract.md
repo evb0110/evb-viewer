@@ -199,27 +199,62 @@ Added 2026-09-23 on the owner's request (#834).
 the page, zoom, annotations, or responsiveness of another.
 
 **T2. Unsaved work is protected.** Closing a tab, a window or the app with
-unsaved changes asks first, and a crash or forced quit leaves recoverable work,
-also when the computer restarts before EVB does.
+unsaved changes asks first. Changes to annotations, editor text and metadata
+start a durable draft write in that document immediately. Changes in the same
+task share one write; changes during a write are captured by the next one.
+Editing, typing, undo and redo do not wait for storage. A crash or forced quit
+recovers the last completed draft write and committed byte revision, including
+after a computer restart; a change whose write has not completed can be lost.
+A storage failure is reported and does not discard already stored work.
+
+Save, close or quit preparation, page operations, OCR apply and moving a tab to
+another window wait for the document's drafts. Page operations also write
+pending annotations and metadata into the working bytes before editing those
+bytes. Recovery keeps stored drafts until replay completes; a failed replay
+does not replace them. Workspace layout recording does not write drafts.
+Older recovery data and caches are not read; saved documents remain supported.
 
 **T3. Output is complete and usable.** A saved or exported file opens in this
 viewer and in a stock reader, with all pages and the saved annotations.
 
+Every write to the original, including Repair and Optimize, waits for the
+decision whether it must be saved as a copy. A signed document or an
+inconclusive structural analysis goes to Save As. A changed, unreadable or
+locked original refuses with its own reason; an analysis failure never grants
+permission to overwrite it.
+
+Save takes four steps in this order. Commit: the captured edits become durable.
+Check: the destination must match its baseline. Desktop compares size,
+nanosecond modification time and file identity; browser file handles compare
+size and millisecond modification time. Publish: write the committed bytes
+through the platform's publication API. Acknowledge: the published revision
+becomes the saved state. A touch or identical rewrite that changes the checked
+metadata conflicts, with Save As offered. Desktop detects replacement even
+with the same size and time. An in-place edit that restores the checked
+metadata is not detected. Browser acknowledgement hashes one snapshot of the
+written file and refuses if it holds other content.
+
+An annotation edit accepted after the Save or Save As snapshot stays visible
+and unsaved without failing that Save. A changed byte revision can still refuse
+a stale operation. Failed publication keeps the committed working revision and
+its unsaved state. Save As writes its chosen destination without the baseline
+check, then the window shows the saved revision. When a document has drafts
+but no private bytes and its original changed, Save As builds on the file as
+it is now with those edits; the changed original stays untouched.
+
+An inserted page with readable source labels keeps them. A page from an
+unlabelled source joins the destination's label range.
+
 On ext4, NTFS or APFS paths where hard links are unsupported, save and recovery
-use rename after displacement or a missing-path check. Another program can
-recreate that pathname before installation or restoration, and Node's rename
-can overwrite that new revision. The person keeps EVB's complete saved or
-working revision; displaced external bytes are restored or retained on a
-baseline mismatch, but the recreated revision can be lost. Closing this window
-requires an OS-level no-replace rename that Node does not expose.
+can race another program recreating the destination pathname. That revision can
+be overwritten. The person keeps EVB's complete saved or working revision;
+displaced external bytes are restored or retained on a baseline mismatch.
 
 After a crash or forced quit during a save, recovery puts the PDF back as it was
-before that save, or keeps the save if it had finished. EVB's own bytes count as
-unchanged when a sync client only touched their metadata or rewrote them
-identically, so they never become a kept copy. The next Save compares the PDF
-on disk with the last revision EVB read or wrote: identical bytes and a touch
-that only changes the modification time are admitted, and every byte change,
-including one made while EVB was stopped, is refused with an offer to Save As.
+before that save, or keeps the save if it had finished, and acknowledges the
+save only when the destination matches the recorded publication witness:
+file identity, size and time on desktop, content in the browser. The baseline
+check also applies to changes made while EVB was stopped.
 Recovery leaves no file of its own beside the PDF. When a save, or recovery
 after a crash, finds the PDF changed elsewhere after the save displaced it, the
 version that was on disk just before that save stays beside the PDF as
@@ -227,7 +262,7 @@ version that was on disk just before that save stays beside the PDF as
 an existing file. A live save's refusal names that file, and every later open
 of that PDF names it again and says to compare the two and keep one, until the
 person dismisses that notice. While another program holds the PDF after a
-crash, the document still opens with its last saved revision, and Save is
+crash, the document still opens with its recoverable work, and Save is
 refused, saying another program is using the file, until it lets go. If the
 person closes that document, reopens the PDF and saves it, that save stands and
 nothing more is kept beside it. While another program holds open a file a
@@ -245,7 +280,8 @@ view's page, anchor and zoom, then keeps its own page, scroll position and zoom
 through edits, undo and saves. An edit made in either view appears in every
 view, undo in any view undoes the document's last transaction in all of them,
 every view shows the same dirty state, and Save from any view writes the file
-once with every accepted edit. An annotation is edited in one view at a time:
+once with the edits captured for that Save; later edits stay unsaved. An
+annotation is edited in one view at a time:
 starting to edit it in another view first commits the open edit, as clicking
 elsewhere does, and the other views show its current content without editing
 it. Each view keeps its own annotation selection and active annotation tool.

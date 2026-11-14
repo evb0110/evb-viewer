@@ -146,11 +146,11 @@ import { useDocumentViewContext } from '@app/modules/workspace-shell/documentVie
 const { visible } = defineProps<{visible: boolean;}>();
 const {
     annotations,
-    pageOps,
     file,
 } = useDocumentContext();
 const {
     tabId,
+    pageOps,
     annotationActions,
     annotationContextMenu: {
         annotationContextMenu,
@@ -220,13 +220,13 @@ async function handleNoteMinimize(annotationId: string, focusDocument: Document 
         && focusDocument.activeElement === focusDocument.body
         && sortedAnnotationNoteWindows.value.some(note => note.annotationId === annotationId && note.isMinimized)
     ) {
-        annotations.focusAnnotationNote(annotationId);
+        view.pdfViewerRef.value?.focusSelectedAnnotation?.(annotationId);
     }
 }
 
 function handleAnchorClick(note: IAnnotationNoteWindowEntry) {
     traceAnchorInteraction('anchor clicked', note);
-    annotations.restoreAnnotationNote(note.annotationId);
+    annotations.restoreAnnotationNote(note.annotationId, tabId);
 }
 </script>
 

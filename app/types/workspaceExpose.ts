@@ -4,7 +4,6 @@ import type { TPageMoveOperation } from '@contracts/pageNumbers';
 import type {
     IDocumentRevisionInfo,
     TDocumentCommitReceipt,
-    TDocumentRevisionToken,
 } from '@contracts/documentRevision';
 import type { TDocumentInstanceId } from '@contracts/documentInstanceId';
 import type { TOpenFileResult } from '@contracts/electronApiDocuments';
@@ -304,11 +303,7 @@ export interface IWorkspaceExpose extends IWorkspaceDocumentRecoveryPort {
     handlePageDelete: (pages: number[]) => void;
     handlePageReorder: (order: number[]) => void;
     handlePageMove: (move: TPageMoveOperation) => void;
-    pageOpsDelete: (pages: number[], totalPages: number) => Promise<boolean>;
     handlePageRotate: (pages: number[], angle: 90 | 270) => Promise<boolean>;
-    pageOpsInsert: (totalPages: number, afterPage: number) => Promise<boolean>;
-    pageOpsReorder: (order: number[]) => Promise<boolean>;
-    pageOpsMove: (move: TPageMoveOperation) => Promise<boolean>;
     handleCropPages: (pages: number[], margins: ICropMargins) => Promise<boolean>;
     handleConvertToPdf: () => void;
     handleOpenOcr: () => void;
@@ -330,17 +325,6 @@ export interface IWorkspaceExpose extends IWorkspaceDocumentRecoveryPort {
         uri: string,
         context?: IWorkspaceAgentCommandContext,
     ) => Promise<Record<string, unknown>>;
-    /** A durable recovery copy of the document's current state, or null when none applies or the state changed meanwhile. */
-    createRecoverySnapshot: (
-        target: {
-            fileName: string;
-            sourceRef?: TDocumentRef | null
-        },
-        recovery?: IWorkspaceCheckpointTab['annotationRecovery'],
-    ) => Promise<{
-        ref: TDocumentRef;
-        revisionToken: TDocumentRevisionToken
-    } | null>;
     commentAtPoint?: (
         pageNumber: number,
         pageX: number,

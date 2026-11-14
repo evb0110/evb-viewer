@@ -34,35 +34,22 @@ export type {
     IDocumentOpenSurfaceRenderOwner,
     IDocumentOpenSurfaceSession,
     IDocumentOpenSurfaceSnapshot,
-    IDocumentOpenSurfaceViewportCommit,
     TDocumentOpenSurfacePhase,
 } from '@app/modules/document-viewer/runtime/documentOpenSurfaceSessionContract';
 export type {
-    IDocumentViewportCommitFence,
-    IDocumentViewportIdentity,
-    IDocumentViewportIntent,
-    IDocumentViewportRenderFence,
     IDocumentViewportSessionState,
-    IDocumentViewportSessionTransition,
-    TDocumentViewportLifecycle,
     TDocumentViewportSessionEvent,
     TDocumentViewportVisualOwner,
 } from '@app/modules/document-viewer/runtime/documentOpenSurfaceReducer';
 export {
-    assertDocumentViewportSessionInvariants,
-    canOpenRecentDocument,
-    collectDocumentViewportSessionInvariantViolations,
     createEmptyDocumentViewportSession,
     reduceDocumentViewportSession,
     resolveDocumentViewportCurrentPage,
 } from '@app/modules/document-viewer/runtime/documentOpenSurfaceReducer';
 export type {
-    IDocumentOpenSurfaceGeometry,
-    IDocumentOpenSurfacePageFrame,
     IDocumentOpenSurfacePageGeometry,
     TDocumentOpenSurfacePresentation,
 } from '@app/modules/document-viewer/runtime/retargetDocumentOpeningShell';
-export type { IDocumentOpenSurfaceDiagnosticEntry } from '@app/modules/document-viewer/runtime/createDocumentOpenSurfaceDiagnostics';
 export { shouldProjectDocumentViewportScroll } from '@app/modules/document-viewer/runtime/shouldProjectDocumentViewportScroll';
 
 export function resolveDocumentOpenSurfaceViewportPolicy(snapshot: IDocumentOpenSurfaceSnapshot) {
@@ -161,10 +148,6 @@ function resolveOpeningPresentation(
 
 export function isDocumentOpenEmptySurfaceTransition(snapshot: IDocumentOpenSurfaceSnapshot) {
     return isTransitionPhase(snapshot.phase);
-}
-
-export function shouldPresentDocumentOpenEmptyPlaceholder(snapshot: IDocumentOpenSurfaceSnapshot) {
-    return snapshot.presentation === 'idle';
 }
 
 function canAcceptSameGenerationVisualCommit(snapshot: IDocumentOpenSurfaceSnapshot) {

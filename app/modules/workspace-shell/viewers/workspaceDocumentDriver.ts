@@ -2,18 +2,13 @@ import type {
     Component,
     ComputedRef,
     Ref,
-    ShallowRef,
 } from 'vue';
 import {
     parseDocumentRef,
     type TDocumentRef,
 } from '@contracts/documentRef';
 import { requirePageNumber } from '@contracts/pageNumbers';
-import type { FailurePresentation } from '@app/composables/useFailureToast';
-import type {
-    IDocumentRevisionInfo,
-    TDocumentRevisionToken,
-} from '@contracts/documentRevision';
+import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import type {
     TPdfViewRotation,
     TPdfViewMode,
@@ -30,14 +25,9 @@ import type {
     IAnnotationCreationFailureReport,
     IDocumentViewerExpose,
     IPdfViewerExpose,
-    IAnnotationEnrichmentState,
 } from '@app/modules/pdf-viewer/public';
 import {isPathPdfSource} from '@app/modules/pdf-viewer/public';
 import type { TPdfRasterDisplayProfile } from '@app/types/pdfRasterDisplayProfile';
-import type {
-    IPdfConformanceProfile,
-    TPdfSaveMode,
-} from '@app/types/pdfContracts';
 import type {TDocumentImageExportSourceKind} from '@contracts/imageExportPlatformFeature';
 import type {
     IWorkspaceViewerCapabilities,
@@ -64,7 +54,6 @@ import {
     createDocumentProjectionSession,
     ensurePdfProjection,
 } from '@app/modules/document-viewer/public';
-import { getDocumentRefBaseName } from '@app/utils/documentRef';
 
 export type {TWorkspaceDocumentDriverId} from '@app/modules/workspace-shell/viewers/workspaceViewerAdapterTypes';
 
@@ -85,25 +74,8 @@ export type TAnnotationInventoryListener = (
     completeness: IAnnotationInventoryCompleteness | null,
 ) => void;
 
-/**
- * Handler for the viewer's annotation-enrichment verdict, typed for the same
- * reason as the inventory listener above: the panel decides between "read
- * complete", "read skipped" and "read failed" from this payload, and an
- * `unknown` entry would let a mismatched shape reach it as a wrong notice.
- */
-export type TAnnotationEnrichmentStateListener = (state: IAnnotationEnrichmentState) => void;
-
 interface IActiveViewerListeners extends Record<string, unknown> {
     annotationInventory?: TAnnotationInventoryListener;
-    annotationEnrichmentState?: TAnnotationEnrichmentStateListener;
-}
-
-interface IOpenBatchProgressState {
-    processed: number;
-    total: number;
-    percent: number;
-    elapsedMs: number;
-    estimatedRemainingMs: number | null;
 }
 
 const PDF_SOURCE_CAPABILITIES: IDocumentSourceCapabilities = {
@@ -114,136 +86,6 @@ const PDF_SOURCE_CAPABILITIES: IDocumentSourceCapabilities = {
     search: true,
     text: true,
 };
-
-export type TPdfConformanceAnalysisState =
-    | 'none'
-    | 'waiting-initial-visual'
-    | 'waiting-idle'
-    | 'analyzing'
-    | 'ready'
-    | 'failed'
-    | 'on-demand-only';
-
-export interface IDocumentSessionState {
-    error: Ref<string | null>;
-    failurePresentation: Ref<FailurePresentation | null>;
-    fileName: ComputedRef<string | null>;
-    isDirty: Ref<boolean>;
-    isElectron: ComputedRef<boolean>;
-    lastSaveMode: Ref<TPdfSaveMode>;
-    openBatchProgress: Ref<IOpenBatchProgressState | null>;
-    originalPath: Ref<TDocumentRef | null>;
-    pdfConformanceAnalysisState: Ref<TPdfConformanceAnalysisState>;
-    pdfConformanceProfile: Ref<IPdfConformanceProfile | null>;
-    pdfData: ShallowRef<Uint8Array | null>;
-    pdfRasterDisplayProfile: Ref<TPdfRasterDisplayProfile | null>;
-    pdfReloadSrc: Ref<TPdfSource | null>;
-    pdfSrc: Ref<TPdfSource | null>;
-    pendingDjvu: Ref<TDocumentRef | null>;
-    /** True only after the current document completed a password-protected open. */
-    wasEncrypted: Ref<boolean>;
-    requiresSaveAsOnFirstSave: Ref<boolean>;
-    /** Unsaved bytes adopted from a crash checkpoint, independent of Save As. */
-    recoveryDirtyBaseline: Ref<boolean>;
-    workingCopyPath: Ref<TDocumentRef | null>;
-    /** The working copy the document was opened at: a Save As moves the working copy, not this. */
-    openedWorkingCopyPath: Ref<TDocumentRef | null>;
-    documentRevisionInfo: Ref<IDocumentRevisionInfo | null>;
-    documentRevisionToken: Ref<TDocumentRevisionToken | null>;
-    isActiveWorkingCopy: (path: TDocumentRef) => boolean;
-    resetForClose: () => void;
-}
-
-export function createDocumentSessionState(
-    deps: {isDesktopRuntime: Ref<boolean> | ComputedRef<boolean>},
-): IDocumentSessionState {
-    const pdfSrc = shallowRef<TPdfSource | null>(null);
-    const pdfReloadSrc = shallowRef<TPdfSource | null>(null);
-    const pdfData = shallowRef<Uint8Array | null>(null);
-    const pdfRasterDisplayProfile = ref<TPdfRasterDisplayProfile | null>(null);
-    const workingCopyPath = ref<TDocumentRef | null>(null);
-    const openedWorkingCopyPath = ref<TDocumentRef | null>(null);
-    const documentRevisionInfo = ref<IDocumentRevisionInfo | null>(null);
-    const documentRevisionToken = ref<TDocumentRevisionToken | null>(null);
-    const originalPath = ref<TDocumentRef | null>(null);
-    const error = ref<string | null>(null);
-    const failurePresentation = shallowRef<FailurePresentation | null>(null);
-    const isDirty = ref(false);
-    const pdfConformanceAnalysisState = ref<TPdfConformanceAnalysisState>('none');
-    const pdfConformanceProfile = ref<IPdfConformanceProfile | null>(null);
-    const lastSaveMode = ref<TPdfSaveMode>('rewrite');
-    const requiresSaveAsOnFirstSave = ref(false);
-    const recoveryDirtyBaseline = ref(false);
-    const wasEncrypted = ref(false);
-    const pendingDjvu = ref<TDocumentRef | null>(null);
-    const openBatchProgress = ref<IOpenBatchProgressState | null>(null);
-    const fileName = computed(
-        () => getDocumentRefBaseName(originalPath.value)
-            ?? getDocumentRefBaseName(workingCopyPath.value),
-    );
-
-    function resetForClose() {
-        pdfSrc.value = null;
-        pdfReloadSrc.value = null;
-        pdfData.value = null;
-        pdfRasterDisplayProfile.value = null;
-        workingCopyPath.value = null;
-        openedWorkingCopyPath.value = null;
-        documentRevisionInfo.value = null;
-        documentRevisionToken.value = null;
-        originalPath.value = null;
-        error.value = null;
-        failurePresentation.value = null;
-        isDirty.value = false;
-        pdfConformanceAnalysisState.value = 'none';
-        pendingDjvu.value = null;
-        openBatchProgress.value = null;
-        requiresSaveAsOnFirstSave.value = false;
-        recoveryDirtyBaseline.value = false;
-        wasEncrypted.value = false;
-        lastSaveMode.value = 'rewrite';
-    }
-
-    return {
-        error,
-        failurePresentation,
-        fileName,
-        isDirty,
-        isElectron: computed(() => deps.isDesktopRuntime.value),
-        isActiveWorkingCopy: path => workingCopyPath.value === path,
-        lastSaveMode,
-        openBatchProgress,
-        originalPath,
-        pdfConformanceAnalysisState,
-        pdfConformanceProfile,
-        pdfData,
-        pdfRasterDisplayProfile,
-        pdfReloadSrc,
-        pdfSrc,
-        pendingDjvu,
-        requiresSaveAsOnFirstSave,
-        recoveryDirtyBaseline,
-        wasEncrypted,
-        resetForClose,
-        workingCopyPath,
-        openedWorkingCopyPath,
-        documentRevisionInfo,
-        documentRevisionToken,
-    };
-}
-
-export function createEpochGuard() {
-    let epoch = 0;
-    return {
-        begin: () => {
-            epoch += 1;
-            return epoch;
-        },
-        current: () => epoch,
-        invalidate: () => { epoch += 1; },
-        isCurrent: (token: number) => token === epoch,
-    };
-}
 
 export interface IWorkspaceDocumentDriverSource {
     kind: 'pdf' | 'djvu';
@@ -321,7 +163,6 @@ export type TWorkspaceDriverCommandResult =
 export interface IWorkspaceDocumentDriver {
     readonly id: TWorkspaceDocumentDriverId;
     readonly capabilities: Readonly<IWorkspaceViewerCapabilities>;
-    readonly canPreparePrint: boolean;
     readonly lifecycle: IWorkspaceDocumentDriverLifecycle;
     readonly operations: IWorkspaceDocumentDriverOperations;
     readonly source: IWorkspaceDocumentDriverSource;
@@ -345,7 +186,6 @@ export interface IWorkspaceDocumentDriverOptions {
     pdfSrc: Ref<TPdfSource | null>;
     workingCopyPath: Ref<TDocumentRef | null>;
     pendingDocumentPath?: TReadableRef<TDocumentRef | null>;
-    pendingDocumentSize?: TReadableRef<number | null>;
     save?: IWorkspaceDocumentDriverSources['save'];
 }
 
@@ -474,9 +314,6 @@ export function createWorkspaceDocumentDriverForAdapter(
     return {
         id: driverProfile.id,
         capabilities: adapter.capabilities,
-        get canPreparePrint() {
-            return isDjvu && sources.djvuSourcePath.value !== null;
-        },
         lifecycle: {createHooks: context => adapter.createLifecycleHooks?.(context) ?? null},
         get operations(): IWorkspaceDocumentDriverOperations {
             const sourcePath = isDjvu
@@ -616,7 +453,6 @@ export interface IWorkspaceDocumentDriverBindingOptions {
     currentSearchMatch: TReadableRef<unknown>;
     documentSourceCurrentResultIndex: TReadableRef<number>;
     documentSourceSearchResults: TReadableRef<readonly IDocumentSearchMatch[]>;
-    currentPage: Ref<number>;
     dragMode: Ref<boolean>;
     isAnySaving: Ref<boolean>;
     isInteractionActive: TReadableRef<boolean>;
@@ -639,7 +475,6 @@ export interface IWorkspaceDocumentDriverBindingOptions {
     onAnnotationCommentClick: unknown;
     onAnnotationComments: unknown;
     onAnnotationInventory: TAnnotationInventoryListener;
-    onAnnotationEnrichmentState: TAnnotationEnrichmentStateListener;
     onAnnotationContextMenu: unknown;
     onAnnotationModified: unknown;
     onAnnotationFailure: (failure: IAnnotationCreationFailureReport) => void;
@@ -648,14 +483,12 @@ export interface IWorkspaceDocumentDriverBindingOptions {
     onAnnotationState: unknown;
     onAnnotationToolAutoReset: () => void;
     onAnnotationToolCancel: () => void;
-    onCurrentPageUpdate: (value: number) => void;
     onDocumentUpdate: (value: unknown) => void;
 
     onInitialVisualPending: () => void;
     onInitialVisualReady: () => void;
     onLoadError: (error: unknown) => void;
     onLoading: (value: boolean) => void;
-    onNavigationFeedbackPageUpdate: (value: number | null) => void;
     onShapeContextMenu: unknown;
     onSourceCapabilitiesUpdate: (capabilities: IDocumentSourceCapabilities) => void;
     onPageSourceUpdate: (source: IDocumentPageSource | null) => void;
@@ -698,7 +531,6 @@ export const useWorkspaceDocumentDriverBinding = (options: IWorkspaceDocumentDri
                 sourcePdfData: options.sourcePdfData.value,
                 isAnySaving: options.isAnySaving.value,
                 viewRotation: options.viewRotation.value,
-                currentPage: options.currentPage.value,
                 isResizing: options.isWorkspaceLayoutResizing.value,
                 annotationTool: options.annotationTool.value,
                 annotationCursorMode: options.annotationCursorMode.value,
@@ -735,7 +567,6 @@ export const useWorkspaceDocumentDriverBinding = (options: IWorkspaceDocumentDri
 
     const nativeViewerListeners = {
         'update:zoomState': options.onZoomStateUpdate,
-        'update:currentPage': options.onCurrentPageUpdate,
         'update:totalPages': options.onTotalPagesUpdate,
         'update:document': options.onDocumentUpdate,
         loading: options.onLoading,
@@ -753,12 +584,10 @@ export const useWorkspaceDocumentDriverBinding = (options: IWorkspaceDocumentDri
 
         return {
             ...nativeViewerListeners,
-            'update:navigationFeedbackPage': options.onNavigationFeedbackPageUpdate,
             annotationState: options.onAnnotationState,
             annotationModified: options.onAnnotationModified,
             annotationComments: options.onAnnotationComments,
             annotationInventory: options.onAnnotationInventory,
-            annotationEnrichmentState: options.onAnnotationEnrichmentState,
             annotationOpenNote: options.onAnnotationOpenNote,
             annotationCommentClick: options.onAnnotationCommentClick,
             annotationContextMenu: options.onAnnotationContextMenu,

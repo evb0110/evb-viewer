@@ -14,8 +14,8 @@ use std::{
 use crate::{
     assert_plaintext_base, classify_pdf_load_error, domain_error, intersect_rect, load_pdf_path,
     load_readonly_metadata_pdf_path, reclassify_domain_error, resolve_inherited_box,
-    resolve_page_rotation, resolve_page_user_unit, resolve_page_view, AppendedRevision,
-    NativeErrorCode, PageTreeResolver, PdfObjectSource, PdfRect, QpdfMetadataPurpose, Result,
+    resolve_page_rotation, resolve_page_user_unit, resolve_page_view, NativeErrorCode,
+    PageTreeResolver, PdfObjectSource, PdfRect, QpdfMetadataPurpose, Result,
     MAX_DECOMPRESSED_PDF_STREAM_BYTES, MAX_ENCODED_PDF_BYTES,
 };
 
@@ -564,7 +564,7 @@ pub(crate) fn write_page_sizes_path(
         incremental.get_prev_documents(),
         "Encrypted PDFs are not supported by native page ops",
     )?;
-    write_page_sizes_sidecar(&AppendedRevision::new(&incremental), output_path)
+    write_page_sizes_sidecar(&incremental, output_path)
 }
 
 fn page_sizes_paths_alias(input_path: &Path, output_path: &Path) -> Result<bool> {

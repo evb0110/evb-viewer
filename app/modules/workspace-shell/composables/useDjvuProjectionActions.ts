@@ -1,12 +1,15 @@
 import type { Ref } from 'vue';
-import type { IDocumentViewerExpose } from '@app/modules/pdf-viewer/public';
+import { until } from '@vueuse/core';
+import type { IDocumentOpenSurfaceSession } from '@app/modules/document-viewer/public';
+
+const PROJECTION_PLACEMENT_TIMEOUT_MS = 30000;
 
 interface IDjvuProjectionActionOptions {
     isDjvuMode: Ref<boolean>;
-    currentPage: Ref<number>;
     /** The open document; an edit waiting for the projection belongs to it. */
     documentRef: Readonly<Ref<unknown>>;
-    documentViewerRef: Ref<IDocumentViewerExpose | null>;
+    /** The view's surface, which reports when the projected PDF is placed. */
+    openSurface: Pick<IDocumentOpenSurfaceSession, 'snapshot'>;
     ensureProjection: (reason: 'edit' | 'ocr' | 'save-as-pdf') => Promise<boolean>;
     saveAs: () => Promise<boolean>;
     exportDocx: (selectedLanguages?: string[]) => Promise<void>;
@@ -26,20 +29,23 @@ export const useDjvuProjectionActions = (options: IDjvuProjectionActionOptions) 
         if (!options.isDjvuMode.value) {
             return true;
         }
-        const viewer = options.documentViewerRef.value;
-        const fallbackPage = viewer?.getCurrentPage?.() ?? options.currentPage.value;
         const document = options.documentRef.value;
+        const generation = options.openSurface.snapshot.value.generation;
         if (!await options.ensureProjection(reason)) {
             return false;
         }
-        await nextTick();
-        await options.documentViewerRef.value?.waitForViewerLoadSettled?.();
-        // Another document may have replaced this one meanwhile.
-        if (options.documentRef.value !== document) {
-            return false;
-        }
-        options.documentViewerRef.value?.scrollToPage(fallbackPage);
-        return true;
+        // The projection opens as a restore of the reader's place; the edit
+        // waits for the view to report that PDF placed. Another document may
+        // have replaced this one meanwhile.
+        const settled = await until(() => {
+            const snapshot = options.openSurface.snapshot.value;
+            return options.documentRef.value !== document
+                || snapshot.phase === 'failed'
+                || snapshot.generation !== generation && snapshot.phase === 'ready';
+        }).toBe(true, {timeout: PROJECTION_PLACEMENT_TIMEOUT_MS});
+        return settled
+            && options.documentRef.value === document
+            && options.openSurface.snapshot.value.phase === 'ready';
     }
 
     async function runEdit<T>(action: () => T | Promise<T>) {

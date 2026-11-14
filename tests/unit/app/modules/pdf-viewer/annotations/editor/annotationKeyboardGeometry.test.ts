@@ -20,6 +20,7 @@ import type {
 
 
 import {useAnnotationKeyboardCommands} from '@app/modules/pdf-viewer/annotations/editor/useAnnotationKeyboardCommands';
+import type { ITextBoxEntity } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 
 const rect: IAnnotationMarkerRect = {
     left: 0.1,
@@ -136,7 +137,7 @@ describe('actual keyboard to Surface nudge integration', () => {
                         preventDefault() {},
                         stopPropagation() {},
                     });
-                    const moved = surface.getSelectedTextBox()!;
+                    const moved = surface.selectedAnnotations.value[0] as ITextBoxEntity;
                     const width = rotation === 90 || rotation === 270 ? 800 : 600;
                     const height = rotation === 90 || rotation === 270 ? 600 : 800;
                     const planeDx = (moved.rect.left - box.rect.left) * width;

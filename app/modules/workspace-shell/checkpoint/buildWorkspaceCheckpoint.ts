@@ -1,16 +1,11 @@
 import type { Ref } from 'vue';
-import type {TDocumentRef} from '@contracts/documentRef';
 import type {TTabId} from '@contracts/windowTabs';
 import type {
     IEditorPaneState,
     TEditorLayoutNode,
 } from '@contracts/editorPanes';
-import type {
-    IWorkspaceCheckpoint,
-    IWorkspaceCheckpointAnnotationRecovery,
-} from '@contracts/workspaceCheckpoint';
+import type {IWorkspaceCheckpoint} from '@contracts/workspaceCheckpoint';
 import { createEpochMs } from '@contracts/timestamps';
-import {getErrorMessage} from '@app/utils/error';
 import type { ITab } from '@app/types/tabs';
 import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
 import type { IWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
@@ -70,34 +65,8 @@ function findDocumentWorkspace(session: IWorkspaceDocumentController, tabId: str
     return null;
 }
 
-// A document's unsaved annotations are one payload. Any of its views can
-// capture it; one whose viewer is still mounting captures nothing.
-function captureDocumentAnnotationRecovery(session: IWorkspaceDocumentController) {
-    try {
-        for (const view of session.views.value.values()) {
-            const recovery = view.mountedWorkspace.value?.captureCanonicalAnnotationRecovery?.() ?? null;
-            if (recovery) {
-                return {recovery};
-            }
-        }
-        return {recovery: null};
-    } catch (error) {
-        // Keep this document's files and last admitted artifact; a rejected
-        // capture must not prevent the other documents from checkpointing.
-        return {
-            recovery: null,
-            failure: {
-                reason: 'capture-rejected' as const,
-                message: getErrorMessage(error).slice(0, 4096),
-            },
-        };
-    }
-}
-
-export function buildWorkspaceCheckpoint(
-    options: IBuildWorkspaceCheckpointOptions,
-    workingCopyRef?: TDocumentRef | null,
-) {
+/** The window's tabs, panes and views. A document's unsaved work is its drafts, which its own edits commit. */
+export function buildWorkspaceCheckpoint(options: IBuildWorkspaceCheckpointOptions) {
     const workspaceSnapshot = buildAgentWorkspaceSnapshot(options);
     const firstTabByDocument = new Map<IWorkspaceDocumentController, TTabId>();
 
@@ -123,20 +92,11 @@ export function buildWorkspaceCheckpoint(
                     workingCopyRef: session.snapshot.value.identity.workingCopyPath,
                     requiresSaveAsOnFirstSave: false,
                 };
-            const workingByteRevision = session?.snapshot.value.identity.revisionInfo?.token ?? null;
-            // The first tab of a document carries its unsaved annotations:
-            // restore reopens the document in that tab and replays them there.
+            // The first tab of a document opens it at restore; the later ones link to it.
             const linkedToTabId = session && firstTabByDocument.get(session);
-            const capturedAnnotationRecovery = snapshot.isDirty && session && !linkedToTabId
-                && (workingCopyRef === undefined || documentRefs.workingCopyRef === workingCopyRef)
-                ? captureDocumentAnnotationRecovery(session)
-                : null;
             if (session && !linkedToTabId) {
                 firstTabByDocument.set(session, snapshot.tabId);
             }
-            const annotationRecovery = capturedAnnotationRecovery?.recovery && workingByteRevision
-                ? capturedAnnotationRecovery.recovery
-                : null;
             const toolbar = view?.toolbarSnapshot.value ?? null;
             const reader = toolbar && (toolbar.hasPdf || view?.restored) ? toolbar : null;
             return {
@@ -158,17 +118,6 @@ export function buildWorkspaceCheckpoint(
                 // A cleanup surface is not restorable without its file-backed
                 // page mapping. Keep the checkpoint on the reader surface;
                 // completed outputs are recovered through the main journal.
-                ...(capturedAnnotationRecovery?.failure ? {annotationRecoveryFailure: capturedAnnotationRecovery.failure} : {}),
-                ...(annotationRecovery
-                    ? {annotationRecovery: {
-                        artifactId: `capture-${snapshot.tabId}`,
-                        documentInstanceId: session?.snapshot.value.identity.documentInstanceId ?? snapshot.tabId,
-                        workingCopyRef: documentRefs.workingCopyRef,
-                        workingByteRevision: workingByteRevision ?? '',
-                        annotationMutationGeneration: annotationRecovery.annotationMutationGeneration,
-                        payload: annotationRecovery,
-                    } satisfies IWorkspaceCheckpointAnnotationRecovery}
-                    : {}),
             };
         }),
     } satisfies IWorkspaceCheckpoint;

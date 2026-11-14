@@ -51,13 +51,3 @@ export function detectDocumentFormat(header: Uint8Array, fileSize: number) {
         || (header[2] === 5 && header[3] === 6) || (header[2] === 7 && header[3] === 8))) return 'zip';
     return 'unknown';
 }
-
-const folderEntryCollator = new Intl.Collator(undefined, {
-    numeric: true,
-    sensitivity: 'base',
-});
-
-/** The order Open Folder opens a folder's files in: natural name order, so page-2 comes before page-10. */
-export function compareFolderEntryNames(left: string, right: string) {
-    return folderEntryCollator.compare(left, right) || left.localeCompare(right);
-}

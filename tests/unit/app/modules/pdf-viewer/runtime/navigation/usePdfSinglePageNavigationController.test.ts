@@ -1,3 +1,4 @@
+import type { Ref } from 'vue';
 import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 // @vitest-environment happy-dom
 
@@ -94,7 +95,7 @@ describe('usePdfSinglePageNavigationController', () => {
         // reports ready only when this test builds it.
         const textLayerBuilt = createDeferred();
         const viewportWrites = createTestPdfViewportWritePort();
-        const pageIndicator = ref(1);
+        let pageIndicator: Readonly<Ref<number>> = ref(1);
 
         try {
             const controller = scope.run(() => usePdfSinglePageNavigationController({
@@ -106,9 +107,7 @@ describe('usePdfSinglePageNavigationController', () => {
                 continuousScroll: ref(true),
                 isLoading: ref(false),
                 pdfDocument: shallowRef({numPages: 3} as IPdfDocument),
-                getMostVisiblePage: vi.fn(() => 1),
                 updateVisibleRange: vi.fn(),
-                updateCurrentPage: vi.fn(() => 1),
                 renderVisiblePages: async (range) => {
                     pages.get(range.start)!.innerHTML = '<div class="page_canvas"><canvas width="600" height="800"></canvas></div>';
                     freshPages.add(range.start);
@@ -123,9 +122,6 @@ describe('usePdfSinglePageNavigationController', () => {
                     start: 1,
                     end: 1,
                 }),
-                emitCurrentPage: (page) => {
-                    pageIndicator.value = page;
-                },
                 viewportWritePort: viewportWrites.port,
                 getPageLayoutMetrics: () => layout,
                 getPhysicalScrollOrigin: () => 0,
@@ -136,6 +132,7 @@ describe('usePdfSinglePageNavigationController', () => {
             if (!controller) {
                 throw new Error('Expected navigation controller');
             }
+            pageIndicator = controller.viewportAuthority.currentPage;
 
             expect(controller.submitNavigationRequest({
                 target: {
@@ -268,7 +265,7 @@ describe('usePdfSinglePageNavigationController', () => {
             throw new Error('Expected PDF layout metrics');
         }
         const viewportWrites = createTestPdfViewportWritePort();
-        const pageIndicator = ref(1);
+        let pageIndicator: Readonly<Ref<number>> = ref(1);
 
         try {
             const controller = scope.run(() => usePdfSinglePageNavigationController({
@@ -280,18 +277,13 @@ describe('usePdfSinglePageNavigationController', () => {
                 continuousScroll: ref(true),
                 isLoading: ref(false),
                 pdfDocument: shallowRef({numPages: 2} as IPdfDocument),
-                getMostVisiblePage: vi.fn(() => 1),
                 updateVisibleRange: vi.fn(),
-                updateCurrentPage: vi.fn(() => 1),
                 renderVisiblePages: vi.fn(async () => true),
                 isPageFreshlyRenderedForNavigation: vi.fn(() => true),
                 visibleRange: ref({
                     start: 1,
                     end: 1,
                 }),
-                emitCurrentPage: (page) => {
-                    pageIndicator.value = page;
-                },
                 viewportWritePort: viewportWrites.port,
                 getPageLayoutMetrics: () => layout,
                 getPhysicalScrollOrigin: () => 0,
@@ -302,6 +294,7 @@ describe('usePdfSinglePageNavigationController', () => {
             if (!controller) {
                 throw new Error('Expected navigation controller');
             }
+            pageIndicator = controller.viewportAuthority.currentPage;
 
             expect(controller.scrollToPage(requirePageNumber(2))).toBe(true);
             await vi.waitFor(() => {
@@ -402,7 +395,7 @@ describe('usePdfSinglePageNavigationController', () => {
             throw new Error('Expected PDF layout metrics');
         }
         const viewportWrites = createTestPdfViewportWritePort();
-        const pageIndicator = ref(1);
+        let pageIndicator: Readonly<Ref<number>> = ref(1);
 
         try {
             const controller = scope.run(() => usePdfSinglePageNavigationController({
@@ -414,18 +407,13 @@ describe('usePdfSinglePageNavigationController', () => {
                 continuousScroll: ref(true),
                 isLoading: ref(false),
                 pdfDocument: shallowRef({numPages: 2} as IPdfDocument),
-                getMostVisiblePage: vi.fn(() => 1),
                 updateVisibleRange: vi.fn(),
-                updateCurrentPage: vi.fn(() => 1),
                 renderVisiblePages: vi.fn(async () => true),
                 isPageFreshlyRenderedForNavigation: vi.fn(() => true),
                 visibleRange: ref({
                     start: 1,
                     end: 1,
                 }),
-                emitCurrentPage: (page) => {
-                    pageIndicator.value = page;
-                },
                 viewportWritePort: viewportWrites.port,
                 getPageLayoutMetrics: () => layout,
                 getPhysicalScrollOrigin: () => 0,
@@ -436,6 +424,7 @@ describe('usePdfSinglePageNavigationController', () => {
             if (!controller) {
                 throw new Error('Expected navigation controller');
             }
+            pageIndicator = controller.viewportAuthority.currentPage;
 
             expect(controller.submitNavigationRequest(createPageNavigationRequest(2, 'restore', {
                 page: 2,
@@ -499,7 +488,7 @@ describe('usePdfSinglePageNavigationController', () => {
             throw new Error('Expected PDF layout metrics');
         }
         const viewportWrites = createTestPdfViewportWritePort();
-        const pageIndicator = ref(1);
+        let pageIndicator: Readonly<Ref<number>> = ref(1);
 
         try {
             const controller = scope.run(() => usePdfSinglePageNavigationController({
@@ -511,18 +500,13 @@ describe('usePdfSinglePageNavigationController', () => {
                 continuousScroll: ref(false),
                 isLoading: ref(false),
                 pdfDocument: shallowRef({numPages: 3} as IPdfDocument),
-                getMostVisiblePage: vi.fn(() => 1),
                 updateVisibleRange: vi.fn(),
-                updateCurrentPage: vi.fn(() => 1),
                 renderVisiblePages: vi.fn(async () => true),
                 isPageFreshlyRenderedForNavigation: vi.fn(() => true),
                 visibleRange: ref({
                     start: 1,
                     end: 1,
                 }),
-                emitCurrentPage: (page) => {
-                    pageIndicator.value = page;
-                },
                 viewportWritePort: viewportWrites.port,
                 getPageLayoutMetrics: () => layout,
                 getPhysicalScrollOrigin: () => 0,
@@ -533,6 +517,7 @@ describe('usePdfSinglePageNavigationController', () => {
             if (!controller) {
                 throw new Error('Expected navigation controller');
             }
+            pageIndicator = controller.viewportAuthority.currentPage;
 
             expect(controller.scrollToPage(requirePageNumber(3))).toBe(true);
             await vi.waitFor(() => {
@@ -587,8 +572,8 @@ describe('usePdfSinglePageNavigationController', () => {
         }
         const preparation = createDeferred();
         const viewportWrites = createTestPdfViewportWritePort();
-        const pageIndicator = ref(1);
-        const navigationFeedbackPage = ref<number | null>(null);
+        let pageIndicator: Readonly<Ref<number>> = ref(1);
+        let navigationTargetPage: Readonly<Ref<number | null>> = ref(null);
         const preventDefault = vi.fn();
 
         try {
@@ -601,9 +586,7 @@ describe('usePdfSinglePageNavigationController', () => {
                 continuousScroll: ref(false),
                 isLoading: ref(false),
                 pdfDocument: shallowRef({numPages: 5} as IPdfDocument),
-                getMostVisiblePage: vi.fn(() => 1),
                 updateVisibleRange: vi.fn(),
-                updateCurrentPage: vi.fn(() => 1),
                 renderVisiblePages: vi.fn(async () => true),
                 prepareNavigationLayout: async () => preparation.promise,
                 isPageFreshlyRenderedForNavigation: vi.fn(() => true),
@@ -611,12 +594,6 @@ describe('usePdfSinglePageNavigationController', () => {
                     start: 1,
                     end: 1,
                 }),
-                emitCurrentPage: (page) => {
-                    pageIndicator.value = page;
-                },
-                emitNavigationFeedbackPage: (page) => {
-                    navigationFeedbackPage.value = page;
-                },
                 viewportWritePort: viewportWrites.port,
                 getPageLayoutMetrics: () => layout,
                 getPhysicalScrollOrigin: () => 0,
@@ -627,6 +604,8 @@ describe('usePdfSinglePageNavigationController', () => {
             if (!controller) {
                 throw new Error('Expected navigation controller');
             }
+            pageIndicator = controller.viewportAuthority.currentPage;
+            navigationTargetPage = controller.navigationAnchorPage;
 
             for (const timeStamp of [
                 1_000,
@@ -642,7 +621,7 @@ describe('usePdfSinglePageNavigationController', () => {
             }
             // Three flips are acknowledged as one destination while the
             // viewport waits on page 1 for the layout.
-            expect(navigationFeedbackPage.value).toBe(4);
+            expect(navigationTargetPage.value).toBe(4);
             expect(preventDefault).toHaveBeenCalledTimes(3);
             await yieldToBrowser();
             expect(pageIndicator.value).toBe(1);
@@ -651,7 +630,7 @@ describe('usePdfSinglePageNavigationController', () => {
             preparation.resolve();
             await vi.waitFor(() => {
                 expect(pageIndicator.value).toBe(4);
-                expect(navigationFeedbackPage.value).toBeNull();
+                expect(navigationTargetPage.value).toBeNull();
             });
             expect(viewportWrites.writes).toHaveLength(1);
             expect(controller.handleWheel({
@@ -718,7 +697,7 @@ describe('usePdfSinglePageNavigationController', () => {
         const targetLayout = buildLayout(turns === 0 ? 1.4 : 2, Math.abs(turns) % 2 === 1);
         let layout = wideLayout;
         const viewportWrites = createTestPdfViewportWritePort();
-        const pageIndicator = ref(1);
+        let pageIndicator: Readonly<Ref<number>> = ref(1);
 
         try {
             const controller = scope.run(() => usePdfSinglePageNavigationController({
@@ -730,18 +709,13 @@ describe('usePdfSinglePageNavigationController', () => {
                 continuousScroll: ref(true),
                 isLoading: ref(false),
                 pdfDocument: shallowRef({numPages: 6} as IPdfDocument),
-                getMostVisiblePage: vi.fn(() => 3),
                 updateVisibleRange: vi.fn(),
-                updateCurrentPage: vi.fn(() => 3),
                 renderVisiblePages: vi.fn(async () => true),
                 isPageFreshlyRenderedForNavigation: vi.fn(() => true),
                 visibleRange: ref({
                     start: 3,
                     end: 3,
                 }),
-                emitCurrentPage: (page) => {
-                    pageIndicator.value = page;
-                },
                 viewportWritePort: viewportWrites.port,
                 getPageLayoutMetrics: () => layout,
                 getPhysicalScrollOrigin: () => 0,
@@ -752,6 +726,7 @@ describe('usePdfSinglePageNavigationController', () => {
             if (!controller) {
                 throw new Error('Expected navigation controller');
             }
+            pageIndicator = controller.viewportAuthority.currentPage;
 
             // The user scrolls into page 3. getLayoutPageTop takes a
             // zero-based row index.

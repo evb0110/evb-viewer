@@ -15,6 +15,10 @@ import type {
 import { runOcrJob } from '@electron/features/ocr/pipeline/runOcrJob';
 import { resolveOcrPipelinePaths } from '@electron/features/ocr/main/paths';
 import {
+    runOcrEngine,
+    shutdownOcrEnginePool,
+} from '@electron/features/ocr/main/ocrEnginePool';
+import {
     getJobWindow,
     safeSendToWindow,
 } from '@electron/features/ocr/main/ocrProgressDispatch';
@@ -50,11 +54,11 @@ import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
 import * as v from 'valibot';
 import { runDetached } from '@electron/utils/runDetached';
-import { getWorkingCopyRevision } from '@electron/file-access/documentRevisionStore';
 import {
     getWorkingCopyBackingEntry,
-    normalizePathForLookup,
-} from '@electron/file-access/workingCopyStore';
+    getWorkingCopyRevision,
+} from '@electron/file-access/documentStore';
+import {normalizePathForLookup} from '@electron/file-access/normalizePathForLookup';
 import { removeOcrResultArtifacts } from '@electron/features/ocr/main/removeOcrResultArtifacts';
 import {
     createMainJobRegistry,
@@ -291,7 +295,8 @@ export async function handleOcrCreateSearchablePdfAsync(
             owner: toOcrActor(context),
             operation: {
                 kind: 'abortable-work',
-                workingCopyPath: sourcePdfPath,
+                // The document, not the file it reads, so closing the document stops the job.
+                workingCopyPath: documentRevision.documentRef,
             },
             ownerLifecycle: {
                 destroyed: 'detach',
@@ -335,7 +340,8 @@ export async function handleOcrCreateSearchablePdfAsync(
                     documentRevision,
                     pages,
                     options,
-                    paths: await resolveOcrPipelinePaths(),
+                    paths: resolveOcrPipelinePaths(),
+                    runEngine: runOcrEngine,
                     prepareEarlyPrintModels: signal => ensureTessdataModels(EARLY_PRINT_MODEL_CODES, {
                         signal,
                         onProgress: onModelDownloadProgress,
@@ -554,8 +560,9 @@ export function recoverOcrJobManager() {
     return Promise.resolve();
 }
 
-export function shutdownOcrJobManager() {
-    return ocrJobs.dispose();
+export async function shutdownOcrJobManager() {
+    await ocrJobs.dispose();
+    shutdownOcrEnginePool();
 }
 
 export function subscribeManagedOcrProgress(context: IOcrManagerContext) {

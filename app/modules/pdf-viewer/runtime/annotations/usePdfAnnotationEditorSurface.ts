@@ -112,7 +112,6 @@ export interface IAnnotationEditorSurface {
     handleEscape(): boolean;
     /** The selection's entities as the store last emitted them: they follow edits as well as selection changes. */
     readonly selectedAnnotations: ComputedRef<readonly AnnotationEntity[]>;
-    readonly selectedTextBox: ComputedRef<ITextBoxEntity | null>;
     canRotateSelectedAnnotations(delta: -90 | 90): boolean;
     updateSelectedAnnotationProperties(updates: IAnnotationPropertyUpdate): boolean | Promise<boolean>;
     readonly entitiesByPage: Readonly<Ref<ReadonlyMap<number, readonly AnnotationEntity[]>>>;
@@ -130,19 +129,14 @@ export interface IAnnotationEditorSurface {
     publishTextBoxAppearance(entity: ITextBoxEntity, handoff: () => void, appearance?: INativeTextBoxAppearance): void | Promise<void>;
     select(ids: readonly AnnotationId[], options?: { additive?: boolean }): void;
     clearSelection(): void;
-    getSelectedTextBox(): ITextBoxEntity | null;
     commitPendingTextBoxDraftsForSave(): void | Promise<void>;
     getPendingTextCompletion(): undefined | Promise<unknown>;
     runAcceptedCommand<T>(command: Promise<T> | (() => T | Promise<T>)): T | Promise<T>;
-    protectTextBoxDraft(annotationId: AnnotationId): void | Promise<void>;
     setTextBoxDraftPending(annotationId: AnnotationId, text?: string): void;
     restoreTextBoxDraftPending(annotationId: AnnotationId, geometry?: IAnnotationMarkerRect): void;
     hasTextBoxDraftPending(annotationId: AnnotationId): boolean;
     getTextBoxDraftText(annotationId: AnnotationId): string | null;
     getTextBoxDraftRect(annotationId: AnnotationId): IAnnotationMarkerRect | null;
-    updateSelectedTextBoxProperties(
-        updates: Partial<Pick<ITextBoxEntity, 'fontSize' | 'color'>>,
-    ): boolean | Promise<boolean>;
     discardUnsavedAnnotation(annotationId: AnnotationId): boolean;
     deleteAnnotation(annotationId: AnnotationId): boolean;
     deleteSelection(): void;
@@ -215,7 +209,6 @@ interface IUsePdfAnnotationEditorSurfaceOptions {
     getTextBoxDraftGeneration?: (annotationId: AnnotationId) => number | undefined;
     beforeTextBoxEdit?: (annotationId: AnnotationId) => void | Promise<void>;
     getPendingTextCompletion?: () => undefined | Promise<unknown>;
-    protectTextBoxDraft?: ((assertCurrent: () => void) => Promise<void>) | undefined;
     onToolCancel?: (() => void) | undefined;
     emitOpenNote?: (entity: AnnotationEntity) => void;
     resolveStampImage?: (entity: IPlacedImageEntity) => Promise<string | null>;
@@ -244,7 +237,7 @@ function baseEntityFields(author: string | null) {
     };
 }
 
-function textMarkupStyle(
+export function textMarkupStyle(
     settings: IAnnotationSettings | null,
     subtype: TMarkupSubtype,
 ) {
@@ -476,9 +469,6 @@ export const usePdfAnnotationEditorSurface = (
         ]));
         return [...selectedIds.value].flatMap(id => live.get(id) ?? []);
     });
-    const selectedTextBox = computed(() => (
-        selectedAnnotations.value.find((entity): entity is ITextBoxEntity => entity.kind === 'text-box') ?? null
-    ));
 
     function fitRotatedRectToPage(pageIndex: number, rect: IAnnotationMarkerRect, rotation: number) {
         const geometry = options.getPageGeometry?.(pageIndex);
@@ -721,16 +711,6 @@ export const usePdfAnnotationEditorSurface = (
             }
             return !changed;
         };
-    }
-
-    function protectTextBoxDraft(annotationId: AnnotationId) {
-        if (!options.protectTextBoxDraft) return;
-        const assertCurrent = captureTextBoxInput(annotationId);
-        const geometry = getTextBoxDraftRect(annotationId);
-        if (geometry) restoredTextBoxDraftRects.set(annotationId, geometry);
-        return options.protectTextBoxDraft(assertCurrent).then(() => {
-            assertCurrent();
-        });
     }
 
     function fitTextBox(entity: ITextBoxEntity, proposal: ITextBoxEntity) {
@@ -1121,7 +1101,6 @@ export const usePdfAnnotationEditorSurface = (
         focusSelectedAnnotation,
         handleEscape,
         selectedAnnotations,
-        selectedTextBox,
         canRotateSelectedAnnotations,
         updateSelectedAnnotationProperties,
         entitiesByPage,
@@ -1144,17 +1123,14 @@ export const usePdfAnnotationEditorSurface = (
         publishTextBoxAppearance,
         select,
         clearSelection,
-        getSelectedTextBox: () => getSelectedAnnotations().find((entity): entity is ITextBoxEntity => entity.kind === 'text-box') ?? null,
         commitPendingTextBoxDraftsForSave: commitTextSession,
         getPendingTextCompletion,
         runAcceptedCommand,
-        protectTextBoxDraft,
         setTextBoxDraftPending,
         restoreTextBoxDraftPending,
         hasTextBoxDraftPending,
         getTextBoxDraftText,
         getTextBoxDraftRect,
-        updateSelectedTextBoxProperties: updateSelectedAnnotationProperties,
         discardUnsavedAnnotation,
         deleteAnnotation,
         deleteSelection,

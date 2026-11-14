@@ -47,46 +47,12 @@ fn timing_env_emits_one_jbig2_record_for_a_bilevel_page() {
     let timing = records
         .iter()
         .find(|record| record["type"] == "jbig2-encode-timing")
-        .expect("timing mode must retain its per-mask record beside symbol-selection logs");
+        .expect("timing mode must emit its per-mask record");
     assert_eq!(timing["type"], "jbig2-encode-timing");
     assert_eq!(timing["width"], 512);
     assert_eq!(timing["height"], 512);
     assert!(timing["elapsedMs"].as_f64().unwrap() >= 0.0);
-    assert!(!records.iter().any(|record| {
-        matches!(
-            record["type"].as_str(),
-            Some("jbig2-symbol-selected" | "jbig2-symbol-not-selected")
-        )
-    }));
-
-    let symbol_output_path = base.with_extension("symbols.pdf");
-    let symbol_output = Command::new(env!("CARGO_BIN_EXE_evb-pdf-image-combine"))
-        .args(["--output"])
-        .arg(&symbol_output_path)
-        .args(["--compact-manifest"])
-        .arg(&manifest_path)
-        .arg("--shared-jbig2-symbols")
-        .env("EVB_PDF_COMBINE_TIMING", "1")
-        .output()
-        .unwrap();
-    assert!(
-        symbol_output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&symbol_output.stderr)
-    );
-    let symbol_records = String::from_utf8(symbol_output.stderr)
-        .unwrap()
-        .lines()
-        .map(|line| serde_json::from_str::<serde_json::Value>(line).unwrap())
-        .collect::<Vec<_>>();
-    assert!(symbol_records.iter().any(|record| {
-        matches!(
-            record["type"].as_str(),
-            Some("jbig2-symbol-selected" | "jbig2-symbol-not-selected")
-        )
-    }));
 
     let _ = fs::remove_file(manifest_path);
     let _ = fs::remove_file(output_path);
-    let _ = fs::remove_file(symbol_output_path);
 }

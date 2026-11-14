@@ -2627,7 +2627,7 @@ export async function readPdfHasEncryptDictionary(filePath: string) {
     return bytes.includes(Buffer.from('/Encrypt', 'latin1'));
 }
 
-export async function readPdfPageSnapshots(filePath: string): Promise<IPdfPageSnapshot[]> {
+export async function readPdfPageSnapshots(filePath: string | Uint8Array): Promise<IPdfPageSnapshot[]> {
     const document = await openPdfWithLowVerbosity(filePath);
     const pages: IPdfPageSnapshot[] = [];
 
@@ -2896,8 +2896,8 @@ function hasDjvuExtension(path: string) {
     return lowerPath.endsWith('.djvu') || lowerPath.endsWith('.djv');
 }
 
-async function openPdfWithLowVerbosity(filePath: string) {
-    const data = new Uint8Array(readFileSync(filePath));
+async function openPdfWithLowVerbosity(filePath: string | Uint8Array) {
+    const data = new Uint8Array(typeof filePath === 'string' ? readFileSync(filePath) : filePath);
     const task = pdfjs.getDocument({
         data,
         ...createPdfjsNodeDocumentOptions(),
@@ -2912,9 +2912,9 @@ interface IPdfjsOutlineSummary {
 }
 
 /** Reads page labels and the outline back through pdf.js, independently of the writer. */
-export async function readPdfCatalogWithPdfjs(filePath: string) {
+export async function readPdfCatalogWithPdfjs(filePath: string | Uint8Array) {
     const task = pdfjs.getDocument({
-        data: new Uint8Array(readFileSync(filePath)),
+        data: new Uint8Array(typeof filePath === 'string' ? readFileSync(filePath) : filePath),
         ...createPdfjsNodeDocumentOptions(),
     });
     const document = await task.promise;

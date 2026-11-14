@@ -5,7 +5,10 @@ import {
     rmSync,
     writeFileSync,
 } from 'node:fs';
-import {join} from 'node:path';
+import {
+    dirname,
+    join,
+} from 'node:path';
 import {
     describe,
     expect,
@@ -401,6 +404,7 @@ describe('TH-2 automatic E2E session pruning', () => {
         mkdirSync(join(appTempPath, 'pdf-work-recovery'), {recursive: true});
         mkdirSync(electronUserDataPath(name), {recursive: true});
         writeFileSync(workingCopyPath, 'recover this file', 'utf8');
+        mkdirSync(dirname(checkpointPath), {recursive: true});
         writeFileSync(checkpointPath, '{"checkpoint":true}', 'utf8');
 
         try {

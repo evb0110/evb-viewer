@@ -6,7 +6,10 @@ import {
     utimesSync,
     writeFileSync,
 } from 'node:fs';
-import {join} from 'node:path';
+import {
+    dirname,
+    join,
+} from 'node:path';
 import {
     describe,
     expect,
@@ -201,6 +204,7 @@ describe('Electron automation stop residue', () => {
                 nuxtPort: 45_403,
             }));
             mkdirSync(electronUserDataPath(sessionName), {recursive: true});
+            mkdirSync(dirname(checkpointPath), {recursive: true});
             writeFileSync(checkpointPath, '{"checkpoint":true}');
 
             await expect(
@@ -380,6 +384,7 @@ describe('Electron automation stop residue', () => {
         mkdirSync(sessionDir(sessionName), {recursive: true});
         utimesSync(sessionDir(sessionName), staleDate, staleDate);
         mkdirSync(electronUserDataPath(sessionName), {recursive: true});
+        mkdirSync(dirname(checkpointPath), {recursive: true});
         writeFileSync(checkpointPath, '{"checkpoint":true}');
         try {
             const result = await pruneStaleE2ESessions({

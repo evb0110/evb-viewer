@@ -26,7 +26,6 @@ import {
 } from '@electron/features/scan-cleanup/scanCleanupPreviewShared';
 import {pruneBaseAnalysisCache} from '@electron/features/scan-cleanup/scanCleanupPreviewRenderingPipeline';
 import {formatScanCleanupWarningEvent} from '@evb/scan-cleanup/core/policy/scanCleanupWarningEvents';
-import {decodeScanCleanupPreviewResult} from '@contracts/scan-cleanup/ipcResultCodecs';
 import {
     createScanCleanupPreviewTestContext,
     createScanCleanupPageRasterSource,
@@ -178,7 +177,7 @@ export async function scenarioReturnsRealSidecarBytesAndValidatedMetadata(): Pro
     });
     await service.dispose();
     await expect(readdir(dir)).resolves.toHaveLength(0);
-    expect(decodeScanCleanupPreviewResult(result)).toMatchObject({
+    expect(result).toMatchObject({
         pageNumber: 1,
         totalPages: 3,
         rawWidthPx: 1,
@@ -225,19 +224,6 @@ export async function scenarioReturnsRealSidecarBytesAndValidatedMetadata(): Pro
             }],
         },
     });
-    expect(() => decodeScanCleanupPreviewResult({
-        ...result,
-        outputs: [{
-            ...result.outputs[0]!,
-            metadata: {
-                ...result.outputs[0]!.metadata,
-                textToneDiagnostics: {
-                    ...result.outputs[0]!.metadata.textToneDiagnostics!,
-                    pictureFraction: 1.1,
-                },
-            },
-        }],
-    })).toThrow('text-tone');
 
 }
 
@@ -1361,7 +1347,7 @@ export async function scenarioUsesAnalysisOnlyOutputMetadataForTheLosslessOrigin
         skipBlankPages: false,
         experimental: {autoDewarp: false},
     });
-    expect(decodeScanCleanupPreviewResult(result)).toMatchObject({outputs: [
+    expect(result).toMatchObject({outputs: [
         {metadata: {
             half: 'left',
             outputWidthPx: 120,
@@ -1666,7 +1652,7 @@ export async function scenarioCarriesAPageTheEngineFittedBelowTheDocumentScaleAc
     const result = await previewOf(createRenderingScenarioOwner(deps), sender(), request);
 
     // The page arrives whole, with the native sentence.
-    expect(decodeScanCleanupPreviewResult(result)).toMatchObject({outputs: [{metadata: {
+    expect(result).toMatchObject({outputs: [{metadata: {
         outputWidthPx: 252,
         outputHeightPx: 232,
         canvasWidthPx: 200,
@@ -1686,77 +1672,6 @@ export async function scenarioCarriesAPageTheEngineFittedBelowTheDocumentScaleAc
             documentCanvasHeight: 180,
         })],
     }}]});
-
-}
-
-export async function scenarioRejectsAMatchedPageWhoseContentBoxDoesNotFitTheCanvasItNames(): Promise<void> {
-
-    const metadata = {
-        half: 'full',
-        layoutClassification: 'single-uncut-page',
-        layoutConfidence: 0.9,
-        sourceRegion: {
-            xPx: 0,
-            yPx: 0,
-            widthPx: 200,
-            heightPx: 180,
-        },
-        contentBox: null,
-        cropRect: {
-            xPx: 0,
-            yPx: 0,
-            widthPx: 252,
-            heightPx: 232,
-        },
-        appliedMargins: {
-            leftPx: 0,
-            topPx: 0,
-            rightPx: 0,
-            bottomPx: 0,
-        },
-        outputWidthPx: 252,
-        outputHeightPx: 232,
-        canvasWidthPx: 200,
-        canvasHeightPx: 180,
-        canvasPolicy: 'strict-maximum',
-        canvasOverflow: true,
-        // The box the page is placed in is wider than the canvas it is
-        // placed on, which no producer can mean: the content box is what
-        // every consumer lays out from.
-        matchedCanvasContentWidthPx: 220,
-        matchedCanvasContentHeightPx: 180,
-        placementOffsetXPx: 0,
-        placementOffsetYPx: 0,
-        forwardTransform: null,
-        cutterXPx: null,
-        inputWidthPx: 200,
-        inputHeightPx: 180,
-        rotationDegrees: 0,
-        canvasScope: 'page',
-        resamplePasses: 1,
-        rasterScaleLimited: false,
-        warnings: [],
-    };
-
-    expect(() => decodeScanCleanupPreviewResult({
-        pageNumber: 1,
-        totalPages: 1,
-        rawImageData: PNG,
-        rawWidthPx: 200,
-        rawHeightPx: 180,
-        pageMetadata: {
-            layoutClassification: 'single-uncut-page',
-            cutterXPx: null,
-            rotationDegrees: 0,
-            excluded: false,
-            blankOutputsSkipped: 0,
-            outputCount: 1,
-        },
-        outputs: [{
-            imageData: PNG,
-            metadata,
-        }],
-    })).toThrow(/intrinsic\/canvas placement/u);
 
 }
 
@@ -1999,10 +1914,6 @@ describe('scanCleanupPreviewRenderingTest', () => {
         [
             'carry engine fit across the bridge',
             scenarioCarriesAPageTheEngineFittedBelowTheDocumentScaleAcrossTheBridge,
-        ],
-        [
-            'reject content outside its named canvas',
-            scenarioRejectsAMatchedPageWhoseContentBoxDoesNotFitTheCanvasItNames,
         ],
         [
             'answer visible page after prefetch drop',

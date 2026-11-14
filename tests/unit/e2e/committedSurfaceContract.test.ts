@@ -73,6 +73,41 @@ function committedCanvas(sequence: number, shellId = 1) {
     });
 }
 
+function pageShell(sequence: number, shellId = 7, overrides: Partial<ICommittedSurfaceFrame> = {}) {
+    return frame(sequence, {
+        kind: 'page-shell', pageNumber: 1, shellId, shellRect: rect, shellStyle: style,
+        skeletonCount: 1, skeletonSharesShell: true, skeletonRect: rect, skeletonStyle,
+        ...overrides,
+    });
+}
+
+function canvasFrames(start: number, shellId = 1, count = 10) {
+    return Array.from({length: count}, (_, index) => committedCanvas(index + start, shellId));
+}
+
+function openingTrace() {
+    return [frame(1), pageShell(2), ...canvasFrames(3, 7)];
+}
+
+const causalContract = {
+    maxFirstCanvasMs: 2_500,
+    maxFirstPageShellMs: 1_250,
+    maxReadyAfterCanvasMs: 1_000,
+    requirePageShell: true,
+};
+
+function causalTrace(shellMs: number, canvasMs: number, count: number): ICommittedSurfaceFrame[] {
+    return [
+        frame(1, {openSurfacePhase: 'idle', openSurfacePresentation: 'idle'}),
+        pageShell(2, 7, {elapsedMs: shellMs, openSurfacePhase: 'geometry-committed', openSurfacePresentation: 'page-shell'}),
+        ...canvasFrames(3, 7, count).map((entry, index) => ({
+            ...entry, elapsedMs: canvasMs + index * 16,
+            openSurfacePhase: index === 0 ? 'viewport-committed' : 'ready',
+            openSurfacePresentation: index === 0 ? 'page-shell' : 'committed',
+        })),
+    ];
+}
+
 describe('committed surface E2E contract', () => {
     it('keeps pixel sampling enabled by default and serializes an explicit opt-out', async () => {
         const evaluate = vi.fn(async (_source: string) => undefined);
@@ -168,24 +203,61 @@ describe('committed surface E2E contract', () => {
         ]})).toEqual({frames: [committedCanvas(2)]});
     });
 
-    it('accepts empty to exact page-frame shell to a stable canvas', () => {
-        const frames = [
-            frame(1),
-            frame(2, {
-                kind: 'page-shell',
-                pageNumber: 1,
-                shellId: 7,
-                shellRect: rect,
-                shellStyle: style,
-                skeletonCount: 1,
-                skeletonSharesShell: true,
-                skeletonRect: rect,
-                skeletonStyle,
-            }),
-            ...Array.from({length: 10}, (_, index) => committedCanvas(index + 3, 7)),
-        ];
-
-        expect(findCommittedSurfaceContractViolations({frames})).toEqual([]);
+    it.each<{
+        name: string;
+        mutate: (frames: ICommittedSurfaceFrame[]) => ICommittedSurfaceFrame[];
+        errors: string[];
+    }>([
+        {name: 'accepts empty to exact page-frame shell to a stable canvas', mutate: frames => frames, errors: []},
+        {name: 'accepts an empty-to-document sample that begins at the first page shell', mutate: frames => frames.slice(1), errors: []},
+        {name: 'accepts the exact page frame before its skeleton appears', mutate: frames => [
+            pageShell(1, 6, {committedEmptySource: null, skeletonCount: 0, skeletonSharesShell: false, skeletonRect: null, skeletonStyle: null}),
+            ...frames.slice(1).map((entry, index) => index === 0 ? {...entry, committedEmptySource: null} : {...entry, shellId: 8}),
+        ], errors: []},
+        {name: 'accepts a logical shell handoff across wrappers when geometry and style stay exact', mutate: frames => frames.map((entry, index) =>
+            index === 0 ? committedCanvas(1, 11) : {...entry, shellId: index === 1 ? 12 : 13}), errors: []},
+        {name: 'accepts the canonical replacement page shell when the canvas reuses its wrapper', mutate: frames => frames.map((entry, index) =>
+            index === 0 ? committedCanvas(1, 12) : {...entry, shellId: 12}), errors: []},
+        {name: 'accepts a failed or superseded open that leaves the prior canvas committed', mutate: () => canvasFrames(1, 11, 12), errors: []},
+        {name: 'rejects a bare placeholder background misreported as committed empty', mutate: frames => [
+            frame(1, {committedEmptySource: null, emptyStateOwnsCenter: false, outerPlaceholderOwnsCenter: true,
+                outerPlaceholderPresent: true, outerPlaceholderVisible: true, topElementPath: 'div.workspace-host__placeholder > div.blank-background'}),
+            ...frames.slice(2),
+        ], errors: ['claimed committed-empty without visible empty-state content']},
+        {name: 'rejects any page-shell target, geometry, or style change before canvas commit', mutate: frames => [
+            ...frames.slice(0, 2),
+            pageShell(3, 8, {pageNumber: 2, shellRect: {...rect, width: rect.width + 12}, shellStyle: {...style, borderRadius: '4px'}}),
+            ...canvasFrames(4, 8),
+        ], errors: ['page shell target changed', 'page shell geometry changed before canvas commit', 'page shell style changed before canvas commit']},
+        {name: 'rejects an early post-canvas resize even when the final ten RAFs are stable', mutate: frames => [
+            ...frames.slice(0, 3),
+            ...canvasFrames(4, 7, 11).map(entry => ({...entry, shellRect: {...rect, left: rect.left - 20, width: rect.width + 40}})),
+        ], errors: ['changed after first paint at frame 4']},
+        ...(['blank', 'loader'] as const).map(kind => ({
+            name: `rejects a visible ${kind} frame`,
+            mutate: (frames: ICommittedSurfaceFrame[]) => [frames[0]!, frame(2, {kind}), ...frames.slice(2)],
+            errors: [`exposed ${kind}`],
+        })),
+        {name: 'compares every opening shell frame with the canvas, including one not yet measured', mutate: frames => [
+            frames[0]!, pageShell(2, 4, {openSurfaceDiagnostic: {openSurfaceHasGeometry: 'false', openSurfaceHasOpeningGeometry: 'true'},
+                shellRect: {...rect, width: rect.width / 2}, skeletonRect: {...rect, width: rect.width / 2}}), ...frames.slice(2),
+        ], errors: ['page shell geometry changed at canvas commit']},
+        {name: 'rejects a detached or geometrically different skeleton shell', mutate: frames => [
+            frames[0]!, pageShell(2, 4, {shellRect: {...rect, top: rect.top + 4}, shellStyle: {...style, boxShadow: 'none'},
+                skeletonSharesShell: false, skeletonRect: {...rect, top: rect.top + 4}, skeletonStyle: {...style, boxShadow: 'none'}}),
+            ...canvasFrames(3, 5),
+        ], errors: ['geometry changed', 'style changed']},
+        {name: 'rejects a visible skeleton anywhere outside the actual canvas wrapper', mutate: frames => [
+            frame(1, {outOfFrameSkeletonCount: 1}), ...frames.slice(2),
+        ], errors: ['outside the actual page canvas wrapper']},
+        {name: 'rejects a committed canvas outside the dedicated imperative render layer', mutate: () =>
+            canvasFrames(1).map(entry => ({...entry, canvasSharesRenderLayer: false})), errors: ['canvas escaped the imperative render layer']},
+        {name: 'rejects a skeleton that survives over a committed page visual', mutate: () =>
+            canvasFrames(1).map((entry, index) => ({...entry, skeletonCount: index === 0 ? 1 : 0})), errors: ['retained a skeleton over the committed visual']},
+    ])('$name', ({mutate, errors}) => {
+        const violations = findCommittedSurfaceContractViolations({frames: mutate(openingTrace())});
+        if (errors.length === 0) expect(violations).toEqual([]);
+        for (const message of errors) expect(violations.join('\n')).toContain(message);
     });
 
     it('allows only an explicitly deferred cold opening before the page shell exists', () => {
@@ -199,115 +271,11 @@ describe('committed surface E2E contract', () => {
         });
         const frames = [
             deferredOpening,
-            ...Array.from({length: 10}, (_, index) => committedCanvas(index + 2)),
+            ...canvasFrames(2, 1),
         ];
 
         expect(findCommittedSurfaceContractViolations({frames})).toContain('frame 1 exposed blank');
         expect(findCommittedSurfaceContractViolations({frames}, {allowDeferredOpening: true})).toEqual([]);
-    });
-
-    it('accepts an empty-to-document sample that begins at the first page shell', () => {
-        const frames = [
-            frame(1, {
-                committedEmptySource: null,
-                kind: 'page-shell',
-                pageNumber: 1,
-                shellId: 7,
-                shellRect: rect,
-                shellStyle: style,
-                skeletonCount: 1,
-                skeletonSharesShell: true,
-                skeletonRect: rect,
-                skeletonStyle,
-            }),
-            ...Array.from({length: 10}, (_, index) => committedCanvas(index + 2, 7)),
-        ];
-
-        expect(findCommittedSurfaceContractViolations({frames})).toEqual([]);
-    });
-
-    it('accepts the exact page frame before its skeleton appears', () => {
-        const frames = [
-            frame(1, {
-                committedEmptySource: null,
-                kind: 'page-shell',
-                pageNumber: 1,
-                shellId: 6,
-                shellRect: rect,
-                shellStyle: style,
-            }),
-            frame(2, {
-                committedEmptySource: null,
-                kind: 'page-shell',
-                pageNumber: 1,
-                shellId: 7,
-                shellRect: rect,
-                shellStyle: style,
-                skeletonCount: 1,
-                skeletonSharesShell: true,
-                skeletonRect: rect,
-                skeletonStyle,
-            }),
-            ...Array.from({length: 10}, (_, index) => committedCanvas(index + 3, 8)),
-        ];
-
-        expect(findCommittedSurfaceContractViolations({frames})).toEqual([]);
-    });
-
-    it('rejects a bare placeholder background misreported as committed empty', () => {
-        const frames = [
-            frame(1, {
-                committedEmptySource: null,
-                emptyStateOwnsCenter: false,
-                outerPlaceholderOwnsCenter: true,
-                outerPlaceholderPresent: true,
-                outerPlaceholderVisible: true,
-                topElementPath: 'div.workspace-host__placeholder > div.blank-background',
-            }),
-            ...Array.from({length: 10}, (_, index) => committedCanvas(index + 2)),
-        ];
-
-        expect(findCommittedSurfaceContractViolations({frames}).join('\n'))
-            .toContain('claimed committed-empty without visible empty-state content');
-    });
-
-    it('rejects any page-shell target, geometry, or style change before canvas commit', () => {
-        const firstShell = frame(2, {
-            kind: 'page-shell',
-            pageNumber: 1,
-            shellId: 7,
-            shellRect: rect,
-            shellStyle: style,
-            skeletonCount: 1,
-            skeletonSharesShell: true,
-            skeletonRect: rect,
-            skeletonStyle,
-        });
-        const changedShell = frame(3, {
-            ...firstShell,
-            frame: 3,
-            pageNumber: 2,
-            shellId: 8,
-            shellRect: {
-                ...rect,
-                width: rect.width + 12,
-            },
-            shellStyle: {
-                ...style,
-                borderRadius: '4px',
-            },
-        });
-        const frames = [
-            frame(1),
-            firstShell,
-            changedShell,
-            ...Array.from({length: 10}, (_, index) => committedCanvas(index + 4, 8)),
-        ];
-        const violations = findCommittedSurfaceContractViolations({frames}).join('\n');
-
-        expect(violations).toContain('page shell target changed');
-        expect(violations).toContain('page shell geometry changed before canvas commit');
-        expect(violations).toContain('page shell style changed before canvas commit');
     });
 
     it('accepts an atomic document-to-document swap while the old frame remains unchanged', () => {
@@ -332,102 +300,12 @@ describe('committed surface E2E contract', () => {
             shellRect: oldRect,
             shellStyle: oldStyle,
         }));
-        const newFrames = Array.from({length: 10}, (_, index) => committedCanvas(index + 4, 12));
+        const newFrames = canvasFrames(4, 12);
 
         expect(findCommittedSurfaceContractViolations({frames: [
             ...oldFrames,
             ...newFrames,
         ]})).toEqual([]);
-    });
-
-    it('rejects an early post-canvas resize even when the final ten RAFs are stable', () => {
-        const firstCanvas = committedCanvas(3, 7);
-        const widenedRect = {
-            ...rect,
-            left: rect.left - 20,
-            width: rect.width + 40,
-        };
-        const frames = [
-            frame(1),
-            frame(2, {
-                kind: 'page-shell',
-                pageNumber: 1,
-                shellId: 7,
-                shellRect: rect,
-                shellStyle: style,
-                skeletonCount: 1,
-                skeletonSharesShell: true,
-                skeletonRect: rect,
-                skeletonStyle,
-            }),
-            firstCanvas,
-            ...Array.from({length: 11}, (_, index) => ({
-                ...committedCanvas(index + 4, 7),
-                shellRect: widenedRect,
-            })),
-        ];
-
-        expect(findCommittedSurfaceContractViolations({frames}).join('\n'))
-            .toContain('changed after first paint at frame 4');
-    });
-
-    it('accepts a logical shell handoff across wrappers when geometry and style stay exact', () => {
-        const frames = [
-            committedCanvas(1, 11),
-            frame(2, {
-                kind: 'page-shell',
-                pageNumber: 1,
-                shellId: 12,
-                shellRect: rect,
-                shellStyle: style,
-                skeletonCount: 1,
-                skeletonSharesShell: true,
-                skeletonRect: rect,
-                skeletonStyle,
-            }),
-            ...Array.from({length: 10}, (_, index) => committedCanvas(index + 3, 13)),
-        ];
-
-        expect(findCommittedSurfaceContractViolations({frames})).toEqual([]);
-    });
-
-    it('accepts the canonical replacement page shell when the canvas reuses its wrapper', () => {
-        const frames = [
-            committedCanvas(1, 12),
-            frame(2, {
-                kind: 'page-shell',
-                pageNumber: 1,
-                shellId: 12,
-                shellRect: rect,
-                shellStyle: style,
-                skeletonCount: 1,
-                skeletonSharesShell: true,
-                skeletonRect: rect,
-                skeletonStyle,
-            }),
-            ...Array.from({length: 10}, (_, index) => committedCanvas(index + 3, 12)),
-        ];
-
-        expect(findCommittedSurfaceContractViolations({frames})).toEqual([]);
-    });
-
-    it('accepts a failed or superseded open that leaves the prior canvas committed', () => {
-        const frames = Array.from({length: 12}, (_, index) => committedCanvas(index + 1, 11));
-
-        expect(findCommittedSurfaceContractViolations({frames})).toEqual([]);
-    });
-
-    it.each([
-        'blank',
-        'loader',
-    ] as const)('rejects a visible %s frame', kind => {
-        const frames = [
-            frame(1),
-            frame(2, {kind}),
-            ...Array.from({length: 10}, (_, index) => committedCanvas(index + 3)),
-        ];
-
-        expect(findCommittedSurfaceContractViolations({frames}).join('\n')).toContain(`exposed ${kind}`);
     });
 
     it('requires visible progress while the opening page shape is unknown', () => {
@@ -440,7 +318,7 @@ describe('committed surface E2E contract', () => {
             openSurfacePhase: 'pending',
             openSurfaceDiagnostic: {openSurfaceHasOpeningGeometry: hasOpeningGeometry},
         });
-        const canvases = Array.from({length: 10}, (_, index) => committedCanvas(index + 3));
+        const canvases = canvasFrames(3, 1);
 
         expect(findCommittedSurfaceContractViolations({frames: [
             {
@@ -478,21 +356,10 @@ describe('committed surface E2E contract', () => {
             openSurfaceDocumentId: '/documents/a.pdf',
             openSurfaceGeneration: '2',
         };
-        const shell = frame(2, {
-            kind: 'page-shell',
-            openSurfaceDiagnostic: {
+        const shell = pageShell(2, 4, {openSurfaceDiagnostic: {
                 ...opening,
                 openSurfaceHasOpeningGeometry: 'true',
-            },
-            pageNumber: 1,
-            shellId: 4,
-            shellRect: rect,
-            shellStyle: style,
-            skeletonCount: 1,
-            skeletonSharesShell: true,
-            skeletonRect: rect,
-            skeletonStyle,
-        });
+            }, skeletonStyle});
         const backToBare = frame(3, {
             kind: 'blank',
             openSurfacePhase: 'pending',
@@ -501,7 +368,7 @@ describe('committed surface E2E contract', () => {
                 openSurfaceHasOpeningGeometry: 'false',
             },
         });
-        const canvases = Array.from({length: 10}, (_, index) => committedCanvas(index + 4));
+        const canvases = canvasFrames(4, 1);
 
         expect(findCommittedSurfaceContractViolations({frames: [
             frame(1),
@@ -529,104 +396,11 @@ describe('committed surface E2E contract', () => {
         ]}).join('\n')).toContain('frame 3 exposed opening-progress');
     });
 
-    it('compares every opening shell frame with the canvas, including one not yet measured', () => {
-        const narrowRect = {
-            ...rect,
-            width: rect.width / 2,
-        };
-        const frames = [
-            frame(1),
-            frame(2, {
-                kind: 'page-shell',
-                openSurfaceDiagnostic: {
-                    openSurfaceHasGeometry: 'false',
-                    openSurfaceHasOpeningGeometry: 'true',
-                },
-                pageNumber: 1,
-                shellId: 4,
-                shellRect: narrowRect,
-                shellStyle: style,
-                skeletonCount: 1,
-                skeletonSharesShell: true,
-                skeletonRect: narrowRect,
-                skeletonStyle,
-            }),
-            ...Array.from({length: 10}, (_, index) => committedCanvas(index + 3)),
-        ];
-
-        expect(findCommittedSurfaceContractViolations({frames}).join('\n'))
-            .toContain('page shell geometry changed at canvas commit');
-    });
-
-    it('rejects a detached or geometrically different skeleton shell', () => {
-        const frames = [
-            frame(1),
-            frame(2, {
-                kind: 'page-shell',
-                pageNumber: 1,
-                shellId: 4,
-                shellRect: {
-                    ...rect,
-                    top: rect.top + 4,
-                },
-                shellStyle: {
-                    ...style,
-                    boxShadow: 'none',
-                },
-                skeletonCount: 1,
-                skeletonSharesShell: false,
-                skeletonRect: {
-                    ...rect,
-                    top: rect.top + 4,
-                },
-                skeletonStyle: {
-                    ...style,
-                    boxShadow: 'none',
-                },
-            }),
-            ...Array.from({length: 10}, (_, index) => committedCanvas(index + 3, 5)),
-        ];
-        const violations = findCommittedSurfaceContractViolations({frames}).join('\n');
-
-        expect(violations).toContain('geometry changed');
-        expect(violations).toContain('style changed');
-    });
-
-    it('rejects a visible skeleton anywhere outside the actual canvas wrapper', () => {
-        const frames = [
-            frame(1, {outOfFrameSkeletonCount: 1}),
-            ...Array.from({length: 10}, (_, index) => committedCanvas(index + 2)),
-        ];
-
-        expect(findCommittedSurfaceContractViolations({frames}).join('\n'))
-            .toContain('outside the actual page canvas wrapper');
-    });
-
-    it('rejects a committed canvas outside the dedicated imperative render layer', () => {
-        const frames = Array.from({length: 10}, (_, index) => ({
-            ...committedCanvas(index + 1),
-            canvasSharesRenderLayer: false,
-        }));
-
-        expect(findCommittedSurfaceContractViolations({frames}).join('\n'))
-            .toContain('canvas escaped the imperative render layer');
-    });
-
-    it('rejects a skeleton that survives over a committed page visual', () => {
-        const frames = Array.from({length: 10}, (_, index) => ({
-            ...committedCanvas(index + 1),
-            skeletonCount: index === 0 ? 1 : 0,
-        }));
-
-        expect(findCommittedSurfaceContractViolations({frames}).join('\n'))
-            .toContain('retained a skeleton over the committed visual');
-    });
-
     it('allows one stable horizontal-overflow transition but rejects a pulse', () => {
         const stableTransitionFrames = [
             frame(1),
             frame(2),
-            ...Array.from({length: 10}, (_, index) => committedCanvas(index + 3)),
+            ...canvasFrames(3, 1),
         ];
         stableTransitionFrames.slice(2).forEach(current => {
             current.viewportHasHorizontalOverflow = true;
@@ -640,7 +414,7 @@ describe('committed surface E2E contract', () => {
                 viewportHasHorizontalOverflow: true,
                 viewportOverflow: 900,
             }),
-            ...Array.from({length: 10}, (_, index) => committedCanvas(index + 3)),
+            ...canvasFrames(3, 1),
         ];
 
         expect(findCommittedSurfaceContractViolations({frames}).join('\n')).toContain('overflow state pulsed');
@@ -809,90 +583,20 @@ describe('committed surface E2E contract', () => {
         expect(violations).toContain('width pulsed before high zoom');
     });
 
-    it('enforces causal shell, canvas, and ready timing for empty-to-document opens', () => {
-        const frames = [
-            frame(1, {
-                openSurfacePhase: 'idle',
-                openSurfacePresentation: 'idle',
-            }),
-            frame(2, {
-                elapsedMs: 180,
-                kind: 'page-shell',
-                openSurfacePhase: 'geometry-committed',
-                openSurfacePresentation: 'page-shell',
-                pageNumber: 1,
-                shellId: 7,
-                shellRect: rect,
-                shellStyle: style,
-                skeletonCount: 1,
-                skeletonSharesShell: true,
-                skeletonRect: rect,
-                skeletonStyle,
-            }),
-            ...Array.from({length: 10}, (_, index) => ({
-                ...committedCanvas(index + 3, 7),
-                elapsedMs: 420 + (index * 16),
-                openSurfacePhase: index === 0 ? 'viewport-committed' : 'ready',
-                openSurfacePresentation: index === 0 ? 'page-shell' : 'committed',
-            })),
-        ];
-
-        expect(findCommittedSurfaceCausalOpenViolations(
-            {frames},
-            {
-                maxFirstCanvasMs: 2_500,
-                maxFirstPageShellMs: 1_250,
-                maxReadyAfterCanvasMs: 1_000,
-                requirePageShell: true,
-            },
-        )).toEqual([]);
+    it.each([
+        {name: 'enforces causal shell, canvas, and ready timing for empty-to-document opens', shellMs: 180, canvasMs: 420, count: 10},
+        {name: 'uses the canonical page shell immediately after the empty baseline', shellMs: 16, canvasMs: 32, count: 11},
+    ])('$name', ({shellMs, canvasMs, count}) => {
+        expect(findCommittedSurfaceCausalOpenViolations({frames: causalTrace(shellMs, canvasMs, count)}, causalContract)).toEqual([]);
     });
 
     it('rejects delayed readiness and regressing open-surface authority', () => {
-        const frames = [
-            frame(1, {
-                openSurfacePhase: 'idle',
-                openSurfacePresentation: 'idle',
-            }),
-            frame(2, {
-                elapsedMs: 1_500,
-                kind: 'page-shell',
-                openSurfacePhase: 'geometry-committed',
-                openSurfacePresentation: 'page-shell',
-                pageNumber: 1,
-                shellId: 7,
-                shellRect: rect,
-                shellStyle: style,
-                skeletonCount: 1,
-                skeletonSharesShell: true,
-                skeletonRect: rect,
-                skeletonStyle,
-            }),
-            {
-                ...committedCanvas(3, 7),
-                elapsedMs: 2_700,
-                openSurfacePhase: 'canvas-committed',
-                openSurfacePresentation: 'page-shell',
-            },
-            {
-                ...committedCanvas(4, 7),
-                elapsedMs: 2_716,
-                openSurfacePhase: 'geometry-committed',
-                openSurfacePresentation: 'page-shell',
-            },
-            ...Array.from({length: 9}, (_, index) => ({
-                ...committedCanvas(index + 5, 7),
-                elapsedMs: 4_000 + (index * 16),
-                openSurfacePhase: 'ready',
-                openSurfacePresentation: 'committed',
-            })),
-        ];
-        const contract = {
-            maxFirstCanvasMs: 2_500,
-            maxFirstPageShellMs: 1_250,
-            maxReadyAfterCanvasMs: 1_000,
-            requirePageShell: true,
-        };
+        const frames = causalTrace(1_500, 2_700, 11).map((entry, index) => {
+            if (index === 2) return {...entry, openSurfacePhase: 'canvas-committed'};
+            if (index === 3) return {...entry, openSurfacePhase: 'geometry-committed', openSurfacePresentation: 'page-shell'};
+            return index >= 4 ? {...entry, elapsedMs: 4_000 + (index - 4) * 16} : entry;
+        });
+        const contract = causalContract;
         const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
         const reported = findCommittedSurfaceCausalOpenViolations({frames}, contract).join('\n');
         vi.stubEnv('EVB_E2E_TIMING_BUDGETS', 'enforce');
@@ -909,75 +613,8 @@ describe('committed surface E2E contract', () => {
         expect(enforced).toContain('authority regressed from canvas-committed to geometry-committed');
     });
 
-    it('uses the canonical page shell immediately after the empty baseline', () => {
-        const frames = [
-            frame(1, {
-                kind: 'committed-empty',
-                committedEmptySource: 'live-empty-state',
-                openSurfacePhase: 'idle',
-                openSurfacePresentation: 'idle',
-            }),
-            frame(2, {
-                elapsedMs: 16,
-                kind: 'page-shell',
-                openSurfacePhase: 'geometry-committed',
-                openSurfacePresentation: 'page-shell',
-                pageNumber: 1,
-                shellId: 7,
-                shellRect: rect,
-                shellStyle: style,
-                skeletonCount: 1,
-                skeletonSharesShell: true,
-                skeletonRect: rect,
-                skeletonStyle,
-            }),
-            ...Array.from({length: 11}, (_, index) => ({
-                ...committedCanvas(index + 3, 7),
-                elapsedMs: 32 + (index * 16),
-                openSurfacePhase: index === 0 ? 'viewport-committed' : 'ready',
-                openSurfacePresentation: index === 0 ? 'page-shell' : 'committed',
-            })),
-        ];
-
-        expect(findCommittedSurfaceCausalOpenViolations(
-            {frames},
-            {
-                maxFirstCanvasMs: 2_500,
-                maxFirstPageShellMs: 1_250,
-                maxReadyAfterCanvasMs: 1_000,
-                requirePageShell: true,
-            },
-        )).toEqual([]);
-    });
-
     it('summarizes causal timing and rejects competing pre-canvas render authority', () => {
-        const frames = [
-            frame(1),
-            frame(2, {
-                elapsedMs: 180,
-                kind: 'page-shell',
-                pageNumber: 1,
-                shellId: 7,
-                shellRect: rect,
-                shellStyle: style,
-                skeletonCount: 1,
-                skeletonSharesShell: true,
-                skeletonRect: rect,
-                skeletonStyle,
-            }),
-            {
-                ...committedCanvas(3, 7),
-                elapsedMs: 420,
-                openSurfacePhase: 'viewport-committed',
-                openSurfacePresentation: 'page-shell',
-            },
-            ...Array.from({length: 10}, (_, index) => ({
-                ...committedCanvas(index + 4, 7),
-                elapsedMs: 436 + (index * 16),
-                openSurfacePhase: 'ready',
-                openSurfacePresentation: 'committed',
-            })),
-        ];
+        const frames = causalTrace(180, 420, 11);
 
         expect(summarizeCommittedSurfaceTiming({frames})).toEqual({
             firstCanvasMs: 420,

@@ -13,13 +13,6 @@ export const ASSISTANT_SPEED_MODES = [
     'fast',
     'standard',
 ] as const satisfies readonly TAgentAssistantSpeedMode[];
-export const CLAUDE_ASSISTANT_EFFORTS = [
-    'low',
-    'medium',
-    'high',
-    'xhigh',
-    'max',
-] as const satisfies readonly TAgentAssistantEffort[];
 export const CODEX_ASSISTANT_EFFORTS = [
     'low',
     'medium',

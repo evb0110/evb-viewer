@@ -1,5 +1,5 @@
-# Tesseract and Leptonica source tarballs every engine build uses: the desktop
-# builds (Linux, macOS, Windows) and the browser WebAssembly build. Sourced, not run.
+# Tesseract and Leptonica source tarballs of the OCR engine's WebAssembly build,
+# which desktop and browser both run. Sourced, not run.
 # shellcheck shell=bash disable=SC2034
 TESSERACT_VERSION="5.5.3"
 TESSERACT_SHA256="9218e62793116d42a9f6d14cd9348518b27f382096eea3d0f2d1a24616bb5884"

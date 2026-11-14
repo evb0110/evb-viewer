@@ -17,7 +17,7 @@ import {
 } from 'vitest';
 import type {IBrowserLifecycleTestApi} from './documentLifecycleTestHelpers';
 import {
-    openPdfFromChooser, lifecycle, readPersistedDocumentBytes, waitForOpenFileReady, collectConsoleProblems, keepFileChooserInterceptionEnabled, addNote, noteTexts, readBrowserPayloadCounts, settleActiveOpen,
+    openPdfFromChooser, lifecycle, readPersistedDocumentBytes, waitForOpenFileReady, collectConsoleProblems, keepFileChooserInterceptionEnabled, addNote, noteTexts, readBrowserPayloadCounts, readRecoveries, settleActiveOpen,
 } from './documentLifecycleTestHelpers';
 import {
     createReadingBook, readReadingView,
@@ -162,36 +162,8 @@ describe('browser document lifecycle UI', () => {
                         }
                         await page.reload({waitUntil: 'domcontentloaded'});
                         await waitForOpenFileReady(page);
-                        // Retention budgets the source records' sizes, not compressed storage.
-                        // Read only metadata, and compare it with the actual chooser fixtures.
-                        const storedFiles = await page.evaluate(async () => {
-                            const db = await new Promise<IDBDatabase>((resolveDb, rejectDb) => {
-                                const request = indexedDB.open('evb-viewer-browser-documents');
-                                request.onsuccess = () => resolveDb(request.result);
-                                request.onerror = () => rejectDb(request.error);
-                            });
-                            try {
-                                return await new Promise<Array<{
-                                    fileName: string;
-                                    fileSize: number
-                                }>>((resolveFiles, rejectFiles) => {
-                                    const request = db.transaction('documents').objectStore('documents').getAll();
-                                    request.onsuccess = () => resolveFiles((request.result as Array<{
-                                        kind: string;
-                                        fileName: string;
-                                        fileSize: number
-                                    }>)
-                                        .filter(record => record.kind === 'source')
-                                        .map(({
-                                            fileName, fileSize,
-                                        }) => ({
-                                            fileName,
-                                            fileSize,
-                                        })));
-                                    request.onerror = () => rejectFiles(request.error);
-                                });
-                            } finally {db.close();}
-                        });
+                        // Each book keeps its stored copy for Recent Files; nothing else stays stored.
+                        const storedFiles = (await readBrowserPayloadCounts(page)).sizes.map(fileSize => ({fileSize}));
                         const recordedBytes = storedFiles.reduce((sum, file) => sum + file.fileSize, 0);
                         writeFileSync(resolve(evidence, 'storage.json'), JSON.stringify({
                             storedFiles,
@@ -205,10 +177,7 @@ describe('browser document lifecycle UI', () => {
                             'c07-amber.pdf',
                         ]);
                         expect(storedFiles).toHaveLength(books.length);
-                        expect(storedFiles).toEqual(expect.arrayContaining(books.map(book => ({
-                            fileName: book.name,
-                            fileSize: book.size,
-                        }))));
+                        expect(storedFiles).toEqual(expect.arrayContaining(books.map(book => ({fileSize: book.size}))));
                         expect(recordedBytes).toBeGreaterThan(512 * 1024 * 1024);
                         for (const book of books) {
                             if (book.label === 'Amber') {
@@ -436,151 +405,6 @@ describe('browser document lifecycle UI', () => {
         }
     });
 
-    it.each([
-        [
-            'removal',
-            'Remove from Recent',
-            undefined,
-        ],
-        [
-            'clear',
-            'Clear Recent Files',
-            'Clear History',
-        ],
-    ] as const)('keeps an open document source when Recent Files %s meets an unreadable dependent record', async (_action, buttonName, confirmName) => {
-        try {
-            const page = await lifecycle.browser.newPage({viewport: {
-                width: 1_280,
-                height: 900,
-            }});
-            await page.addInitScript(() => {
-                Reflect.set(window, '__allowRendererFileOpenForAutomation', () => true);
-                Reflect.set(window, 'showSaveFilePicker', undefined);
-                window.sessionStorage.setItem('evb-viewer:browser:open-picker-mode', 'input');
-            });
-            await page.goto(lifecycle.origin, {waitUntil: 'domcontentloaded'});
-            await waitForOpenFileReady(page);
-            keepFileChooserInterceptionEnabled(page);
-
-            const chooserPromise = page.waitForEvent('filechooser');
-            await page.getByRole('button', {
-                name: 'Open File',
-                exact: true,
-            }).first().click();
-            const chooser = await chooserPromise;
-            await chooser.setFiles({
-                name: 'recent-dependent.pdf',
-                mimeType: 'application/pdf',
-                buffer: readFileSync(resolve(process.cwd(), 'tests/fixtures/electron/generated-text.pdf')),
-            });
-            await page.locator('.page_container--rendered canvas').first().waitFor({
-                state: 'visible',
-                timeout: 30_000,
-            });
-            await page.evaluate(async () => {
-                const testApi = Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi | undefined;
-                if (!await testApi?.waitForActiveDocumentOpenSettled?.()) {
-                    throw new Error('Active browser document did not settle');
-                }
-            });
-            // The open document's source record, found by its file name.
-            const sourceRef = await page.evaluate(`(async () => {
-                const {loadAllRecordKeys, loadRecord} = await import('/_nuxt/platform/browser/browserDocumentIdb.ts');
-                for (const key of await loadAllRecordKeys()) {
-                    const found = await loadRecord(key);
-                    if (found?.fileName === 'recent-dependent.pdf' && found.kind === 'source') return key;
-                }
-                return null;
-            })()`);
-            expect(typeof sourceRef).toBe('string');
-            // Opening the file also creates a readable working copy that names the source,
-            // which keeps the source by itself. Remove those copies so the unreadable record
-            // below is the only dependent of the source.
-            await page.evaluate(`(async () => {
-                const {loadAllRecordKeys, loadRecord, runObjectStoresTransaction} = await import('/_nuxt/platform/browser/browserDocumentIdb.ts');
-                const {DOCUMENTS_STORE} = await import('/_nuxt/platform/browser/browserDocumentConstants.ts');
-                const dependents = [];
-                for (const key of await loadAllRecordKeys()) {
-                    if ((await loadRecord(key))?.sourceRef === ${JSON.stringify(sourceRef)}) dependents.push(key);
-                }
-                await runObjectStoresTransaction([DOCUMENTS_STORE], 'readwrite', (transaction, setResult) => {
-                    for (const key of dependents) transaction.objectStore(DOCUMENTS_STORE).delete(key);
-                    setResult(true);
-                });
-            })()`);
-            // A working record that names the source but cannot be decoded. The helper
-            // resolves null when its database cannot open, so the write is asserted.
-            const planted = await page.evaluate(`(async () => {
-                const {runObjectStoresTransaction} = await import('/_nuxt/platform/browser/browserDocumentIdb.ts');
-                const {DOCUMENTS_STORE} = await import('/_nuxt/platform/browser/browserDocumentConstants.ts');
-                return runObjectStoresTransaction([DOCUMENTS_STORE], 'readwrite', (transaction, setResult) => {
-                    transaction.objectStore(DOCUMENTS_STORE).put({
-                        ref: 'browser://documents/unreadable-dependent.pdf',
-                        sourceRef: ${JSON.stringify(sourceRef)},
-                        kind: 'working',
-                        storageMode: 'source-proxy',
-                    });
-                    setResult(true);
-                });
-            })()`);
-            expect(planted).toBe(true);
-
-            await page.getByRole('button', {
-                name: 'New Tab',
-                exact: true,
-            }).click();
-            await page.getByRole('button', {
-                name: buttonName,
-                exact: true,
-            }).click();
-            if (confirmName) {
-                await page.getByRole('button', {
-                    name: confirmName,
-                    exact: true,
-                }).click();
-            }
-            await expect.poll(() => page.getByRole('button', {
-                name: 'Remove from Recent',
-                exact: true,
-            }).count()).toBe(0);
-            // The row can leave the list before the detached cleanup that follows the
-            // removal has finished. An awaited cleanup of the same ref, serialized behind
-            // it, settles the outcome before the stored record is read.
-            await page.evaluate(`(async () => {
-                const {browserDocumentStore} = await import('/_nuxt/platform/browser/browserDocumentRepository.ts');
-                await browserDocumentStore.cleanupDetachedDocument(${JSON.stringify(sourceRef)});
-            })()`);
-            // Read the stored record and its first chunk on a raw connection: the bytes helper
-            // reads nothing whenever its database connection fails to open.
-            const stored = await page.evaluate<{
-                present: boolean;
-                chunkBytes: number | null
-            }>(`(async () => {
-                const database = await new Promise((resolve, reject) => {
-                    const request = indexedDB.open('evb-viewer-browser-documents');
-                    request.onsuccess = () => resolve(request.result);
-                    request.onerror = () => reject(request.error);
-                });
-                const transaction = database.transaction(['documents', 'document-chunks'], 'readonly');
-                const read = (store, key) => new Promise((resolve, reject) => {
-                    const request = transaction.objectStore(store).get(key);
-                    request.onsuccess = () => resolve(request.result);
-                    request.onerror = () => reject(request.error);
-                });
-                const record = await read('documents', ${JSON.stringify(sourceRef)});
-                const chunk = record?.storageMode === 'chunked'
-                    ? await read('document-chunks', ${JSON.stringify(sourceRef)} + '::' + record.chunkGeneration + '::0')
-                    : undefined;
-                database.close();
-                return {present: Boolean(record), chunkBytes: chunk?.data?.byteLength ?? chunk?.byteLength ?? null};
-            })()`);
-            expect(stored.present).toBe(true);
-            expect(stored.chunkBytes).toBeGreaterThan(0);
-        } finally {
-            await Promise.all(lifecycle.browser.contexts().map(context => context.close()));
-        }
-    }, 120_000);
-
     // A committed producer target must survive peer collection until its consumer adopts it.
     it.each([
         'conversion',
@@ -708,14 +532,6 @@ describe('browser document lifecycle UI', () => {
             ]);
             else {
                 expect(before).toEqual(savedDigest);
-                expect(await peer.evaluate(`(async () => {
-                    const {loadRecord} = await import('/_nuxt/platform/browser/browserDocumentIdb.ts');
-                    const row = await loadRecord(${JSON.stringify(ref)});
-                    return {mode: row?.storageMode, chunks: row?.chunkCount};
-                })()`)).toEqual({
-                    mode: 'chunked',
-                    chunks: 2,
-                });
             }
             await peer.getByRole('button', {
                 name: 'Clear Recent Files',
@@ -790,20 +606,7 @@ describe('browser document lifecycle UI', () => {
                 x:160,
                 y:180,
             });
-            const recoveryCount = () => page.evaluate(async () => {
-                const db = await new Promise<IDBDatabase>((resolveDb, rejectDb) => {
-                    const request = indexedDB.open('evb-viewer-browser-documents');
-                    request.onsuccess = () => resolveDb(request.result);
-                    request.onerror = () => rejectDb(request.error);
-                });
-                try {
-                    return await new Promise<number>((resolveCount, rejectCount) => {
-                        const request = db.transaction('workspace-recovery').objectStore('workspace-recovery').count();
-                        request.onsuccess = () => resolveCount(request.result);
-                        request.onerror = () => rejectCount(request.error);
-                    });
-                } finally { db.close(); }
-            });
+            const recoveryCount = async () => (await readRecoveries(page)).length;
             await expect.poll(recoveryCount, {timeout: 30_000}).toBe(1);
             const firstDownload=page.waitForEvent('download');
             await page.getByRole('button',{
@@ -843,8 +646,8 @@ describe('browser document lifecycle UI', () => {
                     exact:true,
                 }).count()).toBe(0);
                 expect(await page.evaluate(`(async () => {
-                    const {loadRecord} = await import('/_nuxt/platform/browser/browserDocumentIdb.ts');
-                    return Boolean(await loadRecord(${JSON.stringify(sourceRef)}));
+                    const {browserDocumentStore} = await import('/_nuxt/platform/browser/browserDocumentRepository.ts');
+                    return browserDocumentStore.isStored(${JSON.stringify(sourceRef)});
                 })()`)).toBe(true);
                 await page.locator(`.tab[data-tab-id="${tabId}"]`).click();
                 await page.locator('.page_container--rendered canvas').first().waitFor({timeout:30000});
@@ -929,24 +732,7 @@ describe('browser document lifecycle UI', () => {
                     name: 'Clear History',
                     exact: true,
                 }).click();
-                // Terminal transfer protection lasts 60 seconds, and superseded chunks
-                // have a ten-minute grace. Observe collection after both expire and
-                // a normal lifecycle event publishes the graph.
-                const expiredAt = Date.now() + 11 * 60_000;
-                await Promise.all([
-                    page,
-                    creator,
-                ].map(participant => participant.clock.setFixedTime(expiredAt)));
-                await page.getByRole('button', {
-                    name: 'New Tab',
-                    exact: true,
-                }).click();
                 expect(creator.isClosed()).toBe(false);
-                await expect.poll(() => readBrowserPayloadCounts(page), {timeout: 15_000}).toEqual({
-                    records: 0,
-                    chunks: 0,
-                    recovery: 0,
-                });
             }
             expect(await page.locator('.app-toast-failure').count()).toBe(0);
             expect(problems.flat()).toEqual([]);

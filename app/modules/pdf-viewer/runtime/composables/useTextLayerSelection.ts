@@ -4,10 +4,10 @@ import { useEventListener } from '@vueuse/core';
 interface ITextLayerEntry {
     textLayer: HTMLElement;
     endOfContent: HTMLElement;
+    stopMouseDown: () => void;
 }
 
 const textLayers = new Map<HTMLElement, ITextLayerEntry>();
-const mouseDownStops = new WeakMap<HTMLElement, () => void>();
 let stopGlobalSelectionListeners: (() => void) | null = null;
 let prevRange: Range | null = null;
 let isPointerDown = false;
@@ -254,6 +254,7 @@ function teardownTextLayer(textLayerDiv: HTMLElement) {
         textLayers.delete(textLayerDiv);
         textLayerDiv.classList.remove('selecting');
         entry.endOfContent.remove();
+        entry.stopMouseDown();
     }
 
     if (activeSelectionLayer === textLayerDiv) {
@@ -263,65 +264,38 @@ function teardownTextLayer(textLayerDiv: HTMLElement) {
         previousSelectionLayer = null;
     }
 
-    const stopMouseDown = mouseDownStops.get(textLayerDiv);
-    if (stopMouseDown) {
-        stopMouseDown();
-        mouseDownStops.delete(textLayerDiv);
-    }
-
     if (textLayers.size === 0 && stopGlobalSelectionListeners) {
         stopGlobalSelectionListeners();
         stopGlobalSelectionListeners = null;
         prevRange = null;
-        activeSelectionLayer = null;
-        previousSelectionLayer = null;
     }
 }
 
-export const useTextLayerSelection = () => {
-    function setupTextLayer(textLayerDiv: HTMLElement) {
-        const existingEntry = textLayers.get(textLayerDiv);
-        if (existingEntry) {
-            return () => {
-                teardownTextLayer(textLayerDiv);
-            };
-        }
+/** Selection behavior of a complete text layer; the layer's teardown ends it. */
+function setupTextLayer(textLayerDiv: HTMLElement) {
+    teardownTextLayer(textLayerDiv);
+    const endOfContent = document.createElement('div');
+    endOfContent.className = 'end-of-content';
+    textLayerDiv.appendChild(endOfContent);
+    const stopMouseDown = useEventListener(
+        textLayerDiv,
+        'mousedown',
+        () => {
+            // The last drag left the sentinel selectable; clear that
+            // before this press places its caret over the whole page.
+            endOfContent.style.userSelect = 'none';
+            textLayerDiv.classList.add('selecting');
+        },
+    );
+    textLayers.set(textLayerDiv, {
+        textLayer: textLayerDiv,
+        endOfContent,
+        stopMouseDown,
+    });
+    enableGlobalSelectionListener();
+}
 
-        for (const staleEndOfContent of textLayerDiv.querySelectorAll<HTMLElement>('.end-of-content[data-evb-text-layer-selection="true"]')) {
-            staleEndOfContent.remove();
-        }
-
-        const endOfContent = document.createElement('div');
-        endOfContent.className = 'end-of-content';
-        endOfContent.dataset.evbTextLayerSelection = 'true';
-        textLayerDiv.appendChild(endOfContent);
-
-        let stopMouseDown = mouseDownStops.get(textLayerDiv);
-        if (!stopMouseDown) {
-            stopMouseDown = useEventListener(
-                textLayerDiv,
-                'mousedown',
-                () => {
-                    // The last drag left the sentinel selectable; clear that
-                    // before this press places its caret over the whole page.
-                    endOfContent.style.userSelect = 'none';
-                    textLayerDiv.classList.add('selecting');
-                },
-            );
-            mouseDownStops.set(textLayerDiv, stopMouseDown);
-        }
-
-        textLayers.set(textLayerDiv, {
-            textLayer: textLayerDiv,
-            endOfContent,
-        });
-
-        enableGlobalSelectionListener();
-
-        return () => {
-            teardownTextLayer(textLayerDiv);
-        };
-    }
-
-    return { setupTextLayer };
-};
+export const useTextLayerSelection = () => ({
+    setupTextLayer,
+    teardownTextLayer,
+});

@@ -80,7 +80,7 @@ describe('workspace document controller views', () => {
             target,
             transactionId,
         }, async () => {
-            controller.commitDocument({
+            controller.commitFile({
                 ...target,
                 isDjvu: false,
                 revisionInfo: null,
@@ -107,7 +107,7 @@ describe('workspace document controller views', () => {
             kind: 'open',
             target,
         }, async () => {
-            controller.commitDocument({
+            controller.commitFile({
                 ...target,
                 isDjvu: false,
                 revisionInfo: null,
@@ -122,9 +122,8 @@ describe('workspace document controller views', () => {
             target,
             transactionId,
         }, async () => {
-            controller.commitDocument({
+            controller.commitFile({
                 ...target,
-                fileName: 'stale.pdf',
                 isDjvu: false,
                 revisionInfo: null,
             });
@@ -150,8 +149,7 @@ describe('workspace document controller views', () => {
         const admitted = controller.snapshot.value.identity;
         const savedPath = requireDocumentRef('/docs/saved.pdf');
         const workingPath = requireDocumentRef('/working/saved.pdf');
-        controller.commitDocument({
-            fileName: 'saved.pdf',
+        controller.commitFile({
             originalPath: savedPath,
             isDjvu: false,
             revisionInfo: {
@@ -195,7 +193,7 @@ describe('workspace document controller views', () => {
             target,
         });
         expect(controller.validateCommandTarget(oldTarget).ok).toBe(false);
-        controller.commitDocument({
+        controller.commitFile({
             ...target,
             isDjvu: false,
             revisionInfo: null,
@@ -225,8 +223,7 @@ describe('workspace document controller views', () => {
             kind: 'restore',
             target: {originalPath: sourcePath},
         });
-        controller.commitDocument({
-            fileName: 'source.pdf',
+        controller.commitFile({
             originalPath: sourcePath,
             isDjvu: false,
             revisionInfo: {

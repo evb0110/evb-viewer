@@ -1,9 +1,7 @@
 import {
-    getPageRectBounds,
     type IPageRectBounds,
 } from '@app/modules/pdf-viewer/engine/annotation-geometry/getPageRectBounds';
 import type { TPageRotation } from '@app/modules/pdf-viewer/engine/annotation-geometry/pageRotation';
-import { normalizePageRotation } from '@app/modules/pdf-viewer/engine/annotation-geometry/normalizePageRotation';
 
 export function toMarkerPointInPageBounds(
     x: number,
@@ -36,18 +34,4 @@ export function toMarkerPointInPageBounds(
                 y: 1 - normY,
             };
     }
-}
-
-export function toMarkerPointFromPdfPoint(
-    x: number,
-    y: number,
-    pageView: number[] | null | undefined,
-    pageRotation: TPageRotation = 0,
-) {
-    const bounds = getPageRectBounds(pageView);
-    if (!bounds) {
-        return null;
-    }
-
-    return toMarkerPointInPageBounds(x, y, bounds, normalizePageRotation(pageRotation));
 }

@@ -1,7 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import { discardWorkspaceCheckpoint } from '@electron/workspaceCheckpointStore';
-import { cleanupWorkingCopy } from '@electron/file-access/workingCopyCleanup';
-import { workingCopyMap } from '@electron/file-access/workingCopyStore';
+import {
+    cleanupWorkingCopy,
+    openDocuments,
+} from '@electron/file-access/documentStore';
 import type {
     BrowserWindow,
     IpcMain,
@@ -222,7 +224,7 @@ export function attachNativeWindowCloseHandshake(
             for (const [
                 path,
                 entry,
-            ] of [...workingCopyMap]) {
+            ] of [...openDocuments]) {
                 if (entry.ownerWebContentsId === ownerWebContentsId) {
                     await cleanupWorkingCopy(path, ownerWebContentsId);
                 }

@@ -6,6 +6,7 @@ import {
 } from 'vitest';
 import { delay } from 'es-toolkit/promise';
 import { ref } from 'vue';
+import {requireDocumentRef} from '@contracts/documentRef';
 import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
 import { registerTabsMenuBindings } from '@app/modules/workspace-shell/menu/registerTabsMenuBindings';
 import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
@@ -49,157 +50,46 @@ function createDeps(overrides: Partial<Parameters<typeof registerTabsMenuBinding
     } satisfies Parameters<typeof registerTabsMenuBindings>[1];
 }
 
-function createMenuApi() {
-    let onMenuOpenPdf: (() => void) | null = null;
-    let onMenuRepairSave: (() => void) | null = null;
-    let onMenuOptimizePdfForInteraction: (() => void) | null = null;
-    let onMenuPrint: (() => void) | null = null;
-    let onMenuPrintCurrentPage: (() => void) | null = null;
-    let onMenuOpenExternalPaths: ((paths: string[]) => void) | null = null;
-    let onMenuOpenRecentFile: ((path: string) => void) | null = null;
-
-    const menuApi = {
-        onMenuOpenPdf: vi.fn((callback: () => void) => {
-            onMenuOpenPdf = callback;
-            return () => {
-                onMenuOpenPdf = null;
-            };
-        }),
-        onMenuRepairSave: vi.fn((callback: () => void) => {
-            onMenuRepairSave = callback;
-            return () => {
-                onMenuRepairSave = null;
-            };
-        }),
-        onMenuOptimizePdfForInteraction: vi.fn((callback: () => void) => {
-            onMenuOptimizePdfForInteraction = callback;
-            return () => {
-                onMenuOptimizePdfForInteraction = null;
-            };
-        }),
-        onMenuPrint: vi.fn((callback: () => void) => {
-            onMenuPrint = callback;
-            return () => {
-                onMenuPrint = null;
-            };
-        }),
-        onMenuPrintCurrentPage: vi.fn((callback: () => void) => {
-            onMenuPrintCurrentPage = callback;
-            return () => {
-                onMenuPrintCurrentPage = null;
-            };
-        }),
-        onMenuOpenExternalPaths: vi.fn((callback: (paths: string[]) => void) => {
-            onMenuOpenExternalPaths = callback;
-            return () => {
-                onMenuOpenExternalPaths = null;
-            };
-        }),
-        onMenuOpenRecentFile: vi.fn((callback: (path: string) => void) => {
-            onMenuOpenRecentFile = callback;
-            return () => {
-                onMenuOpenRecentFile = null;
-            };
-        }),
-    };
-    const platformApi = createElectronPlatformApiFixture();
-    Object.assign(platformApi.documentMenu, menuApi);
-    const api = {
-        documentMenu: platformApi.documentMenu,
-        settings: platformApi.settings,
-        updates: platformApi.updates,
-        djvu: platformApi.djvu,
-        windowTabs: platformApi.windowTabs,
-    } satisfies Parameters<typeof registerTabsMenuBindings>[0];
-
-    return {
-        api,
-        emitOpenPdf() {
-            onMenuOpenPdf?.();
-        },
-        emitRepairSave() {
-            onMenuRepairSave?.();
-        },
-        emitOptimizePdfForInteraction() {
-            onMenuOptimizePdfForInteraction?.();
-        },
-        emitPrint() {
-            onMenuPrint?.();
-        },
-        emitPrintCurrentPage() {
-            onMenuPrintCurrentPage?.();
-        },
-        emitExternalPaths(paths: string[]) {
-            onMenuOpenExternalPaths?.(paths);
-        },
-        emitRecentFile(path: string) {
-            onMenuOpenRecentFile?.(path);
-        },
-    };
-}
-
 // Menu events and the workspace command each one must run.
 const MENU_COMMANDS = [
-    [
-        'documentMenu',
-        'onMenuSave',
-        'handleSave',
-    ],
-    [
-        'documentMenu',
-        'onMenuSaveAs',
-        'handleSaveAs',
-    ],
-    [
-        'documentMenu',
-        'onMenuUndo',
-        'handleUndo',
-    ],
-    [
-        'documentMenu',
-        'onMenuZoomIn',
-        'handleZoomIn',
-    ],
-    [
-        'documentMenu',
-        'onMenuViewModeFacing',
-        'handleViewModeFacing',
-    ],
-    [
-        'documentMenu',
-        'onMenuRotateCw',
-        'handleRotateCw',
-    ],
-    [
-        'djvu',
-        'onMenuConvertToPdf',
-        'handleConvertToPdf',
-    ],
+    ['documentMenu', 'onMenuSave', 'handleSave'],
+    ['documentMenu', 'onMenuSaveAs', 'handleSaveAs'],
+    ['documentMenu', 'onMenuUndo', 'handleUndo'],
+    ['documentMenu', 'onMenuZoomIn', 'handleZoomIn'],
+    ['documentMenu', 'onMenuViewModeFacing', 'handleViewModeFacing'],
+    ['documentMenu', 'onMenuRotateCw', 'handleRotateCw'],
+    ['djvu', 'onMenuConvertToPdf', 'handleConvertToPdf'],
 ] as const;
 
 function createRegistryMenuApi() {
     const callbacks = new Map<string, () => void>();
     const platformApi = createElectronPlatformApiFixture();
+    let externalPaths: Parameters<typeof platformApi.documentMenu.onMenuOpenExternalPaths>[0] | undefined;
+    let recentFile: Parameters<typeof platformApi.documentMenu.onMenuOpenRecentFile>[0] | undefined;
     const documentMenu = platformApi.documentMenu;
     const djvu = platformApi.djvu;
 
-    for (const [
-        source,
-        register,
-        commandName,
-    ] of MENU_COMMANDS) {
+    for (const [source, register, commandName] of MENU_COMMANDS) {
         Object.defineProperty(source === 'djvu' ? djvu : documentMenu, register, {
             configurable: true,
             value: vi.fn((callback: () => void) => {
                 callbacks.set(commandName, callback);
-                return () => {
-                    callbacks.delete(commandName);
-                };
+                return () => { callbacks.delete(commandName); };
             }),
         });
     }
 
+    documentMenu.onMenuOpenExternalPaths = callback => {
+        externalPaths = callback;
+        return () => { externalPaths = undefined; };
+    };
+    documentMenu.onMenuOpenRecentFile = callback => {
+        recentFile = callback;
+        return () => { recentFile = undefined; };
+    };
     return {
+        emitExternalPaths: (paths: string[]) => externalPaths?.(paths.map(requireDocumentRef)),
+        emitRecentFile: (path: string) => recentFile?.(requireDocumentRef(path)),
         api: {
             documentMenu,
             settings: platformApi.settings,
@@ -255,7 +145,7 @@ describe('registerTabsMenuBindings', () => {
             .mockImplementationOnce(async () => firstOpen.promise)
             .mockImplementationOnce(async () => secondOpen.promise);
         const deps = createDeps({ openPathsInAppropriateTab });
-        const menuApi = createMenuApi();
+        const menuApi = createRegistryMenuApi();
 
         registerTabsMenuBindings(menuApi.api, deps);
 
@@ -282,7 +172,7 @@ describe('registerTabsMenuBindings', () => {
             .mockRejectedValueOnce(new Error('boom'))
             .mockResolvedValueOnce(true);
         const deps = createDeps({ openPathInAppropriateTab });
-        const menuApi = createMenuApi();
+        const menuApi = createRegistryMenuApi();
 
         registerTabsMenuBindings(menuApi.api, deps);
 

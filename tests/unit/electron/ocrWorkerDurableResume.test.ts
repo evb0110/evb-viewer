@@ -15,7 +15,6 @@ import {
 import {
     createOcrWorkerPipelineHarness,
     hasOcrWorkerPipelineTools,
-    readOcrWorkerCallLog,
     type IOcrWorkerPipelineHarness,
 } from '@tests/helpers/ocrWorkerPipelineHarness';
 
@@ -56,7 +55,7 @@ describe('real OCR worker durable page checkpoints', () => {
     ] as const)('recipe identity: %s', identityKind => {
         let first: IOcrWorkerPipelineHarness;
         const identityName = identityKind === 'native' ? '__EVB_NATIVE_BUILD_IDS__' : '__EVB_RUNTIME_ARCHIVE_IDS__';
-        const identityKey = identityKind === 'native' ? 'evb-scan-cleanup' : `tesseract-${process.platform}-${process.arch}`;
+        const identityKey = identityKind === 'native' ? 'evb-scan-cleanup' : `poppler-${process.platform}-${process.arch}`;
 
         beforeEach(async () => {
             // One saved page proves recipe invalidation; the other cases cover
@@ -65,8 +64,7 @@ describe('real OCR worker durable page checkpoints', () => {
             harnesses.push(first);
             vi.stubGlobal(identityName, {[identityKey]: 'old-tool'});
             await first.start('old-recipe');
-            const scriptPath = join(first.root, 'fake-tesseract.cjs');
-            await writeFile(scriptPath, (await readFile(scriptPath, 'utf8')).replaceAll('checkpoint', 'newrecipe'));
+            first.word = 'newrecipe';
         });
 
         it(`reuses same-recipe recognition but recomputes saved text after a ${identityKind} identity change`, async () => {
@@ -77,7 +75,7 @@ describe('real OCR worker durable page checkpoints', () => {
                     const root = join(first.root, 'ocr-checkpoints');
                     const files = await readdir(root, {recursive: true});
                     return Promise.all(files.filter(file => file.endsWith('page-1.json')).map(async file => (
-                        JSON.parse(await readFile(join(root, file), 'utf8')).pageData.text as string
+                        JSON.parse(await readFile(join(root, file), 'utf8')).page.text as string
                     )));
                 };
                 expect(await readSavedText()).toEqual(['checkpoint page 1']);
@@ -110,14 +108,13 @@ describe('real OCR worker durable page checkpoints', () => {
             const pdf = await readFile(join(root, pageOne));
             pdf[0] = pdf[0]! ^ 1;
             await writeFile(join(root, pageOne), pdf);
-            const scriptPath = join(harness.root, 'fake-tesseract.cjs');
-            await writeFile(scriptPath, (await readFile(scriptPath, 'utf8')).replaceAll('checkpoint', 'repaired'));
+            harness.word = 'repaired';
             await harness.start('repair');
             const repaired = JSON.parse(await readFile(join(root, pageOne.replace('.pdf', '.json')), 'utf8'));
-            expect(repaired.pageData.text).toBe('repaired page 1');
+            expect(repaired.page.text).toBe('repaired page 1');
             expect(repaired.pdfSha256).toBe(createHash('sha256').update(await readFile(join(root, pageOne))).digest('hex'));
             const retained = JSON.parse(await readFile(join(root, pageOne.replace('page-1.pdf', 'page-2.json')), 'utf8'));
-            expect(retained.pageData.text).toBe('checkpoint page 2');
+            expect(retained.page.text).toBe('checkpoint page 2');
         });
 
     });
@@ -146,7 +143,7 @@ describe('real OCR worker durable page checkpoints', () => {
             expect(pageFiles).toHaveLength(6);
             for (const file of pageFiles) {
                 const checkpoint = JSON.parse(await readFile(join(root, file), 'utf8'));
-                expect(checkpoint.pageData.text).toBe(`checkpoint page ${checkpoint.pageData.pageNumber}`);
+                expect(checkpoint.page.text).toBe(`checkpoint page ${checkpoint.page.pageNumber}`);
                 const pdf = await readFile(join(root, file.replace('.json', '.pdf')));
                 expect(checkpoint.pdfSha256).toBe(createHash('sha256').update(pdf).digest('hex'));
             }
@@ -155,7 +152,7 @@ describe('real OCR worker durable page checkpoints', () => {
 
     });
 
-    it('restarts after page one without invoking Tesseract for that page again', async (context) => {
+    it('restarts after page one without recognizing that page again', async (context) => {
         if (!await hasOcrWorkerPipelineTools()) {
             context.skip();
             return;
@@ -167,15 +164,14 @@ describe('real OCR worker durable page checkpoints', () => {
         await waitForFirstCheckpoint(first.root);
         await first.close();
 
-        const callsBeforeResume = await readOcrWorkerCallLog(first.callLogPath);
-        expect(callsBeforeResume).toContain(1);
+        expect(first.calls).toContain(1);
 
         const resumed = await createOcrWorkerPipelineHarness({tempRoot: first.root});
         harnesses.push(resumed);
         const resumedResult = await resumed.start('resume-run');
 
-        const calls = await readOcrWorkerCallLog(resumed.callLogPath);
-        expect(calls.filter(page => page === 1)).toHaveLength(1);
+        const {calls} = resumed;
+        expect(calls).not.toContain(1);
         expect(calls, JSON.stringify({result: resumedResult.result})).toEqual(expect.arrayContaining([
             2,
             3,

@@ -14,11 +14,17 @@ use std::{
 };
 
 fn path(label: &str, extension: &str) -> std::path::PathBuf {
+    // Tests run in parallel threads and the clock can repeat a value, so a
+    // per-process sequence keeps two paths with the same label apart.
+    static SEQUENCE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let sequence = SEQUENCE.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let nonce = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_nanos();
-    env::temp_dir().join(format!("evb-pdf-page-ops-{label}-{nonce}.{extension}"))
+    env::temp_dir().join(format!(
+        "evb-pdf-page-ops-{label}-{nonce}-{sequence}.{extension}"
+    ))
 }
 
 fn run_split_pages(input: &Path, output: &Path, instructions: &Path) {
@@ -3077,12 +3083,12 @@ fn compact_catalog_follows_raster_replacements_at_every_size() {
                         .unwrap();
                     let id = document.new_object_id().0;
                     let mut file = std::fs::OpenOptions::new()
-                        .append(true)
+                        .write(true)
                         .open(file_path)
                         .unwrap();
                     let offset = file.seek(SeekFrom::End(0)).unwrap();
                     writeln!(file, "{id} 0 obj\n<</Length 537919488>>\nstream").unwrap();
-                    // append mode ignores seeks for writes; extend the file first.
+                    // Extend the stream body before writing its trailer.
                     let end = file.stream_position().unwrap() + 513 * 1024 * 1024;
                     file.set_len(end).unwrap();
                     file.seek(SeekFrom::End(0)).unwrap();
@@ -3876,43 +3882,37 @@ fn r9_identity_tags_drop_when_an_objr_annotation_is_cropped_away() {
     }
 }
 
+/// Runs a page-structure command with its pages written to a pages file.
+fn page_structure(command: &str, input: &Path, pages: &str, output: &Path) -> Output {
+    let pages_file = path("page-structure-pages", "txt");
+    std::fs::write(&pages_file, pages).unwrap();
+    let result = Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"))
+        .arg(command)
+        .arg("--input")
+        .arg(input)
+        .arg("--pages-file")
+        .arg(&pages_file)
+        .arg("--output")
+        .arg(output)
+        .output()
+        .unwrap();
+    let _ = remove_file(pages_file);
+    result
+}
+
 #[test]
 fn tagged_subset_preserves_selected_structure_for_saved_and_printed_outputs() {
     let input = path("tagged-print-subset", "pdf");
     let saved = path("tagged-saved-subset", "pdf");
-    let printed = path("tagged-printed-subset", "pdf");
     let fixture = include_bytes!("../../../tests/fixtures/electron/pdf-preservation/tagged.pdf");
-    std::fs::write(&input, fixture).unwrap();
-    let subset = Command::new(qpdf_path())
-        .arg(&input)
-        .args(["--pages"])
-        .arg(&input)
-        .args(["1", "--"])
-        .arg(&printed)
-        .output()
-        .unwrap();
-    assert!(
-        subset.status.success(),
-        "{}",
-        String::from_utf8_lossy(&subset.stderr)
-    );
-    let invoke = |command: &str, output: &Path| {
-        Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"))
-            .arg(command)
-            .arg("--input")
-            .arg(&printed)
-            .arg("--output")
-            .arg(output)
-            .arg("--qpdf")
-            .arg(qpdf_path())
-            .output()
-            .unwrap()
+    let first_page_content = {
+        let source = Document::load_mem(fixture).unwrap();
+        source.get_page_content(source.get_pages()[&1])
     };
-    for (command, destination) in [
-        ("finalize-subset-forms", &saved),
-        ("finalize-subset-forms", &input),
-    ] {
-        let accepted = invoke(command, destination);
+    // An extracted copy and an in-place edit keep the same structure.
+    for destination in [&saved, &input] {
+        std::fs::write(&input, fixture).unwrap();
+        let accepted = page_structure("extract-pages", &input, "1", destination);
         assert!(
             accepted.status.success(),
             "{}",
@@ -3946,9 +3946,7 @@ fn tagged_subset_preserves_selected_structure_for_saved_and_printed_outputs() {
         assert_eq!(parents.get(b"Nums").unwrap().as_array().unwrap().len(), 2);
         assert_eq!(
             output.get_page_content(output.get_pages()[&1]),
-            Document::load(&printed)
-                .unwrap()
-                .get_page_content(Document::load(&printed).unwrap().get_pages()[&1])
+            first_page_content
         );
         let check = Command::new(qpdf_path())
             .arg("--check")
@@ -3961,14 +3959,21 @@ fn tagged_subset_preserves_selected_structure_for_saved_and_printed_outputs() {
             String::from_utf8_lossy(&check.stderr)
         );
     }
+    // A refused edit leaves an existing destination as it was.
+    std::fs::write(&input, fixture).unwrap();
+    let before = std::fs::read(&saved).unwrap();
+    assert!(!page_structure("delete-pages", &input, "1-2", &saved)
+        .status
+        .success());
+    assert_eq!(std::fs::read(&saved).unwrap(), before);
     for structure in [Object::Null, Object::Reference((999_999, 0))] {
         let mut damaged = Document::load_mem(fixture).unwrap();
         damaged
             .catalog_mut()
             .unwrap()
             .set("StructTreeRoot", structure);
-        damaged.save(&printed).unwrap();
-        let accepted = invoke("finalize-subset-forms", &saved);
+        damaged.save(&input).unwrap();
+        let accepted = page_structure("reorder-pages", &input, "1-2", &saved);
         assert!(
             accepted.status.success(),
             "{}",
@@ -4017,21 +4022,7 @@ fn tagged_subset_preserves_selected_structure_for_saved_and_printed_outputs() {
         .unwrap()
         .set("StructParent", 7);
     form_source.save(&input).unwrap();
-    let subset = Command::new(qpdf_path())
-        .arg(&input)
-        .arg("--pages")
-        .arg(&input)
-        .arg(page.to_string())
-        .arg("--")
-        .arg(&printed)
-        .output()
-        .unwrap();
-    assert!(
-        subset.status.success(),
-        "{}",
-        String::from_utf8_lossy(&subset.stderr)
-    );
-    let accepted = invoke("finalize-subset-forms", &input);
+    let accepted = page_structure("extract-pages", &input, &page.to_string(), &input);
     assert!(
         accepted.status.success(),
         "{}",
@@ -4058,7 +4049,7 @@ fn tagged_subset_preserves_selected_structure_for_saved_and_printed_outputs() {
         widget
     );
     assert!(!result.get_dictionary(widget).unwrap().has(b"StructParent"));
-    for file in [&input, &saved, &printed] {
+    for file in [&input, &saved] {
         let _ = remove_file(file);
     }
 }
@@ -4109,16 +4100,7 @@ fn subset_keeps_an_annotation_struct_parent_only_for_the_annotation_its_element_
     document.trailer.set("Root", catalog);
     document.save(&input).unwrap();
 
-    let result = Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"))
-        .arg("finalize-subset-forms")
-        .arg("--input")
-        .arg(&input)
-        .arg("--output")
-        .arg(&output)
-        .arg("--qpdf")
-        .arg(qpdf_path())
-        .output()
-        .unwrap();
+    let result = page_structure("extract-pages", &input, "1", &output);
     assert!(
         result.status.success(),
         "{}",
@@ -4126,16 +4108,17 @@ fn subset_keeps_an_annotation_struct_parent_only_for_the_annotation_its_element_
     );
     let saved = Document::load(&output).unwrap();
     assert!(saved.catalog().unwrap().has(b"StructTreeRoot"));
-    let struct_parent = |id| {
-        saved
-            .get_dictionary(id)
-            .unwrap()
-            .get(b"StructParent")
-            .and_then(Object::as_i64)
-            .ok()
-    };
-    assert_eq!(struct_parent(marked), Some(1));
-    assert_eq!(struct_parent(colliding), None);
+    // The output renumbers objects; the page lists the marked link first.
+    let struct_parents = split_page_annotations(&saved, 1)
+        .into_iter()
+        .map(|(_, annotation)| {
+            annotation
+                .get(b"StructParent")
+                .and_then(Object::as_i64)
+                .ok()
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(struct_parents, [Some(1), None]);
     for file in [input, output] {
         let _ = remove_file(file);
     }

@@ -8,16 +8,18 @@
 //! kind or relation can select, with the objects they point at. A link with
 //! nothing but its subtype can be none of these, so it is left out, and a
 //! target outside the snapshot falls back to a fresh scan. Each save extends
-//! the snapshot of the bytes it read with its own revision and files it under
-//! the identity of the bytes it wrote.
+//! the snapshot of the file version it read with its own revision and files it
+//! under the version it wrote. A version is named by the file's metadata, so
+//! finding a snapshot reads no PDF bytes.
 use super::*;
 use evb_native_support::output::AtomicOutput;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 use std::sync::{Mutex, OnceLock};
+use std::time::UNIX_EPOCH;
 
 static CACHE: OnceLock<PathBuf> = OnceLock::new();
-/// The snapshot of the input this process read, for the successor its save writes.
+/// The snapshot of the file version this process appends to, for the successor its save writes.
 static INPUT: Mutex<Option<OwnershipSnapshot>> = Mutex::new(None);
 const MAX_SNAPSHOT_BYTES: u64 = 64 * 1024 * 1024;
 const KEPT_SNAPSHOTS: usize = 8;
@@ -296,20 +298,24 @@ impl Field {
     }
 }
 
-/// The complete first `length` bytes, including an input prefix of an output revision.
-fn identity(path: &Path, length: u64) -> Result<PathBuf> {
+/// Where the snapshot of the file version at `path` is filed: its path, length
+/// and modification time, the facts the app tells file versions apart by. An
+/// append changes the time; a revision the document store names never
+/// changes. An edit in place that keeps the length and restores the time goes
+/// unseen, as it does for the app's own witness.
+fn identity(path: &Path) -> Result<PathBuf> {
     let directory = CACHE.get().ok_or("No annotation ownership cache")?;
-    let mut file = File::open(path)?;
+    let metadata = fs::metadata(path)?;
     let mut hasher = Sha256::new();
-    hasher.update(length.to_le_bytes());
-    let mut remaining = length;
-    let mut bytes = [0_u8; 64 * 1024];
-    while remaining > 0 {
-        let count = remaining.min(bytes.len() as u64) as usize;
-        file.read_exact(&mut bytes[..count])?;
-        hasher.update(&bytes[..count]);
-        remaining -= count as u64;
-    }
+    hasher.update(fs::canonicalize(path)?.as_os_str().as_encoded_bytes());
+    hasher.update(metadata.len().to_le_bytes());
+    hasher.update(
+        metadata
+            .modified()?
+            .duration_since(UNIX_EPOCH)?
+            .as_nanos()
+            .to_le_bytes(),
+    );
     let hex = hasher
         .finalize()
         .iter()
@@ -318,11 +324,21 @@ fn identity(path: &Path, length: u64) -> Result<PathBuf> {
     Ok(directory.join(format!("annotation-ownership-{hex}.json")))
 }
 
-fn read_snapshot(path: &Path, length: u64) -> Option<OwnershipSnapshot> {
-    let file = File::open(identity(path, length).ok()?).ok()?;
+fn read_snapshot(path: &Path) -> Option<OwnershipSnapshot> {
+    let file = File::open(identity(path).ok()?).ok()?;
     let mut bytes = Vec::new();
     file.take(MAX_SNAPSHOT_BYTES).read_to_end(&mut bytes).ok()?;
     serde_json::from_slice(&bytes).ok()
+}
+
+/// Keeps the snapshot of the file version at `path`, which a save is about to
+/// append to, for `record_annotation_ownership`, unless a scan already did.
+pub(crate) fn remember_annotation_ownership_input(path: &Path) {
+    if let Ok(mut input) = INPUT.lock() {
+        if input.is_none() {
+            *input = read_snapshot(path);
+        }
+    }
 }
 
 /// The ownership scan of `path`, from the snapshot of its bytes when `select`
@@ -332,7 +348,7 @@ pub(crate) fn annotation_ownership_scan<T>(
     qpdf: &Path,
     select: impl Fn(&DeleteScan) -> Result<T>,
 ) -> Result<(DeleteScan, T)> {
-    let kept = read_snapshot(path, fs::metadata(path)?.len());
+    let kept = read_snapshot(path);
     if let Some(snapshot) = kept {
         let scan = snapshot.scan();
         if let Ok(selected) = select(&scan) {
@@ -355,21 +371,23 @@ pub(crate) fn annotation_ownership_scan<T>(
     Ok((scan, selected))
 }
 
-/// Files the snapshot of the bytes `incremental` appended to, extended with
-/// its revision, under the identity of `output`. A cache that cannot be
+/// Files the snapshot of the version `incremental` appended to, extended with
+/// its revision, under the version of `output`. A cache that cannot be
 /// written costs the next save a scan, never this one.
 pub(crate) fn record_annotation_ownership(incremental: &IncrementalDocument, output: &Path) {
     let Some(directory) = CACHE.get() else {
         return;
     };
     let input = INPUT.lock().ok().and_then(|mut input| input.take());
-    let snapshot = input.or_else(|| read_snapshot(output, incremental.previous_len()));
-    let Some(successor) = snapshot.and_then(|snapshot| snapshot.successor(incremental)) else {
-        return;
-    };
+    let successor = input.and_then(|snapshot| snapshot.successor(incremental));
     let _ = (|| -> Result<()> {
+        let target = identity(output)?;
+        let Some(successor) = successor else {
+            // No snapshot an earlier write filed under this version may stand for it.
+            let _ = fs::remove_file(target);
+            return Ok(());
+        };
         fs::create_dir_all(directory)?;
-        let target = identity(output, fs::metadata(output)?.len())?;
         let bytes = serde_json::to_vec(&successor)?;
         if u64::try_from(bytes.len())? > MAX_SNAPSHOT_BYTES {
             return Ok(());
@@ -400,32 +418,37 @@ mod tests {
     use super::*;
 
     #[test]
-    fn ownership_cache_rejects_equal_length_middle_change() {
+    fn ownership_cache_finds_a_snapshot_only_for_the_version_filed() {
         let directory =
             std::env::temp_dir().join(format!("ownership-identity-{}", std::process::id()));
         fs::create_dir_all(&directory).unwrap();
         set_annotation_ownership_cache(directory.clone());
-        let original = directory.join("original.pdf");
-        let changed = directory.join("changed.pdf");
+        fs::create_dir_all(CACHE.get().unwrap()).unwrap();
+        let pdf = directory.join("document.pdf");
         let mut bytes = vec![b' '; 3 * 64 * 1024];
         bytes[96 * 1024..96 * 1024 + 10].copy_from_slice(b"/IRT 1 0 R");
-        fs::write(&original, &bytes).unwrap();
+        fs::write(&pdf, &bytes).unwrap();
         let snapshot = OwnershipSnapshot {
             pages: vec![(1, 0)],
             owners: vec![],
             fields: vec![],
         };
-        let length = bytes.len() as u64;
         fs::write(
-            identity(&original, length).unwrap(),
+            identity(&pdf).unwrap(),
             serde_json::to_vec(&snapshot).unwrap(),
         )
         .unwrap();
-        fs::write(&changed, &bytes).unwrap();
-        assert_eq!(read_snapshot(&changed, length), Some(snapshot));
+        assert_eq!(read_snapshot(&pdf), Some(snapshot));
+        // An edit of equal length is another version: its time differs.
         bytes[96 * 1024 + 5] = b'2';
-        fs::write(&changed, &bytes).unwrap();
-        assert_eq!(read_snapshot(&changed, length), None);
+        fs::write(&pdf, &bytes).unwrap();
+        File::options()
+            .write(true)
+            .open(&pdf)
+            .unwrap()
+            .set_modified(UNIX_EPOCH + std::time::Duration::from_secs(1))
+            .unwrap();
+        assert_eq!(read_snapshot(&pdf), None);
         fs::remove_dir_all(directory).unwrap();
     }
 }

@@ -32,6 +32,9 @@ export const REQUIRED_ASAR_ENTRIES = [
     '/nuxt-output/public/index.html',
     '/nuxt-output/public/_nuxt',
     ...WASM_ARTIFACTS.map(artifact => `/nuxt-output/public/${artifact.publicRelativePath.replace('public/', '')}`),
+    // Desktop OCR runs the same engine as the browser, in worker threads.
+    '/nuxt-output/public/wasm/evb-tesseract.mjs',
+    '/nuxt-output/public/wasm/evb-tesseract.wasm',
 ];
 
 export const REQUIRED_ASAR_PREFIXES = ['/dist-electron/main-chunk-'];
@@ -42,8 +45,6 @@ export const FORBIDDEN_EXACT_ENTRIES = [
     '/nuxt-output/public/evb-viewer-og.png',
     '/nuxt-output/public/robots.txt',
     '/nuxt-output/public/sitemap.xml',
-    '/nuxt-output/public/wasm/evb-tesseract.mjs',
-    '/nuxt-output/public/wasm/evb-tesseract.wasm',
     '/nuxt-output/public/wasm/evb-qpdf.mjs',
     '/nuxt-output/public/wasm/evb-qpdf.wasm',
 ];

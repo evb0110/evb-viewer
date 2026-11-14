@@ -113,7 +113,6 @@
     --app-z-local-raised: 1;
     --app-z-local-overlay: 2;
     --app-z-local-sticky: 10;
-    --app-z-local-loading: 30;
 
     /* PDF page-local layer order. Keep page content below interaction tools. */
     --app-z-pdf-canvas-layer: var(--app-z-local-base);
@@ -231,7 +230,6 @@
     --app-text-size-ui: 0.9rem;
     --app-text-size-control: 0.95rem;
     --app-text-size-panel-title: 0.9375rem;
-    --app-text-scale-inline-meta: 0.78em;
     --app-text-size-title-sm: 1rem;
     --app-text-size-title-md: 1.05rem;
     --app-text-size-title-lg: 1.35rem;
@@ -578,7 +576,6 @@
     --app-combine-small-row-columns: var(--app-combine-drag-handle-width) 1.5rem 1.75rem minmax(0, 1fr);
     --app-tab-context-menu-min-width: 13.125rem;
     --app-assistant-panel-default-width: 24rem;
-    --app-assistant-panel-max-viewport-width: 45vw;
     --app-assistant-composer-min-height: 2.45rem;
     --app-assistant-message-max-height: 12rem;
     --app-assistant-provider-icon-size: 1em;
@@ -599,19 +596,6 @@
     --app-assistant-user-bg: var(--ui-bg-accented);
     --app-assistant-image-overlay-bg: rgb(0 0 0 / 85%);
     --app-assistant-image-overlay-text: #fff;
-    --app-pdf-annotation-properties-z-index: var(--app-z-popover);
-    --app-pdf-annotation-properties-width: 20rem;
-    --app-pdf-annotation-properties-min-width: 15rem;
-    --app-pdf-annotation-properties-max-inline-size: var(--app-floating-panel-viewport-width);
-    --app-pdf-annotation-properties-radius: 8px;
-    --app-pdf-annotation-properties-font-size: 12px;
-    --app-pdf-annotation-properties-title-font-size: 11px;
-    --app-pdf-annotation-properties-title-letter-spacing: 0.5px;
-    --app-pdf-annotation-properties-body-padding: 8px 10px;
-    --app-pdf-annotation-properties-color-size: 28px;
-    --app-pdf-annotation-properties-header-padding: 6px 6px 6px 10px;
-    --app-pdf-annotation-properties-color-padding: 1px;
-    --app-pdf-annotation-properties-range-thumb-size: 12px;
     --app-pdf-annotation-properties-value-min-width: 44px;
     --app-pdf-annotation-style-popover-z-index: var(--app-z-menu);
     --app-pdf-context-menu-z-index: var(--app-z-menu);
@@ -744,9 +728,6 @@
     --app-crop-hint-font-size: 0.7rem;
     --app-crop-hint-offset-top: 0.65rem;
     --app-pdf-note-bg: #fff5a0;
-    --app-pdf-note-border: #c7b75b;
-    --app-pdf-note-title-bg: rgb(255 255 255 / 42%);
-    --app-pdf-note-title-border: rgb(88 72 7 / 30%);
     --app-pdf-note-text: #2b2206;
     --app-pdf-note-text-heading: #473b08;
     --app-pdf-note-text-secondary: rgb(71 59 8 / 88%);
@@ -759,14 +740,11 @@
     --app-pdf-note-delete-bg: rgb(255 255 255 / 72%);
     --app-pdf-note-delete-fg: #a61414;
     --app-pdf-note-shadow: 0 14px 28px rgb(0 0 0 / 16%), 0 4px 10px rgb(0 0 0 / 8%);
-    --app-pdf-popover-shadow: 0 4px 12px rgb(0 0 0 / 0.15);
     --app-pdf-comment-tooltip-shadow: var(--shadow-popup);
     --app-pdf-comment-arrow-shadow: rgb(0 0 0 / 18%);
     --app-pdf-comment-arrow-shadow-light: rgb(0 0 0 / 12%);
     --app-pdf-color-swatch-border: color-mix(in srgb, var(--ui-border) 80%, var(--ui-text) 20%);
     --app-pdf-page-selection-bar-bg: var(--app-sidebar-bg);
-    --app-pdf-comment-marker-badge-shadow: 0 1px 3px color-mix(in srgb, var(--ui-bg-inverted) 22%, transparent);
-    --app-pdf-comment-marker-badge-shadow-active: 0 1px 4px color-mix(in srgb, var(--ui-bg-inverted) 32%, transparent);
     --app-search-highlight-bg: rgb(255 230 0 / 32%);
     --app-search-highlight-current-bg: rgb(255 150 0 / 42%);
     --app-search-highlight-current-outline: rgb(255 100 0 / 72%);
@@ -956,9 +934,6 @@
     --app-crop-hint-fg: var(--ui-text);
     --app-crop-hint-border: color-mix(in oklab, var(--ui-border) 80%, var(--ui-text-muted) 20%);
     --app-pdf-note-bg: #3d3520;
-    --app-pdf-note-border: #5c5030;
-    --app-pdf-note-title-bg: rgb(0 0 0 / 18%);
-    --app-pdf-note-title-border: rgb(92 80 48 / 50%);
     --app-pdf-note-text: #e8dfc0;
     --app-pdf-note-text-heading: #f0e8d0;
     --app-pdf-note-text-secondary: rgb(232 223 192 / 80%);
@@ -971,14 +946,11 @@
     --app-pdf-note-delete-bg: rgb(0 0 0 / 22%);
     --app-pdf-note-delete-fg: #f08080;
     --app-pdf-note-shadow: 0 14px 28px rgb(0 0 0 / 40%), 0 4px 10px rgb(0 0 0 / 25%);
-    --app-pdf-popover-shadow: 0 4px 12px rgb(0 0 0 / 0.35);
     --app-pdf-comment-tooltip-shadow: var(--shadow-popup);
     --app-pdf-comment-arrow-shadow: rgb(0 0 0 / 45%);
     --app-pdf-comment-arrow-shadow-light: rgb(0 0 0 / 35%);
     --app-pdf-color-swatch-border: color-mix(in srgb, var(--ui-border) 74%, var(--ui-text) 26%);
     --app-pdf-page-selection-bar-bg: var(--app-sidebar-bg);
-    --app-pdf-comment-marker-badge-shadow: 0 1px 3px color-mix(in srgb, var(--ui-bg-inverted) 35%, transparent);
-    --app-pdf-comment-marker-badge-shadow-active: 0 1px 4px color-mix(in srgb, var(--ui-bg-inverted) 45%, transparent);
     --app-search-highlight-bg: rgb(255 200 0 / 35%);
     --app-search-highlight-current-bg: rgb(255 170 0 / 46%);
     --app-search-highlight-current-outline: rgb(255 130 0 / 74%);

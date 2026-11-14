@@ -1,4 +1,6 @@
+import { constants } from 'fs';
 import {
+    copyFile,
     open,
     readdir,
     rm,
@@ -30,7 +32,6 @@ import {
     atomicReplace,
     makeSiblingTempPath,
 } from '@electron/utils/atomicReplace';
-import { copyFileCopyOnWrite } from '@electron/file-access/workingCopyDirectory';
 import { parseDocumentRef } from '@contracts/documentRef';
 import type { TRequestId } from '@contracts/shared';
 import { getAppTempDir } from '@electron/utils/appTempDir';
@@ -378,7 +379,7 @@ async function optimizeLosslessCopy(
     context: IOptimizeProgressContext,
 ): Promise<IOptimizedCandidate> {
     emitProgress(context, 'preparing', 0, 1);
-    await copyFileCopyOnWrite(inputPath, tempOutputPath);
+    await copyFile(inputPath, tempOutputPath, constants.COPYFILE_FICLONE);
     return {
         validation: await finishCandidate(tempOutputPath, context, 1),
         optimizedPages: 0,
@@ -452,7 +453,7 @@ async function optimizeRasterCopy(
             scratchDir: tempDir,
         }, replacedPages, preset.images, signalOptions(context));
         if (imagePages.length === 0) {
-            await copyFileCopyOnWrite(imageSourcePath, tempOutputPath);
+            await copyFile(imageSourcePath, tempOutputPath, constants.COPYFILE_FICLONE);
         }
         return {
             validation: await finishCandidate(tempOutputPath, context, pageCount),

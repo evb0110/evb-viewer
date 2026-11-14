@@ -1056,8 +1056,6 @@ async function commitTextBox(
         return;
     }
     surface.setTextBoxDraftPending(annotationId, draft.text);
-    const protection = surface.protectTextBoxDraft(annotationId);
-    if (protection) await protection;
     const proposal = {
         ...entity,
         text: draft.text,

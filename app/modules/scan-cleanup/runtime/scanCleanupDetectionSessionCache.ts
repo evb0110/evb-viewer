@@ -3,11 +3,10 @@ import {isScanCleanupSourceSha256} from '@contracts/scan-cleanup/scanCleanupSett
 
 export interface IScanCleanupDetectionSessionCacheEntry {
     ownerId: string;
-    signatures: Map<number, string>;
     /** Scalar document/settings tokens avoid rechecking every page on restore. */
     documentSignature?: string;
     signatureToken?: string;
-    /** The one retained copy of the completed results is `state.results`. */
+    /** The completed job state the session's page records were built from. */
     state: TScanCleanupDetectionJobState;
     totalPages: number;
 }
@@ -36,14 +35,7 @@ function lifecycleRevisionFor(key: string) {
 
 function estimateEntryBytes(entry: IScanCleanupDetectionSessionCacheEntry) {
     try {
-        return new TextEncoder().encode(JSON.stringify({
-            ownerId: entry.ownerId,
-            signatures: [...entry.signatures],
-            documentSignature: entry.documentSignature,
-            signatureToken: entry.signatureToken,
-            state: entry.state,
-            totalPages: entry.totalPages,
-        })).byteLength;
+        return new TextEncoder().encode(JSON.stringify(entry)).byteLength;
     } catch {
         // Detection results are bridge-safe data. If a future result violates
         // that contract, do not keep an entry whose retained size is unknown.

@@ -742,21 +742,4 @@ mod tests {
             }
         }
     }
-
-    /// Developer diagnostic: run the halftone classifier on an external image.
-    /// `EVB_HALFTONE_IMAGE=/path.png
-    /// cargo test -p evb-scan-cleanup dump_halftone_zones -- --ignored --nocapture`
-    #[test]
-    #[ignore = "requires EVB_HALFTONE_IMAGE"]
-    fn dump_halftone_zones() {
-        let path = std::env::var("EVB_HALFTONE_IMAGE").unwrap();
-        let image =
-            crate::io::raster::read_image(std::path::Path::new(&path), 40_000_000, 10_000).unwrap();
-        let dpi = std::env::var("EVB_HALFTONE_DPI")
-            .ok()
-            .and_then(|value| value.parse::<f64>().ok())
-            .unwrap_or(150.0);
-        let zones = derive_halftone_zones(&image.gray, dpi);
-        eprintln!("halftone zone pixels: {}", zones.count_black());
-    }
 }
