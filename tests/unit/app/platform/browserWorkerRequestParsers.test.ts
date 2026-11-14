@@ -320,11 +320,11 @@ describe('browser worker request parsers', () => {
         expect(parseBrowserPageOpsWorkerRequest({
             id: 10,
             type: 'conformance',
-            payload: {data},
+            payload: {source: catalogSource},
         })).toEqual({
             id: 10,
             type: 'conformance',
-            payload: {data},
+            payload: {source: catalogSource},
         });
         const source = new Blob([data]);
         const merge = {

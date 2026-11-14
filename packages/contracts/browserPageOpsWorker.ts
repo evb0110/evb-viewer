@@ -187,7 +187,7 @@ const workerRequestPayloadSchemas = {
     /** Reads take their document as a Blob the engine reads by range. */
     parseAnnotations: v.object({source: v.instance(Blob)}),
     readCatalog: v.object({source: v.instance(Blob)}),
-    conformance: v.object({data: pdfBytesSchema}),
+    conformance: v.object({source: v.instance(Blob)}),
     decrypt: v.object({
         data: pdfBytesSchema,
         password: PDF_DECRYPT_PASSWORD_SCHEMA,

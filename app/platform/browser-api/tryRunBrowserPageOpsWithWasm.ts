@@ -4,7 +4,6 @@ import {
 import { getErrorMessage } from '@app/utils/error';
 import {
     BYTES_HEADER,
-    DOCUMENT_LIST_HEADER,
     FILE_REQUEST_HEADER,
     MAX_U32,
     MUTATION_HEADER,
@@ -16,7 +15,6 @@ import {
     REQUEST_HEADER,
     REQUEST_MAGIC,
     REQUEST_VERSION,
-    REQUEST_VERSION_DOCUMENT_LIST,
     REQUEST_VERSION_FILES,
     REQUEST_VERSION_INSTRUCTED,
     RESPONSE_ANNOTATION_PARSE,
@@ -100,7 +98,7 @@ type IBrowserPageOpsWasmResultMap = {
 type TBrowserPageOpsWasmRequestType = keyof IBrowserPageOpsWasmRequestMap;
 
 /** Reads that take their document as a Blob, through file framing. */
-type TFileReadType = 'parseAnnotations' | 'readCatalog' | 'ocrTextVisibility';
+type TFileReadType = 'parseAnnotations' | 'readCatalog' | 'conformance' | 'ocrTextVisibility';
 /** Requests that carry their document in the request buffer. */
 type TByteRequestType = Exclude<TBrowserPageOpsWasmRequestType, TFileReadType>;
 
@@ -291,7 +289,6 @@ function getRequestPages(request: TBrowserPageOpsWasmRequest): number[] {
         case 'replacePageImages':
         case 'getPageGeometry':
         case 'decrypt':
-        case 'conformance':
         case 'textBoxAppearance':
             return [];
     }
@@ -304,7 +301,6 @@ function getRequestData(request: TBrowserPageOpsWasmRequest): Uint8Array {
         case 'removeCrop':
         case 'getPageGeometry':
         case 'decrypt':
-        case 'conformance':
         case 'printLayout':
         case 'inspectScanCleanupPdf':
         case 'splitPages':
@@ -359,27 +355,6 @@ function getMargins(request: TBrowserPageOpsWasmRequest): ICropMargins {
     return request.payload.margins;
 }
 
-function getDocumentList(request: TBrowserPageOpsWasmRequest): Uint8Array[] | null {
-    switch (request.type) {
-        case 'conformance':
-            return [request.payload.data];
-        case 'rotate':
-        case 'crop':
-        case 'removeCrop':
-        case 'getPageGeometry':
-        case 'decrypt':
-        case 'printLayout':
-        case 'textBoxAppearance':
-        case 'inspectScanCleanupPdf':
-        case 'splitPages':
-        case 'renderScanCleanupRaster':
-        case 'overlayText':
-        case 'recompressImages':
-        case 'replacePageImages':
-            return null;
-    }
-}
-
 interface IInstructedWasmRequest {
     data: Uint8Array;
     instructions: unknown;
@@ -419,7 +394,6 @@ function getInstructedRequest(request: TBrowserPageOpsWasmRequest): IInstructedW
         case 'crop':
         case 'removeCrop':
         case 'getPageGeometry':
-        case 'conformance':
         case 'decrypt':
         case 'printLayout':
         case 'inspectScanCleanupPdf':
@@ -462,46 +436,10 @@ function buildInstructedWasmRequest(operation: number, payload: IInstructedWasmR
     };
 }
 
-function buildDocumentListWasmRequest(request: TBrowserPageOpsWasmRequest) {
-    const documents = getDocumentList(request);
-    if (documents === null || documents.length === 0) {
-        throw new Error('Invalid page-op WASM document list');
-    }
-    const encodedLengths = documents.map(document => toWasmU32(document.byteLength));
-    const payloadLength = encodedLengths.reduce(
-        (total, length) => total + U32_BYTES + length,
-        DOCUMENT_LIST_HEADER.bytes,
-    );
-    const output: Uint8Array<ArrayBuffer> = new Uint8Array(payloadLength);
-    const view = new DataView(output.buffer);
-    writeMagic(output, DOCUMENT_LIST_HEADER.magic);
-    writeU32(view, DOCUMENT_LIST_HEADER.version, REQUEST_VERSION_DOCUMENT_LIST);
-    writeU32(view, DOCUMENT_LIST_HEADER.operation, OPERATION_CODES[request.type]);
-    writeU32(view, DOCUMENT_LIST_HEADER.documentCount, documents.length);
-    let offset: number = DOCUMENT_LIST_HEADER.bytes;
-    for (const [
-        index,
-        document,
-    ] of documents.entries()) {
-        const length = encodedLengths[index]!;
-        offset = writeU32(view, offset, length);
-        output.set(document, offset);
-        offset += length;
-    }
-    return {
-        data: output,
-        passwordOffset: 0,
-        passwordLength: 0,
-    };
-}
-
 function buildWasmRequest(request: TBrowserPageOpsWasmRequest) {
     const instructed = getInstructedRequest(request);
     if (instructed !== null) {
         return buildInstructedWasmRequest(OPERATION_CODES[request.type], instructed);
-    }
-    if (request.type === 'conformance') {
-        return buildDocumentListWasmRequest(request);
     }
     const data = getRequestData(request);
     const insertionData = getInsertionData(request);
@@ -1143,7 +1081,7 @@ export async function tryRunBrowserPageOpsWithWasm<K extends TBrowserPageOpsWasm
     }
     await beforeRun?.();
 
-    if (type === 'parseAnnotations' || type === 'readCatalog' || type === 'ocrTextVisibility') {
+    if (type === 'parseAnnotations' || type === 'readCatalog' || type === 'conformance' || type === 'ocrTextVisibility') {
         return runFileRead(exports, type as TFileReadType, payload as IBrowserPageOpsWasmRequestMap[TFileReadType]) as Promise<IBrowserPageOpsWasmResultMap[K] | IBrowserPageOpsWasmFailure>;
     }
     return runWasmRequest(exports, type as TByteRequestType, payload as IBrowserPageOpsWasmRequestMap[TByteRequestType]) as IBrowserPageOpsWasmResultMap[K] | IBrowserPageOpsWasmFailure;

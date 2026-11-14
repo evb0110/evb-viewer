@@ -196,7 +196,7 @@ async function handleReadCatalogRequest(
 async function handleConformanceRequest(
     request: IBrowserPageOpsWorkerRequest<'conformance'>,
 ) {
-    return readPdfConformance(request.payload.data);
+    return readPdfConformance(request.payload.source);
 }
 
 const WASM_WRITER_REQUEST_TYPES = [

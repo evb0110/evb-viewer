@@ -126,7 +126,7 @@ pub(crate) fn run_file_request(request: &[u8]) -> Result<Vec<u8>> {
     match operation {
         OP_SAVE_MUTATIONS => return save_mutations(tail, source_count),
         OP_OCR_TEXT_LAYER => return ocr_text_layer(tail, source_count),
-        OP_PARSE_ANNOTATIONS | OP_READ_CATALOG | OP_OCR_TEXT_VISIBILITY => {
+        OP_PARSE_ANNOTATIONS | OP_READ_CATALOG | OP_CONFORMANCE | OP_OCR_TEXT_VISIBILITY => {
             return read_source(operation, &pages, tail, source_count)
         }
         _ if !tail.is_empty() => return Err("Invalid page-op WASM file request length".into()),
@@ -186,6 +186,12 @@ fn read_source(operation: u32, pages: &[u32], tail: &[u8], source_count: u32) ->
             serde_json::to_vec(&read_pdf_document_catalog(
                 &SourcePdf::open(HostSource(0), len)?.document,
             ))?,
+        ),
+        OP_CONFORMANCE => encode_bytes(
+            RESPONSE_JSON,
+            serde_json::to_vec(&pdf_conformance_facts(
+                &SourcePdf::open(HostSource(0), len)?.document,
+            )?)?,
         ),
         _ => {
             let with_evb_ocr_text = match tail {

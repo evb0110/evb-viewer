@@ -193,7 +193,7 @@ describe('browserPageOpsWorkerClient', () => {
     it('lets strict conformance use its ten-minute bound and terminates it at that bound', async () => {
         FakeWorker.autoRespond = false;
         let failure: unknown;
-        const pending = runBrowserPageOpsWorkerRequest('conformance', {data: Uint8Array.of(1)}, {
+        const pending = runBrowserPageOpsWorkerRequest('conformance', {source: new Blob([Uint8Array.of(1)])}, {
             dedicated: true,
             timeoutMs: 600_000,
         })

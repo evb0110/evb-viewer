@@ -1470,7 +1470,7 @@ describe('browser page-ops WASM fast path', () => {
             ],
         });
 
-        const conformanceResult = await wasm.run('conformance', {data: sourcePdf});
+        const conformanceResult = await wasm.run('conformance', {source: new Blob([sourcePdf])});
         expect(conformanceResult).toEqual({
             isSigned: false,
             isEncrypted: false,
@@ -1522,7 +1522,7 @@ describe('browser page-ops WASM fast path', () => {
         expect(mergedResult.pageCount).toBe(600);
         expect((await PDFDocument.load(mergedResult.data)).getPageCount()).toBe(600);
         await expect(wasm.run('readCatalog', {source: new Blob([mergedResult.data])})).resolves.toMatchObject({bookmarks: []});
-        await expect(wasm.run('conformance', {data: mergedResult.data})).resolves.toMatchObject({isEncrypted: false});
+        await expect(wasm.run('conformance', {source: new Blob([mergedResult.data])})).resolves.toMatchObject({isEncrypted: false});
     });
 
     it('reads more than 2,048 page-label ranges, as desktop does', async () => {
