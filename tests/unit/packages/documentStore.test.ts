@@ -1,3 +1,4 @@
+import {execFileSync} from 'node:child_process';
 import { promises } from 'node:fs';
 import {
     mkdtemp,
@@ -486,6 +487,10 @@ describe('recovery after a crash', () => {
         await doc.mutate(1, {
             kind: 'rewrite',
             async source(file) {
+                // NTFS otherwise zero-fills the gap on the tail write instead of making a sparse fixture.
+                if (process.platform === 'win32') {
+                    execFileSync('fsutil.exe', ['sparse', 'setflag', path.join(docDir(doc), 'r2.pdf')], {windowsHide: true});
+                }
                 await file.truncate(TWO_GIB);
                 await file.writeAt(TWO_GIB - 4, encode('tail'));
             },
