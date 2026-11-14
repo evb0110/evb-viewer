@@ -156,42 +156,6 @@ async function readPasswordProtectedPdf() {
     return Uint8Array.from(Buffer.from(encoded.trim(), 'base64'));
 }
 
-function romanNumeral(value: number) {
-    const numerals = [[1000, 'M'], [900, 'CM'], [500, 'D'], [400, 'CD'], [100, 'C'], [90, 'XC'], [50, 'L'], [40, 'XL'], [10, 'X'], [9, 'IX'], [5, 'V'], [4, 'IV'], [1, 'I']] as const;
-    let rest = value;
-    return numerals.map(([amount, numeral]) => {
-        const count = Math.floor(rest / amount);
-        rest -= count * amount;
-        return numeral.repeat(count);
-    }).join('');
-}
-
-/** Each page's displayed label, from the label ranges' style, prefix and first number. */
-function readPageLabels(pdfDocument: PDFDocument) {
-    const pageLabels = pdfDocument.context.lookup(
-        pdfDocument.catalog.get(PDFName.of('PageLabels')) as PDFRef,
-    ) as PDFDict;
-    const nums = pageLabels.get(PDFName.of('Nums')) as PDFArray;
-    const ranges: Array<{start: number; style: string; prefix: string; first: number}> = [];
-    for (let index = 0; index < nums.size(); index += 2) {
-        const label = pdfDocument.context.lookup(nums.get(index + 1)) as PDFDict;
-        ranges.push({
-            start: (nums.get(index) as PDFNumber).asNumber(),
-            style: (label.get(PDFName.of('S')) as PDFName | undefined)?.decodeText() ?? '',
-            prefix: (label.get(PDFName.of('P')) as PDFString | undefined)?.decodeText() ?? '',
-            first: (label.get(PDFName.of('St')) as PDFNumber | undefined)?.asNumber() ?? 1,
-        });
-    }
-    return pdfDocument.getPages().map((_page, pageIndex) => {
-        const range = ranges.findLast(candidate => candidate.start <= pageIndex);
-        if (!range) return String(pageIndex + 1);
-        const number = range.first + pageIndex - range.start;
-        const numerals: Record<string, string> = {D: String(number), R: romanNumeral(number), r: romanNumeral(number).toLowerCase()};
-        const numeral = numerals[range.style] ?? '';
-        return `${range.prefix}${numeral}`;
-    });
-}
-
 function readOutlineDestination(pdfDocument: PDFDocument) {
     const outlines = pdfDocument.context.lookup(
         pdfDocument.catalog.get(PDFName.of('Outlines')) as PDFRef,

@@ -3,6 +3,7 @@ import {
     copyFileSync, existsSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync,
 } from 'node:fs';
 import {tmpdir} from 'node:os';
+import {fileURLToPath} from 'node:url';
 import {
     basename, dirname, join,
 } from 'node:path';
@@ -11,9 +12,9 @@ import {
 } from 'vitest';
 import {startElectronE2ESession} from '@tests/e2e/electron/helpers/startElectronE2ESession';
 import {
-    waitForPdfLoaded, waitForViewerInteractive,
+    openDocumentSidebarTab, openPdfInApp, waitForPdfLoaded, waitForViewerInteractive,
 } from '@tests/e2e/electron/helpers/viewerCore';
-import {clickAnnotationTool} from '@tests/e2e/electron/helpers/viewerAnnotations';
+import {clickAnnotationTool, createStickyNoteWithPointer, selectAllFocusedAnnotationText} from '@tests/e2e/electron/helpers/viewerAnnotations';
 import {clickAsUser} from '@tests/e2e/electron/helpers/userInput';
 import {getActiveWorkspaceWorkingCopyPath, readDocumentBytes} from '@tests/e2e/electron/helpers/electronApiHelpers';
 import {
@@ -24,9 +25,10 @@ import {
 } from '@tests/e2e/electron/helpers/workspaceExpose';
 import {
     hasWorkspaceCrashCheckpoint,
-    readAnnotationRecoveryDraft,
     readWorkspaceRecoveryRecords,
 } from '@scripts/electron-run/electronRunWorkspaceCheckpoint';
+import {getSessionInfo} from '@scripts/electron-run/electronRunSessionArtifacts';
+import type {IE2EWindow} from '@tests/e2e/electron/helpers/e2EWindow';
 import {stopSingleSession} from '@scripts/electron-run/stopSession';
 
 interface IPoint {
@@ -34,105 +36,185 @@ interface IPoint {
     readonly y: number;
 }
 
-it('restores focused text draft after a crash checkpoint', async () => {
-    const outputDirectory = mkdtempSync(join(tmpdir(), 'evb-draft-recovery-'));
-    const sourcePath = join(outputDirectory, 'draft-source.pdf');
-    copyFileSync(join(process.cwd(), 'tests/fixtures/electron/test-scanned.pdf'), sourcePath);
-    const sessionName = `e2e-unsaved-draft-${Date.now()}`;
-    let session = await startElectronE2ESession(sessionName, {
-        clean: true,
-        initialOpenPaths: [sourcePath],
-    });
-    try {
-        await waitForPdfLoaded(session.page, 60_000);
-        await waitForViewerInteractive(session.page, 60_000);
-        await requireWorkspaceCommand(session.page, 'handleRotateCw', [[1]]);
-        await waitForWorkspaceToolbarIdle(session.page, {timeoutMs: 60_000});
-        await clickAnnotationTool(session.page, 'Text', 30_000);
-        const pointHandle = await session.page.waitForFunction(() => {
-            const page = document.querySelector<HTMLElement>('.editor-pane.is-active .page_container[data-page="1"]');
-            const layer = page?.querySelector<HTMLElement>('.pdf-annotation-editor-layer');
-            const background = layer?.querySelector<HTMLElement>('.pdf-annotation-editor-surface__background');
-            const rect = layer?.getBoundingClientRect();
-            if (
-                !page
-                || !page.classList.contains('page_container--rendered')
-                || page.dataset.pageLayerReadiness !== 'ready'
-                || !layer
-                || layer.dataset.pdfAnnotationEditorReady !== 'true'
-                || !layer.classList.contains('is-interactive')
-                || !background
-                || getComputedStyle(background).pointerEvents === 'none'
-                || !rect
-                || rect.width <= 0
-                || rect.height <= 0
-            ) return false;
-            const x = rect.left + rect.width * 0.42;
-            const y = rect.top + rect.height * 0.31;
-            if (x < 0 || y < 0 || x >= window.innerWidth || y >= window.innerHeight) return false;
-            return document.elementFromPoint(x, y) === background
-                ? {
-                    x,
-                    y,
-                }
-                : false;
-        }, {timeout: 30_000});
-        const point = await pointHandle.jsonValue() as IPoint;
-        await pointHandle.dispose();
-        await session.page.mouse.click(point.x, point.y);
-        const editor = '.editor-pane.is-active .pdf-annotation-editor-text-box.is-editing [contenteditable="true"]';
+it.each(['text-box', 'note', 'rejected-note'].flatMap(kind => [100, 300, 1_000].map(delay => ({kind, delay}))))(
+    'restores focused $kind typing after SIGKILL at $delay ms', async ({kind, delay}) => {
+        const outputDirectory = mkdtempSync(join(tmpdir(), 'evb-draft-recovery-'));
+        const sourcePath = join(outputDirectory, 'draft-source.pdf');
+        copyFileSync(join(process.cwd(), 'tests/fixtures/electron/test-scanned.pdf'), sourcePath);
+        const sessionName = `e2e-unsaved-draft-${Date.now()}`;
+        let session = await startElectronE2ESession(sessionName, {
+            clean: true,
+            initialOpenPaths: [sourcePath],
+        });
         try {
-            await session.page.waitForFunction((selector: string) => document.activeElement === document.querySelector(selector), {timeout: 30_000}, editor);
-        } catch (error) {
-            const visibleState = await session.page.evaluate(() => ({
-                activeElement: document.activeElement?.tagName ?? null,
-                editingEditorVisible: Boolean(document.querySelector('.pdf-annotation-editor-text-box.is-editing [contenteditable="true"]')),
-                activeTool: document.querySelector('.editor-pane.is-active .notes-panel .tool-button.is-active')?.getAttribute('data-tool') ?? null,
-                visiblePageText: document.querySelector<HTMLElement>('.editor-pane.is-active .page_container[data-page="1"]')?.innerText.slice(0, 240) ?? null,
-            }));
-            await session.page.screenshot({
-                path: join(process.cwd(), '.devkit/project12/872/focus-timeout.png'),
-                fullPage: true,
+            await waitForPdfLoaded(session.page, 60_000);
+            await waitForViewerInteractive(session.page, 60_000);
+            if (kind === 'rejected-note') {
+                // Reject the canonical note boundary; durable draft storage still works.
+                await session.page.setCacheEnabled(false);
+                await session.page.setRequestInterception(true);
+                let injected = false;
+                session.page.on('request', async request => {
+                    const url = new URL(request.url());
+                    const asset = url.protocol === 'file:' ? fileURLToPath(url) : join(process.cwd(), 'nuxt-output', 'public', url.pathname);
+                    if (!/\.js(?:\?|$)/u.test(request.url()) || !existsSync(asset)) {
+                        await request.continue();
+                        return;
+                    }
+                    const body = readFileSync(asset, 'utf8');
+                    const seam = /updateAnnotationCommentInViewer:\s*\([^)]*\)\s*=>\s*\{/u;
+                    if (!seam.test(body)) {
+                        await request.continue();
+                        return;
+                    }
+                    injected = true;
+                    await request.respond({status: 200, contentType: 'application/javascript', body: body.replace(seam,
+                        '$&if(Reflect.get(window,"__rejectNoteUpdate")){Reflect.set(window,"__noteUpdateRejected",true);throw new Error("Sustained canonical note rejection");}')});
+                });
+                await session.page.reload();
+                await openPdfInApp(session.page, sourcePath);
+                await waitForPdfLoaded(session.page, 60_000);
+                await waitForViewerInteractive(session.page, 60_000);
+                expect(injected).toBe(true);
+            }
+            await requireWorkspaceCommand(session.page, 'handleRotateCw', [[1]]);
+            await waitForWorkspaceToolbarIdle(session.page, {timeoutMs: 60_000});
+            if (kind === 'text-box') {
+                await clickAnnotationTool(session.page, 'Text', 30_000);
+                const pointHandle = await session.page.waitForFunction(() => {
+                    const page = document.querySelector<HTMLElement>('.editor-pane.is-active .page_container[data-page="1"]');
+                    const layer = page?.querySelector<HTMLElement>('.pdf-annotation-editor-layer');
+                    const background = layer?.querySelector<HTMLElement>('.pdf-annotation-editor-surface__background');
+                    const rect = layer?.getBoundingClientRect();
+                    if (
+                        !page
+                        || !page.classList.contains('page_container--rendered')
+                        || page.dataset.pageLayerReadiness !== 'ready'
+                        || !layer
+                        || layer.dataset.pdfAnnotationEditorReady !== 'true'
+                        || !layer.classList.contains('is-interactive')
+                        || !background
+                        || getComputedStyle(background).pointerEvents === 'none'
+                        || !rect
+                        || rect.width <= 0
+                        || rect.height <= 0
+                    ) return false;
+                    const x = rect.left + rect.width * 0.42;
+                    const y = rect.top + rect.height * 0.31;
+                    if (x < 0 || y < 0 || x >= window.innerWidth || y >= window.innerHeight) return false;
+                    return document.elementFromPoint(x, y) === background
+                        ? {
+                            x,
+                            y,
+                        }
+                        : false;
+                }, {timeout: 30_000});
+                const point = await pointHandle.jsonValue() as IPoint;
+                await pointHandle.dispose();
+                await session.page.mouse.click(point.x, point.y);
+                const editor = '.editor-pane.is-active .pdf-annotation-editor-text-box.is-editing [contenteditable="true"]';
+                try {
+                    await session.page.waitForFunction((selector: string) => document.activeElement === document.querySelector(selector), {timeout: 30_000}, editor);
+                } catch (error) {
+                    const visibleState = await session.page.evaluate(() => ({
+                        activeElement: document.activeElement?.tagName ?? null,
+                        editingEditorVisible: Boolean(document.querySelector('.pdf-annotation-editor-text-box.is-editing [contenteditable="true"]')),
+                        activeTool: document.querySelector('.editor-pane.is-active .notes-panel .tool-button.is-active')?.getAttribute('data-tool') ?? null,
+                        visiblePageText: document.querySelector<HTMLElement>('.editor-pane.is-active .page_container[data-page="1"]')?.innerText.slice(0, 240) ?? null,
+                    }));
+                    await session.page.screenshot({
+                        path: join(outputDirectory, 'focus-timeout.png'),
+                        fullPage: true,
+                    });
+                    throw new Error(`${String(error)}; visible UI state: ${JSON.stringify(visibleState)}`);
+                }
+            }
+            const draftText = `Focused ${kind} draft ${Date.now()}`;
+            if (kind !== 'text-box') {
+                await createStickyNoteWithPointer(session.page, 'Previously accepted note', {x: 0.4, y: 0.3});
+                await clickAsUser(session.page, 'textarea.note-window__textarea');
+                await selectAllFocusedAnnotationText(session.page);
+                if (kind === 'rejected-note') {
+                    await session.page.evaluate(() => Reflect.set(window, '__rejectNoteUpdate', true));
+                    // First reject an earlier update, then type while rejection persists.
+                    await session.page.keyboard.type('Earlier rejected note draft');
+                    await session.page.waitForFunction(() => Reflect.get(window, '__noteUpdateRejected') === true);
+                    await selectAllFocusedAnnotationText(session.page);
+                }
+            }
+            const pid = getSessionInfo(session.name)?.electronPid;
+            if (typeof pid !== 'number') throw new Error('Owned Electron main PID is missing');
+            let actualDelayMs = 0;
+            let killTimer: ReturnType<typeof setTimeout> | undefined;
+            const killed = new Promise<void>(resolveKill => {
+                session.page.on('console', message => {
+                    if (!message.text().startsWith('FOCUSED_TYPING ')) return;
+                    const at = Number(message.text().slice('FOCUSED_TYPING '.length));
+                    killTimer = setTimeout(() => {
+                        actualDelayMs = Date.now() - at;
+                        process.kill(pid, 'SIGKILL');
+                        resolveKill();
+                    }, Math.max(1, at + delay - Date.now() + 1));
+                });
             });
-            throw new Error(`${String(error)}; visible UI state: ${JSON.stringify(visibleState)}`);
-        }
-        const draftText = `Focused draft ${Date.now()}`;
-        await session.page.keyboard.type(draftText, {delay: 10});
-        await session.page.waitForFunction((text: string) => document.querySelector('.pdf-annotation-editor-text-box.is-editing [contenteditable="true"]')?.textContent === text, {timeout: 30_000}, draftText);
-        const workingCopyPath = await getActiveWorkspaceWorkingCopyPath(session.page);
-        await expect.poll(() => {
-            if (!hasWorkspaceCrashCheckpoint(session.name)) return null;
-            const checkpoint = readWorkspaceRecoveryRecords(session.name)[0] as {checkpoint?: {tabs?: Array<{
-                isDirty?: boolean;
-                annotationRecovery?: {artifactId?: string}
-            }>} } | undefined;
-            const tab = checkpoint?.checkpoint?.tabs?.[0];
-            if (!tab?.isDirty || !tab.annotationRecovery?.artifactId) return null;
-            const artifact = JSON.parse(readAnnotationRecoveryDraft(session.name, tab.annotationRecovery.artifactId) ?? '{}') as {payload?: {drafts?: Array<{text?: string}>}};
-            return artifact.payload?.drafts ?? null;
-        }, {timeout: 60_000}).toEqual(expect.arrayContaining([expect.objectContaining({text: draftText})]));
+            await session.page.evaluate((text: string) => {
+                document.addEventListener('input', event => {
+                    const target = event.target;
+                    if (!(target instanceof HTMLElement)) return;
+                    const value = target instanceof HTMLTextAreaElement ? target.value : target.textContent;
+                    if (value === text) console.log('FOCUSED_TYPING ' + Date.now());
+                }, {capture: true});
+            }, draftText);
+            try {
+                const typing = session.page.keyboard.type(draftText, {delay: 10}).catch(() => {});
+                await Promise.race([killed, new Promise<never>((_, reject) => {
+                    const deadline = setTimeout(() => reject(new Error('Focused typing receipt missing')), 30_000);
+                    void killed.then(() => clearTimeout(deadline));
+                })]);
+                await typing;
+            } finally {
+                if (killTimer) clearTimeout(killTimer);
+            }
+            console.info('FOCUSED_TYPING_CUT', JSON.stringify({kind, delay, actualDelayMs}));
+            const crashed = session;
+            await crashed.browser.disconnect();
+            await stopSingleSession(crashed.name, {
+                preserveWorkspaceCheckpoint: true,
+                crashElectronBeforeStop: true,
+            });
+            session = await startElectronE2ESession(sessionName, {clean: false});
+            await waitForPdfLoaded(session.page, 60_000);
+            await waitForViewerInteractive(session.page, 60_000);
+            if (kind !== 'text-box') await openDocumentSidebarTab(session.page, 'annotations');
+            await session.page.waitForFunction((text: string) => {
+                const boxes = Array.from(document.querySelectorAll<HTMLElement>('.editor-pane.is-active .pdf-annotation-editor-text-box'));
+                const notes = Array.from(document.querySelectorAll<HTMLTextAreaElement>('textarea.note-window__textarea'));
+                const comments = Array.from(document.querySelectorAll<HTMLElement>('.notes-list .note-item-text'));
+                return boxes.some(editor => editor.innerText === text && editor.getClientRects().length > 0)
+                    || notes.some(editor => editor.value === text && editor.getClientRects().length > 0)
+                    || comments.some(comment => comment.innerText.trim() === text && comment.getClientRects().length > 0);
+            }, {timeout: 60_000}, draftText).catch(async error => {
+                console.info('FOCUSED_TYPING_RECOVERY_FAILURE', JSON.stringify(await session.page.evaluate(() => ({
+                    text: document.body.innerText,
+                    capture: (window as IE2EWindow).__evbTestApi?.getActiveWorkspaceHandle()?.captureCanonicalAnnotationRecovery?.(),
+                }))));
+                throw error;
+            });
+            expect(JSON.stringify(readWorkspaceRecoveryRecords(session.name))).toContain(draftText);
+            // Report the live recovered state alongside the measured cut for retained evidence.
+            console.info('FOCUSED_TYPING_RECOVERED', JSON.stringify({kind, delay, text: draftText,
+                capture: await session.page.evaluate(() => (window as IE2EWindow).__evbTestApi?.getActiveWorkspaceHandle()?.captureCanonicalAnnotationRecovery?.())}));
+            const state = await readWorkspaceStateValues<{dirtyState?: {fileDirty?: boolean}}>(session.page, ['dirtyState']);
+            expect(state.dirtyState?.fileDirty).toBe(true);
 
-        const crashed = session;
-        await crashed.browser.disconnect();
-        await stopSingleSession(crashed.name, {
-            preserveWorkspaceCheckpoint: true,
-            crashElectronBeforeStop: true,
-        });
-        session = await startElectronE2ESession(sessionName, {clean: false});
-        await waitForPdfLoaded(session.page, 60_000);
-        await waitForViewerInteractive(session.page, 60_000);
-        await session.page.waitForFunction((text: string) => Array.from(document.querySelectorAll<HTMLElement>('.editor-pane.is-active .pdf-annotation-editor-text-box')).some(editor => editor.innerText === text && editor.getClientRects().length > 0), {timeout: 60_000}, draftText);
-        const state = await readWorkspaceStateValues<{dirtyState?: {fileDirty?: boolean}}>(session.page, ['dirtyState']);
-        expect(state.dirtyState?.fileDirty).toBe(true);
-        expect(workingCopyPath).toBeTruthy();
-    } finally {
-        await session.stop();
-        rmSync(outputDirectory, {
-            recursive: true,
-            force: true,
-        });
-    }
-});
+        } finally {
+            await session.stop();
+            rmSync(outputDirectory, {
+                recursive: true,
+                force: true,
+            });
+        }
+    }, 90_000);
 
 it('keeps an unsaved page edit through a crash and a reboot that empties the temp folder', async () => {
     const sourcePath = await createMultiPageTextFixturePdf(`reboot-recovery-${Date.now()}.pdf`, 2);
