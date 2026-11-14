@@ -9,7 +9,7 @@ import {
 } from 'fs/promises';
 import {copyNewFile} from '@document-store/nodeStorePort';
 import {usingManagedScratchScope} from '@electron/utils/managedScratchTemp';
-import {showOpenDocumentDialogForContext} from '@electron/features/documents/main/documentDialogCommon';
+import {showOpenDocumentDialogForContext} from '@electron/features/documents/public/showOpenDocumentDialogForContext';
 import {
     basename,
     extname,
