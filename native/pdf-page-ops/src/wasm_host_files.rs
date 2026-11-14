@@ -34,7 +34,9 @@ fn host_result(status: i32) -> io::Result<()> {
     if status == 0 {
         Ok(())
     } else {
-        Err(io::Error::other("The browser host could not read or write the file"))
+        Err(io::Error::other(
+            "The browser host could not read or write the file",
+        ))
     }
 }
 
@@ -114,7 +116,8 @@ pub(crate) fn run_file_request(request: &[u8]) -> Result<Vec<u8>> {
         .collect::<Vec<_>>();
     let edit = match read_u32_at(request, FILE_REQUEST_HEADER.operation)? {
         OP_VERIFY_WRITTEN => {
-            let (sources, subset) = written.ok_or("No page-structure output awaits verification")?;
+            let (sources, subset) =
+                written.ok_or("No page-structure output awaits verification")?;
             subset.verify(&sources, &HostSink, SINK_LEN.get())?;
             return Ok(written_response(subset.page_count, SINK_LEN.get()));
         }
@@ -134,7 +137,9 @@ pub(crate) fn run_file_request(request: &[u8]) -> Result<Vec<u8>> {
             // SAFETY: a plain call; the host answers with the source's length.
             let len = unsafe { evb_host_source_len(index) };
             if !(len.is_finite() && len >= 0.0) {
-                return Err(io_domain_error(io::Error::other("The browser host has no such source")));
+                return Err(io_domain_error(io::Error::other(
+                    "The browser host has no such source",
+                )));
             }
             SourcePdf::open(HostSource(index), len as u64)
         })

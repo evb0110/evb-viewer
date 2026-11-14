@@ -48,6 +48,7 @@ import {
 } from '@contracts/pdfAnnotationParseTypes';
 import {normalizePdfNativeMutationSet} from '@contracts/nativePdfMutations';
 import {requirePageIndex} from '@contracts/pageNumbers';
+import {readPdfCatalogWithPdfjs} from '@tests/e2e/electron/helpers/fixtures';
 import {decodePdfPageSizeRecord} from '@evb/scan-cleanup/core/policy/scanCleanupRasterPolicy';
 
 const NativeWebAssembly = WebAssembly;
@@ -1463,7 +1464,7 @@ describe('browser page-ops WASM fast path', () => {
             assertSuccessfulWasmMutation(operation.result);
             const output = await PDFDocument.load(operation.result.data);
             expect(output.catalog.get(PDFName.of('Outlines'))).toBeDefined();
-            expect(readPageLabels(output)).toEqual(operation.labels);
+            expect((await readPdfCatalogWithPdfjs(operation.result.data)).pageLabels).toEqual(operation.labels);
             expect(readOutlineDestination(output).objectNumber)
                 .toBe(output.getPage(operation.destinationPage - 1).ref.objectNumber);
         }
