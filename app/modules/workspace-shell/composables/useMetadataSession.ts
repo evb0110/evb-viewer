@@ -125,9 +125,12 @@ export const useMetadataSession = (options: IMetadataSessionOptions) => {
     };
     setWorkspaceCommandSink?.(commandSink);
 
+    // The owners read their first state while they are being created, before these exist.
+    let currentMetadata: (field: 'bookmarkItems' | 'pageLabelRanges') => unknown = () => undefined;
     /** The field's value as written to the working bytes, or as read from them when `written` is absent. */
     function acknowledgeWorkingMetadata<T>(field: 'bookmarkItems' | 'pageLabelRanges', written?: T) {
-        workingMetadata[field] = structuredClone(toRaw(written ?? (field === 'bookmarkItems' ? bookmarkItems.value : pageLabelRanges.value)));
+        const value = written ?? currentMetadata(field);
+        if (value !== undefined) workingMetadata[field] = structuredClone(toRaw(value));
         return written;
     }
     const differsFromWorkingBytes = (field: 'bookmarkItems' | 'pageLabelRanges', value: unknown) => (
@@ -184,6 +187,7 @@ export const useMetadataSession = (options: IMetadataSessionOptions) => {
     } = pageLabelState;
 
 
+    currentMetadata = field => (field === 'bookmarkItems' ? bookmarkItems.value : pageLabelRanges.value);
     metadataHistory = useWorkspaceMetadataHistory({
         bookmarkItems,
         bookmarksDirty,
