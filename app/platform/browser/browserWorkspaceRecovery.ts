@@ -239,11 +239,11 @@ const namedDirectories = new Set<string>();
 let startCheckpoint: Promise<ICoreWorkspaceCheckpoint | null | undefined> | null = null;
 /** The layout this page recorded last. */
 let layout: ReturnType<typeof toStoredWorkspaceCheckpoint> | null = null;
-let writing = Promise.resolve();
+let written = Promise.resolve();
 
 /** Writes this window's checkpoint: the directories it names, then the layout last recorded. One write at a time. */
 function writeWindowCheckpoint(windowId: string) {
-    const write = writing.then(async () => {
+    written = written.catch(() => undefined).then(async () => {
         const {durable} = await browserDocumentStore.stores();
         if (!durable) return;
         startCheckpoint ??= readWorkspaceCheckpoints(durable.port).then(checkpoints => checkpoints.get(windowId));
@@ -258,13 +258,12 @@ function writeWindowCheckpoint(windowId: string) {
             layout: layout ?? start?.layout ?? null,
         });
     });
-    writing = write.catch(() => undefined);
-    return write;
+    return written;
 }
 
-/** Names a directory in this window's checkpoint before its first edit; a named one waits for the write that names it. */
+/** Names a directory in this window's checkpoint before its first edit; a named one waits for the last write, and fails with it. */
 export function nameBrowserWorkspaceDirectory(windowId: string, directory: string) {
-    if (namedDirectories.has(directory)) return writing;
+    if (namedDirectories.has(directory)) return written;
     namedDirectories.add(directory);
     return writeWindowCheckpoint(windowId);
 }

@@ -22,6 +22,7 @@ import {
     setBrowserDocumentDrafts,
 } from '@app/platform/browser/browserWorkspaceRecovery';
 import {browserDocumentStore} from '@app/platform/browser/browserDocumentRepository';
+import {browserDocumentRefId} from '@app/platform/browser/browserDocumentRefs';
 import {holdBrowserLock} from '@app/platform/browser/runBrowserLock';
 import { removeBrowserExtensionDocumentUrl } from '@contracts/browserExtensionLaunch';
 import * as v from 'valibot';
@@ -405,23 +406,11 @@ function waitForBrowserWindowCloseAttempt() {
     }
 
     return new Promise<boolean>((resolve) => {
-        let settled = false;
         let timeoutId = 0;
-
-        const cleanup = () => {
-            window.removeEventListener('pagehide', handleWindowClosed);
-            if (timeoutId) {
-                window.clearTimeout(timeoutId);
-            }
-        };
-
+        // Each outcome removes the other's trigger, so one settles.
         const finish = (closed: boolean) => {
-            if (settled) {
-                return;
-            }
-
-            settled = true;
-            cleanup();
+            window.removeEventListener('pagehide', handleWindowClosed);
+            window.clearTimeout(timeoutId);
             resolve(closed);
         };
 
@@ -447,18 +436,9 @@ function queueTransferForWindow(windowId: number, transferId: string) {
 }
 
 function removeQueuedTransferReference(windowId: number, transferId: string) {
-    const queued = queuedTransfersByWindow.get(windowId);
-    if (!queued) {
-        return;
-    }
-
-    const nextQueued = queued.filter((candidate) => candidate !== transferId);
-    if (nextQueued.length === 0) {
-        queuedTransfersByWindow.delete(windowId);
-        return;
-    }
-
-    queuedTransfersByWindow.set(windowId, nextQueued);
+    const queued = queuedTransfersByWindow.get(windowId)?.filter(candidate => candidate !== transferId) ?? [];
+    if (queued.length > 0) queuedTransfersByWindow.set(windowId, queued);
+    else queuedTransfersByWindow.delete(windowId);
 }
 
 function finishTransfer(
@@ -508,37 +488,22 @@ function rememberIncomingTransferNonce(transferId: string, nonce: string) {
 }
 
 function clearIncomingTransferNonces() {
-    incomingTransferNonces.forEach((entry) => {
-        clearTimeout(entry.timeoutHandle);
-    });
+    for (const entry of incomingTransferNonces.values()) clearTimeout(entry.timeoutHandle);
     incomingTransferNonces.clear();
 }
 
 function dispatchQueuedTransfers(windowId: number) {
     const queued = queuedTransfersByWindow.get(windowId) ?? [];
-    if (queued.length === 0) {
-        return;
-    }
-
     queuedTransfersByWindow.delete(windowId);
-    for (const transferId of queued) {
-        dispatchTransfer(transferId);
-    }
+    for (const transferId of queued) dispatchTransfer(transferId);
 }
 
 function markWindowUnavailable(windowId: number, error: string) {
     knownWindows.delete(windowId);
     queuedTransfersByWindow.delete(windowId);
 
-    const pendingForWindow = Array.from(pendingTransfers.values())
-        .filter((transfer) => transfer.targetWindowId === windowId)
-        .map((transfer) => transfer.transferId);
-
-    for (const transferId of pendingForWindow) {
-        finishTransfer(transferId, {
-            success: false,
-            error,
-        });
+    for (const transfer of [...pendingTransfers.values()]) {
+        if (transfer.targetWindowId === windowId) finishTransfer(transfer.transferId, {success: false, error});
     }
 }
 
@@ -786,29 +751,12 @@ function updateKnownCurrentWindow() {
     });
 }
 
-function buildTransferWindowUrl(targetWindowId: number) {
-    if (!hasBrowserWindowContext()) {
-        return null;
-    }
-
+function openTargetWindow(targetWindowId: number) {
+    if (!hasBrowserWindowContext()) return false;
     // A launched document stays with the window that opened it.
     const url = new URL(removeBrowserExtensionDocumentUrl(window.location.href));
     url.searchParams.set(WINDOW_ID_QUERY_PARAM, String(targetWindowId));
-    return url.toString();
-}
-
-function openTargetWindow(targetWindowId: number) {
-    if (!hasBrowserWindowContext()) {
-        return false;
-    }
-
-    const url = buildTransferWindowUrl(targetWindowId);
-    if (!url) {
-        return false;
-    }
-
-    const opened = window.open(url, '_blank');
-    return opened !== null;
+    return window.open(url.toString(), '_blank') !== null;
 }
 
 function waitForDiscoverySettling() {
@@ -845,20 +793,21 @@ async function holdCurrentWindowLock() {
     }
 }
 
-/** The documents a transfer hands over leave this window first, so the target can lock and open them. */
-async function releaseTransferredDocuments(payload: IWindowTabTransferRequest['payload']) {
-    if (payload.kind === 'pdfSnapshot' && payload.snapshotPath) await browserDocumentStore.release(payload.snapshotPath);
+async function nameInWindowCheckpoint(directory: string) {
+    const windowId = await holdCurrentWindowLock();
+    if (windowId) await nameBrowserWorkspaceDirectory(windowId, directory);
 }
 
-// The window's checkpoint names a document directory before its first edit, as desktop's does.
-browserDocumentStore.onDirectoryEdited = async (directory) => {
-    try {
-        const windowId = await holdCurrentWindowLock();
-        if (windowId) await nameBrowserWorkspaceDirectory(windowId, directory);
-    } catch (error) {
-        BrowserLogger.warn('workspace-recovery', 'Failed to name a document in the window checkpoint', error);
-    }
-};
+/** Names what a transfer hands over, as a starting target collects first, then lets it go; a failure keeps it here. */
+async function releaseTransferredDocuments(payload: IWindowTabTransferRequest['payload']) {
+    if (payload.kind !== 'pdfSnapshot' || !payload.snapshotPath) return;
+    await nameInWindowCheckpoint(browserDocumentRefId(payload.snapshotPath));
+    await browserDocumentStore.release(payload.snapshotPath);
+}
+
+// The window's checkpoint names a document directory before its first edit, as desktop's does, and before handing it over.
+browserDocumentStore.onDirectoryEdited = directory => nameInWindowCheckpoint(directory)
+    .catch(error => BrowserLogger.warn('workspace-recovery', 'Failed to name a document in the window checkpoint', error));
 
 export const browserWindowTabsCapability: IWindowTabsCapability = {
     browserRecovery: {

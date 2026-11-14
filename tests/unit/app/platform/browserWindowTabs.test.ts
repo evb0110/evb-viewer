@@ -1,12 +1,23 @@
 import type * as TBrowserQpdfEngineClient from '@app/platform/browser-api/browserQpdfEngineClient';
 import {
+    mkdtemp,
+    rm,
+} from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import {
     afterEach,
     beforeEach,
     describe,
     expect,
     it,
+    onTestFinished,
     vi,
 } from 'vitest';
+import { collectDocuments } from '@document-store/collectDocuments';
+import { openDocument } from '@document-store/documentDirectory';
+import { createNodeStorePort } from '@document-store/nodeStorePort';
+import { WORKSPACES_DIR } from '@document-store/workspaceCheckpoint';
 import type { IWindowTabsCapability } from '@contracts/windowTabsPlatformFeature';
 
 vi.mock('@app/platform/browser-api/browserQpdfEngineClient', async importOriginal => ({
@@ -132,6 +143,59 @@ async function resolveTargetWindows(
     const targets = capability.listTargetWindows();
     await vi.advanceTimersByTimeAsync(70);
     return targets;
+}
+
+const nodeLocks = navigator.locks;
+const handOverBytes = new TextEncoder().encode('%PDF-1.7\nhanded over\n');
+let nextWindowId = 9_000;
+
+/**
+ * Window B, its store on disk under the Web Locks Node provides, with a tab on a PDF opened without a stored file
+ * handle (a dropped file), and the copy a move of that tab hands over: a fork of the tab's working copy when the tab
+ * is clean, as `createWorkingCopyFromPath` makes it, or the viewer's bytes with the edits when it is not, as
+ * `createBrowserWorkingCopyFromBytes` does. With `refusedCheckpoints`, the store refuses every window checkpoint write.
+ */
+async function windowHandingOverTab(edited: boolean, refusedCheckpoints = false) {
+    const browserWindow = stubBrowserGlobals(`http://localhost:3235/?evbWindowId=${nextWindowId++}`);
+    browserWindow.open.mockReturnValue({} as never);
+    vi.stubGlobal('navigator', {locks: nodeLocks});
+    const root = await mkdtemp(join(process.env.TMPDIR ?? tmpdir(), 'window-hand-over-'));
+    const {browserDocumentStore, browserDocumentLockName} = await import('@app/platform/browser/browserDocumentRepository');
+    const {browserDocumentRefId} = await import('@app/platform/browser/browserDocumentRefs');
+    const {browserPublication} = await import('@app/platform/browser/browserPublication');
+    const {createMemoryStorePort} = await import('@app/platform/browser/browserStorePort');
+    const {holdBrowserLock} = await import('@app/platform/browser/runBrowserLock');
+    const durable = {port: createNodeStorePort(root), publication: browserPublication};
+    vi.spyOn(browserDocumentStore, 'stores').mockResolvedValue({durable, memory: {port: createMemoryStorePort(), publication: browserPublication}});
+    const writeAtomic = durable.port.writeAtomic.bind(durable.port);
+    vi.spyOn(durable.port, 'writeAtomic').mockImplementation(async (path, bytes) => {
+        if (refusedCheckpoints && path.startsWith(`${WORKSPACES_DIR}/`)) throw new Error('The browser refused the checkpoint');
+        return writeAtomic(path, bytes);
+    });
+    onTestFinished(async () => {
+        await Promise.all(browserDocumentStore.openEntries().map(entry => browserDocumentStore.release(entry.ref)));
+        await rm(root, {recursive: true, force: true});
+    });
+    const {browserWindowTabsCapability} = await import('@app/platform/browserWindowTabs');
+    const source = await browserDocumentStore.registerFile(new File([handOverBytes], 'dropped.pdf', {type: 'application/pdf'}));
+    const working = await browserDocumentStore.cloneAsWorkingCopy(source);
+    const handOver = edited
+        ? await browserDocumentStore.createStoredDocument('dropped.pdf', handOverBytes, {mimeType: 'application/pdf', saveKind: 'pdf', kind: 'working', sourceRef: source})
+        : await browserDocumentStore.cloneAsWorkingCopy(working);
+    return {
+        durable,
+        handOver,
+        directory: browserDocumentRefId(handOver),
+        holds: () => browserDocumentStore.openEntries().some(entry => entry.ref === handOver),
+        // Moving the tab to a new window, from the tab's context menu.
+        move: () => browserWindowTabsCapability.transfer({
+            target: {kind: 'new-window'},
+            tab: {fileName: 'dropped.pdf', originalPath: source, isDirty: edited, isDjvu: false},
+            payload: {kind: 'pdfSnapshot', fileName: 'dropped.pdf', originalPath: source, snapshotPath: handOver, isDirty: edited},
+        }),
+        // The new window's first work, before it can take the copy: `collectOnce` in browserWorkspaceRecovery.ts.
+        collectInNewWindow: () => collectDocuments(durable, id => holdBrowserLock(browserDocumentLockName(id))),
+    };
 }
 
 // Warm the complete handoff graph at collection; each case still reloads it.
@@ -433,4 +497,35 @@ describe('browserWindowTabsCapability', () => {
         expect(callback).not.toHaveBeenCalled();
     });
 
+    it.each([
+        'clean',
+        'edited',
+    ])('hands a tab\'s document to a new window through the collection that window starts with (%s tab)', async (state) => {
+        const tab = await windowHandingOverTab(state === 'edited');
+
+        void tab.move();
+        await vi.waitFor(() => expect(tab.holds()).toBe(false));
+        const collected = await tab.collectInNewWindow();
+
+        expect(collected.removed).not.toContain(tab.directory);
+        const taken = await openDocument(tab.durable, tab.directory);
+        await expect(taken.read(0, handOverBytes.byteLength)).resolves.toEqual(handOverBytes);
+        await taken.close();
+    });
+
+    it.each([
+        'clean',
+        'edited',
+    ])('keeps a tab\'s document when its window cannot name it for the hand-over (%s tab)', async (state) => {
+        const tab = await windowHandingOverTab(state === 'edited', true);
+
+        let moved: unknown = null;
+        void tab.move().then((result) => {
+            moved = result;
+        });
+
+        await vi.waitFor(() => expect(moved).toMatchObject({success: false, error: 'The transferred document could not be handed over.'}));
+        expect(tab.holds()).toBe(true);
+        expect((await tab.collectInNewWindow()).removed).not.toContain(tab.directory);
+    });
 });

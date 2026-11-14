@@ -122,7 +122,10 @@ not part of opening it, on both platforms: an edit revision or the first
 drafts. A decrypt or repair at open is not an edit, and it commits as one
 revision, so an opened document no one edited is never offered for recovery.
 A directory a window takes that already holds unsaved work (recovered, moved
-in from another window) is named when the window takes it.
+in from another window) is named when the window takes it. A browser window
+names a directory it hands to another window before it lets go of its lock,
+so the collection a new target window starts with keeps it; when that cannot
+be named, the move fails and the tab stays.
 
 Collection decides each directory while holding it: desktop collects once at
 startup before the store opens anything, the browser takes the directory's
