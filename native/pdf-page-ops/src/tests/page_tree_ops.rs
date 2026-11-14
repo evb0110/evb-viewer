@@ -2001,3 +2001,62 @@ fn page_structure_edits_read_the_first_of_duplicate_keys() {
         b"D:20000101"
     );
 }
+
+/// A one-level page tree whose root declares `count` pages over `kids`.
+fn page_tree_pdf(count: usize, kids: &[&str], pages: &[(u32, &str)]) -> Vec<u8> {
+    let mut objects = vec![
+        (1, "<< /Type /Catalog /Pages 2 0 R >>".to_string()),
+        (2, format!("<< /Type /Pages /Count {count} /Kids [{}] >>", kids.join(" "))),
+    ];
+    objects.extend(pages.iter().map(|(number, page)| (*number, page.to_string())));
+    let mut pdf = b"%PDF-1.4\n".to_vec();
+    let mut offsets = Vec::new();
+    for (number, object) in &objects {
+        offsets.push((*number, pdf.len()));
+        pdf.extend(format!("{number} 0 obj\n{object}\nendobj\n").as_bytes());
+    }
+    let xref = pdf.len();
+    pdf.extend(b"xref\n0 1\n0000000000 65535 f \n");
+    for (number, offset) in offsets {
+        pdf.extend(format!("{number} 1\n{offset:010} 00000 n \n").as_bytes());
+    }
+    pdf.extend(format!("trailer\n<< /Size 20 /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n").as_bytes());
+    pdf
+}
+
+#[test]
+fn page_structure_edits_refuse_a_damaged_page_tree() {
+    const PAGE: &str = "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 72 72] /Resources << >> >>";
+    const NODE: &str = "<< /Type /Pages /Parent 2 0 R /Count 1 /Kids [5 0 R] >>";
+    let cases = [
+        (
+            // Its first page is cited as generation 1, which the newest
+            // revision has replaced.
+            "a stale generation",
+            include_bytes!("../../tests/fixtures/page-engine/generation-collision.pdf").to_vec(),
+        ),
+        ("a missing leaf", page_tree_pdf(2, &["3 0 R", "9 0 R"], &[(3, PAGE)])),
+        ("a repeated leaf", page_tree_pdf(2, &["3 0 R", "3 0 R"], &[(3, PAGE)])),
+        ("a wrong root count", page_tree_pdf(3, &["3 0 R", "4 0 R"], &[(3, PAGE), (4, PAGE)])),
+        (
+            "a wrong inner count",
+            page_tree_pdf(
+                2,
+                &["4 0 R", "3 0 R"],
+                &[(3, PAGE), (4, "<< /Type /Pages /Parent 2 0 R /Count 0 /Kids [5 0 R] >>"), (5, PAGE)],
+            ),
+        ),
+        (
+            "a leaf of no type",
+            page_tree_pdf(2, &["3 0 R", "4 0 R"], &[(3, PAGE), (4, "<< /Parent 2 0 R >>")]),
+        ),
+    ];
+    for (name, input) in cases {
+        let error = delete_browser_pdf_pages(&input, &[1]).err().unwrap_or_else(|| panic!("{name}"));
+        let error = error.downcast_ref::<NativeError>().unwrap();
+        assert_eq!(error.code, NativeErrorCode::CorruptXref, "{name}");
+        assert!(error.message.starts_with("The page tree is damaged"), "{name}: {}", error.message);
+    }
+    let sound = page_tree_pdf(2, &["4 0 R", "3 0 R"], &[(3, PAGE), (4, NODE), (5, PAGE)]);
+    assert_eq!(delete_browser_pdf_pages(&sound, &[1]).unwrap().page_count, 1);
+}
