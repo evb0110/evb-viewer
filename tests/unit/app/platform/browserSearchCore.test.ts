@@ -22,8 +22,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('@app/platform/browser-api/browserPageOpsWorkerClient', () => ({runBrowserPageOpsWorkerRequest: mocks.pageOps}));
 vi.mock('@app/platform/browserDocumentStore', () => ({browserDocumentStore: {
-    stat: async () => ({size: 1}),
-    read: async () => Uint8Array.of(1),
+    readableBlob: async () => new Blob([Uint8Array.of(1)]),
 }}));
 
 vi.mock('@app/platform/browser-api/browserPdfjsDocumentInit', () => ({
@@ -81,10 +80,12 @@ describe('browserSearchCore', () => {
 
         await expect(document.extractPage(1, {signal})).resolves.toMatchObject({text: 'שלום'});
         expect(mocks.pageOps).toHaveBeenCalledWith('ocrTextVisibility', {
-            data: Uint8Array.of(1),
+            source: expect.any(Blob),
             pages: [1],
             withEvbOcrText: true,
         }, {signal});
+        const source = mocks.pageOps.mock.calls[0]![1].source as Blob;
+        expect(new Uint8Array(await source.arrayBuffer())).toEqual(Uint8Array.of(1));
     });
 
     it.each([
