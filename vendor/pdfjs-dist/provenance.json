@@ -1,24 +1,25 @@
 {
   "schemaVersion": 1,
   "artifact": {
-    "path": "file:vendor/pdfjs-dist/pdfjs-dist-6.3.315-dd722a66.tgz",
-    "filename": "pdfjs-dist-6.3.315-dd722a66.tgz",
+    "path": "file:vendor/pdfjs-dist/pdfjs-dist-6.3.316-c6bd7213.tgz",
+    "filename": "pdfjs-dist-6.3.316-c6bd7213.tgz",
     "published": false
   },
   "source": {
     "repository": "https://github.com/evb0110/pdf.js.git",
     "branch": "evb-1442-background-rendering",
-    "commit": "dd722a6628764218a99e3d8ac6e9c2b70141f993",
-    "tree": "845071699cbf0e9a0fa353e2a769f9d64aafd97e",
+    "commit": "c6bd72136cf5f51423071ee298e99e251a7cef74",
+    "tree": "f7a8f4f759078918288f5993a5a93404e7dd48b8",
     "upstreamTag": "v6.3.289",
     "upstreamCommit": "1c8020a7d4e43668ac287a3ecf9a8dbea17e4c56",
     "upstreamTree": "df7e37b2ed4ab43bf3cee8c96348993459e2c457",
     "sourceBaseCommit": "5e0ac85d697d41a2232045033962b3437b7e2ad1",
     "sourceBaseTree": "9dbb438c9a4bce5a958ca8b37d305b79b5b74c6a",
-    "versionCalculationBase": "sourceBaseCommit",
+    "versionCalculationBase": "pdfjs.config.baseVersion",
     "cleanCheckout": true,
     "fullHistory": true,
-    "cleanCheckoutEvidence": "git status --porcelain was empty before gulp dist; npm pack created the sole untracked tgz afterward"
+    "cleanCheckoutEvidence": "git status --porcelain empty before build and after packing outside the checkout",
+    "versionCalculationBaseCommit": "ce4ff55faaa83b39b0137dc458af6eea6f96235f"
   },
   "build": {
     "commands": [
@@ -27,41 +28,41 @@
       "node scripts/verify_fork_artifacts.mjs",
       "npm pack ./build/dist --ignore-scripts --json"
     ],
-    "os": "macOS 27.0",
-    "kernel": "27.0.0",
-    "arch": "arm64",
-    "node": "v24.21.0",
-    "npm": "11.19.0",
+    "os": "Linux-7.0.0-42-generic-x86_64-with-glibc2.43",
+    "kernel": "7.0.0-42-generic",
+    "arch": "x86_64",
+    "node": "v26.13.0",
+    "npm": "11.20.0",
     "environment": "PUPPETEER_SKIP_DOWNLOAD=1",
     "packageLockSha256": "cd9b0ce997a442b17335976706b2fa64707bfb6b8b7d83cfe332acdc5498b6a2",
-    "reproduciblePackSha256": "9be9c2301105aa138ef706a4e2d755fb7544a04bae27616ae6a7a7272c72efd3"
+    "reproduciblePackSha256": "6fe657ce846fed43376825e73cb61cc10bb9fac048b5d9bbf8cebafe41dcd2c1"
   },
   "package": {
     "name": "pdfjs-dist",
-    "version": "6.3.315",
+    "version": "6.3.316",
     "entryCount": 559,
-    "unpackedByteSize": 35025454,
-    "manifest": "pdfjs-dist-6.3.315-dd722a66.files.sha256",
-    "manifestSha256": "9bae8b343b40625fc5679e49d94db264c1928075d3c922dbd683a03ef135c90d",
+    "unpackedByteSize": 35027394,
+    "manifest": "pdfjs-dist-6.3.316-c6bd7213.files.sha256",
+    "manifestSha256": "6b11f0fad30205fb629243a2bacae35088a06e3122470edafcf4ef9408ae7844",
     "manifestFormat": "file<TAB>size<TAB>sha256<TAB>path",
     "sourceMapPolicy": "source maps retained; local absolute paths forbidden",
     "sourceMapCount": 10
   },
   "archive": {
-    "byteSize": 8558002,
-    "sha256": "9be9c2301105aa138ef706a4e2d755fb7544a04bae27616ae6a7a7272c72efd3",
-    "sha512": "d9e3d9c246ded8285310471c562229d00115532b1477df3422247b51a32c81b2d6dc799209aa8fa8f5903bca10d233d6470c49a31de970dd242a6b19c45f547a",
-    "sri": "sha512-2ePZwkbe2ChTEEccViIp0AEVUysUd980IiR7UaMsgbLW3HmSCaqPqPWQO8oQ0jPWRwxJox3pcN0kKmsZxF9Ueg==",
+    "byteSize": 8558953,
+    "sha256": "6fe657ce846fed43376825e73cb61cc10bb9fac048b5d9bbf8cebafe41dcd2c1",
+    "sha512": "cbfd8ff8666ce2a7dca29ac082c1371a073978d1e5ec8fbc13e9f39c18f058347e05f332df274ca5e962f69235d93be0d54185cc7cb80cdab8e47a43b1487adf",
+    "sri": "sha512-y/2P+GZs4qfcoprAgsE3Ggc5eNHl7I+8E+nznBjwWDR+BfMy3ydMpeli9pI12Tvg1UGFzHy4DNq45HpDsUh63w==",
     "entryCount": 559,
-    "unpackedByteSize": 35025454,
-    "pack1Sha256": "9be9c2301105aa138ef706a4e2d755fb7544a04bae27616ae6a7a7272c72efd3",
-    "pack2Sha256": "9be9c2301105aa138ef706a4e2d755fb7544a04bae27616ae6a7a7272c72efd3",
+    "unpackedByteSize": 35027394,
+    "pack1Sha256": "6fe657ce846fed43376825e73cb61cc10bb9fac048b5d9bbf8cebafe41dcd2c1",
+    "pack2Sha256": "6fe657ce846fed43376825e73cb61cc10bb9fac048b5d9bbf8cebafe41dcd2c1",
     "reproducible": true
   },
   "evb": {
-    "dependencyKey": "file:vendor/pdfjs-dist/pdfjs-dist-6.3.315-dd722a66.tgz",
+    "dependencyKey": "file:vendor/pdfjs-dist/pdfjs-dist-6.3.316-c6bd7213.tgz",
     "pnpm": "10.34.5",
-    "lockfilePdfjsIntegrity": "sha512-2ePZwkbe2ChTEEccViIp0AEVUysUd980IiR7UaMsgbLW3HmSCaqPqPWQO8oQ0jPWRwxJox3pcN0kKmsZxF9Ueg==",
+    "lockfilePdfjsIntegrity": "sha512-y/2P+GZs4qfcoprAgsE3Ggc5eNHl7I+8E+nznBjwWDR+BfMy3ydMpeli9pI12Tvg1UGFzHy4DNq45HpDsUh63w==",
     "publicVersionStamp": "public/pdf/.pdfjs-version",
     "previewDependency": "npm:pdfjs-dist@5.4.296",
     "noNpmPublication": true,
@@ -70,7 +71,7 @@
   "verifier": {
     "path": "scripts/verify-pdfjs-provenance.mjs",
     "version": "1",
-    "sourceSha256": "54dec0cfc034365c7a4f0ddf494a08eb20f9bc88361b19dcd529038167567e23"
+    "sourceSha256": "237a68a4552f93932150c33dae46cb0271fbd910b1e62d835c661849bbe8051e"
   },
   "verification": {
     "requiredForkMarkers": 20,

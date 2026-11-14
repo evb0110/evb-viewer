@@ -1,10 +1,10 @@
 # EVB PDF.js artifact
 
-This directory contains the complete generated `pdfjs-dist@6.3.315` package
+This directory contains the complete generated `pdfjs-dist@6.3.316` package
 from the public EVB fork at
 `https://github.com/evb0110/pdf.js`, commit
-`dd722a6628764218a99e3d8ac6e9c2b70141f993`, tree
-`845071699cbf0e9a0fa353e2a769f9d64aafd97e`, branch
+`c6bd72136cf5f51423071ee298e99e251a7cef74`, tree
+`f7a8f4f759078918288f5993a5a93404e7dd48b8`, branch
 `evb-1442-background-rendering`, based on the native annotation appearance
 renderer at `f88c766ad`. The fork rebases the EVB changes onto upstream `v6.3.289`.
 
@@ -39,3 +39,8 @@ the render task's private operator list.
 scheduler for offscreen OCR rasters. Display content and annotation visibility
 stay the same; rendering can continue when hidden tabs receive no animation
 callbacks. Default viewer rendering still follows animation frames.
+
+This pin backports upstream [PR 22164](https://github.com/mozilla/pdf.js/pull/22164).
+Aborting a range-backed load preserves the request rejection, while a separate
+observer handles discarded background promises. Worker termination yields to
+those rejections before cleanup, so replacing a document can await its teardown.
