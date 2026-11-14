@@ -7,6 +7,7 @@ import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import {createStaleRevisionError} from '@contracts/documentMutationErrors';
 import type { IDocumentSessionState } from '@app/modules/workspace-shell/composables/document-session/documentSessionState';
 import { BrowserLogger } from '@app/utils/browserLogger';
+import { getErrorMessage } from '@app/utils/error';
 import { getDocumentPdfCapability } from '@app/utils/platformDocuments';
 import { shouldForcePdfSaveAs } from '@app/services/pdf-file/shouldForcePdfSaveAs';
 
@@ -36,6 +37,18 @@ export interface IPdfConformanceIdleScheduler {
 export interface IPdfConformanceDeferralOptions { fileSize?: number | null }
 
 export const MAX_EAGER_PDF_CONFORMANCE_BYTES = 64 * 1024 * 1024;
+
+/**
+ * Why a save of the original is refused when the analysis could not read the
+ * original itself: desktop's refusal for an original that changed after it
+ * was opened, cannot be read or is locked. Null for any other failure, which
+ * leaves the analysis inconclusive.
+ */
+export function readOriginalFailureReason(error: unknown): 'original-changed' | 'write-failed' | null {
+    const message = getErrorMessage(error);
+    if (!message.includes('WorkingCopyMaterializationError')) return null;
+    return message.includes('changed after it was opened') ? 'original-changed' : 'write-failed';
+}
 
 function createDefaultIdleScheduler(): IPdfConformanceIdleScheduler {
     if (
@@ -81,7 +94,7 @@ export function createDocumentConformance(
         state.pdfConformanceProfile.value = null;
     }
 
-    /** The structural profile of `path` at `revision`, or null when it could not be read. */
+    /** The structural profile of `path` at `revision`, or null when the analysis was inconclusive. */
     function startPdfSaveRestrictionAnalysis(path: TDocumentRef, revision: TDocumentRevisionToken | null) {
         if (saveRestrictionInFlight?.path === path && saveRestrictionInFlight.revision === revision) {
             return saveRestrictionInFlight.promise;
@@ -89,6 +102,7 @@ export function createDocumentConformance(
 
         const promise = getDocumentPdfCapability().analyzePdfConformance(path, {purpose: 'save-restrictions'})
             .catch((error: unknown) => {
+                if (readOriginalFailureReason(error)) throw error;
                 BrowserLogger.warn('pdf-file', 'PDF save restriction analysis failed', {
                     path,
                     error,
