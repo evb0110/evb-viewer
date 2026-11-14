@@ -88,6 +88,24 @@ function nodeStoreFile(handle: fs.FileHandle): IStoreFile {
     };
 }
 
+/** Native readers deny existing write access on Windows; retain only a reader between store writes. */
+function nodeRevisionFile(target: string, reader: fs.FileHandle): IStoreFile {
+    async function write<T>(task: (file: IStoreFile) => Promise<T>) {
+        const file = nodeStoreFile(await fs.open(target, 'r+'));
+        try {
+            return await task(file);
+        } finally {
+            await file.close();
+        }
+    }
+    return {
+        ...nodeStoreFile(reader),
+        writeAt: (offset, bytes) => write(file => file.writeAt(offset, bytes)),
+        truncate: length => write(file => file.truncate(length)),
+        flush: () => write(file => file.flush()),
+    };
+}
+
 /** The storage port over a directory of the local file system. */
 export function createNodeStorePort(root: string): IStorePort {
     const resolve = (relative: string) => {
@@ -148,14 +166,15 @@ export function createNodeStorePort(root: string): IStorePort {
         async open(file) {
             const target = resolve(file);
             try {
-                return nodeStoreFile(await fs.open(target, 'r+'));
+                return nodeRevisionFile(target, await fs.open(target, 'r'));
             } catch (error) {
                 if (!isMissing(error)) throw error;
             }
             await ensureDirectory(path.dirname(target));
             const handle = await fs.open(target, 'wx+');
+            await handle.close();
             await syncDirectory(path.dirname(target));
-            return nodeStoreFile(handle);
+            return nodeRevisionFile(target, await fs.open(target, 'r'));
         },
         copyIn,
         copy: (from, to) => copyIn(resolve(from), to),
