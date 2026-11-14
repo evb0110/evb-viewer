@@ -70,15 +70,15 @@ import {
     findIndirectDjvuSelection,
     setBrowserDjvuComponentFiles,
 } from '@app/platform/browser-api/browserDjvuComponents';
-import {isBrowserPageOpsWasmFailure} from '@contracts/browserPageOpsWorker';
+import {
+    isBrowserPageOpsWasmFailure,
+    type IBrowserPageOpsWasmFailure,
+} from '@contracts/browserPageOpsWorker';
+import {appendPdfMutationsToStoreFile} from '@app/platform/browser/browserStorePort';
 import {BROWSER_PAGE_OPS_MAX_REQUEST_BYTES} from '@contracts/browserPageOpsLimits';
 import { decodeBrowserPdfAnnotationsOutput } from '@app/platform/browser-api/decodeBrowserPdfAnnotationsOutput';
 import {browserSettingsCapability} from '@app/platform/browser-api/browserSettingsCapability';
-import {
-    createBrowserStoreStagedArtifact,
-    readBrowserStoreStagedArtifact,
-    sha256Hex,
-} from '@app/platform/browser/browserStagedArtifact';
+import {createBrowserStoreStagedArtifact} from '@app/platform/browser/browserStagedArtifact';
 import {nativePdfSemanticScope} from '@contracts/nativePdfSemanticScope';
 import {
     parseDocumentRef,
@@ -87,7 +87,6 @@ import {
 import {
     DOCUMENT_LIST_HEADER,
     REQUEST_HEADER,
-    REQUEST_ORIGINAL_APPEARANCE_SOURCE_HEADER,
     U32_BYTES,
 } from '@contracts/browserPageOpsWasm.generated';
 import { createEpochMs } from '@contracts/timestamps';
@@ -162,9 +161,25 @@ export function createBrowserDocumentsFileCapability(
         return sink;
     }
 
-    async function discardWorkingCopy(path: TDocumentRef, leaseId?: string) {
-        if (leaseId !== undefined) browserNativeMutationLeases.delete(leaseId);
+    async function discardWorkingCopy(path: TDocumentRef) {
         await browserDocumentStore.remove(path).catch(() => undefined);
+    }
+
+    /** Ends a native edit's receipt: its append is cut unless a commit took it. */
+    async function releaseNativeMutationLease(leaseId: string) {
+        const lease = browserNativeMutationLeases.get(leaseId);
+        if (!lease) return false;
+        browserNativeMutationLeases.delete(leaseId);
+        await browserDocumentStore.discardAppend(lease.path, leaseId);
+        return true;
+    }
+
+    /** The lease of a receipt this capability staged for `path`. */
+    function requireNativeMutationLease(path: TDocumentRef, stagedOutput: {path: string; leaseId: string}) {
+        if (stagedOutput.path !== path || !browserNativeMutationLeases.has(stagedOutput.leaseId)) {
+            throw new Error('The staged edit does not belong to this document');
+        }
+        return stagedOutput.leaseId;
     }
 
     // Cleanup is best effort for failed transient opens.
@@ -316,52 +331,45 @@ export function createBrowserDocumentsFileCapability(
             modifiedAt,
             options: IDocumentMutationRevisionOptions,
         ) {
-            await browserDocumentStore.assertDocumentRevisionCurrent(
-                path,
-                options.expectedDocumentRevisionToken,
-            );
-            // The document and its original appearance source share one
-            // engine request; the engine refuses the framed remainder exactly.
-            const requestBudget = BROWSER_PAGE_OPS_MAX_REQUEST_BYTES - REQUEST_ORIGINAL_APPEARANCE_SOURCE_HEADER.bytes;
-            const input = await browserDocumentStore.read(path, {maxBytes: requestBudget});
-            const originalAppearanceSource = mutations.originalAppearanceSource;
-            const originalAppearanceSourceData = originalAppearanceSource
-                ? await browserDocumentStore.read(originalAppearanceSource, {maxBytes: requestBudget - input.byteLength})
+            // The engine appends to the working copy's own file in the store worker, reading the document by range;
+            // the receipt names that uncommitted append until a commit, replace, clone or release ends it.
+            const appearanceSource = mutations.originalAppearanceSource
+                ? await browserDocumentStore.readableBlob(mutations.originalAppearanceSource)
                 : undefined;
-            const wasmResult = await runBrowserPageOpsWorkerRequest('saveMutations', {
-                data: input,
-                ...(originalAppearanceSourceData ? {originalAppearanceSourceData} : {}),
-                mutations,
-                modifiedAt,
+            let appended: Exclude<Awaited<ReturnType<typeof appendPdfMutationsToStoreFile>>, IBrowserPageOpsWasmFailure> | undefined;
+            let failure: IBrowserPageOpsWasmFailure | undefined;
+            const lease = await browserDocumentStore.stageAppend(path, options.expectedDocumentRevisionToken, async (file, base) => {
+                const result = await appendPdfMutationsToStoreFile(file, base, {
+                    mutations,
+                    modifiedAt,
+                    ...(appearanceSource ? {appearanceSource} : {}),
+                });
+                if (isBrowserPageOpsWasmFailure(result)) {
+                    failure = result;
+                    return null;
+                }
+                appended = result;
+                return result.length;
             });
-            if (isBrowserPageOpsWasmFailure(wasmResult)) {
+            if (lease === null || !appended) {
                 return {
                     applied: false,
                     validation: null,
                     error: {
                         code: 'native-failure',
-                        message: wasmResult.error.message,
+                        message: failure?.error.message ?? 'Native PDF mutation was not applied',
                     },
                 } satisfies IPdfNativeSaveResult;
             }
-            await browserDocumentStore.assertDocumentRevisionCurrent(
-                path,
-                options.expectedDocumentRevisionToken,
-            );
-            const stagedName = `${getBrowserDocumentFileName(path)}.staged-native-save.pdf`;
-            const stagedPath = await browserDocumentStore.createStoredDocument(stagedName, wasmResult.data, {
-                mimeType: 'application/pdf',
-                saveKind: 'pdf',
-                kind: 'output',
-                retention: 'transient',
-            });
+            const staged = {...appended, lease};
             try {
                 const stagedOutput = await createBrowserStoreStagedArtifact(
                     browserDocumentStore,
-                    stagedPath,
+                    path,
                     {
-                        leaseId: crypto.randomUUID(),
-                        sha256: await sha256Hex(wasmResult.data),
+                        leaseId: staged.lease,
+                        size: staged.length,
+                        sha256: staged.sha256,
                         validations: {
                             qpdfCheck: false,
                             tailCheck: true,
@@ -372,38 +380,41 @@ export function createBrowserDocumentsFileCapability(
                     },
                 );
                 browserNativeMutationLeases.set(stagedOutput.leaseId, {
-                    path: stagedOutput.path,
-                    identityBindings: wasmResult.identityBindings,
+                    path,
+                    identityBindings: staged.identityBindings,
                 });
                 return {
                     applied: true,
                     validation: createValidBrowserOutputResult(),
                     nativeMutationPostconditionsVerified: true,
-                    identityBindings: wasmResult.identityBindings,
+                    identityBindings: staged.identityBindings,
                     stagedOutput,
                 } satisfies IPdfNativeSaveResult;
             } catch (error) {
-                await discardWorkingCopy(stagedPath);
+                await browserDocumentStore.discardAppend(path, staged.lease);
                 throw error;
             }
         },
-        async releaseManagedTempFileHandle(leaseId) {
-            const stagedPath = browserNativeMutationLeases.get(leaseId)?.path;
-            if (!stagedPath) {
-                return false;
-            }
-            await discardWorkingCopy(stagedPath, leaseId);
-            return true;
-        },
+        releaseManagedTempFileHandle: releaseNativeMutationLease,
         async cloneStagedPdfNativeMutationToWorkingCopy(stagedOutput, originalPath) {
-            const {bytes} = await readBrowserStoreStagedArtifact(browserDocumentStore, stagedOutput);
-            const clonePath = await createBrowserWorkingCopyFromBytes({
-                fileName: getBrowserDocumentFileName(stagedOutput.path),
-                data: bytes,
-                ...(originalPath ? {sourceRef: originalPath} : {}),
-            });
-            await discardWorkingCopy(stagedOutput.path, stagedOutput.leaseId);
-            return clonePath;
+            try {
+                return await createBrowserWorkingCopyFromBytes({
+                    fileName: getBrowserDocumentFileName(stagedOutput.path),
+                    data: await browserDocumentStore.appendedContent(stagedOutput.path, stagedOutput.leaseId),
+                    ...(originalPath ? {sourceRef: originalPath} : {}),
+                });
+            } finally {
+                await releaseNativeMutationLease(stagedOutput.leaseId);
+            }
+        },
+        async replaceWorkingCopyFromStagedPdfNativeMutation(path, stagedOutput, options) {
+            try {
+                await browserDocumentStore.commitAppend(path, options.expectedDocumentRevisionToken, requireNativeMutationLease(path, stagedOutput));
+            } finally {
+                await releaseNativeMutationLease(stagedOutput.leaseId);
+            }
+            await clearSearchCaches(path);
+            return true;
         },
         async commitStagedPdfNativeMutations(
             path,
@@ -416,7 +427,7 @@ export function createBrowserDocumentsFileCapability(
             const identityBindings = browserNativeMutationLeases.get(stagedOutput.leaseId)?.identityBindings;
             let committed: Awaited<ReturnType<typeof saveWorkingBytesToSource>>;
             try {
-                committed = await saveWorkingBytesToSource(path, options, stagedOutput);
+                committed = await saveWorkingBytesToSource(path, options, requireNativeMutationLease(path, stagedOutput));
             } catch (error) {
                 // The file changed since it was opened: a save result that offers Save As.
                 if (!(error instanceof BrowserDocumentSourceChangedError)) throw error;
@@ -431,7 +442,7 @@ export function createBrowserDocumentsFileCapability(
                     },
                 } satisfies IPdfNativeSaveResult;
             } finally {
-                await discardWorkingCopy(stagedOutput.path, stagedOutput.leaseId);
+                await releaseNativeMutationLease(stagedOutput.leaseId);
             }
             if (!committed) {
                 return {

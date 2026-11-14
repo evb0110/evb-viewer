@@ -1,10 +1,12 @@
 //! Files the browser host holds for the engine: sources read by range and one
 //! sink the edit writes and then verifies. wasm32 memory cannot hold a large
 //! document, so only objects cross into it, as the reader asks for them.
-//! Stream data is not read by the engine at all: each copy is left to the
+//! A page-structure edit reads no stream data: each copy is left to the
 //! host, which reads Blobs asynchronously (a synchronous read in one long
 //! task keeps every buffer it allocated until the task ends), and a second
-//! request verifies the output once the host has copied the streams.
+//! request verifies the output once the host has copied the streams. A save
+//! appends to its source's own file and reads only the few streams a
+//! mutation reuses, by range.
 use super::*;
 use crate::wasm_abi::*;
 use std::{

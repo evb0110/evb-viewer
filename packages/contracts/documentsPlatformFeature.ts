@@ -559,6 +559,7 @@ export const DOCUMENT_FILES_PLATFORM_FEATURE = definePlatformFeature({
                 timeoutMs: longNativeIpcTimeoutMs,
             },
             ...electronImplementedOptional,
+            browser: {method: 'replaceWorkingCopyFromStagedPdfNativeMutation'},
         },
     },
     events: {

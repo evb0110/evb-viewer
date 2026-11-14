@@ -38,6 +38,8 @@ export interface ICreateBrowserStoreStagedArtifactOptions {
     leaseId: string;
     sha256: string;
     validations: IStagedArtifactValidations;
+    /** An edit appended to the record in place: its staged length, past the revision the record names. */
+    size?: number;
 }
 
 function toArrayBuffer(bytes: Uint8Array) {
@@ -57,7 +59,9 @@ export async function sha256Hex(bytes: Uint8Array) {
 /**
  * Mints the browser form of a staged receipt from a store record. The store
  * revision is copied into both identity fields so a receipt cannot refer to a
- * different record or to bytes from an earlier revision.
+ * different record or to bytes from an earlier revision. A native edit
+ * appended in place names its own record, its staged size and the SHA-256 of
+ * the appended bytes; its lease, not a reread, admits its commit.
  */
 export async function createBrowserStoreStagedArtifact(
     store: IBrowserStagedArtifactStore,
@@ -82,7 +86,7 @@ export async function createBrowserStoreStagedArtifact(
         receiptVersion: 1 as const,
         artifactKind: 'pdf' as const,
         path: stagedRef,
-        size: metadata.size,
+        size: options.size ?? metadata.size,
         sha256: options.sha256,
         fileIdentity: createBrowserStoreFileIdentity(stagedRef, revision.token),
         validations: options.validations,

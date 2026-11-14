@@ -156,42 +156,6 @@ async function readPasswordProtectedPdf() {
     return Uint8Array.from(Buffer.from(encoded.trim(), 'base64'));
 }
 
-function romanNumeral(value: number) {
-    const numerals = [[1000, 'M'], [900, 'CM'], [500, 'D'], [400, 'CD'], [100, 'C'], [90, 'XC'], [50, 'L'], [40, 'XL'], [10, 'X'], [9, 'IX'], [5, 'V'], [4, 'IV'], [1, 'I']] as const;
-    let rest = value;
-    return numerals.map(([amount, numeral]) => {
-        const count = Math.floor(rest / amount);
-        rest -= count * amount;
-        return numeral.repeat(count);
-    }).join('');
-}
-
-/** Each page's displayed label, from the label ranges' style, prefix and first number. */
-function readPageLabels(pdfDocument: PDFDocument) {
-    const pageLabels = pdfDocument.context.lookup(
-        pdfDocument.catalog.get(PDFName.of('PageLabels')) as PDFRef,
-    ) as PDFDict;
-    const nums = pageLabels.get(PDFName.of('Nums')) as PDFArray;
-    const ranges: Array<{start: number; style: string; prefix: string; first: number}> = [];
-    for (let index = 0; index < nums.size(); index += 2) {
-        const label = pdfDocument.context.lookup(nums.get(index + 1)) as PDFDict;
-        ranges.push({
-            start: (nums.get(index) as PDFNumber).asNumber(),
-            style: (label.get(PDFName.of('S')) as PDFName | undefined)?.decodeText() ?? '',
-            prefix: (label.get(PDFName.of('P')) as PDFString | undefined)?.decodeText() ?? '',
-            first: (label.get(PDFName.of('St')) as PDFNumber | undefined)?.asNumber() ?? 1,
-        });
-    }
-    return pdfDocument.getPages().map((_page, pageIndex) => {
-        const range = ranges.findLast(candidate => candidate.start <= pageIndex);
-        if (!range) return String(pageIndex + 1);
-        const number = range.first + pageIndex - range.start;
-        const numerals: Record<string, string> = {D: String(number), R: romanNumeral(number), r: romanNumeral(number).toLowerCase()};
-        const numeral = numerals[range.style] ?? '';
-        return `${range.prefix}${numeral}`;
-    });
-}
-
 function readOutlineDestination(pdfDocument: PDFDocument) {
     const outlines = pdfDocument.context.lookup(
         pdfDocument.catalog.get(PDFName.of('Outlines')) as PDFRef,
@@ -262,8 +226,7 @@ async function renameFirstBookmarkAndSave(data: Uint8Array) {
         first,
         ...rest
     ] = v.parse(v.array(PDF_BOOKMARK_RECOVERY_ENTRY_SCHEMA), catalog.bookmarks);
-    const saved = await wasm.run('saveMutations', {
-        data,
+    const saved = await wasm.append(data, {
         mutations: {bookmarks: {
             totalPages: 3,
             untitledLabel: 'Untitled',
@@ -277,7 +240,7 @@ async function renameFirstBookmarkAndSave(data: Uint8Array) {
         }},
         modifiedAt: 'D:20261012000000Z',
     });
-    assertSuccessfulWasmMutation(saved);
+    if ('status' in saved) throw new Error(`Expected the bookmarks to save: ${saved.error.message}`);
     return saved.data;
 }
 
@@ -408,6 +371,7 @@ async function loadWasmRunner() {
     return {
         fetchMock,
         run: module.tryRunBrowserPageOpsWithWasm,
+        append: module.appendPdfMutationsToBytes,
         structure: (edit: TPageStructureEdit, documents: Uint8Array[]) => runPageStructureInMemory(module, edit, documents),
     };
 }
@@ -741,26 +705,26 @@ describe('browser page-ops WASM fast path', () => {
             ],
         };
         const wasm = await loadWasmRunner();
-        const edited = await wasm.run('saveMutations', {
-            data: source,
+        const edited = await wasm.append(source, {
             mutations: normalizePdfNativeMutationSet({textBoxes: [mutation]}, 'Browser appearance edit'),
             modifiedAt: 'D:20261016000000Z',
         });
-        if (!edited || 'status' in edited) throw new Error('Expected the text edit to save');
-        const restored = await wasm.run('saveMutations', {
-            data: edited.data,
-            originalAppearanceSourceData: source,
-            mutations: normalizePdfNativeMutationSet({
-                originalAppearanceSource: 'browser://documents/original-appearance',
-                textBoxes: [{
-                    ...mutation,
-                    text: 'Original',
-                    originalAppearance: {sourceAnnotationId: annotation.toString()},
-                }],
-            }, 'Browser original appearance restore'),
+        if ('status' in edited) throw new Error('Expected the text edit to save');
+        const restore = normalizePdfNativeMutationSet({
+            originalAppearanceSource: 'browser://documents/original-appearance',
+            textBoxes: [{
+                ...mutation,
+                text: 'Original',
+                originalAppearance: {sourceAnnotationId: annotation.toString()},
+            }],
+        }, 'Browser original appearance restore');
+        // The original appearance is read by range from its own document.
+        const restored = await wasm.append(edited.data, {
+            mutations: restore,
             modifiedAt: 'D:20261016000001Z',
+            appearanceSource: new Blob([source]),
         });
-        if (!restored || 'status' in restored) throw new Error(`Expected the original appearance to restore: ${JSON.stringify(restored)}`);
+        if ('status' in restored) throw new Error(`Expected the original appearance to restore: ${JSON.stringify(restored)}`);
         const restoredDocument = await PDFDocument.load(restored.data);
         const restoredAnnotation = restoredDocument.getPage(0).node.lookup(PDFName.of('Annots'), PDFArray).lookup(0, PDFDict);
         const restoredAppearance = restoredDocument.context.lookup(restoredAnnotation.lookup(PDFName.of('AP'), PDFDict).get(PDFName.of('N')));
@@ -790,8 +754,7 @@ describe('browser page-ops WASM fast path', () => {
             },
         }))}, 'Browser continuation notes');
         const wasm = await loadWasmRunner();
-        const result = await wasm.run('saveMutations', {
-            data: input,
+        const result = await wasm.append(input, {
             mutations,
             modifiedAt: 'D:20261013000000Z',
         });
@@ -801,7 +764,7 @@ describe('browser page-ops WASM fast path', () => {
             expect(result).not.toHaveProperty('data');
             return;
         }
-        if (result === null || 'status' in result) throw new Error('Expected all note continuations to save');
+        if ('status' in result) throw new Error('Expected all note continuations to save');
         expect(result.identityBindings.map(binding => binding.annotationId).sort())
             .toEqual(mutations.freeTextNotes!.map(note => note.stableKey).sort());
         const reopened = await PDFDocument.load(result.data);

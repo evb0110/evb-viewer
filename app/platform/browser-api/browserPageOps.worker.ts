@@ -201,7 +201,6 @@ async function handleConformanceRequest(
 
 const WASM_WRITER_REQUEST_TYPES = [
     'textBoxAppearance',
-    'saveMutations',
     'decrypt',
     'printLayout',
     'ocrTextLayer',
@@ -223,7 +222,6 @@ async function handleRequest(
 ) {
     switch (request.type) {
         case 'textBoxAppearance':
-        case 'saveMutations':
         case 'decrypt':
         case 'printLayout':
         case 'ocrTextLayer':

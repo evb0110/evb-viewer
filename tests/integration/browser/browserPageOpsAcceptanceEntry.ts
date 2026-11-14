@@ -17,7 +17,7 @@ import {createCombinedPdfFromPaths} from '@app/platform/browser-api/createCombin
 import {readPdfCatalog} from '@app/platform/browser-api/browserPageOpsCore';
 import {browserDocumentStore} from '@app/platform/browserDocumentStore';
 import {
-    tryRunBrowserPageOpsWithWasm, isBrowserPageOpsWasmFailure,
+    isBrowserPageOpsWasmFailure, appendPdfMutationsToBytes,
 } from '@app/platform/browser-api/tryRunBrowserPageOpsWithWasm';
 import {PDF_BOOKMARK_RECOVERY_ENTRY_SCHEMA} from '@contracts/pdfBookmarkEntry';
 import * as v from 'valibot';
@@ -365,8 +365,7 @@ async function runBrowserBookmarkSaveAcceptance() {
             ...items.at(-1)!,
             title: 'Large web saved',
         };
-        const saved = await tryRunBrowserPageOpsWithWasm('saveMutations', {
-            data: input,
+        const saved = await appendPdfMutationsToBytes(input, {
             mutations: {bookmarks: {
                 items,
                 totalPages: 1,
@@ -374,7 +373,7 @@ async function runBrowserBookmarkSaveAcceptance() {
             }},
             modifiedAt: 'D:20261013000000Z',
         });
-        if (saved === null || isBrowserPageOpsWasmFailure(saved)) {
+        if (isBrowserPageOpsWasmFailure(saved)) {
             throw new Error(`Bookmark save failed: ${JSON.stringify(saved)}`);
         }
         const reopened = await PDFDocument.load(saved.data);

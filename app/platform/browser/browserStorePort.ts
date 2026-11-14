@@ -2,6 +2,12 @@ import type {
     IStoreFile,
     IStorePort,
 } from '@document-store/storePort';
+import type {
+    IPdfAppendFile,
+    IPdfAppendRequest,
+    IPdfAppendResult,
+} from '@app/platform/browser-api/tryRunBrowserPageOpsWithWasm';
+import type {IBrowserPageOpsWasmFailure} from '@contracts/browserPageOpsWorker';
 
 interface IResponse {
     id: number;
@@ -14,6 +20,26 @@ function storeError(error: {name: string; message: string}) {
 }
 
 const opfsPorts = new WeakSet<IStorePort>();
+
+type TPdfAppender = (base: number, request: IPdfAppendRequest) => Promise<IPdfAppendResult | IBrowserPageOpsWasmFailure>;
+const pdfAppenders = new WeakMap<IStoreFile, TPdfAppender>();
+
+/**
+ * Appends the revisions `request` makes to the PDF of `base` bytes at the start of `file`, in the context that
+ * holds the file's synchronous access: the store worker, or this window for a store in memory. The engine
+ * reads the document by range there and writes past `base`; what it writes stays the caller's to commit or cut.
+ */
+export function appendPdfMutationsToStoreFile(file: IStoreFile, base: number, request: IPdfAppendRequest) {
+    const append = pdfAppenders.get(file);
+    if (!append) throw new Error('This store file cannot take a PDF edit');
+    return append(base, request);
+}
+
+/** The engine over a file this window reads and writes synchronously, a store file in memory. */
+async function appendPdfMutationsToSyncFile(file: IPdfAppendFile, base: number, request: IPdfAppendRequest) {
+    const {appendPdfMutations} = await import('@app/platform/browser-api/tryRunBrowserPageOpsWithWasm');
+    return appendPdfMutations(file, base, request);
+}
 
 /** Whether `port` keeps its files in the origin private file system, where a worker reads and writes them by path. */
 export const isOpfsStorePort = (port: IStorePort) => opfsPorts.has(port);
@@ -39,14 +65,18 @@ export function createWorkerStorePort(worker: Worker): IStorePort & {probe(): Pr
         pending.set(id, {resolve: resolve as (value: unknown) => void, reject});
         worker.postMessage({id, op, args});
     });
-    const storeFile = (id: number): IStoreFile => ({
-        size: () => call('size', id),
-        readAt: (offset, length) => call('readAt', id, offset, length),
-        writeAt: (offset, bytes) => call('writeAt', id, offset, bytes),
-        truncate: length => call('truncate', id, length),
-        flush: () => call('flush', id),
-        close: () => call('close', id),
-    });
+    const storeFile = (id: number): IStoreFile => {
+        const file: IStoreFile = {
+            size: () => call('size', id),
+            readAt: (offset, length) => call('readAt', id, offset, length),
+            writeAt: (offset, bytes) => call('writeAt', id, offset, bytes),
+            truncate: length => call('truncate', id, length),
+            flush: () => call('flush', id),
+            close: () => call('close', id),
+        };
+        pdfAppenders.set(file, (base, request) => call('appendPdfMutations', id, base, request));
+        return file;
+    };
     const port = {
         probe: () => call<boolean>('probe'),
         list: dir => call('list', dir),
@@ -80,7 +110,7 @@ export function createMemoryStorePort(): IStorePort {
         async open(path) {
             if (!files.has(path)) put(path, new Uint8Array());
             const file = files.get(path)!;
-            const writeAt = async (offset: number, chunk: Uint8Array) => {
+            const write = (offset: number, chunk: Uint8Array) => {
                 const end = offset + chunk.byteLength;
                 if (end > file.buffer.byteLength) {
                     const grown = new Uint8Array(Math.max(end, file.buffer.byteLength * 2));
@@ -90,7 +120,8 @@ export function createMemoryStorePort(): IStorePort {
                 file.buffer.set(chunk, offset);
                 file.length = Math.max(file.length, end);
             };
-            return {
+            const writeAt = async (offset: number, chunk: Uint8Array) => write(offset, chunk);
+            const storeFile: IStoreFile = {
                 size: async () => file.length,
                 readAt: async (offset, length) => file.buffer.slice(offset, Math.min(file.length, offset + length)),
                 writeAt,
@@ -102,6 +133,17 @@ export function createMemoryStorePort(): IStorePort {
                 flush: async () => undefined,
                 close: async () => undefined,
             };
+            pdfAppenders.set(storeFile, (base, request) => appendPdfMutationsToSyncFile({
+                read(into, at) {
+                    if (at + into.byteLength > file.length) throw new Error('The document ended before its cross-reference said');
+                    into.set(file.buffer.subarray(at, at + into.byteLength));
+                },
+                write(bytes, at) {
+                    if (at < base) throw new Error('An append cannot write over its document');
+                    write(at, bytes);
+                },
+            }, base, request));
+            return storeFile;
         },
         copyIn,
         copy: (from, to) => copyIn(from, to),

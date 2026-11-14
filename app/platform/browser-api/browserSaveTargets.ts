@@ -1,5 +1,4 @@
 import type {TDocumentRef} from '@contracts/documentRef';
-import type {ITypedStagedArtifact} from '@contracts/stagedArtifacts';
 import {readBrowserStoreStagedArtifact} from '@app/platform/browser/browserStagedArtifact';
 import type {
     IDocumentMutationRevisionOptions,
@@ -43,15 +42,15 @@ import { BrowserLogger } from '@app/utils/browserLogger';
 import {copyScanCleanupDocumentPreferences} from '@app/utils/browserScanCleanupPreferences';
 
 /**
- * Save: commit the staged edits into the working copy, check its file against the baseline, publish. A
- * document without a file it can check (dropped in, generated, only downloaded) picks one first, the way
- * Save As does, and keeps working on it. Write permission is asked for before the save starts, so no prompt
- * waits inside it. Returns `false` when the picker is cancelled.
+ * Save: commit the edit appended to the working copy under `commitLease`, check its file against the
+ * baseline, publish. A document without a file it can check (dropped in, generated, only downloaded) picks
+ * one first, the way Save As does, and keeps working on it. Write permission is asked for before the save
+ * starts, so no prompt waits inside it. Returns `false` when the picker is cancelled.
  */
 export async function saveWorkingBytesToSource(
     workingCopyPath: TDocumentRef,
     revisionOptions?: IDocumentMutationRevisionOptions,
-    stagedOutput?: ITypedStagedArtifact,
+    commitLease?: string,
 ) {
     const entry = await browserDocumentStore.requireEntry(workingCopyPath);
     const destination = entry.doc?.state().destination ?? null;
@@ -75,10 +74,8 @@ export async function saveWorkingBytesToSource(
             saveAs = downloadDestination(ensurePdfExtension(target.fileName));
         }
     }
-    const staged = stagedOutput ? await readBrowserStoreStagedArtifact(browserDocumentStore, stagedOutput) : null;
-    if (staged?.artifact.path === workingCopyPath) throw new Error('Browser staged commit requires a different target ref');
     const result = await browserDocumentStore.save(workingCopyPath, revisionOptions?.expectedDocumentRevisionToken, {
-        ...(staged ? {commit: staged.bytes} : {}),
+        ...(commitLease === undefined ? {} : {commit: commitLease}),
         ...(saveAs ? {saveAs} : {}),
     });
     if (result.status === 'conflict') throw new BrowserDocumentSourceChangedError(sourceRef ?? workingCopyPath);
@@ -192,9 +189,11 @@ export async function savePdfAsFromWorkingCopy(
     publication?: IBrowserFinalizedPublication,
 ): Promise<TDocumentRef | null> {
     const stagedOutput = saveOptions?.stagedOutput;
-    if (stagedOutput && (!revisionOptions?.expectedDocumentRevisionToken || stagedOutput.path === workingCopyPath)) {
-        throw new Error('Browser staged Save As requires a revision-checked target distinct from its output');
+    if (stagedOutput && !revisionOptions?.expectedDocumentRevisionToken) {
+        throw new Error('Browser staged Save As requires a revision-checked target');
     }
+    // A native edit is appended to the working copy itself and published from there, uncommitted.
+    const appended = stagedOutput?.path === workingCopyPath ? stagedOutput : undefined;
     if (publication && !stagedOutput) {
         throw new Error('Browser finalized Save As requires a staged output');
     }
@@ -213,52 +212,55 @@ export async function savePdfAsFromWorkingCopy(
         await ensureFileHandleWritePermission(saveResult.handle, signal);
     }
     signal?.throwIfAborted();
-    const staged = stagedOutput ? await readBrowserStoreStagedArtifact(
+    const staged = stagedOutput && !appended ? await readBrowserStoreStagedArtifact(
         browserDocumentStore,
         stagedOutput,
         {maxBytes: publication ? BROWSER_PAGE_OPS_MAX_OUTPUT_BYTES : BROWSER_QPDF_MAX_INPUT_BYTES},
     ) : null;
+    const appendedContent = appended ? await browserDocumentStore.appendedContent(workingCopyPath, appended.leaseId) : null;
     signal?.throwIfAborted();
     const fileName = saveResult.handle?.name ?? ensurePdfExtension(saveResult.fileName);
-    let publishedBytes = staged?.bytes;
+    let published: Uint8Array | Blob | undefined = staged?.bytes ?? appendedContent ?? undefined;
     if (!publication) {
         const sourcePath = staged?.artifact.path ?? workingCopyPath;
-        const {size} = await browserDocumentStore.stat(sourcePath);
-        const source = staged?.bytes ?? (size <= BROWSER_QPDF_MAX_INPUT_BYTES
-            ? await browserDocumentStore.read(sourcePath, {maxBytes: BROWSER_QPDF_MAX_INPUT_BYTES}) : null);
+        const size = appendedContent?.size ?? (await browserDocumentStore.stat(sourcePath)).size;
+        const source = staged?.bytes ?? (size > BROWSER_QPDF_MAX_INPUT_BYTES ? null
+            : appendedContent ? new Uint8Array(await appendedContent.arrayBuffer())
+                : await browserDocumentStore.read(sourcePath, {maxBytes: BROWSER_QPDF_MAX_INPUT_BYTES}));
+        // A larger native edit was checked by the engine that appended it.
         const validation = source
             ? await validateBrowserPdfData(source, {fileName: saveTarget.saveName})
-            : await validateBrowserPdfPath(sourcePath);
-        if (!validation.isValid) throw new Error('Working copy is not a valid PDF');
+            : appendedContent ? null : await validateBrowserPdfPath(sourcePath);
+        if (validation && !validation.isValid) throw new Error('Working copy is not a valid PDF');
         const candidate = source
             && (saveOptions?.optimizeLossless === true || size >= PDF_LOSSLESS_OPTIMIZE_MIN_BYTES)
             && await isEligibleForSaveAsOptimization(source)
             ? await finishBrowserPdfCandidate(source, {fileName})
             : null;
         // Unchanged bytes keep the streaming path, even after an admitted check.
-        publishedBytes = candidate ?? staged?.bytes;
+        published = candidate ?? published;
     }
     signal?.throwIfAborted();
     // The picker and the checks above take time; an edit made meanwhile is not in this frontier.
     await browserDocumentStore.assertDocumentRevisionCurrent(workingCopyPath, revisionOptions?.expectedDocumentRevisionToken);
     if (saveResult.handle) {
-        if (publishedBytes) await writeBytesToHandle(saveResult.handle, publishedBytes, signal);
+        if (published) await writeBytesToHandle(saveResult.handle, published, signal);
         else await writeDocumentRefToHandle(saveResult.handle, workingCopyPath);
-    } else if (publishedBytes) {
+    } else if (published) {
         // No handle means no save picker: the file goes out as a download.
-        downloadBrowserBytes(publishedBytes, fileName, 'application/pdf', signal);
+        downloadBrowserBytes(published, fileName, 'application/pdf', signal);
     } else {
         await downloadBrowserDocument(workingCopyPath, fileName, 'application/pdf');
     }
     // The file is published. A picked file is opened through its handle; a downloaded one keeps a stored copy
     // for Recent Files.
-    const sourceRef = await browserDocumentStore.createStoredDocument(fileName, publishedBytes ?? new Uint8Array(), {
+    const sourceRef = await browserDocumentStore.createStoredDocument(fileName, published ?? new Uint8Array(), {
         mimeType: 'application/pdf',
         saveKind: 'pdf',
         kind: 'source',
         saveHandle: saveResult.handle,
         ...(saveResult.handle ? {storageMode: 'handle' as const} : {}),
-        ...(!saveResult.handle && !publishedBytes ? {contentFrom: workingCopyPath} : {}),
+        ...(!saveResult.handle && !published ? {contentFrom: workingCopyPath} : {}),
     });
     // The browser keys Scan Cleanup settings by document, so the saved file takes them before the workspace
     // adopts it. A refused copy leaves the saved file at the defaults; the save still stands.

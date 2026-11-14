@@ -1,11 +1,9 @@
 import {
-    normalizePdfNativeMutationSet,
     normalizePdfNativeTextBoxAppearanceRequest,
     normalizePdfNativeTextBoxAppearanceMetadata,
     PDF_NATIVE_TEXT_BOX_APPEARANCE_LIMITS,
 } from '@contracts/nativePdfMutations';
 import {PDF_DECRYPT_PASSWORD_SCHEMA} from '@contracts/pdfDecryptSchemas';
-import {isPdfDateString} from '@contracts/pdfDateString';
 import {NATIVE_ERROR_ENVELOPE_SCHEMA} from '@contracts/nativeErrors';
 import type {ICropMargins} from '@contracts/shared';
 import {PAGE_GEOMETRY_SCHEMA} from '@contracts/decodePageGeometry';
@@ -189,12 +187,6 @@ const workerRequestPayloadSchemas = {
     parseAnnotations: v.object({data: pdfBytesSchema}),
     readCatalog: v.object({data: pdfBytesSchema}),
     conformance: v.object({data: pdfBytesSchema}),
-    saveMutations: v.object({
-        data: pdfBytesSchema,
-        originalAppearanceSourceData: v.optional(pdfBytesSchema),
-        mutations: v.pipe(v.unknown(), v.transform(value => normalizePdfNativeMutationSet(value, 'Browser PDF save mutations'))),
-        modifiedAt: v.custom<string>(isPdfDateString),
-    }),
     decrypt: v.object({
         data: pdfBytesSchema,
         password: PDF_DECRYPT_PASSWORD_SCHEMA,
@@ -268,11 +260,6 @@ const workerRequestSchema = v.union([
         id: workerRequestIdSchema,
         type: v.literal('decrypt'),
         payload: workerRequestPayloadSchemas.decrypt,
-    }),
-    v.object({
-        id: workerRequestIdSchema,
-        type: v.literal('saveMutations'),
-        payload: workerRequestPayloadSchemas.saveMutations,
     }),
     v.object({
         id: workerRequestIdSchema,
@@ -396,14 +383,6 @@ export function isBrowserPageOpsWasmFailure(value: unknown): value is IBrowserPa
     return isRecord(value) && value.status === 'failed'
         && v.safeParse(BROWSER_PAGE_OPS_WASM_FAILURE_SCHEMA, value, {abortEarly: true}).success;
 }
-export const BROWSER_PAGE_OPS_SAVE_MUTATIONS_RESULT_SCHEMA = v.object({
-    ...pageMutationResultSchema.entries,
-    identityBindings: v.array(v.object({
-        annotationId: v.string(),
-        pdfRef: v.string(),
-    })),
-    nativeMutationPostconditionsVerified: v.literal(true),
-});
 
 const workerResultSchemas = {
     textBoxAppearance: v.union([
@@ -418,10 +397,6 @@ const workerResultSchemas = {
                 data: value.data,
             })),
         ),
-        BROWSER_PAGE_OPS_WASM_FAILURE_SCHEMA,
-    ]),
-    saveMutations: v.union([
-        BROWSER_PAGE_OPS_SAVE_MUTATIONS_RESULT_SCHEMA,
         BROWSER_PAGE_OPS_WASM_FAILURE_SCHEMA,
     ]),
     decrypt: v.union([
@@ -511,12 +486,6 @@ const workerSuccessResponseSchema = v.union([
         type: v.literal('decrypt'),
         ok: v.literal(true),
         data: workerResultSchemas.decrypt,
-    }),
-    v.object({
-        id: workerRequestIdSchema,
-        type: v.literal('saveMutations'),
-        ok: v.literal(true),
-        data: workerResultSchemas.saveMutations,
     }),
     v.object({
         id: workerRequestIdSchema,

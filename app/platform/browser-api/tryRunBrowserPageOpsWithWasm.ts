@@ -975,9 +975,9 @@ export interface IPdfAppendFile {
 }
 
 export interface IPdfAppendRequest {
-    mutations: Omit<IPdfNativeMutationSet, 'originalAppearanceSource'>;
+    mutations: IPdfNativeMutationSet;
     modifiedAt: string;
-    /** The document whose original appearances its text boxes restore. */
+    /** The bytes of `mutations.originalAppearanceSource`, whose original appearances its text boxes restore. */
     appearanceSource?: Blob;
 }
 
@@ -992,7 +992,8 @@ export interface IPdfAppendResult {
 
 /** A Blob read by range: synchronous slices in a worker, its bytes in a window, which has no synchronous reader. */
 async function blobSource(blob: Blob) {
-    if (typeof FileReaderSync === 'undefined') {
+    const {FileReaderSync} = globalThis as {FileReaderSync?: new () => {readAsArrayBuffer(blob: Blob): ArrayBuffer}};
+    if (!FileReaderSync) {
         const bytes = new Uint8Array(await blob.arrayBuffer());
         return {size: bytes.byteLength, read: (into: Uint8Array, at: number) => into.set(bytes.subarray(at, at + into.byteLength))};
     }
@@ -1026,14 +1027,18 @@ export async function appendPdfMutations(
     }
     const appearanceSource = request.appearanceSource ? await blobSource(request.appearanceSource) : null;
     const document = {size: base, read: (into: Uint8Array, at: number) => file.read(into, at)};
-    const files: IPageStructureFiles = {
-        sources: appearanceSource ? [document, appearanceSource] : [document],
-        sink: file,
-        copy: () => Promise.reject(new Error('An appended revision copies no stream')),
-    };
     const identityBindings: IPdfAppendResult['identityBindings'] = [];
     let pageCount = 0;
-    for (const mutations of splitPdfNativeMutationSetIntoBoundedChunks(request.mutations)) {
+    for (const {originalAppearanceSource, ...mutations} of splitPdfNativeMutationSetIntoBoundedChunks(request.mutations)) {
+        // Only a chunk that restores original appearances reads their document.
+        if (originalAppearanceSource !== undefined && !appearanceSource) {
+            return createWasmFailure('invalid-request', 'Original appearance restore requires its document');
+        }
+        const files: IPageStructureFiles = {
+            sources: originalAppearanceSource !== undefined && appearanceSource ? [document, appearanceSource] : [document],
+            sink: file,
+            copy: () => Promise.reject(new Error('An appended revision copies no stream')),
+        };
         const written = await withOpenFiles(files, async () => runFileRequest(exports, {
             operation: OPERATION_CODES.saveMutations,
             sourceCount: files.sources.length,

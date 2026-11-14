@@ -133,19 +133,12 @@ async function buildWorkerRequestWithTransfers(
 
     const transferableData = await toTransferableRequestData(request.payload.data);
     transfer.push(transferableData.buffer);
-    let originalAppearanceSourceData: Uint8Array<ArrayBuffer> | undefined;
-    if (request.type === 'saveMutations' && request.payload.originalAppearanceSourceData) {
-        originalAppearanceSourceData = await toTransferableRequestData(request.payload.originalAppearanceSourceData);
-        if (originalAppearanceSourceData.buffer === transferableData.buffer) originalAppearanceSourceData = originalAppearanceSourceData.slice();
-        transfer.push(originalAppearanceSourceData.buffer);
-    }
     return {
         request: {
             ...request,
             payload: {
                 ...request.payload,
                 data: transferableData,
-                ...(originalAppearanceSourceData ? {originalAppearanceSourceData} : {}),
             },
         },
         transfer,
@@ -327,7 +320,7 @@ async function runBrowserPageOpsWorkerRequestWithClient<K extends TBrowserPageOp
 }
 
 function isCpuPageOperation(type: TBrowserPageOpsWorkerRequestType) {
-    return type === 'textBoxAppearance' || type === 'saveMutations' || type === 'decrypt' || type === 'printLayout'
+    return type === 'textBoxAppearance' || type === 'decrypt' || type === 'printLayout'
         || type === 'ocrTextLayer' || type === 'ocrTextVisibility' || type === 'inspectScanCleanupPdf' || type === 'splitPages' || type === 'renderScanCleanupRaster'
         || type === 'overlayText' || type === 'recompressImages' || type === 'replacePageImages';
 }

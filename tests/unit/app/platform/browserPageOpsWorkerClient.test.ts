@@ -801,7 +801,6 @@ describe('browserPageOpsWorkerClient', () => {
     });
     it.each([
         'textBoxAppearance',
-        'saveMutations',
         'decrypt',
         'printLayout',
     ] as const)(
@@ -813,16 +812,7 @@ describe('browserPageOpsWorkerClient', () => {
                 2,
                 3,
             ]);
-            const payload = type === 'textBoxAppearance' ? appearanceRequest() : type === 'saveMutations'
-                ? {
-                    data: input,
-                    mutations: {updates: [{
-                        objectNumber: 1,
-                        generationNumber: 0,
-                        text: 'Saved',
-                    }]},
-                    modifiedAt: 'D:20260102000000Z',
-                }
+            const payload = type === 'textBoxAppearance' ? appearanceRequest()
                 : type === 'decrypt'
                     ? {
                         data: input,

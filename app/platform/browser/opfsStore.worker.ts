@@ -1,7 +1,9 @@
 /// <reference lib="webworker" />
 // The storage port's file system on the origin private file system. Sync access handles exist only in
 // dedicated workers, so this worker owns every handle of its window: one writer per file, which every engine
-// enforces across windows too. Handle modes are not used; Firefox and WebKit ignore them.
+// enforces across windows too. Handle modes are not used; Firefox and WebKit ignore them. A PDF edit that
+// appends a revision runs here too, on the handle the document already holds.
+import type {IPdfAppendRequest} from '@app/platform/browser-api/tryRunBrowserPageOpsWithWasm';
 
 interface IRequest {
     id: number;
@@ -154,6 +156,20 @@ const operations: Record<string, (...args: never[]) => unknown> = {
     },
     writeAt: (id: number, offset: number, bytes: Uint8Array) => writeAll(file(id), bytes, offset),
     truncate: (id: number, length: number) => file(id).truncate(length),
+    /** Appends the revisions `request` makes past the first `base` bytes, the PDF they edit. */
+    async appendPdfMutations(id: number, base: number, request: IPdfAppendRequest) {
+        const handle = file(id);
+        const {appendPdfMutations} = await import('@app/platform/browser-api/tryRunBrowserPageOpsWithWasm');
+        return appendPdfMutations({
+            read(into, at) {
+                if (handle.read(into, {at}) !== into.byteLength) throw new Error('The document ended before its cross-reference said');
+            },
+            write(bytes, at) {
+                if (at < base) throw new Error('An append cannot write over its document');
+                writeAll(handle, bytes, at);
+            },
+        }, base, request);
+    },
     flush: (id: number) => file(id).flush(),
     close(id: number) {
         const handle = handles.get(id);
