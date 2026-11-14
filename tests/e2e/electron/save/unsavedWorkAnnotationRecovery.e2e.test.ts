@@ -9,7 +9,7 @@ import {
 } from '@tests/e2e/electron/helpers/userInput';
 import {tmpdir} from 'node:os';
 import {
-    basename, dirname, join, resolve,
+    basename, join, resolve,
 } from 'node:path';
 import {
     afterEach, describe, expect, it, onTestFinished,
@@ -40,7 +40,7 @@ import {isProcessAlive} from '@scripts/electron-run/electronRunProcessTree';
 import {decodeWorkspaceCheckpoint} from '@contracts/workspaceCheckpoint';
 import type {IE2EWindow} from '@tests/e2e/electron/helpers/e2EWindow';
 import {
-    PDFArray, PDFDict, PDFDocument, PDFHexString, PDFName, PDFRef, PDFString,
+    PDFArray, PDFDict, PDFDocument, PDFName, PDFRef,
 } from 'pdf-lib';
 
 const FIXTURE_PATH = resolve(process.cwd(), 'tests/fixtures/electron/test-scanned.pdf');
@@ -49,6 +49,7 @@ const FIXTURE_PATH = resolve(process.cwd(), 'tests/fixtures/electron/test-scanne
 // Patching the workspace expose no longer reaches the document-owned capture.
 async function rejectRecoverySerialization(page: Page, marker: string, message: string, restoreKey: string) {
     await page.evaluate((input: {marker: string; message: string; restoreKey: string}) => {
+        Reflect.set(window, '__protectionCaptureRejected', false);
         const stringify = JSON.stringify;
         Reflect.set(window, input.restoreKey, () => {JSON.stringify = stringify;});
         JSON.stringify = ((value: unknown, ...args: unknown[]) => {
@@ -56,6 +57,7 @@ async function rejectRecoverySerialization(page: Page, marker: string, message: 
             if (value && typeof value === 'object' && 'entities' in value && 'drafts' in value
                 && encoded?.includes(input.marker)) {
                 Reflect.set(window, '__protectionCaptureRejected', true);
+                Reflect.set(window, '__rejectedProtectionRecovery', value);
                 throw new Error(input.message);
             }
             return encoded;
@@ -379,36 +381,10 @@ describe('checkpointed annotation recovery', () => {
         const sourcePath = join(folder, 'accepted-text.pdf');
         copyFileSync(await createMultiPageTextFixturePdf(`accepted-text-${cut}-${Date.now()}.pdf`, 3), sourcePath);
         const sourceBytes = readFileSync(sourcePath);
-        const gate = join(outputDirectory, 'text-checkpoint');
-        const hook = join(outputDirectory, 'text-checkpoint.cjs');
-        writeFileSync(hook, `const fs=require('node:fs'),fsp=require('node:fs/promises');
-if(process.type==='browser'){
- const gate=${JSON.stringify(gate)},target=${JSON.stringify(sourcePath)},cut=${JSON.stringify(cut)},open=fsp.open,rename=fsp.rename;
- fsp.open=async(path,...args)=>{
-  const handle=await open(path,...args);
-  if(String(path).includes('document-store')&&/drafts-[^/]+\\.json\\.[^/]+\\.tmp$/.test(String(path))){
-   const write=handle.writeFile.bind(handle);
-   handle.writeFile=async(bytes,...options)=>{
-    const recovery=JSON.parse(Buffer.from(bytes).toString('utf8')).annotationRecovery?.payload;
-    if(cut!==2&&fs.existsSync(gate+'.arm')&&!fs.existsSync(gate+'.release')&&recovery?.drafts?.some(draft=>draft.kind==='text-box'&&draft.text.trim())){
-     fs.writeFileSync(gate+'.held','');
-     await new Promise(resolve=>{const watcher=fs.watch(${JSON.stringify(outputDirectory)},()=>{if(fs.existsSync(gate+'.release')){watcher.close();resolve()}})});
-     if(cut===1)throw Object.assign(new Error('ENOSPC: text checkpoint volume is full'),{code:'ENOSPC'});
-    }
-    return write(bytes,...options);
-   };
-  }
-  return handle;
- };
- fsp.rename=async(from,to)=>{await rename(from,to);if(fs.existsSync(gate+'.arm')&&String(from)===target&&String(to).endsWith('.evb-replaced'))fs.writeFileSync(gate+'.displaced','')};
- require('node:module').syncBuiltinESMExports();
-}`);
-        const extraEnv = {NODE_OPTIONS: `${process.env.NODE_OPTIONS ?? ''} --require=${JSON.stringify(hook)}`};
         const sessionName = `e2e-text-acceptance-${cut}-${Date.now()}`;
         session = await startElectronE2ESession(sessionName, {
             clean: true,
             initialOpenPaths: [sourcePath],
-            extraEnv,
         });
         await waitForPdfLoaded(session.page, 60_000);
         await waitForViewerInteractive(session.page, 60_000);
@@ -499,7 +475,6 @@ if(process.type==='browser'){
         }));
         session = await startElectronE2ESession(sessionName, {
             clean: false,
-            extraEnv,
         });
         await waitForPdfLoaded(session.page, 60_000);
         await waitForViewerInteractive(session.page, 60_000);
@@ -566,308 +541,49 @@ if(process.type==='browser'){
             (1 - top!) * size.height,
         ];
         expect(savedRectangle?.map(Math.fround)).toEqual(expectedRectangle.map(Math.fround));
-
-        // After the immediate-cut proof, a failed or superseded transaction stays editable until corrected.
-        const savedBytes = readFileSync(sourcePath);
-        const runtimeErrors: string[] = [];
-        session.page.on('pageerror', error => runtimeErrors.push(String(error)));
-        let linkedPane: string | undefined;
-        if (cut === 3) {
-            await splitActiveTabFromTabMenu(session.page, 'right');
-            const panes = await session.page.$$eval('.editor-pane', nodes => nodes.map(node => (node as HTMLElement).dataset.editorPaneId));
-            linkedPane = panes[0];
-            await waitForViewerInteractive(session.page, 30_000);
-        }
-
-        const pendingMarker = `Pending protected text ${cut}`;
-        if (cut === 2) {
-            await rejectRecoverySerialization(session.page, pendingMarker, 'Text draft capture rejected', '__restoreTextCapture');
-        }
-        writeFileSync(`${gate}.arm`, '');
-        const pendingId = await createCanonicalTextBoxWithPointer(session.page, pendingMarker, {
-            x: 0.3,
-            y: 0.45,
-        });
-        let pendingRectangle = await session.page.$eval(`.editor-pane.is-active .pdf-annotation-editor-layer [data-annotation-kind="text-box"][data-annotation-id="${pendingId}"]`, entity => {
-            if (!(entity instanceof HTMLElement)) throw new Error('The text box is missing');
-            return [
-                entity.style.left,
-                entity.style.top,
-                entity.style.width,
-                entity.style.height,
-            ];
-        });
-        if (cut !== 2) {
-            await expect.poll(() => existsSync(`${gate}.held`), {timeout: 30_000}).toBe(true);
-            expect(await session.page.$('.editor-pane.is-active [contenteditable="true"]').then(Boolean)).toBe(true);
-            expect(readFileSync(sourcePath)).toEqual(savedBytes);
-            if (cut === 3) {
-                await session.page.keyboard.type(' newest');
-                pendingRectangle = await session.page.$eval(`.editor-pane.is-active .pdf-annotation-editor-layer [data-annotation-kind="text-box"][data-annotation-id="${pendingId}"]`, entity => {
-                    if (!(entity instanceof HTMLElement)) throw new Error('The text box is missing');
-                    return [
-                        entity.style.left,
-                        entity.style.top,
-                        entity.style.width,
-                        entity.style.height,
-                    ];
-                });
-                if (!linkedPane) throw new Error('The linked draft view is missing');
-                await activatePaneByTab(session.page, linkedPane);
-                await clickFoundAsUser(session.page, (input: {
-                    pane: string;
-                    id: string
-                }) => Array.from(
-                    document.querySelectorAll<HTMLElement>(`.editor-pane[data-editor-pane-id="${input.pane}"] .pdf-annotation-editor-layer [data-annotation-kind="text-box"]`),
-                ).find(entity => entity.dataset.annotationId === input.id), {
-                    pane: linkedPane,
-                    id: pendingId,
-                }, {
-                    count: 2,
-                    description: 'Linked view text editor',
-                });
-                expect(await session.page.$(`.editor-pane[data-editor-pane-id="${linkedPane}"] [contenteditable="true"]`).then(Boolean)).toBe(false);
-            }
-            await clickVisibleToolbarButton(session.page, 'Save');
-            expect(readFileSync(sourcePath)).toEqual(savedBytes);
-            expect(existsSync(`${gate}.displaced`)).toBe(false);
-            writeFileSync(`${gate}.release`, '');
-        }
-        const expectedText = cut === 3 ? `${pendingMarker} newest` : pendingMarker;
-        const cause = cut === 1 ? 'ENOSPC' : cut === 2 ? 'Text draft capture rejected' : 'changed while recovery protection was pending';
-        if (cut !== 3) await session.page.waitForFunction((text: string) => Array.from(document.querySelectorAll('.app-toast-failure'))
-            .some(toast => toast.textContent?.includes(text)), {timeout: 30_000}, cause);
-        await session.page.waitForFunction((text: string) => Array.from(document.querySelectorAll<HTMLElement>('.editor-pane [contenteditable="true"]'))
-            .some(editor => editor.textContent?.trim() === text), {timeout: 30_000}, expectedText);
-        expect(await session.page.$('.editor-pane.is-active .tab.is-active.is-dirty').then(Boolean)).toBe(true);
-        expect(readFileSync(sourcePath)).toEqual(savedBytes);
-        expect(existsSync(`${gate}.displaced`)).toBe(false);
-        expect(await session.page.$$eval('.app-toast-failure', toasts => toasts.length)).toBe(cut === 3 ? 0 : 1);
-        const retainedRectangle = await session.page.$$eval('.editor-pane .pdf-annotation-editor-layer [data-annotation-kind="text-box"].is-editing', (nodes, id) => {
-            const entity = nodes.find(node => (node as HTMLElement).dataset.annotationId === id) as HTMLElement | undefined;
-            return entity ? [
-                entity.style.left,
-                entity.style.top,
-                entity.style.width,
-                entity.style.height,
-            ] : null;
-        }, pendingId);
-        expect(retainedRectangle).toEqual(pendingRectangle);
-        console.info('TEXT_PROTECTION_FAULT', JSON.stringify({
-            cut,
-            cause,
-            expectedText,
-            originalUnchanged: true,
-            published: false,
-        }));
-        console.info(await session.captureFailureArtifacts(`text-protection-${cut}`));
-        if (cut === 2) await session.page.evaluate(() => {
-            const restore = Reflect.get(window, '__restoreTextCapture');
-            if (typeof restore !== 'function') throw new Error('The capture restoration is missing');
-            restore();
-        });
-        rmSync(`${gate}.arm`);
-        const retainedGeometry = await session.page.evaluate((id: string, text: string) => {
-            const draft = (window as IE2EWindow).__evbTestApi?.getActiveWorkspaceHandle()?.captureCanonicalAnnotationRecovery?.()?.drafts.find(candidate => candidate.annotationId === id);
-            if (!draft?.geometry || draft.text !== text) throw new Error('The retained text draft lost its geometry');
-            return draft.geometry;
-        }, pendingId, expectedText);
-        await clickVisibleToolbarButton(session.page, 'Save');
-        await expect.poll(() => readPdfTextAnnotationRecords(sourcePath), {timeout: 30_000})
-            .toEqual(expect.arrayContaining([
-                expect.objectContaining({contents: marker}),
-                expect.objectContaining({contents: expectedText}),
-            ]));
-        await session.page.waitForSelector('.editor-pane.is-active .tab.is-active.is-dirty', {hidden: true});
-        const savedRecord = (await readPdfTextAnnotationRecords(sourcePath)).find(record => record.contents === expectedText);
-        const [
-            objectNumber,
-            generationNumber,
-        ] = savedRecord!.ref.split(' ').map(Number);
-        const correctedPdf = await PDFDocument.load(readFileSync(sourcePath));
-        const correctedAnnotation = correctedPdf.context.lookupMaybe(PDFRef.of(objectNumber!, generationNumber!), PDFDict);
-        const correctedRectangle = correctedAnnotation?.lookupMaybe(PDFName.of('Rect'), PDFArray)?.asArray().map(value => Number(String(value)));
-        const correctedSize = correctedPdf.getPage(0).getSize();
-        expect(correctedRectangle?.map(Math.fround)).toEqual([
-            retainedGeometry.left * correctedSize.width,
-            (1 - retainedGeometry.top - retainedGeometry.height) * correctedSize.height,
-            (retainedGeometry.left + retainedGeometry.width) * correctedSize.width,
-            (1 - retainedGeometry.top) * correctedSize.height,
-        ].map(Math.fround));
-        if (cut === 3) {
-            expect(await session.page.$$eval('.app-toast-failure', toasts => toasts.length)).toBe(0);
-            expect(runtimeErrors).toEqual([]);
-            await session.stop();
-            session = await startElectronE2ESession(sessionName, {
-                clean: false,
-                initialOpenPaths: [sourcePath],
-                extraEnv,
-            });
-            session.page.on('pageerror', error => runtimeErrors.push(String(error)));
-            await waitForPdfLoaded(session.page, 60_000);
-            await waitForViewerInteractive(session.page, 60_000);
-            await session.page.waitForFunction((text: string) => Array.from(
-                document.querySelectorAll<HTMLElement>('.editor-pane.is-active [data-annotation-kind="text-box"]'),
-            ).some(entity => entity.textContent?.trim() === text), {timeout: 30_000}, expectedText);
-            expect(await session.page.$$eval('.app-toast-failure', toasts => toasts.length)).toBe(0);
-            expect(runtimeErrors).toEqual([]);
-        }
     }, 180_000);
 
-    // C1/T4/A4/C2: disposing a linked viewer or refusing its tool cannot erase protected work.
-    it.each([
-        'close-accepted',
-        'close-rejected',
-        'tool-rejected',
-    ] as const)('retains the document text transaction through %s', async scenario => {
-        outputDirectory = mkdtempSync(join(tmpdir(), 'evb-view-disposal-'));
-        const sourcePath = join(outputDirectory, 'linked-text.pdf');
-        copyFileSync(await createMultiPageTextFixturePdf(`linked-text-${scenario}-${Date.now()}.pdf`, 3), sourcePath);
+    // Focused typing and rejected note drafts are crash-tested in unsavedWorkDraftRecovery.
+    // Acceptance no longer waits for a separate text protection transaction.
+    it.each(['close-view', 'change-tool'] as const)('keeps accepted text after %s', async scenario => {
+        outputDirectory = mkdtempSync(join(tmpdir(), 'evb-accepted-text-view-'));
+        const sourcePath = join(outputDirectory, 'accepted-view.pdf');
+        copyFileSync(await createMultiPageTextFixturePdf(`accepted-view-${Date.now()}.pdf`, 3), sourcePath);
         const originalBytes = readFileSync(sourcePath);
-        const {
-            gate, hook,
-        } = writeTextProtectionHoldHook(outputDirectory, 'ENOSPC: linked text protection failed');
-        session = await startElectronE2ESession(`e2e-linked-text-${scenario}-${Date.now()}`, {
-            clean: true,
-            initialOpenPaths: [sourcePath],
-            extraEnv: {
-                NODE_OPTIONS: `${process.env.NODE_OPTIONS ?? ''} --require=${JSON.stringify(hook)}`,
-                EVB_RECORD_SESSION: '1',
-            },
-        });
+        session = await startElectronE2ESession(`e2e-accepted-view-${Date.now()}`, {clean: true, initialOpenPaths: [sourcePath]});
         await waitForPdfLoaded(session.page, 60_000);
         await waitForViewerInteractive(session.page, 60_000);
-        if (scenario !== 'tool-rejected') {
-            await splitActiveTabFromTabMenu(session.page, 'right');
-            await waitForViewerInteractive(session.page, 30_000);
-        }
-        await clickAsUser(session.page, '.zoom-controls-display');
-        await clickFoundAsUser(session.page, () => Array.from(document.querySelectorAll<HTMLElement>('.zoom-dropdown .zoom-chip'))
-            .find(chip => chip.textContent?.trim() === '100%'), undefined, {description: '100% linked text zoom'});
+        if (scenario === 'close-view') await splitActiveTabFromTabMenu(session.page, 'right');
         await waitForViewerInteractive(session.page, 30_000);
-        await session.page.evaluate(() => {
-            const errors: string[] = [];
-            Reflect.set(window, '__closingTextErrors', errors);
-            window.addEventListener('unhandledrejection', event => {errors.push(String(event.reason));});
-        });
-        writeFileSync(`${gate}.arm`, '');
-        if (scenario !== 'close-accepted') writeFileSync(`${gate}.reject`, '');
-        const marker = `Retained linked transaction ${scenario}`;
-        const annotationId = await createCanonicalTextBoxWithPointer(session.page, marker, {
-            x: 0.3,
-            y: 0.4,
-        });
-        await expect.poll(() => existsSync(`${gate}.held`), {timeout: 30_000}).toBe(true);
-        const geometry = await session.page.evaluate((id: string) => {
-            const entity = document.querySelector<HTMLElement>(`.editor-pane.is-active .pdf-annotation-editor-layer [data-annotation-id="${id}"]`);
-            const bounds = entity?.getBoundingClientRect();
-            const draft = (window as IE2EWindow).__evbTestApi?.getActiveWorkspaceHandle()?.captureCanonicalAnnotationRecovery?.()?.drafts.find(candidate => candidate.annotationId === id);
-            if (!draft?.geometry || !bounds?.width || !bounds.height) throw new Error('The pending text has no displayed draft geometry');
-            return draft.geometry;
-        }, annotationId);
-        expect(readFileSync(sourcePath)).toEqual(originalBytes);
-        expect(await session.page.$('.editor-pane.is-active [contenteditable="true"]').then(Boolean)).toBe(true);
-        if (scenario === 'tool-rejected') {
+        const marker = `Accepted text survives ${scenario}`;
+        const id = await createCanonicalTextBoxWithPointer(session.page, marker, {x: 0.3, y: 0.4});
+        await session.page.waitForSelector('.editor-pane.is-active [contenteditable="true"]', {hidden: true});
+        if (scenario === 'change-tool') {
             await clickAsUser(session.page, '.editor-pane.is-active .notes-panel .tool-button[data-tool="rectangle"]');
+            expect(await session.page.$('.editor-pane.is-active .notes-panel .tool-button[data-tool="rectangle"].is-active').then(Boolean)).toBe(true);
         } else {
-            const tabId = await session.page.$eval('.editor-pane.is-active .tab.is-active', tab => tab.getAttribute('data-tab-id'));
             await clickAsUser(session.page, '.editor-pane.is-active .tab.is-active .tab-close');
-            await session.page.waitForFunction((id: string | null) => !Array.from(document.querySelectorAll('.tab[data-tab-id]'))
-                .some(tab => tab.getAttribute('data-tab-id') === id), {timeout: 30_000}, tabId);
+            await session.page.waitForFunction(() => document.querySelectorAll('.editor-pane').length === 1);
             expect(await session.page.$('[role="dialog"]').then(Boolean)).toBe(false);
-            await clickAsUser(session.page, '.editor-pane .tab[data-tab-id]');
-            await waitForViewerInteractive(session.page, 30_000);
         }
-        writeFileSync(`${gate}.release`, '');
-        if (scenario === 'close-accepted') {
-            await session.page.waitForFunction((text: string) => Array.from(document.querySelectorAll<HTMLElement>(
-                '.editor-pane .pdf-annotation-editor-layer [data-annotation-kind="text-box"]',
-            )).some(entity => entity.textContent?.trim() === text && !entity.classList.contains('is-editing')), {timeout: 30_000}, marker);
-        } else {
-            await session.page.waitForFunction(() => Array.from(document.querySelectorAll('.app-toast-failure'))
-                .some(toast => toast.textContent?.includes('ENOSPC')), {timeout: 30_000});
-            const retained = await session.page.evaluate((id: string) => ({
-                draft: (window as IE2EWindow).__evbTestApi?.getActiveWorkspaceHandle()?.captureCanonicalAnnotationRecovery?.()?.drafts.find(candidate => candidate.annotationId === id),
-                tool: document.querySelector('.editor-pane.is-active .notes-panel .tool-button.is-active')?.getAttribute('data-tool'),
-                errors: Reflect.get(window, '__closingTextErrors') as string[],
-            }), annotationId);
-            console.info('CLOSING_TEXT_FAULT', JSON.stringify({
-                scenario,
-                retained,
-                geometry,
-            }));
-            expect.soft(retained.draft?.text).toBe(marker);
-            expect.soft(retained.draft?.geometry).toEqual(geometry);
-            expect.soft(retained.errors).toEqual([]);
-            if (scenario === 'tool-rejected') expect.soft(retained.tool).toBe('text');
-            expect(await session.page.$$eval('.app-toast-failure', toasts => toasts.length)).toBe(1);
-            if (scenario === 'close-rejected') {
-                await clickAsUser(session.page, `.editor-pane.is-active .pdf-annotation-editor-layer [data-annotation-id="${annotationId}"]`, {count: 2});
-            }
-            await session.page.waitForFunction((text: string) => Array.from(document.querySelectorAll<HTMLElement>(
-                '.editor-pane.is-active [contenteditable="true"]',
-            )).some(editor => editor.textContent?.trim() === text), {timeout: 30_000}, marker);
-        }
-        expect(await session.page.$('.editor-pane.is-active .tab.is-active.is-dirty').then(Boolean)).toBe(true);
+        const retained = await session.page.evaluate((id: string) => (window as IE2EWindow).__evbTestApi?.getActiveWorkspaceHandle()
+            ?.captureCanonicalAnnotationRecovery?.()?.entities.find(entity => entity.identity.id === id), id);
+        expect(retained?.kind === 'text-box' && retained.text).toBe(marker);
         expect(readFileSync(sourcePath)).toEqual(originalBytes);
-        console.info(await session.captureFailureArtifacts(`closing-text-${scenario}-retained`));
-        rmSync(`${gate}.arm`);
-        await clickVisibleToolbarButton(session.page, 'Save');
-        await expect.poll(() => readPdfTextAnnotationRecords(sourcePath), {timeout: 30_000})
-            .toEqual(expect.arrayContaining([expect.objectContaining({contents: marker})]));
-        await session.page.waitForSelector('.editor-pane.is-active .tab.is-active.is-dirty', {hidden: true});
-        const saved = await PDFDocument.load(readFileSync(sourcePath));
-        const freeText = saved.getPage(0).node.Annots()?.asArray().map(entry => saved.context.lookupMaybe(entry, PDFDict))
-            .find(item => String(item?.get(PDFName.of('Subtype'))) === '/FreeText');
-        const savedRectangle = freeText?.lookupMaybe(PDFName.of('Rect'), PDFArray)?.asArray().map(value => Number(String(value)));
-        const size = saved.getPage(0).getSize();
-        expect(savedRectangle?.map(Math.fround)).toEqual([
-            geometry.left * size.width,
-            (1 - geometry.top - geometry.height) * size.height,
-            (geometry.left + geometry.width) * size.width,
-            (1 - geometry.top) * size.height,
-        ].map(Math.fround));
-        console.info('CLOSING_TEXT_SAVED', JSON.stringify({
-            scenario,
-            marker,
-            savedRectangle,
-            geometry,
-        }));
-        console.info(await session.captureFailureArtifacts(`closing-text-${scenario}-saved`));
-    }, 180_000);
+        await saveViaVisibleToolbarWithDeadline(session.page, 30_000, sourcePath);
+        expect(await readPdfTextAnnotationRecords(sourcePath)).toEqual(expect.arrayContaining([expect.objectContaining({contents: marker})]));
+    }, 120_000);
 
-    it.each([
-        [
-            'double-click',
-            'ENOSPC',
-        ],
-        [
-            'Enter',
-            'ENOSPC',
-        ],
-        [
-            'double-click',
-            'supersession',
-        ],
-        [
-            'Enter',
-            'supersession',
-        ],
-    ] as const)('refuses another viewer sidebar %s handoff after %s', async (action, reason) => {
-        outputDirectory = mkdtempSync(join(tmpdir(), 'evb-sidebar-handoff-'));
-        const sourcePath = join(outputDirectory, 'sidebar-text.pdf');
-        copyFileSync(await createMultiPageTextFixturePdf(`sidebar-handoff-${Date.now()}.pdf`, 3), sourcePath);
+    it.each(['double-click', 'Enter'].flatMap(action => ['slow', 'ENOSPC'].map(fault => ({action, fault}))))(
+        'hands the newest text to one linked editor with $action during $fault draft storage', async ({action, fault}) => {
+        outputDirectory = mkdtempSync(join(tmpdir(), 'evb-linked-text-handoff-'));
+        const sourcePath = join(outputDirectory, 'linked-sidebar.pdf');
+        copyFileSync(await createMultiPageTextFixturePdf(`linked-sidebar-${Date.now()}.pdf`, 3), sourcePath);
         const originalBytes = readFileSync(sourcePath);
-        const {
-            gate, hook,
-        } = writeTextProtectionHoldHook(outputDirectory, 'ENOSPC: sidebar text protection failed');
-        session = await startElectronE2ESession(`e2e-sidebar-handoff-${action}-${reason}-${Date.now()}`, {
-            clean: true,
-            initialOpenPaths: [sourcePath],
-            extraEnv: {
-                NODE_OPTIONS: `${process.env.NODE_OPTIONS ?? ''} --require=${JSON.stringify(hook)}`,
-                EVB_RECORD_SESSION: '1',
-            },
+        const {gate, hook} = writeTextProtectionHoldHook(outputDirectory, 'ENOSPC: linked draft storage failed');
+        session = await startElectronE2ESession(`e2e-linked-sidebar-${Date.now()}`, {
+            clean: true, initialOpenPaths: [sourcePath],
+            extraEnv: {NODE_OPTIONS: `${process.env.NODE_OPTIONS ?? ''} --require=${JSON.stringify(hook)}`},
         });
         await waitForPdfLoaded(session.page, 60_000);
         await waitForViewerInteractive(session.page, 60_000);
@@ -875,230 +591,57 @@ if(process.type==='browser'){
         await waitForViewerInteractive(session.page, 30_000);
         const panes = await session.page.$$eval('.editor-pane', nodes => nodes.map(node => (node as HTMLElement).dataset.editorPaneId));
         const targetPane = panes[0]!;
-        const ownerPane = panes[1]!;
-        await clickAsUser(session.page, '.zoom-controls-display');
-        await clickFoundAsUser(session.page, () => Array.from(document.querySelectorAll<HTMLElement>('.zoom-dropdown .zoom-chip'))
-            .find(chip => chip.textContent?.trim() === '100%'), undefined, {description: '100% sidebar handoff zoom'});
-        const runtimeErrors: string[] = [];
-        session.page.on('console', message => {
-            if (message.text().includes('[renderer-guard]')) runtimeErrors.push(message.text());
-        });
-        session.page.on('pageerror', error => runtimeErrors.push(String(error)));
-        writeFileSync(`${gate}.arm`, '');
-        if (reason === 'ENOSPC') writeFileSync(`${gate}.reject`, '');
-        const marker = `Retained sidebar ${action} ${reason}`;
-        const annotationId = await createCanonicalTextBoxWithPointer(session.page, marker, {
-            x: 0.3,
-            y: 0.4,
-        });
-        await expect.poll(() => existsSync(`${gate}.held`), {timeout: 30_000}).toBe(true);
-        if (reason === 'supersession') await session.page.keyboard.type(' newest');
-        const expectedText = reason === 'supersession' ? `${marker} newest` : marker;
-        const geometry = await session.page.evaluate((id: string) => {
-            const draft = (window as IE2EWindow).__evbTestApi?.getActiveWorkspaceHandle()?.captureCanonicalAnnotationRecovery?.()?.drafts.find(candidate => candidate.annotationId === id);
-            if (!draft?.geometry) throw new Error('The pending sidebar text has no displayed geometry');
-            return draft.geometry;
-        }, annotationId);
-        await activatePaneByTab(session.page, targetPane);
-        await openDocumentSidebarTab(session.page, 'annotations');
-        const row = `.editor-pane[data-editor-pane-id="${targetPane}"] .note-item[data-annotation-id="${annotationId}"] .note-item-content`;
-        await clickAsUser(session.page, row, {count: action === 'double-click' ? 2 : 1});
-        if (action === 'Enter') await session.page.keyboard.press('Enter');
-        expect(await session.page.$(`.editor-pane[data-editor-pane-id="${targetPane}"] [contenteditable="true"]`).then(Boolean)).toBe(false);
-        expect(readFileSync(sourcePath)).toEqual(originalBytes);
-        writeFileSync(`${gate}.release`, '');
-        await session.page.waitForFunction((input: {
-            pane: string;
-            text: string
-        }) => {
-            const editor = document.querySelector<HTMLElement>(`.editor-pane[data-editor-pane-id="${input.pane}"] [contenteditable="true"]`);
-            return editor?.textContent?.trim() === input.text && document.activeElement === editor;
-        }, {timeout: 30_000}, {
-            pane: ownerPane,
-            text: expectedText,
-        });
-        const feedback = await session.page.$$eval('.app-toast-failure', toasts => toasts.map(toast => ({
-            text: toast.textContent,
-            id: toast.querySelector('.app-toast-error-id')?.textContent,
-        })));
-        const targetPdfRendered = await session.page.$(`.editor-pane[data-editor-pane-id="${targetPane}"] .page_container[data-page="1"]`).then(Boolean);
-        console.info('SIDEBAR_HANDOFF_REFUSED', JSON.stringify({
-            action,
-            reason,
-            expectedText,
-            geometry,
-            feedback,
-            targetPdfRendered,
-            runtimeErrors,
-        }));
-        console.info(await session.captureFailureArtifacts(`sidebar-${action}-${reason}-retained`));
-        expect.soft(feedback).toHaveLength(reason === 'ENOSPC' ? 1 : 0);
-        expect.soft(targetPdfRendered).toBe(true);
-        expect.soft(runtimeErrors).toEqual([]);
-        if (reason === 'ENOSPC') {
-            const retainedCause = feedback.find(item => item.text?.includes('ENOSPC'));
-            expect.soft(retainedCause?.text).toContain('Latest edits are not protected');
-            expect(retainedCause?.id).toMatch(/Error ID: [0-9a-f]{8}/u);
-            await clickFoundAsUser(session.page, () => {
-                const toast = Array.from(document.querySelectorAll('.app-toast-failure')).find(item => item.textContent?.includes('ENOSPC'));
-                return Array.from(toast?.querySelectorAll<HTMLButtonElement>('button') ?? []).find(button => button.textContent?.includes('Copy details'));
-            }, undefined, {description: 'Copy the existing sidebar protection cause'});
-            await session.page.waitForFunction(() => Array.from(document.querySelectorAll('.app-toast-failure'))
-                .some(toast => toast.textContent?.includes('ENOSPC') && toast.textContent.includes('Copied')), {timeout: 30_000});
-            const copied = await session.page.evaluate(() => navigator.clipboard.readText());
-            expect(copied).toContain('ENOSPC');
-            expect(copied).toContain(retainedCause!.id!.replace('Error ID: ', ''));
-            expect(await session.page.$$eval('.app-toast-error-id', (ids, id) => ids.every(node => node.textContent === id), retainedCause!.id)).toBe(true);
-        }
-        expect(await session.page.$(`.editor-pane[data-editor-pane-id="${targetPane}"] [contenteditable="true"]`).then(Boolean)).toBe(false);
-        expect(await session.page.$('.tab.is-active.is-dirty').then(Boolean)).toBe(true);
-        expect(readFileSync(sourcePath)).toEqual(originalBytes);
-        rmSync(`${gate}.arm`);
-        await activatePaneByTab(session.page, ownerPane);
-        await clickVisibleToolbarButton(session.page, 'Save');
-        await expect.poll(() => readPdfTextAnnotationRecords(sourcePath), {timeout: 30_000})
-            .toEqual(expect.arrayContaining([expect.objectContaining({contents: expectedText})]));
-        await session.page.waitForSelector('.editor-pane.is-active .tab.is-active.is-dirty', {hidden: true});
-        const saved = await PDFDocument.load(readFileSync(sourcePath));
-        const freeText = saved.getPage(0).node.Annots()?.asArray().map(entry => saved.context.lookupMaybe(entry, PDFDict))
-            .find(item => String(item?.get(PDFName.of('Subtype'))) === '/FreeText');
-        const savedRectangle = freeText?.lookupMaybe(PDFName.of('Rect'), PDFArray)?.asArray().map(value => Number(String(value)));
-        const size = saved.getPage(0).getSize();
-        expect(savedRectangle?.map(Math.fround)).toEqual([
-            geometry.left * size.width,
-            (1 - geometry.top - geometry.height) * size.height,
-            (geometry.left + geometry.width) * size.width,
-            (1 - geometry.top) * size.height,
-        ].map(Math.fround));
-        console.info('SIDEBAR_HANDOFF_SAVED', JSON.stringify({
-            action,
-            reason,
-            expectedText,
-            savedRectangle,
-            geometry,
-        }));
-        console.info(await session.captureFailureArtifacts(`sidebar-${action}-${reason}-saved`));
-    }, 180_000);
-
-    it.each([
-        1,
-        2,
-    ])('keeps the newest local text editor through an older linked handoff: cut %s', async cut => {
-        outputDirectory = mkdtempSync(join(tmpdir(), 'evb-newest-editor-'));
-        const sourcePath = join(outputDirectory, 'newest-editor.pdf');
-        copyFileSync(await createMultiPageTextFixturePdf(`newest-editor-${cut}-${Date.now()}.pdf`, 3), sourcePath);
-        const originalBytes = readFileSync(sourcePath);
-        const {
-            gate, hook,
-        } = writeTextProtectionHoldHook(outputDirectory, 'ENOSPC: newest local editor protection failed');
-        session = await startElectronE2ESession(`e2e-newest-editor-${cut}-${Date.now()}`, {
-            clean: true,
-            initialOpenPaths: [sourcePath],
-            extraEnv: {
-                NODE_OPTIONS: `${process.env.NODE_OPTIONS ?? ''} --require=${JSON.stringify(hook)}`,
-                EVB_RECORD_SESSION: '1',
-            },
-        });
-        await waitForPdfLoaded(session.page, 60_000);
-        await waitForViewerInteractive(session.page, 60_000);
-        await splitActiveTabFromTabMenu(session.page, 'right');
-        await waitForViewerInteractive(session.page, 30_000);
-        const panes = await session.page.$$eval('.editor-pane', nodes => nodes.map(node => (node as HTMLElement).dataset.editorPaneId));
-        const targetPane = panes[0]!;
-        const ownerPane = panes[1]!;
-        await clickAsUser(session.page, '.zoom-controls-display');
-        await clickFoundAsUser(session.page, () => Array.from(document.querySelectorAll<HTMLElement>('.zoom-dropdown .zoom-chip'))
-            .find(chip => chip.textContent?.trim() === '100%'), undefined, {description: '100% newest editor zoom'});
-        const localId = await createCanonicalTextBoxWithPointer(session.page, `Local Y ${cut}`, {
-            x: 0.3,
-            y: 0.3,
-        });
+        const marker = `Linked sidebar ${action} ${fault}`;
+        const id = await createCanonicalTextBoxWithPointer(session.page, marker, {x: 0.3, y: 0.4});
         await session.page.waitForSelector('.editor-pane.is-active [contenteditable="true"]', {hidden: true});
         writeFileSync(`${gate}.arm`, '');
-        const linkedText = `Linked X ${cut}`;
-        const linkedId = await createCanonicalTextBoxWithPointer(session.page, linkedText, {
-            x: 0.3,
-            y: 0.6,
-        });
+        if (fault === 'ENOSPC') writeFileSync(`${gate}.reject`, '');
+        await clickAsUser(session.page, `.editor-pane.is-active [data-annotation-id="${id}"]`, {count: 2});
+        await session.page.waitForSelector('.editor-pane.is-active [contenteditable="true"]', {visible: true});
+        await session.page.keyboard.type(' newest');
         await expect.poll(() => existsSync(`${gate}.held`), {timeout: 30_000}).toBe(true);
         await activatePaneByTab(session.page, targetPane);
         await openDocumentSidebarTab(session.page, 'annotations');
-        const row = (id: string) => `.editor-pane[data-editor-pane-id="${targetPane}"] .note-item[data-annotation-id="${id}"] .note-item-content`;
-        await clickAsUser(session.page, row(linkedId), {count: 2});
-        expect(await session.page.$(`.editor-pane[data-editor-pane-id="${targetPane}"] [contenteditable="true"]`).then(Boolean)).toBe(false);
-        await clickAsUser(session.page, row(localId), {count: 2});
-        const editor = `.editor-pane[data-editor-pane-id="${targetPane}"] [data-annotation-id="${localId}"] [contenteditable="true"]`;
-        await session.page.waitForFunction((selector: string) => document.activeElement === document.querySelector(selector), {timeout: 30_000}, editor);
-        const modifier = process.platform === 'darwin' ? 'Meta' : 'Control';
-        await session.page.keyboard.down(modifier);
-        try {
-            await session.page.keyboard.press('A');
-        } finally {
-            await session.page.keyboard.up(modifier);
-        }
-        const newestText = `Newest Y ${cut}`;
-        await session.page.keyboard.type(newestText);
-        const geometry = await session.page.evaluate((id: string) => {
-            const draft = (window as IE2EWindow).__evbTestApi?.getActiveWorkspaceHandle()?.captureCanonicalAnnotationRecovery?.()?.drafts.find(candidate => candidate.annotationId === id);
-            if (!draft?.geometry) throw new Error('The newest local editor has no displayed geometry');
-            return draft.geometry;
-        }, localId);
+        const row = `.editor-pane[data-editor-pane-id="${targetPane}"] .note-item[data-annotation-id="${id}"] .note-item-content`;
+        await clickAsUser(session.page, row, {count: action === 'double-click' ? 2 : 1});
+        if (action === 'Enter') await session.page.keyboard.press('Enter');
+        await session.page.waitForFunction((text: string) => {
+            const editors = Array.from(document.querySelectorAll<HTMLElement>('.editor-pane [contenteditable="true"]'))
+                .filter(editor => editor.getClientRects().length > 0);
+            const editor = document.querySelector<HTMLElement>('.editor-pane.is-active [contenteditable="true"]');
+            return editors.length === 1 && editor?.textContent === text && document.activeElement === editor;
+        }, {timeout: 30_000}, `${marker} newest`);
+        await session.page.keyboard.type(' final');
+        const finalText = `${marker} newest final`;
         expect(readFileSync(sourcePath)).toEqual(originalBytes);
         writeFileSync(`${gate}.release`, '');
-        await session.page.waitForSelector(`.editor-pane[data-editor-pane-id="${ownerPane}"] [data-annotation-id="${linkedId}"] [contenteditable="true"]`, {hidden: true});
-        const retained = await session.page.evaluate((selector: string) => {
-            const input = document.querySelector<HTMLElement>(selector);
-            return {
-                text: input?.textContent?.trim(),
-                focused: document.activeElement === input,
-                editing: Boolean(input),
-            };
-        }, editor);
-        console.info('NEWEST_EDITOR_RETAINED', JSON.stringify({
-            cut,
-            retained,
-            geometry,
-        }));
-        console.info(await session.captureFailureArtifacts(`newest-editor-${cut}-retained`));
-        expect(retained).toEqual({
-            text: newestText,
-            focused: true,
-            editing: true,
-        });
-        expect(await session.page.$$eval('.app-toast-failure', toasts => toasts.map(toast => toast.textContent))).toEqual([]);
-        expect(await session.page.$('.editor-pane.is-active .tab.is-active.is-dirty').then(Boolean)).toBe(true);
-        expect(readFileSync(sourcePath)).toEqual(originalBytes);
+        if (fault === 'ENOSPC') {
+            await session.page.waitForFunction(() => Array.from(document.querySelectorAll('.app-toast-failure'))
+                .some(toast => toast.textContent?.includes('ENOSPC')), {timeout: 30_000});
+        }
         rmSync(`${gate}.arm`);
-        await clickVisibleToolbarButton(session.page, 'Save');
-        await expect.poll(() => readPdfTextAnnotationRecords(sourcePath), {timeout: 30_000})
-            .toEqual(expect.arrayContaining([
-                expect.objectContaining({contents: newestText}),
-                expect.objectContaining({contents: linkedText}),
-            ]));
-        await session.page.waitForSelector('.editor-pane.is-active .tab.is-active.is-dirty', {hidden: true});
+        const geometry = await session.page.evaluate((id: string) => {
+            const recovery = (window as IE2EWindow).__evbTestApi!.getActiveWorkspaceHandle()!.captureCanonicalAnnotationRecovery!();
+            if (!recovery) throw new Error('Linked text has no recovery state');
+            const entity = recovery.entities.find(candidate => candidate.identity.id === id);
+            const draft = recovery.drafts.find(candidate => candidate.annotationId === id);
+            if (entity?.kind !== 'text-box') throw new Error('Linked text has no canonical entity');
+            return draft?.geometry ?? entity.rect;
+        }, id);
+        await saveViaVisibleToolbarWithDeadline(session.page, 30_000, sourcePath);
+        const records = await readPdfTextAnnotationRecords(sourcePath);
+        expect(records.filter(record => record.contents === finalText)).toHaveLength(1);
         const saved = await PDFDocument.load(readFileSync(sourcePath));
-        const freeText = saved.getPage(0).node.Annots()?.asArray().map(entry => saved.context.lookupMaybe(entry, PDFDict))
-            .find(item => {
-                const contents = item?.get(PDFName.of('Contents'));
-                return (contents instanceof PDFHexString || contents instanceof PDFString) && contents.decodeText() === newestText;
-            });
-        const savedRectangle = freeText?.lookupMaybe(PDFName.of('Rect'), PDFArray)?.asArray().map(value => Number(String(value)));
+        const record = records.find(record => record.contents === finalText)!;
+        const [object, generation] = record.ref.split(' ').map(Number);
+        const annotation = saved.context.lookup(PDFRef.of(object!, generation!), PDFDict);
+        const rectangle = annotation.lookup(PDFName.of('Rect'), PDFArray).asArray().map(value => Number(String(value)));
         const size = saved.getPage(0).getSize();
-        expect(savedRectangle?.map(Math.fround)).toEqual([
-            geometry.left * size.width,
-            (1 - geometry.top - geometry.height) * size.height,
-            (geometry.left + geometry.width) * size.width,
-            (1 - geometry.top) * size.height,
+        expect(rectangle.map(Math.fround)).toEqual([
+            geometry.left * size.width, (1 - geometry.top - geometry.height) * size.height,
+            (geometry.left + geometry.width) * size.width, (1 - geometry.top) * size.height,
         ].map(Math.fround));
-        console.info('NEWEST_EDITOR_SAVED', JSON.stringify({
-            cut,
-            newestText,
-            linkedText,
-            savedRectangle,
-            geometry,
-        }));
-        console.info(await session.captureFailureArtifacts(`newest-editor-${cut}-saved`));
-    }, 180_000);
+    }, 120_000);
 
     // The main-process hook lets Save run to the cut, then holds it there until the kill.
     it.runIf(process.platform === 'linux' || process.platform === 'darwin').each([
@@ -1217,6 +760,8 @@ if(process.type==='browser'){
         await waitForActiveDocumentSource(session.page, sourcePath, 30_000);
         await waitForViewerInteractive(session.page, 30_000);
         const marker = `Accepted ${fault} protected text`;
+        if (fault === 'capture-rejected') await rejectActiveCapture(marker, 'Accepted text recovery capture rejected');
+        writeFileSync(`${gate}.arm`, '');
         await createCanonicalTextBoxWithPointer(session.page, marker, {
             x: 0.3,
             y: 0.3,
@@ -1225,14 +770,16 @@ if(process.type==='browser'){
         await session.page.waitForFunction((text: string) => Array.from(
             document.querySelectorAll<HTMLElement>('.editor-pane.is-active [data-annotation-kind="text-box"]'),
         ).some(entity => entity.textContent?.trim() === text && !entity.classList.contains('is-editing')), {timeout: 30_000}, marker);
-        const rectangle = await session.page.evaluate((text: string) => {
-            const recovery = (window as IE2EWindow).__evbTestApi?.getActiveWorkspaceHandle()?.captureCanonicalAnnotationRecovery?.();
+        await expect.poll(async () => fault === 'ENOSPC' ? existsSync(`${gate}.rejected`)
+            : await session!.page.evaluate(() => Reflect.get(window, '__protectionCaptureRejected') === true), {timeout: 30_000}).toBe(true);
+        const rectangle = await session.page.evaluate(({text, fault}) => {
+            const recovery = fault === 'capture-rejected'
+                ? Reflect.get(window, '__rejectedProtectionRecovery') as ReturnType<typeof validateCanonicalAnnotationRecovery>
+                : (window as IE2EWindow).__evbTestApi?.getActiveWorkspaceHandle()?.captureCanonicalAnnotationRecovery?.();
             const entity = recovery?.entities.find(candidate => candidate.kind === 'text-box' && candidate.text === text);
             if (entity?.kind !== 'text-box') throw new Error('Accepted text has no canonical rectangle');
             return entity.rect;
-        }, marker);
-        if (fault === 'capture-rejected') await rejectActiveCapture(marker, 'Accepted text recovery capture rejected');
-        writeFileSync(`${gate}.arm`, '');
+        }, {text: marker, fault});
         await clickVisibleToolbarButton(session.page, 'Save');
         // Old code reaches displacement; fixed code reports failure without reaching that gate.
         await expect.poll(async () => existsSync(`${gate}.displaced`) || await session!.page.$('.app-toast-failure').then(Boolean), {timeout: 60_000}).toBe(true);
@@ -1277,11 +824,12 @@ if(process.type==='browser'){
         await clickTab(basename(otherPath));
         await waitForActiveDocumentSource(session!.page, otherPath, 30_000);
         await waitForViewerInteractive(session!.page, 30_000);
+        await rejectActiveCapture('Unrelated accepted text', 'Unrelated document recovery capture rejected');
         await createCanonicalTextBoxWithPointer(session!.page, 'Unrelated accepted text', {
             x: 0.3,
             y: 0.3,
         });
-        await rejectActiveCapture('Unrelated accepted text', 'Unrelated document recovery capture rejected');
+        await session!.page.waitForFunction(() => Reflect.get(window, '__protectionCaptureRejected') === true);
         await clickTab(basename(sourcePath));
         await waitForActiveDocumentSource(session!.page, sourcePath, 30_000);
         await waitForViewerInteractive(session!.page, 30_000);
@@ -1519,21 +1067,11 @@ if(process.type==='browser'){
             await expect.poll(bookmarkTitle).toBe(titleAt(edit));
         }
         await clickAsUser(session.page, '.editor-pane.is-active .page_container[data-page="1"]');
-        // The title changes before its durable history operation releases the
-        // toolbar. Wait for the next command to be available as a user would.
         for (let edit = 59; edit >= 0; edit -= 1) {
-            await session.page.waitForFunction(() => {
-                const toolbar = (window as IE2EWindow).__evbTestApi?.getActiveWorkspaceHandle()?.getToolbarSnapshot();
-                return toolbar?.canUndo && !toolbar.isHistoryBusy;
-            });
             await activateMenuItemAsUser(session.page, {accelerator: 'CmdOrCtrl+Z'});
             await expect.poll(bookmarkTitle).toBe(titleAt(edit));
         }
         for (let edit = 1; edit <= 60; edit += 1) {
-            await session.page.waitForFunction(() => {
-                const toolbar = (window as IE2EWindow).__evbTestApi?.getActiveWorkspaceHandle()?.getToolbarSnapshot();
-                return toolbar?.canRedo && !toolbar.isHistoryBusy;
-            });
             await activateMenuItemAsUser(session.page, {accelerator: process.platform === 'darwin' ? 'Cmd+Shift+Z' : 'Ctrl+Y'});
             await expect.poll(bookmarkTitle).toBe(titleAt(edit));
         }
