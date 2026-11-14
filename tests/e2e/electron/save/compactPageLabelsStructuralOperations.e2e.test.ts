@@ -36,6 +36,7 @@ import {
     waitForPdfLoaded,
     waitForToolbarCurrentPage,
     waitForViewerInteractive,
+    waitForWorkspaceHistorySettled,
     ensureSidebarOpen,
     goToPageViaToolbar,
     openDocumentSidebarTab,
@@ -739,6 +740,8 @@ describe('Electron E2E, compact page labels through structural operations', () =
         expect(samples.filter(sample => sample.enabled && sample.total === '8' && sample.elapsedMs > (samples.find(entry => entry.busy)?.elapsedMs ?? Infinity))).toEqual([]);
         await page.keyboard.press('Escape');
         await clickToolbarButtonWhenEnabled(page, 'Undo');
+        // Undo keeps page 7, so that page number cannot signal completion.
+        await waitForWorkspaceHistorySettled(page);
         await waitForToolbarCurrentPage(page, 7);
         await expect.poll(async () => page.$eval('.page-controls-total', element => element.textContent?.trim())).toBe('8');
     }, 90_000);

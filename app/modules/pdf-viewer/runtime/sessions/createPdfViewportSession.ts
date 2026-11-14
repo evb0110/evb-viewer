@@ -1001,12 +1001,14 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
             !previous
             || !options.isActive.value
             || (previous.width === container.clientWidth && previous.height === container.clientHeight)
-            // The horizontal scrollbar a page's own width brings or removes is
-            // not a resize: content keeps its place, and a zoom keeps the point
-            // under the pointer.
-            || (previous.width === container.clientWidth
-                && Math.abs(previous.height - container.clientHeight) === container.offsetWidth - container.clientWidth)
         ) {
+            return;
+        }
+        // A scrollbar changes the space available to fit, but does not own
+        // the zoom gesture's anchor. Recompute fit without placing it again.
+        if (previous.width === container.clientWidth
+            && Math.abs(previous.height - container.clientHeight) === container.offsetWidth - container.clientWidth) {
+            fitToViewport();
             return;
         }
         singlePageScroll.relayout(fitToViewport, options.isResizing.value
