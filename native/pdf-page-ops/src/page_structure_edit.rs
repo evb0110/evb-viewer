@@ -252,7 +252,7 @@ fn validate_page_tree(document: &Document) -> Result<()> {
 }
 
 /// Every page of every input in order, each input's outline offset to its
-/// pages.
+/// pages. The main outline is rebuilt only when another input adds to it.
 fn merge_pages(documents: &[&Document]) -> Result<PageSubset> {
     let mut sequence = Vec::new();
     for (document_index, document) in documents.iter().enumerate() {
@@ -267,11 +267,19 @@ fn merge_pages(documents: &[&Document]) -> Result<PageSubset> {
         );
     }
     let mut merged = page_subset(documents, &sequence, false)?;
-    let mut page_offset = 0u32;
-    let mut bookmarks = Vec::new();
-    for document in documents {
+    let appended = documents[1..]
+        .iter()
+        .map(|document| read_pdf_outline(*document, false))
+        .collect::<Result<Vec<_>>>()?;
+    // Without bookmarks to append, the main outline stays as it was copied.
+    if appended.iter().all(Vec::is_empty) {
+        return Ok(merged);
+    }
+    let mut page_offset = documents[0].get_pages().len() as u32;
+    let mut bookmarks = read_pdf_outline(documents[0], false)?;
+    for (document, outline) in documents[1..].iter().zip(appended) {
         bookmarks.extend(
-            read_pdf_outline(*document, false)?
+            outline
                 .into_iter()
                 .map(|bookmark| offset_bookmark(bookmark, page_offset)),
         );

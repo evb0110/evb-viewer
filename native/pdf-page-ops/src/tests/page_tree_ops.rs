@@ -2080,3 +2080,52 @@ fn page_structure_edits_keep_a_widget_pages_share_as_one_field() {
         assert_eq!(annots.as_array().unwrap(), &vec![Object::Reference(*field)]);
     }
 }
+
+#[test]
+fn merging_inputs_without_bookmarks_keeps_the_main_outline_as_written() {
+    let appendix = include_bytes!("../../tests/fixtures/page-engine/duplicate-info-dates.pdf");
+    let cases: [(&[u8], &[u8], &[u8]); 4] = [
+        (
+            include_bytes!("../../tests/fixtures/page-engine/outline-padded-title.pdf"),
+            b" View ",
+            b"/Fit",
+        ),
+        (
+            include_bytes!("../../tests/fixtures/page-engine/outline-title.pdf"),
+            b"hello\x11world",
+            b"/Fit",
+        ),
+        (
+            include_bytes!("../../tests/fixtures/page-engine/outline-short-xyz.pdf"),
+            b"View",
+            b"/XYZ 65 705",
+        ),
+        (
+            include_bytes!("../../tests/fixtures/page-engine/outline-null-view.pdf"),
+            b"View",
+            b"/FitH null",
+        ),
+    ];
+    for (input, title, view) in cases {
+        let merged = page_structure_bytes(PageStructureEdit::Merge, &[input, appendix]).unwrap();
+        let output = Document::load_mem(&merged.data).unwrap();
+        assert_eq!(merged.page_count, 2);
+        let outlines = output.catalog().unwrap().get(b"Outlines").unwrap().as_reference().unwrap();
+        let first = output.get_dictionary(outlines).unwrap().get(b"First").unwrap();
+        let item = output.get_dictionary(first.as_reference().unwrap()).unwrap();
+        assert_eq!(item.get(b"Title").unwrap().as_str().unwrap(), title);
+        let destination = item.get(b"Dest").unwrap().as_array().unwrap();
+        let page = output.get_pages()[&1];
+        assert_eq!(destination[0], Object::Reference(page));
+        let mut written = Vec::new();
+        for value in &destination[1..] {
+            written.push(match value {
+                Object::Name(name) => format!("/{}", String::from_utf8_lossy(name)),
+                Object::Integer(number) => number.to_string(),
+                Object::Null => "null".to_string(),
+                other => format!("{other:?}"),
+            });
+        }
+        assert_eq!(written.join(" ").as_bytes(), view);
+    }
+}
