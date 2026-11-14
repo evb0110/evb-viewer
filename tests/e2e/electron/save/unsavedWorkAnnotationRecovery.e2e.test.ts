@@ -9,7 +9,7 @@ import {
 } from '@tests/e2e/electron/helpers/userInput';
 import {tmpdir} from 'node:os';
 import {
-    basename, join, resolve,
+    basename, dirname, join, resolve,
 } from 'node:path';
 import {
     afterEach, describe, expect, it, onTestFinished,
