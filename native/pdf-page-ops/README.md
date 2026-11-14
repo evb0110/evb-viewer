@@ -18,7 +18,8 @@ range, and the output file it writes.
 Delete, extract, reorder, insert and merge use this engine. They refuse a
 source whose page tree a viewer could number differently (a leaf that is not a
 page, appears twice or contradicts the declared counts), and an encrypted
-source whose streams carry their own `/Crypt` filter. Split uses the
+source with a stream whose own `/Crypt` filter is not Identity. A stream whose
+own crypt filter is Identity is written as it is, without that filter. Split uses the
 crate's separate split writer. Inserted pages retain their source labels. Widgets retain appearances; safe fields are
 carried into the destination, while source document attachments and JavaScript
 are not imported. Output verification reopens the result and compares its objects and stream

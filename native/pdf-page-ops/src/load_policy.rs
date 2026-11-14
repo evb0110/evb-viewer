@@ -291,25 +291,78 @@ pub(crate) fn load_pdf_bytes_with_policy_and_password(
             policy.max_decompressed_stream_bytes
         )));
     }
-    let document = loaded.map_err(|error| classify_lopdf_load_error(error, policy, bytes))?;
+    let mut document = loaded.map_err(|error| classify_lopdf_load_error(error, policy, bytes))?;
     validate_loaded_document(&document, policy)?;
-    // lopdf decrypts a stream's own /Crypt filter only in part and leaves it
-    // named, so its plaintext would be written as if still encrypted.
-    if document.was_encrypted()
-        && document.objects.values().any(|object| {
-            object.as_stream().is_ok_and(|stream| {
-                stream
-                    .filters()
-                    .is_ok_and(|filters| filters.contains(&b"Crypt".as_slice()))
-            })
-        })
-    {
-        return Err(domain_error(
-            NativeErrorCode::UnsupportedFilter,
-            "The encrypted PDF has streams with their own /Crypt filter, which cannot be decrypted yet",
-        ));
+    if document.was_encrypted() {
+        take_identity_crypt_streams(&mut document)?;
     }
     Ok(document)
+}
+
+/// Takes each stream of a decrypted document whose own crypt filter is
+/// Identity as it is written, without that filter. lopdf leaves such data
+/// untouched only under a crypt-filter parameter dictionary, or as metadata
+/// the document does not encrypt; any other stream naming /Crypt is refused
+/// until per-stream crypt filters are decrypted.
+fn take_identity_crypt_streams(document: &mut Document) -> Result<()> {
+    let encrypt_metadata = document
+        .encryption_state
+        .as_ref()
+        .is_none_or(|state| state.encrypt_metadata());
+    for object in document.objects.values_mut() {
+        let Ok(stream) = object.as_stream_mut() else {
+            continue;
+        };
+        let Some(index) = stream
+            .filters()
+            .ok()
+            .and_then(|filters| filters.iter().position(|filter| *filter == b"Crypt"))
+        else {
+            continue;
+        };
+        // Parameters without a /Name select the Identity filter.
+        let names_identity = |parameters: Option<&Object>| {
+            parameters
+                .and_then(|parameters| parameters.as_dict().ok())
+                .and_then(|parameters| parameters.get(b"Name").ok())
+                .is_none_or(|name| name.as_name().ok() == Some(b"Identity"))
+        };
+        let identity = match stream.dict.get(b"DecodeParms") {
+            Ok(parameters @ Object::Dictionary(_)) => names_identity(Some(parameters)),
+            parameters => {
+                let parameters = match parameters {
+                    Ok(Object::Array(parameters)) => parameters.get(index),
+                    _ => None,
+                };
+                names_identity(parameters)
+                    && !encrypt_metadata
+                    && stream.dict.get(b"Type").and_then(Object::as_name).ok() == Some(b"Metadata")
+            }
+        };
+        if !identity {
+            return Err(domain_error(
+                NativeErrorCode::UnsupportedFilter,
+                "The encrypted PDF has streams with their own /Crypt filter, which cannot be decrypted yet",
+            ));
+        }
+        match stream.dict.get_mut(b"Filter") {
+            Ok(Object::Array(filters)) if filters.len() > 1 => {
+                filters.remove(index);
+                if let Ok(Object::Array(parameters)) = stream.dict.get_mut(b"DecodeParms") {
+                    if index < parameters.len() {
+                        parameters.remove(index);
+                    }
+                } else {
+                    stream.dict.remove(b"DecodeParms");
+                }
+            }
+            _ => {
+                stream.dict.remove(b"Filter");
+                stream.dict.remove(b"DecodeParms");
+            }
+        }
+    }
+    Ok(())
 }
 
 /// The one owner of the plaintext-base rule: a document whose base revision
