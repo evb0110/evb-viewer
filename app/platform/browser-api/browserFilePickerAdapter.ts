@@ -414,9 +414,10 @@ export async function downloadBrowserDocument(
     downloadBlob(await readBrowserDocumentBlob(ref, mimeType, signal), fileName, signal);
 }
 
-/** Downloads bytes already in hand. It never opens a picker. */
-export function downloadBrowserBytes(bytes: Uint8Array, fileName: string, mimeType: string, signal?: AbortSignal) {
-    downloadBlob(new Blob([toBrowserOwnedArrayBuffer(bytes)], { type: mimeType }), fileName, signal);
+/** Downloads bytes already in hand, or a Blob read in place. It never opens a picker. */
+export function downloadBrowserBytes(bytes: Uint8Array | Blob, fileName: string, mimeType: string, signal?: AbortSignal) {
+    const blob = bytes instanceof Blob ? bytes.slice(0, bytes.size, mimeType) : new Blob([toBrowserOwnedArrayBuffer(bytes)], { type: mimeType });
+    downloadBlob(blob, fileName, signal);
 }
 
 export type TBrowserOutputTarget =

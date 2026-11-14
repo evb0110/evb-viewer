@@ -409,7 +409,10 @@ pub(crate) fn write_annotation_parse_path(
             "Encrypted PDFs are not supported by the annotation parse operation",
         ));
     }
-    materialize_annotation_appearance_streams(&mut incremental, input_path, qpdf_path)?;
+    materialize_annotation_appearance_streams(
+        &mut incremental,
+        StructuralSource::for_path(input_path, qpdf_path),
+    )?;
 
     let mut output = AtomicOutput::create(output_path)?;
     #[cfg(unix)]
@@ -500,6 +503,23 @@ pub(crate) fn needs_eager_parse(document: &impl PdfObjectSource) -> bool {
         Ok(())
     });
     found || scanned.is_err()
+}
+
+/// The browser's annotation parse of a document read by range, its reachable
+/// appearance and stamp streams read by range too.
+#[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
+pub(crate) fn annotation_parse_from_source<S: ByteSource>(
+    source: S,
+    len: u64,
+    max_bytes: usize,
+) -> Result<Vec<u8>> {
+    let mut source = SourcePdf::open(source, len)?;
+    let mut incremental = source.take_append_base()?;
+    materialize_annotation_appearance_streams(
+        &mut incremental,
+        Some(StructuralSource::Ranges(&source)),
+    )?;
+    serialize_annotation_parse(&incremental, "D:19700101000000Z", max_bytes)
 }
 
 #[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]

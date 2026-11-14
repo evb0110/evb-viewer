@@ -10,7 +10,7 @@ import {
 import {
     MemoryStorage,
 } from '@tests/unit/app/platform/browserPlatformTestDoubles';
-import {BROWSER_PAGE_OPS_MAX_REQUEST_BYTES} from '@contracts/browserPageOpsLimits';
+import {MAX_DOCUMENT_ALLOCATION_BYTES} from '@contracts/electronApiDocuments';
 import {PDF_DECRYPT_PASSWORD_MAX_BYTES} from '@contracts/pdfDecryptSchemas';
 import type {IBrowserBatchOpenProgress} from '@app/platform/browser-api/createCombinedPdfFromPaths';
 import type * as TBrowserDocumentStore from '@app/platform/browserDocumentStore';
@@ -18,13 +18,6 @@ import {BrowserDocumentStore} from '@app/platform/browserDocumentStore';
 import * as workingCopyService from '@app/platform/browser-api/browserWorkingCopyService';
 
 const serviceState = vi.hoisted(() => ({store: null as BrowserDocumentStore | null}));
-
-// The real ceiling is a 2 GiB wasm32 allocation; the decrypt read budget is
-// derived from whatever it is, so a small one exercises the same refusal.
-vi.mock('@contracts/browserPageOpsLimits', () => ({
-    BROWSER_PAGE_OPS_MAX_REQUEST_BYTES: 4 * 1024 * 1024,
-    BROWSER_PAGE_OPS_MAX_OUTPUT_BYTES: 4 * 1024 * 1024,
-}));
 
 vi.mock('@app/platform/browserWindowTabs', async importOriginal => ({
     ...await importOriginal<typeof TBrowserWindowTabs>(),
@@ -244,26 +237,24 @@ describe('browser working-copy decryption', () => {
         await expect(browserDocumentStore.requireEntry(remove.mock.calls[0]![0])).rejects.toThrow();
     });
 
-    it('rejects encrypted inputs whose framed request exceeds the WASM budget', async () => {
+    it('refuses an encrypted input above the unlock budget before reading it, naming the desktop app', async () => {
         const {
             browserDocumentStore,
             decryptBrowserWorkingCopy,
         } = await loadService();
-        const oversizedPdf = new Uint8Array(BROWSER_PAGE_OPS_MAX_REQUEST_BYTES);
-        oversizedPdf.set(
-            Uint8Array.from(new TextEncoder().encode('%PDF-1.7\n/Encrypt')),
-        );
         const workingPath = await browserDocumentStore.createStoredDocument(
             'large.pdf',
-            oversizedPdf,
+            new TextEncoder().encode('%PDF-1.7\n/Encrypt'),
             {
                 ...PDF_SOURCE_OPTIONS,
                 kind: 'working',
             },
         );
+        vi.spyOn(browserDocumentStore, 'stat').mockResolvedValue({size: MAX_DOCUMENT_ALLOCATION_BYTES + 1, modifiedAt: 0});
+        const read = vi.spyOn(browserDocumentStore, 'read');
 
-        await expect(decryptBrowserWorkingCopy(workingPath))
-            .rejects.toThrow('Browser document is too large to load fully into memory');
+        await expect(decryptBrowserWorkingCopy(workingPath)).rejects.toThrow('Open it in the desktop app');
+        expect(read).not.toHaveBeenCalled();
         expect(wasmRun).not.toHaveBeenCalled();
     });
 

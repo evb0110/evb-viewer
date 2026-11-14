@@ -81,7 +81,7 @@ fn assert_append_target_unchanged(
     output: &mut File,
     previous_len: u64,
     previous_last_byte: Option<u8>,
-    previous_xref_start: usize,
+    previous_xref_start: u64,
 ) -> Result<()> {
     if output.metadata()?.len() != previous_len
         || read_last_byte_from_file(output, previous_len)? != previous_last_byte
@@ -89,7 +89,7 @@ fn assert_append_target_unchanged(
         return Err("Append target changed after its PDF structure was parsed".into());
     }
     let (xref_start, _) = read_terminal_xref_from_file(output, previous_len)?;
-    if xref_start != u64::try_from(previous_xref_start)? {
+    if xref_start != previous_xref_start {
         return Err("Append target cross-reference changed after it was parsed".into());
     }
     Ok(())
@@ -99,7 +99,7 @@ pub(crate) fn assert_append_path_unchanged(
     path: &Path,
     previous_len: u64,
     previous_last_byte: Option<u8>,
-    previous_xref_start: usize,
+    previous_xref_start: u64,
 ) -> Result<()> {
     let mut output = OpenOptions::new().read(true).open(path)?;
     assert_append_target_unchanged(
@@ -334,36 +334,35 @@ fn is_page_label_continuation(mutations: &NativeMutationsFile) -> bool {
     })
 }
 
+/// What an append over an indexed source reports.
 #[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
-pub(crate) struct NativeMutationBytesResult {
-    pub(crate) data: Vec<u8>,
+pub(crate) struct IndexedAppend {
     pub(crate) page_count: u32,
     pub(crate) identity_bindings: Vec<AnnotationIdentityBinding>,
 }
 
-/// Apply one validated mutation payload to an in-memory PDF and append the
-/// resulting revision to the original bytes. Browser saves must keep the
-/// native writer's incremental semantics, even though they cannot use paths.
+/// Applies one validated mutation payload to the PDF `source` holds and
+/// appends its revision through `write`, which writes it after the base's
+/// `len` bytes and returns what the file then holds there: that is what is
+/// checked, not the bytes meant for it. Only objects and the streams a
+/// mutation reuses are read from the base, by range.
 #[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
-pub(crate) fn append_native_mutations_to_bytes(
-    input: &[u8],
+pub(crate) fn append_native_mutations_to_source<S: ByteSource>(
+    source: S,
+    len: u64,
     mutations: &NativeMutationsFile,
     modified_at: &str,
-) -> Result<NativeMutationBytesResult> {
-    if input.len() > PAGE_OP_WASM_MAX_BUFFER_BYTES {
-        return Err(domain_error(
-            NativeErrorCode::TooLarge,
-            "Page-op WASM input exceeds the input admission ceiling",
-        ));
-    }
-    let document = load_browser_pdf(input)?;
-    let page_count = u32::try_from(document.get_pages().len())
+    write: impl FnOnce(&[u8]) -> Result<Vec<u8>>,
+) -> Result<IndexedAppend> {
+    let mut source = SourcePdf::open_append_base(source, len)?;
+    let mut incremental = source.take_append_base()?;
+    materialize_stamp_recovery_sources(
+        &mut incremental,
+        Some(StructuralSource::Ranges(&source)),
+        &mutations.placed_image_geometry_updates,
+    )?;
+    let page_count = u32::try_from(incremental.get_prev_documents().get_pages().len())
         .map_err(|_| "PDF page count exceeds the WASM response range")?;
-    let mut incremental = IncrementalDocument::from_document(
-        document,
-        u64::try_from(input.len())?,
-        input.last().copied(),
-    );
     let mut identity_bindings = Vec::new();
     apply_native_mutations_with_bindings(
         &mut incremental,
@@ -375,8 +374,8 @@ pub(crate) fn append_native_mutations_to_bytes(
     let expected_object_ids = collect_incremental_append_object_ids(&incremental);
     validate_incremental_append_bytes(
         &revision,
-        u64::try_from(input.len())?,
-        incremental.get_prev_documents().xref_start,
+        len,
+        incremental.previous_xref_start(),
         &expected_object_ids,
     )?;
     validate_appended_revision_postconditions_with_page_ids(
@@ -386,25 +385,47 @@ pub(crate) fn append_native_mutations_to_bytes(
         incremental.located_pages.as_ref(),
     )?;
     validate_annotation_identity_bindings(&identity_bindings)?;
-    let output_len = input.len().checked_add(revision.len()).ok_or_else(|| {
-        domain_error(
-            NativeErrorCode::TooLarge,
-            "Page-op WASM output exceeds the admission ceiling",
-        )
-    })?;
-    if output_len > PAGE_OP_WASM_MAX_BUFFER_BYTES {
-        return Err(domain_error(
-            NativeErrorCode::TooLarge,
-            "Page-op WASM output exceeds the admission ceiling",
-        ));
-    }
-    let mut data = Vec::with_capacity(output_len);
-    data.extend_from_slice(input);
-    data.extend_from_slice(&revision);
-    Ok(NativeMutationBytesResult {
-        data,
+    validate_incremental_append_bytes(
+        &write(&revision)?,
+        len,
+        incremental.previous_xref_start(),
+        &expected_object_ids,
+    )?;
+    Ok(IndexedAppend {
         page_count,
         identity_bindings,
+    })
+}
+
+#[cfg(test)]
+pub(crate) struct NativeMutationBytesResult {
+    pub(crate) data: Vec<u8>,
+    pub(crate) page_count: u32,
+    pub(crate) identity_bindings: Vec<AnnotationIdentityBinding>,
+}
+
+/// The whole PDF an append makes of `input`, for tests of the mutation route.
+#[cfg(test)]
+pub(crate) fn append_native_mutations_to_bytes(
+    input: &[u8],
+    mutations: &NativeMutationsFile,
+    modified_at: &str,
+) -> Result<NativeMutationBytesResult> {
+    let mut data = input.to_vec();
+    let append = append_native_mutations_to_source(
+        input,
+        u64::try_from(input.len())?,
+        mutations,
+        modified_at,
+        |revision| {
+            data.extend_from_slice(revision);
+            Ok(revision.to_vec())
+        },
+    )?;
+    Ok(NativeMutationBytesResult {
+        data,
+        page_count: append.page_count,
+        identity_bindings: append.identity_bindings,
     })
 }
 
@@ -438,7 +459,7 @@ pub(crate) fn append_native_mutations_with_qpdf(
 
     let previous_len = incremental.previous_len();
     let previous_last_byte = incremental.previous_last_byte();
-    let previous_xref_start = incremental.get_prev_documents().xref_start;
+    let previous_xref_start = incremental.previous_xref_start();
     if !append_paths_refer_to_same_file(input_path, output_path) {
         assert_append_output_seeded(input_path, output_path, previous_len)?;
     }
@@ -508,7 +529,7 @@ pub(crate) fn append_native_mutations_in_place_with_qpdf(
 
     let previous_len = incremental.previous_len();
     let previous_last_byte = incremental.previous_last_byte();
-    let previous_xref_start = incremental.get_prev_documents().xref_start;
+    let previous_xref_start = incremental.previous_xref_start();
     source_witness
         .assert_current()
         .map_err(|error| domain_error(NativeErrorCode::Io, error.to_string()))?;
@@ -543,8 +564,7 @@ fn materialize_reused_base_streams(
 ) -> Result<()> {
     materialize_stamp_recovery_sources(
         incremental,
-        input_path,
-        qpdf_path,
+        StructuralSource::for_path(input_path, qpdf_path),
         &mutations.placed_image_geometry_updates,
     )?;
     Ok(())
@@ -597,7 +617,7 @@ fn write_native_mutations_revision(
 
     let previous_len = incremental.previous_len();
     let previous_last_byte = incremental.previous_last_byte();
-    let previous_xref_start = incremental.get_prev_documents().xref_start;
+    let previous_xref_start = incremental.previous_xref_start();
     if seeded_output {
         assert_append_output_length(output_path, previous_len)?;
     } else {
@@ -741,7 +761,7 @@ pub(crate) fn write_incremental_revision(
 ) -> Result<()> {
     let previous_len = incremental.previous_len();
     let previous_last_byte = incremental.previous_last_byte();
-    let previous_xref_start = incremental.get_prev_documents().xref_start;
+    let previous_xref_start = incremental.previous_xref_start();
     let mut output = OpenOptions::new()
         .read(true)
         .write(true)
@@ -1352,7 +1372,7 @@ mod writer_boundary_tests {
 pub(crate) fn validate_incremental_append_output(
     output_path: &Path,
     previous_len: u64,
-    previous_xref_start: usize,
+    previous_xref_start: u64,
     expected_object_ids: &[ObjectId],
 ) -> Result<()> {
     let final_len = fs::metadata(output_path)?.len();
@@ -1375,7 +1395,7 @@ pub(crate) fn validate_incremental_append_output(
 pub(crate) fn validate_incremental_append_bytes(
     appended_bytes: &[u8],
     previous_len: u64,
-    previous_xref_start: usize,
+    previous_xref_start: u64,
     expected_object_ids: &[ObjectId],
 ) -> Result<()> {
     if appended_bytes.is_empty() {
@@ -1395,7 +1415,7 @@ pub(crate) fn validate_incremental_append_bytes(
 
     let prev_offset = parse_number_after_last_marker(appended_bytes, b"/Prev")
         .ok_or("Native incremental append is missing a /Prev pointer")?;
-    if prev_offset != u64::try_from(previous_xref_start)? {
+    if prev_offset != previous_xref_start {
         return Err(
             "Native incremental append /Prev pointer does not match the previous revision".into(),
         );

@@ -2,7 +2,6 @@ import type {IPdfPage} from '@app/modules/pdf-viewer/engine/pdf-document-source/
 import {runBrowserPageOpsWorkerRequest} from '@app/platform/browser-api/browserPageOpsWorkerClient';
 import {loadBrowserPdfjsDocument} from '@app/platform/browser-api/loadBrowserPdfjsDocument';
 import {browserDocumentStore} from '@app/platform/browserDocumentStore';
-import {BROWSER_PAGE_OPS_MAX_REQUEST_BYTES} from '@contracts/browserPageOpsLimits';
 import {isBrowserPageOpsWasmFailure} from '@contracts/browserPageOpsWorker';
 import {
     parseDocumentRef, type TDocumentRef,
@@ -41,9 +40,9 @@ async function readPdfjsPageText(page: IPdfPage) {
 }
 
 /**
- * The EVB layer lines of the pages that have one, when the document can be
- * read whole: the logical text desktop reads from an EVB OCR layer, for the
- * text catalog and search alike.
+ * The EVB layer lines of the pages that have one, read by range: the logical
+ * text desktop reads from an EVB OCR layer, for the text catalog and search
+ * alike.
  */
 export async function readEvbLayerLines(ref: TDocumentRef, pageNumbers: number[], signal?: AbortSignal) {
     const layers = new Map<number, {
@@ -51,10 +50,8 @@ export async function readEvbLayerLines(ref: TDocumentRef, pageNumbers: number[]
         layout: IDocumentTextPageLayout
     }>();
     if (pageNumbers.length === 0) return layers;
-    const {size} = await browserDocumentStore.stat(ref);
-    if (size > BROWSER_PAGE_OPS_MAX_REQUEST_BYTES) return layers;
     const report = await runBrowserPageOpsWorkerRequest('ocrTextVisibility', {
-        data: await browserDocumentStore.read(ref, {maxBytes: BROWSER_PAGE_OPS_MAX_REQUEST_BYTES}),
+        source: await browserDocumentStore.readableBlob(ref),
         pages: pageNumbers,
         withEvbOcrText: true,
     }, signal === undefined ? {} : {signal}).catch(() => null);

@@ -76,6 +76,17 @@ pub(crate) struct SourcePdf<S> {
     /// Each stream's data as an absolute byte range of `bytes`.
     streams: HashMap<ObjectId, (u64, u64)>,
     bytes: S,
+    #[cfg_attr(
+        not(any(test, all(target_family = "wasm", target_os = "unknown"))),
+        allow(dead_code)
+    )]
+    len: u64,
+    /// The terminal `startxref` offset, which an appended revision names as `/Prev`.
+    #[cfg_attr(
+        not(any(test, all(target_family = "wasm", target_os = "unknown"))),
+        allow(dead_code)
+    )]
+    xref_start: u64,
 }
 
 impl<S: ByteSource> SourcePdf<S> {
@@ -83,13 +94,32 @@ impl<S: ByteSource> SourcePdf<S> {
     /// encrypted input is read decrypted when the empty password opens it;
     /// otherwise it needs a password this route does not take.
     pub(crate) fn open(bytes: S, len: u64) -> Result<Self> {
+        Self::open_indexed(bytes, len, true)
+    }
+
+    #[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
+    /// The base of an incremental append. Plaintext objects appended to an
+    /// encrypted file would be unreadable, so encryption, which the index
+    /// shows, is refused before any object is read: the unlock flow rewrites
+    /// such a file first, an empty password included.
+    pub(crate) fn open_append_base(bytes: S, len: u64) -> Result<Self> {
+        Self::open_indexed(bytes, len, false)
+    }
+
+    fn open_indexed(bytes: S, len: u64, decrypt: bool) -> Result<Self> {
         let reader = Reader::new(&bytes, len)?;
         let index = reader.index()?;
         if index.trailer.has(b"Encrypt") {
-            return Self::open_decrypted(bytes, len);
+            if !decrypt {
+                return Err(domain_error(
+                    NativeErrorCode::Encrypted,
+                    "Unlock the encrypted PDF before editing it",
+                ));
+            }
+            return Self::open_decrypted(bytes, len, index.start);
         }
         let mut document = Document::with_version(reader.version.clone());
-        document.max_id = index.entries.keys().copied().max().unwrap_or(0);
+        document.max_id = index.max_number;
         document.reference_table = Xref::new(document.max_id.saturating_add(1), index.xref_type);
         document.trailer = index.trailer.clone();
         let mut loader = Loader {
@@ -128,10 +158,12 @@ impl<S: ByteSource> SourcePdf<S> {
             document,
             streams: loader.streams,
             bytes,
+            len,
+            xref_start: index.start,
         })
     }
 
-    fn open_decrypted(bytes: S, len: u64) -> Result<Self> {
+    fn open_decrypted(bytes: S, len: u64, xref_start: u64) -> Result<Self> {
         let len = usize::try_from(len)
             .ok()
             .filter(|len| *len <= MAX_ENCODED_PDF_BYTES)
@@ -154,6 +186,8 @@ impl<S: ByteSource> SourcePdf<S> {
             document,
             streams: HashMap::new(),
             bytes,
+            len: len as u64,
+            xref_start,
         })
     }
 
@@ -162,6 +196,50 @@ impl<S: ByteSource> SourcePdf<S> {
         self.streams
             .get(&id)
             .map(|(offset, len)| (&self.bytes, *offset, *len))
+    }
+
+    #[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
+    /// Moves the skeleton into the base of an incremental append. This source
+    /// keeps its stream ranges, which read what the base left unread.
+    pub(crate) fn take_append_base(&mut self) -> Result<IncrementalDocument> {
+        let mut last = [0];
+        if self.len > 0 {
+            self.bytes
+                .read_at(self.len - 1, &mut last)
+                .map_err(io_domain_error)?;
+        }
+        IncrementalDocument::from_indexed_document(
+            std::mem::take(&mut self.document),
+            self.len,
+            (self.len > 0).then_some(last[0]),
+            self.xref_start,
+            self.streams.keys().copied(),
+        )
+    }
+}
+
+#[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
+impl<S: ByteSource> RawStreamSource for SourcePdf<S> {
+    fn raw_stream(&self, object_id: ObjectId, max_bytes: usize) -> Result<Vec<u8>> {
+        let (offset, len) = self
+            .streams
+            .get(&object_id)
+            .copied()
+            .ok_or("PDF stream data is not in its source")?;
+        let len = usize::try_from(len)
+            .ok()
+            .filter(|len| *len <= max_bytes)
+            .ok_or_else(|| {
+                domain_error(
+                    NativeErrorCode::TooLarge,
+                    "PDF stream exceeds its byte ceiling",
+                )
+            })?;
+        let mut bytes = vec![0; len];
+        self.bytes
+            .read_at(offset, &mut bytes)
+            .map_err(io_domain_error)?;
+        Ok(bytes)
     }
 }
 
@@ -332,6 +410,11 @@ type XrefSection = (Vec<(u32, XrefEntry)>, Dictionary, XrefType);
 
 struct XrefIndex {
     entries: HashMap<u32, XrefEntry>,
+    /// The terminal `startxref` offset.
+    start: u64,
+    /// The highest object number any section lists, free ones included, so a
+    /// new object never takes a freed number.
+    max_number: u32,
     /// Ascending object offsets, which bound a stream whose length is wrong.
     offsets: Vec<u64>,
     trailer: Dictionary,
@@ -425,9 +508,10 @@ impl<'a, S: ByteSource> Reader<'a, S> {
         let tail = Self::read(self.bytes, self.len, tail_start, TAIL_BYTES)?;
         let marker = find_last_bytes(&tail, b"startxref")
             .ok_or_else(|| corrupt("PDF startxref marker is missing"))?;
-        let mut next = parse_u64_token(&tail, marker + b"startxref".len())
+        let start = parse_u64_token(&tail, marker + b"startxref".len())
             .map(|(offset, _)| offset)
             .ok_or_else(|| corrupt("PDF startxref value is invalid"))?;
+        let mut next = start;
         let mut entries = HashMap::new();
         let mut trailers = Vec::new();
         let mut visited = HashSet::new();
@@ -474,6 +558,7 @@ impl<'a, S: ByteSource> Reader<'a, S> {
         if !trailer.has(b"Root") {
             return Err(corrupt("PDF trailer has no /Root"));
         }
+        let max_number = entries.keys().copied().max().unwrap_or(0);
         entries.retain(|_, entry| !matches!(entry, XrefEntry::Free));
         let mut offsets = entries
             .values()
@@ -485,6 +570,8 @@ impl<'a, S: ByteSource> Reader<'a, S> {
         offsets.sort_unstable();
         Ok(XrefIndex {
             entries,
+            start,
+            max_number,
             offsets,
             trailer,
             xref_type: xref_type.unwrap_or(XrefType::CrossReferenceTable),

@@ -50,21 +50,44 @@ const QPDF_STRUCTURE_ARGS: &[&str] = &["--suppress-recovery", "--json"];
 // reconstructs for a damaged file, which is the view the opening check accepts.
 const QPDF_RECOVERED_STRUCTURE_ARGS: &[&str] = &["--json"];
 
-/// Where a structural path load reads the base streams it left unloaded:
-/// the source file, through qpdf. A document loaded from bytes holds every
-/// base stream and has none.
+/// Where a structural load reads the base streams it left unloaded: the
+/// source file through qpdf for a path load, or the indexed reader's byte
+/// ranges. A document loaded from bytes holds every base stream and has none.
 #[derive(Clone, Copy)]
-pub(crate) struct StructuralSource<'a> {
-    pub(crate) input_path: &'a Path,
-    pub(crate) qpdf_path: &'a Path,
+pub(crate) enum StructuralSource<'a> {
+    Qpdf {
+        input_path: &'a Path,
+        qpdf_path: &'a Path,
+    },
+    #[cfg_attr(
+        not(any(test, all(target_family = "wasm", target_os = "unknown"))),
+        allow(dead_code)
+    )]
+    Ranges(&'a dyn RawStreamSource),
+}
+
+/// A source that reads a stream's encoded bytes, as the file holds them.
+pub(crate) trait RawStreamSource {
+    fn raw_stream(&self, object_id: ObjectId, max_bytes: usize) -> Result<Vec<u8>>;
 }
 
 impl<'a> StructuralSource<'a> {
     pub(crate) fn for_path(input_path: &'a Path, qpdf_path: Option<&'a Path>) -> Option<Self> {
-        qpdf_path.map(|qpdf_path| Self {
+        qpdf_path.map(|qpdf_path| Self::Qpdf {
             input_path,
             qpdf_path,
         })
+    }
+
+    /// The encoded bytes of base stream `object_id`, or an error above `max_bytes`.
+    pub(crate) fn read_raw(self, object_id: ObjectId, max_bytes: usize) -> Result<Vec<u8>> {
+        match self {
+            Self::Qpdf {
+                input_path,
+                qpdf_path,
+            } => read_qpdf_stream_bounded(input_path, qpdf_path, object_id, max_bytes),
+            Self::Ranges(source) => source.raw_stream(object_id, max_bytes),
+        }
     }
 }
 
@@ -72,6 +95,8 @@ impl<'a> StructuralSource<'a> {
 pub(crate) struct IncrementalDocument {
     previous_len: u64,
     previous_last_byte: Option<u8>,
+    /// The terminal cross-reference offset the appended revision names as `/Prev`.
+    previous_xref_start: u64,
     pub(crate) previous_document: Document,
     pub(crate) unavailable_base_streams: HashSet<ObjectId>,
     /// Present only for a page-local load, which retains just the touched
@@ -91,6 +116,7 @@ impl IncrementalDocument {
         Self {
             previous_len,
             previous_last_byte,
+            previous_xref_start: document.xref_start as u64,
             previous_document: document,
             unavailable_base_streams: HashSet::new(),
             located_pages: None,
@@ -110,8 +136,43 @@ impl IncrementalDocument {
         ))
     }
 
+    /// The base of an append read through the indexed reader, whose streams
+    /// `unread` stay in the file. Each stands in as its dictionary with no bytes
+    /// at position 0, as a qpdf structural load leaves it, and is unavailable
+    /// until read: never mistaken for an empty stream. Offsets stay `u64`, so a
+    /// base past 4 GiB keeps its `/Prev` on wasm32 too.
+    #[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
+    pub(crate) fn from_indexed_document(
+        mut document: Document,
+        previous_len: u64,
+        previous_last_byte: Option<u8>,
+        previous_xref_start: u64,
+        unread: impl IntoIterator<Item = ObjectId>,
+    ) -> Result<Self> {
+        let mut unavailable_base_streams = HashSet::new();
+        for id in unread {
+            if let Ok(Object::Stream(stream)) = document.get_object_mut(id) {
+                stream.start_position = Some(0);
+                unavailable_base_streams.insert(id);
+            }
+        }
+        document.xref_start = 0;
+        let mut incremental = Self::from_document(document, previous_len, previous_last_byte);
+        incremental.previous_xref_start = previous_xref_start;
+        incremental
+            .new_document
+            .trailer
+            .set("Prev", i64::try_from(previous_xref_start)?);
+        incremental.unavailable_base_streams = unavailable_base_streams;
+        Ok(incremental)
+    }
+
     pub(crate) fn get_prev_documents(&self) -> &Document {
         &self.previous_document
+    }
+
+    pub(crate) fn previous_xref_start(&self) -> u64 {
+        self.previous_xref_start
     }
 
     pub(crate) fn previous_len(&self) -> u64 {
@@ -135,12 +196,7 @@ impl IncrementalDocument {
         if self.unavailable_base_streams.contains(&object_id) {
             if let Some(source) = structural {
                 let mut transient = stream.clone();
-                transient.set_content(read_qpdf_stream_bounded(
-                    source.input_path,
-                    source.qpdf_path,
-                    object_id,
-                    max_bytes,
-                )?);
+                transient.set_content(source.read_raw(object_id, max_bytes)?);
                 return Ok(
                     if transient.filters().is_ok_and(|filters| !filters.is_empty()) {
                         decompressed_stream_with_limit(&transient, max_bytes).ok()
@@ -155,15 +211,14 @@ impl IncrementalDocument {
 
     pub(crate) fn materialize_base_stream(
         &mut self,
-        path: &Path,
-        qpdf_path: &Path,
+        source: StructuralSource<'_>,
         object_id: ObjectId,
         max_bytes: usize,
     ) -> Result<()> {
         if !self.unavailable_base_streams.contains(&object_id) {
             return Ok(());
         }
-        let bytes = read_qpdf_stream_bounded(path, qpdf_path, object_id, max_bytes)?;
+        let bytes = source.read_raw(object_id, max_bytes)?;
         self.set_base_stream_bytes(object_id, bytes)
     }
 
@@ -1738,7 +1793,14 @@ esac
         let mut incremental = IncrementalDocument::from_document(document, 0, None);
         incremental.unavailable_base_streams.insert(stream_id);
         incremental
-            .materialize_base_stream(Path::new("unused.pdf"), &qpdf_path, stream_id, 1024)
+            .materialize_base_stream(
+                StructuralSource::Qpdf {
+                    input_path: Path::new("unused.pdf"),
+                    qpdf_path: &qpdf_path,
+                },
+                stream_id,
+                1024,
+            )
             .unwrap();
         fs::remove_file(qpdf_path).unwrap();
         incremental

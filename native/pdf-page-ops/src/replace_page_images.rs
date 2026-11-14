@@ -300,12 +300,7 @@ fn materialize_page_contents(
         return Ok(());
     };
     for content_id in incremental.previous_document.get_page_contents(page_id) {
-        incremental.materialize_base_stream(
-            source.input_path,
-            source.qpdf_path,
-            content_id,
-            MAX_REPLACEMENT_CONTENT_BYTES,
-        )?;
+        incremental.materialize_base_stream(source, content_id, MAX_REPLACEMENT_CONTENT_BYTES)?;
     }
     Ok(())
 }

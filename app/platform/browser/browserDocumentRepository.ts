@@ -12,7 +12,10 @@ import {
     saveDocument,
     type TSaveResult,
 } from '@document-store/saveDocument';
-import type { TExternalSource } from '@document-store/storePort';
+import type {
+    IStoreFile,
+    TExternalSource,
+} from '@document-store/storePort';
 import {
     BROWSER_DOCUMENT_CHUNK_SIZE,
     BROWSER_MAX_FULL_READ_BYTES,
@@ -101,6 +104,8 @@ export interface IBrowserDocumentEntry {
     file: File | null;
     release: (() => void) | null;
     chunkSize?: number;
+    /** An edit appended to the current revision's file and not committed: its lease, base revision and end. */
+    pendingAppend?: {lease: string; token: TDocumentRevisionToken; length: number} | undefined;
 }
 
 type TEntryMeta = {[K in keyof IBrowserDocumentEntry]?: IBrowserDocumentEntry[K] | undefined};
@@ -144,7 +149,8 @@ function extensionOf(fileName: string) {
     return match ? match[1]!.toLowerCase() : 'bin';
 }
 
-function bytesBlob(data: Uint8Array | ArrayBuffer) {
+function bytesBlob(data: Uint8Array | ArrayBuffer | Blob) {
+    if (data instanceof Blob) return data;
     return new Blob([data instanceof Uint8Array ? data as Uint8Array<ArrayBuffer> : new Uint8Array(data)]);
 }
 
@@ -243,7 +249,7 @@ export class BrowserDocumentStore {
 
     public async createStoredDocument(
         fileName: string,
-        data: Uint8Array | ArrayBuffer,
+        data: Uint8Array | ArrayBuffer | Blob,
         options: ICreateStoredDocumentOptions,
     ): Promise<TDocumentRef> {
         const ref = options.ref ?? createBrowserDocumentRef(fileName);
@@ -272,7 +278,7 @@ export class BrowserDocumentStore {
      * against the bytes read now, and the copy reads them until its first edit. A store document without a
      * file is forked. `data`, when given, is the copy's first edit, such as a transferred document's state.
      */
-    public async cloneAsWorkingCopy(sourceRef: string, fileName?: string, ref?: TDocumentRef, data?: Uint8Array) {
+    public async cloneAsWorkingCopy(sourceRef: string, fileName?: string, ref?: TDocumentRef, data?: Uint8Array | Blob) {
         const source = await this.requireEntry(sourceRef);
         const name = fileName ?? source.fileName;
         const workingRef = ref ?? createBrowserDocumentRef(name);
@@ -475,23 +481,6 @@ export class BrowserDocumentStore {
         return (await (await opfsFileHandle(entry.doc.path(current.file))).getFile()).slice(0, current.length);
     }
 
-    /** Commits a staged output into `targetRef` when both are still the revisions it was staged against. */
-    public async commitStagedDocument(
-        stagedRef: string,
-        targetRef: string,
-        data: Uint8Array,
-        expectedStagedRevisionToken: TDocumentRevisionToken,
-        expectedTargetRevisionToken: TDocumentRevisionToken,
-    ) {
-        const staged = await this.requireEntry(stagedRef);
-        if (stagedRef === targetRef || this.tokenOf(staged) !== expectedStagedRevisionToken || await this.sizeOf(staged) !== data.byteLength) {
-            throw new Error('Browser staged artifact content or revision changed during commit');
-        }
-        await this.mutate(await this.requireEntry(targetRef), expectedTargetRevisionToken, {kind: 'rewrite', source: bytesBlob(data), drafts: 'clear'}, 'write');
-        await this.remove(stagedRef);
-        return true;
-    }
-
     /** Streamed output: chunks are appended in order, and `finalizeChunkedDocument` checks the result. */
     public async prepareChunkedDocument(ref: string, options?: {chunkSize?: number}) {
         const entry = await this.requireEntry(ref);
@@ -575,14 +564,21 @@ export class BrowserDocumentStore {
      * learns of a revision the Save committed whatever happens after the commit: the edits are in the working
      * copy, unsaved until a Save publishes them, so a retry or Save As writes them once.
      */
-    public async save(ref: string, token: TDocumentRevisionToken | null | undefined, options: {commit?: Uint8Array; saveAs?: string} = {}): Promise<TSaveResult> {
+    public async save(ref: string, token: TDocumentRevisionToken | null | undefined, options: {commit?: string; saveAs?: string} = {}): Promise<TSaveResult> {
         const entry = await this.requireEntry(ref);
         const doc = this.requireDoc(entry);
         const previous = this.tokenOf(entry);
         try {
+            let expected = this.expectedRevision(entry, token);
+            const {commit} = options;
+            if (commit !== undefined) {
+                const committed = await doc.run(() => this.commitPendingAppend(entry, token, commit));
+                if (committed.status === 'stale-revision') this.throwStale(entry, token);
+                if (committed.status === 'conflict') return committed;
+                expected = committed.revision.id;
+            }
             const result = await saveDocument(doc, {
-                expected: this.expectedRevision(entry, token),
-                ...(options.commit ? {commit: {kind: 'rewrite', source: bytesBlob(options.commit), drafts: 'clear'}} : {}),
+                expected,
                 ...(options.saveAs ? {saveAs: options.saveAs} : {}),
             });
             if (result.status === 'stale-revision') this.throwStale(entry, token);
@@ -621,6 +617,104 @@ export class BrowserDocumentStore {
     private revisionIdOf(doc: DocumentDirectory, revision: TDocumentRevisionToken) {
         const id = Number(revision.slice(revision.lastIndexOf(':') + 1));
         return Number.isSafeInteger(id) && this.revisionToken(doc, id) === revision ? id : -1;
+    }
+
+    // In-place edits -----------------------------------------------------------------------------------------
+
+    /**
+     * Lets `append` write past the bytes of revision `token` in the document's own file, without committing
+     * what it writes: readers keep reading that revision. `append` returns the file's new length, or null when
+     * it appended nothing. The returned lease names the appended bytes until `save` or `commitAppend` commits
+     * them or `discardAppend` cuts them; one append is pending per document, and a new one cuts the one before.
+     * A document without bytes of its own copies its file in first, and one whose file no longer holds what it
+     * opened is refused.
+     */
+    public async stageAppend(
+        ref: string,
+        token: TDocumentRevisionToken | null | undefined,
+        append: (file: IStoreFile, base: number) => Promise<number | null>,
+    ) {
+        const entry = await this.requireEntry(ref);
+        const doc = this.requireDoc(entry);
+        this.expectedRevision(entry, token);
+        if (await doc.materialize() === null) throw new BrowserDocumentSourceChangedError(entry.ref);
+        await doc.ownCurrentFile();
+        return doc.run(async () => {
+            this.expectedRevision(entry, token);
+            entry.pendingAppend = undefined;
+            const base = doc.state().current!.length;
+            const file = doc.currentFile();
+            let lease: string | null = null;
+            try {
+                if (await file.size() > base) await file.truncate(base);
+                const length = await append(file, base);
+                if (length === null) return null;
+                lease = crypto.randomUUID();
+                entry.pendingAppend = {lease, token: this.tokenOf(entry), length};
+                return lease;
+            } finally {
+                if (lease === null) await file.truncate(base).catch(() => undefined);
+            }
+        });
+    }
+
+    /** Commits the pending append `lease` names as the document's next revision; drafts described the bytes before it. */
+    public async commitAppend(ref: string, token: TDocumentRevisionToken | null | undefined, lease: string) {
+        const entry = await this.requireEntry(ref);
+        const doc = this.requireDoc(entry);
+        const previous = this.tokenOf(entry);
+        return this.settle(entry, token, previous, await doc.run(() => this.commitPendingAppend(entry, token, lease)), 'write');
+    }
+
+    /** Cuts the pending append `lease` names; nothing when another append or revision followed it. */
+    public async discardAppend(ref: string, lease: string) {
+        const entry = this.entries.get(ref);
+        const doc = entry?.doc;
+        if (!doc || entry.pendingAppend?.lease !== lease) return;
+        await doc.run(async () => {
+            const pending = entry.pendingAppend;
+            const current = doc.state().current;
+            if (pending?.lease !== lease || !current) return;
+            entry.pendingAppend = undefined;
+            if (pending.token === this.tokenOf(entry) && await doc.currentFile().size() === pending.length) {
+                await doc.currentFile().truncate(current.length);
+                await doc.currentFile().flush();
+            }
+        });
+    }
+
+    /** The document's bytes with the pending append `lease` names, read in place; valid while the lease lasts. */
+    public async appendedContent(ref: string, lease: string): Promise<Blob> {
+        const entry = await this.requireEntry(ref);
+        const doc = this.requireDoc(entry);
+        return doc.run(async () => {
+            const {length} = this.requirePendingAppend(entry, lease);
+            const file = doc.currentFile();
+            if (isOpfsStorePort(entry.store!.port)) return (await (await opfsFileHandle(doc.path(doc.state().current!.file))).getFile()).slice(0, length);
+            const parts: Blob[] = [];
+            for (let offset = 0; offset < length; offset += BROWSER_DOCUMENT_CHUNK_SIZE) {
+                parts.push(bytesBlob(await file.readAt(offset, Math.min(BROWSER_DOCUMENT_CHUNK_SIZE, length - offset))));
+            }
+            return new Blob(parts);
+        });
+    }
+
+    private requirePendingAppend(entry: IBrowserDocumentEntry, lease: string) {
+        const pending = entry.pendingAppend;
+        if (pending?.lease !== lease || pending.token !== this.tokenOf(entry)) {
+            throw new Error('The edit staged for this document is no longer its next revision');
+        }
+        return pending;
+    }
+
+    /** Runs in the document's queue: the pending append, still where it was written, becomes the next revision. */
+    private async commitPendingAppend(entry: IBrowserDocumentEntry, token: TDocumentRevisionToken | null | undefined, lease: string) {
+        const doc = this.requireDoc(entry);
+        const expected = this.expectedRevision(entry, token);
+        const {length} = this.requirePendingAppend(entry, lease);
+        if (await doc.currentFile().size() !== length) throw new Error('The edit staged for this document is no longer its next revision');
+        entry.pendingAppend = undefined;
+        return doc.applyMutation(expected, {kind: 'extend', drafts: 'clear'});
     }
 
     // Lifecycle ----------------------------------------------------------------------------------------------

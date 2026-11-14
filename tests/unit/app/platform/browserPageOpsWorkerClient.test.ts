@@ -416,11 +416,11 @@ describe('browserPageOpsWorkerClient', () => {
 
     it('returns saved annotation bytes while cold worker startup is unavailable', async () => {
         const input = Uint8Array.of(1);
-        const opened = runBrowserPageOpsWorkerRequest('parseAnnotations', {data: input}, {dedicated: true});
+        const opened = runBrowserPageOpsWorkerRequest('parseAnnotations', {source: new Blob([input])}, {dedicated: true});
         await vi.advanceTimersByTimeAsync(0);
         await expect(opened).resolves.toEqual({data: Uint8Array.of(2)});
         vi.stubGlobal('Worker', function () { throw new Error('Cold worker startup is unavailable'); });
-        const saved = runBrowserPageOpsWorkerRequest('parseAnnotations', {data: input}, {dedicated: true});
+        const saved = runBrowserPageOpsWorkerRequest('parseAnnotations', {source: new Blob([input])}, {dedicated: true});
         await vi.advanceTimersByTimeAsync(0);
         await expect(saved).resolves.toEqual({data: Uint8Array.of(2)});
         expect(input).toEqual(Uint8Array.of(1));
@@ -575,11 +575,11 @@ describe('browserPageOpsWorkerClient', () => {
             5,
             6,
         ]);
-        const canceled = runBrowserPageOpsWorkerRequest('parseAnnotations', {data: canceledInput}, {
+        const canceled = runBrowserPageOpsWorkerRequest('parseAnnotations', {source: new Blob([canceledInput])}, {
             dedicated: true,
             signal: canceledController.signal,
         });
-        const sibling = runBrowserPageOpsWorkerRequest('parseAnnotations', {data: siblingInput}, {dedicated: true});
+        const sibling = runBrowserPageOpsWorkerRequest('parseAnnotations', {source: new Blob([siblingInput])}, {dedicated: true});
         await vi.advanceTimersByTimeAsync(0);
 
         expect(FakeWorker.instances).toHaveLength(2);
@@ -687,7 +687,7 @@ describe('browserPageOpsWorkerClient', () => {
             1,
             2,
             3,
-        ].map(byte => runBrowserPageOpsWorkerRequest('parseAnnotations', {data: Uint8Array.of(byte)}, {dedicated: true})
+        ].map(byte => runBrowserPageOpsWorkerRequest('parseAnnotations', {source: new Blob([Uint8Array.of(byte)])}, {dedicated: true})
             .catch((error: unknown) => error));
         await vi.advanceTimersByTimeAsync(0);
         expect(FakeWorker.instances).toHaveLength(2);
@@ -703,14 +703,14 @@ describe('browserPageOpsWorkerClient', () => {
             });
         }
         FakeWorker.autoRespond = true;
-        await expect(runBrowserPageOpsWorkerRequest('parseAnnotations', {data: Uint8Array.of(4)}, {dedicated: true}))
+        await expect(runBrowserPageOpsWorkerRequest('parseAnnotations', {source: new Blob([Uint8Array.of(4)])}, {dedicated: true}))
             .resolves.toEqual({data: Uint8Array.of(2)});
     });
 
     it('ignores a late result from a canceled dedicated parse generation', async () => {
         FakeWorker.autoRespond = false;
         const staleController = new AbortController();
-        const stale = runBrowserPageOpsWorkerRequest('parseAnnotations', {data: new Uint8Array([1])}, {
+        const stale = runBrowserPageOpsWorkerRequest('parseAnnotations', {source: new Blob([new Uint8Array([1])])}, {
             dedicated: true,
             signal: staleController.signal,
         });
@@ -725,7 +725,7 @@ describe('browserPageOpsWorkerClient', () => {
         staleController.abort(cancelReason);
         await staleRejection;
 
-        const replacement = runBrowserPageOpsWorkerRequest('parseAnnotations', {data: new Uint8Array([2])}, {dedicated: true});
+        const replacement = runBrowserPageOpsWorkerRequest('parseAnnotations', {source: new Blob([new Uint8Array([2])])}, {dedicated: true});
         await vi.advanceTimersByTimeAsync(0);
         const replacementWorker = FakeWorker.instances[1];
         if (!replacementWorker) {
@@ -752,15 +752,15 @@ describe('browserPageOpsWorkerClient', () => {
         expect(replacementWorker.terminated).toBe(false);
     });
 
-    it('isolates a dedicated worker failure and preserves input ownership', async () => {
+    it('isolates a dedicated worker failure and posts its source by reference', async () => {
         FakeWorker.autoRespond = false;
-        const failedInput = new Uint8Array([
+        const failedSource = new Blob([new Uint8Array([
             13,
             14,
             15,
-        ]);
-        const sibling = runBrowserPageOpsWorkerRequest('parseAnnotations', {data: new Uint8Array([16])}, {dedicated: true});
-        const failed = runBrowserPageOpsWorkerRequest('parseAnnotations', {data: failedInput}, {dedicated: true});
+        ])]);
+        const sibling = runBrowserPageOpsWorkerRequest('parseAnnotations', {source: new Blob([new Uint8Array([16])])}, {dedicated: true});
+        const failed = runBrowserPageOpsWorkerRequest('parseAnnotations', {source: failedSource}, {dedicated: true});
         await vi.advanceTimersByTimeAsync(0);
 
         expect(FakeWorker.instances).toHaveLength(2);
@@ -770,18 +770,10 @@ describe('browserPageOpsWorkerClient', () => {
             throw new Error('Expected two dedicated annotation parse workers');
         }
 
-        const postedRequest = failedWorker.postMessageCalls[0]?.message as {payload: {data: Uint8Array};} | undefined;
-        const workerInput = postedRequest?.payload.data;
-        if (!workerInput) {
-            throw new Error('Expected a worker-owned annotation parse input');
-        }
-        expect(workerInput).not.toBe(failedInput);
-        expect(workerInput).toEqual(failedInput);
-        expect(failedInput).toEqual(new Uint8Array([
-            13,
-            14,
-            15,
-        ]));
+        // The engine reads the document by range from the Blob: nothing is copied or transferred.
+        const postedRequest = failedWorker.postMessageCalls[0]?.message as {payload: {source: Blob};} | undefined;
+        expect(postedRequest?.payload.source).toBeInstanceOf(Blob);
+        expect(postedRequest?.payload.source.size).toBe(failedSource.size);
 
         failedWorker.dispatchError(new Error('dedicated parse worker crashed'));
         await expect(failed).rejects.toThrow('dedicated parse worker crashed');
@@ -801,7 +793,6 @@ describe('browserPageOpsWorkerClient', () => {
     });
     it.each([
         'textBoxAppearance',
-        'saveMutations',
         'decrypt',
         'printLayout',
     ] as const)(
@@ -813,16 +804,7 @@ describe('browserPageOpsWorkerClient', () => {
                 2,
                 3,
             ]);
-            const payload = type === 'textBoxAppearance' ? appearanceRequest() : type === 'saveMutations'
-                ? {
-                    data: input,
-                    mutations: {updates: [{
-                        objectNumber: 1,
-                        generationNumber: 0,
-                        text: 'Saved',
-                    }]},
-                    modifiedAt: 'D:20260102000000Z',
-                }
+            const payload = type === 'textBoxAppearance' ? appearanceRequest()
                 : type === 'decrypt'
                     ? {
                         data: input,

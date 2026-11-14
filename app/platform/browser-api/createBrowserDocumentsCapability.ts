@@ -186,6 +186,9 @@ export function createBrowserDocumentsCapability(
         ...(fileCapability.commitStagedPdfNativeMutations
             ? {commitStagedPdfNativeMutations: fileCapability.commitStagedPdfNativeMutations}
             : {}),
+        ...(fileCapability.replaceWorkingCopyFromStagedPdfNativeMutation
+            ? {replaceWorkingCopyFromStagedPdfNativeMutation: fileCapability.replaceWorkingCopyFromStagedPdfNativeMutation}
+            : {}),
     };
     const documentFiles = {
         readFile: fileCapability.readFile,

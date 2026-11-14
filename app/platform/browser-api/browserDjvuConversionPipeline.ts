@@ -54,7 +54,6 @@ import {
     type FailureReceipt,
 } from '@contracts/diagnostics/failureReceipt';
 import {runBrowserPdfCombineWorkerRequest} from '@app/platform/browser-api/browserPdfCombineWorkerClient';
-import {runBrowserPageOpsWorkerRequest} from '@app/platform/browser-api/browserPageOpsWorkerClient';
 import {isBrowserPageOpsWasmFailure} from '@contracts/browserPageOpsWorker';
 import { toPdfDateString } from '@app/utils/pdfDate';
 import { toOwnedArrayBuffer } from '@app/platform/browser-api/browserDjvuCanvas';
@@ -538,7 +537,7 @@ async function mapDjvuContentsToPdfBookmarks(
 
 /**
  * Adds the outline to a PDF written without one, through the page-ops
- * catalog writer desktop uses for the same job (save-mutations, appended).
+ * catalog writer desktop uses for the same job (a native edit, appended).
  */
 async function embedBrowserPdfBookmarks(
     data: Uint8Array,
@@ -549,15 +548,16 @@ async function embedBrowserPdfBookmarks(
     if (bookmarks.length === 0) {
         return data;
     }
-    const result = await runBrowserPageOpsWorkerRequest('saveMutations', {
-        data,
+    signal?.throwIfAborted();
+    const {appendPdfMutationsToBytes} = await import('@app/platform/browser-api/tryRunBrowserPageOpsWithWasm');
+    const result = await appendPdfMutationsToBytes(data, {
         mutations: {bookmarks: {
             totalPages: pageCount,
             untitledLabel: 'Untitled',
             items: bookmarks,
         }},
         modifiedAt: toPdfDateString(),
-    }, signal ? {signal} : {});
+    });
     if (isBrowserPageOpsWasmFailure(result)) {
         throw new Error(`Browser DjVu bookmark embedding failed: ${result.error.message}`);
     }

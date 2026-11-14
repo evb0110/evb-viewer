@@ -737,15 +737,8 @@ export function createBrowserPageOpsCapability(
             });
         },
         async readOutline(workingCopyPath): Promise<IPdfBookmarkEntry[]> {
-            const catalog = await runWorkerBackedPdfOperation({
-                path: workingCopyPath,
-                type: 'readCatalog',
-                createPayload: (data) => ({data}),
-                runDirect: async (data) => {
-                    const { readPdfCatalog } = await loadBrowserPageOpsCore();
-                    return readPdfCatalog(data);
-                },
-            });
+            assertBrowserPageOpsSource(workingCopyPath, 'Reading the outline');
+            const catalog = await runBrowserPageOpsWorkerRequest('readCatalog', {source: await browserDocumentStore.readableBlob(workingCopyPath)});
             return v.parse(v.array(PDF_BOOKMARK_RECOVERY_ENTRY_SCHEMA), readBrowserPdfCatalogPart(catalog, 'bookmarks'));
         },
     } satisfies TFeatureBrowserBindings<typeof PAGE_OPS_PLATFORM_FEATURE>;

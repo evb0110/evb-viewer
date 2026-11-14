@@ -18,8 +18,8 @@ import {
 import {runBrowserPageOpsWorkerRequest} from '@app/platform/browser-api/browserPageOpsWorkerClient';
 import {loadBrowserPdfjsDocument} from '@app/platform/browser-api/loadBrowserPdfjsDocument';
 import {browserDocumentStore} from '@app/platform/browserDocumentStore';
-import {BROWSER_PAGE_OPS_MAX_REQUEST_BYTES} from '@contracts/browserPageOpsLimits';
-import {INSTRUCTED_REQUEST_HEADER} from '@contracts/browserPageOpsWasm.generated';
+import {appendPdfMutationsToStoreFile} from '@app/platform/browser/browserStorePort';
+import type {IPdfAppendResult} from '@app/platform/browser-api/tryRunBrowserPageOpsWithWasm';
 import {getErrorMessage} from '@app/utils/error';
 import {
     isBrowserPageOpsWasmFailure,
@@ -71,8 +71,12 @@ export interface IBrowserOcrJobInput {
 
 export type TBrowserOcrJobOutcome =
     | {
+        /** The text layer appended to the document's file, uncommitted, under `lease`. */
         kind: 'written';
-        data: Uint8Array<ArrayBuffer>;
+        lease: string;
+        /** The document's length with the layer, and the SHA-256 of the layer's bytes. */
+        length: number;
+        sha256: string;
         sourceRevisionToken: TDocumentRevisionToken;
         errors: string[];
         diagnostics: IOcrDiagnostic[];
@@ -86,7 +90,7 @@ export type TBrowserOcrJobOutcome =
 
 /** A failure the workspace explains in the user's language, by its code. */
 export class BrowserOcrJobError extends Error {
-    public constructor(public readonly code: 'OCR_DOCUMENT_TOO_LARGE' | 'OCR_MODEL_DOWNLOAD_FAILED', message: string) {
+    public constructor(public readonly code: 'OCR_MODEL_DOWNLOAD_FAILED', message: string) {
         super(message);
         this.name = 'BrowserOcrJobError';
     }
@@ -108,10 +112,10 @@ async function extractPageText(page: IPdfPage) {
     }
 }
 
-async function readVisibility(data: Uint8Array, pageNumbers: number[], signal: AbortSignal) {
+async function readVisibility(source: Blob, pageNumbers: number[], signal: AbortSignal) {
     try {
         const report = await runBrowserPageOpsWorkerRequest('ocrTextVisibility', {
-            data,
+            source,
             pages: pageNumbers,
             withEvbOcrText: false,
         }, {signal});
@@ -159,17 +163,9 @@ export async function runBrowserOcrJob(input: IBrowserOcrJobInput): Promise<TBro
     });
 
     stage('preparing');
+    // The document is read by range, from the revision read now; the layer is appended to that revision.
     const revision = await browserDocumentStore.getDocumentRevision(input.sourceRef);
-    const {size} = await browserDocumentStore.stat(input.sourceRef);
-    // Reject an impossible source before OCR. The worker accounts for page PDFs
-    // and instructions once recognition has produced their actual bytes.
-    const maxInputBytes = BROWSER_PAGE_OPS_MAX_REQUEST_BYTES - INSTRUCTED_REQUEST_HEADER.bytes;
-    if (size > maxInputBytes) {
-        throw new BrowserOcrJobError('OCR_DOCUMENT_TOO_LARGE', 'The source PDF exceeds the PDF writer request budget');
-    }
-    const data = await browserDocumentStore.read(input.sourceRef, {maxBytes: maxInputBytes});
-    throwIfAborted(signal);
-    await browserDocumentStore.assertDocumentRevisionCurrent(input.sourceRef, revision.token);
+    const source = await browserDocumentStore.readableBlob(input.sourceRef);
 
     const modelCodes = withOcrModelSublanguages(input.pages.flatMap(page => page.languages) as TOcrModelCode[]);
     for (const code of modelCodes) {
@@ -191,7 +187,7 @@ export async function runBrowserOcrJob(input: IBrowserOcrJobInput): Promise<TBro
     const pdf = await loadBrowserPdfjsDocument(input.sourceRef);
     try {
         stage('pdf-prep');
-        const visibility = await readVisibility(data, input.pages.map(page => page.pageNumber), signal);
+        const visibility = await readVisibility(source, input.pages.map(page => page.pageNumber), signal);
         if (visibility.warning) errors.push(visibility.warning);
         // Probe selected pages once; all lanes receive the same DPI.
         const renderDpi = input.options.renderDpi;
@@ -352,21 +348,29 @@ export async function runBrowserOcrJob(input: IBrowserOcrJobInput): Promise<TBro
         stage('merging');
         recognized.sort((left, right) => left.pageNumber - right.pageNumber);
         const instructions: IOcrTextLayerInstructions = {pages: buildOcrTextLayerInstructions(recognized)};
-        await browserDocumentStore.assertDocumentRevisionCurrent(input.sourceRef, revision.token);
-        const written = await runBrowserPageOpsWorkerRequest('ocrTextLayer', {
-            data,
-            instructions,
-            pagePdfs: recognized.map(page => page.pdf),
-        }, {signal});
-        if (isBrowserPageOpsWasmFailure(written)) {
-            throw new Error(`Writing the searchable layer failed: ${written.error.message}`);
+        throwIfAborted(signal);
+        let written: IPdfAppendResult | undefined;
+        let failure: string | undefined;
+        const lease = await browserDocumentStore.stageAppend(input.sourceRef, revision.token, async (file, base) => {
+            const result = await appendPdfMutationsToStoreFile(file, base, {
+                instructions,
+                pagePdfs: recognized.map(page => page.pdf),
+            });
+            if (isBrowserPageOpsWasmFailure(result)) {
+                failure = result.error.message;
+                return null;
+            }
+            written = result;
+            return result.length;
+        });
+        if (lease === null || !written) {
+            throw new Error(`Writing the searchable layer failed: ${failure ?? 'nothing was written'}`);
         }
-        const output = new Uint8Array(data.byteLength + written.data.byteLength);
-        output.set(data);
-        output.set(written.data, data.byteLength);
         return {
             kind: 'written',
-            data: output,
+            lease,
+            length: written.length,
+            sha256: written.sha256,
             sourceRevisionToken: revision.token,
             errors: errors.items,
             diagnostics: diagnostics.items,

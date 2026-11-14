@@ -17,7 +17,7 @@ import {createCombinedPdfFromPaths} from '@app/platform/browser-api/createCombin
 import {readPdfCatalog} from '@app/platform/browser-api/browserPageOpsCore';
 import {browserDocumentStore} from '@app/platform/browserDocumentStore';
 import {
-    tryRunBrowserPageOpsWithWasm, isBrowserPageOpsWasmFailure,
+    isBrowserPageOpsWasmFailure, appendPdfMutationsToBytes,
 } from '@app/platform/browser-api/tryRunBrowserPageOpsWithWasm';
 import {PDF_BOOKMARK_RECOVERY_ENTRY_SCHEMA} from '@contracts/pdfBookmarkEntry';
 import * as v from 'valibot';
@@ -311,7 +311,7 @@ async function runBrowserCatalogPartsAcceptance() {
                 broken,
                 bookmarks: await settleCatalogPart(async () => (await pageOps.readOutline(workingPath)).map(entry => entry.title)),
                 pageLabels: await settleCatalogPart(async () => {
-                    const catalog = await readPdfCatalog(bytes);
+                    const catalog = await readPdfCatalog(new Blob([bytes]));
                     if (!catalog.pageLabels) throw new Error(catalog.pageLabelsError);
                     return catalog.pageLabels.map(range => range.style ?? null);
                 }),
@@ -359,14 +359,13 @@ async function runBrowserBookmarkSaveAcceptance() {
         }));
         source.catalog.set(PDFName.of('Outlines'), outline);
         const input = new Uint8Array(await source.save());
-        const catalog = await readPdfCatalog(input);
+        const catalog = await readPdfCatalog(new Blob([input]));
         const items = v.parse(v.array(PDF_BOOKMARK_RECOVERY_ENTRY_SCHEMA), catalog.bookmarks);
         items[items.length - 1] = {
             ...items.at(-1)!,
             title: 'Large web saved',
         };
-        const saved = await tryRunBrowserPageOpsWithWasm('saveMutations', {
-            data: input,
+        const saved = await appendPdfMutationsToBytes(input, {
             mutations: {bookmarks: {
                 items,
                 totalPages: 1,
@@ -374,7 +373,7 @@ async function runBrowserBookmarkSaveAcceptance() {
             }},
             modifiedAt: 'D:20261013000000Z',
         });
-        if (saved === null || isBrowserPageOpsWasmFailure(saved)) {
+        if (isBrowserPageOpsWasmFailure(saved)) {
             throw new Error(`Bookmark save failed: ${JSON.stringify(saved)}`);
         }
         const reopened = await PDFDocument.load(saved.data);

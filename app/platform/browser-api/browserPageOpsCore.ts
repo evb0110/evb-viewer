@@ -42,10 +42,10 @@ async function requireBrowserPageOpsWasmResult<T>(
     );
 }
 
-export function parsePdfAnnotations(data: Uint8Array) {
+export function parsePdfAnnotations(source: Blob) {
     return requireBrowserPageOpsWasmResult<{data: Uint8Array}>(
         'annotation parsing',
-        () => tryRunBrowserPageOpsWithWasm('parseAnnotations', {data}),
+        () => tryRunBrowserPageOpsWithWasm('parseAnnotations', {source}),
     );
 }
 
@@ -103,10 +103,10 @@ export function getPageGeometryFromPdfBytes(
 }
 
 export function readPdfCatalog(
-    data: Uint8Array,
+    source: Blob,
 ): Promise<IBrowserPdfCombineCatalog> {
     return requireBrowserPageOpsWasmResult('catalog inspection', () =>
-        tryRunBrowserPageOpsWithWasm('readCatalog', {data}),
+        tryRunBrowserPageOpsWithWasm('readCatalog', {source}),
     );
 }
 

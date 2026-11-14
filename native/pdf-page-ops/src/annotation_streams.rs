@@ -2,17 +2,16 @@ use super::*;
 use base64::Engine;
 use serde_json::Value;
 
-/// The bounded structural reader omits stream bytes from path-backed PDFs
-/// above the eager-load ceiling. Annotation parsing still needs the small
-/// appearance form and JPEG stream for managed placed images, and each note
-/// thread's recovery snapshot, so restore only those reachable streams through
-/// qpdf before parsing the annotation graph.
+/// A structural load omits stream bytes: qpdf's above the eager-load
+/// ceiling, the indexed reader's always. Annotation parsing still needs the
+/// small appearance form and JPEG stream for managed placed images, and each
+/// note thread's recovery snapshot, so restore only those reachable streams
+/// from `streams` before parsing the annotation graph.
 pub(crate) fn materialize_annotation_appearance_streams(
     incremental: &mut IncrementalDocument,
-    input_path: &Path,
-    qpdf_path: Option<&Path>,
+    streams: Option<StructuralSource<'_>>,
 ) -> Result<()> {
-    let Some(qpdf_path) = qpdf_path else {
+    let Some(source) = streams else {
         return Ok(());
     };
 
@@ -33,7 +32,7 @@ pub(crate) fn materialize_annotation_appearance_streams(
         // otherwise readable annotations from the same document.
         let limit = remaining.min(stream_limit);
         if incremental
-            .materialize_base_stream(input_path, qpdf_path, object_id, limit)
+            .materialize_base_stream(source, object_id, limit)
             .is_ok()
         {
             let document = incremental.get_prev_documents();
@@ -51,11 +50,15 @@ pub(crate) fn materialize_annotation_appearance_streams(
         // qpdf cannot read alone stay unread, and only their notes stay foreign.
         // A few scoped raw reads avoid qpdf JSON's whole-file scan. Larger
         // sets and whole-document consumers retain the shared batch transport.
-        let mut bytes_by_object = if incremental.located_pages.is_some() && requested.len() <= 8 {
-            read_individual_streams(input_path, qpdf_path, &requested)
-        } else {
-            read_qpdf_stream_batch(input_path, qpdf_path, &requested)
-                .unwrap_or_else(|_| read_individual_streams(input_path, qpdf_path, &requested))
+        let mut bytes_by_object = match source {
+            StructuralSource::Qpdf {
+                input_path,
+                qpdf_path,
+            } if incremental.located_pages.is_none() || requested.len() > 8 => {
+                read_qpdf_stream_batch(input_path, qpdf_path, &requested)
+                    .unwrap_or_else(|_| read_individual_streams(source, &requested))
+            }
+            _ => read_individual_streams(source, &requested),
         };
         for (object_id, _) in &streams[start..end] {
             let Some(bytes) = bytes_by_object.remove(object_id) else {
@@ -404,8 +407,7 @@ pub(crate) fn read_qpdf_stream_batch(
 /// Both the small-set transport and failed-batch recovery share one raw
 /// byte ceiling. Each read also retains the per-appearance stream ceiling.
 fn read_individual_streams(
-    path: &Path,
-    qpdf: &Path,
+    source: StructuralSource<'_>,
     ids: &[ObjectId],
 ) -> HashMap<ObjectId, Vec<u8>> {
     let mut remaining = MAX_BATCH_RAW_BYTES;
@@ -414,12 +416,7 @@ fn read_individual_streams(
         if remaining == 0 {
             break;
         }
-        if let Ok(bytes) = read_qpdf_stream_bounded(
-            path,
-            qpdf,
-            *id,
-            remaining.min(MAX_STAMP_APPEARANCE_STREAM_BYTES),
-        ) {
+        if let Ok(bytes) = source.read_raw(*id, remaining.min(MAX_STAMP_APPEARANCE_STREAM_BYTES)) {
             remaining -= bytes.len();
             streams.insert(*id, bytes);
         }

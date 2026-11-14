@@ -2,6 +2,7 @@ import {getOptimizedPdfName} from '@app/platform/browser-api/browserFileName';
 import type * as TBrowserQpdfEngineClient from '@app/platform/browser-api/browserQpdfEngineClient';
 import type * as TBrowserWindowTabs from '@app/platform/browserWindowTabs';
 import {createHash} from 'node:crypto';
+import {requirePdfDateString} from '@contracts/pdfDateString';
 import {createBrowserStoreStagedArtifact} from '@app/platform/browser/browserStagedArtifact';
 import {
     afterAll,
@@ -140,6 +141,8 @@ const browserDjvuCapabilityMock = vi.hoisted(() => ({
     runConversion: vi.fn(),
 }));
 const browserAnnotationParseMock = vi.hoisted(() => ({run: vi.fn()}));
+/** The bytes the engine appends after a document for a native edit. */
+const nativeEditTail = vi.hoisted(() => ({bytes: Uint8Array.of(2, 3)}));
 const utifMock = vi.hoisted(() => ({
     decode: vi.fn(() => []),
     decodeImage: vi.fn(),
@@ -189,6 +192,21 @@ vi.mock('@app/platform/browser-api/browserPdfCombineWorkerClient', () => ({
 vi.mock('@app/platform/browser-api/browserDjvuCapability', () => ({browserDjvuCapability: {cancel: browserDjvuCapabilityMock.cancel}}));
 vi.mock('@app/platform/browser-api/browserDjvuConversionPipeline', () => ({runBrowserDjvuConversion: browserDjvuCapabilityMock.runConversion}));
 vi.mock('@app/platform/browser-api/browserPageOpsWorkerClient', () => ({runBrowserPageOpsWorkerRequest: (...args: unknown[]) => browserAnnotationParseMock.run(...args)}));
+// The engine appends the tail after the document's bytes in its own file, as a native edit's revision.
+vi.mock('@app/platform/browser/browserStorePort', async importOriginal => ({
+    ...await importOriginal<typeof import('@app/platform/browser/browserStorePort')>(),
+    appendPdfMutationsToStoreFile: async (file: {writeAt(offset: number, bytes: Uint8Array): Promise<void>}, base: number) => {
+        await file.writeAt(base, nativeEditTail.bytes);
+        return {pageCount: 1, length: base + nativeEditTail.bytes.byteLength, identityBindings: [], sha256: 'a'.repeat(64)};
+    },
+}));
+
+function withNativeEditTail(bytes: Uint8Array) {
+    const edited = new Uint8Array(bytes.byteLength + nativeEditTail.bytes.byteLength);
+    edited.set(bytes);
+    edited.set(nativeEditTail.bytes, bytes.byteLength);
+    return edited;
+}
 vi.mock('utif', () => {
     const decode = (...args: Parameters<typeof utifMock.decode>) => utifMock.decode(...args);
     const decodeImage = (...args: Parameters<typeof utifMock.decodeImage>) => utifMock.decodeImage(...args);
@@ -321,6 +339,8 @@ async function loadBrowserDocumentsFileCapability(
         },
     });
 
+    // Its mock's factory is asynchronous: settle it before the modules that import it load.
+    const {createMemoryStorePort} = await import('@app/platform/browser/browserStorePort');
     const [
         { createBrowserDocumentsFileCapability },
         {
@@ -328,12 +348,10 @@ async function loadBrowserDocumentsFileCapability(
             BROWSER_MAX_FULL_READ_BYTES,
             browserDocumentStore,
         },
-        {createMemoryStorePort},
         {browserPublication},
     ] = await Promise.all([
         import('@app/platform/browser-api/createBrowserDocumentsFileCapability'),
         import('@app/platform/browserDocumentStore'),
-        import('@app/platform/browser/browserStorePort'),
         import('@app/platform/browser/browserPublication'),
     ]);
     // Node has no origin private file system: the store's durable documents live in a temporary directory,
@@ -393,7 +411,7 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
         const original = outcome === 'large-download'
             ? new Uint8Array(FORMER_DOWNLOAD_FALLBACK_MAX_BYTES + 1)
             : Uint8Array.of(37, 80, 68, 70, 1);
-        const edited = Uint8Array.of(37, 80, 68, 70, 2, 3);
+        const edited = withNativeEditTail(original);
         const downloads: Blob[] = [];
         if (outcome === 'large-download') {
             class DownloadURL extends URL {}
@@ -426,32 +444,29 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
         const source = await store.createStoredDocument('native.pdf', original, PDF_SOURCE_OPTIONS);
         const working = await store.cloneAsWorkingCopy(source);
         const revision = await store.getDocumentRevision(working);
-        const stage = await store.createStoredDocument('native-staged.pdf', edited, {
-            ...PDF_SOURCE_OPTIONS,
-            kind: 'output',
-        });
-        const receipt = await createBrowserStoreStagedArtifact(store, stage, {
-            leaseId: 'native-staged-lease',
-            sha256: createHash('sha256').update(edited).digest('hex'),
-            validations: {
-                qpdfCheck: false,
-                tailCheck: true,
-                semanticCheck: true,
-                fsynced: true,
-                semanticScopeSha256: 'a'.repeat(64),
-            },
-        });
+        const {stagedOutput: receipt} = await capability.applyPdfNativeMutationsToWorkingCopy!(
+            working,
+            {},
+            requirePdfDateString('D:20260102000000Z'),
+            {expectedDocumentRevisionToken: revision.token},
+        );
+        if (!receipt) throw new Error('Expected the native edit to stage');
+        // Staging appends to the working copy without committing: readers keep its revision.
+        expect((await store.stat(working)).size).toBe(original.byteLength);
         const commit = capability.commitStagedPdfNativeMutations!(working, receipt, {expectedDocumentRevisionToken: revision.token});
         if (outcome === 'denied') await expect(commit).rejects.toThrow('Write denied');
         else expect((await commit).applied).toBe(outcome === 'commit' || outcome === 'large-download');
         const expected = outcome === 'commit' || outcome === 'large-download' ? edited : original;
+        // Digests compare the 64 MiB case without rendering a diff of it.
+        const digest = (bytes: Uint8Array) => createHash('sha256').update(bytes).digest('hex');
+        const readAll = async (ref: string) => digest(await store.read(ref, {maxBytes: Number.MAX_SAFE_INTEGER}));
         if (outcome === 'large-download') {
             expect(downloads).toHaveLength(1);
-            expect(new Uint8Array(await downloads[0]!.arrayBuffer())).toEqual(edited);
+            expect(digest(new Uint8Array(await downloads[0]!.arrayBuffer()))).toBe(digest(edited));
         } else expect(physical).toEqual(expected);
         // A Save the file refused keeps the edits it committed in the working copy, unsaved; a cancelled pick commits nothing.
-        await expect(store.read(working)).resolves.toEqual(outcome === 'cancel' ? original : edited);
-        await expect(store.read(source)).resolves.toEqual(expected);
+        await expect(readAll(working)).resolves.toBe(digest(outcome === 'cancel' ? original : edited));
+        await expect(readAll(source)).resolves.toBe(digest(expected));
         const token = (await store.getDocumentRevision(working)).token;
         if (outcome === 'cancel') expect(token).toBe(revision.token);
         if (outcome === 'denied') expect(token).not.toBe(revision.token);
@@ -516,21 +531,10 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
         const working = await store.cloneAsWorkingCopy(source);
         if (content === 'edited') await store.write(working, Uint8Array.of(37, 80, 68, 70, 2), await getRevisionOptions(store, working));
         const revisionOptions = await getRevisionOptions(store, working);
-        const stage = await store.createStoredDocument('receipt-staged.pdf', Uint8Array.of(37, 80, 68, 70, 3), {
-            ...PDF_SOURCE_OPTIONS,
-            kind: 'output',
-        });
-        const stagedOutput = await createBrowserStoreStagedArtifact(store, stage, {
-            leaseId: 'receipt-lease',
-            sha256: createHash('sha256').update(Uint8Array.of(37, 80, 68, 70, 3)).digest('hex'),
-            validations: {
-                qpdfCheck: false,
-                tailCheck: true,
-                semanticCheck: true,
-                fsynced: true,
-                semanticScopeSha256: 'a'.repeat(64),
-            },
-        });
+        const committedBytes = withNativeEditTail(await store.read(working));
+        const stagedOutput = path === 'native'
+            ? (await capability.applyPdfNativeMutationsToWorkingCopy!(working, {}, requirePdfDateString('D:20260102000000Z'), revisionOptions)).stagedOutput!
+            : undefined;
         let ownRevision: Awaited<ReturnType<typeof store.getDocumentRevision>> | undefined;
         afterCommit = async () => {
             ownRevision = await store.getDocumentRevision(working);
@@ -538,12 +542,12 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
         };
         const result = path === 'structured'
             ? await capability.saveFileStructured(working, revisionOptions)
-            : await capability.commitStagedPdfNativeMutations!(working, stagedOutput, revisionOptions);
+            : await capability.commitStagedPdfNativeMutations!(working, stagedOutput!, revisionOptions);
         expect(result).toMatchObject({documentRevision: ownRevision});
         expect(ownRevision).toBeDefined();
         expect((await store.getDocumentRevision(working)).token).not.toBe(ownRevision?.token);
         await expect(store.read(working)).resolves.toEqual(Uint8Array.of(37, 80, 68, 70, 4));
-        if (path === 'native') expect(physical).toEqual(target === 'handle' ? Uint8Array.of(37, 80, 68, 70, 3) : physical);
+        if (path === 'native') expect(physical).toEqual(target === 'handle' ? committedBytes : physical);
     });
 
     it('returns typed unsupported results for desktop-only folder actions', async () => {
@@ -552,7 +556,7 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
         await expect(capability.showItemInFolder(requireDocumentRef('browser://documents/source.pdf'))).resolves.toBe(false);
     });
 
-    it('parses a working copy through WASM after checking the browser full-read budget', async () => {
+    it('parses a working copy through WASM, which reads it by range', async () => {
         const {
             capability,
             browserDocumentStore,
@@ -603,7 +607,7 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
         });
         expect(browserAnnotationParseMock.run).toHaveBeenCalledWith(
             'parseAnnotations',
-            {data: expect.any(Uint8Array)},
+            {source: expect.any(Blob)},
             {
                 dedicated: true,
                 signal: undefined,
@@ -688,7 +692,7 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
         ]);
         expect(browserAnnotationParseMock.run).toHaveBeenCalledWith(
             'readCatalog',
-            {data: expect.any(Uint8Array)},
+            {source: expect.any(Blob)},
             {dedicated: true},
         );
     });

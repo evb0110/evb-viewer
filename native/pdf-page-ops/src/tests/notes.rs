@@ -398,7 +398,7 @@ fn validates_incremental_append_tail_without_full_document_load() {
     validate_incremental_append_output(
         &output_path,
         u64::try_from(original_bytes.len()).unwrap(),
-        previous_document.xref_start,
+        previous_document.xref_start as u64,
         &[target_id, popup_id],
     )
     .unwrap();
@@ -449,7 +449,7 @@ fn rejects_incremental_append_tail_with_corrupt_object_header() {
     let error = validate_incremental_append_output(
         &output_path,
         u64::try_from(original_bytes.len()).unwrap(),
-        previous_document.xref_start,
+        previous_document.xref_start as u64,
         &[target_id, popup_id],
     )
     .unwrap_err()

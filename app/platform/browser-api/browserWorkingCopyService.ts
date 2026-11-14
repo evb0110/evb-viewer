@@ -26,8 +26,7 @@ import {
     PDF_DECRYPT_PASSWORD_MAX_BYTES,
 } from '@contracts/pdfDecryptSchemas';
 import {isBrowserPageOpsWasmFailure} from '@contracts/browserPageOpsWorker';
-import {BROWSER_PAGE_OPS_MAX_REQUEST_BYTES} from '@contracts/browserPageOpsLimits';
-import {REQUEST_HEADER} from '@contracts/browserPageOpsWasm.generated';
+import {MAX_DOCUMENT_ALLOCATION_BYTES} from '@contracts/electronApiDocuments';
 import {runBrowserPageOpsWorkerRequest} from '@app/platform/browser-api/browserPageOpsWorkerClient';
 import {
     isBrowserQpdfEngineUnavailableError,
@@ -76,8 +75,16 @@ export async function decryptBrowserWorkingCopy(workingPath: string, password?: 
         } as const;
     }
 
+    // Unlocking rewrites the whole file in memory, within the decrypting reader's budget; edits then append to
+    // the plaintext. A larger encrypted file is refused before it is read.
+    if (size > MAX_DOCUMENT_ALLOCATION_BYTES) {
+        throw new SerializableError({
+            code: 'too-large',
+            message: `This encrypted PDF is larger than ${MAX_DOCUMENT_ALLOCATION_BYTES / (1024 * 1024)} MiB, more than the browser can unlock. Open it in the desktop app.`,
+        });
+    }
     const revision = await browserDocumentStore.getDocumentRevision(workingPath);
-    const bytes = await browserDocumentStore.read(workingPath, {maxBytes: BROWSER_PAGE_OPS_MAX_REQUEST_BYTES - REQUEST_HEADER.bytes - new TextEncoder().encode(password ?? '').byteLength});
+    const bytes = await browserDocumentStore.read(workingPath, {maxBytes: MAX_DOCUMENT_ALLOCATION_BYTES});
     const result = await runBrowserPageOpsWorkerRequest('decrypt', {
         data: bytes,
         password: password ?? '',
@@ -173,7 +180,7 @@ export function assertBrowserWorkingCopyDecrypted(
 
 export async function createBrowserWorkingCopyFromBytes(options: {
     fileName: string;
-    data: Uint8Array;
+    data: Uint8Array | Blob;
     mimeType?: string;
     sourceRef?: TDocumentRef;
     password?: string;

@@ -202,7 +202,35 @@ pub(crate) fn hydrate_text_box_original_appearances_path(
     path: &Path,
     qpdf_path: Option<&Path>,
 ) -> Result<()> {
-    let mut source = load_dictionary_incremental_pdf_path(path, qpdf_path)?;
+    let source = load_dictionary_incremental_pdf_path(path, qpdf_path)?;
+    hydrate_text_box_original_appearances_from(
+        mutations,
+        source,
+        StructuralSource::for_path(path, qpdf_path),
+    )
+}
+
+/// Hydrates from an indexed source, reading each graph's streams by range.
+#[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
+pub(crate) fn hydrate_text_box_original_appearances_from_source<S: ByteSource>(
+    mutations: &mut NativeMutationsFile,
+    mut source: SourcePdf<S>,
+) -> Result<()> {
+    let base = source.take_append_base()?;
+    hydrate_text_box_original_appearances_from(
+        mutations,
+        base,
+        Some(StructuralSource::Ranges(&source)),
+    )
+}
+
+/// Hydrates from a structural load of the source, first reading the streams
+/// of each captured graph that the load left in the file, under one budget.
+pub(crate) fn hydrate_text_box_original_appearances_from(
+    mutations: &mut NativeMutationsFile,
+    mut source: IncrementalDocument,
+    streams: Option<StructuralSource<'_>>,
+) -> Result<()> {
     let mut pending = HashSet::new();
     for editor in &mutations.text_boxes {
         let Some(id) = editor
@@ -234,8 +262,7 @@ pub(crate) fn hydrate_text_box_original_appearances_path(
     let mut remaining = MAX_SIDECAR_BYTES;
     for id in pending {
         source.materialize_base_stream(
-            path,
-            qpdf_path.ok_or("Original appearance source requires qpdf stream access")?,
+            streams.ok_or("Original appearance source requires stream access")?,
             id,
             remaining.min(MAX_DECOMPRESSED_PDF_STREAM_BYTES),
         )?;
