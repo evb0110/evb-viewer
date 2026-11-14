@@ -1847,12 +1847,19 @@ fn page_structure_output_verification_catches_writer_faults() {
                 .raw(&sources, id)
                 .map(|(source, offset, len)| (source, offset + 1, len))
         },
+        |_, _, _| None,
         Vec::new(),
     )
     .unwrap();
     let mut dropped = subset.document.clone();
     dropped.objects.remove(&stream);
-    let dropped = write_document(&dropped, |id| subset.raw(&sources, id), Vec::new()).unwrap();
+    let dropped = write_document(
+        &dropped,
+        |id| subset.raw(&sources, id),
+        |_, _, _| None,
+        Vec::new(),
+    )
+    .unwrap();
     let xref = good.windows(6).position(|window| window == b"\nxref\n").unwrap() + 1;
     let entry = xref + good[xref..].windows(3).position(|w| w == b" n ").unwrap() - 15;
     let mut misplaced = good.clone();
@@ -1873,4 +1880,113 @@ fn page_structure_output_verification_catches_writer_faults() {
     for (fault, bytes) in faults {
         assert!(verify(&bytes).is_err(), "{fault} was not caught");
     }
+}
+
+/// The real tokens of `bytes` that an `f32` does not print back exactly.
+fn long_reals(bytes: &[u8]) -> Vec<String> {
+    let mut reals = bytes
+        .split(|byte| is_pdf_whitespace(*byte) || is_pdf_delimiter(*byte))
+        .filter_map(|token| std::str::from_utf8(token).ok())
+        .filter(|token| {
+            token.contains('.')
+                && token.trim_start_matches(['-', '+']).bytes().all(|b| b.is_ascii_digit() || b == b'.')
+                && token
+                    .parse::<f32>()
+                    .is_ok_and(|value| token.parse::<f64>().ok() != value.to_string().parse().ok())
+        })
+        .map(str::to_string)
+        .collect::<Vec<_>>();
+    reals.sort();
+    reals.dedup();
+    reals
+}
+
+#[test]
+fn page_structure_edits_keep_unedited_reals_as_their_source_spells_them() {
+    for (name, input) in [
+        (
+            "annotation-decimals",
+            include_bytes!("../../tests/fixtures/page-engine/annotation-decimals.pdf").as_slice(),
+        ),
+        (
+            "fax-decimals",
+            include_bytes!("../../tests/fixtures/page-engine/fax-decimals.pdf").as_slice(),
+        ),
+    ] {
+        let reals = long_reals(input);
+        assert!(!reals.is_empty(), "{name} has no real beyond f32");
+        for (edit, output) in [
+            ("extract", extract_browser_pdf_pages(input, &[1])),
+            ("reorder", reorder_browser_pdf_pages(input, &[1])),
+            ("insert", insert_browser_pdf_pages(input, input, 1)),
+            ("merge", page_structure_bytes(PageStructureEdit::Merge, &[input, input])),
+        ] {
+            let written = long_reals(&output.unwrap().data);
+            let lost = reals.iter().filter(|real| !written.contains(real)).collect::<Vec<_>>();
+            assert!(lost.is_empty(), "{name} {edit} lost {lost:?}");
+        }
+    }
+}
+
+/// A PDF whose objects 1..=n live in object stream n+1, indexed by an xref
+/// stream.
+fn object_stream_pdf(objects: &[&str]) -> Vec<u8> {
+    let (mut header, mut body) = (String::new(), String::new());
+    for (index, object) in objects.iter().enumerate() {
+        header += &format!("{} {} ", index + 1, body.len());
+        body += object;
+        body += "\n";
+    }
+    let count = objects.len() as u32;
+    let mut pdf = b"%PDF-1.5\n".to_vec();
+    let container = pdf.len() as u32;
+    pdf.extend(
+        format!(
+            "{} 0 obj\n<< /Type /ObjStm /N {count} /First {} /Length {} >>\nstream\n{header}{body}\nendstream\nendobj\n",
+            count + 1,
+            header.len(),
+            header.len() + body.len(),
+        )
+        .as_bytes(),
+    );
+    let xref = pdf.len() as u32;
+    let mut rows = vec![0, 0, 0, 0, 0, 0xff, 0xff];
+    for index in 0..count {
+        rows.push(2);
+        rows.extend((count + 1).to_be_bytes());
+        rows.extend((index as u16).to_be_bytes());
+    }
+    for offset in [container, xref] {
+        rows.push(1);
+        rows.extend(offset.to_be_bytes());
+        rows.extend([0, 0]);
+    }
+    pdf.extend(
+        format!(
+            "{} 0 obj\n<< /Type /XRef /Size {} /W [1 4 2] /Root 1 0 R /Length {} >>\nstream\n",
+            count + 2,
+            count + 3,
+            rows.len(),
+        )
+        .as_bytes(),
+    );
+    pdf.extend(rows);
+    pdf.extend(format!("\nendstream\nendobj\nstartxref\n{xref}\n%%EOF\n").as_bytes());
+    pdf
+}
+
+#[test]
+fn page_structure_edits_keep_compressed_and_inherited_reals_as_spelled() {
+    let input = object_stream_pdf(&[
+        "<< /Type /Catalog /Pages 2 0 R /OpenAction [3 0 R /XYZ 0 792.123456789 0] >>",
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 /MediaBox [0 0 660.0762001524 860.09906019812] >>",
+        "<< /Type /Page /Parent 2 0 R /Resources << >> /Annots [4 0 R] >>",
+        "% a comment before the object\n<< /Type /Annot /Subtype /Square /Rect [10.123456789 20 30.5 40.987654321] >>",
+    ]);
+    let output = extract_browser_pdf_pages(&input, &[1]).unwrap();
+    assert_eq!(output.page_count, 1);
+    assert_eq!(
+        long_reals(&output.data),
+        ["10.123456789", "40.987654321", "660.0762001524", "792.123456789", "860.09906019812"]
+    );
 }

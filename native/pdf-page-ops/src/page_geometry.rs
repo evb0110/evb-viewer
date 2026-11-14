@@ -645,6 +645,17 @@ pub(crate) fn resolve_inherited_object<'a>(
     page_id: ObjectId,
     key: &[u8],
 ) -> Result<Option<&'a Object>> {
+    inherited_owner(document, page_id, key)?
+        .map(|owner| Ok(document.dictionary(owner)?.get(key)?))
+        .transpose()
+}
+
+/// The page, or its nearest ancestor, that sets an inheritable key.
+pub(crate) fn inherited_owner(
+    document: &impl PdfObjectSource,
+    page_id: ObjectId,
+    key: &[u8],
+) -> Result<Option<ObjectId>> {
     let mut current_id = Some(page_id);
     let mut seen = HashSet::new();
 
@@ -658,8 +669,8 @@ pub(crate) fn resolve_inherited_object<'a>(
         }
 
         let dict = document.dictionary(object_id)?;
-        if let Ok(object) = dict.get(key) {
-            return Ok(Some(object));
+        if dict.has(key) {
+            return Ok(Some(object_id));
         }
 
         current_id = dict.get(b"Parent").and_then(Object::as_reference).ok();

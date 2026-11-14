@@ -9,8 +9,9 @@ defines.
 
 `pdf_source.rs` indexes cross-reference sections and reads reachable objects
 through a random-access source. `page_structure_edit.rs` selects and remaps the page
-and document graphs. `pdf_writer.rs` writes a fresh PDF, renumbering objects
-and copying stream data by byte range. Path operations stream from file to
+and document graphs. `pdf_writer.rs` writes a fresh PDF, renumbering objects,
+copying stream data by byte range and writing each real number an edit kept
+as its source spelled it. Path operations stream from file to
 file; in the browser the host lends the engine its files, which it reads by
 range, and the output file it writes.
 

@@ -75,6 +75,8 @@ pub(crate) struct SourcePdf<S> {
     pub(crate) document: Document,
     /// Each stream's data as an absolute byte range of `bytes`.
     streams: HashMap<ObjectId, (u64, u64)>,
+    /// The reals of each object that `f32` does not print back exactly.
+    reals: HashMap<ObjectId, RealSpellings>,
     bytes: S,
     #[cfg_attr(
         not(any(test, all(target_family = "wasm", target_os = "unknown"))),
@@ -127,6 +129,7 @@ impl<S: ByteSource> SourcePdf<S> {
             index: &index,
             object_streams: HashMap::new(),
             streams: HashMap::new(),
+            reals: HashMap::new(),
         };
         let mut pending = Vec::new();
         collect_references(&document.trailer, &mut pending);
@@ -157,6 +160,7 @@ impl<S: ByteSource> SourcePdf<S> {
         Ok(Self {
             document,
             streams: loader.streams,
+            reals: loader.reals,
             bytes,
             len,
             xref_start: index.start,
@@ -185,6 +189,7 @@ impl<S: ByteSource> SourcePdf<S> {
         Ok(Self {
             document,
             streams: HashMap::new(),
+            reals: HashMap::new(),
             bytes,
             len: len as u64,
             xref_start,
@@ -196,6 +201,13 @@ impl<S: ByteSource> SourcePdf<S> {
         self.streams
             .get(&id)
             .map(|(offset, len)| (&self.bytes, *offset, *len))
+    }
+
+    /// How object `id` spelled the real at `path`, when `value` is still the
+    /// number read there.
+    pub(crate) fn spelling(&self, id: ObjectId, path: &[u8], value: f32) -> Option<&str> {
+        let (bits, text) = self.reals.get(&id)?.get(path)?;
+        (*bits == value.to_bits()).then_some(&**text)
     }
 
     #[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
@@ -272,7 +284,7 @@ pub(crate) fn verify_written<'a, S: ByteSource + 'a, O: ByteSource>(
             return Err(corrupt("The written PDF has a compressed object"));
         };
         let id = (number, generation);
-        let (_, object, data) = reader.indirect_object(offset, Some(id))?;
+        let (_, object, data, _) = reader.indirect_object(offset, Some(id))?;
         if let (Object::Dictionary(dictionary), Some(data)) = (&object, data) {
             let start = reader.base + data;
             let declared = dictionary
@@ -480,7 +492,7 @@ impl<'a, S: ByteSource> Reader<'a, S> {
             let truncated = (bytes.len() as u64) < self.len - start;
             match parse(&mut Cursor {
                 bytes: &bytes,
-                pos: 0,
+                ..Cursor::default()
             }) {
                 Ok(value) => return Ok(value),
                 Err(Incomplete) if truncated && window < MAX_OBJECT_BYTES => {
@@ -612,7 +624,7 @@ impl<'a, S: ByteSource> Reader<'a, S> {
         if let Some((entries, trailer)) = classic {
             return Ok((entries, trailer, XrefType::CrossReferenceTable));
         }
-        let (_, dictionary, data) = self.indirect_object(offset, None)?;
+        let (_, dictionary, data, _) = self.indirect_object(offset, None)?;
         let dictionary = dictionary
             .as_dict()
             .map_err(|_| corrupt("Invalid xref stream"))?;
@@ -712,14 +724,14 @@ impl<'a, S: ByteSource> Reader<'a, S> {
         Ok((entries, dictionary.clone(), XrefType::CrossReferenceStream))
     }
 
-    /// The object at `offset`, its number, and where its stream data starts
-    /// when it is a stream.
+    /// The object at `offset`, its number, where its stream data starts when
+    /// it is a stream, and the reals it spells beyond `f32`.
     fn indirect_object(
         &self,
         offset: u64,
         expected: Option<ObjectId>,
-    ) -> Result<(ObjectId, Object, Option<u64>)> {
-        let (id, object, data) = self.parse_at(offset, |cursor| {
+    ) -> Result<(ObjectId, Object, Option<u64>, RealSpellings)> {
+        let (id, object, data, reals) = self.parse_at(offset, |cursor| {
             let number = u32::try_from(cursor.unsigned()?).map_err(|_| Invalid)?;
             let generation = u16::try_from(cursor.unsigned()?).map_err(|_| Invalid)?;
             if !cursor.keyword(b"obj")? {
@@ -732,7 +744,12 @@ impl<'a, S: ByteSource> Reader<'a, S> {
                 }
                 _ => None,
             };
-            Ok(((number, generation), object, data))
+            Ok((
+                (number, generation),
+                object,
+                data,
+                std::mem::take(&mut cursor.reals),
+            ))
         })?;
         if expected.is_some_and(|expected| expected != id) {
             return Err(corrupt(format!(
@@ -740,7 +757,7 @@ impl<'a, S: ByteSource> Reader<'a, S> {
                 id.0, id.1
             )));
         }
-        Ok((id, object, data.map(|data| offset + data)))
+        Ok((id, object, data.map(|data| offset + data), reals))
     }
 
     /// The data range of a stream starting at `data` (counted from the
@@ -836,8 +853,9 @@ impl<'a, S: ByteSource> Reader<'a, S> {
 struct Loader<'r, 'a, S> {
     reader: &'r Reader<'a, S>,
     index: &'r XrefIndex,
-    object_streams: HashMap<u32, BTreeMap<ObjectId, Object>>,
+    object_streams: HashMap<u32, BTreeMap<ObjectId, (Object, RealSpellings)>>,
     streams: HashMap<ObjectId, (u64, u64)>,
+    reals: HashMap<ObjectId, RealSpellings>,
 }
 
 impl<S: ByteSource> Loader<'_, '_, S> {
@@ -846,7 +864,8 @@ impl<S: ByteSource> Loader<'_, '_, S> {
     fn load(&mut self, id: ObjectId) -> Result<Object> {
         match self.index.entries.get(&id.0).copied() {
             Some(XrefEntry::Offset { offset, generation }) if generation == id.1 => {
-                let (_, object, data) = self.reader.indirect_object(offset, Some(id))?;
+                let (_, object, data, reals) = self.reader.indirect_object(offset, Some(id))?;
+                self.keep(id, reals);
                 let (Some(data), Object::Dictionary(mut dict)) = (data, object.clone()) else {
                     return Ok(object);
                 };
@@ -871,11 +890,20 @@ impl<S: ByteSource> Loader<'_, '_, S> {
                     start_position: None,
                 }))
             }
-            Some(XrefEntry::InStream { container }) if id.1 == 0 => Ok(self
-                .compressed(container)?
-                .remove(&id)
-                .unwrap_or(Object::Null)),
+            Some(XrefEntry::InStream { container }) if id.1 == 0 => {
+                let Some((object, reals)) = self.compressed(container)?.remove(&id) else {
+                    return Ok(Object::Null);
+                };
+                self.keep(id, reals);
+                Ok(object)
+            }
             _ => Ok(Object::Null),
+        }
+    }
+
+    fn keep(&mut self, id: ObjectId, reals: RealSpellings) {
+        if !reals.is_empty() {
+            self.reals.insert(id, reals);
         }
     }
 
@@ -888,8 +916,7 @@ impl<S: ByteSource> Loader<'_, '_, S> {
             Some(XrefEntry::InStream { container }) if id.1 == 0 => self
                 .compressed(container)?
                 .get(&id)
-                .cloned()
-                .unwrap_or(Object::Null),
+                .map_or(Object::Null, |(object, _)| object.clone()),
             _ => Object::Null,
         };
         Ok(length.as_i64().ok())
@@ -897,7 +924,10 @@ impl<S: ByteSource> Loader<'_, '_, S> {
 
     /// The objects of one object stream not yet taken. A container being
     /// decoded reads as empty, so a stream that names itself cannot recurse.
-    fn compressed(&mut self, container: u32) -> Result<&mut BTreeMap<ObjectId, Object>> {
+    fn compressed(
+        &mut self,
+        container: u32,
+    ) -> Result<&mut BTreeMap<ObjectId, (Object, RealSpellings)>> {
         if !self.object_streams.contains_key(&container) {
             self.object_streams.insert(container, BTreeMap::new());
             let objects = self.object_stream(container)?;
@@ -906,7 +936,12 @@ impl<S: ByteSource> Loader<'_, '_, S> {
         Ok(self.object_streams.get_mut(&container).unwrap())
     }
 
-    fn object_stream(&mut self, container: u32) -> Result<BTreeMap<ObjectId, Object>> {
+    /// The objects of an object stream with their reals. As lopdf reads
+    /// one, an object that does not parse is missing.
+    fn object_stream(
+        &mut self,
+        container: u32,
+    ) -> Result<BTreeMap<ObjectId, (Object, RealSpellings)>> {
         if !matches!(
             self.index.entries.get(&container),
             Some(XrefEntry::Offset { generation: 0, .. })
@@ -922,11 +957,37 @@ impl<S: ByteSource> Loader<'_, '_, S> {
             .streams
             .remove(&(container, 0))
             .ok_or_else(|| corrupt("PDF object stream has no data"))?;
-        let content = self.reader.stream_content(&stream.dict, start, len)?;
-        let mut dict = stream.dict;
-        dict.remove(b"Filter");
-        dict.remove(b"DecodeParms");
-        Ok(lopdf::ObjectStream::new(&Stream::new(dict, content))?.objects)
+        let mut content = self.reader.stream_content(&stream.dict, start, len)?;
+        let first = stream
+            .dict
+            .get(b"First")
+            .and_then(Object::as_i64)
+            .ok()
+            .and_then(|first| usize::try_from(first).ok())
+            .filter(|first| *first <= content.len())
+            .ok_or_else(|| corrupt(format!("PDF object stream {container} has no valid /First")))?;
+        let header = std::str::from_utf8(&content[..first])
+            .map_err(|_| corrupt(format!("PDF object stream {container} has no valid header")))?
+            .split_whitespace()
+            .map(|number| number.parse::<u32>().ok())
+            .collect::<Vec<_>>();
+        // A token that ends the data ends where the data does.
+        content.push(b'\n');
+        let mut objects = BTreeMap::new();
+        for pair in header.chunks_exact(2) {
+            let (Some(number), Some(offset)) = (pair[0], pair[1]) else {
+                continue;
+            };
+            let mut cursor = Cursor {
+                bytes: &content,
+                pos: first.saturating_add(offset as usize),
+                ..Cursor::default()
+            };
+            if let Ok(object) = cursor.object(0) {
+                objects.insert((number, 0), (object, cursor.reals));
+            }
+        }
+        Ok(objects)
     }
 }
 
@@ -939,10 +1000,57 @@ enum ParseFailure {
 use ParseFailure::{Incomplete, Invalid};
 type ParseResult<T> = std::result::Result<T, ParseFailure>;
 
+/// The reals of one object that `f32` does not print back exactly: by their
+/// path in the object, the bits read and the source token.
+pub(crate) type RealSpellings = HashMap<Box<[u8]>, (u32, Box<str>)>;
+
+/// Extends `path`, where a value sits in its object, by a dictionary key.
+/// Each step is tagged and length-prefixed, so two paths never spell alike.
+pub(crate) fn path_key(path: &mut Vec<u8>, key: &[u8]) {
+    path.push(b'/');
+    path.extend((key.len() as u32).to_le_bytes());
+    path.extend(key);
+}
+
+/// Extends `path` by an array index.
+pub(crate) fn path_index(path: &mut Vec<u8>, index: usize) {
+    path.push(b'[');
+    path.extend((index as u32).to_le_bytes());
+}
+
+/// The dictionary key a path starts with.
+pub(crate) fn path_first_key(path: &[u8]) -> Option<&[u8]> {
+    let len = u32::from_le_bytes(path.get(1..5)?.try_into().ok()?) as usize;
+    (path[0] == b'/').then(|| path.get(5..5 + len)).flatten()
+}
+
+/// A real token as (negative, whole digits, fraction digits) without
+/// leading or trailing zeros, so two spellings of one number compare equal.
+fn decimal(text: &str) -> (bool, &str, &str) {
+    let (negative, digits) = match text.strip_prefix('-') {
+        Some(digits) => (true, digits),
+        None => (false, text.strip_prefix('+').unwrap_or(text)),
+    };
+    let (whole, fraction) = digits.split_once('.').unwrap_or((digits, ""));
+    let (whole, fraction) = (
+        whole.trim_start_matches('0'),
+        fraction.trim_end_matches('0'),
+    );
+    (
+        negative && !(whole.is_empty() && fraction.is_empty()),
+        whole,
+        fraction,
+    )
+}
+
 /// A PDF object parser over a window of the file, with lopdf's value rules.
+/// It keeps the spelling of each real `f32` does not print back exactly.
+#[derive(Default)]
 struct Cursor<'a> {
     bytes: &'a [u8],
     pos: usize,
+    path: Vec<u8>,
+    reals: RealSpellings,
 }
 
 impl<'a> Cursor<'a> {
@@ -1041,7 +1149,10 @@ impl<'a> Cursor<'a> {
                         }
                         b'/' => {
                             let key = self.name()?;
+                            let mark = self.path.len();
+                            path_key(&mut self.path, &key);
                             let value = self.object(depth + 1)?;
+                            self.path.truncate(mark);
                             dictionary.set(key, value);
                         }
                         _ => return Err(Invalid),
@@ -1058,7 +1169,10 @@ impl<'a> Cursor<'a> {
                         self.pos += 1;
                         return Ok(Object::Array(items));
                     }
+                    let mark = self.path.len();
+                    path_index(&mut self.path, items.len());
                     items.push(self.object(depth + 1)?);
+                    self.path.truncate(mark);
                 }
             }
             _ => self.number_or_keyword(),
@@ -1094,7 +1208,13 @@ impl<'a> Cursor<'a> {
         {
             return Err(Invalid);
         }
-        text.parse::<f32>().map(Object::Real).map_err(|_| Invalid)
+        let value = text.parse::<f32>().map_err(|_| Invalid)?;
+        if decimal(text) != decimal(&value.to_string()) {
+            self.reals
+                .entry(self.path.as_slice().into())
+                .or_insert_with(|| (value.to_bits(), text.into()));
+        }
+        Ok(Object::Real(value))
     }
 
     /// `G R` after an object number makes a reference.

@@ -67,7 +67,7 @@ pub(crate) enum PageStructureEdit<'a> {
 
 /// A page-structure output before it is written: its objects, and for each
 /// copied object the source object it copies, whose stream data the writer
-/// takes from the source by byte range.
+/// takes from the source by byte range and whose reals it spells as there.
 pub(crate) struct PageSubset {
     pub(crate) document: Document,
     origins: HashMap<ObjectId, (usize, ObjectId)>,
@@ -80,7 +80,12 @@ impl PageSubset {
         sources: &[SourcePdf<S>],
         output: W,
     ) -> Result<W> {
-        write_document(&self.document, |id| self.raw(sources, id), output)
+        write_document(
+            &self.document,
+            |id| self.raw(sources, id),
+            |id, path, value| self.spelling(sources, id, path, value),
+            output,
+        )
     }
 
     /// Checks the `len` bytes `write` wrote to `output`; see `verify_written`.
@@ -102,7 +107,31 @@ impl PageSubset {
         let (index, source_id) = self.origins.get(&id)?;
         sources.get(*index)?.stream_range(*source_id)
     }
+
+    /// How the source spelled the real at `path` of output object `id`. A
+    /// page's inherited property is spelled where the page inherits it from.
+    fn spelling<'a, S: ByteSource>(
+        &self,
+        sources: &'a [SourcePdf<S>],
+        id: ObjectId,
+        path: &[u8],
+        value: f32,
+    ) -> Option<&'a str> {
+        let (index, id) = *self.origins.get(&id)?;
+        let source = sources.get(index)?;
+        source.spelling(id, path, value).or_else(|| {
+            let key = path_first_key(path).filter(|key| INHERITABLE_PAGE_KEYS.contains(key))?;
+            source.spelling(
+                inherited_owner(&source.document, id, key).ok()??,
+                path,
+                value,
+            )
+        })
+    }
 }
+
+/// The page properties a page takes from its ancestors when it lacks them.
+const INHERITABLE_PAGE_KEYS: [&[u8]; 4] = [b"MediaBox", b"CropBox", b"Resources", b"Rotate"];
 
 pub(crate) fn edit_page_structure<S>(
     edit: PageStructureEdit,
@@ -394,14 +423,22 @@ fn page_subset(
         clone_context.target.set_object(id, object);
     }
     clone_context.target.prune_objects();
-
+    let mut origins = clone_context
+        .object_map
+        .into_iter()
+        .map(|(source, target)| (target, source))
+        .collect::<HashMap<_, _>>();
+    // The catalog keeps the main source's entries, and their spellings.
+    if let Ok(root) = sources[0]
+        .trailer
+        .get(b"Root")
+        .and_then(Object::as_reference)
+    {
+        origins.insert(catalog_id, (0, root));
+    }
     Ok(PageSubset {
         page_count: page_ids.len() as u32,
-        origins: clone_context
-            .object_map
-            .into_iter()
-            .map(|(source, target)| (target, source))
-            .collect(),
+        origins,
         document: clone_context.target,
     })
 }
@@ -651,34 +688,15 @@ impl PageCloneContext<'_> {
 
         let source_document = self.source(source.document_index)?;
         let mut page = source_document.get_dictionary(source.page_id)?.clone();
-        materialize_page_inherited_object(
-            source_document,
-            source.page_id,
-            &mut page,
-            b"MediaBox",
-            true,
-        )?;
-        materialize_page_inherited_object(
-            source_document,
-            source.page_id,
-            &mut page,
-            b"CropBox",
-            false,
-        )?;
-        materialize_page_inherited_object(
-            source_document,
-            source.page_id,
-            &mut page,
-            b"Resources",
-            false,
-        )?;
-        materialize_page_inherited_object(
-            source_document,
-            source.page_id,
-            &mut page,
-            b"Rotate",
-            false,
-        )?;
+        for key in INHERITABLE_PAGE_KEYS {
+            materialize_page_inherited_object(
+                source_document,
+                source.page_id,
+                &mut page,
+                key,
+                key == b"MediaBox",
+            )?;
+        }
         // Resources are required; readers treat a page without any as empty.
         if !page.has(b"Resources") {
             page.set("Resources", Dictionary::new());
