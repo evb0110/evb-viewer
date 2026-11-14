@@ -707,7 +707,6 @@ export function createDocumentPersistence(
                                     expectedWorkingPath: workingPath,
                                     expectedDocumentRevisionToken,
                                     stagedOutput,
-                                    preserveLoadedSource: opts.preserveLoadedSource === true,
                                     ...(opts.optimizeLossless ? {optimizeLossless: true} : {}),
                                 });
                                 if (stagedSaveAsResult.success) {
@@ -945,10 +944,9 @@ export function createDocumentPersistence(
                     }
                     state.originalPath.value = savedPath;
                     state.requiresSaveAsOnFirstSave.value = false;
-                    if (!await commitPersistedPdfState(data, savedWorkingPath, markClean, shouldRefreshWorkingCopyAfterSaveAs(savedPath, previousWorkingPath) ? {
-                        preserveLoadedSource: opts?.preserveLoadedSource === true && state.pdfSrc.value instanceof Blob,
-                        preserveConformanceProfile: opts?.preserveLoadedSource === true && state.pdfSrc.value instanceof Blob,
-                    } : undefined)) {
+                    // The window now shows the file it wrote, which may hold more than it showed (a
+                    // changed original under its edits), as a page operation's result does.
+                    if (!await commitPersistedPdfState(data, savedWorkingPath, markClean)) {
                         return createStalePersistResult(requestedSaveMode, true);
                     }
                     state.lastSaveMode.value = requestedSaveMode;

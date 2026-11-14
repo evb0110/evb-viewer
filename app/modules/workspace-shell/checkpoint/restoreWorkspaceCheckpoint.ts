@@ -104,7 +104,10 @@ async function restoreTab(
         if (recoveryTarget && !await workspace.handleOpenFileWithResult(recoveryTarget)) {
             return false;
         }
-        await workspace.waitForDocumentOpenSettled();
+        // Only the shown tab waits for its pixels; a hidden one paints when selected.
+        if (shown) {
+            await workspace.waitForDocumentOpenSettled();
+        }
         if (session.snapshot.value.phase !== 'presented') {
             return false;
         }
