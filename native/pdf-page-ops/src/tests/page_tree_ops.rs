@@ -2129,3 +2129,17 @@ fn merging_inputs_without_bookmarks_keeps_the_main_outline_as_written() {
         assert_eq!(written.join(" ").as_bytes(), view);
     }
 }
+
+#[test]
+fn encrypted_streams_with_their_own_crypt_filter_are_refused() {
+    let input = include_bytes!("../../tests/fixtures/page-engine/crypt_filters.pdf");
+    for (route, result) in [
+        ("page edit", extract_browser_pdf_pages(input, &[1]).map(|_| ())),
+        ("unlock", decrypt_browser_pdf_bytes(input, b"").map(|_| ())),
+    ] {
+        let error = result.err().unwrap_or_else(|| panic!("{route} was accepted"));
+        let error = error.downcast_ref::<NativeError>().unwrap();
+        assert_eq!(error.code, NativeErrorCode::UnsupportedFilter, "{route}");
+        assert!(error.message.contains("/Crypt"), "{route}: {}", error.message);
+    }
+}

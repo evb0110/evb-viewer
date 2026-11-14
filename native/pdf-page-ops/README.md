@@ -15,7 +15,10 @@ as its source spelled it. Path operations stream from file to
 file; in the browser the host lends the engine its files, which it reads by
 range, and the output file it writes.
 
-Delete, extract, reorder, insert and merge use this engine. Split uses the
+Delete, extract, reorder, insert and merge use this engine. They refuse a
+source whose page tree a viewer could number differently (a leaf that is not a
+page, appears twice or contradicts the declared counts), and an encrypted
+source whose streams carry their own `/Crypt` filter. Split uses the
 crate's separate split writer. Inserted pages retain their source labels. Widgets retain appearances; safe fields are
 carried into the destination, while source document attachments and JavaScript
 are not imported. Output verification reopens the result and compares its objects and stream
