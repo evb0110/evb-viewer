@@ -25,7 +25,6 @@ interface IPendingConformanceProfileRequest {
 interface IPdfSaveRestrictionRequest {
     path: TDocumentRef;
     promise: Promise<IPdfConformanceProfile | null>;
-    requestId: number;
     revision: TDocumentRevisionToken | null;
 }
 
@@ -82,26 +81,18 @@ export function createDocumentConformance(
         state.pdfConformanceProfile.value = null;
     }
 
-    function startPdfSaveRestrictionAnalysis(path: TDocumentRef, requestId: number) {
-        const revision = state.documentRevisionToken.value;
-        if (
-            saveRestrictionInFlight?.path === path
-            && saveRestrictionInFlight.requestId === requestId
-            && saveRestrictionInFlight.revision === revision
-        ) {
+    /** The structural profile of `path` at `revision`, or null when it could not be read. */
+    function startPdfSaveRestrictionAnalysis(path: TDocumentRef, revision: TDocumentRevisionToken | null) {
+        if (saveRestrictionInFlight?.path === path && saveRestrictionInFlight.revision === revision) {
             return saveRestrictionInFlight.promise;
         }
 
         const promise = getDocumentPdfCapability().analyzePdfConformance(path, {purpose: 'save-restrictions'})
             .catch((error: unknown) => {
-                if (conformanceProfileRequestId === requestId && state.workingCopyPath.value === path
-                    && state.documentRevisionToken.value === revision) {
-                    BrowserLogger.warn('pdf-file', 'PDF save restriction analysis failed', {
-                        path,
-                        error,
-                    });
-                    throw error;
-                }
+                BrowserLogger.warn('pdf-file', 'PDF save restriction analysis failed', {
+                    path,
+                    error,
+                });
                 return null;
             })
             .finally(() => {
@@ -112,7 +103,6 @@ export function createDocumentConformance(
         saveRestrictionInFlight = {
             path,
             promise,
-            requestId,
             revision,
         };
         return promise;
@@ -254,14 +244,14 @@ export function createDocumentConformance(
         return startPdfConformanceAnalysis(request);
     }
 
-    function shouldForceSaveAs(mode: TPdfSaveMode) {
-        return shouldForcePdfSaveAs(
-            mode,
-            state.pdfConformanceProfile.value,
-            state.requiresSaveAsOnFirstSave.value,
-        );
-    }
-
+    /**
+     * Whether a save of `workingPath` must write a copy instead of the
+     * document's original file: a signed PDF, or a document that must be
+     * saved as a copy first. It reads the structure of the revision being
+     * saved and waits for it. Unknown is never "may overwrite": an analysis
+     * that failed answers "copy". A document whose revision or working copy
+     * moved meanwhile has nothing to save: that is a stale revision.
+     */
     async function shouldForceSaveAsForWorkingCopy(
         mode: TPdfSaveMode,
         workingPath: TDocumentRef,
@@ -270,17 +260,15 @@ export function createDocumentConformance(
             return true;
         }
         const revision = state.documentRevisionToken.value;
-        const requestId = conformanceProfileRequestId;
-        const profile = await startPdfSaveRestrictionAnalysis(workingPath, requestId);
-        if (state.documentRevisionToken.value !== revision || state.workingCopyPath.value !== workingPath
-            || conformanceProfileRequestId !== requestId) {
+        const profile = await startPdfSaveRestrictionAnalysis(workingPath, revision);
+        if (state.documentRevisionToken.value !== revision || state.workingCopyPath.value !== workingPath) {
             throw createStaleRevisionError({
                 expectedRevision: revision,
                 actualRevision: state.documentRevisionToken.value,
                 message: 'Document changed during PDF save restriction analysis',
             });
         }
-        return shouldForcePdfSaveAs(mode, profile, state.requiresSaveAsOnFirstSave.value);
+        return !profile || shouldForcePdfSaveAs(mode, profile, state.requiresSaveAsOnFirstSave.value);
     }
 
     return {
@@ -288,7 +276,6 @@ export function createDocumentConformance(
         deferPdfConformanceProfile,
         notifyPdfInitialVisualReady,
         refreshPdfConformanceProfile,
-        shouldForceSaveAs,
         shouldForceSaveAsForWorkingCopy,
     };
 }

@@ -35,7 +35,6 @@ import {
 } from '@app/platform/browser/browserStagedArtifact';
 import {
     analyzeBrowserPdfConformanceData,
-    BROWSER_PDF_CONFORMANCE_MAX_INPUT_BYTES,
     validateBrowserPdfData,
 } from '@app/platform/browser-api/browserPdfValidation';
 import {
@@ -368,7 +367,7 @@ export async function optimizeBrowserPdfAsCopy(
         ?? (await browserDocumentStore.getDocumentRevision(path)).token;
     await browserDocumentStore.assertDocumentRevisionCurrent(path, revision);
     const sourceRef = await browserDocumentStore.getSourceRef(path);
-    const source = await browserDocumentStore.read(path, {maxBytes: BROWSER_PDF_CONFORMANCE_MAX_INPUT_BYTES});
+    const source = await browserDocumentStore.read(path, {maxBytes: BROWSER_QPDF_MAX_INPUT_BYTES});
     await browserDocumentStore.assertDocumentRevisionCurrent(path, revision);
     signal.throwIfAborted();
 

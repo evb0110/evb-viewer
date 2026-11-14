@@ -27,6 +27,7 @@ const browserDocumentStoreMock = vi.hoisted(() => ({
     requireEntry: vi.fn(async () => ({fileName: 'User $& file.pdf'})),
     read: vi.fn(),
     readRange: vi.fn(),
+    readableBlob: vi.fn(),
     getDocumentRevision: vi.fn(async () => ({token: 'revision-1'})),
     assertDocumentRevisionCurrent: vi.fn(async () => undefined),
 }));
@@ -47,7 +48,7 @@ vi.mock('@app/platform/browser-api/browserYield', async (importOriginal) => ({
     yieldToBrowser: vi.fn(async () => {}),
 }));
 // The worker runs the same page-ops WASM; this runs it in the test process.
-const runPageOpsInProcess = vi.hoisted(() => vi.fn(async (type: 'conformance', payload: {data: Uint8Array}) => {
+const runPageOpsInProcess = vi.hoisted(() => vi.fn(async (type: 'conformance', payload: {source: Blob}) => {
     const {
         isBrowserPageOpsWasmFailure,
         tryRunBrowserPageOpsWithWasm,
@@ -78,6 +79,7 @@ async function stubPageOpsWasmFetch() {
 function storeDocument(bytes: Uint8Array) {
     browserDocumentStoreMock.stat.mockResolvedValue({size: bytes.byteLength});
     browserDocumentStoreMock.read.mockResolvedValue(bytes);
+    browserDocumentStoreMock.readableBlob.mockResolvedValue(new Blob([bytes as BlobPart]));
     browserDocumentStoreMock.readRange.mockImplementation(
         async (_path: string, offset: number, length: number) => bytes.slice(offset, offset + length),
     );
@@ -264,15 +266,6 @@ describe('browserPdfValidation', () => {
         await expect(analyzeBrowserPdfConformance('/tmp/browser.pdf')).resolves.toMatchObject({pdfaLevel: 'PDF/A-2B'});
     });
 
-    it('refuses a document past the structural worker ceiling before reading it', async () => {
-        const {
-            analyzeBrowserPdfConformance, BROWSER_PDF_CONFORMANCE_MAX_INPUT_BYTES,
-        } = await import('@app/platform/browser-api/browserPdfValidation');
-        browserDocumentStoreMock.stat.mockResolvedValue({size: BROWSER_PDF_CONFORMANCE_MAX_INPUT_BYTES + 1});
-
-        await expect(analyzeBrowserPdfConformance('/tmp/browser.pdf')).rejects.toMatchObject({code: 'browser-byte-limit'});
-    });
-
     it('refuses a profile for a document that changed while it was read', async () => {
         await stubPageOpsWasmFetch();
         storeDocument(await createPdfConformanceFixture('plain'));
@@ -395,17 +388,6 @@ describe('browserPdfValidation', () => {
         await expect(validateBrowserPdfPath('browser://documents/input', {purpose: 'save'})).resolves.toMatchObject({isValid: false});
         qpdfRun.mockRejectedValueOnce(new DOMException('reset', 'AbortError'));
         await expect(validateBrowserPdfData(Uint8Array.of(1))).rejects.toMatchObject({name: 'AbortError'});
-        expect(runPageOpsInProcess).not.toHaveBeenCalled();
-    });
-
-    it('admits the conformance payload only after accounting for its generated framing', async () => {
-        const {
-            analyzeBrowserPdfConformanceData, BROWSER_PDF_CONFORMANCE_MAX_INPUT_BYTES,
-        } = await import('@app/platform/browser-api/browserPdfValidation');
-        expect(BROWSER_PDF_CONFORMANCE_MAX_INPUT_BYTES).toBe(2147483627);
-        const data = Uint8Array.of(1);
-        Object.defineProperty(data, 'byteLength', {value: BROWSER_PDF_CONFORMANCE_MAX_INPUT_BYTES + 1});
-        await expect(analyzeBrowserPdfConformanceData(data)).rejects.toMatchObject({code: 'browser-byte-limit'});
         expect(runPageOpsInProcess).not.toHaveBeenCalled();
     });
 

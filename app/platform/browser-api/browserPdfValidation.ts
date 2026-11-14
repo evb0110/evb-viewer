@@ -8,10 +8,6 @@ import type {
 } from '@contracts/pdfConformance';
 import type {IPdfPathValidationOptions} from '@contracts/pdfValidationPathArgs';
 import {BROWSER_QPDF_MAX_INPUT_BYTES} from '@contracts/browserQpdfEngine';
-import {BROWSER_PAGE_OPS_MAX_REQUEST_BYTES} from '@contracts/browserPageOpsLimits';
-import {
-    DOCUMENT_LIST_HEADER, U32_BYTES,
-} from '@contracts/browserPageOpsWasm.generated';
 import {browserDocumentStore} from '@app/platform/browserDocumentStore';
 import {
     createPdfConformanceProfile,
@@ -37,24 +33,18 @@ import {
 import {buildBrowserByteLimitError} from '@app/platform/browser-api/browserPlatformHelpers';
 import { yieldToBrowser } from '@app/platform/browser-api/browserYield';
 
-// One document-list header and one u32 length precede the PDF.
-export const BROWSER_PDF_CONFORMANCE_MAX_INPUT_BYTES = BROWSER_PAGE_OPS_MAX_REQUEST_BYTES
-    - DOCUMENT_LIST_HEADER.bytes - U32_BYTES;
 const COMPATIBILITY_WARNING = `qpdf validation is unavailable above the ${Math.round(BROWSER_QPDF_MAX_INPUT_BYTES / (1024 * 1024))} MiB browser input limit; only browser loadability was checked.`;
 
 // Slices of 16 of the shared scanner's overlapping windows, each starting where
-// one of its windows starts, so the page responds between them and the scan
-// reads exactly the windows desktop's whole-file scan reads.
+// one of its windows starts, so the scan reads exactly the windows desktop's
+// whole-file scan reads, one slice in memory at a time.
 const MARKER_SCAN_SLICE_STRIDE = 16 * (PDF_CONFORMANCE_MARKER_SCAN_CHUNK_BYTES - PDF_CONFORMANCE_MARKER_SCAN_OVERLAP_BYTES);
-const markerScanSlice = (data: Uint8Array, offset: number) => scanPdfMarkerEvidence(
-    data.subarray(offset, offset + MARKER_SCAN_SLICE_STRIDE + PDF_CONFORMANCE_MARKER_SCAN_OVERLAP_BYTES),
-);
 
-async function scanPdfMarkerEvidenceInSlices(data: Uint8Array) {
-    let evidence = markerScanSlice(data, 0);
-    for (let offset = MARKER_SCAN_SLICE_STRIDE; offset + PDF_CONFORMANCE_MARKER_SCAN_OVERLAP_BYTES < data.byteLength; offset += MARKER_SCAN_SLICE_STRIDE) {
-        await yieldToBrowser();
-        const found = markerScanSlice(data, offset);
+async function scanPdfMarkerEvidenceInSlices(source: Blob) {
+    let evidence = scanPdfMarkerEvidence(new Uint8Array());
+    for (let offset = 0; offset === 0 || offset + PDF_CONFORMANCE_MARKER_SCAN_OVERLAP_BYTES < source.size; offset += MARKER_SCAN_SLICE_STRIDE) {
+        const slice = source.slice(offset, offset + MARKER_SCAN_SLICE_STRIDE + PDF_CONFORMANCE_MARKER_SCAN_OVERLAP_BYTES);
+        const found = scanPdfMarkerEvidence(new Uint8Array(await slice.arrayBuffer()));
         evidence = {
             isSigned: evidence.isSigned || found.isSigned,
             isEncrypted: evidence.isEncrypted || found.isEncrypted,
@@ -64,17 +54,15 @@ async function scanPdfMarkerEvidenceInSlices(data: Uint8Array) {
     return evidence;
 }
 
-async function readPdfStructuralFacts(data: Uint8Array, signal?: AbortSignal, transferInput = false) {
-    if (data.byteLength > BROWSER_PDF_CONFORMANCE_MAX_INPUT_BYTES) {
-        throw buildBrowserByteLimitError('PDF structure analysis', BROWSER_PDF_CONFORMANCE_MAX_INPUT_BYTES, 'inputs');
-    }
-    return runBrowserPageOpsWorkerRequest('conformance', {data}, {
+/**
+ * The engine reads the document's objects by range in a worker; no whole PDF
+ * enters its memory, which this thread's fallback would read it into.
+ */
+function readPdfStructuralFacts(source: Blob, signal?: AbortSignal) {
+    return runBrowserPageOpsWorkerRequest('conformance', {source}, {
         dedicated: true,
+        requireWorker: true,
         timeoutMs: QPDF_VALIDATE_MAX_TIMEOUT_MS,
-        ...(transferInput ? {
-            requireWorker: true,
-            transferInput: true,
-        } : {}),
         ...(signal ? {signal} : {}),
     });
 }
@@ -84,31 +72,27 @@ export async function analyzeBrowserPdfConformanceData(
     data: Uint8Array,
     options: IPdfConformanceAnalysisOptions & {signal?: AbortSignal} = {},
 ): Promise<IPdfConformanceProfile> {
-    const facts = await readPdfStructuralFacts(data, options.signal);
+    const facts = await readPdfStructuralFacts(new Blob([data as BlobPart]), options.signal);
     return createPdfConformanceProfile(facts, options.purpose === 'save-restrictions' ? undefined : scanPdfMarkerEvidence(data));
 }
 
 /**
  * Desktop's analysis of a stored document: its structure from the engine and,
- * for the full profile, marker evidence from every byte. A document whose
- * structure cannot be read, or that changed meanwhile, has no profile; facts
- * it does not have must not authorize a rewrite.
+ * for the full profile, marker evidence from every byte, both read from its
+ * file by range. A document whose structure cannot be read, or that changed
+ * meanwhile, has no profile; facts it does not have must not authorize a
+ * rewrite.
  */
 export async function analyzeBrowserPdfConformance(
     path: string,
     options: IPdfConformanceAnalysisOptions = {},
 ): Promise<IPdfConformanceProfile> {
-    const {size} = await browserDocumentStore.stat(path);
-    if (size > BROWSER_PDF_CONFORMANCE_MAX_INPUT_BYTES) {
-        throw buildBrowserByteLimitError('PDF structure analysis', BROWSER_PDF_CONFORMANCE_MAX_INPUT_BYTES, 'inputs');
-    }
     const {token} = await browserDocumentStore.getDocumentRevision(path);
-    const bytes = await browserDocumentStore.read(path, {maxBytes: BROWSER_PDF_CONFORMANCE_MAX_INPUT_BYTES});
+    const source = await browserDocumentStore.readableBlob(path);
     // Save restrictions are structural alone, as on desktop: an empty
     // signature field's marker is not a signature.
-    const markerEvidence = options.purpose === 'save-restrictions' ? undefined : await scanPdfMarkerEvidenceInSlices(bytes);
-    // The bytes move to the worker; nothing here reads them afterwards.
-    const facts = await readPdfStructuralFacts(bytes, undefined, true);
+    const markerEvidence = options.purpose === 'save-restrictions' ? undefined : await scanPdfMarkerEvidenceInSlices(source);
+    const facts = await readPdfStructuralFacts(source);
     await browserDocumentStore.assertDocumentRevisionCurrent(path, token);
     return createPdfConformanceProfile(facts, markerEvidence);
 }
@@ -160,7 +144,7 @@ async function validateQpdfInput(
             : display(getErrorMessage(error));
         if (fullCheck && error instanceof BrowserQpdfEngineTimeoutError) {
             try {
-                await readPdfStructuralFacts(await readFallbackInput(), signal);
+                await readPdfStructuralFacts(new Blob([await readFallbackInput() as BlobPart]), signal);
                 return validationResult(true, [], [`qpdf validation timed out after ${timeoutMs}ms; fallback PDF structure validation succeeded.`]);
             } catch (fallbackError) {
                 if (fallbackError instanceof Error && fallbackError.name === 'AbortError') throw fallbackError;

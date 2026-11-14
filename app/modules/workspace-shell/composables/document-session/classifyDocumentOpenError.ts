@@ -8,7 +8,6 @@ import {
     type TDocumentOpenErrorEnvelope,
 } from '@contracts/documentOpenErrors';
 import {getFailureReceipt} from '@contracts/diagnostics/failureReceipt';
-import {NATIVE_ERROR_ENVELOPE_SCHEMA} from '@contracts/nativeErrors';
 import {findSerializableErrorEnvelope} from '@contracts/serializableError';
 import {
     isBrowserFilePickerSetupDeniedError,
@@ -77,7 +76,7 @@ export function classifyDocumentOpenError(
             case 'browser-byte-limit': return t('errors.file.invalid');
         }
     }
-    return t(findSerializableErrorEnvelope(error, NATIVE_ERROR_ENVELOPE_SCHEMA)?.code === 'too-large' ? 'errors.file.encryptedTooLarge' : 'errors.file.openDescription');
+    return t('errors.file.openDescription');
 }
 
 /**

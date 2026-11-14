@@ -111,10 +111,10 @@ export function readPdfCatalog(
 }
 
 export function readPdfConformance(
-    data: Uint8Array,
+    source: Blob,
 ): Promise<IBrowserPdfConformanceFacts> {
     return requireBrowserPageOpsWasmResult('conformance inspection', () =>
-        tryRunBrowserPageOpsWithWasm('conformance', {data}),
+        tryRunBrowserPageOpsWithWasm('conformance', {source}),
     );
 }
 

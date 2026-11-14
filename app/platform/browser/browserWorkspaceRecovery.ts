@@ -19,7 +19,10 @@ import {
     createBrowserDocumentRef,
 } from '@app/platform/browser/browserDocumentRefs';
 import { fileHandleStore } from '@app/platform/browser/browserFileHandleStore';
-import { handleKeyOf } from '@app/platform/browser/browserPublication';
+import {
+    destinationFileName,
+    handleKeyOf,
+} from '@app/platform/browser/browserPublication';
 import { tryReadRecentFilesFromStorage } from '@app/platform/browser/browserRecentFilesStore';
 import {
     heldBrowserLockNames,
@@ -84,14 +87,14 @@ function collectOnce() {
     return collection;
 }
 
-/** The tab an unsaved directory its window's checkpoint names, but whose layout never showed, comes back in. */
+/** The tab an unsaved directory its window's checkpoint names, but whose layout never showed, comes back in, named after its destination. */
 async function orphanTab(id: string, paneId: IWorkspaceCheckpointTab['paneId']): Promise<IWorkspaceCheckpointTab | null> {
     const {durable} = await browserDocumentStore.stores();
     const manifest = durable && await durable.port.read(`${DOCUMENTS_DIR}/${id}/${MANIFEST_NAME}`).then(decodeManifest).catch(() => null);
     if (manifest?.ext !== 'pdf') return null;
     const key = handleKeyOf(manifest.destination ?? null);
     const stored = key === null ? undefined : await fileHandleStore.get(key).catch(() => undefined);
-    const fileName = stored?.name ?? 'Recovered document.pdf';
+    const fileName = stored?.name ?? destinationFileName(manifest.destination ?? null) ?? 'Recovered document.pdf';
     const workingCopyRef = createBrowserDocumentRef(fileName, id);
     return {
         tabId: createTabId(),
@@ -146,6 +149,12 @@ async function completeCheckpoint(checkpoint: IWorkspaceCheckpoint | null, orpha
         const restored = tab?.workingCopyRef ? await restoreUnsavedTab({...tab, workingCopyRef: tab.workingCopyRef}) : null;
         // One another window opened first stays there.
         if (restored && !restored.workingCopyLost) tabs.push(restored);
+    }
+    // Recovered work takes the place of an empty New Tab that was the only tab, and shows.
+    const [only, ...recovered] = tabs;
+    if (checkpoint?.tabs.length === 1 && recovered.length > 0 && !only!.sourceRef && !only!.workingCopyRef) {
+        tabs.shift();
+        checkpoint = {...checkpoint, activeTabId: null, tabs: [], panes: checkpoint.panes.map(pane => ({...pane, tabIds: [], activeTabId: null}))};
     }
     if (tabs.length === 0) return null;
     const panes = checkpoint?.panes.length ? [...checkpoint.panes] : [{paneId, tabIds: [], activeTabId: null}];
