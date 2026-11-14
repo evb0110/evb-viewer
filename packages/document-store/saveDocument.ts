@@ -44,7 +44,8 @@ export function saveDocument(doc: DocumentDirectory, options: ISaveOptions) {
         if (destination === undefined || (saveAs === undefined && baseline === undefined)) return { status: 'needs-save-as' };
         // Without bytes of its own the document still is its destination: a plain Save has nothing to write.
         if (saveAs === undefined && !doc.snapshot().current) return { status: 'saved', revision: null };
-        const current = await doc.ensureCurrent();
+        // Save As publishes a destination another program changed as it is now; a plain Save refuses it below.
+        const current = await doc.ensureCurrent(saveAs !== undefined);
         if (!current) return { status: 'conflict' };
         if (saveAs === undefined && sameWitness(current.witness, baseline)) return { status: 'saved', revision: current };
         await doc.keepDestinationRevision();

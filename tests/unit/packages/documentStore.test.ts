@@ -4,6 +4,7 @@ import {
     mkdtemp,
     readFile,
     readdir,
+    rename,
     rm,
     stat,
     truncate,
@@ -549,6 +550,25 @@ describe('save', () => {
         expect(doc.state().dirty).toBe(true);
         await doc.restore(1, 2);
         expect(doc.state().dirty).toBe(false);
+    });
+
+    it('builds a Save of drafts without bytes on a destination changed since, refuses it, and Save As rescues the edit', async () => {
+        const destination = path.join(workDir, 'paper.pdf');
+        await writeFile(destination, 'v1');
+        const doc = await create(store(), { ext: 'pdf', destination });
+        await doc.setDrafts(null, { note: 'unsaved' });
+        await writeFile(path.join(workDir, 'foreign.pdf'), 'foreign v2');
+        await rename(path.join(workDir, 'foreign.pdf'), destination);
+
+        // Readers never meet bytes the person has not seen; a Save builds on them as they are now.
+        expect(await doc.materialize()).toBeNull();
+        expect(await doc.materialize(true)).toMatchObject({ id: 1, witness: undefined });
+        expect(await saveDocument(doc, { expected: 1, commit: append('+note') })).toEqual({ status: 'conflict' });
+        expect(await readFile(destination, 'utf8')).toBe('foreign v2');
+        const copy = path.join(workDir, 'copy.pdf');
+        expect(await saveDocument(doc, { expected: 2, saveAs: copy })).toMatchObject({ status: 'saved' });
+        expect(await readFile(copy, 'utf8')).toBe('foreign v2+note');
+        expect(await readFile(destination, 'utf8')).toBe('foreign v2');
     });
 
     it('refuses a destination changed elsewhere and keeps the committed work', async () => {

@@ -572,10 +572,14 @@ export async function rewriteDocument(
  * The file a native tool appends an incremental update of the document to: its current revision file, copied in from
  * the destination first when it has none and holding exactly that revision's bytes. Commit what the tool appended
  * with an `extend`; `discardDocumentAppend` cuts it otherwise. Call it, the tool and the commit in the document's
- * mutation queue.
+ * mutation queue. With `asItIs`, for a Save, a destination another program changed is copied as it is now (see
+ * `DocumentDirectory.ensureCurrent`); one that cannot be read refuses with that.
  */
-export async function prepareDocumentAppend(entry: IOpenDocument) {
-    const revision = await entry.doc.materialize() && await entry.doc.ownCurrentFile();
+export async function prepareDocumentAppend(entry: IOpenDocument, asItIs = false) {
+    const materialized = entry.doc.materialize(asItIs);
+    const revision = await (entry.doc.state().current ? materialized : materialized.catch((error: unknown) => {
+        throw new WorkingCopyMaterializationError('SOURCE_BACKING_UNAVAILABLE', `The original file cannot be read: ${getErrorMessage(error)}`, {cause: error, retryable: true});
+    })) && await entry.doc.ownCurrentFile();
     if (!revision) throw sourceChangedError();
     return revisionPath(entry, revision);
 }

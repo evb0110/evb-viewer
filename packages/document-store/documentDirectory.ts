@@ -393,10 +393,11 @@ export class DocumentDirectory {
 
     /**
      * Gives the document bytes of its own, copying the destination in when it has none, for readers that need a
-     * file. The revision id stays what a caller expecting `null` meets as revision 1. `null` on a conflict.
+     * file. The revision id stays what a caller expecting `null` meets as revision 1. `null` on a conflict; `asItIs`
+     * as for `ensureCurrent`.
      */
-    materialize() {
-        return this.run(() => this.ensureCurrent());
+    materialize(asItIs = false) {
+        return this.run(() => this.ensureCurrent(asItIs));
     }
 
     /**
@@ -555,33 +556,43 @@ export class DocumentDirectory {
         const kept = manifest.history.find(revision => !hasFile(revision));
         if (!kept || destination === undefined || !sameWitness(kept.witness, manifest.baseline)) return;
         const name = `r1.${manifest.ext}`;
-        const created = await this.store.publication.source(destination).then(source => this.createFromDestination(name, source)).catch(() => null);
+        const created = await this.createFromDestination(name).catch(() => null);
         if (!created) return;
         await created.file.close();
         const revision: IRevision = { id: 1, file: name, length: created.length, witness: kept.witness };
         await this.commit({ ...manifest, history: manifest.history.map(other => (other === kept ? revision : other)) });
     }
 
-    /** The current revision, copying the destination in as revision 1 when there is none; `null` on a conflict. */
-    async ensureCurrent(): Promise<IRevision | null> {
+    /**
+     * The current revision, copying the destination in as revision 1 when there is none; `null` on a conflict (see
+     * `createFromDestination`). With `asItIs`, a destination another program changed is taken as it is now, for a
+     * Save that builds on it: those bytes are not the baseline, so Save refuses them and Save As publishes them.
+     */
+    async ensureCurrent(asItIs = false): Promise<IRevision | null> {
         const { manifest } = this;
         if (manifest.current) return manifest.current;
         if (manifest.destination === undefined) throw new Error(`Document ${this.id} has neither bytes nor a destination`);
         const name = `r1.${manifest.ext}`;
-        const created = await this.createFromDestination(name, await this.store.publication.source(manifest.destination));
+        const created = await this.createFromDestination(name, asItIs);
         if (!created) return null;
-        const current = { id: 1, file: name, length: created.length, witness: manifest.baseline };
+        const current = { id: 1, file: name, length: created.length, witness: created.witness };
         await this.commit({ ...manifest, current }, created.file);
         return current;
     }
 
     /**
-     * A revision file made from bytes read from the destination. `null`, and no file, when the destination no
-     * longer holds the baseline afterwards: edits must not land on bytes the person has not seen.
+     * A revision file copied from the destination, with the baseline as its witness while the destination holds it.
+     * `null`, and no file, when the destination changed during the copy, or no longer holds the baseline unless
+     * `asItIs`: edits land on bytes the person has not seen only when a Save asks for that.
      */
-    private async createFromDestination(name: string, source: TRevisionSource) {
-        const created = await this.createRevisionFile(name, source);
-        if (sameWitness(await this.store.publication.witness(this.manifest.destination!), this.manifest.baseline)) return created;
+    private async createFromDestination(name: string, asItIs = false) {
+        const { publication } = this.store;
+        const { destination, baseline } = this.manifest;
+        const before = await publication.witness(destination!);
+        const created = await this.createRevisionFile(name, await publication.source(destination!));
+        const after = await publication.witness(destination!);
+        const unchanged = sameWitness(after, baseline);
+        if (sameWitness(before, after) && (unchanged || asItIs)) return { ...created, witness: unchanged ? baseline : undefined };
         await created.file.close();
         await this.store.port.remove(this.path(name));
         return null;
