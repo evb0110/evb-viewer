@@ -2055,8 +2055,10 @@ fn page_edits_refuse_a_damaged_page_tree() {
     // which repairs only `CorruptXref`, never edits around the damage.
     for (name, input) in cases {
         for result in [
-            delete_browser_pdf_pages(&input, &[1]),
-            rotate_browser_pdf_bytes(&input, &[1], 90),
+            delete_browser_pdf_pages(&input, &[1]).map(drop),
+            rotate_browser_pdf_bytes(&input, &[1], 90).map(drop),
+            // What a desktop rotation reads of the file before its page-local load.
+            validate_page_tree_source(input.as_slice(), input.len() as u64),
         ] {
             let error = result.err().unwrap_or_else(|| panic!("{name}"));
             let error = error.downcast_ref::<NativeError>().unwrap();
@@ -2067,6 +2069,7 @@ fn page_edits_refuse_a_damaged_page_tree() {
     let sound = page_tree_pdf(2, &["4 0 R", "3 0 R"], &[(3, PAGE), (4, NODE), (5, PAGE)]);
     assert_eq!(delete_browser_pdf_pages(&sound, &[1]).unwrap().page_count, 1);
     assert_eq!(rotate_browser_pdf_bytes(&sound, &[1], 90).unwrap().page_count, 2);
+    validate_page_tree_source(sound.as_slice(), sound.len() as u64).unwrap();
 }
 
 #[test]

@@ -171,6 +171,7 @@ fn browser_geometry_incremental(
         source,
         "Encrypted PDFs are not supported by browser page-op WASM",
     )?;
+    PageTreeResolver::validated(source)?;
     validate_browser_page_numbers(pages, label, page_count(source), true, false)?;
     Ok(incremental)
 }

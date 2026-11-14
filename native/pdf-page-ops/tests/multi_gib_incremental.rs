@@ -1419,13 +1419,15 @@ fn catalog_saves_on_a_pdf_too_large_to_load_whole_match_the_eager_writer() {
     assert!(fs::metadata(&large).unwrap().len() > 512 * 1024 * 1024);
 
     // A bookmark on the second page with a named child, then page labels with
-    // the outline rewritten to point at both pages, then later chunks of a
-    // long outline (under the second item and at the top) and of a long label
-    // set, which extend what the earlier chunks wrote. The large file reads the catalog, its outline
+    // the outline rewritten to point at both pages, then a rotation of the
+    // annotated first page, then later chunks of a long outline (under the
+    // second item and at the top) and of a long label set, which extend what
+    // the earlier chunks wrote. The large file reads the catalog, its outline
     // and label trees and the named pages alone.
     let saves = [
         r#"{"bookmarks":{"totalPages":2,"untitledLabel":"Untitled","items":[{"title":"Second","pageIndex":1,"pageYRatio":0.5,"items":[{"title":"Named","pageIndex":null,"namedDest":"chapter","items":[]}]}]}}"#,
         r#"{"pageLabels":{"totalPages":2,"ranges":[{"startPage":2,"style":"r","prefix":"P-","startNumber":3}]},"bookmarks":{"totalPages":2,"untitledLabel":"Untitled","items":[{"title":"First","pageIndex":0,"items":[]},{"title":"Second","pageIndex":1,"pageYRatio":0.25,"items":[]}]}}"#,
+        r#"{"pageRotations":[{"pageIndex":0,"angle":90}]}"#,
         r#"{"bookmarks":{"totalPages":2,"untitledLabel":"Untitled","items":[{"title":"Later child","pageIndex":0,"items":[]}]},"continuation":{"family":"bookmarks","chunkIndex":1,"chunkCount":2,"bookmarkPath":[1]}}"#,
         r#"{"bookmarks":{"totalPages":2,"untitledLabel":"Untitled","items":[{"title":"Later top","pageIndex":1,"items":[]}]},"continuation":{"family":"bookmarks","chunkIndex":1,"chunkCount":2}}"#,
         r#"{"pageLabels":{"totalPages":2,"ranges":[{"startPage":1,"style":"A","prefix":"","startNumber":1}]},"continuation":{"family":"pageLabels","chunkIndex":1,"chunkCount":2}}"#,
@@ -1445,15 +1447,16 @@ fn catalog_saves_on_a_pdf_too_large_to_load_whole_match_the_eager_writer() {
         }
         assert_qpdf_check(pdf);
     }
-    assert_eq!(read[5..], read[..5]);
+    assert_eq!(read[6..], read[..6]);
     assert_eq!(read[0]["items"][0]["dest"][0], "12 0 R");
     assert_eq!(read[0]["items"][0]["items"][0]["title"], "Named");
     assert_eq!(read[1]["items"][0]["dest"][0], "4 0 R");
     assert_eq!(read[1]["pageLabels"]["/Nums"][2], 1);
-    assert_eq!(read[2]["items"][1]["items"][0]["title"], "Later child");
-    assert_eq!(read[3]["items"][2]["title"], "Later top");
-    assert_eq!(read[4]["pageLabels"]["/Nums"][0], 0);
-    assert_eq!(read[4]["pageLabels"]["/Nums"][2], 1);
+    assert_eq!(read[2]["rotate"], 180);
+    assert_eq!(read[3]["items"][1]["items"][0]["title"], "Later child");
+    assert_eq!(read[4]["items"][2]["title"], "Later top");
+    assert_eq!(read[5]["pageLabels"]["/Nums"][0], 0);
+    assert_eq!(read[5]["pageLabels"]["/Nums"][2], 1);
 }
 
 #[test]

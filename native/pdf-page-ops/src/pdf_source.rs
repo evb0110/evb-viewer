@@ -390,6 +390,62 @@ fn same_ends<O: ByteSource, S: ByteSource + ?Sized>(
 }
 
 /// Every reference a direct object holds, without following any.
+/// Refuses a page edit on a damaged page tree. Only the tree is read through
+/// the index: the catalog, each node and leaf, and the kids and counts they
+/// reference, never content or other objects, so the cost follows the page
+/// tree and not the file.
+pub(crate) fn validate_page_tree_source<S: ByteSource>(bytes: S, len: u64) -> Result<()> {
+    let reader = Reader::new(&bytes, len)?;
+    let index = reader.index()?;
+    if index.trailer.has(b"Encrypt") {
+        return Err(domain_error(
+            NativeErrorCode::Encrypted,
+            "Unlock the encrypted PDF before editing it",
+        ));
+    }
+    let mut document = Document::with_version(reader.version.clone());
+    document.trailer = index.trailer.clone();
+    let mut loader = Loader {
+        reader: &reader,
+        index: &index,
+        object_streams: HashMap::new(),
+        streams: HashMap::new(),
+        reals: HashMap::new(),
+    };
+    let mut pending = Vec::new();
+    collect_object_references(document.trailer.get(b"Root")?, &mut pending);
+    while let Some(id) = pending.pop() {
+        if document.objects.contains_key(&id) {
+            continue;
+        }
+        if document.objects.len() >= MAX_PDF_OBJECTS {
+            return Err(domain_error(
+                NativeErrorCode::TooLarge,
+                format!("PDF page tree exceeds the {MAX_PDF_OBJECTS}-object admission ceiling"),
+            ));
+        }
+        let object = loader.load(id)?;
+        match &object {
+            Object::Dictionary(node) => [b"Pages".as_slice(), b"Kids", b"Count"]
+                .into_iter()
+                .filter_map(|key| node.get(key).ok())
+                .for_each(|value| collect_object_references(value, &mut pending)),
+            // An indirect /Kids array.
+            Object::Array(_) => collect_object_references(&object, &mut pending),
+            _ => {}
+        }
+        document.objects.insert(id, object);
+    }
+    PageTreeResolver::validated(&document).map(|_| ())
+}
+
+/// `validate_page_tree_source` over a file.
+pub(crate) fn validate_page_tree_path(path: &Path) -> Result<()> {
+    let file = File::open(path).map_err(io_domain_error)?;
+    let len = file.metadata().map_err(io_domain_error)?.len();
+    validate_page_tree_source(&file, len)
+}
+
 fn collect_object_references(object: &Object, pending: &mut Vec<ObjectId>) {
     match object {
         Object::Reference(id) => pending.push(*id),

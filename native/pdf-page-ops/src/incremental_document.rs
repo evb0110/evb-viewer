@@ -1740,9 +1740,9 @@ esac
         let _ = fs::remove_file(&input_path);
         let _ = fs::remove_file(&qpdf_path);
         drop(fake_executable);
-        let incremental = result
-            .expect("selected page ancestry should load")
-            .expect("the edit addresses no annotation");
+        let mut incremental = result
+            .expect("selected page ancestry should load for rotation")
+            .expect("a rotation addresses no annotation");
         assert_eq!(
             incremental
                 .located_pages
@@ -1753,6 +1753,26 @@ esac
         assert_eq!(
             resolve_page_rotation(incremental.get_prev_documents(), page_id).unwrap(),
             270
+        );
+
+        rotate_pages(
+            &mut incremental,
+            &[PageRotationMutation {
+                page_index: 0,
+                angle: 90,
+            }],
+        )
+        .unwrap();
+        assert_eq!(
+            incremental
+                .new_document
+                .get_dictionary(page_id)
+                .unwrap()
+                .get(b"Rotate")
+                .unwrap()
+                .as_i64()
+                .unwrap(),
+            0
         );
     }
 

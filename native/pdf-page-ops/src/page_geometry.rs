@@ -103,6 +103,7 @@ pub(crate) fn write_crop_pages_path(
         incremental.get_prev_documents(),
         "Encrypted PDFs are not supported by native page ops",
     )?;
+    PageTreeResolver::validated(incremental.get_prev_documents())?;
 
     crop_pages_incremental(&mut incremental, pages, margins)?;
     append_incremental_page_revision(
@@ -126,6 +127,7 @@ pub(crate) fn write_remove_crop_pages_path(
         incremental.get_prev_documents(),
         "Encrypted PDFs are not supported by native page ops",
     )?;
+    PageTreeResolver::validated(incremental.get_prev_documents())?;
 
     remove_crop_from_pages_incremental(&mut incremental, pages)?;
     append_incremental_page_revision(
@@ -280,7 +282,7 @@ pub(crate) fn rotate_pages(
     document: &mut impl PdfObjectStore,
     rotations: &[PageRotationMutation],
 ) -> Result<()> {
-    let pages = PageTreeResolver::validated(document)?;
+    let pages = PageLookup::new(document, document.located_pages())?;
     let mut targets = Vec::with_capacity(rotations.len());
     for rotation in rotations {
         let page_number = rotation
@@ -618,7 +620,7 @@ fn resolve_selected_page_ids(
         return Ok(selected);
     }
 
-    let page_resolver = PageTreeResolver::validated(document)?;
+    let page_resolver = PageTreeResolver::new(document)?;
     for &page_number in pages {
         let page_id = page_resolver.page_id(document, page_number)?;
         selected.push((page_number, page_id));

@@ -354,6 +354,9 @@ pub(crate) fn append_native_mutations_to_source<S: ByteSource>(
     modified_at: &str,
     write: impl FnOnce(&[u8]) -> Result<Vec<u8>>,
 ) -> Result<IndexedAppend> {
+    if !mutations.page_rotations.is_empty() {
+        validate_page_tree_source(&source, len)?;
+    }
     let mut source = SourcePdf::open_append_base(source, len)?;
     let mut incremental = source.take_append_base()?;
     materialize_stamp_recovery_sources(
