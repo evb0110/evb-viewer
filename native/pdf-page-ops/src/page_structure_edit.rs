@@ -407,7 +407,10 @@ fn page_subset(
                         .object_map
                         .get(&(0, id))
                         .ok_or("Retained annotation was not cloned")?;
-                    annotations.entry(id).or_default().push((output_page, copy));
+                    // A widget pages share is one copy, so one membership.
+                    annotations
+                        .entry(id)
+                        .or_insert_with(|| vec![(output_page, copy)]);
                 }
             }
         }

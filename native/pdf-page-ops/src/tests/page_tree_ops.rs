@@ -2060,3 +2060,23 @@ fn page_structure_edits_refuse_a_damaged_page_tree() {
     let sound = page_tree_pdf(2, &["4 0 R", "3 0 R"], &[(3, PAGE), (4, NODE), (5, PAGE)]);
     assert_eq!(delete_browser_pdf_pages(&sound, &[1]).unwrap().page_count, 1);
 }
+
+#[test]
+fn page_structure_edits_keep_a_widget_pages_share_as_one_field() {
+    let input = include_bytes!("../../tests/fixtures/page-engine/shared-widget.pdf");
+    let output = Document::load_mem(&delete_browser_pdf_pages(input, &[2]).unwrap().data).unwrap();
+    let pages = output.get_pages();
+    assert_eq!(pages.len(), 2);
+    let form = output.catalog().unwrap().get(b"AcroForm").unwrap();
+    let fields = output.dereference(form).unwrap().1.as_dict().unwrap().get(b"Fields").unwrap();
+    let [Object::Reference(field)] = fields.as_array().unwrap().as_slice() else {
+        panic!("one field expected, got {fields:?}");
+    };
+    let field_dictionary = output.get_dictionary(*field).unwrap();
+    assert_eq!(field_dictionary.get(b"T").unwrap().as_str().unwrap(), b"X");
+    assert!(!field_dictionary.has(b"Kids"));
+    for page in pages.values() {
+        let annots = output.get_dictionary(*page).unwrap().get(b"Annots").unwrap();
+        assert_eq!(annots.as_array().unwrap(), &vec![Object::Reference(*field)]);
+    }
+}
