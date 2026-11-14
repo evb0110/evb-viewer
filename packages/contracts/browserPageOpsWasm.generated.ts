@@ -4,7 +4,6 @@
 
 export const REQUEST_MAGIC = 'EPPO';
 export const REQUEST_VERSION = 2;
-export const REQUEST_VERSION_DOCUMENT_LIST = 3;
 export const REQUEST_VERSION_INSTRUCTED = 5;
 export const REQUEST_VERSION_FILES = 6;
 export const U32_BYTES = 4;
@@ -64,14 +63,6 @@ export const REQUEST_HEADER = {
     insertionDataLength: 60,
     passwordLength: 64,
     bytes: 68,
-} as const;
-
-export const DOCUMENT_LIST_HEADER = {
-    magic: 0,
-    version: 4,
-    operation: 8,
-    documentCount: 12,
-    bytes: 16,
 } as const;
 
 export const INSTRUCTED_REQUEST_HEADER = {

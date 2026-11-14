@@ -1790,7 +1790,6 @@ export default {
             'passwordPromptOpen': 'Abrir',
             'passwordPromptIncorrect': 'A palavra-passe está incorreta. Tente novamente.',
             'unsupportedEncryption': 'Este PDF usa uma encriptação que o EVB Viewer não consegue abrir.',
-            'encryptedTooLarge': 'Este PDF encriptado excede o limite de 512 MiB e não pode ser aberto.',
             'djvuRasterLimit': 'Esta página DjVu é demasiado grande para ser apresentada em resolução total.',
             'djvuComponentsRequired': 'Este índice DjVu guarda as páginas em ficheiros separados. Abra-o novamente e selecione o índice juntamente com os ficheiros ao lado.',
             'changedWhileOpening': 'O ficheiro foi alterado enquanto estava a ser aberto. Abra-o novamente.',

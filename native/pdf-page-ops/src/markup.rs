@@ -565,13 +565,12 @@ fn apply_markup_rewrite_to_object_with_options(
         } else {
             (None, false)
         };
+    // An absent /CA is the PDF default, fully opaque.
+    let opacity_changed =
+        opacity.is_some_and(|target| (candidate.opacity.unwrap_or(1.0) - target).abs() > 0.000_001);
     modified |= candidate.subtype != target_subtype;
     modified |= target_color.is_some_and(|target| Some(target) != candidate.color);
-    modified |= opacity.is_some_and(|target| {
-        candidate
-            .opacity
-            .is_none_or(|actual| (actual - target).abs() > 0.000_001)
-    });
+    modified |= opacity_changed;
     modified |= contents.is_some() || author.is_some();
     // A matched explicit style hint is a valid upsert even when its scalar
     // values already match (the append writer still records the revision).
@@ -589,11 +588,7 @@ fn apply_markup_rewrite_to_object_with_options(
     let appearance_changed = quad_points_changed
         || candidate.subtype != target_subtype
         || target_color.is_some_and(|target| Some(target) != candidate.color)
-        || opacity.is_some_and(|target| {
-            candidate
-                .opacity
-                .is_none_or(|actual| (actual - target).abs() > 0.000_001)
-        })
+        || opacity_changed
         || !candidate.has_appearance;
     let appearance_ref = if appearance_changed {
         let values = quad_points

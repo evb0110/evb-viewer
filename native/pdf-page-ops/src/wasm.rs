@@ -4,7 +4,6 @@ use evb_native_support::{
 };
 use std::{cell::RefCell, slice};
 
-use crate::pdf_conformance_facts;
 use crate::{build_print_layout, save_document_to_bytes, PrintOrientation, PrintViewMode};
 use crate::{
     crop_browser_pdf_bytes, decrypt_browser_pdf_bytes, get_browser_page_geometry_from_bytes,
@@ -131,12 +130,6 @@ fn run_request(request: &[u8]) -> Result<Vec<u8>> {
     if is_instructed_request(request) {
         return run_instructed_request(parse_instructed_request(request)?);
     }
-    if request.len() >= DOCUMENT_LIST_HEADER.version + U32_BYTES
-        && &request[DOCUMENT_LIST_HEADER.magic..DOCUMENT_LIST_HEADER.version] == REQUEST_MAGIC
-        && read_u32_at(request, DOCUMENT_LIST_HEADER.version)? == REQUEST_VERSION_DOCUMENT_LIST
-    {
-        return run_document_list_request(request);
-    }
     let parsed = parse_request(request)?;
     match parsed.operation {
         OP_TEXT_BOX_APPEARANCE => {
@@ -256,48 +249,6 @@ fn run_instructed_request(parsed: ParsedInstructedRequest<'_>) -> Result<Vec<u8>
             crate::render_scan_cleanup_raster_bytes(data, instructions)?,
         ),
         _ => Err(format!("Unsupported page-op WASM instructed operation {operation}").into()),
-    }
-}
-
-fn run_document_list_request(request: &[u8]) -> Result<Vec<u8>> {
-    let mut offset = DOCUMENT_LIST_HEADER.magic;
-    if take_bytes(request, &mut offset, REQUEST_MAGIC.len())? != REQUEST_MAGIC {
-        return Err("Invalid page-op WASM document-list magic".into());
-    }
-    let version = read_u32_at(request, DOCUMENT_LIST_HEADER.version)?;
-    if version != REQUEST_VERSION_DOCUMENT_LIST {
-        return Err("Unsupported page-op WASM document-list version".into());
-    }
-    let operation = read_u32_at(request, DOCUMENT_LIST_HEADER.operation)?;
-    let count = read_usize_at(
-        request,
-        DOCUMENT_LIST_HEADER.document_count,
-        "document count",
-    )?;
-    // Each document carries at least its length word, so the frame bounds the
-    // count before anything is reserved for it.
-    if count == 0 || count > request.len().saturating_sub(DOCUMENT_LIST_HEADER.bytes) / U32_BYTES {
-        return Err("Invalid page-op WASM document count".into());
-    }
-    let mut offset = DOCUMENT_LIST_HEADER.bytes;
-    let mut inputs = Vec::with_capacity(count);
-    for _ in 0..count {
-        let len = read_usize_le(request, &mut offset, "document length")?;
-        inputs.push(take_bytes(request, &mut offset, len)?);
-    }
-    if offset != request.len() {
-        return Err("Trailing bytes in page-op WASM document-list request".into());
-    }
-    let documents = inputs
-        .into_iter()
-        .map(load_browser_pdf)
-        .collect::<Result<Vec<_>>>()?;
-    match operation {
-        OP_CONFORMANCE => encode_bytes(
-            RESPONSE_JSON,
-            serde_json::to_vec(&pdf_conformance_facts(&documents[0])?)?,
-        ),
-        _ => Err(format!("Unsupported page-op WASM document-list operation {operation}").into()),
     }
 }
 

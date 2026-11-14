@@ -61,7 +61,6 @@ abi! {
     constants {
         // Version 2 includes the trailing password length for decrypt.
         REQUEST_VERSION: u32 = 2;
-        REQUEST_VERSION_DOCUMENT_LIST: u32 = 3;
         // INSTRUCTED_REQUEST_HEADER framing.
         REQUEST_VERSION_INSTRUCTED: u32 = 5;
         // FILE_REQUEST_HEADER framing: an edit whose inputs are the host's
@@ -110,6 +109,7 @@ abi! {
         OP_SAVE_MUTATIONS = 11 => "saveMutations";
         // FILE_REQUEST_HEADER framing over source 0. Answers RESPONSE_JSON.
         OP_READ_CATALOG = 12 => "readCatalog";
+        // FILE_REQUEST_HEADER framing over source 0. Answers RESPONSE_JSON.
         OP_CONFORMANCE = 13 => "conformance";
         OP_MERGE_PAGES = 14 => "mergePages";
         // Selected pages use the page list; insertion data is UTF-8
@@ -151,10 +151,6 @@ abi! {
             angle: U32_BYTES, top: F64_BYTES, bottom: F64_BYTES,
             left: F64_BYTES, right: F64_BYTES, data_length: U32_BYTES,
             insertion_data_length: U32_BYTES, password_length: U32_BYTES,
-        }
-        DOCUMENT_LIST_HEADER: DocumentListHeader {
-            magic: REQUEST_MAGIC.len(), version: U32_BYTES,
-            operation: U32_BYTES, document_count: U32_BYTES,
         }
         // Followed by the document, the UTF-8 JSON instructions, then each
         // attached PDF as a little-endian u32 length and its bytes.

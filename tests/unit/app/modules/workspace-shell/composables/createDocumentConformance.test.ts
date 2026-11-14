@@ -268,13 +268,13 @@ describe('createDocumentConformance', () => {
         await expect(currentSave).resolves.toBe(true);
     });
 
-    it('keeps current save-restriction failure as a refusal even with an older full profile', async () => {
+    it('saves a copy when the current save restrictions cannot be read, even with an older unsigned profile', async () => {
         const {
             conformance, path, state,
         } = createHarness();
         state.pdfConformanceProfile.value = unsignedProfile;
         mockReadPdfConformanceProfile.mockRejectedValue(new Error('current bytes could not be read'));
-        await expect(conformance.shouldForceSaveAsForWorkingCopy('rewrite', path)).rejects.toThrow('current bytes could not be read');
+        await expect(conformance.shouldForceSaveAsForWorkingCopy('rewrite', path)).resolves.toBe(true);
     });
 
     it('cancels idle work when cleared', () => {
