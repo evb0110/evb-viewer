@@ -1779,7 +1779,6 @@ export default {
             'passwordPromptOpen': 'Öffnen',
             'passwordPromptIncorrect': 'Das Passwort ist falsch. Versuchen Sie es erneut.',
             'unsupportedEncryption': 'Dieses PDF verwendet eine Verschlüsselung, die EVB Viewer nicht öffnen kann.',
-            'encryptedTooLarge': 'Diese verschlüsselte PDF überschreitet das Limit von 512 MiB und kann nicht geöffnet werden.',
             'djvuRasterLimit': 'Diese DjVu-Seite ist zu groß für die Anzeige in voller Auflösung.',
             'djvuComponentsRequired': 'Dieser DjVu-Index speichert seine Seiten in separaten Dateien. Öffnen Sie ihn erneut und wählen Sie den Index zusammen mit den Dateien daneben aus.',
             'changedWhileOpening': 'Die Datei wurde während des Öffnens geändert. Öffnen Sie sie erneut.',

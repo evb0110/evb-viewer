@@ -88,17 +88,6 @@ describe('classifyDocumentOpenError', () => {
         expect(classifyDocumentOpenError(error, null, t)).toBe('errors.browser.documentTooLarge:16');
     });
 
-    it('localizes a serialized encrypted PDF size-limit failure', () => {
-        const error = new Error(encodeSerializableErrorEnvelope({
-            code: 'too-large',
-            message: 'Encrypted PDF input exceeds the admission ceiling',
-        }));
-        const t = ((key: string) => key) as TTranslateFn;
-
-        expect(classifyDocumentOpenError(error, null, t))
-            .toBe('errors.file.encryptedTooLarge');
-    });
-
     it.each([
         [
             'source-changed',
