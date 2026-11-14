@@ -1799,6 +1799,7 @@ export default {
             'openNotes': 'Open notes could not be saved, so the document was not written.',
             'documentChanged': 'The document changed before the save finished, so nothing was written.',
             'originalChanged': 'The file changed on disk since you opened it. Your changes are kept. Use Save As to keep both versions.',
+            'originalUnreadable': 'The original file can no longer be read, so changes cannot be saved to it. If it was moved or deleted, restore it and try again.',
             'workingCopyMissing': 'The temporary copy of the document was removed, so these changes cannot be saved. Reopen the file.',
             'notCompleted': 'The document could not be written.',
             'permissionDenied': 'EVB Viewer cannot write in the folder that holds this PDF, so it was not saved. Choose Save As to save your changes in another folder.',

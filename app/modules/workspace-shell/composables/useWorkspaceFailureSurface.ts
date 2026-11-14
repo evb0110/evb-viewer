@@ -101,6 +101,7 @@ export const useWorkspaceFailureSurface = () => {
         if (HELD_OR_DENIED_MESSAGE.test(message)) {
             return t(/EBUSY/iu.test(message) ? 'errors.save.fileBusy' : /The PDF is read-only or locked/u.test(message) ? 'errors.save.fileReadOnly' : 'errors.save.permissionDenied');
         }
+        if (/The original file cannot be read:/u.test(message)) return t('errors.save.originalUnreadable');
         if (/ENOSPC|EDQUOT|no space left|not enough space|disk (?:is )?full|os error (?:28|112)/iu.test(message)) {
             return t('errors.save.diskFull');
         }

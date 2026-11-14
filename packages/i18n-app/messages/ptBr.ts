@@ -1810,6 +1810,7 @@ export default {
             'openNotes': 'Não foi possível salvar as notas abertas, então o documento não foi gravado.',
             'documentChanged': 'O documento mudou antes de o salvamento terminar, então nada foi gravado.',
             'originalChanged': 'O arquivo no disco mudou desde que você o abriu. Suas alterações são mantidas. Use «Salvar como» para manter as duas versões.',
+            'originalUnreadable': 'Não é mais possível ler o arquivo original nem salvar as alterações. Se ele foi movido ou excluído, restaure-o e tente novamente.',
             'workingCopyMissing': 'A cópia temporária do documento foi removida, então estas alterações não podem ser salvas. Abra o arquivo novamente.',
             'notCompleted': 'Não foi possível gravar o documento.',
             'permissionDenied': 'O EVB Viewer não consegue gravar na pasta deste PDF, por isso ele não foi salvo. Escolha «Salvar Como» para salvar as alterações em outra pasta.',
