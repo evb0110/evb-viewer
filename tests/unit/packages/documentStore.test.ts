@@ -145,6 +145,37 @@ async function crashDuring(doc: DocumentDirectory, at: (operation: string, targe
     await crash.kill();
 }
 
+describe('Node revision files', () => {
+    it.each([false, true])('retains only read access between operations (existing: %s)', async existing => {
+        const target = path.join(workDir, 'r1.pdf');
+        if (existing) await writeFile(target, 'old');
+        const realOpen = promises.open.bind(promises);
+        const writers: Awaited<ReturnType<typeof promises.open>>[] = [];
+        const opened = vi.spyOn(promises, 'open').mockImplementation(async (file, flags, mode) => {
+            const handle = await realOpen(file, flags, mode);
+            if (file === target && flags !== 'r') writers.push(handle);
+            return handle;
+        });
+        let file: IStoreFile | undefined;
+        const noWriters = () => expect(writers.map(handle => handle.fd).filter(fd => fd !== -1)).toEqual([]);
+        try {
+            file = await createNodeStorePort(workDir).open('r1.pdf');
+            noWriters();
+            await file.writeAt(0, encode('revision'));
+            noWriters();
+            await file.truncate(3);
+            noWriters();
+            await file.flush();
+            noWriters();
+            expect(await file.size()).toBe(3);
+            expect(await file.readAt(0, 3)).toEqual(encode('rev'));
+        } finally {
+            await file?.close();
+            opened.mockRestore();
+        }
+    });
+});
+
 describe('document directory', () => {
     it('reads the destination until the first edit copies it in, and reopens what was committed', async () => {
         const destination = path.join(workDir, 'paper.pdf');
