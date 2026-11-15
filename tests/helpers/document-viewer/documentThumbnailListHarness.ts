@@ -152,6 +152,10 @@ export function installDocumentThumbnailListEnvironment() {
     globalThis.cancelAnimationFrame = handle => window.clearTimeout(handle);
     vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(220);
     vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(600);
+    vi.spyOn(HTMLElement.prototype, 'scrollHeight', 'get').mockImplementation(function (this: HTMLElement) {
+        const track = this.querySelector<HTMLElement>('.document-thumbnail-list__content');
+        return track ? Number.parseFloat(track.style.height) + 16 : 0;
+    });
     stubFrameGeometry(DEFAULT_FRAME_WIDTH);
 }
 

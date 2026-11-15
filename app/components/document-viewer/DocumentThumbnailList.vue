@@ -44,7 +44,6 @@
                 :data-thumbnail-render-error="showsRenderError(item.pageNumber) ? '' : undefined"
                 :data-thumbnail-request-width="states.get(item.pageNumber)?.widthPx ?? ''"
                 :disabled="disabled"
-                data-pane-relocation-scroll-item
                 @click="handleItemClick(item.pageNumber, $event)"
             >
                 <template #overlay>
@@ -120,6 +119,7 @@ const {
     renderErrors,
     retryRender,
     revealPage,
+    scrollToRequestedOffset,
     states,
     virtualItems,
 } = useDocumentThumbnailController({
@@ -141,6 +141,7 @@ const tabStopPage = computed(() => {
 defineExpose({
     revealPage,
     scrollRoot,
+    scrollToRequestedOffset,
 });
 
 // A resize never stretches an old, smaller raster. Capped source images are

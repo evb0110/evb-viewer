@@ -181,15 +181,16 @@ const {
     selectedPageSelection: computed(() => selectedPageSelection ?? null),
     onReorder: newOrder => emit('reorder', newOrder),
     onMove: hasPageSelectionModel ? (move: TPageMoveOperation) => emit('move', move) : undefined,
+    scrollRailTo: top => list.value?.scrollToRequestedOffset(top),
     onExternalFileDrop: (afterPage, filePaths) => emit('file-drop', {
         afterPage,
         filePaths,
     }),
 });
 
-function revealPage(page: number) {
-    list.value?.revealPage(page);
-    return nextTick();
+async function revealPage(page: number) {
+    await list.value?.revealPage(page);
+    await nextTick();
 }
 
 const {
