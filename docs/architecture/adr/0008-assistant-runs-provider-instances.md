@@ -33,7 +33,8 @@ and discovers independent PATH executables named exactly `codex`, `claude`,
 `codex-<name>` or `claude-<name>`. Each executable must identify the provider
 within a three-second version check; its bounded metadata probe must report
 models before any are selectable. Wrappers retain their executable identity and
-inherited environment. Equal executable/home/arguments tuples are deduplicated;
+inherited environment. The native default Claude home leaves its config environment
+unset, preserving the existing macOS Keychain identity. Equal executable/home/arguments tuples are deduplicated;
 different homes stay separate. Explicit EVB records take precedence and keep
 stable IDs. Settings can add, edit and disable instances. A setup known only to
 another application's settings requires an explicit Settings entry; EVB reads

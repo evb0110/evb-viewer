@@ -612,8 +612,10 @@ export async function resolveAssistantLaunchContext(
         homePath = instance.homePath?.trim()
             ? expandHome(instance.homePath)
             : (env.CLAUDE_CONFIG_DIR ? expandHome(env.CLAUDE_CONFIG_DIR) : null);
-        if (homePath) {
-            // HOME stays: replacing it would hide the macOS Keychain login.
+        // Adapted from T3 Code Drivers/ClaudeHome.ts (0b6f482dc5), MIT.
+        // Leave the native default environment untouched: even an explicit
+        // default config directory changes Claude's macOS Keychain identity.
+        if (homePath && (env.CLAUDE_CONFIG_DIR !== undefined || resolve(homePath) !== join(homedir(), '.claude'))) {
             env.CLAUDE_CONFIG_DIR = homePath;
         }
     }

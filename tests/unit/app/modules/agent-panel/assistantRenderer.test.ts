@@ -222,7 +222,6 @@ describe('assistant renderer on instance contract', () => {
             state: 'error',
             auth: 'unauthenticated',
             message: 'EXACT transport\nfailed',
-
             canSignIn: true,
         });
         const host = mount();

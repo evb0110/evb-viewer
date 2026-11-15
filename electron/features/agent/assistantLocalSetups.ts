@@ -109,14 +109,15 @@ export async function discoverAssistantLocalSetups(env: NodeJS.ProcessEnv = proc
     }
     const defaults = await Promise.all((['codex', 'claude'] as const).map(async driver => {
         const binaryPath = await resolveInstalledAssistantExecutable(driver, env);
-        return ({
-        id: driver,
-        driver,
-        displayName: driver === 'codex' ? 'Codex' : 'Claude',
-        enabled: true,
-        homePath: join(env.HOME || env.USERPROFILE || homedir(), `.${driver}`),
-        ...(binaryPath ? {binaryPath} : {}),
-    }); }));
+        return {
+            id: driver,
+            driver,
+            displayName: driver === 'codex' ? 'Codex' : 'Claude',
+            enabled: true,
+            homePath: join(env.HOME || env.USERPROFILE || homedir(), `.${driver}`),
+            ...(binaryPath ? {binaryPath} : {}),
+        };
+    }));
     const identities = new Set(defaults.map(assistantSetupIdentity));
     const identified = await Promise.all([...candidates].map(async ([binaryPath, driver]) => {
         if (!await identifyAssistantExecutable(driver, binaryPath, env).catch(() => null)) return null;

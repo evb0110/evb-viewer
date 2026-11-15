@@ -5,7 +5,7 @@ import {
 import {
     chmod, mkdtemp, mkdir, readFile, readdir, readlink, rm, writeFile,
 } from 'node:fs/promises';
-import {tmpdir} from 'node:os';
+import {homedir, tmpdir} from 'node:os';
 import {join} from 'node:path';
 import type {IAssistantInstanceConfig} from '@contracts/assistant';
 
@@ -201,6 +201,13 @@ describe('assistant instance configuration', () => {
         expect(context.env.CLAUDE_CODE_SESSION_ID).toBeUndefined();
         expect(context.env.CLAUDE_CODE_SSE_PORT).toBeUndefined();
         expect(context.env.ELECTRON_RUN_AS_NODE).toBeUndefined();
+    });
+    it('keeps the native default Claude login identity without stamping a config override', async () => {
+        vi.stubEnv('CLAUDE_CONFIG_DIR', undefined);
+        await save({id: 'claude', driver: 'claude', homePath: join(homedir(), '.claude')});
+        const context = await instances.resolveAssistantLaunchContext('claude', resolvers);
+        expect(context.homePath).toBe(join(homedir(), '.claude'));
+        expect(context.env.CLAUDE_CONFIG_DIR).toBeUndefined();
     });
     it('uses fallback binary resolvers when an instance has no configured executable', async () => {
         await save();
