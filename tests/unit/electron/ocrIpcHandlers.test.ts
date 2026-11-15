@@ -1,5 +1,8 @@
+import {EventEmitter} from 'node:events';
+import {createOcrEnginePool} from '@electron/features/ocr/main/ocrEnginePool';
 import type { TRegisteredHandler } from '@tests/unit/electron/helpers/ipcRegistryHarness';
 import {
+    afterEach,
     beforeEach,
     describe,
     expect,
@@ -664,5 +667,66 @@ describe('OCR platform feature main bindings', () => {
         )).rejects.toThrow('working copy closed');
         expect(observedSignal?.aborted).toBe(true);
         expect(snapshotMainOperations()).toEqual([]);
+    });
+});
+
+const boundary = vi.hoisted(() => ({workers: [] as Array<{
+    emit: (event: string, ...args: unknown[]) => boolean;
+    dead: boolean;
+    terminatedAfterDeath: boolean;
+}>}));
+
+vi.mock('node:worker_threads', () => ({Worker: class extends EventEmitter {
+    dead = false;
+    terminatedAfterDeath = false;
+    constructor() {
+        super();
+        boundary.workers.push(this);
+    }
+    unref() {}
+    postMessage({id}: {id: number}) {
+        queueMicrotask(() => this.emit('message', {id, ok: true, result: {passes: []}}));
+    }
+    async terminate() {
+        if (this.dead) this.terminatedAfterDeath = true;
+        this.dead = true;
+        this.emit('exit', 0);
+        return 0;
+    }
+}}));
+
+describe('OCR engine pool idle shutdown', () => {
+    afterEach(() => {
+        vi.clearAllTimers();
+        vi.useRealTimers();
+        boundary.workers.length = 0;
+    });
+
+    it.each(['terminate', 'worker exit'] as const)('releases the idle timer after %s', async (end) => {
+        vi.useFakeTimers();
+        const pool = createOcrEnginePool({
+            size: () => 1,
+            workerPath: '/unused/ocr-engine.mjs',
+            workerData: {engineDir: '/unused/engine', tessdataDir: '/unused/models'},
+        });
+        await expect(pool.run({
+            image: new Uint8Array([0]), models: ['eng'],
+            passes: [{args: ['page.ppm', 'out'], outputs: ['/work/out.txt']}],
+        }, new AbortController().signal)).resolves.toEqual({passes: []});
+        expect(vi.getTimerCount()).toBe(1);
+        const worker = boundary.workers[0]!;
+        if (end === 'terminate') pool.terminate();
+        else {
+            worker.dead = true;
+            worker.emit('exit', 0);
+        }
+        try {
+            // A timer holding a dead worker must be released immediately.
+            expect.soft(vi.getTimerCount()).toBe(0);
+            await vi.advanceTimersByTimeAsync(60_000);
+            expect(worker.terminatedAfterDeath).toBe(false);
+        } finally {
+            pool.terminate();
+        }
     });
 });
