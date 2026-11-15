@@ -41,7 +41,9 @@ executables on `PATH` named `codex`, `claude`, `codex-<name>` or
 `claude-<name>`, such as `codex-proxy`. It checks the provider's version and
 probes its models without sending a prompt. Default instances use `~/.codex`
 and `~/.claude`; wrappers run as their own executable with the inherited
-environment. EVB bundles and downloads neither CLI.
+environment. EVB bundles and downloads neither CLI. Disable a discovered setup
+with its Enabled switch; deleting an explicit override allows discovery to offer
+the installed setup again.
 
 Version checks close stdin and terminate their process tree before returning.
 Unidentified or timed-out PATH helpers are silently ignored. EVB's retired

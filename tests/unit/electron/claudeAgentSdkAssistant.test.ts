@@ -503,6 +503,10 @@ describe('claudeAgentSdkAssistant', () => {
                 },
             ],
         }});
+        // A refreshed setup may withdraw capabilities the live query was created with.
+        expect(await session.prepareForSettings('opus', 'medium', 'fast', [{id: 'opus', label: 'Opus'}])).toBe(false);
+        expect(session.isUsable).toBe(false);
+
     });
 
     it('refuses an unavailable provider transcript before starting the SDK query', async () => {

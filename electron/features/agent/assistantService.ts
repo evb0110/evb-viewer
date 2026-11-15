@@ -244,6 +244,7 @@ async function retireInstance(entry: IInstanceEntry) {
     const affected = [...sessions.values()].filter(session => session.instanceId === entry.config.id);
     await Promise.all([
         entry.codex?.shutdown().catch(() => undefined),
+        entry.probe?.catch(() => undefined),
         ...affected.map(async session => {
             const claude = session.claude;
             session.claude = null;
@@ -1340,7 +1341,7 @@ async function startClaudeTurn(
     if (!context.binaryPath) {
         throw new Error(te('dialogs.agentAssistant.claudeMissing'));
     }
-    if (session.claude && !(await session.claude.prepareForSettings(selection.model, selection.effort, selection.speedMode))) {
+    if (session.claude && !(await session.claude.prepareForSettings(selection.model, selection.effort, selection.speedMode, entry.status.models))) {
         session.claude = null;
     }
     if (!session.claude) {
@@ -1602,10 +1603,12 @@ export async function cancelAgentAssistantLogin(request: IAssistantInstanceReque
     return buildState(null, undefined);
 }
 
-/** Installs the pinned Codex release for the default Codex instance. */
+/** Retires the current instances before releasing their document grants. */
 export async function shutdownAgentAssistant() {
+    const retiring = [...instances.values()];
+    instances.clear();
     // Processes stop before any turn ends, because ending a turn releases the document grant.
-    await Promise.all([...instances.values()].map(entry => retireInstance(entry)));
+    await Promise.all(retiring.map(entry => retireInstance(entry)));
     clearAssistantMcpSessionScope();
     await shutdownEmbeddedMcpServer().catch(() => undefined);
 }

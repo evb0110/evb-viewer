@@ -78,5 +78,7 @@ describe('readable provider failures', () => {
         expect(message).not.toMatch(/gateway|fixture|password|secret|127\.0\.0\.1|2001:|https:/);
         expect(message).toContain('[redacted endpoint]');
         expect(sanitizeAssistantProviderText('x'.repeat(5000))).toHaveLength(4096);
+        expect(sanitizeAssistantProviderText(JSON.stringify({password: 'https://credential.invalid/first"remaining-part', token: 'first\\remaining-part'}))).not.toMatch(/first|remaining-part/);
+
     });
 });

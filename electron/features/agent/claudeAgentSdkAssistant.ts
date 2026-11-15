@@ -493,15 +493,15 @@ export class ClaudeAgentAssistantSession {
         this.queryFastMode = this.supportsFastMode(this.currentModel, this.currentSpeedMode);
     }
 
-    private compileEffort(model: string, effort: TAgentAssistantEffort) {
-        return this.options.modelOptions?.find(option => option.id === model)?.reasoningEfforts?.some(option => option.id === effort)
+    private compileEffort(model: string, effort: TAgentAssistantEffort, models = this.options.modelOptions) {
+        return models?.find(option => option.id === model)?.reasoningEfforts?.some(option => option.id === effort)
             ? toClaudeEffortLevel(effort) : undefined;
     }
 
     // Adapted from T3 Code claudeModelOptions.ts (0b6f482dc5), MIT.
     // Compile only options the selected setup reported, without a manifest union.
-    private supportsFastMode(model: string, speed: TAgentAssistantSpeedMode) {
-        return speed === 'fast' && this.options.modelOptions?.find(option => option.id === model)?.serviceTiers?.some(tier => tier.id === 'fast') === true;
+    private supportsFastMode(model: string, speed: TAgentAssistantSpeedMode, models = this.options.modelOptions) {
+        return speed === 'fast' && models?.find(option => option.id === model)?.serviceTiers?.some(tier => tier.id === 'fast') === true;
     }
 
     get model() {
@@ -532,13 +532,13 @@ export class ClaudeAgentAssistantSession {
         return this.retirementPromise !== null;
     }
 
-    async prepareForSettings(model: string, effort: TAgentAssistantEffort, speedMode: TAgentAssistantSpeedMode) {
+    async prepareForSettings(model: string, effort: TAgentAssistantEffort, speedMode: TAgentAssistantSpeedMode, models = this.options.modelOptions) {
         if (this.isRetiring) {
             throw new Error('Claude is still retiring the previous turn. Try sending again after cancellation finishes.');
         }
         // setModel can change a live query's model, but effort and Fast are
         // fixed at query creation. Reuse only a compatible SDK query.
-        if (this.isUsable && this.effort === this.compileEffort(model, effort) && this.fastMode === this.supportsFastMode(model, speedMode)) {
+        if (this.isUsable && this.effort === this.compileEffort(model, effort, models) && this.fastMode === this.supportsFastMode(model, speedMode, models)) {
             return true;
         }
         if (!(await this.retire('for settings change'))) {

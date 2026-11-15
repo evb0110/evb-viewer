@@ -10,16 +10,16 @@ export function sanitizeAssistantProviderText(value: string, limit = 4096): stri
         const point = character.codePointAt(0) ?? 0;
         return point <= 8 || (point >= 11 && point <= 31) || point === 127 ? ' ' : character;
     }).join('')
+        .replace(/(["'][\w-]*(?:access[_-]?token|api[_-]?key|authorization|credential|password|secret|token)["']\s*:\s*)(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')/giu, '$1"[redacted]"')
+        .replace(/((?<![\w-])[\w-]*(?:access[_-]?token|api[_-]?key|authorization|credential|password|secret|token)\b\s*[:=]\s*)(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|[^\s,;]+)/giu, '$1[redacted]')
+        .replace(/\b([A-Z][A-Z0-9_]*)\s*=\s*(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|[^\s,;]+)/gu, '$1=[redacted]')
+        .replace(/\b(Bearer|Basic)\s+[^\s,;]+/giu, '$1 [redacted]')
+        .replace(/\b(?:sk|sess)-[A-Za-z0-9_-]+\b/gu, '[redacted]')
+        .replace(/\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/gu, '[redacted]')
         .replace(/\b[a-z][a-z0-9+.-]*:\/\/[^\s<>"']+/giu, '[redacted endpoint]')
         .replace(/\b(?:[a-z0-9-]+\.)+[a-z]{2,63}(?::\d+)?(?:\/[^\s<>"']*)?/giu, '[redacted host]')
         .replace(/\b(?:\d{1,3}\.){3}\d{1,3}(?::\d+)?\b/gu, '[redacted host]')
         .replace(/(?:\blocalhost|\[[a-f0-9:]+\])(?::\d+)?/giu, '[redacted host]')
-        .replace(/\b(Bearer|Basic)\s+[^\s,;]+/giu, '$1 [redacted]')
-        .replace(/(["'][\w-]*(?:access[_-]?token|api[_-]?key|authorization|credential|password|secret|token)["']\s*:\s*["'])[^"']*(["'])/giu, '$1[redacted]$2')
-        .replace(/((?<![\w-])[\w-]*(?:access[_-]?token|api[_-]?key|authorization|credential|password|secret|token)\b\s*[:=]\s*)(?:"[^"]*"|'[^']*'|[^\s,;]+)/giu, '$1[redacted]')
-        .replace(/\b([A-Z][A-Z0-9_]*)\s*=\s*(?:"[^"]*"|'[^']*'|[^\s,;]+)/gu, '$1=[redacted]')
-        .replace(/\b(?:sk|sess)-[A-Za-z0-9_-]+\b/gu, '[redacted]')
-        .replace(/\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/gu, '[redacted]')
         .trim();
     if (safe.length <= limit) return safe;
     let end = limit - 1;
