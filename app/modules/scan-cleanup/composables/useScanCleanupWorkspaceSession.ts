@@ -90,6 +90,7 @@ export const useScanCleanupWorkspaceSession = (options: IUseScanCleanupWorkspace
         previewResult: () => previewResult?.result.value ?? null,
         previewTotalPages: () => previewResult?.totalPages.value ?? Math.max(1, totalPages.value),
         marginsLinked: settings.marginsLinked,
+        editDocumentSettings: settings.editDocumentSettings,
         settings: settings.values,
     });
     watch(options.active, active => {

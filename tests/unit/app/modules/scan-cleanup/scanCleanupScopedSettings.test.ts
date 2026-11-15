@@ -5,6 +5,7 @@ import {
 } from 'vitest';
 import {requirePageNumber} from '@contracts/pageNumbers';
 import {
+    attachScanCleanupPageOverrideDefaults,
     createScanCleanupPageOverride,
     getScanCleanupPageOverride,
     setScanCleanupPageOverride,
@@ -172,6 +173,10 @@ describe('scan cleanup selection override state', () => {
             previewTotalPages: () => 1_000_000,
             marginsLinked: ref(true),
             settings,
+            editDocumentSettings: (_pages, change) => {
+                change();
+                attachScanCleanupPageOverrideDefaults(settings.pageOverrides, settings.pageOverrideDefaults, settings.marginsMm);
+            },
         });
 
         selection.applyLeaderOverrides('all');
@@ -229,6 +234,10 @@ describe('scan cleanup selection override state', () => {
             previewTotalPages: () => 2,
             marginsLinked: ref(true),
             settings,
+            editDocumentSettings: (_pages, change) => {
+                change();
+                attachScanCleanupPageOverrideDefaults(settings.pageOverrides, settings.pageOverrideDefaults, settings.marginsMm);
+            },
         });
         const manualZones = {
             picture: [{
@@ -343,6 +352,10 @@ describe('scan cleanup selection override state', () => {
             previewTotalPages: () => 1,
             marginsLinked: ref(true),
             settings,
+            editDocumentSettings: (_pages, change) => {
+                change();
+                attachScanCleanupPageOverrideDefaults(settings.pageOverrides, settings.pageOverrideDefaults, settings.marginsMm);
+            },
         });
 
         expect(selection.marginsLinked.value).toBe(true);
@@ -398,6 +411,10 @@ describe('scan cleanup selection override state', () => {
             previewTotalPages: () => 3,
             marginsLinked: ref(true),
             settings,
+            editDocumentSettings: (_pages, change) => {
+                change();
+                attachScanCleanupPageOverrideDefaults(settings.pageOverrides, settings.pageOverrideDefaults, settings.marginsMm);
+            },
         });
 
         selection.updateOutputModeOverride('mixed', [2]);

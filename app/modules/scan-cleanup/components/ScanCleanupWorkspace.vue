@@ -284,6 +284,7 @@ const {
     thicknessLabel,
     updateMargin: updateDocumentMargin,
     values: settings,
+    editDocumentSettings,
 } = workspaceSession.settings;
 const {
     presentFailureToast,
@@ -463,8 +464,8 @@ function resetSettingsToDefaults() {
     if (isRunning.value) {
         return;
     }
-    resetScanCleanupOptionsToDefaults(settings);
     resetPageOverrides();
+    editDocumentSettings([], () => resetScanCleanupOptionsToDefaults(settings));
 }
 
 const scopePageNumbers = computed<TScanCleanupPageScope | readonly number[]>(() => settingsScope.value === 'all'
@@ -773,7 +774,7 @@ function updateDocumentSetting(
     key: keyof IScanCleanupOptions,
     value: IScanCleanupOptions[keyof IScanCleanupOptions],
 ) {
-    Object.assign(settings, {[key]: value});
+    editDocumentSettings([], () => Object.assign(settings, {[key]: value}));
 }
 
 function useMixedOutput() {
