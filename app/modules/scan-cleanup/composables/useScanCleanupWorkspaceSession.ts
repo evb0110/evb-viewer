@@ -1,7 +1,6 @@
 import type {TDocumentRef} from '@contracts/documentRef';
 import type {TScanCleanupPageOutputMapping} from '@contracts/scan-cleanup/domain';
 import type {IScanCleanupPagePlanEvidence} from '@contracts/scan-cleanup/electronApiScanCleanup';
-import {attachScanCleanupPageOverrideDefaults} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
 import {
     type TScanCleanupPlacementAnchorsByPage,
     resolveScanCleanupDocumentInkAnchors,
@@ -19,6 +18,7 @@ import {useScanCleanupActivityTimeline} from '@app/modules/scan-cleanup/composab
 import {resolveScanCleanupActivity} from '@app/modules/scan-cleanup/runtime/resolveScanCleanupActivity';
 import {useTypedI18n} from '@app/composables/useTypedI18n';
 import type {TScanCleanupPreviewFrameRevealOutcome} from '@app/modules/scan-cleanup/composables/useScanCleanupPreviewImages';
+import type {IScanCleanupTabSessionState} from '@app/modules/workspace-shell/public';
 
 const SCAN_CLEANUP_PREVIEW_REVEAL_DEADLINE_MS = 10_000;
 
@@ -35,11 +35,14 @@ interface IUseScanCleanupWorkspaceSessionOptions {
     initialPreviewPage?: () => number | undefined;
     initialPreviewViewMode?: () => 'original' | 'cleaned' | undefined;
     pageMapping?: () => TScanCleanupPageOutputMapping | null | undefined;
+    /** The tab's view-state command: it owns the preview page and mode across activations. */
+    saveViewState?: (state: IScanCleanupTabSessionState) => void;
 }
 
 export const useScanCleanupWorkspaceSession = (options: IUseScanCleanupWorkspaceSessionOptions) => {
     const {t} = useTypedI18n();
     const initialPreviewPage = Math.max(1, Math.trunc(options.initialPreviewPage?.() ?? options.currentPage()));
+    const initialPreviewViewMode = options.initialPreviewViewMode?.() ?? 'cleaned';
     const ownerId = options.ownerId?.() ?? globalThis.crypto.randomUUID();
     const sourcePath = computed(options.sourcePath);
     const totalPages = computed(options.totalPages);
@@ -63,26 +66,6 @@ export const useScanCleanupWorkspaceSession = (options: IUseScanCleanupWorkspace
         sourceSha256,
         legacyDocumentKey,
     });
-    watch(
-        [
-            () => settings.values.pageOverrides,
-            () => settings.values.pageOverrideDefaults,
-        ],
-        ([
-            pageOverrides,
-            pageOverrideDefaults,
-        ]) => {
-            attachScanCleanupPageOverrideDefaults(
-                pageOverrides,
-                pageOverrideDefaults,
-                settings.values.marginsMm,
-            );
-        },
-        {
-            deep: true,
-            immediate: true,
-        },
-    );
     const resolvedOptions = computed(() => toPlainScanCleanupOptions(settings.values));
     let previewResult = null as ReturnType<typeof useScanCleanupPreviewSession> | null;
     const selection = useScanCleanupSelection({
@@ -92,9 +75,45 @@ export const useScanCleanupWorkspaceSession = (options: IUseScanCleanupWorkspace
         marginsLinked: settings.marginsLinked,
         editDocumentSettings: settings.editDocumentSettings,
         settings: settings.values,
+        saveLeader: () => saveViewState(),
     });
-    watch(options.active, active => {
-        if (active) selection.resetToLeader(previewResult?.totalPages.value ?? Math.max(1, totalPages.value));
+    // Writes this view to the tab. A replacement's page mapping stays until
+    // the one replacement it was written for consumes it.
+    function saveViewState(pageMapping = options.pageMapping?.()) {
+        options.saveViewState?.({
+            ownerId,
+            previewPage: selection.leader.value,
+            previewViewMode: previewResult?.viewMode.value ?? initialPreviewViewMode,
+            ...(pageMapping ? {pageMapping} : {}),
+        });
+    }
+    const documentIdentity = computed(() => `${sourcePath.value ?? ''}\u0000${documentRevision.value}`);
+    // One transition for the selection: coming on screen restarts it at its
+    // leader, a replaced document maps it through the replacement's page
+    // mapping, and a changed page count keeps it in range.
+    watch([
+        options.active,
+        documentIdentity,
+        totalPages,
+    ], ([
+        active,
+        identity,
+        pageCount,
+    ], previous) => {
+        const normalizedPageCount = Math.max(1, Math.trunc(pageCount));
+        if (active && !previous?.[0]) selection.resetToLeader(previewResult?.totalPages.value ?? normalizedPageCount);
+        if (!previous?.length) return;
+        if (identity !== previous[1]) {
+            const pageMapping = options.pageMapping?.();
+            selection.reconcileDocumentReplacement({
+                defaultPage: options.currentPage(),
+                pageCount: normalizedPageCount,
+                ...(pageMapping === undefined ? {} : {pageMapping}),
+            });
+            saveViewState(null);
+        } else if (pageCount !== previous[2]) {
+            selection.reconcilePageCount(normalizedPageCount, options.currentPage());
+        }
     }, {immediate: true});
     const detection = useScanCleanupDetectionSession({
         active: options.active,
@@ -121,7 +140,7 @@ export const useScanCleanupWorkspaceSession = (options: IUseScanCleanupWorkspace
         documentCanvasSignature: detection.documentCanvasSignature,
         detectionRecords: detection.records,
         documentRevision,
-        initialViewMode: options.initialPreviewViewMode?.(),
+        initialViewMode: initialPreviewViewMode,
         layoutDetectionComplete: detection.layoutDetectionComplete,
         lifecycleDocumentKey,
         ownerId,
@@ -137,29 +156,6 @@ export const useScanCleanupWorkspaceSession = (options: IUseScanCleanupWorkspace
         sourceSha256,
         sourcePath,
         totalPages,
-    });
-    const documentIdentity = computed(() => `${sourcePath.value ?? ''}\u0000${documentRevision.value}`);
-    watch([
-        documentIdentity,
-        totalPages,
-    ], (
-        [
-            identity,
-            pageCount,
-        ],
-        [previousIdentity],
-    ) => {
-        const normalizedPageCount = Math.max(1, Math.trunc(pageCount));
-        if (identity !== previousIdentity) {
-            const pageMapping = options.pageMapping?.();
-            selection.reconcileDocumentReplacement({
-                defaultPage: options.currentPage(),
-                pageCount: normalizedPageCount,
-                ...(pageMapping === undefined ? {} : {pageMapping}),
-            });
-            return;
-        }
-        selection.reconcilePageCount(normalizedPageCount, options.currentPage());
     });
     function resolvePagePlanEvidence(pageNumbers: readonly number[] | null) {
         const evidenceMatchesLayout = (pageNumber: number, evidence: IScanCleanupPagePlanEvidence) => (
@@ -322,12 +318,23 @@ export const useScanCleanupWorkspaceSession = (options: IUseScanCleanupWorkspace
             : null,
     }));
     const activityTimeline = useScanCleanupActivityTimeline(activity);
+    const preview = {
+        ...previewResult,
+        viewMode: computed({
+            get: () => previewResult.viewMode.value,
+            set: (viewMode: 'original' | 'cleaned') => {
+                previewResult.viewMode.value = viewMode;
+                saveViewState();
+            },
+        }),
+    };
+    saveViewState();
 
     return {
         selection,
         settings,
         detection,
-        preview: previewResult,
+        preview,
         run: {
             ...run,
             ownerId,

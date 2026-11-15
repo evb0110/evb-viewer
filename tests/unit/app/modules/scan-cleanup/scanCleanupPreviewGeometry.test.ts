@@ -728,7 +728,7 @@ describe('scan cleanup preview geometry', () => {
             .toBeCloseTo((1 + 285) / 286 * 100, 10);
     });
 
-    it('changes the frozen-frame signature for paper geometry but not pixel-only refreshes', async () => {
+    it('updates paper geometry while keeping it stable across pixel-only refreshes', async () => {
         const initialMetadata = metadata({
             outputWidthPx: 430,
             outputHeightPx: 630,
@@ -742,21 +742,20 @@ describe('scan cleanup preview geometry', () => {
         const scope = effectScope();
         const viewport = scope.run(() => useScanCleanupViewportFrame({
             activeDrag,
-            fitAreaSizes: {full: {
-                left: 0,
-                top: 0,
-                width: 800,
-                height: 800,
-            }},
-            matchPageSize: () => true,
             requestedPage: () => 1,
             result: () => result.value,
         }))!;
-        const initialSignature = viewport.signature.value;
+        expect(viewport.frame.value.outputs.full).toEqual({
+            width: 460,
+            height: 660,
+        });
 
         result.value = previewResult({...initialMetadata}, 2);
         await nextTick();
-        expect(viewport.signature.value).toBe(initialSignature);
+        expect(viewport.frame.value.outputs.full).toEqual({
+            width: 460,
+            height: 660,
+        });
 
         result.value = previewResult({
             ...initialMetadata,
@@ -764,8 +763,10 @@ describe('scan cleanup preview geometry', () => {
             outputHeightPx: 730,
         }, 3);
         await nextTick();
-        const intrinsicSignature = viewport.signature.value;
-        expect(intrinsicSignature).not.toBe(initialSignature);
+        expect(viewport.frame.value.outputs.full).toEqual({
+            width: 460,
+            height: 660,
+        });
 
         result.value = previewResult({
             ...initialMetadata,
@@ -775,7 +776,12 @@ describe('scan cleanup preview geometry', () => {
             canvasHeightPx: 760,
         }, 4);
         await nextTick();
-        expect(viewport.signature.value).not.toBe(intrinsicSignature);
+        expect(viewport.frame.value.outputs.full).toEqual({
+            width: 560,
+            height: 760,
+        });
+        result.value = previewResult({...result.value!.outputs[0]!.metadata}, 5);
+        await nextTick();
         expect(viewport.frame.value.outputs.full).toEqual({
             width: 560,
             height: 760,

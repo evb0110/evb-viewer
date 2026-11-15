@@ -695,7 +695,12 @@ const bilevelOutput = computed(() => !lossless.value && [
     ...Object.keys(props.settings.pageOverrides)
         .map(Number)
         .filter(page => Number.isSafeInteger(page) && page >= 1 && page <= props.totalPages)
-        .map(page => getScanCleanupPageOverride(props.settings.pageOverrides, requirePageNumber(page))),
+        .map(page => getScanCleanupPageOverride(
+            props.settings.pageOverrides,
+            requirePageNumber(page),
+            props.settings.pageOverrideDefaults,
+            props.settings.marginsMm,
+        )),
 ].some(override => !override.excluded
     && [
         'auto',
