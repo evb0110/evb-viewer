@@ -64,6 +64,8 @@ export interface IRegisteredMainOperation {
     id: string;
     signal: AbortSignal;
     markCommitStarted: () => void;
+    /** Asks the operation to stop; a critical write past its commit boundary keeps publishing. */
+    abort: (reason: string) => void;
     complete: () => void;
 }
 
@@ -157,19 +159,18 @@ export function registerMainOperation(
     operations.set(id, record);
 
     const cancellationSignal = cancellationSignals.getStore();
-    const cancelFromParent = () => {
-        // A critical write past its commit boundary is publishing, not reading:
-        // the caller giving up on the reply does not make a half-written output
-        // acceptable, so the same protection the other cancel paths apply holds
-        // here too.
+    // A critical write past its commit boundary is publishing, not reading:
+    // the caller giving up does not make a half-written output acceptable, so
+    // the same protection the other cancel paths apply holds here too.
+    const abort = (reason: string) => {
         if (record.kind === 'critical-write' && record.commitStarted) {
             return;
         }
-        const reason = cancellationSignal?.reason instanceof Error
-            ? cancellationSignal.reason.message
-            : 'IPC invoke canceled';
         requestOperationCancel(record, reason);
     };
+    const cancelFromParent = () => abort(cancellationSignal?.reason instanceof Error
+        ? cancellationSignal.reason.message
+        : 'IPC invoke canceled');
     if (cancellationSignal?.aborted) {
         cancelFromParent();
     } else if (cancellationSignal) {
@@ -186,6 +187,7 @@ export function registerMainOperation(
                 current.commitStarted = true;
             }
         },
+        abort,
         complete: record.complete,
     };
 }
