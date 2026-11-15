@@ -210,20 +210,32 @@ function hasBrowserWasm(runId: number) {
 }
 
 // A push run on a merge whose tree its pull request head already proved skips
-// the WASM build (scripts/ci/push-diff-base.sh). That head's run built the same tree.
+// the WASM build (scripts/ci/push-diff-base.sh). Under the same conditions,
+// that head's run built the same tree: the head contains the merged-into main,
+// so GitHub's synthetic merge for the pull request run equals the head.
 function mergedHeadWasmRun(sha: string) {
-    const head = command('git', [
+    const [, base, head] = command('git', [
         'rev-list',
         '--parents',
         '-n',
         '1',
         sha,
-    ]).split(' ')[2];
+    ]).split(' ');
     const tree = (commit: string) => command('git', [
         'rev-parse',
         `${commit}^{tree}`,
     ]);
-    if (!head || tree(head) !== tree(sha)) return undefined;
+    if (!base || !head || tree(head) !== tree(sha)) return undefined;
+    try {
+        command('git', [
+            'merge-base',
+            '--is-ancestor',
+            base,
+            head,
+        ]);
+    } catch {
+        return undefined;
+    }
     const run = successfulCiRun(head);
     return run && hasBrowserWasm(run.databaseId) ? run : undefined;
 }
