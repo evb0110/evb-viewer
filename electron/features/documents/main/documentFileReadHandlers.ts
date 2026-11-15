@@ -19,6 +19,8 @@ import {
 } from '@electron/features/documents/main/documentFilePathResolution';
 import type { IDocumentsSenderIdContext } from '@electron/features/documents/documentsContexts';
 import {quarantineWorkingCopy} from '@electron/file-access/workingCopyQuarantine';
+import {registerMainOperation} from '@electron/operation-lifecycle/mainOperationLifecycle';
+import {abortErrorFromSignal} from '@electron/utils/abort';
 import { getUnprovenNativeTerminationDetail } from '@electron/utils/nativeTerminationProof';
 
 const RANGE_READ_GLOBAL_IN_FLIGHT_BYTES = 32 * 1024 * 1024;
@@ -33,8 +35,6 @@ const rangeReadBudgetWaiters: Array<{
     path: string;
     bytes: number;
     resolve: () => void;
-    reject: (error: Error) => void;
-    timer: ReturnType<typeof setTimeout>;
 }> = [];
 
 function getRangeReadCacheKey(filePath: string) {
@@ -61,32 +61,48 @@ function pumpRangeReadBudgetWaiters() {
             continue;
         }
         rangeReadBudgetWaiters.splice(index, 1);
-        clearTimeout(waiter.timer);
         reserveRangeRead(waiter.path, waiter.bytes);
         waiter.resolve();
     }
 }
 
-async function acquireRangeReadBudget(path: string, bytes: number) {
+async function acquireRangeReadBudget(path: string, bytes: number, ownerWebContentsId: number | undefined) {
     if (!canReserveRangeRead(path, bytes)) {
         if (rangeReadBudgetWaiters.length >= RANGE_READ_MAX_WAITERS) {
             throw new Error('PDF range read queue is full; retry after active reads finish');
         }
         await new Promise<void>((resolve, reject) => {
+            // The invoke and the window waiting for these bytes can give up before capacity returns.
+            const owner = registerMainOperation({kind: 'abortable-work', ownerWebContentsId});
+            const settle = () => {
+                clearTimeout(timer);
+                owner.signal.removeEventListener('abort', abort);
+                owner.complete();
+            };
+            const drop = (error: Error) => {
+                const index = rangeReadBudgetWaiters.indexOf(waiter);
+                if (index >= 0) {
+                    rangeReadBudgetWaiters.splice(index, 1);
+                }
+                settle();
+                reject(error);
+            };
+            const abort = () => drop(abortErrorFromSignal(owner.signal));
+            const timer = setTimeout(
+                () => drop(new Error('Timed out waiting for PDF range read capacity')),
+                RANGE_READ_WAITER_TIMEOUT_MS,
+            );
             const waiter = {
                 path,
                 bytes,
-                resolve,
-                reject,
-                timer: setTimeout(() => {
-                    const index = rangeReadBudgetWaiters.indexOf(waiter);
-                    if (index >= 0) {
-                        rangeReadBudgetWaiters.splice(index, 1);
-                    }
-                    reject(new Error('Timed out waiting for PDF range read capacity'));
-                }, RANGE_READ_WAITER_TIMEOUT_MS),
+                resolve: () => {
+                    settle();
+                    resolve();
+                },
             };
             rangeReadBudgetWaiters.push(waiter);
+            if (owner.signal.aborted) abort();
+            else owner.signal.addEventListener('abort', abort, {once: true});
         });
     } else {
         reserveRangeRead(path, bytes);
@@ -208,14 +224,14 @@ export async function handleFileReadRange(
 
     const want = Math.min(len, MAX_CHUNK);
     const revision = entry?.doc.state().current?.id ?? 0;
-    const readKey = `${getRangeReadCacheKey(resolvedPath)}\0${entry?.registrationId ?? 'file'}\0${revision}\0${off}\0${want}`;
+    const readKey = `${context.senderId}\0${getRangeReadCacheKey(resolvedPath)}\0${entry?.registrationId ?? 'file'}\0${revision}\0${off}\0${want}`;
     const existingRead = pendingRangeReads.get(readKey);
     if (existingRead) {
         return existingRead;
     }
 
     const readPromise = (async () => {
-        const releaseBudget = await acquireRangeReadBudget(resolvedPath, want);
+        const releaseBudget = await acquireRangeReadBudget(resolvedPath, want, context.senderId);
         try {
             return entry ? await readOpenDocument(entry, off, want) : await readFileRange(resolvedPath, off, want);
         } finally {

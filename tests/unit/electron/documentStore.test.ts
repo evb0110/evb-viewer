@@ -1,4 +1,5 @@
 import {existsSync} from 'node:fs';
+import * as fsPromises from 'node:fs/promises';
 import {
     chmod,
     mkdtemp,
@@ -31,6 +32,11 @@ import {
 
 let tempRoot = '';
 
+vi.mock('node:fs/promises', async (importOriginal) => {
+    const original = await importOriginal<typeof fsPromises>();
+    return {...original, open: vi.fn(original.open)};
+});
+
 vi.mock('electron', () => ({
     app: {getPath: vi.fn(() => tempRoot)},
     webContents: {fromId: vi.fn(() => undefined)},
@@ -40,7 +46,8 @@ vi.mock('@electron/features/scan-cleanup/public/generatedOutputs', () => ({touch
 const store = await import('@electron/file-access/documentStore');
 const checkpoints = await import('@electron/workspaceCheckpointStore');
 const {findKeptOriginal} = await import('@electron/file-access/keptOriginalNotices');
-const {registerMainOperation} = await import('@electron/operation-lifecycle/mainOperationLifecycle');
+const {registerMainOperation, runWithMainOperationCancellationSignal} = await import('@electron/operation-lifecycle/mainOperationLifecycle');
+const {allowOpenPath, removeAllowedOpenPath} = await import('@electron/file-access/openPathCapabilities');
 const {handleFileReadRange} = await import('@electron/features/documents/main/documentFileReadHandlers');
 const {clearWorkingCopyQuarantinesForTests, quarantineWorkingCopy} = await import('@electron/file-access/workingCopyQuarantine');
 
@@ -599,5 +606,95 @@ describe('desktop document store', () => {
 
         expect(await handleFileReadRange({senderId: 7}, entry.ref, 0, 8)).toEqual(ORIGINAL.subarray(0, 8));
         await expect(handleFileReadRange({senderId: 8}, entry.ref, 0, 8)).rejects.toThrow('reads only allowed');
+    });
+
+    it('rejects a queued range read when its invoke owner gives up, without reading after capacity returns', async () => {
+        const {pdf, entry} = await openPdf();
+        const started = gate();
+        const unblock = gate();
+        const controller = new AbortController();
+        let readAfterCancellation = false;
+        const realOpen = vi.mocked(fsPromises.open).getMockImplementation()!;
+        const open = vi.mocked(fsPromises.open).mockImplementation(async (path, flags, mode) => {
+            if (path === pdf) {
+                readAfterCancellation ||= controller.signal.aborted;
+                started.resolve();
+                await unblock.promise;
+            }
+            return realOpen(path, flags, mode);
+        });
+        // One 8 MiB request occupies the document's full admission budget.
+        const active = handleFileReadRange({senderId: 7}, entry.ref, 0, 8 * 1024 * 1024);
+        let queued: Promise<unknown> | undefined;
+        try {
+            await started.promise;
+            queued = runWithMainOperationCancellationSignal(controller.signal, () =>
+                handleFileReadRange({senderId: 7}, entry.ref, 8, 8));
+            const outcome = queued.then(
+                bytes => ({status: 'fulfilled', bytes}),
+                error => ({status: 'rejected', error}),
+            );
+            // Let path resolution finish while the first read still owns capacity.
+            await new Promise<void>(resolve => setImmediate(resolve));
+            controller.abort(new Error('The range-read caller closed'));
+            unblock.resolve();
+            await active;
+
+            expect.soft(await outcome).toMatchObject({status: 'rejected'});
+            expect(readAfterCancellation).toBe(false);
+        } finally {
+            unblock.resolve();
+            await Promise.allSettled([active, ...(queued ? [queued] : [])]);
+            open.mockImplementation(realOpen);
+        }
+    });
+    it("keeps another sender's identical queued range read alive when the first invoke is canceled", async () => {
+        const source = await writeTemp('shared.pdf', ORIGINAL);
+        const pdf = allowOpenPath(source, 7)!;
+        allowOpenPath(source, 8);
+        const started = gate();
+        const unblock = gate();
+        const controller = new AbortController();
+        const realOpen = vi.mocked(fsPromises.open).getMockImplementation()!;
+        const open = vi.mocked(fsPromises.open).mockImplementation(async (path, flags, mode) => {
+            if (path === pdf) {
+                started.resolve();
+                await unblock.promise;
+            }
+            return realOpen(path, flags, mode);
+        });
+        // Plain files have no document registration to distinguish the two windows.
+        const active = handleFileReadRange({senderId: 7}, pdf, 0, 8 * 1024 * 1024);
+        const queued: Array<Promise<unknown>> = [];
+        try {
+            await started.promise;
+            const first = runWithMainOperationCancellationSignal(controller.signal, () =>
+                handleFileReadRange({senderId: 7}, pdf, 8, 8));
+            queued.push(first);
+            const firstOutcome = first.then(
+                bytes => ({status: 'fulfilled', bytes}),
+                error => ({status: 'rejected', error}),
+            );
+            await new Promise<void>(resolve => setImmediate(resolve));
+            const second = runWithMainOperationCancellationSignal(new AbortController().signal, () =>
+                handleFileReadRange({senderId: 8}, pdf, 8, 8));
+            queued.push(second);
+            const secondOutcome = second.then(
+                bytes => ({status: 'fulfilled', bytes}),
+                error => ({status: 'rejected', error}),
+            );
+            await new Promise<void>(resolve => setImmediate(resolve));
+            controller.abort(new Error('The first range-read caller closed'));
+            unblock.resolve();
+            await active;
+
+            expect(await firstOutcome).toMatchObject({status: 'rejected'});
+            expect(await secondOutcome).toEqual({status: 'fulfilled', bytes: ORIGINAL.subarray(8, 16)});
+        } finally {
+            unblock.resolve();
+            await Promise.allSettled([active, ...queued]);
+            open.mockImplementation(realOpen);
+            removeAllowedOpenPath(pdf);
+        }
     });
 });
