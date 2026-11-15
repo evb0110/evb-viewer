@@ -56,7 +56,6 @@ interface IDocumentViewContextDeps {
     /** Runs a user open as the document controller's open transaction in this view. */
     runDocumentOpen: (request: IWorkspaceOpenRequest, run: () => Promise<boolean>) => Promise<boolean>;
     emitOpenInNewTab: (result: TDocumentRef | TOpenFileResult) => void;
-    emitOpenSettings: () => void;
 }
 interface IDocumentViewBindingOptions {
     mountPresentation: Ref<boolean>;
@@ -445,14 +444,6 @@ export const createDocumentViewContext = (deps: IDocumentViewContextDeps) => {
         insertImageFromFile: annotationActions.insertImageFromFile,
         pasteImageFromClipboard: annotationActions.pasteImageFromClipboard,
         createQuickNote: annotationActions.handleQuickNoteAction,
-    });
-
-    watch(view.showSettings, (value) => {
-        if (!value) {
-            return;
-        }
-        deps.emitOpenSettings();
-        view.showSettings.value = false;
     });
 
     function bindDocumentView(options: IDocumentViewBindingOptions) {

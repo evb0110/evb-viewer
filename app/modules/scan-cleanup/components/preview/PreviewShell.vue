@@ -724,7 +724,6 @@ const {
 } = useScanCleanupPreviewImages(() => props.result, (hadPreviousResult) => {
     void nextTick(() => {
         pruneOutputElementRefs();
-        refreshFrozenViewportFrame();
         if (!hadPreviousResult) {
             observeCutterStage();
         }
@@ -954,13 +953,10 @@ const {
 const {
     frame: frozenViewportFrame,
     placeholderHalves,
-    refresh: refreshFrozenViewportFrame,
     sourceMetricsReady,
 } = useScanCleanupViewportFrame({
     activeDrag: dragTransaction.active,
-    fitAreaSizes: outputFitAreaSizes,
     layoutClassification: () => props.layoutClassification,
-    matchPageSize: () => props.matchPageSize,
     requestedPage: () => props.pageNumber,
     result: () => presentationResult.value,
     rotationDegrees: () => props.rotationDegrees ?? 0,
@@ -1711,10 +1707,7 @@ onBeforeUnmount(() => {
 watch(() => dragTransaction.active.value, active => {
     if (!active) {
         dragOutputSnapshot.value = null;
-        void nextTick(() => {
-            refreshFrozenViewportFrame();
-            updateOverlayGeometry();
-        });
+        void nextTick(updateOverlayGeometry);
     }
 });
 watch(() => props.disabled, disabled => {

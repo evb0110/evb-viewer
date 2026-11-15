@@ -61,6 +61,8 @@ interface IUseScanCleanupSelectionOptions {
     settings: IScanCleanupOptions;
     editDocumentSettings: ReturnType<typeof useScanCleanupDocumentSettings>['editDocumentSettings'];
     marginsLinked: Ref<boolean>;
+    /** Writes a new leader, the preview page, to the tab's view state. */
+    saveLeader?: () => void;
 }
 
 interface IScanCleanupDocumentReplacement {
@@ -85,7 +87,15 @@ export const useScanCleanupSelection = (options: IUseScanCleanupSelectionOptions
         settings.pageOverrideDefaults,
         settings.marginsMm,
     );
-    const leader = ref(options.initialPage);
+    const leaderPage = ref(options.initialPage);
+    const leader = computed({
+        get: () => leaderPage.value,
+        set: (page: number) => {
+            if (page === leaderPage.value) return;
+            leaderPage.value = page;
+            options.saveLeader?.();
+        },
+    });
     const anchor = ref(options.initialPage);
     const selectedPages = shallowRef<ReadonlySet<number>>(new Set([options.initialPage]));
     const settingsScope = ref<TScanCleanupSettingsScope>('all');

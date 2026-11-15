@@ -2303,6 +2303,36 @@ describe('Scan cleanup components', () => {
         expect(assistantOpen.value).toBe(true);
     });
 
+    it('restores the saved cleanup page and Original mode when the reader is on another page', async () => {
+        const {useScanCleanupWorkspaceSession} = await vi.importActual<typeof scanCleanupWorkspaceSessionModule>(
+            '@app/modules/scan-cleanup/composables/useScanCleanupWorkspaceSession',
+        );
+        realWorkspaceSession.create = useScanCleanupWorkspaceSession;
+        const restoredState = ref<IScanCleanupTabSessionState>({
+            ownerId: 'restored-cleanup-owner',
+            previewPage: 31,
+            previewViewMode: 'original',
+        });
+        let emittedState: IScanCleanupTabSessionState | undefined;
+        mount(defineComponent(() => () => h(ScanCleanupWorkspace, {
+            sourcePath: requireDocumentRef('/docs/restored-cleanup-page.pdf'),
+            documentKey: 'restored-cleanup-page',
+            currentPage: 37,
+            totalPages: 100,
+            sessionState: restoredState.value,
+            'onUpdate:sessionState': (state: IScanCleanupTabSessionState) => {
+                emittedState = state;
+                restoredState.value = state;
+            },
+        })));
+        await nextTick();
+
+        expect(emittedState).toMatchObject({
+            previewPage: 31,
+            previewViewMode: 'original',
+        });
+    });
+
     it('round-trips the toolbar surface command through Done while Escape keeps the workspace open', async () => {
         const updateCurrentPlacementAll = vi.fn();
         const detectAllPages = vi.fn();
@@ -2314,7 +2344,19 @@ describe('Scan cleanup components', () => {
         });
         const selectedPages = ref<ReadonlySet<number>>(new Set([7]));
         const previewPage = ref(7);
-        const previewViewMode = ref<'original' | 'cleaned'>('cleaned');
+        const viewMode = ref<'original' | 'cleaned'>('cleaned');
+        const saveViewState = () => workspaceSessionOptions.value?.saveViewState?.({
+            ownerId: 'component-test-owner',
+            previewPage: previewPage.value,
+            previewViewMode: viewMode.value,
+        });
+        const previewViewMode = computed({
+            get: () => viewMode.value,
+            set: (mode: 'original' | 'cleaned') => {
+                viewMode.value = mode;
+                saveViewState();
+            },
+        });
         const isRunning = ref(false);
         const jobProgress = ref({
             percent: 0,
@@ -2363,7 +2405,11 @@ describe('Scan cleanup components', () => {
                     label: 'Force two-page spreads',
                 },
             ]),
-            navigatePreview: vi.fn(),
+            navigatePreview: (delta: number) => {
+                previewPage.value += delta;
+                selectedPages.value = new Set([previewPage.value]);
+                saveViewState();
+            },
             outputEstimate: ref(''),
             outputItems: ref([
                 {
@@ -2494,11 +2540,20 @@ describe('Scan cleanup components', () => {
             viewMode: 'original',
         });
 
-        previewPage.value = 9;
+        const nextPage = harness.host.querySelector<HTMLButtonElement>('[aria-label="scanCleanup.preview.next"]');
+        expect(nextPage?.disabled).toBe(false);
+        nextPage!.click();
+        await nextTick();
+        expect(cleanupSession.value).toEqual({
+            ownerId: 'component-test-owner',
+            previewPage: 8,
+            previewViewMode: 'cleaned',
+        });
+        nextPage!.click();
         previewViewMode.value = 'original';
         await nextTick();
         expect(cleanupSession.value).toEqual({
-            ownerId: expect.any(String),
+            ownerId: 'component-test-owner',
             previewPage: 9,
             previewViewMode: 'original',
         });
