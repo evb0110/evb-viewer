@@ -251,6 +251,8 @@ function cleanupSession(session: ISerializedPdfPersistenceSession) {
     }
 
     const cleanupPromise = (async () => {
+        // Stops staging validation before its file goes; a commit keeps its own protection.
+        session.lifecycleOperation.abort('PDF persistence session ended before commit');
         clearSessionTimeout(session);
         session.unregisterSenderCleanup();
         session.releaseSenderReservation();
@@ -428,7 +430,7 @@ async function stageSession(
 
     await syncFileHandleForDurability(session.handle);
     await session.handle.close();
-    const validation = await validatePdfFile(session.tempPath);
+    const validation = await validatePdfFile(session.tempPath, {signal: session.lifecycleOperation.signal});
     if (!validation.isValid) {
         return {
             validation,

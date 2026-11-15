@@ -53,6 +53,11 @@ export function createOcrEnginePool(options: IOcrEnginePoolOptions) {
         waiters.shift()?.();
     };
 
+    const forget = (entry: IEngineWorker) => {
+        clearTimeout(entry.idleTimer);
+        workers.delete(entry);
+    };
+
     const discard = (entry: IEngineWorker) => {
         workers.delete(entry);
         void entry.worker.terminate();
@@ -75,8 +80,8 @@ export function createOcrEnginePool(options: IOcrEnginePoolOptions) {
                 };
                 entry.worker.unref();
                 // An idle worker that fails must not throw into the main process.
-                entry.worker.on('error', () => workers.delete(entry));
-                entry.worker.on('exit', () => workers.delete(entry));
+                entry.worker.on('error', () => forget(entry));
+                entry.worker.on('exit', () => forget(entry));
                 workers.add(entry);
                 return entry;
             }
@@ -149,8 +154,10 @@ export function createOcrEnginePool(options: IOcrEnginePoolOptions) {
             });
         },
         terminate() {
-            for (const entry of workers) void entry.worker.terminate();
-            workers.clear();
+            for (const entry of workers) {
+                forget(entry);
+                void entry.worker.terminate();
+            }
         },
     };
 }

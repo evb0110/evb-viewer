@@ -1,4 +1,14 @@
+import {EventEmitter} from 'node:events';
+import {existsSync} from 'node:fs';
+import {mkdtemp, rm, writeFile} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import type {IpcMainEvent, MessagePortMain, WebContents} from 'electron';
+import type {IPdfValidationResult} from '@contracts/pdfConformance';
 import {
+    afterEach,
+    beforeEach,
+    vi,
     describe,
     expect,
     it,
@@ -288,5 +298,97 @@ describe('document save utility protocol', () => {
             '12 0 R',
             '44 2 R',
         ]));
+    });
+});
+
+let tempRoot = '';
+const mocks = vi.hoisted(() => ({validate: vi.fn()}));
+vi.mock('electron', () => ({
+    app: {getPath: () => tempRoot},
+    webContents: {fromId: () => undefined},
+}));
+vi.mock('@electron/features/scan-cleanup/public/generatedOutputs', () => ({touchScanCleanupGeneratedOutput: async () => undefined}));
+// The injected native validator remains alive until its supplied signal aborts.
+vi.mock('@electron/features/documents/main/pdfConformance', () => ({validatePdfFile: mocks.validate}));
+
+const store = await import('@electron/file-access/documentStore');
+const persistence = await import('@electron/features/documents/main/serializedPdfPersistence');
+const {resetMainOperationLifecycleForTests} = await import('@electron/operation-lifecycle/mainOperationLifecycle');
+
+class TestPort extends EventEmitter {
+    start() {}
+    postMessage(message: unknown) { this.emit('posted', message); }
+    close() { this.emit('close'); }
+}
+
+describe('serialized PDF persistence', () => {
+    beforeEach(async () => {
+        tempRoot = await mkdtemp(join(tmpdir(), 'evb-serialized-pdf-'));
+        await store.setDocumentStoreRootForTests(join(tempRoot, 'store'));
+    });
+
+    afterEach(async () => {
+        await persistence.shutdownSerializedPdfPersistence();
+        resetMainOperationLifecycleForTests();
+        vi.useRealTimers();
+        await store.setDocumentStoreRootForTests(null);
+        await rm(tempRoot, {recursive: true, force: true});
+    });
+
+    it('stops the validator when staging exceeds its result deadline', async () => {
+        const bytes = new TextEncoder().encode('%PDF-1.7\noriginal bytes\n%%EOF\n');
+        const source = join(tempRoot, 'source.pdf');
+        await writeFile(source, bytes);
+        const entry = await store.openDocumentFromFile(source, {ownerWebContentsId: 7});
+        const sender = Object.assign(new EventEmitter(), {id: 7, isDestroyed: () => false}) as WebContents;
+        const port = new TestPort();
+        let started!: () => void;
+        const validatorStarted = new Promise<void>(resolve => { started = resolve; });
+        let finishValidator!: () => void;
+        let validatorRunning = false;
+        let observedAbort = false;
+        let validationPath = '';
+        const refused: IPdfValidationResult = {isValid: false, tool: 'qpdf', errors: ['stopped'], warnings: []};
+        mocks.validate.mockImplementation((path: string, options: {signal?: AbortSignal} = {}) => {
+            validationPath = path;
+            validatorRunning = true;
+            return new Promise<IPdfValidationResult>((resolve) => {
+                const signal = options.signal;
+                const abort = () => {
+                    observedAbort = true;
+                    finishValidator();
+                };
+                finishValidator = () => {
+                    signal?.removeEventListener('abort', abort);
+                    validatorRunning = false;
+                    resolve(refused);
+                };
+                if (signal?.aborted) abort();
+                else signal?.addEventListener('abort', abort, {once: true});
+                started();
+            });
+        });
+        vi.useFakeTimers({toFake: ['setTimeout', 'clearTimeout']});
+        const session = await persistence.beginSerializedPdfSaveToWorkingCopy(
+            {sender, senderId: sender.id}, entry.ref, bytes.byteLength,
+            {workingCopyOnly: true, expectedDocumentRevisionToken: store.documentRevisionToken(entry)},
+        );
+        const closed = persistence.attachSerializedPdfPersistencePort(
+            {sender, ports: [port as unknown as MessagePortMain]} as IpcMainEvent,
+            session.sessionId,
+        );
+        try {
+            port.emit('message', {data: {type: 'chunk', seq: 0, bytes}});
+            port.emit('message', {data: {type: 'complete'}});
+            await validatorStarted;
+            expect(validatorRunning).toBe(true);
+            await vi.advanceTimersByTimeAsync(session.resultTimeoutMs);
+            expect({observedAbort, validatorRunning}).toEqual({observedAbort: true, validatorRunning: false});
+            await closed;
+            expect(existsSync(validationPath)).toBe(false);
+        } finally {
+            finishValidator();
+            await closed;
+        }
     });
 });
