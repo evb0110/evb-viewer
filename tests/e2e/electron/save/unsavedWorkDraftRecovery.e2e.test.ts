@@ -308,7 +308,7 @@ it('keeps a restored tab\'s unsaved changes for a later start when its working c
         const note = await session.page.waitForFunction(() => Array.from(document.querySelectorAll<HTMLElement>('li, [role="status"], [role="alert"]'))
             .map(element => element.innerText)
             .find(text => text.includes('Unsaved changes not found')) ?? false, {timeout: 60_000});
-        expect(await note.jsonValue()).toContain(`The unsaved changes to ${fileName} are in a working copy that is missing on this computer, so the document opened as last saved. They are kept for a later start that finds the working copy.`);
+        expect(await note.jsonValue()).toContain(`The unsaved changes to ${fileName} are in a working copy that is missing or could not be read on this computer, so the document opened as last saved. They are kept for a later start that finds the working copy.`);
         await expect.poll(() => session.page.evaluate(firstPageIsLandscape), {timeout: 60_000}).toBe(false);
         // Saving the document as it shows would drop those changes, so Save refuses and the tab stays changed.
         await clickAsUser(session.page, 'button.save-split-primary');
