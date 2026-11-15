@@ -718,6 +718,7 @@ export default {
         'confirmCloseWindowDirtyDescription': 'Es gibt ungespeicherte Änderungen. Vor dem Schließen speichern, verwerfen oder abbrechen.',
         'discardChanges': 'Änderungen verwerfen',
         'transferErrors': {
+            'targetWindowsUnavailable': 'Die anderen Fenster konnten nicht aufgelistet werden.',
             'sourceChanged': 'Das Dokument wurde während des Verschiebens geändert.',
             'rolledBack': 'Der Tab konnte nicht verschoben werden. Ihr Dokument und Ihre Änderungen bleiben in diesem Fenster.',
             'noTargetPane': 'Im Zielfenster ist kein Zielfeld verfügbar.',
@@ -1897,6 +1898,8 @@ export default {
             'convert': 'Konvertierung fehlgeschlagen',
         },
         'workspace': {
+            'revealInFolderFailed': 'Die Datei konnte nicht in ihrem Ordner angezeigt werden.',
+            'openExternalLinkFailed': 'Der Link konnte nicht im Browser geöffnet werden.',
             'recoveryProtectionTitle': 'Die letzten Änderungen sind nicht geschützt',
             'recoveryProtectionDescription': 'Speichern Sie {fileName}, um die letzten Änderungen zu schützen. Die Erstellung des Wiederherstellungsabbilds wurde abgelehnt: {message}',
             'loadTitle': 'Der Dokument-Arbeitsbereich konnte nicht geladen werden',

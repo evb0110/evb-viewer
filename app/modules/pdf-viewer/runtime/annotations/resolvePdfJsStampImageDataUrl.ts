@@ -1,3 +1,4 @@
+import { BrowserLogger } from '@app/utils/browserLogger';
 import {ImageKind} from '@app/services/pdfjs/runtimeLib';
 import {
     formatPdfJsAnnotationRef,
@@ -203,7 +204,8 @@ export function resolvePdfJsStampImageDataUrl(
         output.data.set(rgba);
         context.putImageData(output, 0, 0);
         return canvas.toDataURL('image/png');
-    } catch {
+    } catch (error) {
+        BrowserLogger.warn('annotations', 'Failed to convert imported stamp image', error);
         return null;
     } finally {
         canvas.width = 0;

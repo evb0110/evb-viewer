@@ -1,3 +1,5 @@
+import * as visualMatchEngine from '@app/modules/pdf-viewer/engine/search/buildVisualMatchesWithCurrent';
+import {setBrowserLogSink} from '@app/utils/browserLogger';
 // @vitest-environment happy-dom
 
 import {
@@ -1614,4 +1616,21 @@ describe('pdfSearchHighlightDom text-layer mapping', () => {
         expect(firstHighlights[0]?.className).toBe('pdf-search-highlight appended begin');
         expect(secondHighlights[0]?.className).toBe('pdf-search-highlight appended end');
     });
+});
+
+it('#1608 retains the cause of a failed search highlight pass', async () => {
+    const retained: string[] = [];
+    setBrowserLogSink(entry => {if (entry.level === 'warn' || entry.level === 'error') retained.push(JSON.stringify(entry));});
+    const reconcile = vi.spyOn(visualMatchEngine, 'reconcileVisualMatches').mockRejectedValue(new Error('Search text worker unavailable'));
+    const layer = document.createElement('div');
+    layer.innerHTML = '<span>unrelated rendered text</span>';
+    try {
+        usePdfSearchHighlight().highlightPage(layer, {
+            pageIndex: requirePageIndex(0), pageText: '', searchQuery: 'needle',
+            matches: [{matchIndex: 0, start: 100, end: 106}],
+        }, null);
+        await Promise.resolve();
+        await Promise.resolve();
+        expect(retained.join(' ')).toContain('Search text worker unavailable');
+    } finally {reconcile.mockRestore(); setBrowserLogSink(() => {});}
 });

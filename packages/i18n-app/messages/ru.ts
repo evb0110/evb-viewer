@@ -193,6 +193,7 @@ export default {
         'confirmCloseWindowDirtyDescription': 'Есть несохранённые изменения. Сохраните их перед закрытием окна, отбросьте или отмените.',
         'discardChanges': 'Отбросить изменения',
         'transferErrors': {
+            'targetWindowsUnavailable': 'Не удалось получить список других окон.',
             'sourceChanged': 'Документ изменился во время перемещения вкладки.',
             'rolledBack': 'Не удалось переместить вкладку. Документ и ваши изменения остались в этом окне.',
             'noTargetPane': 'В окне назначения нет доступной целевой панели.',
@@ -1943,6 +1944,8 @@ export default {
             'convert': 'Не удалось выполнить конвертацию',
         },
         'workspace': {
+            'revealInFolderFailed': 'Не удалось показать файл в папке.',
+            'openExternalLinkFailed': 'Не удалось открыть ссылку в браузере.',
             'recoveryProtectionTitle': 'Последние изменения не защищены',
             'recoveryProtectionDescription': 'Сохраните {fileName}, чтобы защитить последние изменения. Создание снимка восстановления отклонено: {message}',
             'loadTitle': 'Не удалось загрузить рабочую область документа',

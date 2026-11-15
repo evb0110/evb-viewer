@@ -1,3 +1,4 @@
+import {clickAsUser} from '@tests/e2e/electron/helpers/userInput';
 import {
     describe, expect, it,
 } from 'vitest';
@@ -102,4 +103,36 @@ describe('empty workspace toolbar contract', () => {
         expect(documentToolbar.rightControls.map(item => item.label)).toEqual(empty.rightControls.map(item => item.label));
         expect(documentToolbar.rightControls.map(item => item.right)).toEqual(empty.rightControls.map(item => item.right));
     }, 90_000);
+});
+
+// I1, #1608: the real tab menu must acknowledge a rejected clipboard write.
+// This is the one real-app regression for the shared clipboard/shell pattern.
+it('#1608 shows feedback when Copy path is denied by the clipboard', async () => {
+    const session = sessions.getSession();
+    const pdfPath = await createMultiPageTextFixturePdf(`clipboard-failure-${Date.now()}.pdf`, 1);
+    await openPdfInApp(session.page, pdfPath);
+    await waitForPdfLoaded(session.page);
+    await session.page.evaluate(() => {
+        const clipboard = navigator.clipboard;
+        Object.defineProperty(clipboard, '__step1608OriginalWriteText', {
+            value: Object.getOwnPropertyDescriptor(clipboard, 'writeText'), configurable: true,
+        });
+        Object.defineProperty(clipboard, 'writeText', {configurable: true, value: async () => {
+            throw new DOMException('Clipboard write denied for #1608', 'NotAllowedError');
+        }});
+    });
+    try {
+        await clickAsUser(session.page, '.tab.is-active[data-tab-id]', {button: 'right'});
+        await clickAsUser(session.page, '[data-tab-command="copy-path"]');
+        await expect.poll(() => session.page.$$eval('[role="status"], [role="alert"]', nodes =>
+            nodes.map(node => node.textContent ?? '').join(' ')), {timeout: 1_000})
+            .toMatch(/(?:failed|unable|could not|denied|not allowed).*(?:cop|clipboard)|(?:cop|clipboard).*(?:failed|unable|could not|denied|not allowed)/i);
+    } finally {
+        await session.page.evaluate(() => {
+            const original = Reflect.get(navigator.clipboard, '__step1608OriginalWriteText');
+            if (original) Object.defineProperty(navigator.clipboard, 'writeText', original);
+            else Reflect.deleteProperty(navigator.clipboard, 'writeText');
+            Reflect.deleteProperty(navigator.clipboard, '__step1608OriginalWriteText');
+        });
+    }
 });

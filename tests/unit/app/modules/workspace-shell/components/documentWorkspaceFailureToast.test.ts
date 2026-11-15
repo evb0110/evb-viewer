@@ -1,3 +1,4 @@
+import {createElectronPlatformApiFixture} from '@tests/helpers/createElectronPlatformApiFixture';
 // @vitest-environment happy-dom
 
 import {
@@ -46,7 +47,12 @@ vi.mock('@app/modules/workspace-shell/components/DocumentWorkspace.vue', () => {
     };
 });
 
-vi.mock('@app/modules/pdf-viewer/public/component-exports/pdfEmptyState', () => ({PdfEmptyState: defineComponent({setup: () => () => h('div')})}));
+vi.mock('@app/modules/pdf-viewer/public/component-exports/pdfEmptyState', () => ({PdfEmptyState: defineComponent({
+    emits: ['reveal-recent'],
+    setup: (_props, {emit}) => () => h('button', {onClick: () => emit('reveal-recent', {
+        originalPath: '/docs/recent.pdf', fileName: 'recent.pdf',
+    })}, 'Reveal recent'),
+})}));
 
 vi.mock('@app/composables/useRecentFiles', () => ({useRecentFiles: () => ({
     recentFiles: ref([]),
@@ -137,4 +143,37 @@ describe('document workspace failure presentation (C4)', () => {
         expect(errorToasts).toHaveLength(1);
         expect(errorToasts[0]?.textContent).toContain('errors.runtime.copy');
     });
+});
+
+it.each(['reject', 'false'])('#1608 explains a failed Recent show-in-folder action (%s)', async outcome => {
+    const messages: string[] = [];
+    vi.stubGlobal('useToast', () => ({add: (notice: {title: string; description?: string}) => {
+        messages.push([notice.title, notice.description].filter(Boolean).join(' '));
+    }}));
+    vi.stubGlobal('window', Object.assign(window, {electronAPI: createElectronPlatformApiFixture({documentWindow: {
+        showItemInFolder: async () => {
+            if (outcome === 'false') return false;
+            throw new Error('Recent file manager unavailable');
+        },
+    }})}));
+    const state = new Map<string, unknown>();
+    vi.stubGlobal('useState', (key: string, initial: () => unknown) => {
+        if (!state.has(key)) state.set(key, ref(initial()));
+        return state.get(key);
+    });
+    const {createWorkspaceDocumentController} = await import('@app/modules/workspace-shell/document-sessions/workspaceDocumentController');
+    const {default: DocumentWorkspaceTab} = await import('@app/modules/workspace-shell/components/DocumentWorkspaceTab.vue');
+    host = document.createElement('div'); document.body.append(host);
+    const recentSession = createWorkspaceDocumentController({tabId: 'recent'});
+    app = createApp({render: () => h(DocumentWorkspaceTab, {
+        tabId: 'recent', documentSession: recentSession,
+        isActive: true, isRenderActive: true, isTabTransitionBusy: false,
+        startSection: 'recent', isFullscreen: false, fullscreenSupported: true, isWorkspaceLayoutResizing: false,
+    })});
+    app.component('ClientOnly', defineComponent({setup: (_props, {slots}) => () => slots.default?.()}));
+    app.mount(host);
+    try {
+        host.querySelector('button')!.click();
+        await vi.waitFor(() => expect(messages.join(' ')).toMatch(/folder|reveal/i));
+    } finally {Reflect.deleteProperty(window, 'electronAPI');}
 });

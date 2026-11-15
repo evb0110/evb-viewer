@@ -1,3 +1,6 @@
+import { captureFailureForPresentation } from '@app/utils/failureReporter';
+import { useFailureToast } from '@app/composables/useFailureToast';
+import { BrowserLogger } from '@app/utils/browserLogger';
 import { requirePageNumber } from '@contracts/pageNumbers';
 import type { TPageNumber } from '@contracts/pageNumbers';
 
@@ -122,6 +125,8 @@ function resolvePlacementCoordinate(value: number | null | undefined) {
 }
 
 export const usePdfImagePlacement = (options: IUsePdfImagePlacementOptions) => {
+    const { t } = useTypedI18n();
+    const { presentFailureToast } = useFailureToast();
     const {
         viewerContainer,
         currentPage,
@@ -286,6 +291,13 @@ export const usePdfImagePlacement = (options: IUsePdfImagePlacementOptions) => {
             isPendingImagePlacementFinalizing.value = false;
             return true;
         } catch (error) {
+            if (!abortController.signal.aborted) {
+                BrowserLogger.warn('annotations', 'Failed to read image for placement', error);
+                presentFailureToast({
+                    ...captureFailureForPresentation({code: 'RENDERER_WORKSPACE_OPERATION_FAILED', local: {source: 'annotations', message: 'Failed to read image for placement', cause: error}}),
+                    title: t('assistant.imageReadFailed', {name: file.name}),
+                });
+            }
             logPdfRenderTrace('pdf-image-placement-start-failed', {
                 error: error instanceof Error ? error.message : String(error),
                 fileName: file.name,

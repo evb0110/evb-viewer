@@ -94,6 +94,25 @@ describe('usePdfImagePlacement', () => {
 
     const createPreviewForTest = async () => new Blob(['preview'], {type: 'image/png'});
 
+    it('#1608 explains an image probe failure instead of silently losing placement', async () => {
+        const messages: string[] = [];
+        vi.stubGlobal('useToast', () => ({add: (notice: {title: string; description?: string}) => {
+            messages.push([notice.title, notice.description].filter(Boolean).join(' '));
+        }}));
+        const scope = effectScope();
+        const placement = scope.run(() => usePdfImagePlacement({
+            viewerContainer: ref(createViewerContainer()), currentPage: ref(1), numPages: ref(1),
+            effectiveScale: ref(1), finalizePlacement: () => {},
+            probeImage: async () => {throw new Error('Unsupported image encoding');},
+            createPreview: createPreviewForTest,
+        }))!;
+        try {
+            expect(await placement.startImagePlacement(new File(['bad image'], 'broken.png', {type: 'image/png'}))).toBe(false);
+            expect(placement.pendingImagePlacement.value).toBeNull();
+            expect(messages.join(' ')).toMatch(/image/i);
+        } finally {scope.stop();}
+    });
+
     it('clamps the initial placement rect to page bounds', () => {
         expect(getInitialImagePlacementRect({
             pageNumber: requirePageNumber(2),
@@ -623,4 +642,8 @@ describe('usePdfImagePlacement', () => {
         }
     });
 
+});
+
+beforeEach(() => {
+    vi.stubGlobal('useToast', () => ({add: vi.fn()}));
 });

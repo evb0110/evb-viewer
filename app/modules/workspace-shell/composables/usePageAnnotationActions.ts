@@ -1,3 +1,5 @@
+import { useFailureToast } from '@app/composables/useFailureToast';
+import { captureFailureForPresentation } from '@app/utils/failureReporter';
 import type { Ref } from 'vue';
 import { requirePageNumber } from '@contracts/pageNumbers';
 import type { TDocumentRef } from '@contracts/documentRef';
@@ -68,6 +70,7 @@ interface IPageAnnotationActionsDeps {
 export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
     const { t } = useTypedI18n();
     const toast = useToast();
+    const { presentFailureToast } = useFailureToast();
     const { copy: copyClipboardText } = VueUse.useClipboard();
 
     const {
@@ -481,17 +484,22 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
         closeAnnotationContextMenu();
     }
 
-    async function copyContextMenuSelectionText() {
-        const text = annotationContextMenu.value.selectionText.trim();
+    async function copyAnnotationText(text: string) {
         closeAnnotationContextMenu();
-        if (!text) {
-            return;
-        }
+        if (!text) return;
         try {
             await copyClipboardText(text);
         } catch (error) {
-            BrowserLogger.debug('annotations', 'Failed to copy selected text to clipboard', error);
+            BrowserLogger.warn('annotations', 'Failed to copy annotation text to clipboard', error);
+            presentFailureToast({
+                ...captureFailureForPresentation({code: 'RENDERER_WORKSPACE_OPERATION_FAILED', local: {source: 'annotations', message: 'Failed to copy annotation text to clipboard', cause: error}}),
+                title: t('assistant.copyFailed'),
+            });
         }
+    }
+
+    function copyContextMenuSelectionText() {
+        return copyAnnotationText(annotationContextMenu.value.selectionText.trim());
     }
 
     function deleteContextMenuComment() {
@@ -536,7 +544,11 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
                 { preferTextAnchor: false },
             );
         } catch (error) {
-            BrowserLogger.diagnostic('note-placement', 'Failed to create note from annotation context menu', error);
+            BrowserLogger.warn('note-placement', 'Failed to create note from annotation context menu', error);
+            presentFailureToast({
+                ...captureFailureForPresentation({code: 'RENDERER_WORKSPACE_OPERATION_FAILED', local: {source: 'note-placement', message: 'Failed to create note from annotation context menu', cause: error}}),
+                title: t('errors.annotation.create'),
+            });
         } finally {
             isCreatingContextMenuFreeNote = false;
         }
@@ -598,17 +610,8 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
         closeAnnotationContextMenu();
     }
 
-    async function handleCopyAnnotationComment(comment: IAnnotationCommentSummary) {
-        closeAnnotationContextMenu();
-        const text = comment.text?.trim();
-        if (!text) {
-            return;
-        }
-        try {
-            await copyClipboardText(text);
-        } catch (error) {
-            BrowserLogger.debug('annotations', 'Failed to copy annotation comment text to clipboard', error);
-        }
+    function handleCopyAnnotationComment(comment: IAnnotationCommentSummary) {
+        return copyAnnotationText(comment.text?.trim() ?? '');
     }
 
     const { handleDeleteAnnotationComment } = createPageAnnotationDeleteActions({

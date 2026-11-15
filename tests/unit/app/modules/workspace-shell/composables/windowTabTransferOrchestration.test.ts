@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 import {
+    beforeEach,
     describe,
     expect,
     it,
@@ -1319,4 +1320,29 @@ describe('window tab transfer orchestration helpers', () => {
             if (scenario === 'superseded') expect(transferMock).not.toHaveBeenCalled();
         }
     });
+});
+
+it('#1608 reports a failed split reading-position restore', async () => {
+    const messages: string[] = [];
+    vi.stubGlobal('useToast', () => ({add: (notice: {title: string; description?: string}) => {
+        messages.push([notice.title, notice.description].filter(Boolean).join(' '));
+    }}));
+    const page = ref(1);
+    const split = useWorkspaceSplitPayload(cast<Parameters<typeof useWorkspaceSplitPayload>[0]>({
+        totalPages: ref(12), originalPath: ref(requireDocumentRef('/docs/a.pdf')),
+        prepareViewReload: () => ({promise: Promise.reject(new Error('Reading-position staging failed')), cancel: () => {}}),
+        openFileWithViewerLifecycle: async () => ({status: 'opened'}),
+    }));
+    try {
+        await split.restoreSplitPayload(cast<Parameters<typeof split.restoreSplitPayload>[0]>({view: {
+            totalPages: ref(12), currentPage: page, pdfViewerRef: ref(null),
+        }}), {kind: 'pdfSnapshot', snapshotPath: requireDocumentRef('/work/a.pdf'), fileName: 'a.pdf', isDirty: false,
+            originalPath: requireDocumentRef('/docs/a.pdf'), currentPage: 7, totalPages: 12});
+        expect(page.value).toBe(1);
+        expect(messages.join(' ')).toMatch(/restore|position|transfer/i);
+    } finally {vi.unstubAllGlobals();}
+});
+
+beforeEach(() => {
+    vi.stubGlobal('useToast', () => ({add: vi.fn()}));
 });

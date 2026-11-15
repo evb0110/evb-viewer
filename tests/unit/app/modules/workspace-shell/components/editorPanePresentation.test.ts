@@ -11,6 +11,7 @@ import {
     createApp,
     defineComponent,
     h,
+    nextTick,
 } from 'vue';
 import type { App } from 'vue';
 import {
@@ -46,6 +47,12 @@ vi.mock('@app/modules/workspace-shell/components/layout/TabBar.vue', () => ({def
         return () => h('div', {class: 'tab-bar-stub'});
     },
 })}));
+
+const targets = vi.hoisted(() => ({desktop: true, listTargetWindows: vi.fn()}));
+vi.mock('@app/utils/platformWindowTabs', () => ({
+    canUseNativeWindowTabTransfers: () => targets.desktop,
+    getWindowTabsCapability: () => targets,
+}));
 
 let mountedApp: App | null = null;
 let mountedHost: HTMLElement | null = null;
@@ -188,5 +195,25 @@ describe('editor pane presentation', () => {
         expect(zen.host.querySelector('[data-host-tab-id="tab-new"]')).not.toBeNull();
         // Zen mode presents the document alone, without the tab strip.
         expect(zen.host.querySelector('.tab-bar-stub')).toBeNull();
+    });
+});
+
+describe('#1608 desktop window transfer target feedback', () => {
+    it('explains a failed desktop destination query when the tab menu opens', async () => {
+        const {default: TabBar} = await vi.importActual<typeof import('@app/modules/workspace-shell/components/layout/TabBar.vue')>('@app/modules/workspace-shell/components/layout/TabBar.vue');
+        const messages: string[] = [];
+        vi.stubGlobal('useToast', () => ({add: (notice: {title: string; description?: string}) => {
+            messages.push([notice.title, notice.description].filter(Boolean).join(' '));
+        }}));
+        targets.listTargetWindows.mockRejectedValue(new Error('Window registry unavailable'));
+        const app = createApp({render: () => h(TabBar, {tabs: [{id: 'tab-1', fileName: 'a.pdf', originalPath: null, isDirty: false, isDjvu: false}], activeTabId: 'tab-1'})});
+        const slot = defineComponent({inheritAttrs: false, setup: (_props, {slots}) => () => slots.default?.()});
+        app.component('AppTooltip', slot); app.component('UDropdownMenu', slot); app.component('Icon', slot);
+        const host = document.createElement('div'); document.body.append(host); app.mount(host);
+        try {
+            host.querySelector('[role="tab"]')!.dispatchEvent(new MouseEvent('contextmenu', {bubbles: true}));
+            await nextTick(); await Promise.resolve();
+            expect(messages.join(' ')).toMatch(/window|destination|transfer/i);
+        } finally {app.unmount(); host.remove(); vi.unstubAllGlobals();}
     });
 });
