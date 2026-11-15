@@ -42,6 +42,8 @@ interface IPageDragDropDeps {
     selectedPageSelection?: Readonly<Ref<TPageSelection | null>>;
     onReorder: (newOrder: number[]) => void;
     onMove?: ((move: TPageMoveOperation) => void) | undefined;
+    /** Writes a drag auto-scroll offset through the rail's own write port. */
+    scrollRailTo?: (top: number) => void;
     resolveDropIndex?: (clientY: number, container: HTMLElement) => number | null;
     onExternalFileDrop?: (afterPage: number, filePaths: TDocumentRef[]) => void;
 }
@@ -69,6 +71,7 @@ export const usePageDragDrop = (deps: IPageDragDropDeps) => {
         selectedPageSelection,
         onReorder,
         onMove,
+        scrollRailTo,
         resolveDropIndex,
         onExternalFileDrop,
     } = deps;
@@ -84,7 +87,6 @@ export const usePageDragDrop = (deps: IPageDragDropDeps) => {
     let clickSkip = false;
     const isWindowDragListenerActive = ref(false);
     let dragReorderContext: IDragReorderContext | null = null;
-    const autoScrollContainer = ref<HTMLElement | null>(null);
     const autoScrollStep = ref(0);
     const { t } = useTypedI18n();
     const {
@@ -143,11 +145,11 @@ export const usePageDragDrop = (deps: IPageDragDropDeps) => {
         pause: pauseAutoScroll,
         resume: resumeAutoScroll,
     } = useIntervalFn(() => {
-        const container = autoScrollContainer.value;
+        const container = containerRef.value;
         if (!container || autoScrollStep.value === 0) {
             return;
         }
-        container.scrollTop += autoScrollStep.value;
+        scrollRailTo?.(container.scrollTop + autoScrollStep.value);
     }, AUTO_SCROLL_INTERVAL_MS, { immediate: false });
 
     function getDragPages(page: number) {
@@ -173,18 +175,10 @@ export const usePageDragDrop = (deps: IPageDragDropDeps) => {
         return [page];
     }
 
+    // Only the rail scrolls; its panel clips it and never overflows.
     function findScrollContainer() {
         const container = containerRef.value;
-        if (!container) {
-            return null;
-        }
-
-        if (container.scrollHeight > container.clientHeight + 1) {
-            return container;
-        }
-
-        const closestContainer = container.closest('.pdf-sidebar-pages-thumbnails');
-        return closestContainer instanceof HTMLElement ? closestContainer : null;
+        return container && container.scrollHeight > container.clientHeight + 1 ? container : null;
     }
 
     function resolveDropInsertIndex(clientY: number) {
@@ -374,21 +368,15 @@ export const usePageDragDrop = (deps: IPageDragDropDeps) => {
             return;
         }
 
-        if (
-            isAutoScrollActive.value
-            && autoScrollContainer.value === sc
-            && autoScrollStep.value === nextScrollStep
-        ) {
+        if (isAutoScrollActive.value && autoScrollStep.value === nextScrollStep) {
             return;
         }
 
-        autoScrollContainer.value = sc;
         autoScrollStep.value = nextScrollStep;
         resumeAutoScroll();
     }
 
     function clearAutoScroll() {
-        autoScrollContainer.value = null;
         autoScrollStep.value = 0;
         pauseAutoScroll();
     }

@@ -4,7 +4,6 @@
         v-bind="$attrs"
         class="document-thumbnail-rail app-scrollbar app-scroll-region--balanced"
         data-document-thumbnail-rail
-        data-preserve-pane-relocation-scroll
     >
         <slot />
     </div>
