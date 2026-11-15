@@ -1571,7 +1571,7 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
         const secondRevisionToken = secondSaveEvent.detail.documentRevisionToken;
         expect(secondRevisionToken).toEqual(expect.any(String));
         expect(String(secondRevisionToken).length).toBeGreaterThan(0);
-        expect(secondRevisionToken).not.toBe(firstRevisionToken);
+        expect(secondRevisionToken).not.toBe(restoredFirstIdentity.revision.token);
         const secondSaveIdentity = await readDocumentSaveIdentity(restartedSession.page);
         expect(secondSaveIdentity.revision.token).toBe(secondRevisionToken);
 
