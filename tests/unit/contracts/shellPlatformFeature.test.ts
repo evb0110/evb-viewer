@@ -34,11 +34,11 @@ describe('platform wire compatibility', () => {
                 'onMenuCloseTab=menu:closeTab onMenuSplitEditor=menu:splitEditor'},
         {feature: AGENT_PLATFORM_FEATURE,
             invoke: 'getMcpIntegrationStatus=agent:getMcpIntegrationStatus setMcpIntegrationEnabled=agent:setMcpIntegrationEnabled ' +
-                'getAssistantState=agent:getAssistantState installAssistantCodex=agent:installAssistantCodex ' +
+                'getAssistantState=agent:getAssistantState ' +
                 'startAssistantLogin=agent:startAssistantLogin cancelAssistantLogin=agent:cancelAssistantLogin ' +
                 'sendAssistantMessage=agent:sendAssistantMessage interruptAssistant=agent:interruptAssistant ' +
                 'resetAssistantChat=agent:resetAssistantChat getAssistantInstances=agent:getAssistantInstances ' +
-                'saveAssistantInstances=agent:saveAssistantInstances importAssistantInstancesFromT3=agent:importAssistantInstancesFromT3 ' +
+                'saveAssistantInstances=agent:saveAssistantInstances ' +
                 'submitWorkspaceSnapshot=agent:submitWorkspaceSnapshot submitCommandResponse=agent:submitCommandResponse',
             events: 'onMcpIntegrationChanged=agent:mcpIntegrationChanged onAssistantEvent=agent:assistantEvent ' +
                 'onWorkspaceSnapshotRequest=agent:workspaceSnapshotRequest onCommandCancelRequest=agent:commandCancelRequest ' +

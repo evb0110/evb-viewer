@@ -9,7 +9,6 @@ import type { TFeatureMainBindings } from '@contracts/platformFeature';
 import {
     cancelAgentAssistantLogin,
     getAgentAssistantState,
-    installAgentAssistantCodex,
     interruptAgentAssistant,
     resetAgentAssistantChat,
     sendAgentAssistantMessage,
@@ -22,7 +21,6 @@ import {
 } from '@electron/features/agent/codexMcpIntegration';
 import {
     getAssistantInstanceConfigs,
-    importAssistantInstancesFromT3,
     saveAssistantInstanceConfigs,
 } from '@electron/features/agent/assistantInstances';
 import {
@@ -60,7 +58,6 @@ export function createAgentService() {
             return result;
         }),
         getAssistantState: (_context, request) => getAgentAssistantState(request),
-        installAssistantCodex: () => installAgentAssistantCodex(),
         startAssistantLogin: (_context, request) => startAgentAssistantLogin(request),
         cancelAssistantLogin: (_context, request) => cancelAgentAssistantLogin(request),
         sendAssistantMessage: (context, request) =>
@@ -73,7 +70,6 @@ export function createAgentService() {
             notices: [],
         }),
         saveAssistantInstances: (_context, instances) => saveAssistantInstanceConfigs(instances),
-        importAssistantInstancesFromT3: () => importAssistantInstancesFromT3(),
         submitWorkspaceSnapshot: (context, response) =>
             Promise.resolve(submitAgentWorkspaceSnapshotResponse(context, response)),
         submitCommandResponse: (context, response) =>

@@ -35,7 +35,7 @@ describe('Electron E2E - assistant model discovery', () => {
         return page;
     }
 
-    it('shows the newest model in each family with Sol and Opus first', async () => {
+    it('shows the installed setup’s reported models and a runnable default without inserting Sol 6.1', async () => {
         const page = await openAssistantDocument();
         const inputInset = await page.$eval('.composer-input', input => {
             const style = getComputedStyle(input);
@@ -52,20 +52,11 @@ describe('Electron E2E - assistant model discovery', () => {
             labels: [...group.querySelectorAll('.picker-model')].map(row => row.textContent?.trim() ?? ''),
         })));
         const codex = groups.find(group => group.provider === 'Codex')?.labels ?? [];
-        const claude = groups.find(group => group.provider === 'Claude')?.labels ?? [];
-        expect(codex[0]).toMatch(/^GPT-\d+(?:\.\d+)?-Sol$/);
-        expect(codex).not.toContain('GPT-6-Sol');
-        expect(codex.some(label => /-Luna$/.test(label))).toBe(true);
-        expect(claude[0]).toMatch(/^Opus \d+(?:\.\d+)?/);
-        expect(claude).not.toContain('Opus');
-        for (const family of [
-            'Opus',
-            'Fable',
-        ]) {
-            const versions = claude.flatMap(label => new RegExp(`^${family} (\\d+(?:\\.\\d+)?)`).exec(label)?.slice(1) ?? []);
-            expect(versions.length).toBeGreaterThan(0);
-            expect(new Set(versions).size, `${family} has stale versions: ${versions.join(', ')}`).toBe(1);
-        }
+        expect(codex).toEqual(['GPT-6-Astra', 'GPT-6-Sol', 'GPT-6-Luna', 'GPT-5.6-Sol', 'GPT-5.6-Terra', 'GPT-5.6-Luna', 'GPT-5.5']);
+        expect(codex).not.toContain('GPT-6.1-Sol');
+        const state = await page.evaluate(async () => (window as IE2EWindow).electronAPI!.agent.getAssistantState());
+        const setup = state.instances.find(instance => instance.id === 'codex')!;
+        expect(setup.models.some(model => model.id === setup.defaultModel)).toBe(true);
         expect(await page.$('.assistant-message.is-user')).toBeNull();
     }, 60_000);
 

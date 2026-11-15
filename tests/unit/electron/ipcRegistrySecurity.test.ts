@@ -28,7 +28,7 @@ const mocks = vi.hoisted(() => {
         instances: [],
         selection: null,
         chat: null,
-        installProgress: null,
+
     };
     const agentService = {
         getMcpIntegrationStatus: vi.fn(async () => ({
@@ -58,16 +58,7 @@ const mocks = vi.hoisted(() => {
             instances: [],
             notices: [],
         })),
-        importAssistantInstancesFromT3: vi.fn(async () => ({
-            ok: true,
-            instances: [],
-            notices: [],
-        })),
         getAssistantState: vi.fn(async () => agentState),
-        installAssistantCodex: vi.fn(async () => ({
-            ok: true,
-            state: agentState,
-        })),
         startAssistantLogin: vi.fn(async () => ({
             ok: true,
             state: agentState,

@@ -15,7 +15,6 @@
             <p v-if="instance.message" class="provider-message">{{ instance.message }}</p>
             <div class="provider-actions">
                 <UButton :label="t('assistant.refresh')" icon="i-ph-arrows-clockwise" size="xs" color="neutral" variant="ghost" :disabled="busy" @click="emit('refresh')" />
-                <UButton v-if="instance.canInstall" :label="t('assistant.installCodex')" size="xs" :disabled="busy" @click="emit('install')" />
                 <template v-if="instance.canSignIn && instance.auth === 'unauthenticated' && !instance.loginPending">
                     <UButton :label="t('assistant.signIn')" size="xs" :disabled="busy" @click="emit('signIn', 'chatgpt')" />
                     <UButton :label="t('assistant.signInDeviceCode')" color="neutral" variant="ghost" size="xs" :disabled="busy" @click="emit('signIn', 'device-code')" />
@@ -23,7 +22,6 @@
                 <UButton v-if="instance.loginPending" :label="t('assistant.cancelLogin')" size="xs" color="neutral" variant="outline" :disabled="busy" @click="emit('cancelLogin')" />
             </div>
         </template>
-        <p v-if="progress" class="provider-progress">{{ progress }}</p>
         <p v-if="deviceCode" class="provider-progress">{{ t('assistant.deviceCode') }} <strong>{{ deviceCode }}</strong></p>
         <a v-if="verificationUrl" :href="verificationUrl" target="_blank" rel="noopener noreferrer">{{ verificationUrl }}</a>
     </section>
@@ -36,13 +34,11 @@ import { useTypedI18n } from '@app/composables/useTypedI18n';
 const props = defineProps<{
     instance: IAssistantInstanceStatus | null;
     busy?: boolean;
-    progress?: string | null;
     deviceCode?: string;
     verificationUrl?: string
 }>();
 const emit = defineEmits<{
     refresh: [];
-    install: [];
     signIn: [mode: 'chatgpt' | 'device-code'];
     cancelLogin: []
 }>();

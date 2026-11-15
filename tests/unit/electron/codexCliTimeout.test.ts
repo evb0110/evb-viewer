@@ -32,6 +32,7 @@ const mocks = vi.hoisted(() => ({
     terminateDetachedChildProcess: vi.fn(),
     existsSync: vi.fn<typeof NodeFs.existsSync>(() => true),
     access: vi.fn<typeof NodeFsPromises.access>(async () => undefined),
+    stat: vi.fn<typeof NodeFsPromises.stat>(),
     userData: '/tmp/evb-codex-test',
 }));
 
@@ -43,6 +44,7 @@ vi.mock('fs', async importOriginal => ({
 vi.mock('fs/promises', async importOriginal => ({
     ...(await importOriginal<typeof NodeFsPromises>()),
     access: mocks.access,
+    stat: mocks.stat,
 }));
 vi.mock('electron', () => ({app: {getPath: () => mocks.userData}}));
 vi.mock('@electron/utils/nativeChildProcess', () => ({
@@ -159,6 +161,7 @@ describe('Codex installation metadata freshness', () => {
         const childProcess = await vi.importActual<typeof NodeChildProcess>('node:child_process');
         mocks.existsSync.mockImplementation(path => typeof path === 'string' && path.startsWith(fixtureDir) && fs.existsSync(path));
         mocks.access.mockImplementation(fsPromises.access);
+        mocks.stat.mockImplementation(fsPromises.stat);
         // Run the version-only Node fixture portably, including on Windows.
         mocks.spawn.mockImplementation((command, args, options) => childProcess.spawn(
             process.execPath,
@@ -234,7 +237,7 @@ describe('Codex installation metadata freshness', () => {
         expect(await getCodexCliInfo()).toMatchObject({version: '0.159.1'});
     });
 
-    it('observes missing installations, recovery, override changes and managed installation', async () => {
+    it('observes missing installations, recovery and override changes while ignoring retired managed binaries', async () => {
         const {getCodexCliInfo} = await import('@electron/features/agent/codexCli');
         expect(await getCodexCliInfo()).toMatchObject({
             installed: true,
@@ -270,10 +273,7 @@ describe('Codex installation metadata freshness', () => {
         const managed = join(fixtureDir, 'codex', 'bin', process.platform === 'win32' ? 'codex.exe' : 'codex');
         await writeVersion(managed, '0.160.1');
         vi.stubEnv('CODEX_CLI_PATH', '');
-        expect(await getCodexCliInfo()).toMatchObject({
-            path: managed,
-            version: '0.160.1',
-        });
+        expect(await getCodexCliInfo()).toMatchObject({path: pathExecutable, version: '0.159.2'});
     });
 
     it('does not reuse in-flight path discovery after an override changes', async () => {
@@ -348,6 +348,7 @@ describe('Codex CLI discovery', () => {
         installedFiles.clear();
         mocks.userData = join(sandbox, 'user-data');
         mocks.existsSync.mockImplementation(path => typeof path === 'string' && installedFiles.has(path));
+        mocks.stat.mockImplementation(async () => ({isFile: () => true}) as Awaited<ReturnType<typeof NodeFsPromises.stat>>);
         mocks.access.mockImplementation(async path => {
             if (!installedFiles.has(String(path))) {
                 throw Object.assign(new Error(`ENOENT: ${String(path)}`), {code: 'ENOENT'});

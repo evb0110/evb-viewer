@@ -103,12 +103,6 @@ export const AGENT_PLATFORM_FEATURE = definePlatformFeature({
             args: optionalAssistantStateArgs,
             result: ASSISTANT_STATE_SCHEMA,
         }),
-        installAssistantCodex: defineAgentMethod({
-            name: 'installAssistantCodex',
-            channel: 'agent:installAssistantCodex',
-            args: noArgs,
-            result: ASSISTANT_OPERATION_RESULT_SCHEMA,
-        }),
         startAssistantLogin: defineAgentMethod({
             name: 'startAssistantLogin',
             channel: 'agent:startAssistantLogin',
@@ -149,12 +143,6 @@ export const AGENT_PLATFORM_FEATURE = definePlatformFeature({
             name: 'saveAssistantInstances',
             channel: 'agent:saveAssistantInstances',
             args: assistantInstancesArgs,
-            result: ASSISTANT_INSTANCES_RESULT_SCHEMA,
-        }),
-        importAssistantInstancesFromT3: defineAgentMethod({
-            name: 'importAssistantInstancesFromT3',
-            channel: 'agent:importAssistantInstancesFromT3',
-            args: noArgs,
             result: ASSISTANT_INSTANCES_RESULT_SCHEMA,
         }),
         submitWorkspaceSnapshot: defineAgentMethod({

@@ -3,7 +3,7 @@ import {
     afterEach, beforeEach, describe, expect, it, vi,
 } from 'vitest';
 import {
-    mkdtemp, mkdir, readFile, readdir, readlink, rm, writeFile,
+    chmod, mkdtemp, mkdir, readFile, readdir, readlink, rm, writeFile,
 } from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
@@ -12,6 +12,11 @@ import type {IAssistantInstanceConfig} from '@contracts/assistant';
 const state = vi.hoisted(() => ({
     root: '',
     encryptionAvailable: true,
+    local: [] as IAssistantInstanceConfig[],
+}));
+vi.mock('@electron/features/agent/assistantLocalSetups', async importOriginal => ({
+    ...await importOriginal(),
+    discoverAssistantLocalSetups: async () => state.local,
 }));
 vi.mock('@electron/te', async () => {
     const {default: en} = await import('@i18n-app/messages/en');
@@ -40,6 +45,7 @@ beforeEach(async () => {
     vi.resetModules();
     state.root = await mkdtemp(join(tmpdir(), 'assistant-instances-'));
     state.encryptionAvailable = true;
+    state.local = [];
     instances = await import('@electron/features/agent/assistantInstances');
 });
 afterEach(async () => {
@@ -108,125 +114,6 @@ describe('assistant instance configuration', () => {
         ['positional'],
     ])('refuses a Claude launch argument that would change EVB restrictions: %s', (...tokens) => {
         expect(() => instances.parseClaudeExtraArgs(tokens, 'Claude · B')).toThrow('is not supported in EVB');
-    });
-    it('maps a redacted T3 providerInstances settings shape', () => {
-        // Redacted copy of the local T3 settings shape; paths and values are synthetic.
-        const {
-            instances: mapped, notices,
-        } = instances.mapT3ProviderInstances({
-            codex: {
-                driver: 'codex',
-                displayName: 'Codex',
-                enabled: true,
-                config: {binaryPath: '/bin/codex'},
-                environment: [{
-                    name: 'PATH',
-                    value: '/bin',
-                    sensitive: false,
-                }],
-            },
-            codex_proxy: {
-                driver: 'codex',
-                displayName: 'Proxy',
-                enabled: true,
-                config: {
-                    binaryPath: '/bin/codex',
-                    shadowHomePath: '/homes/shadow',
-                    launchArgs: '-c model_provider="proxy" --header "Authorization: Bearer fixture-token"',
-                },
-                environment: [{
-                    name: 'PATH',
-                    value: '/bin',
-                    sensitive: false,
-                }],
-            },
-            claudeAgent: {
-                driver: 'claudeAgent',
-                displayName: 'Claude',
-                enabled: true,
-                config: {binaryPath: '/bin/claude'},
-                environment: [{
-                    name: 'PATH',
-                    value: '/bin',
-                    sensitive: false,
-                }],
-            },
-            claude_proxy: {
-                driver: 'claudeAgent',
-                displayName: 'Claude proxy',
-                enabled: true,
-                config: {
-                    binaryPath: '/bin/wrapper',
-                    homePath: '/homes/claude-proxy',
-                },
-                environment: [
-                    {
-                        name: 'PATH',
-                        value: '/bin',
-                        sensitive: false,
-                    },
-                    {
-                        name: 'ANTHROPIC_AUTH_TOKEN',
-                        value: 'fixture-auth',
-                        sensitive: true,
-                    },
-                    {
-                        name: 'ANTHROPIC_BASE_URL',
-                        value: 'https://proxy.example.test',
-                        sensitive: false,
-                    },
-                    {
-                        name: 'T3_YOLO',
-                        value: '1',
-                        sensitive: false,
-                    },
-                    {
-                        name: 'T3_CLAUDE_BINARY',
-                        value: '/bin/claude',
-                        sensitive: false,
-                    },
-                ],
-            },
-            managed: {
-                driver: 'codex',
-                config: {setupMode: 'managed'},
-            },
-        });
-        expect(mapped.map(value => value.id)).toEqual([
-            'codex',
-            'codex_proxy',
-            'claude',
-            'claude_proxy',
-        ]);
-        expect(mapped[0]).toMatchObject({
-            driver: 'codex',
-            binaryPath: '/bin/codex',
-        });
-        expect(mapped[1]).toMatchObject({
-            shadowHomePath: '/homes/shadow',
-            launchArgsSecret: true,
-        });
-        expect(mapped[2]).toMatchObject({
-            driver: 'claude',
-            binaryPath: '/bin/claude',
-        });
-        expect(mapped[3]).toMatchObject({
-            driver: 'claude',
-            binaryPath: '/bin/claude',
-            homePath: '/homes/claude-proxy',
-        });
-        expect(mapped[3]?.environment).toContainEqual({
-            name: 'ANTHROPIC_AUTH_TOKEN',
-            value: 'fixture-auth',
-            secret: true,
-        });
-        expect(mapped[3]?.environment?.map(entry => entry.name)).toEqual([
-            'PATH',
-            'ANTHROPIC_AUTH_TOKEN',
-            'ANTHROPIC_BASE_URL',
-        ]);
-        expect(notices.join('\n')).toContain('permission wrapper was replaced');
-        expect(notices.join('\n')).toContain('T3-managed sign-in');
     });
     it('resolves a Codex home and configured executable with custom endpoint arguments', async () => {
         const home = join(state.root, 'base');
@@ -388,5 +275,60 @@ describe('assistant instance configuration', () => {
         expect(result.ok).toBe(false);
         expect(result.error).toContain('Secure credential storage is unavailable');
         await expect(readFile(join(state.root, 'assistant', 'providers.json'), 'utf8')).rejects.toMatchObject({code: 'ENOENT'});
+    });
+});
+
+
+describe('local assistant setups', () => {
+    it('keeps two explicit homes and their IDs for the same executable', async () => {
+        const configs: IAssistantInstanceConfig[] = ['one', 'two'].map(name => ({
+            id: `account-${name}`, driver: 'codex', displayName: name, enabled: true,
+            binaryPath: '/installed/codex', homePath: join(state.root, name),
+        }));
+        expect((await instances.saveAssistantInstanceConfigs(configs)).ok).toBe(true);
+        state.local = [{...configs[0]!, id: 'discovered-duplicate'}];
+        expect((await instances.getAssistantInstanceConfigs()).map(config => config.id)).toEqual(['account-one', 'account-two']);
+        for (const config of configs) {
+            expect(await instances.resolveAssistantLaunchContext(config.id, resolvers)).toMatchObject({
+                binaryPath: '/installed/codex', homePath: config.homePath,
+                env: {CODEX_HOME: config.homePath},
+            });
+        }
+    });
+    it('reports an absent installed executable without creating an installer fallback', async () => {
+        await save();
+        expect((await instances.resolveAssistantLaunchContext('codex', {codex: async () => null, claude: async () => null})).binaryPath).toBeNull();
+    });
+    it('discovers independently named wrappers and preserves each executable and inherited environment', async () => {
+        const {discoverAssistantLocalSetups} = await vi.importActual<typeof import('@electron/features/agent/assistantLocalSetups')>('@electron/features/agent/assistantLocalSetups');
+        const bin = join(state.root, 'bin');
+        await mkdir(bin);
+        async function launcher(name: string, version: string) {
+            const path = join(bin, process.platform === 'win32' ? `${name}.cmd` : name);
+            if (process.platform === 'win32') {
+                await writeFile(path, '@echo off');
+                await writeFile(path.replace(/\.cmd$/u, '.ps1'), `Write-Output '${version}'`);
+            } else {
+                await writeFile(path, `#!/bin/sh\nprintf '%s\\n' '${version}'\n`);
+                await chmod(path, 0o700);
+            }
+            return path;
+        }
+        const codex = await launcher('codex', 'codex-cli 0.169.0');
+        const claude = await launcher('claude', '2.1.325 (Claude Code)');
+        const wrapper = await launcher('codex-proxy', 'codex-cli 0.169.0');
+        const claudeWrapper = await launcher('claude-proxy', '2.1.325 (Claude Code)');
+        await launcher('codex-unrelated', 'unrelated program 1.0.0');
+        const env = {...process.env, PATH: bin, HOME: state.root, CODEX_CLI_PATH: codex, CLAUDE_CODE_PATH: claude};
+        state.local = await discoverAssistantLocalSetups(env);
+        expect(state.local.map(config => config.displayName).sort()).toEqual(['Claude', 'Codex', 'claude-proxy', 'codex-proxy']);
+        expect(state.local.find(config => config.id === 'codex')).toMatchObject({binaryPath: codex, homePath: join(state.root, '.codex')});
+        const config = state.local.find(config => config.binaryPath === wrapper)!;
+        vi.stubEnv('EVB_DISCOVERY_FIXTURE', 'inherited-fixture');
+        expect(await instances.resolveAssistantLaunchContext(config.id, resolvers)).toMatchObject({
+            binaryPath: wrapper, env: {EVB_DISCOVERY_FIXTURE: 'inherited-fixture'},
+        });
+        expect((await instances.resolveAssistantLaunchContext(state.local.find(config => config.binaryPath === claudeWrapper)!.id, resolvers)).binaryPath).toBe(claudeWrapper);
+        expect((await discoverAssistantLocalSetups(env)).map(config => config.id)).toEqual(state.local.map(config => config.id));
     });
 });

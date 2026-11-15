@@ -13,13 +13,6 @@ export const ASSISTANT_SPEED_MODES = [
     'fast',
     'standard',
 ] as const satisfies readonly TAgentAssistantSpeedMode[];
-export const CODEX_ASSISTANT_EFFORTS = [
-    'low',
-    'medium',
-    'high',
-    'xhigh',
-] as const satisfies readonly TAgentAssistantEffort[];
-
 const ASSISTANT_EFFORT_LABELS: Readonly<Record<string, string>> = {
     none: 'None',
     minimal: 'Minimal',
@@ -95,43 +88,3 @@ export function getAssistantPreferredModelId(
     ))?.id
         ?? getAssistantDefaultModelId(models, fallback);
 }
-
-// These rows are only used before the provider supplies its current model list.
-export const CLAUDE_ASSISTANT_MODELS = [
-    {
-        id: 'opus',
-        label: 'Opus 5.5',
-    },
-    {
-        id: 'fable',
-        label: 'Fable 5.1',
-    },
-] as const satisfies readonly IAgentAssistantModelOption[];
-
-export const CLAUDE_ASSISTANT_DEFAULT_MODEL = getAssistantPreferredModelId(
-    CLAUDE_ASSISTANT_MODELS,
-    'opus',
-);
-
-const CODEX_ASSISTANT_FALLBACK_MODEL_ID = 'gpt-6.1-sol';
-
-export const CODEX_ASSISTANT_FALLBACK_MODELS = [{
-    id: CODEX_ASSISTANT_FALLBACK_MODEL_ID,
-    label: `GPT-${CODEX_ASSISTANT_FALLBACK_MODEL_ID.slice(4).split('-').map(titleCaseEffortSegment).join('-')}`,
-    reasoningEfforts: createAssistantEffortOptions(CODEX_ASSISTANT_EFFORTS, 'medium'),
-    defaultReasoningEffort: 'medium',
-    serviceTiers: [
-        {
-            id: 'fast',
-            label: 'Fast',
-            isDefault: true,
-        },
-        {
-            id: 'standard',
-            label: 'Standard',
-        },
-    ],
-    defaultServiceTier: 'fast',
-}] as const satisfies readonly IAgentAssistantModelOption[];
-
-export const CODEX_ASSISTANT_DEFAULT_MODEL = getAssistantDefaultModelId(CODEX_ASSISTANT_FALLBACK_MODELS);

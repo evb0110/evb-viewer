@@ -15,7 +15,6 @@ import {
     type IAgentEventMap,
 } from '@contracts/agentPlatformFeature';
 import {
-    ASSISTANT_DEFAULT_INSTANCE_IDS,
     assistantSessionKey,
     type IAssistantChat,
     type IAssistantChatRequest,
@@ -36,7 +35,6 @@ import {
 } from '@contracts/assistant';
 import {
     ASSISTANT_DEFAULT_EFFORT,
-    CLAUDE_ASSISTANT_MODELS,
 } from '@contracts/agentModels';
 import {isRecord} from '@contracts/runtimeGuards';
 import {createIsoTimestamp} from '@contracts/timestamps';
@@ -46,13 +44,14 @@ import {
     type IPersistedAssistantChatSession,
     type IPersistedAssistantMessage,
 } from '@electron/features/agent/assistantChatPersistence';
-import {createAssistantErrorEnvelope} from '@electron/features/agent/assistantErrorEnvelope';
+import {createAssistantErrorEnvelope, sanitizeAssistantProviderText} from '@electron/features/agent/assistantErrorEnvelope';
 import {
     assistantInstanceLabel,
     getAssistantInstanceConfigs,
     getAssistantInstanceFingerprints,
     onAssistantInstancesChanged,
     resolveAssistantLaunchContext,
+    refreshAssistantLocalSetups,
     type IAssistantBinaryResolvers,
 } from '@electron/features/agent/assistantInstances';
 import {
@@ -71,10 +70,9 @@ import {
     ASSISTANT_MODEL_CONFIG_DIR,
 } from '@electron/features/agent/codexAssistantConfig';
 import {
-    getCodexCliInfo,
-    installManagedCodex,
     resolveCodexCliPath,
 } from '@electron/features/agent/codexCli';
+import {identifyAssistantExecutable} from '@electron/features/agent/assistantLocalSetups';
 import {
     CodexInstanceRuntime,
     type ICodexThreadListener,
@@ -130,20 +128,18 @@ interface IChatSession {
     providerTurnId: string | null;
     binding: IAssistantSessionScopeBinding | null;
     claude: ClaudeAgentAssistantSession | null;
-    pendingError: string | null;
+    pendingError: unknown;
     /** Resolved when the current turn ends; a steer waits on it. */
     settleWaiters: Array<() => void>;
 }
 
 const instances = new Map<string, IInstanceEntry>();
 const sessions = new Map<string, IChatSession>();
-const persistence = new AssistantChatPersistence({onError: (message, error) => logger.warn(`${message}: ${getErrorMessage(error)}`)});
-let installProgress: string | null = null;
-let installRunning: Promise<IAssistantOperationResult> | null = null;
+const persistence = new AssistantChatPersistence({onError: (message, error) => logger.warn(`${message}: ${sanitizeAssistantProviderText(getErrorMessage(error))}`)});
 let sessionsReady: Promise<void> | null = null;
 
 const binaryResolvers: IAssistantBinaryResolvers = {
-    codex: () => resolveCodexCliPath(),
+    codex: env => resolveCodexCliPath(env),
     claude: async env => (await getClaudeAgentSdkInfo({env})).executablePath,
 };
 
@@ -157,7 +153,7 @@ function publish(event: IAssistantEvent) {
             window,
             AGENT_PLATFORM_FEATURE.eventChannels.onAssistantEvent,
             event,
-            error => logger.warn(`Failed to send assistant event: ${getErrorMessage(error)}`),
+            error => logger.warn(`Failed to send assistant event: ${sanitizeAssistantProviderText(getErrorMessage(error))}`),
         );
     }
 }
@@ -205,10 +201,9 @@ function initialStatus(config: IAssistantInstanceConfig, previous?: IAssistantIn
         homePath: previous?.homePath ?? null,
         customEndpoint: previous?.customEndpoint ?? false,
         account: previous?.account ?? null,
-        models: previous?.models ?? (config.driver === 'claude' ? [...CLAUDE_ASSISTANT_MODELS] : []),
+        models: previous?.models ?? [],
         defaultModel: previous?.defaultModel ?? null,
         checkedAt: previous?.checkedAt ?? null,
-        canInstall: false,
         canSignIn: config.driver === 'codex',
         loginPending: false,
     };
@@ -232,6 +227,7 @@ function updateStatus(entry: IInstanceEntry, patch: Partial<IAssistantInstanceSt
     const next = {
         ...entry.status,
         ...patch,
+        ...(patch.message ? {message: createAssistantErrorEnvelope(patch.message).message} : {}),
     };
     if (patch.message === undefined && 'message' in patch) {
         delete next.message;
@@ -335,17 +331,15 @@ async function probeEntry(entry: IInstanceEntry) {
     } catch (error) {
         updateStatus(entry, {
             state: 'error',
-            message: getErrorMessage(error),
+            message: createAssistantErrorEnvelope(error).message,
             checkedAt: nowIso(),
         });
         return;
     }
-    const isDefaultCodex = config.driver === 'codex' && config.id === ASSISTANT_DEFAULT_INSTANCE_IDS.codex && !config.binaryPath;
     updateStatus(entry, {
         binaryPath: context.binaryPath,
         homePath: context.homePath,
         customEndpoint: context.customEndpoint,
-        canInstall: isDefaultCodex && !context.binaryPath,
     });
     if (!context.binaryPath) {
         updateStatus(entry, {
@@ -357,44 +351,42 @@ async function probeEntry(entry: IInstanceEntry) {
         return;
     }
     try {
+        const version = await identifyAssistantExecutable(config.driver, context.binaryPath, context.env);
+        if (!version) throw new Error(te('dialogs.agentAssistant.invalidExecutable', {provider: config.driver === 'codex' ? 'Codex' : 'Claude'}));
         if (config.driver === 'codex' && entry.codex) {
-            const version = isDefaultCodex ? (await getCodexCliInfo()).version : null;
             const result = await entry.codex.probe();
             updateStatus(entry, {
-                state: result.auth === 'unauthenticated' ? 'error' : (result.warning ? 'warning' : 'ready'),
+                state: result.auth === 'unauthenticated' ? 'error' : (result.warning || !result.models.length ? 'warning' : 'ready'),
                 auth: result.auth,
                 account: result.account,
                 version,
                 message: result.auth === 'unauthenticated'
                     ? te('dialogs.agentAssistant.codexSignIn')
-                    : result.warning,
-                ...(result.models.length > 0
-                    ? {
-                        models: result.models,
-                        defaultModel: defaultModelOf(result.models, result.models.find(model => model.isDefault)?.id ?? null),
-                    }
-                    : {}),
+                    : result.warning ?? (result.models.length ? undefined : te('dialogs.agentAssistant.modelListEmpty')),
+                models: result.models,
+                defaultModel: defaultModelOf(result.models, result.models.find(model => model.isDefault)?.id ?? null),
                 checkedAt: nowIso(),
             });
             return;
         }
         const {discoverClaudeAssistantModels} = await import('@electron/features/agent/claudeAgentSdkAssistant');
         const result = await discoverClaudeAssistantModels(await assistantCwd(), context.binaryPath, context.env, context.claudeExtraArgs);
-        const models = result.models.length > 0 ? result.models : [...CLAUDE_ASSISTANT_MODELS];
+        const models = result.models;
         updateStatus(entry, {
-            state: 'ready',
+            state: models.length ? 'ready' : 'warning',
+            version,
             auth: result.account ? 'authenticated' : 'unknown',
             account: result.account?.email ? {
                 type: 'other',
                 email: result.account.email,
             } : null,
-            message: undefined,
+            message: models.length ? undefined : te('dialogs.agentAssistant.modelListEmpty'),
             models,
-            defaultModel: defaultModelOf(models, null),
+            defaultModel: defaultModelOf(models, models.some(model => model.id === 'default') ? 'default' : null),
             checkedAt: nowIso(),
         });
     } catch (error) {
-        const message = getErrorMessage(error);
+        const message = createAssistantErrorEnvelope(error).message;
         updateStatus(entry, {
             state: 'error',
             auth: config.driver === 'claude' && isClaudeAuthErrorMessage(message) ? 'unauthenticated' : entry.status.auth,
@@ -410,7 +402,7 @@ function startProbe(entry: IInstanceEntry, force = false) {
         return;
     }
     const probe = probeEntry(entry)
-        .catch((error: unknown) => logger.warn(`Assistant instance ${entry.config.id} probe failed: ${getErrorMessage(error)}`))
+        .catch((error: unknown) => logger.warn(`Assistant instance ${entry.config.id} probe failed: ${sanitizeAssistantProviderText(getErrorMessage(error))}`))
         .finally(() => {
             if (entry.probe === probe) {
                 entry.probe = null;
@@ -535,7 +527,7 @@ function ensureSessionsReady() {
             }
         }
     }).catch((error: unknown) => {
-        logger.warn(`Assistant chats could not be recovered: ${getErrorMessage(error)}`);
+        logger.warn(`Assistant chats could not be recovered: ${sanitizeAssistantProviderText(getErrorMessage(error))}`);
     });
     return sessionsReady;
 }
@@ -683,15 +675,16 @@ function setPhase(session: IChatSession, phase: IAssistantTurn['phase']) {
     }
 }
 
-function addSystemItem(session: IChatSession, message: string, turnId: string | null) {
+function addSystemItem(session: IChatSession, message: unknown, turnId: string | null) {
+    const errorEnvelope = createAssistantErrorEnvelope(message);
     upsertItem(session, {
         id: randomUUID(),
         kind: 'system',
         turnId,
         createdAt: nowIso(),
-        text: message,
+        text: errorEnvelope.message,
         status: 'failed',
-        errorEnvelope: createAssistantErrorEnvelope(message),
+        errorEnvelope,
     });
 }
 
@@ -699,7 +692,7 @@ function addSystemItem(session: IChatSession, message: string, turnId: string | 
  * Ends the session's turn once. Streaming items settle with the turn, the
  * MCP grant is withdrawn, and the transcript is saved.
  */
-function finishTurn(session: IChatSession, requestedPhase: 'done' | 'failed' | 'cancelled', error?: string) {
+function finishTurn(session: IChatSession, requestedPhase: 'done' | 'failed' | 'cancelled', error?: unknown) {
     if (!session.turn || TERMINAL_PHASES.has(session.turn.phase)) {
         return;
     }
@@ -940,12 +933,12 @@ function codexListener(session: IChatSession): ICodexThreadListener {
                 }
                 case 'error':
                     if (params.willRetry !== true && isRecord(params.error) && typeof params.error.message === 'string') {
-                        session.pendingError = params.error.message;
+                        session.pendingError = params.error;
                     }
                     return;
                 case 'turn/completed': {
                     const turn = isRecord(params.turn) ? params.turn : {};
-                    const turnError = isRecord(turn.error) && typeof turn.error.message === 'string' ? turn.error.message : null;
+                    const turnError = isRecord(turn.error) ? turn.error : null;
                     if (turn.status === 'interrupted') {
                         finishTurn(session, 'cancelled');
                     } else if (turn.status === 'failed') {
@@ -1063,7 +1056,8 @@ function claudeCallbacks(session: IChatSession) {
                 finishTurn(session, 'done');
             }
         },
-        onError: (providerTurnId: string | null, message: string) => {
+        onError: (providerTurnId: string | null, error: unknown) => {
+            const message = createAssistantErrorEnvelope(error).message;
             if (isClaudeAuthErrorMessage(message)) {
                 const entry = instances.get(session.instanceId);
                 if (entry) {
@@ -1075,9 +1069,9 @@ function claudeCallbacks(session: IChatSession) {
                 }
             }
             if (currentTurn(providerTurnId)) {
-                finishTurn(session, 'failed', message);
+                finishTurn(session, 'failed', error);
             } else if (!isTurnActive(session)) {
-                addSystemItem(session, message, null);
+                addSystemItem(session, error, null);
                 save(session);
             }
         },
@@ -1095,7 +1089,7 @@ function resolveSelection(requested: IAssistantSelection | undefined): IAssistan
         return null;
     }
     const {models} = entry.status;
-    const model = requested && requested.instanceId === entry.config.id && (models.length === 0 || models.some(candidate => candidate.id === requested.model))
+    const model = requested && requested.instanceId === entry.config.id && models.some(candidate => candidate.id === requested.model)
         ? requested.model
         : entry.status.defaultModel ?? models[0]?.id ?? '';
     const option = models.find(candidate => candidate.id === model);
@@ -1112,6 +1106,7 @@ function resolveSelection(requested: IAssistantSelection | undefined): IAssistan
     };
 }
 
+// Adapted from T3 Code codexModelOptions.ts (0b6f482dc5), MIT.
 function codexServiceTier(entry: IInstanceEntry, selection: IAssistantSelection) {
     if (selection.speedMode !== 'fast') {
         return null;
@@ -1144,7 +1139,6 @@ async function buildState(scope: IAgentAssistantChatScope | null | undefined, re
                     turn: null,
                 }
                 : null,
-        installProgress,
     };
 }
 
@@ -1155,7 +1149,6 @@ function disabledState(): IAssistantState {
         instances: instanceStatuses(),
         selection: null,
         chat: null,
-        installProgress: null,
     };
 }
 
@@ -1191,6 +1184,7 @@ export async function getAgentAssistantState(request?: IAssistantStateRequest): 
         return disabledState();
     }
     ensureInstancesListener();
+    if (request?.probe) refreshAssistantLocalSetups();
     await syncInstances();
     for (const entry of instances.values()) {
         if (entry.config.enabled) {
@@ -1202,7 +1196,7 @@ export async function getAgentAssistantState(request?: IAssistantStateRequest): 
     return buildState(request?.scope, request?.selection);
 }
 
-function errorResult(state: IAssistantState, message: string): IAssistantOperationResult {
+function errorResult(state: IAssistantState, message: unknown): IAssistantOperationResult {
     return {
         ok: false,
         state,
@@ -1254,7 +1248,7 @@ async function interruptActiveTurn(session: IChatSession) {
         }
         // An unconfirmed stop ends the provider process before the document
         // grant is released, so old work cannot continue under a new grant.
-        logger.warn(`Assistant interrupt was not confirmed; stopping the provider: ${getErrorMessage(error)}`);
+        logger.warn(`Assistant interrupt was not confirmed; stopping the provider: ${sanitizeAssistantProviderText(getErrorMessage(error))}`);
         if (codexTurn) {
             await codexTurn.runtime.shutdown().catch(() => undefined);
         } else if (claude) {
@@ -1302,7 +1296,7 @@ async function startCodexTurn(
             text,
             attachments,
             model: selection.model,
-            effort: selection.effort,
+            effort: entry.status.models.find(model => model.id === selection.model)?.reasoningEfforts?.some(option => option.id === selection.effort) ? selection.effort : undefined,
             serviceTier: codexServiceTier(entry, selection),
         });
     } catch (error) {
@@ -1369,6 +1363,7 @@ async function startClaudeTurn(
             mcpServerUrl: mcp.url,
             mcpToken: mcp.token,
             executablePath: context.binaryPath,
+            modelOptions: entry.status.models,
             env: context.env,
             extraArgs: context.claudeExtraArgs,
             callbacks: {
@@ -1444,7 +1439,12 @@ async function sendAdmitted(
     if (!entry || !entry.config.enabled) {
         return errorResult(await fallbackState(), te('dialogs.agentAssistant.instanceUnavailable'));
     }
+    startProbe(entry);
+    await entry.probe;
     const selection = resolveSelection(request.selection) ?? request.selection;
+    if (!entry.status.models.some(model => model.id === selection.model)) {
+        return errorResult(await fallbackState(), entry.status.message ?? te('dialogs.agentAssistant.modelListEmpty'));
+    }
     let normalized: ReturnType<typeof normalizeOutgoingMessageRequest>;
     try {
         normalized = normalizeOutgoingMessageRequest(request);
@@ -1510,15 +1510,15 @@ async function sendAdmitted(
                 state: await buildState(request.scope, selection),
             };
         }
-        const message = getErrorMessage(error);
-        finishTurn(session, 'failed', message);
+        const message = createAssistantErrorEnvelope(error).message;
+        finishTurn(session, 'failed', error);
         if (entry.status.state === 'ready' || entry.status.state === 'checking' || entry.status.state === 'warning') {
             updateStatus(entry, {
                 state: 'error',
                 message,
             });
         }
-        return errorResult(await buildState(request.scope, selection), message);
+        return errorResult(await buildState(request.scope, selection), error);
     }
 }
 
@@ -1599,43 +1599,6 @@ export async function cancelAgentAssistantLogin(request: IAssistantInstanceReque
 }
 
 /** Installs the pinned Codex release for the default Codex instance. */
-export function installAgentAssistantCodex(): Promise<IAssistantOperationResult> {
-    installRunning ??= (async () => {
-        try {
-            const setProgress = (progress: string | null) => {
-                installProgress = progress;
-                publish({
-                    type: 'install-progress',
-                    progress,
-                });
-            };
-            setProgress('Downloading Codex…');
-            await installManagedCodex({onProgress: setProgress});
-            setProgress(null);
-            await syncInstances();
-            const entry = instances.get(ASSISTANT_DEFAULT_INSTANCE_IDS.codex);
-            if (entry) {
-                startProbe(entry, true);
-            }
-            return {
-                ok: true,
-                state: await buildState(null, undefined),
-            };
-        } catch (error) {
-            installProgress = null;
-            publish({
-                type: 'install-progress',
-                progress: null,
-            });
-            return errorResult(await buildState(null, undefined), getErrorMessage(error));
-        } finally {
-            installRunning = null;
-        }
-    })();
-    return installRunning;
-}
-
-/** Stops every assistant process. Saved chats stay. */
 export async function shutdownAgentAssistant() {
     // Processes stop before any turn ends, because ending a turn releases the document grant.
     await Promise.all([...instances.values()].map(entry => retireInstance(entry)));

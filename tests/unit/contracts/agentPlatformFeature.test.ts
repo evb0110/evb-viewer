@@ -36,7 +36,7 @@ function createAssistantState(): IAssistantState {
         supported: true,
         enabled: true,
         selection,
-        installProgress: null,
+
         instances: [{
             id: 'codex_proxy',
             driver: 'codex',
@@ -55,7 +55,7 @@ function createAssistantState(): IAssistantState {
             }],
             defaultModel: 'gpt-5.4',
             checkedAt: requireIsoTimestamp('2026-11-12T00:00:00.000Z'),
-            canInstall: false,
+
             canSignIn: true,
             loginPending: false,
         }],
@@ -84,7 +84,7 @@ describe('Agent platform feature with assistant instances', () => {
             },
             manifestPath: ['agent'],
         }]);
-        expect(AGENT_PLATFORM_FEATURE.platformDescriptors.methods).toHaveLength(19);
+        expect(AGENT_PLATFORM_FEATURE.platformDescriptors.methods).toHaveLength(17);
     });
     it('reconstructs state and nested instances and items at the main IPC boundary', () => {
         const state = createAssistantState();
@@ -156,14 +156,6 @@ describe('Agent platform feature with assistant instances', () => {
             state,
             error,
         });
-        expect(v.parse(methods.installAssistantCodex.ipc.result, {
-            ok: true,
-            state,
-            ignored: true,
-        })).toEqual({
-            ok: true,
-            state,
-        });
         expect(v.parse(methods.startAssistantLogin.ipc.result, {
             ok: true,
             state,
@@ -218,10 +210,6 @@ describe('Agent platform feature with assistant instances', () => {
                     startedAtMs: 42,
                     usage: null,
                 },
-            },
-            {
-                type: 'install-progress',
-                progress: null,
             },
         ];
         for (const payload of payloads) expect(v.parse(events.onAssistantEvent.payload, payload)).toEqual(payload);

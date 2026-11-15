@@ -1,3 +1,4 @@
+import {sanitizeAssistantProviderText} from '@electron/features/agent/assistantErrorEnvelope';
 import {
     spawn,
     type ChildProcess,
@@ -96,7 +97,7 @@ export class CodexAppServerClient {
         kind: 'resource-cleanup',
         cancel: () => {
             void this.shutdown().catch(error => {
-                logger.warn(`Failed to shut down Codex app-server during lifecycle cancellation: ${getErrorMessage(error)}`);
+                logger.warn(`Failed to shut down Codex app-server during lifecycle cancellation: ${sanitizeAssistantProviderText(getErrorMessage(error))}`);
             });
         },
     });
@@ -143,8 +144,8 @@ export class CodexAppServerClient {
         this.stderr.setEncoding('utf8');
         this.stdout.on('data', (chunk: string | Buffer) => this.handleStdout(String(chunk)));
         this.stderr.on('data', (chunk: string | Buffer) => this.handleStderr(String(chunk)));
-        this.stdin.on('error', error => this.failAll(`Codex app-server stdin failed: ${getErrorMessage(error)}`));
-        this.child.on('error', error => this.failAll(`Codex app-server failed: ${getErrorMessage(error)}`));
+        this.stdin.on('error', error => this.failAll(`Codex app-server stdin failed: ${sanitizeAssistantProviderText(getErrorMessage(error))}`));
+        this.child.on('error', error => this.failAll(`Codex app-server failed: ${sanitizeAssistantProviderText(getErrorMessage(error))}`));
         this.child.on('close', (exitCode) => {
             this.resolveClosePromise();
             if (!this.terminationRequested) {
@@ -186,7 +187,7 @@ export class CodexAppServerClient {
     /** The last lines Codex wrote to stderr, without terminal colors. */
     diagnostic(maxLength = 400) {
         // eslint-disable-next-line no-control-regex
-        const text = this.stderrBuffer.text().replace(/\u001B\[[0-9;]*m/gu, '').trim();
+        const text = sanitizeAssistantProviderText(this.stderrBuffer.text().replace(/\u001B\[[0-9;]*m/gu, '').trim());
         return text.length > maxLength ? `…${text.slice(-maxLength)}` : text;
     }
 
@@ -234,8 +235,8 @@ export class CodexAppServerClient {
                 }
                 clearTimeout(pending.timeout);
                 this.pending.delete(id);
-                pending.reject(new Error(`Failed to send ${method}: ${getErrorMessage(error)}`));
-                this.failAll(`Codex app-server stdin failed: ${getErrorMessage(error)}`);
+                pending.reject(new Error(`Failed to send ${method}: ${sanitizeAssistantProviderText(getErrorMessage(error))}`));
+                this.failAll(`Codex app-server stdin failed: ${sanitizeAssistantProviderText(getErrorMessage(error))}`);
             });
         });
     }
@@ -271,7 +272,7 @@ export class CodexAppServerClient {
             };
         this.writeLine(payload, (error) => {
             if (error) {
-                this.failAll(`Codex app-server stdin failed while sending ${method}: ${getErrorMessage(error)}`);
+                this.failAll(`Codex app-server stdin failed while sending ${method}: ${sanitizeAssistantProviderText(getErrorMessage(error))}`);
             }
         });
     }
@@ -287,7 +288,7 @@ export class CodexAppServerClient {
             result,
         }, (error) => {
             if (error) {
-                this.failAll(`Codex app-server stdin failed while sending response: ${getErrorMessage(error)}`);
+                this.failAll(`Codex app-server stdin failed while sending response: ${sanitizeAssistantProviderText(getErrorMessage(error))}`);
             }
         });
     }
@@ -399,12 +400,12 @@ export class CodexAppServerClient {
             .map(line => line.trim())
             .filter(Boolean);
         for (const line of lines) {
-            logger.info(`[app-server] ${line}`);
+            logger.info(`[app-server] ${sanitizeAssistantProviderText(line)}`);
         }
     }
 
     private getStderrDetail() {
-        const detail = this.stderrBuffer.text().trim();
+        const detail = sanitizeAssistantProviderText(this.stderrBuffer.text());
         if (!detail) {
             return '';
         }
@@ -419,7 +420,7 @@ export class CodexAppServerClient {
         try {
             parsed = JSON.parse(line);
         } catch (error) {
-            logger.warn(`Ignoring non-JSON app-server output: ${getErrorMessage(error)}`);
+            logger.warn(`Ignoring non-JSON app-server output: ${sanitizeAssistantProviderText(getErrorMessage(error))}`);
             return;
         }
 
@@ -456,9 +457,9 @@ export class CodexAppServerClient {
         clearTimeout(pending.timeout);
         this.pending.delete(id);
         if (response.error) {
-            pending.reject(new Error(response.error.message && response.error.message.length > 0
+            pending.reject(Object.assign(new Error(response.error.message && response.error.message.length > 0
                 ? response.error.message
-                : `${pending.method} failed.`));
+                : `${pending.method} failed.`), {cause: response.error}));
             return;
         }
         pending.resolve(response.result);
@@ -466,7 +467,7 @@ export class CodexAppServerClient {
 
     private handleServerRequest(request: Record<string, unknown>) {
         const method = typeof request.method === 'string' ? request.method : '';
-        logger.warn(`Denying unexpected Codex app-server request: ${method}`);
+        logger.warn(`Denying unexpected Codex app-server request: ${sanitizeAssistantProviderText(method)}`);
         if (method === 'item/commandExecution/requestApproval') {
             this.respond(request.id, { decision: 'denied' });
             return;
@@ -517,7 +518,7 @@ export class CodexAppServerClient {
                 this.shutdownPromise = shutdownPromise;
             }
             void this.shutdownPromise.catch(terminationError => {
-                logger.warn(`Failed to terminate Codex app-server after an error: ${getErrorMessage(terminationError)}`);
+                logger.warn(`Failed to terminate Codex app-server after an error: ${sanitizeAssistantProviderText(getErrorMessage(terminationError))}`);
             });
         }
     }

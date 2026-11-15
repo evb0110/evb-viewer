@@ -110,10 +110,6 @@ const FEATURE_RESULTS: Readonly<Record<string, unknown>> = {
         status: createBrowserAgentMcpStatus(),
     },
     'agent.getAssistantState': createBrowserAssistantState(),
-    'agent.installAssistantCodex': {
-        ok: true,
-        state: createBrowserAssistantState(),
-    },
     'agent.startAssistantLogin': {
         ok: true,
         state: createBrowserAssistantState(),
@@ -131,11 +127,6 @@ const FEATURE_RESULTS: Readonly<Record<string, unknown>> = {
         notices: [],
     },
     'agent.saveAssistantInstances': {
-        ok: true,
-        instances: [],
-        notices: [],
-    },
-    'agent.importAssistantInstancesFromT3': {
         ok: true,
         instances: [],
         notices: [],

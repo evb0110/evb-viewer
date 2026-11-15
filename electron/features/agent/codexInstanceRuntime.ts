@@ -1,3 +1,4 @@
+import {sanitizeAssistantProviderText} from '@electron/features/agent/assistantErrorEnvelope';
 import {shell} from 'electron';
 import type {
     IAgentAssistantAccount,
@@ -50,7 +51,7 @@ export interface ICodexTurnInput {
     text: string;
     attachments: readonly IAgentAssistantImageAttachment[];
     model: string;
-    effort: string;
+    effort: string | undefined;
     serviceTier: string | null;
 }
 
@@ -152,7 +153,7 @@ export class CodexInstanceRuntime {
             return pending;
         }
         const stopped = client.shutdown().catch((error: unknown) => {
-            logger.warn(`Codex process did not stop cleanly: ${getErrorMessage(error)}`);
+            logger.warn(`Codex process did not stop cleanly: ${sanitizeAssistantProviderText(getErrorMessage(error))}`);
         }).finally(() => {
             this.clients.delete(client);
             this.stopping.delete(client);
@@ -185,16 +186,29 @@ export class CodexInstanceRuntime {
                 models: [],
             };
             try {
+                // Adapted from T3 Code CodexProvider.ts (0b6f482dc5), MIT.
+                let cursor: string | null = null;
+                const cursors = new Set<string>();
+                do {
+                    const page: Record<string, unknown> = await client.requestDecoded('model/list', {includeHidden: false, ...(cursor ? {cursor} : {})}, decodeRecord, CODEX_CONTROL_TIMEOUT_MS);
+                    const models = normalizeCodexModelListResponse(page);
+                    if (!models) throw new Error('Codex returned an invalid model catalog.');
+                    for (const model of models) {
+                        if (!result.models.some(existing => existing.id === model.id)) result.models.push(model);
+                    }
+                    cursor = typeof page.nextCursor === 'string' && page.nextCursor ? page.nextCursor : null;
+                    if (cursor && cursors.has(cursor)) throw new Error('Codex repeated a model catalog page.');
+                    if (cursor) cursors.add(cursor);
+                } while (cursor);
+
+            } catch (error) {
+                result.warning = te('dialogs.agentAssistant.modelListUnavailable', {reason: sanitizeAssistantProviderText(getErrorMessage(error))});
+            }
+            try {
                 const config = await client.requestDecoded('config/read', {}, decodeRecord, CODEX_CONTROL_TIMEOUT_MS);
                 this.userTools = readCodexUserToolConfig(config);
-                result.models = await client.requestDecoded(
-                    'model/list',
-                    {includeHidden: false},
-                    normalizeCodexModelListResponse,
-                    CODEX_CONTROL_TIMEOUT_MS,
-                );
             } catch (error) {
-                result.warning = te('dialogs.agentAssistant.modelListUnavailable', {reason: getErrorMessage(error)});
+                result.warning ??= sanitizeAssistantProviderText(getErrorMessage(error));
             }
             return result;
         })();
@@ -229,7 +243,7 @@ export class CodexInstanceRuntime {
         this.assertNotStopped(generation);
         const client = this.spawn(
             context,
-            createCodexIsolationArgs(mcp.url, 'medium', userTools),
+            createCodexIsolationArgs(mcp.url, undefined, userTools),
             {
                 ...context.env,
                 [ASSISTANT_MCP_TOKEN_ENV]: mcp.token,
@@ -327,7 +341,7 @@ export class CodexInstanceRuntime {
                     resumed: true,
                 };
             } catch (error) {
-                logger.info(`Starting a new Codex thread because ${threadId} could not be resumed: ${getErrorMessage(error)}`);
+                logger.info(`Starting a new Codex thread because ${threadId} could not be resumed: ${sanitizeAssistantProviderText(getErrorMessage(error))}`);
             }
         }
         const response = await client.requestDecoded('thread/start', {
@@ -368,7 +382,7 @@ export class CodexInstanceRuntime {
                 })),
             ],
             ...(input.model ? {model: input.model} : {}),
-            effort: input.effort,
+            ...(input.effort ? {effort: input.effort} : {}),
             ...(input.serviceTier ? {serviceTier: input.serviceTier} : {}),
             cwd: await this.options.cwd(),
             approvalPolicy: 'never',

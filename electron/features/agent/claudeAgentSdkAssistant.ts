@@ -51,7 +51,8 @@ import {
     type IClaudeAssistantToolActivity,
 } from '@electron/features/agent/claudeAssistantStreamPresentation';
 
-import {shouldUseClaudeAssistantFastMode} from '@electron/features/agent/claudeProviderMetadata';
+import {resolveClaudeSdkExecutablePath} from '@electron/features/agent/claudeProviderMetadata';
+import {sanitizeAssistantProviderText} from '@electron/features/agent/assistantErrorEnvelope';
 const logger = createLogger('agent-claude-assistant');
 const CLAUDE_EFFORT_LEVEL_BY_ASSISTANT_EFFORT = {
     low: 'low',
@@ -81,7 +82,7 @@ export interface IClaudeAgentAssistantCallbacks {
     onUsage(turnId: string | null, usage: IAgentAssistantTokenUsage): void;
     onAssistantMessage(turnId: string | null, messageId: string, text: string, pending: boolean): void;
     onTurnCompleted(turnId: string | null): void;
-    onError(turnId: string | null, message: string): void;
+    onError(turnId: string | null, message: unknown): void;
 }
 
 export interface IClaudeAgentAssistantSessionOptions {
@@ -98,10 +99,11 @@ export interface IClaudeAgentAssistantSessionOptions {
     env: NodeJS.ProcessEnv;
     /** The instance's own launch flags, already checked against EVB's restrictions. */
     extraArgs?: Record<string, string | null>;
+    modelOptions?: readonly IAgentAssistantModelOption[];
     callbacks: IClaudeAgentAssistantCallbacks;
 }
 
-const CLAUDE_METADATA_TIMEOUT_MS = 25_000;
+const CLAUDE_METADATA_TIMEOUT_MS = 15_000;
 const CLAUDE_CONTROL_TIMEOUT_MS = 10_000;
 
 /**
@@ -183,11 +185,6 @@ class ClaudePromptQueue implements AsyncIterable<SDKUserMessage> {
     }
 }
 
-const CLAUDE_HIDDEN_MODEL_FAMILIES = [
-    'sonnet',
-    'haiku',
-] as const;
-
 const CLAUDE_RESOLVED_MODEL_PATTERN = /^claude-([a-z]+)-(\d+)(?:-(\d{1,2}))?(?:-\d{8})?(?:\[[^\]]*\])?$/u;
 
 // SDK display names are bare families ("Opus", "Opus (1M context)"); the
@@ -207,7 +204,6 @@ function labelClaudeSdkModel(id: string, resolvedModel: string, displayName: str
     return qualifier ? `${name} ${qualifier}` : name;
 }
 
-// The owner asked to avoid Sonnet and Haiku for now.
 function normalizeClaudeSdkModelInfo(rawModel: unknown): IAgentAssistantModelOption | null {
     if (!isRecord(rawModel)) {
         return null;
@@ -220,16 +216,8 @@ function normalizeClaudeSdkModelInfo(rawModel: unknown): IAgentAssistantModelOpt
 
     const resolvedModel = typeof rawModel.resolvedModel === 'string' ? rawModel.resolvedModel.trim() : '';
     const displayName = typeof rawModel.displayName === 'string' ? rawModel.displayName.trim() : '';
-    if ([
-        id,
-        resolvedModel,
-        displayName,
-    ].some(value => CLAUDE_HIDDEN_MODEL_FAMILIES.some(family => value.toLowerCase().includes(family)))) {
-        return null;
-    }
-
     const label = labelClaudeSdkModel(id, resolvedModel, displayName);
-    const supportedEfforts = Array.isArray(rawModel.supportedEffortLevels)
+    const supportedEfforts = rawModel.supportsEffort !== false && Array.isArray(rawModel.supportedEffortLevels)
         ? createAssistantEffortOptions(rawModel.supportedEffortLevels.flatMap(value => {
             const effort = normalizeAssistantEffortId(value);
             return effort ? [effort] : [];
@@ -240,6 +228,7 @@ function normalizeClaudeSdkModelInfo(rawModel: unknown): IAgentAssistantModelOpt
         label,
         ...(resolvedModel ? {resolvedModel} : {}),
         ...(supportedEfforts ? {reasoningEfforts: supportedEfforts} : {}),
+        ...(rawModel.supportsFastMode === true ? {serviceTiers: [{id: 'fast', label: 'Fast'}]} : {}),
     };
 }
 
@@ -258,30 +247,7 @@ export function normalizeClaudeSdkModelList(rawModels: unknown): IAgentAssistant
         seen.add(model.id);
         models.push(model);
     }
-    return models.filter(model => {
-        // The SDK's "default" row repeats another row's model under an alias.
-        if (model.id === 'default' && models.some(other => (
-            other !== model && other.resolvedModel === model.resolvedModel
-        ))) {
-            return false;
-        }
-        const version = CLAUDE_RESOLVED_MODEL_PATTERN.exec(model.resolvedModel ?? model.id);
-        // Keep custom rows and all context options for the newest family version.
-        return !version || !models.some(other => {
-            const otherVersion = CLAUDE_RESOLVED_MODEL_PATTERN.exec(other.resolvedModel ?? other.id);
-            return otherVersion !== null && otherVersion[1] === version[1] && (
-                Number(otherVersion[2]) > Number(version[2])
-                || (Number(otherVersion[2]) === Number(version[2])
-                    && Number(otherVersion[3] ?? 0) > Number(version[3] ?? 0))
-            );
-        });
-    }).sort((left, right) => {
-        const leftVersion = CLAUDE_RESOLVED_MODEL_PATTERN.exec(left.resolvedModel ?? left.id);
-        const rightVersion = CLAUDE_RESOLVED_MODEL_PATTERN.exec(right.resolvedModel ?? right.id);
-        return Number(!left.id.includes('opus')) - Number(!right.id.includes('opus'))
-            || Number(rightVersion?.[2] ?? 0) - Number(leftVersion?.[2] ?? 0)
-            || Number(rightVersion?.[3] ?? 0) - Number(leftVersion?.[3] ?? 0);
-    });
+    return models;
 }
 
 // Ask only for metadata. The empty prompt queue never submits a model turn.
@@ -291,6 +257,7 @@ export async function discoverClaudeAssistantModels(
     env: NodeJS.ProcessEnv,
     extraArgs: Record<string, string | null> = {},
 ) {
+    if (!executablePath) throw new Error(te('dialogs.agentAssistant.claudeMissing'));
     const prompts = new ClaudePromptQueue();
     const metadata = query({
         prompt: prompts,
@@ -298,7 +265,7 @@ export async function discoverClaudeAssistantModels(
             cwd,
             env,
             extraArgs,
-            ...(executablePath ? { pathToClaudeCodeExecutable: executablePath } : {}),
+            pathToClaudeCodeExecutable: resolveClaudeSdkExecutablePath(executablePath),
             tools: [],
             mcpServers: {},
             strictMcpConfig: true,
@@ -309,14 +276,10 @@ export async function discoverClaudeAssistantModels(
     });
     let timer: ReturnType<typeof setTimeout> | null = null;
     try {
-        const [
-            models,
-            account,
-        ] = await Promise.race([
-            Promise.all([
-                metadata.supportedModels(),
-                metadata.accountInfo().catch(() => null),
-            ]),
+        // Adapted from T3 Code ClaudeProvider.ts (0b6f482dc5), MIT:
+        // initializationResult uses a never-yielding prompt, with no inference.
+        const initialization = await Promise.race([
+            metadata.initializationResult(),
             new Promise<never>((_resolve, reject) => {
                 timer = setTimeout(
                     () => reject(new Error(te('dialogs.agentAssistant.statusTimeout', {
@@ -328,8 +291,8 @@ export async function discoverClaudeAssistantModels(
             }),
         ]);
         return {
-            models: normalizeClaudeSdkModelList(models),
-            account,
+            models: normalizeClaudeSdkModelList(initialization.models),
+            account: initialization.account ?? null,
         };
     } finally {
         if (timer) {
@@ -473,6 +436,8 @@ function getResultErrorMessage(message: SDKResultMessage) {
         return result;
     }
 
+    if ('errors' in message && message.errors.length) return message.errors.join('\n');
+
     const apiErrorStatus = 'api_error_status' in message && message.api_error_status
         ? ` (${message.api_error_status})`
         : '';
@@ -510,7 +475,7 @@ export class ClaudeAgentAssistantSession {
     private currentTurnId: string | null = null;
     private currentAssistantMessageId: string | null = null;
     private currentModel: string;
-    private readonly currentEffort: EffortLevel;
+    private readonly currentEffort: EffortLevel | undefined;
     private readonly currentSpeedMode: TAgentAssistantSpeedMode;
     private readonly queryFastMode: boolean;
     private startupGeneration = 0;
@@ -522,9 +487,20 @@ export class ClaudeAgentAssistantSession {
 
     constructor(private readonly options: IClaudeAgentAssistantSessionOptions) {
         this.currentModel = options.model;
-        this.currentEffort = toClaudeEffortLevel(options.effort);
+        this.currentEffort = this.compileEffort(options.model, options.effort);
         this.currentSpeedMode = options.speedMode;
-        this.queryFastMode = shouldUseClaudeAssistantFastMode(this.currentModel, this.currentSpeedMode);
+        this.queryFastMode = this.supportsFastMode(this.currentModel, this.currentSpeedMode);
+    }
+
+    private compileEffort(model: string, effort: TAgentAssistantEffort) {
+        return this.options.modelOptions?.find(option => option.id === model)?.reasoningEfforts?.some(option => option.id === effort)
+            ? toClaudeEffortLevel(effort) : undefined;
+    }
+
+    // Adapted from T3 Code claudeModelOptions.ts (0b6f482dc5), MIT.
+    // Compile only options the selected setup reported, without a manifest union.
+    private supportsFastMode(model: string, speed: TAgentAssistantSpeedMode) {
+        return speed === 'fast' && this.options.modelOptions?.find(option => option.id === model)?.serviceTiers?.some(tier => tier.id === 'fast') === true;
     }
 
     get model() {
@@ -561,7 +537,7 @@ export class ClaudeAgentAssistantSession {
         }
         // setModel can change a live query's model, but effort and Fast are
         // fixed at query creation. Reuse only a compatible SDK query.
-        if (this.isUsable && this.effort === effort && this.fastMode === shouldUseClaudeAssistantFastMode(model, speedMode)) {
+        if (this.isUsable && this.effort === this.compileEffort(model, effort) && this.fastMode === this.supportsFastMode(model, speedMode)) {
             return true;
         }
         if (!(await this.retire('for settings change'))) {
@@ -572,7 +548,7 @@ export class ClaudeAgentAssistantSession {
 
     async retire(reason: string) {
         await waitForBoundedAssistantInterrupt(this.close()).catch((error: unknown) => {
-            logger.warn(`Failed to close Claude assistant session ${reason}: ${getErrorMessage(error)}`);
+            logger.warn(`Failed to close Claude assistant session ${reason}: ${sanitizeAssistantProviderText(getErrorMessage(error))}`);
         });
         return !this.isRetiring;
     }
@@ -632,15 +608,15 @@ export class ClaudeAgentAssistantSession {
                 // The SDK's interrupt request has no deadline of its own.
                 await waitForBoundedAssistantInterrupt(queryToRetire.interrupt());
             } catch (error) {
-                logger.warn(`Failed to interrupt Claude assistant turn: ${getErrorMessage(error)}`);
+                logger.warn(`Failed to interrupt Claude assistant turn: ${sanitizeAssistantProviderText(getErrorMessage(error))}`);
             } finally {
                 try {
                     queryToRetire.close();
                 } catch (error) {
-                    logger.warn(`Failed to close retired Claude assistant query: ${getErrorMessage(error)}`);
+                    logger.warn(`Failed to close retired Claude assistant query: ${sanitizeAssistantProviderText(getErrorMessage(error))}`);
                 }
                 await waitForBoundedAssistantInterrupt(streamToRetire ?? Promise.resolve()).catch((error: unknown) => {
-                    logger.warn(`Retired Claude assistant stream did not end: ${getErrorMessage(error)}`);
+                    logger.warn(`Retired Claude assistant stream did not end: ${sanitizeAssistantProviderText(getErrorMessage(error))}`);
                 });
                 this.options.callbacks.onTurnCompleted(turnId);
                 this.interrupting = false;
@@ -667,7 +643,7 @@ export class ClaudeAgentAssistantSession {
         try {
             this.query?.close();
         } catch (error) {
-            logger.warn(`Failed to close Claude assistant session: ${getErrorMessage(error)}`);
+            logger.warn(`Failed to close Claude assistant session: ${sanitizeAssistantProviderText(getErrorMessage(error))}`);
         }
         const retirement = this.consumeStreamPromise ?? Promise.resolve();
         const retirementPromise = retirement.finally(() => {
@@ -715,15 +691,16 @@ export class ClaudeAgentAssistantSession {
         if (isStartupCanceled()) {
             throw new Error('Claude assistant session is closed.');
         }
+        if (!this.options.executablePath) throw new Error(te('dialogs.agentAssistant.claudeMissing'));
         const promptQueue = new ClaudePromptQueue();
         const claudeQuery = query({
             prompt: promptQueue,
             options: {
                 cwd: this.options.cwd,
                 model: this.currentModel,
-                effort: this.currentEffort,
+                ...(this.currentEffort ? {effort: this.currentEffort} : {}),
                 ...(this.queryFastMode ? { settings: { fastMode: true } } : {}),
-                ...(this.options.executablePath ? { pathToClaudeCodeExecutable: this.options.executablePath } : {}),
+                pathToClaudeCodeExecutable: resolveClaudeSdkExecutablePath(this.options.executablePath),
                 ...(this.options.extraArgs ? { extraArgs: this.options.extraArgs } : {}),
                 ...(resumeSessionId ? { resume: resumeSessionId } : {}),
                 env: {
@@ -754,7 +731,7 @@ export class ClaudeAgentAssistantSession {
                 persistSession: true,
                 strictMcpConfig: true,
                 canUseTool,
-                stderr: message => logger.info(`[sdk] ${message.trim()}`),
+                stderr: message => logger.info(`[sdk] ${sanitizeAssistantProviderText(message)}`),
             },
         });
         this.promptQueue = promptQueue;
@@ -811,7 +788,7 @@ export class ClaudeAgentAssistantSession {
             this.account = normalizeClaudeAccount(await this.query.accountInfo());
             this.publishInitialized();
         } catch (error) {
-            logger.warn(`Failed to read Claude account info: ${getErrorMessage(error)}`);
+            logger.warn(`Failed to read Claude account info: ${sanitizeAssistantProviderText(getErrorMessage(error))}`);
         }
     }
 
@@ -827,7 +804,7 @@ export class ClaudeAgentAssistantSession {
                 this.publishInitialized();
             }
         } catch (error) {
-            logger.warn(`Failed to read Claude model list: ${getErrorMessage(error)}`);
+            logger.warn(`Failed to read Claude model list: ${sanitizeAssistantProviderText(getErrorMessage(error))}`);
         }
     }
 
@@ -845,7 +822,7 @@ export class ClaudeAgentAssistantSession {
                 this.completeTurn();
                 return;
             }
-            this.retireUnexpectedQuery(queryToConsume, getErrorMessage(error));
+            this.retireUnexpectedQuery(queryToConsume, error);
         }
     }
 
@@ -921,14 +898,17 @@ export class ClaudeAgentAssistantSession {
             this.options.callbacks.onUsage(this.currentTurnId, extractClaudeTokenUsage(message));
             const error = getResultErrorMessage(message);
             if (error) {
-                this.retireUnexpectedQuery(queryToConsume, error);
+                // Adapted from T3 Code ClaudeAdapterV2 providerFailureFromResult (0b6f482dc5), MIT.
+                const status = 'api_error_status' in message ? message.api_error_status : undefined;
+                this.retireUnexpectedQuery(queryToConsume, typeof status === 'number'
+                    ? {message: error, status, code: `api_error_${status}`} : error);
                 return;
             }
             this.completeTurn();
         }
     }
 
-    private retireUnexpectedQuery(queryToRetire: Query, error: string) {
+    private retireUnexpectedQuery(queryToRetire: Query, error: unknown) {
         if (this.query !== queryToRetire) {
             return;
         }
@@ -943,7 +923,7 @@ export class ClaudeAgentAssistantSession {
         try {
             queryToRetire.close();
         } catch (closeError) {
-            logger.warn(`Failed to close unusable Claude assistant query: ${getErrorMessage(closeError)}`);
+            logger.warn(`Failed to close unusable Claude assistant query: ${sanitizeAssistantProviderText(getErrorMessage(closeError))}`);
         }
         this.options.callbacks.onError(failedTurnId, error);
     }

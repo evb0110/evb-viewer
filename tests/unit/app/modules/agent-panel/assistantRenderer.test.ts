@@ -26,7 +26,6 @@ import { STORAGE_KEYS } from '@app/constants/storageKeys';
 const api = vi.hoisted(() => ({
     getAssistantState: vi.fn(),
     sendAssistantMessage: vi.fn(),
-    installAssistantCodex: vi.fn(),
     startAssistantLogin: vi.fn(),
     cancelAssistantLogin: vi.fn(),
     interruptAssistant: vi.fn(),
@@ -159,10 +158,6 @@ beforeEach(() => {
     }));
     api.interruptAssistant.mockImplementation(async () => current);
     api.resetAssistantChat.mockImplementation(async () => current);
-    api.installAssistantCodex.mockImplementation(async () => ({
-        ok: true,
-        state: current,
-    }));
     api.startAssistantLogin.mockImplementation(async () => ({
         ok: true,
         state: current,
@@ -222,12 +217,12 @@ describe('assistant renderer on instance contract', () => {
         expect([...host.querySelectorAll('button')].some(candidate => candidate.textContent?.includes('assistant.signIn'))).toBe(false);
     });
 
-    it('refreshes the selected instance and exposes install and device-code sign-in', async () => {
+    it('refreshes the selected instance and exposes device-code sign-in', async () => {
         current.instances[0] = createAssistantInstance({
             state: 'error',
             auth: 'unauthenticated',
             message: 'EXACT transport\nfailed',
-            canInstall: true,
+
             canSignIn: true,
         });
         const host = mount();
@@ -240,9 +235,6 @@ describe('assistant renderer on instance contract', () => {
             probe: true,
         });
         expect(host.querySelector('.provider-message')?.textContent).toContain('EXACT transport\nfailed');
-        button(host, 'assistant.installCodex').click();
-        await settle();
-        expect(api.installAssistantCodex).toHaveBeenCalled();
         button(host, 'assistant.signInDeviceCode').click();
         await settle();
         expect(api.startAssistantLogin).toHaveBeenCalledWith({

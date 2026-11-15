@@ -116,7 +116,6 @@ const instanceStatusSchema = v.object({
     models: v.array(AGENT_ASSISTANT_MODEL_OPTION_SCHEMA),
     defaultModel: v.nullable(v.string()),
     checkedAt: v.nullable(AGENT_ISO_TIMESTAMP_SCHEMA),
-    canInstall: v.boolean(),
     canSignIn: v.boolean(),
     loginPending: v.boolean(),
 });
@@ -164,7 +163,6 @@ const stateSchema = v.object({
     instances: v.array(instanceStatusSchema),
     selection: v.nullable(selectionSchema),
     chat: v.nullable(chatSchema),
-    installProgress: v.nullable(v.string()),
 });
 
 const stateRequestSchema = v.object({
@@ -248,10 +246,6 @@ const eventSchema = v.variant('type', [
         type: v.literal('turn'),
         sessionKey: nonBlankString,
         turn: v.nullable(turnSchema),
-    }),
-    v.object({
-        type: v.literal('install-progress'),
-        progress: v.nullable(v.string()),
     }),
 ]);
 export const ASSISTANT_INSTANCES_SCHEMA = v.message(instancesSchema, 'invalid assistant provider instances');

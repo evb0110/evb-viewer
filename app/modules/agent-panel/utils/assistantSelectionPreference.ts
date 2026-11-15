@@ -51,7 +51,8 @@ export function resolveAssistantSelection(
     if (!instance) return null;
     const preferred = selection?.instanceId === instance.id ? selection : fallback;
     const model = instance.models.find(item => item.id === preferred?.model)
-        ?? instance.models.find(item => item.id === instance.defaultModel);
+        ?? instance.models.find(item => item.id === instance.defaultModel)
+        ?? instance.models[0];
     const efforts = model?.reasoningEfforts ?? [];
     const effort = efforts.find(item => item.id === preferred?.effort)?.id
         ?? model?.defaultReasoningEffort ?? efforts.find(item => item.isDefault)?.id ?? efforts[0]?.id ?? preferred?.effort ?? 'medium';

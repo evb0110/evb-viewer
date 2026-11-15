@@ -307,6 +307,8 @@ const agentAssistantErrorEnvelopeSchema = v.pipe(
         code: agentAssistantErrorCodeSchema,
         message: v.string(),
         retryable: v.boolean(),
+        class: v.optional(v.picklist(['unknown', 'usage_limit', 'permission_error', 'validation_error', 'provider_error', 'transport_error'])),
+        providerCode: v.optional(v.string()),
         details: v.object({timestamp: agentEpochTimestampSchema}),
     }),
     v.readonly(),

@@ -1,285 +1,82 @@
-import { CODEX_ASSISTANT_FALLBACK_MODELS } from '@contracts/agentModels';
-import { readFileSync } from 'node:fs';
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
-import {
-    normalizeCodexAssistantModelFromCatalog,
-    normalizeCodexModelListResponse,
-    resolveCodexModelStatus,
-} from '@electron/features/agent/assistantModelCatalog';
+import {readFileSync} from 'node:fs';
+import {describe, expect, it} from 'vitest';
+import {normalizeCodexAssistantModelFromCatalog, normalizeCodexModelListResponse, resolveCodexModelStatus} from '@electron/features/agent/assistantModelCatalog';
+import {createAssistantErrorEnvelope, sanitizeAssistantProviderText} from '@electron/features/agent/assistantErrorEnvelope';
 
 describe('agent assistant model catalog', () => {
-    it('keeps current Astra and Luna while replacing and promoting an updated Sol', () => {
-        const models = normalizeCodexModelListResponse({ data: [
-            {
-                model: 'gpt-6-astra',
-                isDefault: true,
-            },
-            { model: 'gpt-6-sol' },
-            { model: 'gpt-6-luna' },
-            { model: 'gpt-6.1-sol' },
-            { model: 'gpt-5.6-terra' },
-        ] }) ?? [];
-        expect(models.map(model => model.id)).toEqual([
-            'gpt-6.1-sol',
-            'gpt-6-astra',
-            'gpt-6-luna',
-        ]);
-    });
-
-    it('automatically promotes a later Sol release and honors a hidden baseline', () => {
-        expect(normalizeCodexModelListResponse({ data: [
-            { model: 'gpt-6.1-sol' },
-            { model: 'gpt-6.2-sol' },
-            { model: 'gpt-6-astra' },
-        ] })?.map(model => model.id)).toEqual([
-            'gpt-6.2-sol',
-            'gpt-6-astra',
-        ]);
-        expect(normalizeCodexModelListResponse({ data: [
-            { model: 'gpt-6-sol' },
-            {
-                model: 'gpt-6.1-sol',
-                hidden: true,
-            },
-        ] })?.map(model => model.id)).toEqual([]);
-    });
-
-    it('reads a real Codex 0.157.1 app-server model/list response', () => {
-        const response = JSON.parse(readFileSync(
-            'tests/fixtures/electron/codex-app-server-model-list-0.157.1.json',
-            'utf8',
-        )) as unknown;
-        const models = normalizeCodexModelListResponse(response) ?? [];
-        expect(models.map(model => [
-            model.id,
-            model.label,
-            model.defaultReasoningEffort,
-        ])).toEqual([
-            [
-                'gpt-6.1-sol',
-                'GPT-6.1-Sol',
-                'medium',
-            ],
-            [
-                'gpt-6-astra',
-                'GPT-6-Astra',
-                'medium',
-            ],
-            [
-                'gpt-6-luna',
-                'GPT-6-Luna',
-                'medium',
-            ],
-        ]);
-        expect(normalizeCodexAssistantModelFromCatalog(models, null)).toBe('gpt-6-astra');
-        expect(normalizeCodexAssistantModelFromCatalog(models, 'gpt-5.6-sol')).toBe('gpt-6-astra');
-    });
-
-    it('keeps visible entries from the newest GPT generation and uses the backend default', () => {
+    it('keeps every reported generation and family in provider order', () => {
         const models = normalizeCodexModelListResponse({data: [
-            {
-                model: 'gpt-5.6-sol',
-                displayName: 'GPT-5.6-Sol',
-                hidden: false,
-            },
-            {
-                model: 'gpt-6-astra',
-                displayName: 'GPT-6-Astra Live',
-                hidden: false,
-                isDefault: true,
-                defaultServiceTier: 'fast',
-                serviceTiers: [
-                    {
-                        id: 'priority',
-                        name: 'Fast',
-                        description: 'Lower latency',
-                    },
-                    {
-                        id: 'standard',
-                        name: 'Standard',
-                    },
-                ],
-                defaultReasoningEffort: 'medium',
-                supportedReasoningEfforts: [
-                    {
-                        reasoningEffort: 'low',
-                        description: 'Fast responses',
-                    },
-                    {
-                        reasoningEffort: 'medium',
-                        description: 'Balanced responses',
-                    },
-                    {
-                        reasoningEffort: 'xhigh',
-                        description: 'Extra high reasoning depth',
-                    },
-                ],
-            },
-            {
-                id: 'gpt-6-sol',
-                displayName: 'GPT-6-Sol',
-                hidden: false,
-                additionalSpeedTiers: ['fast'],
-            },
-            {
-                id: 'gpt-7-luna',
-                hidden: true,
-                isDefault: true,
-            },
-            {
-                id: 'custom-runtime-model',
-                displayName: 'Custom Runtime Model',
-                hidden: false,
-            },
-        ]});
-
-        expect(models).toEqual([
-            ...CODEX_ASSISTANT_FALLBACK_MODELS,
-            {
-                id: 'gpt-6-astra',
-                label: 'GPT-6-Astra Live',
-                reasoningEfforts: [
-                    {
-                        id: 'low',
-                        label: 'Low',
-                        description: 'Fast responses',
-                    },
-                    {
-                        id: 'medium',
-                        label: 'Medium',
-                        description: 'Balanced responses',
-                        isDefault: true,
-                    },
-                    {
-                        id: 'xhigh',
-                        label: 'Extra High',
-                        description: 'Extra high reasoning depth',
-                    },
-                ],
-                defaultReasoningEffort: 'medium',
-                serviceTiers: [
-                    {
-                        id: 'priority',
-                        label: 'Fast',
-                        description: 'Lower latency',
-                    },
-                    {
-                        id: 'standard',
-                        label: 'Standard',
-                    },
-                ],
-                defaultServiceTier: 'fast',
-                isDefault: true,
-            },
-            {
-                id: 'custom-runtime-model',
-                label: 'Custom Runtime Model',
-            },
-        ]);
-        expect(resolveCodexModelStatus(models ?? [], 'gpt-5.6-sol')).toMatchObject({
-            defaultModel: 'gpt-6-astra',
-            activeModel: 'gpt-6-astra',
-        });
-    });
-
-    it('falls back to the first listed model of the newest generation when no backend default exists', () => {
-        const models = normalizeCodexModelListResponse({data: [
-            {
-                model: 'custom-runtime-model',
-                hidden: false,
-            },
-            {
-                model: 'gpt-6-sol',
-                hidden: false,
-            },
-            {
-                model: 'gpt-6-astra',
-                hidden: false,
-            },
-            {
-                model: 'gpt-5.6-sol',
-                hidden: false,
-                isDefault: true,
-            },
-        ]}) ?? [];
-
-        expect(models.map(model => model.id)).toEqual([
-            'gpt-6.1-sol',
-            'custom-runtime-model',
-            'gpt-6-astra',
-        ]);
-        expect(resolveCodexModelStatus(models, 'gpt-5.6-sol')).toMatchObject({
-            defaultModel: 'gpt-6.1-sol',
-            activeModel: 'gpt-6.1-sol',
-        });
-        expect(normalizeCodexAssistantModelFromCatalog([], 'gpt-5.6-sol')).toBe('gpt-6.1-sol');
-    });
-
-    it('deduplicates visible Codex models and ignores hidden and blank records', () => {
-        expect(normalizeCodexModelListResponse({data: [
-            {
-                model: 'gpt-6-astra',
-                displayName: 'GPT-6-Astra',
-                hidden: false,
-            },
-            {
-                id: 'gpt-6-astra',
-                displayName: 'Duplicate',
-                hidden: false,
-            },
-            {
-                model: 'gpt-99-hidden',
-                hidden: true,
-            },
+            {model: 'gpt-6-astra', isDefault: true},
             {model: 'gpt-6-sol'},
-            {
-                model: '   ',
-                hidden: false,
-            },
-            null,
-        ]})).toEqual([
-            ...CODEX_ASSISTANT_FALLBACK_MODELS,
-            {
-                id: 'gpt-6-astra',
-                label: 'GPT-6-Astra',
-            },
-        ]);
+            {model: 'gpt-6-luna'},
+            {model: 'gpt-6.1-sol'},
+            {model: 'gpt-5.6-terra'},
+        ]}) ?? [];
+        expect(models.map(model => model.id)).toEqual(['gpt-6-astra', 'gpt-6-sol', 'gpt-6-luna', 'gpt-6.1-sol', 'gpt-5.6-terra']);
+        expect(resolveCodexModelStatus(models, 'absent-model')).toMatchObject({defaultModel: 'gpt-6-astra', activeModel: 'gpt-6-astra'});
+    });
+
+    it('does not fabricate the unsupported Sol 6.1 on the real older runtime catalog', () => {
+        const response: unknown = JSON.parse(readFileSync('tests/fixtures/electron/codex-app-server-model-list-0.157.1.json', 'utf8'));
+        const models = normalizeCodexModelListResponse(response) ?? [];
+        expect(models.map(model => model.id)).toEqual(['gpt-6-astra', 'gpt-6-sol', 'gpt-6-luna', 'gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna', 'gpt-5.5']);
+        expect(normalizeCodexAssistantModelFromCatalog(models, 'gpt-6.1-sol')).toBe('gpt-6-astra');
+        expect(normalizeCodexAssistantModelFromCatalog(models, null)).toBe('gpt-6-astra');
+    });
+
+    it('deduplicates visible models, ignores hidden/blank records and never injects an absent model', () => {
+        expect(normalizeCodexModelListResponse({data: [
+            {model: 'gpt-6-sol'}, {id: 'gpt-6-sol', displayName: 'Duplicate'},
+            {model: 'gpt-6.1-sol', hidden: true}, {model: '   '}, null,
+            {id: 'custom', displayName: 'Custom model'},
+        ]})).toEqual([{id: 'gpt-6-sol', label: 'gpt-6-sol'}, {id: 'custom', label: 'Custom model'}]);
         expect(normalizeCodexModelListResponse({data: 'bad'})).toBeNull();
     });
 
-    it('preserves arbitrary Codex reasoning efforts advertised by model/list', () => {
-        const models = normalizeCodexModelListResponse({data: [{
-            model: 'custom-runtime-model',
-            hidden: false,
-            defaultReasoningEffort: 'super-high',
-            supportedReasoningEfforts: [
-                {
-                    reasoningEffort: 'super-high',
-                    description: 'Maximum reasoning',
-                },
-                {reasoningEffort: 'minimal'},
-            ],
-        }]});
+    it('uses a reported default, otherwise the first row, including custom and older models', () => {
+        const models = normalizeCodexModelListResponse({data: [{model: 'custom'}, {model: 'older', isDefault: true}]}) ?? [];
+        expect(resolveCodexModelStatus(models, 'absent')).toMatchObject({defaultModel: 'older', activeModel: 'older'});
+        expect(resolveCodexModelStatus(models, 'custom').activeModel).toBe('custom');
+        expect(resolveCodexModelStatus(models.slice(0, 1), null).defaultModel).toBe('custom');
+        expect(normalizeCodexAssistantModelFromCatalog([], 'gpt-6.1-sol')).toBe('');
+    });
 
-        expect(models?.[0]).toMatchObject({
-            id: 'custom-runtime-model',
-            reasoningEfforts: [
-                {
-                    id: 'super-high',
-                    label: 'Super High',
-                    description: 'Maximum reasoning',
-                    isDefault: true,
-                },
-                {
-                    id: 'minimal',
-                    label: 'Minimal',
-                },
-            ],
-            defaultReasoningEffort: 'super-high',
-        });
+    it('preserves reported reasoning and speed options without adding universal capabilities', () => {
+        const models = normalizeCodexModelListResponse({data: [{
+            model: 'custom', displayName: 'Custom Runtime Model', defaultReasoningEffort: 'super-high',
+            supportedReasoningEfforts: [{reasoningEffort: 'super-high', description: 'Maximum reasoning'}, {reasoningEffort: 'minimal'}],
+            defaultServiceTier: 'priority', serviceTiers: [{id: 'priority', name: 'Fast', description: 'Lower latency'}, {id: 'standard', name: 'Standard'}],
+        }, {model: 'simple'}, {model: 'legacy-speed', additionalSpeedTiers: ['fast']} ]});
+        expect(models).toEqual([
+            {id: 'custom', label: 'Custom Runtime Model', defaultReasoningEffort: 'super-high', reasoningEfforts: [
+                {id: 'super-high', label: 'Super High', description: 'Maximum reasoning', isDefault: true}, {id: 'minimal', label: 'Minimal'},
+            ], defaultServiceTier: 'priority', serviceTiers: [{id: 'priority', label: 'Fast', description: 'Lower latency'}, {id: 'standard', label: 'Standard'}]},
+            {id: 'simple', label: 'simple'}, {id: 'legacy-speed', label: 'legacy-speed', serviceTiers: [{id: 'fast', label: 'Fast'}]},
+        ]);
+    });
+
+    it('keeps independently reported setup catalogs separate', () => {
+        const standard = normalizeCodexModelListResponse({data: [{model: 'standard', isDefault: true}]}) ?? [];
+        const proxy = normalizeCodexModelListResponse({data: [{model: 'proxy-only', isDefault: true}]}) ?? [];
+        expect(resolveCodexModelStatus(standard, 'proxy-only').activeModel).toBe('standard');
+        expect(resolveCodexModelStatus(proxy, 'standard').activeModel).toBe('proxy-only');
+    });
+});
+
+describe('readable provider failures', () => {
+    it('unwraps the owner nested provider error and marks the permanent model error non-retryable', () => {
+        const envelope = createAssistantErrorEnvelope(JSON.stringify({type: 'error', status: 400, error: {type: 'invalid_request_error', message: "The 'gpt-6.1-sol' model is not supported when using Codex with a ChatGPT account.", code: 'model_not_found'}}));
+        expect(envelope).toMatchObject({code: 'MODEL_UNAVAILABLE', class: 'provider_error', providerCode: 'model_not_found', retryable: false, message: "The 'gpt-6.1-sol' model is not supported when using Codex with a ChatGPT account."});
+    });
+    it('retains structured transient classification, native code and retryability', () => {
+        expect(createAssistantErrorEnvelope(new Error(JSON.stringify({status: 429, error: {code: 'rate_limit_error', message: 'Please try again later.'}})))).toMatchObject({code: 'PROVIDER_RATE_LIMITED', class: 'usage_limit', providerCode: 'rate_limit_error', retryable: true, message: 'Please try again later.'});
+        expect(createAssistantErrorEnvelope({status: 529, message: 'Overloaded'})).toMatchObject({retryable: true, class: 'transport_error'});
+        expect(createAssistantErrorEnvelope({status: 401, message: 'Credentials expired'})).toMatchObject({code: 'AUTH_REQUIRED', retryable: false});
+    });
+    it('removes credentials, URLs, hosts and unsafe control characters before bounding text', () => {
+        const message = sanitizeAssistantProviderText('Failed https://user:password@gateway.example.test/v1?token=secret\u0000 Bearer fixture-token api_key=fixture-key gateway.example.test:8080 127.0.0.1:3000');
+        expect(message).not.toMatch(/gateway|fixture|password|secret|127\.0\.0\.1|https:/);
+        expect(message).toContain('[redacted endpoint]');
+        expect(sanitizeAssistantProviderText('x'.repeat(5000))).toHaveLength(4096);
     });
 });
