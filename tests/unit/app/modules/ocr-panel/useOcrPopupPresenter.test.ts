@@ -675,13 +675,13 @@ describe('useOcrPopupPresenter', () => {
         }
     });
 
-    it('preserves explicit agent preprocessing when the quality profile is unchanged', async () => {
+    it.each(['balanced', 'poor-scan'] as const)('preserves explicit agent preprocessing from the %s profile', async (initialProfile) => {
         const harness = createPresenterHarness();
 
         try {
-            harness.presenter.qualityProfileModel.value = 'poor-scan';
+            harness.presenter.qualityProfileModel.value = initialProfile;
             await nextTick();
-            expect(harness.ocr.settings.value.preprocessingMode).toBe('clean');
+            expect(harness.ocr.settings.value.preprocessingMode).toBe(initialProfile === 'poor-scan' ? 'clean' : 'off');
 
             await harness.presenter.runOcrForAgent({
                 open: false,

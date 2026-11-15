@@ -118,6 +118,18 @@ if (process.argv.includes('--version')) {
                         const read = await callEvbTool('evb_workspace_snapshot', {}, `${turnId}-read`);
                         finishTurn(emit, turnId, `save:${save} read:${read}`);
                     })().catch(error => finishTurn(emit, turnId, `fixture:${error.message}`));
+                } else if (prompt.includes('P3 agent OCR preprocessing')) {
+                    void (async () => {
+                        const ocr = await callEvbTool('evb_run_action', {
+                            id: 'ocr.start',
+                            input: {
+                                open: false,
+                                qualityProfile: 'poor-scan',
+                                preprocessingMode: 'off',
+                            },
+                        }, `${turnId}-ocr`);
+                        finishTurn(emit, turnId, `ocr:${ocr}`);
+                    })().catch(error => finishTurn(emit, turnId, `fixture:${error.message}`));
                 } else if (prompt.includes('1544 own rotation')) {
                     void (async () => {
                         const rotate = await callEvbTool('evb_run_action', {

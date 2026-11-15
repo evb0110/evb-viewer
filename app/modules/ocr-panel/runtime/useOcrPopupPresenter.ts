@@ -532,11 +532,11 @@ export const useOcrPopupPresenter = ({
             return;
         }
 
-        replaceSettings(applyAgentOcrOptionsToSettings(
+        settings.value = applyAgentOcrOptionsToSettings(
             settings.value,
             options,
             availableLanguageCodes.value,
-        ));
+        );
     }
 
     function createAgentOcrSnapshot() {
