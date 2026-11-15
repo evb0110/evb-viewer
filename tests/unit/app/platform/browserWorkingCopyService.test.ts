@@ -215,7 +215,7 @@ describe('browser working-copy decryption', () => {
         const {token} = await browserDocumentStore.getDocumentRevision(edited.workingPath);
         await browserDocumentStore.write(edited.workingPath, new TextEncoder().encode('%PDF-1.7\nedited\n'), {expectedDocumentRevisionToken: token});
         expect(await named()).toEqual([edited.doc.id]);
-        expect(await collect(edited.doc.id)).toEqual({removed: [], unsaved: [edited.doc.id]});
+        expect(await collect(edited.doc.id)).toEqual({removed: [], unsaved: [edited.doc.id], unreadable: []});
     });
 
     it('returns a typed wrong-password result without changing the encrypted working copy', async () => {

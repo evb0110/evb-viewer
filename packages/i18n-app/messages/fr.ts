@@ -1916,7 +1916,7 @@ export default {
             'documentNotReopenedTitle': 'Document non rouvert',
             'documentNotReopenedDescription': '{fileName} a arrêté la visionneuse pendant son ouverture, il n’a donc pas été rouvert. Vous pouvez le rouvrir depuis Fichiers récents.',
             'workingCopyLostTitle': 'Modifications non enregistrées introuvables',
-            'workingCopyLostDescription': 'Les modifications non enregistrées de {fileName} se trouvent dans une copie de travail absente de cet ordinateur ; le document a donc été ouvert dans sa dernière version enregistrée. Elles sont conservées pour un prochain démarrage qui retrouvera la copie de travail.',
+            'workingCopyLostDescription': 'Les modifications non enregistrées de {fileName} se trouvent dans une copie de travail absente de cet ordinateur ou qui n’a pas pu être lue ; le document a donc été ouvert dans sa dernière version enregistrée. Elles sont conservées pour un prochain démarrage qui retrouvera la copie de travail.',
         },
         'settings': {
             'load': 'Impossible de charger les paramètres',

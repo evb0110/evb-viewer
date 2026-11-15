@@ -915,3 +915,21 @@ describe('node store port', () => {
         expect(await readFile(path.join(root, 'documents', 'a', 'manifest.json'), 'utf8')).toBe('{}');
     }, 5_000);
 });
+
+
+it.each(['size', 'truncate'])('#1609 closes a fork copy when its %s fails', async operation => {
+    const fault = crashingPort(createNodeStorePort(root), (op, target) => op === operation && target === 'documents/failed-fork/r1.pdf', false);
+    const doc = await create(store(fault.port), {ext: 'pdf', source: new Blob(['base'])});
+    await writeFile(path.join(docDir(doc), 'r1.pdf'), 'base+uncommitted tail');
+    const manifest = await readFile(path.join(docDir(doc), 'manifest.json'));
+    try {
+        await expect(forkDocument(store(fault.port), doc.id, 'failed-fork')).rejects.toThrow(`fault at ${operation}`);
+        expect.soft(await currentText(doc)).toBe('base');
+        expect.soft(await readFile(path.join(docDir(doc), 'manifest.json'))).toEqual(manifest);
+        await doc.close();
+        expect(fault.openHandles()).toBe(0);
+    } finally {
+        await doc.close();
+        await fault.kill();
+    }
+});

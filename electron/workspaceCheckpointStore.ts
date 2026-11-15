@@ -264,11 +264,19 @@ async function unshownUnsavedDirectories(checkpoints: ReadonlyMap<string, IStore
     return (await unheldUnsavedDocuments()).filter(directory => !shown.has(directory));
 }
 
-/** A tab for an unsaved directory no workspace shows. Only a PDF is offered; another kind stays in the store. */
+/**
+ * A tab for an unsaved directory no workspace shows. Only a PDF is offered; another kind stays in the store. One whose
+ * manifest cannot be read is offered too: its reopen reports the work as not found, and the directory stays.
+ */
 async function unshownTab(directory: string, paneId: IWorkspaceCheckpointTab['paneId']): Promise<IWorkspaceCheckpointTab | null> {
-    const manifest = await getDocumentStore().port.read(`${DOCUMENTS_DIR}/${directory}/${MANIFEST_NAME}`).then(decodeManifest).catch(() => null);
-    if (manifest?.ext !== 'pdf') return null;
-    const {destination} = manifest;
+    const path = `${DOCUMENTS_DIR}/${directory}/${MANIFEST_NAME}`;
+    const manifest = await getDocumentStore().port.read(path).then(decodeManifest).catch((error: unknown) => {
+        if (isErrnoException(error) && error.code === 'ENOENT') return null;
+        log.warn(`Unsaved work no workspace shows cannot be read: ${path}: ${getErrorMessage(error)}`);
+        return undefined;
+    });
+    if (manifest === null || (manifest && manifest.ext !== 'pdf')) return null;
+    const destination = manifest?.destination;
     return {
         tabId: createTabId(),
         paneId,
@@ -328,8 +336,8 @@ export function claimWorkspaceCheckpoint(ownerWebContentsId: number, owner?: num
             stored.tabs[tab?.tabId ?? directory] = {directory, view: null};
         }
         const reopened = await Promise.all([...workspace.tabs, ...offered].map(tab => claimTab(tab, stored, ownerWebContentsId)));
-        // An offered directory whose document did not open, or turned out saved, adds no tab.
-        const added = reopened.slice(workspace.tabs.length).filter(tab => tab.workingCopyRef !== null);
+        // An offered directory that turned out saved adds no tab; one whose document did not open adds its notice.
+        const added = reopened.slice(workspace.tabs.length).filter(tab => tab.workingCopyRef !== null || tab.workingCopyLost);
         const tabs = [...reopened.slice(0, workspace.tabs.length), ...added];
         for (const {workingCopyRef} of tabs) {
             const entry = workingCopyRef ? getWorkingCopyBackingEntry(workingCopyRef, ownerWebContentsId) : null;

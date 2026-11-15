@@ -50,13 +50,28 @@ export function writeWorkspaceCheckpoint(port: IStorePort, windowId: string, che
     return port.writeAtomic(checkpointPath(windowId), encodeJson({ version: 1, ...checkpoint }));
 }
 
-/** Every window's checkpoint by window id; `null` marks one that cannot be read. */
-export async function readWorkspaceCheckpoints(port: IStorePort) {
+/** Recovery data that exists but cannot be read: kept as it is, for the host to report. */
+export interface IUnreadableEntry {
+    /** The store path that could not be read. */
+    path: string;
+    /** The document directory, when `path` is its manifest. */
+    directory?: string;
+    error: unknown;
+}
+
+/** Every window's checkpoint by window id; `null` marks one that cannot be read, which `unreadable` receives. */
+export async function readWorkspaceCheckpoints(port: IStorePort, unreadable: IUnreadableEntry[] = []) {
     const checkpoints = new Map<string, IWorkspaceCheckpoint | null>();
     for (const name of await port.list(WORKSPACES_DIR)) {
         const windowId = checkpointWindowId(name);
         if (windowId === null) continue;
-        checkpoints.set(windowId, await port.read(`${WORKSPACES_DIR}/${name}`).then(decodeCheckpoint).catch(() => null));
+        const path = `${WORKSPACES_DIR}/${name}`;
+        checkpoints.set(windowId, await port.read(path).then(decodeCheckpoint)
+            .then(checkpoint => checkpoint ?? Promise.reject(new Error('Not a workspace checkpoint')))
+            .catch((error: unknown) => {
+                unreadable.push({ path, error });
+                return null;
+            }));
     }
     return checkpoints;
 }

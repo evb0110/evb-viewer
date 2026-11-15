@@ -588,7 +588,14 @@ export class BrowserDocumentStore {
         const previous = this.tokenOf(entry);
         const result = await doc.restore(this.expectedRevision(entry, token), this.revisionIdOf(doc, revision));
         if (result.status === 'stale-revision') this.throwStale(entry, token);
-        if (result.status === 'conflict') throw new BrowserDocumentSourceChangedError(entry.ref);
+        if (result.status === 'conflict') {
+            const {history, baseline} = doc.state();
+            const target = history.find(item => item.id === this.revisionIdOf(doc, revision));
+            if (target && !('file' in target) && !sameWitness(target.witness, baseline)) {
+                throw Object.assign(new Error('The document as it was opened could not be retained when it was saved, so it cannot be restored'), {code: 'SOURCE_BACKING_UNAVAILABLE'});
+            }
+            throw new BrowserDocumentSourceChangedError(entry.ref);
+        }
         entry.file = null;
         entry.fileSize = await this.sizeOf(entry);
         entry.updatedAt = Date.now();

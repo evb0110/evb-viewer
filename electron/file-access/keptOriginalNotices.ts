@@ -2,10 +2,7 @@ import {existsSync} from 'node:fs';
 import {readFile} from 'node:fs/promises';
 import {join} from 'node:path';
 import {app} from 'electron';
-import {
-    isErrnoException,
-    isRecord,
-} from '@contracts/runtimeGuards';
+import {isRecord} from '@contracts/runtimeGuards';
 import {safeJsonParse} from '@contracts/safeJsonParse';
 import {normalizePathForLookup} from '@electron/file-access/normalizePathForLookup';
 import {writeJsonAtomic} from '@electron/utils/atomicReplace';
@@ -19,10 +16,15 @@ function getNoticesPath() {
     return join(app.getPath('userData'), 'kept-original-notices.json');
 }
 
+function warnNoticesFailure(message: string, originalPath: string, error: unknown) {
+    if (isRecord(error) && (error.code === 'ENOENT' || error.name === 'NotFoundError')) return;
+    log.warn(message, {path: getNoticesPath(), originalPath, error: getErrorMessage(error)});
+}
+
 // Only a missing file holds no notices. Any other failure rejects, so an update never writes over notices it could not read.
 async function readNotices() {
     const value = safeJsonParse(await readFile(getNoticesPath(), 'utf8').catch((error: unknown) => {
-        if (isErrnoException(error) && error.code === 'ENOENT') return '{}';
+        if (isRecord(error) && (error.code === 'ENOENT' || error.name === 'NotFoundError')) return '{}';
         throw error;
     }));
     return new Map(isRecord(value)
@@ -48,18 +50,23 @@ function updateNotices<T>(update: (notices: Map<string, string>) => T) {
  */
 export async function rememberKeptOriginal(originalPath: string, keptPath: string) {
     await updateNotices(notices => notices.set(normalizePathForLookup(originalPath), keptPath)).catch((error: unknown) => {
-        log.warn('Could not remember a file recovery kept beside a PDF', {error: getErrorMessage(error)});
+        warnNoticesFailure('Could not remember a file recovery kept beside a PDF', originalPath, error);
     });
 }
 
 /** The file kept beside `originalPath`, while it is there to open. A notice recorded before its move stays for when it lands. */
 export async function findKeptOriginal(originalPath: string) {
-    const notices = await readNotices().catch(() => new Map<string, string>());
+    const notices = await readNotices().catch((error: unknown) => {
+        warnNoticesFailure('Could not read kept-original notices', originalPath, error);
+        return new Map<string, string>();
+    });
     const keptPath = notices.get(normalizePathForLookup(originalPath));
     return keptPath !== undefined && existsSync(keptPath) ? keptPath : undefined;
 }
 
 /** Forgets the notice for `originalPath` once the person has dismissed it. */
 export async function forgetKeptOriginal(originalPath: string) {
-    await updateNotices(notices => notices.delete(normalizePathForLookup(originalPath))).catch(() => undefined);
+    await updateNotices(notices => notices.delete(normalizePathForLookup(originalPath))).catch((error: unknown) => {
+        warnNoticesFailure('Could not dismiss a kept-original notice', originalPath, error);
+    });
 }

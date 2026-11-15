@@ -1917,7 +1917,7 @@ export default {
             'documentNotReopenedTitle': 'Documento não reaberto',
             'documentNotReopenedDescription': '{fileName} interrompeu o visualizador durante a abertura, por isso não foi reaberto. Pode abri-lo novamente a partir de Ficheiros Recentes.',
             'workingCopyLostTitle': 'Alterações não guardadas não encontradas',
-            'workingCopyLostDescription': 'As alterações não guardadas em {fileName} estão numa cópia de trabalho que falta neste computador, por isso o documento foi aberto tal como foi guardado pela última vez. São mantidas para um arranque posterior que encontre a cópia de trabalho.',
+            'workingCopyLostDescription': 'As alterações não guardadas em {fileName} estão numa cópia de trabalho que falta ou não pôde ser lida neste computador, por isso o documento foi aberto tal como foi guardado pela última vez. São mantidas para um arranque posterior que encontre a cópia de trabalho.',
         },
         'settings': {
             'load': 'Não foi possível carregar as definições',

@@ -1,6 +1,7 @@
 import {existsSync} from 'node:fs';
 import {
     chmod,
+    mkdir,
     mkdtemp,
     readFile,
     readdir,
@@ -28,6 +29,9 @@ import {
     it,
     vi,
 } from 'vitest';
+
+const diagnosticLog = vi.hoisted(() => ({warn: vi.fn(), error: vi.fn(), info: vi.fn(), debug: vi.fn()}));
+vi.mock('@electron/utils/createLogger', () => ({createLogger: () => diagnosticLog}));
 
 let tempRoot = '';
 
@@ -99,11 +103,13 @@ async function crashDuringPublish(entry: Awaited<ReturnType<typeof store.openDoc
 }
 
 beforeEach(async () => {
+    vi.clearAllMocks();
     tempRoot = await mkdtemp(join(tmpdir(), 'evb-document-store-'));
     await store.setDocumentStoreRootForTests(join(tempRoot, 'store'));
 });
 
 afterEach(async () => {
+    vi.restoreAllMocks();
     clearWorkingCopyQuarantinesForTests();
     await store.setDocumentStoreRootForTests(null);
     await rm(tempRoot, {recursive: true, force: true});
@@ -600,4 +606,115 @@ describe('desktop document store', () => {
         expect(await handleFileReadRange({senderId: 7}, entry.ref, 0, 8)).toEqual(ORIGINAL.subarray(0, 8));
         await expect(handleFileReadRange({senderId: 8}, entry.ref, 0, 8)).rejects.toThrow('reads only allowed');
     });
+});
+
+// #1609: warnings are retained by packaged diagnostics; debug messages are not.
+const retainedDiagnostics = () => [...diagnosticLog.info.mock.calls, ...diagnosticLog.warn.mock.calls, ...diagnosticLog.error.mock.calls]
+    .map(args => JSON.stringify(args, (_key, value: unknown) => value instanceof Error ? value.message : value)).join('\n');
+
+describe('#1609 recovery diagnostics', () => {
+    it('reports an unreadable manifest and offers the existing recovery notice without altering its bytes', async () => {
+        const {entry} = await openPdf();
+        const manifest = join(tempRoot, 'store', 'documents', entry.doc.id, 'manifest.json');
+        await restart();
+        await writeFile(manifest, '{corrupt');
+        const claimed = await checkpoints.claimWorkspaceCheckpoint(160901);
+        expect.soft(await readFile(manifest, 'utf8')).toBe('{corrupt');
+        expect.soft(retainedDiagnostics()).toContain(`documents/${entry.doc.id}/manifest.json`);
+        expect.soft(retainedDiagnostics()).toMatch(/(?:SyntaxError|Expected property name|Unexpected token|not valid JSON|Unreadable document manifest|parsing|parse error)/iu);
+        expect(claimed?.tabs.some(tab => tab.workingCopyLost)).toBe(true);
+    });
+
+    it('names an unreadable workspace checkpoint and its read error in retained diagnostics', async () => {
+        const port = store.getDocumentStore().port;
+        await port.writeAtomic('workspaces/unreadable-window.json', new TextEncoder().encode('{corrupt'));
+        const read = port.read.bind(port);
+        vi.spyOn(port, 'read').mockImplementation(target => target === 'workspaces/unreadable-window.json'
+            ? Promise.reject(new Error('EACCES injected checkpoint read')) : read(target));
+        await checkpoints.claimWorkspaceCheckpoint(160902);
+        expect.soft(retainedDiagnostics()).toContain('workspaces/unreadable-window.json');
+        expect(retainedDiagnostics()).toContain('EACCES injected checkpoint read');
+    });
+
+    it('reports an orphan manifest that becomes unreadable after collection through the recovery notice', async () => {
+        const {entry} = await openPdf();
+        await entry.doc.setDrafts(null, {note: 'recover me'});
+        await restart();
+        await store.collectStaleDocuments();
+        const port = store.getDocumentStore().port;
+        const target = `documents/${entry.doc.id}/manifest.json`;
+        const before = await port.read(target);
+        const read = port.read.bind(port);
+        vi.spyOn(port, 'read').mockImplementation(name => name === target
+            ? Promise.reject(new Error('EACCES injected orphan read')) : read(name));
+        const claimed = await checkpoints.claimWorkspaceCheckpoint(160903);
+        expect.soft(retainedDiagnostics()).toContain(target);
+        expect.soft(retainedDiagnostics()).toContain('EACCES injected orphan read');
+        expect.soft(claimed?.tabs.some(tab => tab.workingCopyLost)).toBe(true);
+        expect(await read(target)).toEqual(before);
+    });
+
+    it('retains an interrupted save and logs why settlement failed at a retained level', async () => {
+        const {entry} = await openPdf();
+        await crashDuringPublish(entry, await writeTemp('edited.pdf', EDITED));
+        const id = entry.doc.id;
+        await restart();
+        const publication = store.getDocumentStore().publication;
+        vi.spyOn(publication, 'settle').mockRejectedValue(new Error('EACCES injected settlement'));
+        await store.collectStaleDocuments();
+        expect.soft(retainedDiagnostics()).toContain(id);
+        expect(retainedDiagnostics()).toContain('EACCES injected settlement');
+        const manifest = JSON.parse(await readFile(join(tempRoot, 'store', 'documents', id, 'manifest.json'), 'utf8'));
+        expect(manifest.pendingPublish).toBeDefined();
+    });
+
+    it('keeps ENOENT absence silent with no recovery notice or log at any level', async () => {
+        await store.getDocumentStore().port.writeAtomic('documents/aborted-open/uncommitted', new Uint8Array());
+        expect(await checkpoints.claimWorkspaceCheckpoint(160904)).toBeNull();
+        expect(await findKeptOriginal(join(tempRoot, 'missing.pdf'))).toBeUndefined();
+        expect(diagnosticLog.warn).not.toHaveBeenCalled();
+        expect(diagnosticLog.error).not.toHaveBeenCalled();
+        expect(diagnosticLog.info).not.toHaveBeenCalled();
+        expect(diagnosticLog.debug).not.toHaveBeenCalled();
+    });
+});
+
+describe('#1609 kept original diagnostics', () => {
+    it.each(['unreadable', 'invalid JSON'])('reports %s notices file without replacing it', async damage => {
+        const notices = join(tempRoot, 'kept-original-notices.json');
+        if (damage === 'unreadable') await mkdir(notices);
+        else await writeFile(notices, '{broken');
+        expect(await findKeptOriginal(join(tempRoot, 'report.pdf'))).toBeUndefined();
+        expect.soft(retainedDiagnostics()).toContain(notices);
+        expect(retainedDiagnostics()).toMatch(damage === 'unreadable' ? /EISDIR|directory/iu : /SyntaxError|Expected property name|Unexpected token|invalid JSON|parse/iu);
+        if (damage === 'invalid JSON') expect(await readFile(notices, 'utf8')).toBe('{broken');
+    });
+
+    it('reports a failed dismissal write with the notices file, original PDF and error', async () => {
+        const noticesModule = await import('@electron/file-access/keptOriginalNotices');
+        const atomic = await import('@electron/utils/atomicReplace');
+        const original = join(tempRoot, 'report.pdf');
+        const kept = await writeTemp('report (original).pdf', ORIGINAL);
+        await noticesModule.rememberKeptOriginal(original, kept);
+        vi.spyOn(atomic, 'writeJsonAtomic').mockRejectedValueOnce(new Error('ENOSPC injected dismissal write'));
+        await noticesModule.forgetKeptOriginal(original);
+        expect.soft(await findKeptOriginal(original)).toBe(kept);
+        expect.soft(retainedDiagnostics()).toContain('kept-original-notices.json');
+        expect.soft(retainedDiagnostics()).toContain(original);
+        expect(retainedDiagnostics()).toContain('ENOSPC injected dismissal write');
+    });
+});
+
+it('#1609 explains at undo time that opened bytes could not be retained, while Save still succeeds', async () => {
+    const {pdf, entry} = await openPdf();
+    const opened = store.documentRevisionToken(entry);
+    await store.commitDocumentMutation(entry, opened, {kind: 'rewrite', source: await writeTemp('edited.pdf', EDITED)}, 'write');
+    const port = entry.doc.store.port;
+    const copyIn = port.copyIn.bind(port);
+    vi.spyOn(port, 'copyIn').mockImplementation((source, target) => target.endsWith('/r1.pdf')
+        ? Promise.reject(new Error('EACCES injected opened-byte retention')) : copyIn(source, target));
+    expect(await store.saveOpenDocument(entry, store.documentRevisionToken(entry))).toMatchObject({status: 'saved'});
+    expect(await readFile(pdf)).toEqual(Buffer.from(EDITED));
+    await expect(store.restoreOpenDocumentRevision(entry, opened, store.documentRevisionToken(entry)))
+        .rejects.toThrow(/opened.*(?:retain|keep|available)|(?:retain|keep).*opened/iu);
 });
