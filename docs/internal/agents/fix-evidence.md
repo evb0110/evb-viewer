@@ -77,6 +77,18 @@ Say "unconfirmed" and distinguish a candidate fix from a mitigation. Do not say
 "fixed". A failed reproduction is not permission to spend days building a
 harness.
 
+## Refactors
+
+A change to these areas that is meant to alter nothing a user perceives is
+proved by comparison. Record one hidden real-app script on the base commit, run
+the same script on the change, and name every difference as intended or fix it.
+The script covers the task's scenario and each path that used code the change
+deletes: a shared function, watcher or executor serves several callers, and
+removing it for one changes the others. Run the existing real-app test files for
+those callers too. A defect the baseline shows on the base commit stays visible
+in the comparison and is reported on its own; the refactor does not silently
+change it.
+
 ## Delegation
 
 Delegation prompts must permit and require the hidden session. Never write
@@ -120,6 +132,30 @@ your commit. Do not widen a tolerance, skip a test, or mark a step allowed to
 fail to get green. `node scripts/ci/ci-health.mjs` reports failure trends across
 recent runs.
 
+## Intermittent failures
+
+Before rerunning a failed hosted job, read the failing assertion and the value
+it received in the job log. A rerun is for a failure whose cause is known to lie
+outside the change: the same test fails with the same received value on a branch
+that does not contain the change. `main` is not that comparison for a lane it
+did not run, and a merge whose tree matches a passing pull request head runs
+only the smoke lane. A job that fails before any test starts (checkout, install,
+a runner or network outage) has no assertion to read: its log is the evidence,
+and it is rerun.
+
+The same received value twice, on one pull request or on two unrelated ones,
+points to one defect with one cause, even when the failing tests differ. Look
+for the commit that changed what the value reports, for example a log raised to
+a warning that a clean-console assertion now sees, and fix it before the next
+merge instead of rerunning each job it fails. When nothing changed what the
+value reports, treat the failures as separate.
+
+A real-app test that fails on a host shared with other Electron sessions is
+rerun once alone, then once on the base commit. A failure the base commit does
+not show belongs to the change. When the base commit fails too, one run does not
+clear the change: run both several times and compare the counts, as step 4 of
+the standard says for a timing-dependent failure.
+
 ## Viewer-core integration
 
 Viewer core means `app/modules/pdf-viewer`, `app/modules/document-viewer`,
@@ -129,3 +165,19 @@ integrating agent assigns (AGENTS.md, Concurrency). Integration is
 exclusive from updating the branch through the merge: update it from `origin/main` as
 `land-pr` describes, run the affected real-app lane on the result, merge. If `main` moves
 in between, update and revalidate.
+
+Test a viewer-core change on the lanes hosted CI will select before its first
+push, so that hosted CI confirms the change and does not discover its failures.
+`node scripts/ci/classify-changed-areas.mjs --base=origin/main --head=HEAD`
+prints the matched areas and the CI job that owns each. After `pnpm run build`,
+`pnpm run build:native:e2e` and `pnpm run build:electron`, an Electron lane runs
+with `bash scripts/test-electron-e2e-headless.sh --no-build <lane>`, where
+`node scripts/electron-e2e-lanes.mjs` lists the lanes; the browser lane runs with
+`pnpm test:integration:browser` and the arguments the `browser_integration` job
+in `.github/workflows/ci.yml` passes, which leave out the engines that job does
+not install. Run them on a fleet host that admits heavy
+work, following "Run work on another host" in `~/fleet-hosts.md`, and not beside
+other Electron sessions on the same host. Fix what they find before opening the
+pull request. One run for each head you publish is enough: repeat it after a
+correction, not after every edit, and report a failure the change did not cause
+without chasing it.
