@@ -10,9 +10,11 @@ import {
 } from 'vitest';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TDocumentSidebarTab } from '@app/modules/document-viewer/sidebar/documentSidebarTabs';
+import {useDocumentSidebarCapabilitySession} from '@app/modules/document-viewer/sidebar/useDocumentSidebarCapabilitySession';
+import {computed} from 'vue';
 import { usePageSearch } from '@app/modules/workspace-shell/composables/usePageSearch';
 
-function createPageSearch() {
+function createPageSearch(tabs?: readonly TDocumentSidebarTab[]) {
     const state = {
         showSidebar: ref(false),
         sidebarTab: ref<TDocumentSidebarTab>('thumbnails'),
@@ -27,10 +29,23 @@ function createPageSearch() {
             useRegex: false,
         }),
     };
+    const ready = ref(tabs !== undefined);
+    const offeredTabs = ref<readonly TDocumentSidebarTab[]>(tabs ?? []);
+    const sidebarTabs = useDocumentSidebarCapabilitySession({
+        preferredTab: state.sidebarTab,
+        capabilitiesReady: computed(() => ready.value),
+        capabilities: computed(() => ({
+            annotations: offeredTabs.value.includes('annotations'),
+            bookmarks: offeredTabs.value.includes('bookmarks'),
+            pages: offeredTabs.value.includes('thumbnails'),
+            search: offeredTabs.value.includes('search'),
+        })),
+    });
     const clearSearch = vi.fn();
     const scope = effectScope();
     const pageSearch = scope.run(() => usePageSearch({
         ...state,
+        sidebarTabs,
         search: vi.fn(async () => true),
         goToResult: vi.fn(),
         setResultIndex: vi.fn(),
@@ -58,8 +73,7 @@ describe('usePageSearch sidebar tab selection', () => {
     });
 
     it('leaves search for the first available tab when the format has no pages tab', () => {
-        const harness = createPageSearch();
-        harness.pageSearch.setAvailableSidebarTabs([
+        const harness = createPageSearch([
             'bookmarks',
             'search',
         ]);
@@ -72,8 +86,7 @@ describe('usePageSearch sidebar tab selection', () => {
     });
 
     it('prefers the pages tab whenever the format has one', () => {
-        const harness = createPageSearch();
-        harness.pageSearch.setAvailableSidebarTabs([
+        const harness = createPageSearch([
             'bookmarks',
             'thumbnails',
             'search',
@@ -87,8 +100,7 @@ describe('usePageSearch sidebar tab selection', () => {
     });
 
     it('refuses to open a search tab the active format does not have', () => {
-        const harness = createPageSearch();
-        harness.pageSearch.setAvailableSidebarTabs(['thumbnails']);
+        const harness = createPageSearch(['thumbnails']);
 
         harness.pageSearch.openSearch();
 
@@ -98,9 +110,8 @@ describe('usePageSearch sidebar tab selection', () => {
         harness.stop();
     });
 
-    it('treats a reported empty tab list as no search capability', () => {
-        const harness = createPageSearch();
-        harness.pageSearch.setAvailableSidebarTabs([]);
+    it('treats a settled empty tab list as no search capability', () => {
+        const harness = createPageSearch([]);
 
         harness.pageSearch.openSearch();
 
@@ -110,11 +121,10 @@ describe('usePageSearch sidebar tab selection', () => {
         harness.stop();
     });
 
-    it('closes the sidebar when search is the only reported tab', () => {
-        const harness = createPageSearch();
+    it('closes the sidebar when search is the only available tab', () => {
+        const harness = createPageSearch(['search']);
         harness.showSidebar.value = true;
         harness.sidebarTab.value = 'search';
-        harness.pageSearch.setAvailableSidebarTabs(['search']);
 
         harness.pageSearch.closeSearch();
 
@@ -124,11 +134,10 @@ describe('usePageSearch sidebar tab selection', () => {
         harness.stop();
     });
 
-    it('closes the sidebar when the active format reports no tabs', () => {
-        const harness = createPageSearch();
+    it('closes the sidebar when the active format offers no tabs', () => {
+        const harness = createPageSearch([]);
         harness.showSidebar.value = true;
         harness.sidebarTab.value = 'search';
-        harness.pageSearch.setAvailableSidebarTabs([]);
 
         harness.pageSearch.closeSearch();
 
@@ -139,8 +148,7 @@ describe('usePageSearch sidebar tab selection', () => {
     });
 
     it('opens and focuses the search tab when the format supports search', () => {
-        const harness = createPageSearch();
-        harness.pageSearch.setAvailableSidebarTabs([
+        const harness = createPageSearch([
             'thumbnails',
             'search',
         ]);

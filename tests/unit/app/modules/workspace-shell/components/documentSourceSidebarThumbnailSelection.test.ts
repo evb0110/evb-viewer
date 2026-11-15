@@ -194,6 +194,7 @@ async function mountSidebar(tab: TDocumentSidebarTab) {
     const mountedHost = await mountDocumentSidebarHost(
         () => h(DocumentSourceSidebar, {
             activeTab: activeTab.value,
+            availableTabs: ['thumbnails', 'bookmarks'],
             currentPage: 1,
             searchSession: createDocumentSearchSessionDouble(),
             source: createSource(),

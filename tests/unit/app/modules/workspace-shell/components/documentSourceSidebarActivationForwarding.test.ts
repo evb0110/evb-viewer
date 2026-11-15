@@ -100,6 +100,7 @@ async function mountSidebar() {
     const navigations: INavigation[] = [];
     const mounted = await mountDocumentSidebarHost(() => h(DocumentSourceSidebar, {
         activeTab: 'thumbnails',
+        availableTabs: ['thumbnails'],
         currentPage: 1,
         searchSession: createDocumentSearchSessionDouble(),
         source: createThumbnailSource(),
