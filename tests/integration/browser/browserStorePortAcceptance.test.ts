@@ -122,11 +122,13 @@ describe('browser store port on the origin private file system', () => {
                 sameContext: 'refused',
                 afterRelease: true,
             });
-            const large = await run('largeRead', 1024) as Record<string, unknown>;
-            // Evidence for the reader: throughput of a 1 GiB document read page by page through the store worker.
-            await writeFile(join(process.cwd(), '.devkit', `store-port-1gib-${engine}.json`), JSON.stringify(large, null, 2));
+            // WebKit's default OPFS quota is 1000 MiB, with capacity reserved in 128 MiB steps.
+            const mib = engine === 'webkit' ? 768 : 1024;
+            const large = await run('largeRead', mib) as Record<string, unknown>;
+            // Evidence for the reader: throughput of a large document read page by page through the store worker.
+            await writeFile(join(process.cwd(), '.devkit', `store-port-large-${engine}.json`), JSON.stringify(large, null, 2));
             expect(large).toMatchObject({
-                readBytes: 1024 * 1024 * 1024,
+                readBytes: mib * 1024 * 1024,
                 randomBytes: 512 * 256 * 1024,
                 firstOfChunk: [3],
             });
