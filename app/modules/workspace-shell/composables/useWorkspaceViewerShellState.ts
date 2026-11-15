@@ -136,20 +136,27 @@ export const useWorkspaceViewerShellState = (
     const viewMode = ref<TPdfViewMode>(initialState?.viewMode ?? 'single');
     const viewRotation = ref<TPdfViewRotation>(initialState?.viewRotation ?? 0);
     const currentPage = computed(() => resolveDocumentViewportCurrentPage(openSurface.viewportSession.value));
-    const totalPages = ref(0);
+    const pageCount = ref(0);
+    /** The view's page count; a new count keeps the selected pages that still exist. */
+    const totalPages = computed({
+        get: () => pageCount.value,
+        set: (count: number) => {
+            if (count === pageCount.value) {
+                return;
+            }
+            pageCount.value = count;
+            if (selectedPageSelection.value?.pageCount === count) {
+                return;
+            }
+            const pages = selectedThumbnailPages.value.filter(page => page >= 1 && page <= count);
+            selectedPageSelection.value = createExplicitPageSelection(count, pages);
+            if (pages.length !== selectedThumbnailPages.value.length) {
+                setSelectedThumbnailPages(pages);
+            }
+        },
+    });
     const pdfDocument = shallowRef<IPdfDocument | null>(null);
     const documentPageSource = shallowRef<IDocumentPageSource | null>(null);
-
-    watch(totalPages, (pageCount) => {
-        if (selectedPageSelection.value?.pageCount === pageCount) {
-            return;
-        }
-        const pages = selectedThumbnailPages.value.filter(page => page >= 1 && page <= pageCount);
-        selectedPageSelection.value = createExplicitPageSelection(pageCount, pages);
-        if (pages.length !== selectedThumbnailPages.value.length) {
-            setSelectedThumbnailPages(pages);
-        }
-    });
 
     const isLoading = ref(false);
     // Default to text selection so reopened annotations remain immediately
