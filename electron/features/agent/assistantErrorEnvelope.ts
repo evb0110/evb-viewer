@@ -13,7 +13,7 @@ export function sanitizeAssistantProviderText(value: string, limit = 4096): stri
         .replace(/\b[a-z][a-z0-9+.-]*:\/\/[^\s<>"']+/giu, '[redacted endpoint]')
         .replace(/\b(?:[a-z0-9-]+\.)+[a-z]{2,63}(?::\d+)?(?:\/[^\s<>"']*)?/giu, '[redacted host]')
         .replace(/\b(?:\d{1,3}\.){3}\d{1,3}(?::\d+)?\b/gu, '[redacted host]')
-        .replace(/\b(?:localhost|\[[a-f0-9:]+\])(?::\d+)?/giu, '[redacted host]')
+        .replace(/(?:\blocalhost|\[[a-f0-9:]+\])(?::\d+)?/giu, '[redacted host]')
         .replace(/\b(Bearer|Basic)\s+[^\s,;]+/giu, '$1 [redacted]')
         .replace(/(["'][\w-]*(?:access[_-]?token|api[_-]?key|authorization|credential|password|secret|token)["']\s*:\s*["'])[^"']*(["'])/giu, '$1[redacted]$2')
         .replace(/((?<![\w-])[\w-]*(?:access[_-]?token|api[_-]?key|authorization|credential|password|secret|token)\b\s*[:=]\s*)(?:"[^"]*"|'[^']*'|[^\s,;]+)/giu, '$1[redacted]')

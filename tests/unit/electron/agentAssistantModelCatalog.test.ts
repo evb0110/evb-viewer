@@ -74,8 +74,8 @@ describe('readable provider failures', () => {
         expect(createAssistantErrorEnvelope({status: 401, message: 'Credentials expired'})).toMatchObject({code: 'AUTH_REQUIRED', retryable: false});
     });
     it('removes credentials, URLs, hosts and unsafe control characters before bounding text', () => {
-        const message = sanitizeAssistantProviderText('Failed https://user:password@gateway.example.test/v1?token=secret\u0000 Bearer fixture-token api_key=fixture-key gateway.example.test:8080 127.0.0.1:3000');
-        expect(message).not.toMatch(/gateway|fixture|password|secret|127\.0\.0\.1|https:/);
+        const message = sanitizeAssistantProviderText('Failed https://user:password@gateway.example.test/v1?token=secret\u0000 Bearer fixture-token api_key=fixture-key gateway.example.test:8080 127.0.0.1:3000 [2001:db8::1]:8080');
+        expect(message).not.toMatch(/gateway|fixture|password|secret|127\.0\.0\.1|2001:|https:/);
         expect(message).toContain('[redacted endpoint]');
         expect(sanitizeAssistantProviderText('x'.repeat(5000))).toHaveLength(4096);
     });

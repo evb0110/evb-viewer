@@ -1,15 +1,35 @@
+import electron from 'electron';
 import {constants, existsSync} from 'fs';
-import {access, readdir, stat} from 'fs/promises';
+import {access, readdir, realpath, stat} from 'fs/promises';
 import {spawn} from 'child_process';
 import {createHash} from 'node:crypto';
 import {homedir} from 'node:os';
-import {basename, delimiter, isAbsolute, join, resolve} from 'node:path';
+import {basename, delimiter, isAbsolute, join, relative, resolve} from 'node:path';
 import type {IAssistantInstanceConfig, TAssistantDriver} from '@contracts/assistant';
 import {resolveCodexProcessLaunch} from '@electron/features/agent/codexProcessLaunch';
 import {createDetachedChildProcessSpawnOptions, terminateDetachedChildProcess} from '@electron/utils/nativeChildProcess';
 
 const VERSION_TIMEOUT_MS = 3_000;
 const VERSION_OUTPUT_LIMIT = 4096;
+
+/** Ignore the retired EVB-managed copy, including aliases into its directory. */
+async function isRetiredManagedExecutable(path: string, env: NodeJS.ProcessEnv) {
+    const home = env.HOME || env.USERPROFILE || homedir();
+    const roots = [join(home, '.evb-viewer', 'codex', 'bin')];
+    try {
+        roots.push(join(electron.app.getPath('userData'), 'codex', 'bin'));
+        roots.push(join(electron.app.getPath('appData'), 'EVB Viewer', 'codex', 'bin'));
+    } catch { /* Standalone metadata callers may not have an Electron app. */ }
+    const candidate = await realpath(path).catch(() => resolve(path));
+    for (const root of roots) {
+        const managed = await realpath(root).catch(() => resolve(root));
+        for (const [directory, executable] of [[resolve(root), resolve(path)], [managed, candidate]]) {
+            const child = relative(directory!, executable!);
+            if (!child || (!child.startsWith('..') && !isAbsolute(child))) return true;
+        }
+    }
+    return false;
+}
 
 export async function isAssistantExecutable(path: string) {
     try {
@@ -35,7 +55,7 @@ export async function resolveInstalledAssistantExecutable(driver: TAssistantDriv
         ...executableNames(driver).map(name => join(home, '.local', 'bin', name)),
     ];
     for (const candidate of candidates) {
-        if (await isAssistantExecutable(candidate)) return resolve(candidate);
+        if (!await isRetiredManagedExecutable(candidate, env) && await isAssistantExecutable(candidate)) return resolve(candidate);
     }
     if (process.platform !== 'win32') {
         const shell = env.SHELL || '/bin/zsh';
@@ -44,15 +64,21 @@ export async function resolveInstalledAssistantExecutable(driver: TAssistantDriv
             const child = spawn(shell, ['-lc', `command -v ${driver}`], createDetachedChildProcessSpawnOptions({env, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true}));
             let output = '';
             let settled = false;
-            const finish = (path: string | null) => { if (!settled) { settled = true; clearTimeout(timer); resolveResult(path); } };
-            const timer = setTimeout(() => { finish(null); void terminateDetachedChildProcess(child, 1_000).catch(() => undefined); }, VERSION_TIMEOUT_MS);
+            const finish = async (path: string | null) => {
+                if (settled) return;
+                settled = true;
+                clearTimeout(timer);
+                await terminateDetachedChildProcess(child, 1_000).catch(() => false);
+                resolveResult(path);
+            };
+            const timer = setTimeout(() => { void finish(null); }, VERSION_TIMEOUT_MS);
             child.stdout?.on('data', (chunk: Buffer) => { output = `${output}${chunk.toString()}`.slice(0, VERSION_OUTPUT_LIMIT); });
             child.stderr?.resume();
             child.on('error', () => finish(null));
             child.on('close', () => {
                 const candidate = output.trim().split('\n')[0];
                 if (!candidate) { finish(null); return; }
-                void isAssistantExecutable(candidate).then(valid => finish(valid ? candidate : null));
+                void Promise.all([isAssistantExecutable(candidate), isRetiredManagedExecutable(candidate, env)]).then(([valid, managed]) => finish(valid && !managed ? candidate : null));
             });
         });
     }
@@ -70,14 +96,15 @@ export function identifyAssistantExecutable(driver: TAssistantDriver, executable
         }));
         let output = '';
         let settled = false;
-        const finish = (version: string | null) => {
+        const finish = async (version: string | null) => {
             if (settled) return;
             settled = true;
             clearTimeout(timer);
+            await terminateDetachedChildProcess(child, 1_000).catch(() => false);
             resolveResult(version);
         };
         const timer = setTimeout(() => {
-            finish(null); void terminateDetachedChildProcess(child, 1_000).catch(() => undefined);
+            void finish(null);
         }, VERSION_TIMEOUT_MS);
         const collect = (chunk: Buffer) => { output = `${output}${chunk.toString()}`.slice(0, VERSION_OUTPUT_LIMIT); };
         child.stdout?.on('data', collect);
@@ -88,6 +115,16 @@ export function identifyAssistantExecutable(driver: TAssistantDriver, executable
             finish(code === 0 ? pattern.exec(output)?.[1] ?? null : null);
         });
     });
+}
+
+export function defaultAssistantLocalSetups(env: NodeJS.ProcessEnv = process.env): IAssistantInstanceConfig[] {
+    return (['codex', 'claude'] as const).map(driver => ({
+        id: driver,
+        driver,
+        displayName: driver === 'codex' ? 'Codex' : 'Claude',
+        enabled: true,
+        homePath: join(env.HOME || env.USERPROFILE || homedir(), `.${driver}`),
+    }));
 }
 
 /**
@@ -104,19 +141,12 @@ export async function discoverAssistantLocalSetups(env: NodeJS.ProcessEnv = proc
             const driver = /^(codex|claude)(?:-[a-z0-9][a-z0-9._-]*)?$/iu.exec(stem)?.[1]?.toLowerCase();
             if (driver !== 'codex' && driver !== 'claude') continue;
             const path = resolve(directory, name);
-            if (await isAssistantExecutable(path)) candidates.set(path, driver);
+            if (!await isRetiredManagedExecutable(path, env) && await isAssistantExecutable(path)) candidates.set(path, driver);
         }
     }
-    const defaults = await Promise.all((['codex', 'claude'] as const).map(async driver => {
-        const binaryPath = await resolveInstalledAssistantExecutable(driver, env);
-        return {
-            id: driver,
-            driver,
-            displayName: driver === 'codex' ? 'Codex' : 'Claude',
-            enabled: true,
-            homePath: join(env.HOME || env.USERPROFILE || homedir(), `.${driver}`),
-            ...(binaryPath ? {binaryPath} : {}),
-        };
+    const defaults = await Promise.all(defaultAssistantLocalSetups(env).map(async config => {
+        const binaryPath = await resolveInstalledAssistantExecutable(config.driver, env);
+        return {...config, ...(binaryPath ? {binaryPath} : {})};
     }));
     const identities = new Set(defaults.map(assistantSetupIdentity));
     const identified = await Promise.all([...candidates].map(async ([binaryPath, driver]) => {

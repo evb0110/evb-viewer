@@ -173,7 +173,7 @@ export class CodexInstanceRuntime {
      * starting a chat or EVB's MCP server. The whole probe has one budget;
      * on expiry its process is killed and the failure names the cause.
      */
-    async probe(generation = this.stopGeneration): Promise<ICodexProbeResult> {
+    async probe(generation = this.stopGeneration, budgetMs = CODEX_PROBE_BUDGET_MS): Promise<ICodexProbeResult> {
         const context = await this.options.resolveContext();
         const cwd = await this.options.cwd();
         this.assertNotStopped(generation);
@@ -215,7 +215,7 @@ export class CodexInstanceRuntime {
         try {
             return await withDeadline(
                 work,
-                CODEX_PROBE_BUDGET_MS,
+                budgetMs,
                 te('dialogs.agentAssistant.statusTimeout', {
                     provider: 'Codex',
                     seconds: CODEX_PROBE_BUDGET_MS / 1000,

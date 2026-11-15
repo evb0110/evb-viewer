@@ -43,6 +43,11 @@ probes its models without sending a prompt. Default instances use `~/.codex`
 and `~/.claude`; wrappers run as their own executable with the inherited
 environment. EVB bundles and downloads neither CLI.
 
+Version checks close stdin and terminate their process tree before returning.
+Unidentified or timed-out PATH helpers are silently ignored. EVB's retired
+managed `codex/bin` folder is excluded from automatic discovery; existing files
+there are left in place.
+
 A setup known only to another application's settings is not discovered
 automatically. Add it in Settings, for example a second account or proxy:
 

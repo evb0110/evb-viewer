@@ -12,11 +12,16 @@ import type {IAssistantInstanceConfig} from '@contracts/assistant';
 const state = vi.hoisted(() => ({
     root: '',
     encryptionAvailable: true,
+    decryptionAvailable: true,
+    discoveryFails: false,
     local: [] as IAssistantInstanceConfig[],
 }));
 vi.mock('@electron/features/agent/assistantLocalSetups', async importOriginal => ({
     ...await importOriginal(),
-    discoverAssistantLocalSetups: async () => state.local,
+    discoverAssistantLocalSetups: async () => {
+        if (state.discoveryFails) throw new Error('fixture discovery unavailable');
+        return state.local;
+    },
 }));
 vi.mock('@electron/te', async () => {
     const {default: en} = await import('@i18n-app/messages/en');
@@ -31,7 +36,10 @@ vi.mock('electron', () => ({default: {
         isEncryptionAvailable: () => state.encryptionAvailable,
         getSelectedStorageBackend: () => 'keychain',
         encryptString: (value: string) => Buffer.from(`encrypted:${Buffer.from(value).toString('base64')}`),
-        decryptString: (value: Buffer) => Buffer.from(value.toString().slice('encrypted:'.length), 'base64').toString(),
+        decryptString: (value: Buffer) => {
+            if (!state.decryptionAvailable) throw new Error('fixture storage locked');
+            return Buffer.from(value.toString().slice('encrypted:'.length), 'base64').toString();
+        },
     },
 }}));
 
@@ -45,6 +53,8 @@ beforeEach(async () => {
     vi.resetModules();
     state.root = await mkdtemp(join(tmpdir(), 'assistant-instances-'));
     state.encryptionAvailable = true;
+    state.decryptionAvailable = true;
+    state.discoveryFails = false;
     state.local = [];
     instances = await import('@electron/features/agent/assistantInstances');
 });
@@ -302,6 +312,26 @@ describe('local assistant setups', () => {
             });
         }
     });
+    it('keeps other setups available when one instance’s encrypted launch arguments cannot be read', async () => {
+        expect((await instances.saveAssistantInstanceConfigs([
+            {id: 'locked', driver: 'codex', displayName: 'Locked', enabled: true, launchArgs: '-c fixture=true', launchArgsSecret: true},
+            {id: 'working', driver: 'claude', displayName: 'Working', enabled: true, binaryPath: '/configured/claude'},
+        ])).ok).toBe(true);
+        state.decryptionAvailable = false;
+        expect((await instances.getAssistantInstanceConfigs()).map(config => config.id)).toEqual(['locked', 'working']);
+        expect((await instances.resolveAssistantLaunchContext('working', resolvers)).binaryPath).toBe('/configured/claude');
+        await expect(instances.resolveAssistantLaunchContext('locked', resolvers)).rejects.toThrow();
+    });
+    it('keeps explicit setups usable after discovery fails and allows a later discovery request', async () => {
+        await save({id: 'explicit', binaryPath: '/configured/codex'});
+        state.discoveryFails = true;
+        instances.refreshAssistantLocalSetups();
+        expect((await instances.resolveAssistantLaunchContext('explicit', resolvers)).binaryPath).toBe('/configured/codex');
+        state.discoveryFails = false;
+        state.local = [{id: 'later-wrapper', driver: 'codex', displayName: 'codex-proxy', enabled: true, binaryPath: '/installed/codex-proxy'}];
+        expect((await instances.getAssistantInstanceConfigs()).map(config => config.id)).toEqual(['explicit', 'later-wrapper']);
+        expect((await instances.getAssistantInstanceConfigs(false)).map(config => config.id)).toEqual(['explicit', 'codex', 'claude']);
+    });
     it('reports an absent installed executable without creating an installer fallback', async () => {
         await save();
         expect((await instances.resolveAssistantLaunchContext('codex', {codex: async () => null, claude: async () => null})).binaryPath).toBeNull();
@@ -337,5 +367,27 @@ describe('local assistant setups', () => {
         });
         expect((await instances.resolveAssistantLaunchContext(state.local.find(config => config.binaryPath === claudeWrapper)!.id, resolvers)).binaryPath).toBe(claudeWrapper);
         expect((await discoverAssistantLocalSetups(env)).map(config => config.id)).toEqual(state.local.map(config => config.id));
+        // A PATH name can match the wrapper convention while being a hung helper.
+        if (process.platform !== 'win32') {
+            const helper = join(bin, 'codex-code-mode-host');
+            const pidFile = join(state.root, 'helper-pids');
+            await writeFile(helper, `#!/bin/sh\ntrap 'wait; exit' TERM\n/bin/sleep 60 &\nprintf '%s %s' "$$" "$!" > '${pidFile}'\nwait\n`);
+            await chmod(helper, 0o700);
+            const started = Date.now();
+            const found = await discoverAssistantLocalSetups(env);
+            expect(found.map(config => config.id)).toEqual(state.local.map(config => config.id));
+            expect(Date.now() - started).toBeLessThan(5_000);
+            for (const pid of (await readFile(pidFile, 'utf8')).split(' ').map(Number)) {
+                expect(() => process.kill(pid, 0)).toThrow();
+            }
+        }
+        const managed = join(state.root, 'codex', 'bin');
+        await mkdir(managed, {recursive: true});
+        const retired = join(managed, 'codex-retired');
+        await writeFile(retired, '#!/bin/sh\nprintf "codex-cli 0.157.1\\n"\n');
+        await chmod(retired, 0o700);
+        expect((await discoverAssistantLocalSetups({...env, PATH: managed})).map(config => config.displayName)).toEqual(['Codex', 'Claude']);
+        expect(await readFile(retired, 'utf8')).toContain('0.157.1');
+
     });
 });

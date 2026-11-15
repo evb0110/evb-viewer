@@ -18,7 +18,6 @@ import {
 import electron from 'electron';
 import * as v from 'valibot';
 import {
-    ASSISTANT_DEFAULT_INSTANCE_IDS,
     ASSISTANT_INSTANCES_SCHEMA,
     type IAssistantInstanceConfig,
     type IAssistantInstancesResult,
@@ -33,7 +32,7 @@ import {createLogger} from '@electron/utils/createLogger';
 import {getErrorMessage} from '@electron/utils/error';
 import {ASSISTANT_MODEL_CONFIG_DIR} from '@electron/features/agent/codexAssistantConfig';
 
-import {assistantSetupIdentity, discoverAssistantLocalSetups} from '@electron/features/agent/assistantLocalSetups';
+import {assistantSetupIdentity, defaultAssistantLocalSetups, discoverAssistantLocalSetups} from '@electron/features/agent/assistantLocalSetups';
 
 const logger = createLogger('assistant-instances');
 const STORE_VERSION = 1;
@@ -171,25 +170,6 @@ export function parseClaudeExtraArgs(tokens: readonly string[], label: string) {
     return extraArgs;
 }
 
-export function defaultAssistantInstances(): IAssistantInstanceConfig[] {
-    return [
-        {
-            id: ASSISTANT_DEFAULT_INSTANCE_IDS.codex,
-            driver: 'codex',
-            displayName: 'Codex',
-            enabled: true,
-            homePath: join(homedir(), '.codex'),
-        },
-        {
-            id: ASSISTANT_DEFAULT_INSTANCE_IDS.claude,
-            driver: 'claude',
-            displayName: 'Claude',
-            enabled: true,
-            homePath: join(homedir(), '.claude'),
-        },
-    ];
-}
-
 function storePath() {
     return join(electron.app.getPath('userData'), ASSISTANT_MODEL_CONFIG_DIR, 'providers.json');
 }
@@ -295,22 +275,26 @@ function loadStore() {
 }
 
 /** The configured instances for the renderer: secrets are never included. */
-export async function getAssistantInstanceConfigs(): Promise<IAssistantInstanceConfig[]> {
-    return (await getStoredInstances()).map(redact);
+export async function getAssistantInstanceConfigs(discover = true): Promise<IAssistantInstanceConfig[]> {
+    return (await getStoredInstances(discover)).map(redact);
 }
 
 let discovered: Promise<IAssistantInstanceConfig[]> | null = null;
 function localSetups() {
-    discovered ??= discoverAssistantLocalSetups();
+    discovered ??= discoverAssistantLocalSetups().catch((error: unknown) => {
+        discovered = null;
+        logger.warn(`Local assistant discovery failed: ${sanitizeAssistantProviderText(getErrorMessage(error))}`);
+        return defaultAssistantLocalSetups();
+    });
     return discovered;
 }
 export function refreshAssistantLocalSetups() { discovered = null; }
 
-async function getStoredInstances(): Promise<IStoredInstance[]> {
+async function getStoredInstances(discover = true): Promise<IStoredInstance[]> {
     const store = await loadStore();
     const explicit = store?.instances ?? [];
-    const local = await localSetups();
-    const identities = new Set(explicit.map(instance => assistantSetupIdentity({...redact(instance), launchArgs: decryptLaunchArgs(instance, assistantInstanceLabel(instance))})));
+    const local = discover ? await localSetups() : defaultAssistantLocalSetups();
+    const identities = new Set(explicit.map(instance => assistantSetupIdentity({...redact(instance), launchArgs: instance.launchArgsEncrypted ?? instance.launchArgs})));
     const ids = new Set(explicit.map(instance => instance.id));
     return [...explicit, ...local.filter(instance => !ids.has(instance.id) && !identities.has(assistantSetupIdentity(instance))).map(instance => storeInstance(instance, undefined))];
 }
@@ -407,7 +391,7 @@ export async function saveAssistantInstanceConfigs(input: unknown): Promise<IAss
     } catch (error) {
         return {
             ok: false,
-            instances: await getAssistantInstanceConfigs().catch(() => defaultAssistantInstances()),
+            instances: await getAssistantInstanceConfigs().catch(() => defaultAssistantLocalSetups()),
             notices: [],
             error: getErrorMessage(error),
         };

@@ -42,6 +42,11 @@ no T3 installation data and has no T3 importer. Instances live in `<userData>/as
 main process; secret values are encrypted with Electron `safeStorage`, never
 reach the renderer, and are not stored when encryption is unavailable.
 
+Version checks close stdin and terminate their process tree before returning.
+Unidentified or timed-out PATH helpers are silently ignored. EVB's retired
+managed `codex/bin` folder is excluded from automatic discovery; existing files
+there are left in place.
+
 **Credentials stay where the provider keeps them.** EVB never copies or links
 a login. Codex writes `auth.json` by writing a temporary file and renaming it,
 so a copied or linked file would fork the refresh-token chain and sign out the

@@ -316,6 +316,7 @@ function defaultModelOf(models: readonly IAgentAssistantModelOption[], declared:
 }
 
 async function probeEntry(entry: IInstanceEntry) {
+    const startedAt = Date.now();
     const {config} = entry;
     if (!config.enabled) {
         updateStatus(entry, {
@@ -354,7 +355,7 @@ async function probeEntry(entry: IInstanceEntry) {
         const version = await identifyAssistantExecutable(config.driver, context.binaryPath, context.env);
         if (!version) throw new Error(te('dialogs.agentAssistant.invalidExecutable', {provider: config.driver === 'codex' ? 'Codex' : 'Claude'}));
         if (config.driver === 'codex' && entry.codex) {
-            const result = await entry.codex.probe();
+            const result = await entry.codex.probe(undefined, Math.max(1, 15_000 - (Date.now() - startedAt)));
             updateStatus(entry, {
                 state: result.auth === 'unauthenticated' ? 'error' : (result.warning || !result.models.length ? 'warning' : 'ready'),
                 auth: result.auth,
@@ -370,7 +371,7 @@ async function probeEntry(entry: IInstanceEntry) {
             return;
         }
         const {discoverClaudeAssistantModels} = await import('@electron/features/agent/claudeAgentSdkAssistant');
-        const result = await discoverClaudeAssistantModels(await assistantCwd(), context.binaryPath, context.env, context.claudeExtraArgs);
+        const result = await discoverClaudeAssistantModels(await assistantCwd(), context.binaryPath, context.env, context.claudeExtraArgs, Math.max(1, 15_000 - (Date.now() - startedAt)));
         const models = result.models;
         updateStatus(entry, {
             state: models.length ? 'ready' : 'warning',
@@ -1441,6 +1442,9 @@ async function sendAdmitted(
     }
     startProbe(entry);
     await entry.probe;
+    if (instances.get(entry.config.id) !== entry || !entry.config.enabled) {
+        return errorResult(await fallbackState(), te('dialogs.agentAssistant.instanceUnavailable'));
+    }
     const selection = resolveSelection(request.selection) ?? request.selection;
     if (!entry.status.models.some(model => model.id === selection.model)) {
         return errorResult(await fallbackState(), entry.status.message ?? te('dialogs.agentAssistant.modelListEmpty'));

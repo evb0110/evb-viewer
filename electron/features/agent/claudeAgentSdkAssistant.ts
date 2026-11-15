@@ -256,6 +256,7 @@ export async function discoverClaudeAssistantModels(
     executablePath: string | null,
     env: NodeJS.ProcessEnv,
     extraArgs: Record<string, string | null> = {},
+    budgetMs = CLAUDE_METADATA_TIMEOUT_MS,
 ) {
     if (!executablePath) throw new Error(te('dialogs.agentAssistant.claudeMissing'));
     const prompts = new ClaudePromptQueue();
@@ -286,7 +287,7 @@ export async function discoverClaudeAssistantModels(
                         provider: 'Claude',
                         seconds: CLAUDE_METADATA_TIMEOUT_MS / 1000,
                     }))),
-                    CLAUDE_METADATA_TIMEOUT_MS,
+                    budgetMs,
                 );
             }),
         ]);

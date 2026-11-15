@@ -6,6 +6,7 @@ import {
 } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import {
+    basename,
     dirname,
     join,
 } from 'node:path';
@@ -45,6 +46,9 @@ async function pathIsExecutable(path: string | null | undefined) {
 // Adapted from T3 Code Drivers/ClaudeExecutable.ts (0b6f482dc5), MIT.
 export function resolveClaudeSdkExecutablePath(binaryPath: string) {
     if (process.platform !== 'win32' || !/\.(?:cmd|bat|ps1)$/iu.test(binaryPath)) return binaryPath;
+    if (!/^claude\.(?:cmd|bat|ps1)$/iu.test(basename(binaryPath))) {
+        throw new Error('The Claude SDK cannot run this Windows wrapper directly. Select its native executable in Settings.');
+    }
     const directory = dirname(binaryPath);
     for (const entry of ['bin/claude.exe', 'cli.js']) {
         const candidate = join(directory, 'node_modules', '@anthropic-ai', 'claude-code', entry);

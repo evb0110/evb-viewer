@@ -33,6 +33,7 @@ import {sendPlatformEvent} from '@electron/utils/sendPlatformEvent';
 import {createLogger} from '@electron/utils/createLogger';
 import {createKeyedSerialQueue} from '@electron/utils/createKeyedSerialQueue';
 import type {IAgentMcpIntegrationStatus} from '@contracts/agent';
+import {loadSettings} from '@electron/settings';
 
 export function createAgentService() {
     const runMcpLifecycle = createKeyedSerialQueue();
@@ -66,7 +67,7 @@ export function createAgentService() {
         resetAssistantChat: (_context, request) => resetAgentAssistantChat(request),
         getAssistantInstances: async () => ({
             ok: true,
-            instances: await getAssistantInstanceConfigs(),
+            instances: await getAssistantInstanceConfigs((await loadSettings()).assistantPanelEnabled === true),
             notices: [],
         }),
         saveAssistantInstances: (_context, instances) => saveAssistantInstanceConfigs(instances),
