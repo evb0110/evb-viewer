@@ -11,6 +11,7 @@ import {
 } from 'vitest';
 import {
     createApp,
+    computed,
     defineComponent,
     h,
     nextTick,
@@ -24,6 +25,7 @@ import type {
 } from '@app/modules/document-viewer/source/documentPageSource';
 import type { IDocumentSearchSession } from '@app/modules/document-viewer/search/documentSearch';
 import type { TDocumentSidebarTab } from '@app/modules/document-viewer/sidebar/documentSidebarTabs';
+import {useDocumentSidebarCapabilitySession} from '@app/modules/document-viewer/sidebar/useDocumentSidebarCapabilitySession';
 import DocumentSourceSidebar from '@app/modules/workspace-shell/components/DocumentSourceSidebar.vue';
 
 vi.mock('@app/composables/useTypedI18n', async (importOriginal) => ({
@@ -119,21 +121,27 @@ afterEach(() => {
 });
 
 async function mountSidebar(source: IDocumentPageSource | null) {
-    const availableTabs: TDocumentSidebarTab[][] = [];
     const activeTab = shallowRef<TDocumentSidebarTab>('bookmarks');
+    const pageSource = shallowRef(source);
+    const sidebarTabs = useDocumentSidebarCapabilitySession({
+        preferredTab: activeTab,
+        capabilitiesReady: computed(() => pageSource.value !== null),
+        capabilities: computed(() => ({
+            annotations: false,
+            bookmarks: Boolean(pageSource.value?.outlineProvider),
+            pages: Boolean(pageSource.value?.thumbnailProvider),
+            search: Boolean(pageSource.value?.searchProvider ?? pageSource.value?.textProvider),
+        })),
+    });
     const host = document.createElement('div');
     document.body.append(host);
     const app = createApp(defineComponent({setup: () => () => h(DocumentSourceSidebar, {
-        activeTab: activeTab.value,
+        activeTab: sidebarTabs.effectiveTab.value,
+        availableTabs: sidebarTabs.availableTabs.value,
         currentPage: 1,
         searchSession: createSearchSession(),
-        source,
-        'onUpdate:activeTab': (value: TDocumentSidebarTab) => {
-            activeTab.value = value;
-        },
-        'onUpdate:availableTabs': (tabs: TDocumentSidebarTab[]) => {
-            availableTabs.push(tabs);
-        },
+        source: pageSource.value,
+        'onUpdate:activeTab': sidebarTabs.select,
     })}));
     app.mount(host);
     await nextTick();
@@ -151,7 +159,7 @@ async function mountSidebar(source: IDocumentPageSource | null) {
     }
 
     return {
-        availableTabs,
+        sidebarTabs,
         host,
         settle,
         unmount,
@@ -192,15 +200,15 @@ describe('DocumentSourceSidebar bookmarks panel', () => {
         expect(sidebar.host.querySelector('[data-bookmark-tree-stub]')).not.toBeNull();
     });
 
-    it('publishes the tabs the source actually supports', async () => {
+    it('offers the tabs the source actually supports through the view session', async () => {
         const sidebar = await mountSidebar(createSource(() => Promise.resolve([])));
 
-        expect(sidebar.availableTabs.at(-1)).toEqual(['bookmarks']);
+        expect(sidebar.sidebarTabs.availableTabs.value).toEqual(['bookmarks']);
     });
 
-    it('publishes no tabs while no source is attached', async () => {
+    it('offers no tabs while no source is attached', async () => {
         const sidebar = await mountSidebar(null);
 
-        expect(sidebar.availableTabs.at(-1)).toEqual([]);
+        expect(sidebar.sidebarTabs.availableTabs.value).toEqual([]);
     });
 });

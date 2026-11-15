@@ -1,7 +1,8 @@
 <template>
     <PdfSidebar
-        v-if="hasReaderDocument && showsPdfSidebar"
-        v-model:active-tab="view.sidebarTab.value"
+        v-if="renderedSidebar === 'pdf'"
+        :active-tab="sidebarTabs.effectiveTab.value"
+        :available-tabs="sidebarTabs.availableTabs.value"
         v-model:search-query="search.searchQuery.value"
         :submitted-search-query="search.submittedSearchQuery.value"
         :search-options="search.searchOptions.value"
@@ -43,7 +44,7 @@
         :selected-page-selection="view.selectedPageSelection.value"
         :thumbnail-invalidation-request="view.thumbnailInvalidationRequest.value"
         :thumbnail-hidden-annotation-ids="annotations.thumbnailHiddenAnnotationIds.value"
-        @update:available-tabs="search.setAvailableSidebarTabs"
+        @update:active-tab="sidebarTabs.select"
         @search="searchWhenDocumentReady"
         @cancel-search="search.cancelSearch"
         @next="search.handleSearchNext"
@@ -75,8 +76,9 @@
         @page-file-drop="pageOps.handlePageFileDrop"
     />
     <DocumentSourceSidebar
-        v-else-if="hasReaderDocument"
-        v-model:active-tab="view.sidebarTab.value"
+        v-else-if="renderedSidebar === 'source'"
+        :active-tab="sidebarTabs.effectiveTab.value"
+        :available-tabs="sidebarTabs.availableTabs.value"
         :is-active="isActive"
         :source="view.documentPageSource.value"
         :current-page="view.currentPage.value"
@@ -84,7 +86,7 @@
         :search-session="context.sourceSearch"
         :search-focus-request="search.searchFocusRequest.value"
         @go-to-page="navigation.handleGoToPage($event)"
-        @update:available-tabs="search.setAvailableSidebarTabs"
+        @update:active-tab="sidebarTabs.select"
     />
 </template>
 
@@ -106,14 +108,12 @@ const {
     isActive,
     isSourceResizing,
     pageLabels,
-    showsPdfSidebar,
 } = defineProps<{
     documentOpening: boolean;
     isOpen: boolean;
     isActive: boolean;
     isSourceResizing: boolean;
     pageLabels: TDocumentPageLabelLookup;
-    showsPdfSidebar: boolean;
 }>();
 
 const document = useDocumentContext();
@@ -128,6 +128,8 @@ const {
 } = document;
 const {
     view,
+    renderedSidebar,
+    sidebarTabs,
     search,
     navigation,
     pageOps,
@@ -136,11 +138,6 @@ const {
     annotationToolState,
     bookmarkNavigationIntentVersion,
 } = context;
-// The reader's active document driver owns whether a sidebar exists; an empty tab has none.
-const hasReaderDocument = computed(() => (
-    context.scanCleanup.surfaceMode.value === 'reader'
-    && document.driver.activeDocumentDriver.value !== null
-));
 const pdfViewer = computed(() => view.pdfViewerRef.value);
 const thumbnailPageGeometry = computed<IPdfThumbnailPageGeometry | null>(() => {
     const viewer = pdfViewer.value;

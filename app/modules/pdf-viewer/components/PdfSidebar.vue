@@ -4,14 +4,14 @@
         class="pdf-sidebar"
         data-testid="document-sidebar"
         :style="sidebarStyle"
-        :model-value="effectiveTab ?? ''"
+        :model-value="activeTab ?? ''"
         :tabs="localizedTabs"
         :outer-scroll="false"
         @update:model-value="handleShellTabUpdate"
     >
             <PdfAnnotationsPanel
-                v-show="effectiveTab === 'annotations'"
-                :is-visible="isActive && isOpen && effectiveTab === 'annotations'"
+                v-show="activeTab === 'annotations'"
+                :is-visible="isActive && isOpen && activeTab === 'annotations'"
                 :tool="annotationTool"
                 :settings="annotationSettings"
                 :comments="annotationComments"
@@ -31,7 +31,7 @@
             />
 
             <DocumentSidebarPagesPanel
-                v-show="effectiveTab === 'thumbnails'"
+                v-show="activeTab === 'thumbnails'"
                 class="pdf-sidebar-pages"
                 rail-class="pdf-sidebar-pages-thumbnails"
             >
@@ -62,7 +62,7 @@
                         :hidden-annotation-ids="thumbnailHiddenAnnotationIds"
                         :annotation-comments="annotationComments"
                         :annotation-settings="annotationSettings"
-                        :is-active="isActive && isOpen && effectiveTab === 'thumbnails'"
+                        :is-active="isActive && isOpen && activeTab === 'thumbnails'"
                         :is-resizing="isResizing"
                         @go-to-page="goToPage"
                         @update:selected-pages="handleSelectedPagesUpdate"
@@ -87,7 +87,7 @@
 
             <PdfOutline
                 v-if="hasActivatedBookmarksTab"
-                v-show="effectiveTab === 'bookmarks'"
+                v-show="activeTab === 'bookmarks'"
                 :pdf-document="pdfDocument"
                 :document-ref="pageSource?.documentRef ?? null"
                 :current-page="currentPage"
@@ -100,9 +100,9 @@
                 @update:is-edit-mode="updateBookmarkEditMode"
             />
             <DocumentSearchPanel
-                v-show="effectiveTab === 'search'"
+                v-show="activeTab === 'search'"
                 :session="searchSession"
-                :is-active="isActive && isOpen && effectiveTab === 'search'"
+                :is-active="isActive && isOpen && activeTab === 'search'"
                 :focus-request="searchFocusRequest ?? 0"
                 :page-labels="pageLabels ?? null"
             />
@@ -148,7 +148,6 @@ import PdfSidebarPageNumbering from '@app/modules/pdf-viewer/components/PdfSideb
 import PdfThumbnails from '@app/modules/pdf-viewer/components/PdfThumbnails.vue';
 import AppSidebarShell from '@app/components/sidebar/AppSidebarShell.vue';
 import DocumentSidebarPagesPanel from '@app/components/document-viewer/DocumentSidebarPagesPanel.vue';
-import {useDocumentSidebarCapabilitySession} from '@app/modules/document-viewer/public';
 import { createPdfDocumentSearchSession } from '@app/modules/pdf-viewer/search/createPdfDocumentSearchSession';
 import { SIDEBAR } from '@app/constants/pdfLayout';
 import type {
@@ -185,7 +184,9 @@ interface IProps {
     } | undefined;
     isTruncated?: boolean | undefined;
     minQueryLength?: number | undefined;
-    activeTab?: TPdfSidebarTab | undefined;
+    /** The tab shown: the preference clamped to `availableTabs`, or none. */
+    activeTab: TPdfSidebarTab | null;
+    availableTabs: readonly TPdfSidebarTab[];
     width?: number | undefined;
     annotationTool: TAnnotationTool;
     annotationKeepActive: boolean;
@@ -214,7 +215,8 @@ interface IProps {
 const { t } = useTypedI18n();
 
 const {
-    activeTab: activeTabProp = undefined,
+    activeTab,
+    availableTabs,
     selectedAnnotations = [],
     canRotateAnnotations = undefined,
     annotationTool,
@@ -262,7 +264,6 @@ const emit = defineEmits<{
     goToPage: [page: number, options?: IScrollToPageOptions];
     goToResult: [index: number];
     'update:activeTab': [value: TPdfSidebarTab];
-    'update:availableTabs': [value: TPdfSidebarTab[]];
     'update:searchQuery': [value: string];
     'update:searchOptions': [value: IResolvedSearchMatchOptions];
     'update:annotation-tool': [value: TAnnotationTool];
@@ -332,43 +333,9 @@ const searchSession = createPdfDocumentSearchSession({
     },
 });
 
-const activeTabLocal = ref<TPdfSidebarTab>('thumbnails');
-
-const activeTab = computed<TPdfSidebarTab>({
-    get: () => activeTabProp ?? activeTabLocal.value,
-    set: (value) => {
-        if (activeTabProp !== undefined) {
-            emit('update:activeTab', value);
-            return;
-        }
-        activeTabLocal.value = value;
-    },
-});
-const sidebarCapabilities = computed(() => ({
-    annotations: !isDjvuMode,
-    bookmarks: true,
-    pages: true,
-    search: true,
-}));
-const {
-    availableTabs,
-    effectiveTab,
-    select: selectTab,
-} = useDocumentSidebarCapabilitySession({
-    capabilities: sidebarCapabilities,
-    capabilitiesReady: computed(() => true),
-    preferredTab: activeTab,
-});
-
-watch(
-    availableTabs,
-    tabs => emit('update:availableTabs', [...tabs]),
-    {immediate: true},
-);
-
 const selectedThumbnailPages = computed(() => selectedThumbnailPagesProp);
 
-const isBookmarksTabActive = computed(() => isOpen && effectiveTab.value === 'bookmarks');
+const isBookmarksTabActive = computed(() => isOpen && activeTab === 'bookmarks');
 
 /**
  * The bookmarks panel mounts on its first activation and then stays alive
@@ -495,7 +462,7 @@ function updateBookmarkEditMode(value: boolean) {
 watch(
     () => [
         isOpen,
-        effectiveTab.value,
+        activeTab,
     ] as const,
     ([
         _isOpen,
@@ -529,7 +496,7 @@ interface IPdfSidebarTabItem {
 
 
 const localizedTabs = computed<IPdfSidebarTabItem[]>(() => {
-    return availableTabs.value.map((value) => ({
+    return availableTabs.map((value) => ({
         value,
         icon: {
             annotations: 'i-ph-chat',
@@ -542,7 +509,7 @@ const localizedTabs = computed<IPdfSidebarTabItem[]>(() => {
     }));
 });
 function handleShellTabUpdate(value: string) {
-    selectTab(value as TPdfSidebarTab);
+    emit('update:activeTab', value as TPdfSidebarTab);
 }
 
 const sidebarStyle = computed(() => {

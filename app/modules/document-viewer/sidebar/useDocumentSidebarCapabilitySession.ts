@@ -45,6 +45,8 @@ export const useDocumentSidebarCapabilitySession = (
     }
 
     return {
+        /** False while no format has said which tabs it offers, unlike a settled empty list. */
+        ready: options.capabilitiesReady,
         availableTabs,
         effectiveTab,
         select,

@@ -215,7 +215,6 @@ export const useWorkspacePresentation = (
     });
 
     return {
-        showsPdfSidebar,
         toolbarHasPdf,
         canToggleSidebar,
         toolbarShowSidebarForDisplay,

@@ -137,6 +137,7 @@ async function mountSidebar(overrides: {
     document.body.append(host);
     const renderSidebar = () => h(PdfSidebar, {
         activeTab: state.activeTab,
+        availableTabs: ['annotations', 'thumbnails', 'bookmarks', 'search'],
         annotationComments: [],
         annotationCommentsStatus: 'ready',
         annotationKeepActive: false,

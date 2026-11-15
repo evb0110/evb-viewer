@@ -3,12 +3,6 @@ import type {
     IPdfBookmarkEntry,
     IPdfPageLabelRange,
 } from '@app/types/pdfContracts';
-import {
-    createPageLabelModel,
-    materializePageLabelsForCompatibility,
-    PAGE_LABEL_SMALL_COMPATIBILITY_MAX_PAGES,
-} from '@app/modules/document-viewer/public';
-import type { IDocumentPageLabelModel } from '@app/modules/document-viewer/public';
 import type {IWorkspaceCommandSink} from '@app/types/workspaceCommand';
 
 interface IWorkspaceMetadataSnapshot {
@@ -42,11 +36,10 @@ function estimateSnapshotBytes(snapshot: IWorkspaceMetadataSnapshot) {
 export const useWorkspaceMetadataHistory = (deps: {
     bookmarkItems: Ref<IPdfBookmarkEntry[]>;
     bookmarksDirty: Ref<boolean>;
-    pageLabels: Ref<string[] | null>;
-    pageLabelRanges: Ref<IPdfPageLabelRange[]>;
-    pageLabelModel?: Ref<IDocumentPageLabelModel> | undefined;
+    pageLabelRanges: Readonly<Ref<IPdfPageLabelRange[]>>;
+    /** The label owner's undo/redo command: puts recorded ranges back. */
+    restorePageLabelRanges: (ranges: IPdfPageLabelRange[]) => void;
     pageLabelsDirty: Ref<boolean>;
-    totalPages: Readonly<Ref<number>>;
     commandSink: IWorkspaceCommandSink;
 }) => {
     const currentSnapshot = shallowRef<IWorkspaceMetadataSnapshot | null>(null);
@@ -83,19 +76,7 @@ export const useWorkspaceMetadataHistory = (deps: {
                 deps.bookmarkItems.value = structuredClone(snapshot.bookmarkItems);
             }
             if (!isEqual(snapshot.pageLabelRanges, previous.pageLabelRanges)) {
-                deps.pageLabelRanges.value = structuredClone(snapshot.pageLabelRanges);
-                if (deps.pageLabelModel) {
-                    deps.pageLabelModel.value = createPageLabelModel(
-                        deps.totalPages.value,
-                        deps.pageLabelRanges.value,
-                    );
-                }
-                deps.pageLabels.value = deps.totalPages.value <= PAGE_LABEL_SMALL_COMPATIBILITY_MAX_PAGES
-                    ? materializePageLabelsForCompatibility(
-                        deps.totalPages.value,
-                        deps.pageLabelRanges.value,
-                    )
-                    : null;
+                deps.restorePageLabelRanges(structuredClone(snapshot.pageLabelRanges));
             }
             const current = captureCurrentSnapshot();
             currentSnapshot.value = current;
