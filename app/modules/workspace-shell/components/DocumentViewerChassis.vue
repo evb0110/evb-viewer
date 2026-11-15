@@ -252,6 +252,7 @@ watch(
         () => chassisAuthority.openSurface.navigationTicket.value,
         () => readZoom().state,
         () => attrs.viewMode,
+        () => attrs.viewRotation,
         () => attrs.continuousScroll,
         () => rendererKind.value,
         // Frame preparation needs a measurable viewport. When geometry is already
