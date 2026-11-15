@@ -29,9 +29,7 @@
                 @update:ocr-popup-open="handleDropdownOpen('ocr', $event)"
                 @update:zoom-dropdown-open="handleDropdownOpen('zoom', $event)"
                 @update:page-dropdown-open="handleDropdownOpen('page', $event)"
-                @update:zoom="observeReaderCommand(); zoom = $event"
-                @update:zoom-mode="observeReaderCommand(); zoomMode = $event"
-                @update:fit-mode="observeReaderCommand(); fitMode = $event"
+                @update:zoom="observeReaderCommand(); view.setZoomState({kind: 'custom', scale: $event})"
                 @update:view-mode="observeReaderCommand(); viewMode = $event"
                 @open-file="fileOps.handleOpenFileFromUi"
                 @open-settings="emit('open-settings')"
@@ -281,9 +279,6 @@ const {
     pageDropdownOpen,
     ocrPopupOpen,
     closeAllDropdowns,
-    zoom,
-    zoomMode,
-    fitMode,
     viewMode,
     totalPages,
     showSidebar,

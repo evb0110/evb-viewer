@@ -253,9 +253,8 @@ export const createDocumentViewContext = (deps: IDocumentViewContextDeps) => {
         }
     });
     const navigation = useWorkspaceViewState({
-        fitMode: view.fitMode,
         zoomMode: view.zoomMode,
-        zoom: view.zoom,
+        setZoomState: view.setZoomState,
         dragMode: view.dragMode,
         showSidebar: view.showSidebar,
         sidebarTab: view.sidebarTab,
@@ -331,10 +330,10 @@ export const createDocumentViewContext = (deps: IDocumentViewContextDeps) => {
         annotationSettings: annotations.annotationSettings,
         viewMode: view.viewMode,
         continuousScroll: view.continuousScroll,
-        fitMode: view.fitMode,
+        zoomState: view.zoomState,
+        setZoomState: view.setZoomState,
         zoom: view.zoom,
         effectiveZoom: view.effectiveZoom,
-        zoomMode: view.zoomMode,
         pdfSrc,
         preserveInitialStateForFirstSource,
         documentViewerRef: view.documentViewerRef,
@@ -512,7 +511,7 @@ export const createDocumentViewContext = (deps: IDocumentViewContextDeps) => {
             workingCopyPath,
             originalPath,
             documentRevisionToken,
-            zoomState: view.zoomState,
+            zoom: view.zoomAccess,
             onAnnotationCommentClick: annotationActions.handleAnnotationCommentClick,
             onAnnotationComments: handleAnnotationComments,
             onAnnotationInventory: annotations.applyAnnotationInventory,
@@ -542,7 +541,6 @@ export const createDocumentViewContext = (deps: IDocumentViewContextDeps) => {
                     totalPages.value = value;
                 }
             },
-            onZoomStateUpdate: view.setZoomState,
         });
     }
 

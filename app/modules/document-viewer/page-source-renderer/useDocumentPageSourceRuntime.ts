@@ -10,6 +10,7 @@ import {useTypedI18n} from '@app/composables/useTypedI18n';
 import { useResizeObserver } from '@vueuse/core';
 import { clamp } from 'es-toolkit/math';
 import type { IPdfSemanticAnchor } from '@contracts/recentReadingView';
+import type { IZoomStateAccess } from '@contracts/shared';
 import type { IDocumentViewerExpose } from '@app/modules/pdf-viewer/public';
 import {
     createDocumentWheelZoomHandler,
@@ -310,6 +311,7 @@ export function resolveDocumentPageSourceReadyEdgeSemanticPage(
 export const useDocumentPageSourceRuntime = (options: {
     emit: IDocumentPageSourceFeaturePackEmit;
     readProps: () => TDocumentPageSourceRuntimeProps;
+    readZoom: () => IZoomStateAccess;
 }) => {
     let nextSourcePageSlotOwnerId = 0;
     const emit = options.emit;
@@ -377,8 +379,7 @@ export const useDocumentPageSourceRuntime = (options: {
     ));
     const handleWheelZoom = createDocumentWheelZoomHandler(
         effectiveZoom,
-        computed(() => props.value.zoomMode),
-        emit,
+        options.readZoom,
         {
             beforeZoom: (interaction, packetAt, startsNewSession) => layoutLifecycle.capturePointerAnchor(
                 interaction.event,

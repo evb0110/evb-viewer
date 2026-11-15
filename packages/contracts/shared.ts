@@ -169,9 +169,25 @@ export type TPdfZoomState =
         kind: 'fit';
         axis: TFitMode
     };
+/**
+ * One view's requested zoom, as its renderers reach it. A write is the
+ * state the next read returns; nothing echoes it back.
+ */
+export interface IZoomStateAccess {
+    readonly state: TPdfZoomState;
+    /** The last manual scale, kept while a fit is requested. */
+    readonly manualScale: number;
+    readonly set: (state: TPdfZoomState) => void;
+}
 export const FIT_WIDTH_ZOOM_STATE: TPdfZoomState = Object.freeze({
     kind: 'fit',
     axis: 'width',
+});
+/** A renderer with no view to own its zoom fits width and drops writes. */
+export const DETACHED_ZOOM_ACCESS: IZoomStateAccess = Object.freeze({
+    state: FIT_WIDTH_ZOOM_STATE,
+    manualScale: 1,
+    set: () => {},
 });
 export function createZoomState(mode: TZoomMode, scale: number): TPdfZoomState {
     return mode === 'custom'

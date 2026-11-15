@@ -49,16 +49,14 @@ describe('workspace viewer shell state', () => {
         expect(state.sidebarTab.value).toBe('search');
         expect(state.currentPage.value).toBe(42);
 
-        state.zoomMode.value = 'custom';
-        state.zoom.value = 2;
+        state.setZoomState({kind: 'custom', scale: 2});
         expect(state.zoomState.value).toEqual({
             kind: 'custom',
             scale: 2,
         });
 
-        state.fitMode.value = 'height';
         expect(state.zoomMode.value).toBe('custom');
-        state.zoomMode.value = 'fit-height';
+        state.setZoomState({kind: 'fit', axis: 'height'});
         expect(state.zoomState.value).toEqual({
             kind: 'fit',
             axis: 'height',
@@ -106,9 +104,9 @@ describe('workspace viewer shell state', () => {
                     viewMode: state.viewMode,
                     viewRotation: state.viewRotation,
                     continuousScroll: state.continuousScroll,
-                    fitMode: state.fitMode,
+                    zoomState: state.zoomState,
+                    setZoomState: state.setZoomState,
                     zoom: state.zoom,
-                    zoomMode: state.zoomMode,
                     effectiveZoom: state.effectiveZoom,
                     pdfSrc: ref(null),
                     documentSourceKey: source,

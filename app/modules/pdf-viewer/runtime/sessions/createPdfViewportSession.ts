@@ -109,6 +109,7 @@ export interface ICreatePdfViewportSessionOptions {
     outputScale: Ref<number>;
     selectionMarkupStyle: Parameters<typeof usePdfViewportViewModel>[0]['selectionMarkupStyle'];
     classState: Parameters<typeof usePdfViewportViewModel>[0]['classState'];
+    /** Writes the view's zoom owner, which the layout reads at once. */
     emitZoomState: (state: TPdfZoomState) => void;
     summarizeViewerStateForLog: () => unknown;
 }
@@ -707,9 +708,8 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         seedPreparedOpeningFitScale();
     }
     /**
-     * A reload keeps its custom display scale. The zoom state is set on the
-     * viewer and reported to the host in one call, so the layout below
-     * already uses it.
+     * A reload keeps its custom display scale. The zoom state is written to
+     * the view's owner, so the layout below already uses it.
      */
     function restoreReloadZoom() {
         const nextZoom = displayZoomToRestore === null ? null : resolveCustomReloadZoomMultiplier(displayZoomToRestore);
