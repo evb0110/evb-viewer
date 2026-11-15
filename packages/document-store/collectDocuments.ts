@@ -9,6 +9,7 @@ import {
 } from './documentDirectory';
 import {
     checkpointWindowId,
+    type IUnreadableEntry,
     readWorkspaceCheckpoints,
     WORKSPACES_DIR,
 } from './workspaceCheckpoint';
@@ -27,9 +28,9 @@ const isOpenOnly = (manifest: IManifest) => manifest.drafts === undefined && man
  * offer. `hold` takes a directory, or answers `null` when a window has it; each directory is decided and removed
  * while held, so collection never races a window opening it. Removed: a directory without a manifest (an aborted
  * creation), a clean one no workspace checkpoint names, and an unsaved one no checkpoint names that holds only what
- * an open made. Every other unsaved directory is kept, named or not. What cannot be read is kept: an unreadable
- * manifest keeps its directory, and an unreadable checkpoint keeps every directory it might name. Temporary files of
- * checkpoint writes that crashed are removed.
+ * an open made. Every other unsaved directory is kept, named or not. What cannot be read is kept and returned in
+ * `unreadable`, for the host to report: an unreadable manifest keeps its directory, and an unreadable checkpoint keeps
+ * every directory it might name. Temporary files of checkpoint writes that crashed are removed.
  */
 export async function collectDocuments(store: IDocumentStore, hold: (id: string) => Promise<(() => void) | null>) {
     const { port } = store;
@@ -37,7 +38,8 @@ export async function collectDocuments(store: IDocumentStore, hold: (id: string)
         // A temporary file another window still has open refuses removal; it is that window's to finish.
         if (checkpointWindowId(name) === null) await port.remove(`${WORKSPACES_DIR}/${name}`).catch(() => undefined);
     }
-    const checkpoints = [...(await readWorkspaceCheckpoints(port)).values()];
+    const unreadable: IUnreadableEntry[] = [];
+    const checkpoints = [...(await readWorkspaceCheckpoints(port, unreadable)).values()];
     const referenced = new Set(checkpoints.flatMap(checkpoint => checkpoint ? Object.values(checkpoint.tabs).map(tab => tab.directory) : []));
     const referencesKnown = checkpoints.every(checkpoint => checkpoint !== null);
     const removed: string[] = [];
@@ -48,8 +50,12 @@ export async function collectDocuments(store: IDocumentStore, hold: (id: string)
         if (!release) continue;
         try {
             const dir = `${DOCUMENTS_DIR}/${id}`;
+            const path = `${dir}/${MANIFEST_NAME}`;
             const manifest = (await port.list(dir)).includes(MANIFEST_NAME)
-                ? await port.read(`${dir}/${MANIFEST_NAME}`).then(decodeManifest).catch(() => null)
+                ? await port.read(path).then(decodeManifest).catch((error: unknown) => {
+                    unreadable.push({ path, directory: id, error });
+                    return null;
+                })
                 : undefined;
             if (manifest === null) continue;
             const unnamed = referencesKnown && !referenced.has(id);
@@ -63,5 +69,5 @@ export async function collectDocuments(store: IDocumentStore, hold: (id: string)
             release();
         }
     }
-    return { removed, unsaved };
+    return { removed, unsaved, unreadable };
 }

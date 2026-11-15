@@ -2801,3 +2801,37 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
         await expect(readStored(savedRef!)).resolves.toBe(digest(edited));
     });
 });
+
+it.each(['save', 'save-as'] as const)('#1609 reports a failed Recent write after successful %s without losing saved bytes', async mode => {
+    const {capability, browserDocumentStore: store} = await loadBrowserDocumentsFileCapability({windowOverrides: {showSaveFilePicker: undefined}});
+    const {BrowserLogger} = await import('@app/utils/browserLogger');
+    const {BROWSER_RECENT_FILES_STORAGE_KEY} = await import('@app/utils/browserRuntimePersistence');
+    const warn = vi.spyOn(BrowserLogger, 'warn').mockImplementation(() => undefined);
+    const error = vi.spyOn(BrowserLogger, 'error');
+    onTestFinished(() => {vi.restoreAllMocks();});
+    qpdfRun.mockImplementation(async command => ({exitCode: 0, stdout: command === 'page-count' ? '1' : 'No syntax or stream encoding errors found', stderr: '', output: null}));
+    const bytes = await createPdfBytes();
+    const source = await store.createStoredDocument('recent-write.pdf', bytes, PDF_SOURCE_OPTIONS);
+    const working = await store.cloneAsWorkingCopy(source);
+    const downloads: Blob[] = [];
+    class DownloadURL extends URL {}
+    Object.defineProperties(DownloadURL, {
+        createObjectURL: {value: (blob: Blob) => {downloads.push(blob); return 'blob:recent-write';}},
+        revokeObjectURL: {value: () => {}},
+    });
+    vi.stubGlobal('URL', DownloadURL);
+    const storage = window.localStorage;
+    const setItem = storage.setItem.bind(storage);
+    vi.spyOn(storage, 'setItem').mockImplementation((key, value) => {
+        if (key === BROWSER_RECENT_FILES_STORAGE_KEY) throw new Error('QuotaExceededError injected Recent write');
+        setItem(key, value);
+    });
+    const saved = mode === 'save'
+        ? ((await capability.saveFileStructured(working, await getRevisionOptions(store, working))).ok ? source : null)
+        : await capability.savePdfAs(working, undefined, await getRevisionOptions(store, working));
+    expect(saved).not.toBeNull();
+    expect(new Uint8Array(await downloads[0]!.arrayBuffer())).toEqual(bytes);
+    const diagnostics = [...warn.mock.calls, ...error.mock.calls].map(args => JSON.stringify(args, (_key, value: unknown) => value instanceof Error ? value.message : value)).join('\n');
+    expect.soft(diagnostics).toContain(saved!);
+    expect(diagnostics).toMatch(/recent.*(?:unavailable|persist|storage|writ)|QuotaExceededError/iu);
+});

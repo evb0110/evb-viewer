@@ -492,6 +492,24 @@ describe('createDocumentOpenFlow', () => {
         expect(mocks.documentOpen.forgetKeptOriginal).toHaveBeenCalledWith('/documents/book.pdf');
     });
 
+    it('#1609 logs a failed kept-original dismissal with the PDF and error', async () => {
+        const {openFlow} = createOpenFlowHarness();
+        const warn = vi.spyOn(BrowserLogger, 'warn').mockImplementation(() => undefined);
+        const error = vi.spyOn(BrowserLogger, 'error');
+        mocks.documentOpen.forgetKeptOriginal.mockRejectedValueOnce(new Error('EACCES injected dismissal IPC'));
+        mocks.toasts.length = 0;
+        await openFlow.openFile({
+            kind: 'pdf', originalPath: requireDocumentRef('/documents/dismissal.pdf'),
+            workingPath: requireDocumentRef('/tmp/dismissal-working.pdf'),
+            keptOriginalPath: requireDocumentRef('/documents/dismissal (original).pdf'),
+        });
+        (mocks.toasts[0]!['onUpdate:open'] as (open: boolean) => void)(false);
+        await new Promise<void>(resolve => queueMicrotask(resolve));
+        const diagnostics = [...warn.mock.calls, ...error.mock.calls].map(args => JSON.stringify(args, (_key, value: unknown) => value instanceof Error ? value.message : value)).join('\n');
+        expect.soft(diagnostics).toContain('/documents/dismissal.pdf');
+        expect(diagnostics).toContain('EACCES injected dismissal IPC');
+    });
+
     it('does not request cleanup when a recovered PDF fails before adoption', async () => {
         const {
             deps,

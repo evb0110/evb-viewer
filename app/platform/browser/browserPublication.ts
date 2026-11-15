@@ -7,8 +7,11 @@ import type {
     IPublicationPort,
     IPublishSource,
 } from '@document-store/documentDirectory';
+import { isRecord } from '@contracts/runtimeGuards';
 import { fileHandleStore } from '@app/platform/browser/browserFileHandleStore';
 import { runBrowserLock } from '@app/platform/browser/runBrowserLock';
+import { BrowserLogger } from '@app/utils/browserLogger';
+import { getErrorMessage } from '@app/utils/error';
 
 const HANDLE_PREFIX = 'handle:';
 const DOWNLOAD_PREFIX = 'download:';
@@ -37,7 +40,14 @@ export function rememberFileHandle(key: string, handle: FileSystemFileHandle) {
 /** Keeps `handle` for `key` across reloads too, for recovery and Recent Files. */
 export async function storeFileHandle(key: string, handle: FileSystemFileHandle) {
     handles.set(key, handle);
-    await fileHandleStore.put(key, {handle, name: handle.name}).catch(() => undefined);
+    await fileHandleStore.put(key, {handle, name: handle.name}).catch((error: unknown) => {
+        if (isRecord(error) && (error.code === 'ENOENT' || error.name === 'NotFoundError')) return;
+        BrowserLogger.warn('browser-publication', 'Could not persist a file handle', {
+            key,
+            fileName: handle.name,
+            error: getErrorMessage(error),
+        });
+    });
 }
 
 export async function resolveFileHandle(key: string) {

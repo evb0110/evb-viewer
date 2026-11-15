@@ -14,6 +14,7 @@ import {
     relative,
 } from 'node:path';
 import {collectDocuments} from '@document-store/collectDocuments';
+import {sameWitness} from '@document-store/contentWitness';
 import {
     createDocument,
     decodeManifest,
@@ -21,6 +22,7 @@ import {
     DOCUMENTS_DIR,
     forkDocument,
     type IDocumentStore,
+    type IPublicationPort,
     type IRevision,
     MANIFEST_NAME,
     openDocument,
@@ -96,6 +98,11 @@ const sourceChangedError = () => new WorkingCopyMaterializationError(
     'The original document changed after it was opened',
 );
 
+const openedBytesNotKeptError = () => new WorkingCopyMaterializationError(
+    'SOURCE_BACKING_UNAVAILABLE',
+    'The document as it was opened could not be retained when it was saved, so it cannot be restored',
+);
+
 /**
  * One open document: a directory of the document store (its manifest, revision files and drafts) and the window
  * that owns it. Its `ref` is the path the renderer and the native tools name it by; nothing is stored there. The
@@ -123,7 +130,7 @@ export const openDocuments = new Map<string, IOpenDocument>();
 let nextRegistrationId = 1;
 let storeRoot: string | null = null;
 let store: IDocumentStore | null = null;
-let collection: Promise<{removed: string[]; unsaved: string[]}> | null = null;
+let collection: ReturnType<typeof collectDocuments> | null = null;
 /** Names a document's directory in its window's workspace checkpoint; the checkpoint store provides it. */
 let nameDirectory: (entry: IOpenDocument) => Promise<void> = () => Promise.resolve();
 const revisionListeners = new Set<(event: IDocumentRevisionChangedEvent) => void>();
@@ -648,6 +655,12 @@ export async function restoreOpenDocumentRevision(entry: IOpenDocument, token: T
     await nameDirectory(entry);
     const previous = documentRevisionToken(entry);
     const result = await entry.doc.restore(expectedRevisionId(entry, expected), revisionIdOf(token));
+    if (result.status === 'conflict') {
+        // A Save replaced the opened bytes when they could not be copied in first (see `keepDestinationRevision`).
+        const {history, baseline} = entry.doc.state();
+        const target = history.find(revision => revision.id === revisionIdOf(token));
+        if (target && !('file' in target) && !sameWitness(target.witness, baseline)) throw openedBytesNotKeptError();
+    }
     if (result.status !== 'committed') throwFailedMutation(entry, expected, result);
     // Native tools read the current file to its end: an undone append must not be there.
     await entry.doc.ownCurrentFile();
@@ -784,18 +797,30 @@ function collected() {
         const docStore = getDocumentStore();
         for (const id of await docStore.port.list(DOCUMENTS_DIR)) {
             if (!STORE_ID_PATTERN.test(id)) continue;
-            try {
-                const manifest = decodeManifest(await docStore.port.read(`${DOCUMENTS_DIR}/${id}/${MANIFEST_NAME}`));
-                if (manifest.pendingPublish || manifest.unsettled) await (await openDocument(docStore, id)).close();
-            } catch (error) {
-                log.debug(`Document ${id} kept an interrupted save for later: ${getErrorMessage(error)}`);
-            }
+            // A manifest that cannot be read is the collection's to report.
+            const manifest = await docStore.port.read(`${DOCUMENTS_DIR}/${id}/${MANIFEST_NAME}`).then(decodeManifest).catch(() => null);
+            if (!manifest?.pendingPublish && !manifest?.unsettled) continue;
+            const kept = (error: unknown) => log.warn(`Document ${DOCUMENTS_DIR}/${id} kept an interrupted save for later: ${getErrorMessage(error)}`);
+            // Opening keeps a save it cannot settle recorded without failing; the reason is told here. Desktop
+            // publication always settles.
+            const {publication} = docStore;
+            const settling: IPublicationPort = {...publication, settle: async (record, baseline) => {
+                try {
+                    return await publication.settle!(record, baseline);
+                } catch (error) {
+                    kept(error);
+                    throw error;
+                }
+            }};
+            await openDocument({...docStore, publication: settling}, id).then(doc => doc.close()).catch(kept);
         }
         // Nothing is open yet, so every directory is the collection's to decide.
-        return collectDocuments(docStore, () => Promise.resolve(() => undefined));
+        const result = await collectDocuments(docStore, () => Promise.resolve(() => undefined));
+        for (const {path, error} of result.unreadable) log.warn(`Kept recovery data that cannot be read: ${path}: ${getErrorMessage(error)}`);
+        return result;
     })().catch((error: unknown) => {
         log.warn(`Document collection stopped: ${getErrorMessage(error)}`);
-        return {removed: [], unsaved: []};
+        return {removed: [], unsaved: [], unreadable: []};
     });
     return collection;
 }
@@ -805,9 +830,13 @@ export async function collectStaleDocuments() {
     return (await collected()).removed.length;
 }
 
-/** The unsaved directories the startup collection kept that no window holds now, for the recovery offer. */
+/**
+ * The unsaved directories the startup collection kept that no window holds now, and those whose manifest it could
+ * not read, for the recovery offer.
+ */
 export async function unheldUnsavedDocuments() {
-    return (await collected()).unsaved.filter(id => findByDirectory(id) === null);
+    const {unsaved, unreadable} = await collected();
+    return [...unsaved, ...unreadable.flatMap(entry => entry.directory ?? [])].filter(id => findByDirectory(id) === null);
 }
 
 // Lookups by the file a document was opened from

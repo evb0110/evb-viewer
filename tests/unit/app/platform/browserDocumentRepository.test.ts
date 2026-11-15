@@ -218,3 +218,37 @@ it('leaves the document openable with its old bytes when replacing its content f
     expect(decode(await repo.read(withFile))).toBe('replacement');
     expect((await repo.requireEntry(withFile)).doc!.state()).toMatchObject({destination: expect.any(String), dirty: false, history: []});
 });
+
+it('#1609 reports a failed IndexedDB handle write while keeping the current session binding', async () => {
+    const {fileHandleStore} = await import('@app/platform/browser/browserFileHandleStore');
+    const {storeFileHandle, resolveFileHandle} = await import('@app/platform/browser/browserPublication');
+    const {BrowserLogger} = await import('@app/utils/browserLogger');
+    const warn = vi.spyOn(BrowserLogger, 'warn').mockImplementation(() => undefined);
+    const error = vi.spyOn(BrowserLogger, 'error');
+    vi.spyOn(fileHandleStore, 'put').mockRejectedValue(new Error('QuotaExceededError injected handle write'));
+    const {handle} = pickedFile('handle-write.pdf', 'saved bytes');
+    await storeFileHandle('saved-handle-key', handle);
+    expect(await resolveFileHandle('saved-handle-key')).toBe(handle);
+    const diagnostics = [...warn.mock.calls, ...error.mock.calls].map(args => JSON.stringify(args, (_key, value: unknown) => value instanceof Error ? value.message : value)).join('\n');
+    expect.soft(diagnostics).toContain('saved-handle-key');
+    expect(diagnostics).toContain('QuotaExceededError injected handle write');
+});
+
+
+it('#1609 explains browser undo refusal when Save could not retain the opened bytes', async () => {
+    const {repo, store} = await repository();
+    const picked = pickedFile('picked.pdf', 'opened bytes');
+    const ref = await repo.cloneAsWorkingCopy(await repo.registerFile(picked.file(), {saveHandle: picked.handle}));
+    const entry = await repo.requireEntry(ref);
+    const opened = repo.tokenOf(entry);
+    await repo.write(ref, encode('edited bytes'), {expectedDocumentRevisionToken: opened});
+    const copyIn = store.port.copyIn.bind(store.port);
+    vi.spyOn(store.port, 'copyIn').mockImplementation((source, target) => target.endsWith('/r1.pdf')
+        ? Promise.reject(new Error('NotReadableError injected opened-byte retention')) : copyIn(source, target));
+    expect(await repo.save(ref, repo.tokenOf(entry))).toMatchObject({status: 'saved'});
+    expect(decode(picked.disk.bytes)).toBe('edited bytes');
+    await expect(repo.restoreRevision(ref, opened, repo.tokenOf(entry))).rejects.toMatchObject({
+        code: 'SOURCE_BACKING_UNAVAILABLE',
+        message: expect.stringMatching(/opened.*retained.*saved/iu),
+    });
+});

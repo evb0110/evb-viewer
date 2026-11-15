@@ -17,6 +17,7 @@ import {consumeRegisteredPdfRasterDisplayProfile} from '@app/types/pdfRasterDisp
 import type { TPdfSource } from '@app/types/pdfUi';
 import { createRequestId } from '@contracts/shared';
 import { parseEpochMs } from '@contracts/timestamps';
+import { isRecord } from '@contracts/runtimeGuards';
 import { DocumentOpenRefusalError } from '@contracts/documentOpenErrors';
 import type {
     createEpochGuard,
@@ -311,7 +312,13 @@ export function createDocumentOpenFlow(
                 description: deps.t('errors.file.recoveryKeptOriginal', {path: result.keptOriginalPath}),
                 duration: Number.POSITIVE_INFINITY,
                 progress: false,
-                onDismiss: () => void getDocumentOpenCapability().forgetKeptOriginal?.(originalPath).catch(() => undefined),
+                onDismiss: () => void getDocumentOpenCapability().forgetKeptOriginal?.(originalPath).catch((error: unknown) => {
+                    if (isRecord(error) && (error.code === 'ENOENT' || error.name === 'NotFoundError')) return;
+                    BrowserLogger.warn(RECENT_OPEN_LOG_SECTION, 'Could not dismiss a kept-original notice', {
+                        originalPath,
+                        error: getErrorMessage(error),
+                    });
+                }),
             });
         }
         if (result.recoveryDirtyBaseline === true) {

@@ -516,7 +516,10 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
             }
             if (workspaceCheckpoint) {
                 traceRendererStartup('tabs shell restoring workspace checkpoint', {tabCount: workspaceCheckpoint.tabs.length});
-                const failedCheckpointPaths = await restoreWorkspaceCheckpoint(workspaceCheckpoint, {
+                const failedCheckpointPaths = await restoreWorkspaceCheckpoint({
+                    ...workspaceCheckpoint,
+                    tabs: workspaceCheckpoint.tabs.filter(tab => !tab.workingCopyLost || tab.sourceRef),
+                }, {
                     activeTabId,
                     documentSessions,
                     restoreGraph: restoreWorkspaceCheckpointGraph,

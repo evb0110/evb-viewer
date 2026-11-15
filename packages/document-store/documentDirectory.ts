@@ -276,10 +276,17 @@ export class DocumentDirectory {
             await port.writeAtomic(doc.path(drafts), bytes);
             value = decodeJson(bytes);
         }
-        if (current) await port.copy(from(current.file), doc.path(current.file));
-        const file = current ? await port.open(doc.path(current.file)) : null;
-        // Native tools read the copy to its end: what lies past `current.length` (a redo, an uncommitted append) goes.
-        if (current && file && await file.size() > current.length) await file.truncate(current.length);
+        let file: IStoreFile | null = null;
+        try {
+            if (current) await port.copy(from(current.file), doc.path(current.file));
+            file = current ? await port.open(doc.path(current.file)) : null;
+            // Native tools read the copy to its end: what lies past `current.length` (a redo, an uncommitted append) goes.
+            if (current && file && await file.size() > current.length) await file.truncate(current.length);
+        } catch (error) {
+            await file?.close().catch(() => undefined);
+            if (current) await port.remove(doc.path(current.file)).catch(() => undefined);
+            throw error;
+        }
         await doc.commit({ ...manifest, history: [] }, file, value);
         return doc;
     }

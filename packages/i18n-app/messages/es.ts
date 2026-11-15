@@ -1909,7 +1909,7 @@ export default {
             'documentNotReopenedTitle': 'Documento no reabierto',
             'documentNotReopenedDescription': '{fileName} detuvo el visor mientras se abría, así que no se volvió a abrir. Puedes abrirlo de nuevo desde Archivos recientes.',
             'workingCopyLostTitle': 'No se encontraron los cambios sin guardar',
-            'workingCopyLostDescription': 'Los cambios sin guardar de {fileName} están en una copia de trabajo que falta en este equipo, así que el documento se abrió tal como se guardó por última vez. Se conservan para un inicio posterior que encuentre la copia de trabajo.',
+            'workingCopyLostDescription': 'Los cambios sin guardar de {fileName} están en una copia de trabajo que falta o no se pudo leer en este equipo, así que el documento se abrió tal como se guardó por última vez. Se conservan para un inicio posterior que encuentre la copia de trabajo.',
         },
         'settings': {
             'load': 'No se pudieron cargar los ajustes',

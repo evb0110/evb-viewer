@@ -1,4 +1,5 @@
 import type {TDocumentRef} from '@contracts/documentRef';
+import {isRecord} from '@contracts/runtimeGuards';
 import {readBrowserStoreStagedArtifact} from '@app/platform/browser/browserStagedArtifact';
 import type {
     IDocumentMutationRevisionOptions,
@@ -40,7 +41,17 @@ import {
 } from '@app/platform/browser-api/browserPdfValidation';
 import { getErrorMessage } from '@app/utils/error';
 import { BrowserLogger } from '@app/utils/browserLogger';
+import {BROWSER_RECENT_FILES_STORAGE_KEY} from '@app/utils/browserRuntimePersistence';
 import {copyScanCleanupDocumentPreferences} from '@app/utils/browserScanCleanupPreferences';
+
+function warnRecentWriteFailure(documentRef: TDocumentRef, error: unknown) {
+    if (isRecord(error) && (error.code === 'ENOENT' || error.name === 'NotFoundError')) return;
+    BrowserLogger.warn('browser-save', 'Could not write Recent Files after saving', {
+        key: BROWSER_RECENT_FILES_STORAGE_KEY,
+        documentRef,
+        error: getErrorMessage(error),
+    });
+}
 
 /**
  * Save: commit the edit appended to the working copy under `commitLease`, check its file against the
@@ -89,7 +100,7 @@ export async function saveWorkingBytesToSource(
     if (source?.doc && !source.saveHandle && entry.doc?.state().destination?.startsWith('download:')) {
         await browserDocumentStore.replaceContent(source.ref, workingCopyPath);
     }
-    if (sourceRef) await browserDocumentStore.touchRecentFile(sourceRef).catch(() => undefined);
+    if (sourceRef) await browserDocumentStore.touchRecentFile(sourceRef).catch((error: unknown) => warnRecentWriteFailure(sourceRef, error));
     if (source?.doc) browserDocumentStore.unload(source.ref);
     return browserDocumentStore.getDocumentRevision(workingCopyPath);
 }
@@ -279,6 +290,6 @@ export async function savePdfAsFromWorkingCopy(
     } catch (error) {
         BrowserLogger.warn('browser-save', 'Scan Cleanup settings were not copied to the saved file', error);
     }
-    await browserDocumentStore.touchRecentFile(sourceRef).catch(() => undefined);
+    await browserDocumentStore.touchRecentFile(sourceRef).catch((error: unknown) => warnRecentWriteFailure(sourceRef, error));
     return sourceRef;
 }
