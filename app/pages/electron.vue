@@ -10,7 +10,6 @@ import { getOrCaptureRendererBootstrapFailure } from '@app/utils/getOrCaptureRen
 const { t } = useTypedI18n();
 const { setFatalRuntimeError } = useFatalRuntimeError();
 const hasDesktopBridge = ref(false);
-const isDesktopRuntime = useState('runtime:is-desktop', () => true);
 
 definePageMeta({
     preloadWorkspaceShell: false,
@@ -20,7 +19,6 @@ if (import.meta.server) useSeoMeta({ robots: 'noindex, nofollow' });
 useHead(() => ({ title: t('app.title') }));
 
 onMounted(async () => {
-    isDesktopRuntime.value = true;
     const bridgeAvailable = await waitForDesktopPlatformBridge({ shouldWait: true });
 
     if (!bridgeAvailable) {

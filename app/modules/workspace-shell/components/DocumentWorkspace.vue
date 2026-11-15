@@ -236,7 +236,6 @@ const context = createDocumentViewContext({
     openSurface: documentOpenSurface,
     runDocumentOpen: (request, run) => documentLifecycle.runOpen(request, run),
     emitOpenInNewTab: result => emit('open-in-new-tab', result),
-    emitOpenSettings: () => emit('open-settings'),
 });
 const {
     document: documentContext,

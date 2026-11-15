@@ -22,7 +22,10 @@ import type {IAgentOcrRunOptions} from '@contracts/agentOcr';
 import type {IAgentOcrRunAdmission} from '@app/types/ocrPopupAgentExpose';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { getSettingsCapability } from '@app/utils/getSettingsCapability';
-import type { IOcrSearchablePdfResult } from '@app/utils/ocr/ocrTypes';
+import type {
+    IOcrSearchablePdfResult,
+    IOcrSettings,
+} from '@app/utils/ocr/ocrTypes';
 import { resolveOcrExportLanguages } from '@app/utils/ocr/resolveOcrExportLanguages';
 import {
     applyAgentOcrOptionsToSettings,
@@ -509,16 +512,31 @@ export const useOcrPopupPresenter = ({
         },
     });
 
+    // A changed profile carries its preprocessing default along; a locked run keeps its settings.
+    function replaceSettings(nextSettings: IOcrSettings) {
+        const previousProfile = settings.value.qualityProfile;
+        settings.value = isRunSettingsLocked.value || nextSettings.qualityProfile === previousProfile
+            ? nextSettings
+            : resolveQualityProfileSettings(nextSettings, nextSettings.qualityProfile, previousProfile);
+    }
+    const qualityProfileModel = computed({
+        get: () => settings.value.qualityProfile,
+        set: (qualityProfile: IOcrSettings['qualityProfile']) => replaceSettings({
+            ...settings.value,
+            qualityProfile,
+        }),
+    });
+
     function applyAgentOcrOptions(options: IAgentOcrRunOptions) {
         if (isRunSettingsLocked.value) {
             return;
         }
 
-        settings.value = applyAgentOcrOptionsToSettings(
+        replaceSettings(applyAgentOcrOptionsToSettings(
             settings.value,
             options,
             availableLanguageCodes.value,
-        );
+        ));
     }
 
     function createAgentOcrSnapshot() {
@@ -797,21 +815,6 @@ export const useOcrPopupPresenter = ({
         };
     }
 
-    watch(() => settings.value.qualityProfile, (nextProfile, previousProfile) => {
-        if (isRunSettingsLocked.value) {
-            return;
-        }
-
-        const nextSettings = resolveQualityProfileSettings(
-            settings.value,
-            nextProfile,
-            previousProfile,
-        );
-        if (nextSettings !== settings.value) {
-            settings.value = nextSettings;
-        }
-    });
-
     watch(workingCopyPath, (nextPath, previousPath) => {
         if (nextPath === previousPath) {
             return;
@@ -895,6 +898,7 @@ export const useOcrPopupPresenter = ({
         replaceOnlyEvbModel,
         selectedLanguageModel,
         pageSegmentationModeSelectValue,
+        qualityProfileModel,
         handleCopyLogs,
         handleRunOcr,
         runOcrForAgent,
