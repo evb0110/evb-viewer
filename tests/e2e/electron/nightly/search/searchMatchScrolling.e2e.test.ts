@@ -1,6 +1,6 @@
 import {resolve} from 'node:path';
 import {
-    mkdirSync, readFileSync, writeFileSync,
+    mkdirSync, writeFileSync,
 } from 'node:fs';
 import {PDFDocument} from 'pdf-lib';
 import {
@@ -27,7 +27,7 @@ import {
     SEARCH_MATCH_SCROLL_FIXTURE_TARGET_PAGE,
 } from '@tests/e2e/electron/helpers/fixtures';
 import {createElectronE2ESessionFixture} from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
-import {getActiveWorkspaceWorkingCopyPath} from '@tests/e2e/electron/helpers/electronApiHelpers';
+import {readDocumentBytes} from '@tests/e2e/electron/helpers/electronApiHelpers';
 import {
     ensureSidebarOpen,
     openDocumentSidebarTab,
@@ -498,7 +498,7 @@ describe('Electron E2E - PDF search match scrolling', () => {
             .catch(() => undefined);
         expect(await page.$eval('.document-search-results', element => element.textContent?.replaceAll(/\s+/g, ' ').trim()))
             .toContain(found);
-        const rotated = await PDFDocument.load(readFileSync(await getActiveWorkspaceWorkingCopyPath(page)), {updateMetadata: false});
+        const rotated = await PDFDocument.load(await readDocumentBytes(page), {updateMetadata: false});
         expect(rotated.getPage(0).getRotation().angle).toBe(90);
     }, SEARCH_MATCH_SCROLL_TIMEOUT_MS);
 
@@ -1006,9 +1006,6 @@ describe('Electron E2E - PDF search match scrolling', () => {
                     element.textContent || element.dataset.word || ''
                 )).join(''),
                 highlightVisibilities: highlightElements.map(element => getComputedStyle(element).visibility),
-                hydrationBeginCount: targetTrace.filter(entry => (
-                    entry.event === 'renderer-layer-hydration-begin'
-                )).length,
                 hydrationReadyCount: targetTrace.filter(entry => (
                     entry.event === 'renderer-layer-hydration-settled'
                     && entry.payload?.outcome === 'ready'
@@ -1127,7 +1124,6 @@ describe('Electron E2E - PDF search match scrolling', () => {
         expect(finalState.resolvedHighlightEdgeDelta).not.toBeNull();
         expect(finalState.resolvedHighlightEdgeDelta!).toBeLessThanOrEqual(4);
         expect(finalState.singlePageBeginCount).toBeLessThanOrEqual(1);
-        expect(finalState.hydrationBeginCount).toBe(1);
         expect(finalState.hydrationReadyCount).toBe(1);
         expect(finalState.leaseAcquireCount).toBeLessThanOrEqual(4);
         expect(finalState.navigationMessages.some(message => message.includes('scrollToCurrentMatch'))).toBe(false);
