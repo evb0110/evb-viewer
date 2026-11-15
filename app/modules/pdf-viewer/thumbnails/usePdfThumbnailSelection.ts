@@ -12,9 +12,7 @@ import {
     mapPageNumberAfterPageMove,
 } from '@pdf-core/pdfPageSelection';
 import type { TPageMoveOperation } from '@pdf-core/pdfPageSelection';
-import { useMultiSelection } from '@app/composables/useMultiSelection';
 import {
-    arePageNumberListsEqual,
     createExplicitPageSelection,
     createRangePageSelection,
     isPageSelected,
@@ -102,34 +100,66 @@ export const usePdfThumbnailSelection = (options: IUsePdfThumbnailSelectionOptio
         totalPages,
     } = options;
 
-    const multiSelection = useMultiSelection<number>();
+    const anchorPage = ref<number | null>(null);
     const selectionFocusPage = ref<number | null>(null);
     const keyboardFocusPage = ref<number | null>(null);
-    const usesPageSelectionModel = onPageSelectionChange !== undefined;
-    const selectedPagesSet = computed(() => usesPageSelectionModel
-        ? null
-        : new Set(selectedPages.value));
 
-    function getPageSelection(): TPageSelection {
-        if (usesPageSelectionModel) {
-            const selection = selectedPageSelection?.value;
-            if (selection && selection.pageCount === totalPages.value) {
-                return selection;
-            }
+    /** The view's selection; an array-only parent's pages read as an explicit selection. */
+    const pageSelection = computed<TPageSelection>(() => {
+        const selection = selectedPageSelection?.value;
+        if (onPageSelectionChange && selection && selection.pageCount === totalPages.value) {
+            return selection;
         }
-        return createExplicitPageSelection(totalPages.value, selectedPages.value);
+        return createExplicitPageSelection(
+            totalPages.value,
+            normalizeSelectedPageNumbers(selectedPages.value, totalPages.value),
+        );
+    });
+    const hasSelection = computed(() => pageSelectionCount(pageSelection.value) > 0);
+    watch(pageSelection, (selection) => {
+        if (pageSelectionCount(selection) === 0) {
+            anchorPage.value = null;
+            selectionFocusPage.value = null;
+        }
+    }, {immediate: true});
+
+    /**
+     * A gesture's anchor or focus counts while something is selected and its
+     * page exists. For an array-only parent it must be selected, else the
+     * last selected page stands in.
+     */
+    function liveSelectionPage(page: number | null) {
+        if (!hasSelection.value) {
+            return null;
+        }
+        if (!onPageSelectionChange) {
+            return page !== null && isPageSelected(pageSelection.value, page)
+                ? page
+                : normalizeSelectedPageNumbers(selectedPages.value, totalPages.value).at(-1) ?? null;
+        }
+        return page !== null && page >= 1 && page <= totalPages.value ? page : null;
     }
 
+    /**
+     * Publishes a gesture's selection. An array-only parent cannot hold a
+     * selection past the materialization limit, so that gesture is refused.
+     */
     function notifyPageSelection(selection: TPageSelection) {
-        if (onPageSelectionChange) {
-            onPageSelectionChange(selection);
+        const fitsArray = pageSelectionCount(selection) <= LEGACY_SELECTION_MATERIALIZATION_LIMIT;
+        if (!onPageSelectionChange && !fitsArray) {
+            onSelectionRefused({
+                kind: 'page-count-limit',
+                limit: LEGACY_SELECTION_MATERIALIZATION_LIMIT,
+                pageCount: totalPages.value,
+            });
+            return false;
         }
-        // Keep the old array contract for the existing UI and tests.  A
-        // large lazy selection has no safe legacy representation, so the
-        // model callback is the source of truth in that case.
-        if (!usesPageSelectionModel || pageSelectionCount(selection) <= LEGACY_SELECTION_MATERIALIZATION_LIMIT) {
+        onPageSelectionChange?.(selection);
+        // A large lazy selection has no safe array form; the model is its owner.
+        if (fitsArray) {
             onSelectedPagesChange(materializePageSelection(selection));
         }
+        return true;
     }
 
     function clampPage(page: number) {
@@ -137,14 +167,12 @@ export const usePdfThumbnailSelection = (options: IUsePdfThumbnailSelectionOptio
     }
 
     function isSelected(page: number) {
-        return usesPageSelectionModel
-            ? isPageSelected(getPageSelection(), page)
-            : selectedPagesSet.value?.has(page) === true;
+        return isPageSelected(pageSelection.value, page);
     }
 
     /** The keyboard-focused row, independent of selection. */
     const rovingFocusPage = computed(() => (
-        totalPages.value > 0 ? keyboardFocusPage.value ?? clampPage(currentPage.value) : null
+        totalPages.value > 0 ? clampPage(keyboardFocusPage.value ?? currentPage.value) : null
     ));
 
     function focusThumbnailPage(page: number) {
@@ -182,92 +210,38 @@ export const usePdfThumbnailSelection = (options: IUsePdfThumbnailSelectionOptio
             return;
         }
 
-        if (usesPageSelectionModel) {
-            let nextSelection: TPageSelection;
-            if (event.shiftKey) {
-                const anchor = multiSelection.anchor.value
-                    ?? getThumbnailSelectionFallbackAnchor()
-                    ?? page;
-                nextSelection = createRangePageSelection(
-                    totalPages.value,
-                    Math.min(anchor, page),
-                    Math.max(anchor, page),
-                );
-                multiSelection.anchor.value = anchor;
-            } else if (event.metaKey || event.ctrlKey) {
-                nextSelection = togglePageSelection(getPageSelection(), page);
-            } else {
-                nextSelection = createExplicitPageSelection(totalPages.value, [page]);
+        if (event.shiftKey) {
+            const anchor = liveSelectionPage(anchorPage.value)
+                ?? getThumbnailSelectionFallbackAnchor()
+                ?? page;
+            if (notifyPageSelection(createRangePageSelection(
+                totalPages.value,
+                Math.min(anchor, page),
+                Math.max(anchor, page),
+            ))) {
+                anchorPage.value = anchor;
+                selectionFocusPage.value = page;
             }
-            selectionFocusPage.value = page;
-            notifyPageSelection(nextSelection);
             return;
         }
-
-        // A legacy consumer only accepts a page array. Keep ordinary document
-        // semantics, but refuse a range that would require a page-sized array.
-        if (totalPages.value > LEGACY_SELECTION_MATERIALIZATION_LIMIT) {
-            if (event.shiftKey) {
-                onSelectionRefused({
-                    kind: 'page-count-limit',
-                    limit: LEGACY_SELECTION_MATERIALIZATION_LIMIT,
-                    pageCount: totalPages.value,
-                });
-                return;
-            }
-            if (event.metaKey || event.ctrlKey) {
-                toggleSinglePageSelection(page);
-                return;
-            }
-            multiSelection.selected.value = new Set([page]);
-            multiSelection.anchor.value = page;
+        if (notifyPageSelection(event.metaKey || event.ctrlKey
+            ? togglePageSelection(pageSelection.value, page)
+            : createExplicitPageSelection(totalPages.value, [page]))) {
             selectionFocusPage.value = page;
-            onSelectedPagesChange([page]);
-            return;
         }
-
-        // The legacy path retains its Set semantics for ordinary documents.
-        const allPages = Array.from({length: totalPages.value}, (_value, index) => index + 1);
-        multiSelection.toggle(page, allPages, {
-            shift: event.shiftKey,
-            meta: event.metaKey || event.ctrlKey,
-            fallbackAnchor: event.shiftKey ? getThumbnailSelectionFallbackAnchor() : null,
-        });
-        selectionFocusPage.value = page;
-        const normalized = normalizeSelectedPageNumbers(
-            Array.from(multiSelection.selected.value),
-            totalPages.value,
-        );
-        onSelectedPagesChange(normalized);
     }
 
     function toggleSinglePageSelection(page: number) {
-        if (usesPageSelectionModel) {
-            const nextSelection = togglePageSelection(getPageSelection(), page);
-            multiSelection.anchor.value = page;
+        if (notifyPageSelection(togglePageSelection(pageSelection.value, page))) {
+            anchorPage.value = page;
             selectionFocusPage.value = page;
-            notifyPageSelection(nextSelection);
-            return;
         }
-        const nextSelection = new Set(selectedPages.value);
-        if (nextSelection.has(page)) {
-            nextSelection.delete(page);
-        } else {
-            nextSelection.add(page);
-        }
-        multiSelection.selected.value = nextSelection;
-        multiSelection.anchor.value = page;
-        selectionFocusPage.value = page;
-        onSelectedPagesChange(normalizeSelectedPageNumbers(
-            Array.from(nextSelection),
-            totalPages.value,
-        ));
     }
 
     function handleThumbnailContextMenu(event: MouseEvent, page: number) {
         const selection = resolveThumbnailContextMenuSelection(
             page,
-            getPageSelection(),
+            pageSelection.value,
             totalPages.value,
         );
         onContextMenu({
@@ -282,29 +256,15 @@ export const usePdfThumbnailSelection = (options: IUsePdfThumbnailSelectionOptio
     }
 
     function getKeyboardSelectionBasePage() {
-        if (
-            selectionFocusPage.value !== null
-            && selectionFocusPage.value >= 1
-            && selectionFocusPage.value <= totalPages.value
-        ) {
-            return selectionFocusPage.value;
-        }
-
-        const normalized = normalizeSelectedPageNumbers(selectedPages.value, totalPages.value);
-        return normalized.at(-1) ?? clampPage(currentPage.value);
+        return liveSelectionPage(selectionFocusPage.value)
+            ?? normalizeSelectedPageNumbers(selectedPages.value, totalPages.value).at(-1)
+            ?? clampPage(currentPage.value);
     }
 
     function getKeyboardSelectionAnchorPage(basePage: number) {
-        if (
-            multiSelection.anchor.value !== null
-            && multiSelection.anchor.value >= 1
-            && multiSelection.anchor.value <= totalPages.value
-        ) {
-            return multiSelection.anchor.value;
-        }
-
-        const normalized = normalizeSelectedPageNumbers(selectedPages.value, totalPages.value);
-        return normalized[0] ?? basePage;
+        return liveSelectionPage(anchorPage.value)
+            ?? normalizeSelectedPageNumbers(selectedPages.value, totalPages.value)[0]
+            ?? basePage;
     }
 
     function resolveArrowDirection(key: string) {
@@ -323,41 +283,16 @@ export const usePdfThumbnailSelection = (options: IUsePdfThumbnailSelectionOptio
 
         const basePage = getKeyboardSelectionBasePage();
         const nextFocusPage = clampPage(basePage + direction);
-        const anchorPage = getKeyboardSelectionAnchorPage(basePage);
-        if (usesPageSelectionModel) {
-            const nextSelection = createRangePageSelection(
-                totalPages.value,
-                Math.min(anchorPage, nextFocusPage),
-                Math.max(anchorPage, nextFocusPage),
-            );
-            multiSelection.anchor.value = anchorPage;
-            selectionFocusPage.value = nextFocusPage;
-            notifyPageSelection(nextSelection);
-            onGoToPage(nextFocusPage);
-            focusThumbnailPage(nextFocusPage);
-            return;
-        }
-
-        if (totalPages.value > LEGACY_SELECTION_MATERIALIZATION_LIMIT) {
-            onSelectionRefused({
-                kind: 'page-count-limit',
-                limit: LEGACY_SELECTION_MATERIALIZATION_LIMIT,
-                pageCount: totalPages.value,
-            });
-            return;
-        }
-
-        const allPages = Array.from({length: totalPages.value}, (_value, index) => index + 1);
-
-        multiSelection.anchor.value = anchorPage;
-        multiSelection.toggle(nextFocusPage, allPages, {shift: true});
-        selectionFocusPage.value = nextFocusPage;
-
-        const normalized = normalizeSelectedPageNumbers(
-            Array.from(multiSelection.selected.value),
+        const anchor = getKeyboardSelectionAnchorPage(basePage);
+        if (!notifyPageSelection(createRangePageSelection(
             totalPages.value,
-        );
-        onSelectedPagesChange(normalized);
+            Math.min(anchor, nextFocusPage),
+            Math.max(anchor, nextFocusPage),
+        ))) {
+            return;
+        }
+        anchorPage.value = anchor;
+        selectionFocusPage.value = nextFocusPage;
         onGoToPage(nextFocusPage);
         focusThumbnailPage(nextFocusPage);
     }
@@ -387,7 +322,7 @@ export const usePdfThumbnailSelection = (options: IUsePdfThumbnailSelectionOptio
     }
 
     function resolveKeyboardMoveRanges(basePage: number) {
-        const selection = getPageSelection();
+        const selection = pageSelection.value;
         const selectionCount = pageSelectionCount(selection);
         if (selectionCount > LEGACY_SELECTION_MATERIALIZATION_LIMIT) {
             return [{
@@ -516,71 +451,6 @@ export const usePdfThumbnailSelection = (options: IUsePdfThumbnailSelectionOptio
         focusThumbnailPage(clampPage(target));
     }
 
-    function syncInternalSelection(normalized: number[]) {
-        if (usesPageSelectionModel) {
-            if (normalized.length === 0) {
-                multiSelection.anchor.value = null;
-                selectionFocusPage.value = null;
-            }
-            return;
-        }
-        multiSelection.selected.value = new Set(normalized);
-
-        if (normalized.length === 0) {
-            multiSelection.anchor.value = null;
-            selectionFocusPage.value = null;
-            return;
-        }
-
-        if (
-            multiSelection.anchor.value === null ||
-            !normalized.includes(multiSelection.anchor.value)
-        ) {
-            multiSelection.anchor.value = normalized[normalized.length - 1] ?? null;
-        }
-        if (
-            selectionFocusPage.value === null ||
-            !normalized.includes(selectionFocusPage.value)
-        ) {
-            selectionFocusPage.value = normalized[normalized.length - 1] ?? null;
-        }
-    }
-
-    watch(
-        [
-            () => selectedPages.value.join(','),
-            () => selectedPageSelection?.value,
-            totalPages,
-        ],
-        () => {
-            if (usesPageSelectionModel) {
-                const selection = selectedPageSelection?.value;
-                if (!selection || selection.pageCount !== totalPages.value) {
-                    return;
-                }
-                if (pageSelectionCount(selection) === 0) {
-                    multiSelection.anchor.value = null;
-                    selectionFocusPage.value = null;
-                }
-                if (keyboardFocusPage.value !== null) {
-                    keyboardFocusPage.value = totalPages.value <= 0 ? null : clampPage(keyboardFocusPage.value);
-                }
-                return;
-            }
-            const pages = selectedPages.value;
-            const normalized = normalizeSelectedPageNumbers(pages, totalPages.value);
-            if (!arePageNumberListsEqual(normalized, pages)) {
-                onSelectedPagesChange(normalized);
-            }
-
-            syncInternalSelection(normalized);
-            if (keyboardFocusPage.value !== null) {
-                keyboardFocusPage.value = totalPages.value <= 0 ? null : clampPage(keyboardFocusPage.value);
-            }
-        },
-        {immediate: true},
-    );
-
     return {
         handleContainerFocusIn,
         handleContainerKeyDown,
@@ -588,7 +458,6 @@ export const usePdfThumbnailSelection = (options: IUsePdfThumbnailSelectionOptio
         handleThumbnailContextMenu,
         isSelected,
         rovingFocusPage,
-        selectedPagesSet,
         toggleSinglePageSelection,
     };
 };
