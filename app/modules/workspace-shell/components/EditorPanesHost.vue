@@ -86,12 +86,9 @@ import type { TStartSection } from '@app/types/startSection';
 import type { ITabLifecycleState } from '@app/modules/workspace-shell/tabs/tabSessionStoreTypes';
 import type { IWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 import {
-    capturePaneRelocationScroll,
-    restorePaneRelocationScroll,
-} from '@app/modules/workspace-shell/layout/preservePaneRelocationScroll';
-import {
     clearDocumentViewportPaneRelocationScrollFence,
     fenceDocumentViewportPaneRelocationScroll,
+    placeDocumentThumbnailRailsWithin,
 } from '@app/modules/document-viewer/public';
 
 defineOptions({ name: 'EditorPanesHost' });
@@ -170,26 +167,6 @@ watchEffect(() => {
         }
     }
 });
-
-let paneRelocationRestoreGeneration = 0;
-
-watch(
-    () => layout,
-    () => {
-        const snapshots = capturePaneRelocationScroll(hostRef.value);
-        if (snapshots.length === 0) {
-            return;
-        }
-        const generation = ++paneRelocationRestoreGeneration;
-        void nextTick(() => {
-            if (generation !== paneRelocationRestoreGeneration) {
-                return;
-            }
-            restorePaneRelocationScroll(snapshots);
-        });
-    },
-    {flush: 'sync'},
-);
 
 const emit = defineEmits<{
     'activate-pane': [paneId: string];
@@ -280,6 +257,9 @@ function handlePaneSlot(paneId: string, element: HTMLElement | null) {
             requestAnimationFrame(() => clearDocumentViewportPaneRelocationScrollFence(pane));
         }
         paneSlotTargets.set(paneId, element);
+        // Moving the pane resets its rails' offsets; once the Teleport has
+        // patched, each rail places itself at its own anchor again.
+        if (pane) void nextTick(() => placeDocumentThumbnailRailsWithin(pane));
         return;
     }
     const current = paneSlotTargets.get(paneId);
