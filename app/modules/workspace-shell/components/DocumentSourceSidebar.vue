@@ -3,24 +3,24 @@
         class="document-source-sidebar"
         data-testid="document-sidebar"
         :aria-label="t('documentSourceSidebar.navLabel')"
-        :model-value="effectiveTab ?? ''"
+        :model-value="activeTab ?? ''"
         :tabs="availableShellTabs"
         @update:model-value="handleShellTabUpdate"
     >
         <DocumentSidebarPagesPanel
             v-if="source?.thumbnailProvider"
-            v-show="effectiveTab === 'thumbnails'"
+            v-show="activeTab === 'thumbnails'"
         >
             <DocumentThumbnailList
                 :source="source"
                 :current-page="currentPage"
-                :is-active="isActive && effectiveTab === 'thumbnails'"
+                :is-active="isActive && activeTab === 'thumbnails'"
                 :is-resizing="isResizing"
                 @go-to-page="forwardThumbnailActivation"
             />
         </DocumentSidebarPagesPanel>
 
-        <div v-show="effectiveTab === 'bookmarks'" class="document-source-sidebar__bookmarks">
+        <div v-show="activeTab === 'bookmarks'" class="document-source-sidebar__bookmarks">
             <DocumentBookmarkToolbar
                 v-if="isBookmarkToolbarVisible"
                 :display-mode="bookmarkDisplayMode"
@@ -51,9 +51,9 @@
         </div>
 
         <DocumentSearchPanel
-            v-show="effectiveTab === 'search'"
+            v-show="activeTab === 'search'"
             :session="searchSession"
-            :is-active="effectiveTab === 'search'"
+            :is-active="activeTab === 'search'"
             :focus-request="searchFocusRequest ?? 0"
         />
     </AppSidebarShell>
@@ -63,9 +63,7 @@
 import type {
     IDocumentPageSource, IDocumentSearchSession ,TDocumentSidebarTab, 
 } from '@app/modules/document-viewer/public';
-import {
-    useDocumentBookmarkSession,useDocumentSidebarCapabilitySession, 
-} from '@app/modules/document-viewer/public';
+import { useDocumentBookmarkSession } from '@app/modules/document-viewer/public';
 import AppSidebarShell from '@app/components/sidebar/AppSidebarShell.vue';
 import DocumentPanelEmptyState from '@app/components/document-viewer/DocumentPanelEmptyState.vue';
 import DocumentBookmarkToolbar from '@app/components/document-viewer/DocumentBookmarkToolbar.vue';
@@ -82,40 +80,22 @@ const props = defineProps<{
     searchSession: IDocumentSearchSession;
     isResizing?: boolean;
     searchFocusRequest?: number;
+    /** The tab shown: the preference clamped to `availableTabs`, or none. */
+    activeTab: TDocumentSidebarTab | null;
+    availableTabs: readonly TDocumentSidebarTab[];
 }>();
 const emit = defineEmits<{
     // Optional because bookmark rows navigate without a selection event; see
     // IDocumentThumbnailListEmits for what the thumbnail rail hands over.
     'go-to-page': [pageNumber: number, event?: MouseEvent];
-    'update:availableTabs': [value: TDocumentSidebarTab[]];
+    'update:activeTab': [value: TDocumentSidebarTab];
 }>();
 
-const activeTab = defineModel<TDocumentSidebarTab>('activeTab', {required: true});
-const sidebarCapabilities = computed(() => ({
-    annotations: false,
-    bookmarks: Boolean(props.source?.outlineProvider),
-    pages: Boolean(props.source?.thumbnailProvider),
-    search: Boolean(props.source?.searchProvider ?? props.source?.textProvider),
-}));
-const {
-    availableTabs,
-    effectiveTab,
-    select: selectTab,
-} = useDocumentSidebarCapabilitySession({
-    capabilities: sidebarCapabilities,
-    capabilitiesReady: computed(() => props.source !== null),
-    preferredTab: activeTab,
-});
 const isActive = computed(() => props.isActive);
-watch(
-    availableTabs,
-    tabs => emit('update:availableTabs', [...tabs]),
-    {immediate: true},
-);
 const bookmarkSession = useDocumentBookmarkSession({
     source: computed(() => props.source),
     currentPage: computed(() => props.currentPage),
-    isActive: computed(() => effectiveTab.value === 'bookmarks'),
+    isActive: computed(() => props.activeTab === 'bookmarks'),
 });
 const {
     activeId: activeBookmarkId,
@@ -135,7 +115,7 @@ const isBookmarkToolbarVisible = computed(() => (
     outlineStatus.value === 'ready' || outlineStatus.value === 'empty'
 ));
 
-const availableShellTabs = computed(() => availableTabs.value.map(tab => ({
+const availableShellTabs = computed(() => props.availableTabs.map(tab => ({
     value: tab,
     label: getTabLabel(tab),
     title: getTabLabel(tab),
@@ -153,12 +133,12 @@ function getTabLabel(tab: TDocumentSidebarTab) {
 
 function handleShellTabUpdate(value: string) {
     const tab = /^\d+$/u.test(value)
-        ? availableTabs.value[Number(value)]
+        ? props.availableTabs[Number(value)]
         : value as TDocumentSidebarTab;
-    if (!tab || !availableTabs.value.includes(tab)) {
+    if (!tab || !props.availableTabs.includes(tab)) {
         return;
     }
-    selectTab(tab);
+    emit('update:activeTab', tab);
 }
 
 /**

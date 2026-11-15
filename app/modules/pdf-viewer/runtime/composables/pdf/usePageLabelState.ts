@@ -12,7 +12,6 @@ import {
     normalizePageLabelRanges,
     PAGE_LABEL_DENSE_READ_MAX_PAGES,
     PAGE_LABEL_SMALL_COMPATIBILITY_MAX_PAGES,
-    type IDocumentPageLabelModel,
 } from '@app/modules/document-viewer/public';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { runGuardedTask } from '@app/utils/asyncGuard';
@@ -47,14 +46,14 @@ export const usePageLabelState = (deps: {
     } = deps;
 
     const pageLabels = ref<string[] | null>(null);
-    // Replaced wholesale, never mutated in place, and posted to the
+    // The accepted ranges with the page count they were accepted for; a
+    // loading view's transient count never resizes them. The ranges are
+    // replaced wholesale, never mutated in place, and posted to the
     // serialization worker: deep reactivity would hand out a Proxy that
     // structured clone refuses.
     const pageLabelRanges = shallowRef<IPdfPageLabelRange[]>([]);
-    const pageLabelModel = shallowRef<IDocumentPageLabelModel>(createPageLabelModel(
-        Math.max(0, totalPages.value),
-        [],
-    ));
+    const acceptedPageCount = ref(Math.max(0, totalPages.value));
+    const pageLabelModel = computed(() => createPageLabelModel(acceptedPageCount.value, pageLabelRanges.value));
     const pageLabelsDirty = ref(false);
     const pageLabelsResolved = ref(true);
     let pageLabelSyncGeneration = 0;
@@ -94,13 +93,20 @@ export const usePageLabelState = (deps: {
         ranges: readonly IPdfPageLabelRange[],
         labels: readonly string[] | null = null,
     ) {
-        const normalizedRanges = normalizePageLabelRanges(ranges, totalPagesValue);
-        pageLabelRanges.value = normalizedRanges;
-        pageLabelModel.value = createPageLabelModel(totalPagesValue, normalizedRanges);
+        acceptPageLabelRanges(totalPagesValue, normalizePageLabelRanges(ranges, totalPagesValue), labels);
+    }
+
+    function acceptPageLabelRanges(
+        totalPagesValue: number,
+        ranges: IPdfPageLabelRange[],
+        labels: readonly string[] | null = null,
+    ) {
+        pageLabelRanges.value = ranges;
+        acceptedPageCount.value = totalPagesValue;
         pageLabels.value = totalPagesValue <= PAGE_LABEL_SMALL_COMPATIBILITY_MAX_PAGES
             ? materializePageLabelsForCompatibility(
                 totalPagesValue,
-                normalizedRanges,
+                ranges,
                 labels,
             )
             : null;
@@ -347,10 +353,7 @@ export const usePageLabelState = (deps: {
             pageLabels.value = null;
             pageLabelRanges.value = [];
         }
-        pageLabelModel.value = createPageLabelModel(
-            Math.max(0, nextTotalPages),
-            pageLabelRanges.value,
-        );
+        acceptedPageCount.value = Math.max(0, nextTotalPages);
     });
 
     tryOnScopeDispose(() => {
@@ -375,5 +378,7 @@ export const usePageLabelState = (deps: {
         handlePageLabelRangesUpdate,
         captureRecovery,
         restoreRecovery: (recovery: NonNullable<IWorkspaceMetadataRecovery['pageLabels']>) => applyAcceptedPageLabels(recovery.ranges, recovery.revision),
+        /** Undo and redo put back recorded ranges as they were, at the current page count. */
+        restorePageLabelRanges: (ranges: IPdfPageLabelRange[]) => acceptPageLabelRanges(totalPages.value, ranges),
     };
 };

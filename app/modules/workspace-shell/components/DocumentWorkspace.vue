@@ -82,7 +82,6 @@
         >
             <template #sidebar>
                 <WorkspaceDocumentSidebar
-                    :shows-pdf-sidebar="presentation.showsPdfSidebar.value"
                     :is-open="isSidebarPresented"
                     :is-active="isDocumentSidebarActive"
                     :is-source-resizing="isSourceSidebarResizing"

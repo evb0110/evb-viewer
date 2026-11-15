@@ -36,6 +36,7 @@ import { requirePageNumber } from '@contracts/pageNumbers';
 import { useWorkspaceDocumentDriverBinding } from '@app/modules/workspace-shell/viewers/workspaceDocumentDriver';
 import {
     createDocumentPageSourceSearchBackend,
+    useDocumentSidebarCapabilitySession,
     type IDocumentOpenSurfaceSession,
 } from '@app/modules/document-viewer/public';
 import { useDocumentSearchSession } from '@app/modules/workspace-shell/composables/useDocumentSearchSession';
@@ -128,7 +129,37 @@ export const createDocumentViewContext = (deps: IDocumentViewContextDeps) => {
         }, documentView.captureReadingAnchor() ?? currentPage.value, null);
     }, {flush: 'sync'});
 
+    // The sidebar this view renders and the tabs its format offers: the PDF
+    // sidebar's format predicates or the page source's providers. The rendered
+    // sidebar and the search commands read these same tabs.
+    const renderedSidebar = computed<'pdf' | 'source' | null>(() => {
+        const activeDriver = driver.activeDocumentDriver.value;
+        if (!activeDriver || scanCleanup.surfaceMode.value !== 'reader') return null;
+        return activeDriver.view.showPdfSidebar ? 'pdf' : 'source';
+    });
+    const sidebarTabs = useDocumentSidebarCapabilitySession({
+        capabilities: computed(() => {
+            const source = view.documentPageSource.value;
+            return renderedSidebar.value === 'pdf'
+                ? {
+                    annotations: !file.isDjvuMode.value,
+                    bookmarks: true,
+                    pages: true,
+                    search: true,
+                }
+                : {
+                    annotations: false,
+                    bookmarks: Boolean(source?.outlineProvider),
+                    pages: Boolean(source?.thumbnailProvider),
+                    search: Boolean(source?.searchProvider ?? source?.textProvider),
+                };
+        }),
+        capabilitiesReady: computed(() => renderedSidebar.value === 'pdf'
+            || (renderedSidebar.value === 'source' && view.documentPageSource.value !== null)),
+        preferredTab: view.sidebarTab,
+    });
     const search = useWorkspaceSearchSidebar({
+        sidebarTabs,
         workingCopyPath,
         documentRevisionToken,
         showSidebar: view.showSidebar,
@@ -605,6 +636,8 @@ export const createDocumentViewContext = (deps: IDocumentViewContextDeps) => {
         runDocumentOpen: deps.runDocumentOpen,
         emitOpenInNewTab: deps.emitOpenInNewTab,
         view,
+        renderedSidebar,
+        sidebarTabs,
         search,
         sourceSearch,
         navigation,

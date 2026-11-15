@@ -10,9 +10,11 @@ import {
     vi,
 } from 'vitest';
 import {
+    computed,
     defineComponent,
     h,
     shallowRef,
+    nextTick,
 } from 'vue';
 import { requireDocumentRef } from '@contracts/documentRef';
 import type {IDocumentOutlineItem} from '@app/modules/document-viewer/source/documentPageSource';
@@ -21,6 +23,7 @@ import type {
     IDocumentRenderLease,
 } from '@app/modules/document-viewer/public';
 import type { TDocumentSidebarTab } from '@app/modules/document-viewer/sidebar/documentSidebarTabs';
+import {useDocumentSidebarCapabilitySession} from '@app/modules/document-viewer/sidebar/useDocumentSidebarCapabilitySession';
 import DocumentSourceSidebar from '@app/modules/workspace-shell/components/DocumentSourceSidebar.vue';
 import {
     createDocumentSearchSessionDouble,
@@ -139,17 +142,29 @@ afterEach(() => {
 
 async function mountSidebar(source: IDocumentPageSource | null, tab: TDocumentSidebarTab) {
     const activeTab = shallowRef<TDocumentSidebarTab>(tab);
+    const pageSource = shallowRef(source);
+    const sidebarTabs = useDocumentSidebarCapabilitySession({
+        preferredTab: activeTab,
+        capabilitiesReady: computed(() => pageSource.value !== null),
+        capabilities: computed(() => ({
+            annotations: false,
+            bookmarks: Boolean(pageSource.value?.outlineProvider),
+            pages: Boolean(pageSource.value?.thumbnailProvider),
+            search: Boolean(pageSource.value?.searchProvider ?? pageSource.value?.textProvider),
+        })),
+    });
     const mountedHost = await mountDocumentSidebarHost(() => h(DocumentSourceSidebar, {
-        activeTab: activeTab.value,
+        activeTab: sidebarTabs.effectiveTab.value,
+        availableTabs: sidebarTabs.availableTabs.value,
         currentPage: 1,
         searchSession: createDocumentSearchSessionDouble(),
-        source,
-        'onUpdate:activeTab': (value: TDocumentSidebarTab) => {
-            activeTab.value = value;
-        },
+        source: pageSource.value,
+        'onUpdate:activeTab': sidebarTabs.select,
     }));
     return {
         activeTab,
+        pageSource,
+        sidebarTabs,
         host: mountedHost.host,
         unmount: mountedHost.unmount,
     };
@@ -171,7 +186,7 @@ function bookmarksPanel(host: HTMLElement) {
     return host.querySelector<HTMLElement>('.document-source-sidebar__bookmarks');
 }
 
-describe('DocumentSourceSidebar capability clamp', () => {
+describe('view sidebar capability session projection', () => {
     it('opens no panel and marks no tab active while the source is still resolving', async () => {
         const sidebar = await mountSidebar(null, 'search');
 
@@ -180,6 +195,20 @@ describe('DocumentSourceSidebar capability clamp', () => {
         expect(isVisible(bookmarksPanel(sidebar.host))).toBe(false);
         expect(shell(sidebar.host)?.dataset.shellTabCount).toBe('0');
         expect(shell(sidebar.host)?.dataset.shellActiveTab).toBe('');
+        expect(sidebar.activeTab.value).toBe('search');
+        expect(sidebar.sidebarTabs.ready.value).toBe(false);
+        expect(sidebar.sidebarTabs.availableTabs.value).toEqual([]);
+        sidebar.pageSource.value = createSource({search: true, thumbnails: true});
+        await nextTick();
+        expect(sidebar.sidebarTabs.ready.value).toBe(true);
+        expect(sidebar.sidebarTabs.availableTabs.value).toEqual(['thumbnails', 'search']);
+        expect(shell(sidebar.host)?.dataset.shellActiveTab).toBe('search');
+        expect(searchPanel(sidebar.host)?.dataset.searchActive).toBe('true');
+        sidebar.pageSource.value = createSource({thumbnails: true});
+        await nextTick();
+        expect(sidebar.sidebarTabs.availableTabs.value).toEqual(['thumbnails']);
+        expect(shell(sidebar.host)?.dataset.shellActiveTab).toBe('thumbnails');
+        expect(isVisible(searchPanel(sidebar.host))).toBe(false);
         expect(sidebar.activeTab.value).toBe('search');
     });
 

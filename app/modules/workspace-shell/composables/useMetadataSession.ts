@@ -162,8 +162,6 @@ export const useMetadataSession = (options: IMetadataSessionOptions) => {
         },
     });
     const {
-        pageLabels,
-        pageLabelModel,
         pageLabelRanges,
         pageLabelsDirty,
     } = pageLabelState;
@@ -173,11 +171,9 @@ export const useMetadataSession = (options: IMetadataSessionOptions) => {
     metadataHistory = useWorkspaceMetadataHistory({
         bookmarkItems,
         bookmarksDirty,
-        pageLabels,
-        pageLabelModel,
         pageLabelRanges,
+        restorePageLabelRanges: pageLabelState.restorePageLabelRanges,
         pageLabelsDirty,
-        totalPages,
         commandSink,
     });
     metadataHistory.resetToCurrentState();

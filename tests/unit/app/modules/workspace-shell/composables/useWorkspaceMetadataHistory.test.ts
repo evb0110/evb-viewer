@@ -6,13 +6,12 @@ import {
 } from 'vitest';
 import {
     ref,
-    shallowRef,
     toRaw,
 } from 'vue';
 import { useWorkspaceMetadataHistory } from '@app/modules/workspace-shell/composables/useWorkspaceMetadataHistory';
 import { useWorkspaceCommandLedger } from '@app/modules/workspace-shell/composables/useWorkspaceCommandLedger';
 import type {IWorkspaceCommandRegistration} from '@app/types/workspaceCommand';
-import { createPageLabelModel } from '@app/modules/document-viewer/pageLabels';
+import {usePageLabelState} from '@app/modules/pdf-viewer/runtime/composables/pdf/usePageLabelState';
 import { requirePageIndex } from '@contracts/pageNumbers';
 import type {
     IPdfBookmarkEntry,
@@ -32,16 +31,10 @@ function createHistory() {
     };
     const bookmarkItems = ref<IPdfBookmarkEntry[]>([]);
     const bookmarksDirty = ref(false);
-    const pageLabels = ref<string[] | null>(null);
-    const pageLabelRanges = ref<IPdfPageLabelRange[]>([{
-        startPage: 1,
-        style: 'D',
-        prefix: '',
-        startNumber: 1,
-    }]);
-    const pageLabelModel = shallowRef(createPageLabelModel(1, pageLabelRanges.value));
-    const pageLabelsDirty = ref(false);
     const totalPages = ref(1);
+    const pageLabelState = usePageLabelState({pdfDocument: ref(null), totalPages, markDirty: vi.fn()});
+    const {pageLabels, pageLabelRanges, pageLabelModel, pageLabelsDirty, restorePageLabelRanges} = pageLabelState;
+    restorePageLabelRanges([{startPage: 1, style: 'D', prefix: '', startNumber: 1}]);
 
     return {
         bookmarkItems,
@@ -57,11 +50,9 @@ function createHistory() {
             ...useWorkspaceMetadataHistory({
                 bookmarkItems,
                 bookmarksDirty,
-                pageLabels,
-                pageLabelModel,
+                restorePageLabelRanges,
                 pageLabelRanges,
                 pageLabelsDirty,
-                totalPages,
                 commandSink,
             }),
             canUndoMetadata: ledger.canUndoTimeline,
@@ -106,10 +97,9 @@ describe('useWorkspaceMetadataHistory', () => {
         const history = useWorkspaceMetadataHistory({
             bookmarkItems,
             bookmarksDirty: ref(false),
-            pageLabels: ref<string[] | null>(null),
+            restorePageLabelRanges: vi.fn(),
             pageLabelRanges: ref<IPdfPageLabelRange[]>([]),
             pageLabelsDirty: ref(false),
-            totalPages: ref(1),
             commandSink: {
                 register: command => registrations.push(command),
                 reset,
@@ -303,7 +293,6 @@ describe('useWorkspaceMetadataHistory', () => {
             prefix: 'Front ',
             startNumber: 1,
         }];
-        pageLabelModel.value = createPageLabelModel(1, pageLabelRanges.value);
         history.recordCurrentState();
 
         expect(await history.undoMetadata()).toBe(true);
@@ -335,19 +324,15 @@ describe('useWorkspaceMetadataHistory', () => {
         ];
         const bookmarkItems = ref<IPdfBookmarkEntry[]>([]);
         const bookmarksDirty = ref(false);
-        const pageLabels = ref<string[] | null>(null);
-        const pageLabelRanges = ref<IPdfPageLabelRange[]>(initialRanges);
-        const pageLabelModel = shallowRef(createPageLabelModel(totalPages, initialRanges));
-        const pageLabelsDirty = ref(false);
-        const totalPageCount = ref(totalPages);
+        const pageLabelState = usePageLabelState({pdfDocument: ref(null), totalPages: ref(totalPages), markDirty: vi.fn()});
+        const {pageLabels, pageLabelRanges, pageLabelModel, pageLabelsDirty, restorePageLabelRanges} = pageLabelState;
+        restorePageLabelRanges(initialRanges);
         const history = useWorkspaceMetadataHistory({
             bookmarkItems,
             bookmarksDirty,
-            pageLabels,
-            pageLabelModel,
+            restorePageLabelRanges,
             pageLabelRanges,
             pageLabelsDirty,
-            totalPages: totalPageCount,
             commandSink: {
                 register: ledger.registerCommand,
                 reset: ledger.resetSource,
@@ -357,7 +342,6 @@ describe('useWorkspaceMetadataHistory', () => {
 
         history.resetToCurrentState();
         pageLabelRanges.value = changedRanges;
-        pageLabelModel.value = createPageLabelModel(totalPages, changedRanges);
         history.recordCurrentState();
 
         expect(await ledger.undoTimeline()).toBe(true);
