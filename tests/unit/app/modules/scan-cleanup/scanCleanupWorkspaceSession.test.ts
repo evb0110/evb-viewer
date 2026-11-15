@@ -45,6 +45,7 @@ import type {
     TScanCleanupPageOutputMapping,
 } from '@contracts/scan-cleanup/electronApiScanCleanup';
 import type * as scanCleanupPageOverridesModule from '@evb/scan-cleanup/core/policy/scanCleanupPagePolicy';
+import {editScanCleanupDocumentSettings} from '@app/modules/scan-cleanup/composables/useScanCleanupDocumentSettings';
 import {useScanCleanupWorkspaceSession} from '@app/modules/scan-cleanup/composables/useScanCleanupWorkspaceSession';
 import {createScanCleanupPreviewCacheKey} from '@app/modules/scan-cleanup/composables/useScanCleanupPreviewSession';
 import {
@@ -444,7 +445,9 @@ describe('scan cleanup workspace session detection guidance', () => {
         onTestFinished(() => mounted.unmount());
         mounted.session.settings.setMarginsLinked(false);
         mounted.session.settings.updateMargin('topMm', 18);
-        mounted.session.settings.values.outputMode = 'color';
+        editScanCleanupDocumentSettings(mounted.session.settings.values, [], () => {
+            mounted.session.settings.values.outputMode = 'color';
+        });
         mounted.session.settings.values.pageAlignment = 'center';
         await nextTick();
         expect(mounted.session.run.canRun.value).toBe(false);
@@ -1864,7 +1867,9 @@ describe('scan cleanup workspace session detection guidance', () => {
         });
         capability.value = harness.value;
         const mounted = mountSession(`detail-cache-order-${Date.now()}`);
-        mounted.session.settings.values.outputMode = 'bw';
+        editScanCleanupDocumentSettings(mounted.session.settings.values, [], () => {
+            mounted.session.settings.values.outputMode = 'bw';
+        });
         await vi.waitFor(() => expect(mounted.session.preview.resultCurrent.value).toBe(true));
         const cachedViewport = {full: {
             xNormalized: 0,
@@ -1944,7 +1949,9 @@ describe('scan cleanup workspace session detection guidance', () => {
         ));
         capability.value = harness.value;
         const mounted = mountSession(`detail-clear-${Date.now()}`);
-        mounted.session.settings.values.outputMode = 'bw';
+        editScanCleanupDocumentSettings(mounted.session.settings.values, [], () => {
+            mounted.session.settings.values.outputMode = 'bw';
+        });
         await vi.waitFor(() => expect(mounted.session.preview.resultCurrent.value).toBe(true));
 
         await mounted.session.preview.requestDetail({full: {
@@ -1976,7 +1983,9 @@ describe('scan cleanup workspace session detection guidance', () => {
         });
         capability.value = harness.value;
         const mounted = mountSession(`detail-stale-base-${Date.now()}`);
-        mounted.session.settings.values.outputMode = 'bw';
+        editScanCleanupDocumentSettings(mounted.session.settings.values, [], () => {
+            mounted.session.settings.values.outputMode = 'bw';
+        });
         await vi.waitFor(() => expect(mounted.session.preview.resultCurrent.value).toBe(true));
         const baseCallsBefore = vi.mocked(harness.value.preview).mock.calls
             .filter(([request]) => request?.pageNumber === 1 && !request.detail).length;
@@ -2012,7 +2021,9 @@ describe('scan cleanup workspace session detection guidance', () => {
             `detail-retry-identity-${Date.now()}`,
             {sourcePath: () => sourcePath.value},
         );
-        mounted.session.settings.values.outputMode = 'bw';
+        editScanCleanupDocumentSettings(mounted.session.settings.values, [], () => {
+            mounted.session.settings.values.outputMode = 'bw';
+        });
         await vi.waitFor(() => expect(mounted.session.preview.resultCurrent.value).toBe(true));
         vi.useFakeTimers();
         try {
@@ -2048,7 +2059,9 @@ describe('scan cleanup workspace session detection guidance', () => {
         ));
         capability.value = harness.value;
         const mounted = mountSession(`detail-null-diagnostic-${Date.now()}`);
-        mounted.session.settings.values.outputMode = 'bw';
+        editScanCleanupDocumentSettings(mounted.session.settings.values, [], () => {
+            mounted.session.settings.values.outputMode = 'bw';
+        });
         await vi.waitFor(() => expect(mounted.session.preview.resultCurrent.value).toBe(true));
         vi.useFakeTimers();
         try {
@@ -2081,7 +2094,9 @@ describe('scan cleanup workspace session detection guidance', () => {
         });
         capability.value = harness.value;
         const mounted = mountSession(`detail-service-diagnostic-${Date.now()}`);
-        mounted.session.settings.values.outputMode = 'bw';
+        editScanCleanupDocumentSettings(mounted.session.settings.values, [], () => {
+            mounted.session.settings.values.outputMode = 'bw';
+        });
         await vi.waitFor(() => expect(mounted.session.preview.resultCurrent.value).toBe(true));
         vi.useFakeTimers();
         try {
@@ -2407,7 +2422,9 @@ describe('scan cleanup workspace session detection guidance', () => {
         await expect.poll(() => first.session.settings.documentSettingsReady.value).toBe(true);
         await expect.poll(() => second.session.settings.documentSettingsReady.value).toBe(true);
 
-        first.session.settings.values.outputMode = 'color';
+        editScanCleanupDocumentSettings(first.session.settings.values, [], () => {
+            first.session.settings.values.outputMode = 'color';
+        });
         expect(second.session.settings.values.outputMode).toBe('auto');
         second.session.settings.values.readingOrder = 'rtl';
         expect(first.session.settings.values.readingOrder).toBe('rtl');
@@ -2536,14 +2553,20 @@ describe('scan cleanup workspace session detection guidance', () => {
             key === 'evb.scanCleanup.documentOverrides.v1'
         )).length;
 
-        mounted.session.settings.values.pageOverrides['1'] = {
-            rotationDegrees: 0,
-            layoutOverride: 'auto',
-            excluded: false,
-            manualSplit: null,
-        };
-        mounted.session.settings.values.marginsMm.leftMm = 8;
-        mounted.session.settings.values.outputMode = 'color';
+        editScanCleanupDocumentSettings(mounted.session.settings.values, ['1'], () => {
+            mounted.session.settings.values.pageOverrides['1'] = {
+                rotationDegrees: 0,
+                layoutOverride: 'auto',
+                excluded: false,
+                manualSplit: null,
+            };
+        });
+        editScanCleanupDocumentSettings(mounted.session.settings.values, [], () => {
+            mounted.session.settings.values.marginsMm.leftMm = 8;
+        });
+        editScanCleanupDocumentSettings(mounted.session.settings.values, [], () => {
+            mounted.session.settings.values.outputMode = 'color';
+        });
         await nextTick();
         expect(documentWrites()).toBe(0);
         await vi.waitFor(() => expect(documentWrites()).toBe(1));
@@ -2554,7 +2577,9 @@ describe('scan cleanup workspace session detection guidance', () => {
             overrides: {'1': expect.any(Object)},
         });
 
-        mounted.session.settings.values.outputMode = 'grayscale';
+        editScanCleanupDocumentSettings(mounted.session.settings.values, [], () => {
+            mounted.session.settings.values.outputMode = 'grayscale';
+        });
         await nextTick();
         expect(documentWrites()).toBe(1);
         documentKey.value = secondKey;
@@ -4158,13 +4183,15 @@ describe('scan cleanup workspace session detection guidance', () => {
         const first = mountSession(documentKey);
         await expect.poll(() => first.session.settings.documentSettingsReady.value).toBe(true);
 
-        first.session.settings.values.pageOverrides['2'] = {
-            rotationDegrees: 0,
-            layoutOverride: 'auto',
-            excluded: false,
-            manualSplit: null,
-            outputModeOverride: 'color',
-        };
+        editScanCleanupDocumentSettings(first.session.settings.values, ['2'], () => {
+            first.session.settings.values.pageOverrides['2'] = {
+                rotationDegrees: 0,
+                layoutOverride: 'auto',
+                excluded: false,
+                manualSplit: null,
+                outputModeOverride: 'color',
+            };
+        });
         await vi.waitFor(() => expect(JSON.parse(
             localStorage.getItem('evb.scanCleanup.documentOverrides.v1') ?? '{}',
         )[documentKey]?.overrides?.['2']?.outputModeOverride).toBe('color'));

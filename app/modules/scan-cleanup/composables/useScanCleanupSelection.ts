@@ -1,4 +1,5 @@
 import {workspaceCommandSinkKey} from '@app/types/workspaceCommand';
+import {editScanCleanupDocumentSettings} from '@app/modules/scan-cleanup/composables/useScanCleanupDocumentSettings';
 import type {
     IScanCleanupMarginsMm,
     IScanCleanupManualZones,
@@ -159,7 +160,7 @@ export const useScanCleanupSelection = (options: IUseScanCleanupSelectionOptions
         const target = (key: string) => fields.includes(key) ? settings : settings.pageOverrides;
         const read = () => keys.map(key => cloneScanCleanupPreferenceValue<unknown>(Reflect.get(target(key), key)));
         const before = read();
-        edit();
+        editScanCleanupDocumentSettings(settings, pages, edit);
         const after = read();
         const changed = keys.flatMap((key, index) => isEqual(before[index], after[index]) ? [] : [{
             key,
@@ -167,13 +168,15 @@ export const useScanCleanupSelection = (options: IUseScanCleanupSelectionOptions
             after: after[index],
         }]);
         if (changed.length === 0) return;
+        // Undo and redo are edits too, persisted like the edit they replay.
         const apply = (side: 'before' | 'after') => {
-            for (const entry of changed) {
-                const owner = target(entry.key);
-                if (entry[side] === undefined) Reflect.deleteProperty(owner, entry.key);
-                else Reflect.set(owner, entry.key, cloneScanCleanupPreferenceValue(entry[side]));
-            }
-            attachScanCleanupPageOverrideDefaults(settings.pageOverrides, settings.pageOverrideDefaults, settings.marginsMm);
+            editScanCleanupDocumentSettings(settings, changed.flatMap(({key}) => fields.includes(key) ? [] : [key]), () => {
+                for (const entry of changed) {
+                    const owner = target(entry.key);
+                    if (entry[side] === undefined) Reflect.deleteProperty(owner, entry.key);
+                    else Reflect.set(owner, entry.key, cloneScanCleanupPreferenceValue(entry[side]));
+                }
+            });
             return true;
         };
         commandSink?.register({
@@ -198,9 +201,10 @@ export const useScanCleanupSelection = (options: IUseScanCleanupSelectionOptions
     }
 
     function setPageOverrideDefaults(value: IScanCleanupPageOverride, pageOverrides = settings.pageOverrides) {
-        settings.pageOverrideDefaults = createScanCleanupPageOverride(value);
-        settings.pageOverrides = pageOverrides;
-        attachScanCleanupPageOverrideDefaults(pageOverrides, settings.pageOverrideDefaults, settings.marginsMm);
+        editScanCleanupDocumentSettings(settings, Object.keys(settings.pageOverrides), () => {
+            settings.pageOverrideDefaults = createScanCleanupPageOverride(value);
+            settings.pageOverrides = pageOverrides;
+        });
     }
 
     function updatePageOverride(page: number, value: IScanCleanupPageOverride) {

@@ -203,6 +203,7 @@ import ScanCleanupToolbar from '@app/modules/scan-cleanup/components/ScanCleanup
 import ScanCleanupSettingsPanel from '@app/modules/scan-cleanup/components/settings/ScanCleanupSettingsPanel.vue';
 import type {TScanCleanupOverrideControl} from '@app/modules/scan-cleanup/composables/useScanCleanupSelection';
 import {useScanCleanupWorkspaceSession} from '@app/modules/scan-cleanup/composables/useScanCleanupWorkspaceSession';
+import {editScanCleanupDocumentSettings} from '@app/modules/scan-cleanup/composables/useScanCleanupDocumentSettings';
 import type {IScanCleanupPageFacts} from '@app/modules/scan-cleanup/runtime/describeScanCleanupPage';
 import {resolveScanCleanupMixedValue} from '@app/modules/scan-cleanup/runtime/scanCleanupSelectionOverrides';
 import {
@@ -463,8 +464,8 @@ function resetSettingsToDefaults() {
     if (isRunning.value) {
         return;
     }
-    resetScanCleanupOptionsToDefaults(settings);
     resetPageOverrides();
+    editScanCleanupDocumentSettings(settings, [], () => resetScanCleanupOptionsToDefaults(settings));
 }
 
 const scopePageNumbers = computed<TScanCleanupPageScope | readonly number[]>(() => settingsScope.value === 'all'
@@ -773,7 +774,7 @@ function updateDocumentSetting(
     key: keyof IScanCleanupOptions,
     value: IScanCleanupOptions[keyof IScanCleanupOptions],
 ) {
-    Object.assign(settings, {[key]: value});
+    editScanCleanupDocumentSettings(settings, [], () => Object.assign(settings, {[key]: value}));
 }
 
 function useMixedOutput() {

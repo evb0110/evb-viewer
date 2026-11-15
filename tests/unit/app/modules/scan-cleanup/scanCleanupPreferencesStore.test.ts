@@ -23,7 +23,10 @@ import {
 import type * as preferencesStoreModule from '@app/modules/scan-cleanup/runtime/scanCleanupPreferencesStore';
 import {BrowserLogger} from '@app/utils/browserLogger';
 import {createScanCleanupSettingsStore} from '@electron/features/scan-cleanup/createScanCleanupSettingsStore';
-import {createScanCleanupPageOverride} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
+import {
+    createScanCleanupPageOverride,
+    getScanCleanupPageOverrideDefaults,
+} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
 import {
     createDefaultScanCleanupSettingsFile,
     type IScanCleanupSettingsChange,
@@ -31,7 +34,10 @@ import {
 import {useWorkspaceCommandLedger} from '@app/modules/workspace-shell/composables/useWorkspaceCommandLedger';
 import {workspaceCommandSinkKey} from '@app/types/workspaceCommand';
 import {useScanCleanupSelection} from '@app/modules/scan-cleanup/composables/useScanCleanupSelection';
-import {useScanCleanupDocumentSettings} from '@app/modules/scan-cleanup/composables/useScanCleanupDocumentSettings';
+import {
+    editScanCleanupDocumentSettings,
+    useScanCleanupDocumentSettings,
+} from '@app/modules/scan-cleanup/composables/useScanCleanupDocumentSettings';
 import {
     scanCleanupSourceIdentityKey,
     type TScanCleanupSourceIdentityState,
@@ -518,13 +524,17 @@ describe('scan cleanup renderer preference store', () => {
         warning.mockRestore();
     });
 
-    it('keeps loaded document settings isolated from global preferences without echoing writes', async () => {
+    it.each([
+        {defaults: 'absent', pageOverrideDefaults: undefined},
+        {defaults: 'explicit', pageOverrideDefaults: createScanCleanupPageOverride()},
+    ])('keeps loaded document settings isolated without echoing writes with $defaults page defaults', async ({pageOverrideDefaults}) => {
         vi.useFakeTimers();
         const sourceSha256 = 'b'.repeat(64);
         const documentKey = '/documents/stored-margins.pdf';
         const stored = createDefaultScanCleanupSettingsFile();
         stored.settings.readingOrder = 'rtl';
         stored.documentOverrides[sourceSha256] = {
+            ...(pageOverrideDefaults === undefined ? {} : {pageOverrideDefaults}),
             marginsMm: {
                 leftMm: 12,
                 topMm: 12,
@@ -559,6 +569,8 @@ describe('scan cleanup renderer preference store', () => {
         await vi.waitFor(() => expect(settings!.values.marginsMm.topMm).toBe(12));
         await vi.advanceTimersByTimeAsync(350);
 
+        expect(settings!.values.pageOverrideDefaults).toEqual(createScanCleanupPageOverride());
+        expect(getScanCleanupPageOverrideDefaults(settings!.values.pageOverrides)).toEqual(createScanCleanupPageOverride());
         expect(getScanCleanupPreferencesStore().marginsMm).toEqual({
             leftMm: 5,
             topMm: 5,
@@ -570,6 +582,77 @@ describe('scan cleanup renderer preference store', () => {
         expect(updates.filter(request => request.document !== undefined)).toEqual([]);
         app.unmount();
         host.remove();
+    });
+
+    it.each([
+        {scenario: 'loading a document writes nothing after hydration and debounce', edit: false, switchDocument: false},
+        {scenario: 'one document edit writes once with the saved field', edit: true, switchDocument: false},
+        {scenario: 'switching documents before debounce saves the pending edit under its original document', edit: true, switchDocument: true},
+    ])('$scenario', async ({edit, switchDocument}) => {
+        const {filePath, store} = await createDurableSettingsStore();
+        const hashA = 'a'.repeat(64);
+        const hashB = 'b'.repeat(64);
+        await store.update({document: {sourceSha256: hashA, patch: {outputMode: 'bw'}}});
+        const original = await store.update({document: {sourceSha256: hashB, patch: {outputMode: 'grayscale'}}});
+        connectMainProcessSettings(store);
+        getScanCleanupPreferencesStore();
+        await whenScanCleanupPreferencesReady();
+        const hydration = Promise.withResolvers<typeof original>();
+        capability.value.getSettings.mockImplementationOnce(() => hydration.promise);
+        const source = ref(hashA);
+        let settings!: ReturnType<typeof useScanCleanupDocumentSettings>;
+        const host = document.createElement('div');
+        const app = createApp(defineComponent({setup() {
+            settings = useScanCleanupDocumentSettings({
+                documentLifecycleKey: computed(() => source.value),
+                sourceSha256: computed(() => source.value),
+                legacyDocumentKey: computed(() => `/documents/${source.value}.pdf`),
+            });
+            return () => h('output', settings.values.outputMode);
+        }}));
+        app.mount(host);
+        try {
+            expect(settings.documentSettingsReady.value).toBe(false);
+            hydration.resolve(original);
+            await vi.waitFor(() => expect(settings.documentSettingsReady.value).toBe(true));
+            expect(host.textContent).toBe('bw');
+            vi.useFakeTimers();
+            if (edit) {
+                editScanCleanupDocumentSettings(settings.values, [], () => {
+                    settings.values.outputMode = 'color';
+                });
+                await nextTick();
+                expect(host.textContent).toBe('color');
+                expect(capability.value.updateSettings.mock.calls.filter(([request]) => request.document)).toEqual([]);
+            }
+            if (switchDocument) {
+                source.value = hashB;
+                await nextTick();
+            }
+            await vi.advanceTimersByTimeAsync(SCAN_CLEANUP_PREFERENCES_PERSISTENCE_DEBOUNCE_MS + 1);
+            await flushScanCleanupDocumentPreferencesStore();
+            vi.useRealTimers();
+            await vi.waitFor(() => expect(settings.documentSettingsReady.value).toBe(true));
+            await nextTick();
+
+            const documents = capability.value.updateSettings.mock.calls.flatMap(([request]) => request.document ? [request.document] : []);
+            expect(documents).toEqual(edit ? [expect.objectContaining({
+                sourceSha256: hashA,
+                patch: expect.objectContaining({outputMode: 'color'}),
+            })] : []);
+            const saved = JSON.parse(await readFile(filePath, 'utf8')) as typeof original;
+            expect(saved.documentOverrides[hashA]).toEqual(edit
+                ? {...original.documentOverrides[hashA], outputMode: 'color', lastUsedAtMs: expect.any(Number)}
+                : original.documentOverrides[hashA]);
+            expect(saved.documentOverrides[hashB]).toEqual(original.documentOverrides[hashB]);
+            expect(settings.documentSettingsReady.value).toBe(true);
+            expect(host.textContent).toBe(switchDocument ? 'grayscale' : edit ? 'color' : 'bw');
+        } finally {
+            vi.useRealTimers();
+            app.unmount();
+            host.remove();
+            await flushScanCleanupDocumentPreferencesStore();
+        }
     });
 
     it('retains binding edits made while document hydration is pending', async () => {
@@ -614,14 +697,24 @@ describe('scan cleanup renderer preference store', () => {
             return () => h('div');
         }}));
         app.mount(host);
-        settings!.values.outputMode = 'color';
+        editScanCleanupDocumentSettings(settings!.values, [], () => {
+            settings!.values.outputMode = 'color';
+        });
         settings!.setMarginsLinked(false);
         settings!.updateMargin('topMm', 19);
-        settings!.values.pageOverrides = {'1': createScanCleanupPageOverride({rotationDegrees: 90})};
-        settings!.values.pageOverrides['3'] = createScanCleanupPageOverride({rotationDegrees: 90});
-        settings!.values.pageOverrideDefaults!.excluded = true;
+        editScanCleanupDocumentSettings(settings!.values, ['1', '3'], () => {
+            settings!.values.pageOverrides = {'1': createScanCleanupPageOverride({rotationDegrees: 90})};
+        });
+        editScanCleanupDocumentSettings(settings!.values, ['3'], () => {
+            settings!.values.pageOverrides['3'] = createScanCleanupPageOverride({rotationDegrees: 90});
+        });
+        editScanCleanupDocumentSettings(settings!.values, [], () => {
+            settings!.values.pageOverrideDefaults!.excluded = true;
+        });
         await nextTick();
-        delete settings!.values.pageOverrides['3'];
+        editScanCleanupDocumentSettings(settings!.values, ['3'], () => {
+            delete settings!.values.pageOverrides['3'];
+        });
         await nextTick();
         await flushScanCleanupDocumentPreferencesStore();
         expect(capability.value.updateSettings).not.toHaveBeenCalled();
@@ -774,7 +867,9 @@ describe('scan cleanup renderer preference store', () => {
         app.mount(host);
         await vi.waitFor(() => expect(settings!.documentSettingsReady.value).toBe(true));
 
-        settings!.values.outputMode = 'color';
+        editScanCleanupDocumentSettings(settings!.values, [], () => {
+            settings!.values.outputMode = 'color';
+        });
         await nextTick();
         vi.useFakeTimers();
         await vi.advanceTimersByTimeAsync(350);
@@ -1267,7 +1362,9 @@ describe('scan cleanup renderer preference store', () => {
         app.mount(host);
         try {
             await vi.waitFor(() => expect(settings.documentSettingsReady.value).toBe(true));
-            settings.values.outputMode = 'grayscale';
+            editScanCleanupDocumentSettings(settings.values, [], () => {
+                settings.values.outputMode = 'grayscale';
+            });
             const savedMargins = {
                 leftMm: 11,
                 topMm: 12,
@@ -1374,7 +1471,9 @@ describe('scan cleanup renderer preference store', () => {
         await vi.waitFor(() => expect(capability.value.getSettings).toHaveBeenCalledTimes(stage === 'initial' ? 1 : 2));
         settings.setMarginsLinked(true);
         settings.updateMargin('topMm', 17);
-        settings.values.outputMode = 'color';
+        editScanCleanupDocumentSettings(settings.values, [], () => {
+            settings.values.outputMode = 'color';
+        });
         settings.resetPageOverrides();
         rejectRead(new Error('read failed'));
         await vi.waitFor(() => expect(settings.documentSettingsLoadFailure.value).not.toBeNull());
@@ -1396,9 +1495,15 @@ describe('scan cleanup renderer preference store', () => {
         expect(settings.documentSettingsLoadFailure.value).toBeNull();
         const firstFlush = flushScanCleanupDocumentPreferencesStore();
         await vi.waitFor(() => expect(capability.value.updateSettings).toHaveBeenCalledOnce());
-        settings.values.outputMode = 'bw';
-        settings.values.pageOverrides['3'] = createScanCleanupPageOverride({manualSkewDegrees: 2});
-        delete settings.values.pageOverrides['3'];
+        editScanCleanupDocumentSettings(settings.values, [], () => {
+            settings.values.outputMode = 'bw';
+        });
+        editScanCleanupDocumentSettings(settings.values, ['3'], () => {
+            settings.values.pageOverrides['3'] = createScanCleanupPageOverride({manualSkewDegrees: 2});
+        });
+        editScanCleanupDocumentSettings(settings.values, ['3'], () => {
+            delete settings.values.pageOverrides['3'];
+        });
         releaseWrite();
         await firstFlush;
         await flushScanCleanupDocumentPreferencesStore();
@@ -1582,7 +1687,9 @@ describe('scan cleanup renderer preference store', () => {
             await nextTick();
             expect(settings.documentSettingsReady.value).toBe(false);
 
-            settings.values.outputMode = 'color';
+            editScanCleanupDocumentSettings(settings.values, [], () => {
+                settings.values.outputMode = 'color';
+            });
             await nextTick();
             source.value = revisedSha256;
             identityState.value = 'ready';
