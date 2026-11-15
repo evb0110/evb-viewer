@@ -11,6 +11,7 @@ import {
     vi,
 } from 'vitest';
 import {nextTick} from 'vue';
+import {placeDocumentThumbnailRailsWithin} from '@app/modules/document-viewer/thumbnails/useDocumentThumbnailController';
 import {
     createDocumentThumbnailSourceHarness,
     installDocumentThumbnailListEnvironment,
@@ -28,6 +29,28 @@ vi.mock('@app/composables/useTypedI18n', async (importOriginal) => ({
 
 beforeEach(installDocumentThumbnailListEnvironment);
 afterEach(restoreDocumentThumbnailListEnvironment);
+
+// Relocation needs actual row positions. The shared raster harness gives all
+// elements one frame rectangle, which cannot identify the viewport's anchor.
+function measureRailRows(padding = 0) {
+    const style = document.createElement('style');
+    style.textContent = `[data-document-thumbnail-rail] { padding: ${String(padding)}px; }`;
+    document.body.append(style);
+    const fallback = vi.mocked(HTMLElement.prototype.getBoundingClientRect).getMockImplementation()!;
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+        const rail = this.closest<HTMLElement>('[data-document-thumbnail-rail]');
+        if (!rail || (this !== rail && !this.matches('[data-thumbnail-page]'))) return fallback.call(this);
+        const top = this === rail ? 0 : padding + Number.parseFloat(this.style.transform.slice(11)) - rail.scrollTop;
+        const height = this === rail ? 600 : Number.parseFloat(this.style.height);
+        return {
+            ...fallback.call(this),
+            top,
+            y: top,
+            bottom: top + height,
+            height,
+        };
+    });
+}
 
 describe('DocumentThumbnailList virtualization', () => {
     it('keeps a 500-page source to a bounded mounted row count', async () => {
@@ -66,7 +89,7 @@ describe('DocumentThumbnailList virtualization', () => {
             .toBeGreaterThan(0);
     });
 
-    it('retries source-rail scroll restoration after a clamped write and late geometry growth', async () => {
+    it('places the source rail against the patched track after a clamp and geometry growth', async () => {
         const harness = createDocumentThumbnailSourceHarness(500, '/growing-geometry.pdf');
         const mounted = mountDocumentThumbnailList(harness.source);
         await settleDocumentThumbnailList();
@@ -82,6 +105,8 @@ describe('DocumentThumbnailList virtualization', () => {
             },
         });
 
+        rail.scrollTop = 500;
+        expect(rail.scrollTop).toBe(0);
         mounted.setCurrentPage(20);
         await nextTick();
         mounted.setActive(false);
@@ -90,12 +115,103 @@ describe('DocumentThumbnailList virtualization', () => {
         await nextTick();
         widenDocumentThumbnailFrames(300);
         mounted.setItemMetricsKey(1);
-        await nextTick();
-        expect(rail.scrollTop).toBe(0);
-
         maxScrollTop = 2_000;
         await settleDocumentThumbnailList();
 
         expect(rail.scrollTop).toBeGreaterThan(0);
+    });
+
+    it('places a rail that detaches and remounts while placement is pending', async () => {
+        measureRailRows();
+        const harness = createDocumentThumbnailSourceHarness(500);
+        const mounted = mountDocumentThumbnailList(harness.source);
+        await settleDocumentThumbnailList();
+        await scrollDocumentThumbnailRail(mounted.host, 4_200);
+        const rail = mounted.host.querySelector<HTMLElement>('[data-document-thumbnail-rail]')!;
+        const placement = placeDocumentThumbnailRailsWithin(mounted.host);
+        rail.remove();
+        rail.scrollTop = 0;
+        mounted.host.append(rail);
+        await placement;
+        expect(rail.scrollTop).toBe(4_200);
+    });
+
+    it('places padded rails after splitting and closing the empty split, keeps cooldown and leaves unrelated scrollers alone', async () => {
+        measureRailRows(8);
+        const harness = createDocumentThumbnailSourceHarness(500);
+        const mounted = mountDocumentThumbnailList(harness.source);
+        await settleDocumentThumbnailList();
+        await scrollDocumentThumbnailRail(mounted.host, 4_200);
+        const rail = mounted.host.querySelector<HTMLElement>('[data-document-thumbnail-rail]')!;
+        const pane = document.createElement('div');
+        const split = document.createElement('div');
+        const emptyPane = document.createElement('div');
+        const unrelatedScroller = document.createElement('div');
+        document.body.append(split);
+        split.append(pane, emptyPane);
+        pane.append(rail, unrelatedScroller);
+        await vi.advanceTimersByTimeAsync(800);
+        rail.scrollTop = 0;
+        unrelatedScroller.scrollTop = 900;
+        await placeDocumentThumbnailRailsWithin(pane);
+        expect.soft(rail.scrollTop).toBe(4_200);
+        expect(unrelatedScroller.scrollTop).toBe(900);
+        mounted.setCurrentPage(30);
+        await settleDocumentThumbnailList();
+        expect(rail.scrollTop).toBe(4_200);
+
+        // Closing the empty sibling moves the same persistent pane back out
+        // of the split; its rail must keep the anchor on that move as well.
+        split.replaceWith(pane);
+        rail.scrollTop = 0;
+        await placeDocumentThumbnailRailsWithin(pane);
+        expect(rail.scrollTop).toBe(4_200);
+        expect(unrelatedScroller.scrollTop).toBe(900);
+    });
+
+    it('skips a disconnected rail when its pending relocation placement completes', async () => {
+        measureRailRows();
+        const harness = createDocumentThumbnailSourceHarness(500);
+        const mounted = mountDocumentThumbnailList(harness.source);
+        await settleDocumentThumbnailList();
+        await scrollDocumentThumbnailRail(mounted.host, 800);
+        const rail = mounted.host.querySelector<HTMLElement>('[data-document-thumbnail-rail]')!;
+        const placement = placeDocumentThumbnailRailsWithin(mounted.host);
+        rail.remove();
+        rail.scrollTop = 0;
+        await placement;
+        expect(rail.scrollTop).toBe(0);
+        mounted.host.append(rail);
+    });
+
+    it('keeps the semantic position when track geometry changes during relocation', async () => {
+        measureRailRows();
+        const harness = createDocumentThumbnailSourceHarness(500);
+        const mounted = mountDocumentThumbnailList(harness.source);
+        await settleDocumentThumbnailList();
+        await scrollDocumentThumbnailRail(mounted.host, 4_200);
+        const rail = mounted.host.querySelector<HTMLElement>('[data-document-thumbnail-rail]')!;
+        const track = rail.querySelector<HTMLElement>('.document-thumbnail-list__content')!;
+        const heightBefore = Number.parseFloat(track.style.height);
+        const anchorRow = Array.from(rail.querySelectorAll<HTMLElement>('[data-thumbnail-page]')).find(row => {
+            const rect = row.getBoundingClientRect();
+            return rect.top <= 300 && rect.bottom >= 300;
+        })!;
+        const anchorPage = anchorRow.dataset.thumbnailPage;
+        const beforeRect = anchorRow.getBoundingClientRect();
+        const anchorRatio = (300 - beforeRect.top) / beforeRect.height;
+        // Reuse the rail's semantic position, then let the same Vue patch
+        // install wider rows in its new pane before placement resolves.
+        const placement = placeDocumentThumbnailRailsWithin(mounted.host);
+        widenDocumentThumbnailFrames(300);
+        measureRailRows();
+        mounted.setItemMetricsKey(1);
+        rail.scrollTop = 0;
+        await placement;
+        await settleDocumentThumbnailList();
+        const heightAfter = Number.parseFloat(track.style.height);
+        expect(heightAfter).toBeGreaterThan(heightBefore);
+        const afterRect = rail.querySelector<HTMLElement>(`[data-thumbnail-page="${anchorPage}"]`)!.getBoundingClientRect();
+        expect(Math.abs(afterRect.top + afterRect.height * anchorRatio - 300)).toBeLessThanOrEqual(1);
     });
 });
