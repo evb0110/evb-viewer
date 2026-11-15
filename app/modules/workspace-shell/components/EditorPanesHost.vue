@@ -248,6 +248,9 @@ function handleUpdateSplitRatio(splitId: string, ratio: number) {
 }
 
 function handlePaneSlot(paneId: string, element: HTMLElement | null) {
+    // Adding or removing a slot can move persistent panes. After Teleport's
+    // patch, let each connected rail place its own semantic anchor again.
+    void nextTick(() => hostRef.value && placeDocumentThumbnailRailsWithin(hostRef.value));
     if (element) {
         const pane = Array.from(
             hostRef.value?.querySelectorAll<HTMLElement>('[data-editor-pane-id]') ?? [],
@@ -257,9 +260,6 @@ function handlePaneSlot(paneId: string, element: HTMLElement | null) {
             requestAnimationFrame(() => clearDocumentViewportPaneRelocationScrollFence(pane));
         }
         paneSlotTargets.set(paneId, element);
-        // Moving the pane resets its rails' offsets; once the Teleport has
-        // patched, each rail places itself at its own anchor again.
-        if (pane) void nextTick(() => placeDocumentThumbnailRailsWithin(pane));
         return;
     }
     const current = paneSlotTargets.get(paneId);

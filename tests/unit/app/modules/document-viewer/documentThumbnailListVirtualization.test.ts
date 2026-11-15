@@ -136,7 +136,7 @@ describe('DocumentThumbnailList virtualization', () => {
         expect(rail.scrollTop).toBe(4_200);
     });
 
-    it('places padded rails after relocation, keeps cooldown and leaves unrelated scrollers alone', async () => {
+    it('places padded rails after splitting and closing the empty split, keeps cooldown and leaves unrelated scrollers alone', async () => {
         measureRailRows(8);
         const harness = createDocumentThumbnailSourceHarness(500);
         const mounted = mountDocumentThumbnailList(harness.source);
@@ -144,8 +144,11 @@ describe('DocumentThumbnailList virtualization', () => {
         await scrollDocumentThumbnailRail(mounted.host, 4_200);
         const rail = mounted.host.querySelector<HTMLElement>('[data-document-thumbnail-rail]')!;
         const pane = document.createElement('div');
+        const split = document.createElement('div');
+        const emptyPane = document.createElement('div');
         const unrelatedScroller = document.createElement('div');
-        document.body.append(pane);
+        document.body.append(split);
+        split.append(pane, emptyPane);
         pane.append(rail, unrelatedScroller);
         await vi.advanceTimersByTimeAsync(800);
         rail.scrollTop = 0;
@@ -156,6 +159,14 @@ describe('DocumentThumbnailList virtualization', () => {
         mounted.setCurrentPage(30);
         await settleDocumentThumbnailList();
         expect(rail.scrollTop).toBe(4_200);
+
+        // Closing the empty sibling moves the same persistent pane back out
+        // of the split; its rail must keep the anchor on that move as well.
+        split.replaceWith(pane);
+        rail.scrollTop = 0;
+        await placeDocumentThumbnailRailsWithin(pane);
+        expect(rail.scrollTop).toBe(4_200);
+        expect(unrelatedScroller.scrollTop).toBe(900);
     });
 
     it('skips a disconnected rail when its pending relocation placement completes', async () => {
