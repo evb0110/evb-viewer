@@ -97,6 +97,8 @@
                 :selection-leader="selectionLeader"
                 :selected-pages="selectedPages"
                 :overrides="settings.pageOverrides"
+                :page-override-defaults="settings.pageOverrideDefaults"
+                :margins-mm="settings.marginsMm"
                 :classifications="authoritativeLayoutByPage"
                 :confidences="detectedLayoutConfidenceByPage"
                 :document-output-mode="settings.outputMode"
@@ -268,6 +270,7 @@ const workspaceSession = useScanCleanupWorkspaceSession({
     totalPages: () => totalPages,
     initialPreviewPage: () => sessionState?.previewPage,
     initialPreviewViewMode: () => sessionState?.previewViewMode,
+    saveViewState: state => emit('update:session-state', state),
 });
 const {
     alignmentItems,
@@ -376,7 +379,6 @@ const {
     error: runError,
     finishing,
     isRunning,
-    ownerId,
     processedPages,
     runLabel,
     runDisabledReason,
@@ -431,22 +433,6 @@ watch([
     });
 }, {immediate: true});
 const marginBoundaryVisible = ref(false);
-let pageMappingConsumed = false;
-watch(() => sessionState?.pageMapping, (mapping, previousMapping) => {
-    if (mapping !== previousMapping) {
-        pageMappingConsumed = false;
-    }
-});
-const documentIdentity = computed(() => `${sourcePath ?? ''}\u0000${documentRevision ?? ''}`);
-function emitSessionState() {
-    const pageMapping = pageMappingConsumed ? undefined : sessionState?.pageMapping;
-    emit('update:session-state', {
-        ownerId,
-        previewPage: previewPage.value,
-        previewViewMode: previewViewMode.value,
-        ...(pageMapping === undefined ? {} : {pageMapping}),
-    });
-}
 const {
     activity,
     activityTimeline,
@@ -477,6 +463,8 @@ function getPageOverride(page: number) {
     return getScanCleanupPageOverride(
         settings.pageOverrides,
         requirePageNumber(page, Math.max(1, previewTotalPages.value)),
+        settings.pageOverrideDefaults,
+        settings.marginsMm,
     );
 }
 function existingOverridePages() {
@@ -982,14 +970,6 @@ function resetScopeOverrides() {
     resetOverrides(scopePageNumbers.value);
 }
 
-watch(documentIdentity, () => {
-    pageMappingConsumed = true;
-    emitSessionState();
-});
-watch([
-    previewPage,
-    previewViewMode,
-], emitSessionState, {immediate: true});
 watch(isRunning, running => {
     if (running) {
         zoneEditing.value = false;

@@ -55,7 +55,7 @@
                             >
                                 <UInput
                                     id="page-label-range-input"
-                                    v-model="pageRangeInput"
+                                    :model-value="pageRangeText"
                                     class="w-full"
                                     size="xs"
                                     inputmode="numeric"
@@ -64,6 +64,7 @@
                                     :highlight="rangeErrorMessage.length > 0"
                                     :aria-invalid="rangeErrorMessage.length > 0 || undefined"
                                     aria-describedby="page-label-target-summary"
+                                    @update:model-value="updateRangeText"
                                 />
                             </UFormField>
                         </div>
@@ -157,7 +158,6 @@
 
 <script setup lang="ts">
 
-import { uniq } from 'es-toolkit/array';
 import {admitPdfPageLabelStartNumber} from '@contracts/pdfPageLabels';
 import type {
     IPdfPageLabelRange,
@@ -174,13 +174,31 @@ import {
     parsePageRangeInput,
     type TDocumentPageLabelLookup,
 } from '@app/modules/document-viewer/public';
-import { arePageNumberListsEqual } from '@app/utils/pdfPageSelection';
+import {
+    createEmptyPageSelection,
+    createRangePageSelection,
+    iteratePageSelectionRanges,
+    pageSelectionCount,
+    type TPageSelection,
+} from '@app/utils/pdfPageSelection';
 
 type TNumberingScope = 'all' | 'range' | 'selection';
 
+/**
+ * What the user last set in this panel, bound to the selection object it
+ * left the view with. Any other selection object means the selection changed
+ * elsewhere, which ends the draft and moves the scope to that selection.
+ */
+interface INumberingTarget {
+    scope: TNumberingScope;
+    /** Typed or applied range text; `null` shows the selection's range. */
+    rangeDraft: string | null;
+    selection: TPageSelection | null;
+}
+
 interface IProps {
     totalPages: number;
-    selectedPages: number[];
+    selectedPageSelection: TPageSelection | null;
     pageLabels?: TDocumentPageLabelLookup | undefined;
     pageLabelRanges?: IPdfPageLabelRange[] | undefined;
 }
@@ -188,12 +206,12 @@ interface IProps {
 const {
     pageLabelRanges = undefined,
     pageLabels = undefined,
-    selectedPages,
+    selectedPageSelection,
     totalPages,
 } = defineProps<IProps>();
 
 const emit = defineEmits<{
-    'update:selectedPages': [pages: number[]];
+    'update:selectedPageSelection': [selection: TPageSelection];
     'update:pageLabelRanges': [ranges: IPdfPageLabelRange[]];
     clear: [];
 }>();
@@ -202,10 +220,11 @@ const { t } = useTypedI18n();
 const {presentNoticeToast} = useFailureToast();
 
 const isExpanded = ref(false);
-const pendingSelectionSyncCount = ref(0);
-const pendingRangeSyncCount = ref(0);
-const pageRangeInput = ref('');
-const numberingScope = ref<TNumberingScope>('all');
+const target = shallowRef<INumberingTarget>({
+    scope: 'all',
+    rangeDraft: null,
+    selection: null,
+});
 const pageLabelStyle = ref<'' | Exclude<TPageLabelStyle, null>>('D');
 const pageLabelPrefix = ref('');
 const pageLabelStartNumber = ref(1);
@@ -289,53 +308,56 @@ const normalizedPageLabelRanges = computed(() => normalizePageLabelRanges(
     totalPages,
 ));
 
-function buildRangePages(range: IPdfPageRange) {
-    const pageCount = range.endPage - range.startPage + 1;
-    if (pageCount > PAGE_LABEL_SMALL_COMPATIBILITY_MAX_PAGES) {
-        return [];
-    }
-    const pages: number[] = [];
-    for (let page = range.startPage; page <= range.endPage; page += 1) {
-        pages.push(page);
-    }
-    return pages;
-}
-
 function normalizePageLabelStyleSelectValue(value: string): Exclude<TPageLabelStyle, null> {
     return value === 'D' || value === 'r' || value === 'R' || value === 'a' || value === 'A'
         ? value
         : 'D';
 }
 
-const manualRange = computed(() => parsePageRangeInput(pageRangeInput.value, totalPages));
+const selectionCount = computed(() => (selectedPageSelection ? pageSelectionCount(selectedPageSelection) : 0));
 
-function deriveContiguousSelectionRange(pages: number[]): IPdfPageRange | null {
-    if (pages.length === 0) {
+/** The selection as one contiguous range, or `null` when it is empty or has gaps. */
+const selectionRange = computed<IPdfPageRange | null>(() => {
+    if (!selectedPageSelection) {
         return null;
     }
+    const ranges = iteratePageSelectionRanges(selectedPageSelection);
+    const first = ranges.next();
+    return first.done || !ranges.next().done
+        ? null
+        : {
+            startPage: first.value.startPage,
+            endPage: first.value.endPage,
+        };
+});
 
-    const sorted = uniq(pages)
-        .filter(page => Number.isInteger(page) && page >= 1 && page <= totalPages)
-        .sort((left, right) => left - right);
+const isTargetCurrent = computed(() => target.value.selection === selectedPageSelection);
 
-    if (sorted.length === 0) {
-        return null;
+const numberingScope = computed<TNumberingScope>({
+    get: () => {
+        if (isTargetCurrent.value) {
+            return target.value.scope;
+        }
+        return selectionCount.value > 0 ? 'selection' : 'all';
+    },
+    set: (scope) => {
+        target.value = {
+            scope,
+            rangeDraft: isTargetCurrent.value ? target.value.rangeDraft : null,
+            selection: selectedPageSelection,
+        };
+    },
+});
+
+const pageRangeText = computed(() => {
+    const draft = isTargetCurrent.value ? target.value.rangeDraft : null;
+    if (draft !== null) {
+        return draft;
     }
+    return selectionRange.value ? formatPageRange(selectionRange.value) : '';
+});
 
-    const startPage = sorted[0] ?? 1;
-    const endPage = sorted[sorted.length - 1] ?? startPage;
-
-    if ((endPage - startPage + 1) !== sorted.length) {
-        return null;
-    }
-
-    return {
-        startPage,
-        endPage,
-    };
-}
-
-const selectionRange = computed(() => deriveContiguousSelectionRange(selectedPages));
+const manualRange = computed(() => parsePageRangeInput(pageRangeText.value, totalPages));
 
 const allPagesRange = computed<IPdfPageRange | null>(() => {
     if (totalPages <= 0) {
@@ -354,7 +376,7 @@ const applyTargetRange = computed(() => {
     }
 
     if (numberingScope.value === 'range') {
-        return pageRangeInput.value.trim().length > 0 ? manualRange.value : null;
+        return pageRangeText.value.trim().length > 0 ? manualRange.value : null;
     }
 
     return selectionRange.value;
@@ -369,7 +391,7 @@ const targetSummary = computed(() => {
     }
 
     if (numberingScope.value === 'range') {
-        if (!pageRangeInput.value.trim()) {
+        if (!pageRangeText.value.trim()) {
             return t('pageNumbering.targetUnavailableRange');
         }
         if (manualRange.value === null) {
@@ -379,7 +401,7 @@ const targetSummary = computed(() => {
         return t('pageNumbering.targetPages', {range: formatPageRange(manualRange.value)});
     }
 
-    if (selectedPages.length === 0) {
+    if (selectionCount.value === 0) {
         return t('pageNumbering.targetNone');
     }
 
@@ -396,7 +418,7 @@ const rangeErrorMessage = computed(() => {
         return '';
     }
 
-    if (!pageRangeInput.value.trim()) {
+    if (!pageRangeText.value.trim()) {
         return '';
     }
 
@@ -406,24 +428,6 @@ const rangeErrorMessage = computed(() => {
 
     return t('pageNumbering.rangeError');
 });
-
-function queueSelectionSyncSuppression() {
-    pendingSelectionSyncCount.value += 1;
-    void nextTick(() => {
-        if (pendingSelectionSyncCount.value > 0) {
-            pendingSelectionSyncCount.value -= 1;
-        }
-    });
-}
-
-function queueRangeSyncSuppression() {
-    pendingRangeSyncCount.value += 1;
-    void nextTick(() => {
-        if (pendingRangeSyncCount.value > 0) {
-            pendingRangeSyncCount.value -= 1;
-        }
-    });
-}
 
 function handleStartNumberModelUpdate(value: number | null | undefined) {
     if (typeof value !== 'number' || !Number.isFinite(value)) {
@@ -439,20 +443,43 @@ function handleStartNumberModelUpdate(value: number | null | undefined) {
     }
 }
 
-function setSelectedPagesSilently(pages: number[]) {
-    if (arePageNumberListsEqual(selectedPages, pages)) {
-        return;
+/**
+ * Makes `range` (or nothing, for `null`) the view's selection and returns the
+ * selection object the view holds afterwards.
+ */
+function selectRange(range: IPdfPageRange | null): TPageSelection | null {
+    const isUnchanged = range === null
+        ? selectionCount.value === 0
+        : selectionRange.value?.startPage === range.startPage && selectionRange.value.endPage === range.endPage;
+    if (isUnchanged && selectedPageSelection) {
+        return selectedPageSelection;
     }
-    queueSelectionSyncSuppression();
-    emit('update:selectedPages', pages);
+    const selection = range === null
+        ? createEmptyPageSelection(totalPages)
+        : createRangePageSelection(totalPages, range.startPage, range.endPage);
+    emit('update:selectedPageSelection', selection);
+    return selection;
 }
 
-function setPageRangeInputSilently(value: string) {
-    if (pageRangeInput.value === value) {
+/** The range field's input: keeps the text and selects every valid range as it is typed. */
+function updateRangeText(text: string) {
+    if (!text.trim()) {
+        const scope = numberingScope.value === 'range'
+            ? (selectionRange.value === null ? 'all' : 'selection')
+            : numberingScope.value;
+        target.value = {
+            scope,
+            rangeDraft: text,
+            selection: selectRange(null),
+        };
         return;
     }
-    queueRangeSyncSuppression();
-    pageRangeInput.value = value;
+    const range = parsePageRangeInput(text, totalPages);
+    target.value = {
+        scope: 'range',
+        rangeDraft: text,
+        selection: range === null ? selectedPageSelection : selectRange(range),
+    };
 }
 
 
@@ -495,80 +522,34 @@ function applyToTargetRange() {
     }
 
     const targetRange = applyTargetRange.value;
-    if (numberingScope.value === 'all') {
-        setSelectedPagesSilently([]);
-        setPageRangeInputSilently('');
+    const scope = numberingScope.value;
+    if (scope === 'all') {
+        target.value = {
+            scope,
+            rangeDraft: null,
+            selection: selectRange(null),
+        };
         applyPageLabelsToWholeDocument();
         return;
     }
 
-    setSelectedPagesSilently(buildRangePages(targetRange));
-    setPageRangeInputSilently(formatPageRange(targetRange));
+    target.value = {
+        scope,
+        rangeDraft: formatPageRange(targetRange),
+        selection: selectRange(targetRange),
+    };
     applyPageLabelsToRange(targetRange);
 }
 
+/** Clears the selection through the parent; an empty selection shows all pages. */
 function clearAll() {
-    numberingScope.value = 'all';
-    setSelectedPagesSilently([]);
-    setPageRangeInputSilently('');
+    target.value = {
+        scope: 'all',
+        rangeDraft: null,
+        selection: selectedPageSelection,
+    };
     emit('clear');
 }
-
-watch(
-    () => selectedPages.join(','),
-    () => {
-        const pages = selectedPages;
-        if (pendingSelectionSyncCount.value > 0) {
-            pendingSelectionSyncCount.value -= 1;
-            return;
-        }
-
-        if (pages.length === 0) {
-            if (numberingScope.value === 'selection') {
-                numberingScope.value = 'all';
-            }
-            setPageRangeInputSilently('');
-            return;
-        }
-
-        numberingScope.value = 'selection';
-
-        if (selectionRange.value === null) {
-            setPageRangeInputSilently('');
-            return;
-        }
-
-        const nextRangeText = formatPageRange(selectionRange.value);
-        setPageRangeInputSilently(nextRangeText);
-    },
-);
-
-watch(
-    () => pageRangeInput.value,
-    (inputValue) => {
-        if (pendingRangeSyncCount.value > 0) {
-            pendingRangeSyncCount.value -= 1;
-            return;
-        }
-
-        if (!inputValue.trim()) {
-            if (numberingScope.value === 'range') {
-                numberingScope.value = selectionRange.value === null ? 'all' : 'selection';
-            }
-            setSelectedPagesSilently([]);
-            return;
-        }
-
-        numberingScope.value = 'range';
-
-        if (manualRange.value === null) {
-            return;
-        }
-
-        const nextPages = buildRangePages(manualRange.value);
-        setSelectedPagesSilently(nextPages);
-    },
-);
 
 </script>
 

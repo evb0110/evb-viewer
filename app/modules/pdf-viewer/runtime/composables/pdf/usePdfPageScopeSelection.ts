@@ -24,9 +24,19 @@ interface IPdfPageScopeSelectionOptions {
 interface IResolveScopedPageNumbersOptions { includeAllPages?: boolean; }
 
 export const usePdfPageScopeSelection = (options: IPdfPageScopeSelectionOptions) => {
-    const scope = ref<TPdfPageScope>('all');
+    const chosenScope = ref<TPdfPageScope>('all');
     const rangeInput = ref('');
     const rangeTouched = ref(false);
+    /** Choosing another scope starts its range validation afresh. */
+    const scope = computed<TPdfPageScope>({
+        get: () => chosenScope.value,
+        set: (next) => {
+            if (next !== chosenScope.value) {
+                chosenScope.value = next;
+                rangeTouched.value = false;
+            }
+        },
+    });
 
     const normalizedSelectedPages = computed(() => normalizeSelectedPageNumbers(
         options.selectedPages?.() ?? [],
@@ -132,10 +142,6 @@ export const usePdfPageScopeSelection = (options: IPdfPageScopeSelectionOptions)
         if (scope.value === 'selected' && pageSelectionCount(selection) === 0) {
             scope.value = 'all';
         }
-    });
-
-    watch(scope, () => {
-        rangeTouched.value = false;
     });
 
     return {

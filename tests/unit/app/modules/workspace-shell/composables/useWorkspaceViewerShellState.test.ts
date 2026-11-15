@@ -15,6 +15,7 @@ import { DEFAULT_ANNOTATION_SETTINGS } from '@app/constants/annotationDefaults';
 import { useWorkspaceViewerDefaults } from '@app/modules/workspace-shell/composables/useWorkspaceViewerDefaults';
 import { resolveDocumentPageDisplayLayoutsBounded } from '@app/modules/document-viewer/page-source-renderer/useDocumentPageSourceRuntime';
 import { createRangePageSelection } from '@contracts/pageNumbers';
+import { pageSelectionCount } from '@app/utils/pdfPageSelection';
 import { useWorkspaceViewerShellState } from '@app/modules/workspace-shell/composables/useWorkspaceViewerShellState';
 import { createDocumentOpenSurfaceSession } from '@app/modules/document-viewer/public';
 
@@ -134,6 +135,19 @@ describe('workspace viewer shell state', () => {
         } finally {
             scope.stop();
         }
+    });
+
+    it('renormalizes selected pages when total pages shrinks', () => {
+        const state = useWorkspaceViewerShellState(null, createDocumentOpenSurfaceSession());
+        state.totalPages.value = 5;
+        state.setSelectedThumbnailPages([2, 4]);
+        state.setSelectedPageSelection({kind: 'explicit', pageCount: 5, pages: [2, 4]});
+
+        state.totalPages.value = 3;
+
+        expect(state.selectedThumbnailPages.value).toEqual([2]);
+        expect(state.selectedPageSelection.value).toEqual({kind: 'explicit', pageCount: 3, pages: [2]});
+        expect(pageSelectionCount(state.selectedPageSelection.value!)).toBe(1);
     });
 
     it('keeps the last bounded legacy mirror for an oversized compact selection', () => {

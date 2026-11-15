@@ -19,6 +19,7 @@ import {
     Teleport,
 } from 'vue';
 import type {
+    IScanCleanupMarginsMm,
     IScanCleanupPageOverride,
     IScanCleanupPreviewMetadata,
     IScanCleanupPreviewPageMetadata,
@@ -380,6 +381,8 @@ function mountRail(options: {
     preserveOriginalQuality?: boolean;
     textAxes?: ReadonlyMap<number, IScanCleanupTextAxis>;
     overrides?: TScanCleanupPageOverrides;
+    pageOverrideDefaults?: IScanCleanupPageOverride;
+    marginsMm?: IScanCleanupMarginsMm;
     leader?: number;
     selected?: ReadonlySet<number>;
     processed?: ReadonlySet<number>;
@@ -407,6 +410,8 @@ function mountRail(options: {
         selectionLeader: leader.value,
         selectedPages: selected.value,
         overrides: options.overrides ?? {},
+        pageOverrideDefaults: options.pageOverrideDefaults,
+        marginsMm: options.marginsMm,
         classifications: options.classifications ?? new Map(),
         confidences: options.confidences ?? new Map(),
         documentOutputMode: options.documentOutputMode ?? 'auto',
@@ -920,16 +925,17 @@ describe('ScanCleanupThumbnailRail', () => {
 
     it('marks a page by its difference from the all-pages value it inherits', () => {
         const overrides: TScanCleanupPageOverrides = {};
-        attachScanCleanupPageOverrideDefaults(overrides, createScanCleanupPageOverride({rotationDegrees: 90}));
+        const pageOverrideDefaults = createScanCleanupPageOverride({rotationDegrees: 90});
+        attachScanCleanupPageOverrideDefaults(overrides, pageOverrideDefaults);
         setScanCleanupPageOverride(overrides, requirePageNumber(2), createScanCleanupPageOverride({rotationDegrees: 0}));
 
-        const differs = mountRail({overrides});
+        const differs = mountRail({overrides, pageOverrideDefaults});
         expect(pageRow(differs.host, 2).querySelector('.scan-thumbnail-customized')).not.toBeNull();
         expect(pageRow(differs.host, 1).querySelector('.scan-thumbnail-customized')).toBeNull();
         differs.host.remove();
 
         setScanCleanupPageOverride(overrides, requirePageNumber(2), createScanCleanupPageOverride({rotationDegrees: 90}));
-        const matches = mountRail({overrides});
+        const matches = mountRail({overrides, pageOverrideDefaults});
         expect(pageRow(matches.host, 2).querySelector('.scan-thumbnail-customized')).toBeNull();
     });
 

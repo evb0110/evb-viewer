@@ -75,10 +75,10 @@
                 <template #footer>
                 <PdfSidebarPageNumbering
                     :total-pages="totalPages"
-                    :selected-pages="selectedThumbnailPages"
+                    :selected-page-selection="selectedPageSelectionProp ?? null"
                     :page-labels="pageLabels"
                     :page-label-ranges="pageLabelRanges"
-                    @update:selected-pages="handleSelectedPagesUpdate"
+                    @update:selected-page-selection="handleSelectedPageSelectionUpdate"
                     @update:page-label-ranges="updatePageLabelRanges"
                     @clear="clearPageSelection"
                 />
@@ -518,23 +518,6 @@ watch(
         }
     },
     { flush: 'post' },
-);
-
-watch(
-    () => totalPages,
-    (totalPages) => {
-        if (totalPages <= 0) {
-            return;
-        }
-
-        const filteredPages = selectedThumbnailPagesProp.filter(page => page <= totalPages);
-        if (
-            filteredPages.length !== selectedThumbnailPagesProp.length
-            || filteredPages.some((page, index) => page !== selectedThumbnailPagesProp[index])
-        ) {
-            emit('update:selectedThumbnailPages', filteredPages);
-        }
-    },
 );
 
 interface IPdfSidebarTabItem {

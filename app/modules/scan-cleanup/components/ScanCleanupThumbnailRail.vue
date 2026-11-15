@@ -168,6 +168,7 @@
 
 <script setup lang="ts">
 import type {
+    IScanCleanupMarginsMm,
     IScanCleanupPageOverride,
     IScanCleanupPreviewMetadata,
     IScanCleanupTextAxis,
@@ -205,6 +206,8 @@ const props = defineProps<{
     selectionLeader: number;
     selectedPages: ReadonlySet<number>;
     overrides: TScanCleanupPageOverrides;
+    pageOverrideDefaults?: IScanCleanupPageOverride | undefined;
+    marginsMm?: IScanCleanupMarginsMm;
     classifications: ReadonlyMap<number, IScanCleanupPreviewMetadata['layoutClassification']>;
     confidences: ReadonlyMap<number, number>;
     documentOutputMode: TScanCleanupOutputModeSetting;
@@ -331,6 +334,8 @@ function pageOverride(page: number) {
     return getScanCleanupPageOverride(
         props.overrides,
         requirePageNumber(page, Math.max(1, railPageCount.value)),
+        props.pageOverrideDefaults,
+        props.marginsMm,
     );
 }
 

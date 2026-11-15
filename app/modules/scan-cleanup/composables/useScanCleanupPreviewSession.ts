@@ -641,6 +641,8 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
         const pageOverride = getScanCleanupPageOverride(
             options.settings.pageOverrides,
             requirePageNumber(pageNumber),
+            options.settings.pageOverrideDefaults,
+            options.settings.marginsMm,
         );
         if (
             options.settings.preserveOriginalQuality
@@ -1071,6 +1073,8 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
         const pageOverride = getScanCleanupPageOverride(
             options.settings.pageOverrides,
             requirePageNumber(pageNumber),
+            options.settings.pageOverrideDefaults,
+            options.settings.marginsMm,
         );
         const renderedOutputMode = result.value?.pageNumber === pageNumber
             ? result.value.outputs[0]?.metadata.outputMode
