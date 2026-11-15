@@ -383,10 +383,9 @@ describe('serialized PDF persistence', () => {
             await validatorStarted;
             expect(validatorRunning).toBe(true);
             await vi.advanceTimersByTimeAsync(session.resultTimeoutMs);
-            await persistence.shutdownSerializedPdfPersistence();
-            expect(existsSync(validationPath)).toBe(false);
-
             expect({observedAbort, validatorRunning}).toEqual({observedAbort: true, validatorRunning: false});
+            await closed;
+            expect(existsSync(validationPath)).toBe(false);
         } finally {
             finishValidator();
             await closed;
