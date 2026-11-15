@@ -685,7 +685,7 @@ describe('#1609 kept original diagnostics', () => {
         if (damage === 'unreadable') await mkdir(notices);
         else await writeFile(notices, '{broken');
         expect(await findKeptOriginal(join(tempRoot, 'report.pdf'))).toBeUndefined();
-        expect.soft(retainedDiagnostics()).toContain(notices);
+        expect.soft(retainedDiagnostics()).toContain(JSON.stringify(notices));
         expect(retainedDiagnostics()).toMatch(damage === 'unreadable' ? /EISDIR|directory/iu : /SyntaxError|Expected property name|Unexpected token|invalid JSON|parse/iu);
         if (damage === 'invalid JSON') expect(await readFile(notices, 'utf8')).toBe('{broken');
     });
@@ -700,7 +700,7 @@ describe('#1609 kept original diagnostics', () => {
         await noticesModule.forgetKeptOriginal(original);
         expect.soft(await findKeptOriginal(original)).toBe(kept);
         expect.soft(retainedDiagnostics()).toContain('kept-original-notices.json');
-        expect.soft(retainedDiagnostics()).toContain(original);
+        expect.soft(retainedDiagnostics()).toContain(JSON.stringify(original));
         expect(retainedDiagnostics()).toContain('ENOSPC injected dismissal write');
     });
 });
