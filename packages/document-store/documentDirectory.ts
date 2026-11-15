@@ -370,7 +370,20 @@ export class DocumentDirectory {
             if (!target) return { status: 'stale-revision', current: current ?? null };
             if (!hasFile(target) && !(sameWitness(target.witness, manifest.baseline) && manifest.destination !== undefined
                 && sameWitness(await this.store.publication.witness(manifest.destination), target.witness))) return { status: 'conflict' };
-            const file = !hasFile(target) ? null : target.file === current?.file ? this.file : await this.store.port.open(this.path(target.file));
+            let file = hasFile(target) ? this.file : null;
+            if (hasFile(target)) {
+                // `open` creates a missing file: the revision must be there, whole, before the manifest names it.
+                const { port } = this.store;
+                if (target.file !== current?.file) {
+                    file = (await port.list(`${DOCUMENTS_DIR}/${this.id}`)).includes(target.file) ? await port.open(this.path(target.file)) : null;
+                }
+                try {
+                    if (!file || await file.size() < target.length) throw new DamagedDocumentError(`Revision ${target.id} of document ${this.id} is missing or cut short`);
+                } catch (error) {
+                    if (file !== this.file) await file?.close().catch(() => undefined);
+                    throw error;
+                }
+            }
             await this.commit({
                 ...manifest,
                 current: hasFile(target) ? target : undefined,
@@ -502,6 +515,8 @@ export class DocumentDirectory {
         if (stale) return stale;
         const base = mutation.kind === 'append' ? await this.ensureCurrent() : this.manifest.current;
         if (base === null) return { status: 'conflict' };
+        // Drafts first: a failure leaves no open revision file, only a drafts file recovery deletes.
+        const drafts = await this.writeDrafts(mutation.drafts);
         const manifest = this.manifest;
         const id = manifest.next;
         let revision: IRevision;
@@ -522,7 +537,6 @@ export class DocumentDirectory {
             file = created.file;
             revision = { id, file: name, length: created.length, witness: created.witness };
         }
-        const drafts = await this.writeDrafts(mutation.drafts);
         const history = revision.witness === undefined ? this.historyAfter(manifest.history) : [];
         await this.commit({ ...manifest, next: id + 1, current: revision, history, baseline: revision.witness ?? manifest.baseline, drafts: drafts.name }, file, drafts.value);
         return { status: 'committed', revision };
@@ -531,14 +545,19 @@ export class DocumentDirectory {
     /** Moves `moved`, revisions in one file, to a copy of it cut to the most they name: one manifest replace. */
     private async moveToCopy(moved: IRevision[]) {
         const { manifest } = this;
+        const { port } = this.store;
         const name = `r${manifest.next}.${manifest.ext}`;
-        await this.store.port.copy(this.path(moved[0]!.file), this.path(name)).catch(async (error: unknown) => {
-            await this.store.port.remove(this.path(name));
-            throw error;
-        });
-        const file = await this.store.port.open(this.path(name));
         const length = Math.max(...moved.map(revision => revision.length));
-        if (await file.size() > length) await file.truncate(length);
+        let file: IStoreFile | undefined;
+        try {
+            await port.copy(this.path(moved[0]!.file), this.path(name));
+            file = await port.open(this.path(name));
+            if (await file.size() > length) await file.truncate(length);
+        } catch (error) {
+            await file?.close().catch(() => undefined);
+            await port.remove(this.path(name)).catch(() => undefined);
+            throw error;
+        }
         const rename = <T extends THistoryRevision>(revision: T): T => (moved.includes(revision as IRevision) ? { ...revision, file: name } as T : revision);
         const current = manifest.current && rename(manifest.current);
         if (current === manifest.current) await file.close();
@@ -604,11 +623,17 @@ export class DocumentDirectory {
         const { destination, baseline } = this.manifest;
         const before = await publication.witness(destination!);
         const created = await this.createRevisionFile(name, await publication.source(destination!));
-        const after = await publication.witness(destination!);
+        const discard = async () => {
+            await created.file.close().catch(() => undefined);
+            await this.store.port.remove(this.path(name));
+        };
+        const after = await publication.witness(destination!).catch(async (error: unknown) => {
+            await discard();
+            throw error;
+        });
         const unchanged = sameWitness(after, baseline);
         if (sameWitness(before, after) && (unchanged || asItIs)) return { ...created, witness: unchanged ? baseline : undefined };
-        await created.file.close();
-        await this.store.port.remove(this.path(name));
+        await discard();
         return null;
     }
 

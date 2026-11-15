@@ -92,15 +92,15 @@ const open = async (from: IDocumentStore, id: string) => keep(await openDocument
 /**
  * A port that dies at the first operation `at` matches, as the process would: that operation fails (a write
  * after landing half its bytes), and so does every later one. `kill` releases the handles the dead
- * process held.
+ * process held. With `fatal: false`, only the matching operation fails, so cleanup can still run.
  */
-function crashingPort(port: IStorePort, at: (operation: string, target: string) => boolean) {
+function crashingPort(port: IStorePort, at: (operation: string, target: string) => boolean, fatal = true) {
     let crashed = false;
-    const opened: IStoreFile[] = [];
+    const opened = new Set<IStoreFile>();
     const check = (operation: string, target: string) => {
         if (crashed || at(operation, target)) {
-            crashed = true;
-            throw new Error(`crashed at ${operation} ${target}`);
+            crashed = fatal;
+            throw new Error(`${fatal ? 'crashed' : 'fault'} at ${operation} ${target}`);
         }
     };
     const wrap = (file: IStoreFile, target: string): IStoreFile => ({
@@ -113,7 +113,10 @@ function crashingPort(port: IStorePort, at: (operation: string, target: string) 
         },
         truncate: async length => (check('truncate', target), file.truncate(length)),
         flush: async () => (check('flush', target), file.flush()),
-        close: () => file.close(),
+        async close() {
+            await file.close();
+            opened.delete(file);
+        },
     });
     const crashing: IStorePort = {
         list: async dir => (check('list', dir), port.list(dir)),
@@ -122,7 +125,7 @@ function crashingPort(port: IStorePort, at: (operation: string, target: string) 
         async open(target) {
             check('open', target);
             const file = await port.open(target);
-            opened.push(file);
+            opened.add(file);
             return wrap(file, target);
         },
         copyIn: async (source, target) => (check('copyIn', target), port.copyIn(source, target)),
@@ -130,7 +133,7 @@ function crashingPort(port: IStorePort, at: (operation: string, target: string) 
         move: async (from, target) => (check('move', target), port.move!(from, target)),
         remove: async target => (check('remove', target), port.remove(target)),
     };
-    return { port: crashing, kill: () => Promise.all(opened.map(file => file.close().catch(() => undefined))) };
+    return { port: crashing, openHandles: () => opened.size, kill: () => Promise.all([...opened].map(file => file.close().catch(() => undefined))) };
 }
 
 const docDir = (doc: DocumentDirectory) => path.join(root, 'documents', doc.id);
@@ -316,6 +319,110 @@ describe('document directory', () => {
         expect(await currentText(reopened)).toBe('base+2');
         await reopened.restore(3, 1);
         expect(await currentText(reopened)).toBe('base');
+    });
+});
+
+describe('revision-file error paths', () => {
+    it('closes a new revision when writing its replacement drafts fails', async () => {
+        const fault = crashingPort(createNodeStorePort(root), (operation, target) => operation === 'writeAtomic' && path.basename(target).startsWith('drafts-'), false);
+        const doc = await create(store(fault.port), { ext: 'pdf', source: new Blob(['base']) });
+        const manifest = await readFile(path.join(docDir(doc), 'manifest.json'));
+        try {
+            await expect(doc.mutate(1, { ...rewrite('replacement'), drafts: { replace: { note: 'unsaved' } } })).rejects.toThrow('fault at writeAtomic');
+            expect(await currentText(doc)).toBe('base');
+            expect(await readFile(path.join(docDir(doc), 'manifest.json'))).toEqual(manifest);
+            await doc.close();
+            expect(fault.openHandles()).toBe(0);
+        } finally {
+            await doc.close();
+            await fault.kill();
+        }
+    });
+
+    it('closes a revision copy when truncating its uncommitted tail fails', async () => {
+        const fault = crashingPort(createNodeStorePort(root), (operation, target) => operation === 'truncate' && target.endsWith('r2.pdf'), false);
+        const doc = await create(store(fault.port), { ext: 'pdf', source: new Blob(['base']) });
+        await writeFile(path.join(docDir(doc), 'r1.pdf'), 'base+uncommitted');
+        const manifest = await readFile(path.join(docDir(doc), 'manifest.json'));
+        try {
+            await expect(doc.abandonCurrentFile()).rejects.toThrow('fault at truncate');
+            expect(await currentText(doc)).toBe('base');
+            expect(await readFile(path.join(docDir(doc), 'manifest.json'))).toEqual(manifest);
+            await doc.close();
+            expect(fault.openHandles()).toBe(0);
+        } finally {
+            await doc.close();
+            await fault.kill();
+        }
+    });
+
+    it('closes and removes an uncommitted destination copy when its final witness fails', async () => {
+        const destination = path.join(workDir, 'paper.pdf');
+        await writeFile(destination, 'original');
+        const fault = crashingPort(createNodeStorePort(root), () => false);
+        const publication = filePublication();
+        const doc = await create(store(fault.port, {
+            ...publication,
+            async witness(target, content) {
+                if ((await fault.port.list('documents/witness-failure')).includes('r1.pdf')) throw new Error('final witness failed');
+                return publication.witness(target, content);
+            },
+        }), { ext: 'pdf', id: 'witness-failure', destination });
+        const manifest = await readFile(path.join(docDir(doc), 'manifest.json'));
+        try {
+            await expect(doc.materialize()).rejects.toThrow('final witness failed');
+            expect.soft(fault.openHandles()).toBe(0);
+            expect.soft(await readdir(docDir(doc))).toEqual(['manifest.json']);
+            expect(await readFile(path.join(docDir(doc), 'manifest.json'))).toEqual(manifest);
+            expect(await readFile(destination, 'utf8')).toBe('original');
+        } finally {
+            await doc.close();
+            await fault.kill();
+        }
+    });
+
+    it('refuses a short retained revision in the current file without closing its handle or changing bytes', async () => {
+        const doc = await create(store(), { ext: 'pdf', source: new Blob(['base']) });
+        await doc.mutate(1, append('+retained'));
+        await doc.restore(2, 1);
+        await doc.close();
+        const revision = path.join(docDir(doc), 'r1.pdf');
+        await truncate(revision, 4);
+        const reopened = await open(store(), doc.id);
+        const state = reopened.state();
+        const manifest = await readFile(path.join(docDir(doc), 'manifest.json'));
+
+        await expect.soft(reopened.restore(1, 2)).rejects.toThrow(/short/iu);
+        expect.soft(reopened.state()).toEqual(state);
+        expect.soft(await currentText(reopened)).toBe('base');
+        expect.soft(await readFile(path.join(docDir(doc), 'manifest.json'))).toEqual(manifest);
+        expect(await readFile(revision, 'utf8')).toBe('base');
+    });
+
+    it.each(['missing', 'short'] as const)('refuses to restore a %s retained revision without writing or zero-padding bytes', async damage => {
+        const doc = await create(store(), { ext: 'pdf', source: new Blob(['recorded revision']) });
+        await doc.mutate(1, rewrite('current revision'));
+        await doc.close();
+        const revision = path.join(docDir(doc), 'r1.pdf');
+        await (damage === 'missing' ? rm(revision) : truncate(revision, 3));
+        const fault = crashingPort(createNodeStorePort(root), () => false);
+        const reopened = await open(store(fault.port), doc.id);
+        const files = async () => Promise.all((await readdir(docDir(doc))).sort().map(async name => [name, await readFile(path.join(docDir(doc), name))]));
+        const before = await files();
+        const state = reopened.state();
+        try {
+            await expect.soft(reopened.restore(2, 1)).rejects.toThrow(/missing|short/iu);
+            expect.soft(reopened.state()).toEqual(state);
+            expect.soft(await currentText(reopened)).toBe('current revision');
+            // Includes the manifest and every revision byte: a missing file must not be recreated,
+            // and a short one must never be extended with zeros to its recorded length.
+            expect.soft(await files()).toEqual(before);
+            await reopened.close();
+            expect(fault.openHandles()).toBe(0);
+        } finally {
+            await reopened.close();
+            await fault.kill();
+        }
     });
 });
 
