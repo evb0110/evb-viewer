@@ -457,6 +457,38 @@ describe('Electron E2E, compact page labels through structural operations', () =
         preserveFailureArtifacts = false;
     });
 
+    it('inserts pages from file through the shared test file chooser', async ({onTestFailed}) => {
+        onTestFailed(async (failure) => {
+            preserveFailureArtifacts = true;
+            await session?.captureFailureArtifacts(failure.task.name);
+        }, 15_000);
+        const pdfPath = await createMultiPageTextFixturePdf(`insert-picker-destination-${Date.now()}.pdf`, 2);
+        const sourcePath = await createMultiPageTextFixturePdf(`insert-picker-source-${Date.now()}.pdf`, 1);
+        session = await startElectronE2ESession(`e2e-insert-picker-${Date.now()}`, {
+            initialOpenPaths: [pdfPath],
+            extraEnv: {EVB_E2E_OPEN_DIALOG_PATH: sourcePath},
+        });
+        const {page} = session;
+        await waitForViewerInteractive(page);
+        expect(await page.$eval('.page-controls-total', element => element.textContent?.trim())).toBe('2');
+        await openDocumentSidebarTab(page, 'Pages');
+        await clickAsUser(page, '[data-thumbnail-page="1"]', {button: 'right'});
+        await clickFoundAsUser(page, () => Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]'))
+            .find(item => item.textContent?.trim() === 'Insert Pages After'), null, {description: 'Insert Pages from File after the first page'});
+
+        await page.waitForFunction(() => document.querySelector('.page-controls-total')?.textContent?.trim() === '3');
+        await goToPageViaToolbar(page, 2);
+        await waitForToolbarCurrentPage(page, 2);
+        await page.waitForFunction(() => {
+            const insertedPage = document.querySelector('.page_container[data-page="2"]');
+            return insertedPage?.classList.contains('page_container--rendered')
+                && insertedPage.querySelector('.text-layer')?.textContent?.includes('E2E Multi Page Fixture 1/1');
+        });
+        expect(await page.$eval('.page-controls-total', element => element.textContent?.trim())).toBe('3');
+        expect(await page.$eval('.page_container[data-page="2"] .text-layer', element => element.textContent))
+            .toContain('E2E Multi Page Fixture 1/1');
+    });
+
     // C4: a refused edit is told once; I1/A3: it keeps bytes, edits and Undo.
     it('tells a refused page edit once and retains the document and pending edits', async ({onTestFailed}) => {
         onTestFailed(async (failure) => {

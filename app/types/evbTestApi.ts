@@ -56,8 +56,6 @@ export interface IEvbTestApi {
     ) => TValues;
     /** New Pane: an empty pane beside the active one. */
     openNewPane: (direction: TPaneDirection) => Promise<void>;
-    listTargetWindows?: () => Promise<unknown>;
-    transferActiveTabToWindow?: (windowId: number) => Promise<unknown>;
     waitForAutomationEvent: (
         type: TEvbAutomationEventType,
         predicate?: TEvbAutomationEventPredicate,

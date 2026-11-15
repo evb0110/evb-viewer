@@ -45,14 +45,6 @@ export interface IBrowserLifecycleTestApi {
     readActiveWorkspaceStateValues?: <TValues extends Record<string, unknown> = Record<string, unknown>>(
         propertyNames: string[],
     ) => TValues;
-    listTargetWindows?: () => Promise<Array<{
-        windowId: number;
-        label: string
-    }>>;
-    transferActiveTabToWindow?: (windowId: number) => Promise<{
-        success: boolean;
-        error?: string
-    }>;
 }
 
 /** The bytes the store holds for `ref`: its manifest's current revision, read from the origin private file system. */

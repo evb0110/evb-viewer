@@ -1,13 +1,8 @@
 import { app } from 'electron';
-import { dirname } from 'path';
 import {runtimeConfig} from '@electron/runtimeConfig';
 
 export function getDocumentsDialogDefaultPath() {
     return app.getPath('documents');
-}
-
-export function getWorkingCopyDialogDefaultPath(workingCopyPath: string) {
-    return dirname(workingCopyPath);
 }
 
 /**
