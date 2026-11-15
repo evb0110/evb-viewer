@@ -81,6 +81,9 @@
 </template>
 
 <script setup lang="ts">
+import { useFailureToast } from '@app/composables/useFailureToast';
+import { captureFailureForPresentation } from '@app/utils/failureReporter';
+import { BrowserLogger } from '@app/utils/browserLogger';
 import type { TTabView } from '@app/types/tabs';
 import { useTabDragReorder } from '@app/modules/workspace-shell/composables/useTabDragReorder';
 import { hasFocusLeftMenu } from '@app/utils/menuFocus';
@@ -101,6 +104,7 @@ import {
 } from '@app/utils/platformWindowTabs';
 
 const { t } = useTypedI18n();
+const { presentFailureToast } = useFailureToast();
 const SPLIT_DIRECTION_ORDER = [
     'right',
     'down',
@@ -525,8 +529,13 @@ async function loadWindowTransferTargets() {
 
     try {
         windowTransferTargets.value = await getWindowTabsCapability().listTargetWindows();
-    } catch {
+    } catch (error) {
         windowTransferTargets.value = [];
+        BrowserLogger.warn('toolbar-transition', 'Failed to list target windows', error);
+        presentFailureToast({
+            ...captureFailureForPresentation({code: 'RENDERER_TAB_TRANSFER_OPERATION_FAILED', local: {source: 'toolbar-transition', message: 'Failed to list target windows', cause: error}}),
+            title: t('tabs.transferErrors.targetWindowsUnavailable'),
+        });
     }
 }
 

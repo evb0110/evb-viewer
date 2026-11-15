@@ -88,7 +88,7 @@ export async function deriveSelectedTextForParsedHighlights({
                 stale = true;
                 return false;
             }
-            BrowserLogger.debug(
+            BrowserLogger.warn(
                 'annotations',
                 `Failed to derive selected text for parsed highlights on page ${pageIndex + 1}`,
                 error,

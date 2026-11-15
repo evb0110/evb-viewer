@@ -63,6 +63,9 @@
 </template>
 
 <script setup lang="ts">
+import { captureFailureForPresentation } from '@app/utils/failureReporter';
+import { useFailureToast } from '@app/composables/useFailureToast';
+import { BrowserLogger } from '@app/utils/browserLogger';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TOpenFileResult } from '@contracts/electronApiDocuments';
 import type { IRecentFile } from '@contracts/shared';
@@ -114,6 +117,7 @@ const emit = defineEmits<{
     'toggle-fullscreen': [];
 }>();
 const { t } = useTypedI18n();
+const { presentFailureToast } = useFailureToast();
 const workspaceRestoreTracker = useWorkspaceRestoreTracker();
 const {
     recentFiles,
@@ -211,9 +215,15 @@ function openInWorkspace(request: IWorkspaceOpenRequest, open: (workspace: IWork
 
 async function revealRecentFile(file: IRecentFile) {
     try {
-        await platformDocuments.getDocumentWindowCapability().showItemInFolder(file.originalPath);
-    } catch {
-        // Best-effort; the file may have moved.
+        if (!await platformDocuments.getDocumentWindowCapability().showItemInFolder(file.originalPath)) {
+            throw new Error('File manager did not reveal the file');
+        }
+    } catch (error) {
+        BrowserLogger.warn('workspace', 'Recent-file reveal failed', error);
+        presentFailureToast({
+            ...captureFailureForPresentation({code: 'RENDERER_WORKSPACE_OPERATION_FAILED', local: {source: 'workspace', message: 'Recent-file reveal failed', cause: error}}),
+            title: t('errors.workspace.revealInFolderFailed'),
+        });
     }
 }
 

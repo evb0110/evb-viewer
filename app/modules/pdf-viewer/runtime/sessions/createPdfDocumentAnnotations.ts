@@ -153,7 +153,10 @@ export const createPdfDocumentAnnotations = (options: ICreatePdfDocumentAnnotati
             const expectedRevisionToken = revision
                 ?? await getDocumentFilesCapability().getDocumentRevision(parsePath)
                     .then(value => value.token)
-                    .catch(() => null);
+                    .catch((error: unknown) => {
+                        BrowserLogger.warn('annotations', 'Failed to read annotation document revision', error);
+                        return null;
+                    });
             const isProvisionalRevisionFence = fence.documentRevision?.startsWith('load:') ?? false;
             if (!expectedRevisionToken || !isCurrent()
                 || (fence.documentRevision !== expectedRevisionToken && !isProvisionalRevisionFence && !savedRevision)) {
@@ -208,7 +211,7 @@ export const createPdfDocumentAnnotations = (options: ICreatePdfDocumentAnnotati
                     }
                 }).catch((error) => {
                     if (!abortController.signal.aborted) {
-                        BrowserLogger.debug('annotations', 'Failed to enrich imported writer highlights', error);
+                        BrowserLogger.warn('annotations', 'Failed to enrich imported writer highlights', error);
                     }
                 });
                 return true;

@@ -1,3 +1,5 @@
+import { useFailureToast } from '@app/composables/useFailureToast';
+import { captureFailureForPresentation } from '@app/utils/failureReporter';
 import type { Ref } from 'vue';
 import {
     parseDocumentRef,
@@ -98,6 +100,8 @@ function normalizeSplitPayloadTotalPages(total: number | undefined, fallbackPage
 }
 
 export const useWorkspaceSplitPayload = (options: IUseWorkspaceSplitPayloadOptions) => {
+    const { t } = useTypedI18n();
+    const { presentFailureToast } = useFailureToast();
     const runWithDocumentOperationLease = options.runWithDocumentOperationLease
         ?? runWithoutDocumentOperationLease;
 
@@ -414,9 +418,10 @@ export const useWorkspaceSplitPayload = (options: IUseWorkspaceSplitPayloadOptio
             ? options.prepareViewReload(view, pageToRestore)
             : null;
         const restorePagePromise = restorePageWaiter?.promise.catch((error: unknown) => {
-            BrowserLogger.debug('workspace', 'Split payload page restore wait failed', {
-                pageToRestore,
-                error,
+            BrowserLogger.warn('workspace', 'Split payload page restore failed', error);
+            presentFailureToast({
+                ...captureFailureForPresentation({code: 'RENDERER_TAB_TRANSFER_OPERATION_FAILED', local: {source: 'workspace', message: 'Split payload page restore failed', cause: error}}),
+                title: t('tabs.transferErrors.restoreFailed'),
             });
         });
 

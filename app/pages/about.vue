@@ -70,6 +70,9 @@
 </template>
 
 <script setup lang="ts">
+import { captureFailureForPresentation } from '@app/utils/failureReporter';
+import { useFailureToast } from '@app/composables/useFailureToast';
+import { BrowserLogger } from '@app/utils/browserLogger';
 import { getShellCapability } from '@app/utils/getShellCapability';
 
 const SENTRY_OPEN_SOURCE_URL = 'https://sentry.io/for/open-source/';
@@ -79,6 +82,7 @@ const THIRD_PARTY_NOTICES_URL = 'https://github.com/evb0110/evb-viewer/blob/main
 const appVersion = String(useRuntimeConfig().public.appVersion);
 
 const { t } = useTypedI18n();
+const { presentFailureToast } = useFailureToast();
 const { isDesktopRuntime } = useRuntimeEnvironment();
 
 function openExternalLink(event: MouseEvent, url: string) {
@@ -87,7 +91,13 @@ function openExternalLink(event: MouseEvent, url: string) {
     }
 
     event.preventDefault();
-    void getShellCapability().openExternal(url).catch(() => undefined);
+    void getShellCapability().openExternal(url).catch((error: unknown) => {
+        BrowserLogger.warn('workspace', 'Failed to open external link', error);
+        presentFailureToast({
+            ...captureFailureForPresentation({code: 'RENDERER_WORKSPACE_OPERATION_FAILED', local: {source: 'workspace', message: 'Failed to open external link', cause: error}}),
+            title: t('errors.workspace.openExternalLinkFailed'),
+        });
+    });
 }
 
 useHead(() => ({title: `${t('about.title')} | ${t('app.title')}`}));

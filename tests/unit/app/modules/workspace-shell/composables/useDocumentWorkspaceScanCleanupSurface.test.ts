@@ -1,3 +1,4 @@
+import {runBrowserLock} from '@app/platform/browser/runBrowserLock';
 // @vitest-environment happy-dom
 import {
     beforeEach,
@@ -256,4 +257,29 @@ describe('useDocumentWorkspaceScanCleanupSurface', () => {
 
         expect(surface.surfaceMode.value).toBe('scan-cleanup');
     });
+});
+
+it('#1608 reports failure to discard durable scan-cleanup settings', async () => {
+    const messages: string[] = [];
+    vi.stubGlobal('useToast', () => ({add: (notice: {title: string; description?: string}) => {
+        messages.push([notice.title, notice.description].filter(Boolean).join(' '));
+    }}));
+    const {documentSession} = createSession(identity(), viewState());
+    const surface = useDocumentWorkspaceScanCleanupSurface({
+        documentSession, documentView: viewOf(documentSession), closeAllDropdowns: () => {},
+        readDocumentKey: () => '/docs/current.pdf',
+    });
+    const write = vi.spyOn(localStorage, 'setItem').mockImplementation(() => {
+        throw new DOMException('Preference disk full', 'QuotaExceededError');
+    });
+    try {
+        surface.discardScanCleanupState();
+        // Wait behind the real preference write in the existing storage lock.
+        await runBrowserLock('__evb_scan_cleanup_preferences_storage_lock__', async () => undefined);
+        expect(messages.join(' ')).toMatch(/cleanup|settings|preferences/i);
+    } finally {write.mockRestore(); vi.unstubAllGlobals();}
+});
+
+beforeEach(() => {
+    vi.stubGlobal('useToast', () => ({add: vi.fn()}));
 });

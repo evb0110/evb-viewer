@@ -1,3 +1,6 @@
+// @vitest-environment happy-dom
+import {deriveSelectedTextForParsedHighlights} from '@app/modules/pdf-viewer/runtime/sessions/deriveSelectedTextForParsedHighlights';
+import {setBrowserLogSink} from '@app/utils/browserLogger';
 import {cast} from '@tests/helpers/cast';
 import {existsSync} from 'node:fs';
 import {
@@ -306,6 +309,24 @@ describe('writer annotations shared by linked views', () => {
         };
     }
 
+    it('#1608 retains a failed annotation revision lookup cause', async () => {
+        const retained: string[] = [];
+        setBrowserLogSink(entry => {if (entry.level === 'warn' || entry.level === 'error') retained.push(JSON.stringify(entry));});
+        const annotations = createPdfDocumentAnnotations({
+            workingCopyPath: computed(() => requireDocumentRef('/managed/working.pdf')),
+            source: computed(() => null), documentRevisionToken: computed(() => null),
+        });
+        const resource = cast<TPdfDocumentView>({
+            pdfDocument: shallowRef({}),
+            captureFence: () => ({documentVersion: 1, documentRevision: null}),
+        });
+        getDocumentRevision.mockRejectedValueOnce(new Error('Annotation revision read EIO'));
+        try {
+            expect(await annotations.feedStoreFromWriterParse(resource, shallowRef(null))).toBe(false);
+            expect(retained.join(' ')).toContain('Annotation revision read EIO');
+        } finally {setBrowserLogSink(() => {});}
+    });
+
     async function captureOriginalSource() {
         const directory = await mkdtemp(join(tmpdir(), 'annotation-source-capture-'));
         const snapshot = requireDocumentRef(join(directory, 'original.pdf'));
@@ -553,4 +574,23 @@ describe('writer annotations shared by linked views', () => {
         await annotations.feedStoreFromWriterParse(resource, shallowRef(null));
         expect(annotations.application.value.listCommentSummaries().map(comment => comment.text)).toEqual(['After replacement']);
     });
+});
+
+it('#1608 retains the cause of failed imported highlight preview text', async () => {
+    const retained: string[] = [];
+    setBrowserLogSink(entry => {if (entry.level === 'warn' || entry.level === 'error') retained.push(JSON.stringify(entry));});
+    try {
+        const text = await deriveSelectedTextForParsedHighlights({
+            documentSession: cast<Parameters<typeof deriveSelectedTextForParsedHighlights>[0]['documentSession']>({
+                leasePage: async () => {throw new Error('Imported highlight text stream corrupt');},
+            }),
+            result: cast<Parameters<typeof deriveSelectedTextForParsedHighlights>[0]['result']>({entities: [{
+                kind: 'highlight', pageIndex: 0, objectNumber: 11, generationNumber: 0,
+                subtype: 'Highlight', quadPoints: [],
+            }]}),
+            transition: {isCurrent: () => true},
+        });
+        expect(text?.get('11 0 R')).toBeNull();
+        expect(retained.join(' ')).toContain('Imported highlight text stream corrupt');
+    } finally {setBrowserLogSink(() => {});}
 });

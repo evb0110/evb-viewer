@@ -1,3 +1,4 @@
+import {setBrowserLogSink} from '@app/utils/browserLogger';
 import {
     afterEach,
     describe,
@@ -227,4 +228,18 @@ describe('resolvePdfJsStampImageDataUrl', () => {
         expect(cache.get('too-large')).toBeUndefined();
         expect(cache.byteLength).toBe(8);
     });
+});
+
+it('#1608 retains the bitmap conversion cause when an imported stamp cannot be drawn', () => {
+    const retained: string[] = [];
+    setBrowserLogSink(entry => {if (entry.level === 'warn' || entry.level === 'error') retained.push(JSON.stringify(entry));});
+    vi.stubGlobal('window', {});
+    vi.stubGlobal('document', {createElement: () => ({width: 0, height: 0,
+        getContext: () => ({drawImage: () => {throw new Error('Stamp bitmap detached');}}),
+    })});
+    try {
+        const page = {objs: new Map([['stamp', {ref: '11R', width: 2, height: 1, data: null, bitmap: {width: 2, height: 1}}]])};
+        expect(resolvePdfJsStampImageDataUrl(page, imageReference)).toBeNull();
+        expect(retained.join(' ')).toContain('Stamp bitmap detached');
+    } finally {setBrowserLogSink(() => {}); vi.unstubAllGlobals();}
 });

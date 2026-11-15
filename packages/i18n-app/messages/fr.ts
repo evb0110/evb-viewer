@@ -718,6 +718,7 @@ export default {
         'confirmCloseWindowDirtyDescription': 'Des modifications ne sont pas enregistrées. Enregistrez-les avant de fermer la fenêtre, abandonnez-les ou annulez.',
         'discardChanges': 'Abandonner les modifications',
         'transferErrors': {
+            'targetWindowsUnavailable': 'Impossible de lister les autres fenêtres.',
             'sourceChanged': 'Le document a changé pendant le déplacement de l’onglet.',
             'rolledBack': 'Impossible de déplacer l’onglet. Votre document et vos modifications restent dans cette fenêtre.',
             'noTargetPane': 'Aucun panneau cible n’est disponible dans la fenêtre de destination.',
@@ -1907,6 +1908,8 @@ export default {
             'convert': 'Échec de la conversion',
         },
         'workspace': {
+            'revealInFolderFailed': 'Impossible d’afficher le fichier dans son dossier.',
+            'openExternalLinkFailed': 'Impossible d’ouvrir le lien dans votre navigateur.',
             'recoveryProtectionTitle': 'Les dernières modifications ne sont pas protégées',
             'recoveryProtectionDescription': 'Enregistrez {fileName} pour protéger les dernières modifications. La capture de récupération a été refusée : {message}',
             'loadTitle': 'Impossible de charger l’espace de travail du document',

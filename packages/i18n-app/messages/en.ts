@@ -193,6 +193,7 @@ export default {
         'confirmCloseWindowDirtyDescription': 'There are unsaved changes. Save them before closing the window, discard them, or cancel.',
         'discardChanges': 'Discard changes',
         'transferErrors': {
+            'targetWindowsUnavailable': 'Could not list the other windows.',
             'sourceChanged': 'The document changed while the tab was moving.',
             'rolledBack': 'The tab could not be moved. Your document and edits remain in this window.',
             'noTargetPane': 'No target pane is available in the destination window.',
@@ -1897,6 +1898,8 @@ export default {
             'convert': 'Conversion failed',
         },
         'workspace': {
+            'revealInFolderFailed': 'Could not show the file in its folder.',
+            'openExternalLinkFailed': 'Could not open the link in your browser.',
             'recoveryProtectionTitle': 'Latest edits are not protected',
             'recoveryProtectionDescription': 'Save {fileName} to protect its latest edits. Recovery capture was rejected: {message}',
             'loadTitle': 'Unable to load the document workspace',

@@ -718,6 +718,7 @@ export default {
         'confirmCloseWindowDirtyDescription': 'Ci sono modifiche non salvate. Salvale prima di chiudere la finestra, scartale o annulla.',
         'discardChanges': 'Scarta modifiche',
         'transferErrors': {
+            'targetWindowsUnavailable': 'Impossibile elencare le altre finestre.',
             'sourceChanged': 'Il documento è cambiato durante lo spostamento della scheda.',
             'rolledBack': 'Impossibile spostare la scheda. Il documento e le modifiche restano in questa finestra.',
             'noTargetPane': 'Nella finestra di destinazione non è disponibile alcun pannello di destinazione.',
@@ -1897,6 +1898,8 @@ export default {
             'convert': 'Conversione non riuscita',
         },
         'workspace': {
+            'revealInFolderFailed': 'Impossibile mostrare il file nella sua cartella.',
+            'openExternalLinkFailed': 'Impossibile aprire il collegamento nel browser.',
             'recoveryProtectionTitle': 'Le ultime modifiche non sono protette',
             'recoveryProtectionDescription': 'Salva {fileName} per proteggere le ultime modifiche. La creazione della copia di ripristino è stata rifiutata: {message}',
             'loadTitle': 'Impossibile caricare l’area di lavoro del documento',

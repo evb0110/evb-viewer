@@ -748,3 +748,24 @@ describe('timeline presentation and following', () => {
         expect(viewport.scrollTop).toBe(1200);
     });
 });
+
+it('#1608 reports a failed assistant preference write after a model choice', async () => {
+    const messages: string[] = [];
+    api.reportRuntimeError.mockImplementation((presentation: {title: string; description?: string}) => {
+        messages.push([presentation.title, presentation.description].filter(Boolean).join(' '));
+    });
+    current.instances[0] = createAssistantInstance({models: [
+        {id: 'gpt', label: 'GPT'}, {id: 'other', label: 'Other model'},
+    ], defaultModel: 'gpt'});
+    const host = mount();
+    await settle();
+    const write = vi.spyOn(localStorage, 'setItem').mockImplementation(() => {
+        throw new DOMException('Assistant preference quota exceeded', 'QuotaExceededError');
+    });
+    try {
+        button(host, 'Other model').click();
+        await settle();
+        expect(host.querySelector('.picker-trigger')?.textContent).toContain('Other model');
+        expect(messages.join(' ')).toMatch(/preference|saved|storage|quota/i);
+    } finally {write.mockRestore();}
+});

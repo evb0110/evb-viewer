@@ -1,3 +1,6 @@
+import { captureFailureForPresentation } from '@app/utils/failureReporter';
+import { useFailureToast } from '@app/composables/useFailureToast';
+import { BrowserLogger } from '@app/utils/browserLogger';
 import type {
     ComputedRef,
     Ref,
@@ -58,6 +61,7 @@ export const usePageStatusBar = (deps: IPageStatusBarDeps) => {
         t,
         locale,
     } = useTypedI18n();
+    const { presentFailureToast } = useFailureToast();
     const documentFiles = getDocumentFilesCapability();
     const statusFileName = computed(() => {
         const path = originalPath.value ?? workingCopyPath.value;
@@ -227,9 +231,15 @@ export const usePageStatusBar = (deps: IPageStatusBarDeps) => {
         }
 
         try {
-            await getDocumentWindowCapability().showItemInFolder(path);
-        } catch {
-            // Ignore failures; status bar action is best-effort.
+            if (!await getDocumentWindowCapability().showItemInFolder(path)) {
+                throw new Error('File manager did not reveal the file');
+            }
+        } catch (error) {
+            BrowserLogger.warn('workspace', 'Status-bar reveal failed', error);
+            presentFailureToast({
+                ...captureFailureForPresentation({code: 'RENDERER_WORKSPACE_OPERATION_FAILED', local: {source: 'workspace', message: 'Status-bar reveal failed', cause: error}}),
+                title: t('errors.workspace.revealInFolderFailed'),
+            });
         }
     }
 

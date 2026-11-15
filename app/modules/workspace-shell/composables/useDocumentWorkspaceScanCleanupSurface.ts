@@ -1,3 +1,6 @@
+import { captureFailureForPresentation } from '@app/utils/failureReporter';
+import { useFailureToast } from '@app/composables/useFailureToast';
+import { BrowserLogger } from '@app/utils/browserLogger';
 import {discardScanCleanupDocumentState} from '@app/modules/scan-cleanup/public/runtime';
 import type {
     IWorkspaceDocumentController,
@@ -26,6 +29,8 @@ interface IDocumentWorkspaceScanCleanupSurfaceOptions {
 export const useDocumentWorkspaceScanCleanupSurface = (
     options: IDocumentWorkspaceScanCleanupSurfaceOptions,
 ) => {
+    const { t } = useTypedI18n();
+    const { presentFailureToast } = useFailureToast();
     const {
         documentSession,
         documentView,
@@ -66,7 +71,13 @@ export const useDocumentWorkspaceScanCleanupSurface = (
         void discardScanCleanupDocumentState(
             options.readDocumentKey(),
             options.readSourceSha256?.() ?? null,
-        ).catch(() => undefined);
+        ).catch((error: unknown) => {
+            BrowserLogger.warn('scan-cleanup', 'Failed to discard saved cleanup settings', error);
+            presentFailureToast({
+                ...captureFailureForPresentation({code: 'RENDERER_WORKSPACE_OPERATION_FAILED', local: {source: 'scan-cleanup', message: 'Failed to discard saved cleanup settings', cause: error}}),
+                title: t('errors.settings.save'),
+            });
+        });
     }
 
     // Scan Cleanup edits a document; it cannot outlive one. The final tab keeps
