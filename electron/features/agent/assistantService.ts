@@ -1447,9 +1447,6 @@ async function sendAdmitted(
         return errorResult(await fallbackState(), te('dialogs.agentAssistant.instanceUnavailable'));
     }
     const selection = resolveSelection(request.selection) ?? request.selection;
-    if (!entry.status.models.some(model => model.id === selection.model)) {
-        return errorResult(await fallbackState(), entry.status.message ?? te('dialogs.agentAssistant.modelListEmpty'));
-    }
     let normalized: ReturnType<typeof normalizeOutgoingMessageRequest>;
     try {
         normalized = normalizeOutgoingMessageRequest(request);
@@ -1495,6 +1492,9 @@ async function sendAdmitted(
     });
     const owns = () => session.turn?.id === turnId && isTurnActive(session);
     try {
+        if (!entry.status.models.some(model => model.id === selection.model)) {
+            throw new Error(entry.status.message ?? te('dialogs.agentAssistant.modelListEmpty'));
+        }
         session.binding = createBinding(session, options.windowId ?? -1);
         setActiveAssistantMcpSessionScope(session.binding);
         if (entry.config.driver === 'codex') {

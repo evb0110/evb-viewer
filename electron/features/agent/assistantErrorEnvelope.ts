@@ -63,7 +63,7 @@ function providerFailure(value: unknown) {
         }
         value = record.error ?? record.cause ?? record.data ?? record.message;
     }
-    return {message, code, status, retryable, failureClass};
+    return {message, code, status, retryable, failureClass, parsedJson};
 }
 
 export function createAssistantErrorEnvelope(value: unknown): IAgentAssistantErrorEnvelope {
@@ -94,7 +94,9 @@ export function createAssistantErrorEnvelope(value: unknown): IAgentAssistantErr
     }
     // Permanent selection/auth/configuration failures cannot be repaired by resending.
     if (code !== 'MODEL_UNAVAILABLE' && code !== 'AUTH_REQUIRED' && code !== 'INSTALL_MISSING') retryable = native.retryable ?? retryable;
-    const readable = native.message.trim().startsWith('{') ? '' : native.message;
+    const message = !native.parsedJson && value instanceof Error && value.cause instanceof Error
+        ? value.message : native.message;
+    const readable = message.trim().startsWith('{') ? '' : message;
     return {
         code,
         class: native.failureClass ?? failureClass,

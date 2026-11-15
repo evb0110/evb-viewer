@@ -68,6 +68,11 @@ describe('readable provider failures', () => {
         const envelope = createAssistantErrorEnvelope(JSON.stringify({type: 'error', status: 400, error: {type: 'invalid_request_error', message: "The 'gpt-6.1-sol' model is not supported when using Codex with a ChatGPT account.", code: 'model_not_found'}}));
         expect(envelope).toMatchObject({code: 'MODEL_UNAVAILABLE', class: 'provider_error', providerCode: 'model_not_found', retryable: false, message: "The 'gpt-6.1-sol' model is not supported when using Codex with a ChatGPT account."});
     });
+    it('keeps a readable causal timeout while classifying the underlying failure', () => {
+        expect(createAssistantErrorEnvelope(new Error('Codex did not start within 10 seconds.', {cause: new Error('initialize timed out after 10000ms.')}))).toMatchObject({
+            message: 'Codex did not start within 10 seconds.', retryable: true, class: 'transport_error',
+        });
+    });
     it('retains structured transient classification, native code and retryability', () => {
         expect(createAssistantErrorEnvelope(new Error(JSON.stringify({status: 429, error: {code: 'rate_limit_error', message: 'Please try again later.'}})))).toMatchObject({code: 'PROVIDER_RATE_LIMITED', class: 'usage_limit', providerCode: 'rate_limit_error', retryable: true, message: 'Please try again later.'});
         expect(createAssistantErrorEnvelope({status: 529, message: 'Overloaded'})).toMatchObject({retryable: true, class: 'transport_error'});
