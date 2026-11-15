@@ -1,3 +1,5 @@
+import { useWorkspaceViewerShellState } from '@app/modules/workspace-shell/composables/useWorkspaceViewerShellState';
+import { createDocumentOpenSurfaceSession } from '@app/modules/document-viewer/public';
 import {browserDocumentStore} from '@app/platform/browserDocumentStore';
 import {MemoryStorage} from '@tests/unit/app/platform/browserPlatformTestDoubles';
 import {requireJobId} from '@contracts/shared';
@@ -25,7 +27,7 @@ import {
 } from '@contracts/documentRef';
 import type {IDjvuPrintOptions} from '@contracts/electronApiDjvu';
 import type {
-    TJobId, TPdfZoomState, TPdfViewMode,
+    TJobId, TPdfViewMode,
 } from '@contracts/shared';
 import {
     requireDocumentRevisionToken,
@@ -120,10 +122,8 @@ function createBindingHarness() {
     const onPageSourceUpdate = vi.fn();
     const onSourceCapabilitiesUpdate = vi.fn();
     const documentRevisionToken = ref<TDocumentRevisionToken | null>(null);
-    const zoomState = ref<TPdfZoomState>({
-        kind: 'custom',
-        scale: 1.25,
-    });
+    const owner = useWorkspaceViewerShellState(null, createDocumentOpenSurfaceSession());
+    owner.setZoomState({kind: 'custom', scale: 1.25});
     const viewMode = ref<TPdfViewMode>('single');
     const fallbacks = new Map<PropertyKey, unknown>();
     const options = new Proxy({
@@ -142,7 +142,7 @@ function createBindingHarness() {
             size: 1,
         }),
         documentRevisionToken,
-        zoomState,
+        zoom: owner.zoomAccess,
         viewMode,
         pdfViewerRef,
         workingCopyPath: sources.workingCopyPath,
@@ -158,7 +158,7 @@ function createBindingHarness() {
     return {
         activeDocumentDriver,
         binding: useWorkspaceDocumentDriverBinding(options),
-        zoomState,
+        zoom: owner.zoomAccess,
         viewMode,
         createDriver,
         djvuViewerRef,
@@ -524,24 +524,24 @@ describe('WorkspaceDocumentDriver', () => {
                 path: '/tmp/source.pdf',
                 size: 1,
             },
-            zoomState: {
+            zoom: {state: {
                 kind: 'custom',
                 scale: 1.25,
-            },
+            }},
             viewMode: 'single',
         });
         harness.isInteractionActive.value = true;
-        harness.zoomState.value = {
+        harness.zoom.set({
             kind: 'fit',
             axis: 'width',
-        };
+        });
         expect(harness.binding.activeViewerProps.value).toMatchObject({
             isActive: true,
             isInteractionActive: true,
-            zoomState: {
+            zoom: {state: {
                 kind: 'fit',
                 axis: 'width',
-            },
+            }},
         });
         harness.isInteractionActive.value = false;
         const pdfViewer = markRaw({});
@@ -552,10 +552,10 @@ describe('WorkspaceDocumentDriver', () => {
             src: '/tmp/source.djvu',
             isActive: true,
             isInteractionActive: false,
-            zoomState: {
+            zoom: {state: {
                 kind: 'fit',
                 axis: 'width',
-            },
+            }},
             viewMode: 'single',
         });
         harness.isInteractionActive.value = true;

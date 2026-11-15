@@ -6,6 +6,7 @@ import {
     it,
     vi,
 } from 'vitest';
+import type { IZoomStateAccess, TPdfZoomState } from '@contracts/shared';
 import { ZOOM } from '@app/constants/pdfLayout';
 import {
     consumeDocumentWheelZoomInteraction,
@@ -29,6 +30,27 @@ function createWheelEvent(overrides: Partial<WheelEvent> = {}) {
         preventDefault,
         ...overrides,
     } as WheelEvent;
+}
+
+function readScale(state: TPdfZoomState | undefined) {
+    return state?.kind === 'custom' ? state.scale : NaN;
+}
+
+function createZoomOwner(scale = 1) {
+    const requested = {value: {kind: 'custom', scale} as TPdfZoomState};
+    const set = vi.fn((state: TPdfZoomState) => {
+        requested.value = state;
+    });
+    const access: IZoomStateAccess = {
+        get state() {
+            return requested.value;
+        },
+        get manualScale() {
+            return requested.value.kind === 'custom' ? requested.value.scale : scale;
+        },
+        set,
+    };
+    return {access, requested, set};
 }
 
 const viewport = {clientHeight: 800} as HTMLElement;
@@ -246,7 +268,6 @@ describe('document wheel interaction policy', () => {
 
     it('consumes only zoom interactions and emits a shared custom-zoom transition', () => {
         const emitZoom = vi.fn();
-        const emitZoomMode = vi.fn();
         const zoomEvent = createWheelEvent({
             metaKey: true,
             deltaY: -120,
@@ -255,21 +276,16 @@ describe('document wheel interaction policy', () => {
 
         expect(consumeDocumentWheelZoomInteraction(zoomInteraction, {
             effectiveZoom: 1,
-            zoomMode: 'fit-width',
             emitZoom,
-            emitZoomMode,
         })).toBe(true);
         expect(zoomEvent.preventDefault).toHaveBeenCalledOnce();
-        expect(emitZoomMode).toHaveBeenCalledWith('custom');
         expect(emitZoom).toHaveBeenCalledWith(expect.any(Number));
 
         const scrollEvent = createWheelEvent({ctrlKey: true});
         const scrollInteraction = resolveDocumentWheelInteraction(scrollEvent, viewport, true);
         expect(consumeDocumentWheelZoomInteraction(scrollInteraction, {
             effectiveZoom: 1,
-            zoomMode: 'custom',
             emitZoom,
-            emitZoomMode,
         })).toBe(false);
         expect(scrollEvent.preventDefault).not.toHaveBeenCalled();
     });
@@ -284,9 +300,7 @@ describe('document wheel interaction policy', () => {
 
         expect(consumeDocumentWheelZoomInteraction(zoomInteraction, {
             effectiveZoom: 1,
-            zoomMode: 'custom',
             emitZoom: () => calls.push('zoom'),
-            emitZoomMode: () => calls.push('mode'),
         }, {beforeZoom: () => calls.push('anchor')})).toBe(true);
         expect(calls).toEqual([
             'anchor',
@@ -299,10 +313,10 @@ describe('document wheel interaction policy', () => {
             .mockReturnValueOnce(179.999)
             .mockReturnValueOnce(180.001);
         const beforeZoom = vi.fn();
+        const {access} = createZoomOwner();
         const handler = createDocumentWheelZoomHandler(
             {value: 1},
-            {value: 'custom'},
-            vi.fn(),
+            () => access,
             {beforeZoom},
         );
         const interaction = resolveDocumentWheelInteraction(createWheelEvent({
@@ -322,10 +336,10 @@ describe('document wheel interaction policy', () => {
             .mockReturnValueOnce(179)
             .mockReturnValueOnce(359);
         const beforeZoom = vi.fn();
+        const {access} = createZoomOwner();
         const handler = createDocumentWheelZoomHandler(
             {value: 1},
-            {value: 'custom'},
-            vi.fn(),
+            () => access,
             {beforeZoom},
         );
         const interaction = () => resolveDocumentWheelInteraction(createWheelEvent({
@@ -344,16 +358,15 @@ describe('document wheel interaction policy', () => {
         ]);
     });
 
-    it('accumulates rapid packets before the parent publishes the prior zoom value', () => {
+    it('accumulates rapid packets while rendering lags and continues from the requested scale after a pause', () => {
         vi.spyOn(performance, 'now')
             .mockReturnValueOnce(100)
             .mockReturnValueOnce(150)
             .mockReturnValueOnce(400);
-        const emit = vi.fn();
+        const {access, set: emit} = createZoomOwner();
         const handler = createDocumentWheelZoomHandler(
             {value: 1},
-            {value: 'custom'},
-            emit,
+            () => access,
         );
         handler(resolveDocumentWheelInteraction(createWheelEvent({
             deltaY: -120,
@@ -371,23 +384,23 @@ describe('document wheel interaction policy', () => {
             timeStamp: 400,
         }), viewport, true));
 
-        const emittedZooms = emit.mock.calls.map(call => call[1].scale as number);
+        const emittedZooms = emit.mock.calls.map(call => call[0].kind === 'custom' ? call[0].scale : NaN);
         expect(emittedZooms[1]).toBeGreaterThan(emittedZooms[0]!);
-        expect(emittedZooms[2]).toBe(emittedZooms[0]);
+        const resumed = resolveDocumentWheelZoomTarget(emittedZooms[1]!, 0, -120);
+        expect(emittedZooms[2]).toBe(resumed.valid ? resumed.nextZoom : null);
     });
 
-    it('continues after the parent publishes a delayed intermediate wheel value', () => {
+    it('continues after the renderer shows a delayed intermediate wheel scale', () => {
         vi.spyOn(performance, 'now')
             .mockReturnValueOnce(100)
             .mockReturnValueOnce(120)
             .mockReturnValueOnce(140);
         const effectiveZoom = {value: 1};
-        const emit = vi.fn();
+        const {access, set: emit} = createZoomOwner();
         const beforeZoom = vi.fn();
         const handler = createDocumentWheelZoomHandler(
             effectiveZoom,
-            {value: 'custom'},
-            emit,
+            () => access,
             {beforeZoom},
         );
         const interaction = () => resolveDocumentWheelInteraction(createWheelEvent({
@@ -397,12 +410,12 @@ describe('document wheel interaction policy', () => {
 
         handler(interaction());
         handler(interaction());
-        effectiveZoom.value = emit.mock.calls[0]?.[1]?.scale as number;
+        effectiveZoom.value = readScale(emit.mock.calls[0]?.[0]);
         handler(interaction());
 
         const expected = resolveDocumentWheelZoomTarget(1, -240, -120);
         expect(expected.valid).toBe(true);
-        expect(emit.mock.calls[2]?.[1]?.scale).toBe(expected.valid ? expected.nextZoom : null);
+        expect(readScale(emit.mock.calls[2]?.[0])).toBe(expected.valid ? expected.nextZoom : null);
         expect(beforeZoom.mock.calls.map(call => call[2])).toEqual([
             true,
             false,
@@ -415,12 +428,11 @@ describe('document wheel interaction policy', () => {
             .mockReturnValueOnce(0)
             .mockReturnValueOnce(10)
             .mockReturnValueOnce(20);
-        const emit = vi.fn();
+        const {access, set: emit} = createZoomOwner(ZOOM.MIN);
         const beforeZoom = vi.fn();
         const handler = createDocumentWheelZoomHandler(
             {value: ZOOM.MIN},
-            {value: 'custom'},
-            emit,
+            () => access,
             {beforeZoom},
         );
         for (let index = 0; index < 3; index += 1) {
@@ -431,7 +443,7 @@ describe('document wheel interaction policy', () => {
         }
 
         expect(emit).toHaveBeenCalledOnce();
-        expect(emit).toHaveBeenCalledWith('update:zoomState', expect.objectContaining({kind: 'custom'}));
+        expect(emit).toHaveBeenCalledWith(expect.objectContaining({kind: 'custom'}));
         expect(beforeZoom).toHaveBeenCalledTimes(3);
     });
 
@@ -440,12 +452,11 @@ describe('document wheel interaction policy', () => {
             .mockReturnValueOnce(100)
             .mockReturnValueOnce(150);
         const effectiveZoom = {value: 1};
-        const emit = vi.fn();
+        const {access, requested, set: emit} = createZoomOwner();
         const beforeZoom = vi.fn();
         const handler = createDocumentWheelZoomHandler(
             effectiveZoom,
-            {value: 'custom'},
-            emit,
+            () => access,
             {beforeZoom},
         );
         const interaction = () => resolveDocumentWheelInteraction(createWheelEvent({
@@ -453,12 +464,12 @@ describe('document wheel interaction policy', () => {
             metaKey: true,
         }), viewport, true);
         handler(interaction());
-        effectiveZoom.value = 2;
+        requested.value = {kind: 'custom', scale: 2};
         handler(interaction());
 
         const expected = resolveDocumentWheelZoomTarget(2, 0, -120);
         expect(expected.valid).toBe(true);
-        expect(emit.mock.calls[1]?.[1]?.scale).toBe(expected.valid ? expected.nextZoom : null);
+        expect(readScale(emit.mock.calls[1]?.[0])).toBe(expected.valid ? expected.nextZoom : null);
         expect(beforeZoom.mock.calls.map(call => call[2])).toEqual([
             true,
             true,
@@ -469,13 +480,11 @@ describe('document wheel interaction policy', () => {
         vi.spyOn(performance, 'now')
             .mockReturnValueOnce(100)
             .mockReturnValueOnce(150);
-        const zoomMode = {value: 'custom' as 'custom' | 'fit-width'};
-        const emit = vi.fn();
+        const {access, requested, set: emit} = createZoomOwner();
         const beforeZoom = vi.fn();
         const handler = createDocumentWheelZoomHandler(
             {value: 1},
-            zoomMode,
-            emit,
+            () => access,
             {beforeZoom},
         );
         const interaction = () => resolveDocumentWheelInteraction(createWheelEvent({
@@ -484,12 +493,10 @@ describe('document wheel interaction policy', () => {
         }), viewport, true);
 
         handler(interaction());
-        zoomMode.value = 'fit-width';
+        requested.value = {kind: 'fit', axis: 'width'};
         handler(interaction());
 
-        const emittedZooms = emit.mock.calls
-            .filter(call => call[0] === 'update:zoomState')
-            .map(call => call[1].scale);
+        const emittedZooms = emit.mock.calls.map(([state]) => state.kind === 'custom' ? state.scale : NaN);
         expect(emittedZooms).toEqual([
             emittedZooms[0],
             emittedZooms[0],
@@ -505,12 +512,11 @@ describe('document wheel interaction policy', () => {
             .mockReturnValueOnce(100)
             .mockReturnValueOnce(150);
         const sessionKey = {value: 'first'};
-        const emit = vi.fn();
+        const {access, requested, set: emit} = createZoomOwner();
         const beforeZoom = vi.fn();
         const handler = createDocumentWheelZoomHandler(
             {value: 1},
-            {value: 'custom'},
-            emit,
+            () => access,
             {
                 beforeZoom,
                 readSessionKey: () => sessionKey.value,
@@ -523,9 +529,10 @@ describe('document wheel interaction policy', () => {
 
         handler(interaction());
         sessionKey.value = 'second';
+        requested.value = {kind: 'custom', scale: 1};
         handler(interaction());
 
-        expect(emit.mock.calls[1]?.[1]?.scale).toBe(emit.mock.calls[0]?.[1]?.scale);
+        expect(readScale(emit.mock.calls[1]?.[0])).toBe(readScale(emit.mock.calls[0]?.[0]));
         expect(beforeZoom.mock.calls.map(call => call[2])).toEqual([
             true,
             true,
@@ -536,12 +543,11 @@ describe('document wheel interaction policy', () => {
         vi.spyOn(performance, 'now')
             .mockReturnValueOnce(100)
             .mockReturnValueOnce(150);
-        const emit = vi.fn();
+        const {access, set: emit} = createZoomOwner();
         const beforeZoom = vi.fn();
         const handler = createDocumentWheelZoomHandler(
             {value: 1},
-            {value: 'custom'},
-            emit,
+            () => access,
             {beforeZoom},
         );
         const interaction = () => resolveDocumentWheelInteraction(createWheelEvent({
@@ -551,27 +557,27 @@ describe('document wheel interaction policy', () => {
 
         handler(interaction());
         handler.reset();
+        const next = resolveDocumentWheelZoomTarget(readScale(emit.mock.calls[0]?.[0]), 0, -120);
         handler(interaction());
 
-        expect(emit.mock.calls[1]?.[1]?.scale).toBe(emit.mock.calls[0]?.[1]?.scale);
+        expect(readScale(emit.mock.calls[1]?.[0])).toBe(next.valid ? next.nextZoom : null);
         expect(beforeZoom.mock.calls.map(call => call[2])).toEqual([
             true,
             true,
         ]);
     });
 
-    it('restarts when an external change returns to an acknowledged earlier zoom', () => {
+    it('restarts when an external command returns to an earlier zoom', () => {
         vi.spyOn(performance, 'now')
             .mockReturnValueOnce(100)
             .mockReturnValueOnce(120)
             .mockReturnValueOnce(140)
             .mockReturnValueOnce(160);
         const effectiveZoom = {value: 1};
-        const emit = vi.fn();
+        const {access, requested, set: emit} = createZoomOwner();
         const handler = createDocumentWheelZoomHandler(
             effectiveZoom,
-            {value: 'custom'},
-            emit,
+            () => access,
         );
         const interaction = () => resolveDocumentWheelInteraction(createWheelEvent({
             deltaY: -120,
@@ -579,19 +585,19 @@ describe('document wheel interaction policy', () => {
         }), viewport, true);
 
         handler(interaction());
-        effectiveZoom.value = emit.mock.calls[0]?.[1]?.scale as number;
+        effectiveZoom.value = readScale(emit.mock.calls[0]?.[0]);
         handler(interaction());
-        effectiveZoom.value = emit.mock.calls[1]?.[1]?.scale as number;
+        effectiveZoom.value = readScale(emit.mock.calls[1]?.[0]);
         handler(interaction());
-        effectiveZoom.value = 1;
+        requested.value = {kind: 'custom', scale: 1};
         handler(interaction());
 
         const expected = resolveDocumentWheelZoomTarget(1, 0, -120);
         expect(expected.valid).toBe(true);
-        expect(emit.mock.calls[3]?.[1]?.scale).toBe(expected.valid ? expected.nextZoom : null);
+        expect(readScale(emit.mock.calls[3]?.[0])).toBe(expected.valid ? expected.nextZoom : null);
     });
 
-    it('retires duplicate coalesced emits before reconciling an external reset', () => {
+    it('restarts from an external command after a coalesced wheel reversal', () => {
         vi.spyOn(performance, 'now')
             .mockReturnValueOnce(100)
             .mockReturnValueOnce(110)
@@ -599,12 +605,11 @@ describe('document wheel interaction policy', () => {
             .mockReturnValueOnce(130)
             .mockReturnValueOnce(140);
         const effectiveZoom = {value: 1};
-        const emit = vi.fn();
+        const {access, requested, set: emit} = createZoomOwner();
         const beforeZoom = vi.fn();
         const handler = createDocumentWheelZoomHandler(
             effectiveZoom,
-            {value: 'custom'},
-            emit,
+            () => access,
             {beforeZoom},
         );
         const interaction = (deltaY: number) => resolveDocumentWheelInteraction(createWheelEvent({
@@ -615,16 +620,16 @@ describe('document wheel interaction policy', () => {
         handler(interaction(-120));
         handler(interaction(-120));
         handler(interaction(120));
-        const firstEmittedZoom = emit.mock.calls[0]?.[1]?.scale as number;
-        const supersededZoom = emit.mock.calls[1]?.[1]?.scale as number;
+        const firstEmittedZoom = readScale(emit.mock.calls[0]?.[0]);
+        const supersededZoom = readScale(emit.mock.calls[1]?.[0]);
         effectiveZoom.value = firstEmittedZoom;
         handler(interaction(0));
-        effectiveZoom.value = supersededZoom;
+        requested.value = {kind: 'custom', scale: supersededZoom};
         handler(interaction(-120));
 
         const expected = resolveDocumentWheelZoomTarget(supersededZoom, 0, -120);
         expect(expected.valid).toBe(true);
-        expect(emit.mock.calls.at(-1)?.[1]?.scale).toBe(expected.valid ? expected.nextZoom : null);
+        expect(readScale(emit.mock.calls.at(-1)?.[0])).toBe(expected.valid ? expected.nextZoom : null);
         expect(beforeZoom.mock.calls.at(-1)?.[2]).toBe(true);
     });
 
@@ -632,13 +637,12 @@ describe('document wheel interaction policy', () => {
         vi.spyOn(performance, 'now')
             .mockReturnValueOnce(100)
             .mockReturnValueOnce(150);
-        const emit = vi.fn();
+        const {access, requested, set: emit} = createZoomOwner();
         const onNonZoom = vi.fn();
         const effectiveZoom = {value: 1};
         const handler = createDocumentWheelZoomHandler(
             effectiveZoom,
-            {value: 'custom'},
-            emit,
+            () => access,
             {onNonZoom},
         );
         handler(resolveDocumentWheelInteraction(createWheelEvent({
@@ -646,7 +650,7 @@ describe('document wheel interaction policy', () => {
             metaKey: true,
         }), viewport, true));
         expect(handler(resolveDocumentWheelInteraction(createWheelEvent(), viewport, true))).toBe(false);
-        effectiveZoom.value = 2;
+        requested.value = {kind: 'custom', scale: 2};
         handler(resolveDocumentWheelInteraction(createWheelEvent({
             deltaY: -120,
             metaKey: true,
@@ -654,7 +658,7 @@ describe('document wheel interaction policy', () => {
 
         const expected = resolveDocumentWheelZoomTarget(2, 0, -120);
         expect(onNonZoom).toHaveBeenCalledOnce();
-        expect(emit.mock.calls[1]?.[1]?.scale).toBe(expected.valid ? expected.nextZoom : null);
+        expect(readScale(emit.mock.calls[1]?.[0])).toBe(expected.valid ? expected.nextZoom : null);
     });
 
     it('does not replace the active anchor for a clamped no-op packet', () => {
@@ -669,9 +673,7 @@ describe('document wheel interaction policy', () => {
             resolveDocumentWheelInteraction(zoomEvent, viewport, true),
             {
                 effectiveZoom: ZOOM.MAX,
-                zoomMode: 'custom',
                 emitZoom,
-                emitZoomMode: vi.fn(),
             },
             {beforeZoom},
         )).toBe(true);
@@ -692,9 +694,7 @@ describe('document wheel interaction policy', () => {
             resolveDocumentWheelInteraction(zoomEvent, viewport, true),
             {
                 effectiveZoom,
-                zoomMode: 'custom',
                 emitZoom,
-                emitZoomMode: vi.fn(),
             },
             {beforeZoom},
         )).toBe(true);

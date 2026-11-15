@@ -38,7 +38,6 @@ import type {
     IPdfViewerEmit,
 } from '@app/modules/pdf-viewer/runtime/contracts/pdfViewerComponent.types';
 import type { ILinkAnnotation } from '@app/types/annotations';
-import type { TPdfZoomState } from '@contracts/shared';
 
 export const usePdfViewerFeatureController = (
     props: IPdfViewerProps,
@@ -71,13 +70,8 @@ export const usePdfViewerFeatureController = (
         continuousScroll,
         isActive,
         authorName,
-        acknowledgeZoomState,
+        readZoom,
     } = usePdfViewerPropModel(props);
-    /** The viewer adopts the zoom state it reports, so its layout never waits for the host. */
-    function reportZoomState(state: TPdfZoomState) {
-        acknowledgeZoomState(state);
-        emit('update:zoomState', state);
-    }
     const { t } = useTypedI18n();
     const viewerHost = ref<HTMLElement | null>(null);
     const viewerContainer = ref<HTMLElement | null>(null);
@@ -206,7 +200,7 @@ export const usePdfViewerFeatureController = (
             fitMode,
             zoomMode,
         },
-        emitZoomState: reportZoomState,
+        emitZoomState: state => readZoom().set(state),
         summarizeViewerStateForLog,
     });
     viewportSessionRef.value = viewportSession;
@@ -241,14 +235,13 @@ export const usePdfViewerFeatureController = (
         viewerContainer,
         isReady: () => Boolean(src.value) && !documentSession.isLoading.value,
         effectiveScale: viewportSession.scale.effectiveScale,
-        zoomMode,
+        readZoom,
         handlePagedWheel: viewportSession.singlePageScroll.handleWheel,
         cancelPendingSearchScroll: renderingSession.cancelPendingSearchScroll,
         markUserViewportInteraction: viewportSession.markUserViewportInteraction,
         captureRelayoutAnchor: viewportSession.singlePageScroll.captureRelayoutAnchor,
         relayout: viewportSession.singlePageScroll.relayout,
         isSnipActive: () => regionSnip.isActive.value || cropSelection.isSelecting.value,
-        emit: (_event, state) => reportZoomState(state),
     });
 
     const annotationSession = createPdfAnnotationSession({

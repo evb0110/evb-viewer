@@ -4,10 +4,9 @@ import { clampPdfManualZoom } from '@app/modules/pdf-viewer/public';
 import type { TPdfSource } from '@app/types/pdfUi';
 import type {
     ISettingsData,
-    TFitMode,
     TPdfViewMode,
     TPdfViewRotation,
-    TZoomMode,
+    TPdfZoomState,
 } from '@contracts/shared';
 import type { IAnnotationSettings } from '@app/types/annotations';
 import type { IWorkspaceCheckpointTab } from '@contracts/workspaceCheckpoint';
@@ -20,10 +19,12 @@ interface IUseWorkspaceViewerDefaultsOptions {
     annotationSettings: Ref<IAnnotationSettings>;
     viewMode: Ref<TPdfViewMode>;
     continuousScroll: Ref<boolean>;
-    fitMode: Ref<TFitMode>;
-    zoom: Ref<number>;
+    /** The view's requested zoom and its one write path. */
+    zoomState: Readonly<Ref<TPdfZoomState>>;
+    setZoomState: (state: TPdfZoomState) => void;
+    /** The last manual scale, kept through a fit. */
+    zoom: Readonly<Ref<number>>;
     effectiveZoom: Readonly<Ref<number>>;
-    zoomMode: Ref<TZoomMode>;
     pdfSrc: Ref<TPdfSource | null>;
     documentSourceKey?: Ref<unknown>;
     preserveInitialStateForFirstSource?: boolean | undefined;
@@ -49,8 +50,8 @@ export const useWorkspaceViewerDefaults = (options: IUseWorkspaceViewerDefaultsO
     // A custom zoom is the reader's requested display value; a fit mode's
     // display value is the scale the viewer computed for it.
     function resolveDisplayZoom() {
-        if (options.zoomMode.value === 'custom') {
-            return clampWorkspaceZoomLevel(options.zoom.value);
+        if (options.zoomState.value.kind === 'custom') {
+            return clampWorkspaceZoomLevel(options.zoomState.value.scale);
         }
         if (Number.isFinite(options.effectiveZoom.value) && options.effectiveZoom.value > 0) {
             return options.effectiveZoom.value;
@@ -59,9 +60,10 @@ export const useWorkspaceViewerDefaults = (options: IUseWorkspaceViewerDefaultsO
     }
 
     function setCustomZoomFromDisplay(displayZoom: number) {
-        const targetDisplayZoom = clampWorkspaceZoomLevel(displayZoom);
-        options.zoom.value = targetDisplayZoom;
-        options.zoomMode.value = 'custom';
+        options.setZoomState({
+            kind: 'custom',
+            scale: clampWorkspaceZoomLevel(displayZoom),
+        });
     }
 
     function applyWorkspaceViewerDefaults() {
@@ -92,9 +94,10 @@ export const useWorkspaceViewerDefaults = (options: IUseWorkspaceViewerDefaultsO
     // the effective scale from its page and viewport, which the toolbar
     // reads directly even when source activation yields.
     function setFitMode(zoomMode: 'fit-width' | 'fit-height') {
-        options.fitMode.value = zoomMode === 'fit-height' ? 'height' : 'width';
-        options.zoom.value = 1;
-        options.zoomMode.value = zoomMode;
+        options.setZoomState({
+            kind: 'fit',
+            axis: zoomMode === 'fit-height' ? 'height' : 'width',
+        });
     }
 
     const defaultsSourceKey = computed(() => options.documentSourceKey?.value ?? options.pdfSrc.value);

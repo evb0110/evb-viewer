@@ -14,7 +14,7 @@ import type {
     TPdfViewRotation,
     TPdfViewMode,
 } from '@app/types/pdfContracts';
-import type { TPdfZoomState } from '@contracts/shared';
+import type { IZoomStateAccess } from '@contracts/shared';
 import type {
     IPdfPageMatches,
     IPdfSearchMatch,
@@ -28,7 +28,8 @@ export interface IPdfViewerProps {
     sourcePdfData?: Uint8Array | null | undefined;
     rasterDisplayProfile?: TPdfRasterDisplayProfile | null | undefined;
     isAnySaving?: boolean | undefined;
-    zoomState?: TPdfZoomState | undefined;
+    /** The view's zoom owner, read and written directly. */
+    zoom?: IZoomStateAccess | undefined;
     dragMode?: boolean | undefined;
     viewMode?: TPdfViewMode | undefined;
     viewRotation?: TPdfViewRotation | undefined;
@@ -53,7 +54,6 @@ export interface IPdfViewerProps {
 }
 
 export interface IPdfViewerEmit {
-    (e: 'update:zoomState', state: TPdfZoomState): void;
     (e: 'update:totalPages', total: number): void;
     (e: 'update:document', document: IPdfDocument | null): void;
     (e: 'loading', loading: boolean): void;

@@ -1,9 +1,6 @@
 import type { Ref } from 'vue';
 import { clamp } from 'es-toolkit/math';
-import type {
-    TPdfZoomState,
-    TZoomMode,
-} from '@contracts/shared';
+import type { IZoomStateAccess } from '@contracts/shared';
 import {
     createDocumentWheelZoomHandler,
     type IDocumentWheelInteraction,
@@ -18,7 +15,7 @@ interface IUsePdfViewerWheelZoomOptions {
     viewerContainer: Ref<HTMLElement | null>;
     isReady: () => boolean;
     effectiveScale: Readonly<Ref<number>>;
-    zoomMode: Readonly<Ref<TZoomMode>>;
+    readZoom: () => IZoomStateAccess;
     handlePagedWheel: (event: IDocumentWheelSourceEvent) => boolean;
     cancelPendingSearchScroll: () => void;
     markUserViewportInteraction: () => void;
@@ -28,7 +25,6 @@ interface IUsePdfViewerWheelZoomOptions {
     }) => IPdfSemanticAnchor | null;
     relayout: (change?: () => void, anchor?: IPdfSemanticAnchor | null) => void;
     isSnipActive: () => boolean;
-    emit: (event: 'update:zoomState', state: TPdfZoomState) => void;
 }
 
 /**
@@ -37,7 +33,7 @@ interface IUsePdfViewerWheelZoomOptions {
  */
 export const usePdfViewerWheelZoom = (options: IUsePdfViewerWheelZoomOptions) => {
     let lastZoomPacketAt = Number.NEGATIVE_INFINITY;
-    const handleWheelZoom = createDocumentWheelZoomHandler(options.effectiveScale, options.zoomMode, options.emit, {beforeZoom: ({event}) => {
+    const handleWheelZoom = createDocumentWheelZoomHandler(options.effectiveScale, options.readZoom, {beforeZoom: ({event}) => {
         const container = options.viewerContainer.value;
         if (!container) {
             return;
