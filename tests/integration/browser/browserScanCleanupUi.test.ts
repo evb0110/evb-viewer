@@ -616,6 +616,7 @@ describe('browser Scan Cleanup workspace', () => {
                 name: 'Grayscale',
                 exact: true,
             }).click();
+            await assertBrowserScope(page);
             await waitForPixels(page, 1);
             const content = page.locator('.content-overlay').first();
             const crop = () => content.getAttribute('style').then(value => value ?? '');
