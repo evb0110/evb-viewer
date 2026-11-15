@@ -169,13 +169,12 @@ export async function discoverAssistantLocalSetups(env: NodeJS.ProcessEnv = proc
 }
 
 /** Equal executable/home/argv identities collapse; distinct homes never do. */
-export function assistantSetupIdentity(config: Pick<IAssistantInstanceConfig, 'driver' | 'binaryPath' | 'homePath' | 'shadowHomePath' | 'launchArgs' | 'environment'>) {
+export function assistantSetupIdentity(config: Pick<IAssistantInstanceConfig, 'driver' | 'binaryPath' | 'homePath' | 'shadowHomePath' | 'launchArgs'>) {
     const binary = config.binaryPath?.trim() || config.driver;
     const home = config.shadowHomePath?.trim() || config.homePath?.trim() || '';
     return JSON.stringify([
         isAbsolute(binary) ? resolve(binary) : binary,
         home,
         config.launchArgs ?? '',
-        config.environment ?? [],
     ]);
 }

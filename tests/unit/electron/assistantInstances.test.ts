@@ -303,7 +303,8 @@ describe('local assistant setups', () => {
             binaryPath: '/installed/codex', homePath: join(state.root, name),
         }));
         expect((await instances.saveAssistantInstanceConfigs(configs)).ok).toBe(true);
-        state.local = [{...configs[0]!, id: 'discovered-duplicate'}];
+        state.local = [{...configs[0]!, id: 'discovered-duplicate', environment: [{name: 'FIXTURE_MODE', value: 'different', secret: false}]}];
+        instances.refreshAssistantLocalSetups();
         expect((await instances.getAssistantInstanceConfigs()).map(config => config.id)).toEqual(['account-one', 'account-two']);
         for (const config of configs) {
             expect(await instances.resolveAssistantLaunchContext(config.id, resolvers)).toMatchObject({
