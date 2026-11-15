@@ -34,10 +34,7 @@ import {
 import {useWorkspaceCommandLedger} from '@app/modules/workspace-shell/composables/useWorkspaceCommandLedger';
 import {workspaceCommandSinkKey} from '@app/types/workspaceCommand';
 import {useScanCleanupSelection} from '@app/modules/scan-cleanup/composables/useScanCleanupSelection';
-import {
-    editScanCleanupDocumentSettings,
-    useScanCleanupDocumentSettings,
-} from '@app/modules/scan-cleanup/composables/useScanCleanupDocumentSettings';
+import {useScanCleanupDocumentSettings} from '@app/modules/scan-cleanup/composables/useScanCleanupDocumentSettings';
 import {
     scanCleanupSourceIdentityKey,
     type TScanCleanupSourceIdentityState,
@@ -618,7 +615,7 @@ describe('scan cleanup renderer preference store', () => {
             expect(host.textContent).toBe('bw');
             vi.useFakeTimers();
             if (edit) {
-                editScanCleanupDocumentSettings(settings.values, [], () => {
+                settings.editDocumentSettings([], () => {
                     settings.values.outputMode = 'color';
                 });
                 await nextTick();
@@ -697,22 +694,22 @@ describe('scan cleanup renderer preference store', () => {
             return () => h('div');
         }}));
         app.mount(host);
-        editScanCleanupDocumentSettings(settings!.values, [], () => {
+        settings!.editDocumentSettings([], () => {
             settings!.values.outputMode = 'color';
         });
         settings!.setMarginsLinked(false);
         settings!.updateMargin('topMm', 19);
-        editScanCleanupDocumentSettings(settings!.values, ['1', '3'], () => {
+        settings!.editDocumentSettings(['1', '3'], () => {
             settings!.values.pageOverrides = {'1': createScanCleanupPageOverride({rotationDegrees: 90})};
         });
-        editScanCleanupDocumentSettings(settings!.values, ['3'], () => {
+        settings!.editDocumentSettings(['3'], () => {
             settings!.values.pageOverrides['3'] = createScanCleanupPageOverride({rotationDegrees: 90});
         });
-        editScanCleanupDocumentSettings(settings!.values, [], () => {
+        settings!.editDocumentSettings([], () => {
             settings!.values.pageOverrideDefaults!.excluded = true;
         });
         await nextTick();
-        editScanCleanupDocumentSettings(settings!.values, ['3'], () => {
+        settings!.editDocumentSettings(['3'], () => {
             delete settings!.values.pageOverrides['3'];
         });
         await nextTick();
@@ -867,7 +864,7 @@ describe('scan cleanup renderer preference store', () => {
         app.mount(host);
         await vi.waitFor(() => expect(settings!.documentSettingsReady.value).toBe(true));
 
-        editScanCleanupDocumentSettings(settings!.values, [], () => {
+        settings!.editDocumentSettings([], () => {
             settings!.values.outputMode = 'color';
         });
         await nextTick();
@@ -1067,6 +1064,7 @@ describe('scan cleanup renderer preference store', () => {
                 previewTotalPages: () => 3,
                 marginsLinked: ref(true),
                 settings: settings.values,
+                editDocumentSettings: settings.editDocumentSettings,
             });
             return () => h('output', JSON.stringify(settings.values.pageOverrides));
         }}));
@@ -1148,6 +1146,7 @@ describe('scan cleanup renderer preference store', () => {
                 previewTotalPages: () => 3,
                 marginsLinked: ref(true),
                 settings: settings.values,
+                editDocumentSettings: settings.editDocumentSettings,
             });
             return () => h('output', JSON.stringify({
                 defaults: settings.values.pageOverrideDefaults?.rotationDegrees ?? 0,
@@ -1236,6 +1235,7 @@ describe('scan cleanup renderer preference store', () => {
                 previewTotalPages: () => 3,
                 marginsLinked: ref(true),
                 settings: settings.values,
+                editDocumentSettings: settings.editDocumentSettings,
             });
             return () => h('output', JSON.stringify({
                 alignment: settings.values.pageAlignment,
@@ -1362,7 +1362,7 @@ describe('scan cleanup renderer preference store', () => {
         app.mount(host);
         try {
             await vi.waitFor(() => expect(settings.documentSettingsReady.value).toBe(true));
-            editScanCleanupDocumentSettings(settings.values, [], () => {
+            settings.editDocumentSettings([], () => {
                 settings.values.outputMode = 'grayscale';
             });
             const savedMargins = {
@@ -1471,7 +1471,7 @@ describe('scan cleanup renderer preference store', () => {
         await vi.waitFor(() => expect(capability.value.getSettings).toHaveBeenCalledTimes(stage === 'initial' ? 1 : 2));
         settings.setMarginsLinked(true);
         settings.updateMargin('topMm', 17);
-        editScanCleanupDocumentSettings(settings.values, [], () => {
+        settings.editDocumentSettings([], () => {
             settings.values.outputMode = 'color';
         });
         settings.resetPageOverrides();
@@ -1495,13 +1495,13 @@ describe('scan cleanup renderer preference store', () => {
         expect(settings.documentSettingsLoadFailure.value).toBeNull();
         const firstFlush = flushScanCleanupDocumentPreferencesStore();
         await vi.waitFor(() => expect(capability.value.updateSettings).toHaveBeenCalledOnce());
-        editScanCleanupDocumentSettings(settings.values, [], () => {
+        settings.editDocumentSettings([], () => {
             settings.values.outputMode = 'bw';
         });
-        editScanCleanupDocumentSettings(settings.values, ['3'], () => {
+        settings.editDocumentSettings(['3'], () => {
             settings.values.pageOverrides['3'] = createScanCleanupPageOverride({manualSkewDegrees: 2});
         });
-        editScanCleanupDocumentSettings(settings.values, ['3'], () => {
+        settings.editDocumentSettings(['3'], () => {
             delete settings.values.pageOverrides['3'];
         });
         releaseWrite();
@@ -1687,7 +1687,7 @@ describe('scan cleanup renderer preference store', () => {
             await nextTick();
             expect(settings.documentSettingsReady.value).toBe(false);
 
-            editScanCleanupDocumentSettings(settings.values, [], () => {
+            settings.editDocumentSettings([], () => {
                 settings.values.outputMode = 'color';
             });
             await nextTick();

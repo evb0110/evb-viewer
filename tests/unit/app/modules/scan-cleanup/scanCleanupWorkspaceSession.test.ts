@@ -45,7 +45,6 @@ import type {
     TScanCleanupPageOutputMapping,
 } from '@contracts/scan-cleanup/electronApiScanCleanup';
 import type * as scanCleanupPageOverridesModule from '@evb/scan-cleanup/core/policy/scanCleanupPagePolicy';
-import {editScanCleanupDocumentSettings} from '@app/modules/scan-cleanup/composables/useScanCleanupDocumentSettings';
 import {useScanCleanupWorkspaceSession} from '@app/modules/scan-cleanup/composables/useScanCleanupWorkspaceSession';
 import {createScanCleanupPreviewCacheKey} from '@app/modules/scan-cleanup/composables/useScanCleanupPreviewSession';
 import {
@@ -445,7 +444,7 @@ describe('scan cleanup workspace session detection guidance', () => {
         onTestFinished(() => mounted.unmount());
         mounted.session.settings.setMarginsLinked(false);
         mounted.session.settings.updateMargin('topMm', 18);
-        editScanCleanupDocumentSettings(mounted.session.settings.values, [], () => {
+        mounted.session.settings.editDocumentSettings([], () => {
             mounted.session.settings.values.outputMode = 'color';
         });
         mounted.session.settings.values.pageAlignment = 'center';
@@ -1867,7 +1866,7 @@ describe('scan cleanup workspace session detection guidance', () => {
         });
         capability.value = harness.value;
         const mounted = mountSession(`detail-cache-order-${Date.now()}`);
-        editScanCleanupDocumentSettings(mounted.session.settings.values, [], () => {
+        mounted.session.settings.editDocumentSettings([], () => {
             mounted.session.settings.values.outputMode = 'bw';
         });
         await vi.waitFor(() => expect(mounted.session.preview.resultCurrent.value).toBe(true));
@@ -1949,7 +1948,7 @@ describe('scan cleanup workspace session detection guidance', () => {
         ));
         capability.value = harness.value;
         const mounted = mountSession(`detail-clear-${Date.now()}`);
-        editScanCleanupDocumentSettings(mounted.session.settings.values, [], () => {
+        mounted.session.settings.editDocumentSettings([], () => {
             mounted.session.settings.values.outputMode = 'bw';
         });
         await vi.waitFor(() => expect(mounted.session.preview.resultCurrent.value).toBe(true));
@@ -1983,7 +1982,7 @@ describe('scan cleanup workspace session detection guidance', () => {
         });
         capability.value = harness.value;
         const mounted = mountSession(`detail-stale-base-${Date.now()}`);
-        editScanCleanupDocumentSettings(mounted.session.settings.values, [], () => {
+        mounted.session.settings.editDocumentSettings([], () => {
             mounted.session.settings.values.outputMode = 'bw';
         });
         await vi.waitFor(() => expect(mounted.session.preview.resultCurrent.value).toBe(true));
@@ -2021,7 +2020,7 @@ describe('scan cleanup workspace session detection guidance', () => {
             `detail-retry-identity-${Date.now()}`,
             {sourcePath: () => sourcePath.value},
         );
-        editScanCleanupDocumentSettings(mounted.session.settings.values, [], () => {
+        mounted.session.settings.editDocumentSettings([], () => {
             mounted.session.settings.values.outputMode = 'bw';
         });
         await vi.waitFor(() => expect(mounted.session.preview.resultCurrent.value).toBe(true));
@@ -2059,7 +2058,7 @@ describe('scan cleanup workspace session detection guidance', () => {
         ));
         capability.value = harness.value;
         const mounted = mountSession(`detail-null-diagnostic-${Date.now()}`);
-        editScanCleanupDocumentSettings(mounted.session.settings.values, [], () => {
+        mounted.session.settings.editDocumentSettings([], () => {
             mounted.session.settings.values.outputMode = 'bw';
         });
         await vi.waitFor(() => expect(mounted.session.preview.resultCurrent.value).toBe(true));
@@ -2094,7 +2093,7 @@ describe('scan cleanup workspace session detection guidance', () => {
         });
         capability.value = harness.value;
         const mounted = mountSession(`detail-service-diagnostic-${Date.now()}`);
-        editScanCleanupDocumentSettings(mounted.session.settings.values, [], () => {
+        mounted.session.settings.editDocumentSettings([], () => {
             mounted.session.settings.values.outputMode = 'bw';
         });
         await vi.waitFor(() => expect(mounted.session.preview.resultCurrent.value).toBe(true));
@@ -2422,7 +2421,7 @@ describe('scan cleanup workspace session detection guidance', () => {
         await expect.poll(() => first.session.settings.documentSettingsReady.value).toBe(true);
         await expect.poll(() => second.session.settings.documentSettingsReady.value).toBe(true);
 
-        editScanCleanupDocumentSettings(first.session.settings.values, [], () => {
+        first.session.settings.editDocumentSettings([], () => {
             first.session.settings.values.outputMode = 'color';
         });
         expect(second.session.settings.values.outputMode).toBe('auto');
@@ -2553,7 +2552,7 @@ describe('scan cleanup workspace session detection guidance', () => {
             key === 'evb.scanCleanup.documentOverrides.v1'
         )).length;
 
-        editScanCleanupDocumentSettings(mounted.session.settings.values, ['1'], () => {
+        mounted.session.settings.editDocumentSettings(['1'], () => {
             mounted.session.settings.values.pageOverrides['1'] = {
                 rotationDegrees: 0,
                 layoutOverride: 'auto',
@@ -2561,10 +2560,10 @@ describe('scan cleanup workspace session detection guidance', () => {
                 manualSplit: null,
             };
         });
-        editScanCleanupDocumentSettings(mounted.session.settings.values, [], () => {
+        mounted.session.settings.editDocumentSettings([], () => {
             mounted.session.settings.values.marginsMm.leftMm = 8;
         });
-        editScanCleanupDocumentSettings(mounted.session.settings.values, [], () => {
+        mounted.session.settings.editDocumentSettings([], () => {
             mounted.session.settings.values.outputMode = 'color';
         });
         await nextTick();
@@ -2577,7 +2576,7 @@ describe('scan cleanup workspace session detection guidance', () => {
             overrides: {'1': expect.any(Object)},
         });
 
-        editScanCleanupDocumentSettings(mounted.session.settings.values, [], () => {
+        mounted.session.settings.editDocumentSettings([], () => {
             mounted.session.settings.values.outputMode = 'grayscale';
         });
         await nextTick();
@@ -4183,7 +4182,7 @@ describe('scan cleanup workspace session detection guidance', () => {
         const first = mountSession(documentKey);
         await expect.poll(() => first.session.settings.documentSettingsReady.value).toBe(true);
 
-        editScanCleanupDocumentSettings(first.session.settings.values, ['2'], () => {
+        first.session.settings.editDocumentSettings(['2'], () => {
             first.session.settings.values.pageOverrides['2'] = {
                 rotationDegrees: 0,
                 layoutOverride: 'auto',

@@ -100,19 +100,6 @@ const alignmentLabels = {
     'bottom-right': 'bottomRight',
 } as const satisfies Record<TScanCleanupPageAlignment, string>;
 
-const documentSettingsEditors = new WeakMap<IScanCleanupOptions, (pages: Iterable<number | string>, edit: () => void) => void>();
-
-/** Runs `edit` as one edit of `values`, which their owner records and persists; values no owner holds are only changed. */
-export function editScanCleanupDocumentSettings(values: IScanCleanupOptions, pages: Iterable<number | string>, edit: () => void) {
-    const editDocument = documentSettingsEditors.get(values);
-    if (editDocument) {
-        editDocument(pages, edit);
-        return;
-    }
-    edit();
-    attachScanCleanupPageOverrideDefaults(values.pageOverrides, values.pageOverrideDefaults, values.marginsMm);
-}
-
 export const useScanCleanupDocumentSettings = (options: IUseScanCleanupDocumentSettingsOptions) => {
     const {t} = useTypedI18n();
     const sourceSha256 = options.sourceSha256 ?? computed(() => null);
@@ -314,8 +301,6 @@ export const useScanCleanupDocumentSettings = (options: IUseScanCleanupDocumentS
         }
         if (Object.keys(patch).length > 0) scheduleDocumentPersistence(patch);
     }
-    documentSettingsEditors.set(values, editDocumentSettings);
-    tryOnScopeDispose(() => documentSettingsEditors.delete(values));
 
     function updateMargin(target: TScanCleanupMarginTarget, value: number) {
         const patch = resolveScanCleanupMarginPatch(
@@ -615,6 +600,7 @@ export const useScanCleanupDocumentSettings = (options: IUseScanCleanupDocumentS
         alignmentItems,
         applyLoadedSnapshot,
         dismissFirstRunGuidance,
+        editDocumentSettings,
         documentSettingsReady,
         documentSettingsLoadFailure,
         handleThicknessInput,

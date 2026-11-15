@@ -1,5 +1,5 @@
 import {workspaceCommandSinkKey} from '@app/types/workspaceCommand';
-import {editScanCleanupDocumentSettings} from '@app/modules/scan-cleanup/composables/useScanCleanupDocumentSettings';
+import type {useScanCleanupDocumentSettings} from '@app/modules/scan-cleanup/composables/useScanCleanupDocumentSettings';
 import type {
     IScanCleanupMarginsMm,
     IScanCleanupManualZones,
@@ -59,6 +59,7 @@ interface IUseScanCleanupSelectionOptions {
     previewResult: () => IScanCleanupPreviewResult | null;
     previewTotalPages: () => number;
     settings: IScanCleanupOptions;
+    editDocumentSettings: ReturnType<typeof useScanCleanupDocumentSettings>['editDocumentSettings'];
     marginsLinked: Ref<boolean>;
 }
 
@@ -78,7 +79,7 @@ export type TScanCleanupOverrideControl =
     | 'placement';
 
 export const useScanCleanupSelection = (options: IUseScanCleanupSelectionOptions) => {
-    const {settings} = options;
+    const {settings, editDocumentSettings} = options;
     attachScanCleanupPageOverrideDefaults(
         settings.pageOverrides,
         settings.pageOverrideDefaults,
@@ -160,7 +161,7 @@ export const useScanCleanupSelection = (options: IUseScanCleanupSelectionOptions
         const target = (key: string) => fields.includes(key) ? settings : settings.pageOverrides;
         const read = () => keys.map(key => cloneScanCleanupPreferenceValue<unknown>(Reflect.get(target(key), key)));
         const before = read();
-        editScanCleanupDocumentSettings(settings, pages, edit);
+        editDocumentSettings(pages, edit);
         const after = read();
         const changed = keys.flatMap((key, index) => isEqual(before[index], after[index]) ? [] : [{
             key,
@@ -170,7 +171,7 @@ export const useScanCleanupSelection = (options: IUseScanCleanupSelectionOptions
         if (changed.length === 0) return;
         // Undo and redo are edits too, persisted like the edit they replay.
         const apply = (side: 'before' | 'after') => {
-            editScanCleanupDocumentSettings(settings, changed.flatMap(({key}) => fields.includes(key) ? [] : [key]), () => {
+            editDocumentSettings(changed.flatMap(({key}) => fields.includes(key) ? [] : [key]), () => {
                 for (const entry of changed) {
                     const owner = target(entry.key);
                     if (entry[side] === undefined) Reflect.deleteProperty(owner, entry.key);
@@ -201,7 +202,7 @@ export const useScanCleanupSelection = (options: IUseScanCleanupSelectionOptions
     }
 
     function setPageOverrideDefaults(value: IScanCleanupPageOverride, pageOverrides = settings.pageOverrides) {
-        editScanCleanupDocumentSettings(settings, Object.keys(settings.pageOverrides), () => {
+        editDocumentSettings(Object.keys(settings.pageOverrides), () => {
             settings.pageOverrideDefaults = createScanCleanupPageOverride(value);
             settings.pageOverrides = pageOverrides;
         });

@@ -124,6 +124,7 @@ vi.mock('@app/modules/scan-cleanup/composables/useScanCleanupWorkspaceSession', 
             thicknessLabel: session.thicknessLabel,
             updateMargin: session.updateDocumentMargin ?? vi.fn(),
             values: session.settings,
+            editDocumentSettings: (_pages: Iterable<number | string>, change: () => void) => change(),
         },
         selection: {
             applyLeaderOverrides: session.applyLeaderOverrides,
