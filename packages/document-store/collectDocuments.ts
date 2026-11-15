@@ -26,11 +26,12 @@ const isOpenOnly = (manifest: IManifest) => manifest.drafts === undefined && man
 /**
  * Removes the document directories nothing needs and returns the unsaved ones no window holds, for the recovery
  * offer. `hold` takes a directory, or answers `null` when a window has it; each directory is decided and removed
- * while held, so collection never races a window opening it. Removed: a directory without a manifest (an aborted
- * creation), a clean one no workspace checkpoint names, and an unsaved one no checkpoint names that holds only what
- * an open made. Every other unsaved directory is kept, named or not. What cannot be read is kept and returned in
- * `unreadable`, for the host to report: an unreadable manifest keeps its directory, and an unreadable checkpoint keeps
- * every directory it might name. Temporary files of checkpoint writes that crashed are removed.
+ * while held, so collection never races a window opening it. A directory `hold` refused is returned in `held`: it
+ * was not inspected, so it may be unsaved. Removed: a directory without a manifest (an aborted creation), a clean
+ * one no workspace checkpoint names, and an unsaved one no checkpoint names that holds only what an open made. Every
+ * other unsaved directory is kept, named or not. What cannot be read is kept and returned in `unreadable`, for the
+ * host to report: an unreadable manifest keeps its directory, and an unreadable checkpoint keeps every directory it
+ * might name. Temporary files of checkpoint writes that crashed are removed.
  */
 export async function collectDocuments(store: IDocumentStore, hold: (id: string) => Promise<(() => void) | null>) {
     const { port } = store;
@@ -44,10 +45,14 @@ export async function collectDocuments(store: IDocumentStore, hold: (id: string)
     const referencesKnown = checkpoints.every(checkpoint => checkpoint !== null);
     const removed: string[] = [];
     const unsaved: string[] = [];
+    const held: string[] = [];
     for (const id of await port.list(DOCUMENTS_DIR)) {
         if (!STORE_ID_PATTERN.test(id)) continue;
         const release = await hold(id);
-        if (!release) continue;
+        if (!release) {
+            held.push(id);
+            continue;
+        }
         try {
             const dir = `${DOCUMENTS_DIR}/${id}`;
             const path = `${dir}/${MANIFEST_NAME}`;
@@ -69,5 +74,5 @@ export async function collectDocuments(store: IDocumentStore, hold: (id: string)
             release();
         }
     }
-    return { removed, unsaved, unreadable };
+    return { removed, unsaved, held, unreadable };
 }
