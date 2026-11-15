@@ -9,7 +9,9 @@
 - Run `cargo build` or `cargo test` only when the task touches `native/`, always
   with `--manifest-path native/Cargo.toml`. When native work is done or free disk
   drops below about 50 GiB, run `cargo clean --profile dev --manifest-path
-  native/Cargo.toml`. Leave `native/target/release` alone.
+  native/Cargo.toml`. Leave `native/target/release` alone. Building the tools a
+  real-app lane needs with `pnpm run build:native:e2e` is allowed for any task
+  that runs that lane.
 - Never copy `node_modules` between worktrees; run pnpm in the checkout that uses
   it.
 - Stop every `electron:run` session you started (`pnpm electron:run -s <name>
