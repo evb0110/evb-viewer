@@ -1,6 +1,7 @@
 import {
     createZoomState,
     getZoomMode,
+    type IZoomStateAccess,
     type TFitMode,
     type TPdfViewRotation,
     type TPdfViewMode,
@@ -100,39 +101,36 @@ export const useWorkspaceViewerShellState = (
         ocrOpen: ocrPopupOpen,
     });
 
-    const zoom = ref(initialState?.zoom ?? 1);
     const effectiveZoom = computed(() => documentViewerRef.value?.getEffectiveZoom?.() ?? 1);
+    // The view's one requested zoom. Beside it is history: the last manual
+    // scale and the last fit axis outlive a request of the other kind.
+    const zoomState = shallowRef<TPdfZoomState>(createZoomState(initialState?.zoomMode ?? 'fit-width', initialState?.zoom ?? 1));
+    const manualScale = ref(initialState?.zoom ?? 1);
     const rememberedFitAxis = ref<TFitMode>(initialState?.zoomMode === 'fit-height'
         ? 'height'
         : initialState?.zoomMode === 'fit-width' ? 'width' : initialState?.fitMode ?? 'width');
-    const zoomState = ref<TPdfZoomState>(createZoomState(initialState?.zoomMode ?? 'fit-width', zoom.value));
-    /** The one write path for zoom: a manual scale or a fit axis, as the viewer reports it. */
+    /** The one write path for zoom: commands, wheel and the viewer's own fit snaps. */
     function setZoomState(state: TPdfZoomState) {
+        // The request first: projections of both change with this one write.
+        zoomState.value = state;
         if (state.kind === 'custom') {
-            zoom.value = state.scale;
+            manualScale.value = state.scale;
         } else {
             rememberedFitAxis.value = state.axis;
         }
-        zoomState.value = state;
     }
-    const zoomMode = computed<TZoomMode>({
-        get: () => getZoomMode(zoomState.value),
-        set: mode => setZoomState(createZoomState(mode, zoom.value)),
-    });
-    const fitMode = computed<TFitMode>({
-        get: () => zoomState.value.kind === 'fit' ? zoomState.value.axis : rememberedFitAxis.value,
-        set: (axis) => {
-            rememberedFitAxis.value = axis;
-            if (zoomState.value.kind === 'fit') {
-                setZoomState(createZoomState(axis === 'height' ? 'fit-height' : 'fit-width', zoom.value));
-            }
+    const zoom = computed(() => zoomState.value.kind === 'custom' ? zoomState.value.scale : manualScale.value);
+    const zoomMode = computed<TZoomMode>(() => getZoomMode(zoomState.value));
+    const fitMode = computed<TFitMode>(() => zoomState.value.kind === 'fit' ? zoomState.value.axis : rememberedFitAxis.value);
+    const zoomAccess: IZoomStateAccess = {
+        get state() {
+            return zoomState.value;
         },
-    });
-    watch(zoom, (scale) => {
-        if (zoomState.value.kind === 'custom') {
-            zoomState.value = createZoomState('custom', scale);
-        }
-    }, {flush: 'sync'});
+        get manualScale() {
+            return zoom.value;
+        },
+        set: setZoomState,
+    };
     const viewMode = ref<TPdfViewMode>(initialState?.viewMode ?? 'single');
     const viewRotation = ref<TPdfViewRotation>(initialState?.viewRotation ?? 0);
     const currentPage = computed(() => resolveDocumentViewportCurrentPage(openSurface.viewportSession.value));
@@ -164,7 +162,6 @@ export const useWorkspaceViewerShellState = (
     const dragMode = ref(false);
     const continuousScroll = ref(initialState?.continuousScroll ?? true);
     const showSidebar = ref(initialState?.showSidebar ?? false);
-    const showSettings = ref(false);
     const sidebarTab = ref<TDocumentSidebarTab>(initialState?.sidebarTab ?? 'thumbnails');
 
     return {
@@ -189,6 +186,7 @@ export const useWorkspaceViewerShellState = (
         effectiveZoom,
         zoomState,
         setZoomState,
+        zoomAccess,
         zoomMode,
         fitMode,
         viewMode,
@@ -201,7 +199,6 @@ export const useWorkspaceViewerShellState = (
         dragMode,
         continuousScroll,
         showSidebar,
-        showSettings,
         sidebarTab,
     };
 };

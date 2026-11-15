@@ -60,8 +60,13 @@ export function applyAgentOcrOptionsToSettings(
     availableLanguageCodes: ReadonlySet<string>,
 ) {
     const parsedOptions = parseAgentOcrRunOptions(options);
+    // A profile supplies defaults before the agent's explicit options override them.
+    const profileSettings = parsedOptions.qualityProfile !== undefined
+        && parsedOptions.qualityProfile !== currentSettings.qualityProfile
+        ? resolveQualityProfileSettings(currentSettings, parsedOptions.qualityProfile, currentSettings.qualityProfile)
+        : currentSettings;
     const nextSettings = {
-        ...currentSettings,
+        ...profileSettings,
         selectedLanguages: [...currentSettings.selectedLanguages],
     };
 

@@ -10,9 +10,9 @@ import {
 import { requirePageNumber } from '@contracts/pageNumbers';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import type {
+    IZoomStateAccess,
     TPdfViewRotation,
     TPdfViewMode,
-    TPdfZoomState,
     TPrintOrientation,
 } from '@contracts/shared';
 import {
@@ -471,7 +471,8 @@ export interface IWorkspaceDocumentDriverBindingOptions {
     viewRotation: Ref<TPdfViewRotation>;
     workingCopyPath: Ref<TDocumentRef | null>;
     originalPath: Ref<TDocumentRef | null>;
-    zoomState: Ref<TPdfZoomState>;
+    /** The view's zoom owner. Renderers get it whole and read it directly. */
+    zoom: IZoomStateAccess;
     onAnnotationCommentClick: unknown;
     onAnnotationComments: unknown;
     onAnnotationInventory: TAnnotationInventoryListener;
@@ -493,7 +494,6 @@ export interface IWorkspaceDocumentDriverBindingOptions {
     onSourceCapabilitiesUpdate: (capabilities: IDocumentSourceCapabilities) => void;
     onPageSourceUpdate: (source: IDocumentPageSource | null) => void;
     onTotalPagesUpdate: (value: number) => void;
-    onZoomStateUpdate: (value: TPdfZoomState) => void;
 }
 
 export const useWorkspaceDocumentDriverBinding = (options: IWorkspaceDocumentDriverBindingOptions) => {
@@ -506,7 +506,7 @@ export const useWorkspaceDocumentDriverBinding = (options: IWorkspaceDocumentDri
     function createViewerProps(source: TPdfSource | TDocumentRef | null) {
         return {
             src: source,
-            zoomState: options.zoomState.value,
+            zoom: options.zoom,
             viewMode: resolveWorkspaceViewerViewMode(
                 options.activeDocumentDriver.value.capabilities,
                 options.viewMode.value,
@@ -566,7 +566,6 @@ export const useWorkspaceDocumentDriverBinding = (options: IWorkspaceDocumentDri
     const activeViewerComponent = computed(() => options.activeDocumentDriver.value.view.component);
 
     const nativeViewerListeners = {
-        'update:zoomState': options.onZoomStateUpdate,
         'update:totalPages': options.onTotalPagesUpdate,
         'update:document': options.onDocumentUpdate,
         loading: options.onLoading,

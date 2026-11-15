@@ -18,6 +18,7 @@ import { runGuardedTask } from '@app/utils/asyncGuard';
 import { readPdfDocumentLoadedRevision } from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentLoadedRevision';
 import type {TDocumentRef} from '@contracts/documentRef';
 import type {TDocumentRevisionToken} from '@contracts/documentRevision';
+import { isRecord } from '@contracts/runtimeGuards';
 
 export const usePageLabelState = (deps: {
     pdfDocument: Readonly<Ref<IPdfDocument | null>>;
@@ -155,30 +156,12 @@ export const usePageLabelState = (deps: {
             let labels: string[] | null = null;
             let compactRanges: IPdfPageLabelRange[] | null = null;
             if (readPageLabelRanges && sourcePath !== null) {
-                // Read the compact catalog first: even one PDF.js label can
-                // expand an alphabetic /St into millions of characters.
+                // Bound /St expansion.
                 compactRanges = await readPageLabelRanges();
             } else if (doc.numPages <= PAGE_LABEL_DENSE_READ_MAX_PAGES) {
-                try {
-                    const raw = await doc.getPageLabels();
-                    if (raw === null) {
-                        labels = null;
-                    } else if (raw.length === doc.numPages && raw.every(label => typeof label === 'string')) {
-                        labels = raw;
-                    } else {
-                        BrowserLogger.debug(
-                            'page-labels',
-                            'Received invalid page labels from PDF document',
-                            {pageCount: doc.numPages},
-                        );
-                        return;
-                    }
-                } catch (error) {
-                    BrowserLogger.warn(
-                        'page-labels',
-                        'Failed to read page labels from PDF document',
-                        error,
-                    );
+                labels = await doc.getPageLabels();
+                if (labels && (labels.length !== doc.numPages || labels.some(label => typeof label !== 'string'))) {
+                    BrowserLogger.debug('page-labels', 'Received invalid page labels from PDF document', {pageCount: doc.numPages});
                     return;
                 }
             } else {
@@ -199,7 +182,10 @@ export const usePageLabelState = (deps: {
             resolvedDocumentBytes = sourceBytes;
             resolvedThisSync = true;
         } catch (error) {
-            BrowserLogger.warn('page-labels', 'Failed to resolve page labels from PDF catalog', error);
+            if (!isCurrentSync()) return;
+            const gone = isRecord(error) && (error.name === 'NotFoundError' || error.code === 'ENOENT'
+                || /FileReader.*could not be found/iu.test(String(error.message)));
+            BrowserLogger[gone ? 'debug' : 'warn']('page-labels', 'Failed to read page labels', error);
         } finally {
             if (isCurrentSync() && resolvedThisSync) {
                 pageLabelsResolved.value = true;

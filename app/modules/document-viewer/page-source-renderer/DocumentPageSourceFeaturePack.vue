@@ -40,7 +40,7 @@
 </template>
 <script setup lang="ts">
 import {
-    FIT_WIDTH_ZOOM_STATE,
+    DETACHED_ZOOM_ACCESS,
     getZoomMode,
 } from '@contracts/shared';
 import DocumentPageSourcePageVisual from '@app/modules/document-viewer/page-source-renderer/DocumentPageSourcePageVisual.vue';
@@ -62,7 +62,7 @@ const {
     searchResults = [],
     src,
     viewMode = 'single',
-    zoomState = FIT_WIDTH_ZOOM_STATE,
+    zoom = DETACHED_ZOOM_ACCESS,
 } = defineProps<IDocumentPageSourceFeaturePackProps>();
 const emit = defineEmits<IDocumentPageSourceFeaturePackEmit>();
 const runtime = reactive(useDocumentPageSourceRuntime({
@@ -75,9 +75,10 @@ const runtime = reactive(useDocumentPageSourceRuntime({
         isResizing,
         src,
         viewMode,
-        zoom: zoomState.kind === 'custom' ? zoomState.scale : 1,
-        zoomMode: getZoomMode(zoomState),
+        zoom: zoom.state.kind === 'custom' ? zoom.state.scale : 1,
+        zoomMode: getZoomMode(zoom.state),
     }),
+    readZoom: () => zoom,
 }));
 const viewerRuntime = injectDocumentViewerRuntime();
 function shouldDeferSkeleton(pageNumber: number) {

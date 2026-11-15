@@ -14,6 +14,7 @@ import {createElectronE2ESessionFixture} from '@tests/e2e/electron/helpers/creat
 import {
     activateMenuItemAsUser,
     clickAsUser,
+    clickFoundAsUser,
 } from '@tests/e2e/electron/helpers/userInput';
 import {
     openDocumentSidebarTab,
@@ -23,7 +24,7 @@ import {
 } from '@tests/e2e/electron/helpers/viewerCore';
 import {readWorkspaceStateValues} from '@tests/e2e/electron/helpers/workspaceExpose';
 import {
-    readPdfPageSnapshots, readPdfCatalogWithPdfjs,
+    readPdfPageSnapshots, readPdfCatalogWithPdfjs, createScannedTextFixturePdf,
 } from '@tests/e2e/electron/helpers/fixtures';
 import type {IWorkspaceAutomationStateSnapshot} from '@app/types/workspaceExpose';
 import type {IE2EWindow} from '@tests/e2e/electron/helpers/e2EWindow';
@@ -156,6 +157,42 @@ describe('Electron E2E - assistant draft revision', () => {
         expect((await readPdfCatalogWithPdfjs(pdfPath)).pageLabels?.[0]).toBe('A104-1');
     });
 
+
+    it('preserves explicit agent preprocessing when OCR changes the quality profile', async () => {
+        const session = fixture.getSession();
+        const {page} = session;
+        const pdfPath = await createScannedTextFixturePdf('p3-agent-preprocessing.pdf', 'Harbor lantern signal');
+        await page.evaluate(async () => {
+            await (window as IE2EWindow).electronAPI?.settings.save({assistantPanelEnabled: true});
+        });
+        await page.reload();
+        await openPdfInApp(page, pdfPath);
+        await waitForPdfLoaded(page);
+        await clickAsUser(page, 'button[aria-label="Toggle EVB Assistant"]');
+        await page.waitForSelector('.composer-input:not(:disabled)', {visible: true});
+        await clickAsUser(page, '.composer-input');
+        await page.keyboard.type('P3 agent OCR preprocessing');
+        await page.keyboard.press('Enter');
+        const reply = '.assistant-message:not(.is-user):last-of-type';
+        await page.waitForFunction(selector => document.querySelector(selector)?.textContent?.includes('ocr:'), {timeout: 180_000}, reply);
+        expect(await page.$eval(reply, element => element.textContent?.trim())).toContain('ocr:ok');
+        await page.waitForFunction(() => document.querySelector('.workspace-host[data-workspace-active="true"] .text-layer[data-pdf-text-layer-ready="true"]')?.textContent?.toLowerCase().includes('lantern'));
+        const openOcr = async () => {
+            await clickAsUser(page, '.editor-global-toolbar-shell button[aria-label="More tools"]');
+            await clickFoundAsUser(page, () => [...document.querySelectorAll('button, [role="menuitem"]')]
+                .find(element => element.checkVisibility() && element.textContent?.trim() === 'OCR'), undefined, {description: 'OCR'});
+            await page.waitForSelector('[role="dialog"]', {visible: true});
+        };
+        await openOcr();
+        await clickFoundAsUser(page, () => [...document.querySelectorAll('[role="dialog"] button')]
+            .find(element => element.checkVisibility() && element.textContent?.trim() === 'Close'), undefined, {description: 'Close OCR results'});
+        await page.waitForSelector('[role="dialog"]', {hidden: true});
+        await openOcr();
+        await page.waitForSelector('[role="dialog"] [role="radio"][value="off"]', {visible: true});
+        await session.command('screenshot', ['p3-agent-preprocessing']);
+        expect(await page.$eval('[role="dialog"] [role="radio"][value="poor-scan"]', element => element.getAttribute('aria-checked'))).toBe('true');
+        expect(await page.$eval('[role="dialog"] [role="radio"][value="off"]', element => element.getAttribute('aria-checked'))).toBe('true');
+    }, 180_000);
 
     // The turn follows its own native page edit before issuing its next command.
     it('1544 lets one assistant turn rotate, read and save its selected page', async () => {

@@ -33,8 +33,6 @@ export {
 export {
     type IDocumentPageRange,
 } from '@app/modules/document-viewer/documentPageRange';
-export { createDocumentThumbnailResizeAnchorLifecycle } from '@app/modules/document-viewer/thumbnails/createDocumentThumbnailResizeAnchorLifecycle';
-export { createDocumentThumbnailScrollRestorer } from '@app/modules/document-viewer/thumbnails/createDocumentThumbnailScrollRestorer';
 export {
     createDocumentTransitionChannel, type IDocumentTransition,
 } from '@app/modules/document-viewer/lifecycle/createDocumentTransitionChannel';
@@ -113,7 +111,9 @@ export { toLocalRect } from '@app/modules/document-viewer/region-geometry/toLoca
 export { unionClientRects } from '@app/modules/document-viewer/region-geometry/unionClientRects';
 export { useDocumentBookmarkSession } from '@app/modules/document-viewer/bookmarks/useDocumentBookmarkSession';
 export { useDocumentSidebarCapabilitySession } from '@app/modules/document-viewer/sidebar/useDocumentSidebarCapabilitySession';
-export { useDocumentThumbnailController } from '@app/modules/document-viewer/thumbnails/useDocumentThumbnailController';
+export {
+    placeDocumentThumbnailRailsWithin, useDocumentThumbnailController,
+} from '@app/modules/document-viewer/thumbnails/useDocumentThumbnailController';
 export {
     PDF_PAGE_METRICS_DENSE_LIMIT, cloneSparsePageMetrics, forEachKnownPageMetric, getIndexedValue, getPageMetricMaximum, normalizePageMetrics, projectPdfPageMetricForView, type IPdfLazyIndexedCollection,
 } from '@app/modules/document-viewer/layout/normalizePageMetrics';

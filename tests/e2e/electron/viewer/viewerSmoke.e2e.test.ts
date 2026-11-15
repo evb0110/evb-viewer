@@ -1379,6 +1379,61 @@ interface ISkeletonFlashProbeWindow extends Window {__skeletonFlashProbe?: ISkel
 describe('Electron E2E - Viewer Smoke', () => {
     const sessionFixture = createElectronE2ESessionFixture({sessionName: () => `e2e-viewer-smoke-${Date.now()}`});
 
+    it('keeps the thumbnail rail in the middle after deleting a visible middle page', async () => {
+        const session = sessionFixture.getSession();
+        const {page} = session;
+        await session.command('windowResize', [1280, 900]);
+        const fixturePath = await createMultiPageTextFixturePdf(`thumbnail-delete-middle-${Date.now()}.pdf`, 144);
+        onTestFinished(() => rm(fixturePath, {force: true}));
+        await openPdfInApp(page, fixturePath, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await waitForPdfLoaded(page, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await ensureSidebarOpen(page);
+        await openDocumentSidebarTab(page, 'Pages');
+        const railSelector = '.editor-pane.is-active [data-document-thumbnail-rail]';
+        const middle = await page.$eval(railSelector, element => {
+            const rect = element.getBoundingClientRect();
+            return {
+                x: rect.left + rect.width / 2,
+                y: rect.top + rect.height / 2,
+                top: Math.floor((element.scrollHeight - element.clientHeight) / 2),
+            };
+        });
+        await page.mouse.move(middle.x, middle.y);
+        await page.mouse.wheel({deltaY: middle.top});
+        await waitForFunctionInPage(page, (target: number) => {
+            const rail = document.querySelector<HTMLElement>('.editor-pane.is-active [data-document-thumbnail-rail]');
+            return rail !== null && Math.abs(rail.scrollTop - target) < 2;
+        }, {timeout: 10_000}, middle.top);
+        const firstFullyVisiblePage = () => page.$eval(railSelector, element => {
+            const bounds = element.getBoundingClientRect();
+            const row = Array.from(element.querySelectorAll<HTMLElement>('[data-thumbnail-page]')).find(candidate => {
+                const rect = candidate.getBoundingClientRect();
+                return rect.top >= bounds.top && rect.bottom <= bounds.bottom;
+            });
+            return row ? Number(row.dataset.thumbnailPage) : null;
+        });
+        await expect.poll(firstFullyVisiblePage).not.toBeNull();
+        const before = (await firstFullyVisiblePage())!;
+        expect(before).toBeGreaterThan(60);
+        expect(before).toBeLessThan(85);
+        await clickAsUser(page, `[data-thumbnail-page="${before}"] .pdf-thumbnail-selection-toggle`);
+        await clickAsUser(page, 'button[aria-label="Delete Pages"]');
+        await waitForFunctionInPage(page, () => (
+            document.querySelector('.page-controls-display')?.textContent?.includes('143')
+            || Array.from(document.querySelectorAll('[role="dialog"] button')).some(button => button.textContent?.trim() === 'Delete')
+        ), {timeout: 30_000});
+        if (await page.$('[role="dialog"]')) {
+            await clickFoundAsUser(page, () => Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"] button'))
+                .find(button => button.textContent?.trim() === 'Delete'), undefined, {description: 'confirm middle page deletion'});
+        }
+        await waitForFunctionInPage(page, () => document.querySelector('.page-controls-display')?.textContent?.includes('143'), {timeout: 30_000});
+        await waitForViewerInteractive(page);
+        await expect.poll(async () => {
+            const after = await firstFullyVisiblePage();
+            return after === null ? Number.POSITIVE_INFINITY : Math.abs(after - before);
+        }, {timeout: 10_000}).toBeLessThanOrEqual(2);
+    }, 90_000);
+
     it('shows only placeholders or sharp thumbnails and honors a click during a wheel tail', async () => {
         const {page} = sessionFixture.getSession();
         await page.setViewport({

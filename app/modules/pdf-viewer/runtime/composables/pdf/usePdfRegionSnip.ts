@@ -35,7 +35,7 @@ interface IUsePdfRegionSnipOptions {
     viewerContainer: Ref<HTMLElement | null>;
     document: Pick<TPdfDocumentView, 'captureFence' | 'isCurrent' | 'subscribe' | 'registerDisposable'>;
     prepare: () => void | Promise<void>;
-    viewState: Pick<IPdfViewerProps, 'zoomState' | 'viewRotation' | 'isInteractionActive' | 'isActive' | 'isResizing' | 'viewMode'>;
+    viewState: Pick<IPdfViewerProps, 'zoom' | 'viewRotation' | 'isInteractionActive' | 'isActive' | 'isResizing' | 'viewMode'>;
 }
 interface ISnipSession {
     state: Exclude<TSnipState, 'idle'>;
@@ -65,7 +65,7 @@ const MIN_KEYBOARD_SELECTION_SIZE = 8;
 export const usePdfRegionSnip = (options: IUsePdfRegionSnipOptions) => {
     const session = shallowRef<ISnipSession | null>(null);
     const getViewState = () => [
-        JSON.stringify(options.viewState.zoomState),
+        JSON.stringify(options.viewState.zoom?.state),
         options.viewState.viewRotation,
         options.viewState.isInteractionActive,
         options.viewState.isActive,

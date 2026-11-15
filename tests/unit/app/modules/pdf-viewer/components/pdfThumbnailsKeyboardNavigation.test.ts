@@ -148,6 +148,27 @@ function pressKey(target: HTMLElement, key: string, init: KeyboardEventInit = {}
 }
 
 describe('PdfThumbnails keyboard navigation', () => {
+    it('places the PDF rail against the patched track after a clamp and geometry growth', async () => {
+        const {rail, state} = await mountThumbnails({totalPages: 500, currentPage: 1});
+        let maxScrollTop = 100;
+        let scrollTop = 0;
+        Object.defineProperty(rail, 'scrollTop', {
+            configurable: true,
+            get: () => scrollTop,
+            set: (value: number) => {
+                scrollTop = Math.min(Math.max(0, value), maxScrollTop);
+            },
+        });
+        rail.scrollTop = 500;
+        expect(rail.scrollTop).toBe(100);
+        state.currentPage = 20;
+        await nextTick();
+        maxScrollTop = 20_000;
+        await settleDocumentThumbnailList();
+        expect(rail.scrollTop).toBeGreaterThan(100);
+        expect(row(rail, 20)).not.toBeNull();
+    });
+
     it('exposes listbox semantics with one roving tab stop on the current page', async () => {
         const {
             host,

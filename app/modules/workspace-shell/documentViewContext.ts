@@ -57,7 +57,6 @@ interface IDocumentViewContextDeps {
     /** Runs a user open as the document controller's open transaction in this view. */
     runDocumentOpen: (request: IWorkspaceOpenRequest, run: () => Promise<boolean>) => Promise<boolean>;
     emitOpenInNewTab: (result: TDocumentRef | TOpenFileResult) => void;
-    emitOpenSettings: () => void;
 }
 interface IDocumentViewBindingOptions {
     mountPresentation: Ref<boolean>;
@@ -284,9 +283,8 @@ export const createDocumentViewContext = (deps: IDocumentViewContextDeps) => {
         }
     });
     const navigation = useWorkspaceViewState({
-        fitMode: view.fitMode,
         zoomMode: view.zoomMode,
-        zoom: view.zoom,
+        setZoomState: view.setZoomState,
         dragMode: view.dragMode,
         showSidebar: view.showSidebar,
         sidebarTab: view.sidebarTab,
@@ -362,10 +360,10 @@ export const createDocumentViewContext = (deps: IDocumentViewContextDeps) => {
         annotationSettings: annotations.annotationSettings,
         viewMode: view.viewMode,
         continuousScroll: view.continuousScroll,
-        fitMode: view.fitMode,
+        zoomState: view.zoomState,
+        setZoomState: view.setZoomState,
         zoom: view.zoom,
         effectiveZoom: view.effectiveZoom,
-        zoomMode: view.zoomMode,
         pdfSrc,
         preserveInitialStateForFirstSource,
         documentViewerRef: view.documentViewerRef,
@@ -479,14 +477,6 @@ export const createDocumentViewContext = (deps: IDocumentViewContextDeps) => {
         createQuickNote: annotationActions.handleQuickNoteAction,
     });
 
-    watch(view.showSettings, (value) => {
-        if (!value) {
-            return;
-        }
-        deps.emitOpenSettings();
-        view.showSettings.value = false;
-    });
-
     function bindDocumentView(options: IDocumentViewBindingOptions) {
         const hiddenSearchPageMatches = new Map<number, IPdfPageMatches>();
         const searchShown = computed(() => isActive.value && view.showSidebar.value);
@@ -543,7 +533,7 @@ export const createDocumentViewContext = (deps: IDocumentViewContextDeps) => {
             workingCopyPath,
             originalPath,
             documentRevisionToken,
-            zoomState: view.zoomState,
+            zoom: view.zoomAccess,
             onAnnotationCommentClick: annotationActions.handleAnnotationCommentClick,
             onAnnotationComments: handleAnnotationComments,
             onAnnotationInventory: annotations.applyAnnotationInventory,
@@ -573,7 +563,6 @@ export const createDocumentViewContext = (deps: IDocumentViewContextDeps) => {
                     totalPages.value = value;
                 }
             },
-            onZoomStateUpdate: view.setZoomState,
         });
     }
 

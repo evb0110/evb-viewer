@@ -655,17 +655,11 @@ describe('useOcrPopupPresenter', () => {
         const harness = createPresenterHarness();
 
         try {
-            harness.ocr.settings.value = {
-                ...harness.ocr.settings.value,
-                qualityProfile: 'poor-scan',
-            };
+            harness.presenter.qualityProfileModel.value = 'poor-scan';
             await nextTick();
             expect(harness.ocr.settings.value.preprocessingMode).toBe('clean');
 
-            harness.ocr.settings.value = {
-                ...harness.ocr.settings.value,
-                qualityProfile: 'balanced',
-            };
+            harness.presenter.qualityProfileModel.value = 'balanced';
             await nextTick();
             expect(harness.ocr.settings.value.preprocessingMode).toBe('off');
 
@@ -673,11 +667,29 @@ describe('useOcrPopupPresenter', () => {
                 ...harness.ocr.progress.value,
                 isRunning: true,
             };
-            harness.ocr.settings.value = {
-                ...harness.ocr.settings.value,
-                qualityProfile: 'poor-scan',
-            };
+            harness.presenter.qualityProfileModel.value = 'poor-scan';
             await nextTick();
+            expect(harness.ocr.settings.value.preprocessingMode).toBe('off');
+        } finally {
+            stopHarness(harness.scope);
+        }
+    });
+
+    it.each(['balanced', 'poor-scan'] as const)('preserves explicit agent preprocessing from the %s profile', async (initialProfile) => {
+        const harness = createPresenterHarness();
+
+        try {
+            harness.presenter.qualityProfileModel.value = initialProfile;
+            await nextTick();
+            expect(harness.ocr.settings.value.preprocessingMode).toBe(initialProfile === 'poor-scan' ? 'clean' : 'off');
+
+            await harness.presenter.runOcrForAgent({
+                open: false,
+                qualityProfile: 'poor-scan',
+                preprocessingMode: 'off',
+            });
+            await nextTick();
+            expect(harness.ocr.settings.value.qualityProfile).toBe('poor-scan');
             expect(harness.ocr.settings.value.preprocessingMode).toBe('off');
         } finally {
             stopHarness(harness.scope);

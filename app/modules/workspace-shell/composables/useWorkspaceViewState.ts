@@ -1,6 +1,7 @@
 import type { Ref } from 'vue';
 import type {
     TFitMode,
+    TPdfZoomState,
     TZoomMode,
 } from '@contracts/shared';
 import type {
@@ -23,9 +24,8 @@ import {
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 
 interface IWorkspaceViewStateDeps {
-    fitMode: Ref<TFitMode>;
-    zoomMode: Ref<TZoomMode>;
-    zoom: Ref<number>;
+    zoomMode: Readonly<Ref<TZoomMode>>;
+    setZoomState: (state: TPdfZoomState) => void;
     dragMode: Ref<boolean>;
     showSidebar: Ref<boolean>;
     sidebarTab: Ref<TPdfSidebarTab>;
@@ -94,9 +94,10 @@ export const useWorkspaceViewState = (deps: IWorkspaceViewStateDeps) => {
         // scroll layout and could silently move page 2 to page 3. It is the
         // reader's command (toolbar, menu, keyboard), a move of the view.
         deps.documentViewerRef.value?.observeReaderCommand?.();
-        deps.zoom.value = 1;
-        deps.fitMode.value = mode;
-        deps.zoomMode.value = mode === 'height' ? 'fit-height' : 'fit-width';
+        deps.setZoomState({
+            kind: 'fit',
+            axis: mode,
+        });
     }
 
     function enableDragMode() {

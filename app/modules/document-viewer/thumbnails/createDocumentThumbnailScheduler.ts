@@ -45,7 +45,6 @@ interface ICommittedEntry extends IDocumentThumbnailCommittedState {
 
 interface IActiveEntry {
     controller: AbortController;
-    generation: number;
     key: string;
 }
 
@@ -102,7 +101,6 @@ export function createDocumentThumbnailScheduler(options: IDocumentThumbnailSche
     const desired = new Map<number, IDocumentThumbnailDemand>();
     const queued = new Map<number, IDocumentThumbnailDemand>();
     const idleWaiters = new Set<() => void>();
-    let generation = 0;
     let activeCount = 0;
     let disposed = false;
 
@@ -174,11 +172,9 @@ export function createDocumentThumbnailScheduler(options: IDocumentThumbnailSche
     async function startRender(demand: IDocumentThumbnailDemand) {
         const pageNumber = demand.pageNumber;
         const controller = new AbortController();
-        const renderGeneration = generation;
         const key = demandKey(demand);
         const activeEntry = {
             controller,
-            generation: renderGeneration,
             key,
         };
         active.set(pageNumber, activeEntry);
@@ -224,7 +220,6 @@ export function createDocumentThumbnailScheduler(options: IDocumentThumbnailSche
             const latestDemand = desired.get(pageNumber);
             if (
                 disposed
-                || generation !== renderGeneration
                 || !latestDemand
                 || demandKey(latestDemand) !== key
             ) {
@@ -337,7 +332,6 @@ export function createDocumentThumbnailScheduler(options: IDocumentThumbnailSche
     }
 
     function reset() {
-        generation += 1;
         desired.clear();
         queued.clear();
         active.forEach(entry => entry.controller.abort());

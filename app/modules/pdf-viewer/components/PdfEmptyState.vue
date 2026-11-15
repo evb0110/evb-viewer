@@ -13,7 +13,7 @@
                         class="rail-item"
                         :class="{ 'is-active': activeSection === 'recent' }"
                         :aria-current="activeSection === 'recent' ? 'page' : undefined"
-                        @click="setActiveSection('recent')"
+                        @click="activeSection = 'recent'"
                     >
                         <UIcon name="i-ph-clock" class="rail-item-icon" />
                         <span>{{ t('emptyState.recentFiles') }}</span>
@@ -29,7 +29,7 @@
                         :class="{ 'is-active': activeSection === 'combine' }"
                         :aria-current="activeSection === 'combine' ? 'page' : undefined"
                         :disabled="openInProgress"
-                        @click="setActiveSection('combine')"
+                        @click="activeSection = 'combine'"
                     >
                         <UIcon name="i-ph-stack-plus" class="rail-item-icon" />
                         <span>{{ t('dialogs.combineFiles') }}</span>
@@ -42,7 +42,7 @@
                         class="rail-item"
                         :class="{ 'is-active': activeSection === 'settings' }"
                         :aria-current="activeSection === 'settings' ? 'page' : undefined"
-                        @click="setActiveSection('settings')"
+                        @click="activeSection = 'settings'"
                     >
                         <UIcon name="i-ph-gear" class="rail-item-icon" />
                         <span>{{ t('toolbar.settings') }}</span>
@@ -95,7 +95,7 @@
                     :show-eyebrow="false"
                     :show-header="false"
                     :open-result="openCombineResult"
-                    @close="setActiveSection('recent')"
+                    @close="activeSection = 'recent'"
                 />
                 <SettingsPage
                     v-else
@@ -103,7 +103,7 @@
                     :show-back="false"
                     :show-eyebrow="false"
                     :show-header="false"
-                    @close="setActiveSection('recent')"
+                    @close="activeSection = 'recent'"
                 />
             </main>
         </div>
@@ -160,21 +160,16 @@ const emit = defineEmits<{
 }>();
 const { t } = useTypedI18n();
 const openPanelButtonId = useId();
-const activeSection = ref<TStartSection>(startSection);
+// The shell owns the chosen section per tab; this view reads and requests it.
+const activeSection = computed({
+    get: () => startSection,
+    set: (section: TStartSection) => emit('update:start-section', section),
+});
 const recentSearch = ref('');
 
 function openFile() {
     emit('open-file');
 }
-
-function setActiveSection(section: TStartSection) {
-    activeSection.value = section;
-    emit('update:start-section', section);
-}
-
-watch(() => startSection, (section) => {
-    activeSection.value = section;
-}, { immediate: true });
 
 </script>
 
