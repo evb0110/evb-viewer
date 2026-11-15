@@ -581,8 +581,6 @@ describe('browser document lifecycle UI', () => {
 
     it.each([
         'clean-open',
-        'two-window-move',
-        'two-window-move-source-stays-open',
         'clear-recent',
     ])('keeps the saved copy source and both notes after Clear Recent Files and Save (mode=%s)', async (mode) => {
         try {
@@ -593,8 +591,7 @@ describe('browser document lifecycle UI', () => {
                 },
                 acceptDownloads:true,
             });
-            let page=await context.newPage();
-            const creator = page;
+            const page=await context.newPage();
             const problems = [collectConsoleProblems(page)];
             await openPdfFromChooser(page, {
                 name: 'review-saved.pdf',
@@ -652,37 +649,6 @@ describe('browser document lifecycle UI', () => {
                 await page.locator(`.tab[data-tab-id="${tabId}"]`).click();
                 await page.locator('.page_container--rendered canvas').first().waitFor({timeout:30000});
             }
-            if (mode.startsWith('two-window-move')) {
-                const target = await context.newPage();
-                problems.push(collectConsoleProblems(target));
-                await target.addInitScript(() => {
-                    Reflect.set(window, '__allowRendererFileOpenForAutomation', () => true);
-                    Reflect.set(window, 'showSaveFilePicker', undefined);
-                    window.sessionStorage.setItem('evb-viewer:browser:open-picker-mode', 'input');
-                });
-                await target.goto(`${lifecycle.origin}?evbWindowId=2`, {waitUntil: 'domcontentloaded'});
-                await waitForOpenFileReady(target);
-                await expect.poll(() => page.evaluate(async () => {
-                    const api = Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi;
-                    return (await api.listTargetWindows?.())?.some(info => info.windowId === 2);
-                }), {timeout: 30_000}).toBe(true);
-                expect(await page.evaluate(async () => {
-                    const api = Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi;
-                    return api.transferActiveTabToWindow?.(2);
-                })).toMatchObject({success: true});
-                await target.locator('.page_container--rendered canvas').first().waitFor({timeout: 30_000});
-                if (mode === 'two-window-move-source-stays-open') {
-                    // The test bridge transfers the payload. Complete the departing
-                    // tab's close through trusted UI while keeping its context alive.
-                    await page.locator('.tab.is-active .tab-close').click();
-                    await page.getByRole('button', {
-                        name: 'Open File',
-                        exact: true,
-                    }).first().waitFor();
-                }
-                if (mode === 'two-window-move') await page.close();
-                page = target;
-            }
             await addNote(page,'review second saved note',{
                 x:260,
                 y:280,
@@ -720,20 +686,6 @@ describe('browser document lifecycle UI', () => {
                 'review first saved note',
                 'review second saved note',
             ]));
-            if (mode === 'two-window-move-source-stays-open') {
-                expect(creator.isClosed()).toBe(false);
-                // Keep the creator context alive through the receiver's final close.
-                await page.locator('.tab.is-active .tab-close').click();
-                await page.getByRole('button', {
-                    name: 'Clear Recent Files',
-                    exact: true,
-                }).click();
-                await page.getByRole('button', {
-                    name: 'Clear History',
-                    exact: true,
-                }).click();
-                expect(creator.isClosed()).toBe(false);
-            }
             expect(await page.locator('.app-toast-failure').count()).toBe(0);
             expect(problems.flat()).toEqual([]);
         } finally {

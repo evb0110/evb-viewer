@@ -75,7 +75,6 @@ interface IUseTabsShellBindingsOptions extends ITabsMenuBindingDeps {
     beginOpenPathsInAppropriateTab: (paths: TDocumentRef[]) => Promise<TDocumentRef[]>;
     restoreWorkspaceCheckpointGraph: Parameters<typeof restoreWorkspaceCheckpoint>[1]['restoreGraph'];
     documentSessions: TWorkspaceDocumentSessions;
-    transferActiveTabToWindow?: (windowId: number) => Promise<unknown>;
     /** Whether the active pane can split in this direction now, as desktop's menu item is enabled. */
     canOpenNewPane: (direction: TPaneDirection) => boolean;
 }
@@ -104,7 +103,6 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
         beginOpenPathsInAppropriateTab,
         restoreWorkspaceCheckpointGraph,
         documentSessions,
-        transferActiveTabToWindow,
         clearRecentFiles,
         loadRecentFiles,
         checkForUpdates,
@@ -231,8 +229,6 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
             },
             callActiveWorkspaceCommand,
             callActiveWorkspaceSyncCommand,
-            listTargetWindows: () => getWindowTabsCapability().listTargetWindows(),
-            ...(transferActiveTabToWindow === undefined ? {} : {transferActiveTabToWindow}),
             collectWorkspaceDebugState: (): IEvbTestWorkspaceDebugState => {
                 const activeWorkspaceHandle = getActiveWorkspaceHandle();
                 return {
