@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import {setBrowserLogSink} from '@app/utils/browserLogger';
+import {BrowserLogger, setBrowserLogSink} from '@app/utils/browserLogger';
 import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import {
     describe,
@@ -8,6 +8,7 @@ import {
     vi,
 } from 'vitest';
 import {
+    effectScope,
     nextTick,
     ref,
 } from 'vue';
@@ -60,6 +61,81 @@ describe('usePageLabelState', () => {
             expect(state.pageLabelsResolved.value).toBe(false);
             expect(retained.join(' ')).toContain('Corrupt PageLabels number tree');
         } finally {setBrowserLogSink(() => {});}
+    });
+
+    describe.each(['PDF.js', 'compact catalog'])('%s read diagnostics', reader => {
+        function startRead(read: () => Promise<never>) {
+            const scope = effectScope();
+            const pdfDocument = createPdfDocumentRef(2, read);
+            const state = scope.run(() => usePageLabelState({
+                pdfDocument,
+                totalPages: ref(2),
+                markDirty: vi.fn(),
+                ...(reader === 'compact catalog' ? {
+                    workingCopyPath: ref(requireDocumentRef('/docs/labels.pdf')),
+                    readPageLabelRanges: read,
+                } : {}),
+            }))!;
+            return {scope, pdfDocument, state};
+        }
+
+        it('does not warn when a superseded read rejects', async () => {
+            const pending = createDeferred<void>();
+            const failure = new Error('Corrupt PageLabels number tree');
+            const warn = vi.spyOn(BrowserLogger, 'warn');
+            const {scope, pdfDocument, state} = startRead(async () => {
+                await pending.promise;
+                throw failure;
+            });
+            const settled = state.whenPageLabelsSettled();
+            try {
+                pdfDocument.value = null;
+                await nextTick();
+                pending.resolve();
+                await settled;
+                expect(warn).not.toHaveBeenCalled();
+            } finally {
+                scope.stop();
+                warn.mockRestore();
+            }
+        });
+
+        it.each([
+            new DOMException('Source handle is gone', 'NotFoundError'),
+            Object.assign(new Error('Source file is gone'), {name: 'NotFoundError'}),
+            Object.assign(new Error('Source file is gone'), {code: 'ENOENT'}),
+            new Error("Failed to execute 'readAsArrayBuffer' on 'FileReader': The requested file could not be found, typically due to reference problems that occur after a reference to a file is acquired."),
+        ])('does not warn for current source absence: $name $message', async failure => {
+            const warn = vi.spyOn(BrowserLogger, 'warn');
+            const debug = vi.spyOn(BrowserLogger, 'debug');
+            const {scope, state} = startRead(async () => {throw failure;});
+            try {
+                await state.whenPageLabelsSettled();
+                expect(warn).not.toHaveBeenCalled();
+                expect(debug).toHaveBeenCalledWith('page-labels', expect.any(String), failure);
+                expect(state.pageLabelsResolved.value).toBe(false);
+            } finally {
+                scope.stop();
+                warn.mockRestore();
+                debug.mockRestore();
+            }
+        });
+
+        it.each([
+            new Error('Corrupt PageLabels number tree'),
+            new DOMException('Source permission denied', 'NotAllowedError'),
+        ])('warns for an unexpected current failure: $name $message', async failure => {
+            const warn = vi.spyOn(BrowserLogger, 'warn');
+            const {scope, state} = startRead(async () => {throw failure;});
+            try {
+                await state.whenPageLabelsSettled();
+                expect(warn).toHaveBeenCalledWith('page-labels', expect.any(String), failure);
+                expect(state.pageLabelsResolved.value).toBe(false);
+            } finally {
+                scope.stop();
+                warn.mockRestore();
+            }
+        });
     });
 
     it('keeps accepted labels when the document arrives after the preserved revision scope ends', async () => {
