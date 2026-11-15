@@ -187,7 +187,7 @@ export class CodexAppServerClient {
     /** The last lines Codex wrote to stderr, without terminal colors. */
     diagnostic(maxLength = 400) {
         // eslint-disable-next-line no-control-regex
-        const text = sanitizeAssistantProviderText(this.stderrBuffer.text().replace(/\u001B\[[0-9;]*m/gu, '').trim());
+        const text = sanitizeAssistantProviderText(this.stderrBuffer.text().replace(/\u001B\[[0-9;]*m/gu, '').trim(), Infinity);
         return text.length > maxLength ? `…${text.slice(-maxLength)}` : text;
     }
 
@@ -405,7 +405,7 @@ export class CodexAppServerClient {
     }
 
     private getStderrDetail() {
-        const detail = sanitizeAssistantProviderText(this.stderrBuffer.text());
+        const detail = sanitizeAssistantProviderText(this.stderrBuffer.text(), Infinity).slice(-APP_SERVER_MAX_STDERR_BYTES);
         if (!detail) {
             return '';
         }
