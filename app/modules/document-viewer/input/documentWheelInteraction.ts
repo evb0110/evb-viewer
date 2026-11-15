@@ -2,8 +2,8 @@ import { ZOOM } from '@app/constants/pdfLayout';
 import { isMacClientPlatform } from '@app/utils/clientPlatform';
 import { clampDocumentManualZoom } from '@app/modules/document-viewer/zoomPolicy';
 import type {
+    IZoomStateAccess,
     TPdfZoomState,
-    TZoomMode,
 } from '@contracts/shared';
 
 const DOCUMENT_WHEEL_ZOOM_SENSITIVITY = 0.0016;
@@ -82,13 +82,9 @@ interface IDocumentWheelZoomInvalidTarget {
 interface IDocumentWheelZoomSink {
     effectiveZoom: number;
     emitZoom: (value: number) => void;
-    emitZoomMode: (mode: TZoomMode) => void;
-    zoomMode: TZoomMode;
 }
 
 interface IReadonlyValue<TValue> {readonly value: TValue;}
-
-type IDocumentWheelZoomEmit = (event: 'update:zoomState', value: TPdfZoomState) => void;
 
 interface IDocumentWheelZoomHandlerOptions {beforeZoom?: (interaction: IDocumentWheelInteraction, packetAt: number, startsNewSession: boolean) => void;}
 
@@ -255,29 +251,26 @@ export function consumeDocumentWheelZoomInteraction(
         options.packetAt ?? performance.now(),
         options.startsNewSession ?? true,
     );
-    if (sink.zoomMode !== 'custom') {
-        sink.emitZoomMode('custom');
-    }
     sink.emitZoom(target.nextZoom);
     return true;
 }
 
+/**
+ * A gesture starts from the scale shown and writes the view's zoom owner
+ * directly, so each packet reads the state the last one wrote. A state the
+ * gesture did not write is another command's, and starts a new gesture.
+ */
 export function createDocumentWheelZoomHandler(
     effectiveZoom: IReadonlyValue<number>,
-    zoomMode: IReadonlyValue<TZoomMode>,
-    emit: IDocumentWheelZoomEmit,
+    readZoom: () => IZoomStateAccess,
     options: IDocumentWheelZoomHandlerOptions & {
         readSessionKey?: () => unknown;
         onNonZoom?: () => void;
     } = {},
 ) {
     let session: (IDocumentWheelZoomAccumulator & {
-        effectiveZoom: number;
-        lastObservedEffectiveZoom: number;
-        lastObservedZoomMode: TZoomMode;
         lastPacketAt: number;
-        pendingEffectiveZooms: number[];
-        pendingZoomModes: TZoomMode[];
+        requested: TPdfZoomState;
         sessionKey: unknown;
     }) | null = null;
     const reset = () => {
@@ -290,32 +283,13 @@ export function createDocumentWheelZoomHandler(
             return false;
         }
         const packetAt = performance.now();
+        const zoom = readZoom();
         let activeSession = session;
-        if (activeSession !== null && activeSession.sessionKey !== options.readSessionKey?.()) {
+        if (
+            activeSession !== null
+            && (activeSession.sessionKey !== options.readSessionKey?.() || activeSession.requested !== zoom.state)
+        ) {
             activeSession = null;
-        }
-        if (activeSession !== null) {
-            const observedZoom = effectiveZoom.value;
-            if (Math.abs(observedZoom - activeSession.lastObservedEffectiveZoom) >= 0.001) {
-                const acknowledgedIndex = activeSession.pendingEffectiveZooms.findLastIndex(
-                    value => Math.abs(value - observedZoom) < 0.001,
-                );
-                if (acknowledgedIndex < 0) {
-                    activeSession = null;
-                } else {
-                    activeSession.lastObservedEffectiveZoom = observedZoom;
-                    activeSession.pendingEffectiveZooms.splice(0, acknowledgedIndex + 1);
-                }
-            }
-        }
-        if (activeSession !== null && zoomMode.value !== activeSession.lastObservedZoomMode) {
-            const acknowledgedIndex = activeSession.pendingZoomModes.lastIndexOf(zoomMode.value);
-            if (acknowledgedIndex < 0) {
-                activeSession = null;
-            } else {
-                activeSession.lastObservedZoomMode = zoomMode.value;
-                activeSession.pendingZoomModes.splice(0, acknowledgedIndex + 1);
-            }
         }
         let startsNewSession = false;
         if (
@@ -326,33 +300,25 @@ export function createDocumentWheelZoomHandler(
             startsNewSession = true;
             activeSession = {
                 cumulativeDelta: 0,
-                effectiveZoom: effectiveZoom.value,
-                lastObservedEffectiveZoom: effectiveZoom.value,
-                lastObservedZoomMode: zoomMode.value,
                 lastPacketAt: packetAt,
-                pendingEffectiveZooms: [],
-                pendingZoomModes: [],
+                requested: zoom.state,
                 sessionKey: options.readSessionKey?.(),
-                startZoom: effectiveZoom.value,
+                startZoom: zoom.state.kind === 'custom' ? zoom.state.scale : effectiveZoom.value,
             };
             session = activeSession;
         }
         activeSession.lastPacketAt = packetAt;
+        const requested = activeSession.requested;
         return consumeDocumentWheelZoomInteraction(interaction, {
-            effectiveZoom: activeSession.effectiveZoom,
-            zoomMode: zoomMode.value,
-            // A wheel zoom always leaves fit mode, so the mode switch and the
-            // scale reach the host as one custom zoom state.
-            emitZoomMode: (mode) => {
-                activeSession.pendingZoomModes.push(mode);
-            },
-            emitZoom: (value) => {
-                activeSession.effectiveZoom = value;
-                activeSession.pendingEffectiveZooms.push(value);
-                emit('update:zoomState', {
+            // A fit shows the scale its layout computed; a manual request is its scale.
+            effectiveZoom: requested.kind === 'custom' ? requested.scale : activeSession.startZoom,
+            // A wheel zoom always leaves fit mode: one custom zoom state.
+            emitZoom: (scale) => {
+                zoom.set({
                     kind: 'custom',
-                    scale: value,
+                    scale,
                 });
+                activeSession.requested = zoom.state;
             },
         }, {
             accumulator: activeSession,

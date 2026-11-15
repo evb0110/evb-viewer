@@ -1,4 +1,5 @@
-import { reactive } from 'vue';
+import { reactive, ref, shallowRef } from 'vue';
+import type { IZoomStateAccess, TPdfZoomState } from '@contracts/shared';
 import {
     describe,
     expect,
@@ -36,22 +37,35 @@ describe('usePdfViewerPropModel', () => {
     });
 
     it('derives zoom mode, fit axis and manual scale from one zoom state', () => {
+        const state = shallowRef<TPdfZoomState>({kind: 'custom', scale: 1.75});
+        const manualScale = ref(1.75);
+        const zoom: IZoomStateAccess = {
+            get state() {
+                return state.value;
+            },
+            get manualScale() {
+                return state.value.kind === 'custom' ? state.value.scale : manualScale.value;
+            },
+            set: (request) => {
+                state.value = request;
+                if (request.kind === 'custom') {
+                    manualScale.value = request.scale;
+                }
+            },
+        };
         const props = reactive<IPdfViewerProps>({
             src: null,
-            zoomState: {
-                kind: 'custom',
-                scale: 1.75,
-            },
+            zoom,
         });
         const model = usePdfViewerPropModel(props);
 
         expect(model.zoomMode.value).toBe('custom');
         expect(model.zoom.value).toBe(1.75);
 
-        props.zoomState = {
+        zoom.set({
             kind: 'fit',
             axis: 'height',
-        };
+        });
 
         expect(model.zoomMode.value).toBe('fit-height');
         expect(model.fitMode.value).toBe('height');

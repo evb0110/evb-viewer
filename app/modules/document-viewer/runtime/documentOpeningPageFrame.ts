@@ -1,12 +1,13 @@
 import type { ComputedRef } from 'vue';
 import { clamp } from 'es-toolkit/math';
 import type { IPdfSemanticAnchor } from '@contracts/recentReadingView';
-import type {
-    TFitMode,
-    TDocumentViewMode,
-    TPdfViewRotation,
-    TPdfZoomState,
-    TZoomMode,
+import {
+    DETACHED_ZOOM_ACCESS,
+    type IZoomStateAccess,
+    type TFitMode,
+    type TDocumentViewMode,
+    type TPdfViewRotation,
+    type TZoomMode,
 } from '@contracts/shared';
 import {
     requirePageIndex,
@@ -87,7 +88,8 @@ interface ICreateDocumentOpeningPageFrameOptions {
         height: number;
     };
     readonly readViewport?: () => HTMLElement | null;
-    readonly emitZoomState?: (state: TPdfZoomState) => void;
+    /** The view's zoom owner, which the opening view's wheel zoom writes. */
+    readonly readZoom?: () => IZoomStateAccess;
 }
 
 // The viewport keeps a stable scrollbar gutter: a page wider than the
@@ -388,10 +390,7 @@ export function createDocumentOpeningPageFrame(
                 ? width / projectPdfPageMetricForView(geometry, readFramePolicy(geometry).viewRotation ?? 0).width
                 : 1;
         }},
-        {get value() {
-            return options.readPolicy().zoomMode;
-        }},
-        (_event, state) => options.emitZoomState?.(state),
+        options.readZoom ?? (() => DETACHED_ZOOM_ACCESS),
         {beforeZoom: ({event}) => {
             const shellRect = readShell()?.getBoundingClientRect();
             const viewport = options.readViewport?.();

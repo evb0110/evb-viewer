@@ -62,10 +62,10 @@
 <script setup lang="ts">
 import type { Component } from 'vue';
 import {
-    FIT_WIDTH_ZOOM_STATE,
+    DETACHED_ZOOM_ACCESS,
     getZoomMode,
+    type IZoomStateAccess,
     type TPdfViewRotation,
-    type TPdfZoomState,
 } from '@contracts/shared';
 import { getHostCapability } from '@app/utils/getHostCapability';
 import { createDocumentViewerExposeForwarder } from '@app/modules/workspace-shell/viewers/createDocumentViewerExposeForwarder';
@@ -163,8 +163,10 @@ function readStringAttr<T extends string>(name: string, values: readonly T[], fa
     const value = attrs[name];
     return typeof value === 'string' && values.includes(value as T) ? value as T : fallback;
 }
+// The view's zoom owner, passed through to the feature pack as it is.
+const readZoom = () => attrs.zoom as IZoomStateAccess | undefined ?? DETACHED_ZOOM_ACCESS;
 function readZoomPolicy() {
-    const state = attrs.zoomState as TPdfZoomState | undefined ?? FIT_WIDTH_ZOOM_STATE;
+    const {state} = readZoom();
     return {
         fitMode: state.kind === 'fit' ? state.axis : 'width' as const,
         zoom: state.kind === 'custom' ? state.scale : 1,
@@ -204,7 +206,7 @@ const openingPageFrameAuthority = createDocumentOpeningPageFrame({
     }),
     readViewportSize: readOpeningViewportSize,
     readViewport: () => chassisAuthority.viewportElement.value,
-    emitZoomState: state => (attrs['onUpdate:zoomState'] as ((zoomState: TPdfZoomState) => void) | undefined)?.(state),
+    readZoom,
 });
 watch(
     () => chassisAuthority.viewportElement.value,
@@ -248,7 +250,7 @@ watch(
         () => chassisAuthority.openSurface.snapshot.value.phase,
         () => chassisAuthority.openSurface.snapshot.value.openingPageGeometry,
         () => chassisAuthority.openSurface.navigationTicket.value,
-        () => attrs.zoomState,
+        () => readZoom().state,
         () => attrs.viewMode,
         () => attrs.continuousScroll,
         () => rendererKind.value,

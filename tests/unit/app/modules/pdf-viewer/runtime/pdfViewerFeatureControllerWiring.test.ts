@@ -22,6 +22,7 @@ import {
     shallowRef,
 } from 'vue';
 import {usePdfCropSelection} from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfCropSelection';
+import { useWorkspaceViewerShellState } from '@app/modules/workspace-shell/composables/useWorkspaceViewerShellState';
 import { cast } from '@tests/helpers/cast';
 import { usePdfViewerFeatureController } from '@app/modules/pdf-viewer/runtime/usePdfViewerFeatureController';
 import {
@@ -112,8 +113,10 @@ function mountFeatureController(props: Partial<IPdfViewerProps> = {}) {
     }) as IPdfViewerEmit;
     const chassisAuthority = createDocumentViewerRuntime(ref<TDocumentPageSourceKind>('pdf'));
     let controller: TFeatureController | null = null;
+    const owner = useWorkspaceViewerShellState(null, chassisAuthority.openSurface);
     const viewerProps = {
         src: null,
+        zoom: owner.zoomAccess,
         ...props,
     };
     const app = createApp(defineComponent({setup() {
@@ -138,6 +141,7 @@ function mountFeatureController(props: Partial<IPdfViewerProps> = {}) {
     return {
         controller: controller as TFeatureController,
         emitted,
+        zoom: owner.zoomAccess,
     };
 }
 
@@ -212,12 +216,12 @@ describe('usePdfViewerFeatureController wiring', () => {
         harness.controller.handleViewerWheel(interaction);
 
         expect(interaction.event.preventDefault).toHaveBeenCalledTimes(1);
-        const zoomUpdate = harness.emitted.find(([event]) => event === 'update:zoomState');
-        expect(zoomUpdate?.[1]).toEqual({
+        const zoomUpdate = harness.zoom.state;
+        expect(zoomUpdate).toEqual({
             kind: 'custom',
             scale: expect.any(Number),
         });
-        expect((zoomUpdate?.[1] as {scale: number}).scale).toBeGreaterThan(1);
+        expect(zoomUpdate.kind === 'custom' && zoomUpdate.scale).toBeGreaterThan(1);
     });
 
     it('routes a plain wheel packet to the viewport session as a user interaction', () => {

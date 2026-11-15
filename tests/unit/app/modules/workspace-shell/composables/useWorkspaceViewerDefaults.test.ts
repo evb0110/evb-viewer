@@ -11,13 +11,13 @@ import {
 } from 'vue';
 import type { Ref } from 'vue';
 import { DEFAULT_ANNOTATION_SETTINGS } from '@app/constants/annotationDefaults';
+import { createDocumentOpenSurfaceSession } from '@app/modules/document-viewer/public';
+import { useWorkspaceViewerShellState } from '@app/modules/workspace-shell/composables/useWorkspaceViewerShellState';
 import { useWorkspaceViewerDefaults } from '@app/modules/workspace-shell/composables/useWorkspaceViewerDefaults';
 import type { TPdfSource } from '@app/types/pdfUi';
 import type {
     ISettingsData,
-    TFitMode,
     TPdfViewRotation,
-    TZoomMode,
 } from '@contracts/shared';
 import {
     DEFAULT_SETTINGS,
@@ -48,11 +48,21 @@ function createDefaultsSetup(
     const viewMode = ref<ISettingsData['defaultViewMode']>('facing');
     const viewRotation = ref<TPdfViewRotation>(0);
     const continuousScroll = ref(false);
-    const fitMode = ref<TFitMode>('height');
-    const zoom = ref(2);
+    const owner = scope.run(() => useWorkspaceViewerShellState({
+        surfaceMode: 'reader',
+        currentPage: 1,
+        zoom: 2,
+        zoomMode: 'custom',
+        fitMode: 'height',
+        viewMode: 'single',
+        showSidebar: false,
+        sidebarTab: 'thumbnails',
+        sidebarWidth: 272,
+        continuousScroll: true,
+    }, createDocumentOpenSurfaceSession()))!;
+    const {fitMode, zoom, zoomMode, zoomState, setZoomState} = owner;
     const runtimeZoom = ref(2);
     const effectiveZoom = computed(() => runtimeZoom.value);
-    const zoomMode = ref<TZoomMode>('custom');
     const pdfSrc = ref<TPdfSource | null>(null);
     const documentSourceKey = ref<unknown>(options.initialDocumentSourceKey ?? null);
 
@@ -62,10 +72,10 @@ function createDefaultsSetup(
         viewMode,
         viewRotation,
         continuousScroll,
-        fitMode,
+        zoomState,
+        setZoomState,
         zoom,
         effectiveZoom,
-        zoomMode,
         pdfSrc,
         documentSourceKey,
         preserveInitialStateForFirstSource: options.preserveInitialStateForFirstSource,
@@ -82,6 +92,8 @@ function createDefaultsSetup(
         viewRotation,
         continuousScroll,
         fitMode,
+        zoomState,
+        setZoomState,
         zoom,
         effectiveZoom,
         runtimeZoom,
@@ -109,7 +121,7 @@ describe('useWorkspaceViewerDefaults', () => {
         try {
             expect(setup.documentSourceKey.value).toBeNull();
             expect(setup.fitMode.value).toBe('width');
-            expect(setup.zoom.value).toBe(1);
+            expect(setup.zoom.value).toBe(2);
             expect(setup.effectiveZoom.value).toBe(2);
             expect(setup.zoomMode.value).toBe('fit-width');
             expect(setup.viewMode.value).toBe('single');
@@ -366,7 +378,7 @@ describe('useWorkspaceViewerDefaults', () => {
             await nextTick();
 
             expect(setup.fitMode.value).toBe('width');
-            expect(setup.zoom.value).toBe(1);
+            expect(setup.zoom.value).toBe(2);
             expect(setup.effectiveZoom.value).toBe(2);
             expect(setup.zoomMode.value).toBe('fit-width');
         } finally {
@@ -386,7 +398,7 @@ describe('useWorkspaceViewerDefaults', () => {
             await openPdf(setup.pdfSrc);
 
             expect(setup.fitMode.value).toBe('width');
-            expect(setup.zoom.value).toBe(1);
+            expect(setup.zoom.value).toBe(2);
             expect(setup.effectiveZoom.value).toBe(2);
             expect(setup.zoomMode.value).toBe('fit-width');
             expect(setup.viewMode.value).toBe('single');
@@ -411,7 +423,7 @@ describe('useWorkspaceViewerDefaults', () => {
             await openPdf(setup.pdfSrc);
 
             expect(setup.fitMode.value).toBe('height');
-            expect(setup.zoom.value).toBe(1);
+            expect(setup.zoom.value).toBe(2);
             expect(setup.effectiveZoom.value).toBe(2);
             expect(setup.zoomMode.value).toBe('fit-height');
         } finally {
@@ -490,9 +502,9 @@ describe('useWorkspaceViewerDefaults', () => {
 
         try {
             await openPdf(setup.pdfSrc);
-            setup.zoom.value = 1.44;
+            setup.setZoomState({kind: 'custom', scale: 1.44});
             setup.runtimeZoom.value = 1.44;
-            setup.zoomMode.value = 'fit-height';
+            setup.setZoomState({kind: 'fit', axis: 'height'});
             setup.viewMode.value = 'facing';
             setup.continuousScroll.value = false;
             setup.viewRotation.value = 90;
@@ -521,9 +533,8 @@ describe('useWorkspaceViewerDefaults', () => {
         try {
             setup.documentSourceKey.value = 'pdf:/docs/a.pdf';
             await nextTick();
-            setup.zoom.value = 5.33;
+            setup.setZoomState({kind: 'custom', scale: 5.33});
             setup.runtimeZoom.value = 5.33;
-            setup.zoomMode.value = 'custom';
             setup.viewMode.value = 'facing';
             setup.continuousScroll.value = false;
             setup.viewRotation.value = 90;
@@ -548,7 +559,7 @@ describe('useWorkspaceViewerDefaults', () => {
         try {
             setup.documentSourceKey.value = 'pdf:/docs/a.pdf';
             await nextTick();
-            setup.zoom.value = 1.44;
+            setup.setZoomState({kind: 'custom', scale: 1.44});
             setup.runtimeZoom.value = 1.44;
             setup.pdfSrc.value = new Blob(['refreshed'], {type: 'application/pdf'});
             await nextTick();
@@ -587,7 +598,7 @@ describe('useWorkspaceViewerDefaults', () => {
             setup.documentSourceKey.value = 'pdf:/docs/replacement.pdf';
             await nextTick();
 
-            expect(setup.zoom.value).toBe(1);
+            expect(setup.zoom.value).toBe(2);
             expect(setup.effectiveZoom.value).toBe(2);
             expect(setup.zoomMode.value).toBe('fit-width');
         } finally {

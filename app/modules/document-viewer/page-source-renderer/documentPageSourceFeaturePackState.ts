@@ -2,8 +2,8 @@ import type { ComponentPublicInstance } from 'vue';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import type {
+    IZoomStateAccess,
     TDocumentViewMode,
-    TPdfZoomState,
     TZoomMode,
 } from '@contracts/shared';
 import type { IDocumentSearchMatch } from '@app/modules/document-viewer/search/documentSearch';
@@ -163,7 +163,7 @@ export function createDocumentPageSourceLifecycle(options: {
 }
 export interface IDocumentPageSourceFeaturePackProps {
     src: TDocumentRef | null;
-    zoomState?: TPdfZoomState;
+    zoom?: IZoomStateAccess;
     viewMode?: TDocumentViewMode;
     continuousScroll?: boolean;
     documentRevisionToken?: TDocumentRevisionToken | null;
@@ -181,7 +181,6 @@ export type TDocumentPageSourceRuntimeProps = Required<Pick<
     zoomMode: TZoomMode;
 };
 export interface IDocumentPageSourceFeaturePackEmit {
-    (event: 'update:zoomState', value: TPdfZoomState): void;
     (event: 'update:totalPages', value: number): void;
     (event: 'update:sourceCapabilities', value: IDocumentSourceCapabilities): void;
     (event: 'loading', value: boolean): void;
