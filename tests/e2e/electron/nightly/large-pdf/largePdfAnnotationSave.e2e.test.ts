@@ -110,6 +110,21 @@ function hashFileSha256(filePath: string, maxBytes?: number) {
     });
 }
 
+async function hashDocumentSha256(page: Page, documentRef: TDocumentRef) {
+    return page.evaluate(async (ref) => {
+        const files = window.electronAPI?.documentFiles;
+        if (!files?.createManagedTempFileHandle || !files.releaseManagedTempFileHandle) {
+            throw new Error('Managed document fingerprints are unavailable');
+        }
+        const handle = await files.createManagedTempFileHandle(ref);
+        try {
+            return handle.sha256;
+        } finally {
+            await files.releaseManagedTempFileHandle(handle.leaseId);
+        }
+    }, documentRef);
+}
+
 async function readVisibleStickyNoteSession(page: Page, expectedText: string) {
     return page.evaluate((text) => {
         const host = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
@@ -371,9 +386,8 @@ async function readBoundedOrdinaryFreeTextMatches(
     expectedText: string,
     expectedName?: string,
     expectedPageIndex?: number,
-    indexPath = filePath,
 ) {
-    const index = await readPdfAnnotationIndex(indexPath);
+    const index = await readPdfAnnotationIndex(filePath);
     const candidates = index.entries.filter(entry => (
         entry.subtype === 'FreeText'
         && (expectedPageIndex === undefined || entry.pageIndex === expectedPageIndex)
@@ -403,9 +417,8 @@ async function verifyStickyNoteStructure(
     expectedText: string,
     expectedPageIndex = 0,
     expectedRevisionToken?: string,
-    indexPath = filePath,
 ): Promise<IVerifiedStickyNote> {
-    const index = await readPdfAnnotationIndex(indexPath);
+    const index = await readPdfAnnotationIndex(filePath);
     expect(index.pageCount).toBeGreaterThan(0);
 
     const candidates = index.entries.filter(entry => (
@@ -1203,19 +1216,7 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
         }
         expect(Date.now() - saveStartedAt).toBeLessThan(LARGE_PDF_SAVE_TIMEOUT_MS);
 
-        const fallbackSavedState = await readWorkspaceStateValues<{
-            originalPath?: string | null;
-            workingCopyPath?: string | null;
-        }>(page, [
-            'workingCopyPath',
-            'originalPath',
-        ]);
-        const fallbackSavedPath = typeof fallbackSavedState.workingCopyPath === 'string'
-            ? fallbackSavedState.workingCopyPath
-            : typeof fallbackSavedState.originalPath === 'string'
-                ? fallbackSavedState.originalPath
-                : fixturePath;
-        const savedPath = fallbackSavedPath;
+        const savedPath = fixturePath;
         await createStickyNoteWithPointer(page, secondText, {
             x: 0.58,
             y: 0.42,
@@ -1480,7 +1481,6 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
             firstText,
             stickyPageIndex,
             String(firstRevisionToken),
-            firstSaveIdentity.workingCopyPath,
         );
 
         await waitForCrashCheckpointPath(freshSession.name, fixtureRealPath);
@@ -1509,7 +1509,6 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
             firstText,
             stickyPageIndex,
             String(restoredFirstIdentity.revision.token),
-            restoredFirstIdentity.workingCopyPath,
         );
 
         await editVisibleStickyNote(restartedSession.page, firstText, editedFirstText);
@@ -1582,18 +1581,13 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
         expect(secondOutputHash).not.toBe(firstOutputHash);
         const stagedFirstObject = await readQpdfObject(stagedClonePath, firstStructure.annotation);
         const publishedFirstObject = await readQpdfObject(fixtureRealPath, firstStructure.annotation);
-        const workingCopyFirstObject = await readQpdfObject(
-            secondSaveIdentity.workingCopyPath,
-            firstStructure.annotation,
-        );
         const publicationProbe = {
             stagedArtifact,
             stagedHash: await hashFileSha256(stagedClonePath),
             originalHash: secondOutputHash,
-            workingCopyHash: await hashFileSha256(secondSaveIdentity.workingCopyPath),
+            workingCopyHash: await hashDocumentSha256(restartedSession.page, secondSaveIdentity.workingCopyPath),
             stagedFirstObject,
             publishedFirstObject,
-            workingCopyFirstObject,
         };
         expect(publicationProbe.workingCopyHash, JSON.stringify(publicationProbe))
             .toBe(publicationProbe.originalHash);
@@ -1605,17 +1599,12 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
             qpdfDictionaryContainsText(publishedFirstObject, 'Contents', editedFirstText),
             JSON.stringify(publicationProbe),
         ).toBe(true);
-        expect(
-            qpdfDictionaryContainsText(workingCopyFirstObject, 'Contents', editedFirstText),
-            JSON.stringify(publicationProbe),
-        ).toBe(true);
         const secondStructure = await verifyStickyNoteStructure(
             restartedSession.page,
             fixtureRealPath,
             editedFirstText,
             stickyPageIndex,
             String(secondRevisionToken),
-            secondSaveIdentity.workingCopyPath,
         );
         await verifyStickyNoteStructure(
             restartedSession.page,
@@ -1623,7 +1612,6 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
             secondText,
             stickyPageIndex,
             String(secondRevisionToken),
-            secondSaveIdentity.workingCopyPath,
         );
         expect({
             generationNumber: secondStructure.annotation.generationNumber,
@@ -1675,7 +1663,6 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
             editedFirstText,
             stickyPageIndex,
             String(restoredSecondIdentity.revision.token),
-            restoredSecondIdentity.workingCopyPath,
         );
         await verifyStickyNoteStructure(
             twiceRestartedSession.page,
@@ -1683,7 +1670,6 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
             secondText,
             stickyPageIndex,
             String(restoredSecondIdentity.revision.token),
-            restoredSecondIdentity.workingCopyPath,
         );
     }, LARGE_PDF_TIMEOUT_MS);;
 
@@ -1990,7 +1976,6 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
             })}`);
         }
         expect(realpathSync(String(firstSaveEvent.detail.path))).toBe(fixtureRealPath);
-        const firstSaveIdentity = await readDocumentSaveIdentity(freshSession.page);
 
         let savedState: IOrdinaryFreeTextLiveState;
         try {
@@ -2024,9 +2009,6 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
             freshSession.page,
             fixtureRealPath,
             text,
-            undefined,
-            undefined,
-            firstSaveIdentity.workingCopyPath,
         );
         expect(firstPersistedMatches, JSON.stringify({
             savedState,
@@ -2051,7 +2033,6 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
         expect(reopenedProcesses.rootPid).not.toBe(firstRestartProcesses.rootPid);
         await waitForRestoredDocument(reopenedSession.page, fixtureRealPath);
         await expectCleanAnnotationHydration(reopenedSession.page);
-        const reopenedSaveIdentity = await readDocumentSaveIdentity(reopenedSession.page);
         await setupScrollToPage(reopenedSession.page, targetPageNumber);
         await openAnnotationsTab(reopenedSession.page, NOTE_TEXT_ENTRY_TIMEOUT_MS);
         let restoredState: IOrdinaryFreeTextLiveState;
@@ -2151,7 +2132,6 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
             text,
             persistedName,
             targetPageIndex,
-            reopenedSaveIdentity.workingCopyPath,
         );
         expect(beforeDeleteSaveMatches, JSON.stringify({
             beforeDeleteSaveMatches,
@@ -2187,7 +2167,6 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
             text,
             persistedName,
             targetPageIndex,
-            reopenedSaveIdentity.workingCopyPath,
         );
         expect(deletedPersistedMatches, JSON.stringify({
             deletedPersistedMatches,
@@ -2206,7 +2185,6 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
         expect(finalProcesses.rootPid).not.toBe(secondRestartProcesses.rootPid);
         await waitForRestoredDocument(finalSession.page, fixtureRealPath);
         await expectCleanAnnotationHydration(finalSession.page);
-        const finalSaveIdentity = await readDocumentSaveIdentity(finalSession.page);
         await setupScrollToPage(finalSession.page, targetPageNumber);
         await openAnnotationsTab(finalSession.page, NOTE_TEXT_ENTRY_TIMEOUT_MS);
         const finalState = await waitForOrdinaryFreeTextState(
@@ -2229,7 +2207,6 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
             text,
             persistedName,
             targetPageIndex,
-            finalSaveIdentity.workingCopyPath,
         );
         expect(finalPersistedMatches, JSON.stringify({
             finalPersistedMatches,
