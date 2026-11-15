@@ -164,7 +164,7 @@
                             class="section"
                         >
                             <URadioGroup
-                                v-model="settings.qualityProfile"
+                                v-model="qualityProfileModel"
                                 name="ocrQualityProfile"
                                 :legend="t('ocr.qualityProfile.label')"
                                 :items="qualityProfileItems"
@@ -578,6 +578,7 @@ const {
     replaceOnlyEvbModel,
     selectedLanguageModel,
     pageSegmentationModeSelectValue,
+    qualityProfileModel,
     handleCopyLogs,
     handleRunOcr,
     handleCancel,

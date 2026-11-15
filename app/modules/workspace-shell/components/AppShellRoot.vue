@@ -390,12 +390,6 @@ const {
 } = useBrowserInstallHint({isBrowserRuntime});
 const shouldWaitForDesktopBridge = logicNot(isBrowserRuntime);
 const isFullscreen = ref(false);
-const assistantPanel = useAssistantPanel();
-const {
-    isAvailable: assistantPanelAvailable,
-    isEnabled: assistantToggleShown,
-    isOpen: assistantPanelOpen,
-} = assistantPanel;
 const {
     panelWidth: assistantPanelWidth,
     isResizingPanel: isAssistantPanelResizing,
@@ -506,6 +500,37 @@ function activateTab(paneId: string, tabId: string) {
 const activeTabDocument = computed(() => {
     const session = activeDocumentSession.value;
     return session ? describeTabDocument(session.snapshot.value) : null;
+});
+const {
+    hasActiveDocument: assistantHasActiveDocument,
+    hasAnyDocument: assistantHasAnyDocument,
+    activeDocumentName: assistantActiveDocumentName,
+    chatScopePending: assistantChatScopePending,
+    chatScope: assistantChatScope,
+    commandRunning: assistantCommandRunning,
+} = useAssistantChatScope({
+    activeTabId,
+    tabs,
+    activeDocumentSession,
+    activeTabDocument,
+    isTabEmpty,
+    // Read lazily: the command owner is set up further down.
+    isScopedCommandRunning: tabId => isScopedCommandRunning(tabId),
+});
+const assistantPanelEnabled = computed(() => isDesktopRuntime.value && appSettings.value.assistantPanelEnabled);
+const assistantPanel = useAssistantPanel({
+    isEnabled: computed(() => assistantPanelEnabled.value && !isFullscreen.value),
+    hasActiveDocument: assistantHasActiveDocument,
+});
+const {
+    isAvailable: assistantPanelAvailable,
+    isEnabled: assistantToggleShown,
+    isOpen: assistantPanelOpen,
+} = assistantPanel;
+watch(assistantPanelEnabled, (enabled) => {
+    if (!enabled) {
+        assistantPanelOpen.value = false;
+    }
 });
 const shellState = useWorkspaceShellState({
     activeDocumentSession,
@@ -749,32 +774,6 @@ function isTabEmpty(tabId: string) {
     return !session || !snapshotOccupiesTab(session.snapshot.value);
 }
 
-const {
-    hasActiveDocument: assistantHasActiveDocument,
-    hasAnyDocument: assistantHasAnyDocument,
-    activeDocumentName: assistantActiveDocumentName,
-    chatScopePending: assistantChatScopePending,
-    chatScope: assistantChatScope,
-    commandRunning: assistantCommandRunning,
-} = useAssistantChatScope({
-    activeTabId,
-    tabs,
-    activeDocumentSession,
-    activeTabDocument,
-    isTabEmpty,
-    // Read lazily: the command owner is set up further down.
-    isScopedCommandRunning: tabId => isScopedCommandRunning(tabId),
-});
-const assistantPanelEnabled = computed(() => isDesktopRuntime.value && appSettings.value.assistantPanelEnabled);
-watch(assistantPanelEnabled, (enabled) => {
-    if (!enabled) {
-        assistantPanelOpen.value = false;
-    }
-});
-watchEffect(() => {
-    assistantPanel.isEnabled.value = assistantPanelEnabled.value && !isFullscreen.value;
-    assistantPanel.hasActiveDocument.value = assistantHasActiveDocument.value;
-});
 function findEmptyTab() {
     return [
         getTabById(activeTabId.value),

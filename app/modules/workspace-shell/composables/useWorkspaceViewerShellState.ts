@@ -164,7 +164,6 @@ export const useWorkspaceViewerShellState = (
     const dragMode = ref(false);
     const continuousScroll = ref(initialState?.continuousScroll ?? true);
     const showSidebar = ref(initialState?.showSidebar ?? false);
-    const showSettings = ref(false);
     const sidebarTab = ref<TDocumentSidebarTab>(initialState?.sidebarTab ?? 'thumbnails');
 
     return {
@@ -201,7 +200,6 @@ export const useWorkspaceViewerShellState = (
         dragMode,
         continuousScroll,
         showSidebar,
-        showSettings,
         sidebarTab,
     };
 };

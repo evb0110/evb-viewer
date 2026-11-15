@@ -29,7 +29,7 @@
 
                 <div class="convert-presets flex flex-col gap-2">
                     <URadioGroup
-                        v-model="selectedPresetValue"
+                        v-model="presetSelection"
                         :legend="t('djvu.convertDialog.method')"
                         :items="recommendedPresets"
                         value-key="value"
@@ -85,7 +85,7 @@
                                     {{ t('djvu.convertDialog.advancedRasterHint') }}
                                 </p>
                                 <URadioGroup
-                                    v-model="selectedPresetValue"
+                                    v-model="presetSelection"
                                     :legend="t('djvu.convertDialog.advancedRaster')"
                                     :items="advancedDirectPresets"
                                     value-key="value"
@@ -257,6 +257,16 @@ const advancedRadioGroupUi = {
 } as const;
 
 const selectedConversion = computed(() => resolveDjvuConvertDialogSelection(selectedPresetValue.value));
+// Both preset groups choose through this: switching into direct raster opens
+// its options once, and later choices leave a manual collapse alone.
+const presetSelection = computed({
+    get: () => selectedPresetValue.value,
+    set: (value: TDjvuConvertDialogPresetValue) => {
+        advancedRasterOpen.value ||= selectedConversion.value.pdfStrategy !== 'direct'
+            && resolveDjvuConvertDialogSelection(value).pdfStrategy === 'direct';
+        selectedPresetValue.value = value;
+    },
+});
 const recommendedPresets = computed<IResolvedPreset[]>(() => [
     {
         value: DJVU_COMPACT_SMALL_PRESET_VALUE,
@@ -366,12 +376,6 @@ function resolveResultingDpi(subsample: number) {
 
     return Math.round(info.value.sourceDpi / subsample);
 }
-
-watch(() => selectedConversion.value.pdfStrategy, (pdfStrategy) => {
-    if (pdfStrategy === 'direct') {
-        advancedRasterOpen.value = true;
-    }
-});
 
 watch([
     open,
