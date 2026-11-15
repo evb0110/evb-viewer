@@ -168,7 +168,7 @@ export const usePageLabelState = (deps: {
                         return;
                     }
                 } catch (error) {
-                    BrowserLogger.debug(
+                    BrowserLogger.warn(
                         'page-labels',
                         'Failed to read page labels from PDF document',
                         error,
@@ -193,7 +193,7 @@ export const usePageLabelState = (deps: {
             resolvedDocumentBytes = sourceBytes;
             resolvedThisSync = true;
         } catch (error) {
-            BrowserLogger.debug('page-labels', 'Failed to resolve page labels from PDF catalog', error);
+            BrowserLogger.warn('page-labels', 'Failed to resolve page labels from PDF catalog', error);
         } finally {
             if (isCurrentSync() && resolvedThisSync) {
                 pageLabelsResolved.value = true;

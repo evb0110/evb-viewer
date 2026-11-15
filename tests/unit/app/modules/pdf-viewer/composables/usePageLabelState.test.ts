@@ -1,3 +1,5 @@
+// @vitest-environment happy-dom
+import {setBrowserLogSink} from '@app/utils/browserLogger';
 import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import {
     describe,
@@ -41,6 +43,25 @@ function createPdfDocumentRef(
 }
 
 describe('usePageLabelState', () => {
+    it.each(['PDF.js', 'compact catalog'])('#1608 retains the cause of failed %s label enrichment', async reader => {
+        const retained: string[] = [];
+        setBrowserLogSink(entry => {if (entry.level === 'warn' || entry.level === 'error') retained.push(JSON.stringify(entry));});
+        const failure = new Error('Corrupt PageLabels number tree');
+        const pdfDocument = createPdfDocumentRef(2, async () => {throw failure;});
+        const state = usePageLabelState({
+            pdfDocument, totalPages: ref(2), markDirty: () => {},
+            ...(reader === 'compact catalog' ? {
+                workingCopyPath: ref(requireDocumentRef('/docs/labels.pdf')),
+                readPageLabelRanges: async () => {throw failure;},
+            } : {}),
+        });
+        try {
+            await state.syncPageLabelsFromDocument(pdfDocument.value);
+            expect(state.pageLabelsResolved.value).toBe(false);
+            expect(retained.join(' ')).toContain('Corrupt PageLabels number tree');
+        } finally {setBrowserLogSink(() => {});}
+    });
+
     it('keeps accepted labels when the document arrives after the preserved revision scope ends', async () => {
         const pdfDocument = createPdfDocumentRef(1, async () => null);
         const revision = ref(requireDocumentRevisionToken('revision-1'));

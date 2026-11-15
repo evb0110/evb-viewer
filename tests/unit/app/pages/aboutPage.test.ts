@@ -171,3 +171,21 @@ describe('About and Acknowledgements page', () => {
         }
     });
 });
+
+it('#1608 explains a failed desktop external link', async () => {
+    const messages: string[] = [];
+    vi.stubGlobal('useToast', () => ({add: (notice: {title: string; description?: string}) => {
+        messages.push([notice.title, notice.description].filter(Boolean).join(' '));
+    }}));
+    mocks.desktopRuntime = true;
+    mocks.openExternal.mockRejectedValueOnce(new Error('No browser registered'));
+    const host = mountPage();
+    host.querySelector<HTMLAnchorElement>('a[target="_blank"]')!.dispatchEvent(new MouseEvent('click', {bubbles: true, cancelable: true}));
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(messages.join(' ')).toMatch(/link|browser|external/i);
+});
+
+beforeEach(() => {
+    vi.stubGlobal('useToast', () => ({add: vi.fn()}));
+});

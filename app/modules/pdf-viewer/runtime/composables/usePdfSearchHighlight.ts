@@ -1,3 +1,4 @@
+import { BrowserLogger } from '@app/utils/browserLogger';
 import type {
     IPdfPageMatches, IPdfSearchMatch,
 } from '@app/types/pdfUi';
@@ -216,8 +217,8 @@ export const usePdfSearchHighlight = () => {
             .then(reconciled => {
                 if (controller.signal.aborted) return;
                 paintVisualMatches(textLayerDiv, layer, reconciled, currentMatch);
-            }).catch(() => {
-                // Only text-verified ranges are painted before reconciliation.
+            }).catch((error: unknown) => {
+                if (!controller.signal.aborted) BrowserLogger.warn('pdf-search', 'Failed to reconcile search highlights', error);
             });
         return painted.result;
     }

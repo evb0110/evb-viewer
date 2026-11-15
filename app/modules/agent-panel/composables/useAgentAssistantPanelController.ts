@@ -338,7 +338,14 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
         deviceCode.value = '';
         verificationUrl.value = '';
     });
-    watch(selection, value => { if (value) persistAssistantSelection(defaultWindow?.localStorage, value); }, {
+    watch(selection, value => {
+        if (!value) return;
+        const failure = persistAssistantSelection(defaultWindow?.localStorage, value);
+        if (failure) reportRuntimeError(captureAssistantFailure(failure.error, {
+            action: 'switch-provider',
+            title: t('errors.settings.save'),
+        }));
+    }, {
         deep: true,
         immediate: true,
     });

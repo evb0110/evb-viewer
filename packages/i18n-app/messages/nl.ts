@@ -718,6 +718,7 @@ export default {
         'confirmCloseWindowDirtyDescription': 'Er zijn niet-opgeslagen wijzigingen. Sla ze op voordat u het venster sluit, verwerp ze of annuleer.',
         'discardChanges': 'Wijzigingen verwerpen',
         'transferErrors': {
+            'targetWindowsUnavailable': 'De andere vensters konden niet worden weergegeven.',
             'sourceChanged': 'Het document is gewijzigd tijdens het verplaatsen van het tabblad.',
             'rolledBack': 'Het tabblad kon niet worden verplaatst. Uw document en wijzigingen blijven in dit venster.',
             'noTargetPane': 'Er is geen doelpaneel beschikbaar in het bestemmingsvenster.',
@@ -1897,6 +1898,8 @@ export default {
             'convert': 'Conversie mislukt',
         },
         'workspace': {
+            'revealInFolderFailed': 'Het bestand kon niet in de bijbehorende map worden getoond.',
+            'openExternalLinkFailed': 'De link kon niet in je browser worden geopend.',
             'recoveryProtectionTitle': 'De laatste wijzigingen zijn niet beschermd',
             'recoveryProtectionDescription': 'Sla {fileName} op om de laatste wijzigingen te beschermen. De herstelopname is geweigerd: {message}',
             'loadTitle': 'Kan de documentwerkruimte niet laden',

@@ -1,11 +1,15 @@
+// @vitest-environment happy-dom
 import {
+    afterEach,
     describe,
     expect,
     it,
     vi,
 } from 'vitest';
 import { delay } from 'es-toolkit/promise';
-import { ref } from 'vue';
+import { computed, ref, shallowRef } from 'vue';
+import {useAppShellDirectionalTabs} from '@app/modules/workspace-shell/composables/useAppShellDirectionalTabs';
+import {cast} from '@tests/helpers/cast';
 import {requireDocumentRef} from '@contracts/documentRef';
 import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
 import { registerTabsMenuBindings } from '@app/modules/workspace-shell/menu/registerTabsMenuBindings';
@@ -184,5 +188,35 @@ describe('registerTabsMenuBindings', () => {
         expect(openPathInAppropriateTab).toHaveBeenCalledTimes(2);
         expect(openPathInAppropriateTab).toHaveBeenNthCalledWith(1, '/docs/first.pdf');
         expect(openPathInAppropriateTab).toHaveBeenNthCalledWith(2, '/docs/second.pdf');
+    });
+});
+
+const shell = vi.hoisted(() => ({showItemInFolder: vi.fn()}));
+const platform = createElectronPlatformApiFixture({documentWindow: shell});
+vi.mock('@app/utils/platform', () => ({getPlatformAPI: () => platform, hasElectronAPI: () => true}));
+afterEach(() => {vi.unstubAllGlobals();});
+describe('#1608 tab shell action feedback', () => {
+    it.each([
+        {kind: 'copy-path', outcome: 'reject'},
+        {kind: 'reveal-in-folder', outcome: 'reject'},
+        {kind: 'reveal-in-folder', outcome: 'false'},
+    ] as const)('reports $kind failure ($outcome)', async ({kind, outcome}) => {
+        const messages: string[] = [];
+        vi.stubGlobal('useToast', () => ({add: (notice: {title: string; description?: string}) => {
+            messages.push([notice.title, notice.description].filter(Boolean).join(' '));
+        }}));
+        const failure = new Error(kind === 'copy-path' ? 'Clipboard permission denied' : 'File manager unavailable');
+        if (outcome === 'false') shell.showItemInFolder.mockResolvedValue(false);
+        else shell.showItemInFolder.mockRejectedValue(failure);
+        vi.stubGlobal('navigator', {clipboard: {writeText: async () => {throw failure;}}});
+        const tabs = useAppShellDirectionalTabs(cast<Parameters<typeof useAppShellDirectionalTabs>[0]>({
+            activePaneId: ref('pane-1'), panes: ref([]), tabs: ref([{id: 'tab-1'}]),
+            documentSessionsByTabId: shallowRef({'tab-1': {snapshot: ref({identity: {originalPath: '/docs/a.pdf'}})}}),
+            isTabTransitionBusy: computed(() => false), getPaneById: () => ({paneId: 'pane-1'}), activatePane: () => {}, activateTab: () => {},
+        }));
+        await tabs.handleTabContextCommand('pane-1', 'tab-1', {kind});
+        expect(messages.join(' '), 'I1: clipboard/shell rejection must reach the user').toMatch(
+            kind === 'copy-path' ? /cop|clipboard/i : /folder|reveal/i,
+        );
     });
 });

@@ -718,6 +718,7 @@ export default {
         'confirmCloseWindowDirtyDescription': 'Hay cambios sin guardar. Guárdelos antes de cerrar la ventana, descártelos o cancele.',
         'discardChanges': 'Descartar cambios',
         'transferErrors': {
+            'targetWindowsUnavailable': 'No se pudieron listar las otras ventanas.',
             'sourceChanged': 'El documento cambió mientras se movía la pestaña.',
             'rolledBack': 'No se pudo mover la pestaña. El documento y sus cambios permanecen en esta ventana.',
             'noTargetPane': 'No hay ningún panel de destino disponible en la ventana de destino.',
@@ -1897,6 +1898,8 @@ export default {
             'convert': 'La conversión falló',
         },
         'workspace': {
+            'revealInFolderFailed': 'No se pudo mostrar el archivo en su carpeta.',
+            'openExternalLinkFailed': 'No se pudo abrir el enlace en tu navegador.',
             'recoveryProtectionTitle': 'Los últimos cambios no están protegidos',
             'recoveryProtectionDescription': 'Guarda {fileName} para proteger los últimos cambios. Se rechazó la captura de recuperación: {message}',
             'loadTitle': 'No se pudo cargar el espacio de trabajo del documento',

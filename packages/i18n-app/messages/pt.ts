@@ -719,6 +719,7 @@ export default {
         'confirmCloseWindowDirtyDescription': 'Existem alterações por guardar. Guarde-as antes de fechar a janela, descarte-as ou cancele.',
         'discardChanges': 'Descartar alterações',
         'transferErrors': {
+            'targetWindowsUnavailable': 'Não foi possível listar as outras janelas.',
             'sourceChanged': 'O documento foi alterado durante a movimentação do separador.',
             'rolledBack': 'Não foi possível mover o separador. O documento e as suas alterações permanecem nesta janela.',
             'noTargetPane': 'Nenhum painel de destino está disponível na janela de destino.',
@@ -1908,6 +1909,8 @@ export default {
             'convert': 'Falha na conversão',
         },
         'workspace': {
+            'revealInFolderFailed': 'Não foi possível mostrar o ficheiro na sua pasta.',
+            'openExternalLinkFailed': 'Não foi possível abrir a ligação no navegador.',
             'recoveryProtectionTitle': 'As últimas alterações não estão protegidas',
             'recoveryProtectionDescription': 'Guarde {fileName} para proteger as últimas alterações. A captura de recuperação foi rejeitada: {message}',
             'loadTitle': 'Não foi possível carregar a área de trabalho do documento',

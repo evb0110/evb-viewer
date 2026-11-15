@@ -34,9 +34,10 @@ export function readAssistantSelectionPreference(storage: Storage | undefined): 
 export function persistAssistantSelection(storage: Storage | undefined, selection: IAssistantSelection) {
     try {
         storage?.setItem(STORAGE_KEYS.ASSISTANT_SELECTION, JSON.stringify(selection));
-    } catch {
-        // Storage can be unavailable; the in-memory selection remains usable.
+    } catch (error) {
+        return {error};
     }
+    return undefined;
 }
 
 export function resolveAssistantSelection(

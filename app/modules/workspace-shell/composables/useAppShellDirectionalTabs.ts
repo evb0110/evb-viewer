@@ -1,3 +1,6 @@
+import { captureFailureForPresentation } from '@app/utils/failureReporter';
+import { useFailureToast } from '@app/composables/useFailureToast';
+import { BrowserLogger } from '@app/utils/browserLogger';
 import type {
     ComputedRef,
     Ref,
@@ -96,6 +99,8 @@ export const useAppShellDirectionalTabs = (options: IUseAppShellDirectionalTabsO
         handleCloseTab,
     } = options;
 
+    const { t } = useTypedI18n();
+    const { presentFailureToast } = useFailureToast();
     const canTransferTabsAcrossWindows = computed(() => hasElectronAPI());
 
     function getDirectionalTargetPane(sourcePaneId: string, direction: TPaneDirection) {
@@ -281,27 +286,20 @@ export const useAppShellDirectionalTabs = (options: IUseAppShellDirectionalTabsO
             : null;
     }
 
-    async function revealTabInFolder(tabId: string) {
+    async function runTabPathAction(tabId: string, action: 'reveal-in-folder' | 'copy-path') {
         const path = getTabFilePath(tabId);
-        if (path === null) {
-            return;
-        }
+        if (path === null) return;
         try {
-            await getDocumentWindowCapability().showItemInFolder(path);
-        } catch {
-            // Best-effort; revealing in the file manager can fail if the file moved.
-        }
-    }
-
-    async function copyTabPath(tabId: string) {
-        const path = getTabFilePath(tabId);
-        if (path === null) {
-            return;
-        }
-        try {
-            await globalThis.navigator.clipboard.writeText(path);
-        } catch {
-            // Best-effort; clipboard access can be denied.
+            if (action === 'copy-path') await globalThis.navigator.clipboard.writeText(path);
+            else if (!await getDocumentWindowCapability().showItemInFolder(path)) {
+                throw new Error('File manager did not reveal the file');
+            }
+        } catch (error) {
+            BrowserLogger.warn('workspace', `Tab ${action} failed`, error);
+            presentFailureToast({
+                ...captureFailureForPresentation({code: 'RENDERER_WORKSPACE_OPERATION_FAILED', local: {source: 'workspace', message: `Tab ${action} failed`, cause: error}}),
+                title: t(action === 'copy-path' ? 'assistant.copyFailed' : 'errors.workspace.revealInFolderFailed'),
+            });
         }
     }
 
@@ -329,8 +327,8 @@ export const useAppShellDirectionalTabs = (options: IUseAppShellDirectionalTabsO
             'close-tab': () => handleCloseTab(paneId, tabId),
             'close-others': () => closeOtherTabs(paneId, tabId),
             'close-right': () => closeTabsToRight(paneId, tabId),
-            'reveal-in-folder': () => revealTabInFolder(tabId),
-            'copy-path': () => copyTabPath(tabId),
+            'reveal-in-folder': () => runTabPathAction(tabId, 'reveal-in-folder'),
+            'copy-path': () => runTabPathAction(tabId, 'copy-path'),
             'move-to-new-window': () => enqueueTabTransition(() => moveTabToNewWindow(tabId)),
         } satisfies Record<TStaticTabContextCommandWithoutTargetWindow['kind'], () => Promise<void>>;
 
