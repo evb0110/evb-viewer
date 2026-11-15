@@ -33,6 +33,7 @@ import {capturePackagedCorePdfFailureArtifacts} from '@tests/e2e/electron/helper
 import {
     assertOcrPdfSemanticOutput,
     getActiveWorkspaceWorkingCopyPath,
+    readDocumentBytes,
     runOcrSearchablePdf,
     rotatePages,
 } from '@tests/e2e/electron/helpers/electronApiHelpers';
@@ -338,11 +339,12 @@ async function run() {
         if (!rotateResult.success) {
             throw new Error('Packaged smoke page rotation failed');
         }
-        const rotatedDocument = await PDFDocument.load(await readFile(workingCopyPath), {updateMetadata: false});
+        const rotatedBytes = await readDocumentBytes(page, workingCopyPath);
+        const rotatedDocument = await PDFDocument.load(rotatedBytes, {updateMetadata: false});
         if (rotatedDocument.getPage(0).getRotation().angle !== 90) {
             throw new Error('Packaged smoke page rotation was not persisted to PDF bytes');
         }
-        const rotatedCatalog = await readPdfCatalogWithPdfjs(workingCopyPath);
+        const rotatedCatalog = await readPdfCatalogWithPdfjs(rotatedBytes);
         const expectedPageLabels = [
             'front-i',
             'body-1',

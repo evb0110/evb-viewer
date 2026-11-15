@@ -39,7 +39,7 @@ describe.skipIf(process.platform === 'darwin')('packaged smoke fixture cleanup',
                 import {registerHooks, syncBuiltinESMExports} from 'node:module';
                 // The absent payload never enters a renderer journey. Keep this
                 // filesystem regression independent of that unused helper graph.
-                const helpers = 'capturePackagedCorePdfFailureArtifacts assertOcrPdfSemanticOutput getActiveWorkspaceWorkingCopyPath runOcrSearchablePdf rotatePages openAnnotationsTab openPdfInApp saveViaWindowHandle waitForPdfLoaded waitForViewerInteractive createCanonicalTextBoxWithPointer installPageEvaluationShims getWorkspaceToolbarSnapshot readPdfAnnotationSummary readPdfCatalogWithPdfjs waitForFunctionInPage waitForRendererReady';
+                const helpers = 'capturePackagedCorePdfFailureArtifacts assertOcrPdfSemanticOutput getActiveWorkspaceWorkingCopyPath readDocumentBytes runOcrSearchablePdf rotatePages openAnnotationsTab openPdfInApp saveViaWindowHandle waitForPdfLoaded waitForViewerInteractive createCanonicalTextBoxWithPointer installPageEvaluationShims getWorkspaceToolbarSnapshot readPdfAnnotationSummary readPdfCatalogWithPdfjs waitForFunctionInPage waitForRendererReady';
                 const stub = 'data:text/javascript,' + encodeURIComponent(helpers.split(' ').map(name => 'export const ' + name + '=async()=>{};').join(''));
                 registerHooks({resolve(specifier, context, next) {
                     return specifier.startsWith('@tests/e2e/electron/helpers/')
