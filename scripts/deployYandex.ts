@@ -179,6 +179,67 @@ async function publicBytes(url: string) {
     return Buffer.from(await response.arrayBuffer());
 }
 
+function successfulCiRun(sha: string) {
+    const runs = v.parse(v.array(v.object({
+        databaseId: v.number(),
+        headSha: v.string(),
+        status: v.string(),
+        conclusion: v.nullable(v.string()),
+    })), JSON.parse(command('gh', [
+        'run',
+        'list',
+        '--workflow',
+        'CI',
+        '--commit',
+        sha,
+        '--limit',
+        '20',
+        '--json',
+        'databaseId,status,conclusion,headSha',
+    ])));
+    return runs.find(candidate => candidate.headSha === sha && candidate.status === 'completed' && candidate.conclusion === 'success');
+}
+
+function hasBrowserWasm(runId: number) {
+    return command('gh', [
+        'api',
+        `repos/{owner}/{repo}/actions/runs/${runId}/artifacts`,
+        '--jq',
+        '.artifacts[] | select(.name == "browser-wasm" and (.expired | not)) | .name',
+    ]) !== '';
+}
+
+// A push run on a merge whose tree its pull request head already proved skips
+// the WASM build (scripts/ci/push-diff-base.sh). Under the same conditions,
+// that head's run built the same tree: the head contains the merged-into main,
+// so GitHub's synthetic merge for the pull request run equals the head.
+function mergedHeadWasmRun(sha: string) {
+    const [, base, head] = command('git', [
+        'rev-list',
+        '--parents',
+        '-n',
+        '1',
+        sha,
+    ]).split(' ');
+    const tree = (commit: string) => command('git', [
+        'rev-parse',
+        `${commit}^{tree}`,
+    ]);
+    if (!base || !head || tree(head) !== tree(sha)) return undefined;
+    try {
+        command('git', [
+            'merge-base',
+            '--is-ancestor',
+            base,
+            head,
+        ]);
+    } catch {
+        return undefined;
+    }
+    const run = successfulCiRun(head);
+    return run && hasBrowserWasm(run.databaseId) ? run : undefined;
+}
+
 async function deploy() {
     const args = process.argv.slice(2);
     if (args.includes('--help')) {
@@ -203,25 +264,10 @@ async function deploy() {
         'HEAD',
     ]);
     const version = resolveViewerAppVersion(projectRoot);
-    const runs = v.parse(v.array(v.object({
-        databaseId: v.number(),
-        headSha: v.string(),
-        status: v.string(),
-        conclusion: v.nullable(v.string()),
-    })), JSON.parse(command('gh', [
-        'run',
-        'list',
-        '--workflow',
-        'CI',
-        '--commit',
-        sha,
-        '--limit',
-        '20',
-        '--json',
-        'databaseId,status,conclusion,headSha',
-    ])));
-    const run = runs.find(candidate => candidate.headSha === sha && candidate.status === 'completed' && candidate.conclusion === 'success');
+    const run = successfulCiRun(sha);
     if (!run) throw new Error(`HEAD ${sha} has no successful CI run. Wait for CI before deploying.`);
+    const wasmRun = hasBrowserWasm(run.databaseId) ? run : mergedHeadWasmRun(sha);
+    if (!wasmRun) throw new Error(`CI run ${run.databaseId} has no browser-wasm artifact, and no run on a merged head with the same tree has one.`);
     const releaseLock = await acquireProductionDeployLock({
         env: process.env,
         projectId: `yandex:${bucket}`,
@@ -249,7 +295,7 @@ async function deploy() {
         command('gh', [
             'run',
             'download',
-            String(run.databaseId),
+            String(wasmRun.databaseId),
             '--name',
             'browser-wasm',
             '--dir',
@@ -288,7 +334,7 @@ async function deploy() {
             SENTRY_AUTH_TOKEN: '',
             SENTRY_BROWSER_DSN: '',
         };
-        console.log(`Building ${version} (${sha}), WASM from CI run ${run.databaseId}.`);
+        console.log(`Building ${version} (${sha}), WASM from CI run ${wasmRun.databaseId}.`);
         for (const args of [
             [
                 'install',
