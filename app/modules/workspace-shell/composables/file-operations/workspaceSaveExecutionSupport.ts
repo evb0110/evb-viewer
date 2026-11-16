@@ -159,11 +159,10 @@ export function createWorkspaceSavePlan(input: {
         source: 'working-copy' as const,
         forceRewrite,
         includeManagedShapes: input.hasManagedShapes && dirtyState.shapes,
-        // Applied OCR/page operations are already represented by the live document.
-        // Persisting those bytes does not require replacing its rendered surface.
-        preserveLoadedSource: request.kind === 'save' && !forcedByDirtyState
-            && Boolean(target.expectedOriginalPath)
-            && isNativeDocumentRef(target.expectedWorkingPath),
+        // The live document already shows the bytes a clean Save or an unoptimized Save As publishes (applied
+        // OCR and page operations included), so persisting them does not replace its rendered surface.
+        preserveLoadedSource: !forcedByDirtyState && isNativeDocumentRef(target.expectedWorkingPath)
+            && (request.kind === 'save-as' ? !request.optimizeLossless : request.kind === 'save' && Boolean(target.expectedOriginalPath)),
         requiresLargeFileGuard: forcedByDirtyState || forceRewrite,
     };
     if ((request.kind === 'repair' || request.kind === 'optimize') && !forcedByDirtyState
@@ -284,6 +283,7 @@ export interface IWorkspaceSaveDependencies {
             data: Uint8Array | undefined,
             opts: {
                 saveMode: TPdfSaveMode;
+                preserveLoadedSource?: boolean;
                 expectedWorkingPath?: TDocumentRef | null;
                 expectedDocumentRevisionToken?: TDocumentRevisionToken | null;
                 optimizeLossless?: boolean;
@@ -332,6 +332,8 @@ export interface IWorkspaceSaveDependencies {
     lifecycle: {
         loadRecentFiles: () => void;
         preparePostSaveReload?: () => IPostSaveReloadWaiter;
+        /** The document's draft writer: Save waits for it before it writes and after it publishes. */
+        commitDrafts: () => Promise<void>;
     };
     /** The document lease: the one queue every Save and recovery copy waits in. */
     runWithDocumentOperationLease: <T>(
@@ -387,7 +389,6 @@ export interface IWorkspaceSaveExecutionSupportDependencies {
         originalPath: {value: TDocumentRef | null};
         workingCopyPath: {value: TDocumentRef | null};
     };
-    lifecycle: {preparePostSaveReload?: () => IPostSaveReloadWaiter;};
 }
 
 export function isTargetCurrent(
@@ -397,13 +398,6 @@ export function isTargetCurrent(
     return deps.document.sessionKey.value === plan.target.expectedDocumentSessionKey
         && deps.document.originalPath.value === plan.target.expectedOriginalPath
         && deps.document.workingCopyPath.value === plan.target.expectedWorkingPath;
-}
-
-export function createReloadWaiter(
-    body: IWorkspaceSerializedSaveBody,
-    deps: IWorkspaceSaveExecutionSupportDependencies,
-) {
-    return body.preserveLoadedSource ? null : deps.lifecycle.preparePostSaveReload?.() ?? null;
 }
 
 export async function withReloadWaiter<T>(
