@@ -1,4 +1,9 @@
 import type * as FsPromises from 'node:fs/promises';
+import {mkdtemp, rm} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import type {IAssistantEvent} from '@contracts/assistant';
+import {requireTabId} from '@contracts/windowTabs';
 import {
     afterEach,
     beforeEach,
@@ -146,15 +151,15 @@ describe('claudeAgentSdkAssistant', () => {
                 displayName: 'Opus',
             },
         ]).map(model => model.label)).toEqual([
-            'Fable 5.1',
-            'Fable 5',
-            'Opus 4.8',
-            'Opus 5.5',
-            'Opus 5.6',
+            'Claude Fable 5.1',
+            'Claude Fable 5',
+            'Claude Opus 4.8',
+            'Claude Opus 5.5',
+            'Claude Opus 5.6',
         ]);
     });
 
-    it('labels every Claude row, including the reported default alias', () => {
+    it('lists the model the default pointer resolves to once, marked as the default', () => {
         expect(normalizeClaudeSdkModelList([
             {
                 value: 'default',
@@ -184,12 +189,13 @@ describe('claudeAgentSdkAssistant', () => {
         ]).map(model => [
             model.id,
             model.label,
+            model.shortLabel,
+            model.isDefault === true,
         ])).toEqual([
-            ['default', 'Opus 5.5 (recommended)'],
-            ['opus[1m]', 'Opus 5.5 (1M context)'],
-            ['fable', 'Fable 5.1'],
-            ['opus', 'Opus 5.5'],
-            ['custom', 'Custom model'],
+            ['opus[1m]', 'Claude Opus 5.5 (1M context)', 'Opus 5.5 (1M context)', true],
+            ['fable', 'Claude Fable 5.1', 'Fable 5.1', false],
+            ['opus', 'Claude Opus 5.5', 'Opus 5.5', false],
+            ['custom', 'Custom model', 'Custom model', false],
         ]);
     });
 
@@ -231,10 +237,10 @@ describe('claudeAgentSdkAssistant', () => {
                 displayName: 'Blank',
             },
         ])).toEqual([
-            {id: 'claude-fable-5-1', label: 'Fable 5.1', resolvedModel: 'claude-fable-5-1', reasoningEfforts: [{id: 'low', label: 'Low'}, {id: 'medium', label: 'Medium'}]},
-            {id: 'claude-sonnet-5', label: 'Claude Sonnet 5'},
-            {id: 'opus', label: 'Opus 5.5', resolvedModel: 'claude-opus-5-5', reasoningEfforts: [{id: 'medium', label: 'Medium'}, {id: 'high', label: 'High'}]},
-            {id: 'future-model', label: 'Haiku 5.0', resolvedModel: 'claude-haiku-5-0'},
+            {id: 'claude-fable-5-1', label: 'Claude Fable 5.1', shortLabel: 'Fable 5.1', isLegacy: true, resolvedModel: 'claude-fable-5-1', reasoningEfforts: [{id: 'low', label: 'Low'}, {id: 'medium', label: 'Medium', isDefault: true}]},
+            {id: 'claude-sonnet-5', label: 'Claude Sonnet 5', shortLabel: 'Claude Sonnet 5', isLegacy: true},
+            {id: 'opus', label: 'Claude Opus 5.5', shortLabel: 'Opus 5.5', resolvedModel: 'claude-opus-5-5', reasoningEfforts: [{id: 'medium', label: 'Medium', isDefault: true}, {id: 'high', label: 'High'}]},
+            {id: 'future-model', label: 'Claude Haiku 5.0', shortLabel: 'Haiku 5.0', resolvedModel: 'claude-haiku-5-0'},
         ]);
         expect(normalizeClaudeSdkModelList({data: []})).toEqual([]);
     });
@@ -286,17 +292,17 @@ describe('claudeAgentSdkAssistant', () => {
         expect(await getClaudeAgentSdkInfo({env: {}, resolveSdkPackageDir: () => '/sdk', readSdkVersion: async () => '0.3.321', findClaudeOnPath: async () => null, pathIsExecutable: async () => false})).toMatchObject({installed: false, executablePath: null, version: '0.3.321'});
     });
 
-    it('includes the active turn id on assistant deltas, messages, and errors', async () => {
+    it.each(['success', 'error_during_execution'])('retains ordered snapshots and individual tool outcomes through %s', async (subtype) => {
         const fakeQuery = new FakeClaudeQuery();
         sdkMocks.query.mockReturnValue(fakeQuery);
+        const events: unknown[] = [];
         const callbacks = {
             onInitialized: vi.fn(),
             onTurnStarted: vi.fn(),
-            onAssistantDelta: vi.fn(),
             onReasoningDelta: vi.fn(),
-            onToolActivity: vi.fn(),
+            onToolActivity: (turnId: string | null, activity: unknown) => events.push({turnId, activity}),
             onUsage: vi.fn(),
-            onAssistantMessage: vi.fn(),
+            onAssistantMessage: (turnId: string | null, id: string, text: string) => events.push({turnId, id, text}),
             onTurnCompleted: vi.fn(),
             onError: vi.fn(),
         };
@@ -322,16 +328,6 @@ describe('claudeAgentSdkAssistant', () => {
             event: {
                 type: 'content_block_delta',
                 delta: {
-                    type: 'text_delta',
-                    text: 'Hi',
-                },
-            },
-        });
-        fakeQuery.push({
-            type: 'stream_event',
-            event: {
-                type: 'content_block_delta',
-                delta: {
                     type: 'thinking_delta',
                     thinking: 'First inspect the document.',
                 },
@@ -339,35 +335,98 @@ describe('claudeAgentSdkAssistant', () => {
         });
         fakeQuery.push({
             type: 'assistant',
+            uuid: 'progress-1',
             message: { content: [{
                 type: 'text',
-                text: 'Hi there',
+                text: 'Inspecting the document.',
             }] },
         });
         fakeQuery.push({
             type: 'assistant',
+            uuid: 'progress-2',
             message: { content: [{
+                type: 'text',
+                text: 'Reading the pages.',
+            }, {
                 type: 'tool_use',
                 id: 'tool-1',
+                name: 'mcp__evb_viewer_embedded__evb_read_resource',
+                input: {},
+            }, {
+                type: 'tool_use',
+                id: 'tool-2',
                 name: 'mcp__evb_viewer_embedded__evb_run_action',
                 input: {},
             }] },
         });
+        await settleAsyncTicks();
+        const tool = (toolId: string, name: string, phase: string) => ({turnId, activity: {
+            toolId,
+            name: `mcp__evb_viewer_embedded__${name}`,
+            phase,
+        }});
+        expect(events).toEqual([
+            {turnId, id: 'progress-1', text: 'Inspecting the document.'},
+            {turnId, id: 'progress-2', text: 'Reading the pages.'},
+            tool('tool-1', 'evb_read_resource', 'running'),
+            tool('tool-2', 'evb_run_action', 'running'),
+        ]);
+        const runningEvents = [...events];
+        fakeQuery.push({type: 'tool_use_summary', summary: 'Working', preceding_tool_use_ids: ['tool-1', 'tool-2']});
+        await settleAsyncTicks();
+        expect(events).toEqual(runningEvents);
+        fakeQuery.push({
+            type: 'user',
+            message: {role: 'user', content: [{type: 'tool_result', tool_use_id: 'tool-1', content: 'Page text'}]},
+        });
+        await settleAsyncTicks();
+        expect(events.at(-1)).toEqual(tool('tool-1', 'evb_read_resource', 'completed'));
+        expect(events).not.toContainEqual(tool('tool-2', 'evb_run_action', 'completed'));
         fakeQuery.push({
             type: 'tool_progress',
-            tool_use_id: 'tool-1',
+            tool_use_id: 'tool-2',
             tool_name: 'mcp__evb_viewer_embedded__evb_run_action',
             elapsed_time_seconds: 1,
         });
         fakeQuery.push({
+            type: 'user',
+            message: {role: 'user', content: [{type: 'tool_result', tool_use_id: 'tool-2', is_error: true, content: 'Action refused'}]},
+        });
+        await settleAsyncTicks();
+        expect(events.at(-1)).toEqual(tool('tool-2', 'evb_run_action', 'failed'));
+        expect(callbacks.onTurnCompleted).not.toHaveBeenCalled();
+        // Assistant result blocks use the same native correlation, in content order.
+        fakeQuery.push({
+            type: 'assistant',
+            uuid: 'last-tool',
+            message: {content: [
+                {type: 'tool_use', id: 'tool-3', name: 'mcp__evb_viewer_embedded__evb_workspace_snapshot', input: {}},
+                {type: 'tool_result', tool_use_id: 'tool-3', content: 'Verified'},
+            ]},
+        });
+        await settleAsyncTicks();
+        expect(events.slice(-2)).toEqual([
+            tool('tool-3', 'evb_workspace_snapshot', 'running'),
+            tool('tool-3', 'evb_workspace_snapshot', 'completed'),
+        ]);
+        const settledEvents = [...events];
+        fakeQuery.push({
             type: 'tool_use_summary',
             summary: 'Done',
-            preceding_tool_use_ids: ['tool-1'],
+            preceding_tool_use_ids: ['tool-1', 'tool-2', 'tool-3'],
+        });
+        // Late progress and duplicate results must not resurrect a settled call.
+        fakeQuery.push({type: 'tool_progress', tool_use_id: 'tool-2', tool_name: 'ignored', elapsed_time_seconds: 2});
+        fakeQuery.push({type: 'user', message: {content: [{type: 'tool_result', tool_use_id: 'tool-2', content: 'Duplicate'}]}});
+        fakeQuery.push({
+            type: 'assistant',
+            uuid: 'final-answer',
+            message: {content: [{type: 'text', text: 'Finished; one action was refused.'}]},
         });
         fakeQuery.push({
             type: 'result',
-            subtype: 'error_during_execution',
-            is_error: true,
+            subtype,
+            is_error: subtype !== 'success',
             usage: {
                 input_tokens: 13,
                 output_tokens: 8,
@@ -379,25 +438,20 @@ describe('claudeAgentSdkAssistant', () => {
         await settleAsyncTicks();
 
         expect(callbacks.onTurnStarted).toHaveBeenCalledWith(turnId);
-        expect(callbacks.onAssistantDelta).toHaveBeenCalledWith(turnId, expect.any(String), 'Hi');
         expect(callbacks.onReasoningDelta).toHaveBeenCalledWith(turnId, 'First inspect the document.');
-        expect(callbacks.onAssistantMessage).toHaveBeenCalledWith(turnId, expect.any(String), 'Hi there', true);
-        expect(callbacks.onToolActivity).toHaveBeenCalledWith(turnId, {
-            toolId: 'tool-1',
-            name: 'mcp__evb_viewer_embedded__evb_run_action',
-            phase: 'running',
-        });
-        expect(callbacks.onToolActivity).toHaveBeenCalledWith(turnId, {
-            toolId: 'tool-1',
-            name: 'mcp__evb_viewer_embedded__evb_run_action',
-            phase: 'completed',
-        });
+        expect(events).toEqual([...settledEvents, {turnId, id: 'final-answer', text: 'Finished; one action was refused.'}]);
         expect(callbacks.onUsage).toHaveBeenCalledWith(turnId, {
             inputTokens: 13,
             outputTokens: 8,
             cachedInputTokens: 7,
         });
-        expect(callbacks.onError).toHaveBeenCalledWith(turnId, 'Claude exploded politely.');
+        if (subtype === 'success') {
+            expect(callbacks.onTurnCompleted).toHaveBeenCalledWith(turnId);
+            expect(callbacks.onError).not.toHaveBeenCalled();
+        } else {
+            expect(callbacks.onError).toHaveBeenCalledWith(turnId, 'Claude exploded politely.');
+        }
+        await session.close();
     });
 
     it('awaits the consume-stream task when closing a live Claude session', async () => {
@@ -419,7 +473,6 @@ describe('claudeAgentSdkAssistant', () => {
             callbacks: {
                 onInitialized: vi.fn(),
                 onTurnStarted: vi.fn(),
-                onAssistantDelta: vi.fn(),
                 onReasoningDelta: vi.fn(),
                 onToolActivity: vi.fn(),
                 onUsage: vi.fn(),
@@ -461,7 +514,6 @@ describe('claudeAgentSdkAssistant', () => {
             callbacks: {
                 onInitialized: vi.fn(),
                 onTurnStarted: vi.fn(),
-                onAssistantDelta: vi.fn(),
                 onReasoningDelta: vi.fn(),
                 onToolActivity: vi.fn(),
                 onUsage: vi.fn(),
@@ -540,7 +592,6 @@ describe('claudeAgentSdkAssistant', () => {
             callbacks: {
                 onInitialized: vi.fn(),
                 onTurnStarted: vi.fn(),
-                onAssistantDelta: vi.fn(),
                 onReasoningDelta: vi.fn(),
                 onToolActivity: vi.fn(),
                 onUsage: vi.fn(),
@@ -578,7 +629,6 @@ describe('claudeAgentSdkAssistant', () => {
             callbacks: {
                 onInitialized: vi.fn(),
                 onTurnStarted: vi.fn(),
-                onAssistantDelta: vi.fn(),
                 onReasoningDelta: vi.fn(),
                 onToolActivity: vi.fn(),
                 onUsage: vi.fn(),
@@ -621,7 +671,6 @@ describe('claudeAgentSdkAssistant', () => {
             callbacks: {
                 onInitialized: vi.fn(),
                 onTurnStarted: vi.fn(),
-                onAssistantDelta: vi.fn(),
                 onReasoningDelta: vi.fn(),
                 onToolActivity: vi.fn(),
                 onUsage: vi.fn(),
@@ -653,7 +702,6 @@ describe('claudeAgentSdkAssistant', () => {
         const callbacks = {
             onInitialized: vi.fn(),
             onTurnStarted: vi.fn(),
-            onAssistantDelta: vi.fn(),
             onReasoningDelta: vi.fn(),
             onToolActivity: vi.fn(),
             onUsage: vi.fn(),
@@ -691,6 +739,7 @@ describe('claudeAgentSdkAssistant', () => {
         });
         firstQuery.push({
             type: 'assistant',
+            uuid: 'retired-answer',
             message: {content: [
                 {
                     type: 'text',
@@ -710,6 +759,7 @@ describe('claudeAgentSdkAssistant', () => {
             tool_name: 'mcp__evb_viewer_embedded__evb_run_action',
             elapsed_time_seconds: 1,
         });
+        firstQuery.push({type: 'user', message: {content: [{type: 'tool_result', tool_use_id: 'late-tool', is_error: true}]}});
         firstQuery.push({
             type: 'result',
             subtype: 'success',
@@ -726,23 +776,19 @@ describe('claudeAgentSdkAssistant', () => {
 
         const secondTurnId = await session.sendMessage('B', [], 'opus');
         secondQuery.push({
-            type: 'stream_event',
-            event: {
-                type: 'content_block_delta',
-                delta: {
-                    type: 'text_delta',
-                    text: 'B',
-                },
-            },
+            type: 'assistant',
+            uuid: 'current-answer',
+            message: {content: [{type: 'text', text: 'B'}]},
         });
         await settleAsyncTicks();
 
         expect(firstTurnId).not.toBe(secondTurnId);
-        expect(callbacks.onAssistantDelta).toHaveBeenCalledWith(secondTurnId, expect.any(String), 'B');
-        expect(callbacks.onAssistantDelta).not.toHaveBeenCalledWith(secondTurnId, expect.any(String), 'late A');
+        expect(callbacks.onAssistantMessage.mock.calls).toEqual([[secondTurnId, 'current-answer', 'B']]);
+        expect(callbacks.onToolActivity).not.toHaveBeenCalled();
         expect(callbacks.onTurnCompleted).toHaveBeenCalledWith(firstTurnId);
         expect(sdkMocks.query).toHaveBeenCalledTimes(2);
         expect(firstQuery.close).toHaveBeenCalledTimes(1);
+        await session.close();
     });
 
     it('keeps an unresolved interruption marked as retiring until the query closes', async () => {
@@ -755,7 +801,6 @@ describe('claudeAgentSdkAssistant', () => {
         const callbacks = {
             onInitialized: vi.fn(),
             onTurnStarted: vi.fn(),
-            onAssistantDelta: vi.fn(),
             onReasoningDelta: vi.fn(),
             onToolActivity: vi.fn(),
             onUsage: vi.fn(),
@@ -814,7 +859,6 @@ describe('claudeAgentSdkAssistant', () => {
             callbacks: {
                 onInitialized: vi.fn(),
                 onTurnStarted: vi.fn(),
-                onAssistantDelta: vi.fn(),
                 onReasoningDelta: vi.fn(),
                 onToolActivity: vi.fn(),
                 onUsage: vi.fn(),
@@ -853,7 +897,6 @@ describe('claudeAgentSdkAssistant', () => {
             callbacks: {
                 onInitialized: vi.fn(),
                 onTurnStarted: vi.fn(),
-                onAssistantDelta: vi.fn(),
                 onReasoningDelta: vi.fn(),
                 onToolActivity: vi.fn(),
                 onUsage: vi.fn(),
@@ -892,7 +935,8 @@ describe('claudeAgentSdkAssistant', () => {
         expect(await discoverClaudeAssistantModels('/fixture/cwd', '/fixture/claude', env)).toMatchObject({
             models: [{
                 id: 'opus',
-                label: 'Opus 5.5',
+                label: 'Claude Opus 5.5',
+                shortLabel: 'Opus 5.5',
             }],
             account: {email: 'reader@example.test'},
         });
@@ -921,6 +965,98 @@ describe('claudeAgentSdkAssistant', () => {
         await result;
         expect(metadata.close).toHaveBeenCalled();
         expect(vi.getTimerCount()).toBe(0);
+    });
+
+    it.each(['success', 'error_during_execution'])('publishes completed snapshot items and preserves individual outcomes through %s', async (subtype) => {
+        vi.resetModules();
+        const root = await mkdtemp(join(tmpdir(), 'claude-item-events-'));
+        const events: IAssistantEvent[] = [];
+        const app = {getPath: () => root, getVersion: () => 'test', getName: () => 'EVB Viewer', isPackaged: false};
+        const config = {id: 'claude', driver: 'claude', displayName: 'Claude', enabled: true};
+        vi.doMock('electron', () => ({default: {app}, app}));
+        vi.doMock('@electron/settings', () => ({loadSettings: async () => ({assistantPanelEnabled: true})}));
+        vi.doMock('@electron/features/agent/assistantInstances', () => ({
+            getAssistantInstanceConfigs: async () => [config],
+            getAssistantInstanceFingerprints: async () => new Map([['claude', 'fixture']]),
+            assistantInstanceLabel: () => 'Claude',
+            onAssistantInstancesChanged: () => undefined,
+            refreshAssistantLocalSetups: async () => undefined,
+            resolveAssistantLaunchContext: async () => ({binaryPath: '/fixture/claude', env: {}, homePath: null, customEndpoint: false}),
+        }));
+        vi.doMock('@electron/features/agent/assistantLocalSetups', () => ({identifyAssistantExecutable: async () => 'fixture'}));
+        vi.doMock('@electron/features/agent/mcpServer', () => ({
+            startEmbeddedMcpServer: async () => ({descriptor: {url: 'http://127.0.0.1:3000'}, token: 'fixture'}),
+            shutdownEmbeddedMcpServer: async () => undefined,
+            abortActiveEmbeddedMcpRequests: () => undefined,
+        }));
+        vi.doMock('@electron/features/agent/assistantChatPersistence', () => ({AssistantChatPersistence: class {
+            getMaxSessionBytes() { return 1_000_000; }
+            recoverSessions() { return Promise.resolve([]); }
+            recoverSession() { return Promise.resolve(null); }
+            recordSessionSnapshot() { /* Persistence is outside this event-boundary test. */ }
+            flush() { return Promise.resolve(); }
+        }}));
+        vi.doMock('@electron/window/registry', () => ({getAllRegisteredAppWindows: () => [{}]}));
+        vi.doMock('@electron/utils/sendPlatformEvent', () => ({
+            sendPlatformEvent: (_window: unknown, _channel: unknown, event: IAssistantEvent) => events.push(structuredClone(event)),
+        }));
+        const metadata = new FakeClaudeQuery();
+        metadata.supportedModels.mockResolvedValue([{value: 'opus', displayName: 'Opus', resolvedModel: 'claude-opus-5-5'}]);
+        const query = new FakeClaudeQuery();
+        sdkMocks.query.mockReturnValueOnce(metadata).mockReturnValue(query);
+        const service = await import('@electron/features/agent/assistantService');
+        try {
+            const sent = await service.sendAgentAssistantMessage({
+                text: 'Inspect the document',
+                scope: {kind: 'document', key: 'fixture', title: 'fixture.pdf', tabId: requireTabId('fixture')},
+                selection: {instanceId: 'claude', model: 'opus', effort: 'low', speedMode: 'standard'},
+            }, {windowId: 1});
+            expect(sent.ok).toBe(true);
+            const text = (uuid: string, value: string) => ({type: 'assistant', uuid, message: {content: [{type: 'text', text: value}]}});
+            query.push(text('progress-one', 'Inspecting.'));
+            query.push({type: 'assistant', uuid: 'progress-two', message: {content: [
+                {type: 'text', text: 'Reading.'},
+                ...['read', 'write', 'unfinished'].map(id => ({type: 'tool_use', id, name: `mcp__evb_viewer_embedded__${id}`, input: {}})),
+            ]}});
+            query.push({type: 'user', message: {content: [{type: 'tool_result', tool_use_id: 'read', content: 'Text'}]}});
+            await settleAsyncTicks();
+            const items = () => events.flatMap(event => event.type === 'item' ? [event.item] : []);
+            expect(items().findLast(item => item.id === 'read')).toMatchObject({status: 'completed', completedAt: expect.any(String)});
+            expect(items().findLast(item => item.id === 'write')).toMatchObject({status: 'streaming'});
+            query.push({type: 'user', message: {content: [{type: 'tool_result', tool_use_id: 'write', is_error: true, content: 'Refused'}]}});
+            query.push({type: 'tool_use_summary', preceding_tool_use_ids: ['read', 'write', 'unfinished'], summary: 'Working'});
+            query.push(text('answer', 'Finished.'));
+            await settleAsyncTicks();
+            expect(items().findLast(item => item.id === 'write')).toMatchObject({status: 'failed', completedAt: expect.any(String)});
+            expect(items().findLast(item => item.id === 'unfinished')).toMatchObject({status: 'streaming'});
+            const messages = items().filter(item => item.kind === 'assistant');
+            expect(messages.map(item => [item.id, item.text, item.status])).toEqual([
+                ['progress-one', 'Inspecting.', 'completed'],
+                ['progress-two', 'Reading.', 'completed'],
+                ['answer', 'Finished.', 'completed'],
+            ]);
+            expect(messages.every(item => item.completedAt)).toBe(true);
+            expect(items().at(-1)?.id).toBe('answer');
+            query.push({type: 'result', subtype, is_error: subtype !== 'success', errors: subtype === 'success' ? [] : ['Turn failed'], usage: {
+                input_tokens: 1, output_tokens: 1, cache_read_input_tokens: 0, cache_creation_input_tokens: 0,
+            }});
+            await settleAsyncTicks();
+            expect(items().findLast(item => item.id === 'read')?.status).toBe('completed');
+            expect(items().findLast(item => item.id === 'write')?.status).toBe('failed');
+            expect(items().findLast(item => item.id === 'unfinished')).toMatchObject({
+                status: subtype === 'success' ? 'completed' : 'failed', completedAt: expect.any(String),
+            });
+            expect(items().filter(item => item.kind === 'assistant')).toEqual(messages);
+        } finally {
+            await service.shutdownAgentAssistant();
+            await rm(root, {recursive: true, force: true});
+            for (const module of [
+                'electron', '@electron/settings', '@electron/features/agent/assistantInstances',
+                '@electron/features/agent/assistantLocalSetups', '@electron/features/agent/mcpServer',
+                '@electron/features/agent/assistantChatPersistence', '@electron/window/registry', '@electron/utils/sendPlatformEvent',
+            ]) vi.doUnmock(module);
+            vi.resetModules();
+        }
     });
 
 });

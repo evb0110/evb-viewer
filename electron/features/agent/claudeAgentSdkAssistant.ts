@@ -9,7 +9,6 @@ import {
     type CanUseTool,
     type EffortLevel,
     type Query,
-    type SDKAssistantMessage,
     type SDKMessage,
     type SDKPartialAssistantMessage,
     type SDKResultMessage,
@@ -46,12 +45,13 @@ import {te} from '@electron/te';
 import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
 import {
-    extractAssistantToolUses,
+    extractClaudeMessageItems,
     extractClaudeTokenUsage,
     type IClaudeAssistantToolActivity,
 } from '@electron/features/agent/claudeAssistantStreamPresentation';
 
 import {resolveClaudeSdkExecutablePath} from '@electron/features/agent/claudeProviderMetadata';
+import {describeManifestModel} from '@electron/features/agent/assistantModelManifest';
 import {sanitizeAssistantProviderText} from '@electron/features/agent/assistantErrorEnvelope';
 const logger = createLogger('agent-claude-assistant');
 const CLAUDE_EFFORT_LEVEL_BY_ASSISTANT_EFFORT = {
@@ -76,11 +76,10 @@ export interface IClaudeAgentAssistantInit {
 export interface IClaudeAgentAssistantCallbacks {
     onInitialized(info: IClaudeAgentAssistantInit): void;
     onTurnStarted(turnId: string): void;
-    onAssistantDelta(turnId: string | null, messageId: string, delta: string): void;
     onReasoningDelta(turnId: string | null, delta: string): void;
     onToolActivity(turnId: string | null, activity: IClaudeAssistantToolActivity): void;
     onUsage(turnId: string | null, usage: IAgentAssistantTokenUsage): void;
-    onAssistantMessage(turnId: string | null, messageId: string, text: string, pending: boolean): void;
+    onAssistantMessage(turnId: string | null, messageId: string, text: string): void;
     onTurnCompleted(turnId: string | null): void;
     onError(turnId: string | null, message: unknown): void;
 }
@@ -190,9 +189,10 @@ const CLAUDE_RESOLVED_MODEL_PATTERN = /^claude-([a-z]+)-(\d+)(?:-(\d{1,2}))?(?:-
 // SDK display names are bare families ("Opus", "Opus (1M context)"); the
 // resolved model id carries the version, so a new release labels itself.
 function labelClaudeSdkModel(id: string, resolvedModel: string, displayName: string) {
+    const qualifier = /\s(\([^)]*\))$/u.exec(displayName)?.[1];
     const match = CLAUDE_RESOLVED_MODEL_PATTERN.exec(resolvedModel);
     if (!match) {
-        return displayName || id;
+        return {short: displayName || id, full: displayName || id};
     }
     const [
         , family = '',
@@ -200,8 +200,8 @@ function labelClaudeSdkModel(id: string, resolvedModel: string, displayName: str
         minor,
     ] = match;
     const name = `${family.slice(0, 1).toUpperCase()}${family.slice(1)} ${minor === undefined ? major : `${major}.${minor}`}`;
-    const qualifier = /\s(\([^)]*\))$/u.exec(displayName)?.[1];
-    return qualifier ? `${name} ${qualifier}` : name;
+    const short = qualifier ? `${name} ${qualifier}` : name;
+    return {short, full: `Claude ${short}`};
 }
 
 function normalizeClaudeSdkModelInfo(rawModel: unknown): IAgentAssistantModelOption | null {
@@ -217,21 +217,31 @@ function normalizeClaudeSdkModelInfo(rawModel: unknown): IAgentAssistantModelOpt
     const resolvedModel = typeof rawModel.resolvedModel === 'string' ? rawModel.resolvedModel.trim() : '';
     const displayName = typeof rawModel.displayName === 'string' ? rawModel.displayName.trim() : '';
     const label = labelClaudeSdkModel(id, resolvedModel, displayName);
+    // The resolved id names the version; an alias such as `opus` would name whichever release the catalog lists.
+    const known = describeManifestModel('claude', [resolvedModel || id]);
     const supportedEfforts = rawModel.supportsEffort !== false && Array.isArray(rawModel.supportedEffortLevels)
         ? createAssistantEffortOptions(rawModel.supportedEffortLevels.flatMap(value => {
             const effort = normalizeAssistantEffortId(value);
             return effort ? [effort] : [];
-        }))
+        }), known?.defaultEffort ?? null)
         : undefined;
     return {
         id,
-        label,
+        // "Claude Opus 5.5", as in T3 Code's catalog; the trigger keeps "Opus 5.5".
+        label: label.full,
+        shortLabel: label.short,
+        ...(known?.isLegacy ? {isLegacy: true} : {}),
         ...(resolvedModel ? {resolvedModel} : {}),
         ...(supportedEfforts ? {reasoningEfforts: supportedEfforts} : {}),
         ...(rawModel.supportsFastMode === true ? {serviceTiers: [{id: 'fast', label: 'Fast'}]} : {}),
     };
 }
 
+/**
+ * Adapted from T3 Code ClaudeModelCatalog.ts claudeReportedModels (0b6f482dc5), MIT:
+ * `default` is Claude Code's pointer at its own default model, not a model, so
+ * it marks the model it resolves to instead of listing that model twice.
+ */
 export function normalizeClaudeSdkModelList(rawModels: unknown): IAgentAssistantModelOption[] {
     if (!Array.isArray(rawModels)) {
         return [];
@@ -239,13 +249,23 @@ export function normalizeClaudeSdkModelList(rawModels: unknown): IAgentAssistant
 
     const seen = new Set<string>();
     const models: IAgentAssistantModelOption[] = [];
+    let pointer: IAgentAssistantModelOption | null = null;
     for (const rawModel of rawModels) {
         const model = normalizeClaudeSdkModelInfo(rawModel);
         if (!model || seen.has(model.id)) {
             continue;
         }
         seen.add(model.id);
+        if (model.id === 'default') {
+            pointer = model;
+            continue;
+        }
         models.push(model);
+    }
+    if (pointer) {
+        const target = pointer.resolvedModel ? models.find(model => model.resolvedModel === pointer.resolvedModel) : undefined;
+        if (target) target.isDefault = true;
+        else models.unshift({...pointer, isDefault: true});
     }
     return models;
 }
@@ -351,31 +371,6 @@ function buildClaudeUserMessage(
     };
 }
 
-function extractAssistantText(message: SDKAssistantMessage) {
-    const content = message.message.content;
-    if (!Array.isArray(content)) {
-        return '';
-    }
-
-    return content
-        .flatMap((block) => (
-            isRecord(block) && block.type === 'text' && typeof block.text === 'string'
-                ? [block.text]
-                : []
-        ))
-        .join('\n\n');
-}
-
-function extractTextDelta(message: SDKPartialAssistantMessage) {
-    const event = message.event;
-    if (!isRecord(event) || event.type !== 'content_block_delta' || !isRecord(event.delta)) {
-        return '';
-    }
-    return event.delta.type === 'text_delta' && typeof event.delta.text === 'string'
-        ? event.delta.text
-        : '';
-}
-
 function extractThinkingDelta(message: SDKPartialAssistantMessage) {
     const event = message.event;
     if (!isRecord(event) || event.type !== 'content_block_delta' || !isRecord(event.delta)) {
@@ -474,7 +469,6 @@ export class ClaudeAgentAssistantSession {
     private closing = false;
     private interrupting = false;
     private currentTurnId: string | null = null;
-    private currentAssistantMessageId: string | null = null;
     private currentModel: string;
     private readonly currentEffort: EffortLevel | undefined;
     private readonly currentSpeedMode: TAgentAssistantSpeedMode;
@@ -578,7 +572,6 @@ export class ClaudeAgentAssistantSession {
         }
         const turnId = randomUUID();
         this.currentTurnId = turnId;
-        this.currentAssistantMessageId = randomUUID();
         this.options.callbacks.onTurnStarted(turnId);
         promptQueue.push(buildClaudeUserMessage(text, attachments));
         return turnId;
@@ -603,7 +596,7 @@ export class ClaudeAgentAssistantSession {
         this.promptQueue = null;
         const turnId = this.currentTurnId;
         this.currentTurnId = null;
-        this.currentAssistantMessageId = null;
+        this.activeToolNames.clear();
         const retirement = (async () => {
             try {
                 // The SDK's interrupt request has no deadline of its own.
@@ -837,65 +830,42 @@ export class ClaudeAgentAssistantSession {
             return;
         }
 
+        if (!this.currentTurnId) return;
+
         if (message.type === 'stream_event') {
             const thinkingDelta = extractThinkingDelta(message);
             if (thinkingDelta) {
                 this.options.callbacks.onReasoningDelta(this.currentTurnId, thinkingDelta);
             }
-            const delta = extractTextDelta(message);
-            if (delta && this.currentAssistantMessageId) {
-                this.options.callbacks.onAssistantDelta(this.currentTurnId, this.currentAssistantMessageId, delta);
-            }
             return;
         }
 
-        if (message.type === 'tool_progress') {
-            this.activeToolNames.set(message.tool_use_id, message.tool_name);
+        if (message.type === 'tool_progress' && this.activeToolNames.has(message.tool_use_id)) {
             this.options.callbacks.onToolActivity(this.currentTurnId, {
                 toolId: message.tool_use_id,
-                name: message.tool_name,
+                name: this.activeToolNames.get(message.tool_use_id) ?? message.tool_name,
                 phase: 'running',
             });
             return;
         }
 
-        if (message.type === 'tool_use_summary') {
-            for (const toolId of message.preceding_tool_use_ids) {
-                this.options.callbacks.onToolActivity(this.currentTurnId, {
-                    toolId,
-                    name: this.activeToolNames.get(toolId) ?? 'tool',
-                    phase: 'completed',
-                });
-                this.activeToolNames.delete(toolId);
-            }
-            return;
-        }
-
-        if (message.type === 'assistant') {
-            for (const activity of extractAssistantToolUses(message)) {
-                this.activeToolNames.set(activity.toolId, activity.name);
-                this.options.callbacks.onToolActivity(this.currentTurnId, activity);
-            }
-            const text = extractAssistantText(message);
-            if (text && this.currentAssistantMessageId) {
-                this.options.callbacks.onAssistantMessage(this.currentTurnId, this.currentAssistantMessageId, text, true);
+        if (message.type === 'assistant' || message.type === 'user') {
+            for (const item of extractClaudeMessageItems(message)) {
+                if ('text' in item) {
+                    // T3 emitAssistantTextArtifacts: a completed SDK snapshot is one completed item.
+                    this.options.callbacks.onAssistantMessage(this.currentTurnId, item.messageId, item.text);
+                } else {
+                    // T3 settleToolCall: correlate and remove only this native call.
+                    const name = this.activeToolNames.get(item.toolId) ?? item.name;
+                    if (item.phase === 'running') this.activeToolNames.set(item.toolId, name);
+                    else if (!this.activeToolNames.delete(item.toolId)) continue;
+                    this.options.callbacks.onToolActivity(this.currentTurnId, {...item, name});
+                }
             }
             return;
         }
 
         if (message.type === 'result') {
-            const failed = getResultErrorMessage(message) !== null;
-            for (const [
-                toolId,
-                name,
-            ] of this.activeToolNames) {
-                this.options.callbacks.onToolActivity(this.currentTurnId, {
-                    toolId,
-                    name,
-                    phase: failed ? 'failed' : 'completed',
-                });
-            }
-            this.activeToolNames.clear();
             this.options.callbacks.onUsage(this.currentTurnId, extractClaudeTokenUsage(message));
             const error = getResultErrorMessage(message);
             if (error) {
@@ -919,7 +889,6 @@ export class ClaudeAgentAssistantSession {
         this.promptQueue?.close();
         this.promptQueue = null;
         this.currentTurnId = null;
-        this.currentAssistantMessageId = null;
         this.activeToolNames.clear();
         try {
             queryToRetire.close();
@@ -958,7 +927,7 @@ export class ClaudeAgentAssistantSession {
 
         const turnId = this.currentTurnId;
         this.currentTurnId = null;
-        this.currentAssistantMessageId = null;
+        this.activeToolNames.clear();
         this.options.callbacks.onTurnCompleted(turnId);
     }
 }

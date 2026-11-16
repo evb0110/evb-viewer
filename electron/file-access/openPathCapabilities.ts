@@ -228,13 +228,15 @@ export function requireRevealPath(rawPath: string, owner?: number | WebContents)
     return normalizedPath as TOpenPath;
 }
 
-export function removeAllowedOpenPath(filePath: string) {
+/** Revokes the path from every owner, or from `owner` alone when given. */
+export function removeAllowedOpenPath(filePath: string, owner?: number | WebContents) {
     const normalizedPath = normalizeExistingPath(filePath);
     if (!normalizedPath) {
         return;
     }
-    for (const allowedOpenPaths of allowedOpenPathsByOwner.values()) {
-        allowedOpenPaths.delete(normalizePathForLookup(normalizedPath));
+    const owners = owner === undefined ? allowedOpenPathsByOwner.values() : [allowedOpenPathsByOwner.get(getOwnerId(owner))];
+    for (const allowedOpenPaths of owners) {
+        allowedOpenPaths?.delete(normalizePathForLookup(normalizedPath));
     }
 }
 

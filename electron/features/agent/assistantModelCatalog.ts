@@ -8,8 +8,7 @@ import {
     normalizeAssistantEffortId,
 } from '@contracts/agentModels';
 import { isRecord } from '@contracts/runtimeGuards';
-
-export type TCodexAssistantModelOption = IAgentAssistantModelOption & { isDefault?: boolean };
+import { describeManifestModel } from '@electron/features/agent/assistantModelManifest';
 
 
 interface ICodexReasoningEffortMetadata {
@@ -136,7 +135,7 @@ function normalizeCodexReasoningEfforts(
     };
 }
 
-function normalizeCodexModelOption(rawModel: unknown): TCodexAssistantModelOption | null {
+function normalizeCodexModelOption(rawModel: unknown): IAgentAssistantModelOption | null {
     if (!isRecord(rawModel) || rawModel.hidden === true) {
         return null;
     }
@@ -164,6 +163,7 @@ function normalizeCodexModelOption(rawModel: unknown): TCodexAssistantModelOptio
     return {
         id,
         label,
+        ...(describeManifestModel('codex', [id])?.isLegacy ? { isLegacy: true } : {}),
         ...(reasoningEfforts ? { reasoningEfforts } : {}),
         ...(defaultReasoningEffort ? { defaultReasoningEffort } : {}),
         ...(serviceTiers.length > 0 ? { serviceTiers } : {}),
@@ -181,7 +181,7 @@ export function normalizeCodexModelListResponse(value: unknown) {
     const seen = new Set<string>();
     const listedModels = data
         .map(normalizeCodexModelOption)
-        .filter((model): model is TCodexAssistantModelOption => {
+        .filter((model): model is IAgentAssistantModelOption => {
             if (!model || seen.has(model.id)) {
                 return false;
             }
@@ -191,12 +191,12 @@ export function normalizeCodexModelListResponse(value: unknown) {
     return listedModels;
 }
 
-export function resolveCodexDefaultModelId(models: readonly TCodexAssistantModelOption[]) {
+export function resolveCodexDefaultModelId(models: readonly IAgentAssistantModelOption[]) {
     return models.find(option => option.isDefault)?.id ?? models[0]?.id ?? '';
 }
 
 export function normalizeCodexAssistantModelFromCatalog(
-    models: readonly TCodexAssistantModelOption[],
+    models: readonly IAgentAssistantModelOption[],
     model: string | null | undefined,
 ) {
     const fallback = resolveCodexDefaultModelId(models);
@@ -211,7 +211,7 @@ export function normalizeCodexAssistantModelFromCatalog(
 }
 
 export function resolveCodexModelStatus(
-    models: readonly TCodexAssistantModelOption[],
+    models: readonly IAgentAssistantModelOption[],
     requestedModel: string | null | undefined,
 ) {
     return {

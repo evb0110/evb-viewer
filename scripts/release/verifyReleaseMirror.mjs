@@ -17,9 +17,21 @@ function mirrorUrl(url, runId) {
         .replace('evb-viewer/releases', `evb-viewer/drill/${runId}/releases`);
 }
 
+// fetch rejects with a bare "fetch failed" and keeps the reason (reset, DNS,
+// TLS, timeout) in its cause; name the request and that reason.
+/** @param {typeof fetch} fetchFn @param {string} url @param {RequestInit} [init] @returns {Promise<Response>} */
+async function request(fetchFn, url, init) {
+    try {
+        return await fetchFn(url, init);
+    } catch (error) {
+        const cause = error instanceof Error && error.cause instanceof Error ? `: ${error.cause.message}` : '';
+        throw new Error(`${init?.method ?? 'GET'} ${url} failed: ${error instanceof Error ? error.message : String(error)}${cause}`, {cause: error});
+    }
+}
+
 /** @param {string} url @param {typeof fetch} [fetchFn] @returns {Promise<Response>} */
 async function readPublic(url, fetchFn = fetch) {
-    const response = await fetchFn(url);
+    const response = await request(fetchFn, url);
     if (!response.ok) throw new Error(`${url} returned HTTP ${response.status}`);
     return response;
 }
@@ -48,8 +60,8 @@ async function verifyMirrorObjects({
         for (const asset of manifest.assets) {
             if (typeof asset?.name !== 'string' || asset.name.length === 0) throw new Error('Mirror release asset has no name');
             const assetUrl = `${releaseBase}/${encodeURIComponent(tag)}/${encodeURIComponent(asset.name)}`;
-            let assetResponse = await fetchFn(assetUrl, {method: 'HEAD'});
-            if (!assetResponse.ok) assetResponse = await fetchFn(assetUrl, {headers: {Range: 'bytes=0-0'}});
+            let assetResponse = await request(fetchFn, assetUrl, {method: 'HEAD'});
+            if (!assetResponse.ok) assetResponse = await request(fetchFn, assetUrl, {headers: {Range: 'bytes=0-0'}});
             if (!assetResponse.ok) throw new Error(`Mirror release asset ${asset.name} returned HTTP ${assetResponse.status}`);
         }
     } catch (error) {

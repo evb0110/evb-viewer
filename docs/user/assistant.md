@@ -103,6 +103,11 @@ without losing the conversation. **Stop** interrupts outright. Each turn reports
 the tools it called and the input and output tokens it used, so the cost is
 visible as you go rather than at the end of the month.
 
+Claude shows each completed text message as a separate item, so progress stays
+alongside the final answer. Text appears when Claude completes a message;
+thinking and tool activity can appear while it works. Each tool shows its own
+success or failure as soon as its result arrives, even while the turn continues.
+
 You can paste or attach images to a message, which is the fastest way to ask
 about a page that is rendering oddly. Image attachments need a turn that is not
 already running.

@@ -11,6 +11,13 @@ import type {
     IWindowTabTransferResult,
 } from '@contracts/windowTabs';
 import {requireDocumentRef} from '@contracts/documentRef';
+import {
+    mkdtempSync,
+    rmSync,
+    writeFileSync,
+} from 'fs';
+import { tmpdir } from 'os';
+import { join } from 'path';
 
 vi.mock('@electron/window', () => ({
     createAppWindow: vi.fn(),
@@ -25,6 +32,31 @@ vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({
 })}));
 
 const { WindowTabTransferBroker } = await import('@electron/windowTabTransfer');
+const {
+    allowOpenPath,
+    requireOpenPath,
+} = await import('@electron/file-access/openPathCapabilities');
+
+const djvuDirectories: string[] = [];
+
+function createDjvuFile() {
+    const directory = mkdtempSync(join(tmpdir(), 'tab-transfer-'));
+    djvuDirectories.push(directory);
+    const filePath = join(directory, 'moved.djvu');
+    writeFileSync(filePath, 'AT&TFORM');
+    return filePath;
+}
+
+function createDjvuTransferRequest(targetWindowId: number, sourcePath: string): IWindowTabTransferRequest {
+    return {
+        ...createTransferRequest(targetWindowId),
+        payload: {
+            kind: 'djvu',
+            sourcePath: requireDocumentRef(sourcePath),
+            currentPage: 2,
+        },
+    };
+}
 
 interface IWindowTabTransferTestWindow {
     id: number;
@@ -100,6 +132,9 @@ describe('WindowTabTransferBroker', () => {
 
     afterEach(() => {
         vi.useRealTimers();
+        for (const directory of djvuDirectories.splice(0)) {
+            rmSync(directory, {recursive: true, force: true});
+        }
     });
 
     it('keeps the restored target provisional until the source finalizes', async () => {
@@ -228,6 +263,69 @@ describe('WindowTabTransferBroker', () => {
         });
         await expect(transferPromise).resolves.toMatchObject({success: false});
         expect(revoke).toHaveBeenCalledWith('/tmp/demo-snapshot.pdf', 12, targetWindow.id, 7);
+    });
+
+    it('lets the target reopen a moved DjVu the source holds', async () => {
+        const djvuPath = createDjvuFile();
+        const targetWindow = createWindow(24);
+        windowsById.set(targetWindow.id, targetWindow);
+        broker.markWindowReady(targetWindow.id);
+        allowOpenPath(djvuPath, 13);
+
+        const transferPromise = broker.requestTransfer(13, createDjvuTransferRequest(targetWindow.id, djvuPath));
+        await flushTransferTasks();
+
+        expect(targetWindow.sentTransfers).toHaveLength(1);
+        expect(() => requireOpenPath(djvuPath, targetWindow.id)).not.toThrow();
+        const sentPayload = targetWindow.sentTransfers[0] as { transferId: string };
+        const decision = broker.acknowledgeTransfer(targetWindow.id, {
+            transferId: sentPayload.transferId,
+            success: true,
+        });
+        await expect(transferPromise).resolves.toMatchObject({success: true});
+        broker.acknowledgeTransfer(13, {
+            transferId: sentPayload.transferId,
+            success: true,
+        });
+        await expect(decision).resolves.toBe(true);
+        expect(() => requireOpenPath(djvuPath, targetWindow.id)).not.toThrow();
+    });
+
+    it('withdraws the target DjVu grant when the move fails, keeping the source', async () => {
+        const djvuPath = createDjvuFile();
+        const targetWindow = createWindow(25);
+        windowsById.set(targetWindow.id, targetWindow);
+        broker.markWindowReady(targetWindow.id);
+        allowOpenPath(djvuPath, 14);
+
+        const transferPromise = broker.requestTransfer(14, createDjvuTransferRequest(targetWindow.id, djvuPath));
+        await flushTransferTasks();
+        expect(() => requireOpenPath(djvuPath, targetWindow.id)).not.toThrow();
+        const sentPayload = targetWindow.sentTransfers[0] as { transferId: string };
+        broker.acknowledgeTransfer(targetWindow.id, {
+            transferId: sentPayload.transferId,
+            success: false,
+        });
+
+        await expect(transferPromise).resolves.toMatchObject({success: false});
+        expect(() => requireOpenPath(djvuPath, targetWindow.id)).toThrow('Path not allowed');
+        expect(() => requireOpenPath(djvuPath, 14)).not.toThrow();
+    });
+
+    it('refuses a DjVu move the source does not hold and grants nothing', async () => {
+        const djvuPath = createDjvuFile();
+        const targetWindow = createWindow(26);
+        windowsById.set(targetWindow.id, targetWindow);
+        broker.markWindowReady(targetWindow.id);
+
+        await expect(broker.requestTransfer(15, createDjvuTransferRequest(targetWindow.id, djvuPath)))
+            .resolves
+            .toMatchObject({
+                success: false,
+                error: 'DjVu file is not available to the source window.',
+            });
+        expect(targetWindow.sentTransfers).toHaveLength(0);
+        expect(() => requireOpenPath(djvuPath, targetWindow.id)).toThrow('Path not allowed');
     });
 
     it('queues delivery until target window is marked ready', async () => {

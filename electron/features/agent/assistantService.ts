@@ -384,7 +384,7 @@ async function probeEntry(entry: IInstanceEntry) {
             } : null,
             message: models.length ? undefined : te('dialogs.agentAssistant.modelListEmpty'),
             models,
-            defaultModel: defaultModelOf(models, models.some(model => model.id === 'default') ? 'default' : null),
+            defaultModel: defaultModelOf(models, models.find(model => model.isDefault)?.id ?? null),
             checkedAt: nowIso(),
         });
     } catch (error) {
@@ -982,19 +982,6 @@ function claudeCallbacks(session: IChatSession) {
                 setPhase(session, 'thinking');
             }
         },
-        onAssistantDelta: (providerTurnId: string | null, messageId: string, delta: string) => {
-            const turnId = currentTurn(providerTurnId);
-            if (!turnId) {
-                return;
-            }
-            reasoningItemId = null;
-            setPhase(session, 'streaming');
-            appendToItem(session, {
-                id: messageId,
-                kind: 'assistant',
-                turnId,
-            }, delta);
-        },
         onReasoningDelta: (providerTurnId: string | null, delta: string) => {
             const turnId = currentTurn(providerTurnId);
             if (!turnId) {
@@ -1028,6 +1015,7 @@ function claudeCallbacks(session: IChatSession) {
                 text: '',
                 toolName: activity.name.replace(`mcp__${ASSISTANT_MCP_SERVER_NAME}__`, ''),
                 status: activity.phase === 'running' ? 'streaming' : activity.phase,
+                ...(activity.phase !== 'running' ? {completedAt: nowIso()} : {}),
             });
         },
         onUsage: (providerTurnId: string | null, usage: NonNullable<IAssistantTurn['usage']>) => {
@@ -1038,11 +1026,12 @@ function claudeCallbacks(session: IChatSession) {
                 });
             }
         },
-        onAssistantMessage: (providerTurnId: string | null, messageId: string, text: string, pending: boolean) => {
+        onAssistantMessage: (providerTurnId: string | null, messageId: string, text: string) => {
             const turnId = currentTurn(providerTurnId);
             if (!turnId) {
                 return;
             }
+            reasoningItemId = null;
             const existing = session.items.find(candidate => candidate.id === messageId);
             upsertItem(session, {
                 id: messageId,
@@ -1050,7 +1039,8 @@ function claudeCallbacks(session: IChatSession) {
                 turnId,
                 createdAt: existing?.createdAt ?? nowIso(),
                 text,
-                status: pending ? 'streaming' : 'completed',
+                status: 'completed',
+                completedAt: existing?.completedAt ?? nowIso(),
             });
         },
         onTurnCompleted: (providerTurnId: string | null) => {
@@ -1099,7 +1089,7 @@ function resolveSelection(requested: IAssistantSelection | undefined): IAssistan
     const requestedEffort = requested?.effort ?? ASSISTANT_DEFAULT_EFFORT;
     const effort = efforts.length === 0 || efforts.includes(requestedEffort)
         ? requestedEffort
-        : option?.defaultReasoningEffort ?? efforts[0] ?? ASSISTANT_DEFAULT_EFFORT;
+        : option?.defaultReasoningEffort ?? option?.reasoningEfforts?.find(effort => effort.isDefault)?.id ?? efforts[0] ?? ASSISTANT_DEFAULT_EFFORT;
     return {
         instanceId: entry.config.id,
         model,
