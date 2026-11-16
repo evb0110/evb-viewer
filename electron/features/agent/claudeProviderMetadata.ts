@@ -6,14 +6,13 @@ import {
 } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import {
-    basename,
     dirname,
     join,
 } from 'node:path';
 import { app } from 'electron';
 import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
-import {resolveInstalledAssistantExecutable} from '@electron/features/agent/assistantLocalSetups';
+import {isUnsupportedClaudeSdkWrapper, resolveInstalledAssistantExecutable} from '@electron/features/agent/assistantLocalSetups';
 import { isRecord } from '@contracts/runtimeGuards';
 
 const logger = createLogger('agent-claude-assistant');
@@ -46,7 +45,7 @@ async function pathIsExecutable(path: string | null | undefined) {
 // Adapted from T3 Code Drivers/ClaudeExecutable.ts (0b6f482dc5), MIT.
 export function resolveClaudeSdkExecutablePath(binaryPath: string) {
     if (process.platform !== 'win32' || !/\.(?:cmd|bat|ps1)$/iu.test(binaryPath)) return binaryPath;
-    if (!/^claude\.(?:cmd|bat|ps1)$/iu.test(basename(binaryPath))) {
+    if (isUnsupportedClaudeSdkWrapper(binaryPath)) {
         throw new Error('The Claude SDK cannot run this Windows wrapper directly. Select its native executable in Settings.');
     }
     const directory = dirname(binaryPath);

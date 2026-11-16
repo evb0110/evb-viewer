@@ -1,5 +1,10 @@
 import {readFileSync} from 'node:fs';
-import {describe, expect, it} from 'vitest';
+import {describe, expect, it, vi} from 'vitest';
+import {mkdtemp, rm} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import {requireTabId} from '@contracts/windowTabs';
+import type {ICodexThreadListener} from '@electron/features/agent/codexInstanceRuntime';
 import {normalizeCodexAssistantModelFromCatalog, normalizeCodexModelListResponse, resolveCodexModelStatus} from '@electron/features/agent/assistantModelCatalog';
 import {createAssistantErrorEnvelope, sanitizeAssistantProviderText} from '@electron/features/agent/assistantErrorEnvelope';
 
@@ -84,6 +89,73 @@ describe('readable provider failures', () => {
         expect(message).toContain('[redacted endpoint]');
         expect(sanitizeAssistantProviderText('x'.repeat(5000))).toHaveLength(4096);
         expect(sanitizeAssistantProviderText(JSON.stringify({password: 'https://credential.invalid/first"remaining-part', token: 'first\\remaining-part'}))).not.toMatch(/first|remaining-part/);
+        for (const scheme of ['Bearer', 'Basic']) {
+            expect(sanitizeAssistantProviderText(`Authorization: ${scheme} fixture-credential`)).not.toContain('fixture-credential');
+        }
+    });
+});
 
+
+describe('catalog recovery on an explicit send', () => {
+    it('keeps failed discovery passive and recovers a reported model on the next send', async () => {
+        const root = await mkdtemp(join(tmpdir(), 'assistant-catalog-recovery-'));
+        let available = false;
+        let listener: ICodexThreadListener;
+        const config = {id: 'codex', driver: 'codex', displayName: 'Codex', enabled: true};
+        vi.resetModules();
+        vi.doMock('electron', () => ({default: {app: {getPath: () => root}}, app: {getPath: () => root, getVersion: () => 'test'}}));
+        vi.doMock('@electron/settings', () => ({loadSettings: async () => ({assistantPanelEnabled: true})}));
+        vi.doMock('@electron/window/registry', () => ({getAllRegisteredAppWindows: () => []}));
+        vi.doMock('@electron/features/agent/assistantInstances', () => ({
+            assistantInstanceLabel: () => 'Codex',
+            getAssistantInstanceConfigs: async () => [config],
+            getAssistantInstanceFingerprints: async () => new Map([['codex', 'fixture']]),
+            onAssistantInstancesChanged: () => undefined,
+            refreshAssistantLocalSetups: () => undefined,
+            resolveAssistantLaunchContext: async () => ({binaryPath: '/fixture/codex', env: {}}),
+        }));
+        vi.doMock('@electron/features/agent/assistantLocalSetups', () => ({identifyAssistantExecutable: async () => '0.169.0'}));
+        vi.doMock('@electron/features/agent/mcpServer', () => ({
+            abortActiveEmbeddedMcpRequests: () => undefined,
+            shutdownEmbeddedMcpServer: async () => undefined,
+        }));
+        vi.doMock('@electron/features/agent/codexInstanceRuntime', () => ({CodexInstanceRuntime: class {
+            isLoginPending() { return false; }
+            async shutdown() {}
+            async probe() {
+                if (!available) throw new Error('Provider temporarily unavailable');
+                return {auth: 'authenticated', account: null, models: [{id: 'recovered', label: 'Recovered', isDefault: true}]};
+            }
+            async openThread(_previous: unknown, _model: string, notifications: ICodexThreadListener) {
+                listener = notifications;
+                return {threadId: 'fixture-thread', resumed: false};
+            }
+            async startTurn(input: {model: string}) {
+                if (input.model !== 'recovered') throw new Error('Model unavailable');
+                setImmediate(() => {
+                    listener.onNotification('item/completed', {turnId: 'fixture-turn', item: {id: 'reply', type: 'agentMessage', text: 'Recovered reply'}});
+                    listener.onNotification('turn/completed', {turn: {id: 'fixture-turn', status: 'completed'}});
+                });
+                return 'fixture-turn';
+            }
+        }}));
+        const service = await import('@electron/features/agent/assistantService');
+        try {
+            await service.getAgentAssistantState({probe: true});
+            await vi.waitFor(async () => expect((await service.getAgentAssistantState()).instances[0]).toMatchObject({state: 'error', models: []}));
+            available = true;
+            // Reading cached state must not silently retry failed discovery.
+            expect((await service.getAgentAssistantState()).instances[0]).toMatchObject({state: 'error', models: []});
+            const scope = {kind: 'document' as const, key: 'recovery-document', title: 'fixture.pdf', tabId: requireTabId('recovery-tab')};
+            const result = await service.sendAgentAssistantMessage({scope, text: 'Try now', selection: {instanceId: 'codex', model: 'unavailable-stored', effort: 'high', speedMode: 'standard'}}, {windowId: 1});
+            expect(result).toMatchObject({ok: true, state: {selection: {model: 'recovered'}}});
+            await vi.waitFor(async () => expect((await service.getAgentAssistantState({scope})).chat?.items).toContainEqual(expect.objectContaining({kind: 'assistant', text: 'Recovered reply'})));
+        } finally {
+            await service.shutdownAgentAssistant();
+            await service.preserveAssistantStateForShutdown();
+            for (const module of ['electron', '@electron/settings', '@electron/window/registry', '@electron/features/agent/assistantInstances', '@electron/features/agent/assistantLocalSetups', '@electron/features/agent/mcpServer', '@electron/features/agent/codexInstanceRuntime']) vi.doUnmock(module);
+            vi.resetModules();
+            await rm(root, {recursive: true, force: true});
+        }
     });
 });

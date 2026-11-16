@@ -1441,7 +1441,7 @@ async function sendAdmitted(
     if (!entry || !entry.config.enabled) {
         return errorResult(await fallbackState(), te('dialogs.agentAssistant.instanceUnavailable'));
     }
-    startProbe(entry);
+    startProbe(entry, entry.status.models.length === 0);
     await entry.probe;
     if (instances.get(entry.config.id) !== entry || !entry.config.enabled) {
         return errorResult(await fallbackState(), te('dialogs.agentAssistant.instanceUnavailable'));

@@ -50,6 +50,10 @@ Unidentified or timed-out PATH helpers are silently ignored. EVB's retired
 managed `codex/bin` folder is excluded from automatic discovery; existing files
 there are left in place.
 
+On Windows, named Claude `.cmd`, `.bat` and `.ps1` wrappers are not discovered:
+the SDK cannot run them while preserving their identity. Add the setup's native
+executable in Settings. The standard `claude` launcher is supported.
+
 A setup known only to another application's settings is not discovered
 automatically. Add it in Settings, for example a second account or proxy:
 

@@ -45,6 +45,11 @@ function executableNames(driver: TAssistantDriver) {
     return process.platform === 'win32' ? [`${driver}.exe`, `${driver}.cmd`, driver] : [driver];
 }
 
+/** The SDK can resolve the standard shim, but cannot preserve a named script's identity. */
+export function isUnsupportedClaudeSdkWrapper(path: string, platform: NodeJS.Platform = process.platform) {
+    return platform === 'win32' && /\.(?:cmd|bat|ps1)$/iu.test(path) && !/^claude\.(?:cmd|bat|ps1)$/iu.test(basename(path));
+}
+
 export async function resolveInstalledAssistantExecutable(driver: TAssistantDriver, env: NodeJS.ProcessEnv = process.env) {
     const configured = driver === 'codex' ? env.CODEX_CLI_PATH : env.CLAUDE_CODE_PATH ?? env.CLAUDE_CLI_PATH;
     const home = env.HOME || env.USERPROFILE || homedir();
@@ -141,6 +146,7 @@ export async function discoverAssistantLocalSetups(env: NodeJS.ProcessEnv = proc
             const driver = /^(codex|claude)(?:-[a-z0-9][a-z0-9._-]*)?$/iu.exec(stem)?.[1]?.toLowerCase();
             if (driver !== 'codex' && driver !== 'claude') continue;
             const path = resolve(directory, name);
+            if (driver === 'claude' && isUnsupportedClaudeSdkWrapper(path)) continue;
             if (!await isRetiredManagedExecutable(path, env) && await isAssistantExecutable(path)) candidates.set(path, driver);
         }
     }

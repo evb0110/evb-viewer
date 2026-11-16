@@ -15,6 +15,7 @@ import {
 } from '@electron/features/agent/claudeAgentSdkAssistant';
 import {
     getClaudeAgentSdkInfo,
+    resolveClaudeSdkExecutablePath,
 } from '@electron/features/agent/claudeProviderMetadata';
 
 const sdkMocks = vi.hoisted(() => ({
@@ -97,6 +98,17 @@ async function settleAsyncTicks(count = 3) {
 }
 
 describe('claudeAgentSdkAssistant', () => {
+    it('keeps a Windows native wrapper identity and rejects named script wrappers readably', () => {
+        vi.stubGlobal('process', {...process, platform: 'win32'});
+        try {
+            expect(resolveClaudeSdkExecutablePath('claude-proxy.exe')).toBe('claude-proxy.exe');
+            for (const extension of ['cmd', 'bat', 'ps1']) {
+                expect(() => resolveClaudeSdkExecutablePath(`claude-proxy.${extension}`)).toThrow('Select its native executable in Settings.');
+            }
+        } finally {
+            vi.unstubAllGlobals();
+        }
+    });
     afterEach(() => vi.useRealTimers());
     beforeEach(() => {
         sdkMocks.readdir.mockReset();

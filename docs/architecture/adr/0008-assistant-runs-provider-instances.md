@@ -47,6 +47,11 @@ Unidentified or timed-out PATH helpers are silently ignored. EVB's retired
 managed `codex/bin` folder is excluded from automatic discovery; existing files
 there are left in place.
 
+Named Windows Claude script wrappers (`.cmd`, `.bat`, `.ps1`) are excluded from
+automatic discovery because the SDK cannot preserve their executable identity.
+Explicit entries fail readably and direct users to the native executable;
+the standard Claude shim can resolve its installed native or JavaScript entry.
+
 **Credentials stay where the provider keeps them.** EVB never copies or links
 a login. Codex writes `auth.json` by writing a temporary file and renaming it,
 so a copied or linked file would fork the refresh-token chain and sign out the

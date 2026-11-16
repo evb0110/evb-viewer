@@ -359,14 +359,18 @@ describe('local assistant setups', () => {
         await launcher('codex-unrelated', 'unrelated program 1.0.0');
         const env = {...process.env, PATH: bin, HOME: state.root, CODEX_CLI_PATH: codex, CLAUDE_CODE_PATH: claude};
         state.local = await discoverAssistantLocalSetups(env);
-        expect(state.local.map(config => config.displayName).sort()).toEqual(['Claude', 'Codex', 'claude-proxy', 'codex-proxy']);
+        expect(state.local.map(config => config.displayName).sort()).toEqual(process.platform === 'win32' ? ['Claude', 'Codex', 'codex-proxy'] : ['Claude', 'Codex', 'claude-proxy', 'codex-proxy']);
         expect(state.local.find(config => config.id === 'codex')).toMatchObject({binaryPath: codex, homePath: join(state.root, '.codex')});
         const config = state.local.find(config => config.binaryPath === wrapper)!;
         vi.stubEnv('EVB_DISCOVERY_FIXTURE', 'inherited-fixture');
         expect(await instances.resolveAssistantLaunchContext(config.id, resolvers)).toMatchObject({
             binaryPath: wrapper, env: {EVB_DISCOVERY_FIXTURE: 'inherited-fixture'},
         });
-        expect((await instances.resolveAssistantLaunchContext(state.local.find(config => config.binaryPath === claudeWrapper)!.id, resolvers)).binaryPath).toBe(claudeWrapper);
+        if (process.platform === 'win32') {
+            expect(state.local.some(config => config.binaryPath === claudeWrapper)).toBe(false);
+        } else {
+            expect((await instances.resolveAssistantLaunchContext(state.local.find(config => config.binaryPath === claudeWrapper)!.id, resolvers)).binaryPath).toBe(claudeWrapper);
+        }
         expect((await discoverAssistantLocalSetups(env)).map(config => config.id)).toEqual(state.local.map(config => config.id));
         // A PATH name can match the wrapper convention while being a hung helper.
         if (process.platform !== 'win32') {
