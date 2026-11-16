@@ -1,3 +1,4 @@
+import {getAssistantShellEnvironment} from '@electron/features/agent/assistantShellEnvironment';
 import {sanitizeAssistantProviderText} from '@electron/features/agent/assistantErrorEnvelope';
 import {constants, existsSync} from 'node:fs';
 import {
@@ -90,7 +91,7 @@ function resolveOptionalSdkPackageDir(resolvePackageDir: () => string | null) {
 }
 
 export async function getClaudeAgentSdkInfo(options: IClaudeAgentSdkInfoOptions = {}): Promise<IClaudeAssistantProviderInfo> {
-    const env = options.env ?? process.env;
+    const env = options.env ?? await getAssistantShellEnvironment();
     const resolvePackageDir = options.resolveSdkPackageDir ?? resolveSdkPackageDir;
     const readVersion = options.readSdkVersion ?? readSdkVersion;
     const findPathExecutable = options.findClaudeOnPath ?? findClaudeOnPath;

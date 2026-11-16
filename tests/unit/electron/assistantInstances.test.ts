@@ -11,6 +11,7 @@ import type {IAssistantInstanceConfig} from '@contracts/assistant';
 
 const state = vi.hoisted(() => ({
     root: '',
+    shellEnv: undefined as NodeJS.ProcessEnv | undefined,
     encryptionAvailable: true,
     decryptionAvailable: true,
     discoveryFails: false,
@@ -22,6 +23,10 @@ vi.mock('@electron/features/agent/assistantLocalSetups', async importOriginal =>
         if (state.discoveryFails) throw new Error('fixture discovery unavailable');
         return state.local;
     },
+}));
+vi.mock('@electron/features/agent/assistantShellEnvironment', async importOriginal => ({
+    ...await importOriginal(),
+    getAssistantShellEnvironment: async () => state.shellEnv ?? process.env,
 }));
 vi.mock('@electron/te', async () => {
     const {default: en} = await import('@i18n-app/messages/en');
@@ -56,6 +61,7 @@ beforeEach(async () => {
     state.decryptionAvailable = true;
     state.discoveryFails = false;
     state.local = [];
+    state.shellEnv = undefined;
     instances = await import('@electron/features/agent/assistantInstances');
 });
 afterEach(async () => {
@@ -79,6 +85,62 @@ async function save(config: Partial<IAssistantInstanceConfig> = {}) {
 }
 
 describe('assistant instance configuration', () => {
+    it('launches both drivers with the shell environment underneath setup overrides', async () => {
+        state.shellEnv = {PATH: join(state.root, 'login-bin'), EVB_SHELL_FIXTURE: 'synthetic'};
+        for (const driver of ['codex', 'claude'] as const) {
+            await save({driver, environment: [{name: 'EVB_OVERRIDE', value: 'setup', secret: false}]});
+            const context = await instances.resolveAssistantLaunchContext('codex', resolvers);
+            expect(context.env.PATH === state.shellEnv.PATH).toBe(true);
+            expect(context.env.EVB_SHELL_FIXTURE === 'synthetic').toBe(true);
+            expect(context.env.EVB_OVERRIDE === 'setup').toBe(true);
+        }
+    });
+
+    it('preserves Windows PATH lookup after copying the inherited environment', async () => {
+        const {readAssistantShellEnvironment} = await import('@electron/features/agent/assistantShellEnvironment');
+        const result = await readAssistantShellEnvironment({Path: 'synthetic-windows-path'}, 'win32');
+        expect(result.PATH === 'synthetic-windows-path').toBe(true);
+        expect(Object.keys(result).filter(name => name.toUpperCase() === 'PATH')).toHaveLength(1);
+    });
+
+    it.skipIf(process.platform === 'win32')('kills a hanging login shell and its child before falling back', async () => {
+        const {readAssistantShellEnvironment} = await import('@electron/features/agent/assistantShellEnvironment');
+        const shell = join(state.root, 'hanging-shell');
+        const pids = join(state.root, 'shell-pids');
+        await writeFile(shell, `#!/bin/sh\ntrap 'wait; exit' TERM\n/bin/sleep 60 &\nprintf '%s %s' "$$" "$!" > '${pids}'\nwait\n`);
+        await chmod(shell, 0o700);
+        const inherited = {SHELL: shell, PATH: state.root};
+        const started = Date.now();
+        const result = await readAssistantShellEnvironment(inherited, process.platform, 1_000);
+        expect(result.PATH === inherited.PATH).toBe(true);
+        expect(Date.now() - started).toBeLessThan(3_000);
+        for (const pid of (await readFile(pids, 'utf8')).split(' ').map(Number)) {
+            expect(() => process.kill(pid, 0)).toThrow();
+        }
+    });
+
+    it.skipIf(process.platform === 'win32')('accepts a successful capture and stops a child holding stdout open', async () => {
+        const {readAssistantShellEnvironment} = await import('@electron/features/agent/assistantShellEnvironment');
+        const shell = join(state.root, 'background-shell');
+        const pidFile = join(state.root, 'background-pid');
+        await writeFile(shell, `#!/bin/sh\n/bin/sleep 60 &\nprintf '%s' "$!" > '${pidFile}'\nexport PATH='${state.root}'\nexec /bin/sh -c "$2"\n`);
+        await chmod(shell, 0o700);
+        const result = await readAssistantShellEnvironment({SHELL: shell, PATH: '/usr/bin:/bin'}, process.platform, 1_000);
+        const pid = Number(await readFile(pidFile, 'utf8'));
+        expect(() => process.kill(pid, 0)).toThrow();
+        expect(result.PATH === state.root).toBe(true);
+    });
+
+    it.skipIf(process.platform === 'win32')('reads an exported login-shell PATH without retaining startup output', async () => {
+        const {readAssistantShellEnvironment} = await import('@electron/features/agent/assistantShellEnvironment');
+        const shell = join(state.root, 'fixture-shell');
+        await writeFile(shell, `#!/bin/sh\nprintf 'startup banner\\n'\nif read ignored; then exit 1; fi\nunset EVB_UNSET_FIXTURE\nexport PATH='${state.root}'\nexec /bin/sh -c "$2"\n`);
+        await chmod(shell, 0o700);
+        const result = await readAssistantShellEnvironment({SHELL: shell, PATH: '/usr/bin:/bin', EVB_UNSET_FIXTURE: 'synthetic'});
+        expect(result.PATH === state.root).toBe(true);
+        expect(result.EVB_UNSET_FIXTURE === undefined).toBe(true);
+    });
+
     it('tokenizes quoted, escaped, concatenated and empty arguments without evaluation', () => {
         expect(instances.tokenizeLaunchArgs(String.raw` -c 'model_provider="proxy"' "two words" a"b c" '' "$HOME" `)).toEqual([
             '-c',
@@ -356,12 +418,21 @@ describe('local assistant setups', () => {
         const claude = await launcher('claude', '2.1.325 (Claude Code)');
         const wrapper = await launcher('codex-proxy', 'codex-cli 0.169.0');
         const claudeWrapper = await launcher('claude-proxy', '2.1.325 (Claude Code)');
+        if (process.platform !== 'win32') {
+            const helper = join(bin, 'assistant-fixture-version');
+            await writeFile(helper, '#!/bin/sh\nprintf "codex-cli 0.169.0\\n"\n');
+            await chmod(helper, 0o700);
+            await writeFile(wrapper, '#!/bin/sh\nexec assistant-fixture-version\n');
+        }
         await launcher('codex-unrelated', 'unrelated program 1.0.0');
         const env = {...process.env, PATH: bin, HOME: state.root, CODEX_CLI_PATH: codex, CLAUDE_CODE_PATH: claude};
         state.local = await discoverAssistantLocalSetups(env);
         expect(state.local.map(config => config.displayName).sort()).toEqual(process.platform === 'win32' ? ['Claude', 'Codex', 'codex-proxy'] : ['Claude', 'Codex', 'claude-proxy', 'codex-proxy']);
         expect(state.local.find(config => config.id === 'codex')).toMatchObject({binaryPath: codex, homePath: join(state.root, '.codex')});
         const config = state.local.find(config => config.binaryPath === wrapper)!;
+        state.shellEnv = env;
+        expect((await instances.resolveAssistantLaunchContext(config.id, resolvers)).env.PATH === env.PATH).toBe(true);
+        state.shellEnv = undefined;
         vi.stubEnv('EVB_DISCOVERY_FIXTURE', 'inherited-fixture');
         expect(await instances.resolveAssistantLaunchContext(config.id, resolvers)).toMatchObject({
             binaryPath: wrapper, env: {EVB_DISCOVERY_FIXTURE: 'inherited-fixture'},
