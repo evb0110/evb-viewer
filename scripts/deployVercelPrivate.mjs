@@ -356,28 +356,16 @@ export function resolveViewerAppVersion(projectRoot) {
             'pipe',
         ],
     })).trim();
-    let hasOrigin = true;
     try {
         git([
-            'remote',
-            'get-url',
+            'fetch',
+            '--quiet',
+            '--no-tags',
             'origin',
+            'refs/tags/v*:refs/tags/v*',
         ]);
-    } catch {
-        hasOrigin = false;
-    }
-    if (hasOrigin) {
-        try {
-            git([
-                'fetch',
-                '--quiet',
-                '--no-tags',
-                'origin',
-                'refs/tags/v*:refs/tags/v*',
-            ]);
-        } catch (error) {
-            throw new Error('Cannot name the viewer version: fetching release tags from origin failed.', {cause: error});
-        }
+    } catch (error) {
+        throw new Error('Cannot name the viewer version: fetching release tags from origin failed.', {cause: error});
     }
     let description;
     try {

@@ -395,6 +395,13 @@ function createProjectFixture() {
         'tag',
         'v1.2.3',
     ], {cwd: projectRoot});
+    // The version resolver reads release tags from origin; the fixture is its own.
+    execFileSync('git', [
+        'remote',
+        'add',
+        'origin',
+        '.',
+    ], {cwd: projectRoot});
 
     return projectRoot;
 }
@@ -1082,7 +1089,7 @@ describe.skipIf(process.platform === 'win32')('private Vercel deployment source'
             ]);
             git(projectRoot, [
                 'remote',
-                'add',
+                'set-url',
                 'origin',
                 originRoot,
             ]);
@@ -1095,6 +1102,14 @@ describe.skipIf(process.platform === 'win32')('private Vercel deployment source'
             ]);
 
             expect(resolveViewerAppVersion(projectRoot)).toBe('1.2.4');
+
+            git(projectRoot, [
+                'remote',
+                'remove',
+                'origin',
+            ]);
+            expect(() => resolveViewerAppVersion(projectRoot))
+                .toThrow('fetching release tags from origin failed');
         } finally {
             rmSync(originRoot, {
                 force: true,
