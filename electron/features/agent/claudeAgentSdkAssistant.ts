@@ -52,6 +52,7 @@ import {
 } from '@electron/features/agent/claudeAssistantStreamPresentation';
 
 import {resolveClaudeSdkExecutablePath} from '@electron/features/agent/claudeProviderMetadata';
+import {describeManifestModel} from '@electron/features/agent/assistantModelManifest';
 import {sanitizeAssistantProviderText} from '@electron/features/agent/assistantErrorEnvelope';
 const logger = createLogger('agent-claude-assistant');
 const CLAUDE_EFFORT_LEVEL_BY_ASSISTANT_EFFORT = {
@@ -190,9 +191,10 @@ const CLAUDE_RESOLVED_MODEL_PATTERN = /^claude-([a-z]+)-(\d+)(?:-(\d{1,2}))?(?:-
 // SDK display names are bare families ("Opus", "Opus (1M context)"); the
 // resolved model id carries the version, so a new release labels itself.
 function labelClaudeSdkModel(id: string, resolvedModel: string, displayName: string) {
+    const qualifier = /\s(\([^)]*\))$/u.exec(displayName)?.[1];
     const match = CLAUDE_RESOLVED_MODEL_PATTERN.exec(resolvedModel);
     if (!match) {
-        return displayName || id;
+        return {short: displayName || id, full: displayName || id};
     }
     const [
         , family = '',
@@ -200,8 +202,8 @@ function labelClaudeSdkModel(id: string, resolvedModel: string, displayName: str
         minor,
     ] = match;
     const name = `${family.slice(0, 1).toUpperCase()}${family.slice(1)} ${minor === undefined ? major : `${major}.${minor}`}`;
-    const qualifier = /\s(\([^)]*\))$/u.exec(displayName)?.[1];
-    return qualifier ? `${name} ${qualifier}` : name;
+    const short = qualifier ? `${name} ${qualifier}` : name;
+    return {short, full: `Claude ${short}`};
 }
 
 function normalizeClaudeSdkModelInfo(rawModel: unknown): IAgentAssistantModelOption | null {
@@ -217,21 +219,31 @@ function normalizeClaudeSdkModelInfo(rawModel: unknown): IAgentAssistantModelOpt
     const resolvedModel = typeof rawModel.resolvedModel === 'string' ? rawModel.resolvedModel.trim() : '';
     const displayName = typeof rawModel.displayName === 'string' ? rawModel.displayName.trim() : '';
     const label = labelClaudeSdkModel(id, resolvedModel, displayName);
+    // The resolved id names the version; an alias such as `opus` would name whichever release the catalog lists.
+    const known = describeManifestModel('claude', [resolvedModel || id]);
     const supportedEfforts = rawModel.supportsEffort !== false && Array.isArray(rawModel.supportedEffortLevels)
         ? createAssistantEffortOptions(rawModel.supportedEffortLevels.flatMap(value => {
             const effort = normalizeAssistantEffortId(value);
             return effort ? [effort] : [];
-        }))
+        }), known?.defaultEffort ?? null)
         : undefined;
     return {
         id,
-        label,
+        // "Claude Opus 5.5", as in T3 Code's catalog; the trigger keeps "Opus 5.5".
+        label: label.full,
+        shortLabel: label.short,
+        ...(known?.isLegacy ? {isLegacy: true} : {}),
         ...(resolvedModel ? {resolvedModel} : {}),
         ...(supportedEfforts ? {reasoningEfforts: supportedEfforts} : {}),
         ...(rawModel.supportsFastMode === true ? {serviceTiers: [{id: 'fast', label: 'Fast'}]} : {}),
     };
 }
 
+/**
+ * Adapted from T3 Code ClaudeModelCatalog.ts claudeReportedModels (0b6f482dc5), MIT:
+ * `default` is Claude Code's pointer at its own default model, not a model, so
+ * it marks the model it resolves to instead of listing that model twice.
+ */
 export function normalizeClaudeSdkModelList(rawModels: unknown): IAgentAssistantModelOption[] {
     if (!Array.isArray(rawModels)) {
         return [];
@@ -239,13 +251,23 @@ export function normalizeClaudeSdkModelList(rawModels: unknown): IAgentAssistant
 
     const seen = new Set<string>();
     const models: IAgentAssistantModelOption[] = [];
+    let pointer: IAgentAssistantModelOption | null = null;
     for (const rawModel of rawModels) {
         const model = normalizeClaudeSdkModelInfo(rawModel);
         if (!model || seen.has(model.id)) {
             continue;
         }
         seen.add(model.id);
+        if (model.id === 'default') {
+            pointer = model;
+            continue;
+        }
         models.push(model);
+    }
+    if (pointer) {
+        const target = pointer.resolvedModel ? models.find(model => model.resolvedModel === pointer.resolvedModel) : undefined;
+        if (target) target.isDefault = true;
+        else models.unshift({...pointer, isDefault: true});
     }
     return models;
 }

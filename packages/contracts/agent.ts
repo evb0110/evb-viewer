@@ -371,6 +371,11 @@ const agentAssistantServiceTierOptionSchema = v.object({
 const agentAssistantModelOptionSchema = v.object({
     id: v.string(),
     label: v.string(),
+    // The trigger's name, such as "Opus 5.5" for "Claude Opus 5.5".
+    shortLabel: v.optional(v.string()),
+    // Listed under "Show more" until it is a favorite.
+    isLegacy: v.optional(v.boolean()),
+    isDefault: v.optional(v.boolean()),
     resolvedModel: v.optional(v.string()),
     reasoningEfforts: v.optional(v.pipe(v.array(agentAssistantEffortOptionSchema), v.readonly())),
     defaultReasoningEffort: v.optional(v.nullable(v.string())),
