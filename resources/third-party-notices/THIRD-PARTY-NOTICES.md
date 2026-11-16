@@ -97,7 +97,7 @@ above; the Windows DjVuLibre patch and build script are in the EVB Viewer
 repository. Requests about the exact source of the bundled builds can be filed
 at https://github.com/evb0110/evb-viewer.
 
-## T3 Code provider handling
+## T3 Code provider handling and chat UI
 
 - Upstream: https://github.com/pingdotgg/t3code
 - Revision: `0b6f482dc5d5ee64d7e90d1bac342756db9bfe68`.
@@ -109,3 +109,10 @@ at https://github.com/evb0110/evb-viewer.
   and `apps/server/src/{codexModelOptions,claudeModelOptions}.ts`.
 - EVB uses installed provider executables, preserves its own app-server transport,
   document tools and lifecycle, and adds independent PATH launcher discovery.
+- Adapted chat UI areas, rewritten as Vue in `app/modules/agent-panel`: work-log
+  state labels and group summaries (`packages/client-runtime/src/work-log/presentation.ts`),
+  timeline follow and new-turn anchoring (`apps/web/src/components/chat/{timelineViewport,useTimelineFollow}.ts`),
+  model, effort and speed picker layout and keyboard movement
+  (`apps/web/src/components/chat/{ProviderModelPicker,ComposerModelEffort}.tsx`),
+  and Markdown table and inline-code styling (`apps/web/src/components/{ChatMarkdown.tsx,chat/MarkdownTable.tsx}`,
+  `apps/web/src/index.css`).

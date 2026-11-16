@@ -7,7 +7,7 @@
         "type": "mcpToolCall",
         "id": "read-1",
         "server": "evb_viewer_embedded_v4",
-        "tool": "read_document",
+        "tool": "evb_read_document_pages",
         "status": "inProgress",
         "arguments": {
           "pages": [
@@ -25,7 +25,7 @@
         "type": "mcpToolCall",
         "id": "search-2",
         "server": "evb_viewer_embedded_v4",
-        "tool": "search_document",
+        "tool": "evb_search_document",
         "status": "inProgress",
         "arguments": {
           "query": "fixture"
@@ -41,7 +41,7 @@
         "type": "mcpToolCall",
         "id": "read-1",
         "server": "evb_viewer_embedded_v4",
-        "tool": "read_document",
+        "tool": "evb_read_document_pages",
         "status": "completed",
         "arguments": {
           "pages": [
@@ -67,7 +67,7 @@
         "type": "mcpToolCall",
         "id": "search-2",
         "server": "evb_viewer_embedded_v4",
-        "tool": "search_document",
+        "tool": "evb_search_document",
         "status": "completed",
         "arguments": {
           "query": "fixture"

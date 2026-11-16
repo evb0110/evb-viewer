@@ -95,7 +95,10 @@ describe('Electron E2E - assistant model discovery', () => {
             const rows = [...document.querySelectorAll('.work-entry')].map(row => row.textContent ?? '');
             return rows.some(row => row.includes('read_document')) && rows.some(row => row.includes('search_document'));
         });
-        expect(await page.$eval('.work-group summary', summary => summary.textContent)).toContain('search_document');
+        // The group row names the running action in words; raw tool names stay in the expanded rows.
+        const summary = await page.$eval('.work-group summary', element => element.textContent ?? '');
+        expect(summary).toContain('Searching the document');
+        expect(summary).not.toContain('evb_');
         await page.waitForFunction(() => document.querySelector('.assistant-message:not(.is-user):last-of-type')?.textContent?.includes('Local tool fixture finished.'));
 
         // Populate the production cache through ordinary state requests. This is

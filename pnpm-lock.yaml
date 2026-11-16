@@ -204,6 +204,9 @@ importers:
       h3:
         specifier: 1.15.11
         version: 1.15.11
+      marked:
+        specifier: 17.0.6
+        version: 17.0.6
       pdf-lib:
         specifier: ^1.17.1
         version: 1.17.1

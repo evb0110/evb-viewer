@@ -3,10 +3,10 @@ import {
     afterEach, beforeEach, describe, expect, it, vi,
 } from 'vitest';
 import {
-    createApp, defineComponent, h, nextTick, reactive, type Component,
+    createApp, defineComponent, h, nextTick, reactive, ref, type Component,
 } from 'vue';
 import type {
-    IAssistantChat, IAssistantEvent, IAssistantItem, IAssistantState,
+    IAssistantChat, IAssistantEvent, IAssistantItem, IAssistantSelection, IAssistantState,
 } from '@contracts/assistant';
 import type {
     IAgentAssistantChatScope, IAgentAssistantErrorEnvelope,
@@ -21,6 +21,7 @@ import {
 import AgentAssistantPanel from '@app/modules/agent-panel/components/AgentAssistantPanel.vue';
 import AssistantComposer from '@app/modules/agent-panel/components/AssistantComposer.vue';
 import AssistantTimeline from '@app/modules/agent-panel/components/AssistantTimeline.vue';
+import AssistantProviderModelPicker from '@app/modules/agent-panel/components/AssistantProviderModelPicker.vue';
 import { STORAGE_KEYS } from '@app/constants/storageKeys';
 
 const api = vi.hoisted(() => ({
@@ -69,9 +70,9 @@ function chat(items: IAssistantItem[] = []): IAssistantChat {
         turn: null,
     };
 }
-function envelope(message: string, retryable: boolean): IAgentAssistantErrorEnvelope {
+function envelope(message: string, retryable: boolean, code: IAgentAssistantErrorEnvelope['code'] = 'INTERNAL'): IAgentAssistantErrorEnvelope {
     return {
-        code: 'INTERNAL',
+        code,
         message,
         retryable,
         details: { timestamp: requireEpochMs(Date.now()) },
@@ -103,21 +104,29 @@ const Button = defineComponent({
         slots.default?.(),
     ]),
 });
-const Slot = defineComponent({ setup: (_props, { slots }) => () => h('div', [
-    slots.default?.(),
-    slots.content?.(),
-]) });
+const Slot = defineComponent({
+    props: { open: Boolean },
+    setup: (props, { slots }) => () => h('div', { 'data-open': String(props.open) }, [
+        slots.default?.(),
+        slots.content?.(),
+    ]),
+});
 const Input = defineComponent({
     inheritAttrs: false,
     props: { modelValue: String },
     emits: ['update:modelValue'],
     setup: (props, {
-        attrs, emit,
-    }) => () => h('input', {
-        ...attrs,
-        value: props.modelValue,
-        onInput: (event: Event) => emit('update:modelValue', (event.target as HTMLInputElement).value),
-    }),
+        attrs, emit, expose,
+    }) => {
+        const inputRef = ref<HTMLInputElement | null>(null);
+        expose({ inputRef });
+        return () => h('input', {
+            ...attrs,
+            ref: inputRef,
+            value: props.modelValue,
+            onInput: (event: Event) => emit('update:modelValue', (event.target as HTMLInputElement).value),
+        });
+    },
 });
 function mount(component: Component = AgentAssistantPanel, props: Record<string, unknown> = {
     chatScope: scope,
@@ -540,13 +549,14 @@ describe('assistant renderer on instance contract', () => {
         await settle();
         button(host, 'GPT B').click();
         await settle();
-        const effort = host.querySelector<HTMLInputElement>('input[name$="-effort"]');
-        effort?.dispatchEvent(new Event('change', { bubbles: true }));
+        button(host, 'assistant.effort.low').click();
         await settle();
-        const fast = [...host.querySelectorAll<HTMLInputElement>('input[name$="-speed"]')].at(-1);
-        fast?.dispatchEvent(new Event('change', { bubbles: true }));
+        [...host.querySelectorAll<HTMLButtonElement>('.picker-speed-option')].at(-1)?.click();
         await settle();
-        expect(host.querySelector('.picker-trigger')?.textContent).toContain('B · GPT B · low');
+        const trigger = host.querySelector('.picker-trigger');
+        expect(trigger?.getAttribute('aria-label')).toBe('B · GPT B · assistant.effort.low · assistant.speedFast');
+        expect(trigger?.textContent).toBe('BGPT Bassistant.effort.low');
+        expect(trigger?.querySelector('[name="i-ph-lightning"]')).not.toBeNull();
         expect(host.querySelector('.provider-banner')?.textContent).toContain('B warning');
         await draft(host, 'Use B');
         button(host, 'assistant.send').click();
@@ -780,4 +790,289 @@ it('#1608 reports a failed assistant preference write after a model choice', asy
         expect(host.querySelector('.picker-trigger')?.textContent).toContain('Other model');
         expect(messages.join(' ')).toMatch(/preference|saved|storage|quota/i);
     } finally {write.mockRestore();}
+});
+
+function timelineProps(items: IAssistantItem[], extra: Record<string, unknown> = {}) {
+    return reactive({
+        sessionKey: 'codex:a',
+        items,
+        turn: null,
+        running: false,
+        hasDocument: true,
+        copyIcon: () => 'i-ph-copy',
+        copyLabel: () => 'Copy',
+        ...extra,
+    });
+}
+function texts(host: HTMLElement, selector: string) {
+    return [...host.querySelectorAll(selector)].map(node => node.textContent ?? '');
+}
+
+describe('work rows name actions and show one state', () => {
+    it('labels EVB tools in words, with icon and verb from the same item state', async () => {
+        const host = mount(AssistantTimeline, timelineProps([
+            item('user', 'user', 'Add bookmarks'),
+            item('snapshot', 'tool', '', { toolName: 'evb_workspace_snapshot' }),
+            item('pages', 'tool', '', {
+                toolName: 'mcp__evb__evb_read_document_pages',
+                status: 'streaming',
+            }),
+        ], {
+            running: true,
+            turn: {
+                id: 'turn',
+                phase: 'tool-running',
+                startedAtMs: Date.now(),
+                usage: null,
+            },
+        }));
+        await settle();
+        const summary = host.querySelector<HTMLElement>('.work-summary');
+        expect(summary?.textContent).toBe('assistant.work.readActiveassistant.work.steps{"count":2}');
+        expect(summary?.querySelector('[name="i-ph-circle-notch"]')).not.toBeNull();
+        expect(texts(host, '.work-entry summary')).toEqual(['assistant.work.workspaceDone', 'assistant.work.readActive']);
+        const icons = [...host.querySelectorAll('.work-entry summary')].map(row => row.querySelector('.work-icon')?.getAttribute('name'));
+        expect(icons).toEqual(['i-ph-check', 'i-ph-circle-notch']);
+        expect(texts(host, '.work-tool-name')).toEqual(['evb_workspace_snapshot', 'mcp__evb__evb_read_document_pages']);
+    });
+
+    it('never pairs a check mark with a running label in an earlier group of a running turn', async () => {
+        const host = mount(AssistantTimeline, timelineProps([
+            item('user', 'user', 'Add bookmarks'),
+            item('snapshot', 'tool', '', { toolName: 'evb_workspace_snapshot' }),
+            item('progress', 'assistant', 'Small document. Reading all pages.', { status: 'streaming' }),
+            item('describe', 'tool', '', {
+                toolName: 'evb_describe_capability',
+                status: 'streaming',
+            }),
+        ], {
+            running: true,
+            turn: {
+                id: 'turn',
+                phase: 'tool-running',
+                startedAtMs: Date.now(),
+                usage: null,
+            },
+        }));
+        await settle();
+        const [earlier, live] = [...host.querySelectorAll<HTMLElement>('.work-summary')];
+        expect(earlier?.textContent).toBe('assistant.work.workspaceDone');
+        expect(earlier?.querySelector('.work-icon')?.getAttribute('name')).toBe('i-ph-check');
+        expect(live?.textContent).toBe('assistant.work.capabilitiesActive');
+        expect(live?.querySelector('.work-icon')?.getAttribute('name')).toBe('i-ph-circle-notch');
+    });
+
+    it('names a finished group by its most telling action and marks a failed one', async () => {
+        const host = mount(AssistantTimeline, timelineProps([
+            item('user-1', 'user', 'Add bookmarks', { turnId: 'turn-1' }),
+            ...[
+                'evb_workspace_snapshot',
+                'evb_search_document',
+                'evb_run_action',
+                'some_other_tool',
+            ].map(toolName => item(toolName, 'tool', '', {
+                toolName,
+                turnId: 'turn-1',
+            })),
+            item('answer', 'assistant', 'Done', { turnId: 'turn-1' }),
+            item('user-2', 'user', 'Again', { turnId: 'turn-2' }),
+            item('think', 'reasoning', 'Considering', { turnId: 'turn-2' }),
+            item('read', 'tool', '', {
+                toolName: 'evb_read_document_pages',
+                status: 'failed',
+                turnId: 'turn-2',
+            }),
+        ]));
+        await settle();
+        const [finished, failed] = [...host.querySelectorAll<HTMLElement>('.work-summary')];
+        expect(finished?.textContent).toBe('assistant.work.actionDoneassistant.work.steps{"count":4}');
+        expect(failed?.textContent).toBe('assistant.work.readDoneassistant.toolPhaseFailedassistant.work.steps{"count":2}');
+        expect(failed?.querySelector('.work-icon')?.getAttribute('name')).toBe('i-ph-warning-circle');
+        expect(texts(host, '.work-entry summary')).toContain('assistant.work.toolDone');
+        expect(texts(host, '.work-summary').join(' ')).not.toMatch(/evb_|some_other_tool/u);
+    });
+});
+
+describe('failed replies, provider status and presets', () => {
+    it('offers Change model instead of Retry when the model cannot run, and opens the picker', async () => {
+        current.chat = chat([
+            item('user', 'user', 'Add bookmarks'),
+            item('failure', 'system', '', {
+                status: 'failed',
+                errorEnvelope: envelope('The model is not supported with this account.', false, 'MODEL_UNAVAILABLE'),
+            }),
+        ]);
+        const host = mount();
+        await settle();
+        expect(host.querySelector('.timeline-error')?.textContent).toContain('The model is not supported with this account.');
+        expect(host.querySelector('.timeline-error')?.textContent).not.toContain('{');
+        expect(texts(host, '.timeline-error button')).toEqual(['assistant.changeModel']);
+        const popover = host.querySelector('.assistant-composer [data-open]');
+        expect(popover?.getAttribute('data-open')).toBe('false');
+        button(host, 'assistant.changeModel').click();
+        await settle();
+        expect(popover?.getAttribute('data-open')).toBe('true');
+        expect(api.sendAssistantMessage).not.toHaveBeenCalled();
+    });
+
+    it('offers Retry for a transient failure only', async () => {
+        current.chat = chat([
+            item('user', 'user', 'Add bookmarks'),
+            item('failure', 'system', '', {
+                status: 'failed',
+                errorEnvelope: envelope('Codex app-server exited.', true, 'RUNTIME_UNAVAILABLE'),
+            }),
+        ]);
+        const host = mount();
+        await settle();
+        expect(texts(host, '.timeline-error button')).toEqual(['assistant.turnRetry']);
+    });
+
+    it('reserves layout space for provider status instead of covering the conversation', async () => {
+        current.instances[0] = createAssistantInstance({
+            state: 'error',
+            message: 'Codex app-server exited.',
+        });
+        current.chat = chat([item('user', 'user', 'Add bookmarks')]);
+        const host = mount();
+        await settle();
+        const banner = host.querySelector('.provider-banner');
+        expect(banner?.parentElement?.classList.contains('agent-assistant-panel')).toBe(true);
+        expect(host.querySelector('.timeline-shell')?.contains(banner ?? null)).toBe(false);
+        expect(banner?.nextElementSibling?.classList.contains('timeline-shell')).toBe(true);
+    });
+
+    it('renders preset chips the same way in the empty state and above the composer', async () => {
+        const host = mount();
+        await settle();
+        const empty = [...host.querySelectorAll('.timeline-empty .assistant-presets button')].map(node => node.outerHTML);
+        expect(empty).toHaveLength(3);
+        expect(empty.every(html => /icon="i-ph-/u.test(html))).toBe(true);
+        listener({
+            type: 'item',
+            sessionKey: 'codex:a',
+            item: item('user', 'user', 'Hello'),
+        });
+        await settle();
+        expect(host.querySelector('.timeline-empty')).toBeNull();
+        expect([...host.querySelectorAll('.assistant-presets-footer .assistant-presets button')].map(node => node.outerHTML)).toEqual(empty);
+    });
+});
+
+describe('model picker keyboard', () => {
+    it('moves between effort rows and models with arrow keys and keeps one effort tab stop', async () => {
+        const props = reactive({
+            instances: [createAssistantInstance({
+                models: [
+                    {
+                        id: 'gpt',
+                        label: 'GPT',
+                        reasoningEfforts: [
+                            'low',
+                            'medium',
+                            'high',
+                        ].map(id => ({
+                            id,
+                            label: id,
+                        })),
+                        defaultReasoningEffort: 'medium',
+                    },
+                    {
+                        id: 'other',
+                        label: 'Other model',
+                    },
+                ],
+                defaultModel: 'gpt',
+            })],
+            selection: { ...selection } as IAssistantSelection,
+            onSelect: (next: IAssistantSelection) => { props.selection = next; },
+        });
+        const host = mount(AssistantProviderModelPicker, props);
+        await settle();
+        const efforts = [...host.querySelectorAll<HTMLButtonElement>('[data-effort-row]')];
+        expect(efforts.map(row => row.getAttribute('tabindex'))).toEqual(['-1', '-1', '0']);
+        expect(efforts.map(row => row.getAttribute('aria-checked'))).toEqual(['false', 'false', 'true']);
+        expect(efforts[1]?.textContent).toBe('assistant.effort.mediumassistant.effortDefault');
+        efforts[2]?.focus();
+        efforts[2]?.dispatchEvent(new KeyboardEvent('keydown', {
+            key: 'ArrowUp',
+            bubbles: true,
+        }));
+        expect(document.activeElement).toBe(efforts[1]);
+        efforts[1]?.dispatchEvent(new KeyboardEvent('keydown', {
+            key: 'ArrowLeft',
+            bubbles: true,
+        }));
+        expect(document.activeElement).toBe(host.querySelector('.picker-search'));
+        const models = [...host.querySelectorAll<HTMLButtonElement>('.picker-model')];
+        models[0]?.focus();
+        models[0]?.dispatchEvent(new KeyboardEvent('keydown', {
+            key: 'ArrowDown',
+            bubbles: true,
+        }));
+        expect(document.activeElement).toBe(models[1]);
+        models[1]?.click();
+        await settle();
+        expect(host.querySelector('.picker-trigger')?.textContent).toBe('Other model');
+        expect(host.querySelector('[data-effort-row]')).toBeNull();
+    });
+});
+
+describe('timeline viewport', () => {
+    function geometry(viewport: HTMLElement, scrollHeight: number, clientHeight: number) {
+        Object.defineProperties(viewport, {
+            scrollHeight: {
+                configurable: true,
+                value: scrollHeight,
+            },
+            clientHeight: {
+                configurable: true,
+                value: clientHeight,
+            },
+        });
+    }
+
+    it('lets the reader scroll away and follows again when a new message is sent', async () => {
+        const props = timelineProps([item('answer', 'assistant', 'Answer')]);
+        const host = mount(AssistantTimeline, props);
+        await settle();
+        const viewport = host.querySelector<HTMLElement>('.assistant-timeline');
+        if (!viewport) throw new Error('Missing viewport');
+        geometry(viewport, 1200, 400);
+        viewport.scrollTop = 100;
+        viewport.dispatchEvent(new Event('scroll'));
+        await settle();
+        expect(host.querySelector('.scroll-to-end')).not.toBeNull();
+        props.items.push(item('next-user', 'user', 'Next question', { turnId: 'turn-2' }));
+        await settle();
+        expect(host.querySelector('.scroll-to-end')).toBeNull();
+        expect(viewport.scrollTop).toBe(1200);
+    });
+
+    it('reserves space below a newly sent message so it starts near the top', async () => {
+        const props = timelineProps([item('answer', 'assistant', 'Earlier answer')]);
+        const host = mount(AssistantTimeline, props);
+        await settle();
+        const viewport = host.querySelector<HTMLElement>('.assistant-timeline');
+        const content = host.querySelector<HTMLElement>('.timeline-content');
+        if (!viewport || !content) throw new Error('Missing timeline');
+        geometry(viewport, 700, 400);
+        Object.defineProperty(content, 'offsetHeight', {
+            configurable: true,
+            value: 300,
+        });
+        const rect = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+            return DOMRect.fromRect({
+                y: this.dataset.rowId === 'sent' ? 200 : 0,
+                height: 0,
+            });
+        });
+        try {
+            props.items.push(item('sent', 'user', 'Add bookmarks', { turnId: 'turn-2' }));
+            await settle();
+            expect(host.querySelector<HTMLElement>('.timeline-anchor-space')?.style.height).toBe('300px');
+        } finally {
+            rect.mockRestore();
+        }
+    });
 });
