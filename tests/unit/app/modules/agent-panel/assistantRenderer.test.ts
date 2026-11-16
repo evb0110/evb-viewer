@@ -760,8 +760,11 @@ describe('timeline presentation and following', () => {
                 value: 400,
             },
         });
-        viewport.scrollTop = 100;
-        viewport.dispatchEvent(new Event('scroll'));
+        // The reader starts at the end and moves up.
+        for (const top of [800, 100]) {
+            viewport.scrollTop = top;
+            viewport.dispatchEvent(new Event('scroll'));
+        }
         await settle();
         props.items.push(item('next', 'assistant', 'More text'));
         await settle();
@@ -1042,14 +1045,36 @@ describe('timeline viewport', () => {
         const viewport = host.querySelector<HTMLElement>('.assistant-timeline');
         if (!viewport) throw new Error('Missing viewport');
         geometry(viewport, 1200, 400);
-        viewport.scrollTop = 100;
-        viewport.dispatchEvent(new Event('scroll'));
+        for (const top of [800, 100]) {
+            viewport.scrollTop = top;
+            viewport.dispatchEvent(new Event('scroll'));
+        }
         await settle();
         expect(host.querySelector('.scroll-to-end')).not.toBeNull();
         props.items.push(item('next-user', 'user', 'Next question', { turnId: 'turn-2' }));
         await settle();
         expect(host.querySelector('.scroll-to-end')).toBeNull();
         expect(viewport.scrollTop).toBe(1200);
+    });
+
+    it('keeps following when a taller viewport pulls the view back to the end', async () => {
+        const host = mount(AssistantTimeline, timelineProps([item('answer', 'assistant', 'Answer')]));
+        await settle();
+        const viewport = host.querySelector<HTMLElement>('.assistant-timeline');
+        if (!viewport) throw new Error('Missing viewport');
+        geometry(viewport, 1200, 400);
+        viewport.scrollTop = 800;
+        viewport.dispatchEvent(new Event('scroll'));
+        // The provider banner collapses: the viewport grows and the browser clamps scrollTop.
+        geometry(viewport, 1200, 444);
+        viewport.scrollTop = 756;
+        viewport.dispatchEvent(new Event('scroll'));
+        await settle();
+        expect(host.querySelector('.scroll-to-end')).toBeNull();
+        viewport.scrollTop = 740;
+        viewport.dispatchEvent(new Event('scroll'));
+        await settle();
+        expect(host.querySelector('.scroll-to-end'), 'A short move up off the end still releases following').not.toBeNull();
     });
 
     it('reserves space below a newly sent message so it starts near the top', async () => {

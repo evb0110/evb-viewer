@@ -12,6 +12,7 @@ import {
     openPdfInApp, waitForPdfLoaded,
 } from '@tests/e2e/electron/helpers/viewerCore';
 import type { IE2EWindow } from '@tests/e2e/electron/helpers/e2EWindow';
+import { waitForAnimationFrames } from '@tests/e2e/electron/helpers/viewerVirtualizationContract';
 import {createLargeAssistantImage} from '@tests/fixtures/electron/createLargeAssistantImage';
 
 // Opening the picker must discover both providers before the first model turn.
@@ -144,9 +145,20 @@ describe('Electron E2E - assistant model discovery', () => {
         await clickAsUser(page, 'button[aria-label="Toggle EVB Assistant"]');
         await page.waitForSelector('.work-summary');
         await page.waitForSelector('.provider-banner.is-checking', {hidden: true});
-        const restoredResume = await page.$('.scroll-to-end');
-        if (restoredResume) await clickAsUser(page, restoredResume);
         await page.waitForSelector('.scroll-to-end', {hidden: true});
+        // A taller conversation, as when the provider banner collapses, keeps following:
+        // the browser pulls scrollTop back to the end, and that is not the reader scrolling.
+        const naturalSize = await page.evaluate((): [number, number] => [window.innerWidth, window.innerHeight]);
+        const naturalHeight = await page.$eval('.assistant-timeline', viewport => viewport.clientHeight);
+        await fixture.getSession().command('windowResize', [naturalSize[0], naturalSize[1] - 100]);
+        await page.waitForFunction(height => {
+            const viewport = document.querySelector('.assistant-timeline');
+            return viewport && viewport.clientHeight < height && viewport.scrollHeight - viewport.clientHeight - viewport.scrollTop < 2;
+        }, {}, naturalHeight);
+        await fixture.getSession().command('windowResize', naturalSize);
+        await page.waitForFunction(height => (document.querySelector('.assistant-timeline')?.clientHeight ?? 0) >= height, {}, naturalHeight);
+        await waitForAnimationFrames(page, 2);
+        expect.soft(await page.$('.scroll-to-end'), 'A taller conversation keeps following its end').toBeNull();
         const disclosureTop = await page.$eval('.work-summary', summary => summary.getBoundingClientRect().top);
         await clickAsUser(page, '.work-summary');
         await fixture.getSession().command('screenshot', ['assistant-open-work-position']);

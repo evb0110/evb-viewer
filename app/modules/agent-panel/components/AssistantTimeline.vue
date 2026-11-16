@@ -103,23 +103,22 @@ function needsAnotherModel(item: IAssistantItem) {
  * The one owner of this viewport's position, after T3 Code's timeline follow rules
  * (apps/web/src/components/chat/timelineViewport.ts and useTimelineFollow.ts@0b6f482dc5,
  * MIT, T3 Tools Inc.). Following keeps the live end in view. A reader who moves up
- * releases it, and only returning to the end re-arms it. A newly sent message is
- * anchored near the top: space below it lets the reply grow in view until it fills
- * the viewport, after which following tracks the reply's end.
+ * off the end releases it (a clamp after the view grows lands on the end), and only
+ * returning to the end re-arms it. A newly sent message is anchored near the top:
+ * space below it lets the reply grow in view until it fills the viewport, after
+ * which following tracks the reply's end.
  */
 const END_BAND = 48;
 const follow = ref<'following' | 'released'>('following');
 let lastScrollTop = 0;
 const anchorId = ref<string | null>(null);
 const anchorSpace = ref(0);
-function atEnd(element: HTMLElement) {
-    return element.scrollHeight - element.clientHeight - element.scrollTop < END_BAND;
-}
 function handleScroll() {
     const element = viewport.value;
     if (!element) return;
-    if (element.scrollTop < lastScrollTop || !atEnd(element)) follow.value = 'released';
-    else if (atEnd(element)) follow.value = 'following';
+    const gap = element.scrollHeight - element.clientHeight - element.scrollTop;
+    if (element.scrollTop < lastScrollTop && gap > 1) follow.value = 'released';
+    else if (gap < END_BAND) follow.value = 'following';
     lastScrollTop = element.scrollTop;
 }
 function scrollToEnd() {
