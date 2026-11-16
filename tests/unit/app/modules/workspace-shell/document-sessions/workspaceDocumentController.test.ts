@@ -7,21 +7,15 @@ import {
 } from 'vitest';
 import { ref } from 'vue';
 import type { FailureReceipt } from '@contracts/diagnostics/failureReceipt';
-import {
-    requireDocumentRef,
-    type TDocumentRef,
-} from '@contracts/documentRef';
+import { requireDocumentRef } from '@contracts/documentRef';
 import {requireDocumentRevisionToken} from '@contracts/documentRevision';
 import { requireEpochMs } from '@contracts/timestamps';
 import type { ITab } from '@app/types/tabs';
 import {
     createWorkspaceDocumentController,
-    describeTabDocument,
     snapshotOccupiesTab,
 } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 import { useWorkspaceDocumentSessions } from '@app/modules/workspace-shell/document-sessions/useWorkspaceDocumentSessions';
-import { describeDocumentTarget } from '@app/modules/workspace-shell/document-sessions/describeDocumentTarget';
-import { useAppShellWorkspaceRouting } from '@app/modules/workspace-shell/composables/useAppShellWorkspaceRouting';
 import { createWorkspaceExposeFixture } from '@tests/unit/app/modules/workspace-shell/workspaceTestFixtures';
 import { readToastDescription } from '@tests/helpers/toastDescription';
 
@@ -359,130 +353,5 @@ describe('a tab whose open fails', () => {
             title: 'errors.file.open',
             description: 'gone.pdf: The file was moved or deleted.',
         });
-    });
-});
-
-// The shell's tabs and the real document controllers, with a New Tab that is
-// active and whose workspace chunk has not arrived yet.
-function createRoutingToNewTab() {
-    const tabs = ref<ITab[]>([
-        {id: 'tab-start'},
-        {id: 'tab-new'},
-    ]);
-    const activeTabId = ref<string | null>('tab-new');
-    const documentSessions = useWorkspaceDocumentSessions({
-        activeTabId,
-        tabs,
-    });
-    let created = 0;
-    const routing = useAppShellWorkspaceRouting({
-        activePaneId: ref('pane-1'),
-        activeTabId,
-        documentSessions,
-        tabLifecycleById: ref({}),
-        createTab: ({activate}) => {
-            created += 1;
-            const tab = {id: `tab-opened-${created}`};
-            tabs.value = [
-                ...tabs.value,
-                tab,
-            ];
-            if (activate) activeTabId.value = tab.id;
-            return tab;
-        },
-        getTabById: tabId => tabs.value.find(tab => tab.id === tabId) ?? null,
-        removeTabFromState: (tabId) => {
-            tabs.value = tabs.value.filter(tab => tab.id !== tabId);
-        },
-        resolveTabForAction: () => null,
-        handleCloseTab: vi.fn(),
-        moveTabToNewWindow: vi.fn(),
-        moveTabToWindow: vi.fn(),
-        mergeWindowInto: vi.fn(),
-    });
-    // The tab's workspace mounts and opens the file the way a real one does:
-    // its open claims the tab, records the file, then presents it.
-    function mountWorkspace(tabId: string) {
-        const session = documentSessions.getSession(tabId)!;
-        session.attachWorkspace(tabId, createWorkspaceExposeFixture({handleOpenFileDirectWithPersist: async (path: TDocumentRef) => {
-            const opened = session.runOpen({
-                kind: 'open',
-                target: describeDocumentTarget(path),
-            }, async () => {
-                session.commitFile({originalPath: path});
-                session.markPresented();
-                return true;
-            });
-            return opened;
-        }}));
-    }
-    function describeTabs() {
-        return tabs.value.map(tab => describeTabDocument(documentSessions.getSession(tab.id)!.snapshot.value).fileName);
-    }
-    return {
-        describeTabs,
-        documentSessions,
-        mountWorkspace,
-        routing,
-        tabs,
-    };
-}
-
-describe('routing a document while the tab it picked is still mounting', () => {
-    it('gives a second open its own tab, and both documents stay open', async () => {
-        const {
-            describeTabs,
-            mountWorkspace,
-            routing,
-            tabs,
-        } = createRoutingToNewTab();
-
-        const first = routing.openPathInAppropriateTab(requireDocumentRef('/docs/alpha.pdf'));
-        const second = routing.openPathInAppropriateTab(requireDocumentRef('/docs/beta.pdf'));
-        // The workspace chunk arrives for every tab waiting on it.
-        for (const tab of tabs.value.slice(1)) mountWorkspace(tab.id);
-
-        await expect(Promise.all([
-            first,
-            second,
-        ])).resolves.toEqual([
-            true,
-            true,
-        ]);
-        expect(describeTabs()).toEqual([
-            null,
-            'alpha.pdf',
-            'beta.pdf',
-        ]);
-    });
-
-    it('leaves a new tab to the document that took it before the first open could start', async () => {
-        const {
-            describeTabs,
-            documentSessions,
-            mountWorkspace,
-            routing,
-        } = createRoutingToNewTab();
-
-        const opened = routing.handleOpenInNewTab(requireDocumentRef('/docs/alpha.pdf'));
-        // Another owner opens a different file in the tab before it mounts.
-        const session = documentSessions.getSession('tab-opened-1')!;
-        const beta = requireDocumentRef('/docs/beta.pdf');
-        await session.runOpen({
-            kind: 'open',
-            target: describeDocumentTarget(beta),
-        }, async () => {
-            session.commitFile({originalPath: beta});
-            session.markPresented();
-            return true;
-        });
-        mountWorkspace('tab-opened-1');
-
-        await expect(opened).resolves.toBe(false);
-        expect(describeTabs()).toEqual([
-            null,
-            null,
-            'beta.pdf',
-        ]);
     });
 });

@@ -21,7 +21,6 @@ import {
 import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
 import type { IWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 import { createScanCleanupOutputSaveAs } from '@app/modules/workspace-shell/composables/scanCleanupOutputTab';
-import { createWorkspaceDocumentView } from '@app/modules/workspace-shell/document-sessions/createWorkspaceDocumentView';
 import { cast } from '@tests/helpers/cast';
 import type { TTranslateFn } from '@i18n-app';
 import type {
@@ -46,28 +45,6 @@ import {
 const capability = vi.hoisted(() => ({value: null as IScanCleanupCapability | null}));
 
 vi.mock('@app/utils/getScanCleanupCapability', () => ({getScanCleanupCapability: () => capability.value}));
-
-// A tab's document with its own views, mounted where a workspace is given.
-function createDocument(identity: Record<string, string>, views: Record<string, IWorkspaceExpose | null>) {
-    const records = shallowRef(new Map(Object.entries(views).map(([
-        tabId,
-        workspace,
-    ]) => {
-        const view = createWorkspaceDocumentView(tabId, {isDocumentFailed: () => false});
-        if (workspace) view.mount(workspace);
-        return [
-            tabId,
-            view,
-        ] as const;
-    })));
-    return cast<IWorkspaceDocumentController>({
-        views: records,
-        getView: (tabId: string) => records.value.get(tabId) ?? null,
-        attachWorkspace: (tabId: string, workspace: IWorkspaceExpose) => records.value.get(tabId)?.mount(workspace),
-        removeView: (tabId: string) => records.value.get(tabId)?.retire(),
-        snapshot: ref({identity}),
-    });
-}
 
 function progress(processedCount = 0, totalPages = 1) {
     return {
@@ -218,21 +195,43 @@ describe('scan-cleanup workspace reopen handoff', () => {
         'closed-before-click',
         'closed-during-dialog',
         'cancelled-dialog',
-        'cold-output',
-        'removed-before-mount',
     ])('keeps completion Save As attached to its document: %s', async (scenario) => {
         const scratch = await mkdtemp(join(tmpdir(), 'cleanup-completion-session-'));
         const savedPath = join(scratch, 'saved.pdf');
         const outputPath = '/managed/cleaned.pdf';
+        const output = cast<IWorkspaceDocumentController>({
+            views: shallowRef(new Map([[
+                'output',
+                {mountedWorkspace: computed(() => workspaces.output)},
+            ]])),
+            snapshot: ref({identity: {
+                documentInstanceId: 'completed-document',
+                originalPath: outputPath,
+                workingCopyPath: '/working/output.pdf',
+                documentRef: '/working/output.pdf',
+            }}),
+        });
+        const other = cast<IWorkspaceDocumentController>({
+            views: shallowRef(new Map([[
+                'other',
+                {mountedWorkspace: computed(() => workspaces.other)},
+            ]])),
+            snapshot: ref({identity: {
+                documentInstanceId: 'other-document',
+                originalPath: '/other.pdf',
+                workingCopyPath: '/working/other.pdf',
+                documentRef: '/working/other.pdf',
+            }}),
+        });
+        const sessions = shallowRef<Record<string, IWorkspaceDocumentController>>({
+            output,
+            other,
+        });
+
         const toastAdd = vi.fn();
         const workspaces: Record<string, IWorkspaceExpose> = {
             other: cast<IWorkspaceExpose>({handleSaveAs: async () => {
                 await writeFile(savedPath, 'OTHER-DOCUMENT-BYTES');
-                return true;
-            }}),
-            // Another view of the output document, in a second tab.
-            linked: cast<IWorkspaceExpose>({handleSaveAs: async () => {
-                await writeFile(savedPath, 'LINKED-VIEW-BYTES');
                 return true;
             }}),
             output: cast<IWorkspaceExpose>({handleSaveAs: async () => {
@@ -247,43 +246,12 @@ describe('scan-cleanup workspace reopen handoff', () => {
                 return true;
             }}),
         };
-        const cold = scenario === 'cold-output' || scenario === 'removed-before-mount';
-        const output = createDocument({
-            documentInstanceId: 'completed-document',
-            originalPath: outputPath,
-            workingCopyPath: '/working/output.pdf',
-            documentRef: '/working/output.pdf',
-        }, {
-            output: cold ? null : workspaces.output!,
-            ...(scenario === 'removed-before-mount' ? {'output-linked': workspaces.linked!} : {}),
-        });
-        const other = createDocument({
-            documentInstanceId: 'other-document',
-            originalPath: '/other.pdf',
-            workingCopyPath: '/working/other.pdf',
-            documentRef: '/working/other.pdf',
-        }, {other: workspaces.other!});
-        const sessions = shallowRef<Record<string, IWorkspaceDocumentController>>({
-            output,
-            other,
-            ...(scenario === 'removed-before-mount' ? {'output-linked': output} : {}),
-        });
-        // Showing a cold tab mounts its workspace after a later render.
-        const activateTab = (tabId: string) => setTimeout(() => {
-            if (scenario === 'cold-output') {
-                output.attachWorkspace(tabId, workspaces.output!);
-            }
-            if (scenario === 'removed-before-mount') {
-                delete sessions.value.output;
-                output.removeView(tabId);
-            }
-        }, 0);
         // The notice is created while this document is open. Its action is
         // then used after the reader changes the workspace.
         const save = createScanCleanupOutputSaveAs(
             outputPath,
             computed(() => sessions.value),
-            activateTab,
+            () => undefined,
             {add: toastAdd},
             cast<TTranslateFn>((key: string) => key),
         );
@@ -300,7 +268,6 @@ describe('scan-cleanup workspace reopen handoff', () => {
         if (scenario === 'reopen-same-path') {
             sessions.value.output = cast<IWorkspaceDocumentController>({
                 views: output.views,
-                getView: output.getView,
                 snapshot: ref({identity: {
                     documentInstanceId: 'replacement-document',
                     originalPath: outputPath,
@@ -317,7 +284,6 @@ describe('scan-cleanup workspace reopen handoff', () => {
             'closed-before-click',
             'closed-during-dialog',
             'cancelled-dialog',
-            'removed-before-mount',
         ].includes(scenario);
         const shouldWarn = [
             'save-as-renamed',

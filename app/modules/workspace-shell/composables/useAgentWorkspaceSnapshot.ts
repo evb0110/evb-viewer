@@ -206,35 +206,15 @@ export const useAgentWorkspaceSnapshot = (options: IUseAgentWorkspaceSnapshotOpt
         logRejectedAck('command', response.requestId, ack);
     }
 
-    // The command waits for this tab's own view; null means that view failed
-    // or was removed, or the tab now shows another one, and the command ends
-    // instead of using it. Mounting a cold view restores its document, so the
-    // view, not the document's revision, is what activation is checked against.
-    // Cancelling the command ends the wait for a view that may never mount.
-    async function activateTabForAgent(tabId: string, signal: AbortSignal) {
+    async function activateTabForAgent(tabId: string) {
         const pane = options.getPaneByTabId(tabId);
         if (!pane) {
             throw new Error(`Tab ${tabId} is not open.`);
         }
 
-        const session = getTabSession(tabId);
-        const view = session?.getView(tabId) ?? null;
         options.activateTab(pane.paneId, tabId);
-        const workspace = await Promise.race([
-            view?.whenMounted() ?? null,
-            new Promise<never>((_resolve, reject) => {
-                signal.addEventListener('abort', () => reject(createAgentCommandAbortError()), {once: true});
-            }),
-        ]);
-        return {
-            paneId: pane.paneId,
-            workspace: getTabSession(tabId) === session && session?.getView(tabId) === view ? workspace : null,
-        };
-    }
-
-    // A passive command reads only an already mounted view and never activates.
-    function getMountedWorkspace(tabId: string) {
-        return getTabSession(tabId)?.getView(tabId)?.mountedWorkspace.value ?? null;
+        await nextTick();
+        return pane.paneId;
     }
 
     function createAgentCommandAbortError() {
@@ -408,6 +388,21 @@ export const useAgentWorkspaceSnapshot = (options: IUseAgentWorkspaceSnapshotOpt
         }
     }
 
+    async function waitForCommandWorkspace(
+        tabId: string,
+        expectedCommandTarget: TAgentWorkspaceCommandTarget | null,
+        passive = false,
+    ) {
+        const session = getTabSession(tabId);
+        const view = session?.getView(tabId);
+        const workspace = passive
+            ? view?.mountedWorkspace.value ?? null
+            : await view?.whenMounted() ?? null;
+        return expectedCommandTarget && session && !session.validateCommandTarget(expectedCommandTarget).ok
+            ? null
+            : workspace;
+    }
+
     function createCommandContext(
         request: IAgentCommandRequest,
         tabId: string,
@@ -448,14 +443,8 @@ export const useAgentWorkspaceSnapshot = (options: IUseAgentWorkspaceSnapshotOpt
             const expectedIdentity = request.scope?.documentIdentity ?? getTabDocumentIdentity(tabId);
             const expectedCommandTarget = request.scope?.commandTarget ?? getTabCommandTarget(tabId);
             assertCommandCurrentDocument(request, tabId, signal, expectedIdentity, true, expectedCommandTarget);
-            const {
-                paneId,
-                workspace,
-            } = await activateTabForAgent(tabId, signal);
-            assertSignalActive(signal);
-            if (!workspace) {
-                throw new Error(`Workspace for tab ${tabId} is not available.`);
-            }
+            const paneId = await activateTabForAgent(tabId);
+            assertCommandCurrentDocument(request, tabId, signal, expectedIdentity, true, expectedCommandTarget);
             return {
                 activePaneId: paneId,
                 activeTabId: tabId,
@@ -472,7 +461,8 @@ export const useAgentWorkspaceSnapshot = (options: IUseAgentWorkspaceSnapshotOpt
             const expectedIdentity = request.scope?.documentIdentity ?? getTabDocumentIdentity(tabId);
             const expectedCommandTarget = request.scope?.commandTarget ?? getTabCommandTarget(tabId);
             assertCommandCurrentDocument(request, tabId, signal, expectedIdentity, true, expectedCommandTarget);
-            const workspace = getMountedWorkspace(tabId);
+            const workspace = await waitForCommandWorkspace(tabId, expectedCommandTarget, true);
+            assertCommandCurrentDocument(request, tabId, signal, expectedIdentity, true, expectedCommandTarget);
             if (!workspace) {
                 throw new Error(`Workspace for tab ${tabId} is not available without activating it. Activate the tab explicitly, then retry.`);
             }
@@ -505,7 +495,9 @@ export const useAgentWorkspaceSnapshot = (options: IUseAgentWorkspaceSnapshotOpt
                 || request.command.arguments.id === 'page_labels.preview'
                 || request.command.arguments.id === 'toc.preview_tree'
                 || request.command.arguments.id === 'page_numbering.preview';
-            const workspace = passive ? getMountedWorkspace(tabId) : (await activateTabForAgent(tabId, signal)).workspace;
+            if (!passive) await activateTabForAgent(tabId);
+            assertCommandCurrentDocument(request, tabId, signal, expectedIdentity, true, expectedCommandTarget);
+            const workspace = await waitForCommandWorkspace(tabId, expectedCommandTarget, passive);
             assertCommandCurrentDocument(request, tabId, signal, expectedIdentity, true, expectedCommandTarget);
             if (!workspace) {
                 throw new Error(`Workspace for tab ${tabId} is not available without activating it. Activate the tab explicitly, then retry.`);
@@ -539,10 +531,9 @@ export const useAgentWorkspaceSnapshot = (options: IUseAgentWorkspaceSnapshotOpt
         const expectedIdentity = request.scope?.documentIdentity ?? getTabDocumentIdentity(tabId);
         const expectedCommandTarget = request.scope?.commandTarget ?? getTabCommandTarget(tabId);
         assertCommandCurrentDocument(request, tabId, signal, expectedIdentity, true, expectedCommandTarget);
-        const {
-            paneId,
-            workspace,
-        } = await activateTabForAgent(tabId, signal);
+        const paneId = await activateTabForAgent(tabId);
+        assertCommandCurrentDocument(request, tabId, signal, expectedIdentity, true, expectedCommandTarget);
+        const workspace = await waitForCommandWorkspace(tabId, expectedCommandTarget);
         assertCommandCurrentDocument(request, tabId, signal, expectedIdentity, true, expectedCommandTarget);
         if (!workspace) {
             throw new Error(`Workspace for tab ${tabId} is not available.`);
