@@ -455,6 +455,9 @@ describe('browser document lifecycle UI', () => {
             // Save As overlays this window's unsaved edits on the file as it is now.
             const expectedNotes = new Set(['First window note', 'Second window note']);
             expect(noteTexts(await PDFDocument.load(readFileSync(await (await download).path())))).toEqual(expectedNotes);
+            // The download is published before Save As adopts its revision in this window.
+            await expect.poll(() => second.locator('.status-save-dot-button').getAttribute('aria-label'), {timeout: 15_000})
+                .toBe('All changes saved');
             await second.getByRole('button', {name: 'Toggle Sidebar', exact: true}).click();
             await second.getByRole('tab', {name: 'Annotations', exact: true}).click();
             await expect.poll(async () => new Set(await second.locator('.notes-list .note-item-text').allTextContents()), {timeout: 15_000})
