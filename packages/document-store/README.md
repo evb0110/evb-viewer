@@ -134,6 +134,8 @@ checkpoint names. Unsaved edits are never collected. An unreferenced directory
 with only an interrupted open's output (no drafts, no publish to settle and at
 most two revisions made) can be removed. Every other unsaved directory no
 window holds is offered for recovery, as a tab of its own when no workspace
-shows it. A desktop document
+shows it, under the working reference its drafts name so they replay. A
+directory another window holds is not inspected, so a closed window's
+checkpoint that names one stays for a later window to decide. A desktop document
 discarded while a native reader still holds its files loses its manifest
 first, so it is collected rather than offered.

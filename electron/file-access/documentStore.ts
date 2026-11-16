@@ -820,7 +820,7 @@ function collected() {
         return result;
     })().catch((error: unknown) => {
         log.warn(`Document collection stopped: ${getErrorMessage(error)}`);
-        return {removed: [], unsaved: [], unreadable: []};
+        return {removed: [], unsaved: [], held: [], unreadable: []};
     });
     return collection;
 }
