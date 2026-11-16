@@ -889,6 +889,16 @@ describe('workspace checkpoints and collection', () => {
         expect(await readdir(path.join(root, 'workspaces'))).toEqual(['window-1.json']);
     });
 
+    it('returns a directory another window holds as held, not as clean, and keeps it', async () => {
+        const doc = await create(store(), { ext: 'pdf', source: new Blob(['new']) });
+        await doc.setDrafts(1, { note: 'unsaved in a window that holds it' });
+        await doc.close();
+        const port = createNodeStorePort(root);
+        const result = await collectDocuments(store(port), async () => null);
+        expect(result).toMatchObject({ removed: [], unsaved: [], held: [doc.id] });
+        expect(await readdir(path.join(root, 'documents'))).toEqual([doc.id]);
+    });
+
     it('decides and removes each directory while holding it', async () => {
         const doc = await create(store(), { ext: 'pdf', source: new Blob(['new']), imported: true });
         await doc.close();

@@ -1,5 +1,7 @@
 import { collectDocuments } from '@document-store/collectDocuments';
+import * as v from 'valibot';
 import {
+    decodeJson,
     decodeManifest,
     DOCUMENTS_DIR,
     MANIFEST_NAME,
@@ -17,6 +19,7 @@ import {
 import {
     browserDocumentRefId,
     createBrowserDocumentRef,
+    getBrowserDocumentFileName,
 } from '@app/platform/browser/browserDocumentRefs';
 import { fileHandleStore } from '@app/platform/browser/browserFileHandleStore';
 import {
@@ -39,6 +42,7 @@ import {
     type IWorkspaceCheckpointAnnotationRecovery,
     type IWorkspaceCheckpointTab,
     toStoredWorkspaceCheckpoint,
+    workspaceAnnotationRecoveryRefSchema,
 } from '@contracts/workspaceCheckpoint';
 import { isRecord } from '@contracts/runtimeGuards';
 import { BrowserLogger } from '@app/utils/browserLogger';
@@ -51,7 +55,7 @@ const isAbsent = (error: unknown) => isRecord(error) && (error.code === 'ENOENT'
 /** The lock a live window holds; a checkpoint whose window lock is free belongs to a window that is gone. */
 export const browserWindowLockName = (windowId: string) => `${WINDOW_LOCK_PREFIX}${windowId}`;
 
-let collection: Promise<string[]> | null = null;
+let collection: Promise<{unsaved: string[]; held: string[]} | null> | null = null;
 let claimed: {windowId: string; release: () => void} | null = null;
 
 function recentFileIds() {
@@ -68,15 +72,15 @@ function recentFileIds() {
  * Once per window, before it restores anything: removes the directories nothing needs that no window holds
  * and no Recent entry names (see `collectDocuments`), each decided while this window holds its lock, and the
  * stored file handles nothing names any more. Returns the unsaved directories no window holds, and those whose
- * manifest it could not read, for the recovery offer. Without Web Locks nothing is known about the other windows,
- * so nothing is removed.
+ * manifest it could not read, for the recovery offer, and the ones a window held, which may be unsaved too. `null`
+ * when nothing is known: without Web Locks about the other windows, so nothing is removed, or when it failed.
  */
 function collectOnce() {
     collection ??= (async () => {
         const {durable} = await browserDocumentStore.stores();
-        if (!durable || !await heldBrowserLockNames()) return [];
+        if (!durable || !await heldBrowserLockNames()) return null;
         const recent = recentFileIds();
-        const {unsaved, unreadable} = await collectDocuments(durable, id => (recent.has(id) ? Promise.resolve(null) : holdBrowserLock(browserDocumentLockName(id))));
+        const {unsaved, held, unreadable} = await collectDocuments(durable, id => (recent.has(id) ? Promise.resolve(null) : holdBrowserLock(browserDocumentLockName(id))));
         for (const {path, error} of unreadable) BrowserLogger.warn(LOG_SECTION, 'Kept recovery data that cannot be read', {path, error});
         const reported = new Set(unreadable.map(entry => entry.path));
         const named = new Set(recent);
@@ -99,17 +103,19 @@ function collectOnce() {
         for (const key of reported.size === 0 ? await fileHandleStore.keys().catch(() => []) : []) {
             if (!named.has(key)) await fileHandleStore.delete(key).catch(() => undefined);
         }
-        return [...unsaved, ...unreadable.flatMap(entry => entry.directory ?? [])];
+        // What Recent names stays for Recent to reopen, as before.
+        return {unsaved: [...unsaved, ...unreadable.flatMap(entry => entry.directory ?? [])], held: held.filter(id => !recent.has(id))};
     })().catch((error: unknown) => {
         BrowserLogger.warn(LOG_SECTION, 'Document collection stopped; unsaved documents stay but are not offered', {store: DOCUMENTS_DIR, error});
-        return [];
+        return null;
     });
     return collection;
 }
 
 /**
  * The tab an unsaved directory its window's checkpoint names, but whose layout never showed, comes back in, named
- * after its destination. One whose manifest cannot be read comes back as a notice that its work was not found.
+ * after its destination, under the working reference its drafts were captured with so they replay. One whose
+ * manifest cannot be read comes back as a notice that its work was not found.
  */
 async function orphanTab(id: string, paneId: IWorkspaceCheckpointTab['paneId']): Promise<IWorkspaceCheckpointTab | null> {
     const {durable} = await browserDocumentStore.stores();
@@ -125,11 +131,18 @@ async function orphanTab(id: string, paneId: IWorkspaceCheckpointTab['paneId']):
             isDirty: false, isDjvu: false, currentPage: null, zoom: null, zoomMode: null, workingCopyLost: true,
         };
     }
-    if (manifest?.ext !== 'pdf') return null;
+    if (!durable || manifest?.ext !== 'pdf') return null;
+    const draftsRef = manifest.drafts === undefined ? null : await durable.port.read(`${DOCUMENTS_DIR}/${id}/${manifest.drafts}`)
+        .then((bytes) => {
+            const drafts = v.safeParse(workspaceAnnotationRecoveryRefSchema, decodeJson(bytes));
+            return drafts.success && directoryOf(drafts.output.workingCopyRef) === id ? drafts.output.workingCopyRef : null;
+        })
+        .catch(() => null);
     const key = handleKeyOf(manifest.destination ?? null);
     const stored = key === null ? undefined : await fileHandleStore.get(key).catch(() => undefined);
-    const fileName = stored?.name ?? destinationFileName(manifest.destination ?? null) ?? 'Recovered document.pdf';
-    const workingCopyRef = createBrowserDocumentRef(fileName, id);
+    const fileName = stored?.name ?? destinationFileName(manifest.destination ?? null)
+        ?? (draftsRef && getBrowserDocumentFileName(draftsRef)) ?? 'Recovered document.pdf';
+    const workingCopyRef = draftsRef ?? createBrowserDocumentRef(fileName, id);
     return {
         tabId: createTabId(),
         paneId,
@@ -214,11 +227,14 @@ const namesOf = (checkpoint: ICoreWorkspaceCheckpoint | null | undefined) => Obj
  * The workspace this window restores at startup: its own checkpoint after a reload, else the one of the page
  * this page replaced in its tab, else the newest one whose window is gone, taken by holding that window's lock
  * so no other window takes it too. Only a checkpoint that names unsaved work is restored; one of a window that
- * is gone and left none is removed, so its clean directories can be collected. Unsaved directories no
+ * is gone and left none is removed, so its clean directories can be collected. A directory the collection did not
+ * inspect may be unsaved, so a checkpoint that names one stays. Unsaved directories no
  * checkpoint names come back as tabs of the restored workspace, or of one of their own.
  */
 export async function claimBrowserWorkspaceCheckpoint(windowId: string, inheritedWindowId: string | null = null) {
-    const unsaved = new Set(await collectOnce());
+    const collected = await collectOnce();
+    const unsaved = new Set(collected?.unsaved);
+    const uninspected = (id: string) => !collected || collected.held.includes(id);
     const {durable} = await browserDocumentStore.stores();
     if (!durable) return null;
     const checkpoints = [...await readWorkspaceCheckpoints(durable.port)];
@@ -234,7 +250,7 @@ export async function claimBrowserWorkspaceCheckpoint(windowId: string, inherite
         const release = candidate.id === windowId ? () => undefined : await holdBrowserLock(browserWindowLockName(candidate.id));
         if (!release) continue;
         if (!candidate.names.some(id => unsaved.has(id))) {
-            if (candidate.id !== windowId) await removeWorkspaceCheckpoint(durable.port, candidate.id).catch(() => undefined);
+            if (candidate.id !== windowId && !candidate.names.some(uninspected)) await removeWorkspaceCheckpoint(durable.port, candidate.id).catch(() => undefined);
             release();
             continue;
         }
@@ -262,7 +278,7 @@ export async function acknowledgeBrowserWorkspaceCheckpoint(windowId: string) {
 
 /** Whether this window's checkpoint names unsaved work it restores. */
 export async function hasBrowserWorkspaceCheckpoint(windowId: string) {
-    const unsaved = new Set(await collectOnce());
+    const unsaved = new Set((await collectOnce())?.unsaved);
     const {durable} = await browserDocumentStore.stores();
     return durable !== null && namesOf((await readWorkspaceCheckpoints(durable.port)).get(windowId)).some(id => unsaved.has(id));
 }

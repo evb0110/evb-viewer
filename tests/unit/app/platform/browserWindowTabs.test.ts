@@ -4,6 +4,11 @@ import {join} from 'node:path';
 import {createNodeStorePort} from '@document-store/nodeStorePort';
 import {createDocument} from '@document-store/documentDirectory';
 import type {IDocumentStore} from '@document-store/documentDirectory';
+import {
+    readWorkspaceCheckpoints,
+    removeWorkspaceCheckpoint,
+    writeWorkspaceCheckpoint,
+} from '@document-store/workspaceCheckpoint';
 import {createBrowserDocumentRef} from '@app/platform/browser/browserDocumentRefs';
 import type {IWorkspaceCheckpointAnnotationRecovery} from '@contracts/workspaceCheckpoint';
 
@@ -327,6 +332,43 @@ describe('browser recovery diagnostics', () => {
             expect.soft(diagnostics()).toContain(ref);
             expect(diagnostics()).toContain('NotReadableError injected durable-entry lookup');
         }
+    });
+
+    async function closedWindowDraft(store: IDocumentStore) {
+        const ref = createBrowserDocumentRef('copy.pdf', 'copy-directory');
+        const drafts: IWorkspaceCheckpointAnnotationRecovery = {artifactId: 'copy-note', documentInstanceId: 'copy-instance', workingCopyRef: ref, workingByteRevision: 'drt1:browser:copy-directory:1', annotationMutationGeneration: 1, payload: {entities: [{contents: 'Copy note'}]}};
+        const doc = await createDocument(store, {id: 'copy-directory', ext: 'pdf', source: new Blob(['%PDF-1.7'])});
+        await doc.setDrafts(1, drafts);
+        await doc.close();
+        await writeWorkspaceCheckpoint(store.port, 'closed-window', {tabs: {'copy-directory': {directory: 'copy-directory', view: null}}, layout: null});
+        return ref;
+    }
+
+    it('keeps a closed window\'s checkpoint while another window holds a directory it names', async () => {
+        const {store, api} = await recovery();
+        const ref = await closedWindowDraft(store);
+        const {browserDocumentLockName} = await import('@app/platform/browser/browserDocumentRepository');
+        const locks = await import('@app/platform/browser/runBrowserLock');
+        // A window starting alongside this one holds the copy's directory while this one collects.
+        const otherWindow = vi.spyOn(locks, 'holdBrowserLock').mockImplementation(async name => (name === browserDocumentLockName('copy-directory') ? null : () => undefined));
+        expect(await api.claimBrowserWorkspaceCheckpoint('starting-window')).toBeNull();
+        expect([...(await readWorkspaceCheckpoints(store.port)).keys()]).toContain('closed-window');
+
+        // The other window lets go; the next window to start finds the directory free and the checkpoint that names it.
+        otherWindow.mockRestore();
+        vi.resetModules();
+        const later = await recovery();
+        const claimed = await later.api.claimBrowserWorkspaceCheckpoint('later-window');
+        expect(claimed?.tabs[0]?.annotationRecovery?.workingCopyRef).toBe(ref);
+    });
+
+    it('reopens unsaved work no window shows under the reference its drafts were captured with', async () => {
+        const {store, api} = await recovery();
+        const ref = await closedWindowDraft(store);
+        await removeWorkspaceCheckpoint(store.port, 'closed-window');
+        const claimed = await api.claimBrowserWorkspaceCheckpoint('later-window');
+        expect(claimed?.tabs).toHaveLength(1);
+        expect(claimed?.tabs[0]).toMatchObject({fileName: 'copy.pdf', workingCopyRef: ref, annotationRecovery: {workingCopyRef: ref, payload: {entities: [{contents: 'Copy note'}]}}});
     });
 
     it('#1609 keeps an absent browser store silent without a recovery notice', async () => {
