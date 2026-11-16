@@ -5,4 +5,5 @@ export const STORAGE_KEYS = {
     LOG_LEVEL: 'evb-viewer:log-level',
     ASSISTANT_SELECTION: 'assistant.selection.v2',
     ASSISTANT_SELECTION_LEGACY: 'assistant.selection',
+    ASSISTANT_MODEL_FAVORITES: 'assistant.modelFavorites',
 } as const;

@@ -3,6 +3,7 @@ import {shell} from 'electron';
 import type {
     IAgentAssistantAccount,
     IAgentAssistantImageAttachment,
+    IAgentAssistantModelOption,
 } from '@contracts/agent';
 import {isRecord} from '@contracts/runtimeGuards';
 import {
@@ -18,10 +19,7 @@ import {
     readCodexUserToolConfig,
     type ICodexUserToolConfig,
 } from '@electron/features/agent/codexAssistantConfig';
-import {
-    normalizeCodexModelListResponse,
-    type TCodexAssistantModelOption,
-} from '@electron/features/agent/assistantModelCatalog';
+import { normalizeCodexModelListResponse } from '@electron/features/agent/assistantModelCatalog';
 import {normalizeCodexAssistantAccount} from '@electron/features/agent/normalizeCodexAssistantAccount';
 import type {IAssistantLaunchContext} from '@electron/features/agent/assistantInstances';
 import {te} from '@electron/te';
@@ -36,7 +34,7 @@ const CODEX_LOGIN_TIMEOUT_MS = 10 * 60_000;
 export interface ICodexProbeResult {
     auth: 'authenticated' | 'unauthenticated' | 'unknown';
     account: IAgentAssistantAccount | null;
-    models: TCodexAssistantModelOption[];
+    models: IAgentAssistantModelOption[];
     /** Set when the probe got this far and then failed. */
     warning?: string;
 }

@@ -55,7 +55,6 @@ const {
 } = useAssistantPanelClipboard({ t });
 const panelStyle = computed(() => ({
     '--assistant-panel-width': props.width ? `${props.width}px` : undefined,
-    '--app-assistant-picker-width': `${Math.min((props.width ?? 384) - 48, 360)}px`,
 }));
 </script>
 
