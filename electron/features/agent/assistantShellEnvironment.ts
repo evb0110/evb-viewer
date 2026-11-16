@@ -60,7 +60,7 @@ export async function readAssistantShellEnvironment(
                     if (separator > 0) captured[record.slice(0, separator)] = record.slice(separator + 1);
                 }
                 if (captured.PATH) {
-                    resolveResult({...baseline, ...captured});
+                    resolveResult(captured);
                     return;
                 }
             }

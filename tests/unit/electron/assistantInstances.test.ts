@@ -115,10 +115,11 @@ describe('assistant instance configuration', () => {
     it.skipIf(process.platform === 'win32')('reads an exported login-shell PATH without retaining startup output', async () => {
         const {readAssistantShellEnvironment} = await import('@electron/features/agent/assistantShellEnvironment');
         const shell = join(state.root, 'fixture-shell');
-        await writeFile(shell, `#!/bin/sh\nprintf 'startup banner\\n'\nexport PATH='${state.root}'\nexec /bin/sh -c "$2"\n`);
+        await writeFile(shell, `#!/bin/sh\nprintf 'startup banner\\n'\nif read ignored; then exit 1; fi\nunset EVB_UNSET_FIXTURE\nexport PATH='${state.root}'\nexec /bin/sh -c "$2"\n`);
         await chmod(shell, 0o700);
-        const result = await readAssistantShellEnvironment({SHELL: shell, PATH: '/usr/bin:/bin'});
+        const result = await readAssistantShellEnvironment({SHELL: shell, PATH: '/usr/bin:/bin', EVB_UNSET_FIXTURE: 'synthetic'});
         expect(result.PATH === state.root).toBe(true);
+        expect(result.EVB_UNSET_FIXTURE === undefined).toBe(true);
     });
 
     it('tokenizes quoted, escaped, concatenated and empty arguments without evaluation', () => {
@@ -398,6 +399,12 @@ describe('local assistant setups', () => {
         const claude = await launcher('claude', '2.1.325 (Claude Code)');
         const wrapper = await launcher('codex-proxy', 'codex-cli 0.169.0');
         const claudeWrapper = await launcher('claude-proxy', '2.1.325 (Claude Code)');
+        if (process.platform !== 'win32') {
+            const helper = join(bin, 'assistant-fixture-version');
+            await writeFile(helper, '#!/bin/sh\nprintf "codex-cli 0.169.0\\n"\n');
+            await chmod(helper, 0o700);
+            await writeFile(wrapper, '#!/bin/sh\nexec assistant-fixture-version\n');
+        }
         await launcher('codex-unrelated', 'unrelated program 1.0.0');
         const env = {...process.env, PATH: bin, HOME: state.root, CODEX_CLI_PATH: codex, CLAUDE_CODE_PATH: claude};
         state.local = await discoverAssistantLocalSetups(env);

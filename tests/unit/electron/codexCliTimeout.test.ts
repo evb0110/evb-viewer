@@ -403,10 +403,11 @@ describe('Codex CLI discovery', () => {
     });
 
     it('resolves with a supplied login-shell PATH instead of opening another shell', async () => {
-        const homebrewCli = '/opt/homebrew/bin/codex';
-        installedFiles.add(homebrewCli);
+        const shellBin = join(sandbox, 'shell-bin');
+        const shellCli = join(shellBin, codexName);
+        installedFiles.add(shellCli);
         const {resolveCodexCliPath} = await import('@electron/features/agent/codexCli');
-        await expect(resolveCodexCliPath({...process.env, PATH: '/opt/homebrew/bin'})).resolves.toBe(homebrewCli);
+        await expect(resolveCodexCliPath({...process.env, PATH: shellBin})).resolves.toBe(shellCli);
     });
 
     it('does not reach a Codex installed in fixed system directories outside PATH, HOME and SHELL', async () => {

@@ -57,7 +57,6 @@ function runCommand(
         }
         const child = spawn(launch.command, launch.args, createDetachedChildProcessSpawnOptions({
             env: {
-                ...process.env,
                 NO_COLOR: '1',
                 ...options.env,
             },
