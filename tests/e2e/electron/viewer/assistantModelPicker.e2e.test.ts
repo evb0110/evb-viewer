@@ -6,6 +6,7 @@ import { createElectronE2ESessionFixture } from '@tests/e2e/electron/helpers/cre
 import {
     activateMenuItemAsUser,
     clickAsUser,
+    revealForPointer,
 } from '@tests/e2e/electron/helpers/userInput';
 import {
     openPdfInApp, waitForPdfLoaded,
@@ -58,6 +59,27 @@ describe('Electron E2E - assistant model discovery', () => {
         const setup = state.instances.find(instance => instance.id === 'codex')!;
         expect(setup.models.some(model => model.id === setup.defaultModel)).toBe(true);
         expect(await page.$('.assistant-message.is-user')).toBeNull();
+        await clickAsUser(page, '.picker-efforts [role="radio"]');
+        await page.keyboard.press('ArrowUp');
+        expect.soft(await page.$eval('.picker-efforts [role="radio"]:last-child', row => row.getAttribute('aria-checked')), 'Effort arrow navigation selects and wraps').toBe('true');
+        await clickAsUser(page, '.picker-speed-option[aria-checked="true"]');
+        await page.keyboard.press('ArrowRight');
+        expect.soft(await page.$eval('.picker-speed-option:last-child', row => row.getAttribute('aria-checked')), 'Speed arrow navigation selects Fast').toBe('true');
+        expect.soft(await page.$$eval('.picker-speed-option', rows => rows.filter(row => row instanceof HTMLElement && row.tabIndex === 0).length), 'Each radio group has one tab stop').toBe(1);
+        await page.keyboard.press('ArrowRight');
+        expect.soft(await page.$eval('.picker-speed-option:first-child', row => row.getAttribute('aria-checked')), 'Speed navigation wraps to Standard').toBe('true');
+        await fixture.getSession().command('screenshot', ['assistant-keyboard-radio-choices']);
+        const pickerLayout = await page.evaluate(() => {
+            const measure = (selector: string) => {
+                const element = document.querySelector(selector);
+                if (!element) throw new Error(`Missing ${selector}`);
+                const bounds = element.getBoundingClientRect();
+                return {top: bounds.top, bottom: bounds.bottom, height: bounds.height, scrollTop: element.scrollTop};
+            };
+            return {efforts: measure('.picker-efforts'), speed: measure('.picker-speed'), body: measure('.picker-body'), models: measure('.picker-models'), list: measure('.picker-model-list'), popup: measure('.provider-picker')};
+        });
+        console.log('Picker geometry', pickerLayout);
+        expect(pickerLayout.efforts.bottom, 'Effort choices must remain above the speed footer').toBeLessThanOrEqual(pickerLayout.speed.top);
     }, 60_000);
 
     it('keeps the accepted image prompt visible when the local provider answers', async () => {
@@ -85,17 +107,87 @@ describe('Electron E2E - assistant model discovery', () => {
         expect(await page.$eval('.message-images img', image => (image as HTMLImageElement).naturalWidth)).toBe(1200);
     }, 60_000);
 
+    it('keeps following tied to conversation scrolling instead of nested work scrolling', async () => {
+        const page = await openAssistantDocument();
+        await page.keyboard.type(`AP-B02 tool activity ${'Document context for the assistant. '.repeat(30)}`);
+        await page.waitForSelector('.composer-send:not(:disabled)', {visible: true});
+        await page.keyboard.press('Enter');
+        await page.waitForFunction(() => document.querySelector('.assistant-message:not(.is-user):last-of-type')?.textContent?.includes('Local tool fixture finished.'));
+        const formatted = '.assistant-message:not(.is-user):has(a)';
+        expect.soft(await page.$eval(formatted, element => element.textContent), 'Markdown references decode once outside code').toContain('Character references: A & B © 😀 &copy;. Search and &amp;.');
+        expect.soft(await page.$eval(formatted + ' a', link => link.getAttribute('href')), 'Link references preserve query parameters').toBe('https://example.com/?a=1&b=2');
+        const timeline = await page.$('.assistant-timeline');
+        const bounds = await timeline?.boundingBox();
+        if (!bounds) throw new Error('Missing conversation viewport');
+        await page.mouse.move(bounds.x + bounds.width / 2, bounds.y + bounds.height - 20);
+        await page.mouse.wheel({deltaY: -12});
+        await page.waitForFunction(() => {
+            const viewport = document.querySelector('.assistant-timeline');
+            if (!viewport) return false;
+            const gap = viewport.scrollHeight - viewport.clientHeight - viewport.scrollTop;
+            return gap > 2 && gap < 48;
+        });
+        expect.soft(await page.$('.scroll-to-end'), 'A short upward scroll must expose the resume-following control').not.toBeNull();
+        await fixture.getSession().command('screenshot', ['assistant-short-upward-scroll']);
+        await page.mouse.move(bounds.x + 10, bounds.y + bounds.height - 20);
+        await page.mouse.wheel({deltaY: 12});
+        await page.waitForFunction(() => {
+            const viewport = document.querySelector('.assistant-timeline');
+            return viewport && viewport.scrollHeight - viewport.clientHeight - viewport.scrollTop < 2;
+        });
+        await page.waitForSelector('.scroll-to-end', {hidden: true});
+
+        // Restore the conversation to start the nested-scroll case with following enabled.
+        await page.reload();
+        await waitForPdfLoaded(page);
+        await clickAsUser(page, 'button[aria-label="Toggle EVB Assistant"]');
+        await page.waitForSelector('.work-summary');
+        await page.waitForSelector('.scroll-to-end', {hidden: true});
+        const disclosureTop = await page.$eval('.work-summary', summary => summary.getBoundingClientRect().top);
+        await clickAsUser(page, '.work-summary');
+        await fixture.getSession().command('screenshot', ['assistant-open-work-position']);
+        expect.soft(await page.$('.scroll-to-end'), 'Opening work details releases following for the reader').not.toBeNull();
+        expect.soft(await page.$eval('.work-summary', summary => summary.getBoundingClientRect().top), 'Opening work preserves its visible position').toBeCloseTo(disclosureTop, 0);
+        await clickAsUser(page, '.work-entry summary');
+        await page.waitForFunction(() => {
+            const entries = document.querySelector('.work-entries');
+            return entries && entries.scrollHeight - entries.clientHeight > 24;
+        });
+        await revealForPointer(page, '.work-entries');
+        const resume = await page.$('.scroll-to-end');
+        if (resume) await clickAsUser(page, resume);
+        await revealForPointer(page, '.work-entries');
+        await page.waitForSelector('.scroll-to-end', {hidden: true});
+        await page.mouse.wheel({deltaY: 80});
+        await page.waitForFunction(() => (document.querySelector('.work-entries')?.scrollTop ?? 0) > 24);
+        const outerTop = await page.$eval('.assistant-timeline', viewport => viewport.scrollTop);
+        const innerTop = await page.$eval('.work-entries', viewport => viewport.scrollTop);
+        await page.mouse.wheel({deltaY: -12});
+        await page.waitForFunction(top => (document.querySelector('.work-entries')?.scrollTop ?? top) < top - 2, {}, innerTop);
+        expect(await page.$eval('.assistant-timeline', viewport => viewport.scrollTop)).toBe(outerTop);
+        expect(await page.$('.scroll-to-end'), 'Scrolling work details must keep conversation following enabled').toBeNull();
+        await fixture.getSession().command('windowResize', [900, 572]);
+        await page.waitForFunction(() => {
+            const viewport = document.querySelector('.assistant-timeline');
+            return viewport && viewport.scrollHeight - viewport.clientHeight - viewport.scrollTop < 2;
+        });
+        await fixture.getSession().command('screenshot', ['assistant-following-after-nested-scroll']);
+    }, 60_000);
+
     it('projects live tool activity and restores its conversation after eviction and restart', async () => {
         let page = await openAssistantDocument();
         await page.keyboard.type('AP-B02 tool activity');
         await page.waitForSelector('.composer-send:not(:disabled)', {visible: true});
         await page.keyboard.press('Enter');
-        // Both tool calls show as live work rows of the running turn.
+        // Read the live group so a restored earlier turn cannot satisfy this wait.
         await page.waitForFunction(() => {
-            const rows = [...document.querySelectorAll('.work-entry')].map(row => row.textContent ?? '');
+            const rows = [...document.querySelectorAll('.work-group.is-running .work-entry')].map(row => row.textContent ?? '');
             return rows.some(row => row.includes('read_document')) && rows.some(row => row.includes('search_document'));
         });
-        expect(await page.$eval('.work-group summary', summary => summary.textContent)).toContain('search_document');
+        // The group row names the running action in words; raw tool names stay in the expanded rows.
+        const summary = await page.$eval('.work-group.is-running summary', element => element.textContent ?? '');
+        expect(summary).toContain('Searching the document');
+        expect(summary).not.toContain('evb_');
         await page.waitForFunction(() => document.querySelector('.assistant-message:not(.is-user):last-of-type')?.textContent?.includes('Local tool fixture finished.'));
 
         // Populate the production cache through ordinary state requests. This is
