@@ -35,7 +35,7 @@
                         <span class="row-name" :title="row.item.model.label">{{ row.item.model.label }}<span class="sr-only">, {{ row.item.instance.label }}</span></span>
                         <UIcon v-if="row.key === activeKey" name="i-ph-check" class="row-check" />
                         <span class="row-trailing">
-                            <button type="button" class="row-star" :class="{ 'is-favorite': row.item.isFavorite, 'on-hover': tab === 'favorites' && !isSearching }" :aria-label="t(row.item.isFavorite ? 'assistant.removeFavorite' : 'assistant.addFavorite')" tabindex="-1" @click.stop="toggleFavorite(row.item.instance.id, row.item.model.id)">
+                            <button type="button" class="row-star" :class="{ 'is-favorite': row.item.isFavorite, 'on-hover': tab === 'favorites' && !isSearching }" :aria-label="t(row.item.isFavorite ? 'assistant.removeFavorite' : 'assistant.addFavorite')" @keydown.stop @click.stop="toggleFavorite(row.item.instance.id, row.item.model.id)">
                                 <UIcon :name="row.item.isFavorite ? 'i-ph-star-fill' : 'i-ph-star'" />
                             </button>
                             <kbd v-if="jumpLabels.get(row.key)" class="row-kbd">{{ jumpLabels.get(row.key) }}</kbd>
@@ -491,6 +491,7 @@ defineExpose({ focusSearch });
 
 .picker-row:hover .row-star,
 .picker-row[data-highlighted] .row-star,
+.row-star:focus-visible,
 .row-star.is-favorite {
     opacity: 1;
 }
@@ -503,7 +504,8 @@ defineExpose({ focusSearch });
     opacity: 0;
 }
 
-.picker-row:hover .row-star.on-hover {
+.picker-row:hover .row-star.on-hover,
+.row-star.on-hover:focus-visible {
     opacity: 1;
 }
 

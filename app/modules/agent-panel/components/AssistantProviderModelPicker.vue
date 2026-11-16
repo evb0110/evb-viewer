@@ -219,17 +219,23 @@ function pickSpeed(speedMode: IAssistantSelection['speedMode']) {
 @media (width < 40rem) {
     .picker-body {
         height: auto;
+        flex: 1 1 auto;
         flex-direction: column;
     }
 
+    /* Both halves give way to a short window; their rows keep scrolling. */
     .picker-body > :first-child {
         width: 100%;
         height: var(--app-assistant-picker-stacked-list-height);
+        min-height: 0;
+        flex: 0 1 auto;
     }
 
     .picker-body > :last-child {
         width: 100%;
         height: var(--app-assistant-picker-stacked-effort-height);
+        min-height: 0;
+        flex: 0 1 auto;
         border-top: 1px solid var(--ui-border);
         border-left: 0;
     }

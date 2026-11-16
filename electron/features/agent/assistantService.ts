@@ -1099,7 +1099,7 @@ function resolveSelection(requested: IAssistantSelection | undefined): IAssistan
     const requestedEffort = requested?.effort ?? ASSISTANT_DEFAULT_EFFORT;
     const effort = efforts.length === 0 || efforts.includes(requestedEffort)
         ? requestedEffort
-        : option?.defaultReasoningEffort ?? efforts[0] ?? ASSISTANT_DEFAULT_EFFORT;
+        : option?.defaultReasoningEffort ?? option?.reasoningEfforts?.find(effort => effort.isDefault)?.id ?? efforts[0] ?? ASSISTANT_DEFAULT_EFFORT;
     return {
         instanceId: entry.config.id,
         model,
