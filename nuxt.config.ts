@@ -621,6 +621,7 @@ export default defineNuxtConfig({
                 '@vercel/analytics',
                 '@vercel/analytics/nuxt/runtime',
                 'agentation-vue3',
+                'entities',
                 'es-toolkit',
                 'es-toolkit/array',
                 'es-toolkit/function',
