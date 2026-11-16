@@ -14,6 +14,7 @@ import {
 import {DEFAULT_ANNOTATION_SETTINGS} from '@app/constants/annotationDefaults';
 import {AnnotationApplication} from '@app/modules/pdf-viewer/annotations/annotationApplication';
 import type {IAnnotationEditorSurface} from '@app/modules/pdf-viewer/runtime/annotations/usePdfAnnotationEditorSurface';
+import {useAnnotationStoreSnapshot} from '@app/modules/pdf-viewer/runtime/sessions/createPdfDocumentAnnotations';
 import {usePdfAnnotationEditorSurface} from '@app/modules/pdf-viewer/runtime/annotations/usePdfAnnotationEditorSurface';
 import type {
     ITextBoxEntity,
@@ -83,8 +84,10 @@ function createInteractionMethods(
     register?: IAnnotationEditorSurface['registerPageInteraction'],
 ) {
     const scope = effectScope();
+    const annotationApplication = shallowRef(new AnnotationApplication('component-event-fixture'));
     const defaults = scope.run(() => usePdfAnnotationEditorSurface({
-        annotationApplication: shallowRef(new AnnotationApplication('component-event-fixture')),
+        annotationApplication,
+        entitiesByPage: useAnnotationStoreSnapshot(annotationApplication).entitiesByPage,
         activeTool: computed(() => 'select'),
         settings: computed(() => DEFAULT_ANNOTATION_SETTINGS),
     }))!;

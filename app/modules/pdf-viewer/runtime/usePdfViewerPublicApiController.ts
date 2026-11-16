@@ -295,6 +295,7 @@ export const usePdfViewerPublicApiController = (
             }
             return annotationRuntime.annotationEditorSurface.selectAll();
         },
+        paintsAnnotationPage: annotationSession.paintsPage,
         focusSelectedAnnotation: (annotationId: string) => annotationRuntime.annotationEditorSurface.focusSelectedAnnotation(asAnnotationId(annotationId)),
         selectAnnotationById: (annotationId: string) => {
             const id = asAnnotationId(annotationId);

@@ -23,6 +23,7 @@ import {
     annotationEditorSurfaceKey,
     usePdfAnnotationEditorSurface,
 } from '@app/modules/pdf-viewer/runtime/annotations/usePdfAnnotationEditorSurface';
+import {useAnnotationStoreSnapshot} from '@app/modules/pdf-viewer/runtime/sessions/createPdfDocumentAnnotations';
 import type {
     AnnotationEntity,
     INoteEntity,
@@ -70,6 +71,7 @@ describe('PdfAnnotationEditorLayer pointer capture and draft events', () => {
         const scope = effectScope();
         const surface = scope.run(() => usePdfAnnotationEditorSurface({
             annotationApplication: application,
+            entitiesByPage: useAnnotationStoreSnapshot(application).entitiesByPage,
             activeTool: computed(() => kind === 'create' ? 'text' : kind === 'draw' ? 'draw' : 'select'),
             settings: computed(() => DEFAULT_ANNOTATION_SETTINGS),
             ...(publication ? {publishTextBoxAppearance: async (_entity: ITextBoxEntity, handoff: () => void) => {await publication; handoff();}} : {}),
@@ -349,6 +351,7 @@ describe('PdfAnnotationEditorLayer pointer capture and draft events', () => {
         const scope = effectScope();
         const surface = scope.run(() => usePdfAnnotationEditorSurface({
             annotationApplication: application,
+            entitiesByPage: useAnnotationStoreSnapshot(application).entitiesByPage,
             activeTool: computed(() => 'select'),
             settings: computed(() => DEFAULT_ANNOTATION_SETTINGS),
             getPageGeometry: () => ({
@@ -472,6 +475,7 @@ describe('PdfAnnotationEditorLayer pointer capture and draft events', () => {
         const scope = effectScope();
         const surface = scope.run(() => usePdfAnnotationEditorSurface({
             annotationApplication: application,
+            entitiesByPage: useAnnotationStoreSnapshot(application).entitiesByPage,
             activeTool: computed(() => 'select'),
             settings: computed(() => DEFAULT_ANNOTATION_SETTINGS),
             getTextBoxDraftText: id => drafts.get(id) ?? null,
@@ -514,6 +518,7 @@ describe('PdfAnnotationEditorLayer pointer capture and draft events', () => {
         const scope = effectScope();
         const surface = scope.run(() => usePdfAnnotationEditorSurface({
             annotationApplication: application,
+            entitiesByPage: useAnnotationStoreSnapshot(application).entitiesByPage,
             activeTool: computed(() => 'text'),
             settings: computed(() => DEFAULT_ANNOTATION_SETTINGS),
             getPageGeometry: () => ({

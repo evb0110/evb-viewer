@@ -13,6 +13,7 @@ import {
 import { DEFAULT_ANNOTATION_SETTINGS } from '@app/constants/annotationDefaults';
 import { AnnotationApplication } from '@app/modules/pdf-viewer/annotations/annotationApplication';
 import {usePdfAnnotationEditorSurface} from '@app/modules/pdf-viewer/runtime/annotations/usePdfAnnotationEditorSurface';
+import {useAnnotationStoreSnapshot} from '@app/modules/pdf-viewer/runtime/sessions/createPdfDocumentAnnotations';
 import type {
     IAnnotationMarkerRect,
     TAnnotationTool,
@@ -38,6 +39,7 @@ function createSurfaceHarness(rotation: 0 | 90 | 180 | 270 = 0, viewRotation: 0 
     activeScopes.add(scope);
     const surface = scope.run(() => usePdfAnnotationEditorSurface({
         annotationApplication,
+        entitiesByPage: useAnnotationStoreSnapshot(annotationApplication).entitiesByPage,
         getPageGeometry: () => ({
             pageView: [
                 0,

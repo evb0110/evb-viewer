@@ -10,7 +10,9 @@ import {
     annotationIdForSummary,
     type AnnotationId,
     type IPdfDocument,
+    type TPdfDocumentAnnotations,
 } from '@app/modules/pdf-viewer/public';
+import type { IAnnotationInventoryCompleteness } from '@app/types/annotations';
 import { useAnnotationNoteWindows } from '@app/modules/workspace-shell/composables/useAnnotationNoteWindows';
 import { usePageAnnotationTools } from '@app/modules/workspace-shell/composables/usePageAnnotationTools';
 import type { IWorkspacePdfViewerAnnotationSessionPort } from '@app/modules/workspace-shell/types/workspaceOrchestration.types';
@@ -22,6 +24,8 @@ interface IWorkspaceAnnotationSessionOptions {
     /** The document's views: what a viewer answers about the shared annotation store. */
     views: Pick<TDocumentViews, 'pdfViewer'>;
     pdfDocument: Readonly<Ref<IPdfDocument | null>>;
+    /** The document's annotations: its summaries, readiness and tombstones. */
+    documentAnnotations: TPdfDocumentAnnotations;
     reportNoteFailure: TWorkspaceFailureSurface['reportNoteFailure'];
 }
 
@@ -29,6 +33,7 @@ export const useWorkspaceAnnotationSession = (options: IWorkspaceAnnotationSessi
     const {
         views,
         pdfDocument,
+        documentAnnotations,
     } = options;
     const pdfViewerRef = computed<IWorkspacePdfViewerAnnotationSessionPort | null>(() => views.pdfViewer.value);
 
@@ -45,9 +50,6 @@ export const useWorkspaceAnnotationSession = (options: IWorkspaceAnnotationSessi
     const {
         annotationKeepActive,
         annotationSettings,
-        annotationComments,
-        annotationCommentsStatus,
-        annotationInventory,
         annotationActiveCommentStableKey,
         annotationEditorState,
         annotationDirty,
@@ -58,13 +60,23 @@ export const useWorkspaceAnnotationSession = (options: IWorkspaceAnnotationSessi
         markAnnotationSaved: markAnnotationRevisionSaved,
         getAnnotationRevision,
         resetAnnotationTracking: resetAnnotationRevisionTracking,
-        markAnnotationCommentsLoading,
-        applyAnnotationComments,
-        applyAnnotationInventory,
-        clearAnnotationComments,
     } = usePageAnnotationTools({
         clearAnnotationChanges,
         hasAnnotationChanges,
+    });
+    const annotationComments = documentAnnotations.comments;
+    const annotationCommentsStatus = documentAnnotations.commentsStatus;
+    // Unknown (null) until the store has read the whole document.
+    const annotationInventory = computed<IAnnotationInventoryCompleteness | null>(() => {
+        void documentAnnotations.entities.value;
+        const pages = pdfDocument.value?.numPages ?? 0;
+        return pdfDocument.value && documentAnnotations.application.value.store.readWholeDocument ? {
+            complete: true,
+            omissions: [],
+            scannedPageCount: pages,
+            totalPageCount: pages,
+            failedPageCount: 0,
+        } : null;
     });
 
     function markAnnotationSaved() {
@@ -140,20 +152,20 @@ export const useWorkspaceAnnotationSession = (options: IWorkspaceAnnotationSessi
         hasOpenAnnotationNotes.value = count > 0;
     }, { immediate: true });
 
-    // Canonical annotation storage is framework-agnostic. The sidebar
-    // projection is the reactive invalidation edge; the viewer stays the
+    // Canonical annotation storage is framework-agnostic. The document's
+    // store snapshot is the reactive invalidation edge; the viewer stays the
     // source of truth.
     const pendingEmbeddedAnnotationDeleteCount = computed(() => {
-        void annotationComments.value;
+        void documentAnnotations.entities.value;
         return pdfViewerRef.value?.getDeletedPersistedCanonicalAnnotationCount?.() ?? 0;
     });
     // Thumbnails filter deleted annotations by their durable PDF identities.
     const thumbnailHiddenAnnotationIds = computed<string[]>(() => {
-        void annotationComments.value;
+        void documentAnnotations.entities.value;
         return pdfViewerRef.value?.getDeletedCanonicalAnnotationIds?.() ?? [];
     });
     const hasUnsavedAnnotationChanges = computed(() => {
-        void annotationComments.value;
+        void documentAnnotations.entities.value;
         return annotationDirty.value
             || annotationNoteWindows.value.some(note => note.dirty)
             || annotationEditorState.value.hasPendingFreeTextDraft === true
@@ -191,10 +203,6 @@ export const useWorkspaceAnnotationSession = (options: IWorkspaceAnnotationSessi
         markAnnotationSaved,
         getAnnotationSaveStateToken,
         resetAnnotationTracking,
-        markAnnotationCommentsLoading,
-        applyAnnotationComments,
-        applyAnnotationInventory,
-        clearAnnotationComments,
         annotationNoteWindows,
         annotationNotePositions,
         sortedAnnotationNoteWindows,

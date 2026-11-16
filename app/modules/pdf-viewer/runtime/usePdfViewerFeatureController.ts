@@ -107,7 +107,6 @@ export const usePdfViewerFeatureController = (
                     ? source.path
                     : 'pdf-open');
         },
-        emitInitialVisualPending: () => emit('initial-visual-pending'),
         originalDocumentId: computed(() => props.originalPath ?? null),
         currentPage: viewerCurrentPage,
         isActive,
@@ -265,8 +264,6 @@ export const usePdfViewerFeatureController = (
         clearPendingImagePlacement,
         emitAnnotationModified: payload => emit('annotation-modified', payload),
         emitAnnotationState: state => emit('annotation-state', state),
-        emitAnnotationComments: comments => emit('annotation-comments', comments),
-        emitAnnotationInventory: completeness => emit('annotation-inventory', completeness),
         emitAnnotationOpenNote: comment => emit('annotation-open-note', comment),
         emitAnnotationContextMenu: payload => emit('annotation-context-menu', payload),
         viewRotation,

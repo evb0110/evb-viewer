@@ -167,6 +167,8 @@ export interface IPdfViewerAnnotationCommandExpose {
     selectAllAnnotations?: () => boolean;
     selectAnnotationById?: (annotationId: string) => boolean;
     focusSelectedAnnotation?: (annotationId: string) => boolean;
+    /** Whether the viewer paints a page's annotations: not while a rotation re-read re-projects them. */
+    paintsAnnotationPage?: (pageIndex: number) => boolean;
     editAnnotationTextBox?: (comment: IAnnotationCommentSummary) => Promise<void>;
     updateSelectedAnnotationProperties?: (updates: IAnnotationPropertyUpdate) => boolean | Promise<boolean>;
     canRotateSelectedAnnotations?: (delta: -90 | 90) => boolean;

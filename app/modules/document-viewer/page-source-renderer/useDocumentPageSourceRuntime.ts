@@ -1154,7 +1154,6 @@ export const useDocumentPageSourceRuntime = (options: {
             emit('update:totalPages', 0);
             return;
         }
-        emit('initial-visual-pending');
         void openDocumentPageSource(transition, {
             chassisAuthority,
             commitPageTerminalError: presentation.commitTerminalError,

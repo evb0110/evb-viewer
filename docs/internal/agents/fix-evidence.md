@@ -175,9 +175,14 @@ with `bash scripts/test-electron-e2e-headless.sh --no-build <lane>`, where
 `node scripts/electron-e2e-lanes.mjs` lists the lanes; the browser lane runs with
 `pnpm test:integration:browser` and the arguments the `browser_integration` job
 in `.github/workflows/ci.yml` passes, which leave out the engines that job does
-not install. Run them on a fleet host that admits heavy
+not install. Run them on fleet hosts that admit heavy
 work, following "Run work on another host" in `~/fleet-hosts.md`, and not beside
-other Electron sessions on the same host. Fix what they find before opening the
-pull request. One run for each head you publish is enough: repeat it after a
-correction, not after every edit, and report a failure the change did not cause
-without chasing it.
+other Electron sessions on the same host. All the Electron lanes together take
+several hours on one host, so split them across the hosts that have room.
+
+Run the lanes last. The unit tests, the comparison under [Refactors](#refactors)
+and the local review come first, and their findings are fixed first, because a
+finding that arrives after the lanes repeats them. Fix what the lanes find
+before opening the pull request. One run for each head you publish is enough:
+repeat it after a correction, not after every edit, and report a failure the
+change did not cause without chasing it.

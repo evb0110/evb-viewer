@@ -43,7 +43,7 @@ const selectedLocale = ref('en');
 const disposals: Array<() => void> = [];
 afterEach(() => disposals.splice(0).forEach(dispose => dispose()));
 
-function mountNotes() {
+function mountNotes(viewer: Record<string, unknown> = {}) {
     const host = document.createElement('div');
     document.body.append(host);
     const editor = document.createElement('div');
@@ -123,7 +123,10 @@ function mountNotes() {
         },
         view: {
             // The view's viewer focuses the note's annotation.
-            pdfViewerRef: ref({focusSelectedAnnotation: focusReturned}),
+            pdfViewerRef: ref({
+                focusSelectedAnnotation: focusReturned,
+                ...viewer,
+            }),
             effectiveZoom: ref(1),
         },
     };
@@ -133,7 +136,10 @@ function mountNotes() {
         return () => h(WorkspaceAnnotationOverlays, {visible: state.visible});
     }}));
     app.component('UIcon', defineComponent({setup: () => () => h('span')}));
-    app.component('AppTooltip', defineComponent({setup: (_props, {slots}) => () => slots.default?.()}));
+    app.component('AppTooltip', defineComponent({
+        inheritAttrs: false,
+        setup: (_props, {slots}) => () => slots.default?.(),
+    }));
     app.mount(overlayHost);
     disposals.push(() => {
         app.unmount();
@@ -223,4 +229,59 @@ it.each([
     }
     expect(mounted.host.textContent).toContain('Date fixture author');
     expect(mounted.host.querySelector('textarea')?.value).toBe('Note');
+});
+
+it('offers no note fallback on a page that waits for its rotation re-read', async () => {
+    const viewer = document.createElement('div');
+    const [rotatedPage, otherPage] = [1, 2].map((pageNumber) => {
+        const page = document.createElement('div');
+        page.className = 'page_container';
+        page.dataset.page = String(pageNumber);
+        viewer.append(page);
+        return page;
+    });
+    // Page 1 is rotating: its annotations wait for the re-read of the rotated revision.
+    const rereadPages = ref(new Set([0]));
+    const mounted = mountNotes({
+        getViewerContainer: () => viewer,
+        paintsAnnotationPage: (pageIndex: number) => !rereadPages.value.has(pageIndex),
+    });
+    mounted.host.append(viewer);
+    const open = mounted.notes[0]!;
+    open.markerRect = {
+        left: 0.25,
+        top: 0.25,
+        width: 0.25,
+        height: 0.1,
+    };
+    mounted.notes.push({
+        ...open,
+        annotationId: 'minimized-on-rotated-page',
+        order: 2,
+        isMinimized: true,
+    }, {
+        // No inline marker renders for this note: it keeps its fallback throughout.
+        ...open,
+        annotationId: 'minimized-without-marker',
+        pageIndex: 1,
+        pageNumber: 2,
+        order: 3,
+        isMinimized: true,
+    });
+    await nextTick();
+    await nextTick();
+    const openAnchor = () => rotatedPage!.querySelector<HTMLElement>('.pdf-note-open-anchor[data-annotation-id="note-1"]')!;
+    const indicators = (page: HTMLElement) => [...page.querySelectorAll<HTMLElement>('.pdf-note-minimized-indicator')];
+
+    expect(openAnchor().style.display).toBe('none');
+    expect(indicators(rotatedPage!)).toHaveLength(0);
+    expect(indicators(otherPage!)).toHaveLength(1);
+
+    rereadPages.value = new Set();
+    await nextTick();
+    await nextTick();
+    expect(openAnchor().style.display).not.toBe('none');
+    expect([openAnchor().style.left, openAnchor().style.top]).toEqual(['50%', '25%']);
+    expect(indicators(rotatedPage!).map(indicator => [indicator.style.left, indicator.style.top])).toEqual([['50%', '25%']]);
+    expect(indicators(otherPage!)).toHaveLength(1);
 });
