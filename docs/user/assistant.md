@@ -123,8 +123,8 @@ wrong with the selected instance, in that provider's own words:
 - **Desktop app required**: the browser build has no assistant. It uses local
   tools that a web page cannot run.
 
-After changing anything outside the app, an install, a sign-in, or an
-environment variable, use **Refresh**. The app does not watch your shell.
+After installing a provider or signing in, use **Refresh**. After changing
+your shell environment, restart EVB. The app does not watch your shell.
 
 If a reply fails, a readable message appears where the reply would be. EVB
 removes credentials and endpoint addresses from provider failures. Transient

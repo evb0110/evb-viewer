@@ -36,7 +36,7 @@ const mocks = vi.hoisted(() => ({
     userData: '/tmp/evb-codex-test',
 }));
 
-vi.mock('@electron/features/agent/assistantShellEnvironment', () => ({getAssistantShellEnvironment: async () => ({...process.env})}));
+vi.mock('@electron/features/agent/assistantShellEnvironment', () => ({getAssistantShellEnvironment: async () => ({...process.env, PATH: process.env.PATH})}));
 vi.mock('child_process', () => ({spawn: mocks.spawn}));
 vi.mock('fs', async importOriginal => ({
     ...(await importOriginal<typeof NodeFs>()),

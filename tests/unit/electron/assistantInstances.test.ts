@@ -96,6 +96,13 @@ describe('assistant instance configuration', () => {
         }
     });
 
+    it('preserves Windows PATH lookup after copying the inherited environment', async () => {
+        const {readAssistantShellEnvironment} = await import('@electron/features/agent/assistantShellEnvironment');
+        const result = await readAssistantShellEnvironment({Path: 'synthetic-windows-path'}, 'win32');
+        expect(result.PATH === 'synthetic-windows-path').toBe(true);
+        expect(Object.keys(result).filter(name => name.toUpperCase() === 'PATH')).toHaveLength(1);
+    });
+
     it.skipIf(process.platform === 'win32')('kills a hanging login shell and its child before falling back', async () => {
         const {readAssistantShellEnvironment} = await import('@electron/features/agent/assistantShellEnvironment');
         const shell = join(state.root, 'hanging-shell');
@@ -110,6 +117,18 @@ describe('assistant instance configuration', () => {
         for (const pid of (await readFile(pids, 'utf8')).split(' ').map(Number)) {
             expect(() => process.kill(pid, 0)).toThrow();
         }
+    });
+
+    it.skipIf(process.platform === 'win32')('accepts a successful capture and stops a child holding stdout open', async () => {
+        const {readAssistantShellEnvironment} = await import('@electron/features/agent/assistantShellEnvironment');
+        const shell = join(state.root, 'background-shell');
+        const pidFile = join(state.root, 'background-pid');
+        await writeFile(shell, `#!/bin/sh\n/bin/sleep 60 &\nprintf '%s' "$!" > '${pidFile}'\nexport PATH='${state.root}'\nexec /bin/sh -c "$2"\n`);
+        await chmod(shell, 0o700);
+        const result = await readAssistantShellEnvironment({SHELL: shell, PATH: '/usr/bin:/bin'}, process.platform, 1_000);
+        const pid = Number(await readFile(pidFile, 'utf8'));
+        expect(() => process.kill(pid, 0)).toThrow();
+        expect(result.PATH === state.root).toBe(true);
     });
 
     it.skipIf(process.platform === 'win32')('reads an exported login-shell PATH without retaining startup output', async () => {

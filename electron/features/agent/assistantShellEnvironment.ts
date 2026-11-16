@@ -28,7 +28,18 @@ export async function readAssistantShellEnvironment(
     timeoutMs = 5_000,
 ): Promise<NodeJS.ProcessEnv> {
     const baseline = {...inherited};
-    if (platform === 'win32' || (baseline.TERM && baseline.TERM !== 'dumb')) return baseline;
+    if (platform === 'win32') {
+        // Adapted from T3 Code shared/shell.ts setWindowsPath: copied records
+        // lose process.env's case-insensitive lookup; keep one PATH spelling.
+        for (const name of Object.keys(baseline)) {
+            if (name !== 'PATH' && name.toUpperCase() === 'PATH') {
+                baseline.PATH ??= baseline[name];
+                delete baseline[name];
+            }
+        }
+        return baseline;
+    }
+    if (baseline.TERM && baseline.TERM !== 'dumb') return baseline;
     let shell = baseline.SHELL;
     if (!shell) {
         try { shell = userInfo().shell ?? undefined; } catch { /* Use the platform login shell. */ }
@@ -67,13 +78,23 @@ export async function readAssistantShellEnvironment(
             // Never log errors, output, shell paths or environment values.
             resolveResult(null);
         };
+        // A descendant can keep stdout open after the shell exits. Accept only
+        // a complete frame and a successful shell exit, then stop the group.
+        const acceptCompletedCapture = () => {
+            if (child.exitCode === 0 && output.includes(Buffer.from(`${END}\0`))) void finish(true);
+        };
         const timer = setTimeout(() => { void finish(false); }, timeoutMs);
         child.stdout.on('data', (chunk: Buffer) => {
             if (settled) return;
             if (output.length + chunk.length > OUTPUT_LIMIT) { void finish(false); return; }
             output = Buffer.concat([output, chunk]);
+            acceptCompletedCapture();
         });
         child.once('error', () => { void finish(false); });
+        child.once('exit', code => {
+            if (code !== 0) void finish(false);
+            else acceptCompletedCapture();
+        });
         child.once('close', code => { void finish(code === 0); });
     }).catch(() => null).then(captured => {
         if (!captured) logger.warn('Login-shell environment discovery failed; using inherited environment.');
