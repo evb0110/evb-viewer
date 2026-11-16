@@ -18,48 +18,29 @@ import {
 import {ANNOTATION_NOTE_SAVE_DEBOUNCE_MS} from '@app/constants/timeouts';
 import {runGuardedTask} from '@app/utils/asyncGuard';
 
+// What a window holds besides its draft and placement: its persistence attempt.
+// The note itself (text, page, author, marker) belongs to the document store.
 interface IAnnotationNoteWindowRuntime {
-    requiresEmbeddedSave: boolean;
-    canonicalText: string;
-    pageIndex: number;
-    pageNumber: number;
-    author: string | null;
-    color: string | null;
-    createdAt: number | null;
-    modifiedAt: number | null;
-    markerRect: IAnnotationCommentSummary['markerRect'];
-    subtype: string | null;
-    source: IAnnotationCommentSummary['source'];
-    hasNote: boolean;
     dirty: boolean;
     saving: boolean;
     error: string | FailurePresentation | null;
     order: number;
     pendingEmbeddedSave: boolean;
-    createdAtMs: number;
     saveGeneration: number;
     persistDeferredForSave: number | null;
 }
 
-const ANNOTATION_NOTE_DISAPPEARANCE_GRACE_MS = 5_000;
-
 export interface IAnnotationNoteWindowDeps {
-    annotationComments: Ref<IAnnotationCommentSummary[]>;
+    /** The document's annotations, which own whether a note exists and what it says. */
+    documentAnnotations: {
+        comments: Readonly<Ref<readonly IAnnotationCommentSummary[]>>;
+        deletedAnnotationIds: Readonly<Ref<ReadonlySet<string>>>;
+    };
     reportNoteFailure?: TWorkspaceFailureSurface['reportNoteFailure'];
     updateAnnotationCommentInViewer: (
         annotationId: AnnotationId,
         text: string,
     ) => boolean | Promise<boolean>;
-    isAnnotationCommentSyncReady?: () => boolean;
-    getDeletedCanonicalAnnotationIds?: () => readonly string[];
-}
-
-function commandId(comment: IAnnotationCommentSummary): AnnotationId {
-    return annotationIdForSummary(comment);
-}
-
-function commentsHaveSameIdentity(left: IAnnotationCommentSummary, right: IAnnotationCommentSummary) {
-    return annotationIdForSummary(left) === annotationIdForSummary(right);
 }
 
 export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
@@ -67,8 +48,14 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
     const states = ref<IAnnotationNoteWindowState[]>([]);
     const runtime = reactive(new Map<AnnotationId, IAnnotationNoteWindowRuntime>());
     const timers = new Map<AnnotationId, ReturnType<typeof setTimeout>>();
-    const disappearanceTimers = new Map<AnnotationId, ReturnType<typeof setTimeout>>();
     let nextOrder = 0;
+    // A note is live (listed here), tombstoned (an explicit canonical
+    // deletion), or not yet known to the store. Only a tombstone closes its
+    // window; an unknown note keeps its window and draft until the store reads it.
+    const liveNotes = computed(() => new Map(deps.documentAnnotations.comments.value
+        .filter(isNoteEligibleComment)
+        .map(comment => [annotationIdForSummary(comment), comment] as const)));
+    const isTombstoned = (id: AnnotationId) => deps.documentAnnotations.deletedAnnotationIds.value.has(id);
     const draftGenerations = new Map<AnnotationId, number>();
     const pendingRestoredDrafts = new Map<AnnotationId, IAnnotationRecoveryDraft>();
     // Teardown fence. Once the owning scope stops, this composable owns no
@@ -85,6 +72,9 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
         if (!metadata) {
             return null;
         }
+        // Read on access, so the window always shows the note's current
+        // revision. A note the store does not know yet has no page or marker.
+        const note = () => liveNotes.value.get(annotationId);
         return Object.defineProperties({}, {
             annotationId: {
                 enumerable: true,
@@ -111,43 +101,46 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
             },
             pageIndex: {
                 enumerable: true,
-                get: () => metadata.pageIndex,
+                get: () => note()?.pageIndex ?? -1,
             },
             pageNumber: {
                 enumerable: true,
-                get: () => metadata.pageNumber,
+                get: () => note()?.pageNumber ?? 0,
             },
             author: {
                 enumerable: true,
-                get: () => metadata.author,
+                get: () => note()?.author ?? null,
             },
             color: {
                 enumerable: true,
-                get: () => metadata.color,
+                get: () => note()?.color ?? null,
             },
             createdAt: {
                 enumerable: true,
-                get: () => metadata.createdAt,
+                get: () => note()?.createdAt ?? null,
             },
             modifiedAt: {
                 enumerable: true,
-                get: () => metadata.modifiedAt,
+                get: () => note()?.modifiedAt ?? null,
             },
             markerRect: {
                 enumerable: true,
-                get: () => metadata.markerRect ? Object.freeze({...metadata.markerRect}) : null,
+                get: () => {
+                    const markerRect = note()?.markerRect;
+                    return markerRect ? Object.freeze({...markerRect}) : null;
+                },
             },
             subtype: {
                 enumerable: true,
-                get: () => metadata.subtype,
+                get: () => note()?.subtype ?? null,
             },
             source: {
                 enumerable: true,
-                get: () => metadata.source,
+                get: () => note()?.source ?? 'pdf',
             },
             hasNote: {
                 enumerable: true,
-                get: () => metadata.hasNote,
+                get: () => note()?.hasNote === true,
             },
             dirty: {
                 enumerable: true,
@@ -174,21 +167,19 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
                 enumerable: true,
                 get: () => state.minimized,
             },
-            createdAtMs: {
-                enumerable: true,
-                get: () => metadata.createdAtMs,
-                set: value => { metadata.createdAtMs = Number(value); },
-            },
         }) as IAnnotationNoteWindowViewModel;
     }
 
+    // Every open window, known to the store or not: drafts, counts and dirty state.
     const annotationNoteWindows = computed(() => states.value.flatMap((state) => {
         const viewModel = toViewModel(state);
         return viewModel ? [viewModel] : [];
     }));
-    const sortedAnnotationNoteWindows = computed(() => (
-        [...annotationNoteWindows.value].sort((left, right) => left.order - right.order)
-    ));
+    // The windows a view draws, in stacking order. A window is drawn at its
+    // note, so one whose note the store does not know yet waits off screen.
+    const sortedAnnotationNoteWindows = computed(() => annotationNoteWindows.value
+        .filter(note => liveNotes.value.has(asAnnotationId(note.annotationId)))
+        .sort((left, right) => left.order - right.order));
     const annotationNotePositions = computed<Record<string, IAnnotationNotePosition>>(() => Object.fromEntries(
         states.value.flatMap((state) => {
             return [[
@@ -215,31 +206,12 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
         return state ? toViewModel(state) : null;
     }
 
-    function findMatchingAnnotationComment(comment: IAnnotationCommentSummary) {
-        return deps.annotationComments.value.find(candidate => commentsHaveSameIdentity(candidate, comment)) ?? null;
-    }
-
     function ensureDefaultPosition() {
         const lane = states.value.length % 5;
         return {
             x: 14 + lane * 32,
             y: 112 + lane * 56,
         };
-    }
-
-    function applyCommentSnapshot(metadata: IAnnotationNoteWindowRuntime, comment: IAnnotationCommentSummary) {
-        metadata.canonicalText = comment.text;
-        metadata.requiresEmbeddedSave = comment.source === 'pdf' || Boolean(comment.annotationId);
-        metadata.pageIndex = comment.pageIndex;
-        metadata.pageNumber = comment.pageNumber;
-        metadata.author = comment.author ?? null;
-        metadata.color = comment.color;
-        metadata.createdAt = comment.createdAt ?? metadata.createdAt;
-        metadata.modifiedAt = comment.modifiedAt ?? null;
-        metadata.markerRect = comment.markerRect ? {...comment.markerRect} : null;
-        metadata.subtype = comment.subtype ?? null;
-        metadata.source = comment.source;
-        metadata.hasNote = comment.hasNote === true;
     }
 
     // One editor per open note, in the view that opened it. Opening the note
@@ -269,10 +241,11 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
         if (disposed || !isNoteEligibleComment(comment)) {
             return;
         }
-        const annotationId = commandId(comment);
-        if (deps.getDeletedCanonicalAnnotationIds?.().includes(annotationId)) {
+        const annotationId = annotationIdForSummary(comment);
+        if (isTombstoned(annotationId)) {
             return;
         }
+        const text = liveNotes.value.get(annotationId)?.text ?? comment.text;
         const existing = stateById(annotationId);
         if (existing) {
             claimForView(existing, viewId);
@@ -283,36 +256,22 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
             }
             metadata.error = null;
             metadata.order = ++nextOrder;
-            applyCommentSnapshot(metadata, comment);
-            if (!metadata.dirty) existing.draftText = comment.text;
+            if (!metadata.dirty) existing.draftText = text;
             return;
         }
         states.value.push({
             annotationId,
-            draftText: comment.text,
+            draftText: text,
             minimized: false,
             position: ensureDefaultPosition(),
             ownerViewId: viewId,
         });
         runtime.set(annotationId, {
-            requiresEmbeddedSave: comment.source === 'pdf' || Boolean(comment.annotationId),
-            canonicalText: comment.text,
-            pageIndex: comment.pageIndex,
-            pageNumber: comment.pageNumber,
-            author: comment.author ?? null,
-            color: comment.color,
-            createdAt: comment.createdAt ?? null,
-            modifiedAt: comment.modifiedAt ?? null,
-            markerRect: comment.markerRect ? {...comment.markerRect} : null,
-            subtype: comment.subtype ?? null,
-            source: comment.source,
-            hasNote: comment.hasNote === true,
             dirty: false,
             saving: false,
             error: null,
             order: ++nextOrder,
             pendingEmbeddedSave: false,
-            createdAtMs: Date.now(),
             saveGeneration: 0,
             persistDeferredForSave: null,
         });
@@ -348,48 +307,6 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
         timers.delete(id);
     }
 
-    function clearDisappearanceTimer(id: AnnotationId) {
-        const timer = disappearanceTimers.get(id);
-        if (timer !== undefined) clearTimeout(timer);
-        disappearanceTimers.delete(id);
-    }
-
-    function removeIfStillMissing(id: AnnotationId) {
-        const metadata = runtime.get(id);
-        if (
-            !metadata
-            || metadata.dirty
-            || deps.annotationComments.value.some(comment => (
-                isNoteEligibleComment(comment) && commandId(comment) === id
-            ))
-        ) {
-            return;
-        }
-        removeAnnotationNoteWindow(id);
-    }
-
-    function scheduleRemovalAfterProjectionGap(id: AnnotationId) {
-        if (disposed || disappearanceTimers.has(id)) {
-            return;
-        }
-        const metadata = runtime.get(id);
-        if (!metadata) {
-            return;
-        }
-        const remainingGraceMs = Math.max(
-            0,
-            ANNOTATION_NOTE_DISAPPEARANCE_GRACE_MS - (Date.now() - metadata.createdAtMs),
-        );
-        if (remainingGraceMs === 0) {
-            removeIfStillMissing(id);
-            return;
-        }
-        disappearanceTimers.set(id, setTimeout(() => {
-            disappearanceTimers.delete(id);
-            removeIfStillMissing(id);
-        }, remainingGraceMs));
-    }
-
     function schedulePersist(id: AnnotationId) {
         if (disposed) {
             return;
@@ -414,7 +331,8 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
         }
         state.draftText = text;
         draftGenerations.set(id, (draftGenerations.get(id) ?? 0) + 1);
-        metadata.dirty = text !== metadata.canonicalText;
+        // Typing into a note the store does not know yet is unsaved input.
+        metadata.dirty = text !== liveNotes.value.get(id)?.text;
         metadata.error = null;
         schedulePersist(id);
     }
@@ -472,19 +390,20 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
         if (draft.kind !== 'note') {
             return;
         }
-        const comment = deps.annotationComments.value.find(candidate => commandId(candidate) === draft.annotationId);
-        if (!comment) {
+        // A recovered draft waits for its live note; it never opens on a guess.
+        const note = liveNotes.value.get(draft.annotationId);
+        if (!note) {
             pendingRestoredDrafts.set(draft.annotationId, draft);
             return;
         }
-        upsertAnnotationNoteWindow(comment);
+        upsertAnnotationNoteWindow(note);
         const state = stateById(draft.annotationId);
         const metadata = runtime.get(draft.annotationId);
         if (!state || !metadata) {
             return;
         }
         state.draftText = draft.text;
-        metadata.dirty = draft.text !== metadata.canonicalText;
+        metadata.dirty = draft.text !== note.text;
         metadata.error = null;
         draftGenerations.set(draft.annotationId, draft.generation);
     }
@@ -494,8 +413,8 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
             return true;
         }
         const id = resolveId(value) ?? asAnnotationId(value);
-        if (deps.getDeletedCanonicalAnnotationIds?.().includes(id)) {
-            removeAnnotationNoteWindow(id);
+        if (isTombstoned(id)) {
+            deleteAnnotationNoteWindow(id);
             return true;
         }
         const state = stateById(id);
@@ -515,6 +434,8 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
         const saveGeneration = ++metadata.saveGeneration;
         metadata.saving = true;
         const submittedText = state.draftText;
+        const note = liveNotes.value.get(id);
+        const requiresEmbeddedSave = note?.source === 'pdf' || Boolean(note?.annotationId);
         // This attempt owns exactly the window it started on: that runtime
         // record, that state object, and its own generation. Teardown, a
         // removal, or a reopen under the same id retires it, and a retired
@@ -535,17 +456,15 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
             return false;
         };
         const applyFulfilled = (updated: boolean) => {
-            if (!updated) {
-                if (metadata.requiresEmbeddedSave) {
-                    metadata.pendingEmbeddedSave = true;
-                }
-                return fail();
-            }
-            if (metadata.requiresEmbeddedSave) {
+            if (requiresEmbeddedSave) {
                 metadata.pendingEmbeddedSave = true;
             }
+            if (!updated) {
+                return fail();
+            }
             metadata.error = null;
-            metadata.canonicalText = submittedText;
+            // The store now holds the submitted text, so a draft still equal
+            // to it is clean and follows the note's later revisions.
             if (state.draftText === submittedText) {
                 metadata.dirty = false;
                 return true;
@@ -611,15 +530,6 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
         runtime.delete(id);
         draftGenerations.delete(id);
         clearTimer(id);
-        clearDisappearanceTimer(id);
-    }
-
-    function removeAnnotationNoteWindow(value: string) {
-        const id = resolveId(value);
-        if (!id) {
-            return;
-        }
-        deleteAnnotationNoteWindow(id);
     }
 
     // A close that has to await a save owns the window it started on, not
@@ -668,9 +578,7 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
 
     function clearAllTimers() {
         timers.forEach(timer => clearTimeout(timer));
-        disappearanceTimers.forEach(timer => clearTimeout(timer));
         timers.clear();
-        disappearanceTimers.clear();
     }
 
     async function closeAllAnnotationNotes(options: {saveIfDirty?: boolean} = {}) {
@@ -693,39 +601,30 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
             : deps.reportNoteFailure?.({message}) ?? message;
     }
 
-    const stopAnnotationCommentsWatch = watch(deps.annotationComments, (comments) => {
-        const deletedIds = new Set(deps.getDeletedCanonicalAnnotationIds?.() ?? []);
+    // Each canonical revision: an explicit deletion closes its window, even a
+    // dirty one; a clean draft follows the note's text, and a dirty draft stays
+    // the user's newer input. A note missing from the store changes nothing.
+    const stopCanonicalNotesWatch = watch([
+        liveNotes,
+        deps.documentAnnotations.deletedAnnotationIds,
+    ], ([notes, deletedIds]) => {
         states.value.filter(state => deletedIds.has(state.annotationId)).forEach(state => {
             deleteAnnotationNoteWindow(asAnnotationId(state.annotationId));
         });
-        if (!deps.isAnnotationCommentSyncReady?.() && deps.isAnnotationCommentSyncReady) {
-            return;
-        }
-        const ids = new Set(comments.filter(isNoteEligibleComment).map(commandId));
-        comments.filter(isNoteEligibleComment).forEach((comment) => {
-            const id = commandId(comment);
+        states.value.forEach((state) => {
+            const id = asAnnotationId(state.annotationId);
+            const note = notes.get(id);
             const metadata = runtime.get(id);
-            if (!metadata) {
+            if (!note || !metadata) {
                 return;
             }
-            applyCommentSnapshot(metadata, comment);
-            const state = stateById(id);
-            if (state) {
-                if (!metadata.dirty) {
-                    state.draftText = comment.text;
-                }
-                metadata.dirty = state.draftText !== comment.text;
+            if (!metadata.dirty) {
+                state.draftText = note.text;
             }
-            clearDisappearanceTimer(id);
-        });
-        states.value.filter(state => !ids.has(asAnnotationId(state.annotationId))).forEach((state) => {
-            const metadata = runtime.get(asAnnotationId(state.annotationId));
-            if (metadata && !metadata.dirty) {
-                scheduleRemovalAfterProjectionGap(asAnnotationId(state.annotationId));
-            }
+            metadata.dirty = state.draftText !== note.text;
         });
         pendingRestoredDrafts.forEach((draft, id) => {
-            if (ids.has(id)) {
+            if (notes.has(id)) {
                 pendingRestoredDrafts.delete(id);
                 restoreAnnotationNoteDraft(draft);
             }
@@ -735,7 +634,7 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
     // Idempotent, and safe after an explicit closeAllAnnotationNotes: the maps
     // and the state list are simply already empty by then. Stopping the watcher
     // here rather than leaning on the scope keeps teardown self-contained, so
-    // the projection cannot revive a window this composable no longer owns.
+    // the store cannot revive a window this composable no longer owns.
     function disposeAnnotationNoteWindows() {
         // Raise the fence first so anything the teardown itself unwinds, and
         // anything already queued behind it, sees a retired composable.
@@ -744,7 +643,7 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
         runtime.clear();
         states.value = [];
         pendingRestoredDrafts.clear();
-        stopAnnotationCommentsWatch();
+        stopCanonicalNotesWatch();
     }
 
     tryOnScopeDispose(disposeAnnotationNoteWindows);
@@ -770,13 +669,7 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
         discardAnnotationNote,
         closeAllAnnotationNotes,
         handleOpenAnnotationNote: upsertAnnotationNoteWindow,
-        removeAnnotationNoteWindow,
         setAnnotationNoteWindowError,
         bringAnnotationNoteToFront,
-        isSameAnnotationComment: commentsHaveSameIdentity,
-        findMatchingAnnotationComment,
-        selectPreferredAnnotationComment: (left: IAnnotationCommentSummary, right: IAnnotationCommentSummary) => (
-            commentsHaveSameIdentity(left, right) ? right : left
-        ),
     };
 };

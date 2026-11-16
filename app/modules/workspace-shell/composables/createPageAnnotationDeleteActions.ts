@@ -13,13 +13,9 @@ type TPageAnnotationDeleteViewer = Pick<WorkspaceOrchestration.IPdfViewerExpose,
 interface IPageAnnotationDeleteActionsOptions<TViewer extends TPageAnnotationDeleteViewer = TPageAnnotationDeleteViewer> {
     pdfViewerRef: Ref<TViewer | null>;
     closeAnnotationContextMenu: () => void;
-    getAnnotationCommentsSnapshot: () => IAnnotationCommentSummary[] | null;
     getDeleteErrorMessage: () => string;
     invalidateAnnotationPage: (comment: IAnnotationCommentSummary) => void;
-    removeDeletedAnnotationState: (
-        comment: IAnnotationCommentSummary,
-        commentsBeforeDelete?: IAnnotationCommentSummary[] | null,
-    ) => void;
+    clearDeletedAnnotationSelection: (comment: IAnnotationCommentSummary) => void;
     setAnnotationNoteWindowError: (stableKey: string, error: string | null) => void;
 }
 
@@ -29,10 +25,9 @@ export const createPageAnnotationDeleteActions = <TViewer extends TPageAnnotatio
     const {
         pdfViewerRef,
         closeAnnotationContextMenu,
-        getAnnotationCommentsSnapshot,
         getDeleteErrorMessage,
         invalidateAnnotationPage,
-        removeDeletedAnnotationState,
+        clearDeletedAnnotationSelection,
         setAnnotationNoteWindowError,
     } = options;
 
@@ -136,7 +131,6 @@ export const createPageAnnotationDeleteActions = <TViewer extends TPageAnnotatio
             pageNumber: comment.pageNumber,
         });
         setAnnotationNoteWindowError(comment.stableKey, null);
-        const commentsBeforeDelete = getAnnotationCommentsSnapshot();
         if (shouldUseEmbeddedDeletePath(comment)) {
             if (shouldRemoveLiveEditorBeforeEmbeddedDelete(comment)) {
                 let deleted = false;
@@ -168,7 +162,7 @@ export const createPageAnnotationDeleteActions = <TViewer extends TPageAnnotatio
                     return;
                 }
             }
-            removeDeletedAnnotationState(comment, commentsBeforeDelete);
+            clearDeletedAnnotationSelection(comment);
             return;
         }
 
@@ -182,7 +176,7 @@ export const createPageAnnotationDeleteActions = <TViewer extends TPageAnnotatio
             handleAnnotationDeleteFailure(comment);
             return;
         }
-        removeDeletedAnnotationState(comment, commentsBeforeDelete);
+        clearDeletedAnnotationSelection(comment);
         invalidateAnnotationPage(comment);
     }
 

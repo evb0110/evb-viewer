@@ -316,13 +316,9 @@ export const createDocumentViewContext = (deps: IDocumentViewContextDeps) => {
         handleAnnotationToolChange,
         // A note opens in this view.
         openAnnotationNoteWindow: comment => annotations.openAnnotationNoteWindow(comment, tabId),
-        removeAnnotationNoteWindow: annotations.removeAnnotationNoteWindow,
         setAnnotationNoteWindowError: annotations.setAnnotationNoteWindowError,
-        isSameAnnotationComment: annotations.isSameAnnotationComment,
-        annotationNoteWindows: annotations.annotationNoteWindows,
         invalidateThumbnailPages: view.requestThumbnailInvalidation,
         getAnnotationCommentsSnapshot: () => annotations.annotationComments.value,
-        getAnnotationCommentsStatusSnapshot: () => annotations.annotationCommentsStatus.value,
         discardAnnotationNote: annotations.discardAnnotationNote,
         handleAnnotationModified: annotations.handleAnnotationModified,
     });

@@ -34,5 +34,4 @@ export interface IAnnotationNoteWindowViewModel extends IAnnotationNoteWindowSta
     order: number;
     pendingEmbeddedSave: boolean;
     isMinimized: boolean;
-    createdAtMs: number;
 }
