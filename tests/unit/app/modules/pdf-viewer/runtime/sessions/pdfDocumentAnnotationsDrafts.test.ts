@@ -8,7 +8,11 @@ import {
 } from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import type {TPdfDocumentView} from '@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSession';
+import type {
+    IPdfDocumentLoadPlan, TPdfDocumentView,
+} from '@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSession';
+import {usePdfAnnotationEditorSurface} from '@app/modules/pdf-viewer/runtime/annotations/usePdfAnnotationEditorSurface';
+import {DEFAULT_ANNOTATION_SETTINGS} from '@app/constants/annotationDefaults';
 import type {IPdfAnnotationParseResult} from '@contracts/pdfAnnotationParseTypes';
 import {requireDocumentRevisionToken} from '@contracts/documentRevision';
 import {requirePageIndex} from '@contracts/pageNumbers';
@@ -21,11 +25,13 @@ import {
 } from 'vitest';
 import {
     computed,
+    effectScope,
     ref,
     shallowRef,
     nextTick,
 } from 'vue';
 import type { IAnnotationMarkerRect } from '@app/types/annotations';
+import type { TPdfSource } from '@app/types/pdfUi';
 import type { IPdfDocumentAnnotationsView } from '@app/modules/pdf-viewer/runtime/sessions/createPdfDocumentAnnotations';
 import { createPdfDocumentAnnotations } from '@app/modules/pdf-viewer/runtime/sessions/createPdfDocumentAnnotations';
 import { requireDocumentRef } from '@contracts/documentRef';
@@ -61,7 +67,8 @@ function createEditorView() {
     const view: IPdfDocumentAnnotationsView = {
         emitAnnotationState: () => {},
         emitAnnotationModified: () => {},
-        onHistoryReplay: () => {},
+        document: cast<TPdfDocumentView>({}),
+        originalPath: shallowRef(null),
         commitPendingDraftsForSave: () => {
             open.value = null;
         },
@@ -309,6 +316,86 @@ describe('writer annotations shared by linked views', () => {
         };
     }
 
+    it('A1 review late original capture keeps current document readiness', async () => {
+        const workingCopyPath = shallowRef(requireDocumentRef('/managed/A.pdf'));
+        const revision = shallowRef(initialRevision);
+        const session = shallowRef(1);
+        const annotations = createPdfDocumentAnnotations({
+            workingCopyPath,
+            source: computed(() => ({kind: 'path' as const, path: workingCopyPath.value, size: 1})),
+            documentRevisionToken: revision,
+            documentSession: session,
+        });
+        const document = shallowRef(cast<TPdfDocumentView['pdfDocument']['value']>({}));
+        let version = 1;
+        const resource = cast<TPdfDocumentView>({
+            pdfDocument: document,
+            captureFence: () => ({loadToken: version, documentVersion: version, documentRevision: revision.value, openSurfaceGeneration: version}),
+        });
+        const started = Promise.withResolvers<void>();
+        const capture = Promise.withResolvers<ReturnType<typeof requireDocumentRef>>();
+        createWorkingCopyFromPath.mockImplementationOnce(() => {
+            started.resolve();
+            return capture.promise;
+        });
+        const oldDocument = document.value!;
+        recordPdfDocumentLoadedRevision(oldDocument, initialRevision);
+        parsePdfAnnotations.mockResolvedValueOnce(parsed('Retired A')).mockResolvedValueOnce(parsed('Current B', nextRevision));
+        const readingA = annotations.feedStoreFromWriterParse(resource, shallowRef(null));
+        await started.promise;
+        try {
+            workingCopyPath.value = requireDocumentRef('/managed/B.pdf');
+            revision.value = nextRevision;
+            document.value = cast<TPdfDocumentView['pdfDocument']['value']>({});
+            version += 1;
+            session.value += 1;
+            await annotations.feedStoreFromWriterParse(resource, shallowRef(null));
+            expect(annotations.comments.value.map(row => row.text)).toEqual(['Current B']);
+            expect(annotations.commentsStatus.value).toBe('ready');
+            capture.resolve(requireDocumentRef('/managed/snapshot-A.pdf'));
+            await readingA;
+            expect(annotations.comments.value.map(row => row.text)).toEqual(['Current B']);
+            expect(annotations.commentsStatus.value).toBe('ready');
+        } finally {
+            capture.resolve(requireDocumentRef('/managed/snapshot-A.pdf'));
+            await readingA;
+            await releasePdfDocumentOriginalAnnotations(oldDocument);
+        }
+    });
+
+    it('A1 review late retired read keeps current document readiness', async () => {
+        const workingCopyPath = shallowRef(requireDocumentRef('/managed/A.pdf'));
+        const revision = shallowRef(initialRevision);
+        const session = shallowRef(1);
+        const annotations = createPdfDocumentAnnotations({
+            workingCopyPath,
+            source: computed(() => ({kind: 'path' as const, path: workingCopyPath.value, size: 1})),
+            documentRevisionToken: revision,
+            documentSession: session,
+        });
+        const document = shallowRef(cast<TPdfDocumentView['pdfDocument']['value']>({}));
+        let version = 1;
+        const resource = cast<TPdfDocumentView>({
+            pdfDocument: document,
+            captureFence: () => ({loadToken: version, documentVersion: version, documentRevision: revision.value, openSurfaceGeneration: version}),
+        });
+        const old = Promise.withResolvers<IPdfAnnotationParseResult>();
+        parsePdfAnnotations.mockReturnValueOnce(old.promise).mockResolvedValueOnce(parsed('Current B', nextRevision));
+        const readingA = annotations.feedStoreFromWriterParse(resource, shallowRef(null));
+        workingCopyPath.value = requireDocumentRef('/managed/B.pdf');
+        revision.value = nextRevision;
+        document.value = cast<TPdfDocumentView['pdfDocument']['value']>({});
+        version += 1;
+        session.value += 1;
+        await annotations.feedStoreFromWriterParse(resource, shallowRef(null));
+        expect(annotations.comments.value.map(row => row.text)).toEqual(['Current B']);
+        expect(annotations.commentsStatus.value).toBe('ready');
+        old.resolve(parsed('Retired A'));
+        await readingA;
+        expect(annotations.comments.value.map(row => row.text)).toEqual(['Current B']);
+        expect(annotations.commentsStatus.value).toBe('ready');
+    });
+
     it('#1608 retains a failed annotation revision lookup cause', async () => {
         const retained: string[] = [];
         setBrowserLogSink(entry => {if (entry.level === 'warn' || entry.level === 'error') retained.push(JSON.stringify(entry));});
@@ -508,6 +595,43 @@ describe('writer annotations shared by linked views', () => {
         expect(await annotations.feedStoreFromWriterParse(loadedBeforeSave, shallowRef(null), true)).toBe(false);
         expect(parsePdfAnnotations).toHaveBeenCalledTimes(1);
     });
+    it('reads the saved revision into a partial store when a save finishes', async () => {
+        const isSaving = shallowRef(false);
+        const revision = shallowRef(initialRevision);
+        const annotations = createPdfDocumentAnnotations({
+            workingCopyPath: computed(() => requireDocumentRef('/managed/working.pdf')),
+            source: computed(() => null),
+            documentRevisionToken: revision,
+            isSaving,
+        });
+        const {view} = createEditorView();
+        const loaded = cast<TPdfDocumentView>({
+            pdfDocument: shallowRef(cast<TPdfDocumentView['pdfDocument']['value']>({})),
+            pendingPageMutationRevisionSwap: null,
+            captureFence: () => ({
+                loadToken: 1,
+                documentVersion: 1,
+                documentRevision: initialRevision,
+                openSurfaceGeneration: 1,
+            }),
+        });
+        annotations.attachView({
+            ...view,
+            document: loaded,
+        });
+        parsePdfAnnotations.mockResolvedValue(parsed('Saved revision', nextRevision));
+        isSaving.value = true;
+        revision.value = nextRevision;
+        await nextTick();
+        expect(parsePdfAnnotations).not.toHaveBeenCalled();
+        isSaving.value = false;
+        await nextTick();
+        expect(parsePdfAnnotations).toHaveBeenCalledOnce();
+        // A later reader joins the read the finished save started.
+        await annotations.feedStoreFromWriterParse(loaded, shallowRef(null), true);
+        expect(parsePdfAnnotations).toHaveBeenCalledOnce();
+        expect(annotations.application.value.listCommentSummaries().map(comment => comment.text)).toEqual(['Saved revision']);
+    });
     it('allows a later caller to import after a rejected producer without automatically retrying', async () => {
         const {
             annotations, resource,
@@ -562,6 +686,126 @@ describe('writer annotations shared by linked views', () => {
         old.resolve(parsed('Superseded revision'));
         await previous;
         expect(annotations.application.value.listCommentSummaries().map(comment => comment.text)).toEqual(['Current revision']);
+    });
+    it('lists a store no read settled for as loading, an empty read as ready, and keeps the list through a re-read', async () => {
+        const source = shallowRef<TPdfSource | null>({
+            kind: 'path',
+            path: requireDocumentRef('/managed/working.pdf'),
+            size: 1,
+        });
+        const annotations = createPdfDocumentAnnotations({
+            workingCopyPath: computed(() => requireDocumentRef('/managed/working.pdf')),
+            source,
+            documentRevisionToken: computed(() => initialRevision),
+        });
+        let version = 1;
+        const resource = cast<TPdfDocumentView>({
+            pdfDocument: shallowRef(cast<TPdfDocumentView['pdfDocument']['value']>({})),
+            captureFence: () => ({
+                loadToken: 1,
+                documentVersion: version,
+                documentRevision: initialRevision,
+                openSurfaceGeneration: 1,
+            }),
+        });
+        const listed = () => annotations.comments.value.map(comment => comment.text);
+        expect(annotations.commentsStatus.value).toBe('loading');
+        expect(listed()).toEqual([]);
+
+        const emptyRead = Promise.withResolvers<IPdfAnnotationParseResult>();
+        parsePdfAnnotations.mockReturnValueOnce(emptyRead.promise);
+        const reading = annotations.feedStoreFromWriterParse(resource, shallowRef(null));
+        expect(annotations.commentsStatus.value).toBe('loading');
+        emptyRead.resolve({
+            ...parsed('unused'),
+            entities: [],
+        });
+        await reading;
+        expect(annotations.commentsStatus.value).toBe('ready');
+        expect(listed()).toEqual([]);
+
+        // A reload reads the document again. The read store stays ready and
+        // lists what it holds until the new read reconciles it.
+        version += 1;
+        const reread = Promise.withResolvers<IPdfAnnotationParseResult>();
+        parsePdfAnnotations.mockReturnValueOnce(reread.promise);
+        const rereading = annotations.feedStoreFromWriterParse(resource, shallowRef(null));
+        expect(annotations.commentsStatus.value).toBe('ready');
+        reread.resolve(parsed('Imported after reload'));
+        await rereading;
+        expect(listed()).toEqual(['Imported after reload']);
+        expect(annotations.commentsStatus.value).toBe('ready');
+
+        source.value = null;
+        expect(listed()).toEqual([]);
+        expect(annotations.commentsStatus.value).toBe('loading');
+    });
+    it('paints no rotated page from the previous rotation until the store is read for the rotated document', async () => {
+        const {
+            annotations, resource, document, revision, replaceVersion,
+        } = setup();
+        let plan: IPdfDocumentLoadPlan = {
+            isReload: false,
+            isSelectiveReload: false,
+            pagesToInvalidate: null,
+            preserveVisibleContent: false,
+            preservePageStructure: false,
+        };
+        Object.defineProperty(resource, 'activeLoadPlan', {get: () => plan});
+        const scope = effectScope();
+        const surface = scope.run(() => usePdfAnnotationEditorSurface({
+            annotationApplication: annotations.application,
+            entitiesByPage: annotations.entitiesByPage,
+            paintsPage: pageIndex => annotations.paintsPage(resource, pageIndex),
+            activeTool: computed(() => 'select'),
+            settings: computed(() => DEFAULT_ANNOTATION_SETTINGS),
+        }))!;
+        // The native parser projects geometry for each page's rotation.
+        const read = (left: number, at = initialRevision): IPdfAnnotationParseResult => {
+            const [box] = parsed('Rotated page', at).entities;
+            return {
+                ...parsed('Rotated page', at),
+                pageCount: 2,
+                entities: [
+                    {...box!, rect: {...(box as {rect: IAnnotationMarkerRect}).rect, left}},
+                    {...box!, name: 'unrotated-page-box', objectNumber: 12, pageIndex: requirePageIndex(1), text: 'Unrotated page'},
+                ],
+            } as IPdfAnnotationParseResult;
+        };
+        // Each page reads its entities through a cached computed, as the editor layer does.
+        const pages = [0, 1].map(pageIndex => computed(() => surface.getEntitiesForPage(pageIndex)
+            .map(entity => (entity as {rect: IAnnotationMarkerRect}).rect.left)));
+        const painted = (pageIndex: number) => pages[pageIndex]!.value;
+        parsePdfAnnotations.mockResolvedValueOnce(read(0.1));
+        await annotations.feedStoreFromWriterParse(resource, shallowRef(null));
+        expect(painted(0)).toEqual([0.1]);
+
+        // Rotating page 1 writes a revision and presents a new PDF.js document.
+        plan = {
+            isReload: true,
+            isSelectiveReload: true,
+            pagesToInvalidate: [1],
+            preserveVisibleContent: true,
+            preservePageStructure: true,
+            preservePageMetrics: true,
+            rotationDelta: 90,
+        };
+        revision.value = nextRevision;
+        replaceVersion();
+        document.value = cast<TPdfDocumentView['pdfDocument']['value']>({});
+        expect(painted(0)).toEqual([]);
+        expect(painted(1)).toEqual([0.1]);
+        // The store keeps the entity; only its paint waits for the rotated geometry.
+        expect(annotations.entitiesByPage.value.get(0)?.length).toBe(1);
+
+        const rotatedRead = Promise.withResolvers<IPdfAnnotationParseResult>();
+        parsePdfAnnotations.mockReturnValueOnce(rotatedRead.promise);
+        const reading = annotations.feedStoreFromWriterParse(resource, shallowRef(null));
+        expect(painted(0)).toEqual([]);
+        rotatedRead.resolve(read(0.6, nextRevision));
+        await reading;
+        expect(painted(0)).toEqual([0.6]);
+        scope.stop();
     });
     it('refreshes a replacement document version without retaining its old imported projection', async () => {
         const {

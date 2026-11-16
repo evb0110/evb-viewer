@@ -150,8 +150,6 @@ function mountAnnotationSession(mountOptions: IMountAnnotationSessionOptions = {
             clearPendingImagePlacement: vi.fn(),
             emitAnnotationModified: vi.fn(),
             emitAnnotationState: vi.fn(),
-            emitAnnotationComments: vi.fn(),
-            emitAnnotationInventory: vi.fn(),
             emitAnnotationOpenNote: vi.fn(),
             emitAnnotationContextMenu: vi.fn(),
             emitAnnotationToolAutoReset: vi.fn(),

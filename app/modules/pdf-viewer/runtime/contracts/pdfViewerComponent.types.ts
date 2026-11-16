@@ -4,7 +4,6 @@ import type { IAnnotationCreationFailureReport } from '@app/modules/pdf-viewer/e
 import type {
     IAnnotationCommentSummary,
     IAnnotationEditorState,
-    IAnnotationInventoryCompleteness,
     IAnnotationModifiedPayload,
     IAnnotationSettings,
     TAnnotationSettingChange,
@@ -60,8 +59,6 @@ export interface IPdfViewerEmit {
     (e: 'load-error', error: unknown): void;
     (e: 'annotation-state', state: IAnnotationEditorState): void;
     (e: 'annotation-modified', payload?: IAnnotationModifiedPayload): void;
-    (e: 'annotation-comments', comments: IAnnotationCommentSummary[]): void;
-    (e: 'annotation-inventory', completeness: IAnnotationInventoryCompleteness | null): void;
     (e: 'annotation-open-note', comment: IAnnotationCommentSummary): void;
     (e: 'annotation-context-menu', payload: IAnnotationContextMenuPayload): void;
     (e: 'annotation-tool-auto-reset'): void;
@@ -74,6 +71,5 @@ export interface IPdfViewerEmit {
         clientX: number;
         clientY: number;
     }): void;
-    (e: 'initial-visual-pending'): void;
     (e: 'initial-visual-ready', payload: {pageNumber: number;}): void;
 }

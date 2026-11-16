@@ -29,6 +29,7 @@ import {
     annotationEditorSurfaceKey,
     usePdfAnnotationEditorSurface,
 } from '@app/modules/pdf-viewer/runtime/annotations/usePdfAnnotationEditorSurface';
+import {useAnnotationStoreSnapshot} from '@app/modules/pdf-viewer/runtime/sessions/createPdfDocumentAnnotations';
 import type {ITextBoxEntity} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import { rotateAnnotationPoint } from '@app/modules/pdf-viewer/engine/annotation-editor-geometry/annotationEditorGeometry';
 import {requirePageIndex} from '@contracts/pageNumbers';
@@ -317,6 +318,7 @@ describe('PdfAnnotationEditorLayer placement interactions', () => {
         const scope = effectScope();
         const surface = scope.run(() => usePdfAnnotationEditorSurface({
             annotationApplication: application,
+            entitiesByPage: useAnnotationStoreSnapshot(application).entitiesByPage,
             activeTool: computed(() => armedTool),
             settings: computed(() => DEFAULT_ANNOTATION_SETTINGS),
             getPageGeometry: () => ({
@@ -408,6 +410,7 @@ describe('PdfAnnotationEditorLayer placement interactions', () => {
         const scope = effectScope();
         const surface = scope.run(() => usePdfAnnotationEditorSurface({
             annotationApplication: application,
+            entitiesByPage: useAnnotationStoreSnapshot(application).entitiesByPage,
             activeTool: computed(() => tool.value),
             settings: computed(() => DEFAULT_ANNOTATION_SETTINGS),
             getPageGeometry: () => ({
@@ -521,6 +524,7 @@ describe('PdfAnnotationEditorLayer placement interactions', () => {
         const scope = effectScope();
         const surface = scope.run(() => usePdfAnnotationEditorSurface({
             annotationApplication: application,
+            entitiesByPage: useAnnotationStoreSnapshot(application).entitiesByPage,
             activeTool: computed(() => 'text' as const),
             settings: computed(() => DEFAULT_ANNOTATION_SETTINGS),
             getPageGeometry: () => ({

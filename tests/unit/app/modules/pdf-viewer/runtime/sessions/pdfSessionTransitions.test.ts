@@ -389,14 +389,12 @@ describe('PdfDocumentSession transitions', () => {
             surface, chassisAuthority,
         } = createRevisionSwapAuthority(previousRevision);
         const source = computed(() => new Blob(['pdf'], {type: 'application/pdf'}) as never);
-        const emitInitialVisualPending = vi.fn();
         const session = createPdfDocumentSession({
             src: source,
             documentRevisionToken: computed(() => documentRevisionToken.value),
         });
         const view = session.attachView({
             chassisAuthority,
-            emitInitialVisualPending,
         });
         const loadingPlans: Array<IPdfDocumentTransition['plan']> = [];
         view.subscribe((transition) => {
@@ -427,7 +425,6 @@ describe('PdfDocumentSession transitions', () => {
             documentRevision: nextRevision,
         }, 135, [135]);
         expect(surface.completeRevisionSwap).toHaveBeenCalledWith(7, String(nextRevision));
-        expect(emitInitialVisualPending).toHaveBeenCalledOnce();
         await session.dispose();
     });
 

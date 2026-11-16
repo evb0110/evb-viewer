@@ -185,7 +185,6 @@ export interface IDocumentPageSourceFeaturePackEmit {
     (event: 'update:sourceCapabilities', value: IDocumentSourceCapabilities): void;
     (event: 'loading', value: boolean): void;
     (event: 'loadError', value: unknown): void;
-    (event: 'initial-visual-pending'): void;
     (event: 'initial-visual-ready', value: {pageNumber: number;}): void;
 }
 export async function openDocumentPageSource(

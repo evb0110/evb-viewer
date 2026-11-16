@@ -16,10 +16,15 @@ import {useWorkspaceAnnotationSession} from '@app/modules/workspace-shell/compos
 import { ANNOTATION_NOTE_SAVE_DEBOUNCE_MS } from '@app/constants/timeouts';
 import { requireEpochMs } from '@contracts/timestamps';
 import { asAnnotationId } from '@app/modules/pdf-viewer/public';
+import { createPdfDocumentAnnotations } from '@app/modules/pdf-viewer/runtime/sessions/createPdfDocumentAnnotations';
+import { requireDocumentRef } from '@contracts/documentRef';
+import { requirePageIndex } from '@contracts/pageNumbers';
 import {
     createComment,
     createHarness,
 } from '@tests/unit/app/modules/workspace-shell/composables/useAnnotationNoteWindowsTestFixtures';
+
+vi.mock('@app/composables/useFailureToast', () => ({useFailureToast: () => ({presentNoticeToast: vi.fn()})}));
 
 describe('useAnnotationNoteWindows', () => {
     it('keeps a recovered note draft until its canonical comment projection arrives', async () => {
@@ -1727,15 +1732,48 @@ describe('document unsaved annotation state', () => {
     afterEach(() => vi.useRealTimers());
     it('derives draft dirtiness without retaining reverted keystrokes or clearing accepted edits', async () => {
         const scope = effectScope();
+        const documentAnnotations = scope.run(() => createPdfDocumentAnnotations({
+            workingCopyPath: computed(() => null),
+            source: computed(() => ({
+                kind: 'path' as const,
+                path: requireDocumentRef('/managed/notes.pdf'),
+                size: 1,
+            })),
+            documentRevisionToken: computed(() => null),
+        }))!;
         const session = scope.run(() => useWorkspaceAnnotationSession({
             views: {pdfViewer: computed(() => null)},
             pdfDocument: ref(null),
+            documentAnnotations,
             reportNoteFailure: vi.fn(),
         }))!;
+        // The session lists the document's notes as its store holds them.
+        const createStoredNote = (id: string) => {
+            documentAnnotations.application.value.store.createNote({
+                kind: 'note',
+                identity: {id: asAnnotationId(id)},
+                pageIndex: requirePageIndex(0),
+                revision: 0,
+                persistedRevision: -1,
+                deleted: false,
+                createdAt: null,
+                modifiedAt: null,
+                author: null,
+                contents: 'Initial note',
+                position: {
+                    left: 0.1,
+                    top: 0.2,
+                    width: 0.02,
+                    height: 0.02,
+                },
+                color: null,
+                open: false,
+            });
+            return session.annotationComments.value.find(candidate => candidate.appAnnotationId === id)!;
+        };
         try {
-            const comment = createComment();
+            const comment = createStoredNote('ann:0:note-1:0');
             const id = comment.appAnnotationId!;
-            session.applyAnnotationComments([comment]);
             session.openAnnotationNoteWindow(comment);
             expect(session.hasUnsavedAnnotationChanges.value).toBe(false);
             session.updateAnnotationNoteText(id, 'Initial noteX');
@@ -1766,15 +1804,7 @@ describe('document unsaved annotation state', () => {
             session.updateAnnotationNoteText(id, 'Initial note');
             expect(session.hasUnsavedAnnotationChanges.value).toBe(false);
 
-            const other = createComment({
-                appAnnotationId: 'ann:0:other:0',
-                stableKey: 'ann:0:other:0',
-                id: 'other',
-            });
-            session.applyAnnotationComments([
-                comment,
-                other,
-            ]);
+            const other = createStoredNote('ann:0:other:0');
             session.openAnnotationNoteWindow(other);
             session.updateAnnotationNoteText(other.appAnnotationId!, 'Another changed draft');
             session.updateAnnotationNoteText(id, 'Initial noteX');

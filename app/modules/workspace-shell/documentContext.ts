@@ -135,12 +135,14 @@ export const createDocumentContext = ({controller}: {controller: IWorkspaceDocum
         source: file.pdfSrc,
         documentRevisionToken: file.documentRevisionToken,
         documentSession: file.fileHistorySessionVersion,
+        isSaving: computed(() => isSaving.value || isSavingAs.value),
     });
     const { clearCache: clearOcrCache } = useOcrTextContent();
 
     const annotations = useWorkspaceAnnotationSession({
         views,
         pdfDocument,
+        documentAnnotations: pdfDocumentAnnotations,
         reportNoteFailure: failure.reportNoteFailure,
     });
     const recovery = createWorkspaceDocumentRecovery({
@@ -515,8 +517,6 @@ export const createDocumentContext = ({controller}: {controller: IWorkspaceDocum
             port.annotationTool.value = 'none';
         }),
         annotationComments: annotations.annotationComments,
-        markAnnotationCommentsLoading: annotations.markAnnotationCommentsLoading,
-        clearAnnotationComments: annotations.clearAnnotationComments,
         annotationActiveCommentStableKey: annotations.annotationActiveCommentStableKey,
         annotationEditorState: annotations.annotationEditorState,
         metadata,
