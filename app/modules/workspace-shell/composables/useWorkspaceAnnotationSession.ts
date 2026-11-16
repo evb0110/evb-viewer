@@ -12,7 +12,10 @@ import {
     type IPdfDocument,
     type TPdfDocumentAnnotations,
 } from '@app/modules/pdf-viewer/public';
-import type { IAnnotationInventoryCompleteness } from '@app/types/annotations';
+import type {
+    IAnnotationCommentSummary,
+    IAnnotationInventoryCompleteness,
+} from '@app/types/annotations';
 import { useAnnotationNoteWindows } from '@app/modules/workspace-shell/composables/useAnnotationNoteWindows';
 import { usePageAnnotationTools } from '@app/modules/workspace-shell/composables/usePageAnnotationTools';
 import type { IWorkspacePdfViewerAnnotationSessionPort } from '@app/modules/workspace-shell/types/workspaceOrchestration.types';
@@ -104,12 +107,7 @@ export const useWorkspaceAnnotationSession = (options: IWorkspaceAnnotationSessi
     }});
 
     function resolveNoteComment(annotationId: AnnotationId) {
-        return annotationComments.value.find((comment) => {
-            if (comment.appAnnotationId) {
-                return comment.appAnnotationId === annotationId;
-            }
-            return annotationIdForSummary(comment) === annotationId;
-        }) ?? null;
+        return annotationComments.value.find(comment => annotationIdForSummary(comment) === annotationId) ?? null;
     }
 
     const {
@@ -130,12 +128,10 @@ export const useWorkspaceAnnotationSession = (options: IWorkspaceAnnotationSessi
         discardAnnotationNote,
         closeAllAnnotationNotes,
         handleOpenAnnotationNote: openAnnotationNoteWindow,
-        removeAnnotationNoteWindow,
         setAnnotationNoteWindowError,
         bringAnnotationNoteToFront,
-        isSameAnnotationComment,
     } = useAnnotationNoteWindows({
-        annotationComments,
+        documentAnnotations,
         reportNoteFailure: options.reportNoteFailure,
         updateAnnotationCommentInViewer: (annotationId, text) => {
             const comment = resolveNoteComment(annotationId);
@@ -143,14 +139,10 @@ export const useWorkspaceAnnotationSession = (options: IWorkspaceAnnotationSessi
                 ? pdfViewerRef.value?.updateAnnotationComment(comment, text) ?? false
                 : false;
         },
-        isAnnotationCommentSyncReady: () => Boolean(pdfDocument.value) && annotationCommentsStatus.value === 'ready',
-        getDeletedCanonicalAnnotationIds: () => pdfViewerRef.value?.getDeletedCanonicalAnnotationIds?.() ?? [],
     });
 
-    const hasOpenAnnotationNotes = ref(false);
-    watch(() => annotationNoteWindows.value.length, (count) => {
-        hasOpenAnnotationNotes.value = count > 0;
-    }, { immediate: true });
+    // A minimized window is still open.
+    const hasOpenAnnotationNotes = computed(() => annotationNoteWindows.value.length > 0);
 
     // Canonical annotation storage is framework-agnostic. The document's
     // store snapshot is the reactive invalidation edge; the viewer stays the
@@ -221,9 +213,11 @@ export const useWorkspaceAnnotationSession = (options: IWorkspaceAnnotationSessi
         discardAnnotationNote,
         closeAllAnnotationNotes,
         openAnnotationNoteWindow,
-        removeAnnotationNoteWindow,
         setAnnotationNoteWindowError,
         bringAnnotationNoteToFront,
-        isSameAnnotationComment,
+        // The agent options still declare this unused field; it goes with that declaration.
+        isSameAnnotationComment: (left: IAnnotationCommentSummary, right: IAnnotationCommentSummary) => (
+            annotationIdForSummary(left) === annotationIdForSummary(right)
+        ),
     };
 };

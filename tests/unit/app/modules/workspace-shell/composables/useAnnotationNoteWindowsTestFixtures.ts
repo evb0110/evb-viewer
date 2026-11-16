@@ -26,14 +26,21 @@ export function createComment(overrides: Partial<IAnnotationCommentSummary> = {}
     };
 }
 
+/** The document store's projection: its live summaries and its tombstones. */
 export function createHarness(comment = createComment(), options: Pick<Parameters<typeof useAnnotationNoteWindows>[0], 'reportNoteFailure'> = {}) {
+    const annotationComments = ref<IAnnotationCommentSummary[]>([comment]);
+    const deletedAnnotationIds = ref<ReadonlySet<string>>(new Set());
     const deps = {
         ...options,
-        annotationComments: ref<IAnnotationCommentSummary[]>([comment]),
+        documentAnnotations: {
+            comments: annotationComments,
+            deletedAnnotationIds,
+        },
+        annotationComments,
+        deletedAnnotationIds,
         updateAnnotationCommentInViewer: vi.fn<
             (annotationId: AnnotationId, text: string) => boolean
         >(() => true),
-        isAnnotationCommentSyncReady: vi.fn(() => true),
     };
 
     return {
