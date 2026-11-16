@@ -6,6 +6,7 @@ import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 import { readPdfPageShape } from '@app/modules/workspace-shell/composables/document-session/resolvePdfOpeningGeometry';
 import type { IEditorPaneState } from '@contracts/editorPanes';
 import type { ITab } from '@app/types/tabs';
+import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
 import {
     parseDocumentRef,
     type TDocumentRef,
@@ -89,25 +90,28 @@ export const useAppShellWorkspaceRouting = (options: IUseAppShellWorkspaceRoutin
         // The page's shape is asked for now, so the answer arrives while a new
         // tab's workspace mounts instead of after its open is claimed.
         const pageShape = typeof target === 'string' ? readPdfPageShape(target) : null;
-        // This tab's own view opens the document once mounted. Until then the
-        // open claims the tab, so no other open reuses it; a view that failed
-        // or was removed answers null, and a claim another owner took is lost.
-        const mounted = view?.mountedWorkspace.value ?? null;
-        const claim = mounted || !view ? null : session.claimOpen(typeof target === 'string'
-            ? {
-                kind: 'open',
-                target: describeDocumentTarget(target),
-            }
-            : describeOpenResult(target));
-        const workspace = mounted ?? await view?.whenMounted() ?? null;
-        const claimed = claim === null || session.snapshot.value.activeTransaction?.id === claim;
-        if (!workspace || session.getView(tabId) !== view || !claimed) {
-            if (claim && claimed) session.markFailed(null);
-            return false;
-        }
-        return typeof target === 'string'
+        const open = (workspace: IWorkspaceExpose) => (typeof target === 'string'
             ? workspace.handleOpenFileDirectWithPersist(target, pageShape)
-            : workspace.handleOpenFileWithResult(target);
+            : workspace.handleOpenFileWithResult(target));
+        const mounted = view?.mountedWorkspace.value;
+        if (mounted) {
+            return open(mounted);
+        }
+        // The tab is opening from this request, not from when its workspace
+        // chunk arrives, so a new tab never shows its Start page first. The
+        // workspace's own open supersedes this transaction once it is mounted,
+        // which settles it as not presented; the open's own result is the answer.
+        const opened = (view?.whenMounted() ?? Promise.resolve(null))
+            .then(workspace => (workspace ? open(workspace) : false));
+        return session.runOpen(
+            typeof target === 'string'
+                ? {
+                    kind: 'open',
+                    target: describeDocumentTarget(target),
+                }
+                : describeOpenResult(target),
+            () => opened,
+        ).then(() => opened);
     }
 
     async function handleFallbackToolbarOpenFile() {
@@ -149,8 +153,7 @@ export const useAppShellWorkspaceRouting = (options: IUseAppShellWorkspaceRoutin
                 tabId: tab.id,
             }, {code: 'RENDERER_WORKSPACE_OPERATION_FAILED'});
         }
-        // Another open or document may have taken the tab meanwhile; it keeps it.
-        if (!opened && canReuseTab(tab.id)) {
+        if (!opened) {
             logPdfRenderTrace('pdf-open-replacement-rollback', {
                 failedTabId: tab.id,
                 restoredTabId: outgoingTabId,
@@ -240,13 +243,14 @@ export const useAppShellWorkspaceRouting = (options: IUseAppShellWorkspaceRoutin
                     activate: index === normalizedPaths.length - 1,
                 }).id
         ));
+        await nextTick();
         const results = await Promise.allSettled(normalizedPaths.map(async (path, index) => {
             const tabId = tabIds[index]!;
             if (await openInTab(tabId, path)) {
                 return;
             }
             const failure = readFailure(tabId);
-            if (tabId !== reusableTabId && canReuseTab(tabId)) {
+            if (tabId !== reusableTabId) {
                 options.removeTabFromState(tabId);
             }
             if (!failure) {

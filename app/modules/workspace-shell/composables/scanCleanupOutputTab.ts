@@ -1,5 +1,8 @@
 import type {ComputedRef} from 'vue';
-import type { IWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
+import {
+    getDocumentWorkspace,
+    type IWorkspaceDocumentController,
+} from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 import type { IFailureToastTarget } from '@app/composables/useFailureToast';
 import type { TTranslateFn } from '@i18n-app';
 
@@ -41,14 +44,15 @@ export function createScanCleanupOutputSaveAs(
     )) : undefined;
     return async () => {
         const output = findOutput();
-        const view = output?.[1].getView(output[0]);
-        if (output) activateTab(output[0]);
-        // The output tab's own view saves it. A view that failed or was
-        // removed answers null; activation can also open or close a
-        // document, so the output is resolved again once it has mounted.
-        const workspace = await view?.whenMounted() ?? null;
-        const saved = workspace && findOutput()?.[1] === output?.[1]
-            ? await workspace.handleSaveAs()
+        if (output) {
+            activateTab(output[0]);
+            await nextTick();
+        }
+        // Activation can open or close a document. Resolve again before the
+        // owner supplies a mounted view for this document-wide command.
+        const current = findOutput();
+        const saved = current
+            ? await (getDocumentWorkspace(current[1])?.handleSaveAs() ?? false)
             : false;
         if (!saved && !findOutput()) toast.add({
             color: 'warning',
