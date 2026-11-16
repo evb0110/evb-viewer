@@ -1,8 +1,5 @@
 import type * as FsPromises from 'node:fs/promises';
 import {
-    delimiter, join,
-} from 'node:path';
-import {
     afterEach,
     beforeEach,
     describe,
@@ -18,7 +15,7 @@ import {
 } from '@electron/features/agent/claudeAgentSdkAssistant';
 import {
     getClaudeAgentSdkInfo,
-    shouldUseClaudeAssistantFastMode,
+    resolveClaudeSdkExecutablePath,
 } from '@electron/features/agent/claudeProviderMetadata';
 
 const sdkMocks = vi.hoisted(() => ({
@@ -47,6 +44,7 @@ class FakeClaudeQuery {
     private closed = false;
 
     readonly accountInfo = vi.fn<() => Promise<unknown>>(async () => null);
+    readonly initializationResult = async () => ({models: await this.supportedModels(), account: await this.accountInfo()});
     readonly supportedModels = vi.fn<() => Promise<unknown[]>>(async () => []);
     readonly setModel = vi.fn(async () => undefined);
     readonly interrupt = vi.fn(async () => undefined);
@@ -100,6 +98,17 @@ async function settleAsyncTicks(count = 3) {
 }
 
 describe('claudeAgentSdkAssistant', () => {
+    it('keeps a Windows native wrapper identity and rejects named script wrappers readably', () => {
+        vi.stubGlobal('process', {...process, platform: 'win32'});
+        try {
+            expect(resolveClaudeSdkExecutablePath('claude-proxy.exe')).toBe('claude-proxy.exe');
+            for (const extension of ['cmd', 'bat', 'ps1']) {
+                expect(() => resolveClaudeSdkExecutablePath(`claude-proxy.${extension}`)).toThrow('Select its native executable in Settings.');
+            }
+        } finally {
+            vi.unstubAllGlobals();
+        }
+    });
     afterEach(() => vi.useRealTimers());
     beforeEach(() => {
         sdkMocks.readdir.mockReset();
@@ -109,7 +118,7 @@ describe('claudeAgentSdkAssistant', () => {
         sdkMocks.query.mockReset();
     });
 
-    it('automatically keeps only the latest version of each family with Opus first', () => {
+    it('keeps every reported family version in provider order', () => {
         expect(normalizeClaudeSdkModelList([
             {
                 value: 'fable',
@@ -137,22 +146,15 @@ describe('claudeAgentSdkAssistant', () => {
                 displayName: 'Opus',
             },
         ]).map(model => model.label)).toEqual([
-            'Opus 5.6',
             'Fable 5.1',
+            'Fable 5',
+            'Opus 4.8',
+            'Opus 5.5',
+            'Opus 5.6',
         ]);
     });
 
-    it('enables Claude fast mode only for Opus-family models', () => {
-        expect(shouldUseClaudeAssistantFastMode('opus', 'fast')).toBe(true);
-        expect(shouldUseClaudeAssistantFastMode('opus-5', 'fast')).toBe(true);
-        expect(shouldUseClaudeAssistantFastMode('claude-opus-5', 'fast')).toBe(true);
-        expect(shouldUseClaudeAssistantFastMode('claude-opus-4-8', 'fast')).toBe(true);
-        expect(shouldUseClaudeAssistantFastMode('global.anthropic.claude-opus-4-8', 'fast')).toBe(true);
-        expect(shouldUseClaudeAssistantFastMode('claude-sonnet-4-6', 'fast')).toBe(false);
-        expect(shouldUseClaudeAssistantFastMode('claude-opus-4-8', 'standard')).toBe(false);
-    });
-
-    it('labels Claude rows from their resolved model and drops the default alias', () => {
+    it('labels every Claude row, including the reported default alias', () => {
         expect(normalizeClaudeSdkModelList([
             {
                 value: 'default',
@@ -183,22 +185,11 @@ describe('claudeAgentSdkAssistant', () => {
             model.id,
             model.label,
         ])).toEqual([
-            [
-                'opus[1m]',
-                'Opus 5.5 (1M context)',
-            ],
-            [
-                'opus',
-                'Opus 5.5',
-            ],
-            [
-                'fable',
-                'Fable 5.1',
-            ],
-            [
-                'custom',
-                'Custom model',
-            ],
+            ['default', 'Opus 5.5 (recommended)'],
+            ['opus[1m]', 'Opus 5.5 (1M context)'],
+            ['fable', 'Fable 5.1'],
+            ['opus', 'Opus 5.5'],
+            ['custom', 'Custom model'],
         ]);
     });
 
@@ -240,37 +231,10 @@ describe('claudeAgentSdkAssistant', () => {
                 displayName: 'Blank',
             },
         ])).toEqual([
-            {
-                id: 'opus',
-                label: 'Opus 5.5',
-                resolvedModel: 'claude-opus-5-5',
-                reasoningEfforts: [
-                    {
-                        id: 'medium',
-                        label: 'Medium',
-                    },
-                    {
-                        id: 'high',
-                        label: 'High',
-                    },
-                ],
-            },
-            {
-                id: 'claude-fable-5-1',
-                label: 'Fable 5.1',
-                resolvedModel: 'claude-fable-5-1',
-                reasoningEfforts: [
-                    {
-                        id: 'low',
-                        label: 'Low',
-                    },
-                    {
-                        id: 'medium',
-                        label: 'Medium',
-                    },
-                ],
-            },
-
+            {id: 'claude-fable-5-1', label: 'Fable 5.1', resolvedModel: 'claude-fable-5-1', reasoningEfforts: [{id: 'low', label: 'Low'}, {id: 'medium', label: 'Medium'}]},
+            {id: 'claude-sonnet-5', label: 'Claude Sonnet 5'},
+            {id: 'opus', label: 'Opus 5.5', resolvedModel: 'claude-opus-5-5', reasoningEfforts: [{id: 'medium', label: 'Medium'}, {id: 'high', label: 'High'}]},
+            {id: 'future-model', label: 'Haiku 5.0', resolvedModel: 'claude-haiku-5-0'},
         ]);
         expect(normalizeClaudeSdkModelList({data: []})).toEqual([]);
     });
@@ -300,33 +264,6 @@ describe('claudeAgentSdkAssistant', () => {
         });
     });
 
-    it('finds user-local Claude CLI when packaged metadata and GUI launch PATH are sparse', async () => {
-        const localAppData = join('/Users/test', 'AppData', 'Local');
-        const executablePath = process.platform === 'win32'
-            ? join(localAppData, 'Programs', 'Claude', 'claude.exe')
-            : join('/Users/test', '.local', 'bin', 'claude');
-        const result = await getClaudeAgentSdkInfo({
-            env: {
-                HOME: '/Users/test',
-                PATH: [
-                    '/usr/bin',
-                    '/bin',
-                ].join(delimiter),
-                LOCALAPPDATA: localAppData,
-            },
-            resolveSdkPackageDir: () => {
-                throw new Error('Cannot find module @anthropic-ai/claude-agent-sdk');
-            },
-            pathIsExecutable: vi.fn(async path => path === executablePath),
-        });
-
-        expect(result).toEqual({
-            installed: true,
-            version: null,
-            executablePath,
-        });
-    });
-
     it('reports an actionable missing Claude CLI error when package metadata is unavailable', async () => {
         const result = await getClaudeAgentSdkInfo({
             env: {},
@@ -341,25 +278,12 @@ describe('claudeAgentSdkAssistant', () => {
             installed: false,
             version: null,
             executablePath: null,
-            error: 'Claude Code executable was not found. Install Claude Code or set CLAUDE_CODE_PATH to a local claude executable.',
+            error: 'Claude Code executable was not found. Install Claude Code or set the executable in Settings.',
         });
     });
 
-    it('reports the bundled Claude executable and SDK version through the shared metadata helper', async () => {
-        const result = await getClaudeAgentSdkInfo({
-            env: {},
-            resolveSdkPackageDir: () => '/sdk',
-            readSdkVersion: vi.fn(async () => '1.2.3'),
-            findClaudeOnPath: vi.fn(async () => null),
-            findBundledClaudeExecutable: vi.fn(async () => '/sdk-native/claude'),
-            pathIsExecutable: vi.fn(async path => path === '/sdk-native/claude'),
-        });
-
-        expect(result).toEqual({
-            installed: true,
-            version: '1.2.3',
-            executablePath: '/sdk-native/claude',
-        });
+    it('does not use an SDK-bundled executable when the machine has no Claude installation', async () => {
+        expect(await getClaudeAgentSdkInfo({env: {}, resolveSdkPackageDir: () => '/sdk', readSdkVersion: async () => '0.3.321', findClaudeOnPath: async () => null, pathIsExecutable: async () => false})).toMatchObject({installed: false, executablePath: null, version: '0.3.321'});
     });
 
     it('includes the active turn id on assistant deltas, messages, and errors', async () => {
@@ -524,6 +448,7 @@ describe('claudeAgentSdkAssistant', () => {
             model: 'opus',
             effort: 'medium',
             speedMode: 'fast',
+            modelOptions: [{id: 'opus', label: 'Opus', reasoningEfforts: [{id: 'medium', label: 'Medium'}], serviceTiers: [{id: 'fast', label: 'Fast'}]}],
             resumeSessionId,
             mcpServerName: 'evb_viewer_embedded',
             mcpServerUrl: 'http://127.0.0.1:3000',
@@ -590,6 +515,10 @@ describe('claudeAgentSdkAssistant', () => {
                 },
             ],
         }});
+        // A refreshed setup may withdraw capabilities the live query was created with.
+        expect(await session.prepareForSettings('opus', 'medium', 'fast', [{id: 'opus', label: 'Opus'}])).toBe(false);
+        expect(session.isUsable).toBe(false);
+
     });
 
     it('refuses an unavailable provider transcript before starting the SDK query', async () => {
@@ -982,13 +911,13 @@ describe('claudeAgentSdkAssistant', () => {
         expect(metadata.close).toHaveBeenCalled();
     });
 
-    it('bounds metadata discovery to 25 seconds and closes a stalled SDK query', async () => {
+    it('bounds metadata discovery to 15 seconds and closes a stalled SDK query', async () => {
         vi.useFakeTimers();
         const metadata = new FakeClaudeQuery();
         metadata.supportedModels.mockReturnValue(new Promise(() => undefined));
         sdkMocks.query.mockReturnValue(metadata);
-        const result = expect(discoverClaudeAssistantModels('/fixture/cwd', null, {})).rejects.toThrow('Claude did not finish its status check within 25 seconds.');
-        await vi.advanceTimersByTimeAsync(25_000);
+        const result = expect(discoverClaudeAssistantModels('/fixture/cwd', '/fixture/claude', {})).rejects.toThrow('Claude did not finish its status check within 15 seconds.');
+        await vi.advanceTimersByTimeAsync(15_000);
         await result;
         expect(metadata.close).toHaveBeenCalled();
         expect(vi.getTimerCount()).toBe(0);

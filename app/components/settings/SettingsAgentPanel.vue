@@ -11,8 +11,7 @@
         <h3 class="settings-section-title">{{ t('assistant.providerInstances') }}</h3>
         <p v-if="instanceError" class="instance-error" role="alert">{{ instanceError }}</p>
         <p v-for="notice in notices" :key="notice" class="settings-field-hint" role="status">{{ notice }}</p>
-        <p v-if="liveState?.installProgress" class="settings-field-hint">{{ liveState.installProgress }}</p>
-        <!-- Edits pause while a save, import or refresh runs, so its reply cannot overwrite them. -->
+        <!-- Edits pause while a save or refresh runs, so its reply cannot overwrite them. -->
         <fieldset :disabled="!!activeAction" class="instance-editor">
         <article v-for="instance in instances" :key="instance.id" class="settings-agent-card settings-agent-card--stack">
             <div class="instance-heading">
@@ -32,7 +31,6 @@
             <a v-if="loginUrls[instance.id]" :href="loginUrls[instance.id]" target="_blank" rel="noopener noreferrer">{{ loginUrls[instance.id] }}</a>
             <div class="settings-agent-actions settings-agent-actions--assistant">
                 <UButton :label="t('assistant.refresh')" icon="i-ph-arrows-clockwise" color="neutral" variant="ghost" size="xs" :disabled="!!activeAction" @click="refreshInstance(instance.id)" />
-                <UButton v-if="liveInstance(instance.id)?.canInstall" :label="t('assistant.installCodex')" size="xs" :disabled="!!activeAction" @click="installInstance" />
                 <UButton v-if="liveInstance(instance.id)?.canSignIn && !liveInstance(instance.id)?.loginPending" :label="t('assistant.signIn')" size="xs" :disabled="!!activeAction" @click="loginInstance(instance.id, 'chatgpt')" />
                 <UButton v-if="liveInstance(instance.id)?.canSignIn && !liveInstance(instance.id)?.loginPending" :label="t('assistant.signInDeviceCode')" color="neutral" variant="ghost" size="xs" :disabled="!!activeAction" @click="loginInstance(instance.id, 'device-code')" />
                 <UButton v-if="liveInstance(instance.id)?.loginPending" :label="t('assistant.cancelLogin')" size="xs" :disabled="!!activeAction" @click="cancelInstanceLogin(instance.id)" />
@@ -70,7 +68,6 @@
         </div>
         <div class="settings-agent-actions settings-agent-actions--assistant">
             <UButton :label="t('assistant.saveInstances')" :disabled="!!activeAction" @click="saveInstances" />
-            <UButton :label="t('assistant.importT3')" color="neutral" variant="outline" :disabled="!!activeAction" @click="importInstances" />
         </div>
     </fieldset>
 
@@ -288,7 +285,7 @@ const instances = ref<IAssistantInstanceConfig[]>([]);
 const liveState = ref<IAssistantState | null>(null);
 const instanceError = ref('');
 const notices = ref<string[]>([]);
-const activeAction = ref<'refresh' | 'install' | 'login' | 'cancel' | 'save' | 'import' | null>(null);
+const activeAction = ref<'refresh' | 'login' | 'cancel' | 'save' | null>(null);
 const newDriver = ref<TAssistantDriver>('codex');
 const newId = ref('');
 const loginCodes = ref<Record<string, string>>({});
@@ -378,13 +375,6 @@ function saveInstances() {
         if (!disposed) liveState.value = state;
     });
 }
-function importInstances() {
-    void run('import', async () => {
-        applyInstances(await getAgentCapability().importAssistantInstancesFromT3());
-        const state = await getAgentCapability().getAssistantState();
-        if (!disposed) liveState.value = state;
-    });
-}
 function refreshInstance(instanceId: string) {
     void run('refresh', async () => {
         const state = await getAgentCapability().getAssistantState({
@@ -399,7 +389,6 @@ function refreshInstance(instanceId: string) {
         if (!disposed) liveState.value = state;
     });
 }
-function installInstance() { void run('install', async () => applyOperation(await getAgentCapability().installAssistantCodex())); }
 function loginInstance(instanceId: string, mode: 'chatgpt' | 'device-code') {
     void run('login', async () => {
         const result = await getAgentCapability().startAssistantLogin({
@@ -432,7 +421,6 @@ onMounted(() => {
             return;
         }
         if (event.type === 'instances') liveState.value.instances = event.instances;
-        if (event.type === 'install-progress') liveState.value.installProgress = event.progress;
     });
     void loadInstances();
 });

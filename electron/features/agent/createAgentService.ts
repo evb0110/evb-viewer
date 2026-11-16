@@ -9,7 +9,6 @@ import type { TFeatureMainBindings } from '@contracts/platformFeature';
 import {
     cancelAgentAssistantLogin,
     getAgentAssistantState,
-    installAgentAssistantCodex,
     interruptAgentAssistant,
     resetAgentAssistantChat,
     sendAgentAssistantMessage,
@@ -22,7 +21,6 @@ import {
 } from '@electron/features/agent/codexMcpIntegration';
 import {
     getAssistantInstanceConfigs,
-    importAssistantInstancesFromT3,
     saveAssistantInstanceConfigs,
 } from '@electron/features/agent/assistantInstances';
 import {
@@ -35,6 +33,7 @@ import {sendPlatformEvent} from '@electron/utils/sendPlatformEvent';
 import {createLogger} from '@electron/utils/createLogger';
 import {createKeyedSerialQueue} from '@electron/utils/createKeyedSerialQueue';
 import type {IAgentMcpIntegrationStatus} from '@contracts/agent';
+import {loadSettings} from '@electron/settings';
 
 export function createAgentService() {
     const runMcpLifecycle = createKeyedSerialQueue();
@@ -60,7 +59,6 @@ export function createAgentService() {
             return result;
         }),
         getAssistantState: (_context, request) => getAgentAssistantState(request),
-        installAssistantCodex: () => installAgentAssistantCodex(),
         startAssistantLogin: (_context, request) => startAgentAssistantLogin(request),
         cancelAssistantLogin: (_context, request) => cancelAgentAssistantLogin(request),
         sendAssistantMessage: (context, request) =>
@@ -69,11 +67,10 @@ export function createAgentService() {
         resetAssistantChat: (_context, request) => resetAgentAssistantChat(request),
         getAssistantInstances: async () => ({
             ok: true,
-            instances: await getAssistantInstanceConfigs(),
+            instances: await getAssistantInstanceConfigs((await loadSettings()).assistantPanelEnabled === true),
             notices: [],
         }),
         saveAssistantInstances: (_context, instances) => saveAssistantInstanceConfigs(instances),
-        importAssistantInstancesFromT3: () => importAssistantInstancesFromT3(),
         submitWorkspaceSnapshot: (context, response) =>
             Promise.resolve(submitAgentWorkspaceSnapshotResponse(context, response)),
         submitCommandResponse: (context, response) =>

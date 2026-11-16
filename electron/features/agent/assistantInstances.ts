@@ -1,3 +1,4 @@
+import {sanitizeAssistantProviderText} from '@electron/features/agent/assistantErrorEnvelope';
 import {
     chmod,
     lstat,
@@ -17,13 +18,9 @@ import {
 import electron from 'electron';
 import * as v from 'valibot';
 import {
-    ASSISTANT_DEFAULT_INSTANCE_IDS,
-    ASSISTANT_INSTANCE_ID_PATTERN,
     ASSISTANT_INSTANCES_SCHEMA,
-    type IAssistantEnvironmentEntry,
     type IAssistantInstanceConfig,
     type IAssistantInstancesResult,
-    type TAssistantDriver,
 } from '@contracts/assistant';
 import {isRecord} from '@contracts/runtimeGuards';
 import {
@@ -35,10 +32,10 @@ import {createLogger} from '@electron/utils/createLogger';
 import {getErrorMessage} from '@electron/utils/error';
 import {ASSISTANT_MODEL_CONFIG_DIR} from '@electron/features/agent/codexAssistantConfig';
 
+import {assistantSetupIdentity, defaultAssistantLocalSetups, discoverAssistantLocalSetups} from '@electron/features/agent/assistantLocalSetups';
+
 const logger = createLogger('assistant-instances');
 const STORE_VERSION = 1;
-const SECRET_NAME_PATTERN = /token|secret|password|passwd|api[_-]?key|credential|auth/iu;
-const SECRET_ARGS_PATTERN = /token|secret|password|api[_-]?key|bearer/iu;
 // Entries a Codex shadow home keeps to itself: its own login, the lock that
 // guards it, the account's model cache, and process-local scratch.
 const SHADOW_PRIVATE_ENTRIES = new Set([
@@ -55,6 +52,16 @@ const CLAUDE_HOST_ENV = [
     'CLAUDECODE',
     'CLAUDE_CODE_ENTRYPOINT',
     'CLAUDE_CODE_SESSION_ID',
+    'CLAUDE_CODE_HOST_SESSION_ID',
+    'CLAUDE_CODE_CHILD_SESSION',
+    'CLAUDE_CODE_SESSION_ATTENDED',
+    'CLAUDE_CODE_MESSAGING_SOCKET',
+    'CLAUDE_CODE_MESSAGING_TOKEN',
+    'CLAUDE_CODE_EXECPATH',
+    'CLAUDE_CODE_DESKTOP_APP_VERSION',
+    'CLAUDE_EFFORT',
+    'CLAUDE_PID',
+    'CLAUDE_AGENT_SDK_VERSION',
     'CLAUDE_CODE_SSE_PORT',
     'ELECTRON_RUN_AS_NODE',
 ];
@@ -163,23 +170,6 @@ export function parseClaudeExtraArgs(tokens: readonly string[], label: string) {
     return extraArgs;
 }
 
-export function defaultAssistantInstances(): IAssistantInstanceConfig[] {
-    return [
-        {
-            id: ASSISTANT_DEFAULT_INSTANCE_IDS.codex,
-            driver: 'codex',
-            displayName: 'Codex',
-            enabled: true,
-        },
-        {
-            id: ASSISTANT_DEFAULT_INSTANCE_IDS.claude,
-            driver: 'claude',
-            displayName: 'Claude',
-            enabled: true,
-        },
-    ];
-}
-
 function storePath() {
     return join(electron.app.getPath('userData'), ASSISTANT_MODEL_CONFIG_DIR, 'providers.json');
 }
@@ -285,14 +275,28 @@ function loadStore() {
 }
 
 /** The configured instances for the renderer: secrets are never included. */
-export async function getAssistantInstanceConfigs(): Promise<IAssistantInstanceConfig[]> {
-    const store = await loadStore();
-    return store ? store.instances.map(redact) : defaultAssistantInstances();
+export async function getAssistantInstanceConfigs(discover = true): Promise<IAssistantInstanceConfig[]> {
+    return (await getStoredInstances(discover)).map(redact);
 }
 
-async function getStoredInstances(): Promise<IStoredInstance[]> {
+let discovered: Promise<IAssistantInstanceConfig[]> | null = null;
+function localSetups() {
+    discovered ??= discoverAssistantLocalSetups().catch((error: unknown) => {
+        discovered = null;
+        logger.warn(`Local assistant discovery failed: ${sanitizeAssistantProviderText(getErrorMessage(error))}`);
+        return defaultAssistantLocalSetups();
+    });
+    return discovered;
+}
+export function refreshAssistantLocalSetups() { discovered = null; }
+
+async function getStoredInstances(discover = true): Promise<IStoredInstance[]> {
     const store = await loadStore();
-    return store?.instances ?? (defaultAssistantInstances() as IStoredInstance[]);
+    const explicit = store?.instances ?? [];
+    const local = discover ? await localSetups() : defaultAssistantLocalSetups();
+    const identities = new Set(explicit.map(instance => assistantSetupIdentity({...redact(instance), launchArgs: instance.launchArgsEncrypted ?? instance.launchArgs})));
+    const ids = new Set(explicit.map(instance => instance.id));
+    return [...explicit, ...local.filter(instance => !ids.has(instance.id) && !identities.has(assistantSetupIdentity(instance))).map(instance => storeInstance(instance, undefined))];
 }
 
 function storeInstance(next: IAssistantInstanceConfig, previous: IStoredInstance | undefined): IStoredInstance {
@@ -387,7 +391,7 @@ export async function saveAssistantInstanceConfigs(input: unknown): Promise<IAss
     } catch (error) {
         return {
             ok: false,
-            instances: await getAssistantInstanceConfigs().catch(() => defaultAssistantInstances()),
+            instances: await getAssistantInstanceConfigs().catch(() => defaultAssistantLocalSetups()),
             notices: [],
             error: getErrorMessage(error),
         };
@@ -405,7 +409,11 @@ function expandHome(path: string) {
     return trimmed;
 }
 
-/** Splits a launch-argument string like a POSIX shell would, without evaluating it. */
+/**
+ * Adapted from T3 Code packages/shared/src/cliArgs.ts (0b6f482dc5), MIT.
+ * Keep EVB's unmatched-quote rejection and Windows literal backslash behavior.
+ * This tokenizes argv without shell evaluation.
+ */
 export function tokenizeLaunchArgs(input: string) {
     const tokens: string[] = [];
     let current = '';
@@ -416,7 +424,7 @@ export function tokenizeLaunchArgs(input: string) {
         if (quote) {
             if (character === quote) {
                 quote = null;
-            } else if (character === '\\' && quote === '"' && (input[index + 1] === '"' || input[index + 1] === '\\')) {
+            } else if (character === '\\' && quote === '"' && ['"', '\\', '$', '`'].includes(input[index + 1] ?? '')) {
                 current += input[index + 1];
                 index += 1;
             } else {
@@ -482,14 +490,14 @@ async function ensureShadowHome(baseHome: string, shadowHome: string) {
     try {
         entries = await readdir(baseHome);
     } catch (error) {
-        logger.warn(`Codex base home ${baseHome} could not be read: ${getErrorMessage(error)}`);
+        logger.warn(`Codex base home ${baseHome} could not be read: ${sanitizeAssistantProviderText(getErrorMessage(error))}`);
     }
     for (const entry of entries) {
         if (SHADOW_PRIVATE_ENTRIES.has(entry)) {
             continue;
         }
         await symlink(join(baseHome, entry), join(shadowHome, entry)).catch((error: unknown) => {
-            logger.warn(`Could not link ${entry} into Codex shadow home: ${getErrorMessage(error)}`);
+            logger.warn(`Could not link ${entry} into Codex shadow home: ${sanitizeAssistantProviderText(getErrorMessage(error))}`);
         });
     }
 }
@@ -531,7 +539,7 @@ function decryptLaunchArgs(stored: IStoredInstance, label: string) {
 }
 
 export interface IAssistantBinaryResolvers {
-    codex: () => Promise<string | null>;
+    codex: (env: NodeJS.ProcessEnv) => Promise<string | null>;
     claude: (env: NodeJS.ProcessEnv) => Promise<string | null>;
 }
 
@@ -559,10 +567,17 @@ export async function resolveAssistantLaunchContext(
     const hostEnv = instance.driver === 'claude'
         ? Object.fromEntries(Object.entries(process.env).filter(([name]) => !CLAUDE_HOST_ENV.includes(name)))
         : process.env;
-    const env: NodeJS.ProcessEnv = {
-        ...hostEnv,
-        ...instanceEnv,
-    };
+    // Adapted from T3 Code instanceEnvironment.ts (0b6f482dc5), MIT.
+    const env: NodeJS.ProcessEnv = {...hostEnv};
+    for (const [key, value] of Object.entries(instanceEnv)) {
+        const name = process.platform === 'win32' ? key.toUpperCase() : key;
+        if (process.platform === 'win32') {
+            for (const inherited of Object.keys(env)) {
+                if (inherited.toUpperCase() === name) delete env[inherited];
+            }
+        }
+        env[name] = name === 'CODEX_HOME' || name === 'CLAUDE_CONFIG_DIR' ? expandHome(value) : value;
+    }
     const launchArgs = tokenizeLaunchArgs(decryptLaunchArgs(stored, label));
     let homePath: string | null = null;
     if (instance.driver === 'codex') {
@@ -572,7 +587,7 @@ export async function resolveAssistantLaunchContext(
             await ensureShadowHome(baseHome ?? join(homedir(), '.codex'), shadowHome);
             homePath = shadowHome;
         } else {
-            homePath = baseHome ?? (instanceEnv.CODEX_HOME ? expandHome(instanceEnv.CODEX_HOME) : null);
+            homePath = baseHome ?? (env.CODEX_HOME ? expandHome(env.CODEX_HOME) : null);
         }
         if (homePath) {
             env.CODEX_HOME = homePath;
@@ -580,15 +595,17 @@ export async function resolveAssistantLaunchContext(
     } else {
         homePath = instance.homePath?.trim()
             ? expandHome(instance.homePath)
-            : (instanceEnv.CLAUDE_CONFIG_DIR ? expandHome(instanceEnv.CLAUDE_CONFIG_DIR) : null);
-        if (homePath) {
-            // HOME stays: replacing it would hide the macOS Keychain login.
+            : (env.CLAUDE_CONFIG_DIR ? expandHome(env.CLAUDE_CONFIG_DIR) : null);
+        // Adapted from T3 Code Drivers/ClaudeHome.ts (0b6f482dc5), MIT.
+        // Leave the native default environment untouched: even an explicit
+        // default config directory changes Claude's macOS Keychain identity.
+        if (homePath && (env.CLAUDE_CONFIG_DIR !== undefined || resolve(homePath) !== join(homedir(), '.claude'))) {
             env.CLAUDE_CONFIG_DIR = homePath;
         }
     }
     const configuredBinary = instance.binaryPath?.trim() ? expandHome(instance.binaryPath) : null;
     const binaryPath = configuredBinary
-        ?? (instance.driver === 'codex' ? await resolvers.codex() : await resolvers.claude(env));
+        ?? (instance.driver === 'codex' ? await resolvers.codex(env) : await resolvers.claude(env));
     const joinedArgs = launchArgs.join(' ');
     const customEndpoint = instance.driver === 'codex'
         ? /model_provider\s*=|base_url\s*=/u.test(joinedArgs)
@@ -628,152 +645,4 @@ export async function getAssistantInstanceFingerprints() {
         instance.id,
         JSON.stringify(instance),
     ]));
-}
-
-function slugify(value: string) {
-    const slug = value.toLowerCase().replace(/[^a-z0-9_-]+/gu, '-').replace(/^-+|-+$/gu, '').slice(0, 64);
-    return ASSISTANT_INSTANCE_ID_PATTERN.test(slug) ? slug : null;
-}
-
-function readT3String(record: Record<string, unknown>, key: string) {
-    const value = record[key];
-    return typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined;
-}
-
-/**
- * Maps T3 Code's `providerInstances` onto EVB instances. T3's default
- * instances map onto EVB's defaults; other ids are kept. T3's permission
- * wrapper for Claude is replaced by the Claude executable it wraps, because
- * EVB keeps its own tool restrictions.
- */
-export function mapT3ProviderInstances(raw: unknown) {
-    const notices: string[] = [];
-    const instances: IAssistantInstanceConfig[] = [];
-    if (!isRecord(raw)) {
-        return {
-            instances,
-            notices: [te('dialogs.agentAssistant.t3NoInstances')],
-        };
-    }
-    for (const [
-        key,
-        value,
-    ] of Object.entries(raw)) {
-        if (!isRecord(value)) {
-            continue;
-        }
-        const t3Driver = value.driver;
-        const driver: TAssistantDriver | null = t3Driver === 'codex'
-            ? 'codex'
-            : t3Driver === 'claudeAgent' ? 'claude' : null;
-        if (!driver) {
-            continue;
-        }
-        const id = key === 'claudeAgent' ? ASSISTANT_DEFAULT_INSTANCE_IDS.claude : slugify(key);
-        if (!id) {
-            notices.push(te('dialogs.agentAssistant.t3SkippedId', {id: key}));
-            continue;
-        }
-        const config = isRecord(value.config) ? value.config : {};
-        if (config.setupMode === 'managed') {
-            notices.push(te('dialogs.agentAssistant.t3SkippedManaged', {id: key}));
-            continue;
-        }
-        const environment: IAssistantEnvironmentEntry[] = [];
-        let binaryPath = readT3String(config, 'binaryPath');
-        const rawEnvironment: unknown[] = Array.isArray(value.environment) ? value.environment : [];
-        const wrapped = rawEnvironment.find(entry => isRecord(entry) && entry.name === 'T3_CLAUDE_BINARY');
-        for (const entry of rawEnvironment) {
-            if (!isRecord(entry) || typeof entry.name !== 'string' || typeof entry.value !== 'string') {
-                continue;
-            }
-            if (driver === 'claude' && wrapped && (entry.name === 'T3_YOLO' || entry.name === 'T3_CLAUDE_BINARY')) {
-                continue;
-            }
-            if (!/^[A-Za-z_][A-Za-z0-9_]*$/u.test(entry.name)) {
-                continue;
-            }
-            environment.push({
-                name: entry.name,
-                value: entry.value,
-                secret: entry.sensitive === true || SECRET_NAME_PATTERN.test(entry.name) && entry.name !== 'PATH',
-            });
-        }
-        if (driver === 'claude' && isRecord(wrapped) && typeof wrapped.value === 'string') {
-            binaryPath = wrapped.value;
-            notices.push(te('dialogs.agentAssistant.t3WrapperReplaced', {id: key}));
-        }
-        const launchArgs = readT3String(config, 'launchArgs');
-        const enabled = value.enabled !== false && config.enabled !== false;
-        const displayName = readT3String(value, 'displayName') ?? (driver === 'codex' ? 'Codex' : 'Claude');
-        instances.push({
-            id,
-            driver,
-            displayName,
-            enabled,
-            ...(binaryPath ? {binaryPath} : {}),
-            ...(readT3String(config, 'homePath') ? {homePath: readT3String(config, 'homePath')} : {}),
-            ...(driver === 'codex' && readT3String(config, 'shadowHomePath')
-                ? {shadowHomePath: readT3String(config, 'shadowHomePath')}
-                : {}),
-            ...(launchArgs
-                ? {
-                    launchArgs,
-                    launchArgsSecret: SECRET_ARGS_PATTERN.test(launchArgs),
-                }
-                : {}),
-            ...(environment.length > 0 ? {environment} : {}),
-            importedFrom: 't3code',
-        });
-    }
-    if (instances.length === 0) {
-        notices.push(te('dialogs.agentAssistant.t3NoInstances'));
-    }
-    return {
-        instances,
-        notices,
-    };
-}
-
-export async function importAssistantInstancesFromT3(): Promise<IAssistantInstancesResult> {
-    const settingsPath = join(homedir(), '.t3', 'userdata', 'settings.json');
-    let raw: unknown;
-    try {
-        const text = await readFile(settingsPath, 'utf8');
-        raw = JSON.parse(text) as unknown;
-    } catch (error) {
-        return {
-            ok: false,
-            instances: await getAssistantInstanceConfigs(),
-            notices: [],
-            error: isRecord(error) && error.code === 'ENOENT'
-                ? te('dialogs.agentAssistant.t3Missing')
-                : te('dialogs.agentAssistant.t3Unreadable', {reason: getErrorMessage(error)}),
-        };
-    }
-    const mapped = mapT3ProviderInstances(isRecord(raw) ? raw.providerInstances : null);
-    if (mapped.instances.length === 0) {
-        return {
-            ok: false,
-            instances: await getAssistantInstanceConfigs(),
-            notices: mapped.notices,
-        };
-    }
-    const current = await getStoredInstances();
-    const importedIds = new Set(mapped.instances.map(instance => instance.id));
-    // Imported rows replace the rows with the same id; other rows stay. A
-    // secret in a replaced row is carried by the import itself.
-    const merged: IAssistantInstanceConfig[] = [
-        ...current.filter(instance => !importedIds.has(instance.id)).map(redact),
-        ...mapped.instances,
-    ];
-    const result = await saveAssistantInstanceConfigs(merged);
-    return {
-        ...result,
-        notices: [
-            te('dialogs.agentAssistant.t3Imported', {count: mapped.instances.length}),
-            ...mapped.notices,
-            ...result.notices,
-        ],
-    };
 }

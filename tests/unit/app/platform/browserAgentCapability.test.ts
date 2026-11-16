@@ -17,7 +17,7 @@ describe('browserAgentCapability', () => {
             instances: [],
             selection: null,
             chat: null,
-            installProgress: null,
+
         });
         expect(await browserAgentCapability.getAssistantInstances()).toEqual({
             ok: false,
@@ -25,11 +25,6 @@ describe('browserAgentCapability', () => {
             notices: [],
         });
         expect(await browserAgentCapability.saveAssistantInstances([])).toEqual({
-            ok: false,
-            instances: [],
-            notices: [],
-        });
-        expect(await browserAgentCapability.importAssistantInstancesFromT3()).toEqual({
             ok: false,
             instances: [],
             notices: [],

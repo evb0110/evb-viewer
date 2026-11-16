@@ -26,7 +26,6 @@ import { STORAGE_KEYS } from '@app/constants/storageKeys';
 const api = vi.hoisted(() => ({
     getAssistantState: vi.fn(),
     sendAssistantMessage: vi.fn(),
-    installAssistantCodex: vi.fn(),
     startAssistantLogin: vi.fn(),
     cancelAssistantLogin: vi.fn(),
     interruptAssistant: vi.fn(),
@@ -159,10 +158,6 @@ beforeEach(() => {
     }));
     api.interruptAssistant.mockImplementation(async () => current);
     api.resetAssistantChat.mockImplementation(async () => current);
-    api.installAssistantCodex.mockImplementation(async () => ({
-        ok: true,
-        state: current,
-    }));
     api.startAssistantLogin.mockImplementation(async () => ({
         ok: true,
         state: current,
@@ -222,12 +217,11 @@ describe('assistant renderer on instance contract', () => {
         expect([...host.querySelectorAll('button')].some(candidate => candidate.textContent?.includes('assistant.signIn'))).toBe(false);
     });
 
-    it('refreshes the selected instance and exposes install and device-code sign-in', async () => {
+    it('refreshes the selected instance and exposes device-code sign-in', async () => {
         current.instances[0] = createAssistantInstance({
             state: 'error',
             auth: 'unauthenticated',
             message: 'EXACT transport\nfailed',
-            canInstall: true,
             canSignIn: true,
         });
         const host = mount();
@@ -240,9 +234,6 @@ describe('assistant renderer on instance contract', () => {
             probe: true,
         });
         expect(host.querySelector('.provider-message')?.textContent).toContain('EXACT transport\nfailed');
-        button(host, 'assistant.installCodex').click();
-        await settle();
-        expect(api.installAssistantCodex).toHaveBeenCalled();
         button(host, 'assistant.signInDeviceCode').click();
         await settle();
         expect(api.startAssistantLogin).toHaveBeenCalledWith({
@@ -604,6 +595,27 @@ describe('assistant renderer on instance contract', () => {
             text: '',
             attachments,
         }));
+    });
+
+    it('keeps typed text when the first selection arrives and clears it on later provider/document switches', async () => {
+        const first = Promise.withResolvers<IAssistantState>();
+        api.getAssistantState.mockReturnValueOnce(first.promise);
+        current.instances.push(createAssistantInstance({
+            id: 'codex-b', label: 'B', defaultModel: 'gpt-b', models: [{id: 'gpt-b', label: 'GPT B'}],
+        }));
+        const props = reactive({chatScope: scope});
+        const host = mount(AgentAssistantPanel, props);
+        await draft(host, 'Typed before discovery finished');
+        first.resolve(current);
+        await settle();
+        expect(host.querySelector('textarea')?.value).toBe('Typed before discovery finished');
+        button(host, 'GPT B').click();
+        await settle();
+        expect(host.querySelector('textarea')?.value).toBe('');
+        await draft(host, 'Draft for the first document');
+        props.chatScope = {...scope, key: 'b'};
+        await settle();
+        expect(host.querySelector('textarea')?.value).toBe('');
     });
 
     it('retains the committed document and draft through a pending scope handoff', async () => {

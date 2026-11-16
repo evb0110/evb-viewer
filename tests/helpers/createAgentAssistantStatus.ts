@@ -36,7 +36,7 @@ export function createAssistantInstance(overrides: Partial<IAssistantInstanceSta
         }],
         defaultModel: 'gpt',
         checkedAt: null,
-        canInstall: false,
+
         canSignIn: false,
         loginPending: false,
         ...overrides,
@@ -55,7 +55,7 @@ export function createAssistantState(overrides: Partial<IAssistantState> = {}): 
             speedMode: 'standard',
         },
         chat: null,
-        installProgress: null,
+
         ...overrides,
     };
 }

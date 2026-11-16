@@ -9,7 +9,7 @@
         </header>
         <AssistantTimeline :session-key="sessionKey" :items="chat?.items ?? []" :turn="chat?.turn ?? null" :running="running" :has-document="!!scope" :document-name="activeDocumentName" :copy-icon="copyMessageIcon" :copy-label="copyMessageTooltip" @copy="handleCopyMessageText" @preview="expandImage" @retry="retry">
             <template #overlay>
-        <AssistantProviderBanner :instance="instance" :busy="!!busyAction" :progress="state.installProgress" :device-code="deviceCode" :verification-url="verificationUrl" @refresh="refresh(true)" @install="install" @sign-in="login" @cancel-login="cancelLogin" />
+        <AssistantProviderBanner :instance="instance" :busy="!!busyAction" :device-code="deviceCode" :verification-url="verificationUrl" @refresh="refresh(true)" @sign-in="login" @cancel-login="cancelLogin" />
             </template>
             <template #empty>
                 <div class="assistant-presets">
@@ -47,7 +47,7 @@ const emit = defineEmits<{
 const {
     t, state, scope, sessionKey, selection, instance, chat, draft, composerImages, composerError,
     deviceCode, verificationUrl, busyAction, sending, interrupting, running, providerDisabledReason, sendDisabledReason,
-    refresh, send, retry, interrupt, reset, install, login, cancelLogin, presetLabel, sendPreset, presets,
+    refresh, send, retry, interrupt, reset, login, cancelLogin, presetLabel, sendPreset, presets,
     closeExpandedImage, expandImage, expandedImage, expandedImageItem, expandedImageCaption, handleComposerPaste, navigateExpandedImage, removeComposerImage,
 } = useAgentAssistantPanelController(props);
 const {

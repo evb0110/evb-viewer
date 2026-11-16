@@ -148,6 +148,7 @@ describe('Electron E2E - assistant draft revision', () => {
         await page.waitForSelector('.composer-input:not(:disabled)', {visible: true});
         await clickAsUser(page, '.composer-input');
         await page.keyboard.type('A10-4 own save');
+        await page.waitForSelector('.composer-send:not(:disabled)', {visible: true});
         await page.keyboard.press('Enter');
 
         const reply = '.assistant-message:not(.is-user):last-of-type';
@@ -172,6 +173,7 @@ describe('Electron E2E - assistant draft revision', () => {
         await page.waitForSelector('.composer-input:not(:disabled)', {visible: true});
         await clickAsUser(page, '.composer-input');
         await page.keyboard.type('P3 agent OCR preprocessing');
+        await page.waitForSelector('.composer-send:not(:disabled)', {visible: true});
         await page.keyboard.press('Enter');
         const reply = '.assistant-message:not(.is-user):last-of-type';
         await page.waitForFunction(selector => document.querySelector(selector)?.textContent?.includes('ocr:'), {timeout: 180_000}, reply);
@@ -220,6 +222,7 @@ describe('Electron E2E - assistant draft revision', () => {
         const tracePath = resolve('.devkit/test/assistant-own-rotation-mcp.json');
         rmSync(tracePath, {force: true});
         await page.keyboard.type('1544 own rotation');
+        await page.waitForSelector('.composer-send:not(:disabled)', {visible: true});
         await page.keyboard.press('Enter');
         const reply = '.assistant-message:not(.is-user):last-of-type';
         await expect.poll(() => existsSync(tracePath), {timeout: 15_000}).toBe(true);
@@ -355,6 +358,7 @@ describe('Electron E2E - assistant draft revision', () => {
         for (const bytes of originals) expect(backups).toContain(bytes);
         await clickAsUser(session.page, '.composer-input');
         await session.page.keyboard.type('Continue this saved conversation.');
+        await session.page.waitForSelector('.composer-send:not(:disabled)', {visible: true});
         await session.page.keyboard.press('Enter');
         await expect.poll(() => session.page.$$eval('.assistant-message:not(.is-user) .assistant-markdown',
             bubbles => bubbles.map(bubble => bubble.textContent?.trim()))).toContain('Image received.');

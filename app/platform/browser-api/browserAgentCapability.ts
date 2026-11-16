@@ -35,7 +35,6 @@ export function createBrowserAssistantState(): IAssistantState {
         instances: [],
         selection: null,
         chat: null,
-        installProgress: null,
     };
 }
 
@@ -57,10 +56,6 @@ export const browserAgentCapability = {
         status: createBrowserAgentMcpStatus(),
     }),
     getAssistantState: (_request?: IAssistantStateRequest) => Promise.resolve(createBrowserAssistantState()),
-    installAssistantCodex: () => Promise.resolve({
-        ok: false,
-        state: createBrowserAssistantState(),
-    }),
     startAssistantLogin: (_request) => Promise.resolve({
         ok: false,
         state: createBrowserAssistantState(),
@@ -78,11 +73,6 @@ export const browserAgentCapability = {
         notices: [],
     }),
     saveAssistantInstances: (_instances) => Promise.resolve({
-        ok: false,
-        instances: [],
-        notices: [],
-    }),
-    importAssistantInstancesFromT3: () => Promise.resolve({
         ok: false,
         instances: [],
         notices: [],

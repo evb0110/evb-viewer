@@ -96,3 +96,16 @@ corresponding source code is available from the upstream project pages listed
 above; the Windows DjVuLibre patch and build script are in the EVB Viewer
 repository. Requests about the exact source of the bundled builds can be filed
 at https://github.com/evb0110/evb-viewer.
+
+## T3 Code provider handling
+
+- Upstream: https://github.com/pingdotgg/t3code
+- Revision: `0b6f482dc5d5ee64d7e90d1bac342756db9bfe68`.
+- License: MIT, Copyright (c) 2026 T3 Tools Inc.
+  Full text: `licenses/T3-Code-MIT.txt`.
+- Adapted modules: `packages/provider-core/src/server/{failure,instanceEnvironment,pathExpansion}.ts`,
+  `packages/shared/src/cliArgs.ts`, `apps/server/src/provider/{CodexProvider,ClaudeProvider}.ts`,
+  `apps/server/src/provider/Drivers/{ClaudeExecutable,ClaudeHome,CodexHomeLayout}.ts`,
+  and `apps/server/src/{codexModelOptions,claudeModelOptions}.ts`.
+- EVB uses installed provider executables, preserves its own app-server transport,
+  document tools and lifecycle, and adds independent PATH launcher discovery.

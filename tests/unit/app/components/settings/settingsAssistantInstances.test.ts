@@ -17,7 +17,6 @@ const api = vi.hoisted(() => ({
     getAssistantInstances: vi.fn(),
     getAssistantState: vi.fn(),
     saveAssistantInstances: vi.fn(),
-    importAssistantInstancesFromT3: vi.fn(),
     onAssistantEvent: vi.fn(),
     startAssistantLogin: vi.fn(),
 }));
@@ -222,7 +221,7 @@ describe('provider instance settings', () => {
         expect(host.querySelector('a')?.href).toBe('https://example.com/device');
     });
 
-    it('shows save errors and import notices, and replaces the list with the returned imports', async () => {
+    it('shows save errors without replacing the edited list', async () => {
         const host = mount();
         await settle();
         api.saveAssistantInstances.mockResolvedValue({
@@ -234,20 +233,6 @@ describe('provider instance settings', () => {
         click(host, 'assistant.saveInstances');
         await settle();
         expect(host.querySelector('[role="alert"]')?.textContent).toBe('Secure storage unavailable');
-        api.importAssistantInstancesFromT3.mockResolvedValue({
-            ok: true,
-            instances: [{
-                id: 'claude-b',
-                driver: 'claude',
-                displayName: 'Imported Claude',
-                enabled: true,
-            }],
-            notices: ['Imported one instance'],
-        });
-        click(host, 'assistant.importT3');
-        await settle();
-        expect(host.textContent).toContain('Imported one instance');
-        expect(host.textContent).toContain('Imported Claude');
         expect(host.querySelectorAll('article')).toHaveLength(1);
     });
 });

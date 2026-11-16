@@ -22,9 +22,9 @@ use it.
 1. Open Settings and enable the assistant panel.
 2. Make sure a provider is signed in. EVB uses the command-line tools you
    already have, with their own logins:
-   - **Codex** uses your `~/.codex` login. If no `codex` is on your `PATH`, the
-     app can download a pinned release and verify it against a checked-in
-     checksum. You can also sign in with ChatGPT from the panel.
+   - **Codex** uses the installed Codex CLI's official app-server protocol and
+     your `~/.codex` login. Install Codex first. You can also sign in with
+     ChatGPT from the panel.
    - **Claude** uses Claude Code and your `~/.claude` login. Install Claude Code
      and sign in there first. A Claude subscription and an Anthropic API key
      both work.
@@ -36,10 +36,26 @@ Disabling the setting hides the panel and shuts down the embedded runtime.
 
 ## Provider instances
 
-Settings lists the provider instances the assistant can use. Out of the box
-there are two, Codex and Claude, each using your normal login. Add more when
-you run a provider more than one way, for example a second Codex account or a
-proxy:
+Settings lists the provider instances the assistant can use. EVB discovers
+executables on `PATH` named `codex`, `claude`, `codex-<name>` or
+`claude-<name>`, such as `codex-proxy`. It checks the provider's version and
+probes its models without sending a prompt. Default instances use `~/.codex`
+and `~/.claude`; wrappers run as their own executable with the inherited
+environment. EVB bundles and downloads neither CLI. Disable a discovered setup
+with its Enabled switch; deleting an explicit override allows discovery to offer
+the installed setup again.
+
+Version checks close stdin and terminate their process tree before returning.
+Unidentified or timed-out PATH helpers are silently ignored. EVB's retired
+managed `codex/bin` folder is excluded from automatic discovery; existing files
+there are left in place.
+
+On Windows, named Claude `.cmd`, `.bat` and `.ps1` wrappers are not discovered:
+the SDK cannot run them while preserving their identity. Add the setup's native
+executable in Settings. The standard `claude` launcher is supported.
+
+A setup known only to another application's settings is not discovered
+automatically. Add it in Settings, for example a second account or proxy:
 
 - **Executable**: the `codex` or `claude` to run. Empty means the one EVB finds.
 - **Home**: the directory that holds that instance's login and settings
@@ -49,16 +65,18 @@ proxy:
   `model_provider` override or `ANTHROPIC_BASE_URL`. Mark a value secret and
   EVB encrypts it with your system's credential store and never shows it again.
 
-**Import from T3 Code** copies the Codex and Claude instances you set up in T3
-Code, including proxies. EVB never copies a login: each instance signs in
-where its provider keeps the login, so your other tools stay signed in.
+Existing EVB instances keep their IDs and take precedence over discovered
+setups. EVB never reads another application's provider settings or copies a login.
 
 Whatever the instance's own configuration adds, such as MCP servers, plugins
 or shell access, the assistant gets only EVB's document tools.
 
 ## Choosing a provider and a model
 
-The picker in the composer lists every enabled instance with its models.
+The picker in the composer lists every enabled instance with the models that
+setup reports. It never adds a model from a built-in list. If a saved model is
+no longer reported, EVB selects that setup's reported default or first model.
+Effort and speed choices also come from the reported capabilities.
 
 - **Instance and model.** Switch at any time. Each document keeps a separate
   chat per instance. A cheaper model is usually enough for navigation, search,
@@ -94,12 +112,12 @@ already running.
 The conversation and the composer stay on screen, and the panel says what is
 wrong with the selected instance, in that provider's own words:
 
-- **Not installed**: the executable was not found. For Codex the panel can
-  install a pinned, verified release; otherwise set the executable in Settings.
+- **Not installed**: install the provider on this machine, or set its existing
+  executable in Settings, then Refresh.
 - **Sign in**: the instance has no login. Codex signs in with ChatGPT in your
   browser; for Claude, sign in with Claude Code.
 - **Did not answer**: a provider that does not start within 10 seconds, or
-  does not finish its status check within 15, is reported as not answering. A
+  does not finish its status check within 15 seconds, is reported as not answering. A
   provider that refreshes an expired login cannot do so without network
   access, so check the connection, or switch to another instance meanwhile.
 - **Desktop app required**: the browser build has no assistant. It uses local
@@ -108,8 +126,9 @@ wrong with the selected instance, in that provider's own words:
 After changing anything outside the app, an install, a sign-in, or an
 environment variable, use **Refresh**. The app does not watch your shell.
 
-If a reply fails, the message appears where the reply would be, with Retry
-when trying again can help.
+If a reply fails, a readable message appears where the reply would be. EVB
+removes credentials and endpoint addresses from provider failures. Transient
+failures carry retryability information; EVB does not retry automatically.
 
 ## What to ask it
 

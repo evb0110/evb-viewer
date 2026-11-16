@@ -47,7 +47,6 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
         instances: [],
         selection: null,
         chat: null,
-        installProgress: null,
     });
     const selection = ref(readAssistantSelectionPreference(defaultWindow?.localStorage));
     const scope = computed<IAgentAssistantChatScope | null>(previous => props.isChatScopePending ? previous ?? null : props.chatScope ?? null);
@@ -107,8 +106,6 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
             state.value.instances = event.instances;
             const resolved = resolveAssistantSelection(selection.value, event.instances, state.value.selection);
             if (JSON.stringify(resolved) !== JSON.stringify(selection.value)) selection.value = resolved;
-        } else if (event.type === 'install-progress') {
-            state.value.installProgress = event.progress;
         } else if (event.type === 'chat') {
             if (event.chat.sessionKey === sessionKey.value) state.value.chat = event.chat;
         } else if (event.sessionKey === sessionKey.value && scope.value && selection.value) {
@@ -141,7 +138,7 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
             section: 'assistant',
         }));
     }
-    async function run(action: 'reset' | 'install' | 'login' | 'cancel', callback: () => Promise<void>) {
+    async function run(action: 'reset' | 'login' | 'cancel', callback: () => Promise<void>) {
         if (busyAction.value) return;
         busyAction.value = action;
         const owner = sessionKey.value;
@@ -173,7 +170,7 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
         if (!mounted || owner !== sessionKey.value) return;
         applyState(result.state);
         if (!result.ok && result.error) {
-            if (instance.value?.message !== result.error.message) reportFailure(new Error(result.error.message), busyAction.value === 'install' ? 'install' : 'login');
+            if (instance.value?.message !== result.error.message) reportFailure(new Error(result.error.message), 'login');
         }
     }
     /**
@@ -287,10 +284,6 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
             }
         });
     }
-    function install() {
-        const owner = sessionKey.value;
-        void run('install', async () => applyResult(await getAgentCapability().installAssistantCodex(), owner));
-    }
     function login(mode: 'chatgpt' | 'device-code') {
         if (!selection.value) return;
         const instanceId = selection.value.instanceId;
@@ -331,7 +324,8 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
     let mounted = false;
     let unsubscribe: (() => void) | undefined;
     watch(requestIdentity, () => { if (mounted) void refresh(); });
-    watch(sessionKey, () => {
+    watch(sessionKey, (key, previous) => {
+        if (previous === null && key !== null) return;
         draft.value = '';
         imageComposer.clearComposerImages();
         imageComposer.closeExpandedImage();
@@ -385,7 +379,6 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
         retry,
         interrupt,
         reset,
-        install,
         login,
         cancelLogin,
         presetLabel,

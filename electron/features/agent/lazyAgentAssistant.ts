@@ -23,13 +23,6 @@ export async function getAgentAssistantState(
     return runtime.getAgentAssistantState(...args);
 }
 
-export async function installAgentAssistantCodex(
-    ...args: Parameters<TAgentAssistantRuntimeModule['installAgentAssistantCodex']>
-): Promise<Awaited<ReturnType<TAgentAssistantRuntimeModule['installAgentAssistantCodex']>>> {
-    const runtime = await loadAgentAssistantRuntime();
-    return runtime.installAgentAssistantCodex(...args);
-}
-
 export async function startAgentAssistantLogin(
     ...args: Parameters<TAgentAssistantRuntimeModule['startAgentAssistantLogin']>
 ): Promise<Awaited<ReturnType<TAgentAssistantRuntimeModule['startAgentAssistantLogin']>>> {

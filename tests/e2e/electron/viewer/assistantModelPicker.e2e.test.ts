@@ -35,7 +35,7 @@ describe('Electron E2E - assistant model discovery', () => {
         return page;
     }
 
-    it('shows the newest model in each family with Sol and Opus first', async () => {
+    it('shows the installed setup’s reported models and a runnable default without inserting Sol 6.1', async () => {
         const page = await openAssistantDocument();
         const inputInset = await page.$eval('.composer-input', input => {
             const style = getComputedStyle(input);
@@ -52,20 +52,11 @@ describe('Electron E2E - assistant model discovery', () => {
             labels: [...group.querySelectorAll('.picker-model')].map(row => row.textContent?.trim() ?? ''),
         })));
         const codex = groups.find(group => group.provider === 'Codex')?.labels ?? [];
-        const claude = groups.find(group => group.provider === 'Claude')?.labels ?? [];
-        expect(codex[0]).toMatch(/^GPT-\d+(?:\.\d+)?-Sol$/);
-        expect(codex).not.toContain('GPT-6-Sol');
-        expect(codex.some(label => /-Luna$/.test(label))).toBe(true);
-        expect(claude[0]).toMatch(/^Opus \d+(?:\.\d+)?/);
-        expect(claude).not.toContain('Opus');
-        for (const family of [
-            'Opus',
-            'Fable',
-        ]) {
-            const versions = claude.flatMap(label => new RegExp(`^${family} (\\d+(?:\\.\\d+)?)`).exec(label)?.slice(1) ?? []);
-            expect(versions.length).toBeGreaterThan(0);
-            expect(new Set(versions).size, `${family} has stale versions: ${versions.join(', ')}`).toBe(1);
-        }
+        expect(codex).toEqual(['GPT-6-Astra', 'GPT-6-Sol', 'GPT-6-Luna', 'GPT-5.6-Sol', 'GPT-5.6-Terra', 'GPT-5.6-Luna', 'GPT-5.5']);
+        expect(codex).not.toContain('GPT-6.1-Sol');
+        const state = await page.evaluate(async () => (window as IE2EWindow).electronAPI!.agent.getAssistantState());
+        const setup = state.instances.find(instance => instance.id === 'codex')!;
+        expect(setup.models.some(model => model.id === setup.defaultModel)).toBe(true);
         expect(await page.$('.assistant-message.is-user')).toBeNull();
     }, 60_000);
 
@@ -80,6 +71,7 @@ describe('Electron E2E - assistant model discovery', () => {
         await activateMenuItemAsUser(page, {accelerator: 'CmdOrCtrl+V'});
         await page.waitForSelector('.composer-image img');
         await page.keyboard.type('Explain this image.');
+        await page.waitForSelector('.composer-send:not(:disabled)', {visible: true});
         await page.keyboard.press('Enter');
         await page.waitForFunction(() => document.querySelector('.assistant-message:not(.is-user)')?.textContent?.includes('Image received.'));
         expect(await page.$eval('.assistant-timeline', element => element.textContent)).toContain('Explain this image.');
@@ -96,6 +88,7 @@ describe('Electron E2E - assistant model discovery', () => {
     it('projects live tool activity and restores its conversation after eviction and restart', async () => {
         let page = await openAssistantDocument();
         await page.keyboard.type('AP-B02 tool activity');
+        await page.waitForSelector('.composer-send:not(:disabled)', {visible: true});
         await page.keyboard.press('Enter');
         // Both tool calls show as live work rows of the running turn.
         await page.waitForFunction(() => {
@@ -135,6 +128,7 @@ describe('Electron E2E - assistant model discovery', () => {
     it('preserves every table-like line inside assistant fenced code', async () => {
         const page = await openAssistantDocument();
         await page.keyboard.type('AP-B01 fenced table');
+        await page.waitForSelector('.composer-send:not(:disabled)', {visible: true});
         await page.keyboard.press('Enter');
         const message = '.assistant-message:not(.is-user):last-of-type';
         await page.waitForFunction(selector => document.querySelector(selector)?.textContent?.includes('After'), {}, message);

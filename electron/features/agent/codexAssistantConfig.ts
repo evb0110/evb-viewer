@@ -78,7 +78,7 @@ export function readCodexUserToolConfig(configReadResponse: unknown): ICodexUser
  */
 export function createCodexIsolationArgs(
     serverUrl: string,
-    reasoningEffort: string,
+    reasoningEffort: string | undefined,
     userTools: ICodexUserToolConfig,
 ) {
     const enabledTools = ASSISTANT_MCP_TOOLS.map(tomlString).join(', ');
@@ -90,7 +90,7 @@ export function createCodexIsolationArgs(
             .filter(name => DOTTED_KEY_SEGMENT.test(name))
             .map(name => `plugins.${name}.enabled=false`),
         ...DISABLED_CODEX_FEATURES.map(feature => `features.${feature}=false`),
-        `model_reasoning_effort=${tomlString(reasoningEffort)}`,
+        ...(reasoningEffort ? [`model_reasoning_effort=${tomlString(reasoningEffort)}`] : []),
         'web_search="disabled"',
         'sandbox_mode="read-only"',
         'approval_policy="never"',
