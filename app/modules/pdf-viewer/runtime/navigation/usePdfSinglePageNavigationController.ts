@@ -57,7 +57,6 @@ interface IUsePdfSinglePageNavigationControllerOptions extends IUsePdfSinglePage
     /** Retained for source compatibility; projected page changes are not commands. */
     chassisAuthority?: IDocumentViewerRuntime | null | undefined;
     viewerContainer: Ref<HTMLElement | null>;
-    cancelPendingSearchScroll: () => void;
     bindCurrentPageProjection?: ((projection: Readonly<Ref<number>>) => void) | undefined;
     getDocumentRevision: () => number;
     getGeometryRevision: () => number;
@@ -1061,7 +1060,6 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
             const ticket = navigationTicket.value;
             if (ticket) startNavigationTicket(ticket);
         },
-        beginSearchNavigation: (page: number) => submitPageNavigation(toPageNumber(page), {navigationSource: 'search'}),
         revealSearchNavigationTarget: (page: number, scrollOptions?: IScrollToPageOptions) => submitPageNavigation(toPageNumber(page), {
             ...scrollOptions,
             navigationSource: 'search',

@@ -50,11 +50,8 @@ interface ICurrentSearchMatchMarkerRect {
 type ISearchNavigationTargetOptions = Pick<IScrollToPageOptions, 'markerRect' | 'textAnchor'>;
 
 interface IPdfSearchMatchScrollerDeps {
-    getContainer: () => HTMLElement | null;
     getCurrentSearchMatch: () => ICurrentSearchMatch | null;
     getCurrentSearchPageMatches?: (pageIndex: TPageIndex) => ICurrentSearchPageMatches | null;
-    scrollToCurrentMatch: () => boolean;
-    scheduleRenderForSinglePage: (pageNumber: TPageNumber) => void;
     scrollToPage?: (
         pageNumber: TPageNumber,
         options?: {
@@ -62,21 +59,11 @@ interface IPdfSearchMatchScrollerDeps {
             navigationSource?: 'search';
         } & ISearchNavigationTargetOptions,
     ) => void;
-    suppressSnap?: () => void;
-    beginSearchNavigation?: (pageNumber: TPageNumber) => void;
     revealSearchNavigationTarget?: (
         pageNumber: TPageNumber,
         options?: ISearchNavigationTargetOptions,
     ) => void;
     endSearchNavigation?: (settleMs?: number) => void;
-    beginSearchTransaction?: (
-        pageNumber: TPageNumber,
-        options?: ISearchNavigationTargetOptions,
-    ) => number | null;
-    isSearchTransactionCurrent?: (transactionId: number) => boolean;
-    settleSearchTransaction?: (transactionId: number) => void;
-    cancelSearchTransaction?: (transactionId: number) => void;
-    isPageRenderPending?: (pageNumber: TPageNumber) => boolean;
 }
 
 function clampRatio(value: number) {
@@ -200,10 +187,7 @@ function resolveCurrentMatchTextAnchor(
  * mounting, text-layer readiness, supersession, placement and highlighting.
  */
 export function createPdfSearchMatchScroller(deps: IPdfSearchMatchScrollerDeps) {
-    let generation = 0;
-
     function invalidatePendingRequests() {
-        generation += 1;
         deps.endSearchNavigation?.(0);
     }
 
@@ -212,7 +196,6 @@ export function createPdfSearchMatchScroller(deps: IPdfSearchMatchScrollerDeps) 
         if (matchPageIndex === null) {
             return;
         }
-        const requestGeneration = generation;
         const pageIndex = requirePageIndex(matchPageIndex);
         const pageNumber = pageIndexToPageNumber(pageIndex);
         const currentMatch = deps.getCurrentSearchMatch();
@@ -229,9 +212,6 @@ export function createPdfSearchMatchScroller(deps: IPdfSearchMatchScrollerDeps) 
             : textAnchor
                 ? {textAnchor}
                 : undefined;
-        if (requestGeneration !== generation) {
-            return;
-        }
         if (deps.revealSearchNavigationTarget) {
             deps.revealSearchNavigationTarget(pageNumber, navigationOptions);
             return;

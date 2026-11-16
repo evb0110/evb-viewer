@@ -31,9 +31,6 @@ describe('navigateToBookmarkDestination', () => {
                 dest: 'chapter',
                 pageIndex: requirePageIndex(4),
             }),
-            pdfDocument: null,
-            navigationRequestId: 2,
-            isBookmarkNavigationRequestCurrent: id => id === 2,
             emitGoToPage,
         });
         expect(emitGoToPage).toHaveBeenCalledOnce();
@@ -53,9 +50,6 @@ describe('navigateToBookmarkDestination', () => {
         const emitGoToPage = vi.fn();
         navigateToBookmarkDestination({
             item: createBookmark({pageIndex: requirePageIndex(6)}),
-            pdfDocument: null,
-            navigationRequestId: 1,
-            isBookmarkNavigationRequestCurrent: () => true,
             emitGoToPage,
         });
         expect(emitGoToPage).toHaveBeenCalledWith(7, {navigationRequest: expect.objectContaining({
@@ -74,9 +68,6 @@ describe('navigateToBookmarkDestination', () => {
                 pageIndex: requirePageIndex(0),
                 pageYRatio: 0.25,
             }),
-            pdfDocument: null,
-            navigationRequestId: 1,
-            isBookmarkNavigationRequestCurrent: () => true,
             emitGoToPage,
         });
         expect(emitGoToPage).toHaveBeenCalledWith(1, {navigationRequest: expect.objectContaining({
@@ -95,24 +86,13 @@ describe('navigateToBookmarkDestination', () => {
         })});
     });
 
-    it('does not emit stale or invalid requests', () => {
+    it('does not emit invalid requests', () => {
         const emitGoToPage = vi.fn();
-        const common = {
-            pdfDocument: null,
-            navigationRequestId: 1,
+        navigateToBookmarkDestination({
             emitGoToPage,
-        };
-        navigateToBookmarkDestination({
-            ...common,
-            item: createBookmark({dest: 'stale'}),
-            isBookmarkNavigationRequestCurrent: () => false,
-        });
-        navigateToBookmarkDestination({
-            ...common,
             // Invalid persisted page indexes are a runtime input case, not a
             // valid page-number fixture.
             item: createBookmark({pageIndex: Number.NaN as TPageIndex}),
-            isBookmarkNavigationRequestCurrent: () => true,
         });
         expect(emitGoToPage).not.toHaveBeenCalled();
     });

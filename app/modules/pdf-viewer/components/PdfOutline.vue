@@ -166,7 +166,6 @@ interface IProps {
     isEditMode: boolean;
     bookmarkItems?: IPdfBookmarkEntry[] | undefined;
     bookmarksDirty?: boolean | undefined;
-    navigationIntentVersion?: number | undefined;
 }
 
 const props = defineProps<IProps>();
@@ -386,47 +385,6 @@ const bookmarkOrderIndexMap = computed(() => {
     }
     return map;
 });
-
-let bookmarkNavigationRequestId = 0;
-let bookmarkNavigationIntentVersion = props.navigationIntentVersion ?? 0;
-const bookmarkNavigationIntentVersionByRequest = new Map<number, number>();
-
-/**
- * Prevents async bookmark resolution from applying to an outline/document that
- * no longer owns the user's navigation intent.
- */
-function invalidateBookmarkNavigationRequests() {
-    bookmarkNavigationRequestId += 1;
-    bookmarkNavigationIntentVersion = props.navigationIntentVersion ?? 0;
-    bookmarkNavigationIntentVersionByRequest.clear();
-}
-
-function beginBookmarkNavigationRequest() {
-    invalidateBookmarkNavigationRequests();
-    bookmarkNavigationIntentVersionByRequest.set(
-        bookmarkNavigationRequestId,
-        props.navigationIntentVersion ?? 0,
-    );
-    return bookmarkNavigationRequestId;
-}
-
-function isBookmarkNavigationRequestCurrent(requestId: number) {
-    return requestId === bookmarkNavigationRequestId
-        && bookmarkNavigationIntentVersionByRequest.get(requestId) === bookmarkNavigationIntentVersion;
-}
-
-watch(
-    () => props.navigationIntentVersion,
-    (version) => {
-        const nextVersion = version ?? 0;
-        if (nextVersion === bookmarkNavigationIntentVersion) {
-            return;
-        }
-        bookmarkNavigationIntentVersion = nextVersion;
-        invalidateBookmarkNavigationRequests();
-    },
-    { flush: 'sync' },
-);
 
 const selection = usePdfOutlineSelection(
     bookmarks,
@@ -694,7 +652,6 @@ function applyPendingBookmarkItems(
         return;
     }
 
-    invalidateBookmarkNavigationRequests();
     resetBookmarkIdentity();
     bookmarks.value = buildOutlineFromBookmarkEntries(entries, createBookmarkId);
     closeBookmarkContextMenu();
@@ -833,7 +790,6 @@ async function loadOutline() {
     const pdfDocument = props.pdfDocument;
     const documentRef = props.documentRef;
     outlineRunId += 1;
-    invalidateBookmarkNavigationRequests();
     const runId = outlineRunId;
     resetOutlineInteractionState();
 
@@ -864,7 +820,6 @@ function activateSharedBookmark(id: string, event?: MouseEvent | KeyboardEvent) 
     }
     const multiSelect = event instanceof MouseEvent && (event.metaKey || event.ctrlKey);
     const rangeSelect = event instanceof MouseEvent && event.shiftKey;
-    const navigationRequestId = beginBookmarkNavigationRequest();
     cancelActiveItemResolution();
     activeItemId.value = id;
     if (isEditMode.value) {
@@ -892,9 +847,6 @@ function activateSharedBookmark(id: string, event?: MouseEvent | KeyboardEvent) 
     }
     void navigateToBookmarkDestination({
         item,
-        pdfDocument: props.pdfDocument,
-        navigationRequestId,
-        isBookmarkNavigationRequestCurrent,
         emitGoToPage: (page, options) => emit('goToPage', page, options),
     });
 }
@@ -975,7 +927,6 @@ watch(
 onBeforeUnmount(() => {
     cancelActiveItemResolution();
     outlineRunId += 1;
-    invalidateBookmarkNavigationRequests();
 });
 </script>
 

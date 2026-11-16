@@ -145,7 +145,6 @@ async function mountSidebar(overrides: {
         annotationTool: 'none',
         bookmarkEditMode: false,
         bookmarkItems: [],
-        bookmarkNavigationIntentVersion: 0,
         bookmarksDirty: false,
         currentPage: 1,
         currentResultIndex: -1,
