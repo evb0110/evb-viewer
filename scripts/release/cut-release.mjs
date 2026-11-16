@@ -178,6 +178,14 @@ export async function main(argv = process.argv.slice(2), {
         'origin',
         `${plan.candidateSha}:refs/tags/${plan.tag}`,
     ]);
+    // Web deploys name their version with `git describe`; without the new tag
+    // locally they would publish the release as the previous version.
+    runCommand('git', [
+        'fetch',
+        '--no-tags',
+        'origin',
+        `refs/tags/${plan.tag}:refs/tags/${plan.tag}`,
+    ]);
     const repo = runCommand('gh', [
         'repo',
         'view',
