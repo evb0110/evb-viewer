@@ -1,3 +1,4 @@
+import {getAssistantShellEnvironment} from '@electron/features/agent/assistantShellEnvironment';
 import {stat} from 'node:fs/promises';
 import {spawn} from 'child_process';
 import {getErrorMessage} from '@electron/utils/error';
@@ -22,8 +23,8 @@ export interface ICodexCliInfo {
     isVersionSupported: boolean;
     minimumVersion: string;
 }
-export function resolveCodexCliPath(env: NodeJS.ProcessEnv = process.env) {
-    return resolveInstalledAssistantExecutable('codex', env);
+export async function resolveCodexCliPath(env?: NodeJS.ProcessEnv) {
+    return resolveInstalledAssistantExecutable('codex', env ?? await getAssistantShellEnvironment());
 }
 function runCommand(
     command: string,
@@ -138,8 +139,8 @@ function runCommand(
     });
 }
 
-export function runCodexCli(codexPath: string, args: string[], options: {env?: NodeJS.ProcessEnv} = {}) {
-    return runCommand(codexPath, args, CODEX_COMMAND_TIMEOUT_MS, options);
+export async function runCodexCli(codexPath: string, args: string[], options: {env?: NodeJS.ProcessEnv} = {}) {
+    return runCommand(codexPath, args, CODEX_COMMAND_TIMEOUT_MS, {env: {...await getAssistantShellEnvironment(), ...options.env}});
 }
 function parseCodexVersion(stdout: string) {
     const match = stdout.match(/(?:codex-cli\s+)?(\d+\.\d+\.\d+)/u);

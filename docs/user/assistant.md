@@ -153,3 +153,11 @@ window, one tab, one document, and one revision, so an assistant in one window
 cannot read or change a document in another. The design decisions are recorded in
 [ADR 0004](../architecture/adr/0004-assistant-is-optional-with-provider-adapters.md)
 and [ADR 0008](../architecture/adr/0008-assistant-runs-provider-instances.md).
+
+When EVB is opened from the Dock or Finder, the main process reads the user’s
+interactive login-shell environment once, with a five-second limit. Discovery
+uses that PATH, and provider launches and metadata probes inherit the same
+environment before applying setup overrides. A terminal launch keeps its inherited
+environment. If the shell read fails, EVB uses the inherited environment. Shell
+environment changes take effect after restarting EVB. Values stay in main-process
+memory and are never sent to the renderer or stored.

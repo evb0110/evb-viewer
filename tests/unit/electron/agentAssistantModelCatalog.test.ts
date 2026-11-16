@@ -73,6 +73,14 @@ describe('readable provider failures', () => {
         const envelope = createAssistantErrorEnvelope(JSON.stringify({type: 'error', status: 400, error: {type: 'invalid_request_error', message: "The 'gpt-6.1-sol' model is not supported when using Codex with a ChatGPT account.", code: 'model_not_found'}}));
         expect(envelope).toMatchObject({code: 'MODEL_UNAVAILABLE', class: 'provider_error', providerCode: 'model_not_found', retryable: false, message: "The 'gpt-6.1-sol' model is not supported when using Codex with a ChatGPT account."});
     });
+    it('offers Retry after a Codex app-server exit, but not for missing installs or unsupported models', () => {
+        expect(createAssistantErrorEnvelope(new Error('Codex app-server exited.'))).toMatchObject({
+            code: 'RUNTIME_UNAVAILABLE', class: 'transport_error', retryable: true,
+            message: 'Codex app-server exited.',
+        });
+        expect(createAssistantErrorEnvelope(new Error('Codex executable not found.'))).toMatchObject({code: 'INSTALL_MISSING', retryable: false});
+        expect(createAssistantErrorEnvelope(new Error('Model not supported.'))).toMatchObject({code: 'MODEL_UNAVAILABLE', retryable: false});
+    });
     it('keeps a readable causal timeout while classifying the underlying failure', () => {
         expect(createAssistantErrorEnvelope(new Error('Codex did not start within 10 seconds.', {cause: new Error('initialize timed out after 10000ms.')}))).toMatchObject({
             message: 'Codex did not start within 10 seconds.', retryable: true, class: 'transport_error',

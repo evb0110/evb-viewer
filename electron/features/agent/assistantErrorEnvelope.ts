@@ -83,7 +83,7 @@ export function createAssistantErrorEnvelope(value: unknown): IAgentAssistantErr
         code = 'INSTALL_MISSING'; failureClass = 'validation_error';
     } else if (/interrupt|cancel|aborted/.test(text)) {
         code = /sign.in|login/.test(text) ? 'LOGIN_CANCELLED' : 'USER_INTERRUPTED'; failureClass = 'unknown';
-    } else if ((native.status !== undefined && native.status >= 500) || /econnreset|econnrefused|etimedout|overloaded/.test(nativeCode) || /timed out|timeout|did not (?:answer|finish|initialize)|network|connection|process.*(?:exit|stop)|server.*(?:closed|unavailable)/.test(text)) {
+    } else if ((native.status !== undefined && native.status >= 500) || /econnreset|econnrefused|etimedout|overloaded/.test(nativeCode) || /timed out|timeout|did not (?:answer|finish|initialize)|network|connection|process.*(?:exit|stop)|server.*(?:closed|unavailable|exited)/.test(text)) {
         code = 'RUNTIME_UNAVAILABLE'; failureClass = 'transport_error'; retryable = true;
     } else if (native.status === 403 || nativeCode === 'permission_error') {
         failureClass = 'permission_error';
@@ -96,12 +96,11 @@ export function createAssistantErrorEnvelope(value: unknown): IAgentAssistantErr
     if (code !== 'MODEL_UNAVAILABLE' && code !== 'AUTH_REQUIRED' && code !== 'INSTALL_MISSING') retryable = native.retryable ?? retryable;
     const message = !native.parsedJson && value instanceof Error && value.cause instanceof Error
         ? value.message : native.message;
-    const readable = message.trim().startsWith('{') ? '' : message;
     return {
         code,
         class: native.failureClass ?? failureClass,
         ...(native.code && /^[a-z0-9_.-]{1,128}$/iu.test(native.code) ? {providerCode: sanitizeAssistantProviderText(native.code, 128)} : {}),
-        message: sanitizeAssistantProviderText(readable) || te('dialogs.agentAssistant.providerFailureFallback'),
+        message: sanitizeAssistantProviderText(message.trim().startsWith('{') ? '' : message) || te('dialogs.agentAssistant.providerFailureFallback'),
         retryable,
         details: {timestamp: createEpochMs()},
     };

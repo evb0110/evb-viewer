@@ -36,6 +36,7 @@ const mocks = vi.hoisted(() => ({
     userData: '/tmp/evb-codex-test',
 }));
 
+vi.mock('@electron/features/agent/assistantShellEnvironment', () => ({getAssistantShellEnvironment: async () => ({...process.env})}));
 vi.mock('child_process', () => ({spawn: mocks.spawn}));
 vi.mock('fs', async importOriginal => ({
     ...(await importOriginal<typeof NodeFs>()),
@@ -99,8 +100,11 @@ describe('Codex CLI timeout cleanup', () => {
         mocks.spawn.mockReturnValue(process);
         const {runCodexCli} = await import('@electron/features/agent/codexCli');
 
+        mocks.spawn.mockImplementationOnce(() => {
+            queueMicrotask(() => process.emit('close', 1));
+            return process;
+        });
         const resultPromise = runCodexCli('/usr/bin/codex', ['--version']);
-        process.emit('close', 1);
         await expect(resultPromise).resolves.toMatchObject({
             ok: false,
             exitCode: 1,
@@ -398,24 +402,11 @@ describe('Codex CLI discovery', () => {
         await expect(resolveCodexCliPath()).resolves.toBe(localBin);
     });
 
-    it.skipIf(process.platform === 'win32')('asks the login shell where codex is when the app has no shell PATH', async () => {
-        const shell = join(sandbox, 'bin', 'zsh');
+    it('resolves with a supplied login-shell PATH instead of opening another shell', async () => {
         const homebrewCli = '/opt/homebrew/bin/codex';
-        vi.stubEnv('SHELL', shell);
-        installedFiles.add(shell);
         installedFiles.add(homebrewCli);
-        const childProcess = await vi.importActual<typeof NodeChildProcess>('node:child_process');
-        mocks.spawn.mockImplementation((_command, _args, options) => childProcess.spawn(
-            process.execPath,
-            [
-                '--eval',
-                `process.stdout.write(${JSON.stringify(`${homebrewCli}\n`)})`,
-                '--',
-            ],
-            options,
-        ));
         const {resolveCodexCliPath} = await import('@electron/features/agent/codexCli');
-        await expect(resolveCodexCliPath()).resolves.toBe(homebrewCli);
+        await expect(resolveCodexCliPath({...process.env, PATH: '/opt/homebrew/bin'})).resolves.toBe(homebrewCli);
     });
 
     it('does not reach a Codex installed in fixed system directories outside PATH, HOME and SHELL', async () => {
