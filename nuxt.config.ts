@@ -629,6 +629,7 @@ export default defineNuxtConfig({
                 'es-toolkit/predicate',
                 'es-toolkit/promise',
                 'es-toolkit/string',
+                'fast-png',
                 'marked',
                 'unhead',
                 'scule',
