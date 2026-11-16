@@ -579,6 +579,9 @@
     --app-assistant-composer-min-height: 2.45rem;
     --app-assistant-message-max-height: 12rem;
     --app-assistant-provider-icon-size: 1em;
+    --app-assistant-claude-mark: #d97757;
+    --app-assistant-provider-badge-size: 0.95em;
+    --app-assistant-provider-badge-font-size: 0.42em;
     --app-assistant-image-preview-z-index: var(--app-z-preview);
     --app-assistant-image-preview-padding: var(--app-space-16xl);
     --app-assistant-image-preview-image-max-height: 86vh;
@@ -591,17 +594,21 @@
     --app-assistant-work-indent: 1.75rem;
     --app-assistant-work-max-height: 20rem;
     --app-assistant-banner-max-height: min(18rem, 35vh);
-    --app-assistant-picker-width: 21rem;
-    --app-assistant-picker-max-height: min(32rem, 65vh);
+
+    /* Model picker geometry from T3 Code: rail w-11, list w-90, effort column w-48, body h-86.5. */
+    --app-assistant-picker-rail-width: 2.75rem;
+    --app-assistant-picker-list-width: 22.5rem;
+    --app-assistant-picker-effort-width: 12rem;
+    --app-assistant-picker-height: 21.625rem;
+    --app-assistant-picker-row-height: 2rem;
+    --app-assistant-picker-stacked-list-height: 14rem;
+    --app-assistant-picker-stacked-effort-height: 16rem;
     --app-assistant-user-bg: var(--ui-bg-accented);
     --app-assistant-error-bg: color-mix(in srgb, var(--ui-error) 8%, transparent);
     --app-assistant-error-border: color-mix(in srgb, var(--ui-error) 28%, transparent);
     --app-assistant-inline-code-padding: 0.1em 0.35em;
     --app-assistant-table-cell-max-width: 24rem;
     --app-assistant-table-header-rule: color-mix(in srgb, var(--ui-text-dimmed) 55%, transparent);
-    --app-assistant-picker-max-width: 28rem;
-    --app-assistant-picker-effort-width: 11rem;
-    --app-assistant-picker-lane-height: 18rem;
     --app-assistant-image-overlay-bg: rgb(0 0 0 / 85%);
     --app-assistant-image-overlay-text: #fff;
     --app-pdf-annotation-properties-value-min-width: 44px;

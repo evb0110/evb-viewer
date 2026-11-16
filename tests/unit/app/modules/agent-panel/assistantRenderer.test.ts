@@ -150,6 +150,22 @@ function button(host: HTMLElement, label: string) {
     if (!found) throw new Error('Missing button ' + label);
     return found;
 }
+// The picker lists the open provider's models as options; a provider is chosen in its rail first.
+async function pickModel(host: HTMLElement, label: string, instanceLabel?: string) {
+    if (instanceLabel) {
+        button(host, instanceLabel).click();
+        await settle();
+    }
+    const row = [...host.querySelectorAll<HTMLElement>('[role="option"]')].find(node => node.querySelector('.row-name')?.firstChild?.textContent === label);
+    if (!row) throw new Error('Missing model ' + label);
+    row.click();
+    await settle();
+}
+function radio(host: HTMLElement, label: string) {
+    const found = [...host.querySelectorAll<HTMLButtonElement>('button[role="radio"]')].find(node => node.textContent?.trim() === label);
+    if (!found) throw new Error('Missing choice ' + label);
+    return found;
+}
 async function draft(host: HTMLElement, text: string) {
     const input = host.querySelector('textarea');
     if (!input) throw new Error('Missing composer');
@@ -515,7 +531,7 @@ describe('assistant renderer on instance contract', () => {
         await draft(host, 'hello');
         expect(host.querySelector('.composer-send')?.getAttribute('aria-label')).toBe('Real sign-in reason');
         expect(host.querySelector<HTMLButtonElement>('.composer-send')?.disabled).toBe(true);
-        expect(host.querySelector('.provider-picker')?.textContent).not.toContain('HIDDEN');
+        expect(host.querySelector('[data-model-picker]')?.textContent).not.toContain('HIDDEN');
     });
 
     it('switches instance/model/effort/speed atomically through the picker and sends its selection', async () => {
@@ -547,16 +563,15 @@ describe('assistant renderer on instance contract', () => {
         }));
         const host = mount();
         await settle();
-        button(host, 'GPT B').click();
+        await pickModel(host, 'GPT B', 'B');
+        radio(host, 'Low').click();
         await settle();
-        button(host, 'assistant.effort.low').click();
+        radio(host, 'assistant.speedFast').click();
         await settle();
-        [...host.querySelectorAll<HTMLButtonElement>('.picker-speed-option')].at(-1)?.click();
-        await settle();
-        const trigger = host.querySelector('.picker-trigger');
-        expect(trigger?.getAttribute('aria-label')).toBe('B · GPT B · assistant.effort.low · assistant.speedFast');
-        expect(trigger?.textContent).toBe('BGPT Bassistant.effort.low');
-        expect(trigger?.querySelector('[name="i-ph-lightning"]')).not.toBeNull();
+        expect(host.querySelector('.picker-trigger')?.getAttribute('aria-label')).toBe('B · GPT B · Low · assistant.speedFast');
+        expect(host.querySelector('.trigger-model')?.textContent).toBe('GPT B');
+        expect(host.querySelector('.trigger-effort')?.textContent).toBe('Low');
+        expect(host.querySelector('.trigger-fast[name="i-ph-lightning-fill"]')).not.toBeNull();
         expect(host.querySelector('.provider-banner')?.textContent).toContain('B warning');
         await draft(host, 'Use B');
         button(host, 'assistant.send').click();
@@ -619,8 +634,7 @@ describe('assistant renderer on instance contract', () => {
         first.resolve(current);
         await settle();
         expect(host.querySelector('textarea')?.value).toBe('Typed before discovery finished');
-        button(host, 'GPT B').click();
-        await settle();
+        await pickModel(host, 'GPT B', 'B');
         expect(host.querySelector('textarea')?.value).toBe('');
         await draft(host, 'Draft for the first document');
         props.chatScope = {...scope, key: 'b'};
@@ -788,8 +802,7 @@ it('#1608 reports a failed assistant preference write after a model choice', asy
         throw new DOMException('Assistant preference quota exceeded', 'QuotaExceededError');
     });
     try {
-        button(host, 'Other model').click();
-        await settle();
+        await pickModel(host, 'Other model');
         expect(host.querySelector('.picker-trigger')?.textContent).toContain('Other model');
         expect(messages.join(' ')).toMatch(/preference|saved|storage|quota/i);
     } finally {write.mockRestore();}
@@ -910,7 +923,7 @@ describe('failed replies, provider status and presets', () => {
         expect(host.querySelector('.timeline-error')?.textContent).toContain('The model is not supported with this account.');
         expect(host.querySelector('.timeline-error')?.textContent).not.toContain('{');
         expect(texts(host, '.timeline-error button')).toEqual(['assistant.changeModel']);
-        const popover = host.querySelector('.assistant-composer [data-open]');
+        const popover = host.querySelector('.picker-trigger')?.parentElement;
         expect(popover?.getAttribute('data-open')).toBe('false');
         button(host, 'assistant.changeModel').click();
         await settle();
@@ -977,6 +990,7 @@ describe('model picker keyboard', () => {
                         ].map(id => ({
                             id,
                             label: id,
+                            isDefault: id === 'medium',
                         })),
                         defaultReasoningEffort: 'medium',
                     },
@@ -992,10 +1006,10 @@ describe('model picker keyboard', () => {
         });
         const host = mount(AssistantProviderModelPicker, props);
         await settle();
-        const efforts = [...host.querySelectorAll<HTMLButtonElement>('[data-effort-row]')];
+        const efforts = [...host.querySelectorAll<HTMLButtonElement>('[data-effort-level]')];
         expect(efforts.map(row => row.getAttribute('tabindex'))).toEqual(['-1', '-1', '0']);
         expect(efforts.map(row => row.getAttribute('aria-checked'))).toEqual(['false', 'false', 'true']);
-        expect(efforts[1]?.textContent).toBe('assistant.effort.mediumassistant.effortDefault');
+        expect(efforts[1]?.textContent).toBe('mediumassistant.effortDefault');
         efforts[2]?.focus();
         efforts[2]?.dispatchEvent(new KeyboardEvent('keydown', {
             key: 'ArrowUp',
@@ -1009,18 +1023,22 @@ describe('model picker keyboard', () => {
             key: 'ArrowLeft',
             bubbles: true,
         }));
-        expect(document.activeElement).toBe(host.querySelector('.picker-search'));
-        const models = [...host.querySelectorAll<HTMLButtonElement>('.picker-model')];
-        models[0]?.focus();
-        models[0]?.dispatchEvent(new KeyboardEvent('keydown', {
+        const search = host.querySelector<HTMLInputElement>('.search-input');
+        expect(document.activeElement).toBe(search);
+        const models = [...host.querySelectorAll<HTMLElement>('[role="option"]')];
+        search?.dispatchEvent(new KeyboardEvent('keydown', {
             key: 'ArrowDown',
             bubbles: true,
         }));
-        expect(document.activeElement).toBe(models[1]);
-        models[1]?.click();
+        await settle();
+        expect(search?.getAttribute('aria-activedescendant')).toBe(models[1]?.id);
+        search?.dispatchEvent(new KeyboardEvent('keydown', {
+            key: 'Enter',
+            bubbles: true,
+        }));
         await settle();
         expect(host.querySelector('.picker-trigger')?.textContent).toBe('Other model');
-        expect(host.querySelector('[data-effort-row]')).toBeNull();
+        expect(host.querySelector('[data-effort-level]')).toBeNull();
     });
 });
 

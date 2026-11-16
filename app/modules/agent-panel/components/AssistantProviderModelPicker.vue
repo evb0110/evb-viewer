@@ -1,78 +1,59 @@
 <template>
-    <UPopover v-model:open="open" :content="{ side: 'top', align: 'start', collisionPadding: 12 }">
-        <UButton class="picker-trigger" :aria-label="selectionDescription" color="neutral" variant="ghost" size="xs" trailing-icon="i-ph-caret-down">
-            <template #leading><AssistantProviderIcon v-if="selectedInstance" :provider="selectedInstance.driver" /></template>
-            <span v-if="showInstanceLabel" class="picker-trigger-instance">{{ selectedInstance?.label }}</span>
-            <span class="picker-trigger-model">{{ selectedModel?.label ?? selection?.model ?? t('assistant.selectInstance') }}</span>
-            <span v-if="selectedEffort" class="picker-trigger-trait">{{ effortName(selectedEffort) }}</span>
-            <UIcon v-if="selection?.speedMode === 'fast'" name="i-ph-lightning" class="picker-trigger-fast" />
-        </UButton>
-        <template #content>
-            <div class="provider-picker" :style="{ width: width ? `${width}px` : undefined }">
-                <div class="picker-body">
-                    <div class="picker-models" @keydown="handleModelKeydown">
-                        <UInput ref="searchInput" v-model="search" :placeholder="t('assistant.searchModels')" :aria-label="t('assistant.searchModels')" icon="i-ph-magnifying-glass" autofocus class="picker-search" />
-                        <div class="picker-model-list app-scrollbar">
-                            <section v-for="instance in visibleInstances" :key="instance.id" class="picker-group">
-                                <header class="picker-column-label">
-                                    <AssistantProviderIcon :provider="instance.driver" />
-                                    <span>{{ instance.label }}</span>
-                                </header>
-                                <p v-if="instance.state !== 'ready'" class="picker-status">{{ t(stateKeys[instance.state]) }}<span v-if="instance.message">: {{ instance.message }}</span></p>
-                                <button v-for="model in matchingModels(instance)" :key="model.id" type="button" class="picker-row picker-model" data-picker-row :aria-pressed="isSelected(instance, model.id)" @click="selectModel(instance, model.id)">
-                                    <span class="picker-row-label">{{ model.label }}</span>
-                                    <UIcon v-if="isSelected(instance, model.id)" name="i-ph-check" />
-                                </button>
-                            </section>
+    <AppTooltip :text="triggerDetail" :content="{ side: 'top' }" :disabled="open">
+        <UPopover v-model:open="open" :content="{ side: 'top', align: 'start', sideOffset: 6, collisionPadding: 12 }">
+            <button type="button" class="picker-trigger" data-model-picker-trigger :aria-label="triggerDetail">
+                <AssistantProviderIcon v-if="selectedInstance" class="trigger-icon" :provider="selectedInstance.driver" :badge="instanceBadge(selectedInstance, instances)" />
+                <span class="trigger-model">{{ selectedModel?.shortLabel ?? selectedModel?.label ?? selection?.model ?? t('assistant.selectInstance') }}</span>
+                <span v-if="effortLabel || isFast" class="trigger-traits">
+                    <span v-if="effortLabel" class="trigger-effort">{{ effortLabel }}</span>
+                    <UIcon v-if="isFast" name="i-ph-lightning-fill" class="trigger-fast" />
+                </span>
+            </button>
+            <template #content>
+                <div class="model-picker" data-model-picker>
+                    <div class="picker-body">
+                        <AssistantModelPickerContent ref="content" :instances="instances" :selection="selection" @pick="pickModel" @focus-effort="effortColumn?.focusLevel()" @close="open = false" />
+                        <AssistantModelEffortColumn ref="effortColumn" :model="selectedModel" :model-label="selectedModel?.shortLabel ?? selectedModel?.label ?? ''" :effort="selection?.effort ?? ''" @pick="pickEffort" @back="content?.focusSearch()" />
+                    </div>
+                    <div v-if="supportsFast" class="picker-footer">
+                        <div ref="speedControl" class="speed-control" role="radiogroup" :aria-label="t('assistant.speedMode')" @keydown="handleSpeedKeydown">
+                            <button v-for="speed in speeds" :key="speed.id" type="button" role="radio" class="speed-segment" :aria-checked="currentSpeed === speed.id" :tabindex="currentSpeed === speed.id ? 0 : -1" @click="pickSpeed(speed.id)">
+                                <UIcon v-if="speed.id === 'fast'" name="i-ph-lightning-fill" class="speed-icon" />
+                                {{ t(speed.key) }}
+                            </button>
                         </div>
                     </div>
-                    <div v-if="selectedModel?.reasoningEfforts?.length" ref="effortColumn" class="picker-efforts" role="radiogroup" :aria-label="t('assistant.reasoningEffort')" @keydown="handleEffortKeydown">
-                        <div class="picker-column-label">{{ t('assistant.reasoningEffort') }}</div>
-                        <button v-for="effort in selectedModel.reasoningEfforts" :key="effort.id" type="button" role="radio" class="picker-row" data-picker-row data-effort-row :aria-checked="effort.id === selectedEffort?.id" :tabindex="effort.id === effortTabStop ? 0 : -1" :title="effort.description" @click="selection && emit('select', { ...selection, effort: effort.id })">
-                            <span class="picker-row-label">{{ effortName(effort) }}</span>
-                            <UIcon v-if="effort.id === selectedEffort?.id" name="i-ph-check" />
-                            <span v-else-if="isDefaultEffort(effort)" class="picker-row-note">{{ t('assistant.effortDefault') }}</span>
-                        </button>
-                    </div>
                 </div>
-                <div v-if="supportsFast" class="picker-speed" role="radiogroup" :aria-label="t('assistant.speedMode')" @keydown="handleSpeedKeydown">
-                    <button v-for="speed in speeds" :key="speed.id" type="button" role="radio" class="picker-speed-option" data-picker-row :aria-checked="(selection?.speedMode ?? 'standard') === speed.id" :tabindex="(selection?.speedMode ?? 'standard') === speed.id ? 0 : -1" @click="selection && emit('select', { ...selection, speedMode: speed.id })">
-                        <UIcon v-if="speed.id === 'fast'" name="i-ph-lightning" />
-                        {{ t(speed.key) }}
-                    </button>
-                </div>
-            </div>
-        </template>
-    </UPopover>
+            </template>
+        </UPopover>
+    </AppTooltip>
 </template>
 
 <script setup lang="ts">
-import type { IAgentAssistantEffortOption } from '@contracts/agent';
 import type {
     IAssistantInstanceStatus, IAssistantSelection,
 } from '@contracts/assistant';
 import { resolveAssistantSelection } from '@app/modules/agent-panel/utils/assistantSelectionPreference';
+import { instanceBadge } from '@app/modules/agent-panel/utils/assistantModelPicker';
 import AssistantProviderIcon from '@app/modules/agent-panel/components/AssistantProviderIcon.vue';
+import AssistantModelPickerContent from '@app/modules/agent-panel/components/AssistantModelPickerContent.vue';
+import AssistantModelEffortColumn from '@app/modules/agent-panel/components/AssistantModelEffortColumn.vue';
 import { useTypedI18n } from '@app/composables/useTypedI18n';
+
 const props = defineProps<{
     instances: IAssistantInstanceStatus[];
     selection: IAssistantSelection | null;
-    width?: number | undefined;
 }>();
 const emit = defineEmits<{ select: [selection: IAssistantSelection] }>();
 const { t } = useTypedI18n();
 const open = ref(false);
-const search = ref('');
-const searchInput = ref<{ inputRef?: HTMLInputElement | null } | null>(null);
-const effortColumn = ref<HTMLElement | null>(null);
-const visibleInstances = computed(() => props.instances.filter(instance => instance.enabled && instance.state !== 'disabled'));
+const content = ref<InstanceType<typeof AssistantModelPickerContent> | null>(null);
+const effortColumn = ref<InstanceType<typeof AssistantModelEffortColumn> | null>(null);
 const selectedInstance = computed(() => props.instances.find(instance => instance.id === props.selection?.instanceId));
 const selectedModel = computed(() => selectedInstance.value?.models.find(model => model.id === props.selection?.model));
-const selectedEffort = computed(() => selectedModel.value?.reasoningEfforts?.find(effort => effort.id === props.selection?.effort));
-const effortTabStop = computed(() => selectedEffort.value?.id ?? selectedModel.value?.reasoningEfforts?.[0]?.id);
-const supportsFast = computed(() => selectedModel.value?.serviceTiers?.some(tier => tier.id === 'fast' || tier.id === 'priority'));
-// The provider icon names the driver; the instance label is needed only to tell two setups of one driver apart.
-const showInstanceLabel = computed(() => visibleInstances.value.filter(instance => instance.driver === selectedInstance.value?.driver).length > 1);
+const supportsFast = computed(() => selectedModel.value?.serviceTiers?.some(tier => tier.id === 'fast' || tier.id === 'priority') === true);
+const isFast = computed(() => supportsFast.value && props.selection?.speedMode === 'fast');
+const effortLabel = computed(() => selectedModel.value?.reasoningEfforts?.find(option => option.id === props.selection?.effort)?.label ?? '');
 const speeds = [
     {
         id: 'standard',
@@ -83,286 +64,196 @@ const speeds = [
         key: 'assistant.speedFast',
     },
 ] as const;
-const stateKeys = {
-    checking: 'assistant.stateChecking',
-    ready: 'assistant.stateReady',
-    warning: 'assistant.stateWarning',
-    error: 'assistant.stateError',
-    disabled: 'assistant.stateDisabled',
-    missing: 'assistant.stateMissing',
-} as const;
-const effortKeys: Readonly<Record<string, 'assistant.effort.none' | 'assistant.effort.minimal' | 'assistant.effort.low' | 'assistant.effort.medium' | 'assistant.effort.high' | 'assistant.effort.xhigh' | 'assistant.effort.max'>> = {
-    none: 'assistant.effort.none',
-    minimal: 'assistant.effort.minimal',
-    low: 'assistant.effort.low',
-    medium: 'assistant.effort.medium',
-    high: 'assistant.effort.high',
-    xhigh: 'assistant.effort.xhigh',
-    max: 'assistant.effort.max',
-};
-function effortName(effort: IAgentAssistantEffortOption) {
-    const key = effortKeys[effort.id];
-    return key ? t(key) : effort.label;
-}
-function isDefaultEffort(effort: IAgentAssistantEffortOption) {
-    return effort.isDefault === true || effort.id === selectedModel.value?.defaultReasoningEffort;
-}
-const selectionDescription = computed(() => [
+// The tooltip and screen readers name what the trigger abbreviates: instance, full model, effort and speed.
+const triggerDetail = computed(() => [
     selectedInstance.value?.label ?? t('assistant.selectInstance'),
     selectedModel.value?.label ?? props.selection?.model,
-    selectedEffort.value ? effortName(selectedEffort.value) : undefined,
-    t(props.selection?.speedMode === 'fast' ? 'assistant.speedFast' : 'assistant.speedStandard'),
+    effortLabel.value,
+    supportsFast.value ? t(isFast.value ? 'assistant.speedFast' : 'assistant.speedStandard') : '',
 ].filter(Boolean).join(' · '));
-function matchingModels(instance: IAssistantInstanceStatus) {
-    const query = search.value.trim().toLowerCase();
-    return query ? instance.models.filter(model => model.label.toLowerCase().includes(query)) : instance.models;
-}
-function isSelected(instance: IAssistantInstanceStatus, model: string) {
-    return props.selection?.instanceId === instance.id && props.selection.model === model;
-}
-async function selectModel(instance: IAssistantInstanceStatus, model: string) {
+
+// Picking a model keeps the picker open and moves to its levels, as in T3 Code's docked picker.
+function pickModel(instanceId: string, model: string) {
     const selection = resolveAssistantSelection({
-        instanceId: instance.id,
+        instanceId,
         model,
         effort: props.selection?.effort ?? '',
         speedMode: props.selection?.speedMode ?? 'standard',
     }, props.instances, null);
     if (!selection) return;
     emit('select', selection);
-    // Focus lands on the new model's effort levels, as in T3 Code's picker.
-    await nextTick();
-    effortColumn.value?.querySelector<HTMLElement>('[data-effort-row][tabindex="0"]')?.focus();
+    requestAnimationFrame(() => effortColumn.value?.focusLevel());
 }
-// Keyboard movement adapted from T3 Code ComposerModelEffort.tsx@0b6f482dc5 (MIT, T3 Tools Inc.).
-function moveBetweenRows(event: KeyboardEvent, container: HTMLElement) {
-    const rows = [...container.querySelectorAll<HTMLElement>('[data-picker-row]')];
-    const index = rows.findIndex(row => row === document.activeElement);
-    if (index < 0 && event.key === 'ArrowUp') return;
-    const radio = container.getAttribute('role') === 'radiogroup';
-    const destination = index + (event.key === 'ArrowDown' || event.key === 'ArrowRight' ? 1 : -1);
-    const next = rows[radio ? (destination + rows.length) % rows.length : Math.min(rows.length - 1, Math.max(0, destination))];
-    if (!next) return;
-    event.preventDefault();
-    next.focus();
-    if (radio) next.click();
-    next.scrollIntoView?.({ block: 'nearest' });
+
+function pickEffort(effort: string) {
+    if (props.selection) emit('select', {
+        ...props.selection,
+        effort,
+    });
 }
-function handleModelKeydown(event: KeyboardEvent) {
-    const container = event.currentTarget as HTMLElement;
-    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') moveBetweenRows(event, container);
-    else if (event.key === 'ArrowRight' && event.target !== searchInput.value?.inputRef) {
-        const effort = effortColumn.value?.querySelector<HTMLElement>('[data-effort-row][tabindex="0"]');
-        if (effort) {
-            event.preventDefault();
-            effort.focus();
-        }
-    }
-}
-function handleEffortKeydown(event: KeyboardEvent) {
-    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') moveBetweenRows(event, event.currentTarget as HTMLElement);
-    else if (event.key === 'ArrowLeft') {
-        event.preventDefault();
-        searchInput.value?.inputRef?.focus();
-    }
-}
+
+const speedControl = ref<HTMLElement | null>(null);
+const currentSpeed = computed(() => props.selection?.speedMode ?? 'standard');
+
+// One tab stop; the arrow keys move between and select the speeds.
 function handleSpeedKeydown(event: KeyboardEvent) {
-    if (['ArrowDown', 'ArrowUp', 'ArrowLeft', 'ArrowRight'].includes(event.key)) moveBetweenRows(event, event.currentTarget as HTMLElement);
+    const step = event.key === 'ArrowRight' || event.key === 'ArrowDown' ? 1 : event.key === 'ArrowLeft' || event.key === 'ArrowUp' ? -1 : 0;
+    if (!step || event.altKey || event.ctrlKey || event.metaKey) return;
+    event.preventDefault();
+    const index = speeds.findIndex(speed => speed.id === currentSpeed.value);
+    const next = speeds[(index + step + speeds.length) % speeds.length];
+    if (!next) return;
+    pickSpeed(next.id);
+    nextTick(() => speedControl.value?.querySelector<HTMLElement>('[aria-checked="true"]')?.focus());
+}
+
+function pickSpeed(speedMode: IAssistantSelection['speedMode']) {
+    if (props.selection) emit('select', {
+        ...props.selection,
+        speedMode,
+    });
 }
 defineExpose({ open: () => { open.value = true; } });
 </script>
 
 <style scoped>
 .picker-trigger {
+    display: flex;
     min-width: 0;
     max-width: 100%;
-    overflow: hidden;
+    align-items: center;
+    gap: var(--app-space-lg);
+    padding: var(--app-space-sm) var(--app-space-3xl);
+    border-radius: var(--app-radius-2xl);
+    color: var(--ui-text);
+    cursor: pointer;
+    font-size: var(--app-text-size-body);
 }
 
-.picker-trigger-instance,
-.picker-trigger-trait {
-    flex: 0 1 auto;
+.picker-trigger:hover,
+.picker-trigger[data-state='open'],
+.picker-trigger:focus-visible {
+    outline: none;
+    background: color-mix(in oklab, var(--ui-text) 8%, transparent);
+}
+
+.trigger-icon {
+    font-size: var(--app-text-size-title-sm);
+}
+
+.trigger-model {
     min-width: 0;
     overflow: hidden;
-    color: var(--ui-text-muted);
     text-overflow: ellipsis;
     white-space: nowrap;
 }
 
-.picker-trigger-model {
-    flex: 0 1 auto;
-    min-width: 2ch;
-    overflow: hidden;
-    color: var(--ui-text);
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
-.picker-trigger-instance {
-    flex-shrink: 2;
-}
-
-.picker-trigger-fast {
-    flex: 0 0 auto;
-    color: var(--ui-warning);
-}
-
-.provider-picker {
+.trigger-traits {
     display: flex;
-    flex-direction: column;
-    width: var(--app-assistant-picker-width);
-    max-width: min(var(--app-assistant-picker-max-width), calc(100vw - var(--app-space-16xl)));
-    max-height: var(--app-assistant-picker-max-height);
-    overflow: hidden;
-    container-type: inline-size;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: var(--app-space-lg);
+    color: var(--ui-text-muted);
 }
 
+.picker-trigger:hover .trigger-traits,
+.picker-trigger[data-state='open'] .trigger-traits {
+    color: var(--ui-text);
+}
+
+.trigger-fast {
+    width: var(--app-space-9xl);
+    height: var(--app-space-9xl);
+}
+
+.model-picker {
+    display: flex;
+    max-width: calc(100vw - var(--app-space-16xl));
+    max-height: var(--reka-popover-content-available-height, var(--app-assistant-picker-height));
+    flex-direction: column;
+    overflow: hidden;
+}
+
+/* One fixed height, so a model with more levels never resizes the popup (T3 Code). */
 .picker-body {
     display: flex;
-    flex: 1 1 auto;
+    height: var(--app-assistant-picker-height);
     min-height: 0;
-    overflow: hidden auto;
 }
 
-.picker-models {
+.picker-footer {
     display: flex;
-    flex: 1 1 auto;
-    flex-direction: column;
-    min-width: 0;
-    padding: var(--app-space-3xl);
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--app-space-3xl);
+    padding: var(--app-space-3xl) var(--app-space-9xl);
+    border-top: 1px solid var(--ui-border);
+    background: color-mix(in oklab, var(--ui-bg-muted) 40%, transparent);
 }
 
-.picker-search {
-    width: 100%;
-    margin-bottom: var(--app-space-lg);
-}
-
-.picker-model-list {
-    height: var(--app-assistant-picker-lane-height);
-    overflow: hidden auto;
-}
-
-.picker-efforts {
+.speed-control {
     display: flex;
-    flex: 0 0 var(--app-assistant-picker-effort-width);
-    flex-direction: column;
-    gap: var(--app-space-xs);
-    padding: var(--app-space-3xl);
-    overflow: hidden auto;
-    border-inline-start: 1px solid var(--ui-border);
-    background: var(--ui-bg-muted);
+    padding: var(--app-space-3xs);
+    border-radius: var(--app-radius-2xl);
+    background: color-mix(in oklab, var(--ui-bg-accented) 40%, transparent);
 }
 
-/* Narrow panels stack the effort column under the model lane (T3 Code's max-sm layout). */
-@container (width < 26rem) {
+.speed-segment {
+    display: flex;
+    height: var(--app-space-16xl);
+    align-items: center;
+    gap: var(--app-space-sm);
+    padding: 0 var(--app-space-3xl);
+    color: var(--ui-text-muted);
+    cursor: pointer;
+    font-size: var(--app-text-size-caption);
+}
+
+.speed-segment:first-child {
+    border-radius: var(--app-radius-md) 0 0 var(--app-radius-md);
+}
+
+.speed-segment:last-child {
+    border-radius: 0 var(--app-radius-md) var(--app-radius-md) 0;
+}
+
+.speed-segment:hover {
+    color: var(--ui-text);
+}
+
+.speed-segment[aria-checked='true'] {
+    background: color-mix(in oklab, var(--ui-bg-accented) 72%, transparent);
+    color: var(--ui-text);
+}
+
+.speed-icon {
+    width: var(--app-space-9xl);
+    height: var(--app-space-9xl);
+}
+
+/* A phone-width window stacks the levels under the list, as T3 Code does. */
+@media (width < 40rem) {
     .picker-body {
+        height: auto;
+        flex: 1 1 auto;
         flex-direction: column;
     }
 
-    .picker-model-list {
-        height: auto;
-        max-height: var(--app-assistant-picker-lane-height);
+    /* Both halves give way to a short window; their rows keep scrolling. */
+    .picker-body > :first-child {
+        width: 100%;
+        height: var(--app-assistant-picker-stacked-list-height);
+        min-height: 0;
+        flex: 0 1 auto;
     }
 
-    .picker-efforts {
-        flex-basis: auto;
-        border-block-start: 1px solid var(--ui-border);
-        border-inline-start: 0;
+    .picker-body > :last-child {
+        width: 100%;
+        height: var(--app-assistant-picker-stacked-effort-height);
+        min-height: 0;
+        flex: 0 1 auto;
+        border-top: 1px solid var(--ui-border);
+        border-left: 0;
     }
-}
-
-.picker-group + .picker-group {
-    margin-top: var(--app-space-lg);
-}
-
-.picker-column-label {
-    display: flex;
-    align-items: center;
-    gap: var(--app-space-lg);
-    padding: var(--app-space-lg) var(--app-space-lg) var(--app-space-sm);
-    color: var(--ui-text-muted);
-    font-size: var(--app-text-size-kicker);
-    font-weight: var(--app-font-weight-medium);
-}
-
-.picker-status {
-    margin: 0;
-    padding: 0 var(--app-space-lg) var(--app-space-sm);
-    color: var(--ui-text-muted);
-    font-size: var(--app-text-size-kicker);
-    white-space: pre-wrap;
-    overflow-wrap: anywhere;
-    user-select: text;
-}
-
-.picker-row {
-    display: flex;
-    align-items: center;
-    gap: var(--app-space-3xl);
-    width: 100%;
-    min-height: var(--app-space-16xl);
-    padding: var(--app-space-sm) var(--app-space-lg);
-    border-radius: var(--app-radius-md);
-    color: var(--ui-text);
-    font-size: var(--app-text-size-body-sm);
-    text-align: start;
-    cursor: pointer;
-    outline: none;
-}
-
-.picker-row:hover,
-.picker-row:focus-visible {
-    background: var(--ui-bg-accented);
-}
-
-.picker-row[aria-pressed='true'],
-.picker-row[aria-checked='true'] {
-    font-weight: var(--app-font-weight-medium);
-}
-
-.picker-row-label {
-    flex: 1 1 auto;
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
-.picker-row-note {
-    color: var(--ui-text-dimmed);
-    font-size: var(--app-text-size-micro);
-}
-
-.picker-speed {
-    display: flex;
-    flex-shrink: 0;
-    gap: var(--app-space-xs);
-    margin: 0 var(--app-space-3xl) var(--app-space-3xl);
-    padding: var(--app-space-xs);
-    border-radius: var(--app-radius-xl);
-    background: var(--ui-bg-muted);
-}
-
-.picker-speed-option {
-    display: flex;
-    flex: 1 1 0;
-    align-items: center;
-    justify-content: center;
-    gap: var(--app-space-sm);
-    min-height: var(--app-space-16xl);
-    border-radius: var(--app-radius-md);
-    color: var(--ui-text-muted);
-    font-size: var(--app-text-size-kicker);
-    cursor: pointer;
-}
-
-.picker-speed-option[aria-checked='true'] {
-    background: var(--ui-bg-elevated);
-    color: var(--ui-text);
-    box-shadow: inset 0 0 0 1px var(--ui-border);
-}
-
-.picker-speed-option:focus-visible {
-    outline: 2px solid var(--ui-primary);
-    outline-offset: 1px;
 }
 </style>

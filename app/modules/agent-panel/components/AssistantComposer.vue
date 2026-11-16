@@ -1,5 +1,5 @@
 <template>
-    <form ref="composer" class="assistant-composer" @submit.prevent="emit('submit')">
+    <form class="assistant-composer" @submit.prevent="emit('submit')">
         <div v-if="images.length" class="composer-images" :aria-label="t('assistant.imageAttachments')">
             <div v-for="image in images" :key="image.id" class="composer-image">
                 <button type="button" :aria-label="t('assistant.previewImage', { name: image.name })" @click="emit('preview', images, image.id)"><img :src="getAssistantImagePreviewUrl(image)" :alt="image.name"></button>
@@ -9,7 +9,7 @@
         <textarea ref="input" :value="modelValue" :aria-label="t('assistant.documentPlaceholder')" :placeholder="t(hasDocument ? 'assistant.documentPlaceholder' : 'assistant.workspacePlaceholder')" rows="3" :class="{ 'is-scrollable': scrollable }" class="composer-input app-scrollbar" @input="emit('update:modelValue', ($event.target as HTMLTextAreaElement).value)" @keydown="handleKeydown" @paste="emit('paste', $event)" />
         <p v-if="error" class="composer-error" role="alert">{{ error }}</p>
         <div class="composer-footer">
-            <AssistantProviderModelPicker ref="picker" :width="composerWidth" :instances="instances" :selection="selection" @select="emit('select', $event)" />
+            <AssistantProviderModelPicker ref="picker" :instances="instances" :selection="selection" @select="emit('select', $event)" />
             <AppTooltip :text="showStop ? t('assistant.stop') : sendDisabledReason || t(running ? 'assistant.sendSteer' : 'assistant.send')">
                 <UButton class="composer-send" :aria-label="showStop ? t('assistant.stop') : sendDisabledReason || t(running ? 'assistant.sendSteer' : 'assistant.send')" :icon="showStop ? 'i-ph-stop' : 'i-ph-arrow-up'" :color="showStop ? 'error' : 'primary'" :disabled="showStop ? interrupting : Boolean(sendDisabledReason)" :loading="showStop && interrupting" type="button" @click="showStop ? emit('interrupt') : emit('submit')" />
             </AppTooltip>
@@ -19,7 +19,7 @@
 
 <script setup lang="ts">
 import {
-    useElementSize, useTextareaAutosize,
+    useTextareaAutosize,
 } from '@vueuse/core';
 import type {
     IAssistantInstanceStatus, IAssistantSelection,
@@ -50,8 +50,6 @@ const emit = defineEmits<{
     select: [selection: IAssistantSelection];
 }>();
 const { t } = useTypedI18n();
-const composer = ref<HTMLFormElement | null>(null);
-const { width: composerWidth } = useElementSize(composer);
 // The prompt grows with its text and scrolls only once it reaches its maximum height.
 const scrollable = ref(false);
 const { textarea: input } = useTextareaAutosize({

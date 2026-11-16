@@ -34,7 +34,7 @@ describe('agent assistant model catalog', () => {
             {model: 'gpt-6-sol'}, {id: 'gpt-6-sol', displayName: 'Duplicate'},
             {model: 'gpt-6.1-sol', hidden: true}, {model: '   '}, null,
             {id: 'custom', displayName: 'Custom model'},
-        ]})).toEqual([{id: 'gpt-6-sol', label: 'gpt-6-sol'}, {id: 'custom', label: 'Custom model'}]);
+        ]})).toEqual([{id: 'gpt-6-sol', label: 'gpt-6-sol', isLegacy: true}, {id: 'custom', label: 'Custom model'}]);
         expect(normalizeCodexModelListResponse({data: 'bad'})).toBeNull();
     });
 

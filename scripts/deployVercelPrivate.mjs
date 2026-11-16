@@ -343,10 +343,33 @@ export function buildPrivateDeployArgs(sourceRoot, rawArgs = [], {
 // package.json, so the deployed commit names its own version: the newest
 // release tag, plus the commit when the deploy is past that tag. The About page
 // and the Sentry release read it (EVB_APP_VERSION in nuxt.config.ts).
+// release:cut pushes its tag without creating it in any checkout, so read the
+// release tags from origin first; otherwise a deploy of a just-cut release
+// silently names the previous version.
 export function resolveViewerAppVersion(projectRoot) {
+    const git = args => String(execFileSync('git', args, {
+        cwd: projectRoot,
+        encoding: 'utf8',
+        stdio: [
+            'ignore',
+            'pipe',
+            'pipe',
+        ],
+    })).trim();
+    try {
+        git([
+            'fetch',
+            '--quiet',
+            '--no-tags',
+            'origin',
+            'refs/tags/v*:refs/tags/v*',
+        ]);
+    } catch (error) {
+        throw new Error('Cannot name the viewer version: fetching release tags from origin failed.', {cause: error});
+    }
     let description;
     try {
-        description = execFileSync('git', [
+        description = git([
             'describe',
             '--tags',
             '--match',
@@ -357,17 +380,9 @@ export function resolveViewerAppVersion(projectRoot) {
             '--long',
             '--abbrev=12',
             'HEAD',
-        ], {
-            cwd: projectRoot,
-            encoding: 'utf8',
-            stdio: [
-                'ignore',
-                'pipe',
-                'pipe',
-            ],
-        }).trim();
+        ]);
     } catch (error) {
-        throw new Error('Cannot name the viewer version: no release tag reaches HEAD. Fetch tags and retry.', {cause: error});
+        throw new Error('Cannot name the viewer version: no release tag reaches HEAD.', {cause: error});
     }
     const parts = description.match(/^v(?<version>\d+\.\d+\.\d+)-(?<commitsSinceTag>\d+)-g(?<commit>[0-9a-f]+)$/u)?.groups;
     if (!parts) {

@@ -6,7 +6,7 @@ import {
     chmod, mkdtemp, mkdir, readFile, readdir, readlink, rm, writeFile,
 } from 'node:fs/promises';
 import {homedir, tmpdir} from 'node:os';
-import {join} from 'node:path';
+import {delimiter, join, sep} from 'node:path';
 import type {IAssistantInstanceConfig} from '@contracts/assistant';
 
 const state = vi.hoisted(() => ({
@@ -399,6 +399,31 @@ describe('local assistant setups', () => {
         await save();
         expect((await instances.resolveAssistantLaunchContext('codex', {codex: async () => null, claude: async () => null})).binaryPath).toBeNull();
     });
+    it('names a second plain launcher by its folder, whatever the case of its name', async () => {
+        const {discoverAssistantLocalSetups} = await vi.importActual<typeof import('@electron/features/agent/assistantLocalSetups')>('@electron/features/agent/assistantLocalSetups');
+        async function launcher(directory: string, name: string) {
+            await mkdir(directory, {recursive: true});
+            const path = join(directory, process.platform === 'win32' ? `${name}.cmd` : name);
+            if (process.platform === 'win32') {
+                await writeFile(path, '@echo off');
+                await writeFile(path.replace(/\.cmd$/u, '.ps1'), "Write-Output 'codex-cli 0.169.0'");
+            } else {
+                await writeFile(path, "#!/bin/sh\nprintf '%s\\n' 'codex-cli 0.169.0'\n");
+                await chmod(path, 0o700);
+            }
+            return path;
+        }
+        const first = await launcher(join(state.root, 'bin'), 'codex');
+        // A second install, named as Windows writes it: Codex.exe is the plain launcher.
+        const second = await launcher(join(state.root, 'other-bin'), 'Codex');
+        const env = {...process.env, PATH: [join(state.root, 'bin'), join(state.root, 'other-bin')].join(delimiter), HOME: state.root, USERPROFILE: state.root, CODEX_CLI_PATH: first};
+        const extra = (await discoverAssistantLocalSetups(env)).find(config => config.binaryPath === second);
+        expect(extra).toMatchObject({
+            displayName: `Codex (~${sep}other-bin)`,
+            homePath: join(state.root, '.codex'),
+        });
+    });
+
     it('discovers independently named wrappers and preserves each executable and inherited environment', async () => {
         const {discoverAssistantLocalSetups} = await vi.importActual<typeof import('@electron/features/agent/assistantLocalSetups')>('@electron/features/agent/assistantLocalSetups');
         const bin = join(state.root, 'bin');

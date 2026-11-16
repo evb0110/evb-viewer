@@ -54,7 +54,9 @@ const {
 // Presets render once, as icon chips, in the empty state and above the composer alike.
 const [DefinePresets, ReusePresets] = createReusableTemplate();
 const composer = ref<{ openPicker: () => void } | null>(null);
-const panelStyle = computed(() => ({ '--assistant-panel-width': props.width ? `${props.width}px` : undefined }));
+const panelStyle = computed(() => ({
+    '--assistant-panel-width': props.width ? `${props.width}px` : undefined,
+}));
 </script>
 
 <style scoped>
