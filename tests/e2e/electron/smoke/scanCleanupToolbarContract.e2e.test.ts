@@ -32,15 +32,21 @@ import {
 } from '@tests/helpers/renderPdfCanvasFidelityMetrics';
 import {waitForFunctionInPage} from '@tests/e2e/electron/helpers/pageRuntime';
 import {
+    installCommittedSurfaceSampler,
+    stopCommittedSurfaceSampler,
+} from '@tests/e2e/electron/helpers/viewerCommittedSurfaceContract';
+import {
     clickVisibleToolbarButton,
     dismissScanCleanupFirstRunGuidance,
     openPdfInApp,
+    setTabMemoryPolicyForE2E,
     waitForPdfLoaded,
     waitForViewerInteractive,
 } from '@tests/e2e/electron/helpers/viewerCore';
 import {
     type IWorkspaceExposeProbeWindow,
     readWorkspaceStateValues,
+    waitForWorkspaceToolbarIdle,
 } from '@tests/e2e/electron/helpers/workspaceExpose';
 import {
     SCAN_CLEANUP_RUN_METER_SELECTOR,
@@ -457,23 +463,28 @@ describe('scan cleanup completion Save As', () => {
             initialOpenPaths: [sourcePath],
             extraEnv: {EVB_E2E_SAVE_DIALOG_PATH: savedPath},
         });
-        const {page} = session;
-        await waitForPdfLoaded(page, 90_000);
-        await waitForViewerInteractive(page, 90_000);
-        await clickVisibleToolbarButton(page, 'Scan cleanup');
-        await page.waitForSelector('.scan-cleanup-surface', {
-            timeout: 10_000,
-            visible: true,
-        });
-        await waitForFunctionInPage(page, (primaryActionSelector: string) => {
-            const action = document.querySelector<HTMLButtonElement>(primaryActionSelector);
-            return action?.disabled === false && (action.textContent ?? '').includes('Clean up');
-        }, {timeout: 120_000}, SCAN_CLEANUP_TOOLBAR_PRIMARY_ACTION_SELECTOR);
-        await clickAsUser(page, SCAN_CLEANUP_TOOLBAR_PRIMARY_ACTION_SELECTOR);
-        await waitForFunctionInPage(page, () => Array.from(
-            document.querySelectorAll<HTMLElement>('[data-slot="title"]'),
-        ).some(title => (title.textContent ?? '').trim() === 'Scan cleanup complete'), {timeout: 180_000});
-        return session;
+        try {
+            const {page} = session;
+            await waitForPdfLoaded(page, 90_000);
+            await waitForViewerInteractive(page, 90_000);
+            await clickVisibleToolbarButton(page, 'Scan cleanup');
+            await page.waitForSelector('.scan-cleanup-surface', {
+                timeout: 10_000,
+                visible: true,
+            });
+            await waitForFunctionInPage(page, (primaryActionSelector: string) => {
+                const action = document.querySelector<HTMLButtonElement>(primaryActionSelector);
+                return action?.disabled === false && (action.textContent ?? '').includes('Clean up');
+            }, {timeout: 120_000}, SCAN_CLEANUP_TOOLBAR_PRIMARY_ACTION_SELECTOR);
+            await clickAsUser(page, SCAN_CLEANUP_TOOLBAR_PRIMARY_ACTION_SELECTOR);
+            await waitForFunctionInPage(page, () => Array.from(
+                document.querySelectorAll<HTMLElement>('[data-slot="title"]'),
+            ).some(title => (title.textContent ?? '').trim() === 'Scan cleanup complete'), {timeout: 180_000});
+            return session;
+        } catch (error) {
+            await session.stop({preserveArtifacts: true});
+            throw error;
+        }
     };
     const clickToastSaveAs = (page: Page) => clickFoundAsUser(page, () => Array.from(
         document.querySelectorAll<HTMLButtonElement>('button'),
@@ -560,26 +571,72 @@ describe('scan cleanup completion Save As', () => {
     }, 600_000);
 
     it('saves the cleaned output, not the tab that is active when the toast is clicked', async () => {
-        const scratch = await mkdtemp(join(tmpdir(), 'scan-cleanup-save-as-'));
-        const savedPath = join(scratch, 'saved-from-toast.pdf');
-        const sourcePath = await createLargeScannedFixturePdf('scan-cleanup-save-as-source.pdf', 6, 0);
-        const sourceSha = createHash('sha256').update(readFileSync(sourcePath)).digest('hex');
-        const session = await startCleanupSession(savedPath, sourcePath);
-        try {
-            const outputPath = (await readWorkspaceStateValues(session.page, ['originalPath'])).originalPath;
-            if (typeof outputPath !== 'string' || !outputPath.endsWith('— cleaned.pdf')) {
-                throw new Error(`The cleanup output is not the active document: ${String(outputPath)}`);
+        // This case owns a configured session; release the file's shared one first.
+        await sessionFixture.stop();
+        for (const leaveDuringSave of [false, true]) {
+            const scratch = await mkdtemp(join(tmpdir(), 'scan-cleanup-save-as-'));
+            const savedPath = join(scratch, 'saved-from-toast.pdf');
+            const sourcePath = await createLargeScannedFixturePdf('scan-cleanup-save-as-source.pdf', 6, 0);
+            const sourceSha = createHash('sha256').update(readFileSync(sourcePath)).digest('hex');
+            let session: Awaited<ReturnType<typeof startCleanupSession>> | undefined;
+            try {
+                session = await startCleanupSession(savedPath, sourcePath);
+                await setTabMemoryPolicyForE2E(session.page, 'aggressive');
+                const outputPath = (await readWorkspaceStateValues(session.page, ['originalPath'])).originalPath;
+                if (typeof outputPath !== 'string' || !outputPath.endsWith('— cleaned.pdf')) {
+                    throw new Error(`The cleanup output is not the active document: ${String(outputPath)}`);
+                }
+                // Observe uninterrupted Save As from the painted output. The
+                // other variant retains the toast action from a different tab.
+                if (leaveDuringSave) await activateWorkspaceTab(session, 0);
+                else await waitForPdfLoaded(session.page, 30_000);
+                const settlementErrors: string[] = [];
+                session.page.on('console', message => {
+                    if (/recovery settlement failed|Recovery protection is unavailable/u.test(message.text())) {
+                        settlementErrors.push(message.text());
+                    }
+                });
+                // The continuous oracle starts after the output paints; the
+                // navigation variant also records its intentional tab changes.
+                await installCommittedSurfaceSampler(session.page, {sampleCanvasPixels: true});
+                await clickToastSaveAs(session.page);
+                if (leaveDuringSave) {
+                    await waitForFunctionInPage(session.page, () => document.querySelector('.tab.is-active')
+                        ?.textContent?.includes('saved-from-toast.pdf') === true, {timeout: 30_000});
+                    await activateWorkspaceTab(session, 0);
+                    // Under the aggressive policy the inactive view unmounts. Wait
+                    // until its document host also leaves after the save settles,
+                    // so returning cannot hide a late settlement error by remounting.
+                    await waitForFunctionInPage(session.page, () => document.querySelectorAll('.workspace-host').length === 1
+                        && document.querySelectorAll('.document-session-host').length === 1, {timeout: 30_000});
+                    await activateWorkspaceTab(session, 1);
+                }
+                await expect.poll(() => existsSync(savedPath), {timeout: 60_000}).toBe(true);
+                expect(createHash('sha256').update(readFileSync(savedPath)).digest('hex')).not.toBe(sourceSha);
+                await waitForPdfLoaded(session.page, 30_000);
+                await waitForViewerInteractive(session.page, 30_000);
+                await waitForWorkspaceToolbarIdle(session.page);
+                const trace = await stopCommittedSurfaceSampler(session.page);
+                const blankFrames = trace.frames.filter(frame => frame.kind === 'blank').map(frame => frame.elapsedMs);
+                const recoveryWarning = await session.page.evaluate(() => /PDF saved, but recovery could not be updated|Latest edits are not protected/u.test(document.body.innerText));
+                const painted = trace.frames.at(-1)?.canvasAuthorityReady === true
+                    && trace.frames.at(-1)?.canvasNonblank === true;
+                console.log('Cleanup output Save As transition:', JSON.stringify({leaveDuringSave, settlementErrors, blankFrames, recoveryWarning, painted}));
+                expect.soft(settlementErrors, 'Saving a cleaned output must also settle its recovery state').toEqual([]);
+                expect.soft(recoveryWarning, 'Save As must not leave a recovery warning').toBe(false);
+                expect.soft(painted, 'The saved output must paint when selected again').toBe(true);
+                expect(await readPdfPageSnapshots(savedPath), 'The published PDF must load with all six output pages').toHaveLength(6);
+                if (!leaveDuringSave) {
+                    expect.soft(blankFrames, 'Save As must keep the cleaned page visible throughout publication').toEqual([]);
+                }
+            } finally {
+                await session?.stop({preserveArtifacts: true});
+                await rm(sourcePath, {force: true});
+                await rm(scratch, {
+                    recursive: true,
+                    force: true,
+                });
             }
-            await activateWorkspaceTab(session, 0);
-            await clickToastSaveAs(session.page);
-            await expect.poll(() => existsSync(savedPath), {timeout: 60_000}).toBe(true);
-            expect(createHash('sha256').update(readFileSync(savedPath)).digest('hex')).not.toBe(sourceSha);
-        } finally {
-            await session.stop();
-            await rm(scratch, {
-                recursive: true,
-                force: true,
-            });
         }
     }, 600_000);
 });
