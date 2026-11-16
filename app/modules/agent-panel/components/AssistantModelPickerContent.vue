@@ -21,24 +21,25 @@
             </div>
             <div :id="listId" ref="list" class="picker-list app-scrollbar" role="listbox" :aria-label="t('assistant.searchModels')">
                 <template v-for="(row, index) in rows" :key="row.key">
+                    <!-- The star is a separate control, so it sits beside the option rather than inside it. -->
                     <div
                         v-if="row.kind === 'model'"
-                        :id="optionId(row.key)"
                         class="picker-row"
-                        role="option"
-                        :aria-selected="row.key === activeKey"
+                        role="presentation"
                         :data-highlighted="row.key === highlighted || undefined"
                         @pointermove="highlighted = row.key"
                         @click="pick(row.item)"
                     >
-                        <AssistantProviderIcon class="row-icon" :provider="row.item.instance.driver" :badge="instanceBadge(row.item.instance, instances)" />
-                        <span class="row-name" :title="row.item.model.label">{{ row.item.model.label }}<span class="sr-only">, {{ row.item.instance.label }}</span></span>
-                        <UIcon v-if="row.key === activeKey" name="i-ph-check" class="row-check" />
+                        <div :id="optionId(row.key)" class="row-option" role="option" :aria-selected="row.key === activeKey">
+                            <AssistantProviderIcon class="row-icon" :provider="row.item.instance.driver" :badge="instanceBadge(row.item.instance, instances)" />
+                            <span class="row-name" :title="row.item.model.label">{{ row.item.model.label }}<span class="sr-only">, {{ row.item.instance.label }}</span></span>
+                            <UIcon v-if="row.key === activeKey" name="i-ph-check" class="row-check" />
+                        </div>
                         <span class="row-trailing">
-                            <button type="button" class="row-star" :class="{ 'is-favorite': row.item.isFavorite, 'on-hover': tab === 'favorites' && !isSearching }" :aria-label="t(row.item.isFavorite ? 'assistant.removeFavorite' : 'assistant.addFavorite')" @keydown.stop @click.stop="toggleFavorite(row.item.instance.id, row.item.model.id)">
+                            <button type="button" class="row-star" :class="{ 'is-favorite': row.item.isFavorite, 'on-hover': tab === 'favorites' && !isSearching }" :aria-label="`${t(row.item.isFavorite ? 'assistant.removeFavorite' : 'assistant.addFavorite')}: ${row.item.model.label}`" :aria-pressed="row.item.isFavorite" @keydown.stop @click.stop="toggleFavorite(row.item.instance.id, row.item.model.id)">
                                 <UIcon :name="row.item.isFavorite ? 'i-ph-star-fill' : 'i-ph-star'" />
                             </button>
-                            <kbd v-if="jumpLabels.get(row.key)" class="row-kbd">{{ jumpLabels.get(row.key) }}</kbd>
+                            <kbd v-if="jumpLabels.get(row.key)" class="row-kbd" aria-hidden="true">{{ jumpLabels.get(row.key) }}</kbd>
                         </span>
                     </div>
                     <div
@@ -455,6 +456,14 @@ defineExpose({ focusSearch });
 
 .picker-row.is-more[data-highlighted] {
     color: var(--ui-text);
+}
+
+.row-option {
+    display: flex;
+    min-width: 0;
+    flex: 1 1 auto;
+    align-items: center;
+    gap: var(--app-space-3xl);
 }
 
 .row-icon {

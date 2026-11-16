@@ -12,6 +12,7 @@
                 role="radio"
                 class="effort-row"
                 data-effort-level
+                :data-effort-id="option.id"
                 :aria-checked="option.id === effort"
                 :tabindex="(shown ? option.id === effort : index === 0) ? 0 : -1"
                 :title="option.description"
@@ -65,8 +66,11 @@ function handleKeydown(event: KeyboardEvent) {
     const index = rows.findIndex(row => row === document.activeElement);
     const next = rows[Math.min(rows.length - 1, Math.max(0, index + (event.key === 'ArrowDown' ? 1 : -1)))];
     event.preventDefault();
-    next?.focus();
-    next?.scrollIntoView({ block: 'nearest' });
+    if (!next) return;
+    next.focus();
+    next.scrollIntoView({ block: 'nearest' });
+    // A radio group selects the level the arrow moves to.
+    if (next.dataset.effortId && next.dataset.effortId !== props.effort) emit('pick', next.dataset.effortId);
 }
 
 defineExpose({ focusLevel });

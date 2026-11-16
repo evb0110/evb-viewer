@@ -16,8 +16,8 @@
                         <AssistantModelEffortColumn ref="effortColumn" :model="selectedModel" :model-label="selectedModel?.shortLabel ?? selectedModel?.label ?? ''" :effort="selection?.effort ?? ''" @pick="pickEffort" @back="content?.focusSearch()" />
                     </div>
                     <div v-if="supportsFast" class="picker-footer">
-                        <div class="speed-control" role="radiogroup" :aria-label="t('assistant.speedMode')">
-                            <button v-for="speed in speeds" :key="speed.id" type="button" role="radio" class="speed-segment" :aria-checked="(selection?.speedMode ?? 'standard') === speed.id" @click="pickSpeed(speed.id)">
+                        <div ref="speedControl" class="speed-control" role="radiogroup" :aria-label="t('assistant.speedMode')" @keydown="handleSpeedKeydown">
+                            <button v-for="speed in speeds" :key="speed.id" type="button" role="radio" class="speed-segment" :aria-checked="currentSpeed === speed.id" :tabindex="currentSpeed === speed.id ? 0 : -1" @click="pickSpeed(speed.id)">
                                 <UIcon v-if="speed.id === 'fast'" name="i-ph-lightning-fill" class="speed-icon" />
                                 {{ t(speed.key) }}
                             </button>
@@ -90,6 +90,21 @@ function pickEffort(effort: string) {
         ...props.selection,
         effort,
     });
+}
+
+const speedControl = ref<HTMLElement | null>(null);
+const currentSpeed = computed(() => props.selection?.speedMode ?? 'standard');
+
+// One tab stop; the arrow keys move between and select the speeds.
+function handleSpeedKeydown(event: KeyboardEvent) {
+    const step = event.key === 'ArrowRight' || event.key === 'ArrowDown' ? 1 : event.key === 'ArrowLeft' || event.key === 'ArrowUp' ? -1 : 0;
+    if (!step || event.altKey || event.ctrlKey || event.metaKey) return;
+    event.preventDefault();
+    const index = speeds.findIndex(speed => speed.id === currentSpeed.value);
+    const next = speeds[(index + step + speeds.length) % speeds.length];
+    if (!next) return;
+    pickSpeed(next.id);
+    nextTick(() => speedControl.value?.querySelector<HTMLElement>('[aria-checked="true"]')?.focus());
 }
 
 function pickSpeed(speedMode: IAssistantSelection['speedMode']) {

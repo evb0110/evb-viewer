@@ -133,7 +133,9 @@ export async function discoverAssistantLocalSetups(env: NodeJS.ProcessEnv = proc
     const identified = await Promise.all([...candidates].map(async ([binaryPath, driver]) => {
         if (!await identifyAssistantExecutable(driver, binaryPath, env).catch(() => null)) return null;
         const name = basename(binaryPath).replace(/\.(?:exe|cmd|bat)$/iu, '');
-        const homePath = name === driver ? join(env.HOME || env.USERPROFILE || homedir(), `.${driver}`) : undefined;
+        // Windows names are case-insensitive: `Codex.exe` is the plain `codex` launcher.
+        const isPlain = name.toLowerCase() === driver;
+        const homePath = isPlain ? join(env.HOME || env.USERPROFILE || homedir(), `.${driver}`) : undefined;
         const identity = assistantSetupIdentity({driver, binaryPath, homePath});
         if (identities.has(identity)) return null;
         identities.add(identity);
@@ -141,7 +143,7 @@ export async function discoverAssistantLocalSetups(env: NodeJS.ProcessEnv = proc
             id: `local-${driver}-${createHash('sha256').update(identity).digest('hex').slice(0, 16)}`,
             driver,
             // A second `codex` or `claude` differs from the default setup only by its folder.
-            displayName: name === driver ? `${name} (${tildePath(dirname(binaryPath), env)})` : name,
+            displayName: isPlain ? `${name} (${tildePath(dirname(binaryPath), env)})` : name,
             enabled: true,
             binaryPath,
             ...(homePath ? {homePath} : {}),
