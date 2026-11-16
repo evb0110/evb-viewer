@@ -71,6 +71,7 @@ describe('Electron E2E - assistant model discovery', () => {
         await activateMenuItemAsUser(page, {accelerator: 'CmdOrCtrl+V'});
         await page.waitForSelector('.composer-image img');
         await page.keyboard.type('Explain this image.');
+        await page.waitForSelector('.composer-send:not(:disabled)', {visible: true});
         await page.keyboard.press('Enter');
         await page.waitForFunction(() => document.querySelector('.assistant-message:not(.is-user)')?.textContent?.includes('Image received.'));
         expect(await page.$eval('.assistant-timeline', element => element.textContent)).toContain('Explain this image.');
@@ -87,6 +88,7 @@ describe('Electron E2E - assistant model discovery', () => {
     it('projects live tool activity and restores its conversation after eviction and restart', async () => {
         let page = await openAssistantDocument();
         await page.keyboard.type('AP-B02 tool activity');
+        await page.waitForSelector('.composer-send:not(:disabled)', {visible: true});
         await page.keyboard.press('Enter');
         // Both tool calls show as live work rows of the running turn.
         await page.waitForFunction(() => {
@@ -126,6 +128,7 @@ describe('Electron E2E - assistant model discovery', () => {
     it('preserves every table-like line inside assistant fenced code', async () => {
         const page = await openAssistantDocument();
         await page.keyboard.type('AP-B01 fenced table');
+        await page.waitForSelector('.composer-send:not(:disabled)', {visible: true});
         await page.keyboard.press('Enter');
         const message = '.assistant-message:not(.is-user):last-of-type';
         await page.waitForFunction(selector => document.querySelector(selector)?.textContent?.includes('After'), {}, message);
