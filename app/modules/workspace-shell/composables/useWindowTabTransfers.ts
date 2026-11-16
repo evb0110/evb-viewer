@@ -84,7 +84,7 @@ interface IUseWindowTabTransfersOptions {
         finish: (tabId: string) => void;
     };
     handleCloseTab: (paneId: string, tabId: string) => Promise<void>;
-    handoffActiveTabBeforeClose: (paneId: string, tabId: string) => Promise<void>;
+    handoffActiveTabBeforeClose: (paneId: string, tabId: string) => void;
 }
 
 const DEFAULT_CAPTURE_TIMEOUT_MS = 4000;
@@ -302,15 +302,14 @@ export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) =>
         const capturePromise = (async (): Promise<IPreparedTransferItem | null> => {
             ownership.assertCurrent();
             const view = session?.getView(tabId);
-            if (!view?.mountedWorkspace.value) {
+            if (!view) return null;
+            if (!view.mountedWorkspace.value) {
                 const pane = options.getPaneByTabId(tabId);
-                if (!pane || !view) return null;
+                if (!pane) return null;
                 options.activatePane(pane.paneId);
                 options.activateTab(pane.paneId, tabId);
-                await nextTick();
-                ownership.assertCurrent();
             }
-            const workspace = await view?.whenMounted() ?? null;
+            const workspace = await view.whenMounted();
             ownership.assertCurrent();
             if (getDocumentSession(tabId) !== session) return null;
             if (!workspace) {
@@ -471,9 +470,8 @@ export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) =>
             await rememberReadingView(session, tabId);
             const ownsSelection = options.activePaneId.value === paneId
                 && options.getPaneById(paneId)?.activeTabId === tabId;
-            const handoff = options.handoffActiveTabBeforeClose(paneId, tabId);
+            options.handoffActiveTabBeforeClose(paneId, tabId);
             if (ownsSelection) onSelectionHandoff();
-            await handoff;
             if (!ownsSource()) return 'failed';
             if (session && tabHoldsDocument(tabId) && session.views.value.size <= 1) {
                 try {
@@ -600,8 +598,8 @@ export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) =>
                     return result;
                 }
                 result = await transferPreparedTabToTarget(item, target, ownership, () => {
-                    // The handoff selects synchronously before its next tick.
-                    // Capture that selection before later user input can run.
+                    // The handoff selects synchronously. Capture that
+                    // selection before later user input can run.
                     handoffPaneId = options.activePaneId.value;
                     handoffTabId = options.getPaneById(handoffPaneId)?.activeTabId ?? null;
                 });
