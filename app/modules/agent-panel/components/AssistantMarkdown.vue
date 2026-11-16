@@ -60,7 +60,7 @@ function renderInline(list: Token[] | undefined): VNodeChild[] {
             }
             case 'image': return token.text;
             case 'html': return token.raw;
-            case 'text': return token.tokens ? renderInline(token.tokens) : decodeHTMLStrict(token.text);
+            case 'text': return token.tokens ? renderInline(token.tokens) : token.escaped ? token.text : decodeHTMLStrict(token.text);
             default: return 'text' in token && typeof token.text === 'string' ? token.text : token.raw;
         }
     });

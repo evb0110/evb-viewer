@@ -115,6 +115,7 @@ describe('Electron E2E - assistant model discovery', () => {
         await page.waitForFunction(() => document.querySelector('.assistant-message:not(.is-user):last-of-type')?.textContent?.includes('Local tool fixture finished.'));
         const formatted = '.assistant-message:not(.is-user):has(a)';
         expect.soft(await page.$eval(formatted, element => element.textContent), 'Markdown references decode once outside code').toContain('Character references: A & B © 😀 &copy;. Search and &amp;.');
+        expect.soft(await page.$eval(formatted, element => element.textContent), 'Raw inline HTML keeps its references literal').toContain('Literal HTML: <code>&amp;&amp;copy;</code>.');
         expect.soft(await page.$eval(formatted + ' a', link => link.getAttribute('href')), 'Link references preserve query parameters').toBe('https://example.com/?a=1&b=2');
         const timeline = await page.$('.assistant-timeline');
         const bounds = await timeline?.boundingBox();
@@ -142,6 +143,9 @@ describe('Electron E2E - assistant model discovery', () => {
         await waitForPdfLoaded(page);
         await clickAsUser(page, 'button[aria-label="Toggle EVB Assistant"]');
         await page.waitForSelector('.work-summary');
+        await page.waitForSelector('.provider-banner.is-checking', {hidden: true});
+        const restoredResume = await page.$('.scroll-to-end');
+        if (restoredResume) await clickAsUser(page, restoredResume);
         await page.waitForSelector('.scroll-to-end', {hidden: true});
         const disclosureTop = await page.$eval('.work-summary', summary => summary.getBoundingClientRect().top);
         await clickAsUser(page, '.work-summary');
