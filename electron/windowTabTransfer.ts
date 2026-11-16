@@ -17,6 +17,11 @@ import {
     grantWorkingCopyTransferAccess,
     revokeWorkingCopyTransferAccess,
 } from '@electron/file-access/documentStore';
+import {
+    allowOpenPath,
+    removeAllowedOpenPath,
+    requireOpenPath,
+} from '@electron/file-access/openPathCapabilities';
 
 const logger = createLogger('windowTabTransfer');
 const DEFAULT_TRANSFER_TIMEOUT_MS = 12_000;
@@ -56,6 +61,15 @@ interface IPendingTransfer {
     payload: IWindowTabIncomingTransfer;
     pdfSnapshotPath?: string;
     pdfSnapshotRegistrationId?: number;
+    djvuTargetGrantPath?: string;
+}
+
+function holdsOpenPath(path: string, ownerId: number) {
+    try {
+        return requireOpenPath(path, ownerId);
+    } catch {
+        return null;
+    }
 }
 
 function normalizeTimeout(timeoutMs: number | undefined) {
@@ -114,6 +128,23 @@ export class WindowTabTransferBroker {
             }
             pdfSnapshotRegistrationId = registrationId;
         }
+        // The target reopens a moved DjVu natively, under its own open-path
+        // grant. Only a path the source already holds is passed on.
+        let djvuTargetGrantPath: string | undefined;
+        if (request.payload.kind === 'djvu') {
+            const djvuPath = holdsOpenPath(request.payload.sourcePath, sourceOwnerId);
+            if (!djvuPath) {
+                return {
+                    transferId: '',
+                    success: false,
+                    targetWindowId: targetWindow.id,
+                    error: 'DjVu file is not available to the source window.',
+                };
+            }
+            if (!holdsOpenPath(djvuPath, targetOwnerId)) {
+                djvuTargetGrantPath = allowOpenPath(djvuPath, targetOwnerId) ?? undefined;
+            }
+        }
 
         const transferId = randomUUID();
         const payload: IWindowTabIncomingTransfer = {
@@ -143,6 +174,7 @@ export class WindowTabTransferBroker {
                 payload,
                 ...(pdfSnapshotPath ? {pdfSnapshotPath} : {}),
                 ...(pdfSnapshotRegistrationId === undefined ? {} : {pdfSnapshotRegistrationId}),
+                ...(djvuTargetGrantPath ? {djvuTargetGrantPath} : {}),
             });
 
             if (this.readyWindowIds.has(targetWindow.id)) {
@@ -380,6 +412,9 @@ export class WindowTabTransferBroker {
                 pending.targetOwnerId,
                 pending.pdfSnapshotRegistrationId!,
             );
+        }
+        if (!result.success && pending.djvuTargetGrantPath) {
+            removeAllowedOpenPath(pending.djvuTargetGrantPath, pending.targetOwnerId);
         }
 
         pending.decide?.(result.success);

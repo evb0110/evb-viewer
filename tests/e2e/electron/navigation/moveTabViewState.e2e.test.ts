@@ -25,7 +25,7 @@ import {
     clickFoundAsUser,
 } from '@tests/e2e/electron/helpers/userInput';
 import {
-    ensureSidebarOpen, goToPageViaToolbar, openPdfInApp, waitForPdfLoaded, waitForToolbarCurrentPage, waitForViewerInteractive,
+    ensureSidebarOpen, goToPageViaToolbar, openDjvuInApp, openPdfInApp, waitForDjvuLoaded, waitForPdfLoaded, waitForToolbarCurrentPage, waitForViewerInteractive,
     setRememberPlaceAsUser,
     setTabMemoryPolicyForE2E,
 } from '@tests/e2e/electron/helpers/viewerCore';
@@ -230,6 +230,73 @@ async function releaseIncomingOpen(target: Page) {
 }
 
 describe('Move Tab to New Window view state', () => {
+    it('renders a moved DjVu at its reading page and removes only its source tab', async () => {
+        // R4 keeps an open document's place across a window move; T1 keeps the
+        // other source tab. A new empty window alone is not a successful move.
+        const session = sessions.getSession();
+        const source = session.page;
+        const root = electronAppTempDirPath(session.name);
+        mkdirSync(root, {recursive: true});
+        outputDirectory = realpathSync(mkdtempSync(join(root, 'djvu-tab-transfer-')));
+        const fixture = join(outputDirectory, 'transfer-source.djvu');
+        copyFileSync(resolve('tests/fixtures/djvu/sources/searchable-mixed-dpi.djvu'), fixture);
+        const originalBytes = await readFile(fixture);
+        await openDjvuInApp(source, fixture);
+        await goToPageViaToolbar(source, 2);
+        await waitForDjvuLoaded(source);
+
+        const previousTargets = new Set(session.browser.targets());
+        let destinationPage: Page | null = null;
+        onTestFinished(async () => {
+            try {
+                await destinationPage?.screenshot({path: join(sessionDir(session.name), 'djvu-transfer-destination.png')});
+                await source.screenshot({path: join(sessionDir(session.name), 'djvu-transfer-source.png')});
+            } finally {
+                // The next case must not select this destination as its merge target.
+                await sessions.restart({
+                    clean: true,
+                    hard: true,
+                });
+            }
+        });
+        await clickAsUser(source, '.tab-new');
+        await clickFoundAsUser(source, () => Array.from(document.querySelectorAll<HTMLElement>('.tab-list [role="tab"]'))
+            .find(tab => tab.textContent?.includes('transfer-source.djvu')), null, {description: 'DjVu source tab'});
+        await clickAsUser(source, '.tab.is-active[data-tab-id]', {button: 'right'});
+        const destinationTarget = session.browser.waitForTarget(target => target.type() === 'page'
+            && !previousTargets.has(target) && target.url().includes('/electron'), {timeout: 30_000});
+        await clickFoundAsUser(source, () => Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]'))
+            .find(item => item.textContent?.includes('Move Tab to New Window')), null, {description: 'Move Tab to New Window'});
+        const destination = await (await destinationTarget).page();
+        if (!destination) throw new Error('The moved DjVu has no destination renderer');
+        destinationPage = destination;
+        await installPageEvaluationShims(destination);
+
+        await expect.poll(async () => ({
+            destination: await destination.evaluate(() => {
+                const image = document.querySelector<HTMLImageElement>('.document-source-viewer__page[data-page-number="2"] img[data-document-page-visual="committed"]');
+                const viewport = image?.closest('[data-document-viewer-chassis-viewport]')?.getBoundingClientRect();
+                const rect = image?.getBoundingClientRect();
+                return {
+                    pageTwoPainted: Boolean(image?.complete && image.naturalWidth > 0 && image.naturalHeight > 0
+                        && image.checkVisibility() && rect && viewport && rect.width > 0 && rect.height > 0
+                        && rect.bottom > viewport.top && rect.top < viewport.bottom
+                        && rect.right > viewport.left && rect.left < viewport.right),
+                    failedToOpen: document.body.innerText.includes('Failed to open file'),
+                };
+            }),
+            sourceTabs: await source.$$eval('.tab-list [role="tab"]', tabs => tabs.map(tab => tab.textContent?.trim())),
+        }), {timeout: 30_000}).toEqual({
+            destination: {
+                pageTwoPainted: true,
+                failedToOpen: false,
+            },
+            sourceTabs: ['New Tab'],
+        });
+        expect(source.isClosed()).toBe(false);
+        expect(await readFile(fixture)).toEqual(originalBytes);
+    }, 120_000);
+
     it('merges every cold and hot tab with its own content page and zoom', async () => {
         onTestFinished(async () => {
             // Merge closes the fixture's source window. Give the next case a
