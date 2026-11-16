@@ -999,6 +999,9 @@ describe('model picker keyboard', () => {
             bubbles: true,
         }));
         expect(document.activeElement).toBe(efforts[1]);
+        await settle();
+        expect(efforts.map(row => row.getAttribute('aria-checked'))).toEqual(['false', 'true', 'false']);
+        expect(efforts.map(row => row.getAttribute('tabindex'))).toEqual(['-1', '0', '-1']);
         efforts[1]?.dispatchEvent(new KeyboardEvent('keydown', {
             key: 'ArrowLeft',
             bubbles: true,

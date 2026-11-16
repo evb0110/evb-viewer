@@ -59,6 +59,27 @@ describe('Electron E2E - assistant model discovery', () => {
         const setup = state.instances.find(instance => instance.id === 'codex')!;
         expect(setup.models.some(model => model.id === setup.defaultModel)).toBe(true);
         expect(await page.$('.assistant-message.is-user')).toBeNull();
+        await clickAsUser(page, '.picker-efforts [role="radio"]');
+        await page.keyboard.press('ArrowUp');
+        expect.soft(await page.$eval('.picker-efforts [role="radio"]:last-child', row => row.getAttribute('aria-checked')), 'Effort arrow navigation selects and wraps').toBe('true');
+        await clickAsUser(page, '.picker-speed-option[aria-checked="true"]');
+        await page.keyboard.press('ArrowRight');
+        expect.soft(await page.$eval('.picker-speed-option:last-child', row => row.getAttribute('aria-checked')), 'Speed arrow navigation selects Fast').toBe('true');
+        expect.soft(await page.$$eval('.picker-speed-option', rows => rows.filter(row => row instanceof HTMLElement && row.tabIndex === 0).length), 'Each radio group has one tab stop').toBe(1);
+        await page.keyboard.press('ArrowRight');
+        expect.soft(await page.$eval('.picker-speed-option:first-child', row => row.getAttribute('aria-checked')), 'Speed navigation wraps to Standard').toBe('true');
+        await fixture.getSession().command('screenshot', ['assistant-keyboard-radio-choices']);
+        const pickerLayout = await page.evaluate(() => {
+            const measure = (selector: string) => {
+                const element = document.querySelector(selector);
+                if (!element) throw new Error(`Missing ${selector}`);
+                const bounds = element.getBoundingClientRect();
+                return {top: bounds.top, bottom: bounds.bottom, height: bounds.height, scrollTop: element.scrollTop};
+            };
+            return {efforts: measure('.picker-efforts'), speed: measure('.picker-speed'), body: measure('.picker-body'), models: measure('.picker-models'), list: measure('.picker-model-list'), popup: measure('.provider-picker')};
+        });
+        console.log('Picker geometry', pickerLayout);
+        expect(pickerLayout.efforts.bottom, 'Effort choices must remain above the speed footer').toBeLessThanOrEqual(pickerLayout.speed.top);
     }, 60_000);
 
     it('keeps the accepted image prompt visible when the local provider answers', async () => {
@@ -150,13 +171,13 @@ describe('Electron E2E - assistant model discovery', () => {
         await page.keyboard.type('AP-B02 tool activity');
         await page.waitForSelector('.composer-send:not(:disabled)', {visible: true});
         await page.keyboard.press('Enter');
-        // Both tool calls show as live work rows of the running turn.
+        // Read the live group so a restored earlier turn cannot satisfy this wait.
         await page.waitForFunction(() => {
-            const rows = [...document.querySelectorAll('.work-entry')].map(row => row.textContent ?? '');
+            const rows = [...document.querySelectorAll('.work-group.is-running .work-entry')].map(row => row.textContent ?? '');
             return rows.some(row => row.includes('read_document')) && rows.some(row => row.includes('search_document'));
         });
         // The group row names the running action in words; raw tool names stay in the expanded rows.
-        const summary = await page.$eval('.work-group summary', element => element.textContent ?? '');
+        const summary = await page.$eval('.work-group.is-running summary', element => element.textContent ?? '');
         expect(summary).toContain('Searching the document');
         expect(summary).not.toContain('evb_');
         await page.waitForFunction(() => document.querySelector('.assistant-message:not(.is-user):last-of-type')?.textContent?.includes('Local tool fixture finished.'));

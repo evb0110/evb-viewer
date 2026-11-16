@@ -35,8 +35,8 @@
                         </button>
                     </div>
                 </div>
-                <div v-if="supportsFast" class="picker-speed" role="radiogroup" :aria-label="t('assistant.speedMode')">
-                    <button v-for="speed in speeds" :key="speed.id" type="button" role="radio" class="picker-speed-option" :aria-checked="(selection?.speedMode ?? 'standard') === speed.id" @click="selection && emit('select', { ...selection, speedMode: speed.id })">
+                <div v-if="supportsFast" class="picker-speed" role="radiogroup" :aria-label="t('assistant.speedMode')" @keydown="handleSpeedKeydown">
+                    <button v-for="speed in speeds" :key="speed.id" type="button" role="radio" class="picker-speed-option" data-picker-row :aria-checked="(selection?.speedMode ?? 'standard') === speed.id" :tabindex="(selection?.speedMode ?? 'standard') === speed.id ? 0 : -1" @click="selection && emit('select', { ...selection, speedMode: speed.id })">
                         <UIcon v-if="speed.id === 'fast'" name="i-ph-lightning" />
                         {{ t(speed.key) }}
                     </button>
@@ -138,10 +138,13 @@ function moveBetweenRows(event: KeyboardEvent, container: HTMLElement) {
     const rows = [...container.querySelectorAll<HTMLElement>('[data-picker-row]')];
     const index = rows.findIndex(row => row === document.activeElement);
     if (index < 0 && event.key === 'ArrowUp') return;
-    const next = rows[Math.min(rows.length - 1, Math.max(0, index + (event.key === 'ArrowDown' ? 1 : -1)))];
+    const radio = container.getAttribute('role') === 'radiogroup';
+    const destination = index + (event.key === 'ArrowDown' || event.key === 'ArrowRight' ? 1 : -1);
+    const next = rows[radio ? (destination + rows.length) % rows.length : Math.min(rows.length - 1, Math.max(0, destination))];
     if (!next) return;
     event.preventDefault();
     next.focus();
+    if (radio) next.click();
     next.scrollIntoView?.({ block: 'nearest' });
 }
 function handleModelKeydown(event: KeyboardEvent) {
@@ -161,6 +164,9 @@ function handleEffortKeydown(event: KeyboardEvent) {
         event.preventDefault();
         searchInput.value?.inputRef?.focus();
     }
+}
+function handleSpeedKeydown(event: KeyboardEvent) {
+    if (['ArrowDown', 'ArrowUp', 'ArrowLeft', 'ArrowRight'].includes(event.key)) moveBetweenRows(event, event.currentTarget as HTMLElement);
 }
 defineExpose({ open: () => { open.value = true; } });
 </script>
@@ -214,6 +220,7 @@ defineExpose({ open: () => { open.value = true; } });
     display: flex;
     flex: 1 1 auto;
     min-height: 0;
+    overflow: hidden auto;
 }
 
 .picker-models {
@@ -327,6 +334,7 @@ defineExpose({ open: () => { open.value = true; } });
 
 .picker-speed {
     display: flex;
+    flex-shrink: 0;
     gap: var(--app-space-xs);
     margin: 0 var(--app-space-3xl) var(--app-space-3xl);
     padding: var(--app-space-xs);
