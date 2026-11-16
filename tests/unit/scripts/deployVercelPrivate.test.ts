@@ -1064,6 +1064,51 @@ describe.skipIf(process.platform === 'win32')('private Vercel deployment source'
         }
     });
 
+    it('names a release whose tag exists only on origin', () => {
+        const projectRoot = createProjectFixture();
+        const originRoot = mkdtempSync(path.join(tmpdir(), 'evb-private-deploy-origin-'));
+        const git = (cwd: string, args: string[]) => execFileSync('git', args, {
+            cwd,
+            stdio: 'ignore',
+        });
+
+        try {
+            writeFileSync(path.join(projectRoot, 'app', 'index.ts'), 'export const app = 3;\n');
+            commitFixtureChanges(projectRoot);
+            git(originRoot, [
+                'init',
+                '--quiet',
+                '--bare',
+            ]);
+            git(projectRoot, [
+                'remote',
+                'add',
+                'origin',
+                originRoot,
+            ]);
+            // What release:cut does: push the tag to origin without creating it locally.
+            git(projectRoot, [
+                'push',
+                '--quiet',
+                'origin',
+                'HEAD:refs/tags/v1.2.4',
+            ]);
+
+            expect(resolveViewerAppVersion(projectRoot)).toBe('1.2.4');
+        } finally {
+            rmSync(originRoot, {
+                force: true,
+                recursive: true,
+            });
+            rmSync(projectRoot, {
+                force: true,
+                maxRetries: 5,
+                recursive: true,
+                retryDelay: 20,
+            });
+        }
+    });
+
     it('hides the checkout from the Vercel CLI when TMPDIR is inside it', async () => {
         const projectRoot = createProjectFixture();
         const previousTempEnv = Object.fromEntries([
