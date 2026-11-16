@@ -30,6 +30,7 @@ import {
     annotationEditorSurfaceKey,
     usePdfAnnotationEditorSurface,
 } from '@app/modules/pdf-viewer/runtime/annotations/usePdfAnnotationEditorSurface';
+import {useAnnotationStoreSnapshot} from '@app/modules/pdf-viewer/runtime/sessions/createPdfDocumentAnnotations';
 import type {
     IPlacedImageEntity,
     ITextBoxEntity,
@@ -54,6 +55,7 @@ describe('PdfAnnotationEditorLayer SVG events', () => {
         const scope = effectScope();
         const surface = scope.run(() => usePdfAnnotationEditorSurface({
             annotationApplication,
+            entitiesByPage: useAnnotationStoreSnapshot(annotationApplication).entitiesByPage,
             activeTool: computed(() => 'select'),
             settings: computed(() => DEFAULT_ANNOTATION_SETTINGS),
         }))!;
@@ -98,6 +100,7 @@ describe('PdfAnnotationEditorLayer SVG events', () => {
         const draft = ref<string | null>(null);
         const surface = scope.run(() => usePdfAnnotationEditorSurface({
             annotationApplication,
+            entitiesByPage: useAnnotationStoreSnapshot(annotationApplication).entitiesByPage,
             activeTool: computed(() => 'text'),
             settings: computed(() => DEFAULT_ANNOTATION_SETTINGS),
             getPageGeometry: () => ({
@@ -180,6 +183,7 @@ describe('PdfAnnotationEditorLayer SVG events', () => {
         const draftText = ref<string | null>(null);
         const surface = scope.run(() => usePdfAnnotationEditorSurface({
             annotationApplication,
+            entitiesByPage: useAnnotationStoreSnapshot(annotationApplication).entitiesByPage,
             activeTool: computed(() => 'select'),
             settings: computed(() => DEFAULT_ANNOTATION_SETTINGS),
             publishTextBoxAppearance: () => publication.promise,
@@ -325,6 +329,7 @@ describe('PdfAnnotationEditorLayer SVG events', () => {
         const scope = effectScope();
         const surface = scope.run(() => usePdfAnnotationEditorSurface({
             annotationApplication,
+            entitiesByPage: useAnnotationStoreSnapshot(annotationApplication).entitiesByPage,
             activeTool: computed<TAnnotationTool>(() => 'select'),
             settings: computed(() => DEFAULT_ANNOTATION_SETTINGS),
         }))!;

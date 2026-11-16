@@ -204,6 +204,7 @@ const {
     getViewportRoot: () => annotationViewportRoot.value,
     getZoom: () => view.effectiveZoom.value,
     getEmptyNoteLabel: () => t('annotations.emptyNote'),
+    paintsPage: pageIndex => view.pdfViewerRef.value?.paintsAnnotationPage?.(pageIndex) !== false,
 });
 
 function handleNotePositionUpdate(annotationId: string, position: IAnnotationNotePosition) {

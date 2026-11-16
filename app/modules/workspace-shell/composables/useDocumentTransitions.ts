@@ -16,9 +16,7 @@ export interface IDocumentTransitionDeps {
     pdfError: Ref<unknown>;
     /** Empties every view of the document: its pages, panels and tool. */
     clearViews: () => void;
-    annotationComments: Ref<IAnnotationCommentSummary[]>;
-    markAnnotationCommentsLoading: () => void;
-    clearAnnotationComments: () => void;
+    annotationComments: Readonly<Ref<readonly IAnnotationCommentSummary[]>>;
     annotationActiveCommentStableKey: Ref<string | null>;
     annotationEditorState: Ref<IAnnotationEditorState>;
     bookmarkItems: Ref<unknown[]>;
@@ -46,8 +44,6 @@ export const useDocumentTransitions = (deps: IDocumentTransitionDeps) => {
         djvuSourcePath,
         clearViews,
         annotationComments,
-        markAnnotationCommentsLoading,
-        clearAnnotationComments,
         annotationActiveCommentStableKey,
         annotationEditorState,
         bookmarkItems,
@@ -70,10 +66,6 @@ export const useDocumentTransitions = (deps: IDocumentTransitionDeps) => {
             const isReload = Boolean(oldSrc);
             logPdfRenderTrace('workspace-document-transition-source-changed', {isReload});
             resetAnnotationTracking();
-            markAnnotationCommentsLoading();
-            if (!isReload) {
-                clearAnnotationComments();
-            }
             const didPreserveMetadata = isReload && consumePreservedSourceReloadMetadata?.() === true;
             if (!didPreserveMetadata) {
                 bookmarkItems.value = [];
@@ -88,7 +80,6 @@ export const useDocumentTransitions = (deps: IDocumentTransitionDeps) => {
             clearViews();
             resetSearchCache();
             closeSearch();
-            clearAnnotationComments();
             annotationActiveCommentStableKey.value = null;
             pageLabels.value = null;
             pageLabelRanges.value = [];
@@ -121,7 +112,6 @@ export const useDocumentTransitions = (deps: IDocumentTransitionDeps) => {
 
         annotationActiveCommentStableKey.value = null;
         closeContextMenus();
-        clearAnnotationComments();
         void closeAllAnnotationNotes({ saveIfDirty: false });
     });
 

@@ -19,7 +19,6 @@ import {
     requireJobId,
     createRequestId,
 } from '@contracts/shared';
-import type { IAnnotationInventoryCompleteness } from '@app/types/annotations';
 import type { TPdfSource } from '@app/types/pdfUi';
 import type {
     IAnnotationCreationFailureReport,
@@ -58,25 +57,6 @@ import {
 export type {TWorkspaceDocumentDriverId} from '@app/modules/workspace-shell/viewers/workspaceViewerAdapterTypes';
 
 type TReadableRef<T> = ComputedRef<T> | Ref<T>;
-
-/**
- * Handler for the viewer's annotation-inventory event.
- *
- * The viewer reports `null` while an inventory is still pending and a
- * completeness record once a pass finishes, so the workspace can tell
- * "not measured yet" from "measured and partial". Typing the handler here is
- * what keeps that distinction: the listener map this feeds is an untyped bag
- * of `v-on` entries, so an `unknown` handler would let a payload of any shape
- * reach `applyAnnotationInventory` and surface as a wrong completeness notice
- * rather than a compile error.
- */
-export type TAnnotationInventoryListener = (
-    completeness: IAnnotationInventoryCompleteness | null,
-) => void;
-
-interface IActiveViewerListeners extends Record<string, unknown> {
-    annotationInventory?: TAnnotationInventoryListener;
-}
 
 const PDF_SOURCE_CAPABILITIES: IDocumentSourceCapabilities = {
     annotations: true,
@@ -474,8 +454,6 @@ export interface IWorkspaceDocumentDriverBindingOptions {
     /** The view's zoom owner. Renderers get it whole and read it directly. */
     zoom: IZoomStateAccess;
     onAnnotationCommentClick: unknown;
-    onAnnotationComments: unknown;
-    onAnnotationInventory: TAnnotationInventoryListener;
     onAnnotationContextMenu: unknown;
     onAnnotationModified: unknown;
     onAnnotationFailure: (failure: IAnnotationCreationFailureReport) => void;
@@ -485,8 +463,6 @@ export interface IWorkspaceDocumentDriverBindingOptions {
     onAnnotationToolAutoReset: () => void;
     onAnnotationToolCancel: () => void;
     onDocumentUpdate: (value: unknown) => void;
-
-    onInitialVisualPending: () => void;
     onInitialVisualReady: () => void;
     onLoadError: (error: unknown) => void;
     onLoading: (value: boolean) => void;
@@ -570,13 +546,12 @@ export const useWorkspaceDocumentDriverBinding = (options: IWorkspaceDocumentDri
         'update:document': options.onDocumentUpdate,
         loading: options.onLoading,
         loadError: options.onLoadError,
-        initialVisualPending: options.onInitialVisualPending,
         initialVisualReady: options.onInitialVisualReady,
         'update:sourceCapabilities': options.onSourceCapabilitiesUpdate,
         'update:pageSource': options.onPageSourceUpdate,
     };
 
-    const activeViewerListeners = computed<IActiveViewerListeners>(() => {
+    const activeViewerListeners = computed<Record<string, unknown>>(() => {
         if (!options.activeDocumentDriver.value.view.isPdfjs) {
             return nativeViewerListeners;
         }
@@ -585,8 +560,6 @@ export const useWorkspaceDocumentDriverBinding = (options: IWorkspaceDocumentDri
             ...nativeViewerListeners,
             annotationState: options.onAnnotationState,
             annotationModified: options.onAnnotationModified,
-            annotationComments: options.onAnnotationComments,
-            annotationInventory: options.onAnnotationInventory,
             annotationOpenNote: options.onAnnotationOpenNote,
             annotationCommentClick: options.onAnnotationCommentClick,
             annotationContextMenu: options.onAnnotationContextMenu,

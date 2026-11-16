@@ -74,6 +74,8 @@ export interface IAnnotationOverlayRuntimeOptions {
     getViewportRoot: () => HTMLElement | null;
     getZoom: () => number | undefined;
     getEmptyNoteLabel: () => string;
+    /** Whether the view paints a page's annotations, inline note markers included. */
+    paintsPage: (pageIndex: number) => boolean;
 }
 
 function getNoteMarkerRect(note: IAnnotationNoteWindowEntry) {
@@ -413,6 +415,9 @@ export function createAnnotationOverlayRuntime(options: IAnnotationOverlayRuntim
     });
     const renderedInlineAnchorIdentity = computed(() =>
         collectRenderedInlineAnchorIdentity(viewportDomSnapshot.value));
+    // A page waiting for its re-read paints neither the inline marker nor a fallback for it.
+    const hasInlineMarker = (note: IAnnotationNoteWindowEntry) => !options.paintsPage(note.pageIndex)
+        || inlineIdentityMatchesNote(renderedInlineAnchorIdentity.value, note);
 
     const visibleAnnotationNoteWindows = computed(() =>
         options.getNoteWindows().filter(note => !note.isMinimized));
@@ -421,14 +426,14 @@ export function createAnnotationOverlayRuntime(options: IAnnotationOverlayRuntim
     )));
     const openAnchorHiddenKeys = computed(() => new Set(
         openNoteAnchors.value
-            .filter(note => inlineIdentityMatchesNote(renderedInlineAnchorIdentity.value, note))
+            .filter(hasInlineMarker)
             .map(note => note.annotationId),
     ));
     const anchoredAnnotationNoteWindows = computed(() => options.getNoteWindows().filter(note => (
         note.isMinimized
         && isFloatingIndicatorEligible(note)
         && Boolean(getNoteMarkerRect(note))
-        && !inlineIdentityMatchesNote(renderedInlineAnchorIdentity.value, note)
+        && !hasInlineMarker(note)
     )));
     const minimizedIndicatorTargets = computed(() =>
         mapNotesToPageTargets(anchoredAnnotationNoteWindows.value, viewportDomSnapshot.value));

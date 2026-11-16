@@ -22,6 +22,7 @@ import {
     annotationEditorSurfaceKey,
     usePdfAnnotationEditorSurface,
 } from '@app/modules/pdf-viewer/runtime/annotations/usePdfAnnotationEditorSurface';
+import {useAnnotationStoreSnapshot} from '@app/modules/pdf-viewer/runtime/sessions/createPdfDocumentAnnotations';
 import PdfAnnotationEditorLayer from '@app/modules/pdf-viewer/components/PdfAnnotationEditorLayer.vue';
 import PdfTextMarkupAnnotation from '@app/modules/pdf-viewer/components/PdfTextMarkupAnnotation.vue';
 import PdfShapeAnnotation from '@app/modules/pdf-viewer/components/PdfShapeAnnotation.vue';
@@ -51,6 +52,7 @@ async function mountLayer(tool: TAnnotationTool = 'select', viewRotation: 0 | 90
     const scope = effectScope();
     const surface = scope.run(() => usePdfAnnotationEditorSurface({
         annotationApplication: application,
+        entitiesByPage: useAnnotationStoreSnapshot(application).entitiesByPage,
         activeTool: computed(() => activeTool.value),
         settings: computed(() => DEFAULT_ANNOTATION_SETTINGS),
         getPageGeometry: () => ({

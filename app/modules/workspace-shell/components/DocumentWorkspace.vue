@@ -352,7 +352,6 @@ const {
     mountPresentation: computed(() => surfaceMode.value === 'reader'),
     isRenderActive: computed(() => isRenderActive && surfaceMode.value === 'reader'),
     isWorkspaceLayoutResizing: isActiveViewerLayoutResizing,
-    onInitialVisualPending: documentContext.annotations.markAnnotationCommentsLoading,
     onInitialVisualReady: () => {
         file.notifyPdfInitialVisualReady();
         emitFirstPageRendered();

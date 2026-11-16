@@ -144,7 +144,6 @@ export interface ICreatePdfDocumentSessionOptions {
 export interface IAttachPdfDocumentViewOptions {
     chassisAuthority?: IDocumentViewerRuntime | null | undefined;
     openSurfaceDocumentId?: (() => string) | undefined;
-    emitInitialVisualPending?: (() => void) | undefined;
     originalDocumentId?: ComputedRef<string | null> | undefined;
     currentPage?: ComputedRef<number> | undefined;
     isActive?: ComputedRef<boolean> | undefined;
@@ -1652,9 +1651,6 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
                 return null;
             }
             presenting.value = true;
-            if (!viewPlan.preserveVisibleContent) {
-                viewOptions.emitInitialVisualPending?.();
-            }
             await publish('loading', viewPlan.isReload ? 'reload' : 'open');
             if (token !== viewToken) {
                 return null;

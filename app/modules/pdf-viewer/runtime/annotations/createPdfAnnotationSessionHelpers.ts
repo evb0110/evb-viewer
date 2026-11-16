@@ -55,13 +55,13 @@ export function findCanonicalAnnotationComment(
 
 export function emitCanonicalAnnotationOpenNote(options: {
     annotationApplication: ShallowRef<AnnotationApplication>;
-    annotationProjection: Ref<IAnnotationCommentSummary[]>;
+    annotationComments: Readonly<Ref<readonly IAnnotationCommentSummary[]>>;
     comment: IAnnotationCommentSummary;
     emitAnnotationOpenNote: (comment: IAnnotationCommentSummary) => void;
 }) {
     const canonicalAnnotationId = options.annotationApplication.value.annotationIdForSummary(options.comment);
     const canonicalNoteComment = canonicalAnnotationId
-        ? options.annotationProjection.value.find(candidate => candidate.appAnnotationId === canonicalAnnotationId)
+        ? options.annotationComments.value.find(candidate => candidate.appAnnotationId === canonicalAnnotationId)
         : null;
     options.emitAnnotationOpenNote(canonicalNoteComment ?? options.comment);
 }

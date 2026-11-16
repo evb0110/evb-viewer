@@ -22,7 +22,6 @@ import { useWorkspaceViewerDefaults } from '@app/modules/workspace-shell/composa
 import { resolveWorkspaceViewerViewMode } from '@app/modules/workspace-shell/viewers/workspaceViewerAdapters';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TOpenFileResult } from '@contracts/electronApiDocuments';
-import type { IAnnotationCommentSummary } from '@app/types/annotations';
 import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
 import { useWorkspaceViewState } from '@app/modules/workspace-shell/composables/useWorkspaceViewState';
 import type {
@@ -62,7 +61,6 @@ interface IDocumentViewBindingOptions {
     mountPresentation: Ref<boolean>;
     isRenderActive: Ref<boolean>;
     isWorkspaceLayoutResizing: Ref<boolean>;
-    onInitialVisualPending: () => void;
     onInitialVisualReady: () => void;
 }
 
@@ -490,17 +488,6 @@ export const createDocumentViewContext = (deps: IDocumentViewContextDeps) => {
             file.pdfFailurePresentation.value = presentation;
             file.pdfError.value = presentation.description;
         }
-        function handleAnnotationComments(comments: IAnnotationCommentSummary[]) {
-            if (
-                annotations.annotationCommentsStatus.value === 'loading'
-                && annotations.annotationComments.value.length > 0
-                && comments.length === 0
-                && view.isLoading.value
-            ) {
-                return;
-            }
-            annotations.applyAnnotationComments(comments);
-        }
         return useWorkspaceDocumentDriverBinding({
             activeDocumentDriver: driver.mountedDocumentDriver,
             annotationCursorMode: navigation.annotationCursorMode,
@@ -535,8 +522,6 @@ export const createDocumentViewContext = (deps: IDocumentViewContextDeps) => {
             documentRevisionToken,
             zoom: view.zoomAccess,
             onAnnotationCommentClick: annotationActions.handleAnnotationCommentClick,
-            onAnnotationComments: handleAnnotationComments,
-            onAnnotationInventory: annotations.applyAnnotationInventory,
             onAnnotationContextMenu: annotationActions.handleViewerAnnotationContextMenu,
             onAnnotationModified: annotationActions.handleAnnotationModified,
             onAnnotationFailure: failure.reportAnnotationFailure,
@@ -546,7 +531,6 @@ export const createDocumentViewContext = (deps: IDocumentViewContextDeps) => {
             onAnnotationToolAutoReset: annotationToolState.handleAnnotationToolAutoReset,
             onAnnotationToolCancel: () => { void annotationToolState.handleAnnotationToolCancel(); },
             onDocumentUpdate: (value) => { pdfDocument.value = value as typeof pdfDocument.value; },
-            onInitialVisualPending: options.onInitialVisualPending,
             onInitialVisualReady: options.onInitialVisualReady,
             onLoadError: handleLoadError,
             onLoading: (value) => { view.isLoading.value = value; },
