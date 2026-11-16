@@ -1,5 +1,3 @@
-import type { TPageNumber } from '@contracts/pageNumbers';
-
 import type {
     MaybeRefOrGetter,
     Ref,
@@ -24,7 +22,6 @@ interface IUsePdfRendererSearchControllerOptions extends IPdfRendererSearchNavig
     searchPageMatches: MaybeRefOrGetter<Map<number, IPdfPageMatches>>;
     currentSearchMatch: MaybeRefOrGetter<IPdfSearchMatch | null>;
     currentSearchMatchNavigationId: MaybeRefOrGetter<number>;
-    scheduleRenderForSinglePage: (pageNumber: TPageNumber) => void;
 }
 
 export const usePdfRendererSearchController = (options: IUsePdfRendererSearchControllerOptions) => {
@@ -37,7 +34,6 @@ export const usePdfRendererSearchController = (options: IUsePdfRendererSearchCon
         searchPageMatches,
         currentSearchMatch,
         currentSearchMatchNavigationId,
-        scheduleRenderForSinglePage,
     } = options;
 
     function applySearchHighlights() {
@@ -57,46 +53,12 @@ export const usePdfRendererSearchController = (options: IUsePdfRendererSearchCon
         }
     }
 
-    function scrollToCurrentMatch() {
-        const containerRoot = container.value;
-        if (!containerRoot) {
-            return false;
-        }
-
-        let result = false;
-        try {
-            result = textLayerRenderer.scrollToCurrentMatch(containerRoot);
-        } catch (error) {
-            BrowserLogger.error(
-                'pdf-renderer',
-                'Failed to scroll to current match',
-                error,
-                {code: 'RENDERER_PDF_SEARCH_OPERATION_FAILED'},
-            );
-            return false;
-        }
-        logPdfNav(`[PDF-NAV] scrollToCurrentMatch result=${result}`);
-        if (result) {
-            options.suppressSnap?.();
-        }
-        return result;
-    }
-
     const searchMatchScroller = createPdfSearchMatchScroller({
-        getContainer: () => container.value,
         getCurrentSearchMatch: () => toValue(currentSearchMatch),
         getCurrentSearchPageMatches: pageIndex => toValue(searchPageMatches).get(pageIndex) ?? null,
-        scrollToCurrentMatch,
-        scheduleRenderForSinglePage,
         ...(options.scrollToPage ? { scrollToPage: options.scrollToPage } : {}),
-        ...(options.suppressSnap ? { suppressSnap: options.suppressSnap } : {}),
-        ...(options.beginSearchNavigation ? { beginSearchNavigation: options.beginSearchNavigation } : {}),
         ...(options.revealSearchNavigationTarget ? { revealSearchNavigationTarget: options.revealSearchNavigationTarget } : {}),
         ...(options.endSearchNavigation ? { endSearchNavigation: options.endSearchNavigation } : {}),
-        ...(options.beginSearchTransaction ? { beginSearchTransaction: options.beginSearchTransaction } : {}),
-        ...(options.isSearchTransactionCurrent ? { isSearchTransactionCurrent: options.isSearchTransactionCurrent } : {}),
-        ...(options.settleSearchTransaction ? { settleSearchTransaction: options.settleSearchTransaction } : {}),
-        ...(options.cancelSearchTransaction ? { cancelSearchTransaction: options.cancelSearchTransaction } : {}),
     });
 
     let lastHandledSearchNavigationId = 0;

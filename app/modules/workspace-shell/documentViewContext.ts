@@ -29,7 +29,6 @@ import type {
     IWorkspaceOpenRequest,
 } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 import { beginOpenSurfaceWithPageShape } from '@app/modules/workspace-shell/composables/document-session/resolvePdfOpeningGeometry';
-import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 import { runDetached } from '@app/utils/asyncGuard';
 import { requirePageNumber } from '@contracts/pageNumbers';
 import { useWorkspaceDocumentDriverBinding } from '@app/modules/workspace-shell/viewers/workspaceDocumentDriver';
@@ -225,7 +224,6 @@ export const createDocumentViewContext = (deps: IDocumentViewContextDeps) => {
         ),
     };
 
-    const bookmarkNavigationIntentVersion = ref(0);
     // The page a new navigation command steps from: the in-flight target
     // while one is pending, so held paging keys compose.
     const navigationPage = computed(() => {
@@ -294,14 +292,6 @@ export const createDocumentViewContext = (deps: IDocumentViewContextDeps) => {
         canRedoHistory: metadata.workspaceUndoTimeline.canRedoTimeline,
         currentPage,
         totalPages,
-        invalidateBookmarkNavigationRequests: () => {
-            bookmarkNavigationIntentVersion.value += 1;
-            logPdfRenderTrace('workspace-bookmark-navigation-invalidated', {
-                version: bookmarkNavigationIntentVersion.value,
-                currentPage: currentPage.value,
-                pendingNavigationPage: navigationPage.value,
-            });
-        },
         requestPageNavigation: request => openSurface.navigate(request),
         documentViewerRef,
     });
@@ -614,7 +604,6 @@ export const createDocumentViewContext = (deps: IDocumentViewContextDeps) => {
         search,
         sourceSearch,
         navigation,
-        bookmarkNavigationIntentVersion,
         pageContextMenu,
         pageOps,
         print: viewPrint,

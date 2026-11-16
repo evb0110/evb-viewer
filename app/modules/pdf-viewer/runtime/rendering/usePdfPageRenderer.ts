@@ -96,7 +96,6 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         currentSearchMatch,
         workingCopyPath: options.workingCopyPath ?? null,
         documentRevisionToken: options.documentRevisionToken ?? null,
-        viewportWritePort: viewport.viewportWritePort,
     });
     const annotationLayerRenderer = usePdfAnnotationLayerRenderer({
         numPages,
@@ -165,34 +164,15 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         searchPageMatches,
         currentSearchMatch,
         currentSearchMatchNavigationId: options.currentSearchMatchNavigationId ?? 0,
-        scheduleRenderForSinglePage: pageNumber => runGuardedTask(
-            () => options.requestSearchPageRaster(pageNumber),
-            {
-                category: 'user-visible-operation',
-                scope: 'pdf-renderer',
-                message: `Failed to schedule search render for page ${String(pageNumber)}`,
-            },
-        ),
         scrollToPage: (pageNumber, scrollOptions) =>
             viewport.singlePageScroll.scrollToPage(pageNumber, scrollOptions),
-        beginSearchNavigation: (pageNumber) => {
-            viewport.markUserViewportInteraction();
-            viewport.singlePageScroll.beginSearchNavigation(pageNumber);
-        },
         revealSearchNavigationTarget: (pageNumber, revealOptions) =>
             viewport.singlePageScroll.revealSearchNavigationTarget(pageNumber, {
                 ...revealOptions,
                 searchNavigationId: toValue(options.currentSearchMatchNavigationId ?? 0),
             }),
         endSearchNavigation: () => viewport.singlePageScroll.endSearchNavigation(),
-        beginSearchTransaction: pageNumber => viewport.viewportWork.beginWork('search', pageNumber),
-        isSearchTransactionCurrent: viewport.viewportWork.isWorkCurrent,
-        settleSearchTransaction: viewport.viewportWork.settleWork,
-        cancelSearchTransaction: transactionId => viewport.viewportWork.cancelWork({cancelRasters: false}, transactionId),
     });
-    watch(viewport.cancelPendingSearchRevision, (revision, previous) => {
-        if (revision !== previous) searchController.invalidatePendingRequests();
-    }, {flush: 'sync'});
     function releasePageLayers(pageNumber: TPageNumber) {
         const root = options.container.value;
         const container = getMountedPageContainer(pageNumber, root);

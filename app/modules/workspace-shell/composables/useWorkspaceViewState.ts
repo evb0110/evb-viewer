@@ -37,7 +37,6 @@ interface IWorkspaceViewStateDeps {
     canRedoHistory: Ref<boolean>;
     currentPage: Ref<number>;
     totalPages: Ref<number>;
-    invalidateBookmarkNavigationRequests?: (() => void) | undefined;
     requestPageNavigation: (request: IDocumentNavigationRequest) => IDocumentNavigationTicket | null;
     documentViewerRef: Ref<IDocumentViewerExpose | null>;
 }
@@ -131,9 +130,6 @@ export const useWorkspaceViewState = (deps: IWorkspaceViewStateDeps) => {
             targetPage,
             currentPageBefore: deps.currentPage.value,
         });
-        if (options?.navigationSource !== 'bookmark') {
-            deps.invalidateBookmarkNavigationRequests?.();
-        }
         deps.requestPageNavigation(createPdfPageNavigationRequest(targetPage, options));
     }
 

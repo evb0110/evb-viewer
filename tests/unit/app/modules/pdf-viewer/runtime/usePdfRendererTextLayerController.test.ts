@@ -84,7 +84,6 @@ function createHarness() {
         currentSearchMatch: null,
         workingCopyPath: null,
         documentRevisionToken: null,
-        viewportWritePort: cast<Parameters<typeof usePdfTextLayerRenderer>[0]['viewportWritePort']>({}),
     });
     const renderTextLayer = vi.spyOn(textLayerRenderer, 'renderTextLayer');
     const renderTextLayerForPage = usePdfRendererTextLayerController({

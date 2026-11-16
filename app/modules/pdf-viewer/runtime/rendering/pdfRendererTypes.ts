@@ -30,20 +30,11 @@ export type {
 
 export interface IPdfRendererSearchNavigationOptions {
     scrollToPage?: (pageNumber: TPageNumber, options?: IScrollToPageOptions) => void;
-    suppressSnap?: () => void;
-    beginSearchNavigation?: (pageNumber: TPageNumber) => void;
     revealSearchNavigationTarget?: (
         pageNumber: TPageNumber,
         options?: Pick<IScrollToPageOptions, 'markerRect' | 'textAnchor'>,
     ) => void;
     endSearchNavigation?: (settleMs?: number) => void;
-    beginSearchTransaction?: (
-        pageNumber: TPageNumber,
-        options?: Pick<IScrollToPageOptions, 'markerRect' | 'textAnchor'>,
-    ) => number | null;
-    isSearchTransactionCurrent?: (transactionId: number) => boolean;
-    settleSearchTransaction?: (transactionId: number) => void;
-    cancelSearchTransaction?: (transactionId: number) => void;
 }
 
 export interface IUsePdfPageRendererOptions {
