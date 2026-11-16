@@ -107,5 +107,8 @@ at https://github.com/evb0110/evb-viewer.
   `packages/shared/src/{cliArgs,shell}.ts`, `apps/desktop/src/shell/DesktopShellEnvironment.ts`, `apps/server/src/provider/{CodexProvider,ClaudeProvider}.ts`,
   `apps/server/src/provider/Drivers/{ClaudeExecutable,ClaudeHome,CodexHomeLayout}.ts`,
   and `apps/server/src/{codexModelOptions,claudeModelOptions}.ts`.
+- Claude message identity and tool completion adapt `assistantTextFromSdkMessage`,
+  `emitAssistantTextArtifacts`, `claudeToolResultEntriesFromMessage` and `settleToolCall`
+  in `apps/server/src/orchestration-v2/Adapters/ClaudeAdapterV2.ts` at that revision.
 - EVB uses installed provider executables, preserves its own app-server transport,
   document tools and lifecycle, and adds independent PATH launcher discovery.
