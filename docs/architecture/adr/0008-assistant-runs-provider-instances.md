@@ -85,7 +85,12 @@ Codex home, starts a new provider context and keeps the visible transcript.
 **The chat is an ordered timeline.** User, assistant, reasoning, tool and
 system items are owned and persisted by the main process (schema 1, with new
 optional fields) and streamed to the renderer as upserts and text deltas. The
-panel follows T3 Code's chat layout.
+panel follows T3 Code's chat layout. Claude prose arrives as completed SDK
+snapshots, each keyed by its native message UUID, preserving progress and final
+answer items in arrival order. Thinking still uses live deltas. Tool calls keep
+their native tool-use IDs and settle individually on user or assistant
+tool-result blocks; `is_error` marks failure. Summaries and the turn result do
+not overwrite settled outcomes. Turn finalization closes only items still active.
 
 ## Consequences
 
