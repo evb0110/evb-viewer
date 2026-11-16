@@ -113,6 +113,9 @@ describe('Electron E2E - assistant model discovery', () => {
         await page.waitForSelector('.composer-send:not(:disabled)', {visible: true});
         await page.keyboard.press('Enter');
         await page.waitForFunction(() => document.querySelector('.assistant-message:not(.is-user):last-of-type')?.textContent?.includes('Local tool fixture finished.'));
+        const formatted = '.assistant-message:not(.is-user):has(a)';
+        expect.soft(await page.$eval(formatted, element => element.textContent), 'Markdown references decode once outside code').toContain('Character references: A & B © 😀 &copy;. Search and &amp;.');
+        expect.soft(await page.$eval(formatted + ' a', link => link.getAttribute('href')), 'Link references preserve query parameters').toBe('https://example.com/?a=1&b=2');
         const timeline = await page.$('.assistant-timeline');
         const bounds = await timeline?.boundingBox();
         if (!bounds) throw new Error('Missing conversation viewport');
@@ -139,7 +142,12 @@ describe('Electron E2E - assistant model discovery', () => {
         await waitForPdfLoaded(page);
         await clickAsUser(page, 'button[aria-label="Toggle EVB Assistant"]');
         await page.waitForSelector('.work-summary');
+        await page.waitForSelector('.scroll-to-end', {hidden: true});
+        const disclosureTop = await page.$eval('.work-summary', summary => summary.getBoundingClientRect().top);
         await clickAsUser(page, '.work-summary');
+        await fixture.getSession().command('screenshot', ['assistant-open-work-position']);
+        expect.soft(await page.$('.scroll-to-end'), 'Opening work details releases following for the reader').not.toBeNull();
+        expect.soft(await page.$eval('.work-summary', summary => summary.getBoundingClientRect().top), 'Opening work preserves its visible position').toBeCloseTo(disclosureTop, 0);
         await clickAsUser(page, '.work-entry summary');
         await page.waitForFunction(() => {
             const entries = document.querySelector('.work-entries');

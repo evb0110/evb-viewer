@@ -1,6 +1,6 @@
 <template>
     <div class="timeline-shell">
-        <div ref="viewport" class="assistant-timeline app-scrollbar" role="log" :aria-label="t('assistant.conversation')" @scroll="handleScroll">
+        <div ref="viewport" class="assistant-timeline app-scrollbar" role="log" :aria-label="t('assistant.conversation')" @scroll="handleScroll" @click="handleDisclosure">
             <div ref="content" class="timeline-content">
                 <div v-if="!items.length" class="timeline-empty">
                     <h2>{{ t(hasDocument ? 'assistant.emptyDocumentTitle' : 'assistant.emptyWorkspaceTitle') }}</h2>
@@ -129,8 +129,8 @@ function scrollToEnd() {
         lastScrollTop = viewport.value.scrollTop;
     }
 }
-function followEnd() {
-    if (follow.value === 'following') scrollToEnd();
+function handleDisclosure(event: MouseEvent) {
+    if (event.target instanceof Element && event.target.closest('summary')) follow.value = 'released';
 }
 function measureAnchorSpace() {
     const element = viewport.value;
@@ -146,7 +146,7 @@ function measureAnchorSpace() {
 async function layout() {
     anchorSpace.value = measureAnchorSpace();
     await nextTick();
-    followEnd();
+    if (follow.value === 'following') scrollToEnd();
 }
 const latestUser = computed(() => props.items.findLast(item => item.kind === 'user') ?? null);
 watch(() => [

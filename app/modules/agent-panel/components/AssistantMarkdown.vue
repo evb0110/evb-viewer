@@ -6,6 +6,7 @@
 import {
     Lexer, type Token, type Tokens,
 } from 'marked';
+import { decodeHTMLStrict } from 'entities';
 import type { VNodeChild } from 'vue';
 import AssistantHighlightedCode from '@app/modules/agent-panel/components/AssistantHighlightedCode.vue';
 import { useTypedI18n } from '@app/composables/useTypedI18n';
@@ -50,7 +51,7 @@ function renderInline(list: Token[] | undefined): VNodeChild[] {
                 disabled: true,
             });
             case 'link': {
-                const href = safeHref(token.href);
+                const href = safeHref(decodeHTMLStrict(token.href));
                 return href ? h('a', {
                     href,
                     target: '_blank',
@@ -59,7 +60,7 @@ function renderInline(list: Token[] | undefined): VNodeChild[] {
             }
             case 'image': return token.text;
             case 'html': return token.raw;
-            case 'text': return token.tokens ? renderInline(token.tokens) : token.text;
+            case 'text': return token.tokens ? renderInline(token.tokens) : decodeHTMLStrict(token.text);
             default: return 'text' in token && typeof token.text === 'string' ? token.text : token.raw;
         }
     });

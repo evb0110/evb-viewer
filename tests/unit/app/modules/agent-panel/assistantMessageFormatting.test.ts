@@ -39,14 +39,14 @@ function cellTexts(host: HTMLElement, selector: string) {
 
 describe('assistant message rendering', () => {
     it('renders inline code, strong, emphasis and safe links as elements', () => {
-        const { host } = render('Use `smth` in **Die syrische Chronik** by *Luther* and [Docs](https://example.com/docs).');
+        const { host } = render('Use `smth` in **Die syrische Chronik** by *Luther* and [Docs](https://example.com/docs?a=1&amp;b=2). A &amp; B &#169; &#x1F600; &amp;copy; `&amp;` \\&amp;.');
         expect(host.querySelector('code')?.textContent).toBe('smth');
         expect(host.querySelector('strong')?.textContent).toBe('Die syrische Chronik');
         expect(host.querySelector('em')?.textContent).toBe('Luther');
         const link = host.querySelector('a');
-        expect(link?.getAttribute('href')).toBe('https://example.com/docs');
+        expect(link?.getAttribute('href')).toBe('https://example.com/docs?a=1&b=2');
         expect(link?.getAttribute('rel')).toBe('noopener noreferrer');
-        expect(host.textContent).toBe('Use smth in Die syrische Chronik by Luther and Docs.');
+        expect(host.textContent).toBe('Use smth in Die syrische Chronik by Luther and Docs. A & B © 😀 &copy; &amp; &amp;.');
     });
 
     it('renders headings, quotes, rules and ordered lists with their own start', () => {
