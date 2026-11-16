@@ -66,6 +66,17 @@ describe('public release mirror verification', () => {
         ]);
     });
 
+    it('names the request and the network reason when a public read cannot connect', async () => {
+        const fetchFn: typeof fetch = async () => {
+            throw new TypeError('fetch failed', {cause: new Error('getaddrinfo ENOTFOUND api.github.com')});
+        };
+
+        await expect(verify('v1.2.3', {
+            repository: 'owner/repo',
+            fetchFn,
+        })).rejects.toThrow('GET https://api.github.com/repos/owner/repo/releases/latest failed: fetch failed: getaddrinfo ENOTFOUND api.github.com');
+    });
+
     it('reads an unserved drill prefix through the mirror client', async () => {
         const keys: string[] = [];
         const fetchFn: typeof fetch = async () => response({}, 404);
