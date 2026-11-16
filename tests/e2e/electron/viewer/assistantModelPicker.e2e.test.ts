@@ -52,6 +52,21 @@ describe('Electron E2E - assistant model discovery', () => {
         expect(await rowLabels()).toEqual(['GPT-6-Astra', 'GPT-6-Luna', 'Show more']);
         // The reasoning column lists the selected model's levels with its default marked.
         expect(await page.$$eval('[data-model-picker-effort] .effort-label', labels => labels.map(label => label.textContent))).toEqual(['Low', 'Medium', 'High', 'Extra High', 'Max', 'Ultra']);
+        // Keyboard: the levels and speeds are radio groups, so the arrows select; the star is no part of an option.
+        const triggerLabel = () => page.$eval('.picker-trigger', button => button.getAttribute('aria-label') ?? '');
+        expect(await triggerLabel()).toBe('Codex · GPT-6-Astra · Medium · Standard');
+        expect(await page.$$eval('[data-model-picker-content] [role="option"] button', buttons => buttons.length)).toBe(0);
+        await clickAsUser(page, '[data-model-picker-effort] [data-effort-level][aria-checked="true"]');
+        await page.keyboard.press('ArrowDown');
+        await page.waitForFunction(() => document.querySelector('.picker-trigger')?.getAttribute('aria-label') === 'Codex · GPT-6-Astra · High · Standard');
+        expect(await page.$$eval('.speed-segment', segments => segments.map(segment => (segment as HTMLElement).tabIndex))).toEqual([0, -1]);
+        await clickAsUser(page, '.speed-segment[aria-checked="true"]');
+        await page.keyboard.press('ArrowRight');
+        await page.waitForFunction(() => document.querySelector('.picker-trigger')?.getAttribute('aria-label') === 'Codex · GPT-6-Astra · High · Fast');
+        // Back to the defaults, which the later tests send with.
+        await page.keyboard.press('ArrowLeft');
+        await clickAsUser(page, '[data-model-picker-effort] [data-effort-id="medium"]');
+        await page.waitForFunction(() => document.querySelector('.picker-trigger')?.getAttribute('aria-label') === 'Codex · GPT-6-Astra · Medium · Standard');
         await clickAsUser(page, '[data-model-picker-content] .picker-row.is-more');
         const codex = await rowLabels();
         expect(codex).toEqual(['GPT-6-Astra', 'GPT-6-Luna', 'GPT-6-Sol', 'GPT-5.6-Sol', 'GPT-5.6-Terra', 'GPT-5.6-Luna', 'GPT-5.5', 'Show less']);
