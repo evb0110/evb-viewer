@@ -597,6 +597,27 @@ describe('assistant renderer on instance contract', () => {
         }));
     });
 
+    it('keeps typed text when the first selection arrives and clears it on later provider/document switches', async () => {
+        const first = Promise.withResolvers<IAssistantState>();
+        api.getAssistantState.mockReturnValueOnce(first.promise);
+        current.instances.push(createAssistantInstance({
+            id: 'codex-b', label: 'B', defaultModel: 'gpt-b', models: [{id: 'gpt-b', label: 'GPT B'}],
+        }));
+        const props = reactive({chatScope: scope});
+        const host = mount(AgentAssistantPanel, props);
+        await draft(host, 'Typed before discovery finished');
+        first.resolve(current);
+        await settle();
+        expect(host.querySelector('textarea')?.value).toBe('Typed before discovery finished');
+        button(host, 'GPT B').click();
+        await settle();
+        expect(host.querySelector('textarea')?.value).toBe('');
+        await draft(host, 'Draft for the first document');
+        props.chatScope = {...scope, key: 'b'};
+        await settle();
+        expect(host.querySelector('textarea')?.value).toBe('');
+    });
+
     it('retains the committed document and draft through a pending scope handoff', async () => {
         current.chat = chat([item('answer', 'assistant', 'Existing answer')]);
         const props = reactive({

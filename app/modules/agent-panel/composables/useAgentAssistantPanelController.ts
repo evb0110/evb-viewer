@@ -324,7 +324,8 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
     let mounted = false;
     let unsubscribe: (() => void) | undefined;
     watch(requestIdentity, () => { if (mounted) void refresh(); });
-    watch(sessionKey, () => {
+    watch(sessionKey, (key, previous) => {
+        if (previous === null && key !== null) return;
         draft.value = '';
         imageComposer.clearComposerImages();
         imageComposer.closeExpandedImage();
