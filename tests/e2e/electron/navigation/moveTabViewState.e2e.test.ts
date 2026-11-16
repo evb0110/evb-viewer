@@ -246,6 +246,19 @@ describe('Move Tab to New Window view state', () => {
         await waitForDjvuLoaded(source);
 
         const previousTargets = new Set(session.browser.targets());
+        let destinationPage: Page | null = null;
+        onTestFinished(async () => {
+            try {
+                await destinationPage?.screenshot({path: join(sessionDir(session.name), 'djvu-transfer-destination.png')});
+                await source.screenshot({path: join(sessionDir(session.name), 'djvu-transfer-source.png')});
+            } finally {
+                // The next case must not select this destination as its merge target.
+                await sessions.restart({
+                    clean: true,
+                    hard: true,
+                });
+            }
+        });
         await clickAsUser(source, '.tab-new');
         await clickFoundAsUser(source, () => Array.from(document.querySelectorAll<HTMLElement>('.tab-list [role="tab"]'))
             .find(tab => tab.textContent?.includes('transfer-source.djvu')), null, {description: 'DjVu source tab'});
@@ -256,19 +269,8 @@ describe('Move Tab to New Window view state', () => {
             .find(item => item.textContent?.includes('Move Tab to New Window')), null, {description: 'Move Tab to New Window'});
         const destination = await (await destinationTarget).page();
         if (!destination) throw new Error('The moved DjVu has no destination renderer');
+        destinationPage = destination;
         await installPageEvaluationShims(destination);
-        onTestFinished(async () => {
-            try {
-                await destination.screenshot({path: join(sessionDir(session.name), 'djvu-transfer-destination.png')});
-                await source.screenshot({path: join(sessionDir(session.name), 'djvu-transfer-source.png')});
-            } finally {
-                // The next case must not select this destination as its merge target.
-                await sessions.restart({
-                    clean: true,
-                    hard: true,
-                });
-            }
-        });
 
         await expect.poll(async () => ({
             destination: await destination.evaluate(() => {
