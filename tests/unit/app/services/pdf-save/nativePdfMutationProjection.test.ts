@@ -738,6 +738,54 @@ describe('native PDF save route', () => {
             })],
         });
     });
+
+    it('updates an imported note edited while its page was re-read in its existing object', () => {
+        const app = new AnnotationApplication('note-edited-during-reparse');
+        const imported: INoteEntity = {
+            kind: 'note',
+            identity: {
+                id: asAnnotationId('imported-note'),
+                pdfRef: '11 0 R',
+            },
+            pageIndex: requirePageIndex(0),
+            revision: 0,
+            persistedRevision: 0,
+            deleted: false,
+            author: 'Reader',
+            createdAt: null,
+            modifiedAt: null,
+            contents: 'Store-owned note',
+            position: {
+                left: 0.1,
+                top: 0.1,
+                width: 0.05,
+                height: 0.05,
+            },
+            color: '#ffff00',
+            open: false,
+        };
+        app.store.import(imported);
+        app.store.setNoteText(imported.identity.id, 'Typed during re-read');
+        // The working bytes still hold the old text, so the re-read leaves the
+        // edit unpersisted while binding the same object.
+        expect(app.store.replaceFromDocument([imported], [], undefined, [], [], true)).toBe(true);
+        expect(app.store.get(imported.identity.id)).toMatchObject({
+            identity: {pdfRef: '11 0 R'},
+            persistedRevision: -1,
+            contents: 'Typed during re-read',
+        });
+
+        const result = buildNativePdfMutationProjection(app.beginSave().plan, createNativeRouteCapabilities({shapes: []}));
+
+        expect(result.route).toBe('native-append');
+        if (result.route !== 'native-append') throw new Error(`Expected native save: ${result.nativeRejection}`);
+        expect(result.nativeMutationProjection.mutations.updates).toEqual([{
+            objectNumber: 11,
+            generationNumber: 0,
+            text: 'Typed during re-read',
+        }]);
+        expect(result.nativeMutationProjection.mutations.freeTextNotes).toBeUndefined();
+    });
 });
 
 

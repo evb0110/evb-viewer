@@ -128,6 +128,36 @@ describe('AnnotationApplication', () => {
         expect(application.store.resolveExternal({pdfRef: '11 0 R'})).toBe(asAnnotationId('note-1'));
     });
 
+    it('keeps an imported note from the PDF while a re-read lacks its newer text', () => {
+        const application = new AnnotationApplication('document');
+        const imported: INoteEntity = {
+            ...note(),
+            identity: {
+                id: asAnnotationId('imported-note'),
+                pdfRef: '11 0 R',
+            },
+            persistedRevision: 0,
+        };
+        application.store.import(imported);
+        application.store.createNote(note());
+        application.store.setNoteText(imported.identity.id, 'typed during re-read');
+        expect(application.store.replaceFromDocument([imported], [], [0], [], [], true)).toBe(true);
+        expect(application.store.get(imported.identity.id)?.persistedRevision).toBe(-1);
+
+        expect(application.listCommentSummaries()).toEqual([
+            expect.objectContaining({
+                appAnnotationId: 'imported-note',
+                stableKey: 'ann:0:11 0 R',
+                source: 'pdf',
+                text: 'typed during re-read',
+            }),
+            expect.objectContaining({
+                appAnnotationId: 'note-1',
+                source: 'editor',
+            }),
+        ]);
+    });
+
     it('maps legacy line and arrow shapes to canonical tools', () => {
         const entity = toCanonicalShapeEntity({
             id: 'shape-1',

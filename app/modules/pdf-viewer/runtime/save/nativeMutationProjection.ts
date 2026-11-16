@@ -10,7 +10,10 @@ import type {
     AnnotationEntity,
     IPlacedImageEntity,
 } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
-import { computeSummaryStableKey } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationSummaryIdentity';
+import {
+    computeSummaryStableKey,
+    summarySourceForEntity,
+} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationSummaryIdentity';
 import {assertAnnotationBackendSemanticConformance} from '@app/modules/pdf-viewer/annotations/persistence/annotationBackendConformance';
 import { getPdfAnnotationIdFromStableKey } from '@app/modules/pdf-viewer/annotations/pdf-refs/parsePdfAnnotationStableKey';
 import type {
@@ -98,11 +101,7 @@ export interface IPdfSaveNativeRouteDecision extends INativeAppendSaveRoute {
 export type TPdfSaveRouteDecision = IPdfSaveNativeRouteDecision | IPdfSaveByteRouteDecision;
 
 function entitySummary(entity: AnnotationEntity): IAnnotationCommentSummary {
-    const source = entity.kind === 'shape'
-        ? 'shape' as const
-        : entity.persistedRevision >= 0 && entity.identity.pdfRef
-            ? 'pdf' as const
-            : 'editor' as const;
+    const source = summarySourceForEntity(entity);
     const id = entity.identity.pdfRef ?? entity.identity.id;
     const annotationId = entity.identity.pdfRef ?? null;
     const common = {

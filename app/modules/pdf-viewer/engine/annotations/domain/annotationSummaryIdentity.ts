@@ -5,6 +5,7 @@ import type {
 import {
     asAnnotationId,
     deriveAnnotationId,
+    type AnnotationEntity,
     type AnnotationId,
 } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 
@@ -21,6 +22,14 @@ type TAnnotationCommentMatchInput = Pick<
     IAnnotationCommentSummary,
     'appAnnotationId' | 'stableKey' | 'annotationName' | 'annotationId' | 'uid' | 'id' | 'pageIndex' | 'source'
 >;
+
+/**
+ * Origin follows the canonical PDF binding. A bound edit the working bytes do
+ * not yet hold is still the existing PDF object, never a new editor annotation.
+ */
+export function summarySourceForEntity(entity: Pick<AnnotationEntity, 'kind' | 'identity'>): IAnnotationCommentSummary['source'] {
+    return entity.kind === 'shape' ? 'shape' : entity.identity.pdfRef ? 'pdf' : 'editor';
+}
 
 export function computeSummaryStableKey(params: IComputeSummaryStableKeyParams): TAnnotationStableKey {
     const annotationName = params.annotationName?.trim();

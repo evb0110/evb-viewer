@@ -5,7 +5,9 @@ import {
     onTestFinished,
 } from 'vitest';
 import {
+    chmodSync,
     copyFileSync,
+    existsSync,
     mkdtempSync,
     mkdirSync,
     realpathSync,
@@ -66,7 +68,10 @@ import {
     waitForViewerInteractive,
 } from '@tests/e2e/electron/helpers/viewerCore';
 import { waitForActiveWorkspaceHost } from '@tests/e2e/electron/helpers/viewerDom';
-import { clickAsUser } from '@tests/e2e/electron/helpers/userInput';
+import {
+    clickAsUser,
+    clickFoundAsUser,
+} from '@tests/e2e/electron/helpers/userInput';
 import {
     installWorkspaceExposeProbe,
     readWorkspaceStateValues,
@@ -1154,6 +1159,99 @@ describe('Electron E2E - Annotation Lifecycle', () => {
     const sessionFixture = createElectronE2ESessionFixture({
         restartBeforeEach: true,
         sessionName: () => `e2e-annotation-lifecycle-${Date.now()}`,
+    });
+
+    it('saves an imported sticky note edited while rotation annotation readback is pending', async () => {
+        const scratch = mkdtempSync(join(tmpdir(), 'evb-note-rotation-save-'));
+        const fixture = join(scratch, 'imported.pdf');
+        copyFileSync(await createCanonicalAnnotationSurfaceFixturePdf(`note-rotation-save-${Date.now()}.pdf`), fixture);
+        const reopenedPath = join(scratch, 'reopened.pdf');
+        const armed = join(scratch, 'armed');
+        const held = join(scratch, 'held');
+        const released = join(scratch, 'released');
+        // A copied Node executable and preload avoid a platform-specific shell.
+        // Only this executable forwards native commands; other Node/Electron children
+        // load an inert preload. Hold the real parser's completed result, not a
+        // fabricated annotation snapshot.
+        const launcher = join(scratch, process.platform === 'win32' ? 'textsave-native.exe' : 'textsave-native');
+        const preload = join(scratch, 'native-readback.cjs');
+        const realTool = join(process.cwd(), '.tmp/pdf-page-ops', `${process.platform}-${process.arch}`, 'bin',
+            process.platform === 'win32' ? 'evb-pdf-page-ops.exe' : 'evb-pdf-page-ops');
+        copyFileSync(process.execPath, launcher);
+        chmodSync(launcher, 0o700);
+        // Node runs its main module after the preload returns. Keep that main
+        // inert while the preload's watcher holds the parser process open.
+        writeFileSync(join(scratch, 'parse-annotations'), '');
+        writeFileSync(preload, [
+            `if (process.execPath === ${JSON.stringify(launcher)}) {`,
+            '  const fs = require("node:fs");',
+            '  const args = [require("node:path").basename(process.argv[1]), ...process.argv.slice(2)];',
+            `  const hold = args[0] === 'parse-annotations' && fs.existsSync(${JSON.stringify(armed)});`,
+            `  if (hold) fs.rmSync(${JSON.stringify(armed)});`,
+            `  const child = require('node:child_process').spawnSync(${JSON.stringify(realTool)}, args, {stdio: 'inherit'});`,
+            '  if (child.status !== 0) process.exit(child.status ?? 1);',
+            '  if (!hold) process.exit(0);',
+            `  const watcher = fs.watch(${JSON.stringify(scratch)}, () => {`,
+            `    if (fs.existsSync(${JSON.stringify(released)})) { watcher.close(); process.exit(0); }`,
+            '  });',
+            `  fs.writeFileSync(${JSON.stringify(held)}, 'real parse completed');`,
+            '}',
+            '',
+        ].join('\n'));
+        onTestFinished(() => {
+            rmSync(fixture, {force: true});
+            rmSync(scratch, {recursive: true, force: true});
+        });
+        const {page} = await sessionFixture.restart({
+            hard: true,
+            extraEnv: {
+                EVB_PDF_PAGE_OPS_PATH: launcher,
+                NODE_OPTIONS: `${process.env.NODE_OPTIONS ?? ''} --require ${JSON.stringify(preload)}`.trim(),
+            },
+        });
+        const text = 'Imported sticky note typed during rotation';
+        const input = '.editor-pane.is-active textarea.note-window__textarea';
+        try {
+            await openPdfInApp(page, fixture);
+            await waitForPdfLoaded(page);
+            await waitForViewerInteractive(page);
+            await openAnnotationsTab(page);
+            await clickVisibleAnnotationControl(page, '.editor-pane.is-active .note-item[data-annotation-kind="note"] .note-item-content', 2);
+            await page.waitForSelector(input, {visible: true});
+            expect(await page.$eval(input, element => (element as HTMLTextAreaElement).value)).toBe('Store-owned note');
+            writeFileSync(armed, 'hold next real annotation readback');
+            await openDocumentSidebarTab(page, 'Pages');
+            await clickAsUser(page, '.editor-pane.is-active [data-thumbnail-page="1"]', {button: 'right'});
+            await clickFoundAsUser(page, () => Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]'))
+                .find(element => element.textContent?.trim() === 'Rotate Clockwise'), null, {description: 'Rotate Clockwise'});
+            await expect.poll(() => existsSync(held)).toBe(true);
+            await clickAsUser(page, input);
+            await selectAllFocusedAnnotationText(page);
+            await page.keyboard.type(text);
+            await openAnnotationsTab(page);
+            await waitForSidebarAnnotationText(page, text);
+            writeFileSync(released, 'release real annotation readback');
+            await page.waitForSelector('.editor-pane.is-active #pdf-viewer [data-annotation-kind="note"]', {visible: true});
+            expect(await page.$eval(input, element => (element as HTMLTextAreaElement).value)).toBe(text);
+            await clickAsUser(page, 'button[aria-label="Save"]:not(:disabled)');
+            await page.waitForFunction(() => !document.querySelector('.tab.is-active.is-dirty')
+                || document.body.textContent?.includes('Failed to save file'));
+            const notes = await readPdfTextAnnotationRecords(fixture);
+            expect(notes.find(note => note.name === 'surface-note')?.contents).toBe(text);
+            expect(await page.$('.tab.is-active.is-dirty')).toBeNull();
+            copyFileSync(fixture, reopenedPath);
+            await openPdfInApp(page, reopenedPath);
+            await waitForPdfLoaded(page);
+            await waitForViewerInteractive(page);
+            await openAnnotationsTab(page);
+            await waitForSidebarAnnotationText(page, text);
+        } catch (error) {
+            await sessionFixture.getSession().captureFailureArtifacts('imported-note-rotation-save');
+            throw error;
+        } finally {
+            writeFileSync(released, 'cleanup releases any held parser');
+            await sessionFixture.restart({hard: true, extraEnv: {}});
+        }
     });
 
     it('clears dirty and Save after a saved-note draft reverts, preserving other accepted edits', async () => {

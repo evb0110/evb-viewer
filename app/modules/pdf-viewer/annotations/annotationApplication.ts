@@ -19,6 +19,7 @@ import {
     mintAnnotationId,
     toLegacyShapeAnnotation,
 } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
+import {summarySourceForEntity} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationSummaryIdentity';
 import {
     AnnotationStore,
     type IAnnotationSaveFrontier,
@@ -199,9 +200,7 @@ export class AnnotationApplication {
             if (entity.deleted) {
                 return [];
             }
-            const source = entity.kind === 'shape'
-                ? 'shape' as const
-                : entity.persistedRevision >= 0 ? 'pdf' as const : 'editor' as const;
+            const source = summarySourceForEntity(entity);
             const externalId = entity.identity.pdfRef ?? entity.identity.id;
             const stableKey: IAnnotationCommentSummary['stableKey'] = entity.identity.pdfRef
                 ? `ann:${entity.pageIndex}:${entity.identity.pdfRef}`
