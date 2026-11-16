@@ -20,9 +20,13 @@ import type {
     Ref,
 } from 'vue';
 import type {
+    IAnnotationCommentSummary,
     IAnnotationEditorState,
     IAnnotationMarkerRect,
+    TAnnotationCommentsStatus,
 } from '@app/types/annotations';
+import type {AnnotationEntity} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
+import {compareAnnotationCommentSummaries} from '@app/utils/pdfAnnotationComments';
 import type { TPdfSource } from '@app/types/pdfUi';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import { AnnotationApplication } from '@app/modules/pdf-viewer/annotations/annotationApplication';
@@ -40,12 +44,42 @@ export function annotationDocumentKey(source: TPdfSource | null) {
     return identity;
 }
 
-/** What one viewer of the document takes part in: its emits and its text editor. */
+/**
+ * The store's one subscription: its last snapshot, tombstones included, and
+ * the live entities grouped by page. It follows the application when the
+ * document replaces its store.
+ */
+export function useAnnotationStoreSnapshot(application: Readonly<Ref<AnnotationApplication>>) {
+    const snapshot = shallowRef<readonly AnnotationEntity[]>([]);
+    let stop = () => {};
+    watch(application, (next) => {
+        stop();
+        stop = next.store.subscribe((entities) => { snapshot.value = entities; });
+    }, {
+        immediate: true,
+        flush: 'sync',
+    });
+    onScopeDispose(() => stop(), true);
+    return {
+        entities: computed(() => snapshot.value),
+        entitiesByPage: computed<ReadonlyMap<number, readonly AnnotationEntity[]>>(() => {
+            const grouped = new Map<number, AnnotationEntity[]>();
+            snapshot.value.filter(entity => !entity.deleted).forEach((entity) => {
+                const page = grouped.get(entity.pageIndex);
+                if (page) page.push(entity);
+                else grouped.set(entity.pageIndex, [entity]);
+            });
+            return grouped;
+        }),
+    };
+}
+
+/** What one viewer of the document takes part in: its PDF document, its emits and its text editor. */
 export interface IPdfDocumentAnnotationsView {
+    document: TPdfDocumentView;
+    originalPath: Readonly<Ref<string | null>>;
     emitAnnotationState: (state: IAnnotationEditorState) => void;
     emitAnnotationModified: () => void;
-    /** Re-projects this view after an undo or redo replayed the store. */
-    onHistoryReplay: () => void;
     /** Commits text-box drafts open in this view's editor. */
     commitPendingDraftsForSave: () => void | Promise<void>;
     getPendingTextCompletion?: () => undefined | Promise<unknown>;
@@ -59,6 +93,7 @@ export interface ICreatePdfDocumentAnnotationsOptions {
     source: Readonly<Ref<TPdfSource | null>>;
     documentRevisionToken: Readonly<Ref<TDocumentRevisionToken | null>>;
     documentSession?: Readonly<Ref<number>>;
+    /** A finished save reads the revision it wrote into a store it left partial. */
     isSaving?: Readonly<Ref<boolean>>;
 }
 
@@ -81,9 +116,6 @@ export const createPdfDocumentAnnotations = (options: ICreatePdfDocumentAnnotati
             views.forEach(view => view.emitAnnotationModified());
         },
     });
-    history.setReplayEffect(() => {
-        views.forEach(view => view.onHistoryReplay());
-    });
 
     function createAnnotationApplication(documentKey: string) {
         return new AnnotationApplication(documentKey, new AnnotationStore({
@@ -104,6 +136,37 @@ export const createPdfDocumentAnnotations = (options: ICreatePdfDocumentAnnotati
     const textBoxDrafts = shallowReactive(new Map<string, string>());
     const textBoxDraftGenerations = new Map<string, number>();
     const textBoxDraftRects = shallowReactive(new Map<string, IAnnotationMarkerRect>());
+    // Every view reads the page groups, summaries and tombstones derived from this one snapshot.
+    const {
+        entities,
+        entitiesByPage,
+    } = useAnnotationStoreSnapshot(application);
+    // A closed document lists nothing; a text box lists the draft a view holds open.
+    const comments = computed<IAnnotationCommentSummary[]>(() => (options.source.value
+        ? application.value.listCommentSummaries(entities.value).map(comment => Object.freeze({
+            ...comment,
+            text: (comment.annotationKind === 'text-box' ? textBoxDrafts.get(comment.appAnnotationId ?? '') : undefined) ?? comment.text,
+        })).sort(compareAnnotationCommentSummaries)
+        : []));
+    // Tombstones by id and PDF ref, with creations an undo removed while their redo remains.
+    const deletedAnnotationIds = computed(() => new Set<string>([
+        ...application.value.store.deletedAnnotationIds(),
+        ...entities.value.flatMap(entity => (entity.deleted && entity.identity.pdfRef ? [entity.identity.pdfRef] : [])),
+    ]));
+    // The store and PDF.js document a read last settled for. A store no read
+    // has settled for is loading, not empty; a later read reconciles what it lists.
+    const read = shallowRef<{store: AnnotationStore; document: TPdfDocumentView['pdfDocument']['value']} | null>(null);
+    const commentsStatus = computed<TAnnotationCommentsStatus>(() => (
+        options.source.value && read.value?.store === application.value.store ? 'ready' : 'loading'
+    ));
+    // A rotation re-projects its pages' geometry: they paint once the store is
+    // read for the document the view shows. The plan is not reactive; the read
+    // and document comparison come first so callers track them.
+    function paintsPage(view: Pick<TPdfDocumentView, 'activeLoadPlan' | 'pdfDocument'>, pageIndex: number) {
+        const readForView = read.value?.document === view.pdfDocument.value;
+        const plan = view.activeLoadPlan;
+        return readForView || plan.rotationDelta === undefined || !plan.pagesToInvalidate?.includes(pageIndex + 1);
+    }
     let writerParseTask: {
         matches: (document: NonNullable<TPdfDocumentView['pdfDocument']['value']>, path: string, version: number) => boolean;
         abortController: AbortController;
@@ -133,6 +196,11 @@ export const createPdfDocumentAnnotations = (options: ICreatePdfDocumentAnnotati
         if (!parsePath || !document
             || (revision !== null && fence.documentRevision !== revision && !savedRevision
                 && !fence.documentRevision?.startsWith('load:'))) {
+            // A document without a path has no writer annotations to read.
+            if (document && !parsePath) read.value = {
+                store: application.value.store,
+                document,
+            };
             return Promise.resolve(false);
         }
         if (writerParseTask?.matches(document, parsePath, fence.documentVersion)) {
@@ -237,8 +305,18 @@ export const createPdfDocumentAnnotations = (options: ICreatePdfDocumentAnnotati
             abortController,
             promise,
         };
+        void promise.finally(() => {
+            if (targetStore === application.value.store) read.value = {
+                store: targetStore,
+                document,
+            };
+        });
         return promise;
     }
+    if (options.isSaving) watch(options.isSaving, (saving) => {
+        const view = [...views].find(candidate => candidate.document.pdfDocument.value && !candidate.document.pendingPageMutationRevisionSwap);
+        if (!saving && view) void feedStoreFromWriterParse(view.document, view.originalPath, true);
+    });
 
     let storeRevision: TDocumentRevisionToken | null = null;
     function reset(documentKey: string) {
@@ -307,6 +385,13 @@ export const createPdfDocumentAnnotations = (options: ICreatePdfDocumentAnnotati
         application,
         history,
         documentIdentity,
+        /** The store's last snapshot, tombstones included; readers derive from it. */
+        entities,
+        entitiesByPage,
+        comments,
+        commentsStatus,
+        deletedAnnotationIds,
+        paintsPage,
         textBoxDrafts,
         textBoxDraftGenerations,
         textBoxDraftRects,

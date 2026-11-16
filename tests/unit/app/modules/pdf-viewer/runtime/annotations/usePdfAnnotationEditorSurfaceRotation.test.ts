@@ -18,6 +18,7 @@ import {
     usePdfAnnotationEditorSurface,
     type IAnnotationEditorSurface,
 } from '@app/modules/pdf-viewer/runtime/annotations/usePdfAnnotationEditorSurface';
+import {useAnnotationStoreSnapshot} from '@app/modules/pdf-viewer/runtime/sessions/createPdfDocumentAnnotations';
 import {
     annotationPageDimensions,
     rotatedAnnotationBounds,
@@ -66,6 +67,7 @@ function createSurfaceHarness(options: {
     const annotationApplication = shallowRef(new AnnotationApplication('surface-rotation-test', store));
     const surface = scope.run(() => usePdfAnnotationEditorSurface({
         annotationApplication,
+        entitiesByPage: useAnnotationStoreSnapshot(annotationApplication).entitiesByPage,
         isActive: computed(() => isActive.value),
         activeTool: computed<TAnnotationTool>(() => 'select'),
         settings: computed(() => DEFAULT_ANNOTATION_SETTINGS),

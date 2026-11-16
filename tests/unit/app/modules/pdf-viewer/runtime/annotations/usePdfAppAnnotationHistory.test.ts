@@ -180,12 +180,8 @@ describe('usePdfAppAnnotationHistory', () => {
     it('advances local executor history once when post-replay notifications throw', () => {
         const state = ['applied'];
         const markFailure = new Error('mark modified failed');
-        const projectionFailure = new Error('projection sync failed');
         const markModified = vi.fn(() => {
             throw markFailure;
-        });
-        const replayEffect = vi.fn(() => {
-            throw projectionFailure;
         });
         const warn = vi.spyOn(BrowserLogger, 'warn').mockImplementation(() => {});
         const undo = vi.fn(() => state.pop());
@@ -195,7 +191,6 @@ describe('usePdfAppAnnotationHistory', () => {
             emitAnnotationState,
             markModified,
         });
-        history.setReplayEffect(replayEffect);
         history.registerExecutorCommand({
             undo,
             cmd,
@@ -213,18 +208,12 @@ describe('usePdfAppAnnotationHistory', () => {
         expect(state).toEqual(['applied']);
         expect(cmd).toHaveBeenCalledOnce();
         expect(markModified).toHaveBeenCalledTimes(2);
-        expect(replayEffect).toHaveBeenCalledTimes(2);
         expect(emitAnnotationState).toHaveBeenCalledTimes(2);
-        expect(warn).toHaveBeenCalledTimes(4);
+        expect(warn).toHaveBeenCalledTimes(2);
         expect(warn).toHaveBeenCalledWith(
             'annotations',
             'Failed to mark the document modified after replay',
             markFailure,
-        );
-        expect(warn).toHaveBeenCalledWith(
-            'annotations',
-            'Failed to synchronize annotation projections after replay',
-            projectionFailure,
         );
     });
 
@@ -865,9 +854,6 @@ describe('usePdfAppAnnotationHistory', () => {
         const markModified = vi.fn(() => {
             throw new Error('mark modified failed');
         });
-        const replayEffect = vi.fn(() => {
-            throw new Error('projection sync failed');
-        });
         vi.spyOn(BrowserLogger, 'warn').mockImplementation(() => {});
         const undo = vi.fn(() => state.pop());
         const cmd = vi.fn(() => state.push('applied'));
@@ -876,7 +862,6 @@ describe('usePdfAppAnnotationHistory', () => {
             emitAnnotationState,
             markModified,
         });
-        history.setReplayEffect(replayEffect);
         history.setWorkspaceCommandSink({
             register: ledger.registerCommand,
             reset: ledger.resetSource,
@@ -899,7 +884,6 @@ describe('usePdfAppAnnotationHistory', () => {
         expect(state).toEqual(['applied']);
         expect(cmd).toHaveBeenCalledOnce();
         expect(markModified).toHaveBeenCalledTimes(2);
-        expect(replayEffect).toHaveBeenCalledTimes(2);
         expect(emitAnnotationState).toHaveBeenCalledTimes(2);
     });
 
@@ -969,41 +953,7 @@ describe('usePdfAppAnnotationHistory', () => {
         expect(reset).toHaveBeenCalledWith('annotation');
     });
 
-    it('runs the projection replay effect after workspace undo and redo', async () => {
-        const registrations: Array<{
-            undo: () => Promise<boolean> | boolean;
-            cmd: () => Promise<boolean> | boolean;
-        }> = [];
-        const calls: string[] = [];
-        const history = usePdfAppAnnotationHistory({
-            emitAnnotationState: () => {},
-            markModified: () => calls.push('modified'),
-        });
-        history.setReplayEffect(() => calls.push('projection-sync'));
-        history.setWorkspaceCommandSink({
-            register: command => registrations.push(command),
-            reset: vi.fn(),
-            forget: vi.fn(),
-        });
-        history.registerCommand({
-            undo: () => calls.push('undo'),
-            cmd: () => calls.push('redo'),
-        });
-
-        await registrations[0]?.undo();
-        await registrations[0]?.cmd();
-
-        expect(calls).toEqual([
-            'undo',
-            'modified',
-            'projection-sync',
-            'redo',
-            'modified',
-            'projection-sync',
-        ]);
-    });
-
-    it('captures the editor boundary before replay and projects it after', async () => {
+    it('captures the editor boundary before replay', async () => {
         const registrations: Array<{
             undo: () => Promise<boolean> | boolean;
             cmd: () => Promise<boolean> | boolean;
@@ -1014,7 +964,6 @@ describe('usePdfAppAnnotationHistory', () => {
             markModified: () => calls.push('modified'),
         });
         history.setBeforeReplayEffect(() => calls.push('capture'));
-        history.setReplayEffect(() => calls.push('projection-sync'));
         history.setWorkspaceCommandSink({
             register: command => registrations.push(command),
             reset: vi.fn(),
@@ -1032,11 +981,9 @@ describe('usePdfAppAnnotationHistory', () => {
             'capture',
             'undo',
             'modified',
-            'projection-sync',
             'capture',
             'redo',
             'modified',
-            'projection-sync',
         ]);
     });
 });

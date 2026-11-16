@@ -1,10 +1,7 @@
 import type {
-    IAnnotationCommentSummary,
     IAnnotationEditorState,
-    IAnnotationInventoryCompleteness,
     IAnnotationModifiedPayload,
     IAnnotationSettings,
-    TAnnotationCommentsStatus,
 } from '@app/types/annotations';
 import { DEFAULT_ANNOTATION_SETTINGS } from '@app/constants/annotationDefaults';
 
@@ -21,11 +18,6 @@ export const usePageAnnotationTools = (deps: IPageAnnotationToolsDeps) => {
 
     const annotationKeepActive = ref(true);
     const annotationSettings = ref<IAnnotationSettings>({ ...DEFAULT_ANNOTATION_SETTINGS });
-    const annotationComments = ref<IAnnotationCommentSummary[]>([]);
-    const annotationCommentsStatus = ref<TAnnotationCommentsStatus>('loading');
-    // Null means "no inventory has reported yet"; a complete inventory reports
-    // a completeness record with `complete: true`.
-    const annotationInventory = ref<IAnnotationInventoryCompleteness | null>(null);
     const annotationActiveCommentStableKey = ref<string | null>(null);
     const annotationEditorState = ref<IAnnotationEditorState>({
         isEditing: false,
@@ -106,34 +98,9 @@ export const usePageAnnotationTools = (deps: IPageAnnotationToolsDeps) => {
         annotationSavedRevision.value = 0;
     }
 
-    function markAnnotationCommentsLoading() {
-        if (annotationCommentsStatus.value === 'ready' && annotationComments.value.length === 0) {
-            return;
-        }
-        annotationCommentsStatus.value = 'loading';
-    }
-
-    function applyAnnotationComments(comments: IAnnotationCommentSummary[]) {
-        annotationComments.value = comments;
-        annotationCommentsStatus.value = 'ready';
-    }
-
-    function clearAnnotationComments() {
-        annotationComments.value = [];
-        annotationCommentsStatus.value = 'loading';
-        annotationInventory.value = null;
-    }
-
-    function applyAnnotationInventory(completeness: IAnnotationInventoryCompleteness | null) {
-        annotationInventory.value = completeness;
-    }
-
     return {
         annotationKeepActive,
         annotationSettings,
-        annotationComments,
-        annotationCommentsStatus,
-        annotationInventory,
         annotationActiveCommentStableKey,
         annotationEditorState,
         annotationRevision,
@@ -146,9 +113,5 @@ export const usePageAnnotationTools = (deps: IPageAnnotationToolsDeps) => {
         markAnnotationSaved,
         getAnnotationRevision,
         resetAnnotationTracking,
-        markAnnotationCommentsLoading,
-        applyAnnotationComments,
-        applyAnnotationInventory,
-        clearAnnotationComments,
     };
 };

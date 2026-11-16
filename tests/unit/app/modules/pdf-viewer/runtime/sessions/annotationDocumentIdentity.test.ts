@@ -70,7 +70,14 @@ function mountAnnotationSession(initial: {
     const workingCopyPath = ref<string | null>(initial.workingCopyPath ?? null);
     const src = shallowRef<TPdfSource | null>(initial.src ?? null);
     const pdfDocument = shallowRef<IPdfDocument | null>(null);
-    const emitAnnotationComments = vi.fn();
+    const scope = effectScope();
+    const annotations = initial.annotations ?? scope.run(() => createPdfDocumentAnnotations({
+        workingCopyPath: computed(() => workingCopyPath.value),
+        source: computed(() => src.value),
+        documentRevisionToken: computed(() => null),
+        isSaving: computed(() => false),
+    }))!;
+    let publishTransition: ((transition: object) => unknown) | undefined;
     const probeViewer = ref<HTMLElement | null>(null);
     const viewRotation = ref<0 | 90 | 180 | 270>(0);
     let annotationProjectionReady: Ref<boolean> | undefined;
@@ -89,7 +96,10 @@ function mountAnnotationSession(initial: {
                     rotation: 0,
                 }]),
                 registerDisposable: vi.fn(),
-                subscribe: vi.fn(() => vi.fn()),
+                subscribe: vi.fn((subscriber: (transition: object) => unknown) => {
+                    publishTransition = subscriber;
+                    return vi.fn();
+                }),
                 captureFence: vi.fn(() => ({
                     loadToken: 0,
                     documentVersion: 0,
@@ -138,8 +148,6 @@ function mountAnnotationSession(initial: {
             clearPendingImagePlacement: vi.fn(),
             emitAnnotationModified: vi.fn(),
             emitAnnotationState: vi.fn(),
-            emitAnnotationComments,
-            emitAnnotationInventory: vi.fn(),
             emitAnnotationOpenNote: vi.fn(),
             emitAnnotationContextMenu: vi.fn(),
             emitAnnotationToolAutoReset: vi.fn(),
@@ -152,11 +160,12 @@ function mountAnnotationSession(initial: {
         return () => h('div');
     } });
     const app = createApp(AnnotationSessionHost);
-    if (initial.annotations) app.provide(pdfDocumentAnnotationsKey, initial.annotations);
+    app.provide(pdfDocumentAnnotationsKey, annotations);
     app.mount(host);
     mountedSessions.push(() => {
         app.unmount();
         host.remove();
+        scope.stop();
     });
     if (!session) {
         throw new Error('The annotation session host did not expose a session.');
@@ -174,7 +183,15 @@ function mountAnnotationSession(initial: {
             pdfDocument.value = cast<IPdfDocument>({numPages: 1});
             await nextTick();
         },
-        emitAnnotationComments,
+        /** The document's summaries, as the sidebar lists them. */
+        comments: () => annotations.comments.value,
+        /** The view presents a load: the document's one annotation ingress. */
+        publishReady: () => publishTransition?.({
+            phase: 'ready',
+            reason: 'open',
+            plan: {},
+            isCurrent: () => currentTransition,
+        }),
         annotationProjectionReady: () => annotationProjectionReady?.value,
         invalidateCurrentTransition: () => {
             currentTransition = false;
@@ -241,6 +258,50 @@ describe('annotation document identity', () => {
         expect(right.hasCanonicalAnnotationChanges()).toBe(false);
     });
 
+    it('removes a highlight from every linked view with one undo', async () => {
+        const scope = effectScope();
+        mountedSessions.push(() => scope.stop());
+        const src: TPdfSource = {
+            kind: 'path',
+            path: requireDocumentRef('/managed/working.pdf'),
+            size: 4,
+        };
+        const annotations = scope.run(() => createPdfDocumentAnnotations({
+            workingCopyPath: computed(() => requireDocumentRef('/managed/working.pdf')),
+            source: computed(() => src),
+            documentRevisionToken: computed(() => null),
+        }))!;
+        const left = mountAnnotationSession({
+            annotations,
+            src,
+        }).session;
+        const right = mountAnnotationSession({
+            annotations,
+            src,
+        }).session;
+        const pageEntities = (view: typeof left) => (view.annotationEditorSurface.entitiesByPage.value.get(0) ?? [])
+            .map(entity => entity.identity.id);
+        const highlight = left.appAnnotationHistory.runTransaction(() => left.annotationEditorSurface.createHighlightFromSelection(0, [{
+            left: 0.1,
+            top: 0.2,
+            width: 0.3,
+            height: 0.04,
+        }], {selectedText: 'Harbor lantern'}));
+        right.annotationEditorSurface.select([highlight.identity.id]);
+
+        expect(pageEntities(left)).toEqual([highlight.identity.id]);
+        expect(pageEntities(right)).toEqual([highlight.identity.id]);
+        expect(annotations.comments.value.map(comment => comment.appAnnotationId)).toEqual([highlight.identity.id]);
+
+        await left.annotationEditorSurface.undo();
+
+        expect(pageEntities(left)).toEqual([]);
+        expect(pageEntities(right)).toEqual([]);
+        expect(annotations.comments.value).toEqual([]);
+        expect(right.annotationEditorSurface.selectedIds.value.size).toBe(0);
+        expect(left.appAnnotationHistory.canUndo.value).toBe(false);
+    });
+
     it('does not publish readiness when a revision read resumes after its transition is stale', async () => {
         const revision = requireDocumentRevisionToken('revision-a');
         const revisionReadResult = Promise.withResolvers<IDocumentRevisionInfo>();
@@ -256,6 +317,7 @@ describe('annotation document identity', () => {
 
         harness.pdfDocument.value = cast<IPdfDocument>({numPages: 1});
         await nextTick();
+        harness.publishReady();
         expect(revisionRead).toHaveBeenCalledWith(requireDocumentRef('/managed/working.pdf'));
         expect(harness.annotationProjectionReady()).toBe(false);
 
@@ -311,7 +373,6 @@ describe('annotation document identity', () => {
         expect(harness.storeDocumentKey()).toBe('path:/managed/working.pdf');
         expect(harness.canonicalAnnotationIds()).toHaveLength(1);
 
-        harness.emitAnnotationComments.mockClear();
         harness.workingCopyPath.value = '/managed/other-working.pdf';
         await nextTick();
 
@@ -319,7 +380,7 @@ describe('annotation document identity', () => {
         await harness.loadDocument();
         expect(harness.storeDocumentKey()).toBe('path:/managed/other-working.pdf');
         expect(harness.canonicalAnnotationIds()).toHaveLength(0);
-        expect(harness.emitAnnotationComments).toHaveBeenCalledWith([]);
+        expect(harness.comments()).toEqual([]);
     });
 
     it('separates picks that share a name, a size and a timestamp', async () => {
@@ -482,8 +543,14 @@ describe('canonical image placement', () => {
 
 
 describe('live canonical text box sidebar drafts', () => {
+    const workingSource: TPdfSource = {
+        kind: 'path',
+        path: requireDocumentRef('/managed/working.pdf'),
+        size: 4,
+    };
+
     it('restores recovered inline text as unsaved canonical text available to Save', () => {
-        const source = mountAnnotationSession();
+        const source = mountAnnotationSession({src: workingSource});
         const surface = source.session.annotationEditorSurface;
         const entity = surface.createTextBoxAt(0, {
             left: 0.1,
@@ -495,7 +562,7 @@ describe('live canonical text box sidebar drafts', () => {
         surface.setTextBoxDraftPending(entity.identity.id, 'Completed draft');
 
         const recovery = source.session.captureCanonicalAnnotationRecovery();
-        const restored = mountAnnotationSession();
+        const restored = mountAnnotationSession({src: workingSource});
         const restoredSurface = restored.session.annotationEditorSurface;
         restored.session.restoreCanonicalAnnotationRecovery(recovery);
 
@@ -506,7 +573,7 @@ describe('live canonical text box sidebar drafts', () => {
             });
         expect(restoredSurface.hasTextBoxDraftPending(entity.identity.id)).toBe(false);
         expect(restoredSurface.editingId.value).toBeNull();
-        expect(restored.emitAnnotationComments.mock.lastCall?.[0][0]?.text).toBe('Completed draft');
+        expect(restored.comments()[0]?.text).toBe('Completed draft');
         expect(restored.session.hasCanonicalAnnotationChanges()).toBe(true);
         expect(restored.session.annotationApplication.value.beginSave().plan.expected)
             .toEqual([expect.objectContaining({
@@ -519,8 +586,8 @@ describe('live canonical text box sidebar drafts', () => {
     it('projects each input and restores canonical text on cancel without mutating history', () => {
         const {
             session,
-            emitAnnotationComments,
-        } = mountAnnotationSession();
+            comments,
+        } = mountAnnotationSession({src: workingSource});
         const surface = session.annotationEditorSurface;
         const entity = surface.createTextBoxAt(0, {
             left: 0.1,
@@ -538,20 +605,20 @@ describe('live canonical text box sidebar drafts', () => {
         ]) {
             surface.setTextBoxDraftPending(entity.identity.id, text);
             expect(recoveredDrafts()).toEqual([[entity.identity.id, text]]);
-            expect(emitAnnotationComments.mock.lastCall?.[0][0]?.text).toBe(text);
+            expect(comments()[0]?.text).toBe(text);
         }
         expect(session.annotationApplication.value.listCommentSummaries()[0]?.text).toBe('Original');
         expect(session.annotationApplication.value.store.mutationEpoch).toBe(epoch);
         surface.endTextEditing(entity.identity.id, {cancelled: true});
         expect(recoveredDrafts()).toEqual([]);
-        expect(emitAnnotationComments.mock.lastCall?.[0][0]?.text).toBe('Original');
+        expect(comments()[0]?.text).toBe('Original');
     });
 
     it('replaces the draft with committed text and preserves undo', async () => {
         const {
             session,
-            emitAnnotationComments,
-        } = mountAnnotationSession();
+            comments,
+        } = mountAnnotationSession({src: workingSource});
         const surface = session.annotationEditorSurface;
         const entity = surface.createTextBoxAt(0, {
             left: 0.1,
@@ -563,13 +630,13 @@ describe('live canonical text box sidebar drafts', () => {
         surface.setTextBoxDraftPending(entity.identity.id, 'Committed');
         surface.commitGesture(entity.identity.id, {text: 'Committed'});
         surface.endTextEditing(entity.identity.id);
-        expect(emitAnnotationComments.mock.lastCall?.[0][0]?.text).toBe('Committed');
+        expect(comments()[0]?.text).toBe('Committed');
         await session.annotationApplication.value.store.undo();
-        expect(emitAnnotationComments.mock.lastCall?.[0][0]?.text).toBe('Original');
+        expect(comments()[0]?.text).toBe('Original');
     });
 
     it('drops a draft when the text box is deleted or the document is replaced', async () => {
-        const harness = mountAnnotationSession();
+        const harness = mountAnnotationSession({src: workingSource});
         const {session} = harness;
         await harness.loadDocument();
         const surface = session.annotationEditorSurface;
@@ -582,12 +649,12 @@ describe('live canonical text box sidebar drafts', () => {
         surface.setTextBoxDraftPending(entity.identity.id, 'Discarded');
         surface.deleteAnnotation(entity.identity.id);
         await session.annotationApplication.value.store.undo();
-        expect(harness.emitAnnotationComments.mock.lastCall?.[0][0]?.text).toBe('Original');
+        expect(harness.comments()[0]?.text).toBe('Original');
         surface.setTextBoxDraftPending(entity.identity.id, 'Previous document');
         harness.workingCopyPath.value = '/managed/different.pdf';
         await harness.loadDocument();
         session.annotationApplication.value.store.createTextBox(entity);
-        expect(harness.emitAnnotationComments.mock.lastCall?.[0][0]?.text).toBe('Original');
+        expect(harness.comments()[0]?.text).toBe('Original');
     });
 });
 

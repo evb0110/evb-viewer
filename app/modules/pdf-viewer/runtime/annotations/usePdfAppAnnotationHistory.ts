@@ -31,14 +31,9 @@ export const usePdfAppAnnotationHistory = (options: {
     let transactionCommands: IPdfAppAnnotationHistoryCommand[] = [];
     let workspaceCommandSink: IWorkspaceCommandSink | null = null;
     let beforeReplayEffect: (() => void) | null = null;
-    let replayEffect: (() => void) | null = null;
 
     function setBeforeReplayEffect(effect: (() => void) | null) {
         beforeReplayEffect = effect;
-    }
-
-    function setReplayEffect(effect: (() => void) | null) {
-        replayEffect = effect;
     }
 
     function beginReplay() {
@@ -50,9 +45,6 @@ export const usePdfAppAnnotationHistory = (options: {
     function finishReplay() {
         notifyAfterReplay('mark the document modified', options.markModified);
         notifyAfterReplay('emit annotation history state', emitCombinedState);
-        if (replayEffect) {
-            notifyAfterReplay('synchronize annotation projections', replayEffect);
-        }
     }
 
     function notifyAfterReplay(message: string, notify: () => void) {
@@ -378,6 +370,5 @@ export const usePdfAppAnnotationHistory = (options: {
         emitCombinedState,
         setBeforeReplayEffect,
         setWorkspaceCommandSink,
-        setReplayEffect,
     };
 };

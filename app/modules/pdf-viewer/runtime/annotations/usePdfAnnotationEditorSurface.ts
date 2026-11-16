@@ -194,6 +194,10 @@ export const annotationEditorSurfaceKey: InjectionKey<IAnnotationEditorSurface> 
 
 interface IUsePdfAnnotationEditorSurfaceOptions {
     annotationApplication: ShallowRef<AnnotationApplication>;
+    /** The document's live entities by page, grouped once from its store's snapshot. */
+    entitiesByPage: Readonly<Ref<ReadonlyMap<number, readonly AnnotationEntity[]>>>;
+    /** Whether a page's entities paint: their geometry is the one the page shows. */
+    paintsPage?: (pageIndex: number) => boolean;
     activeTool: ComputedRef<TAnnotationTool>;
     isActive?: ComputedRef<boolean>;
     settings: ComputedRef<IAnnotationSettings | null>;
@@ -284,11 +288,10 @@ export const usePdfAnnotationEditorSurface = (
     let pointerPageIndex: number | null = null;
     let preparingToolChange = false;
     let pendingAnnotationCommand: Promise<unknown> | null = null;
-    const entitiesByPage = shallowRef<ReadonlyMap<number, readonly AnnotationEntity[]>>(new Map());
+    const entitiesByPage = options.entitiesByPage;
     const selectedIds = shallowRef<ReadonlySet<AnnotationId>>(new Set());
     const pendingTextBoxDraftIds = reactive(new Set<AnnotationId>());
     const restoredTextBoxDraftRects = options.textBoxDraftRects ?? new Map<string, IAnnotationMarkerRect>();
-    let stopSubscription: (() => void) | null = null;
     let subscribedApplication: AnnotationApplication | null = null;
 
     function commitTextSession<T>(after: () => T | Promise<T>, accepted: Promise<unknown>): Promise<T>;
@@ -642,7 +645,10 @@ export const usePdfAnnotationEditorSurface = (
         }, Promise.all(fitting));
     }
 
-    function subscribeToApplication(application: AnnotationApplication) {
+    // Each snapshot of the document's store keeps this view's drafts and
+    // selection to what still lives; a replaced store ends this view's interaction.
+    watch(entitiesByPage, (grouped) => {
+        const application = options.annotationApplication.value;
         if (subscribedApplication && subscribedApplication !== application) {
             cancelActiveInteraction();
             editingId.value = null;
@@ -650,45 +656,22 @@ export const usePdfAnnotationEditorSurface = (
             selectedIds.value = new Set();
         }
         subscribedApplication = application;
-        stopSubscription?.();
-        stopSubscription = application.store.subscribe((snapshotIncludingDeleted) => {
-            const liveTextBoxIds = new Set(
-                snapshotIncludingDeleted
-                    .filter((entity): entity is ITextBoxEntity => entity.kind === 'text-box' && !entity.deleted)
-                    .map(entity => entity.identity.id),
-            );
-            [...pendingTextBoxDraftIds].forEach((annotationId) => {
-                if (!liveTextBoxIds.has(annotationId)) {
-                    clearTextBoxDraftPending(annotationId);
-                }
-            });
-            // The store emission is the only retained projection. Group it in
-            // one pass so each page component reads the same stable snapshot.
-            const grouped = new Map<number, AnnotationEntity[]>();
-            snapshotIncludingDeleted.forEach((entity) => {
-                if (entity.deleted) {
-                    return;
-                }
-                const pageEntities = grouped.get(entity.pageIndex);
-                if (pageEntities) {
-                    pageEntities.push(entity);
-                } else {
-                    grouped.set(entity.pageIndex, [entity]);
-                }
-            });
-            entitiesByPage.value = grouped;
-            setSelection([...selectedIds.value]);
+        const liveTextBoxIds = new Set([...grouped.values()].flat()
+            .filter(entity => entity.kind === 'text-box')
+            .map(entity => entity.identity.id));
+        [...pendingTextBoxDraftIds].forEach((annotationId) => {
+            if (!liveTextBoxIds.has(annotationId)) {
+                clearTextBoxDraftPending(annotationId);
+            }
         });
-    }
-
-    watch(options.annotationApplication, subscribeToApplication, {
+        setSelection([...selectedIds.value]);
+    }, {
         immediate: true,
         flush: 'sync',
     });
     onScopeDispose(() => {
         cancelPointerSession();
         pageInteractions.clear();
-        stopSubscription?.();
         subscribedApplication = null;
     });
 
@@ -1107,7 +1090,7 @@ export const usePdfAnnotationEditorSurface = (
         selectedIds,
         activeTool: options.activeTool,
         settings: options.settings,
-        getEntitiesForPage: pageIndex => entitiesByPage.value.get(pageIndex) ?? [],
+        getEntitiesForPage: pageIndex => (options.paintsPage?.(pageIndex) === false ? [] : entitiesByPage.value.get(pageIndex) ?? []),
         getPaintInput(entity) {
             if (entity.kind === 'text-box' && editingId.value === entity.identity.id) return entity;
             const preview = pageInteractions.get(entity.pageIndex)?.getPaintInput?.(entity) ?? entity;

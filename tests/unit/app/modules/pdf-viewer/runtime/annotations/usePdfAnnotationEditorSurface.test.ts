@@ -22,9 +22,14 @@ import type {
     IAnnotationMarkerRect,
     TAnnotationTool,
 } from '@app/types/annotations';
-import {createPdfDocumentAnnotations} from '@app/modules/pdf-viewer/runtime/sessions/createPdfDocumentAnnotations';
+import {
+    createPdfDocumentAnnotations,
+    useAnnotationStoreSnapshot,
+} from '@app/modules/pdf-viewer/runtime/sessions/createPdfDocumentAnnotations';
 import {requireDocumentRef} from '@contracts/documentRef';
 import {requirePageIndex} from '@contracts/pageNumbers';
+import type {TPdfDocumentView} from '@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSession';
+import {cast} from '@tests/helpers/cast';
 
 vi.mock('@app/composables/useFailureToast', () => ({useFailureToast: () => ({presentNoticeToast: vi.fn()})}));
 
@@ -59,6 +64,7 @@ function createSurfaceHarness(options: Partial<Parameters<typeof usePdfAnnotatio
     activeScopes.add(scope);
     const surface = scope.run(() => usePdfAnnotationEditorSurface({
         annotationApplication,
+        entitiesByPage: useAnnotationStoreSnapshot(annotationApplication).entitiesByPage,
         isActive: computed(() => isActive.value),
         activeTool: computed<TAnnotationTool>(() => 'select'),
         settings: computed(() => DEFAULT_ANNOTATION_SETTINGS),
@@ -583,7 +589,8 @@ describe('usePdfAnnotationEditorSurface', () => {
         ]) document.attachView({
             emitAnnotationState: () => {},
             emitAnnotationModified: () => {},
-            onHistoryReplay: () => {},
+            document: cast<TPdfDocumentView>({}),
+            originalPath: shallowRef(null),
             commitPendingDraftsForSave: surface.commitPendingTextBoxDraftsForSave,
             getPendingTextCompletion: surface.getPendingTextCompletion,
             isEditing: annotationId => surface.editingId.value === annotationId,

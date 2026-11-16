@@ -15,7 +15,6 @@ import { updateAnnotationColor } from '@app/modules/pdf-viewer/annotations/updat
 import { BrowserLogger } from '@app/utils/browserLogger';
 import type {
     IAnnotationCommentSummary,
-    IAnnotationInventoryCompleteness,
     IAnnotationMarkerRect,
     IAnnotationModifiedPayload,
     IAnnotationSettings,
@@ -42,11 +41,9 @@ import type {
 import {
     asAnnotationId,
     isReadOnlyAnnotation,
-    type AnnotationEntity,
     type ITextBoxEntity,
 } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import { groupBy } from 'es-toolkit/array';
-import { compareAnnotationCommentSummaries } from '@app/utils/pdfAnnotationComments';
 import { usePdfViewerSaveTransaction } from '@app/modules/pdf-viewer/runtime/save/usePdfViewerSaveTransaction';
 import {
     annotationEditorSurfaceKey,
@@ -124,8 +121,6 @@ export interface ICreatePdfAnnotationSessionOptions {
     clearPendingImagePlacement: () => void;
     emitAnnotationModified: (payload?: IAnnotationModifiedPayload) => void;
     emitAnnotationState: Parameters<typeof usePdfAppAnnotationHistory>[0]['emitAnnotationState'];
-    emitAnnotationComments: (comments: IAnnotationCommentSummary[]) => void;
-    emitAnnotationInventory: (completeness: IAnnotationInventoryCompleteness | null) => void;
     emitAnnotationOpenNote: (comment: IAnnotationCommentSummary) => void;
     emitAnnotationContextMenu: (payload: IAnnotationContextMenuPayload) => void;
     emitAnnotationToolAutoReset: () => void;
@@ -156,25 +151,13 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         isSaving: options.isAnySaving,
     });
     const appAnnotationHistory = documentAnnotations.history;
-    // The sidebar receives mutable copies of the frozen projection, sorted.
-    const annotationProjection = shallowRef<IAnnotationCommentSummary[]>([]);
-    function emitSidebarComments() {
-        options.emitAnnotationComments(annotationProjection.value.map(comment => ({
-            ...comment,
-            markerRect: comment.markerRect ? {...comment.markerRect} : comment.markerRect,
-            ...(comment.replies ? {replies: comment.replies.map(reply => ({...reply}))} : {}),
-        })).sort(compareAnnotationCommentSummaries));
-    }
-    function clearProjection() {
-        annotationProjection.value = [];
-        options.emitAnnotationComments([]);
-    }
-    // This viewer's part in the shared document: its emits, its re-projection
-    // after an undo or redo, and the drafts open in its editor.
+    // This viewer's part in the shared document: its PDF document, its emits
+    // and the drafts open in its editor.
     const documentAnnotationsView: IPdfDocumentAnnotationsView = {
+        document: documentSession,
+        originalPath: options.originalPath,
         emitAnnotationState: state => options.emitAnnotationState(state),
         emitAnnotationModified: () => options.emitAnnotationModified(),
-        onHistoryReplay: emitSidebarComments,
         commitPendingDraftsForSave: () => annotationEditorSurface.commitPendingTextBoxDraftsForSave(),
         getPendingTextCompletion: () => annotationEditorSurface.getPendingTextCompletion(),
         isEditing: annotationId => annotationEditorSurface.editingId.value === annotationId,
@@ -195,7 +178,7 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
     const retiredPdfAnnotationIds = shallowRef(new Set<string>());
     const hiddenPdfAnnotationIds = computed(() => new Set([
         ...retiredPdfAnnotationIds.value,
-        ...[...annotationEditorSurface.entitiesByPage.value.values()].flat()
+        ...[...documentAnnotations.entitiesByPage.value.values()].flat()
             .filter(entity => !isReadOnlyAnnotation(entity))
             .flatMap(entity => normalizePdfJsAnnotationId(entity.identity.pdfRef) ?? []),
     ]));
@@ -204,35 +187,22 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         textBoxDrafts,
         textBoxDraftGenerations,
     } = documentAnnotations;
-    function projectCanonicalAnnotations(snapshotIncludingDeleted: readonly AnnotationEntity[] = annotationApplication.value.store.list({includeDeleted: true})) {
+    watch(documentAnnotations.entities, (snapshotIncludingDeleted) => {
         const nextRetiredPdfAnnotationIds = new Set(retiredPdfAnnotationIds.value);
         snapshotIncludingDeleted.forEach((entity) => {
             const pdfJsAnnotationId = normalizePdfJsAnnotationId(entity.identity.pdfRef);
-            if (!pdfJsAnnotationId || isReadOnlyAnnotation(entity)) return;
-            if (entity.deleted) {
+            if (pdfJsAnnotationId && entity.deleted && !isReadOnlyAnnotation(entity)) {
                 nextRetiredPdfAnnotationIds.add(pdfJsAnnotationId);
             }
         });
         if (!sameStringSet(retiredPdfAnnotationIds.value, nextRetiredPdfAnnotationIds)) {
             retiredPdfAnnotationIds.value = nextRetiredPdfAnnotationIds;
         }
-        annotationProjection.value = annotationApplication.value.listCommentSummaries(snapshotIncludingDeleted).map(comment => Object.freeze({
-            ...comment,
-            text: (comment.annotationKind === 'text-box'
-                ? textBoxDrafts.get(comment.appAnnotationId ?? '')
-                : undefined) ?? comment.text,
-        }));
-        emitSidebarComments();
-    }
-    let stopAnnotationApplicationProjection = annotationApplication.value.store.subscribe(projectCanonicalAnnotations);
+    }, {
+        immediate: true,
+        flush: 'sync',
+    });
     const annotationDocumentIdentity = documentAnnotations.documentIdentity;
-    // The document owner replaces its store when its source changes or a
-    // reload starts a new revision; this view re-projects the new store.
-    watch(annotationApplication, (application) => {
-        stopAnnotationApplicationProjection();
-        clearProjection();
-        stopAnnotationApplicationProjection = application.store.subscribe(projectCanonicalAnnotations);
-    }, {flush: 'sync'});
     // Canonical records describe the bytes PDF.js currently holds. Save and
     // file-history undo can rewrite the working copy in place and reload the
     // same path, so path-keyed identity cannot identify the loaded document or
@@ -256,7 +226,6 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
             );
         }
     });
-    onScopeDispose(() => stopAnnotationApplicationProjection());
     const linkAnnotations = options.linkAnnotations ?? ref<ILinkAnnotation[]>([]);
     const linksByPage = computed<Record<number, ILinkAnnotation[]>>(() =>
         groupBy(linkAnnotations.value, link => link.pageNumber),
@@ -265,7 +234,7 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
     function emitAnnotationOpenNoteWithReconciliation(comment: IAnnotationCommentSummary) {
         emitCanonicalAnnotationOpenNote({
             annotationApplication,
-            annotationProjection,
+            annotationComments: documentAnnotations.comments,
             comment,
             emitAnnotationOpenNote: options.emitAnnotationOpenNote,
         });
@@ -279,16 +248,16 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         currentPage: viewport.currentPage,
         allowCrossPage: true,
     });
+    const paintsPage = (pageIndex: number) => documentAnnotations.paintsPage(documentSession, pageIndex);
     const annotationEditorSurface = usePdfAnnotationEditorSurface({
         annotationApplication,
+        entitiesByPage: documentAnnotations.entitiesByPage,
+        paintsPage,
         isActive: options.isActive,
         activeTool: options.annotationTool,
         authorName: options.authorName,
         onCreationCompleted: options.emitAnnotationToolAutoReset,
-        onTextBoxDraftChanged: (annotationId, text) => {
-            documentAnnotations.setTextBoxDraft(annotationId, text);
-            projectCanonicalAnnotations();
-        },
+        onTextBoxDraftChanged: documentAnnotations.setTextBoxDraft,
         getTextBoxDraftText: annotationId => textBoxDrafts.get(annotationId) ?? null,
         isOriginalAppearance: entity => isReadOnlyAnnotation(entity)
             || rendering.isOriginalAppearance(requirePageNumber(entity.pageIndex + 1), originalAnnotationPaintRef(documentSession.pdfDocument.value, entity)),
@@ -388,7 +357,7 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
             };
         },
         emitOpenNote: entity => {
-            const comment = annotationProjection.value.find(candidate => (
+            const comment = documentAnnotations.comments.value.find(candidate => (
                 candidate.appAnnotationId === entity.identity.id
             )) ?? findCanonicalAnnotationComment(annotationApplication.value, entity.identity.id);
             if (isNoteEligibleComment(comment)) {
@@ -659,7 +628,7 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         if (!id) {
             return null;
         }
-        return annotationProjection.value.find(comment => comment.appAnnotationId === id)
+        return documentAnnotations.comments.value.find(comment => comment.appAnnotationId === id)
             ?? annotationApplication.value.listCommentSummaries().find(comment => comment.appAnnotationId === id)
             ?? null;
     }
@@ -788,30 +757,18 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         highlight,
         crud,
     };
-    function handleSourceChanged(next: TPdfSource | null, previous: TPdfSource | null) {
-        if (next !== previous) {
-            clearProjection();
-        }
-    }
     const getDeletedCanonicalAnnotationIds = () => Array.from(new Set([
         ...retiredPdfAnnotationIds.value,
-        ...annotationApplication.value.store.deletedAnnotationIds(),
-        ...annotationApplication.value.store
-            .list({includeDeleted: true})
-            .filter(entity => entity.deleted)
-            .flatMap(entity => entity.identity.pdfRef ?? []),
+        ...documentAnnotations.deletedAnnotationIds.value,
     ]));
-    const thumbnailHiddenAnnotationIds = computed(() => {
-        void annotationProjection.value;
-        return new Set(getDeletedCanonicalAnnotationIds());
-    });
+    const thumbnailHiddenAnnotationIds = computed(() => new Set(getDeletedCanonicalAnnotationIds()));
     const annotationProjectionReady = ref(!(options.workingCopyPath.value && options.documentRevisionToken.value && documentSession.pdfDocument.value));
     const editingDraft = computed(() => annotationEditorSurface.editingId.value !== null && annotationEditorSurface.hasTextBoxDraftPending(annotationEditorSurface.editingId.value));
     // One page's paint inputs. An accepted text box paints as it will be once its editor hands off.
     function pagePaint(pageIndex: number, accepted?: ITextBoxEntity) {
         const editingId = accepted ? null : annotationEditorSurface.editingId.value;
         const draft = !accepted && editingDraft.value;
-        const entities = (annotationEditorSurface.entitiesByPage.value.get(pageIndex) ?? [])
+        const entities = annotationEditorSurface.getEntitiesForPage(pageIndex)
             .map(entity => entity.identity.id === accepted?.identity.id ? accepted : annotationEditorSurface.getPaintInput(entity));
         return {
             entities,
@@ -863,87 +820,26 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         if (transition.phase === 'invalidated') {
             annotationProjectionReady.value = true;
             textSelectionCache.clearSelectionCache();
-            if (transition.reason === 'source-cleared' || transition.reason === 'empty-source') {
-                clearProjection();
-                options.emitAnnotationInventory(null);
-            }
             return;
         }
+        // Each load and revision this view presents is read once into the
+        // document's store. A rotation changes the native parser's projected
+        // geometry, so it is read too, but the new page raster is not held
+        // behind a document-wide annotation index pass.
         if (transition.phase === 'ready') {
             if (transition.plan.rotationDelta === undefined) {
                 annotationProjectionReady.value = false;
             }
-            // A rotation changes the native parser's projected annotation
-            // geometry, so refresh it once, but do not hold the new page raster
-            // behind a document-wide annotation index pass.
             void ensureAnnotationProjectionReady(() => transition.isCurrent());
-            return;
-        }
-        if (transition.phase === 'settled') {
-            emitSidebarComments();
         }
     });
     watch(() => [
         options.src.value,
         options.workingCopyPath.value,
     ] as const, ([next], [previous]) => {
-        if (next === previous) {
-            return;
+        if (next !== previous) {
+            options.clearPendingImagePlacement();
         }
-        options.clearPendingImagePlacement();
-        handleSourceChanged(next, previous);
-    });
-    watch(() => [
-        options.workingCopyPath.value,
-        options.documentRevisionToken.value,
-        documentSession.pdfDocument.value,
-    ] as const, (next, previous) => {
-        if (next.some((value, index) => value !== previous[index])) {
-            if (documentSession.pendingPageMutationRevisionSwap?.rotationDelta === undefined) {
-                annotationProjectionReady.value = false;
-            }
-        }
-    }, {flush: 'sync'});
-    watch(() => [
-        options.workingCopyPath.value,
-        options.originalPath.value,
-        options.src.value,
-        options.documentRevisionToken.value,
-        documentSession.pdfDocument.value,
-    ] as const, () => {
-        if (!documentSession.pdfDocument.value || documentSession.pendingPageMutationRevisionSwap) {
-            return;
-        }
-        void ensureAnnotationProjectionReady();
-    }, {
-        flush: 'post',
-        immediate: true,
-    });
-    // A save can leave the store partial. Reading the saved revision does not
-    // hold the projection: PDF.js keeps painting what the store lacks.
-    watch(options.isAnySaving, (saving) => {
-        if (!saving && documentSession.pdfDocument.value && !documentSession.pendingPageMutationRevisionSwap) {
-            void documentAnnotations.feedStoreFromWriterParse(documentSession, options.originalPath, true);
-        }
-    });
-    // Pending (null) until the store has read the whole document.
-    watchEffect((onCleanup) => {
-        const store = annotationApplication.value.store;
-        let complete: boolean | undefined;
-        const report = () => {
-            if (complete === store.readWholeDocument) return;
-            complete = store.readWholeDocument;
-            const pages = documentSession.pdfDocument.value?.numPages ?? 0;
-            options.emitAnnotationInventory(complete ? {
-                complete,
-                omissions: [],
-                scannedPageCount: pages,
-                totalPageCount: pages,
-                failedPageCount: 0,
-            } : null);
-        };
-        report();
-        onCleanup(store.subscribe(report));
     });
     documentSession.registerDisposable(() => textSelectionCache.clearSelectionCache());
     documentSession.registerDisposable(detachProjection);
@@ -999,17 +895,16 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
             textBoxDraftRecovery.forEach((draft) => {
                 annotationEditorSurface.restoreTextBoxDraftPending(draft.annotationId, draft.geometry);
             });
-            projectCanonicalAnnotations();
             return recovery;
         },
+        // The store is not reactive: its snapshot is the framework dependency.
         hasCanonicalAnnotationChanges: () => {
-            void annotationProjection.value;
+            void documentAnnotations.entities.value;
             return annotationApplication.value.store.hasChangesSinceSavedBaseline()
                 || textBoxDrafts.size > 0;
         },
         hasCanonicalShapeChanges: () => {
-            // Keep the framework dependency on the canonical projection.
-            void annotationProjection.value;
+            void documentAnnotations.entities.value;
             return annotationApplication.value.store.hasChangesSinceSavedBaseline('shape');
         },
         getDeletedCanonicalAnnotationIds,
@@ -1021,8 +916,8 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         commentCrud: crud,
         linksByPage: annotations.linksByPage,
         annotationEditorSurface,
+        paintsPage,
         registerShapeHistoryCommand: appAnnotationHistory.registerCommand,
-        handleSourceChanged,
         appAnnotationHistory,
         canvasHiddenAnnotationIds: hiddenPdfAnnotationIds,
         ...saveTransaction,
