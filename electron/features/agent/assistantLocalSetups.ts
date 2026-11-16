@@ -4,7 +4,7 @@ import {access, readdir, realpath, stat} from 'fs/promises';
 import {spawn} from 'child_process';
 import {createHash} from 'node:crypto';
 import {homedir} from 'node:os';
-import {basename, delimiter, isAbsolute, join, relative, resolve} from 'node:path';
+import {basename, delimiter, dirname, isAbsolute, join, relative, resolve, sep} from 'node:path';
 import type {IAssistantInstanceConfig, TAssistantDriver} from '@contracts/assistant';
 import {resolveCodexProcessLaunch} from '@electron/features/agent/codexProcessLaunch';
 import {createDetachedChildProcessSpawnOptions, terminateDetachedChildProcess} from '@electron/utils/nativeChildProcess';
@@ -133,20 +133,28 @@ export async function discoverAssistantLocalSetups(env: NodeJS.ProcessEnv = proc
     const identified = await Promise.all([...candidates].map(async ([binaryPath, driver]) => {
         if (!await identifyAssistantExecutable(driver, binaryPath, env).catch(() => null)) return null;
         const name = basename(binaryPath).replace(/\.(?:exe|cmd|bat)$/iu, '');
-        const homePath = name === driver ? join(env.HOME || env.USERPROFILE || homedir(), `.${driver}`) : undefined;
+        // Windows names are case-insensitive: `Codex.exe` is the plain `codex` launcher.
+        const isPlain = name.toLowerCase() === driver;
+        const homePath = isPlain ? join(env.HOME || env.USERPROFILE || homedir(), `.${driver}`) : undefined;
         const identity = assistantSetupIdentity({driver, binaryPath, homePath});
         if (identities.has(identity)) return null;
         identities.add(identity);
         return {
             id: `local-${driver}-${createHash('sha256').update(identity).digest('hex').slice(0, 16)}`,
             driver,
-            displayName: name,
+            // A second `codex` or `claude` differs from the default setup only by its folder.
+            displayName: isPlain ? `${name} (${tildePath(dirname(binaryPath), env)})` : name,
             enabled: true,
             binaryPath,
             ...(homePath ? {homePath} : {}),
         };
     }));
     return [...defaults, ...identified.filter(value => value !== null)];
+}
+
+function tildePath(path: string, env: NodeJS.ProcessEnv) {
+    const home = env.HOME || env.USERPROFILE || homedir();
+    return path === home || path.startsWith(home + sep) ? `~${path.slice(home.length)}` : path;
 }
 
 /** Equal executable/home/argv identities collapse; distinct homes never do. */

@@ -1,36 +1,32 @@
 <template>
-    <UPopover :content="{ side: 'top', align: 'start', collisionPadding: 12 }">
-        <UButton class="picker-trigger" :label="selectionLabel" :aria-label="selectionLabel"  color="neutral" variant="ghost" size="xs" trailing-icon="i-ph-caret-down" :ui="{ label: 'truncate' }">
-            <template #leading><AssistantProviderIcon v-if="selectedInstance" :provider="selectedInstance.driver" /></template>
-        </UButton>
-        <template #content>
-            <div class="provider-picker app-scrollbar" :style="{ width: width ? Math.min(width, 360) + 'px' : undefined }">
-                <UInput v-model="search" :placeholder="t('assistant.searchModels')" :aria-label="t('assistant.searchModels')" icon="i-ph-magnifying-glass" autofocus class="picker-search" />
-                <section v-for="instance in visibleInstances" :key="instance.id" class="picker-group">
-                    <header>
-                        <AssistantProviderIcon :provider="instance.driver" />
-                        <strong>{{ instance.label }}</strong>
-                    </header>
-                    <p v-if="instance.state !== 'ready'" class="picker-status">{{ t(stateKeys[instance.state]) }}<span v-if="instance.message">: {{ instance.message }}</span></p>
-                    <UButton v-for="model in instance.models.filter(item => !search || item.label.toLowerCase().includes(search.toLowerCase()))" :key="model.id" :label="model.label" :icon="selection?.instanceId === instance.id && selection.model === model.id ? 'i-ph-check' : undefined" color="neutral" variant="ghost" class="picker-model" :aria-pressed="selection?.instanceId === instance.id && selection.model === model.id" @click="selectModel(instance, model.id)" />
-                </section>
-                <fieldset v-if="selectedModel?.reasoningEfforts?.length" class="picker-options">
-                    <legend>{{ t('assistant.reasoningEffort') }}</legend>
-                    <label v-for="effort in selectedModel.reasoningEfforts" :key="effort.id" >
-                        <input type="radio" :name="`${pickerId}-effort`" :checked="selection?.effort === effort.id" @change="selection && emit('select', { ...selection, effort: effort.id })">
-                        {{ effort.label }}
-                    </label>
-                </fieldset>
-                <fieldset v-if="supportsFast" class="picker-options">
-                    <legend>{{ t('assistant.speedMode') }}</legend>
-                    <label v-for="speed in speeds" :key="speed.id">
-                        <input type="radio" :name="`${pickerId}-speed`" :checked="selection?.speedMode === speed.id" @change="selection && emit('select', { ...selection, speedMode: speed.id })">
-                        {{ t(speed.key) }}
-                    </label>
-                </fieldset>
-            </div>
-        </template>
-    </UPopover>
+    <AppTooltip :text="triggerDetail" :content="{ side: 'top' }" :disabled="open">
+        <UPopover v-model:open="open" :content="{ side: 'top', align: 'start', sideOffset: 6, collisionPadding: 12 }">
+            <button type="button" class="picker-trigger" data-model-picker-trigger :aria-label="triggerDetail">
+                <AssistantProviderIcon v-if="selectedInstance" class="trigger-icon" :provider="selectedInstance.driver" :badge="instanceBadge(selectedInstance, instances)" />
+                <span class="trigger-model">{{ selectedModel?.shortLabel ?? selectedModel?.label ?? selection?.model ?? t('assistant.selectInstance') }}</span>
+                <span v-if="effortLabel || isFast" class="trigger-traits">
+                    <span v-if="effortLabel" class="trigger-effort">{{ effortLabel }}</span>
+                    <UIcon v-if="isFast" name="i-ph-lightning-fill" class="trigger-fast" />
+                </span>
+            </button>
+            <template #content>
+                <div class="model-picker" data-model-picker>
+                    <div class="picker-body">
+                        <AssistantModelPickerContent ref="content" :instances="instances" :selection="selection" @pick="pickModel" @focus-effort="effortColumn?.focusLevel()" @close="open = false" />
+                        <AssistantModelEffortColumn ref="effortColumn" :model="selectedModel" :model-label="selectedModel?.shortLabel ?? selectedModel?.label ?? ''" :effort="selection?.effort ?? ''" @pick="pickEffort" @back="content?.focusSearch()" />
+                    </div>
+                    <div v-if="supportsFast" class="picker-footer">
+                        <div ref="speedControl" class="speed-control" role="radiogroup" :aria-label="t('assistant.speedMode')" @keydown="handleSpeedKeydown">
+                            <button v-for="speed in speeds" :key="speed.id" type="button" role="radio" class="speed-segment" :aria-checked="currentSpeed === speed.id" :tabindex="currentSpeed === speed.id ? 0 : -1" @click="pickSpeed(speed.id)">
+                                <UIcon v-if="speed.id === 'fast'" name="i-ph-lightning-fill" class="speed-icon" />
+                                {{ t(speed.key) }}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </template>
+        </UPopover>
+    </AppTooltip>
 </template>
 
 <script setup lang="ts">
@@ -38,21 +34,26 @@ import type {
     IAssistantInstanceStatus, IAssistantSelection,
 } from '@contracts/assistant';
 import { resolveAssistantSelection } from '@app/modules/agent-panel/utils/assistantSelectionPreference';
+import { instanceBadge } from '@app/modules/agent-panel/utils/assistantModelPicker';
 import AssistantProviderIcon from '@app/modules/agent-panel/components/AssistantProviderIcon.vue';
+import AssistantModelPickerContent from '@app/modules/agent-panel/components/AssistantModelPickerContent.vue';
+import AssistantModelEffortColumn from '@app/modules/agent-panel/components/AssistantModelEffortColumn.vue';
 import { useTypedI18n } from '@app/composables/useTypedI18n';
+
 const props = defineProps<{
     instances: IAssistantInstanceStatus[];
     selection: IAssistantSelection | null;
-    width?: number | undefined;
 }>();
 const emit = defineEmits<{ select: [selection: IAssistantSelection] }>();
 const { t } = useTypedI18n();
-const pickerId = useId();
-const search = ref('');
-const visibleInstances = computed(() => props.instances.filter(instance => instance.enabled && instance.state !== 'disabled'));
+const open = ref(false);
+const content = ref<InstanceType<typeof AssistantModelPickerContent> | null>(null);
+const effortColumn = ref<InstanceType<typeof AssistantModelEffortColumn> | null>(null);
 const selectedInstance = computed(() => props.instances.find(instance => instance.id === props.selection?.instanceId));
 const selectedModel = computed(() => selectedInstance.value?.models.find(model => model.id === props.selection?.model));
-const supportsFast = computed(() => selectedModel.value?.serviceTiers?.some(tier => tier.id === 'fast' || tier.id === 'priority'));
+const supportsFast = computed(() => selectedModel.value?.serviceTiers?.some(tier => tier.id === 'fast' || tier.id === 'priority') === true);
+const isFast = computed(() => supportsFast.value && props.selection?.speedMode === 'fast');
+const effortLabel = computed(() => selectedModel.value?.reasoningEfforts?.find(option => option.id === props.selection?.effort)?.label ?? '');
 const speeds = [
     {
         id: 'standard',
@@ -63,96 +64,195 @@ const speeds = [
         key: 'assistant.speedFast',
     },
 ] as const;
-const stateKeys = {
-    checking: 'assistant.stateChecking',
-    ready: 'assistant.stateReady',
-    warning: 'assistant.stateWarning',
-    error: 'assistant.stateError',
-    disabled: 'assistant.stateDisabled',
-    missing: 'assistant.stateMissing',
-} as const;
-const selectionLabel = computed(() => [
+// The tooltip and screen readers name what the trigger abbreviates: instance, full model, effort and speed.
+const triggerDetail = computed(() => [
     selectedInstance.value?.label ?? t('assistant.selectInstance'),
     selectedModel.value?.label ?? props.selection?.model,
-    props.selection?.effort,
-    t(props.selection?.speedMode === 'fast' ? 'assistant.speedFast' : 'assistant.speedStandard'),
+    effortLabel.value,
+    supportsFast.value ? t(isFast.value ? 'assistant.speedFast' : 'assistant.speedStandard') : '',
 ].filter(Boolean).join(' · '));
-function selectModel(instance: IAssistantInstanceStatus, model: string) {
+
+// Picking a model keeps the picker open and moves to its levels, as in T3 Code's docked picker.
+function pickModel(instanceId: string, model: string) {
     const selection = resolveAssistantSelection({
-        instanceId: instance.id,
+        instanceId,
         model,
         effort: props.selection?.effort ?? '',
         speedMode: props.selection?.speedMode ?? 'standard',
     }, props.instances, null);
-    if (selection) emit('select', selection);
+    if (!selection) return;
+    emit('select', selection);
+    requestAnimationFrame(() => effortColumn.value?.focusLevel());
+}
+
+function pickEffort(effort: string) {
+    if (props.selection) emit('select', {
+        ...props.selection,
+        effort,
+    });
+}
+
+const speedControl = ref<HTMLElement | null>(null);
+const currentSpeed = computed(() => props.selection?.speedMode ?? 'standard');
+
+// One tab stop; the arrow keys move between and select the speeds.
+function handleSpeedKeydown(event: KeyboardEvent) {
+    const step = event.key === 'ArrowRight' || event.key === 'ArrowDown' ? 1 : event.key === 'ArrowLeft' || event.key === 'ArrowUp' ? -1 : 0;
+    if (!step || event.altKey || event.ctrlKey || event.metaKey) return;
+    event.preventDefault();
+    const index = speeds.findIndex(speed => speed.id === currentSpeed.value);
+    const next = speeds[(index + step + speeds.length) % speeds.length];
+    if (!next) return;
+    pickSpeed(next.id);
+    nextTick(() => speedControl.value?.querySelector<HTMLElement>('[aria-checked="true"]')?.focus());
+}
+
+function pickSpeed(speedMode: IAssistantSelection['speedMode']) {
+    if (props.selection) emit('select', {
+        ...props.selection,
+        speedMode,
+    });
 }
 </script>
 
 <style scoped>
 .picker-trigger {
+    display: flex;
     min-width: 0;
     max-width: 100%;
-}
-
-.provider-picker {
-    width: var(--app-assistant-picker-width);
-    max-width: calc(100vw - var(--app-space-16xl));
-    max-height: var(--app-assistant-picker-max-height);
-    padding: var(--app-space-3xl);
-    overflow: hidden auto;
-}
-
-.picker-search {
-    width: 100%;
-    margin-bottom: var(--app-space-3xl);
-}
-
-.picker-group {
-    padding-block: var(--app-space-lg);
-}
-
-.picker-group header {
-    display: flex;
     align-items: center;
     gap: var(--app-space-lg);
-    padding: var(--app-space-lg);
-    color: var(--ui-text-muted);
-    font-size: var(--app-text-size-kicker);
+    padding: var(--app-space-sm) var(--app-space-3xl);
+    border-radius: var(--app-radius-2xl);
+    color: var(--ui-text);
+    cursor: pointer;
+    font-size: var(--app-text-size-body);
 }
 
-.picker-status {
-    margin: 0;
-    padding: var(--app-space-lg);
-    font-size: var(--app-text-size-kicker);
-    white-space: pre-wrap;
-    overflow-wrap: anywhere;
-    user-select: text;
+.picker-trigger:hover,
+.picker-trigger[data-state='open'],
+.picker-trigger:focus-visible {
+    outline: none;
+    background: color-mix(in oklab, var(--ui-text) 8%, transparent);
 }
 
-.picker-model {
+.trigger-icon {
+    font-size: var(--app-text-size-title-sm);
+}
+
+.trigger-model {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.trigger-traits {
     display: flex;
-    width: 100%;
-    justify-content: flex-start;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: var(--app-space-lg);
+    color: var(--ui-text-muted);
 }
 
-.picker-options {
+.picker-trigger:hover .trigger-traits,
+.picker-trigger[data-state='open'] .trigger-traits {
+    color: var(--ui-text);
+}
+
+.trigger-fast {
+    width: var(--app-space-9xl);
+    height: var(--app-space-9xl);
+}
+
+.model-picker {
+    display: flex;
+    max-width: calc(100vw - var(--app-space-16xl));
+    max-height: var(--reka-popover-content-available-height, var(--app-assistant-picker-height));
+    flex-direction: column;
+    overflow: hidden;
+}
+
+/* One fixed height, so a model with more levels never resizes the popup (T3 Code). */
+.picker-body {
+    display: flex;
+    height: var(--app-assistant-picker-height);
+    min-height: 0;
+}
+
+.picker-footer {
     display: flex;
     flex-wrap: wrap;
+    align-items: center;
     gap: var(--app-space-3xl);
-    margin-top: var(--app-space-3xl);
-    padding: var(--app-space-3xl);
+    padding: var(--app-space-3xl) var(--app-space-9xl);
     border-top: 1px solid var(--ui-border);
-    font-size: var(--app-text-size-kicker);
+    background: color-mix(in oklab, var(--ui-bg-muted) 40%, transparent);
 }
 
-.picker-options legend {
-    color: var(--ui-text-muted);
-}
-
-.picker-options label {
+.speed-control {
     display: flex;
+    padding: var(--app-space-3xs);
+    border-radius: var(--app-radius-2xl);
+    background: color-mix(in oklab, var(--ui-bg-accented) 40%, transparent);
+}
+
+.speed-segment {
+    display: flex;
+    height: var(--app-space-16xl);
     align-items: center;
     gap: var(--app-space-sm);
+    padding: 0 var(--app-space-3xl);
+    color: var(--ui-text-muted);
     cursor: pointer;
+    font-size: var(--app-text-size-caption);
+}
+
+.speed-segment:first-child {
+    border-radius: var(--app-radius-md) 0 0 var(--app-radius-md);
+}
+
+.speed-segment:last-child {
+    border-radius: 0 var(--app-radius-md) var(--app-radius-md) 0;
+}
+
+.speed-segment:hover {
+    color: var(--ui-text);
+}
+
+.speed-segment[aria-checked='true'] {
+    background: color-mix(in oklab, var(--ui-bg-accented) 72%, transparent);
+    color: var(--ui-text);
+}
+
+.speed-icon {
+    width: var(--app-space-9xl);
+    height: var(--app-space-9xl);
+}
+
+/* A phone-width window stacks the levels under the list, as T3 Code does. */
+@media (width < 40rem) {
+    .picker-body {
+        height: auto;
+        flex: 1 1 auto;
+        flex-direction: column;
+    }
+
+    /* Both halves give way to a short window; their rows keep scrolling. */
+    .picker-body > :first-child {
+        width: 100%;
+        height: var(--app-assistant-picker-stacked-list-height);
+        min-height: 0;
+        flex: 0 1 auto;
+    }
+
+    .picker-body > :last-child {
+        width: 100%;
+        height: var(--app-assistant-picker-stacked-effort-height);
+        min-height: 0;
+        flex: 0 1 auto;
+        border-top: 1px solid var(--ui-border);
+        border-left: 0;
+    }
 }
 </style>

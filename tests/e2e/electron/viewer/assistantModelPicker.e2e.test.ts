@@ -43,16 +43,33 @@ describe('Electron E2E - assistant model discovery', () => {
         });
         expect(inputInset, 'Composer text should have a compact inline inset').toBeLessThanOrEqual(12);
         await clickAsUser(page, '.picker-trigger');
-        await page.waitForFunction(() => {
-            const groups = [...document.querySelectorAll('.picker-group')];
-            return groups.some(group => /GPT-\d+(?:\.\d+)?-Astra/.test(group.textContent ?? ''));
-        });
-        const groups = await page.evaluate(() => [...document.querySelectorAll('.picker-group')].map(group => ({
-            provider: group.querySelector('header')?.textContent?.trim() ?? null,
-            labels: [...group.querySelectorAll('.picker-model')].map(row => row.textContent?.trim() ?? ''),
-        })));
-        const codex = groups.find(group => group.provider === 'Codex')?.labels ?? [];
-        expect(codex).toEqual(['GPT-6-Astra', 'GPT-6-Sol', 'GPT-6-Luna', 'GPT-5.6-Sol', 'GPT-5.6-Terra', 'GPT-5.6-Luna', 'GPT-5.5']);
+        await page.waitForSelector('[data-rail-tab="codex"]:not(:disabled)', {visible: true});
+        await clickAsUser(page, '[data-rail-tab="codex"]');
+        await page.waitForFunction(() => [...document.querySelectorAll('[role="option"]')].some(row => /GPT-\d+(?:\.\d+)?-Astra/.test(row.textContent ?? '')));
+        const rowLabels = () => page.evaluate(() => [...document.querySelectorAll('[data-model-picker-content] [role="option"]')]
+            .map(row => row.querySelector('.row-name')?.firstChild?.textContent ?? row.textContent?.trim() ?? ''));
+        // Older releases fold under "Show more", as in T3 Code; the reported current models list first.
+        expect(await rowLabels()).toEqual(['GPT-6-Astra', 'GPT-6-Luna', 'Show more']);
+        // The reasoning column lists the selected model's levels with its default marked.
+        expect(await page.$$eval('[data-model-picker-effort] .effort-label', labels => labels.map(label => label.textContent))).toEqual(['Low', 'Medium', 'High', 'Extra High', 'Max', 'Ultra']);
+        // Keyboard: the levels and speeds are radio groups, so the arrows select; the star is no part of an option.
+        const triggerLabel = () => page.$eval('.picker-trigger', button => button.getAttribute('aria-label') ?? '');
+        expect(await triggerLabel()).toBe('Codex · GPT-6-Astra · Medium · Standard');
+        expect(await page.$$eval('[data-model-picker-content] [role="option"] button', buttons => buttons.length)).toBe(0);
+        await clickAsUser(page, '[data-model-picker-effort] [data-effort-level][aria-checked="true"]');
+        await page.keyboard.press('ArrowDown');
+        await page.waitForFunction(() => document.querySelector('.picker-trigger')?.getAttribute('aria-label') === 'Codex · GPT-6-Astra · High · Standard');
+        expect(await page.$$eval('.speed-segment', segments => segments.map(segment => (segment as HTMLElement).tabIndex))).toEqual([0, -1]);
+        await clickAsUser(page, '.speed-segment[aria-checked="true"]');
+        await page.keyboard.press('ArrowRight');
+        await page.waitForFunction(() => document.querySelector('.picker-trigger')?.getAttribute('aria-label') === 'Codex · GPT-6-Astra · High · Fast');
+        // Back to the defaults, which the later tests send with.
+        await page.keyboard.press('ArrowLeft');
+        await clickAsUser(page, '[data-model-picker-effort] [data-effort-id="medium"]');
+        await page.waitForFunction(() => document.querySelector('.picker-trigger')?.getAttribute('aria-label') === 'Codex · GPT-6-Astra · Medium · Standard');
+        await clickAsUser(page, '[data-model-picker-content] .picker-row.is-more');
+        const codex = await rowLabels();
+        expect(codex).toEqual(['GPT-6-Astra', 'GPT-6-Luna', 'GPT-6-Sol', 'GPT-5.6-Sol', 'GPT-5.6-Terra', 'GPT-5.6-Luna', 'GPT-5.5', 'Show less']);
         expect(codex).not.toContain('GPT-6.1-Sol');
         const state = await page.evaluate(async () => (window as IE2EWindow).electronAPI!.agent.getAssistantState());
         const setup = state.instances.find(instance => instance.id === 'codex')!;

@@ -151,15 +151,15 @@ describe('claudeAgentSdkAssistant', () => {
                 displayName: 'Opus',
             },
         ]).map(model => model.label)).toEqual([
-            'Fable 5.1',
-            'Fable 5',
-            'Opus 4.8',
-            'Opus 5.5',
-            'Opus 5.6',
+            'Claude Fable 5.1',
+            'Claude Fable 5',
+            'Claude Opus 4.8',
+            'Claude Opus 5.5',
+            'Claude Opus 5.6',
         ]);
     });
 
-    it('labels every Claude row, including the reported default alias', () => {
+    it('lists the model the default pointer resolves to once, marked as the default', () => {
         expect(normalizeClaudeSdkModelList([
             {
                 value: 'default',
@@ -189,12 +189,13 @@ describe('claudeAgentSdkAssistant', () => {
         ]).map(model => [
             model.id,
             model.label,
+            model.shortLabel,
+            model.isDefault === true,
         ])).toEqual([
-            ['default', 'Opus 5.5 (recommended)'],
-            ['opus[1m]', 'Opus 5.5 (1M context)'],
-            ['fable', 'Fable 5.1'],
-            ['opus', 'Opus 5.5'],
-            ['custom', 'Custom model'],
+            ['opus[1m]', 'Claude Opus 5.5 (1M context)', 'Opus 5.5 (1M context)', true],
+            ['fable', 'Claude Fable 5.1', 'Fable 5.1', false],
+            ['opus', 'Claude Opus 5.5', 'Opus 5.5', false],
+            ['custom', 'Custom model', 'Custom model', false],
         ]);
     });
 
@@ -236,10 +237,10 @@ describe('claudeAgentSdkAssistant', () => {
                 displayName: 'Blank',
             },
         ])).toEqual([
-            {id: 'claude-fable-5-1', label: 'Fable 5.1', resolvedModel: 'claude-fable-5-1', reasoningEfforts: [{id: 'low', label: 'Low'}, {id: 'medium', label: 'Medium'}]},
-            {id: 'claude-sonnet-5', label: 'Claude Sonnet 5'},
-            {id: 'opus', label: 'Opus 5.5', resolvedModel: 'claude-opus-5-5', reasoningEfforts: [{id: 'medium', label: 'Medium'}, {id: 'high', label: 'High'}]},
-            {id: 'future-model', label: 'Haiku 5.0', resolvedModel: 'claude-haiku-5-0'},
+            {id: 'claude-fable-5-1', label: 'Claude Fable 5.1', shortLabel: 'Fable 5.1', isLegacy: true, resolvedModel: 'claude-fable-5-1', reasoningEfforts: [{id: 'low', label: 'Low'}, {id: 'medium', label: 'Medium', isDefault: true}]},
+            {id: 'claude-sonnet-5', label: 'Claude Sonnet 5', shortLabel: 'Claude Sonnet 5', isLegacy: true},
+            {id: 'opus', label: 'Claude Opus 5.5', shortLabel: 'Opus 5.5', resolvedModel: 'claude-opus-5-5', reasoningEfforts: [{id: 'medium', label: 'Medium', isDefault: true}, {id: 'high', label: 'High'}]},
+            {id: 'future-model', label: 'Claude Haiku 5.0', shortLabel: 'Haiku 5.0', resolvedModel: 'claude-haiku-5-0'},
         ]);
         expect(normalizeClaudeSdkModelList({data: []})).toEqual([]);
     });
@@ -934,7 +935,8 @@ describe('claudeAgentSdkAssistant', () => {
         expect(await discoverClaudeAssistantModels('/fixture/cwd', '/fixture/claude', env)).toMatchObject({
             models: [{
                 id: 'opus',
-                label: 'Opus 5.5',
+                label: 'Claude Opus 5.5',
+                shortLabel: 'Opus 5.5',
             }],
             account: {email: 'reader@example.test'},
         });
