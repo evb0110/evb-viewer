@@ -199,6 +199,7 @@ export async function restoreWorkspaceCheckpoint(
             recoveryWorkingCopyPath: tab.isDirty ? tab.workingCopyRef : null,
         });
     }
+    await nextTick();
     const graphActiveTabId = options.activeTabId.value;
     const restoredByTabId = new Map<string, Promise<boolean>>();
     const results = await Promise.all(checkpoint.tabs.map(async (tab) => {

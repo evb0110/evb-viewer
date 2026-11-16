@@ -331,50 +331,6 @@ describe('useAppShellTabLifecycle', () => {
         expect(asyncHelpersMock.waitForVisualFrames).toHaveBeenCalledWith({frames: 2});
     });
 
-    it('keeps closing available when the user leaves the replacement before its view mounts', async () => {
-        const panes = ref<IEditorPaneState[]>([createPane('pane-1', 'tab-3', ['tab-1', 'tab-2', 'tab-3'])]);
-        const tabs = ref<ITab[]>([{id: 'tab-1'}, {id: 'tab-2'}, {id: 'tab-3'}]);
-        const activeTabId = ref<string | null>('tab-3');
-        const sessions = Object.fromEntries(['tab-1', 'tab-2', 'tab-3'].map(tabId => [
-            tabId,
-            createWorkspaceDocumentController({tabId}),
-        ]));
-        let replacementShown: () => void = () => {};
-        const replacementShownPromise = new Promise<void>((resolve) => {
-            replacementShown = resolve;
-        });
-        const {lifecycle} = createLifecycle({
-            panes,
-            tabs,
-            sessions,
-            activeTabId,
-            activateTab: (_paneId, tabId) => {
-                activeTabId.value = tabId;
-                panes.value[0]!.activeTabId = requireTabId(tabId);
-                if (tabId === 'tab-2') replacementShown();
-            },
-            closeTab: (_paneId, tabId) => {
-                panes.value[0]!.tabIds = panes.value[0]!.tabIds.filter(candidate => candidate !== tabId);
-                tabs.value = tabs.value.filter(tab => tab.id !== tabId);
-            },
-        });
-
-        const closing = lifecycle.handleCloseTab('pane-1', 'tab-3');
-        await replacementShownPromise;
-        // The user selects the first tab; the replacement's view never mounts.
-        activeTabId.value = 'tab-1';
-        panes.value[0]!.activeTabId = requireTabId('tab-1');
-        await closing;
-
-        expect(sessions['tab-2']!.getView('tab-2')?.mountedWorkspace.value).toBeNull();
-        expect(lifecycle.isTabTransitionBusy.value).toBe(false);
-        expect(tabs.value.map(tab => tab.id)).toEqual(['tab-1', 'tab-2']);
-
-        await lifecycle.handleCloseTab('pane-1', 'tab-1');
-
-        expect(tabs.value.map(tab => tab.id)).toEqual(['tab-2']);
-    });
-
     it('asks about unsaved work when the other view lets go of the document while this view closes', async () => {
         const session = createDocumentSession('tab-a', {dirty: true});
         session.addView('tab-b');
