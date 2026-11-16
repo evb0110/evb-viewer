@@ -62,31 +62,6 @@ export async function resolveInstalledAssistantExecutable(driver: TAssistantDriv
     for (const candidate of candidates) {
         if (!await isRetiredManagedExecutable(candidate, env) && await isAssistantExecutable(candidate)) return resolve(candidate);
     }
-    if (process.platform !== 'win32') {
-        const shell = env.SHELL || '/bin/zsh';
-        if (!await isAssistantExecutable(shell)) return null;
-        return new Promise<string | null>(resolveResult => {
-            const child = spawn(shell, ['-lc', `command -v ${driver}`], createDetachedChildProcessSpawnOptions({env, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true}));
-            let output = '';
-            let settled = false;
-            const finish = async (path: string | null) => {
-                if (settled) return;
-                settled = true;
-                clearTimeout(timer);
-                await terminateDetachedChildProcess(child, 1_000).catch(() => false);
-                resolveResult(path);
-            };
-            const timer = setTimeout(() => { void finish(null); }, VERSION_TIMEOUT_MS);
-            child.stdout?.on('data', (chunk: Buffer) => { output = `${output}${chunk.toString()}`.slice(0, VERSION_OUTPUT_LIMIT); });
-            child.stderr?.resume();
-            child.on('error', () => finish(null));
-            child.on('close', () => {
-                const candidate = output.trim().split('\n')[0];
-                if (!candidate) { finish(null); return; }
-                void Promise.all([isAssistantExecutable(candidate), isRetiredManagedExecutable(candidate, env)]).then(([valid, managed]) => finish(valid && !managed ? candidate : null));
-            });
-        });
-    }
     return null;
 }
 

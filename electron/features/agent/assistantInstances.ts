@@ -33,7 +33,7 @@ import {getErrorMessage} from '@electron/utils/error';
 import {ASSISTANT_MODEL_CONFIG_DIR} from '@electron/features/agent/codexAssistantConfig';
 
 import {assistantSetupIdentity, defaultAssistantLocalSetups, discoverAssistantLocalSetups} from '@electron/features/agent/assistantLocalSetups';
-
+import {getAssistantShellEnvironment} from '@electron/features/agent/assistantShellEnvironment';
 const logger = createLogger('assistant-instances');
 const STORE_VERSION = 1;
 // Entries a Codex shadow home keeps to itself: its own login, the lock that
@@ -281,7 +281,7 @@ export async function getAssistantInstanceConfigs(discover = true): Promise<IAss
 
 let discovered: Promise<IAssistantInstanceConfig[]> | null = null;
 function localSetups() {
-    discovered ??= discoverAssistantLocalSetups().catch((error: unknown) => {
+    discovered ??= getAssistantShellEnvironment().then(discoverAssistantLocalSetups).catch((error: unknown) => {
         discovered = null;
         logger.warn(`Local assistant discovery failed: ${sanitizeAssistantProviderText(getErrorMessage(error))}`);
         return defaultAssistantLocalSetups();
@@ -564,11 +564,9 @@ export async function resolveAssistantLaunchContext(
     const instance = redact(stored);
     const label = assistantInstanceLabel(instance);
     const instanceEnv = decryptEnvironment(stored.environment, label);
-    const hostEnv = instance.driver === 'claude'
-        ? Object.fromEntries(Object.entries(process.env).filter(([name]) => !CLAUDE_HOST_ENV.includes(name)))
-        : process.env;
+    const env = {...await getAssistantShellEnvironment()};
+    if (instance.driver === 'claude') for (const name of CLAUDE_HOST_ENV) delete env[name];
     // Adapted from T3 Code instanceEnvironment.ts (0b6f482dc5), MIT.
-    const env: NodeJS.ProcessEnv = {...hostEnv};
     for (const [key, value] of Object.entries(instanceEnv)) {
         const name = process.platform === 'win32' ? key.toUpperCase() : key;
         if (process.platform === 'win32') {

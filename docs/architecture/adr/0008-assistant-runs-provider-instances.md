@@ -125,3 +125,11 @@ Adapted T3 Code sources are pinned to
 `0b6f482dc5d5ee64d7e90d1bac342756db9bfe68` under MIT; the bundled notices list
 the modules. EVB retains its MCP bridge, document scope, persistence, opt-in and
 ordered event owner.
+
+When EVB is opened from the Dock or Finder, the main process reads the user’s
+interactive login-shell environment once, with a five-second limit. Discovery
+uses that PATH, and provider launches and metadata probes inherit the same
+environment before applying setup overrides. A terminal launch keeps its inherited
+environment. If the shell read fails, EVB uses the inherited environment. Shell
+environment changes take effect after restarting EVB. Values stay in main-process
+memory and are never sent to the renderer or stored.
