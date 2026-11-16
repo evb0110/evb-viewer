@@ -1,6 +1,6 @@
 <template>
     <div class="timeline-shell">
-        <div ref="viewport" class="assistant-timeline app-scrollbar" role="log" :aria-label="t('assistant.conversation')" @scroll="handleScroll" @wheel.passive="handleWheel" @keydown="handleKeydown">
+        <div ref="viewport" class="assistant-timeline app-scrollbar" role="log" :aria-label="t('assistant.conversation')" @scroll="handleScroll">
             <div ref="content" class="timeline-content">
                 <div v-if="!items.length" class="timeline-empty">
                     <h2>{{ t(hasDocument ? 'assistant.emptyDocumentTitle' : 'assistant.emptyWorkspaceTitle') }}</h2>
@@ -108,7 +108,8 @@ function needsAnotherModel(item: IAssistantItem) {
  * the viewport, after which following tracks the reply's end.
  */
 const END_BAND = 48;
-const follow = ref<'following' | 'released' | 'released-at-end'>('following');
+const follow = ref<'following' | 'released'>('following');
+let lastScrollTop = 0;
 const anchorId = ref<string | null>(null);
 const anchorSpace = ref(0);
 function atEnd(element: HTMLElement) {
@@ -117,26 +118,16 @@ function atEnd(element: HTMLElement) {
 function handleScroll() {
     const element = viewport.value;
     if (!element) return;
-    if (!atEnd(element)) follow.value = 'released';
-    else if (follow.value === 'released') follow.value = 'following';
-}
-// Moving up while still inside the end band stays released until the reader leaves and returns.
-function releaseUpward() {
-    if (follow.value === 'following') follow.value = 'released-at-end';
-}
-function handleWheel(event: WheelEvent) {
-    if (event.deltaY < 0) releaseUpward();
-}
-function handleKeydown(event: KeyboardEvent) {
-    if ([
-        'ArrowUp',
-        'PageUp',
-        'Home',
-    ].includes(event.key)) releaseUpward();
+    if (element.scrollTop < lastScrollTop || !atEnd(element)) follow.value = 'released';
+    else if (atEnd(element)) follow.value = 'following';
+    lastScrollTop = element.scrollTop;
 }
 function scrollToEnd() {
     follow.value = 'following';
-    if (viewport.value) viewport.value.scrollTop = viewport.value.scrollHeight;
+    if (viewport.value) {
+        viewport.value.scrollTop = viewport.value.scrollHeight;
+        lastScrollTop = viewport.value.scrollTop;
+    }
 }
 function followEnd() {
     if (follow.value === 'following') scrollToEnd();
