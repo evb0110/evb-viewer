@@ -838,7 +838,10 @@ describe('Project 8 recovered close decisions', () => {
         await waitForViewerInteractive(third);
         const tabs = await third.$$eval('.tab-list [role="tab"]', elements => elements.map(element => element.textContent));
         expect(tabs.some(text => text?.includes(basename(recovered.pdfPath)))).toBe(false);
-        await expect(readDocumentBytes(sibling, siblingCopy)).resolves.toEqual(siblingBytes);
+        // B may remount after C and the empty tab displace its clean viewer.
+        await waitForViewerInteractive(sibling);
+        await sibling.waitForFunction(() => document.querySelector('.text-layer')?.textContent?.includes('Fixture 1/3'));
+        await expect(readDocumentBytes(sibling)).resolves.toEqual(siblingBytes);
     }, E2E_TIMEOUT_MS);
 
     it('Save commits recovered bytes and permits close without Save As', async () => {
