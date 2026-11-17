@@ -1,26 +1,29 @@
 <template>
     <div class="timeline-shell">
-        <div class="timeline-overlay"><slot name="overlay" /></div>
-        <div ref="viewport" class="assistant-timeline app-scrollbar" role="log" :aria-label="t('assistant.conversation')" @scroll="handleScroll">
-            <div ref="content">
+        <div ref="viewport" class="assistant-timeline app-scrollbar" role="log" :aria-label="t('assistant.conversation')" @scroll="handleScroll" @click="handleDisclosure">
+            <div ref="content" class="timeline-content">
                 <div v-if="!items.length" class="timeline-empty">
                     <h2>{{ t(hasDocument ? 'assistant.emptyDocumentTitle' : 'assistant.emptyWorkspaceTitle') }}</h2>
                     <p>{{ documentName ? t('assistant.emptyDocumentDescriptionNamed', { name: documentName }) : t(hasDocument ? 'assistant.emptyDocumentDescription' : 'assistant.emptyWorkspaceDescription') }}</p>
                     <slot name="empty" />
-                 </div>
+                </div>
                 <template v-for="row in rows" :key="row.id">
                     <p v-if="running && row.id === activeTurnFirstRowId" class="timeline-working" role="status">{{ t('assistant.workingFor', { seconds: elapsed }) }}</p>
-                    <AssistantWorkGroup v-if="row.kind === 'work'" :items="row.items" :live="running && row.id === activeWorkGroupId" @copy="(id, text) => emit('copy', id, text)" />
-                    <div v-else-if="row.item.kind === 'system'" class="timeline-system" :class="row.item.status === 'failed' ? 'timeline-error' : 'timeline-notice'" :role="row.item.status === 'failed' ? 'alert' : 'status'">
+                    <AssistantWorkGroup v-if="row.kind === 'work'" :data-row-id="row.id" :items="row.items" @copy="(id, text) => emit('copy', id, text)" />
+                    <div v-else-if="row.item.kind === 'system' && row.item.status === 'failed'" :data-row-id="row.id" class="timeline-error" role="alert">
+                        <UIcon name="i-ph-warning-circle" class="timeline-error-icon" />
                         <p>{{ row.item.errorEnvelope?.message ?? row.item.text }}</p>
-                        <UButton v-if="row.item.status === 'failed' && row.item.errorEnvelope?.retryable" :label="t('assistant.turnRetry')" variant="ghost" color="neutral" size="xs" @click="emit('retry', row.item.turnId)" />
-                     </div>
-                    <AssistantMessage v-else :item="row.item" :copy-icon="copyIcon(row.id)" :copy-label="copyLabel(row.id)" @copy="(id, text) => emit('copy', id, text)" @preview="(images, id) => emit('preview', images, id)" @layout="followEnd" />
+                        <UButton v-if="row.item.errorEnvelope?.retryable" class="timeline-error-action" :label="t('assistant.turnRetry')" icon="i-ph-arrow-counter-clockwise" variant="soft" color="neutral" size="xs" @click="emit('retry', row.item.turnId)" />
+                        <UButton v-else-if="needsAnotherModel(row.item)" class="timeline-error-action" :label="t('assistant.changeModel')" icon="i-ph-caret-up-down" variant="soft" color="neutral" size="xs" @click="emit('change-model')" />
+                    </div>
+                    <p v-else-if="row.item.kind === 'system'" :data-row-id="row.id" class="timeline-notice" role="status">{{ row.item.text }}</p>
+                    <AssistantMessage v-else :data-row-id="row.id" :item="row.item" :copy-icon="copyIcon(row.id)" :copy-label="copyLabel(row.id)" @copy="(id, text) => emit('copy', id, text)" @preview="(images, id) => emit('preview', images, id)" />
                 </template>
                 <p v-if="running && !activeTurnFirstRowId" class="timeline-working" role="status">{{ t('assistant.workingFor', { seconds: elapsed }) }}</p>
             </div>
+            <div class="timeline-anchor-space" :style="{ height: `${anchorSpace}px` }" />
         </div>
-        <UButton v-if="!following" class="scroll-to-end" :label="t('assistant.scrollToEnd')" icon="i-ph-caret-down" color="neutral" variant="soft" size="xs" @click="scrollToEnd" />
+        <UButton v-if="follow === 'released'" class="scroll-to-end" :label="t('assistant.scrollToEnd')" icon="i-ph-caret-down" color="neutral" variant="soft" size="xs" @click="scrollToEnd" />
     </div>
 </template>
 
@@ -48,12 +51,12 @@ const props = defineProps<{
 const emit = defineEmits<{
     copy: [id: string, text: string];
     preview: [images: TAssistantComposerImage[] | undefined, id: string];
-    retry: [turnId: string | null]
+    retry: [turnId: string | null];
+    'change-model': []
 }>();
 const { t } = useTypedI18n();
 const viewport = ref<HTMLElement | null>(null);
 const content = ref<HTMLElement | null>(null);
-const following = ref(true);
 const now = ref(Date.now());
 const elapsed = computed(() => Math.max(0, Math.floor((now.value - (props.turn?.startedAtMs ?? now.value)) / 1000)));
 const {
@@ -91,25 +94,79 @@ const rows = computed(() => {
 const activeTurnFirstRowId = computed(() => rows.value.find(row => row.kind === 'work'
     ? row.items[0]?.turnId === props.turn?.id
     : row.item.kind !== 'user' && row.item.turnId === props.turn?.id)?.id);
-const activeWorkGroupId = computed(() => {
-    const latest = rows.value.at(-1);
-    return latest?.kind === 'work' && latest.items[0]?.turnId === props.turn?.id ? latest.id : null;
-});
+// A model or setup the provider cannot run is fixed in the picker, not by resending.
+function needsAnotherModel(item: IAssistantItem) {
+    return item.errorEnvelope?.code === 'MODEL_UNAVAILABLE' || item.errorEnvelope?.code === 'INSTALL_MISSING';
+}
+
+/*
+ * The one owner of this viewport's position, after T3 Code's timeline follow rules
+ * (apps/web/src/components/chat/timelineViewport.ts and useTimelineFollow.ts@0b6f482dc5,
+ * MIT, T3 Tools Inc.). Following keeps the live end in view. A reader who moves up
+ * off the end releases it (a clamp after the view grows lands on the end), and only
+ * returning to the end re-arms it. A newly sent message is anchored near the top:
+ * space below it lets the reply grow in view until it fills the viewport, after
+ * which following tracks the reply's end.
+ */
+const END_BAND = 48;
+const follow = ref<'following' | 'released'>('following');
+let lastScrollTop = 0;
+const anchorId = ref<string | null>(null);
+const anchorSpace = ref(0);
 function handleScroll() {
     const element = viewport.value;
-    if (element) following.value = element.scrollHeight - element.clientHeight - element.scrollTop < 48;
+    if (!element) return;
+    const gap = element.scrollHeight - element.clientHeight - element.scrollTop;
+    if (element.scrollTop < lastScrollTop && gap > 1) follow.value = 'released';
+    else if (gap < END_BAND) follow.value = 'following';
+    lastScrollTop = element.scrollTop;
 }
 function scrollToEnd() {
-    following.value = true;
-    if (viewport.value) viewport.value.scrollTop = viewport.value.scrollHeight;
+    follow.value = 'following';
+    if (viewport.value) {
+        viewport.value.scrollTop = viewport.value.scrollHeight;
+        lastScrollTop = viewport.value.scrollTop;
+    }
 }
-function followEnd() { if (following.value) scrollToEnd(); }
+function handleDisclosure(event: MouseEvent) {
+    if (event.target instanceof Element && event.target.closest('summary')) follow.value = 'released';
+}
+function measureAnchorSpace() {
+    const element = viewport.value;
+    const body = content.value;
+    const anchor = anchorId.value && body
+        ? [...body.querySelectorAll<HTMLElement>('[data-row-id]')].find(node => node.dataset.rowId === anchorId.value)
+        : undefined;
+    if (!element || !body || !anchor) return 0;
+    const top = anchor.getBoundingClientRect().top - body.getBoundingClientRect().top;
+    const gap = Number.parseFloat(getComputedStyle(body).paddingTop) || 0;
+    return Math.max(0, Math.round(element.clientHeight - (body.offsetHeight - top) - gap));
+}
+async function layout() {
+    anchorSpace.value = measureAnchorSpace();
+    await nextTick();
+    if (follow.value === 'following') scrollToEnd();
+}
+const latestUser = computed(() => props.items.findLast(item => item.kind === 'user') ?? null);
 watch(() => [
-    props.items,
-    props.running,
-], async () => { await nextTick(); followEnd(); }, { deep: true });
-watch(() => props.sessionKey, async () => { following.value = true; await nextTick(); scrollToEnd(); });
-useResizeObserver(content, followEnd);
+    props.sessionKey,
+    latestUser.value?.id,
+] as const, ([session, userId], [previousSession, previousUserId]) => {
+    if (session !== previousSession) {
+        anchorId.value = null;
+        follow.value = 'following';
+    } else if (userId && userId !== previousUserId) {
+        // Only a message that starts the newest turn anchors; loading history does not.
+        const user = latestUser.value;
+        if (user && (user === props.items.at(-1) || (props.running && user.turnId === props.turn?.id))) {
+            anchorId.value = userId;
+            follow.value = 'following';
+        }
+    }
+    void layout();
+}, { flush: 'post' });
+useResizeObserver(content, () => { void layout(); });
+useResizeObserver(viewport, () => { void layout(); });
 onMounted(scrollToEnd);
 </script>
 
@@ -122,9 +179,12 @@ onMounted(scrollToEnd);
 
 .assistant-timeline {
     height: 100%;
-    padding: var(--app-space-12xl) var(--app-space-9xl);
     overflow: hidden auto;
     overscroll-behavior: contain;
+}
+
+.timeline-content {
+    padding: var(--app-space-12xl) var(--app-space-9xl);
 }
 
 .timeline-empty {
@@ -149,12 +209,34 @@ onMounted(scrollToEnd);
 }
 
 .timeline-error {
-    padding-block: var(--app-space-3xl);
-    color: var(--ui-error);
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: start;
+    gap: var(--app-space-lg) var(--app-space-3xl);
+    margin-bottom: var(--app-space-12xl);
+    padding: var(--app-space-3xl) var(--app-space-9xl);
+    border: 1px solid var(--app-assistant-error-border);
+    border-radius: var(--app-radius-2xl);
+    background: var(--app-assistant-error-bg);
+    color: var(--ui-text);
+    font-size: var(--app-text-size-body-sm);
+}
+
+.timeline-error p {
+    margin: 0;
     white-space: pre-wrap;
     overflow-wrap: anywhere;
     user-select: text;
-    font-size: var(--app-text-size-body-sm);
+}
+
+.timeline-error-icon {
+    margin-top: var(--app-space-xs);
+    color: var(--ui-error);
+}
+
+.timeline-error-action {
+    grid-column: 2;
+    justify-self: start;
 }
 
 .timeline-working {
@@ -172,15 +254,6 @@ onMounted(scrollToEnd);
     border-radius: var(--app-radius-full);
 }
 
-.timeline-overlay {
-    position: absolute;
-    inset: 0 0 auto;
-    z-index: var(--app-z-local-overlay);
-    max-height: 45%;
-    pointer-events: none;
-}
-.timeline-overlay :deep(.provider-banner) { pointer-events: auto; }
-
 .timeline-notice {
     padding-block: var(--app-space-3xl);
     color: var(--ui-text-muted);
@@ -189,5 +262,4 @@ onMounted(scrollToEnd);
     overflow-wrap: anywhere;
     user-select: text;
 }
-
 </style>

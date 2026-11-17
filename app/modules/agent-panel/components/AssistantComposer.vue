@@ -9,7 +9,7 @@
         <textarea ref="input" :value="modelValue" :aria-label="t('assistant.documentPlaceholder')" :placeholder="t(hasDocument ? 'assistant.documentPlaceholder' : 'assistant.workspacePlaceholder')" rows="3" :class="{ 'is-scrollable': scrollable }" class="composer-input app-scrollbar" @input="emit('update:modelValue', ($event.target as HTMLTextAreaElement).value)" @keydown="handleKeydown" @paste="emit('paste', $event)" />
         <p v-if="error" class="composer-error" role="alert">{{ error }}</p>
         <div class="composer-footer">
-            <AssistantProviderModelPicker :instances="instances" :selection="selection" @select="emit('select', $event)" />
+            <AssistantProviderModelPicker ref="picker" :instances="instances" :selection="selection" @select="emit('select', $event)" />
             <AppTooltip :text="showStop ? t('assistant.stop') : sendDisabledReason || t(running ? 'assistant.sendSteer' : 'assistant.send')">
                 <UButton class="composer-send" :aria-label="showStop ? t('assistant.stop') : sendDisabledReason || t(running ? 'assistant.sendSteer' : 'assistant.send')" :icon="showStop ? 'i-ph-stop' : 'i-ph-arrow-up'" :color="showStop ? 'error' : 'primary'" :disabled="showStop ? interrupting : Boolean(sendDisabledReason)" :loading="showStop && interrupting" type="button" @click="showStop ? emit('interrupt') : emit('submit')" />
             </AppTooltip>
@@ -67,10 +67,14 @@ function handleKeydown(event: KeyboardEvent) {
     if (!props.sendDisabledReason) emit('submit');
 }
 function focus() { input.value?.focus({ preventScroll: true }); }
+const picker = ref<{ open: () => void } | null>(null);
 onMounted(() => { if (props.hasDocument) focus(); });
 watch(() => props.hasDocument, async available => { if (available) { await nextTick(); focus(); } });
 watch(() => props.images.length, async (count, previous) => { if (count > previous) { await nextTick(); focus(); } });
-defineExpose({ focus });
+defineExpose({
+    focus,
+    openPicker: () => picker.value?.open(),
+});
 </script>
 
 <style scoped>
