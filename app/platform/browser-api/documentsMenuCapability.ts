@@ -76,6 +76,7 @@ export const browserDocumentsMenuCapability = {
     onMenuViewRotationCw: subscribeBrowserMenuEvent('onMenuViewRotationCw'),
     onMenuViewRotationCcw: subscribeBrowserMenuEvent('onMenuViewRotationCcw'),
     onMenuToggleAssistant: subscribeBrowserMenuEvent('onMenuToggleAssistant'),
+    onMenuFind: subscribeBrowserMenuEvent('onMenuFind'),
     onMenuUndo: subscribeBrowserMenuEvent('onMenuUndo'),
     onMenuRedo: subscribeBrowserMenuEvent('onMenuRedo'),
     onMenuDeletePages: subscribeBrowserMenuEvent('onMenuDeletePages'),

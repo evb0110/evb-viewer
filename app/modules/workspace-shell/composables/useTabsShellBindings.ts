@@ -49,6 +49,7 @@ import {
     waitForAutomationEvent,
 } from '@app/modules/workspace-shell/automation/automationReadinessEvents';
 import { isAutomationSession } from '@app/utils/isAutomationSession';
+import { readShortcutKey } from '@app/utils/shortcutKey';
 
 const STARTUP_OPEN_CLAIMED_EVENT_NAME = 'evb:startup-open-claimed';
 type TTabKeyboardShortcutAction = 'new-tab' | 'close-tab' | 'next-tab' | 'previous-tab' | 'new-pane-right';
@@ -298,7 +299,7 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
         // desktop's accelerators do not match them either.
         const mod = (event.metaKey || event.ctrlKey) && !event.altKey;
         const action = mod && !event.shiftKey
-            ? RENDERER_MENU_SHORTCUT_ACTIONS[event.key.toLowerCase()] ?? null
+            ? RENDERER_MENU_SHORTCUT_ACTIONS[readShortcutKey(event)] ?? null
             : null;
         if (action !== 'new-pane-right') {
             return action;
@@ -331,7 +332,7 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
             return null;
         }
 
-        const key = event.key.toLowerCase();
+        const key = readShortcutKey(event);
         if (key === 'o' && !event.shiftKey) {
             return 'open-file';
         }

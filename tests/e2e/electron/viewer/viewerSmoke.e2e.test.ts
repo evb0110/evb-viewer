@@ -4335,6 +4335,67 @@ describe('Electron E2E - Viewer Smoke', () => {
         expect(isToolbarPageVisible(settled), JSON.stringify(settled)).toBe(true);
     });
 
+    // A Windows reader typing in Russian pressed Ctrl+F and nothing opened:
+    // Chromium reports the layout's letter, so the keydown says Ctrl+"а".
+    it('opens search and the sidebar from Ctrl/Cmd shortcuts in a non-Latin layout', async () => {
+        const session = await sessionFixture.restart({
+            clean: true,
+            sessionName: () => `e2e-viewer-layout-shortcuts-${Date.now()}`,
+        });
+        const fixturePath = await createMultiPageTextFixturePdf(`viewer-layout-shortcuts-${Date.now()}.pdf`, 4);
+        await openPdfInApp(session.page, fixturePath, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await waitForPdfLoaded(session.page, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        const sidebar = '.editor-pane.is-active [data-testid="document-sidebar"]';
+        const readSidebar = () => session.page.evaluate((root: string) => {
+            const panel = document.querySelector<HTMLElement>(root);
+            const input = panel?.querySelector<HTMLInputElement>('.document-search-bar input') ?? null;
+            const visible = (element: HTMLElement | null | undefined) => {
+                const rect = element?.getBoundingClientRect();
+                return Boolean(rect && rect.width > 0 && rect.height > 0);
+            };
+            return {
+                sidebarVisible: visible(panel),
+                searchVisible: visible(input),
+                searchFocused: Boolean(input && document.activeElement === input),
+            };
+        }, sidebar);
+        // The keys a Russian layout produces, sent as trusted renderer input.
+        const pressCyrillicShortcut = async (key: string, code: string, keyCode: number) => {
+            const client = await session.page.createCDPSession();
+            const event = {key, code, windowsVirtualKeyCode: keyCode, modifiers: process.platform === 'darwin' ? 4 : 2};
+            try {
+                await client.send('Input.dispatchKeyEvent', {type: 'rawKeyDown', ...event});
+                await client.send('Input.dispatchKeyEvent', {type: 'keyUp', ...event});
+            } finally {
+                await client.detach();
+            }
+        };
+        expect(await readSidebar()).toMatchObject({sidebarVisible: false});
+
+        await pressCyrillicShortcut('а', 'KeyF', 70);
+        await waitForFunctionInPage(session.page, (root: string) => {
+            const input = document.querySelector<HTMLInputElement>(`${root} .document-search-bar input`);
+            return Boolean(input && input.getBoundingClientRect().width > 0 && document.activeElement === input);
+        }, {timeout: 10_000}, sidebar).catch(() => undefined);
+        expect(await readSidebar()).toEqual({sidebarVisible: true, searchVisible: true, searchFocused: true});
+
+        // Ctrl+B outside the search field closes the sidebar again.
+        await clickAsUser(session.page, '.editor-pane.is-active .workspace-host #pdf-viewer');
+        await pressCyrillicShortcut('и', 'KeyB', 66);
+        await waitForFunctionInPage(session.page, (root: string) => (
+            (document.querySelector<HTMLElement>(root)?.getBoundingClientRect().width ?? 0) === 0
+        ), {timeout: 10_000}, sidebar).catch(() => undefined);
+        expect(await readSidebar()).toMatchObject({sidebarVisible: false});
+
+        // Edit > Find names the shortcut and opens the same field.
+        await activateMenuItemAsUser(session.page, {accelerator: 'CmdOrCtrl+F'});
+        await waitForFunctionInPage(session.page, (root: string) => {
+            const input = document.querySelector<HTMLInputElement>(`${root} .document-search-bar input`);
+            return Boolean(input && input.getBoundingClientRect().width > 0 && document.activeElement === input);
+        }, {timeout: 10_000}, sidebar).catch(() => undefined);
+        expect(await readSidebar()).toEqual({sidebarVisible: true, searchVisible: true, searchFocused: true});
+    });
+
     // #928 F6: a damaged search cache is rebuilt instead of failing the search.
     it('rebuilds a search index whose cached header claims an impossible record table', async () => {
         const session = await sessionFixture.restart({

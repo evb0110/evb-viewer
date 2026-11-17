@@ -1167,6 +1167,7 @@ export default {
         'undo': 'Annuler',
         'redo': 'Rétablir',
         'selectAll': 'Tout sélectionner',
+        'find': 'Rechercher...',
         'copy': 'Copier',
         'cut': 'Couper',
         'paste': 'Coller',

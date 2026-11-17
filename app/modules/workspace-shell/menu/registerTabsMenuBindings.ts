@@ -11,6 +11,7 @@ import type { IDjvuCapability } from '@contracts/djvuPlatformFeature';
 import type { IWindowTabsCapability } from '@contracts/windowTabsPlatformFeature';
 import { isMacClientPlatform } from '@app/utils/clientPlatform';
 import { BrowserLogger } from '@app/utils/browserLogger';
+import { readShortcutKey } from '@app/utils/shortcutKey';
 import { subscribeBrowserMenuEvent } from '@app/platform/browserMenuBar';
 
 // Menu items that run a command on the active tab's workspace:
@@ -100,6 +101,11 @@ const WORKSPACE_MENU_COMMANDS: ReadonlyArray<readonly [string, keyof IWorkspaceE
         'onMenuToggleContinuousScroll',
         'handleToggleContinuousScroll',
         'toggle-continuous-scroll',
+    ],
+    [
+        'onMenuFind',
+        'handleOpenSearch',
+        'find',
     ],
     [
         'onMenuInsertImageFromFile',
@@ -337,7 +343,7 @@ export function registerTabsMenuBindings(
         }
     };
     const handleSelectAllKeyDown = (event: KeyboardEvent) => {
-        if (!deps.isActive.value || !(isMacClientPlatform() ? event.metaKey : event.ctrlKey) || event.altKey || event.shiftKey || event.key.toLowerCase() !== 'a') {
+        if (!deps.isActive.value || !(isMacClientPlatform() ? event.metaKey : event.ctrlKey) || event.altKey || event.shiftKey || readShortcutKey(event) !== 'a') {
             return;
         }
         event.preventDefault();

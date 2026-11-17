@@ -1,9 +1,11 @@
 import type { IAnnotationEditorSurface } from '@app/modules/pdf-viewer/runtime/annotations/usePdfAnnotationEditorSurface';
 import type { TPageRotation } from '@app/modules/pdf-viewer/engine/annotation-geometry/pageRotation';
 import {BrowserLogger} from '@app/utils/browserLogger';
+import { readShortcutKey } from '@app/utils/shortcutKey';
 
 interface IAnnotationKeyboardEvent {
     readonly key: string;
+    readonly code?: string;
     readonly isComposing?: boolean;
     readonly repeat?: boolean;
     readonly target: EventTarget | null;
@@ -62,19 +64,19 @@ export const useAnnotationKeyboardCommands = (
         event.stopPropagation();
         return true;
     }
-    if (modifier && !event.altKey && event.key.toLowerCase() === 'a' && options.surface.selectAll?.()) {
+    if (modifier && !event.altKey && readShortcutKey(event) === 'a' && options.surface.selectAll?.()) {
         event.preventDefault();
         event.stopPropagation();
         return true;
     }
-    if (event.ctrlKey && !event.metaKey && !event.altKey && event.key.toLowerCase() === 'y') {
+    if (event.ctrlKey && !event.metaKey && !event.altKey && readShortcutKey(event) === 'y') {
         const handled = options.surface.redo();
         event.preventDefault();
         event.stopPropagation();
         if (handled instanceof Promise) void handled.catch(error => BrowserLogger.warn('annotations', 'Keyboard history action failed', error));
         return true;
     }
-    if (modifier && !event.altKey && event.key.toLowerCase() === 'z') {
+    if (modifier && !event.altKey && readShortcutKey(event) === 'z') {
         const handled = event.shiftKey ? options.surface.redo() : options.surface.undo();
         if (handled instanceof Promise) {
             event.preventDefault();

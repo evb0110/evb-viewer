@@ -1167,6 +1167,7 @@ export default {
         'undo': 'Deshacer',
         'redo': 'Rehacer',
         'selectAll': 'Seleccionar todo',
+        'find': 'Buscar...',
         'copy': 'Copiar',
         'cut': 'Cortar',
         'paste': 'Pegar',

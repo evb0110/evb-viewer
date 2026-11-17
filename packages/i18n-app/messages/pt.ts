@@ -1169,6 +1169,7 @@ export default {
         'undo': 'Desfazer',
         'redo': 'Refazer',
         'selectAll': 'Selecionar tudo',
+        'find': 'Localizar...',
         'copy': 'Copiar',
         'cut': 'Cortar',
         'paste': 'Colar',

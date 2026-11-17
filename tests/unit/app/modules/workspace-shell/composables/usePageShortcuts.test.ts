@@ -98,12 +98,31 @@ describe('usePageShortcuts', () => {
         expect(deps.handleSave).toHaveBeenCalledOnce();
     });
 
-    it('prevents default for Ctrl+B when active with PDF', async () => {
+    it.each([
+        {layout: 'Latin', key: 'b'},
+        {layout: 'Cyrillic', key: 'и'},
+    ])('toggles the sidebar for Ctrl+B in a $layout layout', async ({key}) => {
         const deps = createDeps();
         await mountShortcuts(deps);
 
-        const preventDefault = pressShortcut('b', {code: 'KeyB', metaKey: true});
+        const preventDefault = pressShortcut(key, {code: 'KeyB', ctrlKey: true});
         expect(preventDefault).toHaveBeenCalledOnce();
+        expect(deps.handleToggleSidebar).toHaveBeenCalledOnce();
+    });
+
+    it.each([
+        {layout: 'Cyrillic', key: 'а', code: 'KeyF', opens: true},
+        {layout: 'Greek', key: 'φ', code: 'KeyF', opens: true},
+        // AZERTY types F on the F key; Dvorak types U there.
+        {layout: 'AZERTY', key: 'f', code: 'KeyF', opens: true},
+        {layout: 'Dvorak', key: 'u', code: 'KeyF', opens: false},
+        {layout: 'Dvorak', key: 'f', code: 'KeyY', opens: true},
+    ])('reads Ctrl+F from the $layout layout ($key on $code)', async ({key, code, opens}) => {
+        const deps = createDeps();
+        await mountShortcuts(deps);
+
+        pressShortcut(key, {code, ctrlKey: true});
+        expect(deps.openSearch).toHaveBeenCalledTimes(Number(opens));
     });
 
     it('skips shortcuts when editing text', async () => {

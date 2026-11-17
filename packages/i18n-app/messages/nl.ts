@@ -1167,6 +1167,7 @@ export default {
         'undo': 'Ongedaan maken',
         'redo': 'Opnieuw',
         'selectAll': 'Alles selecteren',
+        'find': 'Zoeken...',
         'copy': 'Kopiëren',
         'cut': 'Knippen',
         'paste': 'Plakken',

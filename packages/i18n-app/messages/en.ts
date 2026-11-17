@@ -1167,6 +1167,7 @@ export default {
         'undo': 'Undo',
         'redo': 'Redo',
         'selectAll': 'Select All',
+        'find': 'Find...',
         'copy': 'Copy',
         'cut': 'Cut',
         'paste': 'Paste',
