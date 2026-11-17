@@ -1,40 +1,46 @@
 <template>
-    <details class="work-group">
+    <details class="work-group" :class="`is-${summary.state}`">
         <summary class="work-summary">
-            <UIcon :name="live ? 'i-ph-circle-notch' : items.some(item => item.status === 'failed') ? 'i-ph-warning-circle' : 'i-ph-check'" />
-            <span v-if="live || items.length === 1 && latest?.kind === 'tool'">{{ latest?.toolName || latest?.text || t('assistant.thinking') }}<template v-if="latest?.kind === 'tool'"> · {{ statusLabel(latest.status) }}</template></span>
-            <span v-else>{{ t('assistant.workSummary', { count: items.length }) }}</span>
+            <UIcon :name="ASSISTANT_WORK_ICONS[summary.state]" class="work-icon" :class="{ 'animate-spin motion-reduce:animate-none': summary.state === 'running' }" />
+            <span class="work-label">{{ t(summary.labelKey) }}</span>
+            <span v-if="summary.statusKey" class="work-status">{{ t(summary.statusKey) }}</span>
+            <span v-if="items.length > 1" class="work-steps">{{ t('assistant.work.steps', { count: items.length }) }}</span>
+            <UIcon name="i-ph-caret-right" class="work-caret" />
         </summary>
-        <div class="work-entries app-scrollbar">
-            <details v-for="item in items" :key="item.id" class="work-entry">
-                <summary>
-                    <UIcon :name="item.kind === 'reasoning' ? 'i-ph-brain' : 'i-ph-wrench'" />
-                    <span class="work-label">{{ item.kind === 'tool' ? item.toolName : t('assistant.thinking') }}</span>
-                    <span>{{ statusLabel(item.status) }}</span>
-                </summary>
-                <AssistantMarkdown v-if="item.kind === 'reasoning'" :text="item.text" @copy="(id, text) => emit('copy', `${item.id}:${id}`, text)" />
-                <pre v-else class="work-detail">{{ item.toolDetail || item.text }}</pre>
-            </details>
-        </div>
+        <ol class="work-entries app-scrollbar">
+            <li v-for="entry in entries" :key="entry.item.id">
+                <details class="work-entry">
+                    <summary>
+                        <UIcon :name="ASSISTANT_WORK_ICONS[entry.state]" class="work-icon" :class="{ 'animate-spin motion-reduce:animate-none': entry.state === 'running' }" />
+                        <span class="work-label">{{ t(entry.labelKey) }}</span>
+                        <span v-if="entry.statusKey" class="work-status">{{ t(entry.statusKey) }}</span>
+                    </summary>
+                    <AssistantMarkdown v-if="entry.item.kind === 'reasoning'" :text="entry.item.text" @copy="(id, text) => emit('copy', `${entry.item.id}:${id}`, text)" />
+                    <template v-else>
+                        <code v-if="entry.item.toolName" class="work-tool-name">{{ entry.item.toolName }}</code>
+                        <pre v-if="entry.item.toolDetail || entry.item.text" class="work-detail">{{ entry.item.toolDetail || entry.item.text }}</pre>
+                    </template>
+                </details>
+            </li>
+        </ol>
     </details>
 </template>
 
 <script setup lang="ts">
-import type {
-    IAssistantItem, TAssistantItemStatus,
-} from '@contracts/assistant';
+import type { IAssistantItem } from '@contracts/assistant';
 import AssistantMarkdown from '@app/modules/agent-panel/components/AssistantMarkdown.vue';
+import {
+    ASSISTANT_WORK_ICONS, describeAssistantWorkItem, summarizeAssistantWork,
+} from '@app/modules/agent-panel/utils/assistantWorkPresentation';
 import { useTypedI18n } from '@app/composables/useTypedI18n';
-const props = defineProps<{
-    items: IAssistantItem[];
-    live: boolean
-}>();
+const props = defineProps<{ items: IAssistantItem[] }>();
 const emit = defineEmits<{ copy: [id: string, text: string] }>();
 const { t } = useTypedI18n();
-const latest = computed(() => props.items.findLast(item => item.status === 'streaming') ?? props.items.at(-1));
-function statusLabel(status: TAssistantItemStatus) {
-    return t(status === 'streaming' ? 'assistant.toolPhaseRunning' : status === 'completed' ? 'assistant.toolPhaseCompleted' : status === 'interrupted' ? 'assistant.interrupted' : 'assistant.toolPhaseFailed');
-}
+const summary = computed(() => summarizeAssistantWork(props.items));
+const entries = computed(() => props.items.map(item => ({
+    item,
+    ...describeAssistantWorkItem(item),
+})));
 </script>
 
 <style scoped>
@@ -51,10 +57,36 @@ function statusLabel(status: TAssistantItemStatus) {
     align-items: center;
     gap: var(--app-space-lg);
     min-height: var(--app-space-16xl);
+    border-radius: var(--app-radius-md);
     cursor: pointer;
+    list-style: none;
 }
 
-.work-summary span,
+.work-summary::-webkit-details-marker,
+.work-entry summary::-webkit-details-marker {
+    display: none;
+}
+
+.work-summary:hover,
+.work-entry summary:hover {
+    color: var(--ui-text);
+}
+
+.work-summary:focus-visible,
+.work-entry summary:focus-visible {
+    outline: 2px solid var(--ui-primary);
+    outline-offset: 1px;
+}
+
+.work-icon {
+    flex: 0 0 auto;
+}
+
+.is-failed > .work-summary .work-icon,
+.is-failed > .work-summary .work-status {
+    color: var(--ui-error);
+}
+
 .work-label {
     min-width: 0;
     overflow: hidden;
@@ -62,14 +94,38 @@ function statusLabel(status: TAssistantItemStatus) {
     white-space: nowrap;
 }
 
-.work-label {
-    flex: 1;
+.work-status,
+.work-steps {
+    flex: 0 0 auto;
+    color: var(--ui-text-dimmed);
+}
+
+.work-caret {
+    flex: 0 0 auto;
+    color: var(--ui-text-dimmed);
+    transition: transform 0.15s ease;
+}
+
+.work-group[open] > .work-summary .work-caret {
+    transform: rotate(90deg);
 }
 
 .work-entries {
     max-height: var(--app-assistant-work-max-height);
-    padding-inline-start: var(--app-assistant-work-indent);
+    margin: 0;
+    padding: 0 0 0 var(--app-assistant-work-indent);
     overflow: auto;
+    list-style: none;
+}
+
+.work-tool-name {
+    display: block;
+    margin-top: var(--app-space-sm);
+    color: var(--ui-text-dimmed);
+    font-family: var(--app-font-mono);
+    font-size: var(--app-text-size-micro);
+    overflow-wrap: anywhere;
+    user-select: text;
 }
 
 .work-detail {

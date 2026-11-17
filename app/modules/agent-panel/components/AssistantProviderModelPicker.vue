@@ -113,6 +113,7 @@ function pickSpeed(speedMode: IAssistantSelection['speedMode']) {
         speedMode,
     });
 }
+defineExpose({ open: () => { open.value = true; } });
 </script>
 
 <style scoped>
