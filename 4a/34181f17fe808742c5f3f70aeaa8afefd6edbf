@@ -1,0 +1,67 @@
+app/modules/workspace-shell/composables/useTabsShellBindings.ts
+  s_ab50a3d2b33487::t_17bc231073ddb7 52,302,335
+app/modules/workspace-shell/composables/usePageShortcuts.ts
+  s_ab50a3d2b33487::t_17bc231073ddb7 16,189-195,197-200,312,332,382,394,410,417-420,436
+packages/contracts/documentsPlatformFeature.ts
+  s_ab50a3d2b33487::t_17bc231073ddb7 732
+packages/i18n-app/messages/en.ts
+  s_ab50a3d2b33487::t_17bc231073ddb7 1170
+packages/i18n-app/messages/ptBr.ts
+  s_ab50a3d2b33487::t_17bc231073ddb7 1172
+app/modules/pdf-viewer/annotations/editor/useAnnotationKeyboardCommands.ts
+  s_ab50a3d2b33487::t_17bc231073ddb7 4,67,72,79
+  s_ab50a3d2b33487::t_6e4aec25583eb0 8
+packages/i18n-app/messages/de.ts
+  s_ab50a3d2b33487::t_17bc231073ddb7 1170
+tests/e2e/electron/viewer/viewerSmoke.e2e.test.ts
+  s_ab50a3d2b33487::t_20ff462eb9ba42 4338-4398
+tests/unit/app/modules/workspace-shell/composables/usePageShortcuts.test.ts
+  s_ab50a3d2b33487::t_7626ac1b15949b 101-104,108,110-125
+app/utils/shortcutKey.ts
+  s_ab50a3d2b33487::t_48312890fbcfe6 1-7,9-12,14-15
+  s_ab50a3d2b33487::t_6e4aec25583eb0 8,13
+app/modules/agent-panel/composables/useAssistantPanelClipboard.ts
+  s_ab50a3d2b33487::t_17bc231073ddb7 4,25
+electron/menu.ts
+  s_ab50a3d2b33487::t_17bc231073ddb7 529-535
+app/modules/workspace-shell/menu/registerTabsMenuBindings.ts
+  s_ab50a3d2b33487::t_17bc231073ddb7 14,105-109,346
+app/types/workspaceExpose.ts
+  s_ab50a3d2b33487::t_17bc231073ddb7 284-285
+app/modules/workspace-shell/expose/createWorkspaceExpose.ts
+  s_ab50a3d2b33487::t_17bc231073ddb7 246
+packages/i18n-app/messages/es.ts
+  s_ab50a3d2b33487::t_17bc231073ddb7 1170
+packages/i18n-app/messages/fr.ts
+  s_ab50a3d2b33487::t_17bc231073ddb7 1170
+packages/i18n-app/messages/it.ts
+  s_ab50a3d2b33487::t_17bc231073ddb7 1170
+packages/contracts/electronApiDocuments.ts
+  s_ab50a3d2b33487::t_17bc231073ddb7 529
+packages/i18n-app/messages/ru.ts
+  s_ab50a3d2b33487::t_17bc231073ddb7 1190
+app/platform/browser-api/documentsMenuCapability.ts
+  s_ab50a3d2b33487::t_17bc231073ddb7 79
+app/components/toolbar/ToolbarAppMenu.vue
+  s_ab50a3d2b33487::t_17bc231073ddb7 529-532
+packages/i18n-app/messages/pt.ts
+  s_ab50a3d2b33487::t_17bc231073ddb7 1172
+packages/i18n-app/messages/nl.ts
+  s_ab50a3d2b33487::t_17bc231073ddb7 1170
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "4a34181f17fe808742c5f3f70aeaa8afefd6edbf",
+  "prompts": {},
+  "sessions": {
+    "s_ab50a3d2b33487": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b18e4b8a-cdcf-418e-8268-a288f745e778",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
