@@ -99,9 +99,8 @@ way to see how it works before you write your own request.
 
 While a turn is running you are not locked out. Type and send, and the message
 is queued as a steer: the current turn stops and your correction goes in
-without losing the conversation. **Stop** interrupts outright. Each turn reports
-the tools it called and the input and output tokens it used, so the cost is
-visible as you go rather than at the end of the month.
+without losing the conversation. **Stop** interrupts outright. Each turn shows
+the tools it called.
 
 Claude shows each completed text message as a separate item, so progress stays
 alongside the final answer. Text appears when Claude completes a message;
@@ -109,8 +108,8 @@ thinking and tool activity can appear while it works. Each tool shows its own
 success or failure as soon as its result arrives, even while the turn continues.
 
 You can paste or attach images to a message, which is the fastest way to ask
-about a page that is rendering oddly. Image attachments need a turn that is not
-already running.
+about a page that is rendering oddly. You can attach images to a message sent
+while a turn is running; the message steers the turn.
 
 ## When a provider does not answer
 
@@ -121,8 +120,9 @@ wrong with the selected instance, in that provider's own words:
   executable in Settings, then Refresh.
 - **Sign in**: the instance has no login. Codex signs in with ChatGPT in your
   browser; for Claude, sign in with Claude Code.
-- **Did not answer**: a provider that does not start within 10 seconds, or
-  does not finish its status check within 15 seconds, is reported as not answering. A
+- **Did not answer**: Codex has 10 seconds from spawn to `initialize`
+  and 15 seconds for a whole status check; Claude has 15 seconds. On expiry EVB
+  reports the provider as not answering. A
   provider that refreshes an expired login cannot do so without network
   access, so check the connection, or switch to another instance meanwhile.
 - **Desktop app required**: the browser build has no assistant. It uses local
