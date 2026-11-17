@@ -1,0 +1,25 @@
+tests/e2e/electron/viewer/viewerSmoke.e2e.test.ts
+  s_ab50a3d2b33487::t_34ae9159fbe49f 4381-4383
+  s_ab50a3d2b33487::t_35d5e7cbf88611 4363-4371,4384-4386,4390,4399
+tests/unit/app/modules/workspace-shell/composables/usePageShortcuts.test.ts
+  s_ab50a3d2b33487::t_35d5e7cbf88611 120
+  s_ab50a3d2b33487::t_d3d9a727287f88 121
+app/utils/shortcutKey.ts
+  s_ab50a3d2b33487::t_d3d9a727287f88 4-6,10
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "8e903aec11cc639ab5749031f450536a71e00285",
+  "prompts": {},
+  "sessions": {
+    "s_ab50a3d2b33487": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b18e4b8a-cdcf-418e-8268-a288f745e778",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
