@@ -1,249 +1,149 @@
+// @vitest-environment happy-dom
 import {
-    describe,
-    expect,
-    it,
+    afterEach, describe, expect, it, vi,
 } from 'vitest';
 import {
-    createStreamingAssistantMessageFormatter,
-    formatAssistantMessage,
-} from '@app/modules/agent-panel/utils/formatAssistantMessage';
+    createApp, defineComponent, h, nextTick, reactive,
+} from 'vue';
+import AssistantMarkdown from '@app/modules/agent-panel/components/AssistantMarkdown.vue';
 import { highlightAssistantCode } from '@app/modules/agent-panel/utils/highlightAssistantCode';
 
-describe('assistantMessageFormatting', () => {
-    it('preserves plain text while splitting inline code spans', () => {
-        expect(formatAssistantMessage('Use `smth` here.')).toEqual([{
-            kind: 'text',
-            segments: [
-                'Use ',
-                'smth',
-                ' here.',
-            ].map((text, index) => ({
-                kind: index === 1 ? 'code' : 'text',
-                text,
-            })),
-        }]);
+vi.mock('@app/composables/useTypedI18n', () => ({ useTypedI18n: () => ({ t: (key: string) => key }) }));
+
+const unmounts: Array<() => void> = [];
+afterEach(() => { unmounts.splice(0).forEach(unmount => unmount()); });
+
+function render(text: string, onCopy?: (id: string, code: string) => void) {
+    const props = reactive({
+        text,
+        onCopy,
+    });
+    const host = document.createElement('div');
+    document.body.append(host);
+    const app = createApp(defineComponent({ setup: () => () => h(AssistantMarkdown, props) }));
+    app.component('UButton', defineComponent({
+        inheritAttrs: false,
+        setup: (_props, { attrs }) => () => h('button', { ...attrs, type: 'button' }),
+    }));
+    app.mount(host);
+    unmounts.push(() => { app.unmount(); host.remove(); });
+    return {
+        host,
+        props,
+    };
+}
+
+function cellTexts(host: HTMLElement, selector: string) {
+    return [...host.querySelectorAll(selector)].map(cell => cell.textContent);
+}
+
+describe('assistant message rendering', () => {
+    it('renders inline code, strong, emphasis and safe links as elements', () => {
+        const { host } = render('Use `smth` in **Die syrische Chronik** by *Luther* and [Docs](https://example.com/docs?a=1&amp;b=2). A &amp; B &#169; &#x1F600; &amp;copy; `&amp;` \\&amp;. <code>&amp;&amp;copy;</code>');
+        expect(host.querySelector('code')?.textContent).toBe('smth');
+        expect(host.querySelector('strong')?.textContent).toBe('Die syrische Chronik');
+        expect(host.querySelector('em')?.textContent).toBe('Luther');
+        const link = host.querySelector('a');
+        expect(link?.getAttribute('href')).toBe('https://example.com/docs?a=1&b=2');
+        expect(link?.getAttribute('rel')).toBe('noopener noreferrer');
+        expect(host.textContent).toBe('Use smth in Die syrische Chronik by Luther and Docs. A & B © 😀 &copy; &amp; &amp;. <code>&amp;&amp;copy;</code>');
     });
 
-    it('splits strong emphasis markers into safe inline segments', () => {
-        expect(formatAssistantMessage(
-            'This PDF is **Die syrische Chronik des Josua Stylites** by **Andreas Luther**.',
-        )).toEqual([{
-            kind: 'text',
-            segments: [
-                {
-                    kind: 'text',
-                    text: 'This PDF is ',
-                },
-                {
-                    kind: 'strong',
-                    text: 'Die syrische Chronik des Josua Stylites',
-                },
-                {
-                    kind: 'text',
-                    text: ' by ',
-                },
-                {
-                    kind: 'strong',
-                    text: 'Andreas Luther',
-                },
-                {
-                    kind: 'text',
-                    text: '.',
-                },
-            ],
-        }]);
+    it('renders headings, quotes, rules and ordered lists with their own start', () => {
+        const { host } = render('# Summary\n\n> quoted *note*\n\n---\n\n3. Third\n4. Fourth');
+        expect(host.querySelector('h1')?.textContent).toBe('Summary');
+        expect(host.querySelector('blockquote em')?.textContent).toBe('note');
+        expect(host.querySelector('hr')).not.toBeNull();
+        expect(host.querySelector('ol')?.getAttribute('start')).toBe('3');
+        expect(cellTexts(host, 'ol > li')).toEqual(['Third', 'Fourth']);
     });
 
-    it('recognizes common markdown blocks produced by agents', () => {
-        expect(formatAssistantMessage([
-            '# Summary',
-            '- **Ready** item',
-            '- [Docs](https://example.com/docs)',
-            '> quoted *note*',
-            '---',
-        ].join('\n'))).toEqual([
-            {
-                kind: 'heading',
-                level: 1,
-                segments: [{
-                    kind: 'text',
-                    text: 'Summary',
-                }],
-            },
-            {
-                kind: 'list',
-                ordered: false,
-                items: [
-                    [
-                        {
-                            kind: 'strong',
-                            text: 'Ready',
-                        },
-                        {
-                            kind: 'text',
-                            text: ' item',
-                        },
-                    ],
-                    [{
-                        kind: 'link',
-                        text: 'Docs',
-                        href: 'https://example.com/docs',
-                    }],
-                ],
-            },
-            {
-                kind: 'blockquote',
-                segments: [
-                    {
-                        kind: 'text',
-                        text: 'quoted ',
-                    },
-                    {
-                        kind: 'emphasis',
-                        text: 'note',
-                    },
-                ],
-            },
-            { kind: 'rule' },
-        ]);
+    it('keeps nested lists nested and renders task items as read-only checkboxes', () => {
+        const { host } = render('- Fables\n  - **Monkey** and carpenter\n  - Fox\n- [x] Saved');
+        expect(cellTexts(host, 'ul > li > ul > li')).toEqual(['Monkey and carpenter', 'Fox']);
+        expect(host.querySelector('ul > li > ul strong')?.textContent).toBe('Monkey');
+        const checkbox = host.querySelector<HTMLInputElement>('li input[type="checkbox"]');
+        expect(checkbox?.checked).toBe(true);
+        expect(checkbox?.disabled).toBe(true);
     });
 
-    it('marks ordered lists separately from unordered lists', () => {
-        expect(formatAssistantMessage('1. First\n2. Second')).toEqual([{
-            kind: 'list',
-            ordered: true,
-            items: [
-                [{
-                    kind: 'text',
-                    text: 'First',
-                }],
-                [{
-                    kind: 'text',
-                    text: 'Second',
-                }],
-            ],
-        }]);
+    it('renders a table with header cells, body cells and column alignment', () => {
+        const { host } = render('| # | Bookmark | Page |\n|---|:--|--:|\n| 1 | Al-qird wa-l-najjar (The Monkey and the Carpenter) | 1 |\n| 2 | Al-tha\'lab | 4–5 |');
+        expect(host.querySelector('.markdown-table > table')).not.toBeNull();
+        expect(cellTexts(host, 'thead th')).toEqual(['#', 'Bookmark', 'Page']);
+        expect(cellTexts(host, 'tbody tr:first-child td')).toEqual(['1', 'Al-qird wa-l-najjar (The Monkey and the Carpenter)', '1']);
+        expect(host.querySelectorAll('tbody tr')).toHaveLength(2);
+        expect(host.querySelector<HTMLElement>('thead th:last-child')?.style.textAlign).toBe('right');
+        expect(host.querySelectorAll('tbody th, thead td')).toHaveLength(0);
     });
 
-    it('keeps fenced code blocks separate from surrounding text', () => {
-        expect(formatAssistantMessage('Before\n```ts\nconst value = 1;\n```\nAfter')).toEqual([
-            {
-                kind: 'text',
-                segments: [{
-                    kind: 'text',
-                    text: 'Before',
-                }],
-            },
-            {
-                kind: 'code',
-                language: 'ts',
-                code: 'const value = 1;',
-            },
-            {
-                kind: 'text',
-                segments: [{
-                    kind: 'text',
-                    text: 'After',
-                }],
-            },
-        ]);
+    it('renders fenced code with its language and copies exactly the code text', () => {
+        const copy = vi.fn();
+        const code = 'const value = 1;\n| a | b |\n| --- | --- |\n| c | d |';
+        const { host } = render('Before\n```js\n' + code + '\n```\nAfter', copy);
+        expect(host.querySelector('pre')?.textContent).toBe(code);
+        expect(host.querySelector('.markdown-code-header')?.textContent).toBe('js');
+        expect(host.querySelector('table')).toBeNull();
+        expect(cellTexts(host, '.assistant-markdown > p')).toEqual(['Before', 'After']);
+        host.querySelector<HTMLButtonElement>('.markdown-code-header button')?.click();
+        expect(copy).toHaveBeenCalledWith('code-0', code);
+    });
+
+    it('renders an unfinished fence as code while it streams', () => {
+        const { host } = render('```json\n{"ok": true}');
+        expect(host.querySelector('pre')?.textContent).toBe('{"ok": true}');
+        expect(host.querySelector('[data-language="json"]')).not.toBeNull();
     });
 
     it.each([
-        false,
-        true,
-    ])('keeps table-looking rows owned by a code fence, closed=%s', (closed) => {
-        const code = 'const value = 1;\n| a | b |\n| --- | --- |\n| c | d |';
-        expect(formatAssistantMessage('```js\n' + code + (closed ? '\n```' : ''))).toEqual([{
-            kind: 'code',
-            language: 'js',
-            code,
-        }]);
+        ['<img src=x onerror=alert(1)> and <script>alert(1)</script>', 'img, script'],
+        ['<b>bold?</b>', 'b'],
+        ['![remote](https://example.com/tracker.png)', 'img'],
+    ])('keeps raw HTML and images as literal text: %s', (text, selector) => {
+        const { host } = render(text);
+        expect(host.querySelectorAll(`.assistant-markdown ${selector}`)).toHaveLength(0);
+        expect(host.textContent).toContain(text.startsWith('!') ? 'remote' : text.replace(/\n/gu, ''));
     });
 
-    it('renders an unfinished fenced block as code for streaming messages', () => {
-        expect(formatAssistantMessage('```json\n{"ok": true}')).toEqual([{
-            kind: 'code',
-            language: 'json',
-            code: '{"ok": true}',
-        }]);
-    });
-
-    it('renders tables and incrementally preserves committed blocks while streaming', () => {
-        expect(formatAssistantMessage('| Name | State |\n| --- | --- |\n| OCR | Ready |')).toEqual([{
-            kind: 'table',
-            rows: [
-                [
-                    [{
-                        kind: 'text',
-                        text: 'Name',
-                    }],
-                    [{
-                        kind: 'text',
-                        text: 'State',
-                    }],
-                ],
-                [
-                    [{
-                        kind: 'text',
-                        text: 'OCR',
-                    }],
-                    [{
-                        kind: 'text',
-                        text: 'Ready',
-                    }],
-                ],
-            ],
-        }]);
-
-        const formatter = createStreamingAssistantMessageFormatter();
-        const first = formatter.format('First paragraph.\n\nSecond');
-        const second = formatter.format('First paragraph.\n\nSecond paragraph.');
-        expect(first).toHaveLength(2);
-        expect(second).toHaveLength(2);
-        expect(second[0]).toBe(first[0]);
+    it.each([
+        'javascript:alert(1)',
+        'data:text/html,hi',
+        'file:///etc/passwd',
+    ])('drops a link with an unsafe scheme but keeps its label: %s', (href) => {
+        const { host } = render(`[label](${href}) tail`);
+        expect(host.querySelector('a')).toBeNull();
+        expect(host.textContent).toBe('label tail');
     });
 
     it.each([
         '['.repeat(4000),
-        '['.repeat(4000) + 'label](javascript:alert)',
         'literal * unclosed and _ unclosed and ` unclosed',
-    ])('preserves unmatched or unsafe inline syntax literally', (text) => {
-        expect(formatAssistantMessage(text)).toEqual([{
-            kind: 'text',
-            segments: [{
-                kind: 'text',
-                text,
-            }],
-        }]);
+    ])('keeps unmatched syntax literal', (text) => {
+        const { host } = render(text);
+        expect(host.textContent).toBe(text);
     });
 
     it.each([
-        'Plain paragraph grows without a blank line.',
         'Plain **strong** tail and _emphasis_ followed by text.',
-        'word [pending `code` tail](/docs)',
-        'word [pending **strong** tail](/docs)',
-        'word [pending *emphasis* tail](/docs)',
-        'word _emphasis_suffix and [Docs](https://example.test) tail',
+        'word [pending `code` tail](/docs) after',
         'First.\n\nSecond **bold** paragraph.\n\nAfter.',
-        'First\r\n\r\nSecond\r\nline',
-        '1. First\n2. Second\n\nAfter',
-        '| a | b |\n| --- | --- |\n| c | d |',
-        'Before\n```js\n| a | b |\n| --- | --- |\n| c | d |\n```\nAfter',
-    ])('matches full formatting at every streamed prefix: %s', (text) => {
-        const formatter = createStreamingAssistantMessageFormatter();
+        '- a\n  - b\n- c\n\n| a | b |\n| --- | --- |\n| c | d |',
+        'Before\n```js\n| a | b |\n```\nAfter',
+    ])('renders every streamed prefix exactly as a fresh render of that text: %s', async (text) => {
+        const streamed = render('');
         for (let end = 0; end <= text.length; end += 1) {
             const prefix = text.slice(0, end);
-            expect(formatter.format(prefix), 'prefix ' + end).toEqual(formatAssistantMessage(prefix));
+            streamed.props.text = prefix;
+            await nextTick();
+            const fresh = render(prefix);
+            expect(streamed.host.innerHTML, 'prefix ' + end).toBe(fresh.host.innerHTML);
+            unmounts.pop()?.();
         }
-        expect(formatter.format('Replacement.')).toEqual(formatAssistantMessage('Replacement.'));
-        expect(formatter.format('')).toEqual([]);
     });
 
     it('syntax-highlights code as escaped text tokens without producing HTML', () => {
         const source = 'const unsafe = "<img onerror=alert(1)>"; // safe text';
         const tokens = highlightAssistantCode(source, 'ts');
-
         expect(tokens.map(token => token.text).join('')).toBe(source);
         expect(tokens).toEqual(expect.arrayContaining([
             {
@@ -259,6 +159,8 @@ describe('assistantMessageFormatting', () => {
                 text: '// safe text',
             },
         ]));
-        expect(tokens.some(token => token.text.includes('<img'))).toBe(true);
+        const { host } = render('```ts\n' + source + '\n```');
+        expect(host.querySelector('pre img')).toBeNull();
+        expect(host.querySelector('pre')?.textContent).toBe(source);
     });
 });

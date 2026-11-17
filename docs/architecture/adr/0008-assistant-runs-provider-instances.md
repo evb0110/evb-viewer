@@ -34,9 +34,10 @@ and discovers independent PATH executables named exactly `codex`, `claude`,
 within a three-second version check; its bounded metadata probe must report
 models before any are selectable. Wrappers retain their executable identity and
 inherited environment. The native default Claude home leaves its config environment
-unset, preserving the existing macOS Keychain identity. Equal executable/home/arguments tuples are deduplicated;
-different homes stay separate. Explicit EVB records take precedence and keep
-stable IDs. Settings can add, edit and disable instances. A setup known only to
+unset, preserving the existing macOS Keychain identity. Discovered setups with equal
+executable/home/arguments tuples are deduplicated; different homes stay separate.
+Explicit EVB records are kept as entered with stable IDs and shadow equal discovered
+setups. Settings can add, edit and disable instances. A setup known only to
 another application's settings requires an explicit Settings entry; EVB reads
 no T3 installation data and has no T3 importer. Instances live in `<userData>/assistant/providers.json`, owned by the
 main process; secret values are encrypted with Electron `safeStorage`, never
@@ -69,8 +70,8 @@ a named error. Claude keeps `settingSources: []`, no built-in tools and
 **Status is per instance and never gates the panel.** Each enabled instance
 has one status: checking, ready, warning, error, missing or disabled, with an
 authentication state and the instance's own message. Reads return cached
-status at once; a probe runs one instance's check in the background and
-publishes its result alone. Codex has 10 seconds from spawn to `initialize`
+status after local setup discovery completes. Provider metadata checks run in the
+background, each publishing its result alone. Codex has 10 seconds from spawn to `initialize`
 and 15 seconds for a whole status check; Claude has 15 seconds. On expiry EVB
 stops the process it started and reports what did not answer. Nothing retries
 by itself; Refresh or a send starts the next attempt.

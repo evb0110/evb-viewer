@@ -604,6 +604,11 @@
     --app-assistant-picker-stacked-list-height: 14rem;
     --app-assistant-picker-stacked-effort-height: 16rem;
     --app-assistant-user-bg: var(--ui-bg-accented);
+    --app-assistant-error-bg: color-mix(in srgb, var(--ui-error) 8%, transparent);
+    --app-assistant-error-border: color-mix(in srgb, var(--ui-error) 28%, transparent);
+    --app-assistant-inline-code-padding: 0.1em 0.35em;
+    --app-assistant-table-cell-max-width: 24rem;
+    --app-assistant-table-header-rule: color-mix(in srgb, var(--ui-text-dimmed) 55%, transparent);
     --app-assistant-image-overlay-bg: rgb(0 0 0 / 85%);
     --app-assistant-image-overlay-text: #fff;
     --app-pdf-annotation-properties-value-min-width: 44px;
