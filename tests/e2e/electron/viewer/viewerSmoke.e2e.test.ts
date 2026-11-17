@@ -4360,6 +4360,15 @@ describe('Electron E2E - Viewer Smoke', () => {
             };
         }, sidebar);
         // The keys a Russian layout produces, sent as trusted renderer input.
+        // The page itself must claim the key: a key it leaves unhandled would
+        // fall through to the desktop menu's own accelerator.
+        await session.page.evaluate(() => {
+            const target = window as Window & {__layoutShortcutPrevented?: boolean[]};
+            target.__layoutShortcutPrevented = [];
+            window.addEventListener('keydown', (event) => {
+                setTimeout(() => target.__layoutShortcutPrevented?.push(event.defaultPrevented), 0);
+            }, {capture: true});
+        });
         const pressCyrillicShortcut = async (key: string, code: string, keyCode: number) => {
             const client = await session.page.createCDPSession();
             const event = {key, code, windowsVirtualKeyCode: keyCode, modifiers: process.platform === 'darwin' ? 4 : 2};
@@ -4369,10 +4378,16 @@ describe('Electron E2E - Viewer Smoke', () => {
             } finally {
                 await client.detach();
             }
+            await waitForFunctionInPage(session.page, () => (
+                ((window as Window & {__layoutShortcutPrevented?: boolean[]}).__layoutShortcutPrevented?.length ?? 0) > 0
+            ), {timeout: 5_000});
+            return session.page.evaluate(() => (
+                (window as Window & {__layoutShortcutPrevented?: boolean[]}).__layoutShortcutPrevented?.splice(0).some(Boolean) ?? false
+            ));
         };
         expect(await readSidebar()).toMatchObject({sidebarVisible: false});
 
-        await pressCyrillicShortcut('а', 'KeyF', 70);
+        expect(await pressCyrillicShortcut('а', 'KeyF', 70)).toBe(true);
         await waitForFunctionInPage(session.page, (root: string) => {
             const input = document.querySelector<HTMLInputElement>(`${root} .document-search-bar input`);
             return Boolean(input && input.getBoundingClientRect().width > 0 && document.activeElement === input);
@@ -4381,7 +4396,7 @@ describe('Electron E2E - Viewer Smoke', () => {
 
         // Ctrl+B outside the search field closes the sidebar again.
         await clickAsUser(session.page, '.editor-pane.is-active .workspace-host #pdf-viewer');
-        await pressCyrillicShortcut('и', 'KeyB', 66);
+        expect(await pressCyrillicShortcut('и', 'KeyB', 66)).toBe(true);
         await waitForFunctionInPage(session.page, (root: string) => (
             (document.querySelector<HTMLElement>(root)?.getBoundingClientRect().width ?? 0) === 0
         ), {timeout: 10_000}, sidebar).catch(() => undefined);

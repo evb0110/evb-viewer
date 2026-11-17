@@ -117,6 +117,8 @@ describe('usePageShortcuts', () => {
         {layout: 'AZERTY', key: 'f', code: 'KeyF', opens: true},
         {layout: 'Dvorak', key: 'u', code: 'KeyF', opens: false},
         {layout: 'Dvorak', key: 'f', code: 'KeyY', opens: true},
+        // An accented Latin letter (BÉPO's é) stays a letter of its own.
+        {layout: 'BÉPO', key: 'é', code: 'KeyF', opens: false},
     ])('reads Ctrl+F from the $layout layout ($key on $code)', async ({key, code, opens}) => {
         const deps = createDeps();
         await mountShortcuts(deps);
