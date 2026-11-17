@@ -281,6 +281,8 @@ export interface IWorkspaceExpose extends IWorkspaceDocumentRecoveryPort {
     setCustomZoomFromDisplay: (displayZoom: number) => void;
     handleGoToPage: (page: number, options?: IScrollToPageOptions) => void;
     handleToggleSidebar: () => void;
+    /** Opens the sidebar's search panel and focuses its field. */
+    handleOpenSearch: () => void;
     handleToggleContinuousScroll: () => void;
     handleEnableDragMode: () => void;
     handleDisableDragMode: () => void;

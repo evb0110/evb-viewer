@@ -1,6 +1,7 @@
 import type { TTranslateFn } from '@i18n-app';
 import { useRuntimeErrorReports } from '@app/composables/useRuntimeErrorReports';
 import { captureAssistantFailure } from '@app/modules/agent-panel/utils/assistantFailure';
+import { readShortcutKey } from '@app/utils/shortcutKey';
 import {
     defaultDocument,
     tryOnScopeDispose,
@@ -21,7 +22,7 @@ export const useAssistantPanelClipboard = (options: {t: TTranslateFn;}) => {
         [
             event.metaKey,
             event.ctrlKey,
-        ].some(Boolean) && !event.altKey && event.key.toLowerCase() === 'c'
+        ].some(Boolean) && !event.altKey && readShortcutKey(event) === 'c'
     );
     const isEditableCopyTarget = (target: EventTarget | null) => {
         if (typeof HTMLElement === 'undefined' || !(target instanceof HTMLElement)) {

@@ -243,6 +243,7 @@ export function createWorkspaceExpose(
         handleExportMultiPageTiff: () => exportWorkflow.handleExportMultiPageTiff(),
         handleGoToPage: owners.handleGoToPage,
         handleToggleSidebar: () => { view.showSidebar.value = !view.showSidebar.value; },
+        handleOpenSearch: () => { search.openSearch(); },
         handleEnableDragMode: () => { navigation.enableDragMode(); },
         handleDisableDragMode: () => { void viewContext.annotationToolState.handleAnnotationToolChange('none'); },
         handleQuickNote: () => { if (!document.isMoving.value) void viewContext.annotationActions.handleQuickNoteAction(); },

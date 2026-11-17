@@ -2,7 +2,6 @@ import type { Ref } from 'vue';
 import {
     useEventListener,
     useMagicKeys,
-    whenever,
 } from '@vueuse/core';
 import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/public';
 import type { TAnnotationTool } from '@app/types/annotations';
@@ -14,6 +13,7 @@ import {
     stepBySpread,
 } from '@app/utils/pdfViewMode';
 import { shouldHandleRendererMenuAccelerators } from '@app/utils/shouldHandleRendererMenuAccelerators';
+import { readShortcutKey } from '@app/utils/shortcutKey';
 import { readPageAnnotationImageFileFromPasteData } from '@app/modules/workspace-shell/annotations/readPageAnnotationImageFileFromClipboard';
 
 interface IPdfViewerForShortcuts {
@@ -186,10 +186,18 @@ export const usePageShortcuts = <TDeps extends IPageShortcutsDeps>(deps: TDeps) 
         return true;
     }
 
-    function preventReactiveLetterShortcut(event: KeyboardEvent, key: string, shouldHandleRendererAccelerators: boolean) {
-        if (key === 'b' || key === 'f') {
-            event.preventDefault();
+    function handleSidebarShortcut(event: KeyboardEvent, key: string) {
+        if (key !== 'b') {
+            return false;
         }
+        event.preventDefault();
+        if (!event.repeat) {
+            deps.handleToggleSidebar();
+        }
+        return true;
+    }
+
+    function preventSaveShortcutDefault(event: KeyboardEvent, key: string, shouldHandleRendererAccelerators: boolean) {
         if (key === 's' && !event.shiftKey && shouldHandleRendererAccelerators) {
             event.preventDefault();
         }
@@ -301,7 +309,7 @@ export const usePageShortcuts = <TDeps extends IPageShortcutsDeps>(deps: TDeps) 
         if (!eventHasCommandModifier(event) || event.altKey) {
             return;
         }
-        const key = event.key.toLowerCase();
+        const key = readShortcutKey(event);
         if (key === 's' || key === 'p' || key === 'o') {
             event.preventDefault();
         }
@@ -321,7 +329,7 @@ export const usePageShortcuts = <TDeps extends IPageShortcutsDeps>(deps: TDeps) 
             return;
         }
 
-        const key = event.key.toLowerCase();
+        const key = readShortcutKey(event);
         if (key !== 's' && key !== 'p' && key !== 'o') {
             return;
         }
@@ -353,7 +361,6 @@ export const usePageShortcuts = <TDeps extends IPageShortcutsDeps>(deps: TDeps) 
             return;
         }
         if (isInDialog(event.target)) {
-            editableBlocked.value = true;
             return;
         }
         suppressBrowserDefaultForConflictingAccelerator(event);
@@ -372,7 +379,7 @@ export const usePageShortcuts = <TDeps extends IPageShortcutsDeps>(deps: TDeps) 
             return;
         }
 
-        const key = event.key.toLowerCase();
+        const key = readShortcutKey(event);
         const shouldHandleRendererAccelerators = shouldHandleRendererMenuAccelerators();
         if (hasMod) {
             if (handleSaveShortcut(event, key, shouldHandleRendererAccelerators)) {
@@ -384,8 +391,7 @@ export const usePageShortcuts = <TDeps extends IPageShortcutsDeps>(deps: TDeps) 
         }
 
         if (!hasMod || !interactiveDocument.value) {
-            editableBlocked.value = isEditingText(event.target);
-            if (editableBlocked.value) {
+            if (isEditingText(event.target)) {
                 return;
             }
             if (handleDeleteShortcut(event)) {
@@ -401,15 +407,17 @@ export const usePageShortcuts = <TDeps extends IPageShortcutsDeps>(deps: TDeps) 
             return;
         }
 
-        editableBlocked.value = isEditingText(event.target);
-        if (editableBlocked.value) {
+        if (isEditingText(event.target)) {
             return;
         }
 
         if (handleImageShortcut(event, key, shouldHandleRendererAccelerators)) {
             return;
         }
-        preventReactiveLetterShortcut(event, key, shouldHandleRendererAccelerators);
+        if (handleSidebarShortcut(event, key)) {
+            return;
+        }
+        preventSaveShortcutDefault(event, key, shouldHandleRendererAccelerators);
         handleZoomShortcut(event, shouldHandleRendererAccelerators);
     }
 
@@ -425,11 +433,7 @@ export const usePageShortcuts = <TDeps extends IPageShortcutsDeps>(deps: TDeps) 
         deps.handlePasteImageFile(file);
     }
 
-    // Tracks whether the most recent keydown targeted an editable element or
-    // a dialog, so the reactive `whenever` watchers can skip those events.
-    const editableBlocked = ref(false);
-
-    const keys = useMagicKeys({
+    useMagicKeys({
         passive: false,
         onEventFired(e) {
             if (e.type !== 'keydown') {
@@ -439,15 +443,6 @@ export const usePageShortcuts = <TDeps extends IPageShortcutsDeps>(deps: TDeps) 
         },
     });
 
-    // Reactive guards shared by letter shortcuts
-    // Optional chaining required because noUncheckedIndexedAccess is enabled
-    // and useMagicKeys exposes keys via an index signature.
-    const canFire = computed(() => isActive.value && !editableBlocked.value);
-    const hasMod = computed(() => (keys.ctrl?.value ?? false) || (keys.meta?.value ?? false));
-    const modReady = computed(() => canFire.value && hasMod.value && !(keys.alt?.value ?? false) && interactiveDocument.value);
-
-    // Letter shortcuts — reactive via whenever
-    whenever(() => modReady.value && (keys.b?.value ?? false), () => deps.handleToggleSidebar());
     // Pointerdown — close menus on outside clicks
     function handleGlobalPointerDown(event: PointerEvent) {
         if (!isActive.value) {

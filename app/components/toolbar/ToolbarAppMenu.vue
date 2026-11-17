@@ -526,6 +526,10 @@ function buildEditItems(): TToolbarAppMenuItem[] {
         }),
         { type: 'separator' },
         ...buildTextEditItems(),
+        createMenuEventItem('onMenuFind', t('menu.find'), 'i-ph-magnifying-glass', {
+            disabled: !hasInteractiveDocument.value,
+            shortcut: shortcutLabels.value.search,
+        }),
         { type: 'separator' },
         createMenuEventItem('onMenuInsertImageFromFile', t('menu.insertImageFromFile'), 'i-ph-image', {disabled: editDisabled}),
         createMenuEventItem('onMenuPasteImageFromClipboard', t('menu.pasteImageFromClipboard'), 'i-ph-clipboard-text', {disabled: editDisabled}),

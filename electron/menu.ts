@@ -526,6 +526,13 @@ function getEditMenu(state: TResolvedApplicationMenuDocumentState): MenuItemCons
                     }
                 },
             },
+            { type: 'separator' },
+            createWindowMenuAction({
+                label: te('menu.find'),
+                accelerator: 'CmdOrCtrl+F',
+                enabled: state.interactive,
+                channel: DOCUMENTS_EVENT_CHANNELS.onMenuFind,
+            }),
         ],
     };
 }
