@@ -4,10 +4,14 @@ import {
     it,
     onTestFinished,
 } from 'vitest';
+import { createHash } from 'node:crypto';
 import {
+    chmodSync,
     copyFileSync,
+    existsSync,
     mkdtempSync,
     mkdirSync,
+    readFileSync,
     realpathSync,
     rmSync,
     writeFileSync,
@@ -18,6 +22,13 @@ import {
 } from 'node:path';
 import { tmpdir } from 'node:os';
 import { delay } from 'es-toolkit/promise';
+import {
+    PDFArray,
+    PDFDict,
+    PDFDocument,
+    PDFHexString,
+    PDFName,
+} from 'pdf-lib';
 import type { Page } from 'puppeteer-core';
 import {
     asAnnotationId,
@@ -37,6 +48,7 @@ import {
     createForeignNoteReplyFixturePdf,
     createLinkOnlyFixturePdf,
     createMultiPageTextFixturePdf,
+    readAnnotationFidelitySnapshot,
     readPdfTextAnnotationRecords,
 } from '@tests/e2e/electron/helpers/fixtures';
 import { createElectronE2ESessionFixture } from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
@@ -66,7 +78,11 @@ import {
     waitForViewerInteractive,
 } from '@tests/e2e/electron/helpers/viewerCore';
 import { waitForActiveWorkspaceHost } from '@tests/e2e/electron/helpers/viewerDom';
-import { clickAsUser } from '@tests/e2e/electron/helpers/userInput';
+import {
+    clickAsUser,
+    clickFoundAsUser,
+    revealForPointer,
+} from '@tests/e2e/electron/helpers/userInput';
 import {
     installWorkspaceExposeProbe,
     readWorkspaceStateValues,
@@ -1150,10 +1166,439 @@ async function editCanonicalNoteText(page: Page, currentText: string, nextText: 
     return waitForCanonicalNote(page, nextText);
 }
 
+const IMPORTED_COMMENTS = {
+    note: {
+        sidebarKind: 'note',
+        name: 'surface-note',
+        original: 'Store-owned note',
+        edited: 'Imported sticky note typed during rotation',
+    },
+    highlight: {
+        sidebarKind: 'text-markup',
+        name: 'surface-highlight',
+        original: 'Store-owned highlight',
+        edited: 'Imported highlight comment typed during rotation',
+    },
+} as const;
+type TImportedComment = keyof typeof IMPORTED_COMMENTS;
+const IMPORTED_NOTE_WINDOW = '.editor-pane.is-active .note-window';
+const IMPORTED_NOTE_MARKER = '.editor-pane.is-active .page_container[data-document-page-number="1"] .pdf-annotation-editor-note';
+
+async function openImportedComment(page: Page, kind: TImportedComment) {
+    await openAnnotationsTab(page);
+    const comment = IMPORTED_COMMENTS[kind];
+    await clickVisibleAnnotationControl(page,
+        `.editor-pane.is-active .note-item[data-annotation-kind="${comment.sidebarKind}"] .note-item-content`, 2);
+    const input = `${IMPORTED_NOTE_WINDOW} textarea`;
+    await page.waitForSelector(input, {visible: true});
+    expect(await page.$eval(input, element => (element as HTMLTextAreaElement).value)).toBe(comment.original);
+}
+
+async function editImportedComment(page: Page, kind: TImportedComment) {
+    await clickAsUser(page, `${IMPORTED_NOTE_WINDOW} textarea`);
+    await selectAllFocusedAnnotationText(page);
+    await page.keyboard.type(IMPORTED_COMMENTS[kind].edited);
+    await page.keyboard.press('Tab');
+    await openAnnotationsTab(page);
+    await waitForSidebarAnnotationText(page, IMPORTED_COMMENTS[kind].edited);
+    await clickAsUser(page, `${IMPORTED_NOTE_WINDOW} .note-window__close`);
+}
+
+async function rotateImportedAnnotationPage(page: Page, pageNumber: number) {
+    await openDocumentSidebarTab(page, 'Pages');
+    await clickAsUser(page, `.editor-pane.is-active [data-thumbnail-page="${pageNumber}"]`, {button: 'right'});
+    await clickFoundAsUser(page, () => Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]'))
+        .find(element => element.textContent?.trim() === 'Rotate Clockwise'), null, {description: 'Rotate Clockwise'});
+}
+
+async function readImportedNoteCenter(page: Page) {
+    // Compare page-relative anchors, independent of scroll and raster layout.
+    return page.$eval(IMPORTED_NOTE_MARKER, marker => ({
+        x: Number.parseFloat((marker as HTMLElement).style.left) / 100,
+        y: Number.parseFloat((marker as HTMLElement).style.top) / 100,
+    }));
+}
+
+interface IImportedAnnotationFixture {
+    page: Page;
+    fixture: string;
+    originalBytes: Buffer;
+}
+
+async function readImportedAnnotationBytes(bytes: Buffer) {
+    const pages = (await PDFDocument.load(bytes)).getPages();
+    return {
+        rotations: pages.map(page => page.getRotation().angle),
+        annotations: await Promise.all(pages.map((_, index) => readAnnotationFidelitySnapshot(bytes, index))),
+    };
+}
+
+async function observeImportedAnnotationSave(
+    {page, fixture, originalBytes}: IImportedAnnotationFixture,
+    step: string,
+    releaseReadback?: () => void,
+) {
+    const saveButton = 'button[aria-label="Save"]:not(:disabled)';
+    const cleanTab = '.tab.is-active:not(.is-dirty)';
+    const toast = '.app-toast-failure';
+    const previousFailures = await page.$$eval(toast, elements => elements.map(element => element.textContent));
+    let outcome = 'Save disabled';
+    if (await page.$(saveButton)) {
+        await clickAsUser(page, saveButton);
+        const waitForSave = (includeBusy: boolean) => page.waitForFunction((toastSelector, seen, cleanSelector, busy) => {
+            const failure = Array.from(document.querySelectorAll(toastSelector))
+                .find(element => !seen.includes(element.textContent));
+            return failure?.textContent?.trim()
+                || (document.querySelector(cleanSelector) && 'saved')
+                || (busy && document.querySelector('button[aria-label="Save"][aria-busy="true"]') && 'saving');
+        }, {}, toast, previousFailures, cleanTab, includeBusy);
+        if (releaseReadback) {
+            const started = await waitForSave(true);
+            console.log(`[1651 ${step}] before releasing readback`, await started.jsonValue());
+            releaseReadback();
+        }
+        outcome = String(await (await waitForSave(false)).jsonValue());
+    }
+    const bytes = readFileSync(fixture);
+    const saved = await readImportedAnnotationBytes(bytes);
+    const byteIdentical = bytes.equals(originalBytes);
+    console.log(`[1651 ${step}]`, JSON.stringify({
+        outcome,
+        byteIdentical,
+        originalSha256: createHash('sha256').update(originalBytes).digest('hex'),
+        savedSha256: createHash('sha256').update(bytes).digest('hex'),
+        rotations: saved.rotations,
+        annotations: saved.annotations.map(pageAnnotations => pageAnnotations.map(({subtype, name, contents, rect, quads}) => ({
+            subtype, name, contents, rect, quads,
+        }))),
+    }));
+    return {outcome, saved, byteIdentical};
+}
+
+async function assertImportedAnnotationSave(
+    view: IImportedAnnotationFixture,
+    step: string,
+    rotations: number[],
+    edited: Partial<Record<TImportedComment, string>>,
+    movedNoteRect?: number[],
+) {
+    const {outcome, saved} = await observeImportedAnnotationSave(view, step);
+    expect.soft(outcome, `${step} toolbar Save`).toBe('saved');
+    if (outcome !== 'saved') return;
+    await assertImportedAnnotationOutput(view.originalBytes, saved, step, rotations, edited, movedNoteRect);
+}
+
+async function assertImportedAnnotationOutput(
+    originalBytes: Buffer,
+    saved: Awaited<ReturnType<typeof readImportedAnnotationBytes>>,
+    step: string,
+    rotations: number[],
+    edited: Partial<Record<TImportedComment, string>>,
+    movedNoteRect?: number[],
+) {
+    const original = await readImportedAnnotationBytes(originalBytes);
+    expect.soft(saved.rotations, `${step} page /Rotate`).toEqual(rotations);
+    const coordinates = (value: string | null | undefined) => value?.slice(1, -1).trim().split(/\s+/u).map(Number);
+    const matchingCoordinates = (value: string | null) => coordinates(value)?.map(coordinate => expect.closeTo(coordinate, 3));
+    for (const [index, pageAnnotations] of original.annotations.entries()) {
+        const savedAnnotations = saved.annotations[index] ?? [];
+        expect.soft(savedAnnotations, `${step} annotation count on page ${index + 1}`).toHaveLength(pageAnnotations.length);
+        for (const source of pageAnnotations) {
+            const annotation = savedAnnotations.find(row => row.name === source.name && row.subtype === source.subtype);
+            const label = `${step} page ${index + 1} ${source.name ?? source.subtype}`;
+            const kind = source.name === IMPORTED_COMMENTS.note.name ? 'note'
+                : source.name === IMPORTED_COMMENTS.highlight.name ? 'highlight' : null;
+            const movedRect = kind === 'note' ? movedNoteRect : undefined;
+            if (!kind || (edited[kind] === undefined && movedRect === undefined)) {
+                expect.soft(annotation, `${label} unchanged`).toEqual(source);
+                continue;
+            }
+            expect.soft(annotation?.contents, `${label} /Contents`).toBe(edited[kind] ?? source.contents);
+            const expectedRect = movedRect
+                ? movedRect.map(value => expect.closeTo(value, 3))
+                : matchingCoordinates(source.rect);
+            expect.soft(coordinates(annotation?.rect), `${label} /Rect`).toEqual(expectedRect);
+            expect.soft(coordinates(annotation?.quads), `${label} /QuadPoints`).toEqual(matchingCoordinates(source.quads));
+        }
+    }
+}
+
 describe('Electron E2E - Annotation Lifecycle', () => {
     const sessionFixture = createElectronE2ESessionFixture({
         restartBeforeEach: true,
         sessionName: () => `e2e-annotation-lifecycle-${Date.now()}`,
+    });
+
+    async function openImportedAnnotationFixture(mode: 'mixed' | 'comments' | 'sibling') {
+        const scratch = realpathSync(mkdtempSync(join(tmpdir(), 'evb-note-rotation-save-')));
+        let restoreSession: (() => Promise<unknown>) | undefined;
+        onTestFinished(async () => {
+            try {
+                await restoreSession?.();
+            } finally {
+                rmSync(scratch, {recursive: true, force: true});
+            }
+        });
+        const fixture = join(scratch, 'imported.pdf');
+        // The writer normalizes note icons to 20 pt squares around their centers.
+        const fixtureSource = await createCanonicalAnnotationSurfaceFixturePdf(`note-rotation-save-${Date.now()}.pdf`, [
+            286,
+            616,
+            306,
+            636,
+        ]);
+        onTestFinished(() => rmSync(fixtureSource, {force: true}));
+        const rotatedPage = mode === 'sibling' ? 2 : 1;
+        if (mode === 'mixed') {
+            copyFileSync(fixtureSource, fixture);
+        } else {
+            const document = await PDFDocument.load(readFileSync(fixtureSource), {updateMetadata: false});
+            if (mode === 'sibling') {
+                const sibling = document.addPage([612, 792]);
+                const key = PDFHexString.fromText('evb-shape:rotated-page-square');
+                const square = document.context.register(document.context.obj({
+                    Type: PDFName.of('Annot'),
+                    Subtype: PDFName.of('Square'),
+                    P: sibling.ref,
+                    F: 4,
+                    Rect: [350, 510, 470, 570],
+                    NM: key,
+                    EVBShapeKey: key,
+                    C: [0.1, 0.4, 0.9],
+                    Border: [0, 0, 2],
+                }));
+                sibling.node.set(PDFName.of('Annots'), document.context.obj([square]));
+            } else {
+                const annotations = document.getPage(0).node.lookup(PDFName.of('Annots'), PDFArray);
+                for (let index = annotations.size() - 1; index >= 0; index--) {
+                    if (annotations.lookup(index, PDFDict).get(PDFName.of('Subtype'))?.toString() === '/FreeText') {
+                        annotations.remove(index);
+                    }
+                }
+            }
+            writeFileSync(fixture, await document.save({useObjectStreams: false}));
+        }
+        const originalBytes = readFileSync(fixture);
+        const armed = join(scratch, 'armed');
+        const held = join(scratch, 'held');
+        const released = join(scratch, 'released');
+        // Forward the native commands and hold completion of one successful real parse.
+        const launcher = join(scratch, process.platform === 'win32' ? 'textsave-native.exe' : 'textsave-native');
+        const preload = join(scratch, 'native-readback.cjs');
+        const realTool = join(process.cwd(), '.tmp/pdf-page-ops', `${process.platform}-${process.arch}`, 'bin',
+            process.platform === 'win32' ? 'evb-pdf-page-ops.exe' : 'evb-pdf-page-ops');
+        copyFileSync(process.execPath, launcher);
+        chmodSync(launcher, 0o700);
+        // Node runs its main module after the preload returns. Keep that main inert.
+        writeFileSync(join(scratch, 'parse-annotations'), '');
+        writeFileSync(preload, [
+            `if (process.execPath === ${JSON.stringify(launcher)}) {`,
+            '  const fs = require("node:fs");',
+            '  const args = [require("node:path").basename(process.argv[1]), ...process.argv.slice(2)];',
+            `  const hold = args[0] === 'parse-annotations' && fs.existsSync(${JSON.stringify(armed)});`,
+            `  if (hold) fs.rmSync(${JSON.stringify(armed)});`,
+            `  const child = require('node:child_process').spawnSync(${JSON.stringify(realTool)}, args, {stdio: 'inherit'});`,
+            '  if (child.status !== 0) process.exit(child.status ?? 1);',
+            '  if (!hold) process.exit(0);',
+            `  const watcher = fs.watch(${JSON.stringify(scratch)}, () => {`,
+            `    if (fs.existsSync(${JSON.stringify(released)})) { watcher.close(); process.exit(0); }`,
+            '  });',
+            `  fs.writeFileSync(${JSON.stringify(held)}, 'real parse completed');`,
+            '}',
+            '',
+        ].join('\n'));
+        const {page} = await sessionFixture.restart({
+            hard: true,
+            extraEnv: {
+                EVB_PDF_PAGE_OPS_PATH: launcher,
+                NODE_OPTIONS: `${process.env.NODE_OPTIONS ?? ''} --require ${JSON.stringify(preload)}`.trim(),
+            },
+        });
+        const release = () => writeFileSync(released, 'release real annotation readback');
+        restoreSession = async () => {
+            release();
+            return sessionFixture.restart({hard: true, extraEnv: {}});
+        };
+        await openPdfInApp(page, fixture);
+        await waitForPdfLoaded(page);
+        await waitForViewerInteractive(page);
+        const square = `.editor-pane.is-active .page_container[data-document-page-number="${rotatedPage}"] [data-annotation-kind="shape"] rect`;
+        if (rotatedPage === 2) await goToPageViaToolbar(page, 2);
+        await page.waitForSelector(square);
+        const squareX = await page.$eval(square, element => element.getAttribute('x'));
+        if (rotatedPage === 2) await goToPageViaToolbar(page, 1);
+        return {
+            page,
+            fixture,
+            originalBytes,
+            release,
+            square,
+            async rotateAndHoldReadback() {
+                writeFileSync(armed, 'hold next real annotation readback');
+                await rotateImportedAnnotationPage(page, rotatedPage);
+                await expect.poll(() => existsSync(held), {timeout: 20_000}).toBe(true);
+            },
+            async waitForRotatedAnnotations() {
+                if (rotatedPage === 2) await goToPageViaToolbar(page, 2);
+                // An untouched square reprojects when the parse lands. The raster can appear earlier.
+                await page.waitForFunction((selector, previousX) => {
+                    const x = document.querySelector(selector)?.getAttribute('x');
+                    return x != null && x !== previousX;
+                }, {}, square, squareX);
+                if (rotatedPage === 2) await goToPageViaToolbar(page, 1);
+                await waitForViewerInteractive(page);
+            },
+        };
+    }
+
+    it('saves an imported note and highlight edited while rotation annotation readback is pending', async () => {
+        const view = await openImportedAnnotationFixture('mixed');
+        const {page} = view;
+        await openImportedComment(page, 'note');
+        await view.rotateAndHoldReadback();
+        await editImportedComment(page, 'note');
+        await openImportedComment(page, 'highlight');
+        await editImportedComment(page, 'highlight');
+        view.release();
+        await view.waitForRotatedAnnotations();
+        await assertImportedAnnotationSave(view, 'R', [90], {
+            note: IMPORTED_COMMENTS.note.edited,
+            highlight: IMPORTED_COMMENTS.highlight.edited,
+        });
+    });
+
+    it('saves only the imported highlight comment edited during rotation readback', async () => {
+        const view = await openImportedAnnotationFixture('comments');
+        await openImportedComment(view.page, 'highlight');
+        await view.rotateAndHoldReadback();
+        await editImportedComment(view.page, 'highlight');
+        view.release();
+        await view.waitForRotatedAnnotations();
+        await assertImportedAnnotationSave(view, 'b', [90], {highlight: IMPORTED_COMMENTS.highlight.edited});
+    });
+
+    it('saves a page-one note dragged during page-two rotation readback', async () => {
+        const view = await openImportedAnnotationFixture('sibling');
+        const {page} = view;
+        await view.rotateAndHoldReadback();
+        const point = await revealForPointer(page, IMPORTED_NOTE_MARKER, 15_000);
+        const before = await readImportedNoteCenter(page);
+        await page.mouse.move(point.x, point.y);
+        await page.mouse.down();
+        await page.mouse.move(point.x + 65, point.y + 42, {steps: 8});
+        await page.mouse.up();
+        await expect.poll(async () => await readImportedNoteCenter(page), {timeout: 8_000}).not.toEqual(before);
+        const moved = await readImportedNoteCenter(page);
+        view.release();
+        await view.waitForRotatedAnnotations();
+        const afterReadback = await readImportedNoteCenter(page);
+        console.log('[1651 c] page-one note centers', JSON.stringify({before, moved, afterReadback}));
+        expect.soft(afterReadback, 'page-one note keeps its dragged position after readback').toEqual(moved);
+        // Page one is 612 x 792 at 0°. Its marker is centered on the 20 pt icon.
+        const x = moved.x * 612;
+        const y = (1 - moved.y) * 792;
+        await assertImportedAnnotationSave(view, 'c', [0, 90], {}, [x - 10, y - 10, x + 10, y + 10]);
+    });
+
+    // Each accepted comment edit is an independent user command. Exercise one
+    // toolbar Undo and Redo for each annotation type in a fresh document.
+    it.each(['note', 'highlight'] as const)('saves imported %s comment Undo and Redo without moving its geometry', async (kind) => {
+        const view = await openImportedAnnotationFixture('comments');
+        const {page} = view;
+        const comment = IMPORTED_COMMENTS[kind];
+        await openImportedComment(page, kind);
+        await view.rotateAndHoldReadback();
+        await editImportedComment(page, kind);
+        view.release();
+        await view.waitForRotatedAnnotations();
+        await clickAsUser(page, 'button[aria-label="Undo"]:not(:disabled)');
+        await waitForSidebarAnnotationText(page, comment.original);
+        await assertImportedAnnotationSave(view, `d-${kind}-undo`, [90], {[kind]: comment.original});
+        await clickAsUser(page, 'button[aria-label="Redo"]:not(:disabled)');
+        await waitForSidebarAnnotationText(page, comment.edited);
+        await assertImportedAnnotationSave(view, `d-${kind}-redo`, [90], {[kind]: comment.edited});
+    });
+
+    it('saves an imported note without moving it after two rotations overlap annotation readback', async () => {
+        const view = await openImportedAnnotationFixture('comments');
+        const {page} = view;
+        await openImportedComment(page, 'note');
+        await view.rotateAndHoldReadback();
+        await editImportedComment(page, 'note');
+        await rotateImportedAnnotationPage(page, 1);
+        const secondRotation = await page.waitForFunction((selector) => {
+            const toast = document.querySelector('.app-toast-failure');
+            if (toast?.textContent) return toast.textContent.trim();
+            const x = Number(document.querySelector(selector)?.getAttribute('x'));
+            if (Math.abs(x - 142 / 612) < 0.001) return '180-degree annotations presented';
+            // The second rotation may be waiting for the first parse. Release
+            // once the accepted command is visibly in progress in that case.
+            return document.querySelector('.workspace-page-op-progress-overlay') && 'rotation in progress';
+        }, {timeout: 20_000}, view.square);
+        const presentation = await secondRotation.jsonValue();
+        console.log('[1651 e] before release', presentation);
+        view.release();
+        expect(['180-degree annotations presented', 'rotation in progress']).toContain(presentation);
+        await page.waitForFunction((selector) => {
+            const x = Number(document.querySelector(selector)?.getAttribute('x'));
+            return Math.abs(x - 142 / 612) < 0.001;
+        }, {timeout: 20_000}, view.square);
+        await waitForViewerInteractive(page);
+        const noteCenter = await readImportedNoteCenter(page);
+        console.log('[1651 e] displayed note center', noteCenter);
+        expect.soft(noteCenter, 'note remains anchored to the original PDF position at 180 degrees').toEqual({
+            x: expect.closeTo(1 - 296 / 612, 3),
+            y: expect.closeTo(626 / 792, 3),
+        });
+        await assertImportedAnnotationSave(view, 'e', [180], {
+            note: IMPORTED_COMMENTS.note.edited,
+        });
+    });
+
+    it('preserves imported annotation geometry when Save is pressed during rotation readback', async () => {
+        const view = await openImportedAnnotationFixture('comments');
+        const {page} = view;
+        await openImportedComment(page, 'note');
+        await view.rotateAndHoldReadback();
+        await editImportedComment(page, 'note');
+        await openImportedComment(page, 'highlight');
+        await editImportedComment(page, 'highlight');
+        const {outcome, saved, byteIdentical} = await observeImportedAnnotationSave(view, 'f', view.release);
+        expect(outcome, 'the toolbar Save was available while the read was held').not.toBe('Save disabled');
+
+        if (outcome === 'saved') {
+            await assertImportedAnnotationOutput(view.originalBytes, saved, 'f', [90], {
+                note: IMPORTED_COMMENTS.note.edited,
+                highlight: IMPORTED_COMMENTS.highlight.edited,
+            });
+        } else {
+            expect.soft(byteIdentical, 'a refused Save leaves the original PDF byte-identical').toBe(true);
+            expect.soft(await page.$('.tab.is-active.is-dirty'), 'a refused Save keeps the tab dirty').not.toBeNull();
+        }
+
+        await view.waitForRotatedAnnotations();
+        await waitForSidebarAnnotationText(page, IMPORTED_COMMENTS.note.edited);
+        await waitForSidebarAnnotationText(page, IMPORTED_COMMENTS.highlight.edited);
+        const noteCenter = await readImportedNoteCenter(page);
+        const highlightBox = await page.$eval(
+            '.editor-pane.is-active .page_container[data-document-page-number="1"] .pdf-annotation-editor-text-markup path[data-annotation-visual]',
+            path => {
+                const {x, y, width, height} = (path as SVGGraphicsElement).getBBox();
+                return {x, y, width, height};
+            },
+        );
+        console.log('[1651 f] displayed annotation geometry', JSON.stringify({noteCenter, highlightBox}));
+        // At 90 degrees clockwise, PDF y runs rightward and PDF x runs down the screen.
+        expect.soft(noteCenter, 'note on the rotated page').toEqual({
+            x: expect.closeTo(626 / 792, 3),
+            y: expect.closeTo(296 / 612, 3),
+        });
+        expect.soft(highlightBox, 'highlight on the rotated page').toEqual({
+            x: expect.closeTo(510 / 792, 3),
+            y: expect.closeTo(72 / 612, 3),
+            width: expect.closeTo(25 / 792, 3),
+            height: expect.closeTo(178 / 612, 3),
+        });
     });
 
     it('clears dirty and Save after a saved-note draft reverts, preserving other accepted edits', async () => {
