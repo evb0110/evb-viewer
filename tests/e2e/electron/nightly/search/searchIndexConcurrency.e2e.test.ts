@@ -202,21 +202,29 @@ describe('Electron E2E - concurrent search indexes', () => {
         await waitForFunctionInPage(page, (root: string, word: string) => (
             Array.from(document.querySelectorAll<HTMLElement>(`${root} .document-search-result`)).some(result => result.textContent?.includes(word))
         ), {timeout: RESULT_TIMEOUT_MS}, SIDEBAR, NON_EMBEDDED_CJK_SEARCH_FIXTURE_QUERY);
-        // Normal shutdown drains buffered worker records before the lifetime assertions.
+        // Normal shutdown drains the worker logs so the tally includes the records emitted after thread exit.
         await sessionFixture.stop({preserveArtifacts: true});
         const records = (await readFile(logPath, 'utf8')).slice(logOffset).split('\n').filter(Boolean).map(line => JSON.parse(line) as ILogRecord)
             .filter(record => record.data?.workerName === 'pdf-text-worker.js');
+        // With no cancellation request, a worker's reported cancellation follows the exit fence.
+        expect(records.some(record => record.msg === 'Worker cancellation requested')).toBe(false);
         let active = 0; let peak = 0; let started = 0;
         for (const record of records) {
             if (record.msg === 'Worker online') { active++; started++; peak = Math.max(peak, active); }
-            if (record.msg === 'Worker completed') active--;
+            if ([
+                'Worker completed',
+                'Worker reported failure',
+                'Worker reported cancellation',
+                'Worker returned an invalid payload',
+                'Worker returned an invalid result',
+            ].includes(record.msg) || (record.data?.online === true && [
+                'Worker exited before returning a result',
+                'Worker exited while cancelling',
+            ].includes(record.msg))) active--;
         }
         expect(started).toBeGreaterThan(admitted);
         expect(peak).toBeLessThanOrEqual(admitted);
         expect(active).toBe(0);
-        // A queued close constructs no worker. An active cancellation lacks a
-        // completion log and cannot establish this queued-cancellation scenario.
-        expect(records.some(record => record.msg === 'Worker cancellation requested')).toBe(false);
         expect(records.some(record => record.level === 'error')).toBe(false);
     }, 600_000);
 
