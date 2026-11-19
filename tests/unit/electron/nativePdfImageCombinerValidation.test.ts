@@ -143,9 +143,9 @@ describe('native PDF image combiner output validation', () => {
     it('rejects when native bytes are not a PDF in enabled test mode', async () => {
         mocks.openData = Buffer.from('not a pdf');
         mocks.readFile.mockResolvedValueOnce(Buffer.from('not a pdf'));
-        const { tryCreatePdfWithNativeImageCombiner } = await import('@electron/image/tryCreatePdfWithNativeImageCombiner');
+        const { tryBuildOptimizedPdfWithNativeImageCombiner } = await import('@electron/image/tryCreatePdfWithNativeImageCombiner');
 
-        await expect(tryCreatePdfWithNativeImageCombiner(['/tmp/input.png']))
+        await expect(tryBuildOptimizedPdfWithNativeImageCombiner(['/tmp/input.ppm'], 300))
             .rejects.toThrow('Native image PDF combine fallback is not allowed in tests');
 
         expect(mocks.warn).toHaveBeenCalledWith(expect.stringContaining('produced invalid PDF output'));
@@ -291,10 +291,10 @@ describe('native PDF image combiner output validation', () => {
         mocks.terminateDetachedChildProcess.mockResolvedValueOnce(false);
         const proc = new MockProcess();
         mocks.spawn.mockReturnValueOnce(proc);
-        const { tryCreatePdfWithNativeImageCombiner } = await import('@electron/image/tryCreatePdfWithNativeImageCombiner');
+        const { tryBuildOptimizedPdfWithNativeImageCombiner } = await import('@electron/image/tryCreatePdfWithNativeImageCombiner');
         const { getUnprovenNativeTerminationDetail } = await import('@electron/utils/nativeTerminationProof');
 
-        const pending = tryCreatePdfWithNativeImageCombiner(['/tmp/input.png']);
+        const pending = tryBuildOptimizedPdfWithNativeImageCombiner(['/tmp/input.ppm'], 300);
         await vi.waitFor(() => {
             expect(mocks.spawn).toHaveBeenCalled();
         });
@@ -352,11 +352,11 @@ describe('native PDF image combiner output validation', () => {
         mocks.terminateDetachedChildProcess.mockRejectedValueOnce(new Error('termination unavailable'));
         const proc = new MockProcess();
         mocks.spawn.mockReturnValueOnce(proc);
-        const { tryCreatePdfWithNativeImageCombiner } = await import('@electron/image/tryCreatePdfWithNativeImageCombiner');
+        const { tryBuildOptimizedPdfWithNativeImageCombiner } = await import('@electron/image/tryCreatePdfWithNativeImageCombiner');
         const { getUnprovenNativeTerminationDetail } = await import('@electron/utils/nativeTerminationProof');
         const controller = new AbortController();
 
-        const pending = tryCreatePdfWithNativeImageCombiner(['/tmp/input.png'], {signal: controller.signal});
+        const pending = tryBuildOptimizedPdfWithNativeImageCombiner(['/tmp/input.ppm'], 300, undefined, {signal: controller.signal});
         const result = pending.catch((caught: unknown) => caught);
         await vi.waitFor(() => {
             expect(mocks.spawn).toHaveBeenCalled();
@@ -371,21 +371,6 @@ describe('native PDF image combiner output validation', () => {
             recursive: true,
             force: true,
         });
-    });
-
-    it('keeps byte-returning native combines in memory mode', async () => {
-        const validPdf = Buffer.from('%PDF-1.7\n1 0 obj\n<<>>\nendobj\n%%EOF\n');
-        mocks.openData = validPdf;
-        mocks.readFile.mockResolvedValueOnce(validPdf);
-        const { tryCreatePdfWithNativeImageCombiner } = await import('@electron/image/tryCreatePdfWithNativeImageCombiner');
-
-        await expect(tryCreatePdfWithNativeImageCombiner(['/tmp/input.png'], {
-            maxOutputBytes: Number.MAX_SAFE_INTEGER,
-            outputMode: 'file-backed',
-        })).resolves.toEqual(new Uint8Array(validPdf));
-        const spawnEnv = (mocks.spawn.mock.calls[0]![2] as {env: NodeJS.ProcessEnv}).env;
-        expect(spawnEnv.EVB_PDF_COMBINE_MAX_OUTPUT_BYTES).toBe(String(16 * 1024 * 1024));
-        expect(spawnEnv.EVB_PDF_COMBINE_OUTPUT_MODE).toBeUndefined();
     });
 
     it('validates file-backed native PDF output without reading the whole file into memory', async () => {
@@ -475,11 +460,11 @@ describe('native PDF image combiner output validation', () => {
             };
         });
         const {
-            tryCreatePdfWithNativeImageCombiner,
+            tryBuildOptimizedPdfWithNativeImageCombiner,
             tryWritePdfWithNativeImageCombiner,
         } = await import('@electron/image/tryCreatePdfWithNativeImageCombiner');
 
-        await expect(tryCreatePdfWithNativeImageCombiner(['/tmp/input.png']))
+        await expect(tryBuildOptimizedPdfWithNativeImageCombiner(['/tmp/input.ppm'], 300))
             .rejects.toMatchObject({
                 code: 'too-large',
                 name: 'SerializableError',

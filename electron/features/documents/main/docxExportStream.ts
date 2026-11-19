@@ -41,7 +41,7 @@ interface IDocxExportStreamSession {
     committed: boolean;
     commitPromise: Promise<boolean> | null;
     queue: Promise<void>;
-    timeout: NodeJS.Timeout;
+    timeout: NodeJS.Timeout | null;
     unregisterSenderCleanup: () => void;
 }
 
@@ -81,7 +81,10 @@ function normalizeChunk(value: unknown) {
 }
 
 function clearSessionTimeout(session: IDocxExportStreamSession) {
-    clearTimeout(session.timeout);
+    if (session.timeout) {
+        clearTimeout(session.timeout);
+        session.timeout = null;
+    }
 }
 
 // Read through a call so the compiler does not narrow the flag to `false` across
@@ -161,8 +164,6 @@ export async function beginDocxExportStream(
     const tempPath = makeSiblingTempPath(targetPath);
     const handle = await open(tempPath, 'wx');
     const id = createSessionId('docx-export');
-    const timeout = setTimeout(() => undefined, DOCX_EXPORT_STREAM_SESSION_TIMEOUT_MS);
-    timeout.unref();
     const session: IDocxExportStreamSession = {
         id,
         senderId,
@@ -177,7 +178,7 @@ export async function beginDocxExportStream(
         committed: false,
         commitPromise: null,
         queue: Promise.resolve(),
-        timeout,
+        timeout: null,
         unregisterSenderCleanup: () => undefined,
     };
     session.unregisterSenderCleanup = registerSessionSenderCleanup(session);

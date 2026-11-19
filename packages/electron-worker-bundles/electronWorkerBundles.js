@@ -1,5 +1,5 @@
 /**
- * @typedef {'pdf-combine' | 'pdf-conformance' | 'document-save-utility' | 'scan-cleanup' | 'pdf-text' | 'page-ops-crop' | 'image-export-tiff' | 'djvu-pdf' | 'ocr-engine'} TWorkerBundleId
+ * @typedef {'pdf-conformance' | 'document-save-utility' | 'scan-cleanup' | 'pdf-text' | 'page-ops-crop' | 'image-export-tiff' | 'djvu-pdf' | 'ocr-engine'} TWorkerBundleId
  */
 
 /**
@@ -14,13 +14,6 @@
 
 /** @type {readonly IWorkerBundleEntry[]} */
 export const WORKER_BUNDLES = [
-    {
-        id: 'pdf-combine',
-        entryPoint: 'electron/image/pdfCombineWorker.ts',
-        fileName: 'pdfCombineWorker.js',
-        format: 'esm',
-        unpacked: true,
-    },
     {
         id: 'pdf-conformance',
         entryPoint: 'electron/features/documents/main/pdfConformanceWorker.ts',

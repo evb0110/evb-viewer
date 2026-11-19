@@ -17,7 +17,6 @@
         "server/**/*.ts",
         "electron/main.ts",
         "electron/preload.ts",
-        "electron/image/pdfCombineWorker.ts",
         "electron/features/documents/main/pdfConformanceWorker.ts",
         "electron/features/documents/main/documentSaveUtilityProcess.ts",
         "electron/features/djvu/main/pdfWorker.ts",
