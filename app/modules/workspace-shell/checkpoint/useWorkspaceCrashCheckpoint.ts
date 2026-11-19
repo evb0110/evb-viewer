@@ -1,7 +1,4 @@
-import type {
-    InjectionKey, Ref,
-} from 'vue';
-import type {TDocumentRef} from '@contracts/documentRef';
+import type { Ref } from 'vue';
 import type {
     IEditorPaneState,
     TEditorLayoutNode,
@@ -31,9 +28,6 @@ interface IUseWorkspaceCrashCheckpointOptions {
     documentSessionsByTabId: Ref<Record<string, IWorkspaceDocumentController>>;
     getPaneByTabId(tabId: string): IEditorPaneState | null;
 }
-
-/** Commits the drafts of the document whose working copy `workingCopyRef` is, before a Save writes and after it publishes. */
-export const crashCheckpointBeforeSaveKey: InjectionKey<(workingCopyRef: TDocumentRef | null) => Promise<void>> = Symbol('crashCheckpointBeforeSave');
 
 /**
  * Writes the window's tabs, panes and views shortly after they change. A document's unsaved work is not part of it:
@@ -120,20 +114,11 @@ export const useWorkspaceCrashCheckpoint = (options: IUseWorkspaceCrashCheckpoin
         }
     });
 
-    // Linked tabs share one document, which commits its drafts once.
-    const documentWorkspaces = () => [...new Set(Object.values(options.documentSessionsByTabId.value))]
-        .map(session => ({session, workspace: getDocumentWorkspace(session)}));
-    // A Save the app does not live to finish is rolled back at the next start; the drafts it commits first hold
-    // the edits it was writing, so they reopen unsaved instead of being lost.
-    provide(crashCheckpointBeforeSaveKey, (workingCopyRef) => {
-        const commit = documentWorkspaces().find(({session}) => session.snapshot.value.identity.workingCopyPath === workingCopyRef)
-            ?.workspace?.commitDocumentDrafts;
-        return commit ? commit() : Promise.reject(new Error('Recovery protection is unavailable for the saving document'));
-    });
     /** Resolves once every document's drafts and the window's layout are written. */
     async function flushNow() {
         await Promise.all([
-            ...documentWorkspaces().map(({workspace}) => workspace?.commitDocumentDrafts?.()),
+            // Linked tabs share one document, which commits its drafts once.
+            ...[...new Set(Object.values(options.documentSessionsByTabId.value))].map(session => getDocumentWorkspace(session)?.commitDocumentDrafts?.()),
             persistCheckpointNow(),
         ]);
     }

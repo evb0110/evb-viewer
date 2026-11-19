@@ -80,6 +80,10 @@ describe('workspaceSavePlan', () => {
                 preserveLoadedSource: false,
             },
         });
+        expect(buildPlan({request: {
+            kind: 'save-as',
+            optimizeLossless: false,
+        }})).toMatchObject({body: {preserveLoadedSource: true}});
         expect(saveAs.target).toEqual({
             expectedDocumentSessionKey: 'document-session-1',
             expectedOriginalPath: '/tmp/source.pdf',

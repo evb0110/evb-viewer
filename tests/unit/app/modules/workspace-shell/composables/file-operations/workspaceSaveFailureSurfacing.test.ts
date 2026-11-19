@@ -17,6 +17,7 @@ import { requirePageIndex } from '@contracts/pageNumbers';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import type {IPdfNativePlacedImageGeometryUpdate} from '@contracts/electronApiDocuments';
 import {
+    createDeferred,
     createDeps,
     createShapeAnnotation,
     expectWorkspaceSaveNotMarked,
@@ -802,6 +803,54 @@ describe('workspace save failure surfacing', () => {
 
         expect(toastAddMock).not.toHaveBeenCalled();
         expect(service.hasSaveFailure.value).toBe(false);
+    });
+
+    it.each([
+        ['keeps', '/tmp/work.pdf', 'rev-1', ['drafts', 'drafts', 'saved', 'view reloaded']],
+        ['replaces', '/tmp/work.pdf', 'rev-repaired', ['drafts', 'view reloaded', 'drafts', 'saved']],
+        ['keeps in the browser', 'browser://documents/work.pdf', 'rev-adopted', ['drafts', 'drafts', 'saved', 'view reloaded']],
+    ])('reports a clean Save As that %s the loaded source saved once the view shows it', async (_outcome, workingPath, savedRevision, expectedEvents) => {
+        const events: string[] = [];
+        const reload = createDeferred<void>();
+        const {deps} = createDeps({
+            originalPath: ref(requireDocumentRef('/tmp/source.pdf')),
+            workingCopyPath: ref(requireDocumentRef(workingPath)),
+            ...(workingPath.startsWith('browser:') ? {
+                annotationDirty: ref(true),
+                runSaveTransaction: vi.fn(async () => cast<TSaveTransactionResult>({
+                    verifiedUnchangedWorkingCopy: true,
+                })),
+            } : {}),
+            commitDrafts: async () => {
+                events.push('drafts');
+            },
+            preparePostSaveReload: () => ({
+                promise: reload.promise,
+                cancel: () => reload.resolve(),
+            }),
+            // Adoption moves the document to the revision Save As committed, as a repaired output does.
+            saveWorkingCopyAs: vi.fn(async () => {
+                deps.documentRevisionToken.value = requireDocumentRevisionToken(savedRevision);
+                return {
+                    success: true,
+                    outPath: requireDocumentRef('/tmp/new.pdf'),
+                    saveMode: 'save_as_rewrite' as const,
+                    didSaveAs: true,
+                };
+            }),
+        });
+        const service = useWorkspaceSaveServiceForTest(deps);
+
+        const saving = service.handleSaveAs().then((saved) => {
+            events.push('saved');
+            return saved;
+        });
+        await vi.waitFor(() => expect(deps.saveWorkingCopyAs).toHaveBeenCalled());
+        events.push('view reloaded');
+        reload.resolve();
+
+        await expect(saving).resolves.toBe(true);
+        expect(events).toEqual(expectedEvents);
     });
 
     it('tells the user about a superseded save without marking the new document', async () => {
