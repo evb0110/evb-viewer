@@ -1,16 +1,17 @@
 import {
-    mkdir, readFile, writeFile,
+    appendFile, mkdir, readFile, rm, writeFile,
 } from 'node:fs/promises';
 import {
-    basename, join, resolve,
+    basename, dirname, join, resolve,
 } from 'node:path';
 import { delay } from 'es-toolkit/promise';
 import type { Page } from 'puppeteer-core';
 import {
-    afterEach, describe, expect, it,
+    afterEach, describe, expect, it, onTestFinished,
 } from 'vitest';
 import { requireDocumentRef } from '@contracts/documentRef';
 import {
+    createCanonicalAnnotationSurfaceFixturePdf,
     createMultiPageTextFixturePdf,
     createOutlinePageLabelFixturePdf,
     fixtureBookmark,
@@ -24,6 +25,7 @@ import {
 import {
     createCanonicalTextBoxWithPointer,
     createStickyNoteWithPointer,
+    selectAllFocusedAnnotationText,
 } from '@tests/e2e/electron/helpers/viewerAnnotations';
 import {
     clickAsUser,
@@ -43,6 +45,7 @@ import {
 } from '@tests/e2e/electron/helpers/viewerCore';
 import {
     activatePaneByTab,
+    createNewWorkspaceTab,
     splitActiveTabFromTabMenu,
 } from '@tests/e2e/electron/helpers/workspaceTabs';
 import {
@@ -503,7 +506,7 @@ async function saveFromToolbar(page: Page, pdfPath: string) {
 }
 
 /** Clicks the text box showing `text` in a pane, as a person selects it. */
-async function clickTextBoxInPane(page: Page, paneId: string, text: string) {
+async function clickTextBoxInPane(page: Page, paneId: string, text: string, count = 1) {
     await clickFoundAsUser(page, ({
         selector, expected,
     }: {
@@ -514,8 +517,343 @@ async function clickTextBoxInPane(page: Page, paneId: string, text: string) {
     ).find(element => element.textContent?.includes(expected) && element.getBoundingClientRect().width > 0), {
         selector: paneSelector(paneId),
         expected: text,
-    }, {description: `text box ${text}`});
+    }, {description: `text box ${text}`, count});
 }
+
+interface IDraftSaveWindow extends Window {
+    __draftSavePublication?: {
+        path: string | null;
+        release: () => void;
+    };
+}
+
+const ACTIVE_PANE = '.editor-pane.is-active';
+const ACTIVE_WORKSPACE = `${ACTIVE_PANE} .workspace-host[data-workspace-active="true"]`;
+const NOTE_CARD = '.notes-list .note-item[data-annotation-kind="note"] .note-item-content';
+const NOTE_DRAFT = `${ACTIVE_WORKSPACE} textarea.note-window__textarea`;
+const TEXT_BOX = '.pdf-annotation-editor-layer [data-annotation-kind="text-box"]';
+const TEXT_BOX_DRAFT = `${ACTIVE_WORKSPACE} ${TEXT_BOX}.is-editing [contenteditable="true"]`;
+const DRAFT_A = 'Draft A captured by Save';
+const DRAFT_B = 'Draft B typed during Save';
+const SAVE_TIMEOUT_MS = 60_000;
+
+async function holdDraftSavePublication(page: Page) {
+    // Use the same native publication seam as savePipeline.e2e.test.ts. The
+    // writer has already staged the real file from the captured edits here.
+    await page.evaluate(() => {
+        const target = window as IDraftSaveWindow;
+        const publication = {
+            path: null as string | null,
+            release: () => {},
+        };
+        const held = new Promise<void>(resolve => {
+            publication.release = resolve;
+        });
+        target.__draftSavePublication = publication;
+        target.__stagedPdfNativeMutationCommitBarrierForAutomation = async artifact => {
+            publication.path = artifact.path;
+            await held;
+        };
+    });
+    return {
+        async stagedPath() {
+            const handle = await page.waitForFunction(
+                () => (window as IDraftSaveWindow).__draftSavePublication?.path || false,
+                {timeout: SAVE_TIMEOUT_MS},
+            );
+            try {
+                const path = await handle.jsonValue();
+                if (!path) throw new Error('Save did not stage a PDF');
+                return path;
+            } finally {
+                await handle.dispose();
+            }
+        },
+        async release() {
+            await page.evaluate(() => {
+                const target = window as IDraftSaveWindow;
+                target.__draftSavePublication?.release();
+                delete target.__draftSavePublication;
+                delete target.__stagedPdfNativeMutationCommitBarrierForAutomation;
+            });
+        },
+    };
+}
+
+async function openDraftSaveFixture(caseName: string) {
+    const key = `draft-save-${caseName}-${Date.now()}`;
+    const path = await createCanonicalAnnotationSurfaceFixturePdf(`${key}.pdf`);
+    onTestFinished(() => rm(path, {force: true}));
+    const started = await startElectronE2ESession(`e2e-${key}`, {
+        clean: true,
+        initialOpenPaths: [path],
+    });
+    session = started;
+    await waitForPdfLoaded(started.page);
+    await waitForViewerInteractive(started.page);
+    return {
+        ...started,
+        path,
+    };
+}
+
+async function openNoteDraft(page: Page) {
+    await openAnnotationsTab(page);
+    await clickAsUser(page, `${ACTIVE_WORKSPACE} ${NOTE_CARD}`, {count: 2});
+    await page.waitForSelector(NOTE_DRAFT, {visible: true, timeout: SETTLE_TIMEOUT_MS});
+}
+
+async function typeDraft(page: Page, selector: string, text: string) {
+    await clickAsUser(page, selector);
+    await selectAllFocusedAnnotationText(page);
+    await page.keyboard.type(text);
+    await expectVisibleDraft(page, selector, text);
+    await page.waitForSelector(`${ACTIVE_PANE} .tab.is-active.is-dirty`, {
+        visible: true,
+        timeout: SETTLE_TIMEOUT_MS,
+    });
+}
+
+async function expectVisibleDraft(page: Page, selector: string, text: string) {
+    await page.waitForSelector(selector, {visible: true, timeout: SETTLE_TIMEOUT_MS});
+    expect(await page.$eval(selector, element => element instanceof HTMLTextAreaElement
+        ? element.value
+        : element.textContent?.replace(/[\u200B\uFEFF]/gu, '').trim()), 'visible draft').toBe(text);
+}
+
+async function expectSavedDraft(path: string, subtype: '/Text' | '/FreeText', expected: string) {
+    const records = await readPdfTextAnnotationRecords(path);
+    expect(records.filter(record => record.subtype === subtype).map(record => record.contents),
+        `reopened ${subtype} Contents in ${basename(path)}`).toEqual([expected]);
+}
+
+async function saveDraftFromMenu(page: Page) {
+    // The button reflects whether the focused editor has admitted the input
+    // as a change. Invoke the actual File > Save accelerator with focus intact.
+    await page.waitForSelector('button.save-split-primary:not(:disabled)', {
+        visible: true,
+        timeout: SETTLE_TIMEOUT_MS,
+    });
+    await activateMenuItemAsUser(page, {accelerator: 'CmdOrCtrl+S'});
+}
+
+async function waitForFirstNoteSave(page: Page, path: string, afterEventId: number) {
+    // A background Save has no visible toolbar. Its completion event or
+    // visible failure toast tells us when to read the destination.
+    await page.waitForFunction((pdfPath: string, after: number) => {
+        const normalize = (value: string) => value.replaceAll('\\', '/').toLowerCase();
+        const saved = window.__evbTestApi?.getAutomationEvents().some(event => (
+            event.type === 'save-committed' && event.id > after && typeof event.detail.path === 'string'
+            && normalize(event.detail.path) === normalize(pdfPath)
+        ));
+        return saved || Array.from(document.querySelectorAll<HTMLElement>('.app-toast')).some(toast => (
+            toast.getBoundingClientRect().width > 0 && toast.innerText.includes('The document changed before the save finished')
+        ));
+    }, {timeout: SAVE_TIMEOUT_MS}, path, afterEventId);
+}
+
+async function saveNewerDraft(page: Page, path: string, subtype: '/Text' | '/FreeText') {
+    expect(await page.$(`${ACTIVE_PANE} .tab.is-active.is-dirty`), 'newer draft stays dirty').not.toBeNull();
+    const saveBaseline = await getLatestAutomationEventId(page);
+    await saveDraftFromMenu(page);
+    await waitForAutomationEvent(page, 'save-committed', {
+        afterEventId: saveBaseline,
+        path,
+        timeoutMs: SAVE_TIMEOUT_MS,
+    });
+    await expectSavedDraft(path, subtype, DRAFT_B);
+    expect(await page.$(`${ACTIVE_PANE} .tab.is-active.is-dirty`), 'second Save clears the dirty dot').toBeNull();
+}
+
+async function copyDraftSave(path: string, count: 'first' | 'second') {
+    // Use distinct paths so each viewer reopen reads the saved bytes afresh.
+    const copy = join(dirname(path), `${count}-save-${basename(path)}`);
+    onTestFinished(() => rm(copy, {force: true}));
+    await writeFile(copy, await readFile(path));
+    return copy;
+}
+
+async function expectDraftOnReopen(page: Page, path: string, subtype: '/Text' | '/FreeText', text: string) {
+    // Drop the saved copy from the desktop through Chromium's trusted input.
+    const point = await centerOf(page, `${ACTIVE_WORKSPACE} [data-document-viewer-chassis-viewport]`);
+    const client = await page.createCDPSession();
+    try {
+        const data = {
+            items: [],
+            files: [path],
+            dragOperationsMask: 1,
+        };
+        for (const type of [
+            'dragEnter',
+            'dragOver',
+            'drop',
+        ] as const) {
+            await client.send('Input.dispatchDragEvent', {type, ...point, data});
+        }
+    } finally {
+        await client.detach();
+    }
+    await page.waitForFunction((selector: string, fileName: string) => (
+        document.querySelector(selector)?.textContent?.trim() === fileName
+    ), {timeout: SETTLE_TIMEOUT_MS}, `${ACTIVE_PANE} .tab.is-active .tab-label`, basename(path));
+    await waitForViewerInteractive(page);
+    if (subtype === '/Text') {
+        await openNoteDraft(page);
+        await expectVisibleDraft(page, NOTE_DRAFT, text);
+    } else {
+        await expectVisibleDraft(page, `${ACTIVE_WORKSPACE} ${TEXT_BOX}`, text);
+    }
+}
+
+describe('#1601 step 3 Save publication', () => {
+    it.each([
+        {scenario: 'in the same tab', switchTab: false},
+        {scenario: 'across a tab switch', switchTab: true},
+    ])('keeps the newer note draft dirty $scenario', async ({switchTab}) => {
+        const fixture = await openDraftSaveFixture(switchTab ? 'switch' : 'note');
+        const {page, path} = fixture;
+        if (switchTab) {
+            await createNewWorkspaceTab(fixture);
+            await clickAsUser(page, `${ACTIVE_PANE} .tab:not(.is-active)[data-tab-id]`);
+            await waitForViewerInteractive(page);
+        }
+        const noteTab = await page.$eval(`${ACTIVE_PANE} .tab.is-active[data-tab-id]`, tab => `[data-tab-id="${(tab as HTMLElement).dataset.tabId}"]`);
+        await openNoteDraft(page);
+        await typeDraft(page, NOTE_DRAFT, DRAFT_A);
+        const saveBaseline = await getLatestAutomationEventId(page);
+        const publication = await holdDraftSavePublication(page);
+        try {
+            await saveDraftFromMenu(page);
+            await expectSavedDraft(await publication.stagedPath(), '/Text', DRAFT_A);
+            await expectSavedDraft(path, '/Text', 'Store-owned note');
+            await typeDraft(page, NOTE_DRAFT, DRAFT_B);
+            if (switchTab) {
+                const otherTab = `${ACTIVE_PANE} .tab[data-tab-id]:not(${noteTab})`;
+                await clickAsUser(page, otherTab);
+                await page.waitForSelector(`${otherTab}.is-active`, {visible: true, timeout: SETTLE_TIMEOUT_MS});
+            }
+        } finally {
+            await publication.release();
+        }
+        await waitForFirstNoteSave(page, path, saveBaseline);
+        const firstSave = await copyDraftSave(path, 'first');
+        if (switchTab) {
+            await clickAsUser(page, `${ACTIVE_PANE} .tab${noteTab}`);
+            await page.waitForSelector(`${ACTIVE_PANE} .tab${noteTab}.is-active`, {visible: true, timeout: SETTLE_TIMEOUT_MS});
+        }
+        await expectVisibleDraft(page, NOTE_DRAFT, DRAFT_B);
+        await saveNewerDraft(page, path, '/Text');
+        const secondSave = await copyDraftSave(path, 'second');
+        await expectSavedDraft(firstSave, '/Text', DRAFT_A);
+        await expectDraftOnReopen(page, firstSave, '/Text', DRAFT_A);
+        await expectDraftOnReopen(page, secondSave, '/Text', DRAFT_B);
+    }, TIMEOUT_MS);
+
+    it('keeps the newer text box draft dirty in the second split view', async () => {
+        const {page, path} = await openDraftSaveFixture('split');
+        await splitActiveTabFromTabMenu(page, 'right');
+        const [leftPane, rightPane] = await paneIds(page);
+        await activatePaneByTab(page, rightPane!);
+        await clickTextBoxInPane(page, rightPane!, 'Store-owned text box', 2);
+        await typeDraft(page, TEXT_BOX_DRAFT, DRAFT_A);
+        const saveBaseline = await getLatestAutomationEventId(page);
+        const publication = await holdDraftSavePublication(page);
+        try {
+            await saveDraftFromMenu(page);
+            await expectSavedDraft(await publication.stagedPath(), '/FreeText', DRAFT_A);
+            await expectSavedDraft(path, '/FreeText', 'Store-owned text box');
+            await clickTextBoxInPane(page, rightPane!, DRAFT_A, 2);
+            await typeDraft(page, TEXT_BOX_DRAFT, DRAFT_B);
+        } finally {
+            await publication.release();
+        }
+        await waitForAutomationEvent(page, 'save-committed', {
+            afterEventId: saveBaseline,
+            path,
+            timeoutMs: SAVE_TIMEOUT_MS,
+        });
+        await expectSavedDraft(path, '/FreeText', DRAFT_A);
+        const firstSave = await copyDraftSave(path, 'first');
+        await expectVisibleDraft(page, `${paneSelector(rightPane!)} ${TEXT_BOX}`, DRAFT_B);
+        expect((await readPaneView(page, leftPane!)).tabDirty, 'the first view also shows the dirty dot').toBe(true);
+        await saveNewerDraft(page, path, '/FreeText');
+        const secondSave = await copyDraftSave(path, 'second');
+        await expectDraftOnReopen(page, firstSave, '/FreeText', DRAFT_A);
+        await expectDraftOnReopen(page, secondSave, '/FreeText', DRAFT_B);
+    }, TIMEOUT_MS);
+
+    it('keeps the note draft and refuses to quit when Save publication fails', async () => {
+        const {page, path} = await openDraftSaveFixture('failed');
+        await openNoteDraft(page);
+        await typeDraft(page, NOTE_DRAFT, DRAFT_A);
+        await activateMenuItemAsUser(page, {accelerator: 'CmdOrCtrl+Q'});
+        const publication = await holdDraftSavePublication(page);
+        const externalEdit = Buffer.from('\n% external edit during Save\n');
+        const original = await readFile(path);
+        try {
+            await clickFoundAsUser(page, () => Array.from(document.querySelectorAll('[role="dialog"] button'))
+                .find(button => button.textContent?.trim() === 'Save changes'), null, {description: 'Save changes before quitting'});
+            await expectSavedDraft(await publication.stagedPath(), '/Text', DRAFT_A);
+            await typeDraft(page, NOTE_DRAFT, DRAFT_B);
+            // Another writer changes the destination after staging. The real
+            // publication must refuse to overwrite these bytes.
+            await appendFile(path, externalEdit);
+        } finally {
+            await publication.release();
+        }
+        await page.waitForSelector('[aria-label="Last save failed"]', {visible: true, timeout: SAVE_TIMEOUT_MS});
+        await page.waitForSelector('button.save-split-primary[aria-busy="false"]', {
+            visible: true,
+            timeout: SETTLE_TIMEOUT_MS,
+        });
+        expect(page.isClosed(), 'failed Save refuses to quit').toBe(false);
+        expect(await readVisibleToasts(page)).toEqual(expect.arrayContaining([
+            expect.stringContaining('The file changed on disk since you opened it.'),
+        ]));
+        expect(await page.$(`${ACTIVE_PANE} .tab.is-active.is-dirty`), 'failed Save retains the dirty dot').not.toBeNull();
+        await expectVisibleDraft(page, NOTE_DRAFT, DRAFT_B);
+        await expect(readFile(path)).resolves.toEqual(Buffer.concat([original, externalEdit]));
+        await expectSavedDraft(path, '/Text', 'Store-owned note');
+    }, TIMEOUT_MS);
+
+    it('keeps the newer note draft dirty and refuses to quit after Save publishes', async () => {
+        const {page, path} = await openDraftSaveFixture('quit-published');
+        await openNoteDraft(page);
+        await typeDraft(page, NOTE_DRAFT, DRAFT_A);
+        const saveBaseline = await getLatestAutomationEventId(page);
+        const publication = await holdDraftSavePublication(page);
+        try {
+            await activateMenuItemAsUser(page, {accelerator: 'CmdOrCtrl+Q'});
+            await clickFoundAsUser(page, () => Array.from(document.querySelectorAll('[role="dialog"] button'))
+                .find(button => button.textContent?.trim() === 'Save changes'), null, {description: 'Save changes before quitting'});
+            await expectSavedDraft(await publication.stagedPath(), '/Text', DRAFT_A);
+            await expectSavedDraft(path, '/Text', 'Store-owned note');
+            await typeDraft(page, NOTE_DRAFT, DRAFT_B);
+        } finally {
+            await publication.release();
+        }
+        await waitForAutomationEvent(page, 'save-committed', {
+            afterEventId: saveBaseline,
+            path,
+            timeoutMs: SAVE_TIMEOUT_MS,
+        });
+        await expectSavedDraft(path, '/Text', DRAFT_A);
+        await expectVisibleDraft(page, NOTE_DRAFT, DRAFT_B);
+        await page.waitForSelector(`${ACTIVE_PANE} .tab.is-active.is-dirty`, {
+            visible: true,
+            timeout: SETTLE_TIMEOUT_MS,
+        });
+
+        // A second Quit must reach the dirty prompt again, proving the first
+        // close request finished and left the app open with unsaved work.
+        await activateMenuItemAsUser(page, {accelerator: 'CmdOrCtrl+Q'});
+        await clickFoundAsUser(page, () => Array.from(document.querySelectorAll('[role="dialog"] button'))
+            .find(button => button.textContent?.trim() === 'Cancel'), null, {description: 'Cancel the second Quit prompt'});
+        await expectVisibleDraft(page, NOTE_DRAFT, DRAFT_B);
+        expect(await page.$(`${ACTIVE_PANE} .tab.is-active.is-dirty`), 'the newer draft is still dirty').not.toBeNull();
+        expect(page.isClosed(), 'Quit keeps the window open with the newer draft').toBe(false);
+    }, TIMEOUT_MS);
+});
 
 /** The texts of the text boxes a pane shows as selected. */
 function readSelectedTextBoxes(page: Page, paneId: string) {
