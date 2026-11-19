@@ -32,7 +32,7 @@ import {createLogger} from '@electron/utils/createLogger';
 import {getErrorMessage} from '@electron/utils/error';
 import {ASSISTANT_MODEL_CONFIG_DIR} from '@electron/features/agent/codexAssistantConfig';
 
-import {assistantSetupIdentity, defaultAssistantLocalSetups, discoverAssistantLocalSetups} from '@electron/features/agent/assistantLocalSetups';
+import {assistantSetupIdentity, defaultAssistantLocalSetups, discoverAssistantLocalSetups, resolveDefaultAssistantSetups} from '@electron/features/agent/assistantLocalSetups';
 import {getAssistantShellEnvironment} from '@electron/features/agent/assistantShellEnvironment';
 const logger = createLogger('assistant-instances');
 const STORE_VERSION = 1;
@@ -274,26 +274,42 @@ function loadStore() {
     return cachedStore;
 }
 
+/** `known` answers with the setups found so far; discovery announces what it finds to the listeners. */
+type TDiscovery = boolean | 'known';
+
 /** The configured instances for the renderer: secrets are never included. */
-export async function getAssistantInstanceConfigs(discover = true): Promise<IAssistantInstanceConfig[]> {
+export async function getAssistantInstanceConfigs(discover: TDiscovery = true): Promise<IAssistantInstanceConfig[]> {
     return (await getStoredInstances(discover)).map(redact);
 }
 
 let discovered: Promise<IAssistantInstanceConfig[]> | null = null;
+let known: IAssistantInstanceConfig[] | undefined;
+/** Only the current discovery publishes: a superseded one neither replaces `known` nor clears its successor. */
 function localSetups() {
-    discovered ??= getAssistantShellEnvironment().then(discoverAssistantLocalSetups).catch((error: unknown) => {
-        discovered = null;
+    if (discovered) return discovered;
+    const pending: Promise<IAssistantInstanceConfig[]> = getAssistantShellEnvironment().then(discoverAssistantLocalSetups).then(setups => {
+        if (discovered === pending) {
+            known = setups;
+            for (const listener of listeners) listener();
+        }
+        return setups;
+    }, (error: unknown) => {
+        if (discovered === pending) discovered = null;
         logger.warn(`Local assistant discovery failed: ${sanitizeAssistantProviderText(getErrorMessage(error))}`);
         return defaultAssistantLocalSetups();
     });
-    return discovered;
+    discovered = pending;
+    return pending;
 }
 export function refreshAssistantLocalSetups() { discovered = null; }
 
-async function getStoredInstances(discover = true): Promise<IStoredInstance[]> {
+async function getStoredInstances(discover: TDiscovery = true): Promise<IStoredInstance[]> {
     const store = await loadStore();
     const explicit = store?.instances ?? [];
-    const local = discover ? await localSetups() : defaultAssistantLocalSetups();
+    const discovering = discover ? localSetups() : null;
+    const local = discover === 'known'
+        ? known ?? await resolveDefaultAssistantSetups(await getAssistantShellEnvironment())
+        : await discovering ?? defaultAssistantLocalSetups();
     const identities = new Set(explicit.map(instance => assistantSetupIdentity({...redact(instance), launchArgs: instance.launchArgsEncrypted ?? instance.launchArgs})));
     const ids = new Set(explicit.map(instance => instance.id));
     return [...explicit, ...local.filter(instance => !ids.has(instance.id) && !identities.has(assistantSetupIdentity(instance))).map(instance => storeInstance(instance, undefined))];
@@ -557,7 +573,9 @@ export async function resolveAssistantLaunchContext(
     instanceId: string,
     resolvers: IAssistantBinaryResolvers,
 ): Promise<IAssistantLaunchContext> {
-    const stored = (await getStoredInstances()).find(instance => instance.id === instanceId);
+    // A known setup launches at once; only an id discovery has yet to report waits for it.
+    const matches = (instance: IStoredInstance) => instance.id === instanceId;
+    const stored = (await getStoredInstances('known')).find(matches) ?? (await getStoredInstances()).find(matches);
     if (!stored) {
         throw new Error(te('dialogs.agentAssistant.instanceNotConfigured', {id: instanceId}));
     }
@@ -638,8 +656,8 @@ function refuseCodexEnableFlags(tokens: readonly string[], label: string) {
  * One fingerprint per instance from its stored form, secrets included as
  * ciphertext, so a runtime restarts when anything it was started with changes.
  */
-export async function getAssistantInstanceFingerprints() {
-    return new Map((await getStoredInstances()).map(instance => [
+export async function getAssistantInstanceFingerprints(discover: TDiscovery = true) {
+    return new Map((await getStoredInstances(discover)).map(instance => [
         instance.id,
         JSON.stringify(instance),
     ]));

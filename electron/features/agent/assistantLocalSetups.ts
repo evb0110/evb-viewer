@@ -107,6 +107,14 @@ export function defaultAssistantLocalSetups(env: NodeJS.ProcessEnv = process.env
     }));
 }
 
+/** The default setups as discovery reports them, without checking any other launcher. */
+export function resolveDefaultAssistantSetups(env: NodeJS.ProcessEnv) {
+    return Promise.all(defaultAssistantLocalSetups(env).map(async config => {
+        const binaryPath = await resolveInstalledAssistantExecutable(config.driver, env);
+        return {...config, ...(binaryPath ? {binaryPath} : {})};
+    }));
+}
+
 /**
  * EVB's independent launcher convention. No other application's settings or
  * credential files are read. A candidate's protocol probe remains owned by
@@ -125,10 +133,7 @@ export async function discoverAssistantLocalSetups(env: NodeJS.ProcessEnv = proc
             if (!await isRetiredManagedExecutable(path, env) && await isAssistantExecutable(path)) candidates.set(path, driver);
         }
     }
-    const defaults = await Promise.all(defaultAssistantLocalSetups(env).map(async config => {
-        const binaryPath = await resolveInstalledAssistantExecutable(config.driver, env);
-        return {...config, ...(binaryPath ? {binaryPath} : {})};
-    }));
+    const defaults = await resolveDefaultAssistantSetups(env);
     const identities = new Set(defaults.map(assistantSetupIdentity));
     const identified = await Promise.all([...candidates].map(async ([binaryPath, driver]) => {
         if (!await identifyAssistantExecutable(driver, binaryPath, env).catch(() => null)) return null;
