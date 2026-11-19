@@ -16,6 +16,7 @@ describe('Electron E2E - assistant provider that never answers', () => {
     const fixture = createElectronE2ESessionFixture({
         sessionName: () => `e2e-assistant-provider-stall-${Date.now()}`,
         timeoutMs: 90_000,
+        isolateAssistantTools: true,
         extraEnv: {
             CODEX_CLI_PATH: resolve(`tests/fixtures/electron/codex-model-picker.${process.platform === 'win32' ? 'cmd' : 'mjs'}`),
             EVB_FAKE_CODEX_HANG: '1',
