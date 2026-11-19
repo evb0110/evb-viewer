@@ -670,10 +670,13 @@ describe('Move Tab to New Window view state', () => {
         writeFileSync(`${gate}.release`, '');
         if (closeSource) await vi.waitFor(() => expect(source.isClosed()).toBe(true), {timeout: 30_000});
         await vi.waitFor(async () => expect(await destination.$('.workspace-transfer-state')).toBeNull(), {timeout: 30_000});
-        const texts = await destination.$$eval('.pdf-annotation-editor-text-box[data-annotation-kind="text-box"]', nodes => nodes.map(node => (
-            node.textContent?.replace(/[\u200B\uFEFF]/gu, '').trim()
-        )));
-        expect(texts).toContain('Unsaved handoff edit');
+        const texts = await vi.waitFor(async () => {
+            const renderedTexts = await destination.$$eval('.pdf-annotation-editor-text-box[data-annotation-kind="text-box"]', nodes => nodes.map(node => (
+                node.textContent?.replace(/[\u200B\uFEFF]/gu, '').trim()
+            )));
+            expect(renderedTexts).toContain('Unsaved handoff edit');
+            return renderedTexts;
+        }, {timeout: 30_000});
         await clickFoundAsUser(destination, () => Array.from(document.querySelectorAll<HTMLButtonElement>('button[aria-label]'))
             .find(button => /^Save(?: \(|$)/u.test(button.getAttribute('aria-label') ?? '') && !button.disabled), undefined, {description: 'Save surviving document'});
         await vi.waitFor(async () => expect(await destination.$('.tab.is-active.is-dirty')).toBeNull(), {timeout: 30_000});

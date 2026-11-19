@@ -1,5 +1,5 @@
 import {
-    copyFileSync, mkdirSync, mkdtempSync, rmSync, symlinkSync,
+    copyFileSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync,
 } from 'node:fs';
 import {tmpdir} from 'node:os';
 import {delimiter, join} from 'node:path';
@@ -28,6 +28,7 @@ interface IElectronE2ESessionRestartOptions {
     clean?: boolean;
     hard?: boolean;
     extraEnv?: Record<string, string>;
+    slowAssistantVersionProbe?: boolean;
 }
 
 // Every accessor fails closed. A test that receives no session never ran the
@@ -54,6 +55,24 @@ function resolveSessionName(sessionName: TSessionNameFactory) {
     return typeof sessionName === 'function' ? sessionName() : sessionName;
 }
 
+function setSlowAssistantVersionProbe(directory: string, enabled: boolean) {
+    const launchers = process.platform === 'win32'
+        // Codex command shims are launched through their PowerShell companion.
+        ? {
+            'codex-slow.cmd': '@exit /b 1\r\n',
+            'codex-slow.ps1': "if ($args[0] -ne '--version') { exit 1 }\nStart-Sleep -Milliseconds 2700\nWrite-Output 'codex-cli 1.0.0'\n",
+        }
+        : {'codex-slow': '#!/bin/sh\n[ "$1" = "--version" ] || exit 1\n/bin/sleep 2.7\nprintf "codex-cli 1.0.0\\n"\n'};
+    for (const [name, script] of Object.entries(launchers)) {
+        const path = join(directory, 'bin', name);
+        if (enabled) {
+            writeFileSync(path, script, {mode: 0o755});
+        } else {
+            rmSync(path, {force: true});
+        }
+    }
+}
+
 function createElectronE2ESessionFixtureWithStarter(
     options: IElectronE2ESessionFixtureOptions,
     startSession: TElectronE2ESessionStarter,
@@ -65,6 +84,7 @@ function createElectronE2ESessionFixtureWithStarter(
     let testExecutionCount = 0;
     let assistantToolsDirectory: string | undefined;
     let assistantEnv: Record<string, string> | undefined;
+    let slowAssistantVersionProbe = false;
 
     const controls: IElectronE2ESessionFixtureControls = {
         getSession: () => {
@@ -100,7 +120,11 @@ function createElectronE2ESessionFixtureWithStarter(
             try {
                 const clean = restartOptions.clean ?? true;
                 const hard = restartOptions.hard ?? false;
-                if (clean && !hard && !restartOptions.extraEnv) {
+                const nextSlowProbe = restartOptions.slowAssistantVersionProbe ?? false;
+                if (nextSlowProbe && !assistantToolsDirectory) {
+                    throw new Error('A slow assistant version probe requires isolated assistant tools.');
+                }
+                if (clean && !hard && !restartOptions.extraEnv && nextSlowProbe === slowAssistantVersionProbe) {
                     await previousSession.resetForE2E();
                     return previousSession;
                 }
@@ -127,6 +151,10 @@ function createElectronE2ESessionFixtureWithStarter(
                     );
                 }
                 session = null;
+                if (assistantToolsDirectory && nextSlowProbe !== slowAssistantVersionProbe) {
+                    setSlowAssistantVersionProbe(assistantToolsDirectory, nextSlowProbe);
+                    slowAssistantVersionProbe = nextSlowProbe;
+                }
                 sessionName = restartOptions.sessionName
                     ? resolveSessionName(restartOptions.sessionName)
                     : previousSession.name;
