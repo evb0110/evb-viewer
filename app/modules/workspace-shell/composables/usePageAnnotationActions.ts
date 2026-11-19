@@ -10,7 +10,6 @@ import type { TPageAnnotationActionsPdfViewer } from '@app/modules/workspace-she
 import type {
     IAnnotationCommentSummary,
     IAnnotationModifiedPayload,
-    TAnnotationCommentsStatus,
     TAnnotationTool,
 } from '@app/types/annotations';
 import {annotationIdForSummary} from '@app/modules/pdf-viewer/public';
@@ -52,17 +51,9 @@ interface IPageAnnotationActionsDeps {
     }) => void;
     handleAnnotationToolChange: (tool: TAnnotationTool) => boolean | Promise<boolean>;
     openAnnotationNoteWindow: (comment: IAnnotationCommentSummary) => void;
-    removeAnnotationNoteWindow: (annotationId: string) => void;
     setAnnotationNoteWindowError: (annotationId: string, error: string | null) => void;
-    isSameAnnotationComment: (a: IAnnotationCommentSummary, b: IAnnotationCommentSummary) => boolean;
-    annotationNoteWindows: Ref<Array<{
-        annotationId: string;
-        draftText: string;
-        createdAtMs?: number | undefined;
-    }>>;
     invalidateThumbnailPages?: (pages: number[]) => void;
     getAnnotationCommentsSnapshot?: () => IAnnotationCommentSummary[];
-    getAnnotationCommentsStatusSnapshot?: () => TAnnotationCommentsStatus;
     discardAnnotationNote?: (annotationId: string) => Promise<void>;
     handleAnnotationModified?: (payload?: IAnnotationModifiedPayload) => void;
 }
@@ -85,11 +76,8 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
         showAnnotationContextMenu,
         handleAnnotationToolChange,
         openAnnotationNoteWindow,
-        removeAnnotationNoteWindow,
         setAnnotationNoteWindowError,
-        annotationNoteWindows,
         invalidateThumbnailPages,
-        isSameAnnotationComment,
     } = deps;
 
     let isCreatingContextMenuFreeNote = false;
@@ -146,87 +134,13 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
         invalidateThumbnailPages?.([page]);
     }
 
-    function toAnnotationNoteWindowComment(note: {
-        annotationId: string;
-        draftText: string;
-    }): IAnnotationCommentSummary | null {
-        const comment = getAnnotationCommentsSnapshot()?.find(candidate => (
-            annotationIdForSummary(candidate) === note.annotationId
-        ));
-        if (!comment) {
-            return null;
-        }
-        return {
-            ...comment,
-            text: note.draftText,
-            hasNote: true,
-        };
-    }
-
     function getAnnotationCommentsSnapshot() {
         return deps.getAnnotationCommentsSnapshot?.() ?? null;
     }
 
-    function isAnnotationCommentsSnapshotReady() {
-        return deps.getAnnotationCommentsStatusSnapshot?.() === 'ready';
-    }
-
-    function shouldCloseRemainingNoteWindowsAfterExplicitDelete(
-        commentsBeforeDelete: IAnnotationCommentSummary[] | null,
-    ) {
-        const commentsAfterDelete = getAnnotationCommentsSnapshot();
-        if (
-            !commentsAfterDelete
-            || commentsAfterDelete.length > 0
-            || annotationNoteWindows.value.length === 0
-        ) {
-            return false;
-        }
-
-        if (commentsBeforeDelete && commentsBeforeDelete.length > 0) {
-            return true;
-        }
-
-        return isAnnotationCommentsSnapshotReady();
-    }
-
-    function closeRemainingAnnotationNoteWindows(stableKeys: Set<string>) {
-        annotationNoteWindows.value.forEach((note) => {
-            const comment = toAnnotationNoteWindowComment(note);
-            if (!comment || stableKeys.has(comment.stableKey)) {
-                return;
-            }
-            stableKeys.add(comment.stableKey);
-            removeAnnotationNoteWindow(note.annotationId ?? annotationIdForSummary(comment));
-        });
-    }
-
-    function removeDeletedAnnotationState(
-        comment: IAnnotationCommentSummary,
-        commentsBeforeDelete: IAnnotationCommentSummary[] | null = null,
-    ) {
-        const stableKeys = new Set<string>([comment.stableKey]);
-        annotationNoteWindows.value
-            .filter((note) => {
-                const noteComment = toAnnotationNoteWindowComment(note);
-                return Boolean(noteComment && isSameAnnotationComment(noteComment, comment)) || (
-                    note.annotationId
-                    ?? (noteComment ? annotationIdForSummary(noteComment) : null)
-                ) === annotationIdForSummary(comment);
-            })
-            .forEach((note) => {
-                const noteComment = toAnnotationNoteWindowComment(note);
-                if (noteComment) stableKeys.add(noteComment.stableKey);
-                removeAnnotationNoteWindow(note.annotationId ?? annotationIdForSummary(noteComment ?? comment));
-            });
-
-        if (shouldCloseRemainingNoteWindowsAfterExplicitDelete(commentsBeforeDelete)) {
-            closeRemainingAnnotationNoteWindows(stableKeys);
-        }
-
-        if (
-            annotationActiveCommentStableKey.value === annotationIdForSummary(comment)
-        ) {
+    // The store's tombstone closes the deleted note's window; the selection is this view's own.
+    function clearDeletedAnnotationSelection(comment: IAnnotationCommentSummary) {
+        if (annotationActiveCommentStableKey.value === annotationIdForSummary(comment)) {
             annotationActiveCommentStableKey.value = null;
         }
     }
@@ -617,10 +531,9 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
     const { handleDeleteAnnotationComment } = createPageAnnotationDeleteActions({
         pdfViewerRef,
         closeAnnotationContextMenu,
-        getAnnotationCommentsSnapshot,
         getDeleteErrorMessage: () => t('errors.annotation.delete'),
         invalidateAnnotationPage,
-        removeDeletedAnnotationState,
+        clearDeletedAnnotationSelection,
         setAnnotationNoteWindowError,
     });
 
