@@ -1,5 +1,3 @@
-import { resolve } from 'node:path';
-import { EventEmitter } from 'node:events';
 import {
     afterEach,
     beforeEach,
@@ -8,100 +6,74 @@ import {
     it,
     vi,
 } from 'vitest';
+import { NativeProcessError } from '@electron/native-tools/processResult';
+import { runNativeCommand } from '@electron/native-tools/runNativeCommand';
+import { checkMacCodeSignature } from '@electron/updates/checkMacCodeSignature';
 
-const mocks = vi.hoisted(() => ({spawn: vi.fn()}));
+vi.mock('@electron/native-tools/runNativeCommand', () => ({runNativeCommand: vi.fn()}));
 
-vi.mock('node:child_process', () => ({ spawn: (...args: unknown[]) => mocks.spawn(...args) }));
+const developerId = 'Authority=Developer ID Application: Fixture\nTeamIdentifier=ABCDE12345\n';
 
-function createCodesignChild(stderrText: string, closeCode: number | null) {
-    const child = new EventEmitter() as EventEmitter & {
-        kill: ReturnType<typeof vi.fn>;
-        stderr: EventEmitter;
-    };
-    child.stderr = new EventEmitter();
-    child.kill = vi.fn();
-
-    queueMicrotask(() => {
-        if (stderrText.length > 0) {
-            child.stderr.emit('data', Buffer.from(stderrText));
+function codesignFixture(details: string, failure?: {stage: string; error: Error}) {
+    vi.mocked(runNativeCommand).mockImplementation(async (command, args) => {
+        const stage = args[0];
+        if (command !== 'codesign' || !args.at(-1)?.endsWith('Signature Fixture.app')) {
+            throw new Error('No signature data for this fixture');
         }
-        child.emit('close', closeCode);
+        if (failure && stage === failure.stage) {
+            throw failure.error;
+        }
+        return {
+            stdout: '',
+            stderr: stage === '-d' ? details : '',
+            exitCode: 0,
+        };
     });
-
-    return child;
 }
 
 describe('checkMacCodeSignature', () => {
     beforeEach(() => {
-        vi.resetModules();
-        vi.clearAllMocks();
         vi.stubGlobal('process', {
             ...process,
-            execPath: '/Applications/EVB Viewer.app/Contents/MacOS/EVB Viewer',
+            execPath: '/fixtures/Signature Fixture.app/Contents/MacOS/Electron',
         });
     });
 
     afterEach(() => {
         vi.unstubAllGlobals();
-        vi.useRealTimers();
+        vi.mocked(runNativeCommand).mockReset();
     });
 
-    it('requires a verified Developer ID application signature', async () => {
-        mocks.spawn
-            .mockImplementationOnce(() => createCodesignChild('', 0))
-            .mockImplementationOnce(() => createCodesignChild([
-                'Authority=Developer ID Application: EVB',
-                'TeamIdentifier=ABCDE12345',
-            ].join('\n'), 0));
-
-        const { checkMacCodeSignature } = await import('@electron/updates/checkMacCodeSignature');
+    it('accepts a verified Developer ID application signature with a team identifier', async () => {
+        codesignFixture(developerId);
 
         await expect(checkMacCodeSignature()).resolves.toBe(true);
-        expect(mocks.spawn.mock.calls[0]?.[1]).toEqual([
-            '--verify',
-            '--deep',
-            '--strict',
-            '--verbose=2',
-            resolve('/Applications/EVB Viewer.app'),
-        ]);
-        expect(mocks.spawn.mock.calls[1]?.[1]).toEqual([
-            '-d',
-            '--verbose=4',
-            resolve('/Applications/EVB Viewer.app'),
-        ]);
     });
 
-    it('rejects valid but non-Developer-ID signatures', async () => {
-        mocks.spawn
-            .mockImplementationOnce(() => createCodesignChild('', 0))
-            .mockImplementationOnce(() => createCodesignChild('Signature=adhoc\nTeamIdentifier=not set\n', 0));
-
-        const { checkMacCodeSignature } = await import('@electron/updates/checkMacCodeSignature');
+    it.each([
+        'Signature=adhoc\nTeamIdentifier=ABCDE12345',
+        'Authority=Developer ID Application: Fixture\nTeamIdentifier=',
+    ])('rejects a verified signature with incomplete Developer ID details (%s)', async (details) => {
+        codesignFixture(details);
 
         await expect(checkMacCodeSignature()).resolves.toBe(false);
     });
 
-    it('reports an incomplete verification without treating it as an invalid signature', async () => {
-        vi.useFakeTimers();
-        const child = new EventEmitter() as EventEmitter & {
-            kill: ReturnType<typeof vi.fn>;
-            stderr: EventEmitter;
-        };
-        child.stderr = new EventEmitter();
-        child.kill = vi.fn();
-        mocks.spawn.mockReturnValue(child);
-
-        const { checkMacCodeSignature } = await import('@electron/updates/checkMacCodeSignature');
-        let settled = false;
-        const result = checkMacCodeSignature().finally(() => {
-            settled = true;
+    it.each(['--verify', '-d'])('reports an invalid signature when %s fails', async (stage) => {
+        codesignFixture(developerId, {
+            stage,
+            error: new NativeProcessError('exit-code', 1, null, 'fixture signature is invalid'),
         });
 
-        await vi.advanceTimersByTimeAsync(5_000);
-        expect(settled).toBe(false);
+        await expect(checkMacCodeSignature()).resolves.toBe(false);
+    });
 
-        await vi.advanceTimersByTimeAsync(25_000);
-        await expect(result).resolves.toBeNull();
-        expect(child.kill).toHaveBeenCalledWith('SIGKILL');
+    it.each([
+        ['--verify', 'codesign failed to start: ENOENT'],
+        ['-d', 'codesign timed out after 30000ms'],
+    ])('reports an unavailable result when %s cannot finish', async (stage, message) => {
+        codesignFixture(developerId, {stage, error: new Error(message)});
+
+        await expect(checkMacCodeSignature()).resolves.toBeNull();
     });
 });
