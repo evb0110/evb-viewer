@@ -205,7 +205,7 @@ class PdfPersistencePortLifecycle {
     private rejectAbort!: (error: unknown) => void;
     private readonly abortPromise: Promise<never>;
     private result: IPersistencePortDeferred<ISerializedPdfPersistencePortResult> | null = null;
-    private progressTimer: ReturnType<typeof setTimeout>;
+    private progressTimer: ReturnType<typeof setTimeout> | undefined;
     private aborted = false;
 
     public constructor(
@@ -220,9 +220,7 @@ class PdfPersistencePortLifecycle {
             PDF_PERSISTENCE_READY_TIMEOUT_MS,
             'PDF persistence port did not become ready',
         );
-        this.progressTimer = setTimeout(() => {
-            this.abort(new Error('PDF persistence stream made no progress'));
-        }, limits.progressTimeoutMs);
+        this.noteProgress();
         port.addEventListener('message', this.handleMessage);
     }
 

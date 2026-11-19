@@ -2,11 +2,9 @@ import { getAppTempDir } from '@electron/utils/appTempDir';
 import {
     createManagedScratchTempDir,
     removeManagedScratchTempDir,
-    usingManagedScratchScope,
 } from '@electron/utils/managedScratchTemp';
 import {
     copyFile,
-    readFile,
     rm,
     stat,
     statfs,
@@ -83,15 +81,12 @@ interface INativePdfAssemblerResourceLimits {
     outputMode: 'memory' | 'file-backed';
 }
 
-const IN_MEMORY_NATIVE_ASSEMBLER_MAX_PAGES = 500;
 const FILE_BACKED_NATIVE_ASSEMBLER_MAX_PAGES = Number.MAX_SAFE_INTEGER;
 const FILE_BACKED_NATIVE_ASSEMBLER_MAX_OUTPUT_BYTES = Number.MAX_SAFE_INTEGER;
 const BYTES_PER_MEBIBYTE = 1024 * 1024;
 const NATIVE_IMAGE_COMBINER_MAX_INPUT_BYTES = 4_096 * BYTES_PER_MEBIBYTE;
 const MIN_NATIVE_DISK_RESERVATION_BYTES = 16 * BYTES_PER_MEBIBYTE;
 const MAX_SAFE_INTEGER_BIGINT = BigInt(Number.MAX_SAFE_INTEGER);
-
-type TNativePdfAssemblerMode = 'memory' | 'file-backed';
 
 function isStrictNativeFailure(options: INativePdfAssemblerOptions | undefined) {
     return options?.failureMode === 'capability-error';
@@ -182,27 +177,14 @@ function throwIfAborted(signal: AbortSignal | undefined) {
     }
 }
 
-function getResourceLimits(
-    mode: TNativePdfAssemblerMode = 'memory',
-    allowLargeOutput = false,
-): INativePdfAssemblerResourceLimits {
-    if (mode === 'file-backed') {
-        return {
-            // Only the strict output-path API may opt out of the shared
-            // byte-returning cap. The compatibility API still reads bytes
-            // back into JavaScript and must remain bounded.
-            maxOutputBytes: allowLargeOutput
-                ? FILE_BACKED_NATIVE_ASSEMBLER_MAX_OUTPUT_BYTES
-                : PDF_COMBINE_MAX_OUTPUT_BYTES,
-            maxPages: FILE_BACKED_NATIVE_ASSEMBLER_MAX_PAGES,
-            outputMode: allowLargeOutput ? 'file-backed' : 'memory',
-        };
-    }
-
+function getResourceLimits(allowLargeOutput: boolean): INativePdfAssemblerResourceLimits {
     return {
-        maxOutputBytes: PDF_COMBINE_MAX_OUTPUT_BYTES,
-        maxPages: IN_MEMORY_NATIVE_ASSEMBLER_MAX_PAGES,
-        outputMode: 'memory',
+        // Only a strict caller may opt out of the shared output cap.
+        maxOutputBytes: allowLargeOutput
+            ? FILE_BACKED_NATIVE_ASSEMBLER_MAX_OUTPUT_BYTES
+            : PDF_COMBINE_MAX_OUTPUT_BYTES,
+        maxPages: FILE_BACKED_NATIVE_ASSEMBLER_MAX_PAGES,
+        outputMode: allowLargeOutput ? 'file-backed' : 'memory',
     };
 }
 
@@ -232,14 +214,6 @@ function assertOutputLimit(byteLength: number, limits: INativePdfAssemblerResour
     if (byteLength > limits.maxOutputBytes) {
         throw createPdfCombineOutputTooLargeError();
     }
-}
-
-async function readLimitedPdfOutput(outputPath: string, limits: INativePdfAssemblerResourceLimits) {
-    const outputStat = await stat(outputPath);
-    assertOutputLimit(toSafeByteCount(outputStat.size, `native PDF output ${outputPath}`), limits);
-    const outputBytes = new Uint8Array(await readFile(outputPath));
-    assertOutputLimit(outputBytes.byteLength, limits);
-    return outputBytes;
 }
 
 function toSafeByteCount(value: number | bigint, label: string) {
@@ -588,7 +562,7 @@ export async function tryWritePdfFromInputPathsNative(
         throw error;
     }
     const stagedOutputPath = makeSiblingTempPath(normalizedOutputPath);
-    const limits = getResourceLimits('file-backed', strict);
+    const limits = getResourceLimits(strict);
     let retainNativeCleanup = false;
 
     try {
@@ -650,81 +624,5 @@ export async function tryWritePdfFromInputPathsNative(
             await rm(stagedOutputPath, { force: true }).catch(() => undefined);
             await removeManagedScratchTempDir(tempDir, 'pdfExport-scope-', scratchRoot).catch(() => undefined);
         }
-    }
-}
-
-export async function tryCreatePdfFromInputPathsNative(
-    inputPaths: string[],
-    options?: INativePdfAssemblerOptions,
-): Promise<Uint8Array | null> {
-    const strict = isStrictNativeFailure(options);
-    if (strict && isNativePdfAssemblerDisabled()) {
-        throwNativeCapabilityError(
-            'native-unavailable',
-            'Native PDF combine is disabled or unavailable',
-        );
-    }
-    if (strict && inputPaths.length > 0 && !inputPaths.every(isNativePdfAssemblerInputPath)) {
-        throwNativeCapabilityError(
-            'native-unavailable',
-            describeUnsupportedNativeInput(inputPaths),
-        );
-    }
-    if (!canUseNativePdfAssembler(inputPaths)) {
-        return null;
-    }
-
-    try {
-        return await usingManagedScratchScope('pdfExport-scope-', getAppTempDir(), async tempDir => {
-            const outputPath = join(tempDir, `${randomUUID()}.pdf`);
-            // This API returns a Uint8Array to its caller. Keep its output budget
-            // finite even when strict mode prevents a JS fallback. Callers that need
-            // large native output must use the file-backed API above.
-            const limits = getResourceLimits(strict ? 'file-backed' : 'memory');
-
-            const expectedPageCount = await writePdfFromInputPathsNativeWithTempDir(
-                inputPaths,
-                outputPath,
-                tempDir,
-                limits,
-                options,
-            );
-            if (expectedPageCount === null) {
-                if (strict) {
-                    throwNativeCapabilityError(
-                        'native-failure',
-                        'Native PDF assembler did not produce an output file',
-                    );
-                }
-                return null;
-            }
-            const outputPageCount = await getPdfPageCount(outputPath, options?.signal ? {signal: options.signal} : {});
-            if (outputPageCount !== expectedPageCount || outputPageCount < 1) {
-                throw new Error(`Combined PDF page-count postcondition failed: expected ${expectedPageCount}, got ${outputPageCount}`);
-            }
-            return readLimitedPdfOutput(outputPath, limits);
-        });
-    } catch (error) {
-        if (getUnprovenNativeTerminationDetail(error) !== undefined) {
-            throw error;
-        }
-        if (options?.signal?.aborted || isAbortError(error)) {
-            throw error;
-        }
-        if (isPdfCombineOutputTooLargeError(error)) {
-            throw error;
-        }
-        if (strict) {
-            if (isPdfCombineCapabilityError(error)) {
-                throw error;
-            }
-            throw createNativeCapabilityError(
-                'native-failure',
-                `Native PDF assembler failed: ${getErrorMessage(error)}`,
-                error,
-            );
-        }
-        log.warn(`Native PDF assembler failed, falling back to JS combine: ${getErrorMessage(error)}`);
-        return null;
     }
 }

@@ -114,7 +114,7 @@ interface ISerializedPdfPersistenceSession {
     progressTimeoutMs: number;
     resultTimeoutMs: number;
     timeoutPhase: 'progress' | 'result';
-    timeout: NodeJS.Timeout;
+    timeout: NodeJS.Timeout | null;
     queue: Promise<void>;
     unregisterSenderCleanup: () => void;
     releaseSenderReservation: () => void;
@@ -200,7 +200,10 @@ function normalizeTotalBytes(totalBytes: unknown) {
 }
 
 function clearSessionTimeout(session: ISerializedPdfPersistenceSession) {
-    clearTimeout(session.timeout);
+    if (session.timeout) {
+        clearTimeout(session.timeout);
+        session.timeout = null;
+    }
 }
 
 function reserveSenderPersistenceCapacity(senderId: number) {
@@ -325,8 +328,6 @@ async function createSession(options: {
         throw error;
     }
     const id = createSessionId('serialized-pdf');
-    const timeout = setTimeout(() => undefined, SERIALIZED_PDF_PROGRESS_TIMEOUT_MS);
-    timeout.unref();
     const lifecycleOperation = registerMainOperation({
         kind: 'critical-write',
         ownerWebContentsId: options.sender.id,
@@ -359,7 +360,7 @@ async function createSession(options: {
         progressTimeoutMs: SERIALIZED_PDF_PROGRESS_TIMEOUT_MS,
         resultTimeoutMs: SERIALIZED_PDF_RESULT_TIMEOUT_MS,
         timeoutPhase: 'progress',
-        timeout,
+        timeout: null,
         queue: Promise.resolve(),
         unregisterSenderCleanup: () => undefined,
         releaseSenderReservation,

@@ -26,7 +26,6 @@ import { PdfCombineCapabilityError } from '@electron/image/pdfCombineErrors';
 const randomUuidMock = vi.hoisted(() => vi.fn(() => 'fixed-output-id'));
 const runNativeToolCommandMock = vi.hoisted(() => vi.fn());
 const createPdfFileFromInputPathsMock = vi.hoisted(() => vi.fn());
-const createPdfFromInputPathsMock = vi.hoisted(() => vi.fn());
 
 /** The engine's insert command, which reads the document and writes the next revision. */
 function expectInsertCommand(args: string[], workingCopyPath: string, sourcePdfPath: string) {
@@ -109,7 +108,6 @@ vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({
 })}));
 vi.mock('@electron/image/pdfConversion', () => ({
     createPdfFileFromInputPaths: (...args: unknown[]) => createPdfFileFromInputPathsMock(...args),
-    createPdfFromInputPaths: (...args: unknown[]) => createPdfFromInputPathsMock(...args),
     isPdfOrImagePath: (path: string) => /\.(?:pdf|png|jpe?g|webp)$/i.test(path),
 }));
 
@@ -118,7 +116,6 @@ describe('page-ops insert service', () => {
         vi.clearAllMocks();
         randomUuidMock.mockReturnValue('fixed-output-id');
         createPdfFileFromInputPathsMock.mockResolvedValue(undefined);
-        createPdfFromInputPathsMock.mockResolvedValue(Buffer.from('%PDF-1.7\nmerged'));
     });
 
     it('passes cancellation options to source combine and the engine insertion command', async () => {
@@ -192,7 +189,6 @@ describe('page-ops insert service', () => {
 
             await insertPagesFromSourcePaths(workingCopyPath, targetPathOf(workingCopyPath), 2, [sourcePath as TOpenPath], 1);
 
-            expect(createPdfFromInputPathsMock).not.toHaveBeenCalled();
             expect(createPdfFileFromInputPathsMock).toHaveBeenCalledWith(
                 [sourcePath],
                 tempSourcePdfPath,
@@ -231,7 +227,6 @@ describe('page-ops insert service', () => {
             await expect(insertPagesFromSourcePaths(workingCopyPath, targetPathOf(workingCopyPath), 2, [sourcePath as TOpenPath], 1))
                 .rejects.toBe(nativeFailure);
 
-            expect(createPdfFromInputPathsMock).not.toHaveBeenCalled();
             expect(createPdfFileFromInputPathsMock).toHaveBeenCalledWith(
                 [sourcePath],
                 tempSourcePdfPath,
@@ -255,7 +250,6 @@ describe('page-ops insert service', () => {
             join(dirname(sourcePaths[0]!), 'insert-source-fixed-output-id.pdf'),
             {},
         );
-        expect(createPdfFromInputPathsMock).not.toHaveBeenCalled();
     });
 
     it('routes 10,001 tiny source pages through file-backed combine without in-memory conversion', async () => {
@@ -266,6 +260,5 @@ describe('page-ops insert service', () => {
             join(dirname(sourcePaths[0]!), 'insert-source-fixed-output-id.pdf'),
             {},
         );
-        expect(createPdfFromInputPathsMock).not.toHaveBeenCalled();
     });
 });

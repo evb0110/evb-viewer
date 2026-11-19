@@ -1,19 +1,13 @@
 import {
-    join, resolve,
-} from 'node:path';
-import {
     beforeEach,
     describe,
     expect,
     it,
     vi,
 } from 'vitest';
-import { PdfCombineCapabilityError } from '@electron/image/pdfCombineErrors';
-import { markUnprovenNativeTermination } from '@electron/utils/nativeTerminationProof';
 import { createTiffBytes } from '../pdf-core/createTiffBytes';
 
 const mocks = vi.hoisted(() => {
-    const nativeCombine = vi.fn();
     let headerPrefix: Uint8Array = new Uint8Array();
     const fileReads = {bytes: 0};
     const openFileClose = vi.fn();
@@ -66,7 +60,6 @@ const mocks = vi.hoisted(() => {
     }));
 
     return {
-        nativeCombine,
         get headerPrefix() {
             return headerPrefix;
         },
@@ -92,8 +85,6 @@ const mocks = vi.hoisted(() => {
         nativeImageToPng,
     };
 });
-
-vi.mock('@electron/image/tryCreatePdfWithNativeImageCombiner', () => ({tryCreatePdfWithNativeImageCombiner: mocks.nativeCombine}));
 
 vi.mock('@electron/utils/appTempDir', () => ({getAppTempDir: () => '/tmp'}));
 
@@ -128,19 +119,11 @@ vi.mock('electron', () => ({
     nativeImage: {createFromPath: mocks.nativeImageCreateFromPath},
 }));
 
-const {
-    createCombinedPdf,
-    stageNativeCombineInputs,
-} = await import('@electron/image/pdfCombineShared');
+const {stageNativeCombineInputs} = await import('@electron/image/pdfCombineShared');
 
-// The managed scratch owner removes the resolved directory, which gains a drive
-// letter on Windows.
-const NORMALIZED_SCRATCH_DIR = resolve('/tmp/pdfExport-scope-normalized');
-
-describe('createCombinedPdf native image fast path', () => {
+describe('native combine input preflight', () => {
     beforeEach(() => {
         vi.clearAllMocks();
-        mocks.nativeCombine.mockResolvedValue(null);
         mocks.headerPrefix = new Uint8Array();
         mocks.fileReads.bytes = 0;
         mocks.readFile.mockResolvedValue(new Uint8Array([
@@ -158,49 +141,10 @@ describe('createCombinedPdf native image fast path', () => {
         ]));
     });
 
-    it('keeps strict file-backed image staging above the in-memory page cap', async () => {
+    it('stages image sets above 500 pages', async () => {
         const inputPaths = Array.from({length: 501}, (_, index) => `/tmp/page-${index}.jpg`);
 
-        await expect(stageNativeCombineInputs(
-            inputPaths,
-            undefined,
-            undefined,
-            {resourceMode: 'file-backed'},
-        )).resolves.toMatchObject({inputPaths});
-    });
-
-    it('returns the native image PDF output without creating a pdf-lib document', async () => {
-        const progress = vi.fn();
-        mocks.nativeCombine.mockResolvedValue(new Uint8Array([
-            7,
-            7,
-        ]));
-
-        const result = await createCombinedPdf([
-            '/tmp/a.png',
-            '/tmp/b.jpg',
-        ], {
-            onProgress: progress,
-            unsupportedFileError: sourcePath => `Unsupported: ${sourcePath}`,
-        });
-
-        expect(Array.from(result)).toEqual([
-            7,
-            7,
-        ]);
-        expect(mocks.nativeCombine).toHaveBeenCalledWith([
-            '/tmp/a.png',
-            '/tmp/b.jpg',
-        ], expect.objectContaining({onProgress: progress}));
-        expect(mocks.create).not.toHaveBeenCalled();
-    });
-
-    it('fails closed when the native image combiner is unavailable', async () => {
-        await expect(createCombinedPdf(['/tmp/a.png'], {unsupportedFileError: sourcePath => `Unsupported: ${sourcePath}`}))
-            .rejects.toBeInstanceOf(PdfCombineCapabilityError);
-
-        expect(mocks.nativeCombine).toHaveBeenCalledTimes(1);
-        expect(mocks.create).not.toHaveBeenCalled();
+        await expect(stageNativeCombineInputs(inputPaths)).resolves.toMatchObject({inputPaths});
     });
 
     it('rejects oversized JS fallback inputs before reading them', async () => {
@@ -209,7 +153,7 @@ describe('createCombinedPdf native image fast path', () => {
             size: 513 * 1024 * 1024,
         });
 
-        await expect(createCombinedPdf(['/tmp/huge.png'], {unsupportedFileError: sourcePath => `Unsupported: ${sourcePath}`}))
+        await expect(stageNativeCombineInputs(['/tmp/huge.png']))
             .rejects
             .toThrow('Input file is too large to combine safely: /tmp/huge.png');
 
@@ -236,7 +180,7 @@ describe('createCombinedPdf native image fast path', () => {
     ])('rejects oversized %s dimensions before Electron decodes the image', async (_format, sourcePath, header) => {
         mocks.headerPrefix = header;
 
-        await expect(createCombinedPdf([sourcePath], {unsupportedFileError: path => `Unsupported: ${path}`}))
+        await expect(stageNativeCombineInputs([sourcePath]))
             .rejects
             .toThrow(`Image dimensions are too large to combine safely: ${sourcePath}`);
 
@@ -245,97 +189,6 @@ describe('createCombinedPdf native image fast path', () => {
         expect(mocks.nativeImageCreateFromPath).not.toHaveBeenCalled();
         expect(mocks.embedPng).not.toHaveBeenCalled();
         expect(mocks.addPage).not.toHaveBeenCalled();
-    });
-
-    it.each([
-        [
-            'BMP',
-            '/tmp/small.bmp',
-            createBmpCoreHeader(10, 20),
-        ],
-        [
-            'GIF',
-            '/tmp/small.gif',
-            createGifHeader(10, 20),
-        ],
-        [
-            'WEBP',
-            '/tmp/small.webp',
-            createWebpExtendedHeader(10, 20),
-        ],
-    ])('combines a small valid %s image after the header preflight', async (_format, sourcePath, header) => {
-        mocks.headerPrefix = header;
-        mocks.nativeCombine.mockResolvedValueOnce(new Uint8Array([
-            9,
-            9,
-        ]));
-
-        const result = await createCombinedPdf([sourcePath], {unsupportedFileError: path => `Unsupported: ${path}`});
-
-        expect(Array.from(result)).toEqual([
-            9,
-            9,
-        ]);
-        expect(mocks.nativeImageCreateFromPath).toHaveBeenCalledWith(sourcePath);
-        expect(mocks.nativeImageToPng).toHaveBeenCalledTimes(1);
-        expect(mocks.writeFile).toHaveBeenCalledWith(
-            join('/tmp/pdfExport-scope-normalized', 'input-1.png'),
-            new Uint8Array([
-                8,
-                8,
-            ]),
-        );
-        expect(mocks.nativeCombine).toHaveBeenCalledWith(
-            [join('/tmp/pdfExport-scope-normalized', 'input-1.png')],
-            expect.any(Object),
-        );
-        expect(mocks.embedPng).not.toHaveBeenCalled();
-        expect(mocks.rm).toHaveBeenCalledWith(NORMALIZED_SCRATCH_DIR, {
-            recursive: true,
-            force: true,
-        });
-    });
-
-    it('propagates unproven native termination without cleaning staged image inputs', async () => {
-        mocks.headerPrefix = createBmpCoreHeader(10, 20);
-        const terminationError = markUnprovenNativeTermination(
-            new Error('native image tree is still running'),
-            'native image combine process tree was not proven dead',
-        );
-        mocks.nativeCombine.mockRejectedValueOnce(terminationError);
-
-        await expect(createCombinedPdf(['/tmp/small.bmp'], {unsupportedFileError: path => `Unsupported: ${path}`})).rejects.toBe(terminationError);
-
-        expect(mocks.nativeCombine).toHaveBeenCalledWith(
-            [join('/tmp/pdfExport-scope-normalized', 'input-1.png')],
-            expect.any(Object),
-        );
-        expect(mocks.rm).not.toHaveBeenCalledWith(NORMALIZED_SCRATCH_DIR, {
-            recursive: true,
-            force: true,
-        });
-    });
-
-    it('cleans staged image inputs after a later native termination proof', async () => {
-        mocks.headerPrefix = createBmpCoreHeader(10, 20);
-        const termination = Promise.withResolvers<boolean>();
-        mocks.nativeCombine.mockImplementationOnce(async (_paths: string[], combineOptions: {onTerminationProof?: (proof: Promise<boolean>) => void;}) => {
-            combineOptions.onTerminationProof?.(termination.promise);
-            throw new Error('native image tree is still running');
-        });
-
-        const pending = createCombinedPdf(['/tmp/small.bmp'], {unsupportedFileError: path => `Unsupported: ${path}`});
-        await expect(pending).rejects.toThrow('native image tree is still running');
-        expect(mocks.rm).not.toHaveBeenCalledWith(NORMALIZED_SCRATCH_DIR, {
-            recursive: true,
-            force: true,
-        });
-
-        termination.resolve(true);
-        await vi.waitFor(() => expect(mocks.rm).toHaveBeenCalledWith(NORMALIZED_SCRATCH_DIR, {
-            recursive: true,
-            force: true,
-        }));
     });
 
     it.each([
@@ -369,7 +222,7 @@ describe('createCombinedPdf native image fast path', () => {
     ])('fails closed for an unparseable %s header before Electron decodes the image', async (_format, sourcePath, header) => {
         mocks.headerPrefix = header;
 
-        await expect(createCombinedPdf([sourcePath], {unsupportedFileError: path => `Unsupported: ${path}`}))
+        await expect(stageNativeCombineInputs([sourcePath]))
             .rejects
             .toThrow(`Image dimensions are too large to combine safely: ${sourcePath}`);
 
@@ -387,47 +240,6 @@ describe('TIFF combine preflight', () => {
             isFile: () => true,
             size: 1024,
         });
-    });
-
-    it('passes a multi-frame TIFF to the native combiner after reading only its page directories', async () => {
-        mocks.headerPrefix = createTiffBytes(Array.from({length: 3}, () => ({
-            width: 2550,
-            height: 3300,
-        })), {pixelBytesPerFrame: 512 * 1024});
-        mocks.nativeCombine.mockResolvedValueOnce(new Uint8Array([
-            5,
-            5,
-        ]));
-
-        await expect(createCombinedPdf(['/tmp/scan.tif'], {unsupportedFileError: path => `Unsupported: ${path}`}))
-            .resolves.toEqual(new Uint8Array([
-                5,
-                5,
-            ]));
-
-        expect(mocks.nativeCombine).toHaveBeenCalledWith(['/tmp/scan.tif'], expect.any(Object));
-        expect(mocks.fileReads.bytes).toBeLessThan(512);
-        expect(mocks.readFile).not.toHaveBeenCalled();
-    });
-
-    it('counts every TIFF frame toward the combined page cap', async () => {
-        mocks.headerPrefix = createTiffBytes(Array.from({length: 200}, () => ({
-            width: 100,
-            height: 100,
-        })));
-
-        await expect(stageNativeCombineInputs([
-            '/tmp/first.tif',
-            '/tmp/second.tif',
-        ])).resolves.toMatchObject({inputPaths: [
-            '/tmp/first.tif',
-            '/tmp/second.tif',
-        ]});
-        await expect(stageNativeCombineInputs([
-            '/tmp/first.tif',
-            '/tmp/second.tif',
-            '/tmp/third.tif',
-        ])).rejects.toThrow('Combined PDF is capped at 500 pages');
     });
 
     it.each([
@@ -471,13 +283,12 @@ describe('TIFF combine preflight', () => {
             new TextEncoder().encode('not a TIFF at all'),
             'No decodable TIFF pages found in /tmp/scan.tif',
         ],
-    ])('refuses %s before the native combiner runs', async (_case, bytes, message) => {
+    ])('refuses %s before staging', async (_case, bytes, message) => {
         mocks.headerPrefix = bytes;
 
-        await expect(createCombinedPdf(['/tmp/scan.tif'], {unsupportedFileError: path => `Unsupported: ${path}`}))
+        await expect(stageNativeCombineInputs(['/tmp/scan.tif']))
             .rejects.toThrow(message);
 
-        expect(mocks.nativeCombine).not.toHaveBeenCalled();
     });
 });
 
@@ -506,16 +317,6 @@ function createBmpHeader(width: number, height: number): Uint8Array<ArrayBuffer>
     writeInt32LE(data, 14, 40);
     writeInt32LE(data, 18, width);
     writeInt32LE(data, 22, height);
-    return data;
-}
-
-function createBmpCoreHeader(width: number, height: number): Uint8Array<ArrayBuffer> {
-    const data = new Uint8Array(new ArrayBuffer(22));
-    data[0] = 0x42;
-    data[1] = 0x4d;
-    writeInt32LE(data, 14, 12);
-    writeUint16LE(data, 18, width);
-    writeUint16LE(data, 20, height);
     return data;
 }
 
