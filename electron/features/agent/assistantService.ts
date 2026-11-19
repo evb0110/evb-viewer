@@ -268,8 +268,8 @@ function syncInstances() {
 }
 
 async function syncInstancesNow() {
-    const configs = await getAssistantInstanceConfigs();
-    const fingerprints = await getAssistantInstanceFingerprints();
+    const configs = await getAssistantInstanceConfigs('known');
+    const fingerprints = await getAssistantInstanceFingerprints('known');
     for (const [
         id,
         entry,
@@ -1144,40 +1144,32 @@ function disabledState(): IAssistantState {
     };
 }
 
-let instancesListenerInstalled = false;
-
-function ensureInstancesListener() {
-    if (instancesListenerInstalled) {
-        return;
-    }
-    instancesListenerInstalled = true;
-    onAssistantInstancesChanged(() => {
-        void isAssistantEnabled().then(async enabled => {
-            if (!enabled) {
-                return;
-            }
-            await syncInstances();
-            for (const entry of instances.values()) {
-                startProbe(entry);
-            }
-            publishInstances();
-        });
+// Saved configurations and finished setup discovery reach open panels here.
+onAssistantInstancesChanged(() => {
+    void isAssistantEnabled().then(async enabled => {
+        if (!enabled) {
+            return;
+        }
+        await syncInstances();
+        for (const entry of instances.values()) {
+            startProbe(entry);
+        }
+        publishInstances();
     });
-}
+});
 
 /**
- * Returns cached instance statuses at once. A probe request starts each
- * enabled instance's status check in the background; every check publishes
- * its own result, so a slow instance never holds back another.
+ * Returns the known instances and cached statuses at once; only a setup that
+ * discovery has yet to find waits for it. Each status check publishes its own result.
  */
 export async function getAgentAssistantState(request?: IAssistantStateRequest): Promise<IAssistantState> {
     if (!(await isAssistantEnabled())) {
         await shutdownAgentAssistant();
         return disabledState();
     }
-    ensureInstancesListener();
     if (request?.probe) refreshAssistantLocalSetups();
     await syncInstances();
+    if (request?.selection && !instances.has(request.selection.instanceId)) await getAssistantInstanceConfigs().then(syncInstances);
     for (const entry of instances.values()) {
         if (entry.config.enabled) {
             startProbe(entry, request?.probe === true);
