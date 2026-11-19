@@ -10,6 +10,7 @@ import { validateSearchQuery } from '@pdf-core';
 import {
     ensureWorkingCopyMaterialized,
     findWorkingCopyPathByOriginalPath,
+    getOpenDocument,
     getWorkingCopyBackingEntry,
     getWorkingCopyOwnerWebContentsId,
     getWorkingCopyRevision,
@@ -67,12 +68,18 @@ export async function resolveSearchablePdfPath(
     return mappedResolvedPath ?? await resolveAllowedReadPath(pdfPath);
 }
 
-/** The search index of a PDF, built from its text layer. */
+/**
+ * The search index of a PDF, built from its text layer. `pdfPath` is the file
+ * the text is read from; when it belongs to an open document, the index and its
+ * build belong to that document's ref, so closing the document or moving its
+ * revision on stops the build before the document's files go.
+ */
 export function pdfSearchDocument(pdfPath: string, documentRevision: TDocumentRevisionToken) {
+    const workingCopyPath = getOpenDocument(pdfPath)?.ref;
     return {
-        indexPath: getSearchIndexPath(pdfPath),
+        indexPath: getSearchIndexPath(workingCopyPath ?? pdfPath),
         documentRevision,
-        ...(isWorkingCopyDocumentPath(pdfPath) ? {workingCopyPath: pdfPath} : {}),
+        ...(workingCopyPath === undefined ? {} : {workingCopyPath}),
         readPageCount: (signal: AbortSignal) => getPdfPageCount(pdfPath, {signal}),
         readPages: (signal: AbortSignal, pageCount: number | undefined, onProgress: (pageNumber: number) => void) => streamPdfPageTexts(pdfPath, {
             signal,
