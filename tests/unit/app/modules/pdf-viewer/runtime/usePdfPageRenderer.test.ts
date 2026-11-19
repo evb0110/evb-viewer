@@ -125,24 +125,14 @@ function createViewportFixture(): TPdfViewportSession {
     const fixture = {
         scale: {effectiveScale: ref(1)},
         currentPage: ref(1),
-        cancelPendingSearchRevision: ref(0),
-        viewportWritePort: {},
         singlePageScroll: {
             viewportAuthority: {
                 phase: ref('idle'),
                 activeIntent: ref(null),
             },
             scrollToPage: vi.fn(),
-            beginSearchNavigation: vi.fn(),
             revealSearchNavigationTarget: vi.fn(),
             endSearchNavigation: vi.fn(),
-        },
-        markUserViewportInteraction: vi.fn(),
-        viewportWork: {
-            beginWork: vi.fn(() => null),
-            isWorkCurrent: vi.fn(() => false),
-            settleWork: vi.fn(),
-            cancelWork: vi.fn(),
         },
     };
     // The page renderer reads only these viewport controls.

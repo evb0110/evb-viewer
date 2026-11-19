@@ -37,7 +37,6 @@
         :bookmark-edit-mode="bookmarkState.bookmarkEditMode.value"
         :bookmark-items="bookmarkState.bookmarksResolved.value ? bookmarkState.bookmarkItems.value : undefined"
         :bookmarks-dirty="bookmarkState.bookmarksDirty.value"
-        :bookmark-navigation-intent-version="bookmarkNavigationIntentVersion"
         :is-page-operation-in-progress="pageOps.isPageOperationInProgress.value"
         :is-djvu-mode="file.isDjvuMode.value"
         :selected-thumbnail-pages="view.selectedThumbnailPages.value"
@@ -136,7 +135,6 @@ const {
     annotationActions,
     annotationTool,
     annotationToolState,
-    bookmarkNavigationIntentVersion,
 } = context;
 const pdfViewer = computed(() => view.pdfViewerRef.value);
 const thumbnailPageGeometry = computed<IPdfThumbnailPageGeometry | null>(() => {

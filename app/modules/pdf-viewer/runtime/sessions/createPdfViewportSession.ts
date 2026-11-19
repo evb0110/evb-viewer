@@ -130,7 +130,6 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
     const pageSlots = createPdfPageSlotRegistry();
     const navigationEpochs = createPdfViewportUserNavigationEpochs();
     const { userViewportInteractionEpoch } = navigationEpochs;
-    const cancelPendingSearchRevision = ref(0);
     const cancelRasterRevision = ref(0);
     const visualReadySignal = shallowRef<IPdfViewportPageSignal>({
         revision: 0,
@@ -353,9 +352,6 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         bindCurrentPageProjection: scroll.bindCurrentPageProjection,
         getDocumentRevision: () => documentSession.captureFence().loadToken,
         getGeometryRevision: () => pageMetricsVersion.value + 1,
-        cancelPendingSearchScroll: () => {
-            cancelPendingSearchRevision.value += 1;
-        },
         onViewportWorkCancelled: ({cancelRasters}) => {
             if (cancelRasters) {
                 cancelRasterRevision.value += 1;
@@ -372,10 +368,6 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
     const viewportAuthority = singlePageScroll.viewportAuthority;
     const viewportWork = {
         activeWorkKind: viewportAuthority.activeWorkKind,
-        beginWork: viewportAuthority.beginWork,
-        isWorkCurrent: viewportAuthority.isWorkCurrent,
-        settleWork: viewportAuthority.settleWork,
-        cancelWork: viewportAuthority.cancelWork,
         commitVisibleRange,
     };
     watch(
@@ -1121,7 +1113,6 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
             if (transactionId !== null && viewportAuthority.isWorkCurrent(transactionId)) {
                 viewportAuthority.cancelWork({cancelRasters: true}, transactionId);
             }
-            cancelPendingSearchRevision.value += 1;
             cancelRasterRevision.value += 1;
             return;
         }
@@ -1146,7 +1137,6 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         currentPage,
         visibleRange,
         demand: shallowReadonly(demand),
-        cancelPendingSearchRevision: readonly(cancelPendingSearchRevision),
         cancelRasterRevision: readonly(cancelRasterRevision),
         visualReadySignal: shallowReadonly(visualReadySignal),
         navigationCommittedSignal: shallowReadonly(navigationCommittedSignal),

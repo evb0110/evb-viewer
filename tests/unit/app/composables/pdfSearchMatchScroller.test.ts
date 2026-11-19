@@ -10,10 +10,7 @@ import {requirePageIndex} from '@contracts/pageNumbers';
 describe('createPdfSearchMatchScroller', () => {
     it('emits exactly one semantic rect request with no polling or private scroll', () => {
         const revealSearchNavigationTarget = vi.fn();
-        const scrollToCurrentMatch = vi.fn();
-        const scheduleRenderForSinglePage = vi.fn();
         const scroller = createPdfSearchMatchScroller({
-            getContainer: () => document.createElement('div'),
             getCurrentSearchMatch: () => ({
                 pageIndex: requirePageIndex(2),
                 pageWidth: 200,
@@ -25,8 +22,6 @@ describe('createPdfSearchMatchScroller', () => {
                     height: 20,
                 }],
             }),
-            scrollToCurrentMatch,
-            scheduleRenderForSinglePage,
             revealSearchNavigationTarget,
         });
         scroller.requestScrollToMatch(2);
@@ -37,14 +32,11 @@ describe('createPdfSearchMatchScroller', () => {
         expect(marker?.top).toBeCloseTo(0.2);
         expect(marker?.width).toBeCloseTo(0.2);
         expect(marker?.height).toBeCloseTo(0.05);
-        expect(scrollToCurrentMatch).not.toHaveBeenCalled();
-        expect(scheduleRenderForSinglePage).not.toHaveBeenCalled();
     });
 
     it('navigates a vertical text-only match through its exact text anchor', () => {
         const revealSearchNavigationTarget = vi.fn();
         const scroller = createPdfSearchMatchScroller({
-            getContainer: () => null,
             getCurrentSearchMatch: () => ({
                 pageIndex: requirePageIndex(0),
                 startOffset: 1,
@@ -57,8 +49,6 @@ describe('createPdfSearchMatchScroller', () => {
                     after: '文',
                 },
             }),
-            scrollToCurrentMatch: () => false,
-            scheduleRenderForSinglePage: vi.fn(),
             revealSearchNavigationTarget,
         });
         scroller.requestScrollToMatch(0);
@@ -77,7 +67,6 @@ describe('createPdfSearchMatchScroller', () => {
     it('rotates the navigation marker with the visible page highlight', () => {
         const revealSearchNavigationTarget = vi.fn();
         const scroller = createPdfSearchMatchScroller({
-            getContainer: () => document.createElement('div'),
             getCurrentSearchMatch: () => ({
                 pageIndex: requirePageIndex(2),
                 pageWidth: 200,
@@ -90,8 +79,6 @@ describe('createPdfSearchMatchScroller', () => {
                     height: 20,
                 }],
             }),
-            scrollToCurrentMatch: () => false,
-            scheduleRenderForSinglePage: vi.fn(),
             revealSearchNavigationTarget,
         });
 
@@ -107,10 +94,7 @@ describe('createPdfSearchMatchScroller', () => {
     it('emits a page request when word geometry is unavailable', () => {
         const revealSearchNavigationTarget = vi.fn();
         const scroller = createPdfSearchMatchScroller({
-            getContainer: () => null,
             getCurrentSearchMatch: () => ({pageIndex: requirePageIndex(0)}),
-            scrollToCurrentMatch: () => false,
-            scheduleRenderForSinglePage: vi.fn(),
             revealSearchNavigationTarget,
         });
         scroller.requestScrollToMatch(0);
@@ -120,7 +104,6 @@ describe('createPdfSearchMatchScroller', () => {
     it('carries the exact search range when word geometry is unavailable', () => {
         const revealSearchNavigationTarget = vi.fn();
         const scroller = createPdfSearchMatchScroller({
-            getContainer: () => null,
             getCurrentSearchMatch: () => ({
                 pageIndex: requirePageIndex(4),
                 startOffset: 42,
@@ -133,8 +116,6 @@ describe('createPdfSearchMatchScroller', () => {
                     after: ' after',
                 },
             }),
-            scrollToCurrentMatch: () => false,
-            scheduleRenderForSinglePage: vi.fn(),
             revealSearchNavigationTarget,
         });
 
@@ -154,7 +135,6 @@ describe('createPdfSearchMatchScroller', () => {
     it('carries page-local identity and search semantics for an index fallback', () => {
         const revealSearchNavigationTarget = vi.fn();
         const scroller = createPdfSearchMatchScroller({
-            getContainer: () => null,
             getCurrentSearchMatch: () => ({
                 pageIndex: requirePageIndex(4),
                 pageMatchIndex: 2,
@@ -182,8 +162,6 @@ describe('createPdfSearchMatchScroller', () => {
                     {start: 300},
                 ],
             }),
-            scrollToCurrentMatch: () => false,
-            scheduleRenderForSinglePage: vi.fn(),
             revealSearchNavigationTarget,
         });
 
@@ -202,7 +180,6 @@ describe('createPdfSearchMatchScroller', () => {
     it('omits expected page match count for reversed native ranges', () => {
         const revealSearchNavigationTarget = vi.fn();
         const scroller = createPdfSearchMatchScroller({
-            getContainer: () => null,
             getCurrentSearchMatch: () => ({
                 pageIndex: requirePageIndex(0),
                 pageMatchIndex: 0,
@@ -224,8 +201,6 @@ describe('createPdfSearchMatchScroller', () => {
                     {start: 20},
                 ],
             }),
-            scrollToCurrentMatch: () => false,
-            scheduleRenderForSinglePage: vi.fn(),
             revealSearchNavigationTarget,
         });
 
@@ -239,10 +214,7 @@ describe('createPdfSearchMatchScroller', () => {
     it('uses the authority-compatible page fallback', () => {
         const scrollToPage = vi.fn();
         const scroller = createPdfSearchMatchScroller({
-            getContainer: () => null,
             getCurrentSearchMatch: () => ({pageIndex: requirePageIndex(1)}),
-            scrollToCurrentMatch: () => false,
-            scheduleRenderForSinglePage: vi.fn(),
             scrollToPage,
         });
         scroller.requestScrollToMatch(1);
@@ -253,10 +225,7 @@ describe('createPdfSearchMatchScroller', () => {
         const revealSearchNavigationTarget = vi.fn();
         const endSearchNavigation = vi.fn();
         const scroller = createPdfSearchMatchScroller({
-            getContainer: () => null,
             getCurrentSearchMatch: () => null,
-            scrollToCurrentMatch: () => false,
-            scheduleRenderForSinglePage: vi.fn(),
             revealSearchNavigationTarget,
             endSearchNavigation,
         });

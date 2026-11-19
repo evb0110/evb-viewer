@@ -192,7 +192,6 @@ async function mountOutline(options: {
         isEditMode: state.isEditMode,
         bookmarkItems: state.bookmarkItems,
         bookmarksDirty: state.bookmarksDirty,
-        navigationIntentVersion: 0,
         onBookmarksChange: (payload: IPdfBookmarkChangePayload) => {
             changes.push(payload);
         },

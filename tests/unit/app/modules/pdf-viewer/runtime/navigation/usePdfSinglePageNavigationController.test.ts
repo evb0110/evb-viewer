@@ -125,7 +125,6 @@ describe('usePdfSinglePageNavigationController', () => {
                 viewportWritePort: viewportWrites.port,
                 getPageLayoutMetrics: () => layout,
                 getPhysicalScrollOrigin: () => 0,
-                cancelPendingSearchScroll: vi.fn(),
                 getDocumentRevision: () => 1,
                 getGeometryRevision: () => 1,
             }));
@@ -287,7 +286,6 @@ describe('usePdfSinglePageNavigationController', () => {
                 viewportWritePort: viewportWrites.port,
                 getPageLayoutMetrics: () => layout,
                 getPhysicalScrollOrigin: () => 0,
-                cancelPendingSearchScroll: vi.fn(),
                 getDocumentRevision: () => 1,
                 getGeometryRevision: () => 1,
             }));
@@ -417,7 +415,6 @@ describe('usePdfSinglePageNavigationController', () => {
                 viewportWritePort: viewportWrites.port,
                 getPageLayoutMetrics: () => layout,
                 getPhysicalScrollOrigin: () => 0,
-                cancelPendingSearchScroll: vi.fn(),
                 getDocumentRevision: () => 1,
                 getGeometryRevision: () => 1,
             }));
@@ -510,7 +507,6 @@ describe('usePdfSinglePageNavigationController', () => {
                 viewportWritePort: viewportWrites.port,
                 getPageLayoutMetrics: () => layout,
                 getPhysicalScrollOrigin: () => 0,
-                cancelPendingSearchScroll: vi.fn(),
                 getDocumentRevision: () => 1,
                 getGeometryRevision: () => 1,
             }));
@@ -597,7 +593,6 @@ describe('usePdfSinglePageNavigationController', () => {
                 viewportWritePort: viewportWrites.port,
                 getPageLayoutMetrics: () => layout,
                 getPhysicalScrollOrigin: () => 0,
-                cancelPendingSearchScroll: vi.fn(),
                 getDocumentRevision: () => 1,
                 getGeometryRevision: () => 1,
             }));
@@ -719,7 +714,6 @@ describe('usePdfSinglePageNavigationController', () => {
                 viewportWritePort: viewportWrites.port,
                 getPageLayoutMetrics: () => layout,
                 getPhysicalScrollOrigin: () => 0,
-                cancelPendingSearchScroll: vi.fn(),
                 getDocumentRevision: () => 1,
                 getGeometryRevision: () => 1,
             }));

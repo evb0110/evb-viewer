@@ -94,7 +94,6 @@
                 :is-edit-mode="bookmarkEditMode"
                 :bookmark-items="bookmarkItems"
                 :bookmarks-dirty="bookmarksDirty"
-                :navigation-intent-version="bookmarkNavigationIntentVersion"
                 @go-to-page="goToPage"
                 @bookmarks-change="updateBookmarks"
                 @update:is-edit-mode="updateBookmarkEditMode"
@@ -200,7 +199,6 @@ interface IProps {
     /** The document's bookmarks once it has read them; until then the outline reads its own. */
     bookmarkItems?: IPdfBookmarkEntry[] | undefined;
     bookmarksDirty: boolean;
-    bookmarkNavigationIntentVersion: number;
     isPageOperationInProgress?: boolean | undefined;
     isDjvuMode?: boolean | undefined;
     selectedThumbnailPages: number[];
@@ -226,7 +224,6 @@ const {
     annotationCommentsStatus,
     annotationInventory = null,
     bookmarkItems = undefined,
-    bookmarkNavigationIntentVersion,
     bookmarksDirty,
     bookmarkEditMode,
     currentPage,

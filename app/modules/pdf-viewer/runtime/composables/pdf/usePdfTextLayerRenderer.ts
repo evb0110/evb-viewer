@@ -12,7 +12,6 @@ import {
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { MaybeRefOrGetter } from 'vue';
 import { tryOnScopeDispose } from '@vueuse/core';
-import { clamp } from 'es-toolkit/math';
 import type {
     IPdfPageMatches,
     IPdfSearchMatch,
@@ -29,9 +28,6 @@ import type {
     TPageMatchEntry,
     TTextLayerTextContentSource,
 } from '@app/modules/pdf-viewer/runtime/composables/pdf/pdfTextLayerRendererTypes';
-import { getPageContainer } from '@app/modules/pdf-viewer/engine/pdf-page-buffer-manager/getPageContainer';
-import { transformWordBox } from '@app/modules/pdf-viewer/engine/ocr/pdf-word-box-geometry/transformWordBox';
-import { transformOcrWordToViewport } from '@app/modules/pdf-viewer/engine/ocr/pdf-word-box-geometry/transformOcrWordToViewport';
 import { getHighlightMode } from '@app/modules/pdf-viewer/engine/search/pdfSearchHighlightCss';
 import {
     clearTextLayerIndexCache,
@@ -48,10 +44,6 @@ import {
     type IPdfStructTreeLayer,
     type IPdfTextLayer,
 } from '@app/services/pdfjs/pdfViewerFacade';
-import {
-    applyPdfViewportWrite,
-    type IPdfViewportWritePort,
-} from '@app/modules/pdf-viewer/runtime/viewport/pdfViewportWritePort';
 import { PDF_PAGE_SCALE_CSS_VARS } from '@app/modules/pdf-viewer/engine/pdf-page-scale/pdfPageScale';
 const HIGHLIGHT_REFRESH_BUDGET_MS = 8;
 const HIGHLIGHT_REFRESH_MAX_PAGES_PER_SLICE = 4;
@@ -82,13 +74,11 @@ export const usePdfTextLayerRenderer = (deps: {
     currentSearchMatch: MaybeRefOrGetter<IPdfSearchMatch | null>;
     workingCopyPath: MaybeRefOrGetter<TDocumentRef | null>;
     documentRevisionToken: MaybeRefOrGetter<TDocumentRevisionToken | null>;
-    viewportWritePort: IPdfViewportWritePort;
 }) => {
     const { setupTextLayer, teardownTextLayer } = useTextLayerSelection();
     const {
         clearHighlights,
         highlightPage,
-        getCurrentMatchRanges,
     } = usePdfSearchHighlight();
     const {
         renderPageWordBoxes,
@@ -849,256 +839,6 @@ export const usePdfTextLayerRenderer = (deps: {
         scheduleSearchHighlightRefresh(containerRoot);
     }
 
-    function scrollToCurrentMatch(containerRoot: HTMLElement) {
-        function clampScrollTopToTargetPage(
-            desiredTop: number,
-            targetPageContainer: HTMLElement,
-        ) {
-            const computedStyle = typeof window !== 'undefined'
-                ? window.getComputedStyle(containerRoot)
-                : null;
-            const paddingTop = Number.parseFloat(computedStyle?.paddingTop ?? '0') || 0;
-            const paddingBottom = Number.parseFloat(computedStyle?.paddingBottom ?? '0') || 0;
-
-            const minTop = Math.max(0, targetPageContainer.offsetTop - paddingTop);
-            const pageBottom = targetPageContainer.offsetTop + targetPageContainer.offsetHeight + paddingBottom;
-            const maxTop = Math.max(minTop, pageBottom - containerRoot.clientHeight);
-            const clampedTop = clamp(desiredTop, minTop, maxTop);
-
-            return {
-                clampedTop,
-                minTop,
-                maxTop,
-                paddingTop,
-                paddingBottom,
-            };
-        }
-
-        function scrollMatchRectIntoView(
-            rect: DOMRect,
-            targetPageContainer: HTMLElement,
-            source: 'range' | 'mark',
-        ) {
-            const containerRect = containerRoot.getBoundingClientRect();
-            const scrollTop = Number.isFinite(containerRoot.scrollTop) ? containerRoot.scrollTop : 0;
-            const scrollLeft = Number.isFinite(containerRoot.scrollLeft) ? containerRoot.scrollLeft : 0;
-            const clientWidth = Number.isFinite(containerRoot.clientWidth) && containerRoot.clientWidth > 0
-                ? containerRoot.clientWidth
-                : containerRect.width;
-            const scrollWidth = Number.isFinite(containerRoot.scrollWidth) && containerRoot.scrollWidth > 0
-                ? containerRoot.scrollWidth
-                : clientWidth;
-            const elementTop = rect.top - containerRect.top + scrollTop;
-            const elementLeft = rect.left - containerRect.left + scrollLeft;
-            const desiredTop = elementTop - containerRoot.clientHeight / 2 + rect.height / 2;
-            const desiredLeft = elementLeft - clientWidth / 2 + rect.width / 2;
-            const {
-                clampedTop,
-                minTop,
-                maxTop,
-                paddingTop,
-                paddingBottom,
-            } = clampScrollTopToTargetPage(desiredTop, targetPageContainer);
-            const maxLeft = Math.max(0, scrollWidth - clientWidth);
-            const clampedLeft = clamp(desiredLeft, 0, maxLeft);
-
-            logPdfNav(
-                `[PDF-NAV] scrollToCurrentMatch (${source}): scrollTop=${scrollTop.toFixed(1)}`
-                + ` scrollLeft=${scrollLeft.toFixed(1)}`
-                + ` rect.top=${rect.top.toFixed(1)} containerRect.top=${containerRect.top.toFixed(1)}`
-                + ` rect.left=${rect.left.toFixed(1)} containerRect.left=${containerRect.left.toFixed(1)}`
-                + ` elementTop=${elementTop.toFixed(1)} desiredTop=${desiredTop.toFixed(1)}`
-                + ` clampedTop=${clampedTop.toFixed(1)} pageMin=${minTop.toFixed(1)}`
-                + ` pageMax=${maxTop.toFixed(1)} padTop=${paddingTop.toFixed(1)}`
-                + ` padBottom=${paddingBottom.toFixed(1)}`
-                + ` elementLeft=${elementLeft.toFixed(1)} desiredLeft=${desiredLeft.toFixed(1)}`
-                + ` clampedLeft=${clampedLeft.toFixed(1)} maxLeft=${maxLeft.toFixed(1)}`,
-            );
-
-            applyPdfViewportWrite(deps.viewportWritePort, containerRoot, {
-                intentId: 'search-match-arrival',
-                reason: 'search-match-arrival',
-                top: clampedTop,
-                left: clampedLeft,
-            });
-        }
-
-        function getCurrentGeometryMatchRect(
-            targetContainer: HTMLElement,
-            pageMatchData: IPdfPageMatches | null,
-            currentMatchValue: IPdfSearchMatch,
-            pageIndex: TPageIndex,
-        ) {
-            const currentWords = resolveCurrentMatchWords(pageMatchData, currentMatchValue, pageIndex);
-            if (currentWords.length === 0) {
-                return null;
-            }
-
-            const canvas = targetContainer.querySelector<HTMLCanvasElement>('canvas');
-            if (!canvas) {
-                return null;
-            }
-
-            const geometryMatch = pageMatchData?.matches.find((match, index) => (
-                hasRenderableGeometryMatch(match)
-                && isSamePageMatchEntry(match, index, currentMatchValue)
-            )) ?? pageMatchData?.matches.find(hasRenderableGeometryMatch);
-            const pageWidth = currentMatchValue.pageWidth ?? geometryMatch?.pageWidth;
-            const pageHeight = currentMatchValue.pageHeight ?? geometryMatch?.pageHeight;
-            if (!pageWidth || !pageHeight) {
-                return null;
-            }
-
-            const canvasRect = canvas.getBoundingClientRect();
-            const renderedPageWidth = canvas.offsetWidth || canvasRect.width;
-            const renderedPageHeight = canvas.offsetHeight || canvasRect.height;
-            const renderedTextLayer = textLayerDiv ? renderedTextLayers.get(textLayerDiv) : undefined;
-            const viewport = renderedTextLayer?.viewport;
-            const rawDims = viewport?.rawDims as {
-                pageWidth?: unknown;
-                pageHeight?: unknown;
-            } | undefined;
-            const viewportPageWidth = typeof rawDims?.pageWidth === 'number' && rawDims.pageWidth > 0
-                ? rawDims.pageWidth
-                : pageWidth;
-            const viewportPageHeight = typeof rawDims?.pageHeight === 'number' && rawDims.pageHeight > 0
-                ? rawDims.pageHeight
-                : pageHeight;
-            const boxes = currentWords
-                .map(word => viewport
-                    ? transformOcrWordToViewport(
-                        word,
-                        {render: {imagePx: {
-                            w: pageWidth,
-                            h: pageHeight,
-                        }}},
-                        viewportPageWidth,
-                        viewportPageHeight,
-                        viewport,
-                    )
-                    : transformWordBox(
-                        word,
-                        pageWidth,
-                        pageHeight,
-                        renderedPageWidth,
-                        renderedPageHeight,
-                        currentMatchValue.rotation ?? geometryMatch?.rotation ?? 0,
-                    ))
-                .filter((box): box is NonNullable<typeof box> => {
-                    if (!box) {
-                        return false;
-                    }
-                    return box.width > 0 || box.height > 0;
-                });
-
-            if (boxes.length === 0) {
-                return null;
-            }
-
-            const left = Math.min(...boxes.map(box => box.x));
-            const top = Math.min(...boxes.map(box => box.y));
-            const right = Math.max(...boxes.map(box => box.x + box.width));
-            const bottom = Math.max(...boxes.map(box => box.y + box.height));
-
-            return new DOMRect(
-                canvasRect.left + left,
-                canvasRect.top + top,
-                Math.max(0, right - left),
-                Math.max(0, bottom - top),
-            );
-        }
-        const currentMatchValue = toValue(deps.currentSearchMatch);
-        if (!currentMatchValue) {
-            logPdfNav('[PDF-NAV] scrollToCurrentMatch: no current search match');
-            return false;
-        }
-        const pageIndex = currentMatchValue.pageIndex;
-        const targetContainer = getPageContainer(containerRoot, pageIndex);
-        if (!targetContainer) {
-            const mountedPages = Array.from(
-                containerRoot.querySelectorAll<HTMLElement>('.page_container'),
-            )
-                .map(page => page.dataset.page ?? '?')
-                .slice(0, 20)
-                .join(',');
-            logPdfNav(
-                `[PDF-NAV] scrollToCurrentMatch: target page=${pageIndex + 1} not mounted`
-                + ` mountedPages=[${mountedPages}]`,
-            );
-            return false;
-        }
-        const textLayerDiv = targetContainer.querySelector<HTMLElement>('.text-layer');
-        if (!textLayerDiv) {
-            logPdfNav(
-                `[PDF-NAV] scrollToCurrentMatch: page=${pageIndex + 1} has no text-layer`,
-            );
-            return false;
-        }
-        const pageMatchData = toValue(deps.searchPageMatches)?.get(pageIndex) ?? null;
-        const currentMatchPresentationReady = isTextLayerReady(textLayerDiv);
-        refreshSearchHighlightsForPage(
-            targetContainer,
-            pageIndex + 1,
-            pageMatchData,
-            currentMatchValue,
-            currentMatchPresentationReady,
-        );
-
-        const currentWordBox = targetContainer.querySelector<HTMLElement>('.pdf-word-box--current');
-        if (currentWordBox) {
-            const wordBoxRect = currentWordBox.getBoundingClientRect();
-            if (wordBoxRect.width > 0 || wordBoxRect.height > 0) {
-                scrollMatchRectIntoView(wordBoxRect, targetContainer, 'mark');
-                return true;
-            }
-        }
-
-        const geometryRect = getCurrentGeometryMatchRect(
-            targetContainer,
-            pageMatchData,
-            currentMatchValue,
-            pageIndex,
-        );
-        if (geometryRect && (geometryRect.width > 0 || geometryRect.height > 0)) {
-            scrollMatchRectIntoView(geometryRect, targetContainer, 'mark');
-            return true;
-        }
-
-        const currentHighlight = textLayerDiv.querySelector<HTMLElement>('.pdf-search-highlight--current');
-        if (!currentHighlight) {
-            const currentRanges = getCurrentMatchRanges(textLayerDiv);
-            const range = currentRanges.at(0) ?? null;
-            if (!range) {
-                logPdfNav(
-                    `[PDF-NAV] scrollToCurrentMatch: page=${pageIndex + 1} no current highlight and no ranges`,
-                );
-                return false;
-            }
-
-            const rect = range.getBoundingClientRect();
-            if (rect.width === 0 && rect.height === 0) {
-                logPdfNav(
-                    `[PDF-NAV] scrollToCurrentMatch: page=${pageIndex + 1} range rect empty`,
-                );
-                return false;
-            }
-
-            scrollMatchRectIntoView(rect, targetContainer, 'range');
-            return true;
-        }
-
-        const highlightRect = currentHighlight.getBoundingClientRect();
-        if (highlightRect.width === 0 && highlightRect.height === 0) {
-            logPdfNav(
-                `[PDF-NAV] scrollToCurrentMatch: page=${pageIndex + 1} current highlight rect empty`,
-            );
-            return false;
-        }
-
-        scrollMatchRectIntoView(highlightRect, targetContainer, 'mark');
-        return true;
-    }
-
     /** The one teardown of a text-layer element: selection, spans, structure and mapping. */
     function cleanupTextLayerDom(textLayerDiv: HTMLElement) {
         teardownTextLayer(textLayerDiv);
@@ -1190,13 +930,11 @@ export const usePdfTextLayerRenderer = (deps: {
         renderTextLayer,
         applyPageSearchHighlights,
         applyAllSearchHighlights,
-        scrollToCurrentMatch,
         cleanupTextLayerDom,
         clearOcrDebug,
         isOcrDebugEnabled,
         renderOcrDebugBoxes,
         scheduleRenderOcrDebugBoxes,
         scheduleOcrDebugForPage,
-        getCurrentMatchRanges,
     };
 };
