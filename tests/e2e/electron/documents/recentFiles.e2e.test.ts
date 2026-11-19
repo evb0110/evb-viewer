@@ -77,14 +77,12 @@ import {
     stopCommittedSurfaceSampler,
     summarizeCommittedSurfaceTiming,
 } from '@tests/e2e/electron/helpers/viewerCommittedSurfaceContract';
-import { expectWithinTimingBudget } from '@tests/e2e/electron/helpers/timingBudget';
 
 const RECENT_ROW_TIMEOUT_MS = 15_000;
 const RECENT_OPEN_TIMEOUT_MS = 12_000;
 const RECENT_STARTUP_STABILITY_MS = 1_500;
 const RECENT_OPEN_STABILITY_MS = 2_500;
 const RECENT_POLL_INTERVAL_MS = 50;
-const RECENT_EMPTY_TAB_ACTIONABLE_BUDGET_MS = 500;
 const RECENT_FIRST_PAGE_SHELL_BUDGET_MS = 100;
 const RECENT_FIRST_VISIBLE_PAGE_SHELL_BUDGET_FRAMES = 2;
 const RECENT_FIRST_CANVAS_BUDGET_MS = 2_500;
@@ -130,6 +128,7 @@ interface IRecentOpenTransitionResult {
     shellInteractiveAtMs: number | null;
     recentRowVisibleAtShell: boolean;
     sawVisibleDisabledTargetRow: boolean;
+    sawRecentSkeleton: boolean;
     openingSurfaceAtMs: number | null;
     openingSurfaceElapsedMs: number | null;
     openingSurfaceFound: boolean;
@@ -532,6 +531,7 @@ async function emptyCurrentTabAndOpenRecentAtFirstOpenSurface(
         let framesAfterClick = 0;
         let preSurfaceFrames = 0;
         let sawVisibleDisabledTargetRow = false;
+        let sawRecentSkeleton = false;
         let targetReadyAtClick = false;
         let targetActionableAtClick = false;
         let firstOpenSurfaceFrame: IRecentOpenTransitionResult['firstOpenSurfaceFrame'] = null;
@@ -622,6 +622,7 @@ async function emptyCurrentTabAndOpenRecentAtFirstOpenSurface(
                 shellInteractiveAtMs,
                 recentRowVisibleAtShell: isVisible(getRecentRow()),
                 sawVisibleDisabledTargetRow,
+                sawRecentSkeleton,
                 openingSurfaceAtMs,
                 openingSurfaceElapsedMs: clickAtMs !== null && openingSurfaceAtMs !== null
                     ? Math.round(openingSurfaceAtMs - clickAtMs)
@@ -637,6 +638,9 @@ async function emptyCurrentTabAndOpenRecentAtFirstOpenSurface(
             if (clickAtMs === null) {
                 sawVisibleDisabledTargetRow ||= getTargetRecentRows()
                     .some(row => row.dataset.recentOpenActionable !== 'true');
+                sawRecentSkeleton ||= Array.from(
+                    getActiveHost()?.querySelectorAll<HTMLElement>('.recent-row--skeleton') ?? [],
+                ).some(isVisible);
                 const recentRow = getRecentRow();
                 const openButton = recentRow?.querySelector<HTMLButtonElement>('button.recent-open') ?? null;
                 const pressWindow = window as Window & {__recentPressPoint?: {
@@ -997,11 +1001,10 @@ describe('Electron E2E - Recent Files', () => {
         expect(immediateOpen.activeTabChanged, JSON.stringify(immediateOpen)).toBe(false);
         expect(immediateOpen.shellInteractiveAtMs, JSON.stringify(immediateOpen)).not.toBeNull();
         expect(immediateOpen.clickAtMs, JSON.stringify(immediateOpen)).not.toBeNull();
-        expectWithinTimingBudget(
-            immediateOpen.actionableElapsedMs,
-            RECENT_EMPTY_TAB_ACTIONABLE_BUDGET_MS,
-            JSON.stringify(immediateOpen),
-        );
+        // The user would see the Recent file before they could open it.
+        expect(immediateOpen.sawVisibleDisabledTargetRow, JSON.stringify(immediateOpen)).toBe(false);
+        // The user would see a loading placeholder in Recent.
+        expect(immediateOpen.sawRecentSkeleton, JSON.stringify(immediateOpen)).toBe(false);
         expect(immediateOpen.targetReadyAtClick, JSON.stringify(immediateOpen)).toBe(true);
         expect(immediateOpen.targetActionableAtClick, JSON.stringify(immediateOpen)).toBe(true);
         expect(immediateOpen.recentRowVisibleAtShell, JSON.stringify(immediateOpen)).toBe(false);
@@ -1150,6 +1153,8 @@ describe('Electron E2E - Recent Files', () => {
             : null;
         console.info('[E2E recent PDF open timing]', JSON.stringify({
             actionableElapsedMs: immediateOpen.actionableElapsedMs,
+            sawVisibleDisabledTargetRow: immediateOpen.sawVisibleDisabledTargetRow,
+            sawRecentSkeleton: immediateOpen.sawRecentSkeleton,
             firstOpenSurfaceFrame: immediateOpen.firstOpenSurfaceFrame,
             framesAfterClick: immediateOpen.framesAfterClick,
             preSurfaceFrames: immediateOpen.preSurfaceFrames,
