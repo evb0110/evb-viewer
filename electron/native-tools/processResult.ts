@@ -15,6 +15,9 @@ export class NativeProcessError extends Error {
         readonly exitCode: number | null,
         readonly closeSignal: NodeJS.Signals | null,
         message: string,
+        // The failed process's captured output, within the command's byte caps.
+        readonly stdout = '',
+        readonly stderr = '',
     ) {
         super(message);
         this.name = 'NativeProcessError';

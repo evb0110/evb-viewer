@@ -710,7 +710,10 @@ async function runNativeCommandCore(
             const idle = timeoutResetsOnStdout ? ' without output' : '';
             timeoutHandle = setTimeout(() => {
                 log?.('error', `${context.displayName} timed out after ${timeoutMs}ms${idle}; cmd=${context.displayCommand}`);
-                requestTermination(new Error(`${context.displayName} timed out after ${timeoutMs}ms${idle}`));
+                // The output captured before the deadline, within the byte caps,
+                // travels on the plain timeout error so classification is unchanged.
+                const {stdout, stderr} = output.snapshot();
+                requestTermination(Object.assign(new Error(`${context.displayName} timed out after ${timeoutMs}ms${idle}`), {stdout, stderr}));
             }, timeoutMs);
         }
         const appendDecodedStdout = (text: string) => {
@@ -835,6 +838,8 @@ async function runNativeCommandCore(
                         exitCode,
                         closeSignal,
                         failure.message,
+                        outputSnapshot.stdout,
+                        outputSnapshot.stderr,
                     );
                     if (process.platform === 'win32') requestTermination(error);
                     else finalizeReject(error);
