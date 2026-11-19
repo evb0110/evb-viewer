@@ -16,12 +16,13 @@ const state = vi.hoisted(() => ({
     decryptionAvailable: true,
     discoveryFails: false,
     local: [] as IAssistantInstanceConfig[],
+    discoveries: [] as Promise<IAssistantInstanceConfig[]>[],
 }));
 vi.mock('@electron/features/agent/assistantLocalSetups', async importOriginal => ({
     ...await importOriginal(),
     discoverAssistantLocalSetups: async () => {
         if (state.discoveryFails) throw new Error('fixture discovery unavailable');
-        return state.local;
+        return state.discoveries.shift() ?? state.local;
     },
 }));
 vi.mock('@electron/features/agent/assistantShellEnvironment', async importOriginal => ({
@@ -61,6 +62,7 @@ beforeEach(async () => {
     state.decryptionAvailable = true;
     state.discoveryFails = false;
     state.local = [];
+    state.discoveries = [];
     state.shellEnv = undefined;
     instances = await import('@electron/features/agent/assistantInstances');
 });
@@ -394,6 +396,28 @@ describe('local assistant setups', () => {
         state.local = [{id: 'later-wrapper', driver: 'codex', displayName: 'codex-proxy', enabled: true, binaryPath: '/installed/codex-proxy'}];
         expect((await instances.getAssistantInstanceConfigs()).map(config => config.id)).toEqual(['explicit', 'later-wrapper']);
         expect((await instances.getAssistantInstanceConfigs(false)).map(config => config.id)).toEqual(['explicit', 'codex', 'claude']);
+    });
+    it('keeps the newer discovery when a superseded one finishes last', async () => {
+        const setup = (id: string): IAssistantInstanceConfig[] => [{id, driver: 'codex', displayName: id, enabled: true, binaryPath: `/installed/${id}`}];
+        let finishOlder!: (setups: IAssistantInstanceConfig[]) => void;
+        let finishNewer!: (setups: IAssistantInstanceConfig[]) => void;
+        state.discoveries = [
+            new Promise(resolve => { finishOlder = resolve; }),
+            new Promise(resolve => { finishNewer = resolve; }),
+        ];
+        let announcements = 0;
+        instances.onAssistantInstancesChanged(() => { announcements += 1; });
+        const older = instances.getAssistantInstanceConfigs();
+        await vi.waitFor(() => expect(state.discoveries).toHaveLength(1));
+        instances.refreshAssistantLocalSetups();
+        const newer = instances.getAssistantInstanceConfigs();
+        await vi.waitFor(() => expect(state.discoveries).toHaveLength(0));
+        finishNewer(setup('newer-wrapper'));
+        expect((await newer).map(config => config.id)).toEqual(['newer-wrapper']);
+        finishOlder(setup('older-wrapper'));
+        await older;
+        expect((await instances.getAssistantInstanceConfigs('known')).map(config => config.id)).toEqual(['newer-wrapper']);
+        expect(announcements).toBe(1);
     });
     it('reports an absent installed executable without creating an installer fallback', async () => {
         await save();

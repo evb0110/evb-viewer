@@ -1,15 +1,16 @@
 import {getAssistantShellEnvironment} from '@electron/features/agent/assistantShellEnvironment';
 import {stat} from 'node:fs/promises';
-import {spawn} from 'child_process';
 import {getErrorMessage} from '@electron/utils/error';
 import {resolveCodexProcessLaunch} from '@electron/features/agent/codexProcessLaunch';
 import {resolveInstalledAssistantExecutable} from '@electron/features/agent/assistantLocalSetups';
-import {createDetachedChildProcessSpawnOptions, terminateDetachedChildProcess} from '@electron/utils/nativeChildProcess';
+import {runNativeCommand} from '@electron/native-tools/runNativeCommand';
+import {NativeProcessError} from '@electron/native-tools/processResult';
+import {getUnprovenNativeTerminationDetail} from '@electron/utils/nativeTerminationProof';
 
 export const CODEX_APP_INSTALL_URL = 'https://developers.openai.com/codex/app';
 const MIN_CODEX_APP_SERVER_VERSION = '0.157.1';
 const CODEX_COMMAND_TIMEOUT_MS = 15_000;
-const CODEX_COMMAND_MAX_OUTPUT_CHARS = 256 * 1024;
+const CODEX_COMMAND_MAX_OUTPUT_BYTES = 256 * 1024;
 interface ICodexCliCommandResult {
     ok: boolean;
     stdout: string;
@@ -26,120 +27,47 @@ export interface ICodexCliInfo {
 export async function resolveCodexCliPath(env?: NodeJS.ProcessEnv) {
     return resolveInstalledAssistantExecutable('codex', env ?? await getAssistantShellEnvironment());
 }
-function runCommand(
-    command: string,
-    args: string[],
-    timeoutMs = CODEX_COMMAND_TIMEOUT_MS,
-    options: {
-        env?: NodeJS.ProcessEnv;
-        onStdout?: (chunk: string) => void;
-        onStderr?: (chunk: string) => void;
-    } = {},
-): Promise<ICodexCliCommandResult> {
-    const appendBoundedOutput = (existing: string, chunk: string) => {
-        if (existing.length >= CODEX_COMMAND_MAX_OUTPUT_CHARS) {
-            return existing;
-        }
-        return `${existing}${chunk}`.slice(0, CODEX_COMMAND_MAX_OUTPUT_CHARS);
+// Codex reports a failure, including a timeout or a launch that never ran, as a
+// result rather than an error, so callers can show what the command printed.
+export async function runCodexCli(codexPath: string, args: string[], options: {env?: NodeJS.ProcessEnv} = {}): Promise<ICodexCliCommandResult> {
+    const env = {
+        NO_COLOR: '1',
+        ...await getAssistantShellEnvironment(),
+        ...options.env,
     };
-    return new Promise((resolve) => {
-        let launch: ReturnType<typeof resolveCodexProcessLaunch>;
-        try {
-            launch = resolveCodexProcessLaunch(command, args);
-        } catch (error) {
-            resolve({
-                ok: false,
-                stdout: '',
-                stderr: getErrorMessage(error),
-                exitCode: null,
-            });
-            return;
-        }
-        const child = spawn(launch.command, launch.args, createDetachedChildProcessSpawnOptions({
-            env: {
-                NO_COLOR: '1',
-                ...options.env,
-            },
-            shell: launch.shell,
-            stdio: [
-                'pipe',
-                'pipe',
-                'pipe',
-            ],
-            windowsHide: true,
-        }));
-        const childStdout = child.stdout;
-        const childStderr = child.stderr;
-        let stdout = '';
-        let stderr = '';
-        let settled = false;
-        let timingOut = false;
-        const settleTimeout = (terminated: boolean) => {
-            if (settled) {
-                return;
-            }
-            settled = true;
-            resolve({
-                ok: false,
-                stdout,
-                stderr: stderr || (terminated
-                    ? 'Command timed out.'
-                    : 'Command timed out and its process tree did not terminate.'),
-                exitCode: null,
-            });
+    try {
+        const launch = resolveCodexProcessLaunch(codexPath, args);
+        const result = await runNativeCommand(launch.command, launch.args, {
+            env,
+            includeProcessEnv: false,
+            timeoutMs: CODEX_COMMAND_TIMEOUT_MS,
+            maxStdoutBytes: CODEX_COMMAND_MAX_OUTPUT_BYTES,
+            maxStderrBytes: CODEX_COMMAND_MAX_OUTPUT_BYTES,
+            rejectOnStdoutTruncation: false,
+            commandLabel: 'Codex',
+        });
+        return {
+            ok: true,
+            ...result,
         };
-        const timeout = setTimeout(() => {
-            if (settled || timingOut) {
-                return;
-            }
-            timingOut = true;
-            void terminateDetachedChildProcess(child, 1_000).then(
-                settleTimeout,
-                () => settleTimeout(false),
-            );
-        }, timeoutMs);
-
-        childStdout.setEncoding('utf8');
-        childStderr.setEncoding('utf8');
-        childStdout.on('data', (chunk: string) => {
-            stdout = appendBoundedOutput(stdout, chunk);
-            options.onStdout?.(chunk);
-        });
-        childStderr.on('data', (chunk: string) => {
-            stderr = appendBoundedOutput(stderr, chunk);
-            options.onStderr?.(chunk);
-        });
-        child.on('error', (error) => {
-            if (settled || timingOut) {
-                return;
-            }
-            clearTimeout(timeout);
-            settled = true;
-            resolve({
-                ok: false,
-                stdout,
-                stderr: getErrorMessage(error),
-                exitCode: null,
-            });
-        });
-        child.on('close', (exitCode) => {
-            if (settled || timingOut) {
-                return;
-            }
-            clearTimeout(timeout);
-            settled = true;
-            resolve({
-                ok: exitCode === 0,
-                stdout,
-                stderr,
-                exitCode,
-            });
-        });
-    });
-}
-
-export async function runCodexCli(codexPath: string, args: string[], options: {env?: NodeJS.ProcessEnv} = {}) {
-    return runCommand(codexPath, args, CODEX_COMMAND_TIMEOUT_MS, {env: {...await getAssistantShellEnvironment(), ...options.env}});
+    } catch (error) {
+        // A process that ran and failed returns what it printed; a timeout returns
+        // what it printed before the deadline followed by the runner's message;
+        // a launch failure returns the message.
+        const failed = error instanceof NativeProcessError ? error : null;
+        const captured = error as {stdout?: string; stderr?: string} | null | undefined;
+        const message = getErrorMessage(error);
+        const diagnostic = failed
+            ? failed.stderr
+            : captured?.stderr ? `${captured.stderr.trimEnd()}\n${message}` : message;
+        const unproven = getUnprovenNativeTerminationDetail(error);
+        return {
+            ok: false,
+            stdout: captured?.stdout ?? '',
+            stderr: unproven ? `${diagnostic}; ${unproven}` : diagnostic,
+            exitCode: failed?.exitCode ?? null,
+        };
+    }
 }
 function parseCodexVersion(stdout: string) {
     const match = stdout.match(/(?:codex-cli\s+)?(\d+\.\d+\.\d+)/u);
