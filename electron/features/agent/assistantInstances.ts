@@ -284,17 +284,22 @@ export async function getAssistantInstanceConfigs(discover: TDiscovery = true): 
 
 let discovered: Promise<IAssistantInstanceConfig[]> | null = null;
 let known: IAssistantInstanceConfig[] | undefined;
+/** Only the current discovery publishes: a superseded one neither replaces `known` nor clears its successor. */
 function localSetups() {
-    discovered ??= getAssistantShellEnvironment().then(discoverAssistantLocalSetups).then(setups => {
-        known = setups;
-        for (const listener of listeners) listener();
+    if (discovered) return discovered;
+    const pending: Promise<IAssistantInstanceConfig[]> = getAssistantShellEnvironment().then(discoverAssistantLocalSetups).then(setups => {
+        if (discovered === pending) {
+            known = setups;
+            for (const listener of listeners) listener();
+        }
         return setups;
     }, (error: unknown) => {
-        discovered = null;
+        if (discovered === pending) discovered = null;
         logger.warn(`Local assistant discovery failed: ${sanitizeAssistantProviderText(getErrorMessage(error))}`);
         return defaultAssistantLocalSetups();
     });
-    return discovered;
+    discovered = pending;
+    return pending;
 }
 export function refreshAssistantLocalSetups() { discovered = null; }
 
