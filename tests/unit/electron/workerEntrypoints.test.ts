@@ -45,10 +45,6 @@ const entrypoints = [
         () => import('@electron/features/page-ops/main/cropWorker'),
         'Invalid crop worker payload',
     ],
-    [
-        () => import('@electron/image/pdfCombineWorker'),
-        'No input files were provided',
-    ],
 ] as const;
 
 const startupMessages: unknown[][] = [];
@@ -56,7 +52,7 @@ const cancellationListeners: boolean[] = [];
 
 beforeAll(async () => {
     // Cold module loading is setup. Keep each entrypoint's result separately
-    // so an error from one worker cannot stand in for the other four.
+    // so an error from one worker cannot stand in for the other three.
     for (const [load] of entrypoints) {
         mocks.postMessage.mockClear();
         mocks.on.mockClear();
@@ -85,7 +81,6 @@ describe('Node worker entrypoints', () => {
             true,
             true,
             true,
-            false,
         ]);
     });
 });

@@ -283,15 +283,12 @@ async function validateNativePdfOutput<T>(
     );
 }
 
-async function readValidatedNativePdfOutput(
-    outputPath: string,
-    maxOutputBytes = NATIVE_PDF_IMAGE_COMBINE_MAX_OUTPUT_BYTES,
-) {
+async function readValidatedNativePdfOutput(outputPath: string) {
     return validateNativePdfOutput(
         outputPath,
         readNativePdfOutputAfterSizeCheck,
         null,
-        maxOutputBytes,
+        NATIVE_PDF_IMAGE_COMBINE_MAX_OUTPUT_BYTES,
         true,
     );
 }
@@ -376,23 +373,6 @@ async function withNativePdfImageCombineTempFiles<T>(
             await cleanupTempDir().catch(() => undefined);
         }
     }
-}
-
-export async function tryCreatePdfWithNativeImageCombiner(
-    inputPaths: string[],
-    options?: INativePdfImageCombineOptions,
-): Promise<Uint8Array | null> {
-    if (!canUseNativePdfImageCombine(inputPaths, SUPPORTED_NATIVE_BITMAP_EXTENSIONS)) {
-        return null;
-    }
-    const rotationDegrees = await readInputRotationDegrees(inputPaths, options?.signal);
-    if (rotationDegrees === null) {
-        return null;
-    }
-    return createPdfWithNativeImageCombiner(inputPaths, {
-        ...options,
-        rotationDegrees,
-    });
 }
 
 export async function tryWritePdfWithNativeImageCombiner(
@@ -503,8 +483,8 @@ export async function tryBuildOptimizedPdfWithNativeImageCombiner(
 
 async function createPdfWithNativeImageCombiner(
     inputPaths: string[],
-    options?: INativePdfImageCombineOptions,
-    extraArgs: string[] = [],
+    options: Pick<INativePdfImageCombineOptions, 'onProgress' | 'signal'>,
+    extraArgs: string[],
 ) {
     const binaryPath = resolveNativePdfImageCombinePath();
     if (!binaryPath) {
@@ -519,20 +499,14 @@ async function createPdfWithNativeImageCombiner(
         return null;
     }
 
-    return withNativePdfImageCombineTempFiles(inputPaths, options?.rotationDegrees, async ({
+    return withNativePdfImageCombineTempFiles(inputPaths, undefined, async ({
         tempDir,
         inputsPath,
         rotationsPath,
         retainCleanupUntilTerminationProof,
     }) => {
         const outputPath = join(tempDir, `${randomUUID()}.pdf`);
-        const memoryOptions = options?.outputMode === undefined
-            ? options
-            : {
-                ...options,
-                outputMode: 'memory' as const,
-            };
-        const ok = await runNativePdfImageCombine(binaryPath, outputPath, [], memoryOptions, [
+        const ok = await runNativePdfImageCombine(binaryPath, outputPath, [], options, [
             ...extraArgs,
             '--inputs-file',
             inputsPath,
@@ -542,10 +516,7 @@ async function createPdfWithNativeImageCombiner(
         if (!ok) {
             return null;
         }
-        return readValidatedNativePdfOutput(
-            outputPath,
-            normalizeOutputLimit(options?.maxOutputBytes),
-        );
+        return readValidatedNativePdfOutput(outputPath);
     });
 }
 
