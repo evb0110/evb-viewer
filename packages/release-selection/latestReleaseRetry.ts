@@ -1,3 +1,5 @@
+import {waitForBoundedOperation} from '../node-runtime/waitForBoundedOperation';
+
 interface IHeadersLike {get: (name: string) => string | null}
 interface ITaggedRelease {tag_name: string}
 
@@ -104,35 +106,6 @@ function createDeadlineError() {
     return error;
 }
 
-async function runWithinDeadline<T>(
-    operation: (signal: AbortSignal) => Promise<T>,
-    timeoutMs: number,
-): Promise<T> {
-    if (timeoutMs <= 0) {
-        throw createDeadlineError();
-    }
-
-    const controller = new AbortController();
-    let timeoutId: ReturnType<typeof setTimeout> | undefined;
-    const deadline = new Promise<never>((_, reject) => {
-        timeoutId = setTimeout(() => {
-            controller.abort();
-            reject(createDeadlineError());
-        }, timeoutMs);
-    });
-
-    try {
-        return await Promise.race([
-            operation(controller.signal),
-            deadline,
-        ]);
-    } finally {
-        if (timeoutId !== undefined) {
-            clearTimeout(timeoutId);
-        }
-    }
-}
-
 function jitterDelay(delayMs: number, random: () => number) {
     const normalizedRandom = Math.min(1, Math.max(0, random()));
     return Math.round(delayMs * (0.75 + normalizedRandom * 0.5));
@@ -151,7 +124,13 @@ export async function fetchReleaseDataWithRetry<TResult>(
     for (let attempt = 0; attempt <= retryCount; attempt += 1) {
         try {
             const remainingMs = totalTimeoutMs - (Date.now() - startedAt);
-            const result = await runWithinDeadline(options.fetchResult, remainingMs);
+            if (remainingMs <= 0) {
+                throw createDeadlineError();
+            }
+            const result = await waitForBoundedOperation(options.fetchResult, {
+                timeoutMs: remainingMs,
+                timeoutError: createDeadlineError,
+            });
             if (!options.shouldRetryResult?.(result) || attempt === retryCount) {
                 return result;
             }

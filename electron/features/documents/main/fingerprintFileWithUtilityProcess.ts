@@ -14,6 +14,7 @@ import {DOCUMENT_FINGERPRINT_SERVICE_NAME} from '@electron/processDeathRecovery'
 import {terminateProcessTree} from '@electron/utils/processTree';
 import {markUnprovenNativeTermination} from '@electron/utils/nativeTerminationProof';
 import type {IJobBrokerLease} from '@electron/resources/jobBroker';
+import {waitForBoundedOperation} from '@node-runtime/waitForBoundedOperation';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ADMISSION_TIMEOUT_MS = 15_000;
@@ -120,13 +121,11 @@ export async function runDocumentSaveUtilityProcess(options: {
             if (spawned || childExited) {
                 return spawned;
             }
-            await Promise.race([
-                spawnState,
-                new Promise<void>(resolve => {
-                    const timer = setTimeout(resolve, 2_500);
-                    timer.unref();
-                }),
-            ]);
+            await waitForBoundedOperation(spawnState, {
+                timeoutMs: 2_500,
+                timeoutResult: undefined,
+                unref: true,
+            });
             return spawned;
         };
         let terminationInFlight: Promise<boolean> | null = null;

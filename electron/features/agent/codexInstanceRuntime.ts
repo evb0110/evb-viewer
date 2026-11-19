@@ -25,6 +25,7 @@ import type {IAssistantLaunchContext} from '@electron/features/agent/assistantIn
 import {te} from '@electron/te';
 import {createLogger} from '@electron/utils/createLogger';
 import {getErrorMessage} from '@electron/utils/error';
+import {waitForBoundedOperation} from '@node-runtime/waitForBoundedOperation';
 
 const logger = createLogger('assistant-codex');
 const CODEX_CONTROL_TIMEOUT_MS = 10_000;
@@ -55,23 +56,6 @@ export interface ICodexTurnInput {
 
 function decodeRecord(value: unknown) {
     return isRecord(value) ? value : null;
-}
-
-function withDeadline<T>(promise: Promise<T>, timeoutMs: number, message: string, onTimeout: () => void) {
-    let timer: ReturnType<typeof setTimeout> | null = null;
-    return Promise.race([
-        promise,
-        new Promise<never>((_resolve, reject) => {
-            timer = setTimeout(() => {
-                onTimeout();
-                reject(new Error(message));
-            }, timeoutMs);
-        }),
-    ]).finally(() => {
-        if (timer) {
-            clearTimeout(timer);
-        }
-    });
 }
 
 function readAuth(response: Record<string, unknown>) {
@@ -211,15 +195,14 @@ export class CodexInstanceRuntime {
             return result;
         })();
         try {
-            return await withDeadline(
-                work,
-                budgetMs,
-                te('dialogs.agentAssistant.statusTimeout', {
+            return await waitForBoundedOperation(work, {
+                timeoutMs: budgetMs,
+                timeoutError: () => new Error(te('dialogs.agentAssistant.statusTimeout', {
                     provider: 'Codex',
                     seconds: CODEX_PROBE_BUDGET_MS / 1000,
-                }),
-                () => void this.stop(client),
-            );
+                })),
+                onTimeout: () => void this.stop(client),
+            });
         } finally {
             await this.stop(client);
         }

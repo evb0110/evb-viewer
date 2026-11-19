@@ -57,7 +57,7 @@ for (const [source, allowed] of [
     ['packages/agent-core', ['agent-core', 'contracts']],
     ['packages/i18n-core', ['i18n-core']],
     ['packages/i18n-app', ['i18n-app', 'i18n-core']],
-    ['packages/release-selection', ['release-selection', 'contracts']],
+    ['packages/release-selection', ['release-selection', 'contracts', 'node-runtime/waitForBoundedOperation.ts']],
     ['packages/electron-worker-bundles', ['electron-worker-bundles']],
     ['packages/scan-cleanup', ['scan-cleanup', 'contracts']],
     ['packages/chrome-extension', ['chrome-extension', 'contracts']],

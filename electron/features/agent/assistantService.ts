@@ -63,7 +63,7 @@ import {
 import {normalizeOutgoingMessageRequest} from '@electron/features/agent/assistantOutgoingMessage';
 import {resolveAssistantPresetInstructions} from '@electron/features/agent/assistantPresetWorkflows';
 import type {IAssistantSessionScopeBinding} from '@electron/features/agent/assistantMcpSessionScope';
-import {waitForBoundedAssistantInterrupt} from '@electron/features/agent/waitForBoundedAssistantInterrupt';
+import {waitForBoundedOperation} from '@node-runtime/waitForBoundedOperation';
 import {isCodexAppServerRequestTimeoutError} from '@electron/features/agent/codexAppServerClient';
 import {
     ASSISTANT_MCP_SERVER_NAME,
@@ -1188,8 +1188,6 @@ function errorResult(state: IAssistantState, message: unknown): IAssistantOperat
     };
 }
 
-const INTERRUPT_TIMEOUT_MS = 12_000;
-
 /**
  * Stops the session's running turn and returns once it has ended, so a late
  * completion of the old turn cannot end the next one. A provider that does
@@ -1222,10 +1220,10 @@ async function interruptActiveTurn(session: IChatSession) {
         : claude?.interrupt();
     try {
         // One deadline for the request and the provider's terminal event.
-        await waitForBoundedAssistantInterrupt(Promise.all([
+        await waitForBoundedOperation(Promise.all([
             request,
             settled,
-        ]), INTERRUPT_TIMEOUT_MS);
+        ]), {timeoutMs: 12_000, timeoutError: () => new Error('Assistant interrupt timed out.')});
     } catch (error) {
         if (!stillOwns()) {
             return;

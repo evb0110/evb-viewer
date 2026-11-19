@@ -33,7 +33,7 @@ import {
     isRecord,
 } from '@contracts/runtimeGuards';
 import { createClaudeContextUnavailableError } from '@electron/features/agent/createClaudeContextUnavailableError';
-import { waitForBoundedAssistantInterrupt } from '@electron/features/agent/waitForBoundedAssistantInterrupt';
+import {waitForBoundedOperation} from '@node-runtime/waitForBoundedOperation';
 import {
     ASSISTANT_IMAGE_ONLY_PROMPT,
     ASSISTANT_MCP_TOOLS,
@@ -104,6 +104,14 @@ export interface IClaudeAgentAssistantSessionOptions {
 
 const CLAUDE_METADATA_TIMEOUT_MS = 15_000;
 const CLAUDE_CONTROL_TIMEOUT_MS = 10_000;
+const CLAUDE_INTERRUPT_TIMEOUT_MS = 5_000;
+
+function waitForClaudeInterrupt(operation: Promise<unknown>) {
+    return waitForBoundedOperation(operation, {
+        timeoutMs: CLAUDE_INTERRUPT_TIMEOUT_MS,
+        timeoutError: () => new Error('Assistant interrupt timed out.'),
+    });
+}
 
 /**
  * Whether a Claude session transcript exists in this instance's config
@@ -295,30 +303,21 @@ export async function discoverClaudeAssistantModels(
             permissionMode: 'dontAsk',
         },
     });
-    let timer: ReturnType<typeof setTimeout> | null = null;
     try {
         // Adapted from T3 Code ClaudeProvider.ts (0b6f482dc5), MIT:
         // initializationResult uses a never-yielding prompt, with no inference.
-        const initialization = await Promise.race([
-            metadata.initializationResult(),
-            new Promise<never>((_resolve, reject) => {
-                timer = setTimeout(
-                    () => reject(new Error(te('dialogs.agentAssistant.statusTimeout', {
-                        provider: 'Claude',
-                        seconds: CLAUDE_METADATA_TIMEOUT_MS / 1000,
-                    }))),
-                    budgetMs,
-                );
-            }),
-        ]);
+        const initialization = await waitForBoundedOperation(metadata.initializationResult(), {
+            timeoutMs: budgetMs,
+            timeoutError: () => new Error(te('dialogs.agentAssistant.statusTimeout', {
+                provider: 'Claude',
+                seconds: CLAUDE_METADATA_TIMEOUT_MS / 1000,
+            })),
+        });
         return {
             models: normalizeClaudeSdkModelList(initialization.models),
             account: initialization.account ?? null,
         };
     } finally {
-        if (timer) {
-            clearTimeout(timer);
-        }
         prompts.close();
         metadata.close();
     }
@@ -542,7 +541,7 @@ export class ClaudeAgentAssistantSession {
     }
 
     async retire(reason: string) {
-        await waitForBoundedAssistantInterrupt(this.close()).catch((error: unknown) => {
+        await waitForClaudeInterrupt(this.close()).catch((error: unknown) => {
             logger.warn(`Failed to close Claude assistant session ${reason}: ${sanitizeAssistantProviderText(getErrorMessage(error))}`);
         });
         return !this.isRetiring;
@@ -600,7 +599,7 @@ export class ClaudeAgentAssistantSession {
         const retirement = (async () => {
             try {
                 // The SDK's interrupt request has no deadline of its own.
-                await waitForBoundedAssistantInterrupt(queryToRetire.interrupt());
+                await waitForClaudeInterrupt(queryToRetire.interrupt());
             } catch (error) {
                 logger.warn(`Failed to interrupt Claude assistant turn: ${sanitizeAssistantProviderText(getErrorMessage(error))}`);
             } finally {
@@ -609,7 +608,7 @@ export class ClaudeAgentAssistantSession {
                 } catch (error) {
                     logger.warn(`Failed to close retired Claude assistant query: ${sanitizeAssistantProviderText(getErrorMessage(error))}`);
                 }
-                await waitForBoundedAssistantInterrupt(streamToRetire ?? Promise.resolve()).catch((error: unknown) => {
+                await waitForClaudeInterrupt(streamToRetire ?? Promise.resolve()).catch((error: unknown) => {
                     logger.warn(`Retired Claude assistant stream did not end: ${sanitizeAssistantProviderText(getErrorMessage(error))}`);
                 });
                 this.options.callbacks.onTurnCompleted(turnId);
@@ -756,19 +755,10 @@ export class ClaudeAgentAssistantSession {
 
         if (this.query) {
             // The SDK's control request has no deadline of its own; a send must not wait forever.
-            let timer: ReturnType<typeof setTimeout> | null = null;
-            try {
-                await Promise.race([
-                    this.query.setModel(normalized),
-                    new Promise<never>((_resolve, reject) => {
-                        timer = setTimeout(() => reject(new Error(te('dialogs.agentAssistant.claudeModelChangeTimeout', {seconds: CLAUDE_CONTROL_TIMEOUT_MS / 1000}))), CLAUDE_CONTROL_TIMEOUT_MS);
-                    }),
-                ]);
-            } finally {
-                if (timer) {
-                    clearTimeout(timer);
-                }
-            }
+            await waitForBoundedOperation(this.query.setModel(normalized), {
+                timeoutMs: CLAUDE_CONTROL_TIMEOUT_MS,
+                timeoutError: () => new Error(te('dialogs.agentAssistant.claudeModelChangeTimeout', {seconds: CLAUDE_CONTROL_TIMEOUT_MS / 1000})),
+            });
         }
         this.currentModel = normalized;
     }
