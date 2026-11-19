@@ -14,42 +14,16 @@ import {
 import {join} from 'path';
 import { createRequire } from 'node:module';
 import { readTiffFrameDimensions } from '@pdf-core/iterateDecodedTiffFrames';
-import { getUnprovenNativeTerminationDetail } from '@electron/utils/nativeTerminationProof';
-import { tryCreatePdfWithNativeImageCombiner } from '@electron/image/tryCreatePdfWithNativeImageCombiner';
-import { tryCreatePdfFromInputPathsNative } from '@electron/image/tryCreatePdfFromInputPathsNative';
-import { PdfCombineCapabilityError } from '@contracts/pdfCombineErrors';
 import type { IImageDimensions } from '@electron/image/imageDimensions';
-import {
-    createPdfCombineOutputTooLargeError,
-    PDF_COMBINE_MAX_OUTPUT_BYTES,
-} from '@contracts/pdfCombineOutputPolicy';
 export {
     isImagePath, PDF_COMBINE_SUPPORTED_IMAGE_EXTENSIONS,
 } from '@electron/utils/documentFileTypes';
 
-export interface ICreateCombinedPdfProgress {
-    processed: number;
-    total: number;
-    percent: number;
-    elapsedMs: number;
-    estimatedRemainingMs: number | null;
-}
-
-interface ICreateCombinedPdfOptions {
-    onProgress?: (progress: ICreateCombinedPdfProgress) => void;
-    unsupportedFileError: (sourcePath: string) => string;
-    signal?: AbortSignal;
-}
-
 interface IPdfCombineResourceLimits {
     maxInputBytes: number;
-    maxPages: number;
     maxTiffFrames: number;
     maxImagePixels: number;
-    maxOutputBytes: number;
 }
-
-interface IStageNativeCombineInputsOptions {resourceMode?: 'memory' | 'file-backed';}
 
 interface IImageDecoderModule {
     createCanvas: (width: number, height: number) => {
@@ -64,12 +38,10 @@ interface IImageDecoderBitmap {
     width: number;
 }
 
-const DEFAULT_RESOURCE_LIMITS: IPdfCombineResourceLimits = {
+const RESOURCE_LIMITS: IPdfCombineResourceLimits = {
     maxInputBytes: 512 * 1024 * 1024,
-    maxPages: 500,
     maxTiffFrames: 250,
     maxImagePixels: 80_000_000,
-    maxOutputBytes: PDF_COMBINE_MAX_OUTPUT_BYTES,
 };
 const PNG_SIGNATURE = [
     0x89,
@@ -98,33 +70,12 @@ function loadImageDecoderModule() {
     }
 }
 
-function getResourceLimits(resourceMode: IStageNativeCombineInputsOptions['resourceMode'] = 'memory') {
-    return resourceMode === 'file-backed'
-        ? {
-            ...DEFAULT_RESOURCE_LIMITS,
-            maxPages: Number.MAX_SAFE_INTEGER,
-        }
-        : { ...DEFAULT_RESOURCE_LIMITS };
-}
-
-function assertPageLimit(nextPageCount: number, limits: IPdfCombineResourceLimits) {
-    if (nextPageCount > limits.maxPages) {
-        throw new Error(`Combined PDF is capped at ${limits.maxPages} pages`);
-    }
-}
-
 function assertPixelLimit(width: number, height: number, sourcePath: string, limits: IPdfCombineResourceLimits) {
     if (!Number.isFinite(width) || !Number.isFinite(height) || width < 1 || height < 1) {
         throw new Error(`Image has invalid dimensions: ${sourcePath}`);
     }
     if (width > limits.maxImagePixels / height) {
         throw new Error(`Image dimensions are too large to combine safely: ${sourcePath}`);
-    }
-}
-
-function assertOutputLimit(outputBytes: Uint8Array, limits: IPdfCombineResourceLimits) {
-    if (outputBytes.byteLength > limits.maxOutputBytes) {
-        throw createPdfCombineOutputTooLargeError();
     }
 }
 
@@ -428,11 +379,6 @@ async function normalizeImageWithElectron(sourcePath: string) {
     }
 }
 
-function normalizeCombineInputPaths(inputPaths: string[]): string[] {
-    return inputPaths
-        .filter((path) => path.length > 0);
-}
-
 function throwIfAborted(signal: AbortSignal | undefined) {
     if (signal?.aborted) {
         throw signal.reason instanceof Error
@@ -443,7 +389,6 @@ function throwIfAborted(signal: AbortSignal | undefined) {
 
 async function preflightImageInput(
     sourcePath: string,
-    currentPageCount: number,
     limits: IPdfCombineResourceLimits,
     signal?: AbortSignal,
 ) {
@@ -472,14 +417,13 @@ async function preflightImageInput(
         frames.forEach(({
             width,
             height,
-        }, index) => {
-            assertPageLimit(currentPageCount + index + 1, limits);
+        }) => {
             assertPixelLimit(width, height, sourcePath, limits);
         });
         if (frames.length === 0) {
             throw new Error(`No decodable TIFF pages found in ${sourcePath}`);
         }
-        return frames.length;
+        return;
     }
 
     assertKnownBitmapPixelLimit(
@@ -488,17 +432,13 @@ async function preflightImageInput(
         sourcePath,
         limits,
     );
-    assertPageLimit(currentPageCount + 1, limits);
-    return 1;
 }
 
 async function preflightCombineInputs(
     inputPaths: string[],
     limits: IPdfCombineResourceLimits,
     signal?: AbortSignal,
-    unsupportedFileError?: (sourcePath: string) => string,
 ) {
-    let imagePageCount = 0;
     for (const sourcePath of inputPaths) {
         throwIfAborted(signal);
         const extension = getInputFileExtension(sourcePath);
@@ -507,14 +447,9 @@ async function preflightCombineInputs(
             continue;
         }
         if (!isImagePath(sourcePath)) {
-            throw new Error(unsupportedFileError?.(sourcePath) ?? `Unsupported file type: ${sourcePath}`);
+            throw new Error(`Unsupported file type: ${sourcePath}`);
         }
-        imagePageCount += await preflightImageInput(
-            sourcePath,
-            imagePageCount,
-            limits,
-            signal,
-        );
+        await preflightImageInput(sourcePath, limits, signal);
     }
 }
 
@@ -526,17 +461,8 @@ function needsElectronImageNormalization(sourcePath: string) {
 export async function stageNativeCombineInputs(
     inputPaths: string[],
     signal?: AbortSignal,
-    unsupportedFileError?: (sourcePath: string) => string,
-    options?: IStageNativeCombineInputsOptions,
 ) {
-    const limits = getResourceLimits(options?.resourceMode);
-    assertPageLimit(inputPaths.length, limits);
-    await preflightCombineInputs(
-        inputPaths,
-        limits,
-        signal,
-        unsupportedFileError,
-    );
+    await preflightCombineInputs(inputPaths, RESOURCE_LIMITS, signal);
 
     if (!inputPaths.some(needsElectronImageNormalization)) {
         return {
@@ -574,75 +500,4 @@ export async function stageNativeCombineInputs(
             await removeManagedScratchTempDir(tempDir, 'pdfExport-scope-', scratchRoot).catch(() => undefined);
         },
     };
-}
-
-function createNativeCombineDeclinedError() {
-    return new PdfCombineCapabilityError(
-        'native-failure',
-        'Native PDF combine did not produce an output file',
-        {operation: 'pdf-combine'},
-    );
-}
-
-export async function createCombinedPdf(
-    inputPaths: string[],
-    options: ICreateCombinedPdfOptions,
-) {
-    const normalizedPaths = normalizeCombineInputPaths(inputPaths);
-    if (normalizedPaths.length === 0) {
-        throw new Error('No input files were provided');
-    }
-
-    const limits = getResourceLimits();
-    assertPageLimit(normalizedPaths.length, limits);
-
-    throwIfAborted(options.signal);
-    const staged = await stageNativeCombineInputs(
-        normalizedPaths,
-        options.signal,
-        options.unsupportedFileError,
-    );
-    let retainStagedInputs = false;
-    try {
-        const nativeOptions = {
-            maxPages: limits.maxPages,
-            maxInputBytes: limits.maxInputBytes,
-            maxOutputBytes: limits.maxOutputBytes,
-            ...(options.onProgress ? {onProgress: options.onProgress} : {}),
-            ...(options.signal ? {signal: options.signal} : {}),
-            onTerminationProof: (proof: Promise<boolean>) => {
-                retainStagedInputs = true;
-                void proof.then(proven => {
-                    if (proven) {
-                        void staged.cleanup();
-                    }
-                });
-            },
-        };
-        const hasDocumentInput = normalizedPaths.some((sourcePath) => {
-            const extension = getInputFileExtension(sourcePath);
-            return extension === '.pdf' || isDjvuPath(sourcePath);
-        });
-        const nativeOutput = hasDocumentInput
-            ? await tryCreatePdfFromInputPathsNative(staged.inputPaths, {
-                ...nativeOptions,
-                failureMode: 'capability-error',
-            })
-            : await tryCreatePdfWithNativeImageCombiner(staged.inputPaths, nativeOptions);
-        if (!nativeOutput) {
-            throw createNativeCombineDeclinedError();
-        }
-        throwIfAborted(options.signal);
-        assertOutputLimit(nativeOutput, limits);
-        return nativeOutput;
-    } catch (error) {
-        if (getUnprovenNativeTerminationDetail(error) !== undefined) {
-            retainStagedInputs = true;
-        }
-        throw error;
-    } finally {
-        if (!retainStagedInputs) {
-            await staged.cleanup();
-        }
-    }
 }
