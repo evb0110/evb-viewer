@@ -6,7 +6,6 @@ import {
     it,
     vi,
 } from 'vitest';
-import type * as NodeChildProcess from 'node:child_process';
 import type * as NodeFs from 'fs';
 import {
     chmod,
@@ -25,19 +24,26 @@ import {
 } from 'node:path';
 import {tmpdir} from 'node:os';
 import type * as NodeFsPromises from 'fs/promises';
-import { FakeAssistantAppServerProcess } from '@tests/unit/electron/helpers/fakeAssistantAppServerProcess';
+import type * as NativeCommand from '@electron/native-tools/runNativeCommand';
+import { markUnprovenNativeTermination } from '@electron/utils/nativeTerminationProof';
 
 const mocks = vi.hoisted(() => ({
-    spawn: vi.fn(),
-    terminateDetachedChildProcess: vi.fn(),
+    runNativeCommand: vi.fn<typeof NativeCommand.runNativeCommand>(),
     existsSync: vi.fn<typeof NodeFs.existsSync>(() => true),
     access: vi.fn<typeof NodeFsPromises.access>(async () => undefined),
     stat: vi.fn<typeof NodeFsPromises.stat>(),
     userData: '/tmp/evb-codex-test',
 }));
 
-vi.mock('@electron/features/agent/assistantShellEnvironment', () => ({getAssistantShellEnvironment: async () => ({...process.env, PATH: process.env.PATH})}));
-vi.mock('child_process', () => ({spawn: mocks.spawn}));
+vi.mock('@electron/features/agent/assistantShellEnvironment', () => ({
+    getAssistantShellEnvironment: async () => ({
+        HOME: process.env.HOME,
+        USERPROFILE: process.env.USERPROFILE,
+        PATH: process.env.PATH,
+        CODEX_CLI_PATH: process.env.CODEX_CLI_PATH,
+    }),
+}));
+vi.mock('@electron/native-tools/runNativeCommand', () => ({runNativeCommand: mocks.runNativeCommand}));
 vi.mock('fs', async importOriginal => ({
     ...(await importOriginal<typeof NodeFs>()),
     existsSync: mocks.existsSync,
@@ -48,90 +54,105 @@ vi.mock('fs/promises', async importOriginal => ({
     stat: mocks.stat,
 }));
 vi.mock('electron', () => ({app: {getPath: () => mocks.userData}}));
-vi.mock('@electron/utils/nativeChildProcess', () => ({
-    createDetachedChildProcessSpawnOptions: (options: Record<string, unknown>) => ({
-        ...options,
-        detached: true,
-    }),
-    terminateDetachedChildProcess: (...args: unknown[]) => mocks.terminateDetachedChildProcess(...args),
-}));
+describe('Codex CLI command results', () => {
+    let sandbox: string;
+    let runCodexCli: typeof import('@electron/features/agent/codexCli').runCodexCli;
 
-describe('Codex CLI timeout cleanup', () => {
-    beforeEach(() => {
-        vi.useFakeTimers();
-        vi.resetModules();
-        vi.clearAllMocks();
-        mocks.existsSync.mockReturnValue(true);
-        mocks.access.mockResolvedValue(undefined);
+    beforeEach(async () => {
+        sandbox = await mkdtemp(join(tmpdir(), 'evb-codex-command-'));
+        vi.stubEnv('HOME', sandbox);
+        vi.stubEnv('USERPROFILE', sandbox);
+        vi.stubEnv('PATH', sandbox);
+        const nativeCommand = await vi.importActual<typeof NativeCommand>('@electron/native-tools/runNativeCommand');
+        mocks.runNativeCommand.mockReset().mockImplementation(nativeCommand.runNativeCommand);
+        ({runCodexCli} = await import('@electron/features/agent/codexCli'));
     });
 
-    afterEach(() => {
-        vi.useRealTimers();
+    afterEach(async () => {
+        vi.unstubAllEnvs();
+        await rm(sandbox, {recursive: true, force: true});
     });
 
-    it('does not settle a timeout until the detached process tree is terminated', async () => {
-        const process = new FakeAssistantAppServerProcess(() => true);
-        let finishTermination!: (terminated: boolean) => void;
-        mocks.spawn.mockReturnValue(process);
-        mocks.terminateDetachedChildProcess.mockReturnValue(new Promise<boolean>(resolve => {
-            finishTermination = resolve;
-        }));
-        const {runCodexCli} = await import('@electron/features/agent/codexCli');
-        let settled = false;
-        const resultPromise = runCodexCli('/usr/bin/codex', ['--version']).then((result) => {
-            settled = true;
-            return result;
+    it('returns both streams and exit status for a successful command', async () => {
+        await expect(runCodexCli(process.execPath, [
+            '--eval',
+            'console.log("codex-cli 0.157.1"); console.error("fixture warning");',
+        ])).resolves.toEqual({
+            ok: true,
+            stdout: 'codex-cli 0.157.1\n',
+            stderr: 'fixture warning\n',
+            exitCode: 0,
         });
+    });
 
-        await vi.advanceTimersByTimeAsync(15_000);
-
-        expect(mocks.terminateDetachedChildProcess).toHaveBeenCalledWith(process, 1_000);
-        expect(settled).toBe(false);
-
-        finishTermination(true);
-        await expect(resultPromise).resolves.toMatchObject({
+    it('returns the failed exit code with everything the command printed', async () => {
+        const stdout = 'fixture stdout detail\n';
+        const stderr = `${'fixture diagnostic. '.repeat(70)}\nRemediation: run fixture repair.\n`;
+        expect(stderr.length).toBeGreaterThan(1_200);
+        await expect(runCodexCli(process.execPath, [
+            '--eval',
+            `process.stdout.write(${JSON.stringify(stdout)}); process.stderr.write(${JSON.stringify(stderr)}); process.exitCode = 7;`,
+        ])).resolves.toEqual({
             ok: false,
-            stderr: 'Command timed out.',
+            stdout,
+            stderr,
+            exitCode: 7,
         });
     });
 
-    it('requests piped output from the spawned process', async () => {
-        const process = new FakeAssistantAppServerProcess(() => true);
-        mocks.spawn.mockReturnValue(process);
-        const {runCodexCli} = await import('@electron/features/agent/codexCli');
-
-        mocks.spawn.mockImplementationOnce(() => {
-            queueMicrotask(() => process.emit('close', 1));
-            return process;
-        });
-        const resultPromise = runCodexCli('/usr/bin/codex', ['--version']);
-        await expect(resultPromise).resolves.toMatchObject({
+    it('reports a missing executable as a failed result', async () => {
+        await expect(runCodexCli(join(sandbox, 'missing-codex'), [])).resolves.toEqual({
             ok: false,
-            exitCode: 1,
+            stdout: '',
+            stderr: expect.stringContaining('ENOENT'),
+            exitCode: null,
         });
-        expect(mocks.spawn).toHaveBeenCalledWith(
-            '/usr/bin/codex',
-            ['--version'],
-            expect.objectContaining({stdio: [
-                'pipe',
-                'pipe',
-                'pipe',
-            ]}),
-        );
     });
 
-    it('reports when timeout cleanup cannot confirm process-tree termination', async () => {
-        const process = new FakeAssistantAppServerProcess(() => true);
-        mocks.spawn.mockReturnValue(process);
-        mocks.terminateDetachedChildProcess.mockResolvedValue(false);
-        const {runCodexCli} = await import('@electron/features/agent/codexCli');
-        const resultPromise = runCodexCli('/usr/bin/codex', ['--version']);
+    it('keeps the tail of each oversized stream within a 256 KiB byte cap', async () => {
+        const result = await runCodexCli(process.execPath, [
+            '--eval',
+            'const text = "head" + "é".repeat(160 * 1024) + "tail"; process.stdout.write(text); process.stderr.write(text);',
+        ]);
+        expect(result).toMatchObject({
+            ok: true,
+            exitCode: 0,
+        });
+        for (const stream of [result.stdout, result.stderr]) {
+            expect(Buffer.byteLength(stream)).toBeLessThanOrEqual(256 * 1024);
+            expect(stream.startsWith('head')).toBe(false);
+            expect(stream.endsWith('étail')).toBe(true);
+        }
+    });
 
-        await vi.advanceTimersByTimeAsync(15_000);
-
-        await expect(resultPromise).resolves.toMatchObject({
+    it('returns what a hung command printed before its timeout with the timeout text', async () => {
+        // The real runner with a shortened deadline, so the hang does not take 15 s.
+        const nativeCommand = await vi.importActual<typeof NativeCommand>('@electron/native-tools/runNativeCommand');
+        mocks.runNativeCommand.mockImplementationOnce((command, args, options) => (
+            nativeCommand.runNativeCommand(command, args, {...options, timeoutMs: 1_000})
+        ));
+        await expect(runCodexCli(process.execPath, [
+            '--eval',
+            'process.stdout.write("partial stdout\\n"); process.stderr.write("partial stderr\\n"); setInterval(() => {}, 1_000);',
+        ])).resolves.toEqual({
             ok: false,
-            stderr: 'Command timed out and its process tree did not terminate.',
+            stdout: 'partial stdout\n',
+            stderr: 'partial stderr\nCodex timed out after 1000ms',
+            exitCode: null,
+        });
+    });
+
+    it.each([false, true])('reports timeout with unproven termination = %s', async (unproven) => {
+        const timeout = new Error('Codex timed out after 15000ms');
+        const detail = 'process-tree termination could not be proven';
+        mocks.runNativeCommand.mockRejectedValueOnce(unproven ? markUnprovenNativeTermination(timeout, detail) : timeout);
+        await expect(runCodexCli(process.execPath, ['--version'])).resolves.toEqual({
+            ok: false,
+            stdout: '',
+            stderr: unproven
+                ? 'Codex timed out after 15000ms; process-tree termination could not be proven'
+                : 'Codex timed out after 15000ms',
+            exitCode: null,
         });
     });
 });
@@ -162,22 +183,22 @@ describe('Codex installation metadata freshness', () => {
         mocks.userData = fixtureDir;
         const fs = await vi.importActual<typeof NodeFs>('fs');
         const fsPromises = await vi.importActual<typeof NodeFsPromises>('fs/promises');
-        const childProcess = await vi.importActual<typeof NodeChildProcess>('node:child_process');
         mocks.existsSync.mockImplementation(path => typeof path === 'string' && path.startsWith(fixtureDir) && fs.existsSync(path));
         mocks.access.mockImplementation(fsPromises.access);
         mocks.stat.mockImplementation(fsPromises.stat);
         // Run the version-only Node fixture portably, including on Windows.
-        mocks.spawn.mockImplementation((command, args, options) => childProcess.spawn(
-            process.execPath,
-            [
+        const nativeCommand = await vi.importActual<typeof NativeCommand>('@electron/native-tools/runNativeCommand');
+        mocks.runNativeCommand.mockReset().mockImplementation(async (command, args, options) => {
+            const script = /powershell\.exe$/iu.test(command) ? args[args.indexOf('-File') + 1]! : command;
+            return nativeCommand.runNativeCommand(process.execPath, [
                 '--eval',
-                fs.readFileSync(/powershell\.exe$/iu.test(command)
-                    ? args[args.indexOf('-File') + 1]!
-                    : command, 'utf8'),
+                await fsPromises.readFile(script, 'utf8'),
                 '--',
-            ],
-            options,
-        ));
+            ], options);
+        });
+        vi.stubEnv('HOME', fixtureDir);
+        vi.stubEnv('USERPROFILE', fixtureDir);
+        vi.stubEnv('PATH', fixtureDir);
         vi.stubEnv('CODEX_CLI_PATH', executable);
         await writeVersion(executable, '0.157.1');
     });
@@ -329,12 +350,16 @@ describe('Codex installation metadata freshness', () => {
         });
     });
 
-    it('retries a rejected version launch instead of retaining its rejected promise', async () => {
+    it('retries a failed version launch instead of retaining its unavailable result', async () => {
         const {getCodexCliInfo} = await import('@electron/features/agent/codexCli');
-        mocks.spawn.mockImplementationOnce(() => {
+        mocks.runNativeCommand.mockImplementationOnce(() => {
             throw new Error('version launch failed');
         });
-        await expect(getCodexCliInfo()).rejects.toThrow('version launch failed');
+        await expect(getCodexCliInfo()).resolves.toMatchObject({
+            installed: true,
+            version: null,
+            isVersionSupported: false,
+        });
         expect(await getCodexCliInfo()).toMatchObject({version: '0.157.1'});
         expect(await versionInvocations()).toBe(1);
     });

@@ -12,10 +12,11 @@ import type {
     UpdateDownloadedEvent,
     UpdateInfo,
 } from 'electron-updater';
-import type {
-    IAppUpdateStatus,
-    TAppUpdateCheckOrigin,
-    TAppUpdateReason,
+import {
+    UPDATES_PLATFORM_FEATURE,
+    type IAppUpdateStatus,
+    type TAppUpdateCheckOrigin,
+    type TAppUpdateReason,
 } from '@contracts/updatesPlatformFeature';
 import { config } from '@electron/config';
 import {
@@ -24,6 +25,7 @@ import {
 } from '@electron/settings';
 import { isAbortError } from '@electron/utils/abort';
 import { createLogger } from '@electron/utils/createLogger';
+import { createIpcProgressPump } from '@electron/utils/createIpcProgressPump';
 import { getErrorMessage } from '@electron/utils/error';
 import { redactLogText } from '@contracts/redactLogText';
 import { isExpectedUpdateNetworkError } from '@electron/utils/isExpectedUpdateNetworkError';
@@ -92,8 +94,15 @@ let approvedDownloadAndInstallVersion: string | null = null;
 let codeSignatureCheckPromise: Promise<boolean> | null = null;
 let codeSignatureValid: boolean | null = null;
 let listenersRegistered = false;
-let progressBroadcastTimer: ReturnType<typeof setTimeout> | null = null;
-let lastProgressBroadcastAt = 0;
+// Download progress reaches windows at most once per throttle window; other phases pass straight through.
+const progressPump = createIpcProgressPump<IAppUpdateStatus>({
+    channel: UPDATES_PLATFORM_FEATURE.eventChannels.onStatus,
+    getTarget: () => ({send: (_channel, next) => emitStatus(next)}),
+    getKey: () => 'update',
+    isTerminal: next => next.phase !== 'downloading',
+    intervalMs: UPDATE_PROGRESS_BROADCAST_THROTTLE_MS,
+    replayMode: {kind: 'external', getReplayPayloads: () => []},
+});
 const autoUpdaterListenerUnsubscribe: Array<() => void> = [];
 type TUpdateInstallShutdownRequester = (install: () => Promise<void>) => void;
 function runUpdateInstallImmediately(install: () => Promise<void>) {
@@ -128,15 +137,6 @@ function getCurrentVersion() {
     return normalizeVersion(resolveApplicationVersion(app)) || null;
 }
 
-function clearProgressBroadcastTimer() {
-    if (!progressBroadcastTimer) {
-        return;
-    }
-
-    clearTimeout(progressBroadcastTimer);
-    progressBroadcastTimer = null;
-}
-
 export function projectUpdateStatusForWindow(snapshot: IAppUpdateStatus, senderId: number): IAppUpdateStatus {
     const requestedHere = statusRequesters?.has(senderId) === true;
     return {
@@ -147,12 +147,6 @@ export function projectUpdateStatusForWindow(snapshot: IAppUpdateStatus, senderI
         } : {}),
         requestedHere,
     };
-}
-
-function broadcastProgressStatus() {
-    clearProgressBroadcastTimer();
-    lastProgressBroadcastAt = Date.now();
-    emitStatus(status);
 }
 
 function updateStatus(next: Partial<IAppUpdateStatus>, requesters = operationRequesters) {
@@ -168,36 +162,11 @@ function updateStatus(next: Partial<IAppUpdateStatus>, requesters = operationReq
         message,
         reason: next.reason ?? (next.message === undefined ? status.reason : undefined),
     };
-
-    if (status.phase !== 'downloading') {
-        clearProgressBroadcastTimer();
-        emitStatus(status);
-        return;
+    // 0% and 100% go out at once and open a new throttle window.
+    if (status.percent === 0 || status.percent === 100) {
+        progressPump.clear();
     }
-
-    const now = Date.now();
-    const elapsed = now - lastProgressBroadcastAt;
-    const shouldBroadcastImmediately = lastProgressBroadcastAt === 0
-        || status.percent === 0
-        || status.percent === 100
-        || elapsed >= UPDATE_PROGRESS_BROADCAST_THROTTLE_MS;
-
-    if (shouldBroadcastImmediately) {
-        broadcastProgressStatus();
-        return;
-    }
-
-    if (!progressBroadcastTimer) {
-        const delay = Math.max(0, UPDATE_PROGRESS_BROADCAST_THROTTLE_MS - elapsed);
-        progressBroadcastTimer = setTimeout(() => {
-            progressBroadcastTimer = null;
-            if (status.phase !== 'downloading') {
-                return;
-            }
-            broadcastProgressStatus();
-        }, delay);
-        progressBroadcastTimer.unref();
-    }
+    progressPump.enqueue(status);
 }
 
 function setIdleStatus(origin: TAppUpdateCheckOrigin, version: string | null = getCurrentVersion()) {
@@ -1184,8 +1153,7 @@ export async function shutdownUpdates() {
         clearTimeout(pollTimer);
         pollTimer = null;
     }
-    clearProgressBroadcastTimer();
-    lastProgressBroadcastAt = 0;
+    progressPump.clear();
     currentDownloadCancellationToken?.cancel();
 
     for (const pending of [

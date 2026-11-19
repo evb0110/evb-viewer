@@ -640,6 +640,13 @@ describe('runNativeCommand', () => {
         expect(error.message).toContain('fixture-tool failed with exit code 2');
         expect(error.message).toContain('[stderr truncated to 4 bytes]');
         expect(error.message).toContain('signal=SIGTERM');
+        expect(error.name).toBe('NativeProcessError');
+        const {stdout, stderr} = error as Error & {stdout: string; stderr: string};
+        expect(stdout).toMatch(/^.{1,4}$/u);
+        expect('abcdef'.endsWith(stdout)).toBe(true);
+        expect(stderr).toMatch(/^.{1,4}$/u);
+        expect('uvwxyz'.endsWith(stderr)).toBe(true);
+        expect(error.message).toContain(`[stderr truncated to 4 bytes]\n${stderr}`);
         expect(log).toHaveBeenCalledWith('error', expect.stringContaining('cmd=/bin/tool --bad'));
     });
 
