@@ -22,12 +22,12 @@ import {runGuardedTask} from '@app/utils/asyncGuard';
 // The note itself (text, page, author, marker) belongs to the document store.
 interface IAnnotationNoteWindowRuntime {
     dirty: boolean;
-    saving: boolean;
+    /** The persistence attempt in flight: the text it submitted and its outcome. */
+    attempt: {text: string; done: Promise<boolean>} | null;
     error: string | FailurePresentation | null;
     order: number;
     pendingEmbeddedSave: boolean;
     saveGeneration: number;
-    persistDeferredForSave: number | null;
 }
 
 export interface IAnnotationNoteWindowDeps {
@@ -149,7 +149,7 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
             },
             saving: {
                 enumerable: true,
-                get: () => metadata.saving,
+                get: () => metadata.attempt !== null,
             },
             error: {
                 enumerable: true,
@@ -189,7 +189,7 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
         }),
     ));
     const isAnyAnnotationNoteSaving = computed(() => (
-        [...runtime.values()].some(value => value.saving)
+        [...runtime.values()].some(value => value.attempt !== null)
     ));
 
     function resolveId(value: string) {
@@ -268,12 +268,11 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
         });
         runtime.set(annotationId, {
             dirty: false,
-            saving: false,
+            attempt: null,
             error: null,
             order: ++nextOrder,
             pendingEmbeddedSave: false,
             saveGeneration: 0,
-            persistDeferredForSave: null,
         });
     }
 
@@ -422,17 +421,15 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
         if (!state || !metadata || !metadata.dirty) {
             return true;
         }
-        if (metadata.saving) {
-            // The debounce fired mid-flight. Book the retry against the save
-            // that is running right now so that exact save, and nothing else,
-            // hands the newer draft back to the timer. A window reopened under
-            // the same id gets a fresh runtime, so the request it replaced
-            // cannot reach this marker.
-            metadata.persistDeferredForSave = metadata.saveGeneration;
-            return false;
+        if (metadata.attempt) {
+            // A note already saving answers with that attempt, joined with one
+            // for the text typed since it started; the same text is not resent.
+            // A window reopened under the same id has a fresh runtime: it does
+            // not join the attempt it replaced, nor does that attempt's join act on it.
+            const {text, done} = metadata.attempt;
+            return done.then(saved => (state.draftText === text || runtime.get(id) !== metadata ? saved : persistAnnotationNote(id)));
         }
         const saveGeneration = ++metadata.saveGeneration;
-        metadata.saving = true;
         const submittedText = state.draftText;
         const note = liveNotes.value.get(id);
         const requiresEmbeddedSave = note?.source === 'pdf' || Boolean(note?.annotationId);
@@ -446,6 +443,7 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
             !disposed
             && runtime.get(id) === metadata
             && stateById(id) === state
+            && metadata.saveGeneration === saveGeneration
         );
         const fail = (cause?: unknown) => {
             metadata.error = deps.reportNoteFailure?.({
@@ -479,29 +477,21 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
                 // any id it does not own: nothing left to persist.
                 return true;
             }
-            metadata.saving = false;
-            const result = apply();
-            // Only the save the deferral was booked against may consume it.
-            if (metadata.persistDeferredForSave !== saveGeneration) {
-                return result;
-            }
-            metadata.persistDeferredForSave = null;
-            // Resubmitting the same text would only repeat the same outcome, so
-            // a newer draft is what earns another attempt. A timer already
-            // waiting will carry that draft on its own.
-            if (state.draftText === submittedText || timers.has(id)) {
-                return result;
-            }
-            schedulePersist(id);
-            return result;
+            metadata.attempt = null;
+            return apply();
         };
         try {
             const updated = deps.updateAnnotationCommentInViewer(id, submittedText);
             if (updated instanceof Promise) {
-                return updated.then(
+                const done = updated.then(
                     settled => conclude(() => applyFulfilled(settled)),
                     cause => conclude(() => fail(cause)),
                 );
+                metadata.attempt = {
+                    text: submittedText,
+                    done,
+                };
+                return done;
             }
             return conclude(() => applyFulfilled(updated));
         } catch (cause) {
