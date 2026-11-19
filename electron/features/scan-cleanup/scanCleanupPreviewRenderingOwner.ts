@@ -26,6 +26,7 @@ import {
     createMainJobRegistry,
     RENDERER_DESTROYED_CANCELLATION_REASON,
 } from '@electron/operation-lifecycle/createMainJobRegistry';
+import {waitForBoundedOperation} from '@node-runtime/waitForBoundedOperation';
 
 import type {
     IBasePreviewAnalysis,
@@ -47,21 +48,6 @@ const PREVIEW_DISPOSAL_TIMEOUT_MS = 2_000;
 // visible page cannot acquire indefinitely.
 const PREVIEW_PREFETCH_LEASE_TIMEOUT_MS = 10_000;
 const PREVIEW_ADMISSION_REISSUED = new Error('Scan cleanup preview readmitted at visible priority');
-
-async function waitForPreviewDisposal(pending: Promise<void>) {
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    try {
-        await Promise.race([
-            pending,
-            new Promise<void>(resolve => {
-                timer = setTimeout(resolve, PREVIEW_DISPOSAL_TIMEOUT_MS);
-                timer.unref();
-            }),
-        ]);
-    } finally {
-        if (timer !== undefined) clearTimeout(timer);
-    }
-}
 
 export interface IScanCleanupPreviewRenderingOwner {
     preview: (
@@ -366,10 +352,14 @@ export function scanCleanupPreviewRenderingOwner(
             }
             const activeTails = Promise.allSettled([...active.values()].map(entry => entry.tail)).then(() => undefined);
             const registryReset = previewJobs.dispose().catch(() => undefined);
-            await waitForPreviewDisposal(Promise.all([
+            await waitForBoundedOperation(Promise.all([
                 activeTails,
                 registryReset,
-            ]).then(() => undefined));
+            ]), {
+                timeoutMs: PREVIEW_DISPOSAL_TIMEOUT_MS,
+                timeoutResult: undefined,
+                unref: true,
+            });
             active.clear();
             visiblePages.clear();
             deferredBaseAnalysisInvalidations.clear();

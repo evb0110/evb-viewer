@@ -34,6 +34,7 @@ import { includesAsciiToken } from '@electron/utils/includesAsciiToken';
 import { openMacOsPdfPrintDialog } from '@electron/utils/openMacOsPdfPrintDialog';
 import { getPrintRuntimePlatform } from '@electron/utils/getPrintRuntimePlatform';
 import {runtimeConfig} from '@electron/runtimeConfig';
+import {waitForBoundedOperation} from '@node-runtime/waitForBoundedOperation';
 
 const logger = createLogger('documents-print');
 // Low-end Windows machines can report the PDF plugin as loaded before it has painted.
@@ -505,9 +506,8 @@ function buildRasterPrintHtml(
 }
 
 async function waitForRasterPrintSurfaceReady(printWindow: BrowserWindow) {
-    await printWindow.webContents.executeJavaScript(`
+    await waitForBoundedOperation(printWindow.webContents.executeJavaScript(`
         (() => {
-            const timeoutMs = ${PRINT_RASTER_IMAGE_LOAD_TIMEOUT_MS};
             const waitForImage = (image) => {
                 if (image.complete && image.naturalWidth > 0) {
                     return Promise.resolve(true);
@@ -525,14 +525,12 @@ async function waitForRasterPrintSurfaceReady(printWindow: BrowserWindow) {
                     image.addEventListener('error', () => reject(new Error('Printable page image failed to load')), {once: true});
                 });
             };
-            return Promise.race([
-                Promise.all(Array.from(document.images).map(waitForImage)).then(() => true),
-                new Promise((_, reject) => {
-                    setTimeout(() => reject(new Error('Timed out loading printable page images')), timeoutMs);
-                }),
-            ]);
+            return Promise.all(Array.from(document.images).map(waitForImage)).then(() => true);
         })()
-    `, true);
+    `, true), {
+        timeoutMs: PRINT_RASTER_IMAGE_LOAD_TIMEOUT_MS,
+        timeoutError: () => new Error('Timed out loading printable page images'),
+    });
 }
 
 async function createRasterPrintHtmlPath(path: string, documentTitle: string, signal?: AbortSignal) {

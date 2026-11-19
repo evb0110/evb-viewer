@@ -28,6 +28,7 @@ import { createLogger } from '@electron/utils/createLogger';
 import { createIpcProgressPump } from '@electron/utils/createIpcProgressPump';
 import { getErrorMessage } from '@electron/utils/error';
 import { redactLogText } from '@contracts/redactLogText';
+import { waitForBoundedOperation } from '@node-runtime/waitForBoundedOperation';
 import { isExpectedUpdateNetworkError } from '@electron/utils/isExpectedUpdateNetworkError';
 import {
     compareVersions,
@@ -1161,19 +1162,14 @@ export async function shutdownUpdates() {
         currentDownloadPromise,
     ]) {
         if (!pending) continue;
-        let timeoutHandle = null as ReturnType<typeof setTimeout> | null;
         try {
-            await Promise.race([
-                pending,
-                new Promise<void>((resolve) => {
-                    timeoutHandle = setTimeout(resolve, UPDATER_SHUTDOWN_WAIT_TIMEOUT_MS);
-                    timeoutHandle.unref();
-                }),
-            ]);
+            await waitForBoundedOperation(pending, {
+                timeoutMs: UPDATER_SHUTDOWN_WAIT_TIMEOUT_MS,
+                timeoutResult: undefined,
+                unref: true,
+            });
         } catch {
             // The operation owns its failure; shutdown only drains it.
-        } finally {
-            if (timeoutHandle) clearTimeout(timeoutHandle);
         }
     }
 

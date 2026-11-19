@@ -4,6 +4,7 @@ import { createMainOperationShuttingDownError } from '@contracts/mainOperationEr
 import {normalizePathForLookup} from '@electron/file-access/normalizePathForLookup';
 import { createLogger } from '@electron/utils/createLogger';
 import { runDetached } from '@electron/utils/runDetached';
+import {waitForBoundedOperation} from '@node-runtime/waitForBoundedOperation';
 
 export type TMainOperationKind = 'critical-write' | 'abortable-work' | 'resource-cleanup';
 export type TMainOperationOwnerEndEvent = 'destroyed' | 'renderProcessGone' | 'mainFrameNavigation';
@@ -114,13 +115,6 @@ const operations = new Map<string, IMainOperationRecord>();
 const cancellationSignals = new AsyncLocalStorage<AbortSignal>();
 const log = createLogger('main-operation-lifecycle');
 let shutdownAdmissionMessage: string | null = null;
-
-function createTimeoutPromise(timeoutMs: number): Promise<'timeout'> {
-    return new Promise<'timeout'>(resolve => {
-        const timer = setTimeout(() => resolve('timeout'), timeoutMs);
-        timer.unref();
-    });
-}
 
 export function registerMainOperation(
     registration: IMainOperationRegistration,
@@ -381,11 +375,14 @@ export async function waitForMainOperationsSettled(
             pending: [],
         };
     }
-    const outcome = await Promise.race([
-        Promise.allSettled(canceledOperations.map(operation => operation.settled))
-            .then(() => 'settled' as const),
-        createTimeoutPromise(options.timeoutMs),
-    ]);
+    const outcome = await waitForBoundedOperation(
+        Promise.allSettled(canceledOperations.map(operation => operation.settled)).then(() => 'settled' as const),
+        {
+            timeoutMs: options.timeoutMs,
+            timeoutResult: 'timeout' as const,
+            unref: true,
+        },
+    );
     if (outcome === 'settled') {
         // Every operation completed, which is what removes its record. There is
         // nothing left to describe, and the registry is only consulted on the
@@ -415,14 +412,17 @@ export async function drainCriticalMainOperations(options: {timeoutMs: number}):
         };
     }
 
-    const completed = await Promise.race([
-        Promise.allSettled(criticalWrites.map(operation => operation.done))
-            .then(() => 'completed' as const),
-        createTimeoutPromise(options.timeoutMs),
-    ]);
+    const completed = await waitForBoundedOperation(
+        Promise.allSettled(criticalWrites.map(operation => operation.done)).then(() => true),
+        {
+            timeoutMs: options.timeoutMs,
+            timeoutResult: false,
+            unref: true,
+        },
+    );
 
     return {
-        completed: completed === 'completed',
+        completed,
         pending: snapshotMainOperations()
             .filter(operation => operation.kind === 'critical-write'),
     };

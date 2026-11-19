@@ -14,6 +14,7 @@ import {
     terminateDetachedChildProcess,
 } from '@electron/utils/nativeChildProcess';
 import { registerMainOperation } from '@electron/operation-lifecycle/mainOperationLifecycle';
+import {waitForBoundedOperation} from '@node-runtime/waitForBoundedOperation';
 import { resolveCodexProcessLaunch } from '@electron/features/agent/codexProcessLaunch';
 
 const logger = createLogger('agent-codex-assistant');
@@ -323,28 +324,15 @@ export class CodexAppServerClient {
     private async terminateChild() {
         this.terminationRequested = true;
         const treeTerminated = await terminateDetachedChildProcess(this.child, APP_SERVER_SHUTDOWN_GRACE_MS);
-        const childClosed = await this.waitForClose(APP_SERVER_SHUTDOWN_CLOSE_TIMEOUT_MS);
+        const childClosed = await waitForBoundedOperation(this.closePromise.then(() => true), {
+            timeoutMs: APP_SERVER_SHUTDOWN_CLOSE_TIMEOUT_MS,
+            timeoutResult: false,
+            unref: true,
+        });
         if (!treeTerminated || !childClosed) {
             throw new Error('Codex app-server process tree did not terminate cleanly.');
         }
         this.completeLifecycleOperation();
-    }
-
-    private async waitForClose(timeoutMs: number) {
-        let timeoutHandle = null as ReturnType<typeof setTimeout> | null;
-        try {
-            return await Promise.race([
-                this.closePromise.then(() => true),
-                new Promise<boolean>(resolve => {
-                    timeoutHandle = setTimeout(() => resolve(false), timeoutMs);
-                    timeoutHandle.unref();
-                }),
-            ]);
-        } finally {
-            if (timeoutHandle) {
-                clearTimeout(timeoutHandle);
-            }
-        }
     }
 
     private writeLine(

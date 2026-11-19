@@ -11,6 +11,7 @@ import {
     win32,
 } from 'path';
 import { app } from 'electron';
+import {waitForBoundedOperation} from '@node-runtime/waitForBoundedOperation';
 import {
     uniq,
     uniqBy,
@@ -180,23 +181,12 @@ function getBootstrapStoragePaths() {
         .filter(candidatePath => candidatePath !== currentStoragePath));
 }
 
-async function statWithTimeout(filePath: string) {
-    let timeoutHandle = null as ReturnType<typeof setTimeout> | null;
-    try {
-        return await Promise.race([
-            stat(filePath),
-            new Promise<never>((_resolve, reject) => {
-                timeoutHandle = setTimeout(() => {
-                    reject(new RecentFileStatTimeoutError(filePath, RECENT_FILE_STAT_TIMEOUT_MS));
-                }, RECENT_FILE_STAT_TIMEOUT_MS);
-                timeoutHandle.unref();
-            }),
-        ]);
-    } finally {
-        if (timeoutHandle) {
-            clearTimeout(timeoutHandle);
-        }
-    }
+function statWithTimeout(filePath: string) {
+    return waitForBoundedOperation(stat(filePath), {
+        timeoutMs: RECENT_FILE_STAT_TIMEOUT_MS,
+        timeoutError: () => new RecentFileStatTimeoutError(filePath, RECENT_FILE_STAT_TIMEOUT_MS),
+        unref: true,
+    });
 }
 
 async function inspectPath(filePath: string): Promise<IPathInspectionResult> {
