@@ -73,7 +73,7 @@ interface IUseAppShellTabLifecycleResult {
     isSingletonPlaceholderCloseBlocked: (paneId: string, tabId: string) => boolean;
     resolveTabForAction: (tabId: string | undefined) => IResolvedTabForAction | null;
     closeTabInState: (paneId: string, tabId: string) => void;
-    handoffActiveTabBeforeClose: (paneId: string, tabId: string) => Promise<void>;
+    handoffActiveTabBeforeClose: (paneId: string, tabId: string) => void;
     handleCloseTab: (paneId: string, tabId: string) => Promise<void>;
 }
 
@@ -359,15 +359,18 @@ export const useAppShellTabLifecycle = (
         return pickCrossPaneCloseReplacement(sourcePane.paneId);
     }
 
-    async function handoffActiveTabBeforeClose(paneId: string, tabId: string) {
-        const target = resolveCloseHandoffTarget(paneId, tabId);
-        if (!target) {
-            return;
-        }
+    // Selecting the replacement is the whole handoff. Its view mounts only while
+    // shown and the user may select another tab first, so nothing waits for it.
+    function activateHandoffTarget(paneId: string, tabId: string) {
+        activatePane(paneId);
+        activateTab(paneId, tabId);
+    }
 
-        activatePane(target.paneId);
-        activateTab(target.paneId, target.tabId);
-        await nextTick();
+    function handoffActiveTabBeforeClose(paneId: string, tabId: string) {
+        const target = resolveCloseHandoffTarget(paneId, tabId);
+        if (target) {
+            activateHandoffTarget(target.paneId, target.tabId);
+        }
     }
 
     function closeTabInState(paneId: string, tabId: string) {
@@ -381,7 +384,7 @@ export const useAppShellTabLifecycle = (
         }
     }
 
-    async function activateCloseHandoff(closeHandoffTarget: ICloseHandoffTarget | null) {
+    function activateCloseHandoff(closeHandoffTarget: ICloseHandoffTarget | null) {
         if (!closeHandoffTarget) {
             return;
         }
@@ -394,9 +397,7 @@ export const useAppShellTabLifecycle = (
             return;
         }
 
-        activatePane(targetPane.paneId);
-        activateTab(targetPane.paneId, targetTab.id);
-        await nextTick();
+        activateHandoffTarget(targetPane.paneId, targetTab.id);
     }
 
     async function resolveClosePersistence(tabId: string) {
@@ -468,7 +469,7 @@ export const useAppShellTabLifecycle = (
 
         const paneCountBeforeCleanup = panes.value.length;
         cleanupEmptyPanes();
-        await activateCloseHandoff(closeHandoffTarget);
+        activateCloseHandoff(closeHandoffTarget);
         if (panes.value.length < paneCountBeforeCleanup) {
             // Closing the last tab in a split changes the track width after the
             // Vue patch. Keep the transition fence open through the same two
