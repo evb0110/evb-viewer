@@ -93,42 +93,6 @@ function cancelOcrRequest(senderId: number, requestId: string) {
     return true;
 }
 
-function combineAbortSignals(
-    operationSignal: AbortSignal,
-    requestSignal: AbortSignal | undefined,
-) {
-    if (!requestSignal) {
-        return {
-            signal: operationSignal,
-            dispose: () => undefined,
-        };
-    }
-
-    const controller = new AbortController();
-    const forwardAbort = (signal: AbortSignal) => {
-        if (!controller.signal.aborted) {
-            controller.abort(signal.reason);
-        }
-    };
-    const operationAbort = () => forwardAbort(operationSignal);
-    const requestAbort = () => forwardAbort(requestSignal);
-    operationSignal.addEventListener('abort', operationAbort, {once: true});
-    requestSignal.addEventListener('abort', requestAbort, {once: true});
-    if (operationSignal.aborted) {
-        forwardAbort(operationSignal);
-    } else if (requestSignal.aborted) {
-        forwardAbort(requestSignal);
-    }
-
-    return {
-        signal: controller.signal,
-        dispose: () => {
-            operationSignal.removeEventListener('abort', operationAbort);
-            requestSignal.removeEventListener('abort', requestAbort);
-        },
-    };
-}
-
 export async function handleOcrGetLanguages() {
     const modelStates = new Map(
         (await getOcrLanguageModelStates()).map(item => [
@@ -251,11 +215,14 @@ async function runCancellableTextRead<T>(
         workingCopyPath: logicalPath,
         cancel: reason => log.debug(`Document text read cancelled: ${reason}`),
     });
-    const combinedSignal = combineAbortSignals(operation.signal, request?.controller.signal);
     try {
-        return await read(combinedSignal.signal);
+        return await read(request
+            ? AbortSignal.any([
+                operation.signal,
+                request.controller.signal,
+            ])
+            : operation.signal);
     } finally {
-        combinedSignal.dispose();
         operation.complete();
     }
 }

@@ -29,7 +29,6 @@ import { isPdfDocumentUsable } from '@app/utils/isPdfDocumentUsable';
 import {measureOperationPhase} from '@contracts/measureOperationPhase';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import type {IPdfNativeAnnotationIdentityBinding} from '@contracts/electronApiDocuments';
-import type { TPdfDocumentView } from '@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSession';
 import { createStaleRevisionError } from '@contracts/documentMutationErrors';
 import { collectNativeTextBoxMutationsForSave } from '@app/modules/pdf-viewer/runtime/save/nativeTextBoxMutations';
 import {
@@ -47,7 +46,6 @@ interface IUsePdfViewerSaveTransactionOptions {
     pdfDocument?: ShallowRef<IPdfDocument | null>;
     annotationApplication?: ShallowRef<AnnotationApplication>;
     documentRevisionToken?: ComputedRef<TDocumentRevisionToken | null>;
-    documentSession?: Pick<TPdfDocumentView, 'captureFence' | 'isCurrent'>;
     flushAnnotationMutationsForSave?: () => Promise<unknown>;
     commitPendingEditorDraftsForSave?: () => void | Promise<void>;
     getPdfDocument?: () => IPdfDocument | null;
@@ -63,13 +61,6 @@ interface IUsePdfViewerSaveTransactionOptions {
         affectedPageIndices?: readonly number[] | null;
         commit(identityBindings?: readonly IPdfNativeAnnotationIdentityBinding[], saved?: boolean): void;
     };
-}
-
-// Commits EVB editor drafts and lets their store updates settle before the
-// save captures its frontier.
-async function commitPdfEditorsForSave(commitPendingEditorDraftsForSave?: () => void | Promise<void>) {
-    await commitPendingEditorDraftsForSave?.();
-    await nextTick();
 }
 
 /**
@@ -179,13 +170,14 @@ export const usePdfViewerSaveTransaction = (
             annotationApplication: options.annotationApplication?.value,
             pdfDocument: getPdfDocument(),
             documentRevisionToken: options.documentRevisionToken?.value ?? null,
-            documentFence: options.documentSession?.captureFence(),
         };
         const staleTargetError = (message: string) => createStaleRevisionError({
             expectedRevision: capturedTarget.documentRevisionToken,
             actualRevision: options.documentRevisionToken?.value ?? null,
             message,
         });
+        // A Save is fenced on its document: the application, the PDF proxy and the byte revision it captured.
+        // A view's presentation lifecycle (a tab switch, a closed split pane) changes none of them.
         function assertSaveTargetCurrent() {
             if (
                 options.annotationApplication
@@ -193,10 +185,7 @@ export const usePdfViewerSaveTransaction = (
             ) {
                 throw staleTargetError('Annotation application changed after the save frontier was captured');
             }
-            if (
-                (options.pdfDocument || options.documentSession)
-                && getPdfDocument() !== capturedTarget.pdfDocument
-            ) {
+            if (options.pdfDocument && (!capturedTarget.pdfDocument || getPdfDocument() !== capturedTarget.pdfDocument)) {
                 throw staleTargetError('PDF document changed after the save frontier was captured');
             }
             if (capturedTarget.pdfDocument && !isPdfDocumentUsable(capturedTarget.pdfDocument)) {
@@ -207,15 +196,6 @@ export const usePdfViewerSaveTransaction = (
                 && options.documentRevisionToken.value !== capturedTarget.documentRevisionToken
             ) {
                 throw staleTargetError('Document revision changed after the save frontier was captured');
-            }
-            if (
-                options.documentSession
-                && (
-                    !capturedTarget.documentFence
-                    || !options.documentSession.isCurrent(capturedTarget.documentFence)
-                )
-            ) {
-                throw staleTargetError('Document open fence changed after the save frontier was captured');
             }
         }
         const request = {...initialRequest};
@@ -234,10 +214,8 @@ export const usePdfViewerSaveTransaction = (
             () => options.flushAnnotationMutationsForSave?.(),
         );
         assertSaveTargetCurrent();
-        await measurePreparationStep(
-            'commit-editor-models',
-            () => commitPdfEditorsForSave(options.commitPendingEditorDraftsForSave),
-        );
+        // An editor's commit resolves once the store holds its draft, so the frontier below includes it.
+        await measurePreparationStep('commit-editor-models', () => options.commitPendingEditorDraftsForSave?.());
         assertSaveTargetCurrent();
         const canonicalSave = prepareAnnotationSave(capturedTarget, request.mode);
         // Complete the annotation frontier into the global immutable save plan
@@ -293,8 +271,7 @@ export const usePdfViewerSaveTransaction = (
                 assertSaveTargetCurrent();
             },
             commitAnnotationSave: (identityBindings?: readonly IPdfNativeAnnotationIdentityBinding[], saved?: boolean) => {
-                // Persistence may legitimately advance the document revision and
-                // open fence. The frozen store frontier still performs semantic
+                // Persistence may legitimately advance the document revision. The frozen store frontier still performs semantic
                 // CAS. If a successful Save As/reload retired this application,
                 // its old frontier has no live authority left to acknowledge.
                 if (
@@ -406,7 +383,7 @@ export const usePdfViewerSaveTransaction = (
     }
 
     return {
-        commitPdfEditorsForSave: () => commitPdfEditorsForSave(options.commitPendingEditorDraftsForSave),
+        commitPdfEditorsForSave: async () => { await options.commitPendingEditorDraftsForSave?.(); },
         runSaveTransaction,
     };
 };

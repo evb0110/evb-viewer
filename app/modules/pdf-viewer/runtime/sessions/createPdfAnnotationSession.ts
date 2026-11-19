@@ -848,7 +848,6 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         pdfDocument: documentSession.pdfDocument,
         annotationApplication,
         documentRevisionToken: options.documentRevisionToken,
-        documentSession,
         commitPendingEditorDraftsForSave: documentAnnotations.commitPendingDraftsForSave,
         getAllShapes: shapeTool.getAllShapes,
         getDeletedEmbeddedShapeAnnotationIds: shapeTool.getDeletedEmbeddedAnnotationIds,

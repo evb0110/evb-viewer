@@ -30,7 +30,7 @@ interface ICreateDocumentAgentAnnotationNoteActionsOptions {
     normalizeAgentAnnotationComment: (comment: IAnnotationCommentSummary) => object;
     handleOpenAnnotationNote: (comment: IAnnotationCommentSummary) => void;
     updateAnnotationNoteText: (stableKey: string, text: string) => void;
-    markAnnotationDirty: () => void;
+    persistAnnotationNote: (annotationId: string) => boolean | Promise<boolean>;
     updateTextMarkupColorWithHistory: (comment: IAnnotationCommentSummary, color: string) => boolean;
 }
 
@@ -95,9 +95,9 @@ export function createDocumentAgentAnnotationNoteActions(
         }
         const openNote = findOpenAgentAnnotationNote(commentForUpdate);
         if (openNote) {
+            // The open window's draft takes the text; its commit to the store is the edit's completion.
             options.updateAnnotationNoteText(openNote.annotationId, text);
-            options.markAnnotationDirty();
-            return true;
+            return options.persistAnnotationNote(openNote.annotationId);
         }
         return options.pdfViewerRef.value?.updateAnnotationComment(commentForUpdate, text) ?? false;
     }
@@ -143,8 +143,6 @@ export function createDocumentAgentAnnotationNoteActions(
                     }
                     : comment;
                 options.handleOpenAnnotationNote(commentForUpdate);
-                await nextTick();
-                context?.assertCurrentDocument();
                 // The open window's draft is what the reader sees and Undo must
                 // bring back, saved or not; the stored text may be older.
                 const previousText = findOpenAgentAnnotationNote(commentForUpdate)?.draftText ?? comment.text;
@@ -153,6 +151,7 @@ export function createDocumentAgentAnnotationNoteActions(
                     parsedInput.text,
                     parsedInput.markerRect,
                 );
+                context?.assertCurrentDocument();
                 if (!updated) {
                     throw new Error('Annotation note could not be updated.');
                 }
@@ -169,8 +168,6 @@ export function createDocumentAgentAnnotationNoteActions(
                     parsedInput.text,
                     parsedInput.markerRect ?? previousMarkerRect,
                 );
-                await nextTick();
-                context?.assertCurrentDocument();
                 return {
                     updated,
                     comment: options.normalizeAgentAnnotationComment({
@@ -197,7 +194,6 @@ export function createDocumentAgentAnnotationNoteActions(
                 if (!updated) {
                     throw new Error('Text markup annotation color could not be updated.');
                 }
-                await nextTick();
                 return {
                     updated,
                     comment: options.normalizeAgentAnnotationComment({

@@ -194,11 +194,6 @@ export const createDocumentContext = ({controller}: {controller: IWorkspaceDocum
     });
 
     const unencryptedSaveNotice = useUnencryptedSaveNotice();
-    // What a viewer's commit for save does: every view's open text editors.
-    const commitPdfEditors = async () => {
-        await pdfDocumentAnnotations.commitPendingDraftsForSave();
-        await nextTick();
-    };
     const getSourcePdfData = createPdfSourceDataReader({
         pdfData: file.pdfData,
         workingCopyPath: file.workingCopyPath,
@@ -257,7 +252,8 @@ export const createDocumentContext = ({controller}: {controller: IWorkspaceDocum
             pdf: {
                 document: pdfDocument,
                 viewer: pdfViewerRef,
-                commitEditorsForSave: commitPdfEditors,
+                // Every view's open text editors; it resolves once the store holds their drafts.
+                commitEditorsForSave: pdfDocumentAnnotations.commitPendingDraftsForSave,
                 runSaveTransaction: request => pdfViewerRef.value?.runSaveTransaction(request)
                     ?? Promise.reject(new Error('Missing PDF viewer save transaction')),
                 getSourceData: getSourcePdfData,
@@ -399,7 +395,7 @@ export const createDocumentContext = ({controller}: {controller: IWorkspaceDocum
         bookmarksResolved: metadata.bookmarkState.bookmarksResolved,
         views,
         totalPages,
-        commitPdfEditors,
+        commitPdfEditors: pdfDocumentAnnotations.commitPendingDraftsForSave,
         // The rotation changes the geometry the views share; each previews it.
         beginPageRotationPreview: async (pages, rotationDelta) => {
             if (pdfDocumentSessionSlot.session.value?.beginPageMutationRotationPreview(pages, rotationDelta)) {
