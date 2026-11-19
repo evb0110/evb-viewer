@@ -118,8 +118,7 @@ import { waitForAnimationFrames } from '@tests/e2e/electron/helpers/viewerVirtua
 import { getErrorMessage } from '@contracts/getErrorMessage';
 import { expectWithinTimingBudget } from '@tests/e2e/electron/helpers/timingBudget';
 import { getActiveWorkspaceWorkingCopyPath } from '@tests/e2e/electron/helpers/electronApiHelpers';
-import {decodeManifest} from '@document-store/documentDirectory';
-import {getSearchIndexPath} from '@electron/features/search/searchIndex';
+import {getWorkingCopyDerivedPath} from '@electron/file-access/documentStore';
 import { createCanonicalTextBoxWithPointer } from '@tests/e2e/electron/helpers/viewerAnnotations';
 import {runNativeToolCommand} from '@electron/native-tools/runNativeToolCommand';
 import {getDjvuNativeToolPaths} from '@electron/features/djvu/main/nativeToolPaths';
@@ -3810,10 +3809,7 @@ describe('Electron E2E - Viewer Smoke', () => {
             }, {timeout: 15_000}, sidebar, query);
         };
         await search('MAINTENANCE');
-        const directory = dirname(await getActiveWorkspaceWorkingCopyPath(session.page));
-        const revisionFile = decodeManifest(await readFile(join(directory, 'manifest.json'))).current?.file;
-        if (!revisionFile) throw new Error('Search did not materialize the current document');
-        const indexPath = getSearchIndexPath(join(directory, revisionFile));
+        const indexPath = getWorkingCopyDerivedPath(await getActiveWorkspaceWorkingCopyPath(session.page), 'search-index');
         const index = await readFile(indexPath);
         const revision = index.subarray(32, 32 + index.readUInt32LE(20)).toString('utf8');
         const binary = resolveNativeToolPath({
@@ -4044,10 +4040,7 @@ describe('Electron E2E - Viewer Smoke', () => {
             }, {timeout: 15_000}, sidebar, query);
         }
         await search('Page 1 sample text');
-        const directory = dirname(await getActiveWorkspaceWorkingCopyPath(session.page));
-        const revisionFile = decodeManifest(await readFile(join(directory, 'manifest.json'))).current?.file;
-        if (!revisionFile) throw new Error('Search did not materialize the current document');
-        const indexPath = getSearchIndexPath(join(directory, revisionFile));
+        const indexPath = getWorkingCopyDerivedPath(await getActiveWorkspaceWorkingCopyPath(session.page), 'search-index');
         const index = await readFile(indexPath);
         const revision = index.subarray(32, 32 + index.readUInt32LE(20)).toString('utf8');
         const binary = resolveNativeToolPath({
@@ -4442,10 +4435,7 @@ describe('Electron E2E - Viewer Smoke', () => {
         await search('Page 3 sample text');
         // Keep the header and revision of the index the search just built, and
         // claim the largest record table its count field can name, with none.
-        const directory = dirname(await getActiveWorkspaceWorkingCopyPath(session.page));
-        const revisionFile = decodeManifest(await readFile(join(directory, 'manifest.json'))).current?.file;
-        if (!revisionFile) throw new Error('Search did not materialize the current document');
-        const indexPath = getSearchIndexPath(join(directory, revisionFile));
+        const indexPath = getWorkingCopyDerivedPath(await getActiveWorkspaceWorkingCopyPath(session.page), 'search-index');
         const index = await readFile(indexPath);
         const forged = Buffer.from(index.subarray(0, 32 + index.readUInt32LE(20)));
         forged.writeUInt32LE(0xffff_ffff, 24);
