@@ -17,7 +17,10 @@ import type {
     ISerializationPlan,
     TSerializationBackend,
 } from '@app/modules/pdf-viewer/annotations/persistence/annotationSavePlan';
-import { selectSerializationBackend } from '@app/modules/pdf-viewer/annotations/persistence/annotationSavePlan';
+import {
+    annotationCommentSource,
+    selectSerializationBackend,
+} from '@app/modules/pdf-viewer/annotations/persistence/annotationSavePlan';
 import { normalizePdfJsAnnotationId } from '@app/utils/pdfAnnotationRefs';
 import type {
     INativeAppendSaveRoute,
@@ -98,11 +101,7 @@ export interface IPdfSaveNativeRouteDecision extends INativeAppendSaveRoute {
 export type TPdfSaveRouteDecision = IPdfSaveNativeRouteDecision | IPdfSaveByteRouteDecision;
 
 function entitySummary(entity: AnnotationEntity): IAnnotationCommentSummary {
-    const source = entity.kind === 'shape'
-        ? 'shape' as const
-        : entity.persistedRevision >= 0 && entity.identity.pdfRef
-            ? 'pdf' as const
-            : 'editor' as const;
+    const source = annotationCommentSource(entity);
     const id = entity.identity.pdfRef ?? entity.identity.id;
     const annotationId = entity.identity.pdfRef ?? null;
     const common = {

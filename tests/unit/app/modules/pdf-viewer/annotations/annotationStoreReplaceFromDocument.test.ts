@@ -254,6 +254,87 @@ describe('AnnotationStore.replaceFromDocument', () => {
         expect(store.hasChangesSinceSavedBaseline()).toBe(false);
     });
 
+    it.each([
+        false,
+        true,
+    ])('keeps authored edits of dirty imports over the geometry of a rotated page re-read (preserve baseline %s)', (preserveSavedBaseline) => {
+        const store = new AnnotationStore();
+        const rotated = {
+            left: 0.6,
+            top: 0.1,
+            width: 0.04,
+            height: 0.3,
+        };
+        const importedNote = note('imported-note', {
+            identity: {id: asAnnotationId('imported-note'), pdfRef: '11R'},
+            persistedRevision: 0,
+        });
+        const importedHighlight = textMarkup('imported-highlight', {
+            identity: {id: asAnnotationId('imported-highlight'), pdfRef: '12R'},
+            contents: 'document comment',
+            color: '#ffeb3b',
+            persistedRevision: 0,
+        });
+        store.import(importedNote);
+        store.import(importedHighlight);
+        store.setNoteText(importedNote.identity.id, 'typed during re-read');
+        store.updateTextMarkup(importedHighlight.identity.id, {contents: 'comment typed during re-read', color: '#4caf50'});
+
+        expect(store.replaceFromDocument([
+            note('parsed-note', {identity: {id: asAnnotationId('parsed-note'), pdfRef: '11R'}, position: rotated}),
+            textMarkup('parsed-highlight', {
+                identity: {id: asAnnotationId('parsed-highlight'), pdfRef: '12R'},
+                contents: 'document comment',
+                color: '#ffeb3b',
+                quadPoints: [rotated],
+            }),
+        ], [], undefined, [], [], preserveSavedBaseline)).toBe(true);
+
+        expect(store.get(importedNote.identity.id)).toMatchObject({
+            identity: {pdfRef: '11R'},
+            contents: 'typed during re-read',
+            position: rotated,
+        });
+        expect(store.get(importedHighlight.identity.id)).toMatchObject({
+            identity: {pdfRef: '12R'},
+            contents: 'comment typed during re-read',
+            color: '#4caf50',
+            quadPoints: [rotated],
+        });
+        expect(store.dirtyEntities().map(entity => entity.identity.id).sort()).toEqual([
+            'imported-highlight',
+            'imported-note',
+        ]);
+        expect(store.hasChangesSinceSavedBaseline()).toBe(true);
+    });
+
+    it.each([
+        false,
+        true,
+    ])('leaves an untouched import the re-read reports as foreign to the writer (preserve baseline %s)', (preserveSavedBaseline) => {
+        const store = new AnnotationStore();
+        const label = textBox('imported-label', {
+            identity: {id: asAnnotationId('imported-label'), pdfRef: '7 0 R'},
+            persistedRevision: 0,
+        });
+        store.import(label);
+        const rotatedLabel = {
+            pageIndex: requirePageIndex(0),
+            subtype: 'FreeText',
+            name: 'imported-label',
+            objectNumber: 7,
+            generationNumber: 0,
+            reason: 'Imported rotated FreeText has no recoverable canonical geometry',
+        };
+
+        expect(store.replaceFromDocument([], [rotatedLabel], undefined, [], [], preserveSavedBaseline)).toBe(true);
+
+        expect(store.get(label.identity.id)).toBeNull();
+        expect(store.dirtyEntities()).toEqual([]);
+        expect(store.hasChangesSinceSavedBaseline()).toBe(false);
+        expect(store.foreign).toEqual([expect.objectContaining({objectNumber: 7, generationNumber: 0})]);
+    });
+
     it('replaces clean entities, inserts parsed entities, and forgets clean omissions', () => {
         const store = new AnnotationStore();
         const clean = store.createTextBox(textBox('clean'));

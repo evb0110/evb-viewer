@@ -1,6 +1,7 @@
 import {
     admitsAnnotationReadback, keepsReplies,
 } from './annotationReadbackGuards';
+import {omit} from 'es-toolkit/object';
 import type {IPageIdentityDelta} from '@contracts/electronApiPageOps';
 import {mapPageNumberThroughPageIdentityDelta} from '@contracts/electronApiPageOps';
 import {
@@ -154,6 +155,35 @@ function liveIdentityOf(entity: AnnotationEntity | null | undefined) {
 
 function isDirty(entity: AnnotationEntity) {
     return entity.revision > entity.persistedRevision;
+}
+
+/**
+ * A re-read reflects every byte change since an edit, such as a page rotation,
+ * so the parse owns geometry. A live dirty entity keeps its authored
+ * properties over the parsed geometry; tombstones and other kinds stay as
+ * authored.
+ */
+function withParsedGeometry(current: AnnotationEntity, parsed: AnnotationEntity): AnnotationEntity {
+    if (current.deleted) return current;
+    if (current.kind === 'note' && parsed.kind === 'note') return {...current, position: parsed.position};
+    if (current.kind === 'text-markup' && parsed.kind === 'text-markup') {
+        return {
+            ...current,
+            quadPoints: parsed.quadPoints,
+            ...(parsed.selectedText ? {selectedText: parsed.selectedText} : {}),
+        };
+    }
+    if (current.kind === 'text-box' && parsed.kind === 'text-box') {
+        // /RD insets are page-upright geometry, and a rotation can make a label read-only.
+        return {
+            ...omit(current, ['frame', 'readOnly']),
+            rect: parsed.rect,
+            rotation: parsed.rotation,
+            ...(parsed.frame ? {frame: parsed.frame} : {}),
+            ...(parsed.readOnly ? {readOnly: parsed.readOnly} : {}),
+        };
+    }
+    return current;
 }
 
 function cloneCanonicalEntity<T extends AnnotationEntity>(entity: T): T {
@@ -605,8 +635,9 @@ export class AnnotationStore {
 
     /**
      * Applies one document parse as one store transaction. Parsed entities are
-     * the saved baseline. A dirty local entity keeps all authored properties,
-     * but receives the parsed PDF object reference and baseline fingerprint.
+     * the saved baseline. A dirty entity receives the parsed PDF object
+     * reference and fingerprint, and a note, label or markup takes its
+     * geometry from the parse while keeping its authored properties.
      *
      * A parse of some pages (`pageIndices`) replaces only those pages; entities
      * and foreign records on other pages stay as they are. It changes nothing
@@ -722,6 +753,9 @@ export class AnnotationStore {
         });
         semanticSnapshot(parsedById.values()).forEach((entry, id) => workingBaseline.set(id, entry));
         const forgotten = new Set<AnnotationId>();
+        // The bytes still hold these objects, but the editor can no longer own
+        // them, e.g. a FreeText after its page rotated. The writer preserves them.
+        const nowForeign = new Set(foreign.map(record => this.#identities.resolve({pdfRef: `${record.objectNumber} ${record.generationNumber} R`})));
         this.#entities.forEach((current, id) => {
             const parsed = parsedById.get(id);
             if (!parsed && !current.deleted && !inScope(current)) {
@@ -732,12 +766,16 @@ export class AnnotationStore {
                 }
                 return;
             }
+            if (!parsed && !current.deleted && !isDirty(current) && nowForeign.has(id)) {
+                forgotten.add(id);
+                return;
+            }
             if (preserveSavedBaseline) {
-                // Persisted records follow the writer's page geometry. Pending
-                // edits and tombstones keep their accepted intent and baseline.
-                const reconciled = parsed && !current.deleted && !isDirty(current)
+                // Records follow the writer's page geometry; pending edits and
+                // tombstones keep their accepted intent and baseline.
+                const reconciled = parsed && !current.deleted
                     ? {
-                        ...parsed,
+                        ...(isDirty(current) ? withParsedGeometry(current, parsed) : parsed),
                         revision: current.revision,
                     }
                     : current;
@@ -788,7 +826,7 @@ export class AnnotationStore {
             });
             if (isDirty(current)) {
                 next.set(id, {
-                    ...cloneEntity(current),
+                    ...cloneEntity(withParsedGeometry(current, parsed)),
                     identity: current.kind === 'shape'
                         && fingerprintMatchedIds.has(id)
                         && current.persistedRevision < 0
