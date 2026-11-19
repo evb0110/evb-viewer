@@ -10,6 +10,7 @@ import type {
 import type {
     IShapeEntity,
     INoteEntity,
+    ITextMarkupEntity,
     IPlacedImageEntity,
     ITextBoxEntity,
 } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
@@ -737,6 +738,66 @@ describe('native PDF save route', () => {
                 type: 'rectangle',
             })],
         });
+    });
+
+    it('saves imports edited during a rotated page re-read into their objects with the parsed geometry', () => {
+        const app = new AnnotationApplication('imports-edited-during-reparse');
+        const common = {
+            pageIndex: requirePageIndex(0),
+            revision: 0,
+            persistedRevision: 0,
+            deleted: false,
+            author: 'Reader',
+            createdAt: null,
+            modifiedAt: null,
+            color: '#ffff00',
+        } as const;
+        const before = {left: 0.1, top: 0.1, width: 0.3, height: 0.04};
+        const rotated = {left: 0.6, top: 0.1, width: 0.04, height: 0.3};
+        const importedNote = (position: typeof before): INoteEntity => ({
+            ...common,
+            kind: 'note',
+            identity: {id: asAnnotationId('imported-note'), pdfRef: '11 0 R'},
+            contents: 'Store-owned note',
+            position,
+            open: false,
+        });
+        const importedHighlight = (quad: typeof before): ITextMarkupEntity => ({
+            ...common,
+            kind: 'text-markup',
+            identity: {id: asAnnotationId('imported-highlight'), pdfRef: '12 0 R'},
+            subtype: 'Highlight',
+            contents: 'Highlight comment',
+            quadPoints: [quad],
+            opacity: 1,
+        });
+        app.store.import(importedNote(before));
+        app.store.import(importedHighlight(before));
+        app.store.setNoteText(asAnnotationId('imported-note'), 'Typed during re-read');
+        app.store.updateTextMarkup(asAnnotationId('imported-highlight'), {contents: 'Comment typed during re-read'});
+        // The working bytes hold the rotated page and the old texts.
+        expect(app.store.replaceFromDocument(
+            [importedNote(rotated), importedHighlight(rotated)], [], undefined, [], [], true,
+        )).toBe(true);
+        expect(app.listCommentSummaries()).toEqual([
+            expect.objectContaining({stableKey: 'ann:0:11 0 R', source: 'pdf', text: 'Typed during re-read', markerRect: rotated}),
+            expect.objectContaining({stableKey: 'ann:0:12 0 R', source: 'pdf', text: 'Comment typed during re-read', markerRect: rotated}),
+        ]);
+
+        const result = buildNativePdfMutationProjection(app.beginSave().plan, createNativeRouteCapabilities({shapes: []}));
+
+        expect(result.route).toBe('native-append');
+        if (result.route !== 'native-append') throw new Error(`Expected native save: ${result.nativeRejection}`);
+        const {mutations} = result.nativeMutationProjection;
+        expect(mutations.updates).toEqual([{objectNumber: 11, generationNumber: 0, text: 'Typed during re-read'}]);
+        expect(mutations.geometryUpdates).toEqual([expect.objectContaining({objectNumber: 11, markerRect: rotated})]);
+        expect(mutations.markup?.hints).toEqual([expect.objectContaining({
+            annotationId: '12 0 R',
+            source: 'pdf',
+            contents: 'Comment typed during re-read',
+            markupGeometry: [rotated],
+        })]);
+        expect(mutations.freeTextNotes).toBeUndefined();
     });
 });
 
