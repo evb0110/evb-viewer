@@ -34,6 +34,7 @@ describe('Electron E2E - assistant draft revision', () => {
     const fixture = createElectronE2ESessionFixture({
         sessionName: () => `e2e-assistant-draft-revision-${Date.now()}`,
         timeoutMs: 60_000,
+        isolateAssistantTools: true,
         extraEnv: {CODEX_CLI_PATH: resolve(`tests/fixtures/electron/codex-model-picker.${process.platform === 'win32' ? 'cmd' : 'mjs'}`)},
     });
 
@@ -334,17 +335,16 @@ describe('Electron E2E - assistant draft revision', () => {
             await (window as IE2EWindow).electronAPI?.settings.save({assistantPanelEnabled: true});
         });
         session = await fixture.restart({clean: false});
-        const openChat = async () => {
+        const openChat = async (expectedMessages: string[]) => {
             await openPdfInApp(session.page, pdfPath);
             await waitForPdfLoaded(session.page);
             if (!await session.page.$('.composer-input')) {
                 await clickAsUser(session.page, 'button[aria-label="Toggle EVB Assistant"]');
             }
-            await session.page.waitForSelector('.composer-input:not(:disabled)', {visible: true});
+            await expect.poll(() => session.page.$$eval('.assistant-message.is-user .user-bubble',
+                bubbles => bubbles.map(bubble => bubble.textContent?.trim()))).toEqual(expectedMessages);
         };
-        await openChat();
-        await expect.poll(() => session.page.$$eval('.assistant-message.is-user .user-bubble',
-            bubbles => bubbles.map(bubble => bubble.textContent?.trim()))).toEqual(['Saved before the file-key upgrade']);
+        await openChat(['Saved before the file-key upgrade']);
         await session.command('screenshot', ['a35-legacy-chat-recovered']);
         const canonicalPath = join(sessions, fileName(canonicalKey));
         const readCanonicalSnapshot = () => readFileSync(canonicalPath, 'utf8').trim().split('\n')
@@ -363,9 +363,7 @@ describe('Electron E2E - assistant draft revision', () => {
         await expect.poll(() => session.page.$$eval('.assistant-message:not(.is-user) .assistant-markdown',
             bubbles => bubbles.map(bubble => bubble.textContent?.trim()))).toContain('Image received.');
         session = await fixture.restart({clean: false});
-        await openChat();
-        await expect.poll(() => session.page.$$eval('.assistant-message.is-user .user-bubble',
-            bubbles => bubbles.map(bubble => bubble.textContent?.trim()))).toEqual([
+        await openChat([
             'Saved before the file-key upgrade',
             'Continue this saved conversation.',
         ]);

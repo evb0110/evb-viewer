@@ -1,4 +1,9 @@
 import {
+    copyFileSync, mkdirSync, mkdtempSync, rmSync, symlinkSync,
+} from 'node:fs';
+import {tmpdir} from 'node:os';
+import {delimiter, join} from 'node:path';
+import {
     afterAll,
     beforeAll,
     beforeEach,
@@ -40,6 +45,7 @@ interface IElectronE2ESessionFixtureOptions {
     sessionName: TSessionNameFactory;
     clean?: boolean;
     extraEnv?: Record<string, string>;
+    isolateAssistantTools?: boolean;
     restartBeforeEach?: boolean;
     timeoutMs?: number;
 }
@@ -57,6 +63,8 @@ function createElectronE2ESessionFixtureWithStarter(
     let bootFailure: Error | null = null;
     let preserveFailureArtifacts = false;
     let testExecutionCount = 0;
+    let assistantToolsDirectory: string | undefined;
+    let assistantEnv: Record<string, string> | undefined;
 
     const controls: IElectronE2ESessionFixtureControls = {
         getSession: () => {
@@ -76,7 +84,7 @@ function createElectronE2ESessionFixtureWithStarter(
                 const extraEnv = startOptions.extraEnv ?? options.extraEnv;
                 const started = await startSession(sessionName, {
                     clean: startOptions.clean ?? true,
-                    ...(extraEnv ? {extraEnv} : {}),
+                    extraEnv: {...extraEnv, ...assistantEnv},
                 });
                 session = started;
                 bootFailure = null;
@@ -148,9 +156,37 @@ function createElectronE2ESessionFixtureWithStarter(
     beforeAll(async () => {
         try {
             sessionName = resolveSessionName(options.sessionName);
+            if (options.isolateAssistantTools) {
+                assistantToolsDirectory = mkdtempSync(join(tmpdir(), 'evb-assistant-tools-'));
+                const bin = join(assistantToolsDirectory, 'bin');
+                const home = join(assistantToolsDirectory, 'home');
+                mkdirSync(bin);
+                mkdirSync(home);
+                const windows = process.platform === 'win32';
+                const systemRoot = process.env.SystemRoot ?? 'C:\\Windows';
+                // The fake provider uses Node. Expose that executable without its host bin directory.
+                if (windows) {
+                    copyFileSync(process.execPath, join(bin, 'node.exe'));
+                } else {
+                    symlinkSync(process.execPath, join(bin, 'node'));
+                }
+                assistantEnv = {
+                    PATH: [bin, ...(windows
+                        ? [join(systemRoot, 'System32'), systemRoot]
+                        : ['/usr/bin', '/bin', '/usr/sbin', '/sbin'])].join(delimiter),
+                    HOME: home,
+                    USERPROFILE: home,
+                    CFFIXED_USER_HOME: home,
+                    CODEX_HOME: join(home, '.codex'),
+                    CLAUDE_CONFIG_DIR: join(home, '.claude'),
+                    CLAUDE_CODE_PATH: '',
+                    // Use the supplied environment without importing a login shell's PATH.
+                    TERM: 'xterm',
+                };
+            }
             session = await startSession(sessionName, {
                 clean: options.clean ?? true,
-                ...(options.extraEnv ? {extraEnv: options.extraEnv} : {}),
+                extraEnv: {...options.extraEnv, ...assistantEnv},
             });
             bootFailure = null;
         } catch (error) {
@@ -182,6 +218,9 @@ function createElectronE2ESessionFixtureWithStarter(
 
     afterAll(async () => {
         await controls.stop({ preserveArtifacts: preserveFailureArtifacts });
+        if (assistantToolsDirectory) {
+            rmSync(assistantToolsDirectory, {recursive: true, force: true});
+        }
     });
 
     return controls;
