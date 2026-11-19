@@ -79,7 +79,7 @@ export function createAgentOptions(
         isAnySaving: ref(false),
         isDjvuMode: ref(false),
         isSameAnnotationComment: (left, right) => left.stableKey === right.stableKey,
-        markAnnotationDirty: vi.fn(),
+        persistAnnotationNote: vi.fn(() => true),
         ocrPopupOpen: ref(false),
         ocr: {
             runOcrForAgent: vi.fn(async () => ({ok: true})),

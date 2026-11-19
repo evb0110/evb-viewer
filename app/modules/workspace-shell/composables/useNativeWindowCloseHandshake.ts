@@ -49,18 +49,11 @@ export const useNativeWindowCloseHandshake = (
             || (decision === 'save' && session.snapshot.value.dirty)) ? 'cancel' : decision;
     }
 
-    // Dirty tabs are save-protected, so their workspaces stay mounted.
+    // Dirty tabs are save-protected, so their workspaces stay mounted. Save
+    // resolves after publication, reload and draft settlement; work newer than
+    // its frontier keeps the document dirty, which `closeWith` refuses.
     async function saveTab(session: IWorkspaceDocumentController) {
-        const workspace = getDocumentWorkspace(session);
-        if (!workspace) {
-            return false;
-        }
-
-        if (await workspace.handleSave() !== true) {
-            return false;
-        }
-        await nextTick();
-        return workspace.getAutomationStateSnapshot().dirtyState?.fileDirty !== true;
+        return await getDocumentWorkspace(session)?.handleSave() === true;
     }
 
     async function handleWindowClose(_request: IWindowCloseRequest): Promise<TWindowCloseDecision> {

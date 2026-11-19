@@ -49,6 +49,7 @@ const electronApi = createElectronPlatformApiFixture({documentFiles: {readFileRa
 vi.mock('@app/utils/platform', () => ({getPlatformAPI: () => electronApi}));
 
 const {createPdfDocumentSession} = await import('@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSession');
+const {usePdfViewerSaveTransaction} = await import('@app/modules/pdf-viewer/runtime/save/usePdfViewerSaveTransaction');
 
 function createDocumentProxy(id: string, numPages = 1) {
     return {
@@ -848,6 +849,57 @@ describe('PdfDocumentSession linked views', () => {
         rightActive.value = false;
         await vi.waitFor(() => expect(right.at(-1)).toBe('invalidated'));
         await vi.waitFor(() => expect(document.cleanup).toHaveBeenCalledOnce());
+        await session.dispose();
+    });
+
+    it('keeps a Save current when its view stops being active and refuses it once the source is replaced', async () => {
+        const first = createDocumentProxy('first');
+        const second = createDocumentProxy('second');
+        pdfjsState.getDocument
+            .mockReturnValueOnce({
+                promise: Promise.resolve(first),
+                destroy: vi.fn(),
+            })
+            .mockReturnValueOnce({
+                promise: Promise.resolve(second),
+                destroy: vi.fn(),
+            });
+        const src = ref(new Blob(['first'], {type: 'application/pdf'}));
+        const active = ref(true);
+        const session = createPdfDocumentSession({src: computed(() => src.value as never)});
+        const view = observe(session.attachView({isActive: computed(() => active.value)}));
+        await session.load();
+        const transaction = usePdfViewerSaveTransaction({pdfDocument: session.pdfDocument});
+        const save = await transaction.runSaveTransaction({
+            mode: 'persist',
+            nativeCapabilities: {
+                hasNativePdfMutationCapability: false,
+                canPersistNativeMetadataMutations: false,
+            },
+            dirtyState: {
+                annotationDirty: false,
+                hasAnnotationChanges: false,
+                shapeStateDirty: false,
+            },
+            documentStructure: {
+                pageLabelsDirty: false,
+                pageLabelRanges: [],
+                bookmarksDirty: false,
+                bookmarkItems: [],
+                untitledBookmarkLabel: 'Untitled',
+                totalPages: 1,
+            },
+        });
+
+        // Switching to another tab deactivates the view; the document it saves is unchanged.
+        active.value = false;
+        await vi.waitFor(() => expect(view.at(-1)).toBe('invalidated'));
+        await expect(save.assertAnnotationSaveCurrent?.()).resolves.toBeUndefined();
+
+        active.value = true;
+        src.value = new Blob(['second'], {type: 'application/pdf'});
+        await vi.waitFor(() => expect(session.pdfDocument.value).toBe(second));
+        await expect(save.assertAnnotationSaveCurrent?.()).rejects.toThrow('PDF document changed after the save frontier was captured');
         await session.dispose();
     });
 

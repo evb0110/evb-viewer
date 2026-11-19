@@ -76,7 +76,8 @@ export interface IUseDocumentWorkspaceAgentOptions extends Record<
     handleZoomIn: () => void;
     handleZoomOut: () => void;
     isSameAnnotationComment: (left: IAnnotationCommentSummary, right: IAnnotationCommentSummary) => boolean;
-    markAnnotationDirty: () => void;
+    /** Resolves once the note's open draft is in the store, or false when it could not be. */
+    persistAnnotationNote: (annotationId: string) => boolean | Promise<boolean>;
     ocr: IOcrPopupAgentExpose;
     openConvertDialog: () => void;
     originalPath: Ref<TDocumentRef | null>;

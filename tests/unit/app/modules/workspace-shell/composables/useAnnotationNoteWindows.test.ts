@@ -935,7 +935,7 @@ describe('useAnnotationNoteWindows', () => {
             vi.useRealTimers();
         });
 
-        it('submits the latest draft after a save that blocked the debounce settles', async () => {
+        it('submits the latest draft as soon as a save that blocked the debounce settles', async () => {
             const {
                 deps,
                 windows,
@@ -956,10 +956,6 @@ describe('useAnnotationNoteWindows', () => {
 
             await settle(true);
 
-            expect(deps.updateAnnotationCommentInViewer).toHaveBeenCalledTimes(1);
-
-            await vi.advanceTimersByTimeAsync(ANNOTATION_NOTE_SAVE_DEBOUNCE_MS);
-
             expect(deps.updateAnnotationCommentInViewer).toHaveBeenCalledTimes(2);
             expect(deps.updateAnnotationCommentInViewer).toHaveBeenLastCalledWith(noteId, 'Second draft');
 
@@ -972,6 +968,31 @@ describe('useAnnotationNoteWindows', () => {
             expect(note?.dirty).toBe(false);
             expect(note?.saving).toBe(false);
             expect(note?.error).toBeNull();
+        });
+
+        it('answers a Save made mid-flight once the draft typed since is stored', async () => {
+            const {
+                deps,
+                windows,
+                settle,
+                typeText,
+            } = createAsyncSaveHarness();
+
+            await typeText('First draft');
+            await vi.advanceTimersByTimeAsync(ANNOTATION_NOTE_SAVE_DEBOUNCE_MS);
+            await typeText('Second draft');
+            let answer: boolean | null = null;
+            void windows.persistAllAnnotationNotes().then((saved) => { answer = saved; });
+
+            await settle(true);
+
+            expect(answer).toBeNull();
+            expect(deps.updateAnnotationCommentInViewer).toHaveBeenLastCalledWith(noteId, 'Second draft');
+
+            await settle(true);
+
+            expect(answer).toBe(true);
+            expect(windows.findAnnotationNoteWindow(noteId)?.dirty).toBe(false);
         });
 
         it('coalesces repeated edits made during a save into one follow-up submission', async () => {
@@ -1053,7 +1074,7 @@ describe('useAnnotationNoteWindows', () => {
             expect(note?.error).not.toBeNull();
         });
 
-        it('surfaces a rejected save without retrying the same draft', async () => {
+        it('surfaces a rejected save to a joined request without retrying the same draft', async () => {
             const {
                 deps,
                 rejections,
@@ -1063,9 +1084,10 @@ describe('useAnnotationNoteWindows', () => {
 
             await typeText('First draft');
             await vi.advanceTimersByTimeAsync(ANNOTATION_NOTE_SAVE_DEBOUNCE_MS);
-            expect(windows.persistAnnotationNote(noteId)).toBe(false);
+            const joined = windows.persistAnnotationNote(noteId);
 
             rejections[0]!(new Error('viewer unavailable'));
+            await expect(joined).resolves.toBe(false);
             await vi.advanceTimersByTimeAsync(10_000);
 
             const note = windows.findAnnotationNoteWindow(noteId);
@@ -1162,11 +1184,6 @@ describe('useAnnotationNoteWindows', () => {
             expect(reopened?.saving).toBe(true);
 
             await settleRequest(1, true);
-
-            expect(deps.updateAnnotationCommentInViewer).toHaveBeenCalledTimes(2);
-            expect(vi.getTimerCount()).toBe(1);
-
-            await vi.advanceTimersByTimeAsync(ANNOTATION_NOTE_SAVE_DEBOUNCE_MS);
 
             expect(deps.updateAnnotationCommentInViewer).toHaveBeenCalledTimes(3);
             expect(deps.updateAnnotationCommentInViewer).toHaveBeenLastCalledWith(noteId, 'Draft C');
