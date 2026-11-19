@@ -334,17 +334,34 @@ describe('Electron E2E - assistant draft revision', () => {
         await session.page.evaluate(async () => {
             await (window as IE2EWindow).electronAPI?.settings.save({assistantPanelEnabled: true});
         });
-        session = await fixture.restart({clean: false});
-        const openChat = async (expectedMessages: string[]) => {
+        session = await fixture.restart({
+            clean: false,
+            slowAssistantVersionProbe: true,
+        });
+        const openChat = async () => {
             await openPdfInApp(session.page, pdfPath);
             await waitForPdfLoaded(session.page);
-            if (!await session.page.$('.composer-input')) {
-                await clickAsUser(session.page, 'button[aria-label="Toggle EVB Assistant"]');
-            }
-            await expect.poll(() => session.page.$$eval('.assistant-message.is-user .user-bubble',
-                bubbles => bubbles.map(bubble => bubble.textContent?.trim()))).toEqual(expectedMessages);
+            await clickAsUser(session.page, 'button[aria-label="Toggle EVB Assistant"]');
         };
-        await openChat(['Saved before the file-key upgrade']);
+        const readPanel = () => session.page.evaluate(() => {
+            const picker = document.querySelector('[data-model-picker-trigger]');
+            return {
+                picker: picker?.checkVisibility() ? picker.getAttribute('aria-label') : null,
+                messages: [...document.querySelectorAll<HTMLElement>('.assistant-message.is-user .user-bubble')]
+                    .filter(bubble => bubble.checkVisibility())
+                    .map(bubble => bubble.innerText.trim()),
+            };
+        });
+        await openChat();
+        // AS1: allow 1 s for local history and rendering. The synthetic 2.7 s
+        // launcher is still checking at that point if discovery starts on open.
+        await expect.poll(readPanel, {
+            timeout: 1_000,
+            message: 'First open shows the selected Codex setup and saved conversation during discovery',
+        }).toEqual({
+            picker: expect.stringMatching(/^Codex(?:$| · (?!codex-slow\b))/u),
+            messages: ['Saved before the file-key upgrade'],
+        });
         await session.command('screenshot', ['a35-legacy-chat-recovered']);
         const canonicalPath = join(sessions, fileName(canonicalKey));
         const readCanonicalSnapshot = () => readFileSync(canonicalPath, 'utf8').trim().split('\n')
@@ -363,7 +380,8 @@ describe('Electron E2E - assistant draft revision', () => {
         await expect.poll(() => session.page.$$eval('.assistant-message:not(.is-user) .assistant-markdown',
             bubbles => bubbles.map(bubble => bubble.textContent?.trim()))).toContain('Image received.');
         session = await fixture.restart({clean: false});
-        await openChat([
+        await openChat();
+        await expect.poll(async () => (await readPanel()).messages).toEqual([
             'Saved before the file-key upgrade',
             'Continue this saved conversation.',
         ]);
