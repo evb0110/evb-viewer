@@ -90,7 +90,6 @@ const menuTabCountByWindow = new Map<number, number>();
 const trackedWindowIds = new Set<number>();
 let listenersRegistered = false;
 let menuRebuildTimer: ReturnType<typeof setTimeout> | null = null;
-let menuRebuildPending = false;
 
 type TNativeMenuEventMap = IDocumentsEventMap & IUpdatesEventMap & IWindowTabsEventMap & Pick<
     ICoreEventMap,
@@ -852,23 +851,16 @@ function rebuildMenu(immediate = false) {
             clearTimeout(menuRebuildTimer);
             menuRebuildTimer = null;
         }
-        menuRebuildPending = false;
         rebuildMenuNow();
         return;
     }
 
-    menuRebuildPending = true;
     if (menuRebuildTimer) {
         return;
     }
 
     menuRebuildTimer = setTimeout(() => {
         menuRebuildTimer = null;
-
-        if (!menuRebuildPending) {
-            return;
-        }
-        menuRebuildPending = false;
         rebuildMenuNow();
     }, MENU_REBUILD_DEBOUNCE_MS);
 }

@@ -109,16 +109,14 @@ export function buildSearchIndex(
     const key = `${document.indexPath}\0${document.documentRevision}`;
     let build = builds.get(key);
     if (!build) {
-        const controller = new AbortController();
         const operation = registerMainOperation({
             kind: 'abortable-work',
             workingCopyPath: document.workingCopyPath,
-            cancel: reason => controller.abort(new Error(reason)),
+            // The build listens to operation.signal; the hook makes it eligible
+            // for cancellation when its working copy closes.
+            cancel: () => undefined,
         });
-        const signal = AbortSignal.any([
-            controller.signal,
-            operation.signal,
-        ]);
+        const {signal} = operation;
         const listeners = new Set<(pagesScanned: number) => void>();
         const promise = mkdir(dirname(document.indexPath), {recursive: true}).then(async () => {
             const pageCount = await document.readPageCount?.(signal);
@@ -165,7 +163,7 @@ export function buildSearchIndex(
         build = {
             promise,
             listeners,
-            cancel: () => controller.abort(new Error('Search index build canceled')),
+            cancel: () => operation.abort('Search index build canceled'),
         };
         builds.set(key, build);
     }

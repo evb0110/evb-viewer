@@ -49,7 +49,10 @@ import {
 import { searchIndexedDocument } from '@electron/features/search/public';
 import { validateSearchQuery } from '@pdf-core';
 import { DJVU_PLATFORM_FEATURE } from '@contracts/djvuPlatformFeature';
-import { isAbortError } from '@electron/utils/abort';
+import {
+    createAbortError,
+    isAbortError,
+} from '@electron/utils/abort';
 import {getUnprovenNativeTerminationDetail} from '@electron/utils/nativeTerminationProof';
 import { registerMainOperation } from '@electron/operation-lifecycle/mainOperationLifecycle';
 import type {IPdfBookmarkEntry} from '@contracts/pdfBookmarkEntry';
@@ -103,7 +106,7 @@ interface IActiveDjvuPreviewOperation {
 
 const activePreviewOperationsBySenderRequestKey = new Map<string, IActiveDjvuPreviewOperation>();
 const activeEstimateOperationsById = new Map<string, {
-    abortController: AbortController;
+    abort: (reason: string) => void;
     documentKey: string;
     ownerWebContentsId: number;
 }>();
@@ -283,9 +286,7 @@ function cancelEstimateOperationsForSender(
         if (exceptDocumentKey !== undefined && active.documentKey === exceptDocumentKey) {
             continue;
         }
-        if (!active.abortController.signal.aborted) {
-            active.abortController.abort(new Error(reason));
-        }
+        active.abort(reason);
         activeEstimateOperationsById.delete(operationId);
     }
 }
@@ -830,36 +831,30 @@ export async function handleDjvuEstimateSizes(
         normalizedDjvuPath,
     );
 
-    const abortController = new AbortController();
     const operationId = `djvu-estimate-${randomUUID()}`;
     const mainOperation = registerMainOperation({
         kind: 'abortable-work',
         ownerWebContentsId: context.senderId,
         workingCopyPath: normalizedDjvuPath,
-        cancel: (reason) => {
-            if (!abortController.signal.aborted) {
-                abortController.abort(new Error(reason));
-            }
-        },
+        // The reads listen to mainOperation.signal; the hook makes the estimate
+        // eligible for cancellation when its working copy closes.
+        cancel: () => undefined,
     });
-    const abortMainOperation = () => {
-        if (!abortController.signal.aborted) {
-            abortController.abort(new Error('DjVu estimate operation canceled'));
-        }
-    };
 
     activeEstimateOperationsById.set(operationId, {
-        abortController,
+        abort: mainOperation.abort,
         documentKey: normalizedDjvuPath,
         ownerWebContentsId: context.senderId,
     });
     registerEstimateSenderCleanup(context.sender);
-    mainOperation.signal.addEventListener('abort', abortMainOperation, { once: true });
     try {
-        const pageCount = await getDjvuPageCount(normalizedDjvuPath, { signal: abortController.signal });
-        return await estimateSizes(normalizedDjvuPath, pageCount, { signal: abortController.signal });
+        const pageCount = await getDjvuPageCount(normalizedDjvuPath, { signal: mainOperation.signal });
+        return await estimateSizes(normalizedDjvuPath, pageCount, { signal: mainOperation.signal });
+    } catch (error) {
+        // The lifecycle aborts with its plain reason; an abort error keeps the
+        // rejection a cancellation for the IPC layer.
+        throw mainOperation.signal.aborted ? createAbortError(getErrorMessage(mainOperation.signal.reason)) : error;
     } finally {
-        mainOperation.signal.removeEventListener('abort', abortMainOperation);
         activeEstimateOperationsById.delete(operationId);
         unregisterEstimateSenderCleanupIfIdle(context.senderId);
         mainOperation.complete();

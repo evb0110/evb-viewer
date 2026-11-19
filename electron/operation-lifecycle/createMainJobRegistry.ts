@@ -191,7 +191,6 @@ export function createMainJobRegistry<
         ownerKey: string;
         lifecycle: IMainJobOwnerLifecyclePolicy;
         operation: IRegisteredMainOperation;
-        controller: AbortController;
         snapshot: TSnapshot;
         subscribers: Set<ISubscription>;
         handle: THandle;
@@ -290,8 +289,8 @@ export function createMainJobRegistry<
             return false;
         }
         const effective = record.snapshot.status === 'canceling' ? 'canceled' : status;
-        const cause: unknown = effective === 'canceled' && record.controller.signal.aborted
-            ? record.controller.signal.reason
+        const cause: unknown = effective === 'canceled' && record.operation.signal.aborted
+            ? record.operation.signal.reason
             : value;
         const error = effective === 'completed' ? null : options.toError(cause, effective); const latest = progress ?? record.snapshot.progress;
         const terminalProgress = effective === 'completed' ? options.terminalProgress.completed(latest, value as TResult)
@@ -318,8 +317,8 @@ export function createMainJobRegistry<
             || (record.snapshot.operationKind === 'critical-write' && record.snapshot.status === 'committing')) {
             return false;
         }
-        update(record, {status: 'canceling'}); record.controller.abort(new Error(reason));
-        record.cancelPromise = Promise.resolve().then(() => cancelHooks.get(record)?.(reason, record.controller.signal))
+        update(record, {status: 'canceling'}); record.operation.abort(reason);
+        record.cancelPromise = Promise.resolve().then(() => cancelHooks.get(record)?.(reason, record.operation.signal))
             .catch(() => undefined);
         return true;
     }
@@ -358,14 +357,15 @@ export function createMainJobRegistry<
             }
             throw throwable(options.toError(new Error(`Duplicate job ID: ${jobId}`), 'duplicate-job-id'));
         }
-        const recordRef: {current?: IRecord} = {};
         const operation = registerMainOperation({
             ...startOptions.operation,
             ownerWebContentsId: startOptions.owner.sender.id,
-            cancel: reason => { if (recordRef.current) requestCancel(recordRef.current, reason); },
+            // The job listens to operation.signal below; the hook makes it
+            // eligible for cancellation when its working copy closes.
+            cancel: () => undefined,
             ownerLifecycle: startOptions.ownerLifecycle,
         });
-        const controller = new AbortController(); let resolveTerminal!: (snapshot: TTerminal) => void; let resolveSettled!: () => void;
+        const {signal} = operation; let resolveTerminal!: (snapshot: TTerminal) => void; let resolveSettled!: () => void;
         const terminal = new Promise<TTerminal>(resolve => { resolveTerminal = resolve; });
         const settled = new Promise<void>(resolve => { resolveSettled = resolve; });
         const createdAtMs = now(); const owner = ownerOf(startOptions.owner);
@@ -375,7 +375,6 @@ export function createMainJobRegistry<
             ownerKey: ownerKeyOf(owner),
             lifecycle: startOptions.ownerLifecycle ?? {destroyed: 'cancel'},
             operation,
-            controller,
             snapshot: {
                 jobId,
                 owner,
@@ -397,21 +396,21 @@ export function createMainJobRegistry<
         };
         record.handle = {
             jobId,
-            signal: controller.signal,
+            signal,
             terminal,
             settled,
             cancel: reason => requestCancel(record, reason),
         };
-        recordRef.current = record; records.set(jobId, record);
+        records.set(jobId, record);
         cancelHooks.set(record, startOptions.onCancel); bind(record); emit(record);
-        for (const signal of [
-            operation.signal,
+        for (const source of [
+            signal,
             ...(startOptions.signals ?? []),
         ]) {
-            const abort = () => requestCancel(record, signal.reason instanceof Error ? getErrorMessage(signal.reason) : 'Operation canceled');
-            if (signal.aborted) abort();
+            const abort = () => requestCancel(record, source.reason instanceof Error ? getErrorMessage(source.reason) : 'Operation canceled');
+            if (source.aborted) abort();
             else {
-                signal.addEventListener('abort', abort, {once: true}); record.cleanupSignals.push(() => signal.removeEventListener('abort', abort));
+                source.addEventListener('abort', abort, {once: true}); record.cleanupSignals.push(() => source.removeEventListener('abort', abort));
             }
         }
         // Sampled here, while start() is still on the stack: only a signal that
@@ -419,10 +418,10 @@ export function createMainJobRegistry<
         // began. A cancel that lands later in the same turn belongs to a job the
         // caller has already started acting on, and must settle through its own
         // cancellation path rather than being short-circuited here.
-        const abortedBeforeRun = controller.signal.aborted;
+        const abortedBeforeRun = signal.aborted;
         const context: IMainJobRunContext<TProgress, TResult, TError> = {
             jobId,
-            signal: controller.signal,
+            signal,
             scratch: options.scratch ?? {using: (prefix, run) => usingManagedScratchScope(prefix, getAppTempDir(), run)},
             publish: progress => { if (record.terminalAtMs === null) {
                 const previousKey = options.progress?.getEventKey(record.snapshot.progress);
@@ -458,12 +457,12 @@ export function createMainJobRegistry<
             // The catch below maps this to the same outcome as a cancellation
             // that lands mid-run.
             if (abortedBeforeRun) {
-                throw controller.signal.reason;
+                throw signal.reason;
             }
             return startOptions.run(context);
         })
             .then(result => finish(record, 'completed', result))
-            .catch(error => finish(record, controller.signal.aborted ? 'canceled' : 'failed', error))
+            .catch(error => finish(record, signal.aborted ? 'canceled' : 'failed', error))
             .finally(async () => {
                 try {
                     await record.cancelPromise;
