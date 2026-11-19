@@ -1895,6 +1895,57 @@ describe('createDocumentWorkspaceAgent', () => {
         expect(noteWindows.value[0]?.draftText, 'Undo brings back the reader draft').toBe('Reader draft');
     });
 
+    it('registers no Undo for an open-note edit whose document is replaced while the note commits', async () => {
+        const comment = createAnnotationComment({
+            text: 'Original note',
+            hasNote: true,
+            kindLabel: 'Note',
+            subtype: 'Text',
+        });
+        const noteWindows = ref([cast<IAnnotationNoteWindowViewModel>({
+            annotationId: annotationIdForSummary(comment),
+            draftText: 'Original note',
+            dirty: false,
+        })]);
+        const originalHistory: unknown[] = [];
+        const replacementHistory: unknown[] = [];
+        const originalIdentity = createDocumentIdentity('revision-1', 1);
+        const documentIdentity = ref<IDocumentRevisionInfo | null>(originalIdentity);
+        const pdfViewerRef = ref(createAgentViewerPort({registerAnnotationHistoryCommand: command => originalHistory.push(command)}));
+        let finishPersist: (saved: boolean) => void = () => undefined;
+        const agent = createDocumentWorkspaceAgent(createAgentOptions({
+            annotationComments: ref([comment]),
+            sortedAnnotationNoteWindows: noteWindows,
+            documentIdentity,
+            pdfViewerRef,
+            persistAnnotationNote: () => new Promise<boolean>(resolve => {
+                finishPersist = resolve;
+            }),
+        }));
+
+        const update = agent.runAgentAction('annotation.update_note', {
+            stableKey: comment.stableKey,
+            text: 'Updated note',
+        }, {}, {
+            signal: new AbortController().signal,
+            documentIdentity: originalIdentity,
+            documentInstanceId: requireDocumentInstanceId('instance-a'),
+            assertCurrentDocument: () => undefined,
+        });
+        await Promise.resolve();
+        // Another document takes the workspace before the note commit settles.
+        documentIdentity.value = {
+            ...createDocumentIdentity('revision-b', 1),
+            documentRef: requireDocumentRef('/tmp/replacement.pdf'),
+        };
+        pdfViewerRef.value = createAgentViewerPort({registerAnnotationHistoryCommand: command => replacementHistory.push(command)});
+        finishPersist(true);
+
+        await expect(update).rejects.toThrow('Agent command target document changed.');
+        expect(originalHistory).toEqual([]);
+        expect(replacementHistory).toEqual([]);
+    });
+
     it('passes an exact compact selection to page-operation actions', async () => {
         const selection = createRangePageSelection(1_000_000, 2, 100_002);
         const pageOpsDelete = vi.fn(async () => true);

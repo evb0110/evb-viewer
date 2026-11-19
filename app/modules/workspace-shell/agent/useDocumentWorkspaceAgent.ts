@@ -171,7 +171,6 @@ export const createDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgent
         hasPdf,
         isAnySaving,
         isDjvuMode,
-        markAnnotationDirty,
         ocrPopupOpen,
         ocr,
         openConvertDialog,
@@ -185,6 +184,7 @@ export const createDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgent
         handleCropPages,
         handleRemoveCrop,
         pdfViewerRef,
+        persistAnnotationNote,
         selectedPageSelection,
         selectedThumbnailPages,
         showConvertDialog,
@@ -682,7 +682,6 @@ export const createDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgent
             async run(annotationInput: Record<string, unknown>) {
                 const comment = findAgentAnnotationComment(annotationInput);
                 handleOpenAnnotationNote(comment);
-                await nextTick();
                 return {comment: normalizeAgentAnnotationComment(comment)};
             },
         },
@@ -698,9 +697,9 @@ export const createDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgent
         ...createDocumentAgentAnnotationNoteActions({
             findAgentAnnotationComment,
             handleOpenAnnotationNote,
-            markAnnotationDirty,
             normalizeAgentAnnotationComment,
             pdfViewerRef,
+            persistAnnotationNote,
             sortedAnnotationNoteWindows,
             updateAnnotationNoteText,
             updateTextMarkupColorWithHistory,
@@ -751,10 +750,9 @@ export const createDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgent
                 if (!result) {
                     throw new Error('PDF viewer is not ready for annotation.create_note_at_point.');
                 }
-                await nextTick();
+                // The viewer resolves once the store holds the note.
                 context?.assertCurrentDocument();
                 const markerRect = result.created ? patchLatestAgentPointNoteMarkerRect(createOptions) : null;
-                await nextTick();
                 return {
                     ...result,
                     markerRect,
