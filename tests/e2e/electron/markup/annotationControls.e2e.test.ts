@@ -1808,7 +1808,7 @@ describe('Electron E2E - annotation controls', () => {
             expect(capture.clip.left >= capture.viewport.left && capture.clip.top >= capture.viewport.top
                 && capture.clip.right <= capture.viewport.right && capture.clip.bottom <= capture.viewport.bottom,
             `The whole text box is inside the document viewport: ${JSON.stringify(capture)}`).toBe(true);
-            const actual = Buffer.from(await page.screenshot({clip: capture.clip}));
+            const actual = Buffer.from(await page.screenshot({clip: capture.clip, captureBeyondViewport: false}));
             writeFileSync(join(evidence, `${label}-box.png`), actual);
             await page.screenshot({path: join(evidence, `${label}-page.png`)});
             const client = await page.createCDPSession();
