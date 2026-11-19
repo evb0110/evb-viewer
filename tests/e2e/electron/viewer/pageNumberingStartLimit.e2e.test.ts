@@ -6,6 +6,7 @@ import {
     describe, expect, it,
 } from 'vitest';
 import {readFileSync} from 'node:fs';
+import {resolve} from 'node:path';
 import {
     PDFArray,
     PDFDict,
@@ -26,12 +27,13 @@ import {
     clickAsUser, clickFoundAsUser,
 } from '@tests/e2e/electron/helpers/userInput';
 import {
-    goToPageViaToolbar, openDocumentSidebarTab, openPdfInApp, saveViaVisibleToolbar, waitForPdfLoaded,
+    goToPageViaToolbar, openDjvuInApp, openDocumentSidebarTab, openPdfInApp, saveViaVisibleToolbar, waitForPdfLoaded, waitForViewerInteractive,
     waitForToolbarCurrentPage,
 } from '@tests/e2e/electron/helpers/viewerCore';
 import {readToolbarPageIndicator} from '@tests/e2e/electron/helpers/toolbarPageIndicator';
+import type {IResizeElectronWindowResult} from '@scripts/electron-run/resizeElectronWindow';
 import {getPageLabelStartNumberMax} from '@pdf-core/pdfPageLabels';
-import type {Page} from 'puppeteer-core';
+import type {ElementHandle, Page} from 'puppeteer-core';
 
 const PAGES_PANEL = '.workspace-host[data-workspace-active="true"]';
 
@@ -180,6 +182,85 @@ describe('Electron E2E - page numbering start limit', () => {
         await waitForToolbarCurrentPage(page, 2);
     }, 90_000);
 
+    it('keeps Apply Numbering and DjVu Search reachable at narrow and default window sizes', async () => {
+        const session = sessions.getSession();
+        const {page} = session;
+        const narrow = await session.command<IResizeElectronWindowResult>('windowResize', [
+            900,
+            672,
+        ]);
+        const sizes = [
+            {name: 'narrow', ...narrow.after.contentSize},
+            {name: 'default', ...narrow.before.contentSize},
+        ];
+
+        for (const {name, width, height} of sizes) {
+            if (name === 'default') {
+                await session.command('windowResize', [
+                    width,
+                    height,
+                ]);
+            }
+            const size = `${width}x${height}`;
+            const fixture = await createMultiPageTextFixturePdf(`numbering-${name}.pdf`, 3);
+            await openPdfInApp(page, fixture);
+            await waitForViewerInteractive(page);
+            await openPagesPanel(page);
+            await clickAsUser(page, '#page-label-prefix-input');
+            await page.keyboard.type('Section-');
+            await clickAsUser(page, '#page-label-range-input');
+            await page.keyboard.type('1-2');
+            await page.keyboard.press('Tab');
+            const applyHandle = await page.waitForFunction(host => Array.from(document.querySelectorAll<HTMLButtonElement>(`${host} button`))
+                .find(button => button.textContent?.trim() === 'Apply numbering' && !button.disabled && button.checkVisibility()), {}, PAGES_PANEL);
+            const apply = await applyHandle.asElement()!.toElement('button');
+            const readLabel = async () => (await readToolbarPageIndicator(page)).primaryText;
+            expect(await readLabel(), `${size} page label before Apply numbering`).toBe('1');
+
+            // clickAsUser wheels within the panel when needed and reports when
+            // no user-scrollable ancestor can bring the button into reach.
+            const clickError = await clickAsUser(page, apply, {timeoutMs: 5_000})
+                .then(() => null, (error: unknown) => String(error));
+            const applyHit = await readControlHit(apply);
+            const applyResult = {...applyHit, clickError};
+            expect.soft(applyResult, `${size} Apply numbering ${JSON.stringify(applyResult)}`)
+                .toMatchObject({
+                    insideWindow: true,
+                    hitsControl: true,
+                    clickError: null,
+                });
+            if (clickError === null) {
+                await expect.poll(readLabel, {
+                    timeout: 15_000,
+                    message: `${size} page label after Apply numbering`,
+                }).toBe('Section-1');
+            } else {
+                expect.soft(await readLabel(), `${size} page label after attempting Apply numbering`).toBe('Section-1');
+            }
+            const applyLabel = await readLabel();
+
+            await openDjvuInApp(page, resolve('tests/fixtures/djvu/sources/searchable-mixed-dpi.djvu'));
+            await waitForViewerInteractive(page);
+            await openDocumentSidebarTab(page, 'Pages');
+            await page.waitForSelector(`${PAGES_PANEL} .djvu-banner`, {visible: true});
+            const searchHandle = await page.waitForFunction(host => Array.from(document.querySelectorAll<HTMLButtonElement>(`${host} button[role="tab"]`))
+                .find(tab => tab.textContent?.trim() === 'Search' && tab.checkVisibility()), {}, PAGES_PANEL);
+            const search = await searchHandle.asElement()!.toElement('button');
+            const searchHit = await readControlHit(search);
+            await page.mouse.click(searchHit.x, searchHit.y);
+            const searchOpened = await page.waitForSelector(`${PAGES_PANEL} input[aria-label="Search document"]`, {
+                visible: true,
+                timeout: 2_000,
+            }).then(Boolean, () => false);
+            expect.soft(searchHit, `${size} Search ${JSON.stringify(searchHit)}`).toMatchObject({
+                insideWindow: true,
+                hitsControl: true,
+            });
+            expect.soft(searchOpened, `${size} Search field opens after clicking the tab`).toBe(true);
+            console.info(`[window controls] ${size} Apply bottom=${applyHit.bottom} label=${applyLabel} Search hit=${searchHit.hit} opened=${searchOpened}`);
+        }
+    }, 90_000);
+
     it('keeps the label of a page the edit did not touch when one page is renumbered and saved', async () => {
         const {page} = sessions.getSession();
         const fixture = await createPageLabelRangesFixturePdf(`page-label-untouched-${Date.now()}.pdf`, 150, [{
@@ -236,6 +317,26 @@ async function openPagesPanel(page: Page) {
     if (await page.$eval(disclosure, button => button.getAttribute('aria-expanded')) !== 'true') {
         await clickAsUser(page, disclosure);
     }
+}
+
+async function readControlHit(control: ElementHandle<Element>) {
+    return control.evaluate(element => {
+        const {left, right, top, bottom, width, height} = element.getBoundingClientRect();
+        const x = left + width / 2;
+        const y = top + height / 2;
+        const hit = document.elementFromPoint(x, y);
+        return {
+            x,
+            y,
+            top,
+            bottom,
+            innerHeight: window.innerHeight,
+            insideWindow: width > 0 && height > 0 && left >= 0 && right <= window.innerWidth
+                && top >= 0 && bottom <= window.innerHeight,
+            hitsControl: element.contains(hit),
+            hit: hit?.getAttribute('class') ?? hit?.tagName ?? null,
+        };
+    });
 }
 
 /** The saved /PageLabels number tree as (page, style, start) ranges, read back from the written file. */
