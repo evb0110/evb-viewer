@@ -834,37 +834,167 @@ describe('useAgentWorkspaceSnapshot command guards', () => {
     });
 
     it('rejects a command when the target document identity changes after waiting for workspace', async () => {
-        const readAgentResource = vi.fn(async () => ({ok: true}));
-        const workspace = createWorkspace({
-            hasPdf: true,
-            currentPage: 1,
-            totalPages: 3,
-        }, {readAgentResource});
         // The tab's workspace is not mounted yet; while the command waits
         // for it, the document changes underneath.
-        const harness = await mountAgentWorkspaceSnapshotHarness({
-            workspace,
-            detachedWorkspace: true,
-        });
+        const harness = await mountAgentWorkspaceSnapshotHarness({detachedWorkspace: true});
 
         const pendingResponse = harness.submitCommand({
             requestId: requireRequestId('command-wait-change'),
             command: {
-                name: 'read_resource',
+                name: 'go_to_page',
                 arguments: {
                     tabId: requireTabId('tab-1'),
-                    uri: 'evb://document/tab-1/state',
+                    page: 2,
                 },
             },
         });
         recommitIdentity(harness.session, '/tmp/document.pdf', createDocumentIdentity('revision-2', 2));
-        harness.session.attachWorkspace('tab-1', workspace);
+        harness.session.attachWorkspace('tab-1', harness.workspace);
         const response = await pendingResponse;
 
         expect(response).toMatchObject({ok: false});
         expect(String(response.error)).toMatch(/stale-command-target|target document changed/u);
-        expect(readAgentResource).not.toHaveBeenCalled();
+        expect(harness.workspace.handleGoToPage).not.toHaveBeenCalled();
         harness.app.unmount();
+    });
+
+    it('runs a cold tab\'s command in that tab\'s view once it has mounted', async () => {
+        const workspace = createWorkspace({
+            hasPdf: true,
+            currentPage: 2,
+            totalPages: 3,
+        });
+        const h = await mountAgentWorkspaceSnapshotHarness({linkedWorkspace: workspace});
+        h.session.detachWorkspace('tab-2', workspace);
+        try {
+            const pendingResponse = h.submitCommand({
+                requestId: requireRequestId('cold-navigation'),
+                command: {
+                    name: 'go_to_page',
+                    arguments: {
+                        tabId: requireTabId('tab-2'),
+                        page: 2,
+                    },
+                },
+            });
+            await flushAsyncWork();
+            expect(h.commandResponses).toEqual([]);
+            h.session.attachWorkspace('tab-2', workspace);
+
+            await expect(pendingResponse).resolves.toMatchObject({
+                ok: true,
+                result: {
+                    activeTabId: 'tab-2',
+                    currentPage: 2,
+                },
+            });
+            expect(workspace.handleGoToPage).toHaveBeenCalledWith(2);
+            expect(h.workspace.handleGoToPage).not.toHaveBeenCalled();
+        } finally {
+            h.app.unmount();
+        }
+    });
+
+    it('activates a cold tab whose deferred open restores it, while a page command for the old revision fails', async () => {
+        const h = await mountAgentWorkspaceSnapshotHarness({detachedWorkspace: true});
+        // Mounting a cold view restores its document, which claims a new revision.
+        const mountWithDeferredRestore = () => {
+            h.session.claimOpen({
+                kind: 'restore',
+                target: {originalPath: requireDocumentRef('/tmp/document.pdf')},
+            });
+            h.session.attachWorkspace('tab-1', h.workspace);
+        };
+        try {
+            const activation = h.submitCommand({
+                requestId: requireRequestId('cold-activation'),
+                command: {
+                    name: 'activate_tab',
+                    arguments: {tabId: requireTabId('tab-1')},
+                },
+            });
+            await flushAsyncWork();
+            expect(h.commandResponses).toEqual([]);
+            mountWithDeferredRestore();
+            await expect(activation).resolves.toMatchObject({
+                ok: true,
+                result: {
+                    activePaneId: 'pane-1',
+                    activeTabId: 'tab-1',
+                },
+            });
+
+            h.session.detachWorkspace('tab-1', h.workspace);
+            const navigation = h.submitCommand({
+                requestId: requireRequestId('cold-navigation-stale'),
+                command: {
+                    name: 'go_to_page',
+                    arguments: {
+                        tabId: requireTabId('tab-1'),
+                        page: 2,
+                    },
+                },
+            });
+            await flushAsyncWork();
+            mountWithDeferredRestore();
+            const response = await navigation;
+            expect(response).toMatchObject({ok: false});
+            expect(String(response.error)).toMatch(/stale-command-target/u);
+            expect(h.workspace.handleGoToPage).not.toHaveBeenCalled();
+        } finally {
+            h.app.unmount();
+        }
+    });
+
+    it('fails a command whose tab is removed before its view mounts, without using another view', async () => {
+        const workspace = createWorkspace({hasPdf: true});
+        const h = await mountAgentWorkspaceSnapshotHarness({linkedWorkspace: workspace});
+        h.session.detachWorkspace('tab-2', workspace);
+        try {
+            const pendingResponse = h.submitCommand({
+                requestId: requireRequestId('removed-navigation'),
+                command: {
+                    name: 'go_to_page',
+                    arguments: {
+                        tabId: requireTabId('tab-2'),
+                        page: 2,
+                    },
+                },
+            });
+            await flushAsyncWork();
+            h.session.removeView('tab-2');
+
+            await expect(pendingResponse).resolves.toMatchObject({ok: false});
+            expect(workspace.handleGoToPage).not.toHaveBeenCalled();
+            expect(h.workspace.handleGoToPage).not.toHaveBeenCalled();
+        } finally {
+            h.app.unmount();
+        }
+    });
+
+    it('ends a cancelled cold-tab activation without waiting for its view to mount', async () => {
+        const h = await mountAgentWorkspaceSnapshotHarness({detachedWorkspace: true});
+        try {
+            const activation = h.submitCommand({
+                requestId: requireRequestId('cancelled-cold-activation'),
+                command: {
+                    name: 'activate_tab',
+                    arguments: {tabId: requireTabId('tab-1')},
+                },
+            });
+            await flushAsyncWork();
+            expect(h.commandResponses).toEqual([]);
+
+            h.submitCommandCancel({requestId: requireRequestId('cancelled-cold-activation')});
+
+            await expect(activation).resolves.toMatchObject({
+                ok: false,
+                error: 'Agent command was aborted.',
+            });
+            expect(h.session.getView('tab-1')?.mountedWorkspace.value).toBeNull();
+        } finally {
+            h.app.unmount();
+        }
     });
 });
 
