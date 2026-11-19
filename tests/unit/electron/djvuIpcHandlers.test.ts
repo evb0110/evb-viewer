@@ -1098,6 +1098,44 @@ describe('registerDjvuIpcAdapter', () => {
         }
     });
 
+    it('rejects an estimate the operation lifecycle cancels as an abort error', async () => {
+        const tempRoot = mkdtempSync(join(tmpdir(), 'evb-djvu-estimate-lifecycle-test-'));
+        try {
+            const realPath = join(tempRoot, 'real.djvu');
+            writeFileSync(realPath, new Uint8Array([1]));
+            mocks.estimateSizes.mockImplementation((
+                _djvuPath: string,
+                _pageCount: number,
+                options?: {signal?: AbortSignal},
+            ) => new Promise((_resolve, reject) => {
+                options?.signal?.addEventListener('abort', () => {
+                    reject(options.signal?.reason);
+                }, {once: true});
+            }));
+
+            const { allowOpenPath } = await import('@electron/file-access/openPathCapabilities');
+            const { cancelMainOperationsForOwner } = await import('@electron/operation-lifecycle/mainOperationLifecycle');
+            const event = createIpcEvent(14);
+            allowOpenPath(realPath, event.sender as never);
+            registerDjvuIpcAdapter();
+            const estimateRun = getHandler('djvu:estimateSizes')(event, realPath);
+
+            await vi.waitFor(() => expect(mocks.estimateSizes).toHaveBeenCalledTimes(1));
+            cancelMainOperationsForOwner(14, 'Renderer main frame navigated', 'mainFrameNavigation');
+
+            // The IPC registrar logs abort errors at debug level, as an expected cancellation.
+            await expect(estimateRun).rejects.toMatchObject({
+                name: 'AbortError',
+                message: 'Renderer main frame navigated',
+            });
+        } finally {
+            rmSync(tempRoot, {
+                force: true,
+                recursive: true,
+            });
+        }
+    });
+
     it('prioritizes visible native preview waiters over retained queued pages', async () => {
         const tempRoot = mkdtempSync(join(tmpdir(), 'evb-djvu-preview-priority-test-'));
         try {

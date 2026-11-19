@@ -30,7 +30,10 @@ import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
 import { cancelNativeCommandGroup } from '@electron/native-tools/runNativeCommand';
 import { NativeProcessError } from '@electron/native-tools/processResult';
 import { registerMainOperation } from '@electron/operation-lifecycle/mainOperationLifecycle';
-import { abortErrorFromSignal } from '@electron/utils/abort';
+import {
+    abortErrorFromSignal,
+    createAbortError,
+} from '@electron/utils/abort';
 import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@contracts/getErrorMessage';
 import { onSenderLifetimeEnd } from '@electron/utils/onSenderLifetimeEnd';
@@ -123,35 +126,30 @@ async function runNativePdfRead<T>(
     resolvedPath: string,
     labels: {
         group: string;
-        canceled: string;
         navigation: string;
     },
     read: (signal: AbortSignal, cancelGroup: string) => Promise<T>,
 ): Promise<T> {
-    const abortController = new AbortController();
     let cancelGroup = '';
-    const cancel = (reason: string) => {
-        if (!abortController.signal.aborted) {
-            abortController.abort(new Error(reason));
-        }
-        if (cancelGroup) {
-            cancelNativeCommandGroup(cancelGroup);
-        }
-    };
     const mainOperation = registerMainOperation({
         kind: 'abortable-work',
         ownerWebContentsId: context.senderId,
         workingCopyPath: resolvedPath,
-        cancel,
+        cancel: () => {
+            if (cancelGroup) {
+                cancelNativeCommandGroup(cancelGroup);
+            }
+        },
     });
     cancelGroup = `${labels.group}:${mainOperation.id}`;
-    const handleMainAbort = () => cancel(labels.canceled);
-    const unregisterSenderCleanup = registerNativePdfSenderCleanup(context.sender, cancel, labels.navigation);
-    mainOperation.signal.addEventListener('abort', handleMainAbort, {once: true});
+    const unregisterSenderCleanup = registerNativePdfSenderCleanup(context.sender, mainOperation.abort, labels.navigation);
     try {
-        return await read(abortController.signal, cancelGroup);
+        return await read(mainOperation.signal, cancelGroup);
+    } catch (error) {
+        // The lifecycle aborts with its plain reason; an abort error keeps the
+        // rejection a cancellation for the IPC layer.
+        throw mainOperation.signal.aborted ? createAbortError(getErrorMessage(mainOperation.signal.reason)) : error;
     } finally {
-        mainOperation.signal.removeEventListener('abort', handleMainAbort);
         unregisterSenderCleanup();
         mainOperation.complete();
     }
@@ -208,7 +206,6 @@ export async function handlePdfNativePageSizes(
 
     const pages = await runNativePdfRead(context, resolvedPath, {
         group: 'pdf-native-page-geometry',
-        canceled: 'Native PDF exact page geometry canceled',
         navigation: 'Renderer navigation canceled native PDF exact page geometry',
     }, async (signal, cancelGroup) => {
         const read = (physicalPath: string) => readExactPageGeometry(physicalPath, signal, cancelGroup);
@@ -328,7 +325,6 @@ export async function handlePdfPageLabelRanges(
     }
     return runNativePdfRead(context, resolvedPath, {
         group: 'pdf-page-labels',
-        canceled: 'Native PDF page-label read canceled',
         navigation: 'Renderer navigation canceled native PDF page-label read',
     }, async (signal, cancelGroup) => {
         const readCatalog = async (physicalPath: string) => parseNativePdfPageLabelRanges(
@@ -432,7 +428,6 @@ async function readPdfOpeningGeometry(
 ): Promise<IPdfOpeningGeometry | null> {
     return runNativePdfRead(context, resolvedPath, {
         group: 'pdf-opening-geometry',
-        canceled: 'PDF opening geometry discovery canceled',
         navigation: 'Renderer navigation canceled PDF opening geometry discovery',
     }, async (signal, cancelGroup) => {
         const read = async (physicalPath: string): Promise<IPdfOpeningGeometry | null> => {

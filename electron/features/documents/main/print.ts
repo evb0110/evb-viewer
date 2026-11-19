@@ -191,40 +191,26 @@ function getPdfPrintAborterKey(senderId: number | undefined, requestId: string) 
     return `${senderId ?? 'unscoped'}\0${requestId}`;
 }
 
-function abortPrintController(controller: AbortController, reason: string) {
-    if (!controller.signal.aborted) {
-        controller.abort(new Error(reason));
-    }
-}
-
 function registerPdfPrintOperation(
     context: IDocumentsSenderIdContext,
     requestId: string | undefined,
     cancel?: (reason: string) => void,
 ) {
-    const requestAbortController = new AbortController();
-    const cancelOperation = (reason: string) => {
-        abortPrintController(requestAbortController, reason);
-        cancel?.(reason);
-    };
     const mainOperation = registerMainOperation({
         kind: 'abortable-work',
         ...(context.senderId === undefined ? {} : {ownerWebContentsId: context.senderId}),
-        cancel: cancelOperation,
+        cancel,
     });
     const aborterKey = requestId === undefined
         ? null
         : getPdfPrintAborterKey(context.senderId, requestId);
     if (aborterKey !== null) {
-        activePdfPrintAborters.set(aborterKey, cancelOperation);
+        activePdfPrintAborters.set(aborterKey, mainOperation.abort);
     }
     return {
-        signal: AbortSignal.any([
-            mainOperation.signal,
-            requestAbortController.signal,
-        ]),
+        signal: mainOperation.signal,
         complete: () => {
-            if (aborterKey !== null && activePdfPrintAborters.get(aborterKey) === cancelOperation) {
+            if (aborterKey !== null && activePdfPrintAborters.get(aborterKey) === mainOperation.abort) {
                 activePdfPrintAborters.delete(aborterKey);
             }
             mainOperation.complete();

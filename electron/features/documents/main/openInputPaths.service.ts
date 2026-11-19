@@ -88,7 +88,6 @@ function createOpenInputPathsAbortLifecycle(
     operationPath: string,
     externalSignal?: AbortSignal,
 ) {
-    const controller = new AbortController();
     const mainOperation = registerMainOperation({
         kind: 'abortable-work',
         ownerWebContentsId: getOwnerWebContentsId(owner),
@@ -96,17 +95,15 @@ function createOpenInputPathsAbortLifecycle(
     });
     const stopSenderLifetime = registerNativePdfSenderCleanup(
         typeof owner === 'object' ? owner : undefined,
-        reason => controller.abort(new Error(reason)),
+        mainOperation.abort,
         'Renderer navigation canceled open input paths operation',
     );
     return {
         signal: AbortSignal.any([
-            controller.signal,
             mainOperation.signal,
             ...(externalSignal ? [externalSignal] : []),
         ]),
         cleanup: () => {
-            controller.abort();
             stopSenderLifetime();
             mainOperation.complete();
         },
