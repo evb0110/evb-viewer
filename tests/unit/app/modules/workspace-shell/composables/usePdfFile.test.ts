@@ -239,6 +239,39 @@ describe('usePdfFile façade', () => {
         }
     });
 
+    it.each([
+        ['keeps', 'revision-token'],
+        ['replaces', 'repaired-revision'],
+    ])('%s the loaded source when a desktop Save As publishes revision %s', async (outcome, savedRevision) => {
+        const file = createFacade();
+        await file.openFile(pdfResult('save-as-unchanged'));
+        const loadedSource = file.pdfSrc.value;
+        const openedRevision = file.documentRevisionToken.value;
+        mocks.saveAs.mockResolvedValueOnce('/saved-copy.pdf');
+        mocks.getRevision.mockImplementation(async (path: string) => ({
+            version: 1,
+            documentRef: path,
+            authority: 'electron-working-copy',
+            contentRevision: 1,
+            mintedAt: 1,
+            token: savedRevision,
+        }));
+        await expect(file.saveWorkingCopyAs(undefined, {
+            preserveLoadedSource: true,
+            expectedDocumentRevisionToken: openedRevision,
+        })).resolves.toMatchObject({
+            success: true,
+            outPath: '/saved-copy.pdf',
+        });
+        expect(openedRevision).toBe('revision-token');
+        expect(file.originalPath.value).toBe('/saved-copy.pdf');
+        expect(file.fileName.value).toBe('saved-copy.pdf');
+        expect(file.workingCopyPath.value).toBe('/tmp/save-as-unchanged.pdf');
+        expect(file.pdfSrc.value === loadedSource).toBe(outcome === 'keeps');
+        // The save service tells a kept source by its revision: Save waits for the view's reload otherwise.
+        expect(file.documentRevisionToken.value === openedRevision).toBe(outcome === 'keeps');
+    });
+
     it('finishes a staged Save As while its staging lease cleanup is pending', async () => {
         const file = createFacade();
         await file.openFile(pdfResult('staged-save-cleanup'));

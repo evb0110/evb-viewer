@@ -279,6 +279,7 @@ export const createDocumentContext = ({controller}: {controller: IWorkspaceDocum
             lifecycle: {
                 loadRecentFiles: () => void file.loadRecentFiles(),
                 preparePostSaveReload: () => views.prepareReload(undefined, false),
+                commitDrafts: recovery.commitDrafts,
             },
             runWithDocumentOperationLease: runExclusive,
             failureSurface: failure,

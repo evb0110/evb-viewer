@@ -1,6 +1,5 @@
 import type { Ref } from 'vue';
 import type {TDocumentCommitReceipt} from '@app/types/workspaceExpose';
-import {crashCheckpointBeforeSaveKey} from '@app/modules/workspace-shell/checkpoint/useWorkspaceCrashCheckpoint';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import type { TRequestId } from '@contracts/shared';
@@ -59,12 +58,12 @@ import {
     buildSaveTransactionRequest,
     completeSuccessfulSaveState,
     createPageMutationWriterSave,
-    createReloadWaiter,
     createWorkspaceSavePlan,
     getNativeSaveTransactionOptions,
     getCompletionBaseline,
     getSaveMode,
     isTargetCurrent,
+    requiresNativePathBackedSave,
     withReloadWaiter,
 } from '@app/modules/workspace-shell/composables/file-operations/workspaceSaveExecutionSupport';
 import type {
@@ -137,7 +136,9 @@ async function executeWorkingCopySave(
     deps: IWorkspaceSaveDependencies,
     completion: Partial<ISaveCompletionPolicy> = {},
 ): Promise<TWorkspaceSaveExecutionResult> {
-    const reloadWaiter = createReloadWaiter(plan.body, deps);
+    const reloadWaiter = !plan.body.preserveLoadedSource || requiresNativePathBackedSave(plan)
+        ? deps.lifecycle.preparePostSaveReload?.() ?? null
+        : null;
     return withReloadWaiter(reloadWaiter, async () => {
         const validationFailure = await validateWorkingCopy(plan, deps);
         if (validationFailure) {
@@ -162,6 +163,8 @@ async function executeWorkingCopySave(
                 'persist-save-working-copy',
                 () => deps.persistence.saveWorkingCopy(opts),
             );
+        // The source stays only where the revision on screen does: a Save As whose output was repaired replaces it.
+        if (opts.preserveLoadedSource && deps.document.revisionToken.value === opts.expectedDocumentRevisionToken) reloadWaiter?.cancel();
         return workingCopySaveResult(persisted, reloadWaiter, completion);
     });
 }
@@ -484,7 +487,6 @@ function executeSavePlan(
 
 export const useWorkspaceSaveService = (deps: IWorkspaceSaveDependencies) => {
     const failureSurface = deps.failureSurface ?? useWorkspaceFailureSurface();
-    const persistCrashCheckpoint = getCurrentInstance() ? inject(crashCheckpointBeforeSaveKey, null) : null;
     const runWithDocumentOperationLease = deps.runWithDocumentOperationLease;
     let saveOperations = 0;
     // A Save shows as saving from its request until it ends, also while the
@@ -660,7 +662,9 @@ export const useWorkspaceSaveService = (deps: IWorkspaceSaveDependencies) => {
                     // after that commit, otherwise the toolbar can start a save
                     // whose captured dirty state still describes a clean file.
                     await deps.pdf.commitEditorsForSave?.();
-                    await persistCrashCheckpoint?.(deps.document.workingCopyPath.value);
+                    // A Save the app does not live to finish is rolled back at the next start; the drafts committed
+                    // first hold the edits it was writing, so they reopen unsaved instead of being lost.
+                    await deps.lifecycle.commitDrafts();
 
                     plan = createWorkspaceSavePlan({
                         request,
@@ -731,7 +735,7 @@ export const useWorkspaceSaveService = (deps: IWorkspaceSaveDependencies) => {
                     await result.reloadWaiter?.promise.catch(error => BrowserLogger.warn('workspace', 'Saved PDF but failed to restore the reloaded view', error));
                     if (!holdsCommit()) return false;
                     completeSuccessfulSaveState(baseline, result.completion, deps);
-                    await persistCrashCheckpoint?.(committedPath);
+                    await deps.lifecycle.commitDrafts();
                     if (!holdsCommit()) return false;
                     if (result.persisted.outPath) deps.lifecycle.loadRecentFiles();
                     if (committedRevision) onCommitted?.(committedRevision);

@@ -956,9 +956,12 @@ export function createDocumentPersistence(
                     }
                     state.originalPath.value = savedPath;
                     state.requiresSaveAsOnFirstSave.value = false;
-                    // The window now shows the file it wrote, which may hold more than it showed (a
-                    // changed original under its edits), as a page operation's result does.
-                    if (!await commitPersistedPdfState(data, savedWorkingPath, markClean)) {
+                    // The window now shows the file it wrote, which may hold more than it showed (a changed original
+                    // under its edits, a repair or an optimization), as a page operation's result does. A Save As
+                    // that kept the working copy and its revision published the bytes on screen, which stay.
+                    const keepsLoadedSource = opts?.preserveLoadedSource === true && savedWorkingPath === previousWorkingPath
+                        && (await getDocumentFilesCapability().getDocumentRevision(savedWorkingPath)).token === revisionOptions?.expectedDocumentRevisionToken;
+                    if (!await commitPersistedPdfState(data, savedWorkingPath, markClean, {preserveLoadedSource: keepsLoadedSource})) {
                         return createStalePersistResult(requestedSaveMode, true);
                     }
                     state.lastSaveMode.value = requestedSaveMode;
