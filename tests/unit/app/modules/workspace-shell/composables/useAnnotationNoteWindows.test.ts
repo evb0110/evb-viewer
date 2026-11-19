@@ -203,14 +203,24 @@ describe('useAnnotationNoteWindows', () => {
         expect(metadata?.saving).toBe(false);
     });
 
-    it('preserves a note creation timestamp when saving through a synchronized summary without one', () => {
+    it('shows the metadata of the note\'s current canonical revision', async () => {
         const opened = createComment({
             createdAt: requireEpochMs(111),
             modifiedAt: null,
+            color: '#ff0000',
         });
-        const syncedWithoutCreatedAt = createComment({
-            createdAt: null,
+        const revisedMarker = {
+            left: 0.42,
+            top: 0.31,
+            width: 0.0016,
+            height: 0.0016,
+        };
+        const revised = createComment({
+            createdAt: requireEpochMs(111),
             modifiedAt: requireEpochMs(222),
+            color: '#00ff00',
+            author: 'Reviewer',
+            markerRect: revisedMarker,
         });
         const {
             deps,
@@ -218,21 +228,18 @@ describe('useAnnotationNoteWindows', () => {
         } = createHarness(opened);
 
         windows.handleOpenAnnotationNote(opened);
-        deps.annotationComments.value = [syncedWithoutCreatedAt];
+        deps.annotationComments.value = [revised];
+        await nextTick();
 
-        const note = windows.findAnnotationNoteWindow('ann:0:note-1:0');
-        expect(note).not.toBeNull();
-        if (!note) {
-            return;
-        }
-
-        note.draftText = 'Updated through sync';
-        note.dirty = true;
-        const saved = windows.persistAnnotationNote('ann:0:note-1:0');
-
-        expect(saved).toBe(true);
-        expect(note.createdAt).toBe(111);
-        expect(deps.annotationComments.value[0]?.createdAt).toBeNull();
+        expect(windows.findAnnotationNoteWindow('ann:0:note-1:0')).toMatchObject({
+            createdAt: 111,
+            modifiedAt: 222,
+            color: '#00ff00',
+            author: 'Reviewer',
+            markerRect: revisedMarker,
+            draftText: 'Initial note',
+            dirty: false,
+        });
     });
 
     it('mirrors existing PDF note saves into the embedded serialization pipeline', () => {
@@ -482,87 +489,70 @@ describe('useAnnotationNoteWindows', () => {
         await windows.closeAllAnnotationNotes({saveIfDirty: false});
     });
 
-    it('closes an open note window when its backing annotation disappears from a ready sync', async () => {
-        const comment = createComment();
-        const {
-            deps,
-            windows,
-        } = createHarness(comment);
-
-        windows.handleOpenAnnotationNote(comment);
-        const note = windows.findAnnotationNoteWindow('ann:0:note-1:0');
-        expect(note).not.toBeNull();
-        if (!note) {
-            return;
-        }
-        note.createdAtMs = Date.now() - 10_000;
-
-        deps.annotationComments.value = [];
-        await nextTick();
-
-        expect(windows.findAnnotationNoteWindow('ann:0:note-1:0')).toBeNull();
-    });
-
-    it('keeps a freshly opened note window while annotation sync catches up', async () => {
+    it.each([
+        'clean',
+        'dirty',
+    ] as const)('keeps a %s window and its draft while the store does not know its note', async (draft) => {
         vi.useFakeTimers();
         const comment = createComment();
+        const noteId = 'ann:0:note-1:0';
         const {
             deps,
             windows,
         } = createHarness(comment);
+        // The viewer can only write a note its store holds.
+        deps.updateAnnotationCommentInViewer.mockImplementation(id => (
+            deps.annotationComments.value.some(candidate => candidate.appAnnotationId === id)
+        ));
 
         try {
             windows.handleOpenAnnotationNote(comment);
+            if (draft === 'dirty') windows.updateAnnotationNoteText(noteId, 'Typed during the reload');
+            const draftText = draft === 'dirty' ? 'Typed during the reload' : 'Initial note';
 
             deps.annotationComments.value = [];
             await nextTick();
+            await vi.advanceTimersByTimeAsync(60_000);
 
-            await vi.advanceTimersByTimeAsync(4_999);
-            expect(windows.findAnnotationNoteWindow('ann:0:note-1:0')).not.toBeNull();
+            expect(windows.findAnnotationNoteWindow(noteId)).toMatchObject({
+                draftText,
+                dirty: draft === 'dirty',
+            });
+            expect(windows.annotationNoteWindows.value).toHaveLength(1);
+            // Drawn at its note, so not drawn while the note is unknown.
+            expect(windows.sortedAnnotationNoteWindows.value).toHaveLength(0);
 
-            await vi.advanceTimersByTimeAsync(1);
-            expect(windows.findAnnotationNoteWindow('ann:0:note-1:0')).toBeNull();
+            deps.annotationComments.value = [comment];
+            await nextTick();
+
+            expect(windows.sortedAnnotationNoteWindows.value).toEqual([expect.objectContaining({
+                annotationId: noteId,
+                pageNumber: 1,
+                draftText,
+                dirty: draft === 'dirty',
+            })]);
         } finally {
             vi.useRealTimers();
         }
     });
 
-    it('keeps a dirty note window when annotation sync temporarily misses it', async () => {
+    it('closes a dirty window when its note is explicitly deleted, and does not reopen it', async () => {
         const comment = createComment();
+        const noteId = 'ann:0:note-1:0';
         const {
             deps,
             windows,
         } = createHarness(comment);
 
         windows.handleOpenAnnotationNote(comment);
-        const note = windows.findAnnotationNoteWindow('ann:0:note-1:0');
-        expect(note).not.toBeNull();
-        if (!note) {
-            return;
-        }
-        note.createdAtMs = Date.now() - 10_000;
-        windows.updateAnnotationNoteText('ann:0:note-1:0', 'Unsynced typed note');
-
+        windows.updateAnnotationNoteText(noteId, 'Typed before the deletion');
         deps.annotationComments.value = [];
+        deps.deletedAnnotationIds.value = new Set([noteId]);
         await nextTick();
 
-        expect(windows.findAnnotationNoteWindow('ann:0:note-1:0')).not.toBeNull();
-    });
-
-    it('keeps an open note window during transient document reload sync gaps', async () => {
-        const comment = createComment();
-        const {
-            deps,
-            windows,
-        } = createHarness(comment);
-        deps.isAnnotationCommentSyncReady.mockReturnValue(false);
-
+        expect(windows.findAnnotationNoteWindow(noteId)).toBeNull();
         windows.handleOpenAnnotationNote(comment);
-
-        deps.annotationComments.value = [];
-        await nextTick();
-
-        expect(windows.findAnnotationNoteWindow('ann:0:note-1:0')).not.toBeNull();
+        expect(windows.annotationNoteWindows.value).toHaveLength(0);
     });
 
     it('keeps locally saved new note comments as a read-only window projection', () => {
@@ -585,7 +575,6 @@ describe('useAnnotationNoteWindows', () => {
             deps,
             windows,
         } = createHarness(comment);
-        deps.annotationComments.value = [];
 
         windows.handleOpenAnnotationNote(comment);
         const note = windows.findAnnotationNoteWindow('ann:0:pdfjs_internal_editor_0');
@@ -606,7 +595,7 @@ describe('useAnnotationNoteWindows', () => {
             markerRect: comment.markerRect,
         }));
         expect(Object.isFrozen(note.markerRect)).toBe(true);
-        expect(deps.annotationComments.value).toEqual([]);
+        expect(deps.annotationComments.value).toEqual([comment]);
     });
 
     it('keeps existing PDF notes when forced-saving a new editor note with a recycled runtime id', async () => {
@@ -720,7 +709,7 @@ describe('useAnnotationNoteWindows', () => {
         const saved = await windows.persistAllAnnotationNotes();
 
         expect(saved).toBe(true);
-        expect(deps.annotationComments.value[0]?.markerRect).toEqual(movedRect);
+        expect(windows.findAnnotationNoteWindow('ann:0:note-1:0')?.markerRect).toEqual(movedRect);
         expect(deps.updateAnnotationCommentInViewer).not.toHaveBeenCalled();
     });
 
@@ -812,7 +801,7 @@ describe('useAnnotationNoteWindows', () => {
         );
     });
 
-    it('does not merge an open note with a persisted summary from geometry alone', () => {
+    it('does not merge an open note with a persisted summary from geometry alone', async () => {
         const markerRect = {
             left: 0.42,
             top: 0.24,
@@ -839,18 +828,22 @@ describe('useAnnotationNoteWindows', () => {
             subtype: 'FreeText',
             markerRect,
         });
-        const { windows } = createHarness(openEditorNote);
+        const {
+            deps,
+            windows,
+        } = createHarness(openEditorNote);
 
         windows.handleOpenAnnotationNote(openEditorNote);
-        const note = windows.findAnnotationNoteWindow('ann:0:pdfjs_internal_editor_0');
-        expect(note).not.toBeNull();
-        if (!note) {
-            return;
-        }
-        note.draftText = 'Dirty text that should not keep a deleted note alive';
-        note.dirty = true;
+        windows.updateAnnotationNoteText('ann:0:pdfjs_internal_editor_0', 'Dirty draft of the open note');
+        deps.annotationComments.value = [persistedDeleteSummary];
+        await nextTick();
 
-        expect(windows.isSameAnnotationComment(openEditorNote, persistedDeleteSummary)).toBe(false);
+        expect(windows.findAnnotationNoteWindow('ann:0:3856R')).toBeNull();
+        expect(windows.annotationNoteWindows.value).toEqual([expect.objectContaining({
+            annotationId: 'ann:0:pdfjs_internal_editor_0',
+            draftText: 'Dirty draft of the open note',
+            dirty: true,
+        })]);
     });
 
     it('keeps a transient note window bound by its explicit app annotation id after persistence', async () => {
@@ -1081,7 +1074,7 @@ describe('useAnnotationNoteWindows', () => {
             expect(note?.error).not.toBeNull();
         });
 
-        it('does not reschedule persistence for a note removed while its save is in flight', async () => {
+        it('does not reschedule persistence for a note deleted while its save is in flight', async () => {
             const {
                 deps,
                 windows,
@@ -1094,7 +1087,8 @@ describe('useAnnotationNoteWindows', () => {
             await typeText('Second draft');
             await vi.advanceTimersByTimeAsync(ANNOTATION_NOTE_SAVE_DEBOUNCE_MS);
 
-            windows.removeAnnotationNoteWindow(noteId);
+            deps.deletedAnnotationIds.value = new Set([noteId]);
+            await nextTick();
             await settle(true);
 
             expect(vi.getTimerCount()).toBe(0);
@@ -1140,10 +1134,10 @@ describe('useAnnotationNoteWindows', () => {
             expect(deps.updateAnnotationCommentInViewer).toHaveBeenCalledTimes(1);
             expect(deps.updateAnnotationCommentInViewer).toHaveBeenLastCalledWith(noteId, 'Draft A');
 
-            // The projection drops the note and hands it straight back, so the
-            // same annotation id is now a different window while the first
-            // request is still in flight.
-            windows.removeAnnotationNoteWindow(noteId);
+            // The window closes and the note opens again, so the same
+            // annotation id is now a different window while the first request
+            // is still in flight.
+            void windows.closeAnnotationNote(noteId, {saveIfDirty: false});
             windows.handleOpenAnnotationNote(deps.annotationComments.value[0]!);
             await nextTick();
 
@@ -1213,7 +1207,7 @@ describe('useAnnotationNoteWindows', () => {
                     await vi.advanceTimersByTimeAsync(0);
                 },
                 reopenUnderSameId: async () => {
-                    harness.windows.removeAnnotationNoteWindow(noteId);
+                    void harness.windows.closeAnnotationNote(noteId, {saveIfDirty: false});
                     harness.windows.handleOpenAnnotationNote(harness.deps.annotationComments.value[0]!);
                     await nextTick();
                 },

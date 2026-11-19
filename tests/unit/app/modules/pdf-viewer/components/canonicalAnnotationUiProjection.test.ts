@@ -285,23 +285,35 @@ it('presents an image as an image without inventing a color or an empty note', a
     expect(mounted.host.querySelector('.note-item-color-chip')).toBeNull();
 });
 
-function noteWindows(application = applicationWith(note())) {
+// What the document owner derives from its store: live summaries and tombstones.
+function storeProjection(application: AnnotationApplication) {
     const comments = ref([...application.listCommentSummaries()]);
-    const syncReady = ref(true);
+    const deletedAnnotationIds = ref<ReadonlySet<string>>(new Set(application.store.deletedAnnotationIds()));
     const unsubscribe = application.store.subscribe((snapshotIncludingDeleted) => {
         comments.value = [...application.listCommentSummaries(snapshotIncludingDeleted)];
+        deletedAnnotationIds.value = new Set(application.store.deletedAnnotationIds());
     });
+    return {
+        comments,
+        deletedAnnotationIds,
+        unsubscribe,
+    };
+}
+
+function noteWindows(application = applicationWith(note())) {
+    const projection = storeProjection(application);
+    const {
+        comments,
+        unsubscribe,
+    } = projection;
     const scope = effectScope();
     const windows = scope.run(() => useAnnotationNoteWindows({
-        annotationComments: comments,
+        documentAnnotations: projection,
         updateAnnotationCommentInViewer: (id, contents) => Boolean(application.store.updateNote(id, {contents})),
-        getDeletedCanonicalAnnotationIds: () => application.store.deletedAnnotationIds(),
-        isAnnotationCommentSyncReady: () => syncReady.value,
     }))!;
     return {
         application,
         comments,
-        syncReady,
         windows,
         dispose() {
             scope.stop();
@@ -350,6 +362,47 @@ it('preserves an uncommitted draft while tracking the newer canonical text and c
     }
 });
 
+it('keeps a dirty draft and rebases a clean one when the document is read again', async () => {
+    const application = applicationWith(note());
+    application.store.replaceFromDocument([
+        note(),
+        {
+            ...note('note-2'),
+            contents: 'Before 2',
+        },
+    ], []);
+    const harness = noteWindows(application);
+    try {
+        application.listCommentSummaries().forEach(comment => harness.windows.handleOpenAnnotationNote(comment));
+        harness.windows.updateAnnotationNoteText('note-1', 'Typed during the read');
+        application.store.replaceFromDocument([
+            {
+                ...note(),
+                contents: 'Read again',
+            },
+            {
+                ...note('note-2'),
+                contents: 'Read again 2',
+            },
+        ], []);
+        await nextTick();
+        expect(harness.windows.sortedAnnotationNoteWindows.value).toEqual([
+            expect.objectContaining({
+                annotationId: 'note-1',
+                draftText: 'Typed during the read',
+                dirty: true,
+            }),
+            expect.objectContaining({
+                annotationId: 'note-2',
+                draftText: 'Read again 2',
+                dirty: false,
+            }),
+        ]);
+    } finally {
+        harness.dispose();
+    }
+});
+
 it.each([
     'delete',
     'undo-creation',
@@ -385,11 +438,9 @@ it('preserves a dirty window through an empty loading projection without a canon
     try {
         harness.windows.handleOpenAnnotationNote(harness.application.listCommentSummaries()[0]!);
         harness.windows.updateAnnotationNoteText('note-1', 'Uncommitted draft');
-        harness.syncReady.value = false;
         harness.comments.value = [];
         await nextTick();
         expect(harness.windows.findAnnotationNoteWindow('note-1')?.draftText).toBe('Uncommitted draft');
-        harness.syncReady.value = true;
         harness.comments.value = [...harness.application.listCommentSummaries()];
         await nextTick();
         expect(harness.windows.findAnnotationNoteWindow('note-1')).toMatchObject({
@@ -403,15 +454,15 @@ it('preserves a dirty window through an empty loading projection without a canon
 
 it('does not reopen a deleted window when its pending save settles', async () => {
     const application = applicationWith(note());
-    const comments = ref([...application.listCommentSummaries()]);
-    const unsubscribe = application.store.subscribe((snapshotIncludingDeleted) => {
-        comments.value = [...application.listCommentSummaries(snapshotIncludingDeleted)];
-    });
+    const projection = storeProjection(application);
+    const {
+        comments,
+        unsubscribe,
+    } = projection;
     const scope = effectScope();
     let settle!: (value: boolean) => void;
     const windows = scope.run(() => useAnnotationNoteWindows({
-        annotationComments: comments,
-        getDeletedCanonicalAnnotationIds: () => application.store.deletedAnnotationIds(),
+        documentAnnotations: projection,
         updateAnnotationCommentInViewer: () => new Promise<boolean>((resolve) => { settle = resolve; }),
     }))!;
     try {
@@ -460,7 +511,10 @@ it('invalidates rendered saving and error state when an asynchronous update sett
     let settle!: (value: boolean) => void;
     const application = applicationWith(note());
     const windows = scope.run(() => useAnnotationNoteWindows({
-        annotationComments: ref([...application.listCommentSummaries()]),
+        documentAnnotations: {
+            comments: ref([...application.listCommentSummaries()]),
+            deletedAnnotationIds: ref(new Set<string>()),
+        },
         updateAnnotationCommentInViewer: () => new Promise<boolean>((resolve) => { settle = resolve; }),
     }))!;
     windows.handleOpenAnnotationNote(application.listCommentSummaries()[0]!);
